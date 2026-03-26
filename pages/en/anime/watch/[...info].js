@@ -1,12 +1,15 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { FlagIcon, ShareIcon } from "@heroicons/react/24/solid";
 import Details from "@/components/watch/primary/details";
 import EpisodeLists from "@/components/watch/secondary/episodeLists";
+import ServerSelector from "@/components/watch/primary/serverSelector";
+import HlsPlayer from "@/components/watch/primary/hlsPlayer";
 import { getServerSession } from "next-auth";
 import { useWatchProvider } from "@/lib/context/watchPageProvider";
 import { authOptions } from "../../../api/auth/[...nextauth]";
 import { getRemovedMedia } from "@/prisma/removed";
 import { createList, createUser, getEpisode } from "@/prisma/user";
+import { getServer } from "@/lib/servers";
 import Link from "next/link";
 import MobileNav from "@/components/shared/MobileNav";
 import { Navbar } from "@/components/shared/NavBar";
@@ -122,6 +125,16 @@ export default function Watch({
   const [isOpen,            setIsOpen]            = useState(false);
   const [onList,            setOnList]            = useState(false);
 
+  // ── Server state ──
+  const [activeServer, setActiveServer] = useState(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("preferred_server") || "megaplay";
+    }
+    return "megaplay";
+  });
+  const [hlsData, setHlsData]       = useState(null);
+  const [hlsLoading, setHlsLoading] = useState(false);
+
   const router = useRouter();
 
   const {
@@ -157,7 +170,6 @@ export default function Watch({
       }
 
       if (episodes) {
-        // Match by URL provider, or fallback to first available provider
         const getProvider = episodes?.find((i) => i.providerId === provider)
           || episodes?.[0];
         const episodeList = getProvider?.episodes.slice(
@@ -206,8 +218,6 @@ export default function Watch({
     if (autoNext) setAutoNext(autoNext);
     if (autoPlay) setAutoPlay(autoPlay);
 
-    // Megaplay streams via iframe — no JSON source needed.
-    // We still fetch skip-times so future players can use them.
     async function fetchSkip() {
       if (!info?.idMal) return;
       try {
@@ -240,6 +250,52 @@ export default function Watch({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [provider, watchId, info?.id]);
+
+  // ── Fetch HLS source when server is HLS type ─────────────────
+  const fetchHlsSource = useCallback(async (serverId) => {
+    const server = getServer(serverId);
+    if (server.type !== "hls") {
+      setHlsData(null);
+      return;
+    }
+
+    setHlsLoading(true);
+    setHlsData(null);
+
+    try {
+      const res = await fetch("/api/v2/source", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          server: serverId,
+          aniId: info.id,
+          episode: parseInt(epiNumber),
+          sub: dub ? "dub" : "sub",
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setHlsData(data);
+      } else {
+        setHlsData({ error: true });
+      }
+    } catch {
+      setHlsData({ error: true });
+    } finally {
+      setHlsLoading(false);
+    }
+  }, [info?.id, epiNumber, dub]);
+
+  useEffect(() => {
+    fetchHlsSource(activeServer);
+  }, [activeServer, fetchHlsSource]);
+
+  // ── Server change handler ──────────────────────────────────
+  const handleServerChange = (serverId) => {
+    setActiveServer(serverId);
+    localStorage.setItem("preferred_server", serverId);
+  };
 
   // ── Media Session (OS-level now playing) ────────────────────
   useEffect(() => {
@@ -281,9 +337,11 @@ export default function Watch({
   function handleClose() { setOpen(false); document.body.style.overflow = "auto";   }
 
   // ── Player ───────────────────────────────────────────────────
-  // Always uses megaplay.buzz iframe via AniList id + episode number.
-  function Player({ id }) {
-    if (!episodeNavigation) {
+  function Player() {
+    const server = getServer(activeServer);
+
+    // Loading state
+    if (!episodeNavigation || (server.type === "hls" && hlsLoading)) {
       return (
         <div className="flex-center aspect-video w-full h-full relative">
           <SpinLoader />
@@ -291,12 +349,41 @@ export default function Watch({
       );
     }
 
+    // HLS player
+    if (server.type === "hls") {
+      if (hlsData?.error) {
+        return (
+          <div className="flex-center aspect-video w-full h-full bg-black text-white/50 font-karla flex-col gap-2">
+            <p>Server "{server.name}" unavailable</p>
+            <button
+              type="button"
+              onClick={() => handleServerChange("megaplay")}
+              className="text-action underline text-sm"
+            >
+              Switch to Megaplay
+            </button>
+          </div>
+        );
+      }
+      return (
+        <HlsPlayer
+          streamData={hlsData}
+          poster={episodeNavigation?.playing?.img || info?.bannerImage}
+        />
+      );
+    }
+
+    // Iframe player
+    const src = server.buildSrc({
+      aniId: info.id,
+      episode: epiNumber,
+      dub: !!dub,
+    });
+
     return (
       <iframe
-        key={`megaplay-${info.id}-${epiNumber}-${dub ? "dub" : "sub"}`}
-        src={`https://megaplay.buzz/stream/ani/${info.id}/${epiNumber}/${
-          dub ? "dub" : "sub"
-        }`}
+        key={`${server.id}-${info.id}-${epiNumber}-${dub ? "dub" : "sub"}`}
+        src={src}
         className="aspect-video w-full h-full"
         frameBorder="0"
         scrolling="no"
@@ -380,7 +467,7 @@ export default function Watch({
               className="bg-black w-full max-h-[84dvh] h-full flex-center rounded-md"
               style={{ aspectRatio }}
             >
-              <Player id={`${info.id}-${epiNumber}-theater`} />
+              <Player />
             </div>
           )}
 
@@ -400,9 +487,17 @@ export default function Watch({
                     aspectRatio === "4/3" ? "aspect-video" : ""
                   }`}
                 >
-                  <Player id={`${info.id}-${epiNumber}-default`} />
+                  <Player />
                 </div>
               )}
+
+              {/* Server selector */}
+              <div className="px-3 lg:px-0">
+                <ServerSelector
+                  activeServer={activeServer}
+                  onChange={handleServerChange}
+                />
+              </div>
 
               {/* Details row */}
               <div id="details" className="flex flex-col gap-5 w-full px-3 lg:px-0">
