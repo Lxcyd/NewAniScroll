@@ -269,16 +269,28 @@ export default function Watch({
 
     async function fetchData() {
       if (info) {
-        const anify = await fetch("/api/v2/source", {
+        let anify;
+
+      if (provider === "gogoanime" && !watchId.startsWith("/")) {
+        // megaplay.buzz replaces the consumet source
+        const raw = await fetch(
+          `https://megaplay.buzz/api/anime/watch?id=${encodeURIComponent(watchId)}&ep=${epiNumber}&type=${dub ? "dub" : "sub"}`
+        ).then((res) => res.json());
+
+        // Normalize to the shape the rest of the page expects
+        anify = {
+          sources:   raw?.sources   ?? [],
+          subtitles: raw?.subtitles ?? [],
+          headers:   raw?.headers   ?? {},
+          intro:     raw?.intro     ?? null,
+          outro:     raw?.outro     ?? null,
+        };
+      } else {
+        anify = await fetch("/api/v2/source", {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json"
-          },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            source:
-              provider === "gogoanime" && !watchId.startsWith("/")
-                ? "consumet"
-                : "anify",
+            source: "anify",
             providerId: provider,
             watchId: watchId,
             episode: epiNumber,
@@ -286,6 +298,7 @@ export default function Watch({
             sub: dub ? "dub" : "sub"
           })
         }).then((res) => res.json());
+      }
 
         if (!anify?.sources?.length > 0) {
           router.push(`/en/anime/${info.id}?notfound=true`);
