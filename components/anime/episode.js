@@ -17,7 +17,6 @@ const fetchEpisodes = async (info, isDub, refresh = false) => {
   ).then((res) => res.json());
 
   const providers = filterProviders(response);
-
   return providers;
 };
 
@@ -46,6 +45,13 @@ const setDefaultProvider = (providers, setProviderId) => {
   }
 };
 
+// Build a megaplay watch URL from AniList id + episode number
+function buildMegaplayUrl(aniId, episodeNumber, isDub) {
+  return `/en/anime/watch/${aniId}/gogoanime?id=megaplay-${aniId}-${episodeNumber}&num=${episodeNumber}${
+    isDub ? "&dub=true" : ""
+  }`;
+}
+
 export default function AnimeEpisode({
   info,
   session,
@@ -53,10 +59,9 @@ export default function AnimeEpisode({
   setProgress,
   setWatch,
 }) {
-  const [providerId, setProviderId] = useState(); // default provider
-  const [currentPage, setCurrentPage] = useState(1); // for pagination
-  const [visible, setVisible] = useState(false); // for mobile view
-  const itemsPerPage = 13; // choose your number of items per page
+  const [providerId, setProviderId] = useState();
+  const [currentPage, setCurrentPage] = useState(1);
+  const [visible, setVisible] = useState(false);
 
   const [loading, setLoading] = useState(true);
   const [artStorage, setArtStorage] = useState(null);
@@ -65,11 +70,18 @@ export default function AnimeEpisode({
 
   const [providers, setProviders] = useState(null);
 
+  const itemsPerPage = 13;
+
   useEffect(() => {
     setLoading(true);
     const fetchData = async () => {
-      const providers = await fetchEpisodes(info, isDub);
-      setDefaultProvider(providers, setProviderId);
+      let providers = [];
+      try {
+        providers = await fetchEpisodes(info, isDub);
+        setDefaultProvider(providers, setProviderId);
+      } catch (e) {
+        console.error("Episode fetch error:", e);
+      }
       setView(Number(localStorage.getItem("view")) || DEFAULT_VIEW);
       setArtStorage(JSON.parse(localStorage.getItem("artplayer_settings")));
       setProviders(providers);
@@ -81,7 +93,7 @@ export default function AnimeEpisode({
       setCurrentPage(1);
       setProviders(null);
     };
-  }, [info.id, isDub]); // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [info.id, isDub]);
 
   const episodes =
     providers?.find((provider) => provider.providerId === providerId)
@@ -106,7 +118,6 @@ export default function AnimeEpisode({
       !currentEpisodes ||
       currentEpisodes?.every(
         (item) =>
-          // item?.img?.includes("null") ||
           item?.img?.includes("https://s4.anilist.co/") ||
           item?.image?.includes("https://s4.anilist.co/") ||
           item?.img === null
@@ -114,14 +125,19 @@ export default function AnimeEpisode({
     ) {
       setView(3);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [providerId, episodes]);
 
   useEffect(() => {
-    if (episodes) {
+    // Always set a watch URL using megaplay, regardless of provider data
+    const startEpisode = info?.nextAiringEpisode
+      ? Math.max(1, (progress || 0) + 1)
+      : 1;
+
+    if (episodes && episodes.length > 0) {
       const getEpi = info?.nextAiringEpisode
-        ? episodes.find((i) => i.number === progress + 1)
+        ? episodes.find((i) => i.number === (progress || 0) + 1) || episodes[0]
         : episodes[0];
+
       if (getEpi) {
         const watchUrl = `/en/anime/watch/${
           info.id
@@ -129,22 +145,20 @@ export default function AnimeEpisode({
           getEpi.number
         }${isDub ? `&dub=${isDub}` : ""}`;
         setWatch(watchUrl);
-      } else {
-        setWatch(null);
+        return;
       }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [episodes]);
+
+    // Fallback: use megaplay directly with episode 1 (or next unwatched)
+    setWatch(buildMegaplayUrl(info.id, startEpisode, isDub));
+  }, [episodes, providerId]);
 
   useEffect(() => {
     if (artStorage) {
       const currentData =
         JSON.parse(localStorage.getItem("artplayer_settings")) || {};
-
-      // Create a new object to store the updated data
       const updatedData = {};
 
-      // Iterate through the current data and copy items with different aniId to the updated object
       for (const key in currentData) {
         const item = currentData[key];
         if (Number(item.aniId) === info.id && item.provider === providerId) {
@@ -163,13 +177,9 @@ export default function AnimeEpisode({
           },
           0
         );
-
         setProgress(maxWatchedEpisode);
-      } else {
-        return;
       }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [providerId, artStorage, info.id, session?.user?.name]);
 
   let debounceTimeout;
@@ -192,10 +202,25 @@ export default function AnimeEpisode({
     }
   };
 
+  // Build a simple episode list from total episodes if providers return nothing
+  const fallbackEpisodes = !loading && (!episodes || episodes.length === 0)
+    ? Array.from({ length: info?.episodes || 0 }, (_, i) => ({
+        id: `megaplay-${info.id}-${i + 1}`,
+        number: i + 1,
+        title: `Episode ${i + 1}`,
+        img: null,
+        description: null,
+      }))
+    : null;
+
+  const displayEpisodes = episodes?.length > 0 ? episodes : fallbackEpisodes || [];
+  const displayCurrentEpisodes = displayEpisodes.slice(firstEpisodeIndex, lastEpisodeIndex);
+  const displayTotalPages = Math.ceil(displayEpisodes.length / itemsPerPage);
+
   return (
     <>
       <div className="flex flex-col gap-5 px-3">
-        <div className="flex lg:flex-row flex-col gap-5 lg:gap-0 justify-between ">
+        <div className="flex lg:flex-row flex-col gap-5 lg:gap-0 justify-between">
           <div className="flex justify-between">
             <div className="flex items-center gap-4 md:gap-5">
               {info && (
@@ -209,7 +234,6 @@ export default function AnimeEpisode({
                   onClick={() => {
                     handleRefresh();
                     setProviders(null);
-                    // setMapProviders(null);
                   }}
                   className="relative flex flex-col items-center w-5 h-5 group"
                 >
@@ -238,7 +262,6 @@ export default function AnimeEpisode({
                 className="flex lg:hidden flex-col items-center relative rounded-md bg-secondary py-1.5 px-3 font-karla text-sm hover:ring-1 ring-action cursor-pointer group"
               >
                 {isDub ? "Dub" : "Sub"}
-
                 <span className="absolute pointer-events-none z-40 opacity-0 -translate-y-8 group-hover:-translate-y-10 group-hover:opacity-100 font-karla shadow-tersier shadow-md whitespace-nowrap bg-secondary px-2 py-1 rounded transition-all duration-200 ease-out">
                   Switch to {isDub ? "Sub" : "Dub"}
                 </span>
@@ -264,6 +287,7 @@ export default function AnimeEpisode({
               </div>
             </div>
           </div>
+
           <div
             className={`flex lg:flex gap-3 items-center justify-between ${
               visible ? "" : "hidden"
@@ -280,55 +304,48 @@ export default function AnimeEpisode({
                 </span>
               </div>
             )}
+
             {providers && providers.length > 0 && (
-              <>
-                <div className="flex gap-3">
-                  <div className="relative flex gap-2 items-center group">
+              <div className="flex gap-3">
+                <div className="relative flex gap-2 items-center group">
+                  <select
+                    title="Providers"
+                    onChange={handleChange}
+                    value={providerId}
+                    className="flex items-center text-sm gap-5 rounded-[3px] bg-secondary py-1 px-3 pr-8 font-karla appearance-none cursor-pointer outline-none focus:ring-1 focus:ring-action group-hover:ring-1 group-hover:ring-action"
+                  >
+                    {providers.map((provider) => (
+                      <option key={provider.providerId} value={provider.providerId}>
+                        {provider.providerId}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDownIcon className="absolute right-2 top-1/2 transform -translate-y-1/2 w-5 h-5 pointer-events-none" />
+                </div>
+
+                {displayTotalPages > 1 && (
+                  <div className="relative flex gap-2 items-center">
                     <select
-                      title="Providers"
-                      onChange={handleChange}
-                      value={providerId}
-                      className="flex items-center text-sm gap-5 rounded-[3px] bg-secondary py-1 px-3 pr-8 font-karla appearance-none cursor-pointer outline-none focus:ring-1 focus:ring-action group-hover:ring-1 group-hover:ring-action"
+                      title="Pages"
+                      onChange={(e) => handlePageChange(Number(e.target.value))}
+                      className="flex items-center text-sm gap-5 rounded-[3px] bg-secondary py-1 px-3 pr-8 font-karla appearance-none cursor-pointer outline-none focus:ring-1 focus:ring-action hover:ring-1 hover:ring-action"
                     >
-                      {providers.map((provider) => (
-                        <option
-                          key={provider.providerId}
-                          value={provider.providerId}
-                        >
-                          {provider.providerId}
+                      {[...Array(displayTotalPages)].map((_, i) => (
+                        <option key={i} value={i + 1}>
+                          {i + 1}
                         </option>
                       ))}
                     </select>
                     <ChevronDownIcon className="absolute right-2 top-1/2 transform -translate-y-1/2 w-5 h-5 pointer-events-none" />
                   </div>
-
-                  {totalPages > 1 && (
-                    <div className="relative flex gap-2 items-center">
-                      <select
-                        title="Pages"
-                        onChange={(e) =>
-                          handlePageChange(Number(e.target.value))
-                        }
-                        className="flex items-center text-sm gap-5 rounded-[3px] bg-secondary py-1 px-3 pr-8 font-karla appearance-none cursor-pointer outline-none focus:ring-1 focus:ring-action hover:ring-1 hover:ring-action"
-                      >
-                        {[...Array(totalPages)].map((_, i) => (
-                          <option key={i} value={i + 1}>
-                            {i + 1}
-                          </option>
-                        ))}
-                      </select>
-                      <ChevronDownIcon className="absolute right-2 top-1/2 transform -translate-y-1/2 w-5 h-5 pointer-events-none" />
-                    </div>
-                  )}
-                </div>
-              </>
+                )}
+              </div>
             )}
 
             <ViewSelector
               view={view}
               setView={setView}
-              episode={currentEpisodes}
-              // map={mapProviders}
+              episode={displayCurrentEpisodes}
             />
           </div>
         </div>
@@ -344,66 +361,49 @@ export default function AnimeEpisode({
                 : `flex flex-col odd:bg-secondary even:bg-primary`
             } py-2`}
           >
-            {Array.isArray(providers) ? (
-              providers.length > 0 ? (
-                currentEpisodes.map((episode, index) => {
-                  // const mapData = mapProviders?.find(
-                  //   (i) => i.number === episode.number
-                  // );
-
-                  return (
-                    <Fragment key={index}>
-                      {view === 1 && (
-                        <ThumbnailOnly
-                          key={index}
-                          index={index}
-                          info={info}
-                          // image={mapData?.img || mapData?.image}
-                          providerId={providerId}
-                          episode={episode}
-                          artStorage={artStorage}
-                          progress={progress}
-                          dub={isDub}
-                        />
-                      )}
-                      {view === 2 && (
-                        <ThumbnailDetail
-                          key={index}
-                          // image={mapData?.img || mapData?.image}
-                          // title={mapData?.title}
-                          // description={mapData?.description}
-                          index={index}
-                          epi={episode}
-                          provider={providerId}
-                          info={info}
-                          artStorage={artStorage}
-                          progress={progress}
-                          dub={isDub}
-                        />
-                      )}
-                      {view === 3 && (
-                        <ListMode
-                          key={index}
-                          info={info}
-                          episode={episode}
-                          artStorage={artStorage}
-                          providerId={providerId}
-                          progress={progress}
-                          dub={isDub}
-                        />
-                      )}
-                    </Fragment>
-                  );
-                })
-              ) : (
-                <div className="h-[20vh] lg:w-full flex-center flex-col gap-5">
-                  <p className="text-center font-karla font-bold lg:text-lg">
-                    Oops!<br></br> It looks like this anime is not available.
-                  </p>
-                </div>
-              )
+            {displayEpisodes.length > 0 ? (
+              displayCurrentEpisodes.map((episode, index) => (
+                <Fragment key={index}>
+                  {view === 1 && (
+                    <ThumbnailOnly
+                      index={index}
+                      info={info}
+                      providerId={providerId || "gogoanime"}
+                      episode={episode}
+                      artStorage={artStorage}
+                      progress={progress}
+                      dub={isDub}
+                    />
+                  )}
+                  {view === 2 && (
+                    <ThumbnailDetail
+                      index={index}
+                      epi={episode}
+                      provider={providerId || "gogoanime"}
+                      info={info}
+                      artStorage={artStorage}
+                      progress={progress}
+                      dub={isDub}
+                    />
+                  )}
+                  {view === 3 && (
+                    <ListMode
+                      info={info}
+                      episode={episode}
+                      artStorage={artStorage}
+                      providerId={providerId || "gogoanime"}
+                      progress={progress}
+                      dub={isDub}
+                    />
+                  )}
+                </Fragment>
+              ))
             ) : (
-              <p>{providers?.message}</p>
+              <div className="h-[20vh] lg:w-full flex-center flex-col gap-5">
+                <p className="text-center font-karla font-bold lg:text-lg">
+                  Oops!<br />It looks like this anime is not available.
+                </p>
+              </div>
             )}
           </div>
         ) : (
