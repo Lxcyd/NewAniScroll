@@ -228,8 +228,6 @@ export default async function handler(
       subDub = "dub";
     }
 
-    const rawData = [...consumet, ...anify];
-
     const filteredData = filterData(rawData, subDub);
 
     let data = filteredData;
