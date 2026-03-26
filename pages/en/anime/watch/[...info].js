@@ -108,8 +108,6 @@ export async function getServerSideProps(context) {
     })
   });
   const data = await ress.json();
-  // const variables = { id: aniId };
-  // const data = await getAnilistMediaInfo(variables, context.req);
 
   try {
     if (session) {
@@ -127,7 +125,6 @@ export async function getServerSideProps(context) {
     }
   } catch (error) {
     console.error(error);
-    // Handle the error here
   }
   return {
     props: {
@@ -180,6 +177,9 @@ export default function Watch({
     aspectRatio,
     setDataMedia
   } = useWatchProvider();
+
+  // Whether the current episode should be served via the megaplay iframe
+  const isMegaplay = provider === "gogoanime" && !watchId?.startsWith("/");
 
   useEffect(() => {
     async function getInfo() {
@@ -247,7 +247,6 @@ export default function Watch({
       }
 
       setArtStorage(JSON.parse(localStorage.getItem("artplayer_settings")));
-      // setEpiData(episodes);
     }
     getInfo();
 
@@ -268,27 +267,15 @@ export default function Watch({
     }
 
     async function fetchData() {
+      // megaplay uses an iframe — no JSON source needed
+      if (isMegaplay) return;
+
       if (info) {
-        let anify;
-
-      if (provider === "gogoanime" && !watchId.startsWith("/")) {
-        // megaplay.buzz replaces the consumet source
-        const raw = await fetch(
-          `https://megaplay.buzz/api/anime/watch?id=${encodeURIComponent(watchId)}&ep=${epiNumber}&type=${dub ? "dub" : "sub"}`
-        ).then((res) => res.json());
-
-        // Normalize to the shape the rest of the page expects
-        anify = {
-          sources:   raw?.sources   ?? [],
-          subtitles: raw?.subtitles ?? [],
-          headers:   raw?.headers   ?? {},
-          intro:     raw?.intro     ?? null,
-          outro:     raw?.outro     ?? null,
-        };
-      } else {
-        anify = await fetch("/api/v2/source", {
+        const anify = await fetch("/api/v2/source", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json"
+          },
           body: JSON.stringify({
             source: "anify",
             providerId: provider,
@@ -298,7 +285,6 @@ export default function Watch({
             sub: dub ? "dub" : "sub"
           })
         }).then((res) => res.json());
-      }
 
         if (!anify?.sources?.length > 0) {
           router.push(`/en/anime/${info.id}?notfound=true`);
@@ -421,11 +407,9 @@ export default function Watch({
       if (navigator.share) {
         await navigator.share({
           title: `Watch Now - ${info?.title?.english || info.title.romaji}`,
-          // text: `Watch [${info?.title?.romaji}] and more on Moopa. Join us for endless anime entertainment"`,
           url: window.location.href
         });
       } else {
-        // Web Share API is not supported, provide a fallback or show a message
         alert("Web Share API is not supported in this browser.");
       }
     } catch (error) {
@@ -441,6 +425,41 @@ export default function Watch({
   function handleClose() {
     setOpen(false);
     document.body.style.overflow = "auto";
+  }
+
+  // Renders either the megaplay iframe or the VidStack player
+  function Player({ id }) {
+    if (!episodeNavigation) {
+      return (
+        <div className="flex-center aspect-video w-full h-full relative">
+          <SpinLoader />
+        </div>
+      );
+    }
+
+    if (isMegaplay) {
+      return (
+        <iframe
+          key={`${info.id}-${epiNumber}-${dub}`}
+          src={`https://megaplay.buzz/stream/ani/${info.id}/${epiNumber}/${
+            dub ? "dub" : "sub"
+          }`}
+          className="aspect-video w-full h-full"
+          frameBorder="0"
+          scrolling="no"
+          allowFullScreen
+        />
+      );
+    }
+
+    return (
+      <VidStack
+        id={id}
+        navigation={episodeNavigation}
+        sessions={sessions}
+        userData={userData}
+      />
+    );
   }
 
   return (
@@ -463,8 +482,7 @@ export default function Watch({
         />
         <meta
           name="keywords"
-          content="anime, anime streaming, anime streaming website, anime streaming free, anime streaming website free, anime streaming website free english subbed, anime streaming website free english dubbed, anime streaming website free english subbed and dubbed, anime streaming webs
-          ite free english subbed and dubbed download, anime streaming website free english subbed and dubbed"
+          content="anime, anime streaming, anime streaming website, anime streaming free, anime streaming website free, anime streaming website free english subbed, anime streaming website free english dubbed, anime streaming website free english subbed and dubbed, anime streaming website free english subbed and dubbed download, anime streaming website free english subbed and dubbed"
         />
         <meta name="robots" content="index, follow" />
 
@@ -543,18 +561,7 @@ export default function Watch({
               className={`bg-black w-full max-h-[84dvh] h-full flex-center rounded-md`}
               style={{ aspectRatio: aspectRatio }}
             >
-              {episodeNavigation ? (
-                <VidStack
-                  id={`${watchId}-theater`}
-                  navigation={episodeNavigation}
-                  sessions={sessions}
-                  userData={userData}
-                />
-              ) : (
-                <div className="flex-center aspect-video w-full h-full relative">
-                  <SpinLoader />
-                </div>
-              )}
+              <Player id={`${watchId}-theater`} />
             </div>
           )}
           <div
@@ -569,20 +576,8 @@ export default function Watch({
                   className={`bg-black w-full flex-center rounded-md overflow-hidden ${
                     aspectRatio === "4/3" ? "aspect-video" : ""
                   }`}
-                  // style={{ aspectRatio: aspectRatio }}
                 >
-                  {episodeNavigation ? (
-                    <VidStack
-                      id={`${watchId}-default`}
-                      navigation={episodeNavigation}
-                      sessions={sessions}
-                      userData={userData}
-                    />
-                  ) : (
-                    <div className="flex-center aspect-video w-full h-full relative">
-                      <SpinLoader />
-                    </div>
-                  )}
+                  <Player id={`${watchId}-default`} />
                 </div>
               )}
               <div
