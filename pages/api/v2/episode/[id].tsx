@@ -51,60 +51,29 @@ function filterData(data: RawEpisodeData[], type: "sub" | "dub") {
   return noEmpty;
 }
 
-async function fetchConsumet(id?: string | string[] | undefined) {
+async function fetchMegaplay(id?: string) {
   try {
-    const fetchData = async (dub?: any) => {
-      const data = await getAnimeEpisode(id, dub);
-      
-      if (data?.message === "Anime not found" && data?.length < 1) {
-        return [];
+    // megaplay utilise l'ID AniList directement
+    const res = await fetch(`https://megaplay.buzz/api/anime/${id}/episodes`);
+    if (!res.ok) return [];
+    const data = await res.json();
+    
+    // Adapter au format attendu par le reste du code
+    return [{
+      map: true,
+      providerId: "megaplay",
+      episodes: {
+        sub: data.episodes?.map((ep: any) => ({
+          id: `megaplay-${id}-${ep.number}`,
+          title: ep.title || `Episode ${ep.number}`,
+          img: ep.thumbnail || null,
+          number: ep.number,
+          description: ep.description || null,
+        })) ?? [],
+        dub: [],
       }
-
-      if (dub) {
-        if (!data?.some((i) => i.id.includes("dub"))) return [];
-      }
-
-      const reformatted = data?.map((item) => ({
-        id: item.id,
-        title: item?.title || null,
-        img: item?.image || null,
-        number: item?.number || null,
-        createdAt: item?.airDate || null,
-        description: item?.description || null
-      }));
-
-      return reformatted;
-    };
-
-    const [subData, dubData] = await Promise.all([
-      fetchData(),
-      fetchData(true)
-    ]);
-
-    if (subData.every((i) => i.id?.includes("dub"))) {
-      // replace dub in title with sub
-      subData.forEach((item) => {
-        if (item.id?.includes("dub")) {
-          item.id = item.id?.replace("dub", "anime");
-        }
-      });
-      // console.log("replaced dub with sub");
-    }
-
-    const array = [
-      {
-        map: true,
-        providerId: "gogoanime",
-        episodes: {
-          sub: isAscending(subData) ? subData : subData.reverse(),
-          dub: isAscending(dubData) ? dubData : dubData.reverse()
-        }
-      }
-    ];
-
-    return array;
-  } catch (error: any) {
-    console.error("Error fetching and processing data:", error.message);
+    }];
+  } catch {
     return [];
   }
 }
@@ -245,11 +214,14 @@ export default async function handler(
         .send(filtered?.filter((i) => i?.providerId !== "9anime"));
     }
   } else {
-    const [consumet, anify, cover] = await Promise.all([
-      fetchConsumet(id),
+    // Remplace fetchConsumet par fetchMegaplay
+    const [megaplay, anify, cover] = await Promise.all([
+      fetchMegaplay(id),
       fetchAnify(id),
       fetchCoverImage(id, meta)
     ]);
+
+    const rawData = [...megaplay, ...anify];
 
     let subDub = "sub";
     if (dub) {
