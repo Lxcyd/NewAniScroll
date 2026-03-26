@@ -157,20 +157,24 @@ export default function Watch({
       }
 
       if (episodes) {
-        const getProvider = episodes?.find((i) => i.providerId === provider);
+        // Match by URL provider, or fallback to first available provider
+        const getProvider = episodes?.find((i) => i.providerId === provider)
+          || episodes?.[0];
         const episodeList = getProvider?.episodes.slice(
           0,
-          getMap?.episodes.length
+          getMap?.episodes?.length ?? getProvider?.episodes?.length
         );
         const playingData = getMap?.episodes.find(
           (i) => i.number === Number(epiNumber)
         );
 
-        if (getProvider) {
+        if (getProvider && episodeList?.length > 0) {
           setepisodesList(episodeList);
-          const currentEpisode  = episodeList?.find((i) => i.number === parseInt(epiNumber));
-          const nextEpisode     = episodeList?.find((i) => i.number === parseInt(epiNumber) + 1);
-          const previousEpisode = episodeList?.find((i) => i.number === parseInt(epiNumber) - 1);
+          const epNum = parseInt(epiNumber);
+          const currentEpisode  = episodeList?.find((i) => i.number === epNum)
+            || { id: `megaplay-${info.id}-${epNum}`, number: epNum };
+          const nextEpisode     = episodeList?.find((i) => i.number === epNum + 1);
+          const previousEpisode = episodeList?.find((i) => i.number === epNum - 1);
 
           const vidNav = {
             prev: previousEpisode,

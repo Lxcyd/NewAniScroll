@@ -1,126 +1,86 @@
 // @ts-nocheck
 
-import axios from "axios";
 import { rateLimiterRedis, rateSuperStrict, redis } from "@/lib/redis";
-import appendMetaToEpisodes from "@/utils/appendMetaToEpisodes";
 import { NextApiRequest, NextApiResponse } from "next";
-import { AnifyEpisode, ConsumetInfo, EpisodeData } from "types";
-import { Episode } from "@/types/api/Episode";
-import { getProviderWithMostEpisodesAndImage } from "@/utils/parseMetaData";
-import { getAnimeEpisode } from "@/lib/consumet/anime/episodes";
 
-const isAscending = (data: Episode[]) => {
-  for (let i = 1; i < data.length; i++) {
-    if (data[i].number < data[i - 1].number) {
-      return false;
-    }
+/**
+ * Episode API — generates episode lists from AniList data.
+ * No external provider (consumet, anify) needed since we use megaplay.buzz iframe embeds.
+ */
+
+async function fetchAniListEpisodes(id: string) {
+  try {
+    const res = await fetch("https://graphql.anilist.co", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        query: `query ($id: Int) {
+          Media (id: $id) {
+            episodes
+            nextAiringEpisode { episode }
+            status
+            title { romaji english }
+            coverImage { extraLarge }
+          }
+        }`,
+        variables: { id: Number(id) },
+      }),
+    });
+
+    if (!res.ok) return null;
+    const json = await res.json();
+    return json?.data?.Media || null;
+  } catch {
+    return null;
   }
-  return true;
-};
-
-export interface RawEpisodeData {
-  map?: boolean;
-  providerId: string;
-  episodes: {
-    sub: Episode[];
-    dub: Episode[];
-  };
 }
 
-function filterData(data: RawEpisodeData[], type: "sub" | "dub") {
-  // Filter the data based on the type (sub or dub) and providerId
+function buildEpisodeList(id: string, media: any) {
+  // Determine total episodes: known count, or aired-so-far for ongoing anime
+  let totalEpisodes = media?.episodes;
+  if (!totalEpisodes && media?.nextAiringEpisode?.episode) {
+    totalEpisodes = media.nextAiringEpisode.episode - 1; // aired so far
+  }
+  if (!totalEpisodes || totalEpisodes <= 0) {
+    // Ongoing with no episode count — show at least 1
+    totalEpisodes = media?.status === "RELEASING" ? 1 : 0;
+  }
+
+  const episodes = Array.from({ length: totalEpisodes }, (_, i) => ({
+    id: `megaplay-${id}-${i + 1}`,
+    title: `Episode ${i + 1}`,
+    number: i + 1,
+    img: null,
+    description: null,
+  }));
+
+  return [
+    {
+      map: true,
+      providerId: "megaplay",
+      episodes: {
+        sub: episodes,
+        dub: episodes, // megaplay handles sub/dub via its own embed parameter
+      },
+    },
+  ];
+}
+
+function filterData(data: any[], type: "sub" | "dub") {
   const filteredData = data.map((item) => {
     if (item?.map === true) {
-      if (item.episodes[type].length === 0) {
+      if (!item.episodes[type] || item.episodes[type].length === 0) {
         return null;
-      } else {
-        return {
-          ...item,
-          episodes: Object?.entries(item.episodes[type]).map(
-            ([id, episode]) => ({
-              ...episode
-            })
-          )
-        };
       }
+      return {
+        ...item,
+        episodes: item.episodes[type].map((episode: any) => ({ ...episode })),
+      };
     }
     return item;
   });
 
-  const noEmpty = filteredData.filter((i) => i !== null);
-  return noEmpty;
-}
-
-async function fetchMegaplay(id?: string) {
-  try {
-    // megaplay utilise l'ID AniList directement
-    const res = await fetch(`https://megaplay.buzz/api/anime/${id}/episodes`);
-    if (!res.ok) return [];
-    const data = await res.json();
-    
-    // Adapter au format attendu par le reste du code
-    return [{
-      map: true,
-      providerId: "megaplay",
-      episodes: {
-        sub: data.episodes?.map((ep: any) => ({
-          id: `megaplay-${id}-${ep.number}`,
-          title: ep.title || `Episode ${ep.number}`,
-          img: ep.thumbnail || null,
-          number: ep.number,
-          description: ep.description || null,
-        })) ?? [],
-        dub: [],
-      }
-    }];
-  } catch {
-    return [];
-  }
-}
-
-async function fetchAnify(id?: string) {
-  try {
-    const { data } = await axios.get<AnifyEpisode[]>(
-      `https://api.anify.tv/episodes/${id}`
-    );
-
-    if (!data) {
-      return [];
-    }
-
-    const filtered = data.filter(
-      (item) => item.providerId !== "9anime" && item.providerId !== "kass"
-    );
-
-    return filtered;
-  } catch (error: any) {
-    console.error("Error fetching and processing data:", error.message);
-    return [];
-  }
-}
-
-async function fetchCoverImage(id: string, available = false) {
-  try {
-    if (available) {
-      return null;
-    }
-
-    const { data } = await axios.get(
-      `https://api.anify.tv/content-metadata/${id}`
-    );
-
-    if (!data) {
-      return [];
-    }
-
-    const getData = getProviderWithMostEpisodesAndImage(data);
-    // const getData = data?.[0]?.data;
-
-    return getData.data;
-  } catch (error: any) {
-    console.error("Error fetching and processing data:", error.message);
-    return [];
-  }
+  return filteredData.filter((i) => i !== null);
 }
 
 export default async function handler(
@@ -129,16 +89,9 @@ export default async function handler(
 ) {
   const { id, releasing = "false", dub = false, refresh = null } = req.query;
 
-  // if releasing is true then cache for 3 hour, if it false cache for 1 month;
-  let cacheTime = null;
-  if (releasing === "true") {
-    cacheTime = 60 * 60 * 3; // 3 hours
-  } else if (releasing === "false") {
-    cacheTime = 60 * 60 * 24 * 30; // 1 month
-  }
+  let cacheTime = releasing === "true" ? 60 * 60 * 3 : 60 * 60 * 24 * 30;
 
   let cached;
-  let meta;
   let headers: any = {};
 
   if (redis) {
@@ -156,125 +109,71 @@ export default async function handler(
         error: `Too Many Requests, retry after ${getTimeFromMs(
           error.msBeforeNext
         )}`,
-        remaining: error.remainingPoints
+        remaining: error.remainingPoints,
       });
-    }
-
-    meta = await redis.get(`meta:${id}`);
-    const parsedMeta = JSON.parse(meta);
-    if (parsedMeta?.length === 0) {
-      await redis.del(`meta:${id}`);
-      console.log("deleted meta cache");
-      meta = null;
     }
 
     if (refresh !== null) {
       await redis.del(`episode:${id}`);
     } else {
       cached = await redis.get(`episode:${id}`);
-      if (cached?.length === 0) {
-        await redis.del(`episode:${id}`);
-        cached = null;
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (!parsed || parsed.length === 0) {
+          await redis.del(`episode:${id}`);
+          cached = null;
+        }
       }
     }
   }
 
+  // Serve from cache
   if (cached && !refresh) {
-    if (dub) {
-      const filteredData: EpisodeData[] = filterData(JSON.parse(cached), "dub");
-
-      let filtered = filteredData.filter((item) =>
-        item?.episodes?.some((epi) => epi.hasDub !== false)
-      );
-
-      if (meta) {
-        filtered = await appendMetaToEpisodes(filtered, JSON.parse(meta));
-      }
-
-      res.setHeader("X-RateLimit-Remaining", headers.remainingPoints);
-      res.setHeader("X-RateLimit-BeforeReset", headers.msBeforeNext);
-
-      return res
-        .status(200)
-        .json(filtered?.filter((i) => i?.providerId !== "9anime"));
-    } else {
-      const filteredData = filterData(JSON.parse(cached), "sub");
-
-      let filtered = filteredData;
-
-      if (meta) {
-        filtered = await appendMetaToEpisodes(filteredData, JSON.parse(meta));
-      }
-
-      res.setHeader("X-RateLimit-Remaining", headers.remainingPoints);
-      res.setHeader("X-RateLimit-BeforeReset", headers.msBeforeNext);
-
-      return res
-        .status(200)
-        .send(filtered?.filter((i) => i?.providerId !== "9anime"));
-    }
-  } else {
-    // Remplace fetchConsumet par fetchMegaplay
-    const [megaplay, anify, cover] = await Promise.all([
-      fetchMegaplay(id),
-      fetchAnify(id),
-      fetchCoverImage(id, meta)
-    ]);
-
-    const rawData = [...megaplay, ...anify];
-
-    let subDub = "sub";
-    if (dub) {
-      subDub = "dub";
-    }
-
+    const rawData = JSON.parse(cached);
+    const subDub = dub ? "dub" : "sub";
     const filteredData = filterData(rawData, subDub);
 
-    let data = filteredData;
-
-    if (meta) {
-      data = await appendMetaToEpisodes(filteredData, JSON.parse(meta));
-    } else if (
-      cover &&
-      // !cover?.some((item: { img: null }) => item.img === null) &&
-      cover?.length > 0
-    ) {
-      if (redis)
-        await redis.set(`meta:${id}`, JSON.stringify(cover), "EX", cacheTime);
-      data = await appendMetaToEpisodes(filteredData, cover);
-    }
-
-    if (redis && cacheTime !== null && rawData?.length > 0) {
-      await redis.set(
-        `episode:${id}`,
-        JSON.stringify(rawData),
-        "EX",
-        cacheTime
-      );
-    }
-
-    if (dub) {
-      const filtered = data.filter(
-        (item) => !item.episodes.some((epi) => epi.hasDub === false)
-      );
-      return res
-        .status(200)
-        .json(filtered.filter((i) => i.episodes.length > 0));
-    }
-
     if (redis) {
-      res.setHeader("X-RateLimit-Limit", refresh ? 1 : 50);
       res.setHeader("X-RateLimit-Remaining", headers.remainingPoints);
       res.setHeader("X-RateLimit-BeforeReset", headers.msBeforeNext);
     }
 
-    return res.status(200).json(data.filter((i) => i.episodes.length > 0));
+    return res.status(200).json(filteredData.filter((i) => i.episodes.length > 0));
   }
+
+  // Fetch from AniList and build episode list
+  const media = await fetchAniListEpisodes(id as string);
+
+  if (!media) {
+    return res.status(404).json({ error: "Anime not found" });
+  }
+
+  const rawData = buildEpisodeList(id as string, media);
+
+  // Cache
+  if (redis && cacheTime !== null && rawData.length > 0) {
+    await redis.set(
+      `episode:${id}`,
+      JSON.stringify(rawData),
+      "EX",
+      cacheTime
+    );
+  }
+
+  const subDub = dub ? "dub" : "sub";
+  const data = filterData(rawData, subDub);
+
+  if (redis) {
+    res.setHeader("X-RateLimit-Limit", refresh ? 1 : 50);
+    res.setHeader("X-RateLimit-Remaining", headers.remainingPoints);
+    res.setHeader("X-RateLimit-BeforeReset", headers.msBeforeNext);
+  }
+
+  return res.status(200).json(data.filter((i) => i.episodes.length > 0));
 }
 
 function getTimeFromMs(time: number) {
   const timeInSeconds = time / 1000;
-
   if (timeInSeconds >= 3600) {
     const hours = Math.floor(timeInSeconds / 3600);
     return `${hours} hour${hours > 1 ? "s" : ""}`;

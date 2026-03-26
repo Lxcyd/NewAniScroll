@@ -39,7 +39,7 @@ const filterProviders = (response) => {
 const setDefaultProvider = (providers, setProviderId) => {
   if (providers.length > 0) {
     const defaultProvider = providers.find(
-      (x) => x.providerId === "gogoanime" || x.providerId === "9anime"
+      (x) => x.providerId === "megaplay"
     );
     setProviderId(defaultProvider?.providerId || providers[0].providerId);
   }
