@@ -1,0 +1,362 @@
+import { useEffect, useRef } from "react";
+import { useMediaState, type MediaPlayerInstance } from "@vidstack/react";
+import Hls from "hls.js";
+
+/**
+ * Hover preview tooltip — when the user hovers the Vidstack scrubber, a hidden
+ * second <video> element is seeked to that timestamp and its frame is drawn
+ * to a canvas tooltip positioned above the scrubber.
+ *
+ * Works for direct streams (HLS/MP4) only — iframes are cross-origin and we
+ * can't access their video element.
+ */
+export default function HoverPreview({
+  playerRef,
+  src,
+  isM3U8,
+}: {
+  playerRef: React.RefObject<MediaPlayerInstance>;
+  src: string;
+  isM3U8: boolean;
+}) {
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const labelRef = useRef<HTMLSpanElement>(null);
+  const hlsRef = useRef<Hls | null>(null);
+  const seekRafRef = useRef<number>(0);
+  const lastSeekRef = useRef<number>(-1);
+  // Pre-cached thumbnails: Map<percent (0-100, integer step), ImageBitmap>
+  const thumbCacheRef = useRef<Map<number, HTMLCanvasElement>>(new Map());
+  const cachingActiveRef = useRef(false);
+
+  // Subscribe to slider state so we know when the user is hovering
+  const duration = useMediaState("duration", playerRef);
+
+  // Set up the hidden video element with the same source.
+  // crossOrigin must be set BEFORE src so the browser uses CORS mode and
+  // the resulting canvas isn't security-tainted (drawImage would throw).
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !src) return;
+
+    video.crossOrigin = "anonymous";
+
+    // Reset thumbnail cache on src change
+    thumbCacheRef.current.clear();
+    cachingActiveRef.current = false;
+
+    if (isM3U8 && Hls.isSupported()) {
+      const hls = new Hls({
+        maxBufferLength: 30,
+        maxMaxBufferLength: 60,
+        backBufferLength: 30,
+        startLevel: 0,
+        capLevelToPlayerSize: false,
+        xhrSetup: (xhr) => {
+          xhr.withCredentials = false;
+        },
+      });
+      hls.loadSource(src);
+      hls.attachMedia(video);
+      hlsRef.current = hls;
+      return () => {
+        hls.destroy();
+        hlsRef.current = null;
+      };
+    } else {
+      video.src = src;
+    }
+  }, [src, isM3U8]);
+
+  // Background thumbnail pre-caching: once metadata is loaded, walk through
+  // the video at fixed percentage intervals (every 5%) seeking the hidden
+  // video, capturing each frame to a small canvas, and storing it. Hovers
+  // then look up the closest cached thumbnail = INSTANT display.
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    const start = async () => {
+      if (cachingActiveRef.current) return;
+      if (!isFinite(video.duration) || video.duration === 0) return;
+      cachingActiveRef.current = true;
+
+      const STEP = 5; // every 5% (21 thumbnails for full video)
+      for (let pct = 0; pct <= 100; pct += STEP) {
+        if (!cachingActiveRef.current) return; // src changed
+        const target = (pct / 100) * video.duration;
+
+        // Skip if already cached
+        if (thumbCacheRef.current.has(pct)) continue;
+
+        try {
+          await seekAndWait(video, target);
+          // Capture frame
+          const c = document.createElement("canvas");
+          c.width = 160;
+          c.height = 90;
+          const cx = c.getContext("2d");
+          if (cx && video.videoWidth > 0) {
+            cx.drawImage(video, 0, 0, c.width, c.height);
+            thumbCacheRef.current.set(pct, c);
+          }
+        } catch {
+          // Skip failed seeks
+        }
+      }
+    };
+
+    const onLoaded = () => start();
+    video.addEventListener("loadedmetadata", onLoaded);
+    if (video.readyState >= 1) start();
+    return () => {
+      video.removeEventListener("loadedmetadata", onLoaded);
+      cachingActiveRef.current = false;
+    };
+  }, [src]);
+
+  // Track scrubber hover. We poll for the slider since Vidstack mounts it
+  // asynchronously inside the DefaultVideoLayout.
+  useEffect(() => {
+    let cleanup = () => {};
+    let cancelled = false;
+
+    const tryAttach = () => {
+      if (cancelled) return;
+      const playerEl = playerRef.current?.el as HTMLElement | undefined;
+      if (!playerEl) {
+        setTimeout(tryAttach, 200);
+        return;
+      }
+      const slider = playerEl.querySelector(
+        'media-time-slider, [data-media-time-slider], .vds-time-slider, .vds-slider'
+      ) as HTMLElement | null;
+      if (!slider) {
+        setTimeout(tryAttach, 200);
+        return;
+      }
+      cleanup = attach(playerEl, slider);
+    };
+
+    function attach(playerEl: HTMLElement, slider: HTMLElement): () => void {
+      const wrap = wrapperRef.current;
+      const canvas = canvasRef.current;
+      const video = videoRef.current;
+      const label = labelRef.current;
+      if (!wrap || !canvas || !video || !label) return () => {};
+
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return () => {};
+
+    /** Try to render from the pre-cached thumbnail (instant) at the given pct. */
+    const drawCachedAt = (pct: number): boolean => {
+      const cache = thumbCacheRef.current;
+      if (cache.size === 0) return false;
+      // Find closest cached percent
+      let best = -1;
+      let bestDiff = Infinity;
+      cache.forEach((_, k) => {
+        const d = Math.abs(k - pct);
+        if (d < bestDiff) {
+          bestDiff = d;
+          best = k;
+        }
+      });
+      if (best < 0) return false;
+      const c = cache.get(best);
+      if (!c) return false;
+      try {
+        ctx.drawImage(c, 0, 0, canvas.width, canvas.height);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+
+    const drawLiveFrame = () => {
+      if (video.readyState < 2 || video.videoWidth === 0) return false;
+      try {
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        return true;
+      } catch (e) {
+        console.warn("[HoverPreview] drawImage failed:", (e as Error).message);
+        return false;
+      }
+    };
+
+    const drawPlaceholder = () => {
+      ctx.fillStyle = "#1a1a24";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#666";
+      ctx.font = "12px sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText("…", canvas.width / 2, canvas.height / 2);
+    };
+
+    const drawFrame = (pct?: number) => {
+      // Priority: cached thumbnail (instant) → live video frame → placeholder
+      if (typeof pct === "number" && drawCachedAt(pct)) return;
+      if (drawLiveFrame()) return;
+      drawPlaceholder();
+    };
+
+    const handleMove = (e: PointerEvent) => {
+      if (!duration || duration === 0) return;
+      const rect = (slider as HTMLElement).getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const ratio = Math.max(0, Math.min(1, x / rect.width));
+      const time = ratio * duration;
+
+      // Throttle seeks to one per RAF — prevents queueing dozens of seeks
+      if (Math.abs(time - lastSeekRef.current) > 0.5) {
+        lastSeekRef.current = time;
+        cancelAnimationFrame(seekRafRef.current);
+        seekRafRef.current = requestAnimationFrame(() => {
+          if (video.readyState >= 1) {
+            try {
+              video.currentTime = time;
+            } catch {}
+          }
+        });
+      }
+
+      // Position tooltip above the slider, follow the cursor
+      const playerRect = playerEl.getBoundingClientRect();
+      const tipWidth = wrap.offsetWidth || 160;
+      const left = Math.min(
+        Math.max(8, e.clientX - playerRect.left - tipWidth / 2),
+        playerRect.width - tipWidth - 8
+      );
+      const sliderTop = rect.top - playerRect.top;
+      wrap.style.left = `${left}px`;
+      wrap.style.top = `${sliderTop - 110}px`;
+      wrap.style.opacity = "1";
+
+      // Update label (hidden) and draw cached thumbnail INSTANTLY
+      label.textContent = formatTime(time);
+      drawFrame(ratio * 100);
+    };
+
+    const handleLeave = () => {
+      wrap.style.opacity = "0";
+    };
+
+    // Draw frame whenever the hidden video seeks
+    const handleSeeked = () => drawFrame();
+
+    slider.addEventListener("pointermove", handleMove as EventListener);
+    slider.addEventListener("pointerleave", handleLeave as EventListener);
+    video.addEventListener("seeked", handleSeeked);
+    const handleLoaded = () => drawFrame();
+    video.addEventListener("loadeddata", handleLoaded);
+
+      return () => {
+        slider.removeEventListener("pointermove", handleMove as EventListener);
+        slider.removeEventListener("pointerleave", handleLeave as EventListener);
+        video.removeEventListener("seeked", handleSeeked);
+        video.removeEventListener("loadeddata", handleLoaded);
+        cancelAnimationFrame(seekRafRef.current);
+      };
+    }
+
+    tryAttach();
+    return () => {
+      cancelled = true;
+      cleanup();
+    };
+  }, [duration, playerRef]);
+
+  return (
+    <>
+      {/* Hidden source video — never shown, only sampled */}
+      <video
+        ref={videoRef}
+        muted
+        playsInline
+        crossOrigin="anonymous"
+        preload="metadata"
+        style={{
+          position: "absolute",
+          width: "1px",
+          height: "1px",
+          opacity: 0,
+          pointerEvents: "none",
+          top: "-9999px",
+          left: "-9999px",
+        }}
+      />
+
+      {/* Hover preview tooltip — image only (Vidstack already shows the time
+          on its own slider tooltip; we'd be duplicating it). */}
+      <div
+        ref={wrapperRef}
+        className="pointer-events-none absolute z-30 transition-opacity duration-150"
+        style={{
+          opacity: 0,
+          left: 0,
+          top: 0,
+        }}
+      >
+        <canvas
+          ref={canvasRef}
+          width={160}
+          height={90}
+          className="rounded-md bg-black ring-1 ring-white/20 shadow-xl"
+          style={{ width: "160px", height: "90px" }}
+        />
+        {/* Hidden label — kept in DOM so existing code can update it without crashing */}
+        <span ref={labelRef} className="sr-only">0:00</span>
+      </div>
+    </>
+  );
+}
+
+function formatTime(t: number): string {
+  if (!isFinite(t) || t < 0) return "0:00";
+  const h = Math.floor(t / 3600);
+  const m = Math.floor((t % 3600) / 60);
+  const s = Math.floor(t % 60);
+  return h > 0
+    ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`
+    : `${m}:${String(s).padStart(2, "0")}`;
+}
+
+/** Seek the hidden video and resolve when the frame is decoded. */
+function seekAndWait(video: HTMLVideoElement, time: number): Promise<void> {
+  return new Promise((resolve, reject) => {
+    let resolved = false;
+    const cleanup = () => {
+      video.removeEventListener("seeked", onSeeked);
+      video.removeEventListener("error", onError);
+    };
+    const onSeeked = () => {
+      if (resolved) return;
+      resolved = true;
+      cleanup();
+      resolve();
+    };
+    const onError = () => {
+      if (resolved) return;
+      resolved = true;
+      cleanup();
+      reject(new Error("seek error"));
+    };
+    video.addEventListener("seeked", onSeeked);
+    video.addEventListener("error", onError);
+    try {
+      video.currentTime = time;
+    } catch (e) {
+      cleanup();
+      reject(e);
+    }
+    // Safety timeout
+    setTimeout(() => {
+      if (!resolved) {
+        resolved = true;
+        cleanup();
+        reject(new Error("seek timeout"));
+      }
+    }, 10000);
+  });
+}

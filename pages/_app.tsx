@@ -1,11 +1,13 @@
 import "../styles/globals.css";
 import "react-loading-skeleton/dist/skeleton.css";
+import Script from "next/script";
 import { useRouter } from "next/router";
 import { AnimatePresence, motion as m } from "framer-motion";
 import NextNProgress from "nextjs-progressbar";
 import { SessionProvider } from "next-auth/react";
 import { SkeletonTheme } from "react-loading-skeleton";
 import SearchPalette from "@/components/searchPalette";
+import FloatingBottomNav from "@/components/shared/FloatingBottomNav";
 import { SearchProvider } from "@/lib/context/isOpenState";
 import { WatchPageProvider } from "@/lib/context/watchPageProvider";
 import { useEffect } from "react";
@@ -56,6 +58,11 @@ export default function App({
 
   return (
     <>
+      {/* Google Cast SDK — enables the Chromecast button in the video player */}
+      <Script
+        src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"
+        strategy="afterInteractive"
+      />
       <SessionProvider session={session}>
         <SearchProvider>
           <WatchPageProvider>
@@ -94,6 +101,10 @@ export default function App({
 
                   <SearchPalette />
                   <Component {...pageProps} />
+                  {/* Global floating nav — hidden on watch pages where it'd overlap the player */}
+                  {!router.pathname.startsWith("/en/anime/watch") && (
+                    <FloatingBottomNav />
+                  )}
                 </m.div>
               </SkeletonTheme>
             </AnimatePresence>

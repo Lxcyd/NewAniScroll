@@ -236,6 +236,7 @@ export default function Details({
 }
 
 function truncateText(txt: string, length: number) {
+  if (!txt) return "";
   const text = txt.replace(/(<([^>]+)>)/gi, "");
   return text.length > length ? text.slice(0, length) + "..." : text;
 }

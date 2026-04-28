@@ -1,15 +1,26 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { FlagIcon, ShareIcon } from "@heroicons/react/24/solid";
 import Details from "@/components/watch/primary/details";
 import EpisodeLists from "@/components/watch/secondary/episodeLists";
 import ServerSelector from "@/components/watch/primary/serverSelector";
-import HlsPlayer from "@/components/watch/primary/hlsPlayer";
+import dynamic from "next/dynamic";
+// Vidstack uses Web Components — must be loaded client-only or hydration fails.
+const UniversalPlayer = dynamic(
+  () => import("@/components/watch/primary/UniversalPlayer"),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex-center aspect-video w-full h-full bg-black rounded-card ring-1 ring-white/5" />
+    ),
+  }
+);
 import { getServerSession } from "next-auth";
 import { useWatchProvider } from "@/lib/context/watchPageProvider";
 import { authOptions } from "../../../api/auth/[...nextauth]";
 import { getRemovedMedia } from "@/prisma/removed";
 import { createList, createUser, getEpisode } from "@/prisma/user";
 import { getServer } from "@/lib/servers";
+import { primeMediaCache } from "@/lib/anilist/getMediaMeta";
 import Link from "next/link";
 import MobileNav from "@/components/shared/MobileNav";
 import { Navbar } from "@/components/shared/NavBar";
@@ -49,29 +60,47 @@ export async function getServerSideProps(context) {
     return { redirect: { destination: "/en/removed", permanent: false } };
   }
 
-  const ress = await fetch(`https://graphql.anilist.co`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(accessToken && { Authorization: `Bearer ${accessToken}` }),
-    },
-    body: JSON.stringify({
-      query: `query ($id: Int) {
-        Media (id: $id) {
-          mediaListEntry { progress status customLists repeat }
-          id idMal
-          title { romaji english native }
-          status genres episodes
-          studios { edges { node { id name } } }
-          bannerImage description
-          coverImage { extraLarge color }
-          synonyms
-        }
-      }`,
-      variables: { id: aniId },
-    }),
-  });
-  const data = await ress.json();
+  // Hard 3s timeout — never let AniList block navigation. The page can hydrate
+  // with `info=null` and re-fetch client-side if needed, instead of hanging the SSR.
+  let data = { data: { Media: null } };
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 3000);
+    const ress = await fetch(`https://graphql.anilist.co`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(accessToken && { Authorization: `Bearer ${accessToken}` }),
+      },
+      body: JSON.stringify({
+        // Pull relations alongside the rest so the source API never has to
+        // re-query AniList for season detection, slug search, or title resolution.
+        query: `query ($id: Int) {
+          Media (id: $id) {
+            mediaListEntry { progress status customLists repeat }
+            id idMal
+            title { romaji english native }
+            status genres episodes
+            studios { edges { node { id name } } }
+            bannerImage description
+            coverImage { extraLarge color }
+            synonyms
+            relations { edges { relationType node { id format title { romaji english } } } }
+          }
+        }`,
+        variables: { id: aniId },
+      }),
+      signal: ctrl.signal,
+    });
+    clearTimeout(t);
+    if (ress.ok) {
+      data = await ress.json();
+      // Prime the shared cache so the source API doesn't re-fetch this anime
+      if (data?.data?.Media) primeMediaCache(aniId, data.data.Media);
+    }
+  } catch (e) {
+    console.warn(`[watch SSR] AniList fetch failed for ${aniId}:`, e.message);
+  }
 
   try {
     if (session) {
@@ -126,14 +155,101 @@ export default function Watch({
   const [onList,            setOnList]            = useState(false);
 
   // ── Server state ──
-  const [activeServer, setActiveServer] = useState(() => {
-    if (typeof window !== "undefined") {
-      return localStorage.getItem("preferred_server") || "megaplay";
-    }
-    return "megaplay";
-  });
-  const [hlsData, setHlsData]       = useState(null);
-  const [hlsLoading, setHlsLoading] = useState(false);
+  // Stable initial value to avoid SSR/CSR hydration mismatch.
+  // The user's saved preference is loaded after mount in a useEffect below.
+  const [activeServer, setActiveServer] = useState("megaplay");
+  const [hlsData, setHlsData]           = useState(null);
+  const [hlsLoading, setHlsLoading]     = useState(false);
+  // Map<serverId, reason string> — failed servers (kept for tracking, hidden from UI)
+  const [failedServers, setFailedServers] = useState(new Map());
+  // Set<serverId> — servers that returned a valid source (visible in UI)
+  const [confirmedServers, setConfirmedServers] = useState(new Set());
+
+  const markConfirmed = useCallback((id) => {
+    setConfirmedServers((prev) => {
+      if (prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.add(id);
+      return next;
+    });
+  }, []);
+
+  // Track server preference order — favorite working servers come first
+  const PREFERRED_FALLBACK_ORDER = [
+    "megaplay",
+    "4animo",
+    "hianime-vidsrc",
+    "hianime-megacloud",
+    "hianime-tcloud",
+    "miruro-jet",
+    "cooren-animekai",
+    "cooren-animepahe",
+    "animesaturn",
+    "animesama-sibnet",
+    "animesama-sendvid",
+    "animesama-oneupload",
+    "animesama-embed4me",
+    "animesama-callistanise",
+    "voiranime-voe",
+    "voiranime-streamtape",
+    "animesama-sibnet-vo",
+    "animesama-sendvid-vo",
+    "animesama-embed4me-vo",
+    "voiranime-voe-vo",
+    "voiranime-streamtape-vo",
+  ];
+
+  const markFailed = useCallback((id, reason) => {
+    setFailedServers((prev) => {
+      if (prev.get(id) === reason) return prev;
+      const next = new Map(prev);
+      next.set(id, reason);
+      return next;
+    });
+
+    // Auto-fallback: if the active server is the one that failed, switch to the
+    // next working server (prefer same language). Don't write to localStorage —
+    // we want to remember the user's intentional choice.
+    setActiveServer((current) => {
+      if (current !== id) return current;
+      const SERVERS = require("@/lib/servers").default;
+      const failedDef = SERVERS.find((s) => s.id === id);
+      const failedLang = failedDef?.lang;
+
+      // Build candidate list from PREFERRED_FALLBACK_ORDER, filtered by:
+      //  - not the failed server
+      //  - not in the failedServers map
+      //  - matching language (or "multi") when possible
+      const failedSet = new Set([...failedServers.keys(), id]);
+      const isCandidate = (sid) => {
+        if (sid === id || failedSet.has(sid)) return false;
+        return SERVERS.some((s) => s.id === sid);
+      };
+
+      // Try same-lang candidates first
+      let next = PREFERRED_FALLBACK_ORDER.find((sid) => {
+        if (!isCandidate(sid)) return false;
+        const s = SERVERS.find((x) => x.id === sid);
+        return s.lang === failedLang || s.lang === "multi";
+      });
+      // Then any candidate
+      if (!next) {
+        next = PREFERRED_FALLBACK_ORDER.find(isCandidate);
+      }
+      // Final fallback: any non-failed server in the lib
+      if (!next) {
+        next = SERVERS.find((s) => !failedSet.has(s.id))?.id;
+      }
+      return next || current;
+    });
+  }, [failedServers]);
+
+  // Load the user's saved preferred server after hydration.
+  // Done in useEffect (not lazy useState) to avoid SSR/CSR mismatch.
+  useEffect(() => {
+    const saved = localStorage.getItem("preferred_server");
+    if (saved && saved !== "megaplay") setActiveServer(saved);
+  }, []);
 
   const router = useRouter();
 
@@ -153,15 +269,17 @@ export default function Watch({
   // ── Episode list + navigation ────────────────────────────────
   useEffect(() => {
     async function getInfo() {
+      if (!info) return;
       if (info.mediaListEntry) setOnList(true);
       setDataMedia(info);
 
-      const response = await fetch(
+      const raw = await fetch(
         `/api/v2/episode/${info.id}?releasing=${
           info.status === "RELEASING" ? "true" : "false"
         }${dub ? "&dub=true" : ""}`
       ).then((res) => res.json());
 
+      const response = Array.isArray(raw) ? raw : [];
       const getMap  = response.find((i) => i?.map === true) || response[0];
       let   episodes = response;
 
@@ -207,7 +325,11 @@ export default function Watch({
     }
 
     getInfo();
-    return () => setEpisodeNavigation(null);
+    return () => {
+      setEpisodeNavigation(null);
+      setFailedServers(new Map());
+      setConfirmedServers(new Set());
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessions?.user?.name, epiNumber, dub]);
 
@@ -251,10 +373,22 @@ export default function Watch({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [provider, watchId, info?.id]);
 
-  // ── Fetch HLS source when server is HLS type ─────────────────
-  const fetchHlsSource = useCallback(async (serverId) => {
+  // ── Fetch stream source when server needs backend (hls or api) ──
+  // Tracks the latest in-flight request so server-change / navigation aborts it.
+  const activeFetchCtrl = useRef(null);
+
+  // Slim AniList metadata payload — sent with every probe so the source API
+  // skips its own AniList fetches (one batched fetch per page instead of per probe).
+  const mediaMetaPayload = info ? {
+    id: info.id,
+    title: info.title,
+    synonyms: info.synonyms,
+    relations: info.relations,
+  } : null;
+
+  const fetchStreamSource = useCallback(async (serverId, signal) => {
     const server = getServer(serverId);
-    if (server.type !== "hls") {
+    if (server.type === "iframe") {
       setHlsData(null);
       return;
     }
@@ -271,31 +405,166 @@ export default function Watch({
           aniId: info.id,
           episode: parseInt(epiNumber),
           sub: dub ? "dub" : "sub",
+          title: info?.title?.romaji || info?.title?.english,
+          mediaMeta: mediaMetaPayload,
         }),
+        signal,
       });
+
+      if (signal?.aborted) return;
 
       if (res.ok) {
         const data = await res.json();
         setHlsData(data);
+        markConfirmed(serverId);
       } else {
         setHlsData({ error: true });
+        markFailed(serverId, `HTTP ${res.status}`);
       }
-    } catch {
+    } catch (e) {
+      if (e.name === "AbortError") return;
       setHlsData({ error: true });
+      markFailed(serverId, "Network error");
     } finally {
-      setHlsLoading(false);
+      if (!signal?.aborted) setHlsLoading(false);
     }
-  }, [info?.id, epiNumber, dub]);
+  }, [info?.id, epiNumber, dub, markFailed]);
 
   useEffect(() => {
-    fetchHlsSource(activeServer);
-  }, [activeServer, fetchHlsSource]);
+    // Abort any previous in-flight fetch before starting a new one
+    activeFetchCtrl.current?.abort();
+    const ctrl = new AbortController();
+    activeFetchCtrl.current = ctrl;
+    fetchStreamSource(activeServer, ctrl.signal);
+    return () => ctrl.abort();
+  }, [activeServer, fetchStreamSource]);
+
+  // ── Pre-check all servers on page load ─────────────────────
+  // Probes are batched (max N concurrent) to avoid overwhelming the dev server
+  // and to keep navigation snappy. Aborted on episode change / unmount.
+  useEffect(() => {
+    if (!info?.id || !epiNumber) return;
+
+    const SERVERS = require("@/lib/servers").default;
+    const toProbe = SERVERS.filter(
+      (s) => (s.type === "hls" || s.type === "api") && s.id !== activeServer
+    );
+
+    const controller = new AbortController();
+    const MAX_CONCURRENT = 4;
+    let cancelled = false;
+
+    const probeMeta = info ? {
+      id: info.id,
+      title: info.title,
+      synonyms: info.synonyms,
+      relations: info.relations,
+    } : null;
+
+    const probe = async (s) => {
+      try {
+        const res = await fetch("/api/v2/source", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            server: s.id,
+            aniId: info.id,
+            episode: parseInt(epiNumber),
+            sub: dub ? "dub" : "sub",
+            title: info?.title?.romaji || info?.title?.english,
+            mediaMeta: probeMeta,
+          }),
+          signal: controller.signal,
+        });
+        if (res.ok) {
+          markConfirmed(s.id);
+        } else if (res.status === 404 || res.status >= 500) {
+          markFailed(s.id, res.status === 404 ? "Source not found" : `HTTP ${res.status}`);
+        }
+      } catch {
+        // Network/abort errors — don't mark failed
+      }
+    };
+
+    (async () => {
+      for (let i = 0; i < toProbe.length && !cancelled; i += MAX_CONCURRENT) {
+        const batch = toProbe.slice(i, i + MAX_CONCURRENT);
+        await Promise.all(batch.map(probe));
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [info?.id, epiNumber, dub]);
+
+  // ── Iframe-type validators ─────────────────────────────────
+  // Some iframe hosts (Megaplay, 4Animo) serve a 200 HTML error page when the
+  // requested episode doesn't exist — the iframe itself loads fine, so our
+  // load-timeout never triggers. They expose CORS wildcard though, so we can
+  // fetch their HTML client-side and detect known error markers.
+  useEffect(() => {
+    if (!info?.id || !epiNumber) return;
+    const SERVERS = require("@/lib/servers").default;
+    const dubFlag = !!dub;
+
+    const validators = {
+      megaplay: {
+        url: `https://megaplay.buzz/stream/ani/${info.id}/${epiNumber}/${dubFlag ? "dub" : "sub"}`,
+        badMarkers: ["Error Code", "We're Sorry", "can't find the file"],
+      },
+      "4animo": {
+        url: `https://cdn.4animo.xyz/api/embed/ani/${info.id}/${epiNumber}/${dubFlag ? "dub" : "sub"}?k=1`,
+        badMarkers: ["File not found", "We're Sorry", "can't find the file"],
+      },
+    };
+
+    const controller = new AbortController();
+    let cancelled = false;
+
+    const validate = async (serverId, cfg) => {
+      // Skip if this server isn't even in the lib (e.g., was removed)
+      if (!SERVERS.find((s) => s.id === serverId)) return;
+      try {
+        const res = await fetch(cfg.url, {
+          method: "GET",
+          mode: "cors",
+          signal: controller.signal,
+        });
+        if (!res.ok) {
+          markFailed(serverId, `HTTP ${res.status}`);
+          return;
+        }
+        const html = await res.text();
+        if (cfg.badMarkers.some((m) => html.includes(m))) {
+          markFailed(serverId, "Episode not available");
+        } else {
+          markConfirmed(serverId);
+        }
+      } catch (e) {
+        // Network/CORS error → leave unconfirmed (server selector will hide
+        // unless the iframe itself manages to load later)
+      }
+    };
+
+    Object.entries(validators).forEach(([id, cfg]) => {
+      if (!cancelled) validate(id, cfg);
+    });
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [info?.id, epiNumber, dub]);
 
   // ── Server change handler ──────────────────────────────────
-  const handleServerChange = (serverId) => {
+  const handleServerChange = useCallback((serverId) => {
     setActiveServer(serverId);
     localStorage.setItem("preferred_server", serverId);
-  };
+  }, []);
 
   // ── Media Session (OS-level now playing) ────────────────────
   useEffect(() => {
@@ -337,11 +606,16 @@ export default function Watch({
   function handleClose() { setOpen(false); document.body.style.overflow = "auto";   }
 
   // ── Player ───────────────────────────────────────────────────
-  function Player() {
+  // Memoized JSX — recomputes ONLY when player-relevant state changes.
+  // Wrapping as a function component (`function Player(){}` defined inside Watch)
+  // would create a new function reference each parent render → React would treat
+  // it as a different component type and fully unmount/remount the iframe/HLS
+  // player on every probe completion, restarting playback. useMemo avoids this.
+  const playerNode = useMemo(() => {
     const server = getServer(activeServer);
+    const needsBackend = server.type === "hls" || server.type === "api";
 
-    // Loading state
-    if (!episodeNavigation || (server.type === "hls" && hlsLoading)) {
+    if (!episodeNavigation || (needsBackend && hlsLoading)) {
       return (
         <div className="flex-center aspect-video w-full h-full relative">
           <SpinLoader />
@@ -349,31 +623,43 @@ export default function Watch({
       );
     }
 
-    // HLS player
-    if (server.type === "hls") {
+    if (needsBackend) {
       if (hlsData?.error) {
         return (
-          <div className="flex-center aspect-video w-full h-full bg-black text-white/50 font-karla flex-col gap-2">
+          <div className="flex-center aspect-video w-full h-full bg-black text-white/50 font-karla flex-col gap-2 rounded-card ring-1 ring-white/5">
             <p>Server "{server.name}" unavailable</p>
             <button
               type="button"
               onClick={() => handleServerChange("megaplay")}
-              className="text-action underline text-sm"
+              className="text-as-accent underline text-sm"
             >
               Switch to Megaplay
             </button>
           </div>
         );
       }
+
+      // Unified player: Vidstack for direct streams (HLS/MP4 with speed /
+      // quality / captions / chromecast / PiP / ambient light), iframe chrome
+      // for embed-only hosts (vidmoly, voe, streamtape, hianime).
       return (
-        <HlsPlayer
+        <UniversalPlayer
+          key={`${server.id}-${info.id}-${epiNumber}-${dub ? "dub" : "sub"}`}
           streamData={hlsData}
           poster={episodeNavigation?.playing?.img || info?.bannerImage}
+          serverId={server.id}
+          downloadName={`${(info?.title?.romaji || info?.title?.english || "anime").replace(/\s+/g, "_")}_E${epiNumber}${dub ? "_DUB" : ""}`}
+          onError={(reason) =>
+            markFailed(
+              server.id,
+              reason || (hlsData?.iframe ? "Iframe load timeout" : "Playback failed")
+            )
+          }
         />
       );
     }
 
-    // Iframe player
+    // buildSrc-style server (Megaplay): always an iframe → same universal chrome
     const src = server.buildSrc({
       aniId: info.id,
       episode: epiNumber,
@@ -381,17 +667,15 @@ export default function Watch({
     });
 
     return (
-      <iframe
+      <UniversalPlayer
         key={`${server.id}-${info.id}-${epiNumber}-${dub ? "dub" : "sub"}`}
-        src={src}
-        className="aspect-video w-full h-full"
-        frameBorder="0"
-        scrolling="no"
-        allowFullScreen
-        allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
+        streamData={{ iframe: src }}
+        poster={episodeNavigation?.playing?.img || info?.bannerImage}
+        serverId={server.id}
+        onError={(reason) => markFailed(server.id, reason || "Iframe load timeout")}
       />
     );
-  }
+  }, [activeServer, episodeNavigation, hlsLoading, hlsData, info, epiNumber, dub, markFailed, handleServerChange]);
 
   // ── Render ───────────────────────────────────────────────────
   return (
@@ -461,13 +745,13 @@ export default function Watch({
 
         <div className={`mx-auto pt-16 ${theaterMode ? "lg:pt-16" : "lg:pt-20"}`}>
 
-          {/* Theater mode player */}
+          {/* Theater mode player — no parent bg/overflow so ambient glow can extend outside */}
           {theaterMode && (
             <div
-              className="bg-black w-full max-h-[84dvh] h-full flex-center rounded-md"
+              className="w-full max-h-[84dvh] h-full flex-center"
               style={{ aspectRatio }}
             >
-              <Player />
+              {playerNode}
             </div>
           )}
 
@@ -480,22 +764,25 @@ export default function Watch({
             {/* ── Primary column ── */}
             <div id="primary" className="w-full">
 
-              {/* Default (non-theater) player */}
+              {/* Default (non-theater) player — no parent bg/overflow so ambient glow can extend outside */}
               {!theaterMode && (
                 <div
-                  className={`bg-black w-full flex-center rounded-md overflow-hidden ${
+                  className={`w-full flex-center ${
                     aspectRatio === "4/3" ? "aspect-video" : ""
                   }`}
                 >
-                  <Player />
+                  {playerNode}
                 </div>
               )}
 
               {/* Server selector */}
+
               <div className="px-3 lg:px-0">
                 <ServerSelector
                   activeServer={activeServer}
                   onChange={handleServerChange}
+                  failedServers={failedServers}
+                  confirmedServers={confirmedServers}
                 />
               </div>
 
@@ -508,7 +795,7 @@ export default function Watch({
                         href={`/en/anime/${info?.id}`}
                         className="hover:underline line-clamp-1"
                       >
-                        {(episodeNavigation?.playing?.title || info.title.romaji) ?? "Loading..."}
+                        {episodeNavigation?.playing?.title || info?.title?.romaji || "Loading..."}
                       </Link>
                     </div>
                     <h3 className="font-karla">
@@ -581,6 +868,7 @@ export default function Watch({
 // ─────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────
+
 function SpinLoader() {
   return (
     <div className="pointer-events-none absolute inset-0 z-50 flex h-full w-full items-center justify-center">

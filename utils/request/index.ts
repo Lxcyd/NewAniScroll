@@ -23,13 +23,17 @@ const pls = {
     try {
       const session: any | null = isAnilist(url) ? await getSession(ctx) : null;
       const controller = new AbortController();
-      const signal = controller.signal;
+      const timeoutId = setTimeout(() => controller.abort(), 4000);
 
-      const response = await axios.get(url, { ...options, signal });
-      return response.data;
+      try {
+        const response = await axios.get(url, { ...options, signal: controller.signal });
+        return response.data;
+      } finally {
+        clearTimeout(timeoutId);
+      }
     } catch (error: any) {
       handleError(error);
-      //   throw error;
+      return null;
     }
   },
 
@@ -39,25 +43,32 @@ const pls = {
       const session: any | null = await getSession(ctx);
       const accessToken: string | undefined = session?.user?.token;
 
+      // Hard 4s timeout — never let upstream APIs (especially AniList) hang
+      // navigation. Caller is expected to handle a null/empty response.
       const controller = new AbortController();
-      const signal = controller.signal;
+      const timeoutId = setTimeout(() => controller.abort(), 4000);
 
-      const response = await fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(accessToken &&
-            isAnilist(url) && { Authorization: `Bearer ${accessToken}` }),
-        },
-        ...options,
-        signal,
-      });
+      try {
+        const response = await fetch(url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(accessToken &&
+              isAnilist(url) && { Authorization: `Bearer ${accessToken}` }),
+          },
+          ...options,
+          signal: controller.signal,
+        });
 
-      const data = await response.json();
-      return [data, session];
+        const data = await response.json();
+        return [data, session];
+      } finally {
+        clearTimeout(timeoutId);
+      }
     } catch (error: any) {
       handleError(error);
-      //   throw error;
+      // Return a safe shape so callers don't crash on undefined destructure.
+      return [null, null];
     }
   },
 };

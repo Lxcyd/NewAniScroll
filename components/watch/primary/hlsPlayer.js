@@ -2,21 +2,25 @@ import { useEffect, useRef, useState } from "react";
 import Hls from "hls.js";
 import { Spinner } from "@vidstack/react";
 
-const PROXY_URL = process.env.NEXT_PUBLIC_HLS_PROXY || "";
-
-function proxyUrl(url) {
-  if (!url || !PROXY_URL) return url;
-  return `${PROXY_URL}/?url=${encodeURIComponent(url)}`;
+function proxyUrl(url, referer) {
+  if (!url) return url;
+  const ref = referer ? `&referer=${encodeURIComponent(referer)}` : "";
+  return `/api/v2/proxy/m3u8?url=${encodeURIComponent(url)}${ref}`;
 }
 
-export default function HlsPlayer({ streamData, poster }) {
+export default function HlsPlayer({ streamData, poster, onError }) {
   const videoRef = useRef(null);
   const hlsRef = useRef(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  const streamUrl =
-    streamData?.streams?.[0]?.url || streamData?.sources?.[0]?.url || null;
+  // Pick the best stream
+  const bestStream = streamData?.streams?.[0] || streamData?.sources?.[0];
+  const streamUrl = bestStream?.url || null;
+  // Per-stream referer takes priority over top-level
+  const streamReferer = bestStream?.referer || streamData?.referer || null;
+  const isM3U8 = bestStream?.isM3U8 !== false &&
+    (bestStream?.isM3U8 === true || streamUrl?.includes(".m3u8"));
 
   useEffect(() => {
     const video = videoRef.current;
@@ -25,8 +29,75 @@ export default function HlsPlayer({ streamData, poster }) {
     setLoading(true);
     setError(null);
 
-    const src = proxyUrl(streamUrl);
+    const src = proxyUrl(streamUrl, streamReferer);
 
+    // Initial load timeout: if no playback within 15s, mark as failed
+    const loadTimeout = setTimeout(() => {
+      if (video.readyState < 2) {
+        setLoading(false);
+        setError("Stream timed out");
+        onError?.("Stream timeout (no metadata in 15s)");
+      }
+    }, 15000);
+
+    // Stall detection: once playback starts, watch for currentTime advancing.
+    // If video is "playing" but time stays frozen for 10s → mark broken.
+    let stallTimer = null;
+    let lastTime = -1;
+    let stallCount = 0;
+    const startStallWatch = () => {
+      if (stallTimer) return;
+      stallTimer = setInterval(() => {
+        if (video.paused || video.readyState < 3) {
+          stallCount = 0;
+          lastTime = video.currentTime;
+          return;
+        }
+        if (video.currentTime === lastTime) {
+          stallCount++;
+          if (stallCount >= 10) {
+            // 10 seconds of no progress while playing
+            setError("Playback stalled (no frames advancing)");
+            onError?.("Playback stalled (no progress for 10s)");
+            clearInterval(stallTimer);
+          }
+        } else {
+          stallCount = 0;
+          lastTime = video.currentTime;
+        }
+      }, 1000);
+    };
+
+    const cleanup = () => {
+      clearTimeout(loadTimeout);
+      if (stallTimer) clearInterval(stallTimer);
+    };
+
+    // ── MP4 / direct video file (sibnet, sendvid extractor output) ──
+    if (!isM3U8) {
+      video.src = src;
+      const onMeta = () => {
+        setLoading(false);
+        clearTimeout(loadTimeout);
+        video.play().catch(() => {});
+        startStallWatch();
+      };
+      const onErr = () => {
+        setLoading(false);
+        setError("Failed to load video");
+        cleanup();
+        onError?.("Video element error");
+      };
+      video.addEventListener("loadedmetadata", onMeta);
+      video.addEventListener("error", onErr);
+      return () => {
+        video.removeEventListener("loadedmetadata", onMeta);
+        video.removeEventListener("error", onErr);
+        cleanup();
+      };
+    }
+
+    // ── HLS via hls.js ──
     if (Hls.isSupported()) {
       const hls = new Hls({
         maxBufferLength: 30,
@@ -39,40 +110,63 @@ export default function HlsPlayer({ streamData, poster }) {
 
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
         setLoading(false);
+        clearTimeout(loadTimeout);
         video.play().catch(() => {});
+        startStallWatch();
       });
 
       hls.on(Hls.Events.ERROR, (_, data) => {
         if (data.fatal) {
           setLoading(false);
           setError("Failed to load stream");
+          cleanup();
+          onError?.(`HLS ${data.type || "error"}`);
           hls.destroy();
         }
       });
 
       return () => {
+        cleanup();
         hls.destroy();
         hlsRef.current = null;
       };
-    } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
-      // Safari native HLS
-      video.src = src;
-      video.addEventListener("loadedmetadata", () => {
-        setLoading(false);
-        video.play().catch(() => {});
-      });
-    } else {
-      setError("HLS not supported in this browser");
-      setLoading(false);
     }
-  }, [streamUrl]);
+
+    // ── Native HLS (Safari) ──
+    if (video.canPlayType("application/vnd.apple.mpegurl")) {
+      video.src = src;
+      const onMeta = () => {
+        setLoading(false);
+        clearTimeout(loadTimeout);
+        video.play().catch(() => {});
+        startStallWatch();
+      };
+      const onErr = () => {
+        setLoading(false);
+        setError("Failed to load stream");
+        cleanup();
+        onError?.();
+      };
+      video.addEventListener("loadedmetadata", onMeta);
+      video.addEventListener("error", onErr);
+      return () => {
+        video.removeEventListener("loadedmetadata", onMeta);
+        video.removeEventListener("error", onErr);
+        cleanup();
+      };
+    }
+
+    setError("HLS not supported in this browser");
+    setLoading(false);
+    cleanup();
+    onError?.("HLS not supported");
+  }, [streamUrl, streamReferer, isM3U8]);
 
   // Apply subtitles
   useEffect(() => {
     const video = videoRef.current;
     if (!video || !streamData?.subtitles) return;
 
-    // Remove existing tracks
     while (video.firstChild) {
       video.removeChild(video.firstChild);
     }
@@ -81,7 +175,7 @@ export default function HlsPlayer({ streamData, poster }) {
       const track = document.createElement("track");
       track.kind = sub.kind || "captions";
       track.label = sub.label || `Subtitle ${i + 1}`;
-      track.src = proxyUrl(sub.file || sub.url);
+      track.src = proxyUrl(sub.file || sub.url, streamReferer);
       if (i === 0) track.default = true;
       video.appendChild(track);
     });
@@ -116,7 +210,6 @@ export default function HlsPlayer({ streamData, poster }) {
         controls
         playsInline
         poster={poster}
-        crossOrigin="anonymous"
       />
     </div>
   );

@@ -35,6 +35,13 @@ module.exports = {
         menu: "0 0 10px 0px rgba(255, 107, 0, 0.1)",
         light: "0 2px 10px 2px rgba(0, 0, 0, 0.1)",
         button: "0 0px 5px 0.5px rgba(0, 0, 0, 0.1)",
+        poster: "0 8px 32px rgba(0, 0, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.35)",
+        glow: "0 0 24px rgba(233, 69, 96, 0.35)",
+      },
+      borderRadius: {
+        card: "12px",
+        poster: "8px",
+        badge: "5px",
       },
       textColor: {
         "gray-500": "#6c757d",
@@ -52,6 +59,21 @@ module.exports = {
         image: "#3B3C41",
         txt: "#dbdcdd",
         tersier: "#0c0d10",
+        // AniScroll-inspired palette
+        as: {
+          bg: "#0e0e16",
+          card: "#1a1a24",
+          surface: "#22222e",
+          accent: "#E94560",
+          score: "#FFD700",
+          episodes: "#0F3460",
+          watching: "#10B981",
+          rewatching: "#06B6D4",
+          completed: "#3B82F6",
+          planning: "#A855F7",
+          paused: "#F59E0B",
+          dropped: "#EF4444",
+        },
       },
     },
     fontFamily: {

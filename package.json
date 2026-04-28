@@ -12,12 +12,13 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "@consumet/extensions": "^1.6.0",
+    "@consumet/extensions": "github:eatmynerds/consumet.ts",
     "@headlessui/react": "^1.7.15",
     "@heroicons/react": "^2.0.17",
     "@prisma/client": "^5.3.1",
     "@vercel/og": "^0.5.4",
     "@vidstack/react": "^1.9.8",
+    "aniwatch": "^2.27.9",
     "axios": "^1.4.0",
     "cookies": "^0.8.0",
     "cron": "^2.4.0",

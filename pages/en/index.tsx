@@ -1,4 +1,4 @@
-import { aniListData } from "@/lib/anilist/AniList";
+import { aniListData, aniListHomepageBatch } from "@/lib/anilist/AniList";
 import { useState, useEffect, Fragment } from "react";
 import Head from "next/head";
 import Link from "next/link";
@@ -41,15 +41,18 @@ export async function getServerSideProps() {
       },
     };
   } else {
-    const trendingDetail = await aniListData({
-      sort: "TRENDING_DESC",
-      page: 1,
-    });
-    const popularDetail = await aniListData({
-      sort: "POPULARITY_DESC",
-      page: 1,
-    });
-    const genreDetail = await aniListData({ sort: "TYPE", page: 1 });
+    // Single batched GraphQL request fetches trending+popular+genre in ONE
+    // AniList token cost (was: 3 separate requests = 3× rate-limit consumption).
+    const [batch, upComing] = await Promise.all([
+      aniListHomepageBatch(),
+      Promise.race([
+        getUpcomingAnime().catch(() => null),
+        new Promise((resolve) => setTimeout(() => resolve(null), 4000)),
+      ]),
+    ]);
+    const trendingDetail = batch.trending;
+    const popularDetail = batch.popular;
+    const genreDetail = batch.genre;
 
     if (redis) {
       await redis.set(
@@ -58,14 +61,12 @@ export async function getServerSideProps() {
           genre: genreDetail.props,
           detail: trendingDetail.props,
           populars: popularDetail.props,
-          firstTrend: trendingDetail.props.data[0],
+          firstTrend: trendingDetail.props.data?.[0] || null,
         }), // set cache for 2 hours
         "EX",
         60 * 60 * 2
       );
     }
-
-    const upComing = await getUpcomingAnime();
 
     return {
       props: {
@@ -73,7 +74,7 @@ export async function getServerSideProps() {
         detail: trendingDetail.props,
         populars: popularDetail.props,
         upComing,
-        firstTrend: trendingDetail.props.data[0],
+        firstTrend: trendingDetail.props.data?.[0] || null,
       },
     };
   }
