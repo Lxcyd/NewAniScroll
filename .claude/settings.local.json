@@ -73,7 +73,13 @@
       "WebFetch(domain:en.trictrac.tv)",
       "Bash(curl -sL -w \"\\\\n%{http_code}\" -H \"User-Agent: Mozilla/5.0 \\(Windows NT 10.0; Win64; x64\\) AppleWebKit/537.36 \\(KHTML, like Gecko\\) Chrome/120.0.0.0 Safari/537.36\" -H \"Accept: text/html\" -H \"Accept-Language: fr-FR,fr;q=0.9\" -H \"sec-ch-ua: \"\"Chromium\"\";v=\"\"120\"\"\" -H \"sec-ch-ua-platform: \"\"Windows\"\"\" -H \"sec-fetch-dest: document\" -H \"sec-fetch-mode: navigate\" -H \"sec-fetch-site: none\" \"https://voiranime.tv/anime/death-note/\")",
       "Bash(curl -s \"https://anime-sama.to/catalogue/death-note/saison1/vf/episodes.js\" -H \"User-Agent: Mozilla/5.0\")",
-      "Bash(curl -s \"https://anime-sama.to/catalogue/death-note/saison1/vostfr/episodes.js\" -H \"User-Agent: Mozilla/5.0\")"
+      "Bash(curl -s \"https://anime-sama.to/catalogue/death-note/saison1/vostfr/episodes.js\" -H \"User-Agent: Mozilla/5.0\")",
+      "PowerShell(Get-NetTCPConnection -LocalPort 3000 -ErrorAction SilentlyContinue)",
+      "PowerShell(Get-NetTCPConnection -State Listen -LocalPort 3000,3001,3002 -ErrorAction SilentlyContinue)",
+      "PowerShell(Get-Process node -ErrorAction SilentlyContinue)",
+      "PowerShell($pids = \\(Get-NetTCPConnection -State Listen -LocalPort 3000,3001,3002,3003 -ErrorAction SilentlyContinue\\).OwningProcess | Select-Object -Unique; if \\($pids\\) { foreach \\($p in $pids\\) { try { $proc = Get-Process -Id $p -ErrorAction SilentlyContinue; if \\($proc\\) { Write-Output \"Killing PID $p \\($\\($proc.ProcessName\\)\\)\"; Stop-Process -Id $p -Force } } catch {} } } else { Write-Output \"no zombies on 3000-3003\" })",
+      "PowerShell(Get-NetTCPConnection -State Listen -LocalPort 3000,3001 -ErrorAction SilentlyContinue)",
+      "PowerShell(Stop-Process -Force)"
     ],
     "additionalDirectories": [
       "\\tmp"

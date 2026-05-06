@@ -21,6 +21,8 @@ import { getRemovedMedia } from "@/prisma/removed";
 import { createList, createUser, getEpisode } from "@/prisma/user";
 import { getServer } from "@/lib/servers";
 import { primeMediaCache } from "@/lib/anilist/getMediaMeta";
+import { getCachedAnime } from "@/lib/db/anime";
+import { FULL_MEDIA_FIELDS } from "@/lib/anilist/fullMediaQuery";
 import Link from "next/link";
 import MobileNav from "@/components/shared/MobileNav";
 import { Navbar } from "@/components/shared/NavBar";
@@ -62,8 +64,14 @@ export async function getServerSideProps(context) {
 
   // Hard 3s timeout — never let AniList block navigation. The page can hydrate
   // with `info=null` and re-fetch client-side if needed, instead of hanging the SSR.
+  // Falls back to the persistent Turso cache if AniList is slow/down so the page
+  // still renders something useful.
   let data = { data: { Media: null } };
+  // DEV-only: setting ANILIST_SIMULATE_DOWN=1 short-circuits the AniList fetch
+  // so we can verify the DB fallback path without actually downing AniList.
+  const simulateDown = process.env.ANILIST_SIMULATE_DOWN === "1";
   try {
+    if (simulateDown) throw new Error("simulated AniList outage");
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), 3000);
     const ress = await fetch(`https://graphql.anilist.co`, {
@@ -72,20 +80,14 @@ export async function getServerSideProps(context) {
         "Content-Type": "application/json",
         ...(accessToken && { Authorization: `Bearer ${accessToken}` }),
       },
+      // Pull the full Tier-1 payload + mediaListEntry. mediaListEntry is the
+      // ONE piece we don't cache (per-user). Everything else gets persisted
+      // so future requests survive an AniList outage.
       body: JSON.stringify({
-        // Pull relations alongside the rest so the source API never has to
-        // re-query AniList for season detection, slug search, or title resolution.
         query: `query ($id: Int) {
           Media (id: $id) {
             mediaListEntry { progress status customLists repeat }
-            id idMal
-            title { romaji english native }
-            status genres episodes
-            studios { edges { node { id name } } }
-            bannerImage description
-            coverImage { extraLarge color }
-            synonyms
-            relations { edges { relationType node { id format title { romaji english } } } }
+            ${FULL_MEDIA_FIELDS}
           }
         }`,
         variables: { id: aniId },
@@ -95,11 +97,26 @@ export async function getServerSideProps(context) {
     clearTimeout(t);
     if (ress.ok) {
       data = await ress.json();
-      // Prime the shared cache so the source API doesn't re-fetch this anime
+      // Prime memory + DB so source-API probes / refreshes can read instantly.
       if (data?.data?.Media) primeMediaCache(aniId, data.data.Media);
     }
   } catch (e) {
     console.warn(`[watch SSR] AniList fetch failed for ${aniId}:`, e.message);
+  }
+
+  // Fallback to DB cache when AniList didn't return Media (timeout/down/non-200).
+  // Stale data is fine here — better than rendering an empty page.
+  if (!data?.data?.Media) {
+    try {
+      const cached = await getCachedAnime(Number(aniId));
+      if (cached?.data) {
+        console.log(`[watch SSR] using DB cache for ${aniId} (stale=${cached.isStale})`);
+        // Preserve the AniList-only mediaListEntry (we never cache it).
+        data = { data: { Media: { ...cached.data, mediaListEntry: null } } };
+      }
+    } catch (e) {
+      console.warn(`[watch SSR] DB fallback failed for ${aniId}:`, e?.message);
+    }
   }
 
   try {
@@ -165,6 +182,12 @@ export default function Watch({
   // Set<serverId> — servers that returned a valid source (visible in UI)
   const [confirmedServers, setConfirmedServers] = useState(new Set());
 
+  // Mirror of failedServers for sync reads inside markFailed without forcing
+  // markFailed to depend on failedServers (which would invalidate fetchStreamSource
+  // every probe and cancel in-flight requests).
+  const failedServersRef = useRef(failedServers);
+  useEffect(() => { failedServersRef.current = failedServers; }, [failedServers]);
+
   const markConfirmed = useCallback((id) => {
     setConfirmedServers((prev) => {
       if (prev.has(id)) return prev;
@@ -220,7 +243,7 @@ export default function Watch({
       //  - not the failed server
       //  - not in the failedServers map
       //  - matching language (or "multi") when possible
-      const failedSet = new Set([...failedServers.keys(), id]);
+      const failedSet = new Set([...failedServersRef.current.keys(), id]);
       const isCandidate = (sid) => {
         if (sid === id || failedSet.has(sid)) return false;
         return SERVERS.some((s) => s.id === sid);
@@ -242,7 +265,7 @@ export default function Watch({
       }
       return next || current;
     });
-  }, [failedServers]);
+  }, []);
 
   // Load the user's saved preferred server after hydration.
   // Done in useEffect (not lazy useState) to avoid SSR/CSR mismatch.
@@ -268,6 +291,13 @@ export default function Watch({
 
   // ── Episode list + navigation ────────────────────────────────
   useEffect(() => {
+    // Reset server-state for the new episode at the START of the effect, not in
+    // the cleanup. In React 18 dev/Strict Mode the cleanup fires between the two
+    // mount passes and would clobber probe results that completed in the first
+    // pass — anime-sama / hianime servers would silently disappear from the UI.
+    setFailedServers(new Map());
+    setConfirmedServers(new Set());
+
     async function getInfo() {
       if (!info) return;
       if (info.mediaListEntry) setOnList(true);
@@ -327,8 +357,6 @@ export default function Watch({
     getInfo();
     return () => {
       setEpisodeNavigation(null);
-      setFailedServers(new Map());
-      setConfirmedServers(new Set());
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessions?.user?.name, epiNumber, dub]);
@@ -451,7 +479,7 @@ export default function Watch({
     );
 
     const controller = new AbortController();
-    const MAX_CONCURRENT = 4;
+    const MAX_CONCURRENT = 8;
     let cancelled = false;
 
     const probeMeta = info ? {

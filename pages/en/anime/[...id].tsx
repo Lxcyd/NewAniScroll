@@ -20,6 +20,8 @@ import pls from "@/utils/request/index";
 
 import Characters from "@/components/anime/charactersCard";
 import { redis } from "@/lib/redis";
+import { primeMediaCache } from "@/lib/anilist/getMediaMeta";
+import { getCachedAnime } from "@/lib/db/anime";
 import { toast } from "sonner";
 import { Navbar } from "@/components/shared/NavBar";
 import { AniListInfoTypes } from "types/info/AnilistInfoTypes";
@@ -263,21 +265,38 @@ export async function getServerSideProps(ctx: any) {
       },
     };
   } else {
-    const [resp] = await pls.post("https://graphql.anilist.co/", {
-      // method: "POST",
-      // headers: {
-      //   "Content-Type": "application/json",
-      // },
-      body: JSON.stringify({
-        query: mediaInfoQuery,
-        variables: {
-          id: id?.[0],
-        },
-      }),
-    });
+    let data: any = null;
+    const simulateDown = process.env.ANILIST_SIMULATE_DOWN === "1";
+    try {
+      if (simulateDown) throw new Error("simulated AniList outage");
+      const [resp] = await pls.post("https://graphql.anilist.co/", {
+        body: JSON.stringify({
+          query: mediaInfoQuery,
+          variables: {
+            id: id?.[0],
+          },
+        }),
+      });
+      data = resp?.data?.Media || null;
+    } catch (e: any) {
+      console.warn(`[anime SSR] AniList fetch failed for ${id?.[0]}:`, e?.message);
+    }
 
-    // const json = await resp.json();
-    const data = resp?.data?.Media;
+    // AniList up + Media found → prime the persistent cache for outage survival.
+    if (data) {
+      primeMediaCache(Number(id?.[0]), data);
+    } else {
+      // AniList down or returned no Media → try the DB so the page can still render.
+      try {
+        const cached = await getCachedAnime(Number(id?.[0]));
+        if (cached?.data) {
+          console.log(`[anime SSR] using DB cache for ${id?.[0]} (stale=${cached.isStale})`);
+          data = cached.data;
+        }
+      } catch (e: any) {
+        console.warn(`[anime SSR] DB fallback failed:`, e?.message);
+      }
+    }
 
     const cacheTime = data?.nextAiringEpisode?.episode
       ? 60 * 10

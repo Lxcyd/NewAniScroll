@@ -1,0 +1,65 @@
+# Daily refresh of the Turso anime cache.
+#
+# Runs scripts/refresh-cache.mjs which:
+#   1. Re-fetches every RELEASING anime (TTL 1h on those rows).
+#   2. Walks AniList sort:UPDATED_AT_DESC to pick up edits since last run.
+#   3. Discovers AniList IDs higher than what's in our DB.
+#
+# Schedule: 03:00 UTC every day (off-peak for AniList, before EU users wake).
+# Also exposed as workflow_dispatch so we can trigger it manually from the
+# Actions tab when we just bootstrapped or pushed schema changes.
+#
+# Secrets required (Repository → Settings → Secrets and variables → Actions):
+#   TURSO_DATABASE_URL
+#   TURSO_AUTH_TOKEN
+
+name: refresh-cache
+
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+    inputs:
+      skip_releasing:
+        description: "Skip the RELEASING refresh job"
+        required: false
+        type: boolean
+        default: false
+      skip_delta:
+        description: "Skip the UPDATED_AT delta sweep"
+        required: false
+        type: boolean
+        default: false
+      skip_discovery:
+        description: "Skip the new-ID discovery sweep"
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install only what the script needs
+        # Avoids a full `npm ci` (Next.js + Vidstack are large and unrelated to
+        # this script). dotenv is dev-only; @libsql/client is the prod dep.
+        run: npm install --no-save @libsql/client@^0.17 dotenv@^17
+
+      - name: Run refresh
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN:   ${{ secrets.TURSO_AUTH_TOKEN }}
+        run: |
+          node scripts/refresh-cache.mjs \
+            ${{ inputs.skip_releasing == true && '--skip-releasing' || '' }} \
+            ${{ inputs.skip_delta     == true && '--skip-delta'     || '' }} \
+            ${{ inputs.skip_discovery == true && '--skip-discovery' || '' }}

@@ -15,8 +15,6 @@ const LANG_CONFIG = {
 //  4. API/HLS servers are visible only after a successful probe.
 function shouldShow(server, activeServer, confirmedServers, failedServers) {
   if (server.id === activeServer) return true;
-  // A client-side iframe validator or onError can flag the server as failed;
-  // hide it in that case even if it's iframe-type.
   if (failedServers?.has?.(server.id) || failedServers?.get?.(server.id)) {
     return false;
   }
