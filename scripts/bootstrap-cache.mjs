@@ -64,11 +64,35 @@ const FIELDS = `
   nextAiringEpisode { airingAt episode timeUntilAiring }
   rankings { id rank type format year season allTime context }
   relations {
-    edges { relationType node {
-      id format type status episodes
-      title { romaji english native userPreferred }
-      coverImage { large color }
-    } }
+    edges {
+      id
+      relationType(version: 2)
+      node {
+        id format type status(version: 2) episodes
+        title { romaji english native userPreferred }
+        bannerImage
+        coverImage { extraLarge large color }
+      }
+    }
+  }
+  characters {
+    edges {
+      role
+      node {
+        id
+        image { large medium }
+        name { full userPreferred }
+      }
+    }
+  }
+  recommendations {
+    nodes {
+      mediaRecommendation {
+        id
+        title { romaji userPreferred }
+        coverImage { extraLarge large }
+      }
+    }
   }
   updatedAt
 `;

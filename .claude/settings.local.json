@@ -79,7 +79,9 @@
       "PowerShell(Get-Process node -ErrorAction SilentlyContinue)",
       "PowerShell($pids = \\(Get-NetTCPConnection -State Listen -LocalPort 3000,3001,3002,3003 -ErrorAction SilentlyContinue\\).OwningProcess | Select-Object -Unique; if \\($pids\\) { foreach \\($p in $pids\\) { try { $proc = Get-Process -Id $p -ErrorAction SilentlyContinue; if \\($proc\\) { Write-Output \"Killing PID $p \\($\\($proc.ProcessName\\)\\)\"; Stop-Process -Id $p -Force } } catch {} } } else { Write-Output \"no zombies on 3000-3003\" })",
       "PowerShell(Get-NetTCPConnection -State Listen -LocalPort 3000,3001 -ErrorAction SilentlyContinue)",
-      "PowerShell(Stop-Process -Force)"
+      "PowerShell(Stop-Process -Force)",
+      "Bash(grep -E --line-buffered \"Rebuild complete|crashed|✘|retry|/17393.*000/|^  \\\\\\\\u2713 [0-9]+000/\")",
+      "PowerShell(Stop-Process -Id 18300 -Force -ErrorAction SilentlyContinue)"
     ],
     "additionalDirectories": [
       "\\tmp"
