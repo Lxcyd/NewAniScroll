@@ -8,6 +8,9 @@ node_modules/
 out/
 build/
 
+# Local caches (models, scrape artifacts)
+.cache/
+
 # Env files (CRITIQUE - ne jamais commit tes clés)
 .env
 .env.local
@@ -32,4 +35,4 @@ Thumbs.db
 .vscode/
 .idea/
 *.swp
-*.swo
+*.swo/.cache

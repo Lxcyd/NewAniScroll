@@ -42,9 +42,6 @@ function Footer() {
                   <Link href={`/en/search/anime`}>Popular Anime</Link>
                 </li>
                 <li className="cursor-pointer hover:text-action">
-                  <Link href={`/en/search/manga`}>Popular Manga</Link>
-                </li>
-                <li className="cursor-pointer hover:text-action">
                   <Link href={`/donate`}>Donate</Link>
                 </li>
               </ul>

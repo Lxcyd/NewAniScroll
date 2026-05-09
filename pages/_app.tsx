@@ -89,7 +89,7 @@ export default function App({
                     },
                     exitState: {},
                   }}
-                  className="z-50 w-screen"
+                  className="z-50 w-full"
                 >
                   <NextNProgress
                     color="#FF7E2C"

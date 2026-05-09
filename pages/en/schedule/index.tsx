@@ -112,8 +112,12 @@ export async function getServerSideProps() {
       page++;
     }
 
+    // Force the English locale here. Without it, Node falls back to the
+    // server's system locale ("jeudi" on a French host), which doesn't match
+    // the client-side day filter ["Sunday", "Monday", …]. The mismatch was
+    // why selecting a day showed nothing while "All" worked.
     const timestampToDay = (timestamp: number) => {
-      return new Date(timestamp * 1000).toLocaleDateString(undefined, {
+      return new Date(timestamp * 1000).toLocaleDateString("en-US", {
         weekday: "long"
       });
     };

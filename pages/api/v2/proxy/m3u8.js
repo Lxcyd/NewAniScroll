@@ -7,6 +7,48 @@
  */
 
 import { Readable } from "stream";
+import { getVoeCookieFor } from "@/lib/extractors";
+
+// VOE's CDN (cloudwindow-route.com) rate-limits to 1 concurrent request per
+// IP. hls.js fetches 3-6 segments in parallel by default → all but the first
+// get 403. Serializing requests per host fixes this. The queue is a simple
+// promise chain: each new request waits for the previous one to finish.
+//
+// Only applied to known concurrency-limited CDNs to avoid slowing down
+// well-behaved hosts.
+// Only VOE genuinely needs serialization (1 concurrent connection per IP).
+// Smoothpre's CDNs (dramiyos-cdn, acek-cdn) tolerate concurrent requests
+// and putting them in this list creates an unnecessary bottleneck that
+// makes playback start slowly and segments time out under bad networks.
+const SERIALIZED_HOST_PATTERNS = [
+  /cloudwindow-route\.com$/,  // VOE
+];
+
+const serialQueues = new Map(); // host → Promise tail
+
+function shouldSerialize(host) {
+  return SERIALIZED_HOST_PATTERNS.some((re) => re.test(host));
+}
+
+async function serializedFetch(targetUrl, fetchOptions) {
+  const host = new URL(targetUrl).hostname;
+  if (!shouldSerialize(host)) {
+    return fetch(targetUrl, fetchOptions);
+  }
+  // Wait for the previous request to this host to finish, then ours runs.
+  const prev = serialQueues.get(host) || Promise.resolve();
+  let release;
+  const ours = new Promise((r) => (release = r));
+  serialQueues.set(host, ours);
+  try {
+    await prev;
+    return await fetch(targetUrl, fetchOptions);
+  } finally {
+    release();
+    // GC: if we're the tail, clear the entry
+    if (serialQueues.get(host) === ours) serialQueues.delete(host);
+  }
+}
 
 export default async function handler(req, res) {
   const { url, referer } = req.query;
@@ -63,6 +105,16 @@ export default async function handler(req, res) {
       cdnReferer = "https://vidmoly.net/";
       cdnOrigin = "https://vidmoly.net";
     }
+    // Megaplay (HiAnime/MegaCloud derivative) — m3u8 + subs on mewstream.buzz
+    // and lostproject.club CDNs require Referer: megaplay.buzz/.
+    else if (
+      targetUrl.includes("mewstream.buzz") ||
+      targetUrl.includes("lostproject.club") ||
+      targetUrl.includes("megaplay.buzz")
+    ) {
+      cdnReferer = "https://megaplay.buzz/";
+      cdnOrigin = "https://megaplay.buzz";
+    }
 
     // Priority: explicit referer param > CDN auto-detect > target origin
     const finalReferer = referer
@@ -80,20 +132,35 @@ export default async function handler(req, res) {
     // Forward Range header for MP4 streaming/seeking
     if (req.headers.range) headers.Range = req.headers.range;
 
+    // VOE: forward DDoS-Guard cookies captured during extraction. The CDN
+    // (cloudwindow-route, ugc-cdn-caching-*) checks `__ddg9_` against the
+    // requesting IP and rejects requests without it, even if the IP is the
+    // same one that obtained the cookie initially.
+    const targetHost = new URL(targetUrl).hostname;
+    const voeCookie = getVoeCookieFor(targetHost);
+    if (voeCookie) headers.Cookie = voeCookie;
+
     // Abort the upstream fetch if the client disconnects.
     const ctrl = new AbortController();
     req.on("close", () => ctrl.abort());
 
-    // Fetch with one retry on 403 (some CDNs need a warm-up request)
-    let response = await fetch(targetUrl, { headers, signal: ctrl.signal });
+    // Fetch with one retry on 403 (some CDNs need a warm-up request).
+    // serializedFetch funnels concurrent requests to rate-limited hosts (VOE
+    // CDN allows 1 connection at a time per IP) into a per-host FIFO queue.
+    let response = await serializedFetch(targetUrl, { headers, signal: ctrl.signal });
     if (response.status === 403) {
       await new Promise((r) => setTimeout(r, 300));
-      response = await fetch(targetUrl, { headers, signal: ctrl.signal });
+      response = await serializedFetch(targetUrl, { headers, signal: ctrl.signal });
     }
 
-    // Allow 200 and 206 (partial content for ranged requests)
+    // Allow 200 and 206 (partial content for ranged requests).
+    // For hard rejections (403/404/410) we forward 410 Gone — hls.js treats
+    // 410 as a permanent failure and reports a fatal error immediately,
+    // instead of retrying segments and spamming dozens of 403s in the
+    // console while our hls-error fallback waits for it to give up.
     if (!response.ok && response.status !== 206) {
-      return res.status(response.status).json({ error: "Upstream error" });
+      const fatalStatus = [403, 404, 410, 401].includes(response.status) ? 410 : response.status;
+      return res.status(fatalStatus).json({ error: "Upstream error", upstream: response.status });
     }
 
     const contentType = response.headers.get("content-type") || "";
@@ -112,19 +179,26 @@ export default async function handler(req, res) {
           .json({ error: "Got HTML instead of m3u8 stream" });
       }
 
-      // Rewrite URLs in the playlist to go through this proxy
-      const baseUrl = targetUrl.substring(0, targetUrl.lastIndexOf("/") + 1);
       // Propagate the referer (explicit or auto-detected) to segment requests
       const effectiveReferer = referer ? decodeURIComponent(referer) : cdnReferer;
       const refParam = effectiveReferer
         ? `&referer=${encodeURIComponent(effectiveReferer)}`
         : "";
 
-      // Helper to resolve a URL to absolute
+      // Helper to resolve a URL to absolute. We use the WHATWG URL constructor
+      // because some CDNs (notably VOE) embed `/` characters inside their
+      // query string tokens (e.g. `node=jEH+LZZt+/aHla+H2M=`). String-based
+      // `lastIndexOf("/")` would match a slash *inside* the query, producing
+      // a malformed base URL that concatenates "master.m3u8?t=..../index.m3u8".
+      // URL() correctly resolves relative paths against the path component
+      // only, ignoring the query string.
       const toAbsolute = (u) => {
         if (u.startsWith("http")) return u;
-        if (u.startsWith("/")) return targetOrigin + u;
-        return baseUrl + u;
+        try {
+          return new URL(u, targetUrl).toString();
+        } catch {
+          return u;
+        }
       };
 
       // Rewrite #EXT-X-KEY URI="..." and similar tags (encryption keys, maps)

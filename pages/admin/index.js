@@ -43,11 +43,21 @@ export async function getServerSideProps(context) {
     };
   }
 
+  // The original dashboard counts keys in Redis. With REDIS_URL unset (we now
+  // serve cache from Turso), those calls would TypeError on `redis.scan`.
+  // Guard each call so the page still renders — admin can read DB stats from
+  // Turso instead via separate tooling.
+  const safeCount = async (fn) => {
+    try { return await fn(); } catch { return 0; }
+  };
+  const safeValues = async (fn) => {
+    try { return await fn(); } catch { return []; }
+  };
   const [anime, info, meta, report] = await Promise.all([
-    countNumericKeys(),
-    countKeysWithPrefix("anime:"),
-    countKeysWithPrefix("meta:"),
-    getValuesWithPrefix("report:"),
+    safeCount(countNumericKeys),
+    safeCount(() => countKeysWithPrefix("anime:")),
+    safeCount(() => countKeysWithPrefix("meta:")),
+    safeValues(() => getValuesWithPrefix("report:")),
   ]);
 
   return {

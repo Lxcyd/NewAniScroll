@@ -9,6 +9,24 @@ html {
     env(safe-area-inset-bottom) env(safe-area-inset-left);
 }
 
+/* Kill the page-wide horizontal scrollbar AND prevent users from scrolling
+   sideways with touchpad / shift+wheel.
+   Many components use `w-screen` (= 100vw), which on Windows includes the
+   vertical scrollbar's ~17px → those elements overflow the viewport.
+   - `<html> { overflow-x: clip }`: hides the visual overflow without creating
+     a containing block (so `position: sticky` keeps working everywhere).
+   - `<body> { overflow-x: hidden }`: blocks programmatic / touchpad scroll
+     of the body itself; combined with html's clip, neither the visible
+     scrollbar nor the latent scroll behavior remain.
+   Intentional horizontal carousels opt back in with `overflow-x-auto` on
+   their own container — that scope is unaffected because they're nested. */
+html {
+  overflow-x: clip;
+}
+body {
+  overflow-x: hidden;
+}
+
 * {
   -webkit-tap-highlight-color: transparent;
 }
@@ -33,6 +51,16 @@ html {
     rgba(0, 0, 0, 0.6) 80%,
     rgba(0, 0, 0, 0.85) 100%
   );
+}
+
+/* Hide Vidstack's native CC button + Captions submenu — we replace both with
+   our own SubtitleMenu (richer track list + customize-styling shortcut).
+   Keeping them around would create two confusingly different controls for
+   the same job, plus the duplicate Captions row inside Settings. */
+.vds-player .vds-caption-button,
+.vds-player .vds-captions-menu,
+.vds-captions-menu {
+  display: none !important;
 }
 /* Active/checked menu items + selected menu options */
 .vds-player [data-checked],

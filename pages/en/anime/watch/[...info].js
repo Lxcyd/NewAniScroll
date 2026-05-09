@@ -200,13 +200,9 @@ export default function Watch({
   // Track server preference order — favorite working servers come first
   const PREFERRED_FALLBACK_ORDER = [
     "megaplay",
-    "4animo",
     "hianime-vidsrc",
     "hianime-megacloud",
     "hianime-tcloud",
-    "miruro-jet",
-    "cooren-animekai",
-    "cooren-animepahe",
     "animesaturn",
     "animesama-sibnet",
     "animesama-sendvid",
@@ -278,6 +274,7 @@ export default function Watch({
 
   const {
     theaterMode,
+    autoplay,
     setAutoNext,
     setAutoPlay,
     setMarked,
@@ -362,12 +359,10 @@ export default function Watch({
   }, [sessions?.user?.name, epiNumber, dub]);
 
   // ── Auto-next / auto-play + skip data ───────────────────────
+  // autoplay/autoNext are now hydrated from localStorage by WatchPageProvider
+  // itself (single source of truth + automatic persistence), so we don't read
+  // them here anymore.
   useEffect(() => {
-    const autoNext = localStorage.getItem("autoNext");
-    const autoPlay = localStorage.getItem("autoplay");
-    if (autoNext) setAutoNext(autoNext);
-    if (autoPlay) setAutoPlay(autoPlay);
-
     async function fetchSkip() {
       if (!info?.idMal) return;
       try {
@@ -470,16 +465,34 @@ export default function Watch({
   // ── Pre-check all servers on page load ─────────────────────
   // Probes are batched (max N concurrent) to avoid overwhelming the dev server
   // and to keep navigation snappy. Aborted on episode change / unmount.
+  //
+  // Probe lifecycle for each server:
+  //   1st attempt → 200 with valid streams/iframe         → confirmed
+  //                 200 with { error } or empty payload   → retry after 3s
+  //                 5xx / network / timeout               → retry after 3s
+  //                 404 ("Source not found")              → terminal failed
+  //   2nd attempt → 200 with valid streams/iframe         → confirmed
+  //                 anything else                         → failed
+  //
+  // Why retry: anime-sama / fanart.tv / vidmoly occasionally rate-limit or
+  // throw transient 503s, especially when 8 probes hit at once. Without retry
+  // a perfectly working server gets hidden because it lost a single dice roll.
   useEffect(() => {
     if (!info?.id || !epiNumber) return;
 
     const SERVERS = require("@/lib/servers").default;
+    // Probe every API/HLS server, including the currently active one.
+    // (We previously skipped activeServer to save one request, but that
+    // meant if the user changed away from the default before the probe
+    // completed, the original default never got marked as confirmed and
+    // disappeared from the selector.)
     const toProbe = SERVERS.filter(
-      (s) => (s.type === "hls" || s.type === "api") && s.id !== activeServer
+      (s) => s.type === "hls" || s.type === "api"
     );
 
     const controller = new AbortController();
     const MAX_CONCURRENT = 8;
+    const RETRY_DELAY_MS = 3000;
     let cancelled = false;
 
     const probeMeta = info ? {
@@ -489,7 +502,9 @@ export default function Watch({
       relations: info.relations,
     } : null;
 
-    const probe = async (s) => {
+    // Returns: "ok" | "retry" | "fail-404" | "abort"
+    // We parse the body so a 200 with { error } counts as "retry", not "ok".
+    const attemptProbe = async (s) => {
       try {
         const res = await fetch("/api/v2/source", {
           method: "POST",
@@ -504,14 +519,42 @@ export default function Watch({
           }),
           signal: controller.signal,
         });
-        if (res.ok) {
-          markConfirmed(s.id);
-        } else if (res.status === 404 || res.status >= 500) {
-          markFailed(s.id, res.status === 404 ? "Source not found" : `HTTP ${res.status}`);
-        }
-      } catch {
-        // Network/abort errors — don't mark failed
+
+        if (res.status === 404) return "fail-404";
+        if (!res.ok) return "retry"; // 5xx, 429, anything non-2xx
+
+        // 200 — but the backend sometimes wraps an extractor failure as
+        // { error: "..." } or returns nothing playable. Validate the shape.
+        let body;
+        try { body = await res.json(); } catch { return "retry"; }
+        if (body?.error) return "retry";
+        const hasStream =
+          (Array.isArray(body?.streams) && body.streams.length > 0) ||
+          (Array.isArray(body?.sources) && body.sources.length > 0) ||
+          (typeof body?.iframe === "string" && body.iframe.length > 0);
+        return hasStream ? "ok" : "retry";
+      } catch (e) {
+        if (e?.name === "AbortError") return "abort";
+        return "retry"; // network / DNS / timeout
       }
+    };
+
+    const probe = async (s) => {
+      const first = await attemptProbe(s);
+      if (first === "abort" || cancelled) return;
+      if (first === "ok") return markConfirmed(s.id);
+      if (first === "fail-404") return markFailed(s.id, "Source not found");
+
+      // Transient — wait, then try once more before giving up.
+      await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+      if (cancelled || controller.signal.aborted) return;
+
+      const second = await attemptProbe(s);
+      if (second === "abort" || cancelled) return;
+      if (second === "ok") return markConfirmed(s.id);
+      if (second === "fail-404") return markFailed(s.id, "Source not found");
+      // Two transient failures in a row — call it broken.
+      markFailed(s.id, "Source unavailable");
     };
 
     (async () => {
@@ -538,43 +581,60 @@ export default function Watch({
     const SERVERS = require("@/lib/servers").default;
     const dubFlag = !!dub;
 
-    const validators = {
-      megaplay: {
-        url: `https://megaplay.buzz/stream/ani/${info.id}/${epiNumber}/${dubFlag ? "dub" : "sub"}`,
-        badMarkers: ["Error Code", "We're Sorry", "can't find the file"],
-      },
-      "4animo": {
-        url: `https://cdn.4animo.xyz/api/embed/ani/${info.id}/${epiNumber}/${dubFlag ? "dub" : "sub"}?k=1`,
-        badMarkers: ["File not found", "We're Sorry", "can't find the file"],
-      },
-    };
+    // Iframe-type validators were used for Megaplay/4Animo but both servers
+    // are now removed (Megaplay is type:"api" with its own extractor; 4Animo
+    // was retired). Keeping the structure as an empty map in case a future
+    // iframe server needs the same kind of HTML-content sanity check.
+    const validators = {};
 
     const controller = new AbortController();
     let cancelled = false;
 
-    const validate = async (serverId, cfg) => {
-      // Skip if this server isn't even in the lib (e.g., was removed)
-      if (!SERVERS.find((s) => s.id === serverId)) return;
+    // Same retry semantics as the main probe: transient errors (5xx, network)
+    // get a 3s second chance; only a hard 404 or repeated failure marks the
+    // server unavailable.
+    const RETRY_DELAY_MS = 3000;
+
+    // Returns "ok" | "retry" | "fail-404" | "fail-content" | "abort"
+    const attempt = async (cfg) => {
       try {
         const res = await fetch(cfg.url, {
           method: "GET",
           mode: "cors",
           signal: controller.signal,
         });
-        if (!res.ok) {
-          markFailed(serverId, `HTTP ${res.status}`);
-          return;
-        }
+        if (res.status === 404) return "fail-404";
+        if (!res.ok) return "retry";
         const html = await res.text();
-        if (cfg.badMarkers.some((m) => html.includes(m))) {
-          markFailed(serverId, "Episode not available");
-        } else {
-          markConfirmed(serverId);
-        }
+        if (cfg.badMarkers.some((m) => html.includes(m))) return "fail-content";
+        return "ok";
       } catch (e) {
-        // Network/CORS error → leave unconfirmed (server selector will hide
-        // unless the iframe itself manages to load later)
+        if (e?.name === "AbortError") return "abort";
+        return "retry";
       }
+    };
+
+    const validate = async (serverId, cfg) => {
+      if (!SERVERS.find((s) => s.id === serverId)) return;
+
+      const first = await attempt(cfg);
+      if (first === "abort" || cancelled) return;
+      if (first === "ok") return markConfirmed(serverId);
+      if (first === "fail-404") return markFailed(serverId, "HTTP 404");
+      if (first === "fail-content") return markFailed(serverId, "Episode not available");
+
+      await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+      if (cancelled || controller.signal.aborted) return;
+
+      const second = await attempt(cfg);
+      if (second === "abort" || cancelled) return;
+      if (second === "ok") return markConfirmed(serverId);
+      if (second === "fail-404") return markFailed(serverId, "HTTP 404");
+      if (second === "fail-content") return markFailed(serverId, "Episode not available");
+      // Two transient failures — let the iframe load attempt itself decide
+      // (CORS error specifically: leaving unconfirmed without marking failed
+      // means an iframe-typed server stays visible by default; if its load
+      // also times out the runtime markFailed will catch it).
     };
 
     Object.entries(validators).forEach(([id, cfg]) => {
@@ -673,6 +733,7 @@ export default function Watch({
       return (
         <UniversalPlayer
           key={`${server.id}-${info.id}-${epiNumber}-${dub ? "dub" : "sub"}`}
+          autoplay={!!autoplay}
           streamData={hlsData}
           poster={episodeNavigation?.playing?.img || info?.bannerImage}
           serverId={server.id}
@@ -703,7 +764,7 @@ export default function Watch({
         onError={(reason) => markFailed(server.id, reason || "Iframe load timeout")}
       />
     );
-  }, [activeServer, episodeNavigation, hlsLoading, hlsData, info, epiNumber, dub, markFailed, handleServerChange]);
+  }, [activeServer, episodeNavigation, hlsLoading, hlsData, info, epiNumber, dub, markFailed, handleServerChange, autoplay]);
 
   // ── Render ───────────────────────────────────────────────────
   return (

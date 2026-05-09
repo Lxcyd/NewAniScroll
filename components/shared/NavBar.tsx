@@ -25,7 +25,6 @@ type NavbarProps = {
   paddingY?: string;
   home?: boolean;
   back?: boolean;
-  manga?: boolean;
   shrink?: boolean;
   bgHover?: boolean;
 };
@@ -38,7 +37,6 @@ export function Navbar({
   paddingY = "py-3",
   home = false,
   back = false,
-  manga = false,
   shrink = false,
   bgHover = false,
 }: NavbarProps) {
@@ -96,11 +94,7 @@ export function Navbar({
                   type="button"
                   className="flex-center w-7 h-7 text-white"
                   onClick={() => {
-                    back
-                      ? router.back()
-                      : manga
-                      ? router.push("/en/search/manga")
-                      : router.push("/en");
+                    back ? router.back() : router.push("/en");
                   }}
                 >
                   <ArrowLeftIcon className="w-full h-full" />
@@ -141,14 +135,6 @@ export function Navbar({
                   className="hover:text-action/80 transition-all duration-150 ease-linear"
                 >
                   This Season
-                </Link>
-              </li>
-              <li>
-                <Link
-                  href="/en/search/manga"
-                  className="hover:text-action/80 transition-all duration-150 ease-linear"
-                >
-                  Manga
                 </Link>
               </li>
               <li>

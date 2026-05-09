@@ -1,0 +1,74 @@
+# Daily delta refresh of the fanart cache.
+#
+# Two-step pipeline:
+#   1. refresh-fanarts.mjs — uses fanart.tv /latest?date= to find anime
+#      whose images changed since last run, then re-pulls those entries.
+#      INSERT OR IGNORE so existing rows aren't duplicated.
+#   2. classify-fanarts.mjs — classifies any rows where nsfw_label IS NULL
+#      (i.e. only the new ones that step 1 just added).
+#
+# Schedule: 04:00 UTC every day (after the AniList refresh at 03:00 UTC).
+# Also exposes workflow_dispatch for manual runs from the Actions tab.
+#
+# Required secrets (Repo → Settings → Secrets and variables → Actions):
+#   TURSO_DATABASE_URL
+#   TURSO_AUTH_TOKEN
+#   FANART_API_KEY
+
+name: refresh-fanarts
+
+on:
+  schedule:
+    - cron: "0 4 * * *"
+  workflow_dispatch:
+    inputs:
+      skip_classify:
+        description: "Skip the NSFW classifier step"
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install minimal deps
+        run: npm install --no-save @libsql/client@^0.17 dotenv@^17 onnxruntime-node@^1.25 sharp@^0.32
+
+      - name: Cache the NSFW model
+        uses: actions/cache@v4
+        with:
+          path: .cache/models
+          key: nsfw-vit-fp32-v1
+
+      - name: Download NSFW model if missing
+        run: |
+          if [ ! -f .cache/models/nsfw-vit-fp32.onnx ]; then
+            node scripts/download-nsfw-model.mjs
+          fi
+
+      - name: Refresh fanarts (delta)
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN:   ${{ secrets.TURSO_AUTH_TOKEN }}
+          FANART_API_KEY:     ${{ secrets.FANART_API_KEY }}
+        run: node scripts/refresh-fanarts.mjs
+
+      - name: Classify new fanarts
+        if: ${{ inputs.skip_classify != true }}
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN:   ${{ secrets.TURSO_AUTH_TOKEN }}
+        # GitHub Actions runners have 4 vCPUs — match that.
+        # The classifier only loops over rows where nsfw_label IS NULL, so
+        # this only touches rows the refresh step just added.
+        run: node scripts/classify-fanarts.mjs --concurrency=4

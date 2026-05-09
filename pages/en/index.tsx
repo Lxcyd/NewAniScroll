@@ -123,11 +123,9 @@ export default function Home({
 
   const {
     anime: currentAnime,
-    manga: currentManga,
     recommendations,
   }: {
     anime: CurrentMediaTypes[];
-    manga: CurrentMediaTypes[];
     recommendations: CurrentMediaTypes[];
   } = GetMedia(sessions, {
     stats: "CURRENT",
@@ -200,7 +198,6 @@ export default function Home({
   }, [release]);
 
   const [listAnime, setListAnime] = useState<any[] | null>();
-  const [listManga, setListManga] = useState<any[] | null>(null);
   const [planned, setPlanned] = useState<any[] | null>(null);
   const [user, setUser] = useState<any[] | null>(null);
   const [removed, setRemoved] = useState();
@@ -311,19 +308,10 @@ export default function Home({
         .map(({ media }) => media)
         .filter((media) => media);
 
-      const getManga =
-        currentManga?.find((item) => item.status === "CURRENT") || null;
-      const listManga = getManga?.entries
-        .map(({ media }) => media)
-        .filter((media) => media);
-
       const planned = plan?.[0]?.entries
         .map(({ media }) => media)
         .filter((media) => media);
 
-      if (listManga) {
-        setListManga(listManga);
-      }
       if (listAnime) {
         setListAnime(listAnime);
       }
@@ -500,24 +488,6 @@ export default function Home({
                   section="Your Watch List"
                   data={listAnime}
                   og={prog}
-                  userName={userSession?.name}
-                />
-              </motion.section>
-            )}
-
-            {sessions && listManga && listManga?.length > 0 && (
-              <motion.section // Add motion.div to each child component
-                key="listManga"
-                initial={{ y: 20, opacity: 0 }}
-                whileInView={{ y: 0, opacity: 1 }}
-                transition={{ duration: 0.5 }}
-                viewport={{ once: true }}
-              >
-                <Content
-                  ids="listManga"
-                  section="Your Manga List"
-                  data={listManga}
-                  // og={prog}
                   userName={userSession?.name}
                 />
               </motion.section>

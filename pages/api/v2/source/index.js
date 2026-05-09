@@ -1,25 +1,38 @@
 import { rateLimiterRedis, redis } from "@/lib/redis";
 import * as cheerio from "cheerio";
 import { ANIME } from "@consumet/extensions";
-import { getExtractor } from "@/lib/extractors";
+import { getExtractor, extractMegaplay } from "@/lib/extractors";
 import { getMediaMeta, primeMediaCache } from "@/lib/anilist/getMediaMeta";
 
-// Hosts where we can server-side extract a direct stream URL (bypasses
-// X-Frame-Options, ads, JWT redirects). If extraction fails for any of these,
-// caller falls back to the raw iframe.
-// Hosts where server-side extraction returns a REAL playable stream.
+// Hosts where server-side extraction returns a REAL playable stream — we pull
+// the m3u8 / mp4 directly so the universal Vidstack player can play it (with
+// our subtitle / cast / download chrome) instead of dropping back to an iframe.
 //
-// Smoothpre / movearnpre / dingtezuni / callistanise also "extract" but they
-// detect non-browser requests and serve a FAKE ad playlist (TikTok image URLs
-// in place of video segments). Including them here would give the universal
-// player an unplayable source — better to fall back to their native iframe
-// where they serve the real video to the user's browser session.
+// History note: smoothpre / movearnpre used to also serve a relative
+// `/stream/.../master.m3u8` path which was a TIKTOK IMAGE TRAP (anti-bot
+// detection — segments were JPEG URLs from tiktokcdn). The current extractor
+// (extractMovearnpre) prefers the absolute hls2 source from their CDN
+// (dramiyos-cdn / acek-cdn / mindbodywellness.space) which serves real .ts
+// segments in 1080p/720p. Tokens last ~1.5h.
+//
+// Dingtezuni / callistanise share the same packed-JS embed format. They're
+// included optimistically — extractor will return { error: ... } if they're
+// not actually playable, and the caller falls back to the raw iframe.
 const EXTRACTABLE_HOSTS = [
   "sibnet.ru",
   "sendvid.com",
   "vidmoly",
   "embed4me",
   "lpayer",        // lpayer.embed4me.com
+  "smoothpre",     // hls2 CDN bypass (was TikTok-trapped via /stream/ path)
+  "movearnpre",
+  "dingtezuni",
+  "callistanise",
+  // VOE serves voe.sx → JS-redirect → mirror domain → obfuscated JSON payload.
+  // The extractor follows the redirect chain and decodes the payload to a
+  // signed master.m3u8. See lib/extractors.js → extractVoe.
+  "voe.sx",
+  "voe.",          // catches voe-network.net, voe-unblock.com, etc.
 ];
 
 /**
@@ -504,12 +517,58 @@ async function getAnimeSamaIframe(serverKey, title, episode, aniId) {
       }
     }
 
+    // 3.6. TITLE MATCHING — prefer the panneau whose label is most similar to
+    // the AniList title. Solves the "Baki Hanma saison 1" vs "Baki Hanma saison 2"
+    // case where the PREQUEL chain over-counts because AniList's chain
+    // includes ONAs that anime-sama merges into a single panneau slot.
+    //
+    // Score = token-overlap between panneau label and AniList titles, with a
+    // small bonus for matching the season suffix ("saison 1" → bonus when
+    // AniList title doesn't have a "Season N" hint, "saison 2" → bonus when
+    // AniList title has "Season 2" / "2nd Season" / "Part 2").
+    const aniTitles = [
+      meta?.title?.romaji,
+      meta?.title?.english,
+      ...(meta?.synonyms || []),
+    ].filter(Boolean);
+    const aniSeasonHint = (() => {
+      const t = `${meta?.title?.romaji || ""} ${meta?.title?.english || ""}`;
+      const m = t.match(/\b(?:season|part|saison)\s*(\d+)\b|(\d+)(?:st|nd|rd|th)\s*season/i);
+      if (!m) return null;
+      return parseInt(m[1] || m[2], 10);
+    })();
+    let titleMatchedSeason = null;
+    if (aniTitles.length > 0 && seasons.length > 1) {
+      let best = { season: null, score: 0 };
+      for (const s of seasons) {
+        let bestForSeason = 0;
+        for (const t of aniTitles) {
+          const sc = scoreSlugAgainstTitle(s.label, t);
+          if (sc > bestForSeason) bestForSeason = sc;
+        }
+        // Tie-breaker on the panneau's own "saison N" suffix vs AniList hint.
+        const labelSeasonMatch = s.label.match(/saison\s*(\d+)/i);
+        const labelSeasonNum = labelSeasonMatch ? parseInt(labelSeasonMatch[1], 10) : null;
+        if (aniSeasonHint != null && labelSeasonNum === aniSeasonHint) {
+          bestForSeason += 5; // strong signal
+        } else if (aniSeasonHint == null && labelSeasonNum === 1) {
+          bestForSeason += 1; // mild bias toward "saison 1" when no hint
+        }
+        if (bestForSeason > best.score) best = { season: s, score: bestForSeason };
+      }
+      if (best.season && best.score > 0) {
+        titleMatchedSeason = best.season;
+        console.log(`[anime-sama] Title match: "${best.season.label}" (score ${best.score})`);
+      }
+    }
+
     // 4. If we detected a specific season from AniList, go directly to it
     const episodeIndex = Number(episode) - 1;
     let iframeUrl = null;
 
-    // Year match takes priority over PREQUEL-chain detection
+    // Priority: explicit year match > title match > PREQUEL ordinal
     const directTarget = yearMatchedSeason ||
+      titleMatchedSeason ||
       (seasonNum > 1 ? seasons.find((s) => s.ordinal === seasonNum) : null);
 
     if (directTarget) {
@@ -610,7 +669,17 @@ async function getAnimeSamaIframe(serverKey, title, episode, aniId) {
  * Detect which season number an AniList ID represents by walking the PREQUEL chain.
  * Uses the shared Media cache — a single AniList fetch covers title, synonyms,
  * AND relations, so we don't need separate calls for each scraper helper.
+ *
+ * We accept TV, ONA, OVA and TV_SHORT prequels because anime-sama / voir-anime
+ * list those alongside main TV seasons (e.g. Baki Hanma is `format=ONA` on
+ * AniList — filtering to TV-only would walk the chain wrong and return season=1
+ * for a 4th-entry anime, dropping the user on the wrong show entirely).
+ *
+ * MOVIE / SPECIAL / MUSIC are still excluded — those don't increment the
+ * "season" counter on either site (films get their own slug or `film/` path).
  */
+const PREQUEL_FORMATS = new Set(["TV", "ONA", "OVA", "TV_SHORT"]);
+
 async function detectSeasonNumber(aniId) {
   const cacheKey = String(aniId);
   if (seasonCache.has(cacheKey)) return seasonCache.get(cacheKey);
@@ -625,7 +694,7 @@ async function detectSeasonNumber(aniId) {
     if (!media) break;
     const edges = media.relations?.edges || [];
     const prequel = edges.find(
-      (e) => e.relationType === "PREQUEL" && e.node?.format === "TV"
+      (e) => e.relationType === "PREQUEL" && PREQUEL_FORMATS.has(e.node?.format)
     );
     if (prequel) {
       season++;
@@ -637,6 +706,31 @@ async function detectSeasonNumber(aniId) {
 
   seasonCache.set(cacheKey, season);
   return season;
+}
+
+// Normalize a title for similarity scoring: lowercase, strip diacritics +
+// punctuation, collapse whitespace. Yields a comparable token bag.
+function normalizeForMatch(s) {
+  return (s || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+// How well does a candidate slug (e.g. "baki", "baccano") match a target
+// title? Measured as token overlap weighted by token length.
+//   "baki" vs target "baki hanma"  → 1 token match (baki, len 4) → score 4
+//   "baccano" vs target "baki hanma" → 0 token match → score 0
+function scoreSlugAgainstTitle(slug, target) {
+  const a = new Set(normalizeForMatch(slug.replace(/-/g, " ")).split(" ").filter(Boolean));
+  const b = normalizeForMatch(target).split(" ").filter(Boolean);
+  let score = 0;
+  for (const tok of b) {
+    if (a.has(tok)) score += tok.length;
+  }
+  return score;
 }
 
 async function findAnimeSamaSlug(title, aniId) {
@@ -666,6 +760,23 @@ async function findAnimeSamaSlug(title, aniId) {
     }
   }
 
+  // Build the set of titles we'll score candidates against. We don't strip
+  // here — we want "Hanma Baki" to match "baki" via token overlap, not via
+  // string equality.
+  const targets = [
+    title,
+    media?.title?.english,
+    media?.title?.romaji,
+    stripped,
+    ...((media?.synonyms) || []),
+  ].filter(Boolean);
+
+  // Score every candidate seen across all queries; return the best.
+  // Anime-Sama no longer reliably tags "VF" in search results, so we ignore
+  // language and rely on token-overlap scoring against the AniList titles.
+  // Reject scores of 0 — those are unrelated catalogue entries (Baccano vs
+  // Baki Hanma) that the search returned because of a fuzzy match on letters.
+  const candidates = new Map(); // slug → best score
   for (const q of queries) {
     const searchRes = await fetch(
       `${ANIMESAMA_BASE}/catalogue/?search=${encodeURIComponent(q)}`,
@@ -675,36 +786,38 @@ async function findAnimeSamaSlug(title, aniId) {
     const html = await searchRes.text();
     const $ = cheerio.load(html);
 
-    // Find first anime card with VF language
-    let slug = null;
     $("a[href*='/catalogue/']").each((_, el) => {
       const href = $(el).attr("href") || "";
-      const text = $(el).text();
-      // Check if this result has VF
-      if (text.includes("VF") && href.includes("/catalogue/") && !slug) {
-        const match = href.match(/\/catalogue\/([^/]+)/);
-        if (match) slug = match[1];
+      const m = href.match(/\/catalogue\/([a-z0-9-]+)\/?$/);
+      if (!m) return;
+      const slug = m[1];
+      // Best score for this slug against any of the AniList titles.
+      let best = 0;
+      for (const t of targets) {
+        const s = scoreSlugAgainstTitle(slug, t);
+        if (s > best) best = s;
       }
+      if (best > (candidates.get(slug) || 0)) candidates.set(slug, best);
     });
+  }
 
-    // If no VF-specific match, just take the first catalogue result
-    if (!slug) {
-      $("a[href*='/catalogue/']").each((_, el) => {
-        const href = $(el).attr("href") || "";
-        if (!slug) {
-          const match = href.match(/\/catalogue\/([^/]+)\/?$/);
-          if (match) slug = match[1];
-        }
-      });
-    }
-
-    if (slug) {
-      slugCache.set(cacheKey, slug);
-      return slug;
+  // Pick the highest-scoring slug. Ties go to the shortest slug (more likely
+  // to be the canonical entry: "baki" over "baki-hanma-special-fan-edit").
+  let chosen = null;
+  let chosenScore = 0;
+  for (const [slug, score] of candidates) {
+    if (score === 0) continue;
+    if (
+      score > chosenScore ||
+      (score === chosenScore && chosen && slug.length < chosen.length)
+    ) {
+      chosen = slug;
+      chosenScore = score;
     }
   }
 
-  return null;
+  slugCache.set(cacheKey, chosen);
+  return chosen;
 }
 
 /** Match an episodes.js array to a preferred host list. Returns null if no match. */
@@ -864,17 +977,10 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId) {
 
     console.log(`[voiranime] Found ep ${episode} on ${serverDef.name}: ${iframeUrl}`);
 
-    // Try server-side extraction for known hosts
+    // Content validation BEFORE attempting extraction — saves ~1-2s of
+    // pointless work when the video is already gone, and prevents the player
+    // from getting stuck in a 403 retry loop on segments that will never come.
     const lower = iframeUrl.toLowerCase();
-    if (EXTRACTABLE_HOSTS.some((h) => lower.includes(h))) {
-      const extractor = getExtractor(iframeUrl);
-      const result = await extractor(iframeUrl);
-      if (result.streams?.length) return result;
-    }
-
-    // Content validation for iframe hosts that return a "404 - Not found" HTML
-    // page when the specific video doesn't exist (VOE, streamtape, etc). The
-    // iframe would otherwise load the error page silently.
     if (lower.includes("voe.sx") || lower.includes("voe.")) {
       try {
         const probe = await fetch(iframeUrl, {
@@ -886,7 +992,32 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId) {
           return null;
         }
         const html = await probe.text();
-        if (
+        // Follow the JS redirect to the actual mirror (maryspecialwatch.com,
+        // weneverbeenfree.com, etc) and validate THAT response. Without this
+        // every removed VOE video returns 200 here and only fails later
+        // during stream extraction, leaving the player stuck in a load loop.
+        const mirrorMatch = html.match(/window\.location\.href\s*=\s*['"]([^'"]+)['"]/);
+        if (mirrorMatch) {
+          const mirror = await fetch(mirrorMatch[1], {
+            headers: { "User-Agent": "Mozilla/5.0" },
+            redirect: "follow",
+          });
+          if (!mirror.ok) {
+            console.log(`[voiranime] VOE mirror HTTP ${mirror.status} — video removed, hiding server`);
+            return null;
+          }
+          const mirrorHtml = await mirror.text();
+          if (
+            mirrorHtml.includes("404 - Not found") ||
+            mirrorHtml.includes("404 Not Found") ||
+            /The server can ?not find the requested resource/i.test(mirrorHtml) ||
+            // No JSON payload → no video data on the page
+            !/<script[^>]*type=["']application\/json["']/i.test(mirrorHtml)
+          ) {
+            console.log(`[voiranime] VOE mirror returned error/empty page — hiding server`);
+            return null;
+          }
+        } else if (
           html.includes("404 - Not found") ||
           html.includes("404 Not Found") ||
           /The server can ?not find the requested resource/i.test(html)
@@ -897,6 +1028,16 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId) {
       } catch (e) {
         // Network error — fall through and let the client try
       }
+    }
+
+    // Try server-side extraction now that we've confirmed the video exists.
+    // Falls back to the raw iframe if extraction fails (e.g. unsupported host
+    // or transient extractor error).
+    if (EXTRACTABLE_HOSTS.some((h) => lower.includes(h))) {
+      const extractor = getExtractor(iframeUrl);
+      const result = await extractor(iframeUrl);
+      if (result.streams?.length) return result;
+      console.log(`[voiranime] extractor ${serverKey} failed: ${result.error}`);
     }
 
     return { iframe: iframeUrl };
@@ -1122,6 +1263,16 @@ export default async function handler(req, res) {
   // If the client passed pre-fetched AniList metadata (from watch page SSR),
   // prime the cache so no helper has to call AniList itself.
   if (mediaMeta && aniId) primeMediaCache(aniId, mediaMeta);
+
+  // Megaplay — extract m3u8 + subtitles directly (no iframe).
+  if (server === "megaplay") {
+    const url = `https://megaplay.buzz/stream/ani/${aniId}/${episode}/${sub === "dub" ? "dub" : "sub"}`;
+    const result = await extractMegaplay(url);
+    if (result.error || !result.streams?.length) {
+      return res.status(404).json({ error: result.error || "Source not found" });
+    }
+    return res.status(200).json(result);
+  }
 
   // Miruro HLS
   if (MIRURO_PROVIDERS[server]) {
