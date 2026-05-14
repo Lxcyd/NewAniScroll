@@ -51,13 +51,21 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function fetchFanart(endpoint, attempt = 1) {
   const MAX_TRIES = 5;
+  const TIMEOUT_MS = 60_000;
   let res;
   try {
-    res = await fetch(endpoint, { headers: { "api-key": KEY } });
+    res = await fetch(endpoint, {
+      headers: { "api-key": KEY },
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
   } catch (e) {
-    if (attempt >= MAX_TRIES) throw e;
+    const code = e.cause?.code || e.code || e.name || e.message;
+    if (attempt >= MAX_TRIES) {
+      console.warn(`  ↳ ${endpoint.split("/").slice(-2).join("/")}: gave up after ${MAX_TRIES} tries (${code})`);
+      throw e;
+    }
     const wait = Math.min(60_000, 5000 * attempt);
-    console.warn(`  ↳ network ${e.cause?.code || e.message}, retry ${attempt}/${MAX_TRIES} in ${wait}ms`);
+    console.warn(`  ↳ ${code} on ${endpoint.split("/").slice(-2).join("/")}, retry ${attempt}/${MAX_TRIES} in ${wait}ms`);
     await sleep(wait);
     return fetchFanart(endpoint, attempt + 1);
   }
@@ -130,12 +138,23 @@ async function main() {
     : nowS - 7 * 86400;
   console.log(`→ Last check: ${new Date(since * 1000).toISOString()}`);
 
-  // Pull /latest for both TV and movies.
-  const tvLatest = await fetchFanart(`https://webservice.fanart.tv/v3/tv/latest?date=${since}`);
+  // Pull /latest for both TV and movies. If one fails, log and keep going
+  // with an empty set — losing one category is better than crashing.
+  let tvLatest = null;
+  try {
+    tvLatest = await fetchFanart(`https://webservice.fanart.tv/v3/tv/latest?date=${since}`);
+  } catch (e) {
+    console.warn(`  ↳ TV /latest failed: ${e.message} — continuing without it`);
+  }
   console.log(`  TV /latest: ${tvLatest?.length ?? 0} entries`);
   await sleep(REQUEST_DELAY_MS);
 
-  const movieLatest = await fetchFanart(`https://webservice.fanart.tv/v3/movies/latest?date=${since}`);
+  let movieLatest = null;
+  try {
+    movieLatest = await fetchFanart(`https://webservice.fanart.tv/v3/movies/latest?date=${since}`);
+  } catch (e) {
+    console.warn(`  ↳ Movies /latest failed: ${e.message} — continuing without it`);
+  }
   console.log(`  Movies /latest: ${movieLatest?.length ?? 0} entries`);
 
   // Dedup ids — /latest returns duplicates per category.
