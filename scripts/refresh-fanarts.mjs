@@ -146,7 +146,8 @@ async function main() {
   } catch (e) {
     console.warn(`  ↳ TV /latest failed: ${e.message} — continuing without it`);
   }
-  console.log(`  TV /latest: ${tvLatest?.length ?? 0} entries`);
+  const sizeOf = (p) => p == null ? 0 : Array.isArray(p) ? p.length : Object.keys(p).length;
+  console.log(`  TV /latest: ${sizeOf(tvLatest)} entries`);
   await sleep(REQUEST_DELAY_MS);
 
   let movieLatest = null;
@@ -155,11 +156,32 @@ async function main() {
   } catch (e) {
     console.warn(`  ↳ Movies /latest failed: ${e.message} — continuing without it`);
   }
-  console.log(`  Movies /latest: ${movieLatest?.length ?? 0} entries`);
+  console.log(`  Movies /latest: ${sizeOf(movieLatest)} entries`);
 
-  // Dedup ids — /latest returns duplicates per category.
-  const changedTvIds = new Set((tvLatest ?? []).map((e) => Number(e.id)).filter(Boolean));
-  const changedMovieIds = new Set((movieLatest ?? []).map((e) => Number(e.id)).filter(Boolean));
+  // fanart.tv /latest returns either:
+  //   • an array of { tvdb_id|tmdb_id, name, ... }   (older docs)
+  //   • an object keyed by id: { "12345": {...}, "67890": {...} }  (current)
+  // Handle both. Filter out the dummy "0" key that sometimes shows up.
+  function extractIds(payload) {
+    if (!payload) return new Set();
+    if (Array.isArray(payload)) {
+      return new Set(
+        payload
+          .map((e) => Number(e?.tvdb_id ?? e?.tmdb_id ?? e?.id))
+          .filter((n) => Number.isFinite(n) && n > 0)
+      );
+    }
+    if (typeof payload === "object") {
+      return new Set(
+        Object.keys(payload)
+          .map((k) => Number(k))
+          .filter((n) => Number.isFinite(n) && n > 0)
+      );
+    }
+    return new Set();
+  }
+  const changedTvIds = extractIds(tvLatest);
+  const changedMovieIds = extractIds(movieLatest);
   console.log(`  Unique TV ids:    ${changedTvIds.size}`);
   console.log(`  Unique Movie ids: ${changedMovieIds.size}`);
 
