@@ -44,16 +44,16 @@ jobs:
       - name: Install minimal deps
         run: npm install --no-save @libsql/client@^0.17 dotenv@^17 onnxruntime-node@^1.25 sharp@^0.32
 
-      - name: Cache the NSFW model
+      - name: Cache the WD14 classifier model
         uses: actions/cache@v4
         with:
           path: .cache/models
-          key: nsfw-vit-fp32-v1
+          key: wd-swinv2-v3-v1
 
-      - name: Download NSFW model if missing
+      - name: Download WD14 model if missing
         run: |
-          if [ ! -f .cache/models/nsfw-vit-fp32.onnx ]; then
-            node scripts/download-nsfw-model.mjs
+          if [ ! -f .cache/models/wd-swinv2-v3.onnx ] || [ ! -f .cache/models/wd-swinv2-v3-tags.csv ]; then
+            node scripts/download-wd14-model.mjs
           fi
 
       - name: Refresh fanarts (delta)
