@@ -334,19 +334,21 @@ function SubtitleMenu({
   useEffect(() => {
     if (!playerEl || !anchorEl) return;
 
-    // Capture the bar's height at first measurement and reuse it. The bar
-    // gets hidden by Vidstack as soon as our menu opens (mouse leaves the
-    // bar area to enter the popover), making subsequent measurements
-    // unreliable. By freezing the FIRST valid measurement we keep the menu
-    // fixed where the user expects it.
+    // Cache valid measurements. Vidstack may hide the bar (and the CC
+    // button along with it) as soon as our menu opens, which would zero
+    // out anchorRect — without caching, the menu would jump off-screen.
     let frozenBarHeight: number | null = null;
+    let frozenRight: number | null = null;
 
     const measure = () => {
       const playerRect = playerEl.getBoundingClientRect();
       const anchorRect = anchorEl.getBoundingClientRect();
 
-      // Try to read the bar height NOW; if the bar is hidden, fall back to
-      // the last known value (or to the button as a last resort).
+      // The button is visible iff its rect has non-zero size.
+      const buttonVisible = anchorRect.width > 0 && anchorRect.height > 0;
+
+      // Try to read the bar height NOW; cache it for subsequent calls
+      // when the bar is hidden.
       const groups = Array.from(
         playerEl.querySelectorAll<HTMLElement>(".vds-controls-group")
       ).filter((el) => el.isConnected && el.getBoundingClientRect().height > 0);
@@ -356,23 +358,27 @@ function SubtitleMenu({
       }, null);
 
       if (topmostBarRect) {
-        // Distance from bottom of player to top of bar.
         frozenBarHeight = playerRect.bottom - topmostBarRect.top;
       }
 
-      // Bottom anchor: above the bar (or fallback to button) with 8px gap.
+      // Cache the right offset only when the button is visible (= rect is
+      // valid). Falls back to 16px right margin if we never had a valid
+      // reading (very unlikely — the menu opens after a button click).
+      if (buttonVisible) {
+        frozenRight = playerRect.right - anchorRect.right;
+      }
+
       const barOffset = frozenBarHeight
-        ?? (playerRect.bottom - anchorRect.bottom);
+        ?? (buttonVisible ? playerRect.bottom - anchorRect.bottom : 80);
       const bottom = barOffset + 8;
-      const right = playerRect.right - anchorRect.right;
+      // Clamp `right` to >= 8 so the menu is never pushed off the left edge.
+      const right = Math.max(8, frozenRight ?? 16);
       const availableHeight = playerRect.height - bottom - 8;
       const maxHeight = Math.max(120, Math.min(320, availableHeight));
       setPos({ right, bottom, maxHeight });
     };
 
     measure();
-    // Re-measure only on real layout changes (window resize, fullscreen
-    // toggle), not on every Vidstack DOM tweak.
     const ro = new ResizeObserver(() => measure());
     ro.observe(playerEl);
     return () => ro.disconnect();
@@ -963,52 +969,68 @@ export default function UniversalPlayer({
   }, [onError, streamData]);
 
   // ── Force-play on mount when autoplay is enabled ──
-  // Vidstack's `autoplay` prop only triggers a play() at the moment the
-  // source loads. If our `autoplay` value flips from false→true *after*
-  // the source is already loaded (e.g. because the localStorage hydration
-  // ran a tick after Vidstack mounted), the prop change is ignored. So we
-  // explicitly call play() once the player exposes `play`. Safe to call
-  // even if play already started — it's idempotent.
+  // Standard "muted-then-play" pattern that Chrome's autoplay policy
+  // accepts unconditionally:
+  //   1. Set muted via attribute + property + defaultMuted (Chrome can
+  //      be picky if any of the three is missing — defaultMuted is the
+  //      one that survives <video> remounts).
+  //   2. Set playsinline (otherwise iOS forces fullscreen and rejects
+  //      autoplay).
+  //   3. await video.play() with proper error catch; on rejection we
+  //      know the picture didn't start so we can retry.
+  // Vidstack's `autoplay` prop alone isn't reliable on hard refresh
+  // (the source may still be loading when it fires), so we drive play()
+  // ourselves on can-play / loaded-data.
   useEffect(() => {
     if (!autoplay) return;
     const playerEl = playerRef.current?.el as HTMLElement | undefined;
     if (!playerEl) return;
-    const tryPlay = () => {
+
+    let cancelled = false;
+    const tryPlay = async () => {
+      if (cancelled) return;
       const video = playerEl.querySelector<HTMLVideoElement>("video");
       if (!video || !video.paused) return;
-      // Always start muted to satisfy autoplay policy on cold loads — if
-      // sound is currently allowed (warm nav), the unmute hook below will
-      // flip it back at the first user gesture.
-      try { video.muted = true; } catch {}
-      video.play?.().catch(() => {});
+      try {
+        // Belt-and-suspenders muted setup — Chrome is sometimes picky.
+        video.setAttribute("muted", "");
+        video.defaultMuted = true;
+        video.muted = true;
+        video.setAttribute("playsinline", "");
+        await video.play();
+      } catch (err: any) {
+        // Only log NotAllowedError; other errors aren't autoplay-related.
+        if (err?.name === "NotAllowedError") {
+          // eslint-disable-next-line no-console
+          console.debug("[player] autoplay blocked:", err.message);
+        }
+      }
     };
-    // Try right now (in case the source is already ready).
+
     tryPlay();
-    // Try again after each canplay/loadeddata in case the source loads
-    // asynchronously after this hook runs.
-    const onReady = () => tryPlay();
+    const onReady = () => { tryPlay(); };
     playerEl.addEventListener("can-play", onReady);
     playerEl.addEventListener("loaded-data", onReady);
     return () => {
+      cancelled = true;
       playerEl.removeEventListener("can-play", onReady);
       playerEl.removeEventListener("loaded-data", onReady);
     };
   }, [autoplay, streamData]);
 
-  // ── Autoplay unmute strategy ──
-  // Chrome/Firefox have two relevant rules:
-  //   A. Muted autoplay is always allowed.
-  //   B. Programmatic `video.muted = false` BEFORE a user gesture
-  //      (pointerdown / keydown / touchstart) gets punished: the browser
-  //      pauses the video as a security mitigation.
+  // ── Unmute strategy ──
+  // Chrome rules:
+  //   1. Muted autoplay always works.
+  //   2. Unmuting BEFORE a user gesture pauses the video (security
+  //      mitigation). Only pointerdown / keydown / touchstart qualify
+  //      as gestures — mousemove / wheel / scroll do NOT.
   //
-  // Some events DON'T count as a gesture for rule B even though they're
-  // "interactions": mousemove, wheel, scroll. So we only attempt unmute on
-  // gesture-qualifying events.
-  //
-  // Defense-in-depth: if the unmute attempt still ends up pausing the
-  // video (race conditions, Safari, etc.), we detect the pause and
-  // immediately resume — muted again — so the picture stays moving.
+  // We persist a "user has already unmuted on this site" flag in
+  // sessionStorage. Once they've unmuted once during the session, we
+  // can safely auto-unmute on subsequent navigations within the same
+  // tab — Chrome carries the gesture forward for the session lifetime.
+  // (We use sessionStorage, not localStorage: it's session-scoped to
+  // match Chrome's gesture model and clears on tab close.)
   useEffect(() => {
     if (!autoplay) return;
     const playerEl = playerRef.current?.el as HTMLElement | undefined;
@@ -1016,6 +1038,8 @@ export default function UniversalPlayer({
 
     let done = false;
     let lastUnmuteAt = 0;
+
+    const HAS_UNMUTED_KEY = "hasUnmutedThisSession";
 
     const tryUnmute = () => {
       if (done) return;
@@ -1029,29 +1053,61 @@ export default function UniversalPlayer({
         lastUnmuteAt = Date.now();
         video.muted = false;
         video.volume = 1;
-        if (!video.muted) done = true;
+        if (!video.muted) {
+          done = true;
+          // Remember that the user has authorized sound this session, so
+          // subsequent navigations can skip the muted-autoplay phase.
+          try { sessionStorage.setItem(HAS_UNMUTED_KEY, "1"); } catch {}
+        }
       } catch {}
     };
 
-    // If our unmute pauses the video (Chrome's mitigation), revert the
-    // mute and resume play within a tick. The user keeps watching the
-    // picture; they can click the volume button to unmute when ready.
+    // If our unmute attempt pauses the video (Chrome's mitigation), revert
+    // muted and resume play. The picture keeps going; the user can click
+    // the volume button to unmute properly later.
     const onPause = () => {
-      if (Date.now() - lastUnmuteAt > 500) return; // not from our unmute
+      if (Date.now() - lastUnmuteAt > 500) return;
       const video = playerEl.querySelector<HTMLVideoElement>("video");
       if (!video) return;
       try {
         video.muted = true;
-        // Reset the latch so the next gesture can try again.
         done = false;
         lastUnmuteAt = 0;
         video.play?.().catch(() => {});
       } catch {}
     };
 
-    // Only proper user gestures (pointerdown/keydown/touchstart) qualify
-    // for unmute. mousemove/wheel/scroll do NOT — using them triggers the
-    // pause-mitigation. We listen in capture to fire before Vidstack.
+    // Try immediately on mount: if the user already unmuted earlier in this
+    // session, Chrome carries that gesture and the unmute will succeed.
+    const sessionHasUnmuted = (() => {
+      try { return sessionStorage.getItem(HAS_UNMUTED_KEY) === "1"; }
+      catch { return false; }
+    })();
+    if (sessionHasUnmuted) {
+      // Wait one tick so Vidstack/HLS finish wiring the <video>.
+      const t = setTimeout(tryUnmute, 100);
+      // Also try after the source is ready.
+      const onReady = () => tryUnmute();
+      playerEl.addEventListener("can-play", onReady);
+      playerEl.addEventListener("loaded-data", onReady);
+      // Fall through to gesture-based listeners as a safety net.
+      const opts = { capture: true } as AddEventListenerOptions;
+      document.addEventListener("pointerdown", tryUnmute, opts);
+      document.addEventListener("keydown", tryUnmute, opts);
+      document.addEventListener("touchstart", tryUnmute, opts);
+      playerEl.addEventListener("pause", onPause);
+      return () => {
+        clearTimeout(t);
+        playerEl.removeEventListener("can-play", onReady);
+        playerEl.removeEventListener("loaded-data", onReady);
+        document.removeEventListener("pointerdown", tryUnmute, opts);
+        document.removeEventListener("keydown", tryUnmute, opts);
+        document.removeEventListener("touchstart", tryUnmute, opts);
+        playerEl.removeEventListener("pause", onPause);
+      };
+    }
+
+    // No prior session unmute — wait for an actual user gesture.
     const opts = { capture: true } as AddEventListenerOptions;
     document.addEventListener("pointerdown", tryUnmute, opts);
     document.addEventListener("keydown", tryUnmute, opts);
