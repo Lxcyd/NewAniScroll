@@ -331,14 +331,13 @@ export default function Home({
   return (
     <Fragment>
       <Head>
-        <title>Moopa</title>
+        <title>AniScroll</title>
         <meta charSet="UTF-8"></meta>
-        <link rel="icon" href="/svg/c.svg" />
-        <link rel="canonical" href="https://moopa.live/en/" />
+        <link rel="icon" type="image/png" href="/logo.png" />
         <meta name="twitter:card" content="summary_large_image" />
         <meta
           name="description"
-          content="Discover your new favorite anime or manga title! Moopa offers a vast library of high-quality content, accessible on multiple devices and without any interruptions. Start using Moopa today!"
+          content="Discover your new favorite anime or manga title! AniScroll offers a vast library of high-quality content, accessible on multiple devices and without any interruptions. Start using AniScroll today!"
         />
         <meta
           name="keywords"
@@ -348,32 +347,31 @@ export default function Home({
         <meta name="robots" content="index, follow" />
 
         <meta property="og:type" content="website" />
-        <meta property="og:url" content="https://moopa.live/" />
         <meta
           property="og:title"
-          content="Moopa - Free Anime and Manga Streaming"
+          content="AniScroll - Free Anime and Manga Streaming"
         />
         <meta
           property="og:description"
-          content="Discover your new favorite anime or manga title! Moopa offers a vast library of high-quality content, accessible on multiple devices and without any interruptions. Start using Moopa today!"
+          content="Discover your new favorite anime or manga title! AniScroll offers a vast library of high-quality content, accessible on multiple devices and without any interruptions. Start using AniScroll today!"
         />
-        <meta property="og:image" content="/preview.png" />
-        <meta property="og:site_name" content="Moopa" />
+        <meta property="og:image" content="/logo.png" />
+        <meta property="og:site_name" content="AniScroll" />
         <meta name="twitter:card" content="summary_large_image" />
         <meta
           name="twitter:title"
-          content="Moopa - Free Anime and Manga Streaming"
+          content="AniScroll - Free Anime and Manga Streaming"
         />
         <meta
           name="twitter:description"
-          content="Discover your new favorite anime or manga title! Moopa offers a vast library of high-quality content, accessible on multiple devices and without any interruptions. Start using Moopa today!"
+          content="Discover your new favorite anime or manga title! AniScroll offers a vast library of high-quality content, accessible on multiple devices and without any interruptions. Start using AniScroll today!"
         />
-        <meta name="twitter:image" content="/preview.png" />
+        <meta name="twitter:image" content="/logo.png" />
       </Head>
       <MobileNav hideProfile={true} />
 
-      <Navbar paddingY="pt-2 lg:pt-10" withNav={true} home={true} />
-      <div className="h-auto w-screen bg-[#141519] text-[#dbdcdd]">
+      <Navbar withNav={true} home={true} />
+      <div className="h-auto w-screen bg-[#141519] text-[#dbdcdd] pt-[68px]">
         <div className="hidden lg:flex w-full justify-center my-16">
           <div className="flex justify-between w-[80%] h-[470px]">
             <div className="flex flex-col items-start justify-center w-[55%] gap-5">
@@ -388,7 +386,7 @@ export default function Home({
                   onClick={() => {
                     router.push(`/en/anime/${firstTrend?.id}`);
                   }}
-                  className="p-3 text-md font-karla font-light ring-1 ring-action/50 rounded"
+                  className="px-5 py-3 text-md font-karla font-semibold tracking-wide bg-action hover:bg-action/90 text-white rounded transition-colors"
                 >
                   START WATCHING
                 </button>

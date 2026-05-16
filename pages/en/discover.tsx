@@ -136,7 +136,7 @@ export default function Discover() {
   return (
     <>
       <Head>
-        <title>Discover — Moopa</title>
+        <title>Discover — AniScroll</title>
         <meta name="description" content="Swipe through trending anime and build your Planning list." />
       </Head>
 

@@ -77,17 +77,20 @@ function StaticGlow({
   poster?: string;
   intense?: boolean;
 }) {
-  // Same approach as LiveAmbient: element sized exactly to the player, heavy
-  // CSS blur creates the visible glow by bleeding colors past its box.
+  // CSS-only fallback ambient. Used before LiveAmbient has its first video
+  // frame to draw from, and as the only ambient layer for iframe embeds
+  // (where cross-origin restrictions prevent canvas sampling).
+  //
+  // If no poster is provided we render nothing — a hardcoded brand-color
+  // gradient would tint the entire player and pollute LiveAmbient's edges.
+  if (!poster) return null;
   return (
     <div
       aria-hidden
       className="pointer-events-none absolute inset-0 h-full w-full"
       style={{
         zIndex: 0,
-        backgroundImage: poster
-          ? `url(${poster})`
-          : "linear-gradient(135deg, #E94560 0%, #8E1B3B 100%)",
+        backgroundImage: `url(${poster})`,
         backgroundSize: "cover",
         backgroundPosition: "center",
         filter: "blur(140px) saturate(1.8)",
@@ -99,39 +102,92 @@ function StaticGlow({
 }
 
 /**
- * LiveAmbient — YouTube/Spotify-style ambient.
- * A low-res canvas is drawn from the video every frame (~30 fps), sized via
- * CSS to extend beyond the player, heavily blurred, and faded out with a
- * radial mask. Result: one coherent gradient that IS the video's colors,
- * with no visible edge/rectangle.
+ * LiveAmbient — projector stack with GPU bilinear scaling.
+ *
+ * The previous "stretch a small canvas to full size via CSS" approach was
+ * unreliable: most browsers resample upscaled <canvas> with nearest-neighbor
+ * regardless of imageSmoothingQuality. Result: visible pixel grid in the
+ * gradient.
+ *
+ * Fix: keep each <canvas> at its native pixel size, and use a CSS `scale()`
+ * transform on a wrapper to enlarge it. CSS transforms ARE always GPU-
+ * accelerated with bilinear filtering, so the result is silky-smooth even
+ * with a 320×180 source. Heavy CSS blur on top hides any residual artifacts
+ * and gives the soft ambient feel.
+ *
+ * Z-index: wrapper sits at z-index:-1 (behind the player which is z:0). The
+ * player has `overflow:hidden` so its controls always stay above and visible.
+ *
+ * Temporal blending: pairwise 50/50 with previous frame, softens scene cuts.
  */
 function LiveAmbient({
   playerRef,
 }: {
   playerRef: React.RefObject<MediaPlayerInstance>;
 }) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const layerRefs = useRef<(HTMLCanvasElement | null)[]>([]);
+  const sourceRef = useRef<HTMLCanvasElement | null>(null);
+  const prevRef = useRef<HTMLCanvasElement | null>(null);
+
+  // Multi-scale projector stack — concentric copies behind the player.
+  const LAYERS = 5;
+  // Each subsequent layer is enlarged by this fraction beyond layer 0.
+  const SCALE_STEP = 0.08;
+  // Canvas pixel size. Stays small because CSS transform handles the visible
+  // scaling with GPU bilinear filtering. Higher would just waste pixels.
+  const SRC_W = 320;
+  const SRC_H = 180;
 
   useEffect(() => {
+    if (!sourceRef.current) {
+      const c = document.createElement("canvas");
+      c.width = SRC_W; c.height = SRC_H;
+      sourceRef.current = c;
+    }
+    if (!prevRef.current) {
+      const c = document.createElement("canvas");
+      c.width = SRC_W; c.height = SRC_H;
+      prevRef.current = c;
+    }
+
     let raf = 0;
+    let lastFrameTime = -1;
 
     const tick = () => {
       raf = requestAnimationFrame(tick);
 
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-
       const playerEl = playerRef.current?.el as HTMLElement | undefined;
       const video = playerEl?.querySelector("video") as HTMLVideoElement | null;
       if (!video || video.readyState < 2 || video.videoWidth === 0) return;
+      if (video.currentTime === lastFrameTime) return;
+      lastFrameTime = video.currentTime;
 
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
+      const source = sourceRef.current!;
+      const prev   = prevRef.current!;
+      const sctx   = source.getContext("2d");
+      const pctx   = prev.getContext("2d");
+      if (!sctx || !pctx) return;
+
+      sctx.imageSmoothingEnabled = true;
+      sctx.imageSmoothingQuality = "high";
+
       try {
-        // Draw the full frame at low res — CSS blur + mask handle smoothing
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        sctx.drawImage(video, 0, 0, SRC_W, SRC_H);
+        // Pairwise temporal blend → softens scene cuts.
+        sctx.globalAlpha = 0.5;
+        sctx.drawImage(prev, 0, 0);
+        sctx.globalAlpha = 1.0;
+        pctx.clearRect(0, 0, SRC_W, SRC_H);
+        pctx.drawImage(source, 0, 0);
+        for (const layer of layerRefs.current) {
+          if (!layer) continue;
+          const lctx = layer.getContext("2d");
+          if (!lctx) continue;
+          lctx.clearRect(0, 0, SRC_W, SRC_H);
+          lctx.drawImage(source, 0, 0);
+        }
       } catch {
-        // Cross-origin taint — silently skip
+        // Cross-origin taint — silently skip.
       }
     };
 
@@ -139,24 +195,55 @@ function LiveAmbient({
     return () => cancelAnimationFrame(raf);
   }, [playerRef]);
 
-  // Canvas positioned EXACTLY over the player. The CSS blur() filter extends
-  // the colors ~blur_radius pixels beyond the canvas's bounding box in every
-  // direction — that overflow IS the visible ambient light. The player (z-10)
-  // covers the sharp center; only the blurred tail remains visible around it.
+  // Wrapper sits BEHIND the player (z:-1). pointer-events:none so the player
+  // controls catch every click. Inside, each canvas is rendered at native
+  // pixel size, then a wrapper div uses `width/height: 100%` + CSS object-
+  // fit-like behavior to stretch it visually. The actual bilinear smoothing
+  // comes from the CSS `transform: scale()` applied to each canvas wrapper.
   return (
-    <canvas
-      ref={canvasRef}
+    <div
       aria-hidden
-      width={48}
-      height={27}
-      className="pointer-events-none absolute inset-0 h-full w-full"
-      style={{
-        zIndex: 0,
-        filter: "blur(140px) saturate(1.8)",
-        transform: "scale(1.1)",
-        opacity: 0.95,
-      }}
-    />
+      className="pointer-events-none absolute inset-0"
+      style={{ zIndex: -1 }}
+    >
+      {Array.from({ length: LAYERS }).map((_, i) => {
+        const scale = 1 + i * SCALE_STEP;
+        // Wrapper fills the player; the canvas inside is positioned to
+        // cover it entirely with CSS scaling, which uses GPU bilinear.
+        return (
+          <div
+            key={i}
+            className="absolute inset-0 overflow-visible"
+            style={{
+              transform: `scale(${scale})`,
+              transformOrigin: "center",
+              // Heavy blur smooths the gradient + cancels any residual
+              // pixel artifacts from canvas → CSS upscaling.
+              filter: "blur(72px) saturate(1.8)",
+              opacity: 0.95 * Math.pow(0.65, i),
+              willChange: "transform",
+            }}
+          >
+            <canvas
+              ref={(el) => { layerRefs.current[i] = el; }}
+              width={SRC_W}
+              height={SRC_H}
+              // width/height: 100% stretches the canvas to fill the wrapper
+              // via CSS — this is the only path where browsers DO interpolate
+              // (the canvas is treated as a replaced element). object-fit
+              // ensures it covers fully.
+              style={{
+                width: "100%",
+                height: "100%",
+                display: "block",
+                objectFit: "cover",
+                imageRendering: "auto",
+              }}
+            />
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
@@ -334,62 +421,46 @@ function SubtitleMenu({
   useEffect(() => {
     if (!playerEl || !anchorEl) return;
 
-    // Cache valid measurements. Vidstack may hide the bar (and the CC
-    // button along with it) as soon as our menu opens, which would zero
-    // out anchorRect — without caching, the menu would jump off-screen.
-    let frozenBarHeight: number | null = null;
-    let frozenRight: number | null = null;
+    // Snapshot geometry on open — the anchor is guaranteed visible at this
+    // moment (user just clicked it). One-shot cache so the menu doesn't
+    // jump if Vidstack later hides the controls bar.
+    const playerRect = playerEl.getBoundingClientRect();
+    const anchorRect = anchorEl.getBoundingClientRect();
 
-    const measure = () => {
-      const playerRect = playerEl.getBoundingClientRect();
-      const anchorRect = anchorEl.getBoundingClientRect();
-
-      // The button is visible iff its rect has non-zero size.
-      const buttonVisible = anchorRect.width > 0 && anchorRect.height > 0;
-
-      // Try to read the bar height NOW; cache it for subsequent calls
-      // when the bar is hidden.
-      const groups = Array.from(
-        playerEl.querySelectorAll<HTMLElement>(".vds-controls-group")
-      ).filter((el) => el.isConnected && el.getBoundingClientRect().height > 0);
-      const topmostBarRect = groups.reduce<DOMRect | null>((best, el) => {
-        const r = el.getBoundingClientRect();
-        return !best || r.top < best.top ? r : best;
-      }, null);
-
-      if (topmostBarRect) {
-        frozenBarHeight = playerRect.bottom - topmostBarRect.top;
-      }
-
-      // Cache the right offset only when the button is visible (= rect is
-      // valid). Falls back to 16px right margin if we never had a valid
-      // reading (very unlikely — the menu opens after a button click).
-      if (buttonVisible) {
-        frozenRight = playerRect.right - anchorRect.right;
-      }
-
-      const barOffset = frozenBarHeight
-        ?? (buttonVisible ? playerRect.bottom - anchorRect.bottom : 80);
-      const bottom = barOffset + 8;
-      // Clamp `right` to >= 8 so the menu is never pushed off the left edge.
-      const right = Math.max(8, frozenRight ?? 16);
-      const availableHeight = playerRect.height - bottom - 8;
-      const maxHeight = Math.max(120, Math.min(320, availableHeight));
-      setPos({ right, bottom, maxHeight });
-    };
-
-    measure();
-    const ro = new ResizeObserver(() => measure());
-    ro.observe(playerEl);
-    return () => ro.disconnect();
+    // Anchor horizontally to the CC button.
+    const right = Math.max(8, playerRect.right - anchorRect.right);
+    // Match Vidstack's Settings menu: it sits just above the controls bar,
+    // ~4px gap. Reading the bar height from the bottom-most controls group
+    // produces the same vertical alignment as the native menu.
+    const groups = Array.from(
+      playerEl.querySelectorAll<HTMLElement>(".vds-controls-group")
+    ).filter((el) => el.isConnected && el.getBoundingClientRect().height > 0);
+    const bottomMostBar = groups.reduce<DOMRect | null>((best, el) => {
+      const r = el.getBoundingClientRect();
+      return !best || r.bottom > best.bottom ? r : best;
+    }, null);
+    const barHeight = bottomMostBar
+      ? playerRect.bottom - bottomMostBar.top
+      : 56;
+    const bottom = barHeight + 4;
+    const availableHeight = playerRect.height - bottom - 8;
+    // Match Vidstack's max-height (60% of player height) so the menu feels
+    // like part of the same UI family.
+    const maxHeight = Math.max(120, Math.min(Math.floor(playerRect.height * 0.6), availableHeight));
+    setPos({ right, bottom, maxHeight });
   }, [playerEl, anchorEl]);
 
-  const style: React.CSSProperties = pos
-    ? { position: "absolute", right: pos.right, bottom: pos.bottom, zIndex: 50 }
-    : { display: "none" };
-  const computedMaxHeight = pos?.maxHeight ?? 320;
+  // Vidstack's enter animation: opacity 0→1 + translateY(12px → 0) over 0.3s.
+  // Replicate exactly so our menu feels native.
+  const [entered, setEntered] = useState(false);
+  useEffect(() => {
+    if (!pos) return;
+    const r = requestAnimationFrame(() => setEntered(true));
+    return () => cancelAnimationFrame(r);
+  }, [pos]);
 
-  if (!playerEl) return null;
+  if (!playerEl || !pos) return null;
+  const computedMaxHeight = pos.maxHeight;
 
   const menuNode = (
     <div
@@ -397,24 +468,32 @@ function SubtitleMenu({
       role="menu"
       aria-label="Subtitle track selection"
       style={{
-        ...style,
+        position: "absolute",
+        right: pos.right,
+        bottom: pos.bottom,
+        zIndex: 50,
         minWidth: 200,
-        // Cap height to whatever fits between the controls bar (bottom anchor)
-        // and the top of the player, with a small margin. Without this the
-        // menu would overflow on top when the player is short (windowed mode,
-        // 16:9 with low viewport height).
-        maxHeight: Math.min(320, computedMaxHeight),
-        backgroundColor: "rgba(20, 20, 28, 0.97)",
-        backdropFilter: "blur(8px)",
-        border: "1px solid rgba(255,255,255,0.1)",
-        borderRadius: 8,
-        boxShadow: "0 6px 24px rgba(0,0,0,0.5)",
+        // Match Vidstack: max-height is 60% of player height (already
+        // baked into pos.maxHeight via the geometry calc above).
+        maxHeight: computedMaxHeight,
+        // Match Vidstack's settings menu visual: dark bg, subtle blur, same
+        // padding scale, same border radius.
+        backgroundColor: "var(--media-menu-bg, rgb(10 10 10 / 0.95))",
+        backdropFilter: "blur(4px)",
+        border: "var(--media-menu-border, 1px solid rgb(255 255 255 / 0.1))",
+        borderRadius: "var(--media-menu-border-radius, 8px)",
+        boxShadow: "var(--media-menu-box-shadow, 1px 1px 1px rgb(10 10 10 / 0.5))",
         color: "#fff",
         fontFamily: "var(--media-font-family, sans-serif)",
         fontSize: 14,
         display: "flex",
         flexDirection: "column",
         overscrollBehavior: "contain",
+        // Vidstack's exact enter animation: translateY(12px → 0) + fade,
+        // 0.3s ease-out. Matches the Settings menu byte-for-byte.
+        opacity: entered ? 1 : 0,
+        transform: entered ? "translateY(0)" : "translateY(12px)",
+        transition: "opacity 0.3s ease-out, transform 0.3s ease-out",
       }}
     >
       {/* Pinned header with the master ON/OFF toggle. Activates the previously
@@ -429,10 +508,26 @@ function SubtitleMenu({
           enabled={activeIndex >= 0}
           onToggle={(next) => {
             if (next) {
-              // Re-enable: pick the previously selected track if it's still
-              // valid, else pick the first available one.
-              const idx = activeIndex >= 0 ? activeIndex : 0;
-              onSelect(idx);
+              // Re-enable: prefer the persisted language (from localStorage),
+              // then English, then the first available track. Matches the
+              // sync-on-mount behavior so the toggle never silently picks
+              // an unexpected track.
+              let pickedIdx = -1;
+              try {
+                const wantLang = (localStorage.getItem("moopa.subs.lang") || "").toLowerCase();
+                if (wantLang) {
+                  pickedIdx = tracks.findIndex(
+                    (t) => (t.language || "").toLowerCase() === wantLang
+                  );
+                }
+                if (pickedIdx < 0) {
+                  pickedIdx = tracks.findIndex(
+                    (t) => (t.language || "").toLowerCase() === "en"
+                  );
+                }
+              } catch {}
+              if (pickedIdx < 0) pickedIdx = activeIndex >= 0 ? activeIndex : 0;
+              onSelect(pickedIdx);
             } else {
               onSelect(-1);
             }
@@ -751,7 +846,28 @@ export default function UniversalPlayer({
   // The user toggle wins over the prop — we leave the prop in place so
   // callers can still force-disable ambient (e.g. an embedded preview),
   // but the user setting overrides "ambient is on by default".
-  const ambientEnabled = ambient && ctxAmbient;
+  // Suppress ambient lights in fullscreen — they're invisible anyway (the
+  // player covers the whole screen, no room for the glow to extend into)
+  // and the per-frame canvas draw + N×CSS blur layers are a measurable GPU
+  // hit that's pure waste at that resolution.
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  useEffect(() => {
+    const update = () => {
+      const fsEl =
+        document.fullscreenElement ||
+        (document as any).webkitFullscreenElement ||
+        null;
+      setIsFullscreen(!!fsEl);
+    };
+    update();
+    document.addEventListener("fullscreenchange", update);
+    document.addEventListener("webkitfullscreenchange", update);
+    return () => {
+      document.removeEventListener("fullscreenchange", update);
+      document.removeEventListener("webkitfullscreenchange", update);
+    };
+  }, []);
+  const ambientEnabled = ambient && ctxAmbient && !isFullscreen;
   // Reference to the vds-controls-group element where we portal our buttons.
   const [controlsGroupEl, setControlsGroupEl] = useState<HTMLElement | null>(null);
   // Anchor node inside that group: we insert our buttons IMMEDIATELY BEFORE
@@ -889,11 +1005,67 @@ export default function UniversalPlayer({
     }
   }, [subMenuOpen]);
 
+  // ── Keep controls visible while hovering custom buttons ──
+  // Vidstack auto-hides its controls after ~2 s of mouse inactivity. Our
+  // custom buttons (Download / Subs / Cast) are portaled into Vidstack's
+  // control group so they LOOK like part of the bar, but their hover does
+  // NOT reset Vidstack's idle timer — it only listens for pointermove on
+  // the player root. Result: hover too long and the whole bar disappears
+  // out from under the user's cursor.
+  //
+  // Fix: forward any pointermove that hits our portaled buttons up to the
+  // player root by re-dispatching it. We catch on `pointermove` with
+  // capture at the document level and check whether the target lives
+  // inside our custom-controls slot.
+  useEffect(() => {
+    const player = playerRef.current;
+    const playerEl = player?.el as HTMLElement | undefined;
+    if (!playerEl) return;
+
+    const onMove = (e: PointerEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (!t) return;
+      // Only forward when the cursor is over a button we injected (any
+      // child of [data-slot] wrappers, which is where our portals live).
+      if (!t.closest("[data-slot]")) return;
+      playerEl.dispatchEvent(
+        new PointerEvent("pointermove", {
+          clientX: e.clientX,
+          clientY: e.clientY,
+          bubbles: true,
+        })
+      );
+    };
+
+    document.addEventListener("pointermove", onMove, { capture: true });
+    return () =>
+      document.removeEventListener("pointermove", onMove, { capture: true });
+  }, []);
+
   // ── Subtitle track sync ──
   // Vidstack manages text tracks via `playerRef.current.textTracks`. We mirror
   // the active track index into React state so the CC button can show whether
   // captions are on, and let the user pick a track from our custom popover.
   // selectSubtitleTrack(-1) disables captions; >=0 activates the matching one.
+  //
+  // Persistence: we remember the user's last chosen language in localStorage
+  // and re-apply it across episodes / animes. If that language isn't in the
+  // new stream's track list we fall back to English, then to the first
+  // available track. "Off" is also remembered (user explicitly disabled subs).
+  const SUB_PREF_LANG_KEY = "moopa.subs.lang";
+  const SUB_PREF_ENABLED_KEY = "moopa.subs.enabled";
+
+  const readPrefLang = (): string | null => {
+    try { return localStorage.getItem(SUB_PREF_LANG_KEY); } catch { return null; }
+  };
+  const readPrefEnabled = (): boolean => {
+    try {
+      const v = localStorage.getItem(SUB_PREF_ENABLED_KEY);
+      // Default: subs on (matches the legacy "first track wins" behavior).
+      return v === null ? true : v === "1";
+    } catch { return true; }
+  };
+
   const selectSubtitleTrack = (idx: number) => {
     setActiveTrackIdx(idx);
     const tracks = playerRef.current?.textTracks;
@@ -901,33 +1073,81 @@ export default function UniversalPlayer({
     // Walk the textTracks list, only touching captions/subtitles tracks (skip
     // chapters/metadata). Index aligns with the <Track> children we render.
     let captionIndex = 0;
+    let selectedLang: string | null = null;
     for (let i = 0; i < tracks.length; i++) {
       const t = tracks[i];
       if (!t) continue;
       const isCaption = t.kind === "subtitles" || t.kind === "captions";
       if (!isCaption) continue;
-      t.mode = captionIndex === idx ? "showing" : "disabled";
+      const showing = captionIndex === idx;
+      t.mode = showing ? "showing" : "disabled";
+      if (showing) selectedLang = t.language || (t as any).label || null;
       captionIndex++;
     }
+    // Persist the choice so the next episode / anime restores it.
+    try {
+      localStorage.setItem(SUB_PREF_ENABLED_KEY, idx >= 0 ? "1" : "0");
+      if (selectedLang) localStorage.setItem(SUB_PREF_LANG_KEY, selectedLang);
+    } catch {}
   };
 
   // Sync state when tracks are added/changed (e.g. after Vidstack mounts).
+  // Also auto-apply the persisted language preference whenever a new track
+  // list arrives (episode change, anime change).
   useEffect(() => {
     const player = playerRef.current;
     if (!player) return;
     const tracks = player.textTracks;
     if (!tracks) return;
 
-    const sync = () => {
+    // Returns the (caption-only) index of the track whose language best
+    // matches `pref`, or -1 if none. Exact match wins; case-insensitive.
+    const findByLang = (pref: string | null): number => {
+      if (!pref) return -1;
+      const want = pref.toLowerCase();
       let captionIndex = 0;
-      let activeIdx = -1;
       for (let i = 0; i < tracks.length; i++) {
         const t = tracks[i];
         if (!t) continue;
         const isCaption = t.kind === "subtitles" || t.kind === "captions";
         if (!isCaption) continue;
-        if (t.mode === "showing") activeIdx = captionIndex;
+        const lang = (t.language || "").toLowerCase();
+        if (lang === want) return captionIndex;
         captionIndex++;
+      }
+      return -1;
+    };
+
+    const sync = () => {
+      let captionIndex = 0;
+      let activeIdx = -1;
+      let hasAnyShowing = false;
+      let firstAvailable = -1;
+      for (let i = 0; i < tracks.length; i++) {
+        const t = tracks[i];
+        if (!t) continue;
+        const isCaption = t.kind === "subtitles" || t.kind === "captions";
+        if (!isCaption) continue;
+        if (firstAvailable < 0) firstAvailable = captionIndex;
+        if (t.mode === "showing") {
+          activeIdx = captionIndex;
+          hasAnyShowing = true;
+        }
+        captionIndex++;
+      }
+
+      // No track is currently showing → decide based on persisted prefs.
+      if (!hasAnyShowing && firstAvailable >= 0) {
+        const enabled = readPrefEnabled();
+        if (enabled) {
+          const pref = readPrefLang();
+          const byPref = findByLang(pref);
+          const byEnglish = byPref < 0 ? findByLang("en") : -1;
+          const fallback = byPref >= 0 ? byPref : byEnglish >= 0 ? byEnglish : firstAvailable;
+          // Apply via the same selection path so persistence stays consistent.
+          selectSubtitleTrack(fallback);
+          return;
+        }
       }
       setActiveTrackIdx(activeIdx);
     };
@@ -968,19 +1188,14 @@ export default function UniversalPlayer({
     return () => playerEl.removeEventListener("hls-error", handler as EventListener);
   }, [onError, streamData]);
 
-  // ── Force-play on mount when autoplay is enabled ──
-  // Standard "muted-then-play" pattern that Chrome's autoplay policy
-  // accepts unconditionally:
-  //   1. Set muted via attribute + property + defaultMuted (Chrome can
-  //      be picky if any of the three is missing — defaultMuted is the
-  //      one that survives <video> remounts).
-  //   2. Set playsinline (otherwise iOS forces fullscreen and rejects
-  //      autoplay).
-  //   3. await video.play() with proper error catch; on rejection we
-  //      know the picture didn't start so we can retry.
-  // Vidstack's `autoplay` prop alone isn't reliable on hard refresh
-  // (the source may still be loading when it fires), so we drive play()
-  // ourselves on can-play / loaded-data.
+  // ── Autoplay ──
+  // Chrome rejects unmuted autoplay without a user gesture, period. The
+  // only path that always works is muted-then-let-Chrome's-MEI-decide:
+  // after a few sessions of the user watching with sound, Chrome elevates
+  // the origin's autoplay policy to "allowed" and unmuted autoplay starts
+  // working at refresh on its own — no client code can shortcut this.
+  // So we just kick off muted playback (always accepted) and let MEI handle
+  // the unmute promotion organically.
   useEffect(() => {
     if (!autoplay) return;
     const playerEl = playerRef.current?.el as HTMLElement | undefined;
@@ -992,133 +1207,22 @@ export default function UniversalPlayer({
       const video = playerEl.querySelector<HTMLVideoElement>("video");
       if (!video || !video.paused) return;
       try {
-        // Belt-and-suspenders muted setup — Chrome is sometimes picky.
         video.setAttribute("muted", "");
         video.defaultMuted = true;
         video.muted = true;
         video.setAttribute("playsinline", "");
         await video.play();
-      } catch (err: any) {
-        // Only log NotAllowedError; other errors aren't autoplay-related.
-        if (err?.name === "NotAllowedError") {
-          // eslint-disable-next-line no-console
-          console.debug("[player] autoplay blocked:", err.message);
-        }
-      }
+      } catch {}
     };
 
     tryPlay();
-    const onReady = () => { tryPlay(); };
+    const onReady = () => tryPlay();
     playerEl.addEventListener("can-play", onReady);
     playerEl.addEventListener("loaded-data", onReady);
     return () => {
       cancelled = true;
       playerEl.removeEventListener("can-play", onReady);
       playerEl.removeEventListener("loaded-data", onReady);
-    };
-  }, [autoplay, streamData]);
-
-  // ── Unmute strategy ──
-  // Chrome rules:
-  //   1. Muted autoplay always works.
-  //   2. Unmuting BEFORE a user gesture pauses the video (security
-  //      mitigation). Only pointerdown / keydown / touchstart qualify
-  //      as gestures — mousemove / wheel / scroll do NOT.
-  //
-  // We persist a "user has already unmuted on this site" flag in
-  // sessionStorage. Once they've unmuted once during the session, we
-  // can safely auto-unmute on subsequent navigations within the same
-  // tab — Chrome carries the gesture forward for the session lifetime.
-  // (We use sessionStorage, not localStorage: it's session-scoped to
-  // match Chrome's gesture model and clears on tab close.)
-  useEffect(() => {
-    if (!autoplay) return;
-    const playerEl = playerRef.current?.el as HTMLElement | undefined;
-    if (!playerEl) return;
-
-    let done = false;
-    let lastUnmuteAt = 0;
-
-    const HAS_UNMUTED_KEY = "hasUnmutedThisSession";
-
-    const tryUnmute = () => {
-      if (done) return;
-      const video = playerEl.querySelector<HTMLVideoElement>("video");
-      if (!video) return;
-      if (!video.muted) {
-        done = true;
-        return;
-      }
-      try {
-        lastUnmuteAt = Date.now();
-        video.muted = false;
-        video.volume = 1;
-        if (!video.muted) {
-          done = true;
-          // Remember that the user has authorized sound this session, so
-          // subsequent navigations can skip the muted-autoplay phase.
-          try { sessionStorage.setItem(HAS_UNMUTED_KEY, "1"); } catch {}
-        }
-      } catch {}
-    };
-
-    // If our unmute attempt pauses the video (Chrome's mitigation), revert
-    // muted and resume play. The picture keeps going; the user can click
-    // the volume button to unmute properly later.
-    const onPause = () => {
-      if (Date.now() - lastUnmuteAt > 500) return;
-      const video = playerEl.querySelector<HTMLVideoElement>("video");
-      if (!video) return;
-      try {
-        video.muted = true;
-        done = false;
-        lastUnmuteAt = 0;
-        video.play?.().catch(() => {});
-      } catch {}
-    };
-
-    // Try immediately on mount: if the user already unmuted earlier in this
-    // session, Chrome carries that gesture and the unmute will succeed.
-    const sessionHasUnmuted = (() => {
-      try { return sessionStorage.getItem(HAS_UNMUTED_KEY) === "1"; }
-      catch { return false; }
-    })();
-    if (sessionHasUnmuted) {
-      // Wait one tick so Vidstack/HLS finish wiring the <video>.
-      const t = setTimeout(tryUnmute, 100);
-      // Also try after the source is ready.
-      const onReady = () => tryUnmute();
-      playerEl.addEventListener("can-play", onReady);
-      playerEl.addEventListener("loaded-data", onReady);
-      // Fall through to gesture-based listeners as a safety net.
-      const opts = { capture: true } as AddEventListenerOptions;
-      document.addEventListener("pointerdown", tryUnmute, opts);
-      document.addEventListener("keydown", tryUnmute, opts);
-      document.addEventListener("touchstart", tryUnmute, opts);
-      playerEl.addEventListener("pause", onPause);
-      return () => {
-        clearTimeout(t);
-        playerEl.removeEventListener("can-play", onReady);
-        playerEl.removeEventListener("loaded-data", onReady);
-        document.removeEventListener("pointerdown", tryUnmute, opts);
-        document.removeEventListener("keydown", tryUnmute, opts);
-        document.removeEventListener("touchstart", tryUnmute, opts);
-        playerEl.removeEventListener("pause", onPause);
-      };
-    }
-
-    // No prior session unmute — wait for an actual user gesture.
-    const opts = { capture: true } as AddEventListenerOptions;
-    document.addEventListener("pointerdown", tryUnmute, opts);
-    document.addEventListener("keydown", tryUnmute, opts);
-    document.addEventListener("touchstart", tryUnmute, opts);
-    playerEl.addEventListener("pause", onPause);
-
-    return () => {
-      document.removeEventListener("pointerdown", tryUnmute, opts);
-      document.removeEventListener("keydown", tryUnmute, opts);
-      document.removeEventListener("touchstart", tryUnmute, opts);
-      playerEl.removeEventListener("pause", onPause);
     };
   }, [autoplay, streamData]);
 
@@ -1295,17 +1399,21 @@ export default function UniversalPlayer({
     }>;
 
   return (
-    <div className="relative h-full w-full">
-      {ambientEnabled && (
-        <>
-          <StaticGlow poster={poster} />
-          <LiveAmbient playerRef={playerRef} />
-        </>
-      )}
+    // `isolation: isolate` creates a new stacking context here. Without it,
+    // the ambient's z-index:-1 would slip behind elements OUTSIDE this
+    // component (Servers list, episode buttons, etc.) and cover them via
+    // the ambient's transform:scale() overflow. With isolate, z-index:-1
+    // is clamped to "behind this component but not behind its siblings".
+    <div className="relative h-full w-full" style={{ isolation: "isolate" }}>
+      {ambientEnabled && <LiveAmbient playerRef={playerRef} />}
 
       <MediaPlayer
         ref={playerRef}
-        className="vds-player relative z-10 h-full w-full overflow-hidden bg-black"
+        // Note: overflow-visible (not hidden) so portaled menus (subtitles
+        // settings, etc.) can extend slightly past the bottom edge of the
+        // player without being clipped. The bg-black still draws the player
+        // box; only stray child elements can now overflow.
+        className="vds-player relative z-10 h-full w-full overflow-visible bg-black"
         src={{
           src,
           type: isM3U8 ? "application/vnd.apple.mpegurl" : "video/mp4",
@@ -1313,13 +1421,16 @@ export default function UniversalPlayer({
         poster={poster}
         load="eager"
         playsinline
-        autoplay={autoplay}
-        // We deliberately don't pass `muted` here. Vidstack treats `muted`
-        // as a controlled prop and would constantly reset our manual unmute
-        // back to true on every render. Instead, the effect below sets
-        // `video.muted = true` directly at mount (to satisfy autoplay
-        // policy on cold load) and flips to false on first user activity,
-        // without any React-level reconciliation fighting back.
+        // We deliberately don't pass `autoplay` to Vidstack — its internal
+        // autoplay implementation fires before our source is necessarily
+        // ready and triggers Chrome's "Unmuting failed" mitigation, which
+        // can leave the player paused. We drive autoplay ourselves in the
+        // effect below (muted-first, then opportunistic unmute).
+        // We also don't pass `muted` — Vidstack treats it as controlled and
+        // would constantly reset our manual unmute back to true on every
+        // render. The effect sets `video.muted = true` directly at mount
+        // (to satisfy autoplay policy) and flips to false on first user
+        // activity, with no React-level reconciliation fighting back.
         volume={1}
         crossorigin="anonymous"
         aspectRatio="16/9"

@@ -3,11 +3,12 @@
 @tailwind components;
 @tailwind utilities;
 
-html {
-  min-height: calc(100% + env(safe-area-inset-top));
-  padding: env(safe-area-inset-top) env(safe-area-inset-right)
-    env(safe-area-inset-bottom) env(safe-area-inset-left);
-}
+/* Safe-area insets are handled by the viewport-fit meta tag (cf. _document)
+   + per-component padding where it actually matters (mobile bottom nav,
+   etc.). Applying padding here on <html> created a visible black band on
+   desktop because `env(safe-area-inset-*)` resolves to 0 there but the
+   padding rule still reserves space at the very top, pushing the fixed
+   navbar a few pixels down from the viewport edge. */
 
 /* Kill the page-wide horizontal scrollbar AND prevent users from scrolling
    sideways with touchpad / shift+wheel.
@@ -27,23 +28,46 @@ body {
   overflow-x: hidden;
 }
 
+/* Hide ALL scrollbars site-wide (vertical + horizontal) while keeping the
+   scroll behavior intact. Targets:
+   - WebKit (Chrome / Edge / Safari) via ::-webkit-scrollbar
+   - Firefox via `scrollbar-width: none`
+   - IE / legacy Edge via `-ms-overflow-style: none`
+   Applied to html, body, and every descendant so nested scrollable panels
+   (subtitle picker, mobile carousels, etc.) are clean too. Scroll itself
+   still works — wheel, touchpad, keyboard, programmatic — only the visible
+   track/thumb chrome is suppressed. */
+html,
+body,
+*::-webkit-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+*::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
 * {
   -webkit-tap-highlight-color: transparent;
 }
 
 :root {
-  /* Vidstack theme — accent tied to AniScroll pink/red (#E94560) */
+  /* Vidstack theme — brand values are also overridden at runtime by _app.tsx
+     from lib/theme.ts (see asCssVars). These are fallbacks before JS runs. */
   --media-brand: 233 69 96;
   --media-focus: 233 69 96;
 }
 
-/* Fine-tune Vidstack's DefaultVideoLayout to use our brand color */
+/* Vidstack DefaultVideoLayout reads var(--brand-primary) injected by
+   _app.tsx — change lib/theme.ts and these update everywhere. */
 .vds-player {
   --media-brand: 233 69 96;
   --media-focus: 233 69 96;
-  --media-slider-track-fill-bg: #E94560;
-  --media-slider-track-progress-bg: rgba(233, 69, 96, 0.35);
-  --media-menu-tick-color: #E94560;
+  --media-slider-track-fill-bg: var(--brand-primary, #E94560);
+  --media-slider-track-progress-bg: var(--brand-glow, rgba(233, 69, 96, 0.35));
+  --media-menu-tick-color: var(--brand-primary, #E94560);
   --media-tooltip-bg: rgba(26, 26, 36, 0.95);
   --media-controls-bg: linear-gradient(
     180deg,
@@ -51,26 +75,21 @@ body {
     rgba(0, 0, 0, 0.6) 80%,
     rgba(0, 0, 0, 0.85) 100%
   );
+  --video-border-radius: 12px;
 }
 
-/* Hide Vidstack's native CC button + Captions submenu — we replace both with
-   our own SubtitleMenu (richer track list + customize-styling shortcut).
-   Keeping them around would create two confusingly different controls for
-   the same job, plus the duplicate Captions row inside Settings. */
 .vds-player .vds-caption-button,
 .vds-player .vds-captions-menu,
 .vds-captions-menu {
   display: none !important;
 }
-/* Active/checked menu items + selected menu options */
 .vds-player [data-checked],
 .vds-player [data-selected] {
-  color: #E94560 !important;
+  color: var(--brand-primary, #E94560) !important;
 }
-/* Button hovers + focus */
 .vds-player button:hover,
 .vds-player [role="menuitem"]:hover {
-  color: #E94560 !important;
+  color: var(--brand-primary, #E94560) !important;
 }
 
 /* Bottom toolbar (download + subtitle-settings) — visually integrated with
@@ -96,7 +115,7 @@ body {
 }
 .moopa-bottom-tb a:hover,
 .moopa-bottom-tb button:hover {
-  color: #E94560;
+  color: var(--brand-primary, #E94560);
 }
 /* Show whenever Vidstack shows its controls */
 .vds-player[data-controls="true"] ~ .moopa-bottom-tb,
@@ -106,29 +125,72 @@ body {
   pointer-events: auto;
 }
 
-/* Caption vertical position controlled by SubtitleSettings */
-.vds-player .vds-captions,
-.vds-player media-captions {
-  bottom: var(--moopa-caption-bottom, 10%) !important;
+/* ─── Captions (Plyr-style) ───────────────────────────────────────────────
+   Pattern ported from sampotts/plyr — pure CSS, responsive font-size via
+   viewport-width breakpoints, no JS computation. Vidstack data-part
+   selectors carry the same role as Plyr's `.plyr__caption`.
+   ────────────────────────────────────────────────────────────────────── */
+.vds-player .vds-captions {
+  --plyr-captions-background: rgba(0, 0, 0, 0.8);
+  --plyr-captions-text-color: #fff;
+  --plyr-font-size-small: 13px;
+  --plyr-font-size-base: 15px;
+  --plyr-font-size-large: 18px;
+  --plyr-font-size-xlarge: 21px;
 }
-/* Vidstack custom caption rendering */
-.vds-player [part="cue"],
-.vds-player [part="cue-display"] {
-  font-size: var(--media-user-text-size, 1em) !important;
-  color: var(--media-user-text-color, white) !important;
-  background: var(--media-user-bg-color, rgba(0, 0, 0, 0.6)) !important;
-  font-family: var(--media-user-font-family, sans-serif) !important;
+/* The cue text itself. Vidstack uses data-part attributes (NOT shadow
+   parts) — so the correct selectors are [data-part='cue'] and
+   [data-part='cue-display']. */
+.vds-player [data-part='cue'],
+.vds-player [data-part='cue-display'] {
+  color: var(--plyr-captions-text-color) !important;
+  background: var(--plyr-captions-background) !important;
+  background-color: var(--plyr-captions-background) !important;
+  backdrop-filter: none !important;
+  border-radius: 4px;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+  line-height: 185%;
+  padding: 0.2em 0.5em;
+  white-space: pre-wrap;
+  text-shadow: none;
 }
-/* Native browser captions (used when Vidstack falls back to <track>) */
+/* Override the resolved --cue-font-size so Vidstack's defaults (and its
+   fullscreen @media that drops to 3% of overlay height) don't win. The
+   responsive breakpoints below set the actual sizes. */
+.vds-player .vds-captions {
+  --cue-font-size: var(--plyr-font-size-small) !important;
+}
+@media (min-width: 480px) {
+  .vds-player .vds-captions {
+    --cue-font-size: var(--plyr-font-size-base) !important;
+  }
+}
+@media (min-width: 768px) {
+  .vds-player .vds-captions {
+    --cue-font-size: var(--plyr-font-size-large) !important;
+  }
+}
+/* Fullscreen on large screens: bump to xlarge. Plyr keys this off
+   `.plyr:fullscreen`; Vidstack exposes `[data-fullscreen]` instead. */
+@media (min-width: 1024px) {
+  [data-fullscreen] .vds-captions,
+  .vds-player[data-fullscreen] .vds-captions {
+    --cue-font-size: var(--plyr-font-size-xlarge) !important;
+  }
+}
+/* Native browser cue fallback (when Vidstack defers to the browser). */
 .vds-player video::cue {
-  font-size: var(--media-user-text-size, 1em) !important;
-  color: var(--media-user-text-color, white) !important;
-  background-color: var(--media-user-bg-color, rgba(0, 0, 0, 0.6)) !important;
-  font-family: var(--media-user-font-family, sans-serif) !important;
+  color: var(--plyr-captions-text-color);
+  background-color: var(--plyr-captions-background);
+  font-family: inherit;
 }
 
 body {
-  @apply bg-primary scrollbar-hide text-txt;
+  @apply bg-tersier scrollbar-hide text-txt;
+}
+html {
+  background-color: var(--surface-tertiary, #0c0d10);
 }
 
 @layer components {

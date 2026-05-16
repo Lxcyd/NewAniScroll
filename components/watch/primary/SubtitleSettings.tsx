@@ -1,29 +1,35 @@
 import { useEffect, useState } from "react";
+// @ts-ignore — react-dom types not installed but createPortal is exported
+import { createPortal } from "react-dom";
 
 /**
- * Subtitle styling control. Persists to localStorage and exposes Vidstack's
- * built-in caption CSS variables on the player element so changes apply live
- * without re-mounting the player.
+ * Subtitle styling control. Persists user preferences to localStorage and
+ * applies them by overriding the Plyr-style CSS variables defined in
+ * globals.css (--plyr-captions-*, --plyr-font-size-*) on the `.vds-player`
+ * element. The base CSS does all the heavy lifting — we just adjust the
+ * variables, no custom selectors or fullscreen JS observers.
  *
- * Vidstack reads these vars from `.vds-captions` (or any ancestor):
- *  - --media-user-text-size      → font size scale
- *  - --media-user-text-color     → text color
- *  - --media-user-bg-color       → background color (incl. alpha)
- *  - --media-user-text-shadow    → text shadow / stroke
- *  - --media-user-font-family    → font family
+ * Renders into the fullscreen element when active so the panel stays
+ * visible while the player is fullscreened (the browser hides everything
+ * outside the fullscreen target).
  */
-const STORAGE_KEY = "subtitle_settings_v1";
+const STORAGE_KEY = "subtitle_settings_v2";
 
 const DEFAULTS = {
-  size: 100,           // % of base
+  size: 205,           // % — scales the responsive base size up/down
   color: "#FFFFFF",
   bgColor: "#000000",
-  bgAlpha: 0.6,        // 0..1
-  position: 90,        // % from top (90 = bottom)
-  fontFamily: "sans-serif",
+  bgAlpha: 0.8,        // 0..1
+  background: false,   // outline-only by default — cleaner over varied frames
+  position: 98,        // % from top (max 100 = stuck to bottom edge)
+  lineHeight: 120,     // % — gap between lines
+  fontFamily: "inherit",
 };
 
+type Settings = typeof DEFAULTS;
+
 const FONTS = [
+  { label: "Default", value: "inherit" },
   { label: "Sans-serif", value: "sans-serif" },
   { label: "Serif", value: "serif" },
   { label: "Mono", value: "monospace" },
@@ -31,14 +37,27 @@ const FONTS = [
   { label: "Outfit", value: "Outfit, sans-serif" },
 ];
 
-const STYLE_EL_ID = "moopa-subtitle-styles";
+const STYLE_EL_ID = "moopa-subtitle-overrides";
 
-function applyToDocument(s: typeof DEFAULTS) {
-  const bg = hexToRgba(s.bgColor, s.bgAlpha);
-  // Vidstack's --media-cue-font-size scales relative to overlay height,
-  // so we feed it as a multiplier of the default 4.5cqh-style calc.
-  const fontSizeMul = s.size / 100;
+// 8-layer outline (ArtPlayer-style) for legibility when background is off.
+const OUTLINE_SHADOW =
+  "-1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000, " +
+  "-1px 0 0 #000, 1px 0 0 #000, 0 -1px 0 #000, 0 1px 0 #000";
+
+function hexToRgba(hex: string, a: number): string {
+  const m = hex.replace("#", "").match(/^(..)(..)(..)$/);
+  if (!m) return `rgba(0,0,0,${a})`;
+  const [r, g, b] = [m[1], m[2], m[3]].map((h) => parseInt(h, 16));
+  return `rgba(${r}, ${g}, ${b}, ${a})`;
+}
+
+function applyToDocument(s: Settings) {
+  const bg = s.background ? hexToRgba(s.bgColor, s.bgAlpha) : "transparent";
   const captionBottom = `${100 - s.position}%`;
+  const textShadow = s.background ? "none" : OUTLINE_SHADOW;
+  // Express size as a multiplier on Plyr's base — keeps the responsive
+  // breakpoint behavior intact while letting the user scale up/down.
+  const sizeMul = s.size / 100;
 
   let styleEl = document.getElementById(STYLE_EL_ID) as HTMLStyleElement | null;
   if (!styleEl) {
@@ -46,35 +65,38 @@ function applyToDocument(s: typeof DEFAULTS) {
     styleEl.id = STYLE_EL_ID;
     document.head.appendChild(styleEl);
   }
-  // Use Vidstack's documented --media-cue-* variables (from
-  // @vidstack/react/player/styles/default/captions.css). These are the source
-  // of truth for caption rendering. Override the native ::cue too as a
-  // safety net for sources that fall back to browser-native captions.
   styleEl.textContent = `
-    .vds-player {
-      --media-cue-color: ${s.color};
-      --media-cue-bg: ${bg};
-      --media-cue-font-size: calc(var(--overlay-height, 100cqh) / 100 * ${4.5 * fontSizeMul});
-      --media-cue-line-height: calc(var(--media-cue-font-size) * 1.2);
-    }
     .vds-player .vds-captions {
+      --plyr-captions-background: ${bg};
+      --plyr-captions-text-color: ${s.color};
+      --plyr-font-size-small: ${Math.round(13 * sizeMul)}px;
+      --plyr-font-size-base: ${Math.round(15 * sizeMul)}px;
+      --plyr-font-size-large: ${Math.round(18 * sizeMul)}px;
+      --plyr-font-size-xlarge: ${Math.round(21 * sizeMul)}px;
       bottom: ${captionBottom} !important;
       font-family: ${s.fontFamily} !important;
     }
-    /* Native HTML5 cues fallback */
-    video::cue {
-      color: ${s.color};
-      background-color: ${bg};
+    .vds-player [data-part='cue'],
+    .vds-player [data-part='cue-display'] {
+      text-shadow: ${textShadow} !important;
+      font-family: ${s.fontFamily} !important;
+      line-height: ${s.lineHeight}% !important;
+      ${s.background ? "" : "padding: 0 !important; box-shadow: none !important; border-radius: 0 !important;"}
+    }
+    .vds-player video::cue {
+      text-shadow: ${textShadow};
       font-family: ${s.fontFamily};
+      line-height: ${s.lineHeight}%;
     }
   `;
 }
 
-function hexToRgba(hex: string, a: number): string {
-  const m = hex.replace("#", "").match(/^(..)(..)(..)$/);
-  if (!m) return `rgba(0,0,0,${a})`;
-  const [r, g, b] = [m[1], m[2], m[3]].map((h) => parseInt(h, 16));
-  return `rgba(${r}, ${g}, ${b}, ${a})`;
+function getFullscreenElement(): Element | null {
+  return (
+    document.fullscreenElement ||
+    (document as any).webkitFullscreenElement ||
+    null
+  );
 }
 
 export default function SubtitleSettings({
@@ -84,8 +106,10 @@ export default function SubtitleSettings({
   open: boolean;
   onClose: () => void;
 }) {
-  const [s, setS] = useState(DEFAULTS);
+  const [s, setS] = useState<Settings>(DEFAULTS);
+  const [fsHost, setFsHost] = useState<Element | null>(null);
 
+  // Hydrate from localStorage and re-apply on every change.
   useEffect(() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
@@ -99,19 +123,28 @@ export default function SubtitleSettings({
     } catch {}
   }, []);
 
-  // Re-apply when settings change + persist
   useEffect(() => {
     applyToDocument(s);
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
-    } catch {}
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(s)); } catch {}
   }, [s]);
+
+  // Track fullscreen so we can portal the modal inside the fullscreen target.
+  useEffect(() => {
+    const update = () => setFsHost(getFullscreenElement());
+    update();
+    document.addEventListener("fullscreenchange", update);
+    document.addEventListener("webkitfullscreenchange", update);
+    return () => {
+      document.removeEventListener("fullscreenchange", update);
+      document.removeEventListener("webkitfullscreenchange", update);
+    };
+  }, []);
 
   if (!open) return null;
 
-  const update = (patch: Partial<typeof DEFAULTS>) => setS((p) => ({ ...p, ...patch }));
+  const update = (patch: Partial<Settings>) => setS((p) => ({ ...p, ...patch }));
 
-  return (
+  const panel = (
     <div
       className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4"
       onClick={onClose}
@@ -158,7 +191,7 @@ export default function SubtitleSettings({
             <input
               type="range"
               min={50}
-              max={95}
+              max={100}
               step={1}
               value={s.position}
               onChange={(e) => update({ position: +e.target.value })}
@@ -167,6 +200,26 @@ export default function SubtitleSettings({
             <div className="mt-0.5 flex justify-between text-[10px] text-white/40">
               <span>middle</span>
               <span>bottom</span>
+            </div>
+          </div>
+
+          {/* Line height (gap between lines) */}
+          <div>
+            <label className="mb-1.5 flex justify-between text-xs uppercase tracking-wider text-white/50">
+              Line height <span className="font-mono normal-case text-white/80">{s.lineHeight}%</span>
+            </label>
+            <input
+              type="range"
+              min={100}
+              max={250}
+              step={5}
+              value={s.lineHeight}
+              onChange={(e) => update({ lineHeight: +e.target.value })}
+              className="w-full accent-as-accent"
+            />
+            <div className="mt-0.5 flex justify-between text-[10px] text-white/40">
+              <span>tight</span>
+              <span>loose</span>
             </div>
           </div>
 
@@ -181,9 +234,31 @@ export default function SubtitleSettings({
             />
           </div>
 
-          {/* Background color + alpha */}
+          {/* Background master toggle */}
           <div className="flex items-center justify-between gap-3">
-            <label className="text-xs uppercase tracking-wider text-white/50">Background</label>
+            <label className="text-xs uppercase tracking-wider text-white/50">
+              Background
+            </label>
+            <button
+              role="switch"
+              aria-checked={s.background}
+              onClick={() => update({ background: !s.background })}
+              className="relative h-6 w-11 rounded-full transition-colors"
+              style={{ backgroundColor: s.background ? "#E94560" : "rgba(255,255,255,0.18)" }}
+            >
+              <span
+                className="absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform"
+                style={{ left: s.background ? "calc(100% - 22px)" : "2px" }}
+              />
+            </button>
+          </div>
+
+          {/* Background color + alpha (dimmed when off) */}
+          <div
+            className="flex items-center justify-between gap-3"
+            style={{ opacity: s.background ? 1 : 0.4, pointerEvents: s.background ? "auto" : "none" }}
+          >
+            <label className="text-xs uppercase tracking-wider text-white/50">Bg color</label>
             <div className="flex items-center gap-2">
               <input
                 type="color"
@@ -227,14 +302,16 @@ export default function SubtitleSettings({
               style={{
                 fontSize: `${s.size}%`,
                 color: s.color,
-                background: hexToRgba(s.bgColor, s.bgAlpha),
-                fontFamily: s.fontFamily,
-                padding: "0.25em 0.5em",
+                background: s.background ? hexToRgba(s.bgColor, s.bgAlpha) : "transparent",
+                fontFamily: s.fontFamily === "inherit" ? undefined : s.fontFamily,
+                padding: s.background ? "0.25em 0.5em" : 0,
+                textShadow: s.background ? "none" : OUTLINE_SHADOW,
+                lineHeight: `${s.lineHeight}%`,
                 display: "inline-block",
                 borderRadius: 4,
               }}
             >
-              The quick brown fox jumps over the lazy dog
+              The quick brown fox jumps<br />over the lazy dog
             </div>
           </div>
 
@@ -256,4 +333,7 @@ export default function SubtitleSettings({
       </div>
     </div>
   );
+
+  if (fsHost) return createPortal(panel, fsHost);
+  return panel;
 }

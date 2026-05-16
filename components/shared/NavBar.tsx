@@ -1,6 +1,6 @@
 import { useSearch } from "@/lib/context/isOpenState";
 import { getCurrentSeason } from "@/utils/getTimes";
-import { ArrowLeftIcon, ArrowUpCircleIcon } from "@heroicons/react/20/solid";
+import { ArrowUpCircleIcon } from "@heroicons/react/20/solid";
 import { UserIcon } from "@heroicons/react/24/solid";
 import { signIn, signOut, useSession } from "next-auth/react";
 import Image from "next/image";
@@ -8,6 +8,7 @@ import Link from "next/link";
 import { useRouter } from "next/router";
 import { useEffect, useState } from "react";
 import { AniListInfoTypes } from "types/info/AnilistInfoTypes";
+import Logo from "./Logo";
 
 const getScrollPosition = (el: Window | Element = window) => {
   if (el instanceof Window) {
@@ -31,9 +32,14 @@ type NavbarProps = {
 
 export function Navbar({
   info = null,
-  scrollP = 200,
+  // Default scroll threshold lowered so the background fades in almost
+  // immediately as the user scrolls — avoids the page content briefly
+  // sitting on a transparent navbar.
+  scrollP = 20,
   toTop = false,
-  withNav = false,
+  // Unified navbar — always shows nav links + search by default so every
+  // page gets the same layout the home page does.
+  withNav = true,
   paddingY = "py-3",
   home = false,
   back = false,
@@ -63,127 +69,150 @@ export function Navbar({
       window.removeEventListener("scroll", handleScroll);
     };
   }, []);
+  // ── Unified navbar layout ──
+  // Same structure on every page: logo left, nav links spread, centered
+  // search bar, avatar right. Symmetric horizontal padding so the logo's
+  // distance from the left edge equals the avatar's distance from the right.
+  // The `info` / `home` props no longer drive different layouts — they only
+  // toggle ancillary affordances (back button, title fade-in).
+  const PAD_X = "px-6 lg:px-10";
   return (
     <>
       <nav
-        className={`${home ? "" : "fixed"} ${
+        // z-[9999] beats every other element on the page (player ambient
+        // glow at z-auto in its own stacking context, modals at z-999, etc.).
+        //
+        // Opera blur-bleed-through fix (also harmless on Chrome / Edge /
+        // Firefox / Safari):
+        //   - `translateZ(0)` promotes the navbar onto its own GPU layer
+        //     with whole-pixel rasterisation, so fractional-DPR (Windows
+        //     125%/150%) doesn't leave a sub-pixel seam at the corners.
+        //   - `isolation: isolate` creates a fresh stacking context for the
+        //     navbar so the watch-page blur sibling can't composite pixels
+        //     into the navbar's box.
+        //   - `backface-visibility: hidden` hints to the compositor that
+        //     the navbar is fully opaque, killing edge-sampling artefacts.
+        className={`fixed top-0 left-0 right-0 z-[9999] w-full ${PAD_X} py-2 rounded-none border-0 ${
           bgHover ? "hover:bg-tersier" : ""
-        } z-[200] top-0 px-5 w-full ${
-          scrollPosition?.y ?? 0 >= scrollP
-            ? home
-              ? ""
-              : `bg-tersier shadow-tersier shadow-sm ${
-                  shrink ? "py-1" : `${paddingY}`
-                }`
-            : `${paddingY}`
-        } transition-all duration-200 ease-linear`}
+        } ${
+          (scrollPosition?.y ?? 0) >= scrollP
+            ? "bg-tersier"
+            : ""
+        } transition-colors duration-200 ease-linear`}
+        style={{
+          borderRadius: 0,
+          transform: "translateZ(0)",
+          isolation: "isolate",
+          backfaceVisibility: "hidden",
+          willChange: "transform",
+        }}
       >
-        <div
-          className={`flex items-center justify-between mx-auto ${
-            home ? "lg:max-w-[90%] gap-10" : "max-w-screen-2xl"
-          }`}
-        >
-          <div
-            className={`flex items-center ${
-              withNav ? `${home ? "" : "w-[20%]"} gap-8` : " w-full gap-4"
-            }`}
-          >
-            {info ? (
-              <>
-                <button
-                  type="button"
-                  className="flex-center w-7 h-7 text-white"
-                  onClick={() => {
-                    back ? router.back() : router.push("/en");
-                  }}
-                >
-                  <ArrowLeftIcon className="w-full h-full" />
-                </button>
-
-                <span
-                  className={`font-inter font-semibold w-[50%] line-clamp-1 select-none ${
-                    scrollPosition?.y ?? 0 >= scrollP + 80
-                      ? "opacity-100"
-                      : "opacity-0"
-                  } transition-all duration-200 ease-linear`}
-                >
-                  {info.title.romaji}
-                </span>
-              </>
-            ) : (
-              // <></>
-              <Link
-                href={"/en"}
-                className={`flex-center font-outfit font-semibold pb-2 ${
-                  home ? "text-4xl text-action" : "text-white text-3xl"
-                }`}
+        {/* Three-zone layout:
+            - LEFT: logo + nav links, stretched to fill its half.
+            - CENTER: search bar, absolutely positioned in the viewport
+              center so it never drifts when links change width.
+            - RIGHT: avatar, mirroring the logo's left margin.
+            We use a positioning trick (the bar lives outside the flex flow)
+            so the search bar stays in the geometric center of the navbar
+            regardless of how many nav items are rendered.
+            min-h drives the navbar's overall height; items are centered
+            inside via items-center on the flex row. */}
+        <div className="relative flex items-center w-full gap-6 min-h-[48px]">
+          {/* Centered search bar — geometric center of the viewport. */}
+          {withNav && (
+            <button
+              type="button"
+              onClick={() => setIsOpen(true)}
+              title="Search"
+              className="hidden lg:flex absolute left-1/2 -translate-x-1/2 top-1/2 -translate-y-1/2 items-center gap-2 w-[320px] h-9 px-4 rounded-full bg-white/10 hover:bg-white/15 ring-1 ring-white/10 text-white/70 hover:text-white/90 transition-all"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="20"
+                height="20"
+                viewBox="0 0 24 24"
+                className="shrink-0"
               >
-                moopa
-              </Link>
+                <path
+                  fill="none"
+                  stroke="currentColor"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2"
+                  d="M15 15l6 6m-11-4a7 7 0 110-14 7 7 0 010 14z"
+                ></path>
+              </svg>
+              <span className="text-base font-karla truncate">Search anime…</span>
+            </button>
+          )}
+
+          {/* Left: logo + nav links. Fills the half-width up to the search bar.
+              No back-arrow on anime detail pages — clicking the logo returns
+              to the home, which is the same outcome and keeps the navbar
+              visually identical across every page. */}
+          <div className="flex items-center gap-8 flex-1 min-w-0">
+            <Logo size="sm" />
+
+            {withNav && (
+              <ul className="hidden lg:flex items-center gap-8 font-outfit text-[16px]">
+                <li>
+                  <Link
+                    href={`/en/search/anime?season=${season}&year=${year}`}
+                    className="hover:text-action/80 transition-all duration-150 ease-linear whitespace-nowrap"
+                  >
+                    This Season
+                  </Link>
+                </li>
+                <li>
+                  <Link
+                    href="/en/search/anime"
+                    className="hover:text-action/80 transition-all duration-150 ease-linear whitespace-nowrap"
+                  >
+                    Anime
+                  </Link>
+                </li>
+                <li>
+                  <Link
+                    href="/en/schedule"
+                    className="hover:text-action/80 transition-all duration-150 ease-linear whitespace-nowrap"
+                  >
+                    Schedule
+                  </Link>
+                </li>
+                {!session && (
+                  <li>
+                    <button
+                      onClick={() => signIn("AniListProvider")}
+                      className="hover:text-action/80 transition-all duration-150 ease-linear whitespace-nowrap"
+                    >
+                      Sign In
+                    </button>
+                  </li>
+                )}
+                {session && (
+                  <li>
+                    <Link
+                      href={`/en/profile/${session?.user?.name}`}
+                      className="hover:text-action/80 transition-all duration-150 ease-linear whitespace-nowrap"
+                    >
+                      My List
+                    </Link>
+                  </li>
+                )}
+              </ul>
             )}
           </div>
 
-          {withNav && (
-            <ul
-              className={`hidden w-full items-center gap-10 pt-2 font-outfit text-[14px] lg:pt-0 lg:flex ${
-                home ? "justify-start" : "justify-center"
-              }`}
-            >
-              <li>
-                <Link
-                  href={`/en/search/anime?season=${season}&year=${year}`}
-                  className="hover:text-action/80 transition-all duration-150 ease-linear"
-                >
-                  This Season
-                </Link>
-              </li>
-              <li>
-                <Link
-                  href="/en/search/anime"
-                  className="hover:text-action/80 transition-all duration-150 ease-linear"
-                >
-                  Anime
-                </Link>
-              </li>
-              <li>
-                <Link
-                  href="/en/schedule"
-                  className="hover:text-action/80 transition-all duration-150 ease-linear"
-                >
-                  Schedule
-                </Link>
-              </li>
-
-              {!session && (
-                <li>
-                  <button
-                    onClick={() => signIn("AniListProvider")}
-                    className="hover:text-action/80 transition-all duration-150 ease-linear"
-                    // className="px-2 py-1 ring-1 ring-action font-bold font-karla rounded-md"
-                  >
-                    Sign In
-                  </button>
-                </li>
-              )}
-              {session && (
-                <li className="text-center">
-                  <Link
-                    href={`/en/profile/${session?.user?.name}`}
-                    className="hover:text-action/80 transition-all duration-150 ease-linear"
-                  >
-                    My List
-                  </Link>
-                </li>
-              )}
-            </ul>
-          )}
-
-          <div className="flex w-[20%] justify-end items-center gap-4">
+          {/* Right: avatar / sign-in. Fixed at the right edge — its margin
+              from the right edge equals the logo's margin from the left,
+              both controlled by the parent's symmetric PAD_X. */}
+          <div className="flex shrink-0 items-center gap-4">
+            {/* Mobile-only search icon — desktop has the inline pill above. */}
             <button
               type="button"
               title="Search"
               onClick={() => setIsOpen(true)}
-              className="flex-center w-[26px] h-[26px]"
+              className="flex lg:hidden flex-center w-[26px] h-[26px]"
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
@@ -206,20 +235,20 @@ export function Navbar({
                 // title={sessions ? "Go to Profile" : "Login With AniList"}
               > */}
             {session ? (
-              <div className="w-7 h-7 relative flex flex-col items-center group shrink-0">
+              <div className="w-10 h-10 relative flex flex-col items-center group shrink-0">
                 <button
                   type="button"
                   onClick={() =>
                     router.push(`/en/profile/${session?.user?.name}`)
                   }
-                  className="rounded-full w-7 h-7 bg-white/30 overflow-hidden"
+                  className="rounded-full w-10 h-10 bg-white/30 overflow-hidden"
                 >
                   <Image
                     src={session?.user?.image?.large}
                     alt="avatar"
-                    width={50}
-                    height={50}
-                    className="w-7 h-7 object-cover"
+                    width={64}
+                    height={64}
+                    className="w-10 h-10 object-cover"
                   />
                 </button>
                 <div className="hidden absolute z-50 w-28 text-center -bottom-20 text-white shadow-2xl opacity-0 bg-secondary p-1 py-2 rounded-md font-karla font-light invisible group-hover:visible group-hover:opacity-100 duration-300 transition-all md:grid place-items-center gap-1">
@@ -243,7 +272,7 @@ export function Navbar({
                 type="button"
                 onClick={() => signIn("AniListProvider")}
                 title="Login With AniList"
-                className="w-7 h-7 bg-white/30 rounded-full overflow-hidden shrink-0"
+                className="w-10 h-10 bg-white/30 rounded-full overflow-hidden shrink-0"
               >
                 <UserIcon className="w-full h-full translate-y-1" />
               </button>

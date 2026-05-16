@@ -1,4 +1,6 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+// @ts-ignore — react-dom types not installed but createPortal is exported
+import { createPortal } from "react-dom";
 import { useMediaState, type MediaPlayerInstance } from "@vidstack/react";
 import Hls from "hls.js";
 
@@ -267,6 +269,41 @@ export default function HoverPreview({
     };
   }, [duration, playerRef]);
 
+  // Cache the player root so we can portal the tooltip inside it — keeps
+  // the preview visible when the player goes fullscreen (where any element
+  // outside the fullscreen target is hidden by the browser).
+  const [playerEl, setPlayerEl] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    const find = () => {
+      const el = playerRef.current?.el as HTMLElement | undefined;
+      if (el) setPlayerEl(el);
+      else setTimeout(find, 100);
+    };
+    find();
+  }, [playerRef]);
+
+  const tooltip = (
+    <div
+      ref={wrapperRef}
+      className="pointer-events-none absolute z-30 transition-opacity duration-150"
+      style={{
+        opacity: 0,
+        left: 0,
+        top: 0,
+      }}
+    >
+      <canvas
+        ref={canvasRef}
+        width={160}
+        height={90}
+        className="rounded-md bg-black ring-1 ring-white/20 shadow-xl"
+        style={{ width: "160px", height: "90px" }}
+      />
+      {/* Hidden label — kept in DOM so existing code can update it without crashing */}
+      <span ref={labelRef} className="sr-only">0:00</span>
+    </div>
+  );
+
   return (
     <>
       {/* Hidden source video — never shown, only sampled */}
@@ -287,27 +324,11 @@ export default function HoverPreview({
         }}
       />
 
-      {/* Hover preview tooltip — image only (Vidstack already shows the time
-          on its own slider tooltip; we'd be duplicating it). */}
-      <div
-        ref={wrapperRef}
-        className="pointer-events-none absolute z-30 transition-opacity duration-150"
-        style={{
-          opacity: 0,
-          left: 0,
-          top: 0,
-        }}
-      >
-        <canvas
-          ref={canvasRef}
-          width={160}
-          height={90}
-          className="rounded-md bg-black ring-1 ring-white/20 shadow-xl"
-          style={{ width: "160px", height: "90px" }}
-        />
-        {/* Hidden label — kept in DOM so existing code can update it without crashing */}
-        <span ref={labelRef} className="sr-only">0:00</span>
-      </div>
+      {/* Portal the tooltip into the player root so it stays visible when the
+          player enters native fullscreen (the browser hides everything outside
+          the fullscreen element). Falls back to inline render until playerEl
+          resolves — same visual outcome, just not fullscreen-safe yet. */}
+      {playerEl ? createPortal(tooltip, playerEl) : tooltip}
     </>
   );
 }

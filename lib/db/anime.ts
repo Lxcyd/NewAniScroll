@@ -248,6 +248,58 @@ export async function searchAnime(query: string, limit = 20): Promise<any[]> {
 }
 
 /**
+ * Returns a list of cached anime ordered by the requested sort. Used as a
+ * graceful fallback when AniList is down — we serve whatever's in Turso so
+ * the homepage doesn't go empty.
+ *
+ * Supported sorts mirror AniList's `MediaSort` enum (the subset the homepage
+ * actually uses):
+ *   - "TRENDING_DESC"      → JSON-extracted trending value
+ *   - "POPULARITY_DESC"    → indexed popularity column
+ *   - "SCORE_DESC"         → indexed average_score column
+ *   - "ID_DESC" / default  → most recent rows first
+ *
+ * Only non-adult, non-NULL-id rows are returned. Stale rows are NOT filtered
+ * out — better to serve slightly outdated data than nothing.
+ */
+export async function listAnime(
+  sort: string = "POPULARITY_DESC",
+  limit = 15,
+): Promise<any[]> {
+  const db = getTursoClient();
+  if (!db) return [];
+
+  const orderBy = (() => {
+    switch (sort) {
+      case "TRENDING_DESC":
+        // `trending` lives inside the JSON blob; SQLite supports json_extract.
+        return "CAST(json_extract(data, '$.trending') AS INTEGER) DESC NULLS LAST";
+      case "POPULARITY_DESC":
+        return "popularity DESC NULLS LAST";
+      case "SCORE_DESC":
+        return "average_score DESC NULLS LAST";
+      case "ID_DESC":
+      default:
+        return "id DESC";
+    }
+  })();
+
+  const r = await db.execute({
+    sql: `SELECT data
+            FROM anime
+           WHERE is_adult = 0
+             AND data IS NOT NULL
+           ORDER BY ${orderBy}
+           LIMIT ?`,
+    args: [limit],
+  });
+
+  return r.rows.map((row: any) =>
+    typeof row.data === "string" ? JSON.parse(row.data) : row.data
+  );
+}
+
+/**
  * Returns rows whose expires_at < now, ordered by last_accessed_at desc so
  * the cron refreshes user-visible anime first. Used by the daily cron.
  */

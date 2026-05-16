@@ -12,6 +12,7 @@ import { SearchProvider } from "@/lib/context/isOpenState";
 import { WatchPageProvider } from "@/lib/context/watchPageProvider";
 import { useEffect } from "react";
 import { unixTimestampToRelativeTime } from "@/utils/getTimes";
+import { asCssVars, BRAND } from "@/lib/theme";
 // import SecretPage from "@/components/secret";
 import { Toaster, toast } from "sonner";
 import ChangeLogs from "../components/shared/changelogs";
@@ -22,6 +23,16 @@ export default function App({
   pageProps: { session, ...pageProps },
 }: AppProps) {
   const router = useRouter();
+
+  // Inject the theme colors from lib/theme.ts as CSS custom properties on
+  // :root so every component (Tailwind utilities, raw CSS, inline styles)
+  // can read them. Single source of truth; edit lib/theme.ts to rebrand.
+  useEffect(() => {
+    const vars = asCssVars();
+    for (const [k, v] of Object.entries(vars)) {
+      document.documentElement.style.setProperty(k, v);
+    }
+  }, []);
 
   useEffect(() => {
     async function getBroadcast() {
@@ -92,7 +103,7 @@ export default function App({
                   className="z-50 w-full"
                 >
                   <NextNProgress
-                    color="#FF7E2C"
+                    color={BRAND.primary}
                     startPosition={0.3}
                     stopDelayMs={200}
                     height={3}

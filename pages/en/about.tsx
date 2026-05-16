@@ -8,18 +8,18 @@ export default function About() {
   return (
     <>
       <Head>
-        <title>Moopa - About</title>
+        <title>AniScroll - About</title>
         <meta name="title" content="About" />
         <meta
           name="description"
-          content="Moopa is a platform where you can watch and stream anime or read
+          content="AniScroll is a platform where you can watch and stream anime or read
               manga for free, without any ads or VPNs. Our mission is to provide
               a convenient and enjoyable experience for anime and manga
               enthusiasts all around the world."
         />
         <meta name="about" content="About this web" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <link rel="icon" href="/svg/c.svg" />
+        <link rel="icon" type="image/png" href="/logo.png" />
       </Head>
       <Navbar withNav={true} scrollP={5} shrink={true} />
       <motion.div
@@ -31,7 +31,7 @@ export default function About() {
         <div className="max-w-screen-lg w-full px-4 py-10">
           <h1 className="text-4xl font-bold mb-6">About Us</h1>
           <p className="text-lg mb-8">
-            Moopa is a platform where you can watch and stream anime or read
+            AniScroll is a platform where you can watch and stream anime or read
             manga for free, without any ads or VPNs. Our mission is to provide a
             convenient and enjoyable experience for anime and manga enthusiasts
             all around the world.

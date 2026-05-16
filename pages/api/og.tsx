@@ -69,7 +69,7 @@ export default async function handler(request: any) {
               filter: "brightness(100%)",
             }}
           >
-            moopa
+            AniScroll
           </span>
           <h1
             style={{

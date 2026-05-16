@@ -665,7 +665,7 @@ export default function Watch({
 
     mediaSession.metadata = new MediaMetadata({
       title,
-      artist: `Moopa ${
+      artist: `AniScroll ${
         title === info?.title?.romaji
           ? "- Episode " + epiNumber
           : `- ${info?.title?.romaji || info?.title?.english}`
@@ -788,7 +788,7 @@ export default function Watch({
         <meta property="og:title"    content={`Watch - ${episodeNavigation?.playing?.title || info?.title?.english}`} />
         <meta property="og:description" content={episodeNavigation?.playing?.description || info?.description} />
         <meta property="og:image"    content={episodeNavigation?.playing?.img || info?.bannerImage} />
-        <meta property="og:site_name" content="Moopa" />
+        <meta property="og:site_name" content="AniScroll" />
         <meta name="twitter:image"   content={episodeNavigation?.playing?.img || info?.bannerImage} />
         <meta name="twitter:title"   content={`Watch - ${episodeNavigation?.playing?.title || info?.title?.english}`} />
         <meta name="twitter:description" content={episodeNavigation?.playing?.description || info?.description} />

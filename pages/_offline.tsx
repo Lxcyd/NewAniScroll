@@ -6,12 +6,12 @@ export default function Fallback() {
     <div className="w-screen h-screen flex-center flex-col gap-5">
       <div className="relative">
         <Image
-          src="/svg/c.svg"
-          alt="logo"
+          src="/logo.png"
+          alt="AniScroll"
           height={160}
           width={160}
           quality={100}
-          className="object-cover"
+          className="object-contain"
         />
       </div>
       <p className="flex items-center gap-2 text-2xl">

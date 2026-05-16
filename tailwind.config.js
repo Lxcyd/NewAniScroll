@@ -53,18 +53,19 @@ module.exports = {
         nav: "5.3rem",
       },
       colors: {
+        // Single source of truth: lib/theme.ts. Edit there to rebrand.
         primary: "#141519",
         secondary: "#212127",
-        action: "#FF7F57",
+        action: "var(--brand-primary, #E94560)",
         image: "#3B3C41",
-        txt: "#dbdcdd",
-        tersier: "#0c0d10",
-        // AniScroll-inspired palette
+        txt: "var(--text-body, #dbdcdd)",
+        tersier: "var(--surface-tertiary, #0c0d10)",
         as: {
-          bg: "#0e0e16",
-          card: "#1a1a24",
-          surface: "#22222e",
-          accent: "#E94560",
+          bg: "var(--surface-bg, #0e0e16)",
+          card: "var(--surface-card, #1a1a24)",
+          surface: "var(--surface-surface, #22222e)",
+          accent: "var(--brand-primary, #E94560)",
+          accent2: "var(--brand-secondary, #FF7F57)",
           score: "#FFD700",
           episodes: "#0F3460",
           watching: "#10B981",

@@ -1,7 +1,7 @@
 # Changelog
 
 This document contains a summary of all significant changes made to this release.
-This will be the last update for Moopa
+This will be the last update for AniScroll
 
 ## 🎉 Update v4.4.0 - Finale
 
