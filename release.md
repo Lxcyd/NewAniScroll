@@ -3,7 +3,7 @@
 This document contains a summary of all significant changes made to this release.
 This will be the last update for AniScroll
 
-## 🎉 Update v4.4.0 - Finale
+## 🎉 Update v4.4.0 - Finale test
 
 ### What's Changed
 

@@ -54,7 +54,9 @@ module.exports = {
       },
       colors: {
         // Single source of truth: lib/theme.ts. Edit there to rebrand.
-        primary: "#141519",
+        // `primary` aligned on the info page background (#0c0d10) so the
+        // home/index, watch page and info page share one black.
+        primary: "#0c0d10",
         secondary: "#212127",
         action: "var(--brand-primary, #E94560)",
         image: "#3B3C41",

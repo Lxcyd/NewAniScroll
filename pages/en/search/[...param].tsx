@@ -17,6 +17,7 @@ import {
   mangaFormatOptions,
   mediaType,
   seasonOptions,
+  sortOptions,
   tagsOption,
   yearOptions,
 } from "@/components/search/selection";
@@ -34,9 +35,9 @@ import { StaticImport } from "next/dist/shared/lib/get-img-props";
 export async function getServerSideProps(context: any) {
   const { param } = context.query;
 
-  const { search, format, genres, season, year } = context.query;
+  const { search, format, genres, season, year, sort } = context.query;
 
-  let getFormat, getSeason, getYear;
+  let getFormat, getSeason, getYear, getSort;
   let getGenres = [];
 
   if (genres) {
@@ -64,6 +65,25 @@ export async function getServerSideProps(context: any) {
     );
   }
 
+  if (sort) {
+    // sort.value can be a string or an array (Trending uses both),
+    // so we string-compare against `.value`'s primitive form.
+    getSort = sortOptions.find(
+      (i) =>
+        String(i.value).toUpperCase() === String(sort).toUpperCase()
+    );
+  }
+
+  /* "This Season" defaults: when the URL carries a season but no format
+     and no sort, assume the user wants the headline TV series for that
+     season ranked by popularity (driven by the navbar "This Season"
+     link). Keeps the public URL short
+     (?season=winter&year=2026) while still showing the right thing. */
+  if (getSeason && !format && !sort) {
+    getFormat = formatOptions.find((i) => i.value === "TV");
+    getSort = sortOptions.find((i) => i.value === "POPULARITY_DESC");
+  }
+
   if (!param && param.length !== 1) {
     return {
       notFound: true,
@@ -80,6 +100,7 @@ export async function getServerSideProps(context: any) {
       seasons: getSeason || null,
       years: getYear || null,
       genres: getGenres || null,
+      sorts: getSort || null,
     },
   };
 }
@@ -91,6 +112,7 @@ type CardProps = {
   formats: any;
   seasons: any;
   years: any;
+  sorts: any;
 };
 
 export default function Card({
@@ -100,6 +122,7 @@ export default function Card({
   formats,
   seasons,
   years,
+  sorts,
 }: CardProps) {
   const inputRef = useRef(null);
   const router = useRouter();
@@ -118,9 +141,38 @@ export default function Card({
   } | null>(mediaType[index]);
   const [year, setYear] = useState(years);
   const [season, setSeason] = useState(seasons);
-  const [sort, setSelectedSort] = useState<{ name: string; value: string }>();
+  const [sort, setSelectedSort] = useState<{ name: string; value: string } | undefined>(
+    sorts || undefined
+  );
   const [genre, setGenre] = useState(genres);
   const [format, setFormat] = useState(formats);
+
+  // Next.js doesn't remount this page when only the query string changes
+  // (e.g. clicking from /en/search/anime?season=WINTER... to
+  // /en/search/anime). The component keeps its old useState values, so the
+  // filters look applied even though the URL says otherwise. Resync each
+  // filter from its prop whenever SSR re-runs and feeds us new values.
+  useEffect(() => {
+    setSelectedType(mediaType[index]);
+  }, [index]);
+  useEffect(() => {
+    setYear(years);
+  }, [years]);
+  useEffect(() => {
+    setSeason(seasons);
+  }, [seasons]);
+  useEffect(() => {
+    setSelectedSort(sorts || undefined);
+  }, [sorts]);
+  useEffect(() => {
+    setGenre(genres);
+  }, [genres]);
+  useEffect(() => {
+    setFormat(formats);
+  }, [formats]);
+  useEffect(() => {
+    setQuery(query);
+  }, [query]);
 
   const [isVisible, setIsVisible] = useState(false);
 

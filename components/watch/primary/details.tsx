@@ -80,7 +80,10 @@ export default function Details({
             </h2>
             <div className="row-start-2">
               {info ? (
-                info.studios?.edges[0].node.name
+                /* Some not-yet-aired entries land on AniList without a
+                   studio. Guard against an empty `edges` array so we
+                   don't crash with "Cannot read 'node' of undefined". */
+                info.studios?.edges?.[0]?.node?.name ?? "N/A"
               ) : (
                 <Skeleton width={80} />
               )}

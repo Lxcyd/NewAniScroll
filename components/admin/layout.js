@@ -16,12 +16,13 @@ import React from "react";
 //    React state)
 //  - external links to standalone admin pages (href: string, real <Link>)
 const Navigation = [
-  { name: "Dashboard", page: 1, icon: <HomeIcon /> },
-  { name: "Reports",   page: 5, icon: <FlagIcon /> },
-  { name: "Metadata",  page: 2, icon: <CloudArrowUpIcon /> },
-  { name: "Fanarts",   href: "/admin/fanarts-review", icon: <PhotoIcon /> },
-  { name: "Users",     page: 3, icon: <UserIcon /> },
-  { name: "Settings",  page: 4, icon: <Cog6ToothIcon /> },
+  { name: "Dashboard",     page: 1, icon: <HomeIcon /> },
+  { name: "Reports",       page: 5, icon: <FlagIcon /> },
+  { name: "Metadata",      page: 2, icon: <CloudArrowUpIcon /> },
+  { name: "Fanarts queue", href: "/admin/fanarts-review",   icon: <PhotoIcon /> },
+  { name: "Fanarts by id", href: "/admin/fanarts-by-anime", icon: <PhotoIcon /> },
+  { name: "Users",         page: 3, icon: <UserIcon /> },
+  { name: "Settings",      page: 4, icon: <Cog6ToothIcon /> },
 ];
 
 export default function AdminLayout({ children, page, setPage }) {

@@ -287,6 +287,36 @@ export default function Watch({
 
   const router = useRouter();
 
+  // Decorate the URL with a human-readable slug after the
+  // /watch/{id}/{provider} segments. The [...info] route already
+  // ignores extra path parts, so this is purely cosmetic — old links
+  // without the slug keep working. We strip diacritics + lower-case
+  // + collapse non-alphanumerics into single dashes.
+  useEffect(() => {
+    if (!info?.id) return;
+    const title =
+      info?.title?.english || info?.title?.romaji || info?.title?.userPreferred;
+    if (!title) return;
+    const slug = title
+      .normalize("NFKD")
+      .replace(/[̀-ͯ]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 60);
+    if (!slug) return;
+    const path = window.location.pathname;
+    // Path shape: /en/anime/watch/{id}/{provider}[/{slug}]
+    const parts = path.split("/").filter(Boolean);
+    // ["en", "anime", "watch", "{id}", "{provider}", ...]
+    if (parts.length < 5) return;
+    if (parts.length === 5 || parts[5] !== slug) {
+      const base = `/${parts.slice(0, 5).join("/")}`;
+      const next = `${base}/${slug}${window.location.search}${window.location.hash}`;
+      window.history.replaceState(null, "", next);
+    }
+  }, [info?.id, info?.title?.english, info?.title?.romaji, info?.title?.userPreferred]);
+
   const {
     theaterMode,
     autoplay,

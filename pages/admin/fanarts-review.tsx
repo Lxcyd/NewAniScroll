@@ -330,6 +330,13 @@ export default function FanartsReview() {
             <div>
               <h1 className="text-2xl font-bold font-outfit">Fanarts Review</h1>
             </div>
+            <Link
+              href="/admin/fanarts-by-anime"
+              className="px-3 py-1.5 rounded bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-white/80 text-sm font-karla"
+              title="Browse all fanarts of a specific anime"
+            >
+              Search by anime →
+            </Link>
           </div>
           {counts && (
             <div className="flex flex-wrap gap-3 text-sm font-karla">

@@ -374,7 +374,7 @@ export default function Home({
       <MobileNav hideProfile={true} />
 
       <Navbar withNav={true} home={true} />
-      <div className="h-auto w-screen bg-[#141519] text-[#dbdcdd] pt-[68px]">
+      <div className="h-auto w-screen bg-primary text-[#dbdcdd] pt-[68px]">
         <div className="hidden lg:flex w-full justify-center my-16">
           <div className="flex justify-between w-[80%] h-[470px]">
             <div className="flex flex-col items-start justify-center w-[55%] gap-5">

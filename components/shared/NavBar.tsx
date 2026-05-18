@@ -160,7 +160,11 @@ export function Navbar({
               <ul className="hidden lg:flex items-center gap-8 font-outfit text-[16px]">
                 <li>
                   <Link
-                    href={`/en/search/anime?season=${season}&year=${year}`}
+                    /* Lower-case season + year only. The search page
+                       auto-applies format=TV + sort=POPULARITY_DESC
+                       when a season is selected and no other filters
+                       are present, so the URL stays human-readable. */
+                    href={`/en/search/anime?season=${season.toLowerCase()}&year=${year}`}
                     className="hover:text-action/80 transition-all duration-150 ease-linear whitespace-nowrap"
                   >
                     This Season

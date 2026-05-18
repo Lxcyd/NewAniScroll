@@ -1,0 +1,113 @@
+/* Design tokens scoped to the AniScroll info v2 page.
+   Lifted from design_handoff_anime_info/Anime Info.html so the V2 page
+   can render pixel-close to the handoff without polluting global CSS. */
+
+.root {
+  /* Aligned with the site-wide `tersier` token (tailwind.config.js)
+     so the navbar (bg-tersier) and footer share the same black with
+     the info page — no visual seam where the navbar's bottom edge
+     meets the hero banner. */
+  --bg-0: #0c0d10;
+  --bg-1: #10121a;
+  --bg-2: #161924;
+  --bg-3: #1d2030;
+  --line: #252938;
+  --line-2: #2f3447;
+  --txt-0: #f4f5f8;
+  --txt-1: #c4c8d4;
+  --txt-2: #8a8fa3;
+  --txt-3: #5e6478;
+  --accent: #ff3b5c;
+  --accent-2: #ff5c78;
+  --accent-soft: rgba(255, 59, 92, 0.12);
+  --gold: #f6c544;
+  --blue: #4a8fff;
+  --green: #2dd47a;
+  --purple: #b07cff;
+
+  background: var(--bg-0);
+  color: var(--txt-0);
+  font-family: "Inter", system-ui, sans-serif;
+  min-height: 100vh;
+  /* Reset every box-side. Any inherited padding/margin from <main> or
+     <body> would shift the banner inward and reveal the page bg as a
+     thin vertical strip on the left of the banner. */
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  overflow-x: hidden;
+}
+
+.root *,
+.root *::before,
+.root *::after {
+  box-sizing: border-box;
+}
+
+.display {
+  font-family: "Space Grotesk", "Inter", sans-serif;
+  letter-spacing: -0.01em;
+}
+
+.mono {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+}
+
+/* Re-enable visible scrollbars only inside opted-in panes.
+   Site-wide CSS hides every scrollbar; the Tags / External Sites cards
+   need their custom 8px scrollbar back. */
+.customScroll {
+  scrollbar-width: thin !important;
+  scrollbar-color: var(--line-2) rgba(255, 255, 255, 0.04) !important;
+}
+.customScroll::-webkit-scrollbar {
+  width: 8px !important;
+  height: 8px !important;
+  display: block !important;
+}
+.customScroll::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.04) !important;
+  border-radius: 4px;
+}
+.customScroll::-webkit-scrollbar-thumb {
+  background: var(--line-2) !important;
+  border-radius: 4px;
+}
+.customScroll::-webkit-scrollbar-thumb:hover {
+  background: var(--txt-3) !important;
+}
+
+.root button:hover {
+  filter: brightness(1.08);
+}
+.root button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+@media (max-width: 900px) {
+  .responsiveGrid {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+/* Artworks masonry: responsive column count via class-based overrides
+   on the inline-styled container. We can't use inline styles for media
+   queries, so the column-count is set here and applied via .artworkCols
+   from Artworks.tsx. */
+.artworkCols {
+  column-count: 3;
+  column-gap: 12px;
+  column-fill: balance;
+}
+@media (max-width: 1100px) {
+  .artworkCols {
+    column-count: 2;
+  }
+}
+@media (max-width: 640px) {
+  .artworkCols {
+    column-count: 1;
+  }
+}

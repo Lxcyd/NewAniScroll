@@ -109,7 +109,10 @@ const BugReportForm: React.FC<BugReportFormProps> = ({ isOpen, setIsOpen }) => {
   return (
     <>
       <Transition appear show={isOpen} as={Fragment}>
-        <Dialog as="div" className="relative z-[200]" onClose={closeModal}>
+        {/* Navbar is z-[9999] (cf. components/shared/NavBar.tsx) so the
+            modal needs to sit above it; otherwise the dialog renders
+            *behind* the fixed navbar at the top of the viewport. */}
+        <Dialog as="div" className="relative z-[10000]" onClose={closeModal}>
           <Transition.Child
             as={Fragment}
             enter="ease-out duration-300"

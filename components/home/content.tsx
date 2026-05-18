@@ -322,7 +322,7 @@ export default function Content({
       <div className="relative flex items-center lg:gap-2">
         <div
           onClick={slideLeft}
-          className={`flex items-center mb-5 cursor-pointer hover:text-action absolute left-0 bg-gradient-to-r from-[#141519] z-40 h-full hover:opacity-100 ${
+          className={`flex items-center mb-5 cursor-pointer hover:text-action absolute left-0 bg-gradient-to-r from-[#0c0d10] z-40 h-full hover:opacity-100 ${
             scrollLeft ? "lg:visible" : "invisible"
           }`}
         >
@@ -619,7 +619,7 @@ export default function Content({
         <MdChevronRight
           onClick={slideRight}
           size={30}
-          className={`hidden md:block mb-5 cursor-pointer hover:text-action absolute right-0 bg-gradient-to-l from-[#141519] z-40 h-full hover:opacity-100 hover:bg-gradient-to-l ${
+          className={`hidden md:block mb-5 cursor-pointer hover:text-action absolute right-0 bg-gradient-to-l from-[#0c0d10] z-40 h-full hover:opacity-100 hover:bg-gradient-to-l ${
             scrollRight ? "visible" : "hidden"
           }`}
         />
