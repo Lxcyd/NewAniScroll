@@ -265,9 +265,24 @@ export default function Watch({
 
   // Load the user's saved preferred server after hydration.
   // Done in useEffect (not lazy useState) to avoid SSR/CSR mismatch.
+  // We also patch the URL so the slug reflects the actual server in use,
+  // not the static "megaplay" the route was initialised with. Otherwise
+  // visiting /watch/{id}/megaplay would show "megaplay" forever even when
+  // the user previously chose a different server.
   useEffect(() => {
     const saved = localStorage.getItem("preferred_server");
-    if (saved && saved !== "megaplay") setActiveServer(saved);
+    if (saved && saved !== "megaplay") {
+      setActiveServer(saved);
+      try {
+        const url = new URL(window.location.href);
+        const segs = url.pathname.split("/");
+        if (segs.length >= 6 && segs[5] && segs[5] !== saved) {
+          segs[5] = saved;
+          url.pathname = segs.join("/");
+          window.history.replaceState(null, "", url.toString());
+        }
+      } catch {}
+    }
   }, []);
 
   const router = useRouter();
@@ -285,6 +300,36 @@ export default function Watch({
     ratingModalState,
     setRatingModalState,
   } = useWatchProvider();
+
+  // ── Persist into local Recently Watched immediately ──────────
+  // Runs as soon as we know which anime + episode the user opened. We
+  // don't wait for the episode list to come back from the API because
+  // that fetch can fail (404 on source) and we still want the row in
+  // history. We refine it later (image / nextId) once data arrives.
+  useEffect(() => {
+    if (!info?.id) return;
+    try {
+      const raw = localStorage.getItem("artplayer_settings");
+      const existing = raw ? JSON.parse(raw) : {};
+      const entryKey = `${info.id}-${epiNumber}-${dub ? "dub" : "sub"}`;
+      existing[entryKey] = {
+        ...(existing[entryKey] || {}),
+        watchId: watchId || entryKey,
+        aniId: info.id,
+        aniTitle: info?.title?.romaji || info?.title?.english,
+        title: `Episode ${epiNumber}`,
+        image:
+          info?.coverImage?.extraLarge ||
+          info?.coverImage?.large ||
+          info?.bannerImage,
+        episode: Number(epiNumber),
+        provider,
+        dub: !!dub,
+        createdAt: new Date().toISOString(),
+      };
+      localStorage.setItem("artplayer_settings", JSON.stringify(existing));
+    } catch {}
+  }, [info?.id, epiNumber, dub, provider, watchId]);
 
   // ── Episode list + navigation ────────────────────────────────
   useEffect(() => {
@@ -345,10 +390,43 @@ export default function Watch({
             next: nextEpisode,
           };
           setEpisodeNavigation(vidNav);
+
+          // Persist this episode into the local "recently watched" history.
+          // The Recently Watched page (and the home carousel) reads from
+          // `artplayer_settings` in localStorage. We write a row keyed on
+          // watchId so opening an episode immediately appears there. The
+          // server-side history (Prisma) is updated separately by the
+          // logged-in flow but local storage covers the anonymous case.
+          try {
+            const raw = localStorage.getItem("artplayer_settings");
+            const existing = raw ? JSON.parse(raw) : {};
+            const entryKey = String(currentEpisode.id);
+            existing[entryKey] = {
+              ...(existing[entryKey] || {}),
+              watchId: currentEpisode.id,
+              aniId: info.id,
+              aniTitle: info?.title?.romaji || info?.title?.english,
+              title:
+                playingData?.title ||
+                `Episode ${currentEpisode.number}`,
+              image:
+                playingData?.img || playingData?.image || info?.coverImage?.large,
+              episode: currentEpisode.number,
+              // `getProvider` is the full provider object — store just the
+              // id string so the home / recently-watched UIs can compose
+              // a watch URL without serialising "[object Object]".
+              provider: getProvider?.providerId || provider,
+              nextId: nextEpisode?.id || null,
+              nextNumber: nextEpisode?.number || null,
+              dub: !!dub,
+              createdAt: new Date().toISOString(),
+            };
+            localStorage.setItem("artplayer_settings", JSON.stringify(existing));
+          } catch {}
         }
       }
 
-      setArtStorage(JSON.parse(localStorage.getItem("artplayer_settings")));
+      setArtStorage(JSON.parse(localStorage.getItem("artplayer_settings") || "null"));
     }
 
     getInfo();
@@ -652,6 +730,19 @@ export default function Watch({
   const handleServerChange = useCallback((serverId) => {
     setActiveServer(serverId);
     localStorage.setItem("preferred_server", serverId);
+    // Reflect the chosen provider in the URL so bookmarks / shares /
+    // browser-back work correctly. `replace` (not `push`) so the back
+    // button doesn't trap the user in their server-switch history.
+    try {
+      const url = new URL(window.location.href);
+      const segs = url.pathname.split("/");
+      // /en/anime/watch/{aniId}/{provider}
+      if (segs.length >= 6 && segs[5]) {
+        segs[5] = serverId;
+        url.pathname = segs.join("/");
+        window.history.replaceState(null, "", url.toString());
+      }
+    } catch {}
   }, []);
 
   // ── Media Session (OS-level now playing) ────────────────────
@@ -925,7 +1016,6 @@ export default function Watch({
                   onList={onList}
                   setOnList={setOnList}
                   handleOpen={() => handleOpen()}
-                  disqus={disqus}
                 />
               </div>
             </div>

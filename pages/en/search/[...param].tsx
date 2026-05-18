@@ -249,7 +249,7 @@ export default function Card({
   return (
     <>
       <Head>
-        <title>AniScroll - search</title>
+        <title>AniScroll • Beta</title>
         <meta name="title" content="Search" />
         <meta name="description" content="Search your favourites Anime/Manga" />
         <link rel="icon" type="image/png" href="/logo.png" />

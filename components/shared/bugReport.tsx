@@ -15,43 +15,94 @@ interface BugReportFormProps {
   setIsOpen: (isOpen: boolean) => void;
 }
 
+const MAX_IMAGES = 5;
+const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
+
 const BugReportForm: React.FC<BugReportFormProps> = ({ isOpen, setIsOpen }) => {
+  const [bugTitle, setBugTitle] = useState("");
   const [bugDescription, setBugDescription] = useState("");
   const [severity, setSeverity] = useState(severityOptions[0]);
+  const [images, setImages] = useState<string[]>([]);
+  const [submitting, setSubmitting] = useState(false);
 
   function closeModal() {
     setIsOpen(false);
+    setBugTitle("");
     setBugDescription("");
     setSeverity(severityOptions[0]);
+    setImages([]);
   }
+
+  // Convert a single File → data URL. Resolves null when the file is
+  // too large or not an image.
+  const fileToDataUrl = (file: File): Promise<string | null> =>
+    new Promise((resolve) => {
+      if (!file.type.startsWith("image/")) return resolve(null);
+      if (file.size > MAX_IMAGE_BYTES) return resolve(null);
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = () => resolve(null);
+      reader.readAsDataURL(file);
+    });
+
+  const handleFiles = async (files: FileList | null) => {
+    if (!files) return;
+    const slots = MAX_IMAGES - images.length;
+    if (slots <= 0) {
+      toast.error(`You already attached ${MAX_IMAGES} images.`);
+      return;
+    }
+    const chosen = Array.from(files).slice(0, slots);
+    const encoded = await Promise.all(chosen.map(fileToDataUrl));
+    const valid = encoded.filter((x): x is string => Boolean(x));
+    const rejected = encoded.length - valid.length;
+    if (rejected > 0) {
+      toast.error(`${rejected} file(s) skipped (too large or not an image).`);
+    }
+    if (valid.length) setImages((cur) => [...cur, ...valid]);
+  };
+
+  const removeImage = (i: number) => {
+    setImages((cur) => cur.filter((_, idx) => idx !== i));
+  };
 
   const handleSubmit = async (e: any) => {
     e.preventDefault();
+    if (submitting) return;
+    setSubmitting(true);
 
     const bugReport = {
+      title: bugTitle,
       desc: bugDescription,
       severity: severity.name,
       url: window.location.href,
       createdAt: new Date().toISOString(),
+      images,
     };
 
     try {
       const res = await fetch("/api/v2/admin/bug-report", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          data: bugReport,
-        }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ data: bugReport }),
       });
 
       const json = await res.json();
+      if (res.status === 429) {
+        toast.error(json.message || "Too many reports, please wait.");
+        return;
+      }
+      if (!res.ok) {
+        toast.error(json.error || "Submission failed.");
+        return;
+      }
       toast.success(json.message);
       closeModal();
     } catch (err: any) {
       console.log(err);
       toast.error("Something went wrong: " + err.message);
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -91,17 +142,35 @@ const BugReportForm: React.FC<BugReportFormProps> = ({ isOpen, setIsOpen }) => {
                       <div className="space-y-4">
                         <div>
                           <label
+                            htmlFor="bugTitle"
+                            className="block text-txt text-sm font-medium mb-2"
+                          >
+                            Title
+                          </label>
+                          <input
+                            id="bugTitle"
+                            type="text"
+                            maxLength={120}
+                            className="w-full bg-image text-txt rounded-md border border-txt focus:ring-action focus:border-action transition duration-300 focus:outline-none py-2 px-3"
+                            placeholder="Short summary, e.g. 'Subtitles disappear in fullscreen'"
+                            value={bugTitle}
+                            onChange={(e) => setBugTitle(e.target.value)}
+                            required
+                          />
+                        </div>
+                        <div>
+                          <label
                             htmlFor="bugDescription"
                             className={`block text-txt text-sm font-medium mb-2`}
                           >
-                            Bug Description
+                            Description
                           </label>
                           <textarea
                             id="bugDescription"
                             name="bugDescription"
                             rows={4}
                             className={`w-full bg-image text-txt rounded-md border border-txt focus:ring-action focus:border-action transition duration-300 focus:outline-none py-2 px-3`}
-                            placeholder="Describe the bug you encountered..."
+                            placeholder="Steps to reproduce, what happened, what you expected…"
                             value={bugDescription}
                             onChange={(e) => setBugDescription(e.target.value)}
                             required
@@ -176,12 +245,56 @@ const BugReportForm: React.FC<BugReportFormProps> = ({ isOpen, setIsOpen }) => {
                           </div>
                         </Listbox>
                       </div>
+
+                      {/* Image attachments — up to 5, max 2 MB each */}
+                      <div className="mt-4">
+                        <label className="block text-txt text-sm font-medium mb-2">
+                          Screenshots ({images.length}/{MAX_IMAGES})
+                        </label>
+                        <div className="flex flex-wrap gap-2">
+                          {images.map((src, i) => (
+                            <div key={i} className="relative">
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img
+                                src={src}
+                                alt=""
+                                className="w-16 h-16 object-cover rounded ring-1 ring-white/10"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => removeImage(i)}
+                                className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-rose-600 text-white text-xs flex-center hover:bg-rose-500"
+                                aria-label="Remove"
+                              >
+                                ×
+                              </button>
+                            </div>
+                          ))}
+                          {images.length < MAX_IMAGES && (
+                            <label className="w-16 h-16 rounded ring-1 ring-white/15 hover:ring-action cursor-pointer flex-center text-white/40 hover:text-white text-2xl transition-colors">
+                              +
+                              <input
+                                type="file"
+                                accept="image/*"
+                                multiple
+                                hidden
+                                onChange={(e) => handleFiles(e.target.files)}
+                              />
+                            </label>
+                          )}
+                        </div>
+                        <p className="mt-1 text-[10px] text-white/40">
+                          Max 2&nbsp;MB per image.
+                        </p>
+                      </div>
+
                       <div className="mt-4">
                         <button
                           type="submit"
-                          className={`w-full bg-action text-white py-2 px-4 rounded-md font-semibold hover:bg-action/80 focus:ring focus:ring-action focus:outline-none transition duration-300`}
+                          disabled={submitting}
+                          className={`w-full bg-action text-white py-2 px-4 rounded-md font-semibold hover:bg-action/80 focus:ring focus:ring-action focus:outline-none transition duration-300 disabled:opacity-50 disabled:cursor-not-allowed`}
                         >
-                          Submit Bug Report
+                          {submitting ? "Sending…" : "Submit Bug Report"}
                         </button>
                       </div>
                     </form>

@@ -71,7 +71,7 @@ export default function Recent({ sessions }) {
   return (
     <Fragment>
       <Head>
-        <title>AniScroll - New Episodes</title>
+        <title>AniScroll • Beta</title>
         <meta name="title" content="New Episodes" />
         <meta
           name="description"

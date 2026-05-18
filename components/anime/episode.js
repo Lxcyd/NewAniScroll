@@ -45,9 +45,13 @@ const setDefaultProvider = (providers, setProviderId) => {
   }
 };
 
-// Build a megaplay watch URL from AniList id + episode number
+// Build a megaplay watch URL from AniList id + episode number.
+// The URL slug must match the provider id of the source we're requesting —
+// putting "gogoanime" here while the actual id starts with "megaplay-…"
+// confuses the watch page: it loads the URL slug-provider first, fails,
+// and only recovers if the user refreshes. Keep slug + id provider aligned.
 function buildMegaplayUrl(aniId, episodeNumber, isDub) {
-  return `/en/anime/watch/${aniId}/gogoanime?id=megaplay-${aniId}-${episodeNumber}&num=${episodeNumber}${
+  return `/en/anime/watch/${aniId}/megaplay?id=megaplay-${aniId}-${episodeNumber}&num=${episodeNumber}${
     isDub ? "&dub=true" : ""
   }`;
 }

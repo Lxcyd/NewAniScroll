@@ -1,6 +1,8 @@
 import {
+  ArrowLeftIcon,
   CloudArrowUpIcon,
   Cog6ToothIcon,
+  FlagIcon,
   HomeIcon,
   PhotoIcon,
   UserIcon,
@@ -15,6 +17,7 @@ import React from "react";
 //  - external links to standalone admin pages (href: string, real <Link>)
 const Navigation = [
   { name: "Dashboard", page: 1, icon: <HomeIcon /> },
+  { name: "Reports",   page: 5, icon: <FlagIcon /> },
   { name: "Metadata",  page: 2, icon: <CloudArrowUpIcon /> },
   { name: "Fanarts",   href: "/admin/fanarts-review", icon: <PhotoIcon /> },
   { name: "Users",     page: 3, icon: <UserIcon /> },
@@ -22,10 +25,28 @@ const Navigation = [
 ];
 
 export default function AdminLayout({ children, page, setPage }) {
+  // Lock the page body so admin scroll happens inside the content panel,
+  // not at the document root. Otherwise the dashboard content can push the
+  // navbar out of view when the cards stack vertically.
+  React.useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, []);
+
   return (
-    <div className="relative w-screen h-screen">
+    <div className="relative w-screen h-screen overflow-hidden">
       <div className="absolute flex flex-col gap-5 top-0 left-0 py-2 bg-secondary w-[14rem] h-full">
-        <div className="flex flex-col px-3">
+        <div className="flex flex-col px-3 gap-2">
+          {/* Back to the public site — gives admins a way out of the
+              dashboard without typing /en in the URL bar. */}
+          <Link
+            href="/en"
+            className="flex items-center gap-1.5 text-xs text-white/60 hover:text-action transition-colors w-fit"
+          >
+            <ArrowLeftIcon className="w-4 h-4" />
+            Back to site
+          </Link>
           <p className="text-sm font-light text-action font-outfit">AniScroll</p>
           <h1 className="text-2xl font-bold text-white">
             Admin <br />
@@ -73,7 +94,9 @@ export default function AdminLayout({ children, page, setPage }) {
           })}
         </div>
       </div>
-      <div className="ml-[14rem] overflow-x-hidden h-full">{children}</div>
+      <div className="ml-[14rem] overflow-x-hidden overflow-y-auto h-full">
+        {children}
+      </div>
     </div>
   );
 }

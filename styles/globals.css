@@ -49,6 +49,19 @@ body,
   height: 0;
 }
 
+/* Disable native drag of images everywhere on the page. We use
+   `useDraggable` from react-use-draggable-scroll for click-and-drag
+   horizontal scrolling on the home carousels; the browser's default
+   image drag (which shows the picture as a URL tooltip and prevents the
+   carousel from moving) fights with it. -webkit-user-drag is the
+   non-standard property Chrome/Safari respect; -user-select: none on
+   img also prevents accidental text selection over titles. */
+img {
+  -webkit-user-drag: none;
+  user-drag: none;
+  -webkit-touch-callout: none;
+}
+
 * {
   -webkit-tap-highlight-color: transparent;
 }

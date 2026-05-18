@@ -32,10 +32,15 @@ export default function Logo({
   return (
     <Link
       href={href}
-      className={`font-outfit font-semibold ${TEXT_CLS[size]} text-action hover:opacity-90 transition-opacity ${className}`}
+      className={`flex items-baseline gap-1.5 font-outfit font-semibold hover:opacity-90 transition-opacity ${className}`}
       aria-label="AniScroll home"
     >
-      AniScroll
+      <span className={`${TEXT_CLS[size]} text-action`}>AniScroll</span>
+      {/* Tiny beta tag. Lives at a step smaller than the wordmark so it
+          stays visible but doesn't compete with the brand. */}
+      <span className="text-xs font-karla font-medium tracking-wider uppercase text-white/40">
+        Beta
+      </span>
     </Link>
   );
 }

@@ -84,6 +84,39 @@ export default function Content({
 }: ContentProps) {
   const ref = useRef<HTMLElement>(null!);
   const { events } = useDraggable(ref);
+  // Drag-vs-click discriminator: only swallow the click that fires right
+  // after a real drag. We measure distance from pointerdown to pointerup;
+  // if it's below the threshold the click goes through (navigation works).
+  // The threshold is generous (8px) so hand tremor on a static click
+  // doesn't disable navigation. The flag is set in pointerup, NOT
+  // pointermove, so a moving cursor during the down isn't enough by
+  // itself — the user has to actually displace the pointer between down
+  // and up to count as a drag.
+  const dragMovedRef = useRef(false);
+  const downPosRef = useRef<{ x: number; y: number } | null>(null);
+  const DRAG_THRESHOLD = 8;
+  const onPointerDownCapture = (e: React.PointerEvent) => {
+    dragMovedRef.current = false;
+    downPosRef.current = { x: e.clientX, y: e.clientY };
+  };
+  const onPointerUpCapture = (e: React.PointerEvent) => {
+    const start = downPosRef.current;
+    if (!start) return;
+    const dx = Math.abs(e.clientX - start.x);
+    const dy = Math.abs(e.clientY - start.y);
+    if (dx > DRAG_THRESHOLD || dy > DRAG_THRESHOLD) {
+      dragMovedRef.current = true;
+    }
+    downPosRef.current = null;
+  };
+  const onClickCapture = (e: React.MouseEvent) => {
+    if (dragMovedRef.current) {
+      e.preventDefault();
+      e.stopPropagation();
+      // Reset right after — a follow-up click on the same card should fire.
+      dragMovedRef.current = false;
+    }
+  };
 
   const router = useRouter();
 
@@ -265,6 +298,16 @@ export default function Content({
     }
   };
 
+  // Don't render anything for an empty Recently Watched section — the
+  // user has watched nothing on this device yet, no point showing a
+  // header + empty carousel.
+  if (
+    ids === "recentlyWatched" &&
+    (!userData || userData.length === 0 || !userData.some((i: any) => i?.watchId))
+  ) {
+    return null;
+  }
+
   return (
     <div>
       <div
@@ -289,6 +332,9 @@ export default function Content({
           id={ids}
           className="flex h-full w-full select-none overflow-x-scroll overflow-y-hidden scrollbar-hide lg:gap-8 gap-4 lg:p-10 py-8 px-5 z-30"
           onScroll={handleScroll}
+          onPointerDownCapture={onPointerDownCapture}
+          onPointerUpCapture={onPointerUpCapture}
+          onClickCapture={onClickCapture}
           {...events}
           ref={ref as React.RefObject<HTMLDivElement>}
         >
@@ -327,7 +373,8 @@ export default function Content({
                           : `/en/${type}/${anime.id}`
                       }
                       className="hover:scale-105 hover:shadow-lg duration-300 ease-out group relative"
-                      title={anime.title.romaji}
+                      draggable={false}
+                      onDragStart={(e) => e.preventDefault()}
                     >
                       {ids === "onGoing" && (
                         <div className="h-[190px] lg:h-[265px] w-[135px] lg:w-[185px] bg-gradient-to-b from-transparent to-black/90 absolute z-40 rounded-md whitespace-normal font-karla group">
@@ -409,7 +456,8 @@ export default function Content({
                             : `/en/${type.toLowerCase()}/${anime.id}`
                         }
                         className="w-[135px] lg:w-[185px] line-clamp-2"
-                        title={anime.title.romaji}
+                        draggable={false}
+                        onDragStart={(e) => e.preventDefault()}
                       >
                         <h1 className="font-karla font-semibold xl:text-base text-[15px]">
                           {anime.status === "RELEASING" ||
@@ -475,6 +523,8 @@ export default function Content({
                         }?id=${encodeURIComponent(i.watchId)}&num=${i.episode}${
                           i?.dub ? `&dub=${i?.dub}` : ""
                         }`}
+                        draggable={false}
+                        onDragStart={(e) => e.preventDefault()}
                       >
                         <div className="w-full h-full bg-gradient-to-t from-black/70 from-20% to-transparent group-hover:to-black/40 transition-all duration-300 ease-out absolute z-30" />
                         <div className="absolute bottom-3 left-0 mx-2 text-white flex gap-2 items-center w-[80%] z-30">
@@ -511,6 +561,8 @@ export default function Content({
                         href={`/en/anime/watch/${i.aniId}/${
                           i.provider
                         }?id=${encodeURIComponent(i.watchId)}&num=${i.episode}`}
+                        draggable={false}
+                        onDragStart={(e) => e.preventDefault()}
                       >
                         {/* <h1 className="font-semibold">{i.title}</h1> */}
                         <p className="flex items-center gap-1 text-sm text-gray-400 w-[320px]">

@@ -97,7 +97,7 @@ export default function PopularAnime({ sessions }) {
   return (
     <Fragment>
       <Head>
-        <title>AniScroll - Popular Anime</title>
+        <title>AniScroll • Beta</title>
         <meta name="title" content="Popular Anime" />
         <meta
           name="description"

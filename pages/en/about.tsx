@@ -8,7 +8,7 @@ export default function About() {
   return (
     <>
       <Head>
-        <title>AniScroll - About</title>
+        <title>AniScroll • Beta</title>
         <meta name="title" content="About" />
         <meta
           name="description"

@@ -1,11 +1,9 @@
 import AdminDashboard from "@/components/admin/dashboard";
 import AdminLayout from "@/components/admin/layout";
 import AppendMeta from "@/components/admin/meta/AppendMeta";
-import {
-  countKeysWithPrefix,
-  countNumericKeys,
-  getValuesWithPrefix,
-} from "@/utils/getRedisWithPrefix";
+import MetadataEditor from "@/components/admin/meta/MetadataEditor";
+import AdminReports from "@/components/admin/reports";
+import { isAdminSession } from "@/lib/auth/isAdmin";
 import { getServerSession } from "next-auth";
 import { authOptions } from "pages/api/auth/[...nextauth]";
 import React, { useState } from "react";
@@ -17,84 +15,40 @@ export async function getServerSideProps(context) {
     authOptions
   );
 
-  if (!sessions) {
-    return {
-      redirect: {
-        destination: "/",
-        permanent: false,
-      },
-    };
+  if (!sessions || !isAdminSession(sessions)) {
+    return { redirect: { destination: "/", permanent: false } };
   }
 
-  const admin = sessions?.user?.name === process.env.ADMIN_USERNAME;
+  let api = process.env.API_URI || null;
+  if (api && api.endsWith("/")) api = api.slice(0, -1);
 
-  let api;
-  api = process.env.API_URI || null;
-  if (api && api.endsWith("/")) {
-    api = api.slice(0, -1);
-  }
-
-  if (!admin) {
-    return {
-      redirect: {
-        destination: "/",
-        permanent: false,
-      },
-    };
-  }
-
-  // The original dashboard counts keys in Redis. With REDIS_URL unset (we now
-  // serve cache from Turso), those calls would TypeError on `redis.scan`.
-  // Guard each call so the page still renders — admin can read DB stats from
-  // Turso instead via separate tooling.
-  const safeCount = async (fn) => {
-    try { return await fn(); } catch { return 0; }
-  };
-  const safeValues = async (fn) => {
-    try { return await fn(); } catch { return []; }
-  };
-  const [anime, info, meta, report] = await Promise.all([
-    safeCount(countNumericKeys),
-    safeCount(() => countKeysWithPrefix("anime:")),
-    safeCount(() => countKeysWithPrefix("meta:")),
-    safeValues(() => getValuesWithPrefix("report:")),
-  ]);
-
-  return {
-    props: {
-      session: sessions,
-      animeCount: anime || 0,
-      infoCount: info || 0,
-      metaCount: meta || 0,
-      report: report || [],
-      api,
-    },
-  };
+  return { props: { session: sessions, api } };
 }
 
-export default function Admin({
-  animeCount,
-  infoCount,
-  metaCount,
-  report,
-  api,
-}) {
+export default function Admin({ api }) {
   const [page, setPage] = useState(1);
 
   return (
     <AdminLayout page={page} setPage={setPage}>
       <div className="h-full">
-        {page == 1 && (
-          <AdminDashboard
-            animeCount={animeCount}
-            infoCount={infoCount}
-            metaCount={metaCount}
-            report={report}
-          />
+        {page === 1 && <AdminDashboard />}
+        {page === 2 && (
+          <div className="px-6 py-8 space-y-8">
+            <AppendMeta api={api} />
+            <MetadataEditor />
+          </div>
         )}
-        {page == 2 && <AppendMeta api={api} />}
-        {page == 3 && <p className="flex-center h-full">Coming Soon!</p>}
-        {page == 4 && <p className="flex-center h-full">Coming Soon!</p>}
+        {page === 3 && (
+          <p className="flex-center h-full text-white/40">
+            Users coming soon.
+          </p>
+        )}
+        {page === 4 && (
+          <p className="flex-center h-full text-white/40">
+            Settings coming soon.
+          </p>
+        )}
+        {page === 5 && <AdminReports />}
       </div>
     </AdminLayout>
   );

@@ -1,112 +1,148 @@
-import MobileNav from "@/components/shared/MobileNav";
-import { Navbar } from "@/components/shared/NavBar";
 import Footer from "@/components/shared/footer";
+import { Navbar } from "@/components/shared/NavBar";
+import MobileNav from "@/components/shared/MobileNav";
 import Head from "next/head";
 
 export default function DMCA() {
   return (
     <>
       <Head>
-        <title>AniScroll - DMCA</title>
-        <meta name="DMCA" content="DMCA" />
-        <meta property="og:title" content="DMCA" />
+        <title>AniScroll • Beta</title>
+        <meta
+          name="description"
+          content="AniScroll's disclaimer, DMCA process, and a note on the project's status."
+        />
+        <meta property="og:title" content="DMCA · AniScroll" />
         <meta
           property="og:description"
-          content="AniScroll is committed to respecting the intellectual
-                  property rights of others and complying with the Digital
-                  Millennium Copyright Act (DMCA)."
+          content="AniScroll respects copyright. Read our DMCA process and project status."
         />
         <meta property="og:image" content="/logo.png" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <link rel="icon" type="image/png" href="/logo.png" />
       </Head>
-      <>
-        <Navbar withNav={true} scrollP={5} shrink={true} />
 
-        <MobileNav hideProfile={true} />
-        <div className="min-h-screen z-20 flex w-screen justify-center items-center">
-          <div className="px-5 lg:px-0 lg:w-[75%] text-2xl gap-7 flex flex-col my-[10rem]">
-            <div className="flex">
-              <h1 className="text-4xl font-bold font-karla rounded-md bg-secondary p-3">
-                DMCA - Disclaimer
-              </h1>
-            </div>
-            <div className="flex flex-col gap-10">
-              <div className="flex flex-col gap-3 text-[#cdcdcd]">
-                <p>
-                  AniScroll is committed to respecting the intellectual
-                  property rights of others and complying with the Digital
-                  Millennium Copyright Act (DMCA). We take copyright
-                  infringement seriously and will respond to notices of alleged
-                  copyright infringement that comply with the DMCA and any other
-                  applicable laws.
-                </p>
-                <p>
-                  If you believe that any content on our website is infringing
-                  upon your copyrights, please send us an email. Please allow up
-                  to 2-5 business days for a response. Please note that emailing
-                  your complaint to other parties such as our Internet Service
-                  Provider, Hosting Provider, and other third parties will not
-                  expedite your request and may result in a delayed response due
-                  to the complaint not being filed properly.
-                </p>
-              </div>
-              <p className="text-white">
-                In order for us to process your complaint, please provide the
-                following information:
+      <Navbar withNav scrollP={5} shrink />
+      <MobileNav hideProfile />
+
+      <main className="min-h-screen w-full pt-[80px] pb-20">
+        <div className="mx-auto w-[90%] lg:w-[70%] max-w-3xl flex flex-col gap-10">
+          {/* Hero */}
+          <header className="flex flex-col gap-2">
+            <h1 className="font-outfit font-bold text-4xl lg:text-5xl text-white">
+              DMCA &amp; Disclaimer
+            </h1>
+            <p className="font-karla text-white/60">
+              Read this before sending a takedown notice — it saves both of us time.
+            </p>
+          </header>
+
+          {/* Project status (the personal note) */}
+          <section className="bg-secondary rounded-card p-6 ring-1 ring-white/5">
+            <h2 className="font-outfit font-semibold text-action text-2xl mb-3">
+              A note on this project
+            </h2>
+            <div className="font-karla text-white/85 space-y-3 leading-relaxed">
+              <p>
+                AniScroll is a personal side project I build because I love anime
+                and I wanted a player that felt right. It is not a business —
+                there are no ads, and there never will be.
               </p>
-              <div className="text-xl ml-5 text-[#cdcdcd]">
-                <ul className="flex flex-col gap-1">
-                  <li>
-                    · Your name, address, and telephone number. We reserve the
-                    right to verify this information.
-                  </li>
-                  <li>
-                    · Identification of the copyrighted work claimed to have
-                    been infringed.
-                  </li>
-                  <li>
-                    · The exact and complete URL link where the infringing
-                    material is located.
-                  </li>
-                  <li>
-                    · The exact and complete URL link where the infringing
-                    material is located.
-                  </li>
-                  <li>
-                    · The exact and complete URL link where the infringing
-                    material is located.
-                  </li>
-                  <li>· Please write to us in English or Indonesian.</li>
-                </ul>
-              </div>
-              <p className="text-[#cdcdcd]">
-                Please note that anonymous or incomplete messages will not be
-                dealt with. Thank you for your understanding.
+              <p>
+                Right now the site is actively maintained and getting regular
+                updates — see the changelog in the navbar for what landed
+                recently. That said, I can&apos;t promise it will always be
+                the case. Real life, time, and motivation all have a vote.
+                If updates ever slow down or stop, that&apos;s why.
               </p>
-              <h1 className="text-white font-karla">DISCLAIMER:</h1>
-              <p className="text-[#cdcdcd]">
-                None of the files listed on AniScroll are hosted on our
-                servers. All links point to content hosted on third-party
-                websites. AniScroll does not accept responsibility for content
-                hosted on third-party websites and has no involvement in the
-                downloading/uploading of movies. We only post links that are
-                available on the internet. If you believe that any content on
-                our website infringes upon your intellectual property rights and
-                you hold the copyright for that content, please report it to{" "}
-                <a
-                  href="mailto:contact@aniscroll.com?subject=[AniScroll]%20-%20Your%20Subject"
-                  className="font-semibold"
-                >
-                  contact@aniscroll.com
-                </a>{" "}
-                and the content will be immediately removed.
+              <p className="text-white/60 text-sm">
+                Thanks for using the site. If you find a bug, use the Report
+                button in the navbar and I&apos;ll get the message.
               </p>
             </div>
-          </div>
+          </section>
+
+          {/* Disclaimer */}
+          <section>
+            <h2 className="font-outfit font-semibold text-2xl text-white mb-3">
+              Disclaimer
+            </h2>
+            <div className="font-karla text-white/80 space-y-3 leading-relaxed">
+              <p>
+                AniScroll does <strong>not</strong> host any video, audio, or
+                manga files. Every stream you watch and every page you read is
+                served from a third-party source — we only link to them, the
+                same way a search engine links to a webpage.
+              </p>
+              <p>
+                We do not control those third-party hosts, their availability,
+                their content moderation, or how long any given link will keep
+                working. If a link is broken or returns problematic content,
+                report it via the in-app form and we&apos;ll remove the
+                association from our index.
+              </p>
+            </div>
+          </section>
+
+          {/* DMCA process */}
+          <section>
+            <h2 className="font-outfit font-semibold text-2xl text-white mb-3">
+              DMCA takedown process
+            </h2>
+            <div className="font-karla text-white/80 space-y-3 leading-relaxed">
+              <p>
+                We comply with the Digital Millennium Copyright Act (DMCA). If
+                you are a rights holder and you believe content indexed on
+                AniScroll infringes your rights, send an email with the
+                information listed below. Allow 2 – 5 business days for a
+                response.
+              </p>
+              <p className="text-white/60 text-sm">
+                Note: contacting our hosting / DNS / CDN providers will not
+                speed things up and may delay the takedown by routing your
+                request through the wrong queue.
+              </p>
+            </div>
+
+            <div className="mt-4 bg-as-card rounded-card p-5 ring-1 ring-white/5">
+              <p className="font-karla text-white font-semibold mb-2">
+                Please include:
+              </p>
+              <ul className="font-karla text-white/80 space-y-1.5 list-disc pl-5">
+                <li>Your name, postal address, and a working phone number.</li>
+                <li>
+                  Identification of the copyrighted work you claim has been
+                  infringed.
+                </li>
+                <li>
+                  The complete URL(s) on AniScroll where the infringing
+                  material is referenced.
+                </li>
+                <li>
+                  A statement that you have a good-faith belief the use is not
+                  authorised, and that the information you provide is accurate.
+                </li>
+                <li>
+                  A physical or electronic signature of the rights holder or
+                  authorised representative.
+                </li>
+              </ul>
+            </div>
+
+            <p className="mt-4 font-karla text-white/80">
+              An email address for DMCA notices is{" "}
+              <span className="text-white/60 italic">
+                not available yet
+              </span>
+              . In the meantime, please use the Report button in the navbar
+              with as much detail as you would put in an email and I&apos;ll
+              follow up.
+            </p>
+          </section>
         </div>
-        <Footer />
-      </>
+      </main>
+
+      <Footer />
     </>
   );
 }

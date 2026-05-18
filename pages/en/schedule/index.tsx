@@ -221,7 +221,7 @@ export default function Schedule({ schedule }: any) {
   return (
     <>
       <Head>
-        <title>AniScroll - Schedule</title>
+        <title>AniScroll • Beta</title>
         <meta
           name="description"
           content="AniScroll is a website where you can find all the information about your favorite anime and manga."

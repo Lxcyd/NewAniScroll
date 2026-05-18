@@ -22,35 +22,40 @@ export default function PopularAnime({ sessions }) {
   useEffect(() => {
     setLoading(true);
     const fetchData = async () => {
-      let data;
+      // 1. Try the Prisma-backed user profile first (when signed in).
+      //    If Prisma isn't configured or the user has no rows yet, we
+      //    fall through to localStorage so the page never goes blank.
+      let serverList = null;
       if (sessions?.user?.name) {
-        data = await fetch(
-          `/api/user/profile?name=${sessions?.user?.name}`
-        ).then((res) => {
-          if (!res.ok) {
-            switch (res.status) {
-              case 404: {
-                return console.log("user not found");
-              }
-              case 500: {
-                return console.log("server error");
-              }
-            }
+        try {
+          const res = await fetch(
+            `/api/user/profile?name=${encodeURIComponent(sessions.user.name)}`,
+            { cache: "no-store" },
+          );
+          if (res.ok) {
+            const json = await res.json();
+            serverList = Array.isArray(json?.WatchListEpisode)
+              ? json.WatchListEpisode
+              : null;
           }
-          return res.json();
-        });
+        } catch {}
       }
-      if (!data) {
+
+      // 2. Read localStorage as a fallback / merge source so we still show
+      //    anonymous watch history.
+      let localList = [];
+      try {
         const dat = JSON.parse(localStorage.getItem("artplayer_settings"));
-        if (dat) {
-          const arr = Object.keys(dat).map((key) => dat[key]);
-          setData(arr);
-          setLoading(false);
+        if (dat && typeof dat === "object") {
+          localList = Object.keys(dat).map((key) => dat[key]);
         }
-      } else {
-        setData(data?.WatchListEpisode);
-        setLoading(false);
-      }
+      } catch {}
+
+      // 3. Prefer server list if it has anything; otherwise show local.
+      const merged =
+        serverList && serverList.length > 0 ? serverList : localList;
+      setData(merged);
+      setLoading(false);
     };
     fetchData();
   }, [sessions?.user?.name, remove]);
@@ -146,7 +151,7 @@ export default function PopularAnime({ sessions }) {
   return (
     <>
       <Head>
-        <title>AniScroll - Recently Watched Episodes</title>
+        <title>AniScroll • Beta</title>
       </Head>
       <MobileNav sessions={sessions} />
       <div className="flex flex-col gap-2 items-center min-h-screen w-screen px-2 relative pb-10">

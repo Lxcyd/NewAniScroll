@@ -82,19 +82,25 @@ export default function MyList({
               alt="user avatar"
               width={1000}
               height={1000}
-              className="object-cover h-28 w-28 rounded-lg"
+              priority
+              className="object-cover h-28 w-28 rounded-lg relative ring-2 ring-as-card shadow-xl"
+              style={{ zIndex: 2 }}
             />
             {user.bannerImage ? (
               <Image
                 src={user.bannerImage}
-                alt="image"
-                width={1000}
-                height={1000}
+                alt="banner"
+                width={1920}
+                height={400}
                 priority
-                className="absolute w-screen h-[240px] object-cover -top-[7.75rem] left-0 -z-50 brightness-[65%]"
+                className="absolute w-screen h-[240px] object-cover -top-[7.75rem] left-0 brightness-[65%]"
+                style={{ zIndex: 0 }}
               />
             ) : (
-              <div className="absolute w-screen h-[240px] object-cover -top-[7.75rem] left-0 -z-50 brightness-[65%] bg-image" />
+              <div
+                className="absolute w-screen h-[240px] -top-[7.75rem] left-0 brightness-[65%] bg-image"
+                style={{ zIndex: 0 }}
+              />
             )}
             <h1 className="font-karla font-bold text-2xl pt-7">{user.name}</h1>
           </div>
@@ -128,15 +134,8 @@ export default function MyList({
               ) : null}
             </div>
           </div>
-          <div className="bg-secondary lg:min-h-[160px] text-xs rounded-md p-4 font-karla">
-            <div>
-              {user.about ? (
-                <div dangerouslySetInnerHTML={{ __html: user.about }} />
-              ) : (
-                "No description created."
-              )}
-            </div>
-          </div>
+          {/* User description block removed per design — AniList's "about" is
+              often empty or contains awkward HTML, so we hide it entirely. */}
 
           <div className="bg-secondary font-karla rounded-md h-20 p-1 grid grid-cols-3 place-items-center text-center text-txt">
             <div>
@@ -283,7 +282,7 @@ export default function MyList({
                         return (
                           <tr
                             key={item.mediaId}
-                            className="hover:bg-orange-400 duration-150 ease-in-out group relative"
+                            className="hover:bg-action/70 duration-150 ease-in-out group relative"
                           >
                             <td className="font-medium py-2 pl-2 rounded-l-lg">
                               <div className="flex items-center gap-2">

@@ -9,6 +9,9 @@ import { useRouter } from "next/router";
 import { useEffect, useState } from "react";
 import { AniListInfoTypes } from "types/info/AnilistInfoTypes";
 import Logo from "./Logo";
+import ChangelogButton from "./ChangelogButton";
+import ReportButton from "./ReportButton";
+import { isAdminName } from "@/lib/auth/isAdmin";
 
 const getScrollPosition = (el: Window | Element = window) => {
   if (el instanceof Window) {
@@ -234,6 +237,13 @@ export function Navbar({
                 className="bg-white"
                 // title={sessions ? "Go to Profile" : "Login With AniList"}
               > */}
+            {/* Report + changelog — sit just left of the avatar so users can
+                always reach them no matter what page they're on. They share
+                a tight gap so they read as a pair, not two unrelated icons. */}
+            <div className="flex items-center gap-0">
+              <ReportButton />
+              <ChangelogButton />
+            </div>
             {session ? (
               <div className="w-10 h-10 relative flex flex-col items-center group shrink-0">
                 <button
@@ -251,13 +261,20 @@ export function Navbar({
                     className="w-10 h-10 object-cover"
                   />
                 </button>
-                <div className="hidden absolute z-50 w-28 text-center -bottom-20 text-white shadow-2xl opacity-0 bg-secondary p-1 py-2 rounded-md font-karla font-light invisible group-hover:visible group-hover:opacity-100 duration-300 transition-all md:grid place-items-center gap-1">
+                <div className="hidden absolute z-50 w-28 text-center -bottom-24 text-white shadow-2xl opacity-0 bg-secondary p-1 py-2 rounded-md font-karla font-light invisible group-hover:visible group-hover:opacity-100 duration-300 transition-all md:grid place-items-center gap-1">
                   <Link
                     href={`/en/profile/${session?.user?.name}`}
                     className="hover:text-action"
                   >
                     Profile
                   </Link>
+                  {/* Admin link shows only for users matching the
+                      NEXT_PUBLIC_ADMIN_USERNAMES env var. */}
+                  {isAdminName(session?.user?.name) && (
+                    <Link href="/admin" className="hover:text-action">
+                      Admin
+                    </Link>
+                  )}
                   <button
                     type="button"
                     onClick={() => signOut({ redirect: true })}

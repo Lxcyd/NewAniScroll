@@ -97,7 +97,7 @@ export default function TrendingAnime({ sessions }) {
   return (
     <Fragment>
       <Head>
-        <title>AniScroll - Trending Anime</title>
+        <title>AniScroll • Beta</title>
         <meta name="title" content="Trending Anime" />
         <meta
           name="description"

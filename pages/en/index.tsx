@@ -254,30 +254,33 @@ export default function Home({
         // Handle the error here
       }
       if (!data) {
-        const dat: any = localStorage.getItem("artplayer_settings");
-        if (dat) {
-          const arr = Object.keys(dat).map((key: string) => dat[key] as any);
-          const newFirst = arr?.sort((a: any, b: any) => {
-            return (
-              new Date(b?.createdAt).getTime() -
-              new Date(a?.createdAt).getTime()
-            );
-          });
+        // The previous version called Object.keys() on the raw localStorage
+        // string, which silently produced numeric character indices rather
+        // than the actual entry keys. Parsing first fixes that and lets
+        // the Recently Watched carousel actually populate for anonymous /
+        // Prisma-less sessions.
+        let parsed: Record<string, any> | null = null;
+        try {
+          const raw = localStorage.getItem("artplayer_settings");
+          parsed = raw ? JSON.parse(raw) : null;
+        } catch {}
+        if (parsed && typeof parsed === "object") {
+          const arr = Object.values(parsed) as any[];
+          const newFirst = arr.sort(
+            (a: any, b: any) =>
+              new Date(b?.createdAt || 0).getTime() -
+              new Date(a?.createdAt || 0).getTime(),
+          );
 
-          const uniqueTitles = new Set();
-
-          // Filter out duplicates and store unique entries
+          const uniqueTitles = new Set<string>();
           const filteredData = newFirst.filter((entry: any) => {
-            if (uniqueTitles.has(entry.aniTitle)) {
-              return false;
-            }
+            if (!entry?.aniTitle) return false;
+            if (uniqueTitles.has(entry.aniTitle)) return false;
             uniqueTitles.add(entry.aniTitle);
             return true;
           });
 
-          if (filteredData) {
-            setUser(filteredData);
-          }
+          if (filteredData.length) setUser(filteredData);
         }
       } else {
         // Create a Set to store unique aniTitles
@@ -331,7 +334,7 @@ export default function Home({
   return (
     <Fragment>
       <Head>
-        <title>AniScroll</title>
+        <title>AniScroll • Beta</title>
         <meta charSet="UTF-8"></meta>
         <link rel="icon" type="image/png" href="/logo.png" />
         <meta name="twitter:card" content="summary_large_image" />

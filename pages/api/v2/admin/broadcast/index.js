@@ -1,74 +1,115 @@
-import { rateLimitStrict, redis } from "@/lib/redis";
 import { getServerSession } from "next-auth";
 import { authOptions } from "pages/api/auth/[...nextauth]";
+import { isAdminSession } from "@/lib/auth/isAdmin";
+import {
+  getAdminTursoClient,
+  ensureAdminSchema,
+  logAuditEvent,
+} from "@/lib/db/turso-admin";
 
+/**
+ * Global broadcast endpoint backed by the admin Turso DB. The `broadcast`
+ * table is a single-row table (PRIMARY KEY CHECK id = 1) so we never have
+ * to disambiguate which message is active.
+ *
+ *   GET    → returns the current message (public read; no auth needed so
+ *            _app.tsx can fetch on mount without 401-ing logged-out users).
+ *   POST   → admin sets/updates the message.
+ *   DELETE → admin clears the show flag (keeps the row so future POSTs
+ *            re-use the same id without conflict).
+ *
+ * The legacy `X-Broadcast-Key: get-broadcast` header is kept as a soft
+ * guard against random clients hitting this endpoint, but the real
+ * authorization happens via NextAuth for mutations.
+ */
 export default async function handler(req, res) {
-  // Check if the custom header "X-Your-Custom-Header" is present and has a specific value
-  const sessions = await getServerSession(req, res, authOptions);
+  const session = await getServerSession(req, res, authOptions);
+  const isMutation = req.method === "POST" || req.method === "DELETE";
 
-  const admin = sessions?.user?.name === process.env.ADMIN_USERNAME;
-  // if req.method === POST and admin === false return 401
-  if (!admin && req.method === "DELETE") {
+  if (isMutation && !isAdminSession(session)) {
     return res.status(401).json({ message: "Unauthorized" });
   }
 
-  const customHeaderValue = req.headers["x-broadcast-key"];
-
-  if (customHeaderValue !== "get-broadcast") {
+  // Soft guard so casual scrapers don't poll this endpoint.
+  if (req.headers["x-broadcast-key"] !== "get-broadcast") {
     return res.status(401).json({ message: "Unauthorized" });
   }
+
+  const db = getAdminTursoClient();
+  if (!db) {
+    return res.status(200).json({ message: null, show: false });
+  }
+  await ensureAdminSchema();
 
   try {
-    if (redis) {
-      try {
-        const ipAddress = req.socket.remoteAddress;
-        await rateLimitStrict.consume(ipAddress);
-      } catch (error) {
-        return res.status(429).json({
-          error: `Too Many Requests, retry after ${error.msBeforeNext / 1000}`,
-        });
+    if (req.method === "GET") {
+      const r = await db.execute(
+        "SELECT title, message, show_flag, start_at, end_at FROM broadcast WHERE id = 1"
+      );
+      const row = r.rows?.[0];
+      if (!row) {
+        return res.status(200).json({ title: null, message: null, show: false });
       }
-
-      if (req.method === "POST") {
-        const { message, startAt = undefined, show = false } = req.body;
-        if (!message) {
-          return res.status(400).json({ message: "Message is required" });
-        }
-
-        const broadcastContent = {
-          message,
-          startAt,
-          show,
-        };
-        await redis.set(`broadcasts`, JSON.stringify(broadcastContent));
-        return res.status(200).json({ message: "Broadcast created" });
-      } else if (req.method === "DELETE") {
-        const br = await redis.get(`broadcasts`);
-        // set broadcast show as false
-        if (br) {
-          const broadcast = JSON.parse(br);
-          broadcast.show = false;
-          await redis.set(`broadcasts`, JSON.stringify(broadcast));
-        }
-        return res.status(200).json({ message: "Broadcast deleted" });
-      } else if (req.method === "GET") {
-        const getId = await redis.get(`broadcasts`);
-        if (getId) {
-          const broadcast = JSON.parse(getId);
-          return res.status(200).json({
-            message: broadcast.message,
-            startAt: broadcast.startAt,
-            show: broadcast.show,
-          });
-        } else {
-          return res.status(200).json({ message: "No broadcast" });
-        }
-      }
+      const now = Math.floor(Date.now() / 1000);
+      const inWindow =
+        (row.start_at == null || now >= Number(row.start_at)) &&
+        (row.end_at == null || now <= Number(row.end_at));
+      return res.status(200).json({
+        title: row.title,
+        message: row.message,
+        startAt: row.start_at,
+        endAt: row.end_at,
+        show: Boolean(row.show_flag) && inWindow,
+      });
     }
 
-    return res.status(200).json({ message: "redis is not defined" });
+    if (req.method === "POST") {
+      const { title, message, startAt, endAt, show = true } = req.body || {};
+      if (!message) {
+        return res.status(400).json({ message: "Message is required" });
+      }
+      await db.execute({
+        sql: `INSERT INTO broadcast
+                (id, title, message, show_flag, start_at, end_at, updated_at)
+              VALUES (1, ?, ?, ?, ?, ?, strftime('%s','now'))
+              ON CONFLICT(id) DO UPDATE SET
+                title      = excluded.title,
+                message    = excluded.message,
+                show_flag  = excluded.show_flag,
+                start_at   = excluded.start_at,
+                end_at     = excluded.end_at,
+                updated_at = excluded.updated_at`,
+        args: [
+          title || null,
+          message,
+          show ? 1 : 0,
+          startAt ?? null,
+          endAt ?? null,
+        ],
+      });
+      await logAuditEvent(
+        session?.user?.name || "unknown",
+        "broadcast_update",
+        null,
+        message
+      );
+      return res.status(200).json({ message: "Broadcast updated" });
+    }
+
+    if (req.method === "DELETE") {
+      await db.execute(
+        "UPDATE broadcast SET show_flag = 0, updated_at = strftime('%s','now') WHERE id = 1"
+      );
+      await logAuditEvent(
+        session?.user?.name || "unknown",
+        "broadcast_clear",
+      );
+      return res.status(200).json({ message: "Broadcast cleared" });
+    }
+
+    return res.status(405).json({ message: "Method not allowed" });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: err.message });
   }
 }
