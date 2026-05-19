@@ -1,4 +1,4 @@
-import { CSSProperties } from "react";
+import { CSSProperties, useEffect, useRef, useState } from "react";
 import { AniListInfoTypes } from "types/info/AnilistInfoTypes";
 import {
   LIST_COLORS,
@@ -9,14 +9,16 @@ import {
   prettySeason,
   prettyStatus,
   SeasonInfo,
+  TitleImage,
 } from "./helpers";
 import { toast } from "sonner";
 
 type HeroProps = {
   info: AniListInfoTypes;
   /** Pre-picked clearart / logo. Resolved at SSR so the <img> ships with
-   *  the document — no client fetch, no random pick during hydration. */
-  titleImage: { url: string; kind: "clearart" | "logo" } | null;
+   *  the document — no client fetch, no random pick during hydration.
+   *  Carries a cycle queue when multiple clearart are available. */
+  titleImage: TitleImage | null;
   /** Season position in the franchise (e.g. S2 of 3). null when the
    *  anime isn't part of a multi-season series. */
   seasonInfo?: SeasonInfo;
@@ -133,6 +135,111 @@ export default function Hero({
     }
     return null;
   })();
+
+  /* ── Clearart cycle ─────────────────────────────────────────────────
+     When SSR shipped multiple clearart, expose a queue: each click on
+     the title art advances to the next image (wrapping). We use a
+     single <img> and animate opacity: fade out → wait for next image
+     to be decoded → swap src → fade in.
+
+     The earlier version pre-fetched only `cycleIdx + 1`, which doesn't
+     help if the user clicks twice in a row before the second image is
+     fully cached. We now pre-fetch the ENTIRE queue once the component
+     mounts — clearart files are small enough (~50-200 KB each, browser
+     deduplicates by URL) that warming the cache up-front gives us
+     instant swaps for every click after that.
+
+     We also use `img.decode()` to wait for the new image to be ready
+     before fading it back in. Without that, React mounts the new src
+     and React triggers `setFading(false)` on the SAME frame, but the
+     browser hasn't finished decoding yet — so for ~100-300ms the
+     <img> renders the PREVIOUS bitmap (still in memory) at full
+     opacity, looking like the swap "didn't work". `decode()` resolves
+     when the bitmap is paint-ready. */
+  const cycleQueue = titleImage?.queue || [];
+  const canCycle = titleImage?.kind === "clearart" && cycleQueue.length > 1;
+  const [cycleIdx, setCycleIdx] = useState(0);
+  const [fading, setFading] = useState(false);
+  // URL currently *visible* in the DOM (may lag cycleIdx during fade).
+  const [renderedUrl, setRenderedUrl] = useState<string | null>(null);
+
+  // Eagerly fetch + decode every clearart in the queue right after
+  // mount. Browsers cache by URL, so once each image has been requested
+  // once, every subsequent <img src=…> hits the cache instantly.
+  useEffect(() => {
+    if (!canCycle) return;
+    cycleQueue.forEach((url, i) => {
+      if (i === 0) return; // first one is already loading via the visible <img>
+      const img = new Image();
+      img.src = url;
+      // Calling .decode() forces the browser to actually decode the
+      // bytes to a bitmap now, instead of lazily on first paint.
+      img.decode?.().catch(() => {});
+    });
+  }, [canCycle, cycleQueue]);
+
+  // Reset the cycle whenever the anime changes. Next.js SPA-navigates
+  // between info pages without remounting the Hero component, so
+  // without this reset the previous anime's clearart would stick on
+  // screen until the user clicked through the entire (now-stale)
+  // queue. Identity test on titleImage.url is the most reliable signal
+  // we have that we're looking at a different anime.
+  useEffect(() => {
+    if (!titleImage) {
+      setRenderedUrl(null);
+      setCycleIdx(0);
+      setFading(false);
+      return;
+    }
+    const firstUrl =
+      titleImage.kind === "clearart" && cycleQueue.length > 0
+        ? cycleQueue[0]
+        : titleImage.url;
+    setRenderedUrl(firstUrl);
+    setCycleIdx(0);
+    setFading(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [titleImage?.url]);
+
+  async function handleCycleClick() {
+    if (!canCycle || fading) return;
+    const nextIdx = (cycleIdx + 1) % cycleQueue.length;
+    const nextUrl = cycleQueue[nextIdx];
+
+    setFading(true);
+
+    // Off-DOM decode of the next image. Resolves only when the bitmap
+    // is paint-ready — guarantees the swap shows the new artwork, not
+    // a stale frame. Decode in parallel with the fade-out animation so
+    // they overlap.
+    const decode = (async () => {
+      try {
+        const img = new Image();
+        img.src = nextUrl;
+        await img.decode?.();
+      } catch {
+        /* decode unsupported or failed — proceed anyway, browser will
+           still render once the image loads via the <img> tag below. */
+      }
+    })();
+
+    // Wait for BOTH the fade-out to complete AND the new image to be
+    // decoded before swapping. Whichever is slower drives the timing.
+    await Promise.all([
+      new Promise<void>((r) => window.setTimeout(r, 180)),
+      decode,
+    ]);
+
+    // Swap to the new image. Because it's pre-decoded, the very next
+    // frame paints the new bitmap instead of a stale one.
+    setCycleIdx(nextIdx);
+    setRenderedUrl(nextUrl);
+    // Next frame: lift the fade so opacity transitions back to 1 with
+    // the new image already on screen.
+    requestAnimationFrame(() => setFading(false));
+  }
+
+  const currentTitleUrl = renderedUrl;
 
   // Single-episode entries (movies, specials, short OVAs) don't have a
   // meaningful "EP NN" or "S<n>" — they're standalone units. Detect them
@@ -263,21 +370,32 @@ export default function Hero({
 
           {/* COL 2 — title art + stats + chips */}
           <div style={hStyles.centerCol}>
-            {titleImage ? (
+            {titleImage && currentTitleUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
-                src={titleImage.url}
+                src={currentTitleUrl}
                 alt={title}
+                onClick={canCycle ? handleCycleClick : undefined}
+                role={canCycle ? "button" : undefined}
+                aria-label={canCycle ? "Show next artwork" : undefined}
+                title={canCycle ? "Click for another artwork" : undefined}
                 /* Only apply the edge fade to clearart (transparent
                    character cutouts that bleed off the frame). Logos
                    are stylised title typography with their own
                    intentional negative space — fading their edges
                    would chew letters. */
-                style={
-                  titleImage.kind === "clearart"
+                style={{
+                  ...(titleImage.kind === "clearart"
                     ? hStyles.titleArt
-                    : hStyles.titleArtPlain
-                }
+                    : hStyles.titleArtPlain),
+                  cursor: canCycle ? "pointer" : undefined,
+                  // Fade ramp for cycle click. Opacity drops to 0 just
+                  // before the src swap, then springs back up to 1 once
+                  // the new image is mounted — reads as a clean
+                  // cross-fade without stacking two <img>s.
+                  opacity: fading ? 0 : 1,
+                  transition: "opacity 180ms ease",
+                }}
                 // SSR ships this <img> in the initial HTML and a matching
                 // `<link rel=preload as=image fetchpriority=high>` lives
                 // in the document <head>. Mark it eager + high prio so

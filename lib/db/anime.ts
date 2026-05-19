@@ -38,6 +38,29 @@ export interface CachedAnime {
 const HOUR = 3600;
 const DAY = 86400;
 
+/* Throttle the last_accessed_at write: this column only feeds the cron's
+   "refresh user-visible rows first" ordering, so day-granularity is more
+   than enough. The Map tracks the epoch-day each id was last bumped in
+   this process; bumping again the same day is a no-op. Without this the
+   anime cache produced one write per read, doubling Turso usage.
+
+   Bounded loosely so a long-running process doesn't accumulate forever.
+   When we hit the cap we drop the oldest half — picking exact LRU isn't
+   worth the bookkeeping. */
+const accessBumpDay = new Map<number, number>();
+const MAX_BUMP_ENTRIES = 5000;
+
+function shouldBumpAccess(id: number, now: number): boolean {
+  const today = Math.floor(now / DAY);
+  if (accessBumpDay.get(id) === today) return false;
+  accessBumpDay.set(id, today);
+  if (accessBumpDay.size > MAX_BUMP_ENTRIES) {
+    const keys = Array.from(accessBumpDay.keys()).slice(0, MAX_BUMP_ENTRIES / 2);
+    for (const k of keys) accessBumpDay.delete(k);
+  }
+  return true;
+}
+
 export function ttlForStatus(status: string | null | undefined): number {
   switch (status) {
     case "RELEASING":         return 1 * HOUR;
@@ -82,12 +105,16 @@ export async function getCachedAnime(id: number): Promise<CachedAnime | null> {
 
   // Bump last_accessed_at without blocking the read path. We don't await it
   // because reads are hot and accuracy of this column is best-effort.
-  db.execute({
-    sql: "UPDATE anime SET last_accessed_at = ? WHERE id = ?",
-    args: [now, id],
-  }).catch((e) => {
-    console.warn("[anime-cache] last_accessed bump failed:", e?.message);
-  });
+  // Throttled to once per id per UTC-day in this process so we don't
+  // double Turso writes on every hot read.
+  if (shouldBumpAccess(id, now)) {
+    db.execute({
+      sql: "UPDATE anime SET last_accessed_at = ? WHERE id = ?",
+      args: [now, id],
+    }).catch((e) => {
+      console.warn("[anime-cache] last_accessed bump failed:", e?.message);
+    });
+  }
 
   return {
     id: Number(row.id),

@@ -3,7 +3,8 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "../../auth/[...nextauth]";
 import { isAdminSession } from "@/lib/auth/isAdmin";
 import { upsertAnime } from "@/lib/db/anime";
-import { getTursoClient } from "@/lib/db/turso";
+import { getFanartsClient } from "@/lib/db/turso-fanarts";
+import { anilistFetch } from "@/lib/anilist/anilistFetch";
 
 /**
  * Admin-only endpoint that triggers an on-demand AniList re-fetch for a
@@ -51,22 +52,16 @@ export default async function handler(
   }
 
   try {
-    const ctrl = new AbortController();
-    const timeoutId = setTimeout(() => ctrl.abort(), 8000);
-    const r = await fetch("https://graphql.anilist.co", {
-      method: "POST",
-      signal: ctrl.signal,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query: ANILIST_QUERY, variables: { id } }),
+    const json = await anilistFetch({
+      query: ANILIST_QUERY,
+      variables: { id },
+      timeoutMs: 8000,
+      cacheSeconds: 0, // explicit admin refresh — never serve cached
+      label: `scrape-anime:${id}`,
     });
-    clearTimeout(timeoutId);
-    if (!r.ok) {
-      return res.status(502).json({ error: `AniList HTTP ${r.status}` });
-    }
-    const json = await r.json();
     const media = json?.data?.Media;
     if (!media) {
-      return res.status(404).json({ error: "AniList returned no Media" });
+      return res.status(404).json({ error: "AniList returned no Media (or unavailable)" });
     }
     await upsertAnime(media);
 
@@ -77,7 +72,7 @@ export default async function handler(
     let fanartCounts: Record<string, number> = {};
     let fanartSamples: { type: string; url: string }[] = [];
     try {
-      const db = getTursoClient();
+      const db = getFanartsClient();
       if (db) {
         const counts = await db.execute({
           sql: `SELECT type, COUNT(*) AS n FROM anime_fanarts WHERE anime_id = ? GROUP BY type`,

@@ -1,4 +1,5 @@
 import { advanceSearchQuery } from "../graphql/query";
+import { anilistFetch } from "./anilistFetch";
 
 export type AniAdvanceSearch = {
   search?: string;
@@ -43,33 +44,28 @@ export async function aniAdvanceSearch({
     return result;
   }, {});
 
-  const response = await fetch("https://graphql.anilist.co/", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
+  const datas = await anilistFetch({
+    query: advanceSearchQuery,
+    variables: {
+      ...(search && {
+        search: search,
+        ...(!sort && { sort: "SEARCH_MATCH" }),
+      }),
+      ...(type && { type: type }),
+      ...(seasonYear && { seasonYear: seasonYear }),
+      ...(season && {
+        season: season,
+        ...(!seasonYear && { seasonYear: new Date().getFullYear() }),
+      }),
+      ...(categorizedGenres && { ...categorizedGenres }),
+      ...(format && { format: format }),
+      ...(perPage && { perPage: perPage }),
+      ...(sort && { sort: sort }),
+      ...(page && { page: page }),
     },
-    body: JSON.stringify({
-      query: advanceSearchQuery,
-      variables: {
-        ...(search && {
-          search: search,
-          ...(!sort && { sort: "SEARCH_MATCH" }),
-        }),
-        ...(type && { type: type }),
-        ...(seasonYear && { seasonYear: seasonYear }),
-        ...(season && {
-          season: season,
-          ...(!seasonYear && { seasonYear: new Date().getFullYear() }),
-        }),
-        ...(categorizedGenres && { ...categorizedGenres }),
-        ...(format && { format: format }),
-        ...(perPage && { perPage: perPage }),
-        ...(sort && { sort: sort }),
-        ...(page && { page: page }),
-      },
-    }),
+    // Search results change with every keystroke — short cache only.
+    cacheSeconds: 30,
+    label: "advanceSearch",
   });
-
-  const datas = await response.json();
-  return datas.data.Page;
+  return datas?.data?.Page ?? null;
 }

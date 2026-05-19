@@ -5,6 +5,7 @@ import Episodes from "./Episodes";
 import CharactersTab from "./CharactersTab";
 import Artworks from "./Artworks";
 import { FanartResponse, collectArtworks } from "./helpers";
+import type { SeasonEntry } from "@/lib/anilist/seasonChain";
 
 type TabId = "overview" | "episodes" | "characters" | "artworks";
 const VALID_TABS: TabId[] = ["overview", "episodes", "characters", "artworks"];
@@ -13,6 +14,7 @@ type Props = {
   info: AniListInfoTypes;
   fanarts: FanartResponse | null;
   progress: number;
+  seasonList?: SeasonEntry[];
 };
 
 /* Persist the active tab in `location.hash` so:
@@ -26,7 +28,7 @@ function readTabFromHash(): TabId {
   return VALID_TABS.indexOf(h) >= 0 ? h : "overview";
 }
 
-export default function Tabs({ info, fanarts, progress }: Props) {
+export default function Tabs({ info, fanarts, progress, seasonList }: Props) {
   const [tab, setTab] = useState<TabId>("overview");
 
   // Restore tab from hash on mount + listen to hashchange (back/forward).
@@ -103,7 +105,13 @@ export default function Tabs({ info, fanarts, progress }: Props) {
       </div>
       <div>
         {tab === "overview" && <Overview info={info} />}
-        {tab === "episodes" && <Episodes info={info} progress={progress} />}
+        {tab === "episodes" && (
+          <Episodes
+            info={info}
+            progress={progress}
+            seasonList={seasonList}
+          />
+        )}
         {tab === "characters" && <CharactersTab info={info} />}
         {tab === "artworks" && (
           <Artworks

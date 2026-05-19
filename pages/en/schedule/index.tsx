@@ -21,6 +21,7 @@ import MobileNav from "@/components/shared/MobileNav";
 import { redis } from "@/lib/redis";
 import Head from "next/head";
 import { Navbar } from "@/components/shared/NavBar";
+import { anilistFetch } from "@/lib/anilist/anilistFetch";
 
 const day = [
   "Sunday",
@@ -85,27 +86,15 @@ export async function getServerSideProps() {
     const airingSchedules = [];
 
     while (true) {
-      const res = await fetch("https://graphql.anilist.co", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json"
-        },
-        body: JSON.stringify({
-          query: scheduleQuery,
-          variables: {
-            weekStart,
-            weekEnd,
-            page
-          }
-        })
+      const json = await anilistFetch({
+        query: scheduleQuery,
+        variables: { weekStart, weekEnd, page },
+        label: `schedule:${page}`,
       });
+      const schedules = json?.data?.Page?.airingSchedules;
 
-      const json = await res.json();
-      const schedules = json.data.Page.airingSchedules;
-
-      if (schedules.length === 0) {
-        break; // No more data to fetch
+      if (!schedules || schedules.length === 0) {
+        break; // No more data to fetch (or AniList unavailable)
       }
 
       airingSchedules.push(...schedules);

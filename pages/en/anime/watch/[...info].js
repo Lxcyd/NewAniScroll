@@ -23,6 +23,7 @@ import { getServer } from "@/lib/servers";
 import { primeMediaCache } from "@/lib/anilist/getMediaMeta";
 import { getCachedAnime } from "@/lib/db/anime";
 import { FULL_MEDIA_FIELDS } from "@/lib/anilist/fullMediaQuery";
+import { anilistFetch } from "@/lib/anilist/anilistFetch";
 import Link from "next/link";
 import MobileNav from "@/components/shared/MobileNav";
 import { Navbar } from "@/components/shared/NavBar";
@@ -72,31 +73,20 @@ export async function getServerSideProps(context) {
   const simulateDown = process.env.ANILIST_SIMULATE_DOWN === "1";
   try {
     if (simulateDown) throw new Error("simulated AniList outage");
-    const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), 3000);
-    const ress = await fetch(`https://graphql.anilist.co`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(accessToken && { Authorization: `Bearer ${accessToken}` }),
-      },
-      // Pull the full Tier-1 payload + mediaListEntry. mediaListEntry is the
-      // ONE piece we don't cache (per-user). Everything else gets persisted
-      // so future requests survive an AniList outage.
-      body: JSON.stringify({
-        query: `query ($id: Int) {
-          Media (id: $id) {
-            mediaListEntry { progress status customLists repeat }
-            ${FULL_MEDIA_FIELDS}
-          }
-        }`,
-        variables: { id: aniId },
-      }),
-      signal: ctrl.signal,
+    const json = await anilistFetch({
+      query: `query ($id: Int) {
+        Media (id: $id) {
+          mediaListEntry { progress status customLists repeat }
+          ${FULL_MEDIA_FIELDS}
+        }
+      }`,
+      variables: { id: Number(aniId) },
+      authToken: accessToken,
+      timeoutMs: 3000,
+      label: `watch-ssr:${aniId}`,
     });
-    clearTimeout(t);
-    if (ress.ok) {
-      data = await ress.json();
+    if (json) {
+      data = json;
       // Prime memory + DB so source-API probes / refreshes can read instantly.
       if (data?.data?.Media) primeMediaCache(aniId, data.data.Media);
     }
@@ -110,7 +100,6 @@ export async function getServerSideProps(context) {
     try {
       const cached = await getCachedAnime(Number(aniId));
       if (cached?.data) {
-        console.log(`[watch SSR] using DB cache for ${aniId} (stale=${cached.isStale})`);
         // Preserve the AniList-only mediaListEntry (we never cache it).
         data = { data: { Media: { ...cached.data, mediaListEntry: null } } };
       }

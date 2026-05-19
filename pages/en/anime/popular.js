@@ -18,57 +18,21 @@ export default function PopularAnime({ sessions }) {
   useEffect(() => {
     setLoading(true);
     const fetchData = async () => {
-      const res = await fetch("https://graphql.anilist.co", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-        },
-        body: JSON.stringify({
-          query: `query ($page: Int, $perPage: Int) {
-                    Page (page: $page, perPage: $perPage) {
-                        pageInfo {
-                        total
-                        currentPage
-                        lastPage
-                        hasNextPage
-                        perPage
-                        }
-                        media (sort: POPULARITY_DESC, type: ANIME) {
-                            id
-                            idMal
-                            title {
-                                romaji
-                            }
-                            coverImage {
-                                large
-                            }
-                            averageScore
-                            description
-                            episodes
-                            status
-                        }
-                    }
-                }
-            `,
-          variables: {
-            page: page,
-            perPage: 20,
-          },
-        }),
-      });
+      // Server-cached endpoint (1h Redis TTL). N concurrent visitors
+      // share a single AniList round-trip instead of each browser
+      // burning its own AniList rate-limit quota.
+      const res = await fetch(`/api/v2/catalog/popular?page=${page}`);
       const get = await res.json();
-      if (get?.data?.Page?.media?.length === 0) {
+      const media = get?.media || [];
+      if (media.length === 0) {
         setNextPage(false);
-      } else if (get !== null && page > 1) {
-        setData((prevData) => {
-          return [...(prevData ?? []), ...get?.data?.Page?.media];
-        });
-        setNextPage(get?.data?.Page?.pageInfo.hasNextPage);
+      } else if (page > 1) {
+        setData((prevData) => [...(prevData ?? []), ...media]);
+        setNextPage(!!get?.hasNextPage);
       } else {
-        setData(get?.data?.Page?.media);
+        setData(media);
+        setNextPage(!!get?.hasNextPage);
       }
-      setNextPage(get?.data?.Page?.pageInfo.hasNextPage);
       setLoading(false);
     };
     fetchData();

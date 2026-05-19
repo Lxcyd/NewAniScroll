@@ -11,18 +11,19 @@ import Footer from "@/components/shared/footer";
 import { mediaInfoQuery } from "@/lib/graphql/query";
 import MobileNav from "@/components/shared/MobileNav";
 
-import pls from "@/utils/request/index";
-
 import { redis } from "@/lib/redis";
 import { primeMediaCache } from "@/lib/anilist/getMediaMeta";
+import { anilistFetch } from "@/lib/anilist/anilistFetch";
+import { getServerSession } from "next-auth";
+import { authOptions } from "../../api/auth/[...nextauth]";
 import { getCachedAnime } from "@/lib/db/anime";
 import { loadFanarts, FanartPayload } from "@/lib/db/fanarts";
-import { resolveSeasonChain } from "@/lib/anilist/seasonChain";
+import { resolveSeasonChain, resolveSeasonList, SeasonEntry } from "@/lib/anilist/seasonChain";
 import { toast } from "sonner";
 import { Navbar } from "@/components/shared/NavBar";
 import { AniListInfoTypes } from "types/info/AnilistInfoTypes";
 import InfoPage from "@/components/anime/v2/InfoPage";
-import { pickTitleImage, slugifyTitle, SeasonInfo } from "@/components/anime/v2/helpers";
+import { pickTitleImage, slugifyTitle, SeasonInfo, TitleImage } from "@/components/anime/v2/helpers";
 
 type InfoTypes = {
   info: AniListInfoTypes;
@@ -31,21 +32,31 @@ type InfoTypes = {
   chapterNotFound: string;
   fanarts: FanartPayload | null;
   /** Clearart/logo URL picked at SSR time so the <img> is in the
-   *  initial HTML and starts streaming with the document. */
-  initialTitleImage: { url: string; kind: "clearart" | "logo" } | null;
+   *  initial HTML and starts streaming with the document. Carries a
+   *  cycle queue for clearart so the client can swap images on click. */
+  initialTitleImage: TitleImage | null;
   /** S<n> of N — resolved by walking PREQUEL/SEQUEL chains at SSR. */
   seasonInfo: SeasonInfo;
+  /** Ordered list of season-like sibling entries (incl. current). */
+  seasonList: SeasonEntry[];
+  /** Pre-fetched list state for the signed-in user. SSR'd so the heart
+   *  and the watch-button don't flash "empty" before useEffect resolves. */
+  initialFav: boolean;
+  initialStatusLabel: string | null;
+  initialProgress: number;
 };
 
 // Bump when the shape of `info` changes — or when a SSR-side computation
 // it influences (e.g. seasonInfo) gets a non-backwards-compatible fix.
 // Past payloads remain in Redis under the old key and naturally expire.
 //
-// v3 — season detection rewrite: title-based extraction + franchise-
-//      sanity filter on PREQUEL/SEQUEL walks. Without bumping, anime
-//      cached under v2 would keep serving the old (often wrong) S<n>
-//      label.
-const CACHE_VERSION = "v3";
+// v3 — season detection rewrite.
+// v4 — added seasonList SSR for the Episodes-tab season switcher.
+//      We re-compute seasonList every request (it walks getMediaMeta,
+//      which is cached three layers deep so it's cheap) so this bump
+//      is only needed to refresh the `info` payload — not strictly
+//      required for the switcher to work.
+const CACHE_VERSION = "v4";
 
 export default function Info({
   info,
@@ -53,14 +64,21 @@ export default function Info({
   fanarts,
   initialTitleImage,
   seasonInfo,
+  seasonList,
+  initialFav,
+  initialStatusLabel,
+  initialProgress,
 }: InfoTypes) {
   const { data: session }: any = useSession();
-  const { getUserLists, toggleFavourite } = useAniList(session);
+  const { toggleFavourite } = useAniList(session);
 
-  const [progress, setProgress] = useState<number>(0);
-  const [statusLabel, setStatusLabel] = useState<string | null>(null);
+  // Seed with the SSR-resolved values so the first paint already shows
+  // the correct heart / list-status / resume-episode — no flash from
+  // "empty" to "filled" on hydration.
+  const [progress, setProgress] = useState<number>(initialProgress);
+  const [statusLabel, setStatusLabel] = useState<string | null>(initialStatusLabel);
   const [domainUrl, setDomainUrl] = useState("");
-  const [fav, setFav] = useState<boolean>(false);
+  const [fav, setFav] = useState<boolean>(initialFav);
 
   const [open, setOpen] = useState(false);
 
@@ -95,37 +113,23 @@ export default function Info({
     }
   }, [info?.id, info?.title]);
 
+  // Reset modal + capture domain on first mount.
   useEffect(() => {
     handleClose();
     setDomainUrl(window.location.origin);
-    async function fetchData() {
-      if (!info?.id) return;
-      setProgress(0);
-      setStatusLabel(null);
-      setFav(false);
-      if (session?.user?.name) {
-        try {
-          const res = await getUserLists(info.id);
-          const media = res?.data?.Media;
-          const entry = media?.mediaListEntry;
-          if (entry) {
-            setProgress(entry.progress || 0);
-            setStatusLabel(entry.status || null);
-          }
-          // AniList returns isFavourite outside mediaListEntry — it's
-          // a property of Media itself, true even for anime that
-          // haven't been added to any list.
-          if (typeof media?.isFavourite === "boolean") {
-            setFav(media.isFavourite);
-          }
-        } catch (error) {
-          console.error(error);
-        }
-      }
-    }
-    fetchData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [info?.id, session?.user?.name]);
+  }, []);
+
+  // Re-sync local state when the SSR props change (Next router does
+  // SPA-style navigation between /en/anime/{id} pages, which re-runs
+  // getServerSideProps but keeps the React tree mounted). Without
+  // this, navigating from anime A → anime B would carry over A's
+  // fav/progress until the user reloaded.
+  useEffect(() => {
+    setProgress(initialProgress);
+    setStatusLabel(initialStatusLabel);
+    setFav(initialFav);
+  }, [info?.id, initialProgress, initialStatusLabel, initialFav]);
 
   /* Optimistic favourite toggle. Flips the heart immediately so the
      click feels instant; if the AniList mutation fails we roll back
@@ -203,15 +207,32 @@ export default function Info({
           href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
           rel="stylesheet"
         />
-        {/* High-priority preload for the central hero artwork. Picked at
-            SSR time so the browser starts fetching it during HTML parsing,
-            well before React hydrates. */}
+        {/* Open the connection to the fanart.tv CDN before the preload
+            below fires. Without preconnect the browser still pays DNS +
+            TCP + TLS (~200-500ms) before any byte of the clearart
+            arrives — that gap is most of why clearart felt slow vs.
+            banner/cover (those reuse the AniList CDN connection the
+            page already speaks to). */}
+        {initialTitleImage?.url && (() => {
+          try {
+            const origin = new URL(initialTitleImage.url).origin;
+            return (
+              <>
+                <link rel="preconnect" href={origin} />
+                <link rel="dns-prefetch" href={origin} />
+              </>
+            );
+          } catch {
+            return null;
+          }
+        })()}
         {initialTitleImage?.url && (
           <link
             rel="preload"
             as="image"
             href={initialTitleImage.url}
-            fetchPriority="high"
+            // @ts-expect-error fetchPriority not in lib.dom yet
+            fetchpriority="high"
           />
         )}
         {info?.bannerImage && (
@@ -219,7 +240,17 @@ export default function Info({
             rel="preload"
             as="image"
             href={info.bannerImage}
-            fetchPriority="high"
+            // @ts-expect-error fetchPriority not in lib.dom yet
+            fetchpriority="high"
+          />
+        )}
+        {(info?.coverImage?.extraLarge || info?.coverImage?.large) && (
+          <link
+            rel="preload"
+            as="image"
+            href={info.coverImage.extraLarge || info.coverImage.large}
+            // @ts-expect-error fetchPriority not in lib.dom yet
+            fetchpriority="high"
           />
         )}
       </Head>
@@ -264,6 +295,7 @@ export default function Info({
           initialFanarts={fanarts}
           initialTitleImage={initialTitleImage}
           seasonInfo={seasonInfo}
+          seasonList={seasonList}
           statusLabel={statusLabel}
           fav={fav}
           progress={progress}
@@ -278,8 +310,93 @@ export default function Info({
   );
 }
 
+/* Per-user list state fetched at SSR so the heart + watch button
+   render correct on the first paint. Returns the empty shape when
+   the user isn't signed in or AniList doesn't have a list entry yet.
+   Uses the user's token through the global limiter; AniList returns
+   isFavourite + mediaListEntry in a single small query. */
+async function loadUserListState(
+  aniId: number,
+  accessToken: string | null
+): Promise<{ fav: boolean; statusLabel: string | null; progress: number }> {
+  const empty = { fav: false, statusLabel: null, progress: 0 };
+  if (!accessToken || !Number.isFinite(aniId)) return empty;
+  const json = await anilistFetch({
+    query: `
+      query ($id: Int) {
+        Media(id: $id) {
+          isFavourite
+          mediaListEntry { progress status }
+        }
+      }
+    `,
+    variables: { id: aniId },
+    authToken: accessToken,
+    timeoutMs: 3500,
+    label: `userList:${aniId}`,
+    cacheSeconds: 0,
+  });
+  const media = json?.data?.Media;
+  if (!media) return empty;
+  return {
+    fav: media.isFavourite === true,
+    statusLabel: media.mediaListEntry?.status ?? null,
+    progress: Number(media.mediaListEntry?.progress) || 0,
+  };
+}
+
+/* Emit RFC 8288 `Link: rel=preload` HTTP headers so the browser starts
+   downloading the hero artwork BEFORE we've finished computing the rest
+   of the SSR response. Next.js (Pages Router) doesn't stream, but
+   headers are flushed at status-line time — well ahead of the HTML
+   body. We send one header per asset; URLs that we can't resolve until
+   later (the clearart depends on loadFanarts, the banner depends on
+   AniList) are emitted as soon as they become known.
+
+   Each `Link` entry follows: <url>; rel=preload; as=image; fetchpriority=high.
+   The browser's preload scanner picks these up and opens the connection
+   + starts the byte stream immediately, in parallel with whatever
+   getServerSideProps is still awaiting. */
+function appendPreloadHeader(res: any, url: string): void {
+  if (!url || !res?.setHeader) return;
+  // Header value is multi-valued: append using getHeader/setHeader to
+  // avoid clobbering previous Link entries set on the same response.
+  const existing = res.getHeader?.("Link");
+  const entry = `<${url}>; rel=preload; as=image; fetchpriority=high`;
+  if (Array.isArray(existing)) {
+    res.setHeader("Link", [...existing, entry]);
+  } else if (typeof existing === "string" && existing.length > 0) {
+    res.setHeader("Link", `${existing}, ${entry}`);
+  } else {
+    res.setHeader("Link", entry);
+  }
+}
+
+/* Per-phase SSR timer. No-op unless PROFILE_SSR=1, so this stays free
+   in normal dev/prod. Logs to one line per request so it's easy to grep
+   and doesn't drown the terminal. */
+const PROFILE_SSR = process.env.PROFILE_SSR === "1";
+function makeTimer() {
+  const t0 = Date.now();
+  const marks: Array<[string, number]> = [];
+  return {
+    mark(label: string) {
+      if (!PROFILE_SSR) return;
+      marks.push([label, Date.now() - t0]);
+    },
+    end(label: string) {
+      if (!PROFILE_SSR) return;
+      marks.push([label, Date.now() - t0]);
+      const summary = marks.map(([l, ms]) => `${l}=${ms}ms`).join(" ");
+      // eslint-disable-next-line no-console
+      console.log(`[ssr info] ${summary}`);
+    },
+  };
+}
+
 export async function getServerSideProps(ctx: any) {
   const { id, notfound } = ctx.query;
+  const timer = makeTimer();
 
   let API_URI;
   API_URI = process.env.API_URI || null;
@@ -299,22 +416,46 @@ export async function getServerSideProps(ctx: any) {
   if (redis) {
     cache = await redis.get(cacheKey);
   }
+  timer.mark("redis");
 
   const animeIdNum = Number(id?.[0]);
 
+  // The user-specific list/favourite is fetched in parallel with the
+  // rest. It's the only piece we can't cache (per-user) but it's a
+  // tiny query and we want it inline so the heart paints right.
+  const session: any = await getServerSession(ctx.req, ctx.res, authOptions);
+  timer.mark("session");
+  const accessToken: string | null = session?.user?.token || null;
+  const userListP = loadUserListState(animeIdNum, accessToken);
+
   if (cache) {
     const { info, color } = JSON.parse(cache);
-    // Fanarts are loaded fresh every request (cheap single-row Turso read).
-    // They evolve more often than AniList metadata so caching them
-    // alongside `info` would mean stale clearart for hours.
-    // Season chain walk benefits from getMediaMeta's three-tier cache,
-    // so it's near-free on a warm DB. Failures fall back to "no season
-    // info" silently — the watch button just reads "EP NN" then.
-    const [fanarts, seasonInfo] = await Promise.all([
-      loadFanarts(animeIdNum).catch(() => null),
-      resolveSeasonChain(animeIdNum).catch(() => ({ number: null, total: null })),
-    ]);
+
+    // Banner + cover URLs are already in the cached `info`, so we can
+    // tell the browser to start fetching them RIGHT NOW via Link:
+    // headers — long before getServerSideProps finishes. These add ~0ms
+    // to the response and shave ~200-500ms off image arrival time when
+    // the SSR has to await downstream work below.
+    if (info?.bannerImage) appendPreloadHeader(ctx.res, info.bannerImage);
+    const coverUrl = info?.coverImage?.extraLarge || info?.coverImage?.large;
+    if (coverUrl) appendPreloadHeader(ctx.res, coverUrl);
+
+    // Resolve fanarts first so we can ALSO emit a preload header for
+    // the clearart before we await the (slower) season-chain walk.
+    // Single-row Turso read, typically <50ms.
+    const fanarts = await loadFanarts(animeIdNum).catch(() => null);
+    timer.mark("fanarts");
     const initialTitleImage = pickTitleImage(fanarts);
+    if (initialTitleImage?.url) appendPreloadHeader(ctx.res, initialTitleImage.url);
+
+    // Now wait on the slower stuff in parallel. The browser is already
+    // pulling the images while these resolve.
+    const [seasonInfo, seasonList, userList] = await Promise.all([
+      resolveSeasonChain(animeIdNum).catch(() => ({ number: null, total: null })),
+      resolveSeasonList(animeIdNum).catch(() => []),
+      userListP.catch(() => ({ fav: false, statusLabel: null, progress: 0 })),
+    ]);
+    timer.end(`cache-hit id=${id?.[0]}`);
     return {
       props: {
         info,
@@ -324,6 +465,10 @@ export async function getServerSideProps(ctx: any) {
         fanarts,
         initialTitleImage,
         seasonInfo,
+        seasonList,
+        initialFav: userList.fav,
+        initialStatusLabel: userList.statusLabel,
+        initialProgress: userList.progress,
       },
     };
   }
@@ -332,32 +477,28 @@ export async function getServerSideProps(ctx: any) {
   const simulateDown = process.env.ANILIST_SIMULATE_DOWN === "1";
   try {
     if (simulateDown) throw new Error("simulated AniList outage");
-    const [resp] = await pls.post("https://graphql.anilist.co/", {
-      body: JSON.stringify({
-        query: mediaInfoQuery,
-        variables: { id: id?.[0] },
-      }),
+    const resp = await anilistFetch({
+      query: mediaInfoQuery,
+      variables: { id: id?.[0] },
+      label: `info-ssr:${id?.[0]}`,
     });
     data = resp?.data?.Media || null;
   } catch (e: any) {
     console.warn(`[anime SSR] AniList fetch failed for ${id?.[0]}:`, e?.message);
   }
+  timer.mark("anilist");
 
   if (data) {
     primeMediaCache(animeIdNum, data);
   } else {
     try {
       const cached = await getCachedAnime(animeIdNum);
-      if (cached?.data) {
-        console.log(
-          `[anime SSR] using DB cache for ${id?.[0]} (stale=${cached.isStale})`
-        );
-        data = cached.data;
-      }
+      if (cached?.data) data = cached.data;
     } catch (e: any) {
       console.warn(`[anime SSR] DB fallback failed:`, e?.message);
     }
   }
+  timer.mark("dbFallback");
 
   const cacheTime = data?.nextAiringEpisode?.episode ? 60 * 10 : 60 * 60 * 24 * 30;
 
@@ -371,11 +512,24 @@ export async function getServerSideProps(ctx: any) {
     color: textColor,
   };
 
-  // Run the fanart + season-chain reads concurrently with the Redis write
-  // below. Both ship as small inline payloads in the HTML response.
-  const fanartsP = loadFanarts(animeIdNum).catch(() => null);
+  // Banner + cover URLs are now known — push them into Link: headers so
+  // the browser can start downloading while we await the rest.
+  if (data?.bannerImage) appendPreloadHeader(ctx.res, data.bannerImage);
+  const coverUrl = data?.coverImage?.extraLarge || data?.coverImage?.large;
+  if (coverUrl) appendPreloadHeader(ctx.res, coverUrl);
+
+  // Resolve fanarts ahead of the slower walker work so we can emit the
+  // clearart preload header before the response body is sent.
+  const fanarts = await loadFanarts(animeIdNum).catch(() => null);
+  timer.mark("fanarts");
+  const initialTitleImage = pickTitleImage(fanarts);
+  if (initialTitleImage?.url) appendPreloadHeader(ctx.res, initialTitleImage.url);
+
   const seasonInfoP = resolveSeasonChain(animeIdNum).catch(
     () => ({ number: null, total: null })
+  );
+  const seasonListP = resolveSeasonList(animeIdNum).catch(
+    () => [] as SeasonEntry[]
   );
 
   if (redis) {
@@ -387,8 +541,12 @@ export async function getServerSideProps(ctx: any) {
     );
   }
 
-  const [fanarts, seasonInfo] = await Promise.all([fanartsP, seasonInfoP]);
-  const initialTitleImage = pickTitleImage(fanarts);
+  const [seasonInfo, seasonList, userList] = await Promise.all([
+    seasonInfoP,
+    seasonListP,
+    userListP.catch(() => ({ fav: false, statusLabel: null, progress: 0 })),
+  ]);
+  timer.end(`cache-miss id=${id?.[0]}`);
 
   return {
     props: {
@@ -399,6 +557,10 @@ export async function getServerSideProps(ctx: any) {
       fanarts,
       initialTitleImage,
       seasonInfo,
+      seasonList,
+      initialFav: userList.fav,
+      initialStatusLabel: userList.statusLabel,
+      initialProgress: userList.progress,
     },
   };
 }

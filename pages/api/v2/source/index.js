@@ -4,19 +4,26 @@ import { ANIME } from "@consumet/extensions";
 import { getExtractor, extractMegaplay } from "@/lib/extractors";
 import { getMediaMeta, primeMediaCache } from "@/lib/anilist/getMediaMeta";
 
-// Hosts where server-side extraction returns a REAL playable stream — we pull
+/* Per-provider trace logger. Off by default â€” set DEBUG_SOURCE=1 in
+   .env.local to see the chatty `[anime-sama]` / `[voiranime]` /
+   `[animekai]` lines that used to spam the dev terminal every time the
+   watch page resolved a stream. console.error stays unconditional. */
+const DEBUG_SOURCE = process.env.DEBUG_SOURCE === "1";
+const dlog = DEBUG_SOURCE ? console.log.bind(console) : () => {};
+
+// Hosts where server-side extraction returns a REAL playable stream â€” we pull
 // the m3u8 / mp4 directly so the universal Vidstack player can play it (with
 // our subtitle / cast / download chrome) instead of dropping back to an iframe.
 //
 // History note: smoothpre / movearnpre used to also serve a relative
 // `/stream/.../master.m3u8` path which was a TIKTOK IMAGE TRAP (anti-bot
-// detection — segments were JPEG URLs from tiktokcdn). The current extractor
+// detection â€” segments were JPEG URLs from tiktokcdn). The current extractor
 // (extractMovearnpre) prefers the absolute hls2 source from their CDN
 // (dramiyos-cdn / acek-cdn / mindbodywellness.space) which serves real .ts
 // segments in 1080p/720p. Tokens last ~1.5h.
 //
 // Dingtezuni / callistanise share the same packed-JS embed format. They're
-// included optimistically — extractor will return { error: ... } if they're
+// included optimistically â€” extractor will return { error: ... } if they're
 // not actually playable, and the caller falls back to the raw iframe.
 const EXTRACTABLE_HOSTS = [
   "sibnet.ru",
@@ -28,9 +35,9 @@ const EXTRACTABLE_HOSTS = [
   "movearnpre",
   "dingtezuni",
   "callistanise",
-  // VOE serves voe.sx → JS-redirect → mirror domain → obfuscated JSON payload.
+  // VOE serves voe.sx â†’ JS-redirect â†’ mirror domain â†’ obfuscated JSON payload.
   // The extractor follows the redirect chain and decodes the payload to a
-  // signed master.m3u8. See lib/extractors.js → extractVoe.
+  // signed master.m3u8. See lib/extractors.js â†’ extractVoe.
   "voe.sx",
   "voe.",          // catches voe-network.net, voe-unblock.com, etc.
 ];
@@ -52,7 +59,7 @@ const MIRURO_BASE =
 
 const COOREN_BASE = process.env.COOREN_API_URL || "";
 
-// ── HiAnime (direct AJAX) ───────────────────────────────────
+// â”€â”€ HiAnime (direct AJAX) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const HIANIME_BASE = "https://aniwatchtv.to";
 const HIANIME_SERVERS = {
   "hianime-vidsrc": { name: "VidSrc", serverId: 4 },
@@ -145,7 +152,7 @@ async function getHiAnimeIframe(serverKey, title, episode, sub) {
   }
 }
 
-// ── Miruro ──────────────────────────────────────────────────
+// â”€â”€ Miruro â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const MIRURO_PROVIDERS = {
   "miruro-kiwi": "kiwi",
   "miruro-arc": "arc",
@@ -183,7 +190,7 @@ async function getMiruroStream(provider, aniId, episode, sub) {
   }
 }
 
-// ── CoorenLabs ──────────────────────────────────────────────
+// â”€â”€ CoorenLabs â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const COOREN_PROVIDERS = {
   "cooren-animepahe":  "animepahe",
   "cooren-animekai":   "animekai",
@@ -210,7 +217,7 @@ async function getCoorenStream(providerKey, title, episode, sub) {
   }
 }
 
-// ── Toonstream — series + episode → m3u8 sources ──
+// â”€â”€ Toonstream â€” series + episode â†’ m3u8 sources â”€â”€
 async function getCoorenToonstream(title, episode) {
   const searchRes = await fetch(
     `${COOREN_BASE}/anime/toonstream/search/${encodeURIComponent(title)}`
@@ -258,7 +265,7 @@ async function getCoorenToonstream(title, episode) {
   };
 }
 
-// ── Animesalt — same shape as Toonstream ──
+// â”€â”€ Animesalt â€” same shape as Toonstream â”€â”€
 async function getCoorenAnimesalt(title, episode) {
   const searchRes = await fetch(
     `${COOREN_BASE}/anime/animesalt/search/${encodeURIComponent(title)}`
@@ -387,9 +394,9 @@ async function getCoorenAnimekai(title, episode, sub) {
   );
   if (!ep?.id) return null;
 
-  console.log(`[animekai] Episode ID: ${ep.id}`);
+  dlog(`[animekai] Episode ID: ${ep.id}`);
 
-  // Get stream sources — returns { results: [{ sources, subtitles, name }] }
+  // Get stream sources â€” returns { results: [{ sources, subtitles, name }] }
   const watchRes = await fetch(
     `${COOREN_BASE}/anime/animekai/watch/${encodeURIComponent(ep.id)}${
       sub === "dub" ? "?dub=true" : ""
@@ -398,7 +405,7 @@ async function getCoorenAnimekai(title, episode, sub) {
   if (!watchRes.ok) return null;
   const watchData = await watchRes.json();
 
-  // Each result has its own sources/subtitles — merge all
+  // Each result has its own sources/subtitles â€” merge all
   const results = watchData?.results || [];
   if (results.length === 0) return null;
 
@@ -428,7 +435,7 @@ async function getCoorenAnimekai(title, episode, sub) {
   };
 }
 
-// ── Anime-Sama (VF + VOSTFR) ─────────────────────────────────
+// â”€â”€ Anime-Sama (VF + VOSTFR) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const ANIMESAMA_BASE = "https://anime-sama.to";
 // In-memory caches to avoid AniList rate limits from parallel pre-check probes
 const seasonCache = new Map();
@@ -459,12 +466,12 @@ async function getAnimeSamaIframe(serverKey, title, episode, aniId) {
 
     // 1. Detect which season this AniList ID represents
     const seasonNum = await detectSeasonNumber(aniId);
-    console.log(`[anime-sama] AniList ${aniId} → detected season ${seasonNum}`);
+    dlog(`[anime-sama] AniList ${aniId} â†’ detected season ${seasonNum}`);
 
-    // 2. Search anime-sama — use romaji title first, then try french
+    // 2. Search anime-sama â€” use romaji title first, then try french
     const slug = await findAnimeSamaSlug(title, aniId);
     if (!slug) return null;
-    console.log(`[anime-sama] Found slug: ${slug} (${langPath})`);
+    dlog(`[anime-sama] Found slug: ${slug} (${langPath})`);
 
     // 3. Try to find the right season/episode
     // Fetch the anime detail page to get season list
@@ -476,11 +483,11 @@ async function getAnimeSamaIframe(serverKey, title, episode, aniId) {
 
     // Extract panneauAnime() calls to find available seasons
     const seasonMatches = [...detailHtml.matchAll(/panneauAnime\s*\(\s*"([^"]+)"\s*,\s*"([^"]+)"\s*\)/g)];
-    console.log(`[anime-sama] Found ${seasonMatches.length} seasons`);
+    dlog(`[anime-sama] Found ${seasonMatches.length} seasons`);
 
-    // Build season list from panneauAnime calls — use sequential ordinals (1,2,3,4...)
+    // Build season list from panneauAnime calls â€” use sequential ordinals (1,2,3,4...)
     // NOT the season number from the path (since "saison3-2" is a separate entry from "saison3").
-    // Also extract any 4-digit year from the label (e.g. "Version 2011" → 2011) so we can
+    // Also extract any 4-digit year from the label (e.g. "Version 2011" â†’ 2011) so we can
     // match against AniList's seasonYear/startDate when multiple versions exist.
     const seasons = seasonMatches
       .map((m) => {
@@ -502,9 +509,9 @@ async function getAnimeSamaIframe(serverKey, title, episode, aniId) {
       seasons.push({ label: "Saison 1", ordinal: 1, dir: "saison1", path: `saison1/${langPath}` });
     }
 
-    console.log(`[anime-sama] Seasons: ${seasons.map((s) => `${s.ordinal}=${s.dir}${s.year ? `(${s.year})` : ""}`).join(", ")}`);
+    dlog(`[anime-sama] Seasons: ${seasons.map((s) => `${s.ordinal}=${s.dir}${s.year ? `(${s.year})` : ""}`).join(", ")}`);
 
-    // 3.5. YEAR MATCHING — if multiple seasons have explicit years and AniList
+    // 3.5. YEAR MATCHING â€” if multiple seasons have explicit years and AniList
     // gave us a year, prefer the season whose year matches. Solves the HxH
     // 1999-vs-2011 case where they share the same slug.
     const meta = await getMediaMeta(aniId);
@@ -513,18 +520,18 @@ async function getAnimeSamaIframe(serverKey, title, episode, aniId) {
     if (aniYear) {
       yearMatchedSeason = seasons.find((s) => s.year === aniYear);
       if (yearMatchedSeason) {
-        console.log(`[anime-sama] Year match: AniList ${aniYear} → ${yearMatchedSeason.dir}`);
+        dlog(`[anime-sama] Year match: AniList ${aniYear} â†’ ${yearMatchedSeason.dir}`);
       }
     }
 
-    // 3.6. TITLE MATCHING — prefer the panneau whose label is most similar to
+    // 3.6. TITLE MATCHING â€” prefer the panneau whose label is most similar to
     // the AniList title. Solves the "Baki Hanma saison 1" vs "Baki Hanma saison 2"
     // case where the PREQUEL chain over-counts because AniList's chain
     // includes ONAs that anime-sama merges into a single panneau slot.
     //
     // Score = token-overlap between panneau label and AniList titles, with a
-    // small bonus for matching the season suffix ("saison 1" → bonus when
-    // AniList title doesn't have a "Season N" hint, "saison 2" → bonus when
+    // small bonus for matching the season suffix ("saison 1" â†’ bonus when
+    // AniList title doesn't have a "Season N" hint, "saison 2" â†’ bonus when
     // AniList title has "Season 2" / "2nd Season" / "Part 2").
     const aniTitles = [
       meta?.title?.romaji,
@@ -558,7 +565,7 @@ async function getAnimeSamaIframe(serverKey, title, episode, aniId) {
       }
       if (best.season && best.score > 0) {
         titleMatchedSeason = best.season;
-        console.log(`[anime-sama] Title match: "${best.season.label}" (score ${best.score})`);
+        dlog(`[anime-sama] Title match: "${best.season.label}" (score ${best.score})`);
       }
     }
 
@@ -574,7 +581,7 @@ async function getAnimeSamaIframe(serverKey, title, episode, aniId) {
     if (directTarget) {
       const targetSeason = directTarget;
       const epPath = `${ANIMESAMA_BASE}/catalogue/${slug}/${targetSeason.dir}/${langPath}/episodes.js`;
-      console.log(`[anime-sama] Direct season ${targetSeason.dir} (${yearMatchedSeason ? `year ${aniYear}` : `ordinal ${seasonNum}`}): ${epPath}`);
+      dlog(`[anime-sama] Direct season ${targetSeason.dir} (${yearMatchedSeason ? `year ${aniYear}` : `ordinal ${seasonNum}`}): ${epPath}`);
 
       const epRes = await fetch(epPath, {
         headers: { "User-Agent": "Mozilla/5.0" },
@@ -586,7 +593,7 @@ async function getAnimeSamaIframe(serverKey, title, episode, aniId) {
           const bestArray = findPreferredArray(episodeArrays, serverDef.preferred);
           if (bestArray && episodeIndex >= 0 && episodeIndex < bestArray.length) {
             iframeUrl = bestArray[episodeIndex];
-            console.log(`[anime-sama] Found ep ${episode} in ${targetSeason.dir}: ${iframeUrl}`);
+            dlog(`[anime-sama] Found ep ${episode} in ${targetSeason.dir}: ${iframeUrl}`);
           }
         }
       }
@@ -595,18 +602,18 @@ async function getAnimeSamaIframe(serverKey, title, episode, aniId) {
     // 5. Fallback: cumulative season iteration (only if year/PREQUEL didn't match)
     // KEY: episode count comes from the canonical (first) array, not the host-specific one.
     // Otherwise, when the requested host isn't in season N, we'd skip ahead and incorrectly
-    // return episode 1 of a later season (e.g. One Piece OneUpload → saison9 ep 1).
+    // return episode 1 of a later season (e.g. One Piece OneUpload â†’ saison9 ep 1).
     if (!iframeUrl) {
       let cumulativeEps = 0;
       for (const season of seasons) {
         const epPath = `${ANIMESAMA_BASE}/catalogue/${slug}/${season.dir}/${langPath}/episodes.js`;
-        console.log(`[anime-sama] Trying: ${epPath}`);
+        dlog(`[anime-sama] Trying: ${epPath}`);
 
         const epRes = await fetch(epPath, {
           headers: { "User-Agent": "Mozilla/5.0" },
         });
         if (!epRes.ok) {
-          console.log(`[anime-sama] No ${langPath.toUpperCase()} for ${season.dir}`);
+          dlog(`[anime-sama] No ${langPath.toUpperCase()} for ${season.dir}`);
           continue;
         }
 
@@ -625,9 +632,9 @@ async function getAnimeSamaIframe(serverKey, title, episode, aniId) {
           const bestArray = findPreferredArray(episodeArrays, serverDef.preferred);
           if (bestArray && localIndex < bestArray.length) {
             iframeUrl = bestArray[localIndex];
-            console.log(`[anime-sama] Found ep ${episode} in ${season.dir}: ${iframeUrl}`);
+            dlog(`[anime-sama] Found ep ${episode} in ${season.dir}: ${iframeUrl}`);
           } else {
-            console.log(`[anime-sama] ${season.dir} has ep ${episode} but not on ${serverDef.preferred[0] || serverDef.preferred}`);
+            dlog(`[anime-sama] ${season.dir} has ep ${episode} but not on ${serverDef.preferred[0] || serverDef.preferred}`);
           }
           break; // Right season found; don't keep looking
         }
@@ -649,12 +656,12 @@ async function getAnimeSamaIframe(serverKey, title, episode, aniId) {
       const extractor = getExtractor(iframeUrl);
       const result = await extractor(iframeUrl);
       if (result.streams?.length) {
-        console.log(`[anime-sama] Extracted stream for ${serverKey}: ${result.streams[0].url}`);
+        dlog(`[anime-sama] Extracted stream for ${serverKey}: ${result.streams[0].url}`);
         return result;
       }
-      console.log(`[anime-sama] Extraction failed for ${serverKey}: ${result.error}`);
+      dlog(`[anime-sama] Extraction failed for ${serverKey}: ${result.error}`);
       // For strict hosts (iframe blocked), fail. For vidmoly and others, fall
-      // back to the raw iframe — the user's browser may still play it.
+      // back to the raw iframe â€” the user's browser may still play it.
       if (isStrict) return null;
     }
 
@@ -667,15 +674,15 @@ async function getAnimeSamaIframe(serverKey, title, episode, aniId) {
 
 /**
  * Detect which season number an AniList ID represents by walking the PREQUEL chain.
- * Uses the shared Media cache — a single AniList fetch covers title, synonyms,
+ * Uses the shared Media cache â€” a single AniList fetch covers title, synonyms,
  * AND relations, so we don't need separate calls for each scraper helper.
  *
  * We accept TV, ONA, OVA and TV_SHORT prequels because anime-sama / voir-anime
  * list those alongside main TV seasons (e.g. Baki Hanma is `format=ONA` on
- * AniList — filtering to TV-only would walk the chain wrong and return season=1
+ * AniList â€” filtering to TV-only would walk the chain wrong and return season=1
  * for a 4th-entry anime, dropping the user on the wrong show entirely).
  *
- * MOVIE / SPECIAL / MUSIC are still excluded — those don't increment the
+ * MOVIE / SPECIAL / MUSIC are still excluded â€” those don't increment the
  * "season" counter on either site (films get their own slug or `film/` path).
  */
 const PREQUEL_FORMATS = new Set(["TV", "ONA", "OVA", "TV_SHORT"]);
@@ -721,8 +728,8 @@ function normalizeForMatch(s) {
 
 // How well does a candidate slug (e.g. "baki", "baccano") match a target
 // title? Measured as token overlap weighted by token length.
-//   "baki" vs target "baki hanma"  → 1 token match (baki, len 4) → score 4
-//   "baccano" vs target "baki hanma" → 0 token match → score 0
+//   "baki" vs target "baki hanma"  â†’ 1 token match (baki, len 4) â†’ score 4
+//   "baccano" vs target "baki hanma" â†’ 0 token match â†’ score 0
 function scoreSlugAgainstTitle(slug, target) {
   const a = new Set(normalizeForMatch(slug.replace(/-/g, " ")).split(" ").filter(Boolean));
   const b = normalizeForMatch(target).split(" ").filter(Boolean);
@@ -739,7 +746,7 @@ async function findAnimeSamaSlug(title, aniId) {
 
   // Strip season suffixes to find the base anime on anime-sama
   const stripSeason = (t) =>
-    t?.replace(/\s*(Season\s*\d+|\d+(st|nd|rd|th)\s*Season|Part\s*\d+|\d+期)\s*/gi, "").trim();
+    t?.replace(/\s*(Season\s*\d+|\d+(st|nd|rd|th)\s*Season|Part\s*\d+|\d+æœŸ)\s*/gi, "").trim();
 
   // Try searching with the title directly, plus a stripped version
   const queries = [title];
@@ -761,7 +768,7 @@ async function findAnimeSamaSlug(title, aniId) {
   }
 
   // Build the set of titles we'll score candidates against. We don't strip
-  // here — we want "Hanma Baki" to match "baki" via token overlap, not via
+  // here â€” we want "Hanma Baki" to match "baki" via token overlap, not via
   // string equality.
   const targets = [
     title,
@@ -774,9 +781,9 @@ async function findAnimeSamaSlug(title, aniId) {
   // Score every candidate seen across all queries; return the best.
   // Anime-Sama no longer reliably tags "VF" in search results, so we ignore
   // language and rely on token-overlap scoring against the AniList titles.
-  // Reject scores of 0 — those are unrelated catalogue entries (Baccano vs
+  // Reject scores of 0 â€” those are unrelated catalogue entries (Baccano vs
   // Baki Hanma) that the search returned because of a fuzzy match on letters.
-  const candidates = new Map(); // slug → best score
+  const candidates = new Map(); // slug â†’ best score
   for (const q of queries) {
     const searchRes = await fetch(
       `${ANIMESAMA_BASE}/catalogue/?search=${encodeURIComponent(q)}`,
@@ -851,7 +858,7 @@ function parseEpisodesJs(jsContent) {
   return arrays;
 }
 
-// ── voir-anime.to (VF + VOSTFR via WordPress / Madara theme) ──
+// â”€â”€ voir-anime.to (VF + VOSTFR via WordPress / Madara theme) â”€â”€
 const VOIRANIME_BASE = "https://voir-anime.to";
 const voirSlugCache = new Map();
 const VOIRANIME_SERVERS = {
@@ -869,17 +876,17 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId) {
     const seasonNum = await detectSeasonNumber(aniId);
     const slug = await findVoiranimeSlug(title, aniId, isVF, seasonNum);
     if (!slug) {
-      console.log(`[voiranime] No slug found for ${title} (${isVF ? "vf" : "vostfr"}, S${seasonNum})`);
+      dlog(`[voiranime] No slug found for ${title} (${isVF ? "vf" : "vostfr"}, S${seasonNum})`);
       return null;
     }
-    console.log(`[voiranime] Slug: ${slug} (${isVF ? "vf" : "vostfr"}, S${seasonNum})`);
+    dlog(`[voiranime] Slug: ${slug} (${isVF ? "vf" : "vostfr"}, S${seasonNum})`);
 
     // Fetch the anime detail page to get the full episode list.
     // Some Madara installs require the episode list via admin-ajax (chapters).
     let episodeUrl = null;
 
     // Episode URL pattern: /anime/{parent_slug}/{any-stub}-(N|0N)(-vf|-vostfr)?/
-    // The "any-stub" doesn't have to start with parent_slug exactly — sometimes
+    // The "any-stub" doesn't have to start with parent_slug exactly â€” sometimes
     // typography differs (e.g. "fish-man" vs "fishman"). So we just match any
     // episode-looking URL within the parent's anime path.
     const slugEsc = slug.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
@@ -935,7 +942,7 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId) {
     }
 
     if (!episodeUrl) {
-      console.log(`[voiranime] Episode ${episode} not found in ${slug}`);
+      dlog(`[voiranime] Episode ${episode} not found in ${slug}`);
       return null;
     }
 
@@ -946,7 +953,7 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId) {
 
     const sourcesMatch = epHtml.match(/thisChapterSources\s*=\s*({[\s\S]*?});/);
     if (!sourcesMatch) {
-      console.log(`[voiranime] No thisChapterSources in ${episodeUrl}`);
+      dlog(`[voiranime] No thisChapterSources in ${episodeUrl}`);
       return null;
     }
 
@@ -954,7 +961,7 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId) {
     try {
       sources = JSON.parse(sourcesMatch[1]);
     } catch {
-      console.log(`[voiranime] Failed to parse thisChapterSources JSON`);
+      dlog(`[voiranime] Failed to parse thisChapterSources JSON`);
       return null;
     }
 
@@ -971,13 +978,13 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId) {
     }
 
     if (!iframeUrl) {
-      console.log(`[voiranime] Host ${serverDef.host[0]} not available for ${episodeUrl}`);
+      dlog(`[voiranime] Host ${serverDef.host[0]} not available for ${episodeUrl}`);
       return null;
     }
 
-    console.log(`[voiranime] Found ep ${episode} on ${serverDef.name}: ${iframeUrl}`);
+    dlog(`[voiranime] Found ep ${episode} on ${serverDef.name}: ${iframeUrl}`);
 
-    // Content validation BEFORE attempting extraction — saves ~1-2s of
+    // Content validation BEFORE attempting extraction â€” saves ~1-2s of
     // pointless work when the video is already gone, and prevents the player
     // from getting stuck in a 403 retry loop on segments that will never come.
     const lower = iframeUrl.toLowerCase();
@@ -988,7 +995,7 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId) {
           redirect: "follow",
         });
         if (!probe.ok) {
-          console.log(`[voiranime] VOE probe HTTP ${probe.status} — hiding server`);
+          dlog(`[voiranime] VOE probe HTTP ${probe.status} â€” hiding server`);
           return null;
         }
         const html = await probe.text();
@@ -1003,7 +1010,7 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId) {
             redirect: "follow",
           });
           if (!mirror.ok) {
-            console.log(`[voiranime] VOE mirror HTTP ${mirror.status} — video removed, hiding server`);
+            dlog(`[voiranime] VOE mirror HTTP ${mirror.status} â€” video removed, hiding server`);
             return null;
           }
           const mirrorHtml = await mirror.text();
@@ -1011,10 +1018,10 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId) {
             mirrorHtml.includes("404 - Not found") ||
             mirrorHtml.includes("404 Not Found") ||
             /The server can ?not find the requested resource/i.test(mirrorHtml) ||
-            // No JSON payload → no video data on the page
+            // No JSON payload â†’ no video data on the page
             !/<script[^>]*type=["']application\/json["']/i.test(mirrorHtml)
           ) {
-            console.log(`[voiranime] VOE mirror returned error/empty page — hiding server`);
+            dlog(`[voiranime] VOE mirror returned error/empty page â€” hiding server`);
             return null;
           }
         } else if (
@@ -1022,11 +1029,11 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId) {
           html.includes("404 Not Found") ||
           /The server can ?not find the requested resource/i.test(html)
         ) {
-          console.log(`[voiranime] VOE returned 404 page — hiding server`);
+          dlog(`[voiranime] VOE returned 404 page â€” hiding server`);
           return null;
         }
       } catch (e) {
-        // Network error — fall through and let the client try
+        // Network error â€” fall through and let the client try
       }
     }
 
@@ -1037,7 +1044,7 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId) {
       const extractor = getExtractor(iframeUrl);
       const result = await extractor(iframeUrl);
       if (result.streams?.length) return result;
-      console.log(`[voiranime] extractor ${serverKey} failed: ${result.error}`);
+      dlog(`[voiranime] extractor ${serverKey} failed: ${result.error}`);
     }
 
     return { iframe: iframeUrl };
@@ -1072,7 +1079,7 @@ async function voiranimeSlugExists(slug) {
   }
 }
 
-// Words that indicate a movie / special / film entry — never the main TV series.
+// Words that indicate a movie / special / film entry â€” never the main TV series.
 const MOVIE_WORDS = ["film", "movie", "stampede", "special", "ova", "fan-letter", "kai", "log-", "log:", "episode-of", "adventure-of", "heart-of-gold", "glorious-island"];
 
 async function findVoiranimeSlug(title, aniId, isVF, seasonNum) {
@@ -1081,7 +1088,7 @@ async function findVoiranimeSlug(title, aniId, isVF, seasonNum) {
 
   // Strip season suffixes for base title
   const stripSeason = (t) =>
-    t?.replace(/\s*(Season\s*\d+|\d+(st|nd|rd|th)\s*Season|Part\s*\d+|\d+期|2nd|3rd)\s*/gi, "").trim();
+    t?.replace(/\s*(Season\s*\d+|\d+(st|nd|rd|th)\s*Season|Part\s*\d+|\d+æœŸ|2nd|3rd)\s*/gi, "").trim();
 
   // Collect title candidates from the shared Media cache (zero AniList hits if primed)
   const titleSet = new Set([title]);
@@ -1101,7 +1108,7 @@ async function findVoiranimeSlug(title, aniId, isVF, seasonNum) {
 
   const titles = [...titleSet];
 
-  // ── Strategy 1: direct slug guessing (much faster than search) ──
+  // â”€â”€ Strategy 1: direct slug guessing (much faster than search) â”€â”€
   // For S2+ try {base}-{N}, S1 try {base}. Always try with/without -vf.
   const slugCandidates = new Set();
   for (const t of titles) {
@@ -1111,7 +1118,7 @@ async function findVoiranimeSlug(title, aniId, isVF, seasonNum) {
       slugCandidates.add(isVF ? `${base}-${seasonNum}-vf` : `${base}-${seasonNum}`);
     }
     slugCandidates.add(isVF ? `${base}-vf` : base);
-    // NOTE: do NOT fall back to the un-suffixed slug for VF requests — that
+    // NOTE: do NOT fall back to the un-suffixed slug for VF requests â€” that
     // slug is the VOSTFR variant and would silently serve the wrong language.
   }
 
@@ -1122,7 +1129,7 @@ async function findVoiranimeSlug(title, aniId, isVF, seasonNum) {
     }
   }
 
-  // ── Strategy 2: search fallback with stricter scoring ──
+  // â”€â”€ Strategy 2: search fallback with stricter scoring â”€â”€
   for (const q of titles) {
     try {
       const res = await fetch(`${VOIRANIME_BASE}/wp-admin/admin-ajax.php`, {
@@ -1151,9 +1158,9 @@ async function findVoiranimeSlug(title, aniId, isVF, seasonNum) {
           const seasonStripped = cleanSlug.replace(/-\d+$/, "");
 
           let score = 0;
-          // HARD reject if language mismatches — VF request must yield -vf slug, etc.
+          // HARD reject if language mismatches â€” VF request must yield -vf slug, etc.
           if (isVfSlug !== isVF) return { slug, score: -1 };
-          // Reject movies/specials hard — never used for TV episode lookup
+          // Reject movies/specials hard â€” never used for TV episode lookup
           if (MOVIE_WORDS.some((w) => slug.toLowerCase().includes(w))) score -= 100;
           // Exact base slug match (best signal)
           if (seasonStripped === baseSlug) score += 50;
@@ -1178,12 +1185,12 @@ async function findVoiranimeSlug(title, aniId, isVF, seasonNum) {
     } catch {}
   }
 
-  // Cache the failure too — avoid hammering search on every probe
+  // Cache the failure too â€” avoid hammering search on every probe
   voirSlugCache.set(cacheKey, null);
   return null;
 }
 
-// ── Consumet providers (AnimeSaturn, AnimeUnity) ─────────────
+// â”€â”€ Consumet providers (AnimeSaturn, AnimeUnity) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const CONSUMET_PROVIDERS = {
   animesaturn: { cls: ANIME.AnimeSaturn, lang: "sub" },
 };
@@ -1241,7 +1248,7 @@ async function getConsumetStream(providerKey, title, episode, sub) {
   }
 }
 
-// ── Handler ─────────────────────────────────────────────────
+// â”€â”€ Handler â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ message: "Method not allowed" });
@@ -1264,7 +1271,7 @@ export default async function handler(req, res) {
   // prime the cache so no helper has to call AniList itself.
   if (mediaMeta && aniId) primeMediaCache(aniId, mediaMeta);
 
-  // Megaplay — extract m3u8 + subtitles directly (no iframe).
+  // Megaplay â€” extract m3u8 + subtitles directly (no iframe).
   if (server === "megaplay") {
     const url = `https://megaplay.buzz/stream/ani/${aniId}/${episode}/${sub === "dub" ? "dub" : "sub"}`;
     const result = await extractMegaplay(url);
@@ -1284,14 +1291,14 @@ export default async function handler(req, res) {
     return res.status(200).json(data);
   }
 
-  // Helper to resolve anime title — uses shared cache, only hits AniList if missing
+  // Helper to resolve anime title â€” uses shared cache, only hits AniList if missing
   async function resolveTitle() {
     if (title) return title;
     const m = await getMediaMeta(aniId);
     return m?.title?.english || m?.title?.romaji || null;
   }
 
-  // HiAnime — returns iframe embed URL
+  // HiAnime â€” returns iframe embed URL
   if (HIANIME_SERVERS[server]) {
     const searchTitle = await resolveTitle();
     if (!searchTitle) {
@@ -1304,7 +1311,7 @@ export default async function handler(req, res) {
     return res.status(200).json(data);
   }
 
-  // Anime-Sama (VF + VOSTFR) — returns iframe embed URL
+  // Anime-Sama (VF + VOSTFR) â€” returns iframe embed URL
   if (ANIMESAMA_SERVERS[server]) {
     const searchTitle = await resolveTitle();
     if (!searchTitle) {
@@ -1317,7 +1324,7 @@ export default async function handler(req, res) {
     return res.status(200).json(data);
   }
 
-  // voir-anime.to (VF + VOSTFR) — Madara/WordPress source
+  // voir-anime.to (VF + VOSTFR) â€” Madara/WordPress source
   if (VOIRANIME_SERVERS[server]) {
     const searchTitle = await resolveTitle();
     if (!searchTitle) {
@@ -1330,7 +1337,7 @@ export default async function handler(req, res) {
     return res.status(200).json(data);
   }
 
-  // CoorenLabs — needs anime title for search
+  // CoorenLabs â€” needs anime title for search
   if (COOREN_PROVIDERS[server]) {
     const searchTitle = await resolveTitle();
     if (!searchTitle) {

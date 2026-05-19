@@ -4,7 +4,8 @@
       "Bash(*)",
       "PowerShell(*)",
       "WebFetch(*)",
-      "Read(*)"
+      "Read(*)",
+      "Bash(node -e \"require\\('dotenv'\\).config\\({path:'.env.local'}\\);const{createClient}=require\\('@libsql/client'\\);\\(async\\(\\)=>{const d=createClient\\({url:process.env.TURSO_FANARTS_DATABASE_URL,authToken:process.env.TURSO_FANARTS_AUTH_TOKEN}\\);const r=await d.execute\\('SELECT COUNT\\(*\\) AS n FROM anime_fanarts'\\);console.log\\('target rows:',r.rows[0].n\\);process.exit\\(Number\\(r.rows[0].n\\)>=122510?0:1\\)}\\)\\(\\);\")"
     ]
   }
 }

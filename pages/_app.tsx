@@ -16,6 +16,7 @@ import { asCssVars, BRAND } from "@/lib/theme";
 // import SecretPage from "@/components/secret";
 import { Toaster, toast } from "sonner";
 import ChangeLogs from "../components/shared/changelogs";
+import AnilistHealthBanner from "../components/shared/AnilistHealthBanner";
 import type { AppProps } from "next/app";
 
 /**
@@ -205,6 +206,7 @@ export default function App({
                   onCheatCodeEntered={handleCheatCodeEntered}
                 /> */}
                 <ChangeLogs />
+                <AnilistHealthBanner />
                 <m.div
                   key={`route-${router.route}`}
                   transition={{ duration: 0.5 }}

@@ -7,7 +7,6 @@ import Head from "next/head";
 import Footer from "@/components/shared/footer";
 
 import Image from "next/image";
-import { aniAdvanceSearch } from "@/lib/anilist/aniAdvanceSearch";
 import MultiSelector from "@/components/search/dropdown/multiSelector";
 import SingleSelector from "@/components/search/dropdown/singleSelector";
 import {
@@ -181,16 +180,26 @@ export default function Card({
 
   async function advance() {
     setLoading(true);
-    const data = await aniAdvanceSearch({
-      search: debounceSearch,
-      type: type?.value as "ANIME" | "MANGA" | undefined,
-      genres: genre,
-      page: page,
-      sort: sort?.value,
-      format: format?.value,
-      season: season?.value,
-      seasonYear: year?.value,
+    /* Server-side wrapper around aniAdvanceSearch. Done this way (vs.
+       importing the function directly) so the browser bundle doesn't
+       try to pull in ioredis (used by the AniList rate-limiter inside
+       aniAdvanceSearch's transitive deps), which would fail with
+       "Module not found: Can't resolve 'dns'". */
+    const res = await fetch("/api/v2/anilist-search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        search: debounceSearch,
+        type: type?.value,
+        genres: genre,
+        page: page,
+        sort: sort?.value,
+        format: format?.value,
+        season: season?.value,
+        seasonYear: year?.value,
+      }),
     });
+    const data = res.ok ? await res.json() : null;
     if (data?.media?.length === 0) {
       setNextPage(false);
       setLoading(false);

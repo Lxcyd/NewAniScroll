@@ -2,6 +2,15 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import { getServerSession } from "next-auth";
 import { authOptions } from "../../auth/[...nextauth]";
 import { getTursoClient } from "@/lib/db/turso";
+import { getFanartsClient } from "@/lib/db/turso-fanarts";
+import { redis } from "@/lib/redis";
+
+/* Counts are derived from full-table GROUP-BY scans (~30k+ rows each).
+   They change slowly relative to how often the admin loads this page,
+   so cache the bucket counts in Redis for 10 minutes. The items list
+   itself is still live (cursor pagination needs fresh data). */
+const COUNTS_KEY = "admin:fanarts-pending:counts:v1";
+const COUNTS_TTL_S = 10 * 60;
 
 /**
  * GET /api/v2/admin/fanarts-pending?cursor=N&limit=20
@@ -51,8 +60,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const statuses = FILTER_LABELS[filter] || FILTER_LABELS.all;
   const placeholders = statuses.map(() => "?").join(",");
 
-  const db = getTursoClient();
-  if (!db) return res.status(503).json({ error: "DB unavailable" });
+  // `fanarts` holds the anime_fanarts table (which may be on a dedicated
+  // Turso DB — see lib/db/turso-fanarts.ts). `main` holds the `anime`
+  // table we need for title/color/is_adult lookup. They're the same
+  // client object when the split isn't configured, in which case we
+  // could JOIN — but doing a two-DB safe lookup keeps the code identical
+  // regardless of configuration.
+  const fanarts = getFanartsClient();
+  const main = getTursoClient();
+  if (!fanarts || !main) return res.status(503).json({ error: "DB unavailable" });
 
   // Build the WHERE depending on cursor vs before.
   // We always exclude manually-reviewed rows.
@@ -72,14 +88,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const orderDir = Number.isFinite(before) && before > 0 ? "DESC" : "ASC";
 
   try {
-    // We need each (url, type) once — Pokémon shares 43 rows, etc. Doing
-    // the GROUP BY directly on the joined table scanned ~30k rows and took
-    // 2+ minutes. The fix: 2-stage query.
-    //   Stage 1: pick the representative row id per (url, type) WITH the
-    //            sort/limit applied. Uses idx_fanart_review and is fast.
-    //   Stage 2: fetch the full row + JOIN with anime metadata for those
-    //            ids only. ~20 rows max → trivial.
-    const idsRow = await db.execute({
+    // Stage 1 (fanarts DB): pick representative row ids per (url, type)
+    // for the requested filter / cursor window. Uses idx_fanart_review.
+    const idsRow = await fanarts.execute({
       sql: `SELECT MIN(id) AS id
               FROM anime_fanarts f
              WHERE ${whereClause}
@@ -90,81 +101,130 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     });
     const ids = idsRow.rows.map((row: any) => Number(row.id));
 
-    let r: { rows: any[] } = { rows: [] };
+    let fanartRows: any[] = [];
+    let animeById = new Map<number, { title: string | null; isAdult: boolean; color: string | null }>();
     if (ids.length > 0) {
       const placeholders2 = ids.map(() => "?").join(",");
-      const orderBy = orderDir === "DESC" ? "DESC" : "ASC";
-      r = await db.execute({
-        sql: `SELECT f.id, f.anime_id, f.type, f.url, f.nsfw_label, f.nsfw_score,
-                     f.likes, f.language, f.season,
-                     json_extract(a.data, '$.title.userPreferred') AS title,
-                     a.is_adult,
-                     json_extract(a.data, '$.coverImage.color') AS color
-                FROM anime_fanarts f
-                JOIN anime a ON a.id = f.anime_id
-               WHERE f.id IN (${placeholders2})
-               ORDER BY f.id ${orderBy}`,
+      // Stage 2 (fanarts DB): fetch the full fanart rows for those ids.
+      const r = await fanarts.execute({
+        sql: `SELECT id, anime_id, type, url, nsfw_label, nsfw_score,
+                     likes, language, season
+                FROM anime_fanarts
+               WHERE id IN (${placeholders2})
+               ORDER BY id ${orderDir}`,
         args: ids,
       });
+      fanartRows = r.rows as any[];
+
+      // Stage 3 (main DB): batch-fetch anime metadata for the distinct
+      // anime_ids. Avoids the cross-DB JOIN that would otherwise force
+      // both tables onto the same Turso instance.
+      const animeIds = Array.from(
+        new Set(fanartRows.map((row: any) => Number(row.anime_id)))
+      );
+      if (animeIds.length > 0) {
+        const aPh = animeIds.map(() => "?").join(",");
+        const aRows = await main.execute({
+          sql: `SELECT id,
+                       json_extract(data, '$.title.userPreferred') AS title,
+                       is_adult,
+                       json_extract(data, '$.coverImage.color') AS color
+                  FROM anime
+                 WHERE id IN (${aPh})`,
+          args: animeIds,
+        });
+        for (const a of aRows.rows as any[]) {
+          animeById.set(Number(a.id), {
+            title: a.title ?? null,
+            isAdult: Boolean(a.is_adult),
+            color: a.color ?? null,
+          });
+        }
+      }
     }
 
-    let items = r.rows.map((row: any) => ({
-      id:        Number(row.id),
-      animeId:   Number(row.anime_id),
-      title:     row.title,
-      type:      row.type,
-      url:       row.url,
-      label:     row.nsfw_label,
-      nsfwScore: row.nsfw_score != null ? Number(row.nsfw_score) : null,
-      likes:     Number(row.likes ?? 0),
-      language:  row.language,
-      season:    row.season != null ? Number(row.season) : null,
-      isAdult:   Boolean(row.is_adult),
-      color:     row.color,
-    }));
+    let items = fanartRows.map((row: any) => {
+      const meta = animeById.get(Number(row.anime_id));
+      return {
+        id:        Number(row.id),
+        animeId:   Number(row.anime_id),
+        title:     meta?.title ?? null,
+        type:      row.type,
+        url:       row.url,
+        label:     row.nsfw_label,
+        nsfwScore: row.nsfw_score != null ? Number(row.nsfw_score) : null,
+        likes:     Number(row.likes ?? 0),
+        language:  row.language,
+        season:    row.season != null ? Number(row.season) : null,
+        isAdult:   meta?.isAdult ?? false,
+        color:     meta?.color ?? null,
+      };
+    });
     if (orderDir === "DESC") items.reverse();
 
-    // Counts per bucket, deduplicated by (url, type). We previously did this
-    // with a CTE that scanned every row and grouped — 6s on a fresh DB.
-    // Now we run 4 small COUNT(DISTINCT url || type) queries, each filtered
-    // by the relevant labels. Each one uses idx_fanart_review and finishes
-    // in tens of ms.
-    const [cSugg, cNsfw, cErr, cRev] = await Promise.all([
-      db.execute({
-        sql: `SELECT COUNT(*) AS n FROM (
-                SELECT 1 FROM anime_fanarts
-                 WHERE nsfw_label IN ('suggestive', 'manual-suggestive')
-                 GROUP BY url, type)`,
-        args: [],
-      }),
-      db.execute({
-        sql: `SELECT COUNT(*) AS n FROM (
-                SELECT 1 FROM anime_fanarts
-                 WHERE nsfw_label IN ('nsfw', 'manual-nsfw', 'manual-explicit')
-                 GROUP BY url, type)`,
-        args: [],
-      }),
-      db.execute({
-        sql: `SELECT COUNT(*) AS n FROM (
-                SELECT 1 FROM anime_fanarts
-                 WHERE nsfw_label IN ('error-perm', 'manual-error')
-                 GROUP BY url, type)`,
-        args: [],
-      }),
-      db.execute({
-        sql: `SELECT COUNT(*) AS n FROM (
-                SELECT 1 FROM anime_fanarts
-                 WHERE nsfw_label LIKE 'manual-%'
-                 GROUP BY url, type)`,
-        args: [],
-      }),
-    ]);
-    const c = {
-      suggestive: cSugg.rows[0]?.n,
-      nsfw:       cNsfw.rows[0]?.n,
-      error_perm: cErr.rows[0]?.n,
-      reviewed:   cRev.rows[0]?.n,
-    };
+    // Counts per bucket, deduplicated by (url, type). Each query scans
+    // tens of thousands of rows so we cache the result for 10 minutes.
+    // Pagination clicks within that window reuse the cached counts and
+    // only pay the cost of the small item-list query above.
+    let c: {
+      suggestive: number;
+      nsfw: number;
+      error_perm: number;
+      reviewed: number;
+    } | null = null;
+    if (redis) {
+      try {
+        const cached = await redis.get(COUNTS_KEY);
+        if (cached) c = JSON.parse(cached);
+      } catch {
+        /* fall through */
+      }
+    }
+    if (!c) {
+      const [cSugg, cNsfw, cErr, cRev] = await Promise.all([
+        fanarts.execute({
+          sql: `SELECT COUNT(*) AS n FROM (
+                  SELECT 1 FROM anime_fanarts
+                   WHERE nsfw_label IN ('suggestive', 'manual-suggestive')
+                   GROUP BY url, type)`,
+          args: [],
+        }),
+        fanarts.execute({
+          sql: `SELECT COUNT(*) AS n FROM (
+                  SELECT 1 FROM anime_fanarts
+                   WHERE nsfw_label IN ('nsfw', 'manual-nsfw', 'manual-explicit')
+                   GROUP BY url, type)`,
+          args: [],
+        }),
+        fanarts.execute({
+          sql: `SELECT COUNT(*) AS n FROM (
+                  SELECT 1 FROM anime_fanarts
+                   WHERE nsfw_label IN ('error-perm', 'manual-error')
+                   GROUP BY url, type)`,
+          args: [],
+        }),
+        fanarts.execute({
+          sql: `SELECT COUNT(*) AS n FROM (
+                  SELECT 1 FROM anime_fanarts
+                   WHERE nsfw_label LIKE 'manual-%'
+                   GROUP BY url, type)`,
+          args: [],
+        }),
+      ]);
+      c = {
+        suggestive: Number(cSugg.rows[0]?.n ?? 0),
+        nsfw:       Number(cNsfw.rows[0]?.n ?? 0),
+        error_perm: Number(cErr.rows[0]?.n ?? 0),
+        reviewed:   Number(cRev.rows[0]?.n ?? 0),
+      };
+      if (redis) {
+        try {
+          await redis.set(COUNTS_KEY, JSON.stringify(c), "EX", COUNTS_TTL_S);
+        } catch {
+          /* non-fatal */
+        }
+      }
+    }
 
     res.setHeader("Cache-Control", "no-store");
     return res.status(200).json({

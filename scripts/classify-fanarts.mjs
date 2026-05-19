@@ -132,9 +132,14 @@ function isPermanentError(err) {
   return false;
 }
 
+// This script only touches anime_fanarts, so it can run against the
+// dedicated fanarts DB when TURSO_FANARTS_DATABASE_URL is set. Falls
+// back to the main DB so existing deployments keep working.
 const rawDb = createClient({
-  url: process.env.TURSO_DATABASE_URL,
-  authToken: process.env.TURSO_AUTH_TOKEN,
+  url:
+    process.env.TURSO_FANARTS_DATABASE_URL || process.env.TURSO_DATABASE_URL,
+  authToken:
+    process.env.TURSO_FANARTS_AUTH_TOKEN || process.env.TURSO_AUTH_TOKEN,
 });
 
 // Wrapper around the libsql client that retries any operation if the

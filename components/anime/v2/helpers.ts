@@ -240,21 +240,34 @@ export type FanartResponse = {
   types: Record<string, FanartItem[]>;
 };
 
+export type TitleImage = {
+  url: string;
+  kind: "clearart" | "logo";
+  /** Optional queue of additional clearart URLs the client can cycle
+   *  through on click. Always empty for logos (single image). */
+  queue: string[];
+};
+
 /* Pick the hero title image with the priority requested by the user:
    1. random `clearart` (transparent character art) in EN/textless
    2. most-liked `logo` (stylized title text) in EN/textless
-   3. null (caller falls back to plain title text) */
-export function pickTitleImage(
-  fanarts: FanartResponse | null
-): { url: string; kind: "clearart" | "logo" } | null {
+   3. null (caller falls back to plain title text)
+
+   When multiple clearart candidates exist, we ship the full list as a
+   shuffled queue so the Hero can cycle through them on click without a
+   second fanart fetch — same Turso read covers both the initial paint
+   and every subsequent click. */
+export function pickTitleImage(fanarts: FanartResponse | null): TitleImage | null {
   if (!fanarts) return null;
 
   const clearart = (fanarts.types.clearart || []).filter((a) =>
     isAcceptableLang(a.language)
   );
   if (clearart.length > 0) {
-    const picked = pickRandom(clearart);
-    if (picked) return { url: picked.url, kind: "clearart" };
+    // Shuffle once at SSR. The result is the cycle order: index 0 paints
+    // first, click goes to 1, 2, …, wraps back to 0.
+    const urls = shuffle(clearart.map((c) => c.url));
+    return { url: urls[0], kind: "clearart", queue: urls };
   }
 
   const logos = (fanarts.types.logo || []).filter((a) =>
@@ -262,10 +275,21 @@ export function pickTitleImage(
   );
   if (logos.length > 0) {
     // API already orders by likes desc.
-    return { url: logos[0].url, kind: "logo" };
+    return { url: logos[0].url, kind: "logo", queue: [] };
   }
 
   return null;
+}
+
+/* Fisher-Yates shuffle. Used to randomise the clearart cycle order at
+   SSR so two visitors see different sequences. */
+function shuffle<T>(arr: T[]): T[] {
+  const out = arr.slice();
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
 }
 
 /* Flatten the fanart payload into a single artwork list for the Artworks tab.

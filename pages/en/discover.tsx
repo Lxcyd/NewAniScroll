@@ -6,28 +6,8 @@ import { XMarkIcon, BookmarkIcon, ArrowPathIcon } from "@heroicons/react/24/soli
 import { Navbar } from "@/components/shared/NavBar";
 import SwipeCard, { SwipeAnime } from "@/components/discover/SwipeCard";
 
-// Pulls a page of trending anime from AniList.
-const DISCOVER_QUERY = `
-  query Discover($page: Int!) {
-    Page(page: $page, perPage: 20) {
-      media(type: ANIME, sort: [TRENDING_DESC, POPULARITY_DESC]) {
-        id
-        title { romaji english native }
-        coverImage { extraLarge large color }
-        bannerImage
-        description(asHtml: false)
-        genres
-        episodes
-        averageScore
-        seasonYear
-        season
-        status
-        format
-        duration
-      }
-    }
-  }
-`;
+/* The page fetch is now served by /api/v2/discover/<page> (Redis-cached
+   server-side) so concurrent visitors share one upstream AniList call. */
 
 // Map swipe direction → AniList list status
 // Right = "PLANNING" (add to plan-to-watch); Left = dismiss (no list change, just skip)
@@ -57,14 +37,10 @@ export default function Discover() {
   const loadPage = useCallback(async (pageNum: number) => {
     setLoading(true);
     try {
-      const res = await fetch("https://graphql.anilist.co", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: DISCOVER_QUERY, variables: { page: pageNum } }),
-      });
+      const res = await fetch(`/api/v2/discover/${pageNum}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
-      const media: SwipeAnime[] = json?.data?.Page?.media || [];
+      const media: SwipeAnime[] = json?.media || [];
       const fresh = media.filter((m) => !seenIds.current.has(m.id));
       fresh.forEach((m) => seenIds.current.add(m.id));
       setQueue((prev) => [...prev, ...fresh]);

@@ -1,5 +1,6 @@
 import { rateLimitStrict, redis } from "@/lib/redis";
 import { NextApiRequest, NextApiResponse } from "next";
+import { anilistFetch } from "@/lib/anilist/anilistFetch";
 
 // Fetches recently updated anime from AniList (replaces dead api.anify.tv)
 const ANILIST_QUERY = `
@@ -49,20 +50,15 @@ export default async function handler(
     // ── Fetch from AniList ───────────────────────────────────
     const page = Number(req.query.page) || 1;
 
-    const response = await fetch("https://graphql.anilist.co", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        query: ANILIST_QUERY,
-        variables: { page, perPage: 45 },
-      }),
+    const json = await anilistFetch({
+      query: ANILIST_QUERY,
+      variables: { page, perPage: 45 },
+      label: "recent",
     });
-
-    if (!response.ok) {
-      throw new Error(`AniList responded with ${response.status}`);
+    if (!json) {
+      throw new Error("AniList unreachable");
     }
 
-    const json = await response.json();
     const mediaList = json?.data?.Page?.media ?? [];
 
     const results = mediaList.map((i: any) => {

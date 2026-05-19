@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "../../auth/[...nextauth]";
 import { isAdminSession } from "@/lib/auth/isAdmin";
 import { getStaleAnime, upsertAnime } from "@/lib/db/anime";
+import { anilistFetch } from "@/lib/anilist/anilistFetch";
 
 /**
  * Admin-only bulk refresh of stale anime metadata. Calls AniList for up to
@@ -51,19 +52,15 @@ export default async function handler(
 
   for (const { id } of stale) {
     try {
-      // 700ms between requests so we stay polite with AniList's rate limit.
-      await new Promise((r) => setTimeout(r, 700));
-      const ctrl = new AbortController();
-      const t = setTimeout(() => ctrl.abort(), 8000);
-      const r = await fetch("https://graphql.anilist.co", {
-        method: "POST",
-        signal: ctrl.signal,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: QUERY, variables: { id } }),
+      // The global limiter inside anilistFetch handles pacing — no need
+      // for our own 700ms gap. The limiter waits if the bucket is empty.
+      const json = await anilistFetch({
+        query: QUERY,
+        variables: { id },
+        timeoutMs: 8000,
+        cacheSeconds: 0,
+        label: `bulk-refresh:${id}`,
       });
-      clearTimeout(t);
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const json = await r.json();
       const media = json?.data?.Media;
       if (!media) throw new Error("no Media in response");
       await upsertAnime(media);

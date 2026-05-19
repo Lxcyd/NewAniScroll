@@ -2,6 +2,7 @@
 
 import { rateLimiterRedis, rateSuperStrict, redis } from "@/lib/redis";
 import { NextApiRequest, NextApiResponse } from "next";
+import { anilistFetch } from "@/lib/anilist/anilistFetch";
 
 /**
  * Episode API — generates episode lists from AniList data.
@@ -9,30 +10,22 @@ import { NextApiRequest, NextApiResponse } from "next";
  */
 
 async function fetchAniListEpisodes(id: string) {
-  try {
-    const res = await fetch("https://graphql.anilist.co", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        query: `query ($id: Int) {
-          Media (id: $id) {
-            episodes
-            nextAiringEpisode { episode }
-            status
-            title { romaji english }
-            coverImage { extraLarge }
-          }
-        }`,
-        variables: { id: Number(id) },
-      }),
-    });
-
-    if (!res.ok) return null;
-    const json = await res.json();
-    return json?.data?.Media || null;
-  } catch {
-    return null;
-  }
+  const json = await anilistFetch({
+    query: `query ($id: Int) {
+      Media (id: $id) {
+        episodes
+        nextAiringEpisode { episode }
+        status
+        title { romaji english }
+        coverImage { extraLarge }
+        bannerImage
+        streamingEpisodes { title thumbnail url site }
+      }
+    }`,
+    variables: { id: Number(id) },
+    label: `episode:${id}`,
+  });
+  return json?.data?.Media || null;
 }
 
 function buildEpisodeList(id: string, media: any) {
@@ -46,13 +39,48 @@ function buildEpisodeList(id: string, media: any) {
     totalEpisodes = media?.status === "RELEASING" ? 1 : 0;
   }
 
-  const episodes = Array.from({ length: totalEpisodes }, (_, i) => ({
-    id: `megaplay-${id}-${i + 1}`,
-    title: `Episode ${i + 1}`,
-    number: i + 1,
-    img: null,
-    description: null,
-  }));
+  // AniList provides per-episode thumbnails for Crunchyroll/Funimation
+  // titles via `streamingEpisodes`. They come ordered by air date but
+  // titles like "Episode 1 - Foo" need a number extracted to map back
+  // to an episode index. We try the number out of the title, then fall
+  // back to the array index.
+  const streamingByNum: Record<number, { thumbnail: string; title: string }> = {};
+  if (Array.isArray(media?.streamingEpisodes)) {
+    media.streamingEpisodes.forEach((se: any, idx: number) => {
+      if (!se?.thumbnail) return;
+      const m = String(se.title || "").match(/Episode\s+(\d+)/i);
+      const num = m ? Number(m[1]) : idx + 1;
+      if (!streamingByNum[num]) {
+        streamingByNum[num] = { thumbnail: se.thumbnail, title: se.title };
+      }
+    });
+  }
+
+  const fallbackImg = media?.bannerImage || media?.coverImage?.extraLarge || null;
+
+  const episodes = Array.from({ length: totalEpisodes }, (_, i) => {
+    const num = i + 1;
+    const streaming = streamingByNum[num];
+    /* AniList sometimes returns titles like
+       "Episode 1 - To You, 2,000 Years in the Future (1)"
+       where the trailing "(1)" / "(2)" is a part-indicator (split arc
+       across 2 episodes). Strip both the "Episode N -" prefix and a
+       trailing "(<number>)" so the displayed title is just the human
+       title. */
+    const cleanTitle = streaming?.title
+      ?.replace(/^Episode\s+\d+\s*-\s*/i, "")
+      .replace(/\s*\(\d+\)\s*$/, "")
+      .trim();
+    return {
+      id: `megaplay-${id}-${num}`,
+      title: cleanTitle || `Episode ${num}`,
+      number: num,
+      // Per-episode thumb when AniList exposes one, otherwise the
+      // anime's banner / cover so the tile isn't a blank gradient.
+      img: streaming?.thumbnail || fallbackImg,
+      description: null,
+    };
+  });
 
   return [
     {
@@ -114,13 +142,13 @@ export default async function handler(
     }
 
     if (refresh !== null) {
-      await redis.del(`episode:${id}`);
+      await redis.del(`episode:v3:${id}`);
     } else {
-      cached = await redis.get(`episode:${id}`);
+      cached = await redis.get(`episode:v3:${id}`);
       if (cached) {
         const parsed = JSON.parse(cached);
         if (!parsed || parsed.length === 0) {
-          await redis.del(`episode:${id}`);
+          await redis.del(`episode:v3:${id}`);
           cached = null;
         }
       }
@@ -141,8 +169,20 @@ export default async function handler(
     return res.status(200).json(filteredData.filter((i) => i.episodes.length > 0));
   }
 
-  // Fetch from AniList and build episode list
-  const media = await fetchAniListEpisodes(id as string);
+  // Fetch from AniList and build episode list. AniList has multi-day
+  // outages from time to time — fall back to the persistent Turso cache
+  // so the episode list still renders (without per-episode thumbs).
+  let media = await fetchAniListEpisodes(id as string);
+  if (!media) {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { getCachedAnime } = require("@/lib/db/anime");
+      const cached = await getCachedAnime(Number(id));
+      if (cached?.data) media = cached.data;
+    } catch (e) {
+      console.warn("[episode] DB fallback failed:", (e as Error)?.message);
+    }
+  }
 
   if (!media) {
     return res.status(404).json({ error: "Anime not found" });
@@ -153,7 +193,7 @@ export default async function handler(
   // Cache
   if (redis && cacheTime !== null && rawData.length > 0) {
     await redis.set(
-      `episode:${id}`,
+      `episode:v3:${id}`,
       JSON.stringify(rawData),
       "EX",
       cacheTime

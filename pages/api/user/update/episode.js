@@ -104,7 +104,7 @@ export default async function handler(req, res) {
         }
       }
     } catch (error) {
-      console.log(error);
+      console.error("[user/update/episode]", error?.message || error);
       return res.status(500).json({ message: "Internal server error" });
     }
   } else {

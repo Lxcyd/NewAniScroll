@@ -26,10 +26,19 @@ import { createClient } from "@libsql/client";
 const KEY = process.env.FANART_API_KEY;
 if (!KEY) { console.error("✘ FANART_API_KEY missing"); process.exit(1); }
 
+// Main DB holds the `anime` table (and scrape_state). Fanarts DB holds
+// `anime_fanarts`. When TURSO_FANARTS_DATABASE_URL isn't set both point
+// to the same client so deployments that haven't split yet still work.
 const db = createClient({
   url: process.env.TURSO_DATABASE_URL,
   authToken: process.env.TURSO_AUTH_TOKEN,
 });
+const fanartsDb = process.env.TURSO_FANARTS_DATABASE_URL
+  ? createClient({
+      url: process.env.TURSO_FANARTS_DATABASE_URL,
+      authToken: process.env.TURSO_FANARTS_AUTH_TOKEN,
+    })
+  : db;
 
 const LAST_CHECK_KEY = "fanart_last_check";
 const REQUEST_DELAY_MS = 1300;
@@ -114,7 +123,7 @@ function parseAssets(data, isMovie) {
 async function upsertFanarts(animeId, rows) {
   if (rows.length === 0) return 0;
   const now = Math.floor(Date.now() / 1000);
-  await db.batch(
+  await fanartsDb.batch(
     rows.map((r) => ({
       sql: `INSERT OR IGNORE INTO anime_fanarts
               (anime_id, type, url, fanart_id, language, likes, season, fetched_at)

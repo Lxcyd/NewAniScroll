@@ -52,13 +52,13 @@ module.exports = withPWA({
       },
       {
         source: "/changelogs",
-        destination: "https://github.com/Ani-Moopa/Moopa/releases",
+        destination: "https://github.com/Lxcyd/NewAniScroll/releases",
         permanent: false,
         basePath: false,
       },
       {
         source: "/github",
-        destination: "https://github.com/Ani-Moopa/Moopa",
+        destination: "https://github.com/Lxcyd/NewAniScroll",
         permanent: false,
         basePath: false,
       },

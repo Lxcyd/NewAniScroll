@@ -1,4 +1,4 @@
-import { getTursoClient } from "@/lib/db/turso";
+import { getFanartsClient } from "@/lib/db/turso-fanarts";
 
 export type FanartRow = {
   url: string;
@@ -24,7 +24,7 @@ export async function loadFanarts(
   animeId: number,
   opts: { includeNsfw?: boolean; minLikes?: number } = {}
 ): Promise<FanartPayload | null> {
-  const db = getTursoClient();
+  const db = getFanartsClient();
   if (!db) return null;
 
   const includeNsfw = !!opts.includeNsfw;

@@ -163,7 +163,11 @@ export default function PopularAnime({ sessions }) {
         </div>
         <div className="grid grid-cols-1 xs:grid-cols-2 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-4 gap-3 md:gap-7 pt-16">
           {data
-            ?.filter((i) => i?.watchId)
+            /* Require both a watch id AND something meaningful to show
+               (image OR title). Some legacy watch-history rows are
+               half-populated and would render as blank black cards
+               with "| Episode" — better to hide those entirely. */
+            ?.filter((i) => i?.watchId && (i?.image || i?.aniTitle || i?.title))
             .map((i) => {
               const time = i.timeWatched;
               const duration = i.duration;

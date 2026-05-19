@@ -3,10 +3,20 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "../../auth/[...nextauth]";
 import { isAdminSession } from "@/lib/auth/isAdmin";
 import { getTursoClient } from "@/lib/db/turso";
+import { getFanartsClient } from "@/lib/db/turso-fanarts";
+import { redis } from "@/lib/redis";
 import {
   getAdminTursoClient,
   ensureAdminSchema,
 } from "@/lib/db/turso-admin";
+
+/* Anime/fanart COUNT(*) over the full table each touch ~100k+ rows on
+   Turso. The dashboard polls /admin so a refresh-happy admin would burn
+   the free-plan row budget fast. Cache the whole payload for 15 minutes
+   in Redis — these numbers don't move enough to need real-time anyway.
+   `?fresh=1` bypasses the cache when an admin really wants live data. */
+const STATS_CACHE_KEY = "admin:stats:v1";
+const STATS_TTL_S = 15 * 60;
 
 /**
  * Returns dashboard stats. Admin-only.
@@ -28,7 +38,21 @@ export default async function handler(
     return res.status(403).json({ error: "Forbidden" });
   }
 
+  const bypassCache = req.query.fresh === "1";
+  if (redis && !bypassCache) {
+    try {
+      const cached = await redis.get(STATS_CACHE_KEY);
+      if (cached) {
+        res.setHeader("X-Cache", "HIT");
+        return res.status(200).json(JSON.parse(cached));
+      }
+    } catch {
+      /* fall through */
+    }
+  }
+
   const main = getTursoClient();
+  const fanartsDb = getFanartsClient();
   const admin = getAdminTursoClient();
   if (admin) await ensureAdminSchema();
 
@@ -70,11 +94,11 @@ export default async function handler(
   ] = await Promise.all([
     safeScalar(main, "SELECT COUNT(*) FROM anime"),
     safeScalar(main, `SELECT COUNT(*) FROM anime WHERE expires_at < ${now}`),
-    safeScalar(main, "SELECT COUNT(*) FROM anime_fanarts"),
-    safeScalar(main, "SELECT COUNT(*) FROM anime_fanarts WHERE nsfw_label IS NOT NULL"),
-    safeScalar(main, "SELECT COUNT(*) FROM anime_fanarts WHERE nsfw_label IS NULL"),
-    safeScalar(main, "SELECT COUNT(*) FROM anime_fanarts WHERE nsfw_label = 'nsfw'"),
-    safeScalar(main, "SELECT COUNT(*) FROM anime_fanarts WHERE nsfw_label = 'safe'"),
+    safeScalar(fanartsDb, "SELECT COUNT(*) FROM anime_fanarts"),
+    safeScalar(fanartsDb, "SELECT COUNT(*) FROM anime_fanarts WHERE nsfw_label IS NOT NULL"),
+    safeScalar(fanartsDb, "SELECT COUNT(*) FROM anime_fanarts WHERE nsfw_label IS NULL"),
+    safeScalar(fanartsDb, "SELECT COUNT(*) FROM anime_fanarts WHERE nsfw_label = 'nsfw'"),
+    safeScalar(fanartsDb, "SELECT COUNT(*) FROM anime_fanarts WHERE nsfw_label = 'safe'"),
     safeScalar(admin, "SELECT COUNT(*) FROM banned_ips"),
     safeScalar(
       admin,
@@ -99,7 +123,7 @@ export default async function handler(
     safeScalar(admin, "SELECT COUNT(*) FROM bug_reports WHERE resolved_at IS NULL"),
   ]);
 
-  res.status(200).json({
+  const payload = {
     anime,
     animeStale,
     fanarts,
@@ -114,5 +138,16 @@ export default async function handler(
     uniqueVisitorsAll,
     pageviews24h,
     bugReports,
-  });
+  };
+
+  if (redis) {
+    try {
+      await redis.set(STATS_CACHE_KEY, JSON.stringify(payload), "EX", STATS_TTL_S);
+    } catch {
+      /* non-fatal */
+    }
+  }
+
+  res.setHeader("X-Cache", "MISS");
+  res.status(200).json(payload);
 }

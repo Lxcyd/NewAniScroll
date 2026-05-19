@@ -2,7 +2,8 @@ import { AniListInfoTypes } from "types/info/AnilistInfoTypes";
 import Hero from "./Hero";
 import Tabs from "./Tabs";
 import Recommendations from "./Recommendations";
-import { FanartResponse, SeasonInfo } from "./helpers";
+import { FanartResponse, SeasonInfo, TitleImage } from "./helpers";
+import type { SeasonEntry } from "@/lib/anilist/seasonChain";
 import styles from "./styles.module.css";
 
 type Props = {
@@ -11,11 +12,15 @@ type Props = {
    *  Null when Turso is unavailable; the page degrades to AniList-only
    *  imagery in that case. */
   initialFanarts: FanartResponse | null;
-  /** Pre-picked hero artwork (URL + kind) so the <img> renders in the
-   *  initial HTML — no client fetch + JS pick before paint. */
-  initialTitleImage: { url: string; kind: "clearart" | "logo" } | null;
+  /** Pre-picked hero artwork (URL + kind + cycle queue) so the <img>
+   *  renders in the initial HTML and clicks can cycle through other
+   *  clearart variants without a refetch. */
+  initialTitleImage: TitleImage | null;
   /** Season index/total resolved at SSR via PREQUEL/SEQUEL walking. */
   seasonInfo: SeasonInfo;
+  /** Ordered list of every season-like sibling, current included.
+   *  Drives the season switcher in the Episodes tab. */
+  seasonList: SeasonEntry[];
   statusLabel: string | null;
   fav: boolean;
   progress: number;
@@ -29,6 +34,7 @@ export default function InfoPage({
   initialFanarts,
   initialTitleImage,
   seasonInfo,
+  seasonList,
   statusLabel,
   fav,
   progress,
@@ -73,7 +79,12 @@ export default function InfoPage({
           gap: 32,
         }}
       >
-        <Tabs info={info} fanarts={fanarts} progress={progress} />
+        <Tabs
+          info={info}
+          fanarts={fanarts}
+          progress={progress}
+          seasonList={seasonList}
+        />
         {recs.length > 0 && (
           <Recommendations
             items={recs}

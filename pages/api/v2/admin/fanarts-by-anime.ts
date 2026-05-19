@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "../../auth/[...nextauth]";
 import { isAdminSession } from "@/lib/auth/isAdmin";
 import { getTursoClient } from "@/lib/db/turso";
+import { getFanartsClient } from "@/lib/db/turso-fanarts";
 
 /**
  * GET /api/v2/admin/fanarts-by-anime?anime=<anilist_id>
@@ -24,16 +25,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(400).json({ error: "Missing/invalid `anime` query param" });
   }
 
-  const db = getTursoClient();
-  if (!db) return res.status(503).json({ error: "DB unavailable" });
+  // anime row lives on the main DB; fanart rows on the (potentially
+  // separate) fanarts DB. See lib/db/turso-fanarts.ts.
+  const main = getTursoClient();
+  const fanarts = getFanartsClient();
+  if (!main || !fanarts) return res.status(503).json({ error: "DB unavailable" });
 
   try {
     const [animeRow, fanartRows] = await Promise.all([
-      db.execute({
+      main.execute({
         sql: "SELECT id, data FROM anime WHERE id = ?",
         args: [animeId],
       }),
-      db.execute({
+      fanarts.execute({
         sql: `SELECT id, anime_id, type, url, language, likes, season,
                      nsfw_label, nsfw_score,
                      nsfw_drawing, nsfw_hentai, nsfw_neutral, nsfw_porn, nsfw_sexy,
