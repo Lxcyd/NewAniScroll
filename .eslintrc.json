@@ -4,6 +4,6 @@
   "rules": {
     "react-hooks/exhaustive-deps": "off",
     "react/no-unescaped-entities": 0,
-    "react/no-unknown-property": ["error", { "ignore": ["css"] }]
+    "react/no-unknown-property": ["error", { "ignore": ["css", "fetchpriority"] }]
   }
 }

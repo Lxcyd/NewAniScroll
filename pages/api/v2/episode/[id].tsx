@@ -3,6 +3,7 @@
 import { rateLimiterRedis, rateSuperStrict, redis } from "@/lib/redis";
 import { NextApiRequest, NextApiResponse } from "next";
 import { anilistFetch } from "@/lib/anilist/anilistFetch";
+import { getCachedAnime } from "@/lib/db/anime";
 
 /**
  * Episode API — generates episode lists from AniList data.
@@ -175,8 +176,6 @@ export default async function handler(
   let media = await fetchAniListEpisodes(id as string);
   if (!media) {
     try {
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      const { getCachedAnime } = require("@/lib/db/anime");
       const cached = await getCachedAnime(Number(id));
       if (cached?.data) media = cached.data;
     } catch (e) {
