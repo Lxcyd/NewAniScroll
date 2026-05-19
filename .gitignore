@@ -36,3 +36,9 @@ Thumbs.db
 .idea/
 *.swp
 *.swo/.cache
+
+# TypeScript incremental build cache
+tsconfig.tsbuildinfo
+
+# Migration / one-shot script logs
+migration.log

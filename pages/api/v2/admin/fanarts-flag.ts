@@ -1,7 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { getServerSession } from "next-auth";
 import { authOptions } from "../../auth/[...nextauth]";
-import { getTursoClient } from "@/lib/db/turso";
+import { getFanartsClient } from "@/lib/db/turso-fanarts";
 
 /**
  * POST /api/v2/admin/fanarts-flag
@@ -12,7 +12,8 @@ import { getTursoClient } from "@/lib/db/turso";
  * and can't be re-classified. `reset` sets the row back to NULL so the next
  * classifier run picks it up again.
  */
-const ALLOWED = new Set(["safe", "suggestive", "nsfw", "explicit", "error", "reset"]);
+const ALLOWED = ["safe", "suggestive", "nsfw", "explicit", "error", "reset"] as const;
+type Decision = (typeof ALLOWED)[number];
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
@@ -28,11 +29,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (!Number.isFinite(idNum) || idNum <= 0) {
     return res.status(400).json({ error: "Missing/invalid id" });
   }
-  if (!decision || !ALLOWED.has(decision)) {
-    return res.status(400).json({ error: `decision must be one of ${[...ALLOWED].join(", ")}` });
+  if (!decision || !ALLOWED.includes(decision as Decision)) {
+    return res.status(400).json({ error: `decision must be one of ${ALLOWED.join(", ")}` });
   }
 
-  const db = getTursoClient();
+  const db = getFanartsClient();
   if (!db) return res.status(503).json({ error: "DB unavailable" });
 
   const now = Math.floor(Date.now() / 1000);
