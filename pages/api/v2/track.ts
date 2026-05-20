@@ -30,6 +30,18 @@ function getClientIp(req: NextApiRequest): string | null {
   return req.socket?.remoteAddress || null;
 }
 
+/* Drop bots/scrapers/headless before they pollute the visitors stat.
+   The list covers what we actually see in Vercel logs: vercel-favicon,
+   Scrapy, Headless Chrome, generic crawlers, plus our own cache warmer
+   (set X-Warmer header from the warming script). */
+const BOT_UA = /(bot|crawl|spider|headless|scrapy|favicon|vercel|prerender|preview|warmer|wget|curl|axios|node-fetch)/i;
+function isBot(req: NextApiRequest): boolean {
+  if (req.headers["x-warmer"]) return true;
+  const ua = String(req.headers["user-agent"] || "");
+  if (!ua) return true; // no UA = not a real browser
+  return BOT_UA.test(ua);
+}
+
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse,
@@ -37,6 +49,8 @@ export default async function handler(
   if (req.method !== "POST") {
     return res.status(405).json({ error: "POST only" });
   }
+  if (isBot(req)) return res.status(200).json({ ok: true, bot: true });
+
   try {
     const db = getAdminTursoClient();
     if (!db) return res.status(200).json({ ok: true });

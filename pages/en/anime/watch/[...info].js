@@ -880,10 +880,7 @@ export default function Watch({
   return (
     <>
       <Head>
-        <title>
-          {episodeNavigation?.playing?.title ||
-            `${info?.title?.romaji} - Episode ${epiNumber}`}
-        </title>
+        <title>AniScroll • Beta</title>
         <meta
           name="title"
           data-title-romaji={info?.title?.romaji}

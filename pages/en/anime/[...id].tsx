@@ -175,7 +175,7 @@ export default function Info({
   return (
     <>
       <Head>
-        <title>{info ? title : "Retrieving Data..."}</title>
+        <title>AniScroll • Beta</title>
         <meta
           name="title"
           content={info?.title?.romaji}
