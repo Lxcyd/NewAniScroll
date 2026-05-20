@@ -162,6 +162,10 @@ export default function Hero({
   const [fading, setFading] = useState(false);
   // URL currently *visible* in the DOM (may lag cycleIdx during fade).
   const [renderedUrl, setRenderedUrl] = useState<string | null>(null);
+  // Tracks whether the first paint of the clearart has happened. Used
+  // to play the mmFadeUp entrance animation exactly once per anime —
+  // subsequent cycle clicks use the opacity cross-fade instead.
+  const [firstPainted, setFirstPainted] = useState(false);
 
   // Prefetch the next clearart, but ONLY after the visible one (idx 0)
   // has finished loading. Otherwise it would compete for one of the
@@ -216,6 +220,7 @@ export default function Hero({
     setRenderedUrl(firstUrl);
     setCycleIdx(0);
     setFading(false);
+    setFirstPainted(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [titleImage?.url]);
 
@@ -307,6 +312,16 @@ export default function Hero({
 
   return (
     <section style={hStyles.hero}>
+      {/* Entrance animation for the very first paint of the clearart.
+          Subsequent cycle clicks use the opacity cross-fade above and
+          skip this keyframe — we toggle the className off once the
+          first paint has happened. */}
+      <style>{`
+        @keyframes mmFadeUp {
+          from { opacity: 0; transform: translateY(10px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+      `}</style>
       {/* Banner */}
       <div style={hStyles.banner}>
         {info.bannerImage && (
@@ -394,6 +409,7 @@ export default function Hero({
                 src={currentTitleUrl}
                 alt={title}
                 onClick={canCycle ? handleCycleClick : undefined}
+                onLoad={() => setFirstPainted(true)}
                 role={canCycle ? "button" : undefined}
                 aria-label={canCycle ? "Show next artwork" : undefined}
                 title={canCycle ? "Click for another artwork" : undefined}
@@ -413,6 +429,13 @@ export default function Hero({
                   // cross-fade without stacking two <img>s.
                   opacity: fading ? 0 : 1,
                   transition: "opacity 180ms ease",
+                  // First-paint entrance animation. Only on the initial
+                  // load of each anime — once the image is in the DOM
+                  // we disable the animation so cycle clicks rely on
+                  // the opacity cross-fade above.
+                  animation: firstPainted
+                    ? undefined
+                    : "mmFadeUp 420ms cubic-bezier(0.22, 0.61, 0.36, 1) both",
                 }}
                 // SSR ships this <img> in the initial HTML and a matching
                 // `<link rel=preload as=image fetchpriority=high>` lives
