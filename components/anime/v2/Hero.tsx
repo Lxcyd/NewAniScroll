@@ -163,19 +163,37 @@ export default function Hero({
   // URL currently *visible* in the DOM (may lag cycleIdx during fade).
   const [renderedUrl, setRenderedUrl] = useState<string | null>(null);
 
-  // Prefetch ONLY the next clearart in the queue. The visible one is
-  // already fetching via the <img> tag below. Fetching the whole queue
-  // eagerly (as we used to) saturated the browser's 6-per-origin
-  // connection cap and pushed the visible image into a 130ms queue
-  // wait, killing first paint. CF cache makes subsequent cycles cheap
-  // anyway (~70ms TTFB), so on-demand fetch is fine for idx >= 2.
+  // Prefetch the next clearart, but ONLY after the visible one (idx 0)
+  // has finished loading. Otherwise it would compete for one of the
+  // browser's 6 connection slots and slow down first paint of the only
+  // image the user actually sees on arrival. CF cache makes idx 2+ cheap
+  // (~70ms TTFB) so on-demand at click time is fine.
   useEffect(() => {
     if (!canCycle) return;
+    const first = cycleQueue[0];
     const next = cycleQueue[1];
-    if (!next) return;
-    const img = new Image();
-    img.src = next;
-    img.decode?.().catch(() => {});
+    if (!first || !next) return;
+
+    let cancelled = false;
+    const prefetchNext = () => {
+      if (cancelled) return;
+      const img = new Image();
+      img.src = next;
+      img.decode?.().catch(() => {});
+    };
+
+    // Wait for idx 0 to be in cache. We probe by creating an Image
+    // pointing at the same URL — onload fires from cache immediately
+    // if idx 0 has finished, otherwise it fires when the network load
+    // completes (browser dedupes the request).
+    const probe = new Image();
+    probe.onload = prefetchNext;
+    probe.onerror = prefetchNext; // proceed anyway on error
+    probe.src = first;
+
+    return () => {
+      cancelled = true;
+    };
   }, [canCycle, cycleQueue]);
 
   // Reset the cycle whenever the anime changes. Next.js SPA-navigates
