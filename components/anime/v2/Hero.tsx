@@ -162,10 +162,13 @@ export default function Hero({
   const [fading, setFading] = useState(false);
   // URL currently *visible* in the DOM (may lag cycleIdx during fade).
   const [renderedUrl, setRenderedUrl] = useState<string | null>(null);
-  // Tracks whether the first paint of the clearart has happened. Used
-  // to play the mmFadeUp entrance animation exactly once per anime —
-  // subsequent cycle clicks use the opacity cross-fade instead.
-  const [firstPainted, setFirstPainted] = useState(false);
+  // The mmFadeUp entrance animation is bound to a key that changes
+  // every time the anime changes. Using the URL as `key` on the <img>
+  // forces React to remount it, which restarts the CSS animation
+  // from frame 0 — works even when the image is already cached.
+  // We don't need a "firstPainted" state: the animation just plays
+  // once per mount, and cycle clicks reuse the same <img> element
+  // (handled by setRenderedUrl mutating `src`, not by key change).
 
   // Prefetch the next clearart, but ONLY after the visible one (idx 0)
   // has finished loading. Otherwise it would compete for one of the
@@ -220,7 +223,6 @@ export default function Hero({
     setRenderedUrl(firstUrl);
     setCycleIdx(0);
     setFading(false);
-    setFirstPainted(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [titleImage?.url]);
 
@@ -406,10 +408,18 @@ export default function Hero({
             {titleImage && currentTitleUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
+                /* `key` tied to the anime URL forces React to unmount/
+                   remount this <img> whenever the anime changes, which
+                   restarts the CSS `animation` from frame 0 even when
+                   the image is already in browser cache (otherwise SSR
+                   + cached image = onLoad fires before first paint and
+                   the entrance animation is skipped entirely). For
+                   cycle clicks we mutate `src` via state without
+                   changing the key, so the animation does NOT replay. */
+                key={titleImage.url}
                 src={currentTitleUrl}
                 alt={title}
                 onClick={canCycle ? handleCycleClick : undefined}
-                onLoad={() => setFirstPainted(true)}
                 role={canCycle ? "button" : undefined}
                 aria-label={canCycle ? "Show next artwork" : undefined}
                 title={canCycle ? "Click for another artwork" : undefined}
@@ -429,13 +439,10 @@ export default function Hero({
                   // cross-fade without stacking two <img>s.
                   opacity: fading ? 0 : 1,
                   transition: "opacity 180ms ease",
-                  // First-paint entrance animation. Only on the initial
-                  // load of each anime — once the image is in the DOM
-                  // we disable the animation so cycle clicks rely on
-                  // the opacity cross-fade above.
-                  animation: firstPainted
-                    ? undefined
-                    : "mmFadeUp 420ms cubic-bezier(0.22, 0.61, 0.36, 1) both",
+                  // Entrance animation — replays on every remount
+                  // (i.e. every anime change) thanks to the `key` above.
+                  animation:
+                    "mmFadeUp 420ms cubic-bezier(0.22, 0.61, 0.36, 1) both",
                 }}
                 // SSR ships this <img> in the initial HTML and a matching
                 // `<link rel=preload as=image fetchpriority=high>` lives
