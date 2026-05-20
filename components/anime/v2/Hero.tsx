@@ -163,19 +163,19 @@ export default function Hero({
   // URL currently *visible* in the DOM (may lag cycleIdx during fade).
   const [renderedUrl, setRenderedUrl] = useState<string | null>(null);
 
-  // Eagerly fetch + decode every clearart in the queue right after
-  // mount. Browsers cache by URL, so once each image has been requested
-  // once, every subsequent <img src=…> hits the cache instantly.
+  // Prefetch ONLY the next clearart in the queue. The visible one is
+  // already fetching via the <img> tag below. Fetching the whole queue
+  // eagerly (as we used to) saturated the browser's 6-per-origin
+  // connection cap and pushed the visible image into a 130ms queue
+  // wait, killing first paint. CF cache makes subsequent cycles cheap
+  // anyway (~70ms TTFB), so on-demand fetch is fine for idx >= 2.
   useEffect(() => {
     if (!canCycle) return;
-    cycleQueue.forEach((url, i) => {
-      if (i === 0) return; // first one is already loading via the visible <img>
-      const img = new Image();
-      img.src = url;
-      // Calling .decode() forces the browser to actually decode the
-      // bytes to a bitmap now, instead of lazily on first paint.
-      img.decode?.().catch(() => {});
-    });
+    const next = cycleQueue[1];
+    if (!next) return;
+    const img = new Image();
+    img.src = next;
+    img.decode?.().catch(() => {});
   }, [canCycle, cycleQueue]);
 
   // Reset the cycle whenever the anime changes. Next.js SPA-navigates
