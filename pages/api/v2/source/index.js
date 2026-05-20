@@ -54,9 +54,6 @@ const EXTRACTABLE_HOSTS = [
  * Returns: { streams, subtitles } OR { iframe } for embed-based servers
  */
 
-const MIRURO_BASE =
-  process.env.MIRURO_API_URL || "https://miruro-api.vercel.app";
-
 const COOREN_BASE = process.env.COOREN_API_URL || "";
 
 // â”€â”€ HiAnime (direct AJAX) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -148,44 +145,6 @@ async function getHiAnimeIframe(serverKey, title, episode, sub) {
     return { iframe: srcData.link };
   } catch (e) {
     console.error(`HiAnime ${serverKey} error:`, e.message);
-    return null;
-  }
-}
-
-// â”€â”€ Miruro â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-const MIRURO_PROVIDERS = {
-  "miruro-kiwi": "kiwi",
-  "miruro-arc": "arc",
-  "miruro-zoro": "zoro",
-  "miruro-jet": "jet",
-};
-
-async function getMiruroStream(provider, aniId, episode, sub) {
-  try {
-    // Step 1: fetch episode list
-    const epRes = await fetch(`${MIRURO_BASE}/episodes/${aniId}`);
-    if (!epRes.ok) return null;
-    const epData = await epRes.json();
-
-    // Navigate to provider episodes
-    const providerData = epData?.providers?.[provider];
-    if (!providerData?.episodes) return null;
-
-    const category = sub === "dub" ? "dub" : "sub";
-    const episodes =
-      providerData.episodes[category] || providerData.episodes.sub || [];
-    if (episodes.length === 0) return null;
-
-    // Find the matching episode
-    const ep = episodes.find((e) => e.number === Number(episode));
-    if (!ep?.id) return null;
-
-    // Step 2: fetch stream using the episode id (e.g. "watch/kiwi/21/sub/animepahe-1")
-    const srcRes = await fetch(`${MIRURO_BASE}/${ep.id}`);
-    if (!srcRes.ok) return null;
-    return await srcRes.json();
-  } catch (e) {
-    console.error("Miruro source error:", e.message);
     return null;
   }
 }
@@ -1281,15 +1240,6 @@ export default async function handler(req, res) {
     return res.status(200).json(result);
   }
 
-  // Miruro HLS
-  if (MIRURO_PROVIDERS[server]) {
-    const provider = MIRURO_PROVIDERS[server];
-    const data = await getMiruroStream(provider, aniId, episode, sub);
-    if (!data) {
-      return res.status(404).json({ error: "Source not found" });
-    }
-    return res.status(200).json(data);
-  }
 
   // Helper to resolve anime title â€” uses shared cache, only hits AniList if missing
   async function resolveTitle() {
