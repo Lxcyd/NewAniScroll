@@ -6,13 +6,19 @@
  * Cloudflare Worker proxy) so the first real visitor of each region
  * hits a warm CDN cache instead of paying the cold-start penalty.
  *
+ * Default mode is **delta**: only anime whose fanarts were fetched in
+ * the last --since-days days get warmed. First run after deploy should
+ * use --full to seed the cache for the entire catalog.
+ *
  * Usage:
- *   node scripts/warm-cache.mjs                 # warm everything
- *   node scripts/warm-cache.mjs --limit=200     # only first 200
- *   node scripts/warm-cache.mjs --concurrency=8 # tune parallelism
+ *   node scripts/warm-cache.mjs                  # delta (last 7 days)
+ *   node scripts/warm-cache.mjs --since-days=14  # delta (last 14 days)
+ *   node scripts/warm-cache.mjs --full           # warm everything
+ *   node scripts/warm-cache.mjs --limit=200      # cap visits
+ *   node scripts/warm-cache.mjs --concurrency=8  # tune parallelism
  *
  * Env:
- *   SITE_URL          (default: https://www.aniscroll.com)
+ *   SITE_URL          (default: https://aniscroll.com)
  *   TURSO_FANARTS_DATABASE_URL + TURSO_FANARTS_AUTH_TOKEN  (required)
  *
  * Sends `User-Agent: aniscroll-warmer` + `X-Warmer: 1` so /api/v2/track
@@ -20,7 +26,7 @@
  */
 import { createClient } from "@libsql/client";
 
-const SITE = (process.env.SITE_URL || "https://www.aniscroll.com").replace(/\/$/, "");
+const SITE = (process.env.SITE_URL || "https://aniscroll.com").replace(/\/$/, "");
 const args = Object.fromEntries(
   process.argv.slice(2).map((a) => {
     const [k, v] = a.replace(/^--/, "").split("=");
@@ -29,6 +35,8 @@ const args = Object.fromEntries(
 );
 const LIMIT = args.limit ? Number(args.limit) : Infinity;
 const CONCURRENCY = Number(args.concurrency || 6);
+const FULL = args.full === "1" || args.full === "true";
+const SINCE_DAYS = Number(args["since-days"] || 7);
 
 const url = process.env.TURSO_FANARTS_DATABASE_URL;
 const authToken = process.env.TURSO_FANARTS_AUTH_TOKEN;
@@ -39,10 +47,22 @@ if (!url || !authToken) {
 
 const db = createClient({ url, authToken });
 
-console.log(`[warm] listing anime ids from fanarts DB...`);
-const r = await db.execute(
-  "SELECT DISTINCT anime_id FROM anime_fanarts ORDER BY anime_id"
-);
+let r;
+if (FULL) {
+  console.log(`[warm] FULL mode — listing all anime ids...`);
+  r = await db.execute(
+    "SELECT DISTINCT anime_id FROM anime_fanarts ORDER BY anime_id"
+  );
+} else {
+  const sinceEpoch = Math.floor(Date.now() / 1000) - SINCE_DAYS * 86400;
+  console.log(
+    `[warm] DELTA mode — anime with fanarts fetched in last ${SINCE_DAYS}d (since epoch ${sinceEpoch})`
+  );
+  r = await db.execute({
+    sql: "SELECT DISTINCT anime_id FROM anime_fanarts WHERE fetched_at >= ? ORDER BY anime_id",
+    args: [sinceEpoch],
+  });
+}
 const ids = r.rows.map((row) => Number(row.anime_id)).filter(Boolean);
 const total = Math.min(ids.length, LIMIT);
 console.log(`[warm] ${ids.length} anime ids total, warming first ${total}`);

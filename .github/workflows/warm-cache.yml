@@ -1,0 +1,76 @@
+# Walks every /en/anime/[id] page so the Cloudflare Worker proxy
+# (fanart-proxy.aniscroll.com) ingests every clearart/banner/cover
+# into its 1-year edge cache. Cuts the first-paint for those images
+# from ~800ms (fanart.tv origin) to ~50ms (CF edge in user's region).
+#
+# Schedule: every Monday 05:00 UTC, after refresh-fanarts has run.
+# Also dispatchable manually from the Actions tab.
+#
+# Required secrets:
+#   TURSO_FANARTS_DATABASE_URL
+#   TURSO_FANARTS_AUTH_TOKEN
+#
+# Optional secret:
+#   SITE_URL  (default https://www.aniscroll.com)
+
+name: warm-cache
+
+on:
+  schedule:
+    - cron: "0 5 * * *"
+  workflow_dispatch:
+    inputs:
+      full:
+        description: "FULL mode (re-warm all anime, slow)"
+        required: false
+        type: boolean
+        default: false
+      since_days:
+        description: "Delta window in days (ignored if full)"
+        required: false
+        type: string
+        default: "7"
+      limit:
+        description: "Max number of anime to warm (blank = all)"
+        required: false
+        type: string
+      concurrency:
+        description: "Parallel requests"
+        required: false
+        type: string
+        default: "8"
+
+jobs:
+  warm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install libsql client
+        run: npm install --no-save @libsql/client
+
+      - name: Run warmer
+        env:
+          TURSO_FANARTS_DATABASE_URL: ${{ secrets.TURSO_FANARTS_DATABASE_URL }}
+          TURSO_FANARTS_AUTH_TOKEN: ${{ secrets.TURSO_FANARTS_AUTH_TOKEN }}
+          SITE_URL: ${{ secrets.SITE_URL || 'https://aniscroll.com' }}
+        run: |
+          ARGS=""
+          if [ "${{ inputs.full }}" = "true" ]; then
+            ARGS="$ARGS --full"
+          elif [ -n "${{ inputs.since_days }}" ]; then
+            ARGS="$ARGS --since-days=${{ inputs.since_days }}"
+          fi
+          if [ -n "${{ inputs.limit }}" ]; then
+            ARGS="$ARGS --limit=${{ inputs.limit }}"
+          fi
+          if [ -n "${{ inputs.concurrency }}" ]; then
+            ARGS="$ARGS --concurrency=${{ inputs.concurrency }}"
+          fi
+          node scripts/warm-cache.mjs $ARGS
