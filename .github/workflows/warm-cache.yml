@@ -45,9 +45,10 @@ on:
         type: string
         default: "7"
       images_types:
-        description: "Comma-separated fanart types (blank = all by priority)"
+        description: "Comma-separated fanart types (default: clearart only to stay under free tier)"
         required: false
         type: string
+        default: "clearart,hdmovieclearart"
 
 jobs:
   warm:
@@ -95,10 +96,9 @@ jobs:
         run: |
           SINCE="${{ inputs.images_since_days }}"
           SINCE="${SINCE:-7}"
-          ARGS="--since-days=$SINCE"
-          if [ -n "${{ inputs.images_types }}" ]; then
-            ARGS="$ARGS --types=${{ inputs.images_types }}"
-          fi
+          TYPES="${{ inputs.images_types }}"
+          TYPES="${TYPES:-clearart,hdmovieclearart}"
+          ARGS="--since-days=$SINCE --types=$TYPES"
           if [ -n "${{ inputs.concurrency }}" ]; then
             ARGS="$ARGS --concurrency=${{ inputs.concurrency }}"
           fi
