@@ -1,5 +1,20 @@
 import { getFanartsClient } from "@/lib/db/turso-fanarts";
 
+/* Cloudflare Worker proxy in front of fanart.tv. Cached 1 year on
+   330+ edges -> first paint of clearart/banner/cover is ~50ms worldwide
+   instead of 800ms+ from fanart.tv's single origin. Set FANART_PROXY_HOST
+   to disable (empty string) or swap host without code change. */
+const FANART_PROXY_HOST =
+  process.env.FANART_PROXY_HOST ?? "fanart-proxy.aniscroll.com";
+
+function rewriteFanartUrl(url: string): string {
+  if (!FANART_PROXY_HOST) return url;
+  return url.replace(
+    /^https?:\/\/assets\.fanart\.tv/i,
+    `https://${FANART_PROXY_HOST}`
+  );
+}
+
 export type FanartRow = {
   url: string;
   language: string | null;
@@ -59,7 +74,7 @@ export async function loadFanarts(
       const t = String(row.type);
       if (!types[t]) types[t] = [];
       types[t].push({
-        url: String(row.url),
+        url: rewriteFanartUrl(String(row.url)),
         language: row.language != null ? String(row.language) : null,
         likes: Number(row.likes ?? 0),
         season: row.season != null ? Number(row.season) : null,
