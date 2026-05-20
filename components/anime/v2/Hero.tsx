@@ -320,7 +320,7 @@ export default function Hero({
           first paint has happened. */}
       <style>{`
         @keyframes mmFadeUp {
-          from { opacity: 0; transform: translateY(10px); }
+          from { opacity: 0; transform: translateY(28px); }
           to   { opacity: 1; transform: translateY(0); }
         }
       `}</style>
@@ -406,53 +406,45 @@ export default function Hero({
           {/* COL 2 — title art + stats + chips */}
           <div style={hStyles.centerCol}>
             {titleImage && currentTitleUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                /* `key` tied to the anime URL forces React to unmount/
-                   remount this <img> whenever the anime changes, which
-                   restarts the CSS `animation` from frame 0 even when
-                   the image is already in browser cache (otherwise SSR
-                   + cached image = onLoad fires before first paint and
-                   the entrance animation is skipped entirely). For
-                   cycle clicks we mutate `src` via state without
-                   changing the key, so the animation does NOT replay. */
+              /* Wrapper carries the entrance animation. Putting it on
+                 the <img> directly is unreliable: the <img> has a
+                 `mask-image` and in Chromium `transform` interacts
+                 oddly with masked elements (the mask is re-rasterised
+                 each frame, sometimes cancelling visible translation).
+                 The wrapper has no mask so the transform reads cleanly.
+                 `key` forces remount per anime so the animation
+                 restarts even when the image is browser-cached. */
+              <span
                 key={titleImage.url}
-                src={currentTitleUrl}
-                alt={title}
-                onClick={canCycle ? handleCycleClick : undefined}
-                role={canCycle ? "button" : undefined}
-                aria-label={canCycle ? "Show next artwork" : undefined}
-                title={canCycle ? "Click for another artwork" : undefined}
-                /* Only apply the edge fade to clearart (transparent
-                   character cutouts that bleed off the frame). Logos
-                   are stylised title typography with their own
-                   intentional negative space — fading their edges
-                   would chew letters. */
                 style={{
-                  ...(titleImage.kind === "clearart"
-                    ? hStyles.titleArt
-                    : hStyles.titleArtPlain),
-                  cursor: canCycle ? "pointer" : undefined,
-                  // Fade ramp for cycle click. Opacity drops to 0 just
-                  // before the src swap, then springs back up to 1 once
-                  // the new image is mounted — reads as a clean
-                  // cross-fade without stacking two <img>s.
-                  opacity: fading ? 0 : 1,
-                  transition: "opacity 180ms ease",
-                  // Entrance animation — replays on every remount
-                  // (i.e. every anime change) thanks to the `key` above.
+                  display: "inline-block",
                   animation:
-                    "mmFadeUp 420ms cubic-bezier(0.22, 0.61, 0.36, 1) both",
+                    "mmFadeUp 650ms cubic-bezier(0.22, 0.61, 0.36, 1) both",
+                  willChange: "transform, opacity",
                 }}
-                // SSR ships this <img> in the initial HTML and a matching
-                // `<link rel=preload as=image fetchpriority=high>` lives
-                // in the document <head>. Mark it eager + high prio so
-                // Chrome doesn't deprioritize it behind below-fold work.
-                loading="eager"
-                // @ts-expect-error fetchpriority is not in lib.dom yet
-                fetchpriority="high"
-                decoding="async"
-              />
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={currentTitleUrl}
+                  alt={title}
+                  onClick={canCycle ? handleCycleClick : undefined}
+                  role={canCycle ? "button" : undefined}
+                  aria-label={canCycle ? "Show next artwork" : undefined}
+                  title={canCycle ? "Click for another artwork" : undefined}
+                  style={{
+                    ...(titleImage.kind === "clearart"
+                      ? hStyles.titleArt
+                      : hStyles.titleArtPlain),
+                    cursor: canCycle ? "pointer" : undefined,
+                    opacity: fading ? 0 : 1,
+                    transition: "opacity 180ms ease",
+                  }}
+                  loading="eager"
+                  // @ts-expect-error fetchpriority is not in lib.dom yet
+                  fetchpriority="high"
+                  decoding="async"
+                />
+              </span>
             ) : (
               <h1 style={hStyles.titleFallback}>{title}</h1>
             )}
