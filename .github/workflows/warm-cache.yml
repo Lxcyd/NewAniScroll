@@ -39,16 +39,11 @@ on:
         required: false
         type: string
         default: "8"
-      images_limit:
-        description: "Max images to AVIF-warm (stays under CF 5000/mo free tier)"
+      images_since_days:
+        description: "AVIF-warm images for anime fetched in last N days (delta only — bulk warming is done locally)"
         required: false
         type: string
-        default: "4000"
-      images_skip:
-        description: "Skip first N images (resume after monthly quota reset)"
-        required: false
-        type: string
-        default: "0"
+        default: "7"
       images_types:
         description: "Comma-separated fanart types (blank = all by priority)"
         required: false
@@ -89,18 +84,18 @@ jobs:
           fi
           node scripts/warm-cache.mjs $ARGS
 
-      - name: Run image warmer (AVIF transformations)
+      # Delta-only image warming: just the anime added/refreshed in the last
+      # N days. Bulk back-fill of the existing catalog is done locally via
+      # `node scripts/warm-images.mjs --limit=4000` to preserve the CF
+      # 5000 transformations/month free tier and avoid GH job timeouts.
+      - name: Run image warmer (delta AVIF)
         env:
           TURSO_FANARTS_DATABASE_URL: ${{ secrets.TURSO_FANARTS_DATABASE_URL }}
           TURSO_FANARTS_AUTH_TOKEN: ${{ secrets.TURSO_FANARTS_AUTH_TOKEN }}
         run: |
-          ARGS=""
-          if [ -n "${{ inputs.images_limit }}" ]; then
-            ARGS="$ARGS --limit=${{ inputs.images_limit }}"
-          fi
-          if [ -n "${{ inputs.images_skip }}" ]; then
-            ARGS="$ARGS --skip=${{ inputs.images_skip }}"
-          fi
+          SINCE="${{ inputs.images_since_days }}"
+          SINCE="${SINCE:-7}"
+          ARGS="--since-days=$SINCE"
           if [ -n "${{ inputs.images_types }}" ]; then
             ARGS="$ARGS --types=${{ inputs.images_types }}"
           fi

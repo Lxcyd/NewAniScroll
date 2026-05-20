@@ -15,6 +15,7 @@
  *   node scripts/warm-images.mjs --limit=4000          # warm 4000 images
  *   node scripts/warm-images.mjs --types=clearart      # only clearart
  *   node scripts/warm-images.mjs --skip=4000           # skip first N (resume)
+ *   node scripts/warm-images.mjs --since-days=7        # only recent fanarts
  *   node scripts/warm-images.mjs --concurrency=8       # tune parallelism
  *   node scripts/warm-images.mjs --dry-run             # list, don't fetch
  *
@@ -37,6 +38,7 @@ const DRY_RUN = args["dry-run"] === "1" || args["dry-run"] === "true";
 const TYPES = args.types
   ? args.types.split(",").map((s) => s.trim()).filter(Boolean)
   : null;
+const SINCE_DAYS = args["since-days"] ? Number(args["since-days"]) : null;
 
 const PROXY_HOST = process.env.FANART_PROXY_HOST || "fanart-proxy.aniscroll.com";
 
@@ -64,14 +66,23 @@ END`;
 
 let sql = `SELECT url, type FROM anime_fanarts
            WHERE nsfw_label IN ('safe', 'safe-skipped', 'manual-safe')`;
+const sqlArgs = [];
 if (TYPES) {
   const placeholders = TYPES.map(() => "?").join(",");
   sql += ` AND type IN (${placeholders})`;
+  sqlArgs.push(...TYPES);
+}
+if (SINCE_DAYS) {
+  const sinceEpoch = Math.floor(Date.now() / 1000) - SINCE_DAYS * 86400;
+  sql += ` AND fetched_at >= ?`;
+  sqlArgs.push(sinceEpoch);
 }
 sql += ` ORDER BY ${TYPE_PRIORITY}, likes DESC`;
 
-console.log(`[warm-images] querying DB${TYPES ? ` (types: ${TYPES.join(",")})` : ""}...`);
-const r = await db.execute({ sql, args: TYPES || [] });
+console.log(
+  `[warm-images] querying DB${TYPES ? ` (types: ${TYPES.join(",")})` : ""}${SINCE_DAYS ? ` (last ${SINCE_DAYS}d)` : ""}...`
+);
+const r = await db.execute({ sql, args: sqlArgs });
 
 function rewrite(u) {
   return u.replace(/^https?:\/\/assets\.fanart\.tv/i, `https://${PROXY_HOST}`);
