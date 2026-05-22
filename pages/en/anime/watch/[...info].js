@@ -31,7 +31,7 @@ import { Navbar } from "@/components/shared/NavBar";
 import Modal from "@/components/modal";
 import AniList from "@/components/media/aniList";
 import { signIn } from "next-auth/react";
-import BugReportForm from "@/components/shared/bugReport";
+import ReportModal from "@/components/shared/ReportModal";
 import Skeleton from "react-loading-skeleton";
 import Head from "next/head";
 import { useRouter } from "next/router";
@@ -923,7 +923,22 @@ export default function Watch({
         )}
       </Modal>
 
-      <BugReportForm isOpen={isOpen} setIsOpen={setIsOpen} />
+      {/* The in-page "report" button (down by the share row) opens
+          this modal pre-targeted at the current anime + episode so
+          users land directly on the structured Anime-bug tab. */}
+      <ReportModal
+        isOpen={isOpen}
+        setIsOpen={setIsOpen}
+        animeContext={
+          info
+            ? {
+                animeId: info.id,
+                animeTitle: pickTitle(info.title, titlePref),
+                episode: parseInt(epiNumber),
+              }
+            : null
+        }
+      />
 
       <main className="w-screen h-full">
         {!ratingModalState.isFullscreen && (
@@ -936,6 +951,7 @@ export default function Watch({
         )}
 
         <Navbar
+          info={info}
           scrollP={20}
           withNav={true}
           shrink={true}

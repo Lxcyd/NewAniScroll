@@ -12,6 +12,7 @@ import Logo from "./Logo";
 import ChangelogButton from "./ChangelogButton";
 import ReportButton from "./ReportButton";
 import { isAdminName } from "@/lib/auth/isAdmin";
+import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 
 const getScrollPosition = (el: Window | Element = window) => {
   if (el instanceof Window) {
@@ -51,6 +52,7 @@ export function Navbar({
 }: NavbarProps) {
   const { data: session }: { data: any } = useSession();
   const router = useRouter();
+  const titlePref = useTitlePref();
   const [scrollPosition, setScrollPosition] = useState<
     { x: number; y: number } | undefined
   >();
@@ -58,6 +60,22 @@ export function Navbar({
 
   const year = new Date().getFullYear();
   const season = getCurrentSeason();
+
+  /* When the page passed an `info` (anime detail / watch pages do
+     this), the navbar's Report button gets pre-targeted at that
+     anime + the episode currently in the URL. The user can still
+     switch tabs to file a Site bug. On other pages we leave the
+     context null so only the Site-bug tab is selectable. */
+  const animeReportContext = info
+    ? {
+        animeId: info.id,
+        animeTitle: pickTitle(info.title, titlePref),
+        episode: (() => {
+          const m = router.asPath.match(/[?&]num=(\d+)/);
+          return m ? Number(m[1]) : undefined;
+        })(),
+      }
+    : null;
 
   useEffect(() => {
     const handleScroll = () => {
@@ -245,7 +263,7 @@ export function Navbar({
                 always reach them no matter what page they're on. They share
                 a tight gap so they read as a pair, not two unrelated icons. */}
             <div className="flex items-center gap-0">
-              <ReportButton />
+              <ReportButton anime={animeReportContext} />
               <ChangelogButton />
             </div>
             {/* Avatar + hover menu — same shell whether signed-in or out.

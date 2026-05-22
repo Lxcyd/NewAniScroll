@@ -1,0 +1,565 @@
+import { Fragment, useEffect, useState } from "react";
+import { Dialog, Transition } from "@headlessui/react";
+import { toast } from "sonner";
+
+/* Two-tab report form.
+ *
+ *   - "Site bug" tab: free-form title + description + severity, same
+ *     thing the site has had for a while.
+ *   - "Anime bug" tab: tied to the anime / episode page the user is
+ *     currently on (preset via the `animeContext` prop). User ticks
+ *     one or more pre-defined issues (wrong title, wrong show, skip
+ *     timing wrong, etc.) and optionally adds notes.
+ *
+ * Both feed the same `bug_reports` table; we just encode the
+ * structured anime bits into the existing `title` / `description`
+ * columns so the admin dashboard keeps working with no schema
+ * migration. Title prefixes (`[SITE]` / `[ANIME]`) make the two
+ * cleanly filterable in the dashboard.
+ */
+
+const SITE_SEVERITY = ["Low", "Medium", "High", "Critical"] as const;
+type Severity = (typeof SITE_SEVERITY)[number];
+
+const ANIME_ISSUES = [
+  { id: "wrong_show", label: "Wrong show (anime / episode mismatch)" },
+  { id: "wrong_title", label: "Wrong title or metadata" },
+  { id: "wrong_skip", label: "Skip Intro / Outro timestamps are wrong" },
+  { id: "missing_servers", label: "Missing or broken video servers" },
+  { id: "wont_play", label: "Selected episode won't play" },
+  { id: "missing_download", label: "Missing download link" },
+  { id: "wrong_subs", label: "Wrong / missing subtitles" },
+] as const;
+type AnimeIssueId = (typeof ANIME_ISSUES)[number]["id"];
+
+const MAX_IMAGES = 5;
+const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
+
+export type AnimeReportContext = {
+  /** AniList id of the anime currently being viewed. */
+  animeId: number | string;
+  /** Display title (English / Romaji depending on user pref). */
+  animeTitle: string;
+  /** Optional — only when reporting from the watch page. */
+  episode?: number;
+};
+
+interface Props {
+  isOpen: boolean;
+  setIsOpen: (open: boolean) => void;
+  /** When provided, the modal opens directly on the "Anime bug" tab
+   *  and prefills the anime + episode. Pass null on the navbar /
+   *  generic surface so the user lands on "Site bug" instead. */
+  animeContext?: AnimeReportContext | null;
+}
+
+type TabId = "site" | "anime";
+
+const ReportModal: React.FC<Props> = ({ isOpen, setIsOpen, animeContext }) => {
+  // Default to the anime tab when an animeContext is supplied — that's
+  // almost always why the user opened the modal in that surface.
+  const [tab, setTab] = useState<TabId>(animeContext ? "anime" : "site");
+
+  // Re-sync the active tab whenever the modal opens with a different
+  // context (e.g. navigating between an anime page and the generic
+  // navbar button without unmounting).
+  useEffect(() => {
+    if (isOpen) setTab(animeContext ? "anime" : "site");
+  }, [isOpen, animeContext]);
+
+  // ─ Site-bug state ─────────────────────────────────────────────
+  const [siteTitle, setSiteTitle] = useState("");
+  const [siteDesc, setSiteDesc] = useState("");
+  const [siteSeverity, setSiteSeverity] = useState<Severity>("Low");
+
+  // ─ Anime-bug state ────────────────────────────────────────────
+  const [animeIssues, setAnimeIssues] = useState<Set<AnimeIssueId>>(new Set());
+  const [animeNotes, setAnimeNotes] = useState("");
+
+  // ─ Shared ─────────────────────────────────────────────────────
+  const [images, setImages] = useState<string[]>([]);
+  const [submitting, setSubmitting] = useState(false);
+
+  const closeModal = () => {
+    setIsOpen(false);
+    // Reset everything so the next open is fresh.
+    setSiteTitle("");
+    setSiteDesc("");
+    setSiteSeverity("Low");
+    setAnimeIssues(new Set());
+    setAnimeNotes("");
+    setImages([]);
+  };
+
+  // ── Image attachments ──────────────────────────────────────
+  const fileToDataUrl = (file: File): Promise<string | null> =>
+    new Promise((resolve) => {
+      if (!file.type.startsWith("image/")) return resolve(null);
+      if (file.size > MAX_IMAGE_BYTES) return resolve(null);
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = () => resolve(null);
+      reader.readAsDataURL(file);
+    });
+
+  const handleFiles = async (files: FileList | null) => {
+    if (!files) return;
+    const slots = MAX_IMAGES - images.length;
+    if (slots <= 0) {
+      toast.error(`You already attached ${MAX_IMAGES} images.`);
+      return;
+    }
+    const chosen = Array.from(files).slice(0, slots);
+    const encoded = await Promise.all(chosen.map(fileToDataUrl));
+    const valid = encoded.filter((x): x is string => Boolean(x));
+    const rejected = encoded.length - valid.length;
+    if (rejected > 0) {
+      toast.error(`${rejected} file(s) skipped (too large or not an image).`);
+    }
+    if (valid.length) setImages((cur) => [...cur, ...valid]);
+  };
+
+  const removeImage = (i: number) =>
+    setImages((cur) => cur.filter((_, idx) => idx !== i));
+
+  // ── Issue checkbox toggle ──────────────────────────────────
+  const toggleIssue = (id: AnimeIssueId) => {
+    setAnimeIssues((cur) => {
+      const next = new Set(cur);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  // ── Submit ─────────────────────────────────────────────────
+  // Encodes the form into the existing { title, desc, severity }
+  // schema. Prefixes make site vs anime reports trivially filterable
+  // in the admin dashboard ([SITE] / [ANIME]).
+  const buildPayload = (): {
+    title: string;
+    desc: string;
+    severity: string;
+  } | null => {
+    if (tab === "site") {
+      if (!siteTitle.trim() || !siteDesc.trim()) {
+        toast.error("Title and description are required.");
+        return null;
+      }
+      return {
+        title: `[SITE] ${siteTitle.trim()}`,
+        desc: siteDesc.trim(),
+        severity: siteSeverity,
+      };
+    }
+    // anime tab
+    if (animeIssues.size === 0) {
+      toast.error("Please pick at least one issue.");
+      return null;
+    }
+    const ctxBits: string[] = [];
+    if (animeContext?.animeTitle) {
+      ctxBits.push(`Anime: ${animeContext.animeTitle}`);
+    }
+    if (animeContext?.animeId != null) {
+      ctxBits.push(`AniList ID: ${animeContext.animeId}`);
+    }
+    if (animeContext?.episode != null) {
+      ctxBits.push(`Episode: ${animeContext.episode}`);
+    }
+    const labels = ANIME_ISSUES.filter((i) => animeIssues.has(i.id)).map(
+      (i) => `• ${i.label}`
+    );
+    const desc = [
+      ctxBits.join("\n"),
+      "Issues:",
+      labels.join("\n"),
+      animeNotes.trim() ? `\nNotes:\n${animeNotes.trim()}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
+    const titleSuffix = animeContext?.animeTitle
+      ? animeContext.animeTitle
+      : `anime ${animeContext?.animeId ?? "?"}`;
+    const epSuffix =
+      animeContext?.episode != null ? ` · EP ${animeContext.episode}` : "";
+    return {
+      title: `[ANIME] ${titleSuffix}${epSuffix}`,
+      desc,
+      severity: "anime",
+    };
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (submitting) return;
+    const payload = buildPayload();
+    if (!payload) return;
+
+    setSubmitting(true);
+    try {
+      const res = await fetch("/api/v2/admin/bug-report", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          data: {
+            ...payload,
+            url: window.location.href,
+            createdAt: new Date().toISOString(),
+            images,
+          },
+        }),
+      });
+      const json = await res.json();
+      if (res.status === 429) {
+        toast.error(json.message || "Too many reports, please wait.");
+        return;
+      }
+      if (!res.ok) {
+        toast.error(json.error || "Submission failed.");
+        return;
+      }
+      toast.success(json.message || "Report sent.");
+      closeModal();
+    } catch (err: any) {
+      console.error(err);
+      toast.error("Something went wrong: " + err.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // ── Tab pill ───────────────────────────────────────────────
+  const TabBtn = ({
+    id,
+    children,
+    disabled,
+  }: {
+    id: TabId;
+    children: React.ReactNode;
+    disabled?: boolean;
+  }) => {
+    const active = tab === id && !disabled;
+    return (
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => !disabled && setTab(id)}
+        className={`flex-1 px-4 py-2 text-sm font-semibold rounded-md transition-colors ${
+          active
+            ? "bg-action text-white"
+            : disabled
+            ? "text-white/30 cursor-not-allowed"
+            : "text-white/60 hover:text-white hover:bg-white/5"
+        }`}
+        title={disabled ? "Open this from an anime page" : undefined}
+      >
+        {children}
+      </button>
+    );
+  };
+
+  // The anime tab is only meaningful when we have a context; on the
+  // navbar surface (no context) we still show it but greyed out so
+  // the user knows the feature exists.
+  const animeTabDisabled = !animeContext;
+
+  return (
+    <Transition appear show={isOpen} as={Fragment}>
+      {/* Navbar sits at z-[9999] (cf. NavBar.tsx), so the modal must
+          beat it. */}
+      <Dialog as="div" className="relative z-[10000]" onClose={closeModal}>
+        <Transition.Child
+          as={Fragment}
+          enter="ease-out duration-300"
+          enterFrom="opacity-0"
+          enterTo="opacity-100"
+          leave="ease-in duration-200"
+          leaveFrom="opacity-100"
+          leaveTo="opacity-0"
+        >
+          <div className="fixed inset-0 bg-black bg-opacity-90" />
+        </Transition.Child>
+
+        <div className="fixed inset-0 overflow-y-auto">
+          <div className="flex min-h-full items-center justify-center p-4">
+            <Transition.Child
+              as={Fragment}
+              enter="ease-out duration-300"
+              enterFrom="opacity-0 scale-95"
+              enterTo="opacity-100 scale-100"
+              leave="ease-in duration-200"
+              leaveFrom="opacity-100 scale-100"
+              leaveTo="opacity-0 scale-95"
+            >
+              <Dialog.Panel className="w-full max-w-md transition-all">
+                <div className="bg-secondary p-6 rounded-lg shadow-xl">
+                  <div className="flex items-center justify-between mb-4">
+                    <h2 className="text-action text-2xl font-semibold">
+                      Report
+                    </h2>
+                    <button
+                      type="button"
+                      onClick={closeModal}
+                      className="text-white/40 hover:text-white text-xl px-2 leading-none"
+                      aria-label="Close"
+                    >
+                      ×
+                    </button>
+                  </div>
+
+                  {/* Tab switcher */}
+                  <div className="flex gap-1 mb-5 bg-image rounded-lg p-1">
+                    <TabBtn id="site">Site bug</TabBtn>
+                    <TabBtn id="anime" disabled={animeTabDisabled}>
+                      Anime bug
+                    </TabBtn>
+                  </div>
+
+                  <form onSubmit={handleSubmit}>
+                    {tab === "site" ? (
+                      <SiteTab
+                        title={siteTitle}
+                        setTitle={setSiteTitle}
+                        desc={siteDesc}
+                        setDesc={setSiteDesc}
+                        severity={siteSeverity}
+                        setSeverity={setSiteSeverity}
+                      />
+                    ) : (
+                      <AnimeTab
+                        context={animeContext}
+                        issues={animeIssues}
+                        toggleIssue={toggleIssue}
+                        notes={animeNotes}
+                        setNotes={setAnimeNotes}
+                      />
+                    )}
+
+                    {/* Shared: screenshot attachments */}
+                    <div className="mt-4">
+                      <label className="block text-txt text-sm font-medium mb-2">
+                        Screenshots ({images.length}/{MAX_IMAGES})
+                      </label>
+                      <div className="flex flex-wrap gap-2">
+                        {images.map((src, i) => (
+                          <div key={i} className="relative">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={src}
+                              alt=""
+                              className="w-16 h-16 object-cover rounded ring-1 ring-white/10"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => removeImage(i)}
+                              className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-rose-600 text-white text-xs flex-center hover:bg-rose-500"
+                              aria-label="Remove"
+                            >
+                              ×
+                            </button>
+                          </div>
+                        ))}
+                        {images.length < MAX_IMAGES && (
+                          <label className="w-16 h-16 rounded ring-1 ring-white/15 hover:ring-action cursor-pointer flex-center text-white/40 hover:text-white text-2xl transition-colors">
+                            +
+                            <input
+                              type="file"
+                              accept="image/*"
+                              multiple
+                              hidden
+                              onChange={(e) => handleFiles(e.target.files)}
+                            />
+                          </label>
+                        )}
+                      </div>
+                      <p className="mt-1 text-[10px] text-white/40">
+                        Max 2&nbsp;MB per image.
+                      </p>
+                    </div>
+
+                    <div className="mt-5">
+                      <button
+                        type="submit"
+                        disabled={submitting}
+                        className="w-full bg-action text-white py-2 px-4 rounded-md font-semibold hover:bg-action/80 focus:ring focus:ring-action focus:outline-none transition duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {submitting ? "Sending…" : "Submit Report"}
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </Dialog.Panel>
+            </Transition.Child>
+          </div>
+        </div>
+      </Dialog>
+    </Transition>
+  );
+};
+
+export default ReportModal;
+
+// ── Site bug tab ───────────────────────────────────────────────
+function SiteTab({
+  title,
+  setTitle,
+  desc,
+  setDesc,
+  severity,
+  setSeverity,
+}: {
+  title: string;
+  setTitle: (s: string) => void;
+  desc: string;
+  setDesc: (s: string) => void;
+  severity: Severity;
+  setSeverity: (s: Severity) => void;
+}) {
+  return (
+    <div className="space-y-4">
+      <div>
+        <label className="block text-txt text-sm font-medium mb-2">Title</label>
+        <input
+          type="text"
+          maxLength={120}
+          className="w-full bg-image text-txt rounded-md border border-txt focus:ring-action focus:border-action transition duration-300 focus:outline-none py-2 px-3"
+          placeholder="Short summary, e.g. 'Subtitles disappear in fullscreen'"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          required
+        />
+      </div>
+      <div>
+        <label className="block text-txt text-sm font-medium mb-2">
+          Description
+        </label>
+        <textarea
+          rows={4}
+          className="w-full bg-image text-txt rounded-md border border-txt focus:ring-action focus:border-action transition duration-300 focus:outline-none py-2 px-3"
+          placeholder="Steps to reproduce, what happened, what you expected…"
+          value={desc}
+          onChange={(e) => setDesc(e.target.value)}
+          required
+        />
+      </div>
+      <div>
+        <label className="block text-txt text-sm font-medium mb-2">
+          Severity
+        </label>
+        <div className="flex gap-2">
+          {SITE_SEVERITY.map((s) => {
+            const active = severity === s;
+            return (
+              <button
+                key={s}
+                type="button"
+                onClick={() => setSeverity(s)}
+                className={`flex-1 px-3 py-1.5 rounded text-sm font-medium transition-colors ${
+                  active
+                    ? "bg-action text-white"
+                    : "bg-image text-white/60 hover:text-white"
+                }`}
+              >
+                {s}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Anime bug tab ──────────────────────────────────────────────
+function AnimeTab({
+  context,
+  issues,
+  toggleIssue,
+  notes,
+  setNotes,
+}: {
+  context?: AnimeReportContext | null;
+  issues: Set<AnimeIssueId>;
+  toggleIssue: (id: AnimeIssueId) => void;
+  notes: string;
+  setNotes: (s: string) => void;
+}) {
+  if (!context) {
+    return (
+      <p className="text-white/60 text-sm">
+        Open an anime or episode page to report an anime-specific issue.
+      </p>
+    );
+  }
+  return (
+    <div className="space-y-4">
+      <div className="text-sm">
+        <div className="text-white/40 text-xs uppercase tracking-wider mb-1">
+          Reporting
+        </div>
+        <div className="text-white font-medium">{context.animeTitle}</div>
+        {context.episode != null && (
+          <div className="text-white/60 text-xs">Episode {context.episode}</div>
+        )}
+      </div>
+
+      <div>
+        <label className="block text-txt text-sm font-medium mb-2">
+          What's the issue?
+        </label>
+        <div className="space-y-1.5">
+          {ANIME_ISSUES.map((iss) => {
+            const checked = issues.has(iss.id);
+            return (
+              <button
+                key={iss.id}
+                type="button"
+                onClick={() => toggleIssue(iss.id)}
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-md text-left text-sm transition-colors ${
+                  checked
+                    ? "bg-action/10 ring-1 ring-action/40 text-white"
+                    : "bg-image text-white/70 hover:bg-white/5 hover:text-white"
+                }`}
+              >
+                <span
+                  className={`w-4 h-4 rounded border flex-center shrink-0 ${
+                    checked ? "bg-action border-action" : "border-white/30"
+                  }`}
+                >
+                  {checked && (
+                    <svg
+                      width="10"
+                      height="10"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="white"
+                      strokeWidth="3"
+                    >
+                      <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                  )}
+                </span>
+                {iss.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div>
+        <label className="block text-txt text-sm font-medium mb-2">
+          Notes (optional)
+        </label>
+        <textarea
+          rows={3}
+          maxLength={500}
+          className="w-full bg-image text-txt rounded-md border border-txt focus:ring-action focus:border-action transition duration-300 focus:outline-none py-2 px-3"
+          placeholder="Anything else we should know — up to 500 characters"
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+        />
+      </div>
+    </div>
+  );
+}
