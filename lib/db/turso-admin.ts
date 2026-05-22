@@ -127,6 +127,37 @@ export async function ensureAdminSchema(): Promise<void> {
       ON user_analytics(created_at)
   `);
 
+  /* Skip-time cache. Anime-Skip's free tier caps us at 60 req/min
+     across the whole site, so we cache every successful lookup
+     permanently — skip times for a given episode practically never
+     change once submitted. Two tables:
+
+     skip_show_map  → AniList id ↔ Anime-Skip showId (one row per
+                      anime; queried lazily on first episode load).
+     skip_episodes  → per-episode normalised intervals + the source
+                      service that provided them (anime_skip /
+                      aniskip / none) so the admin can audit.
+
+     `payload` is JSON: [{ start, end, type: "op"|"ed"|"recap" }]. */
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS skip_show_map (
+      anilist_id       INTEGER PRIMARY KEY,
+      anime_skip_id    TEXT,
+      not_found        INTEGER NOT NULL DEFAULT 0,
+      checked_at       INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+    )
+  `);
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS skip_episodes (
+      mal_id           INTEGER NOT NULL,
+      episode          INTEGER NOT NULL,
+      source           TEXT NOT NULL,
+      payload          TEXT NOT NULL,
+      fetched_at       INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+      PRIMARY KEY (mal_id, episode)
+    )
+  `);
+
   schemaReady = true;
 }
 
