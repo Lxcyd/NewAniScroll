@@ -883,25 +883,15 @@ input[type="number"] {
   margin-right: 0;
 }
 
-/* Reset rounding on every layer Vidstack stacks inside the chapter
-   (track + track-fill + progress). The pill effect already comes
-   from the chapter's overflow:hidden + border-radius, so children
-   must be flat rectangles that fill the chapter edge to edge. */
+/* Only flatten the rounding on the inner layers — keep all their
+   other defaults (width driven by --chapter-fill, top/bottom
+   positioning, background colours). The pill effect comes from the
+   chapter slot itself (overflow:hidden + border-radius above), so
+   children just need square edges. Touching their position or size
+   makes Vidstack's progress fill vanish entirely, which we saw on
+   the previous iteration. */
 .vds-time-slider .vds-slider-chapter .vds-slider-track,
 .vds-time-slider .vds-slider-chapter .vds-slider-track-fill,
 .vds-time-slider .vds-slider-chapter .vds-slider-progress {
   border-radius: 0 !important;
-  height: 100% !important;
-  /* Anchor every layer to the chapter's left edge. Without this,
-     Vidstack centres the track vertically with top:50% which we
-     don't want once the chapter is the pill. */
-  top: 0 !important;
-  bottom: 0 !important;
-  margin: 0 !important;
-}
-
-/* The empty track layer becomes invisible — the chapter's own
-   background acts as the unplayed-portion colour now. */
-.vds-time-slider .vds-slider-chapter .vds-slider-track {
-  background: transparent !important;
 }
