@@ -17,6 +17,7 @@ import InfoChip from "./reused/infoChip";
 import Description from "./reused/description";
 import Skeleton from "react-loading-skeleton";
 import { AniListInfoTypes } from "types/info/AnilistInfoTypes";
+import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 
 type DetailTopProps = {
   info?: AniListInfoTypes | null;
@@ -36,6 +37,7 @@ export default function DetailTop({
   color,
 }: DetailTopProps) {
   const router = useRouter();
+  const titlePref = useTitlePref();
   const [readMore, setReadMore] = useState(false);
 
   const [showAll, setShowAll] = useState(false);
@@ -358,7 +360,7 @@ export default function DetailTop({
                           {r.relationType.replace(/_/g, " ")}
                         </div>
                         <div className="font-outfit line-clamp-2">
-                          {rel.title.userPreferred}
+                          {pickTitle(rel.title, titlePref)}
                         </div>
                         <div className="font-thin">{rel.format}</div>
                       </div>

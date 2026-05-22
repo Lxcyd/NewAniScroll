@@ -5,6 +5,7 @@ import Recommendations from "./Recommendations";
 import { FanartResponse, SeasonInfo, TitleImage } from "./helpers";
 import type { SeasonEntry } from "@/lib/anilist/seasonChain";
 import styles from "./styles.module.css";
+import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 
 type Props = {
   info: AniListInfoTypes;
@@ -42,6 +43,7 @@ export default function InfoPage({
   onOpenListEditor,
   onToggleFav,
 }: Props) {
+  const titlePref = useTitlePref();
   const fanarts = initialFanarts;
 
   const ratingRank =
@@ -88,7 +90,7 @@ export default function InfoPage({
         {recs.length > 0 && (
           <Recommendations
             items={recs}
-            forTitle={info.title.english || info.title.romaji || "this anime"}
+            forTitle={pickTitle(info.title, titlePref) || "this anime"}
           />
         )}
       </div>

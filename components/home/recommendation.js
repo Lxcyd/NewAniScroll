@@ -11,8 +11,10 @@ import {
   BookOpenIcon as BookOpenOutline,
   PlayCircleIcon,
 } from "@heroicons/react/24/outline";
+import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 
 export default function UserRecommendation({ data }) {
+  const titlePref = useTitlePref();
   const mobileRef = useRef(null);
   const desktopRef = useRef(null);
   const { events: mobileEvent } = useDraggable(mobileRef);
@@ -39,9 +41,9 @@ export default function UserRecommendation({ data }) {
         <div className="flex flex-col items-start justify-center gap-3 lg:gap-7 lg:w-[50%] pl-5 lg:px-10">
           <h2
             className="font-inter font-bold text-3xl text-white line-clamp-2"
-            title={data[0].title.userPreferred}
+            title={pickTitle(data[0].title, titlePref)}
           >
-            {data[0].title.userPreferred}
+            {pickTitle(data[0].title, titlePref)}
           </h2>
           <p
             dangerouslySetInnerHTML={{
@@ -76,10 +78,10 @@ export default function UserRecommendation({ data }) {
               <span className="h-[190px] w-[135px] lg:h-[265px] lg:w-[185px] rounded absolute bg-gradient-to-b from-black/50 from-5% to-30% to-transparent z-40" />
               <span className="h-[190px] w-[135px] lg:h-[265px] lg:w-[185px] rounded absolute group-hover:bg-gradient-to-t from-black/90 to-transparent z-40 opacity-0 group-hover:opacity-100 transition-all duration-200 ease" />
               <span
-                title={i.title.userPreferred}
+                title={pickTitle(i.title, titlePref)}
                 className="absolute bottom-5 text-center line-clamp-2 font-karla font-semibold opacity-0 group-hover:opacity-100 w-[70%] z-50 transition-all duration-200 ease"
               >
-                {i.title.userPreferred}
+                {pickTitle(i.title, titlePref)}
               </span>
               <div className="absolute top-0 right-0 z-40 font-karla font-bold">
                 {i.type === "ANIME" ? (
@@ -94,13 +96,13 @@ export default function UserRecommendation({ data }) {
               </div>
               <Image
                 src={i.coverImage.extraLarge}
-                alt={i.title.userPreferred}
+                alt={pickTitle(i.title, titlePref)}
                 width={190}
                 height={256}
                 className="h-[190px] w-[135px] lg:h-[265px] lg:w-[185px] brightness-[90%] rounded-md object-cover overflow-hidden transition-all duration-150 ease-in-out"
               />
               {/* <span className="absolute rounded pointer-events-none w-[240px] h-[50%] transition-all duration-150 ease-in transform group-hover:translate-x-[80%] top-0 left-0 bg-secondary opacity-0 group-hover:opacity-100 flex flex-col z-50">
-                <div className="">{i.title.userPreferred}</div>
+                <div className="">{pickTitle(i.title, titlePref)}</div>
                 <div>a</div>
               </span> */}
             </Link>
@@ -117,7 +119,7 @@ export default function UserRecommendation({ data }) {
           {filteredData.slice(0, 9).map((i) => (
             <div key={`mobile-${i.id}`} className="flex flex-col gap-2">
               <Link
-                title={i.title.userPreferred}
+                title={pickTitle(i.title, titlePref)}
                 href={`/en/${i.type.toLowerCase()}/${i.id}`}
                 className="relative flex-center snap-start shrink-0 group rounded scale-100 hover:scale-105 duration-300 ease-out"
               >
@@ -135,7 +137,7 @@ export default function UserRecommendation({ data }) {
                 </div>
                 <Image
                   src={i.coverImage.extraLarge}
-                  alt={i.title.userPreferred}
+                  alt={pickTitle(i.title, titlePref)}
                   width={190}
                   height={256}
                   className="h-[190px] w-[135px] lg:h-[265px] lg:w-[185px] shrink-0 brightness-[90%] rounded-md object-cover overflow-hidden transition-all duration-150 ease-in-out"
@@ -156,7 +158,7 @@ export default function UserRecommendation({ data }) {
                   ) : i.status === "NOT_YET_RELEASED" ? (
                     <span className="dots bg-red-500" />
                   ) : null}
-                  {i.title.userPreferred}
+                  {pickTitle(i.title, titlePref)}
                 </h1>
               </Link>
             </div>
@@ -167,7 +169,7 @@ export default function UserRecommendation({ data }) {
       {data[0]?.bannerImage && (
         <Image
           src={data[0]?.bannerImage}
-          alt={data[0].title.userPreferred}
+          alt={pickTitle(data[0].title, titlePref)}
           width={500}
           height={500}
           className="hidden lg:block absolute top-0 left-0 z-30 w-[60%] h-full object-cover opacity-30"

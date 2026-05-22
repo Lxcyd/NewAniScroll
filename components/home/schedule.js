@@ -5,8 +5,10 @@ import { PlayIcon } from "@heroicons/react/20/solid";
 import { BackwardIcon, ForwardIcon } from "@heroicons/react/24/solid";
 import Link from "next/link";
 import { useCountdown } from "../../lib/hooks/useCountdownSeconds";
+import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 
 export default function Schedule({ data, scheduleData, anime, update }) {
+  const titlePref = useTitlePref();
   let now = new Date();
   let currentDay =
     now.toLocaleString("default", { weekday: "long" }).toLowerCase() +
@@ -61,14 +63,14 @@ export default function Schedule({ data, scheduleData, anime, update }) {
                 href={`/en/anime/${data.id}`}
                 className="hover:underline underline-offset-4 decoration-2 leading-8 line-clamp-2 lg:text-[1.5vw]"
               >
-                {data.title.romaji || data.title.english || data.title.native}
+                {pickTitle(data.title, titlePref)}
               </Link>
             </div>
             <Link
               href={`/en/anime/${data.id}`}
               className="w-1/2 lg:hidden font-medium font-karla leading-9 text-white line-clamp-1"
             >
-              {data.title.romaji || data.title.english || data.title.native}
+              {pickTitle(data.title, titlePref)}
             </Link>
           </div>
           {data.bannerImage ? (
@@ -147,7 +149,7 @@ export default function Schedule({ data, scheduleData, anime, update }) {
                           {i.coverImage && (
                             <Image
                               src={i.coverImage}
-                              alt={`${i.title.romaji} cover`}
+                              alt={`${pickTitle(i.title, titlePref)} cover`}
                               width={300}
                               height={300}
                               className="w-10 h-10 object-cover rounded"
@@ -157,7 +159,7 @@ export default function Schedule({ data, scheduleData, anime, update }) {
                         <div className="flex items-center justify-between w-full">
                           <div className="font-karla px-2">
                             <h1 className="font-semibold text-sm line-clamp-1">
-                              {i.title.romaji}
+                              {pickTitle(i.title, titlePref)}
                             </h1>
                             <p className="font-semibold text-xs text-gray-400">
                               {convertUnixToTime(i.airingAt)} - Episode{" "}

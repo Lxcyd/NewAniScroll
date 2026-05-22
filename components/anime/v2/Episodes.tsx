@@ -3,6 +3,7 @@ import Link from "next/link";
 import { AniListInfoTypes } from "types/info/AnilistInfoTypes";
 import styles from "./styles.module.css";
 import type { SeasonEntry } from "@/lib/anilist/seasonChain";
+import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 
 type EpisodeRow = {
   number: number;
@@ -36,6 +37,7 @@ const ROW_HEIGHT = {
 };
 
 export default function Episodes({ info, progress, seasonList }: Props) {
+  const titlePref = useTitlePref();
   const [eps, setEps] = useState<EpisodeRow[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -395,7 +397,7 @@ function SeasonPicker({
     };
   }, [open]);
 
-  const headerLabel = active?.label || info.title.english || info.title.romaji;
+  const headerLabel = active?.label || pickTitle(info.title, titlePref);
   const headerSub = active
     ? `${active.year ?? ""}${active.episodes ? ` · ${active.episodes} EP` : ""}`.trim()
     : `${info.status === "RELEASING" ? "Airing" : "Completed"}${

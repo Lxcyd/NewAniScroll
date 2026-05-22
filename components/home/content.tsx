@@ -14,6 +14,7 @@ import { useRouter } from "next/router";
 import HistoryOptions from "./content/historyOptions";
 import { toast } from "sonner";
 import { truncateImgUrl } from "@/utils/imageUtils";
+import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 
 type ContentProps = {
   ids: string;
@@ -82,6 +83,7 @@ export default function Content({
   setRemoved,
   type = "anime",
 }: ContentProps) {
+  const titlePref = useTitlePref();
   const ref = useRef<HTMLElement>(null!);
   const { events } = useDraggable(ref);
   // Drag-vs-click discriminator: only swallow the click that fires right
@@ -380,7 +382,7 @@ export default function Content({
                         <div className="h-[190px] lg:h-[265px] w-[135px] lg:w-[185px] bg-gradient-to-b from-transparent to-black/90 absolute z-40 rounded-md whitespace-normal font-karla group">
                           <div className="flex flex-col items-center h-full justify-end text-center pb-5">
                             <h1 className="line-clamp-1 w-[70%] text-[10px]">
-                              {anime.title.romaji || anime.title.english}
+                              {pickTitle(anime.title, titlePref)}
                             </h1>
                             {checkProgress(progress) &&
                               !clicked?.hasOwnProperty(anime.id) && (
@@ -419,11 +421,7 @@ export default function Content({
                           <Image
                             draggable={false}
                             src={image}
-                            alt={
-                              anime.title.romaji ||
-                              anime.title.english ||
-                              "coverImage"
-                            }
+                            alt={pickTitle(anime.title, titlePref)}
                             width={500}
                             height={300}
                             className="z-20 h-[190px] w-[135px] lg:h-[265px] lg:w-[185px] object-cover rounded-md brightness-90"
@@ -466,7 +464,7 @@ export default function Content({
                           ) : anime.status === "NOT_YET_RELEASED" ? (
                             <span className="dots bg-red-500" />
                           ) : null}
-                          {anime.title.romaji}
+                          {pickTitle(anime.title, titlePref)}
                         </h1>
                       </Link>
                     )}

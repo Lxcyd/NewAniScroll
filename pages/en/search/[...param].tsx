@@ -30,6 +30,7 @@ import SearchByImage, {
 } from "@/components/search/searchByImage";
 import { PlayIcon } from "@heroicons/react/24/outline";
 import { StaticImport } from "next/dist/shared/lib/get-img-props";
+import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 
 export async function getServerSideProps(context: any) {
   const { param } = context.query;
@@ -125,6 +126,7 @@ export default function Card({
 }: CardProps) {
   const inputRef = useRef(null);
   const router = useRouter();
+  const titlePref = useTitlePref();
 
   const [data, setData] = useState<any>();
   const [imageSearch, setImageSearch] = useState<TraceMoeResultTypes[]>();
@@ -471,7 +473,12 @@ export default function Card({
                     anime: {
                       format: string;
                       id: any;
-                      title: { userPreferred: string };
+                      title: {
+                        userPreferred: string;
+                        english?: string | null;
+                        romaji?: string | null;
+                        native?: string | null;
+                      };
                       coverImage: { extraLarge: string | StaticImport };
                       status: string;
                       episodes: any;
@@ -492,7 +499,7 @@ export default function Card({
                               ? `/en/manga/${anime.id}`
                               : `/en/anime/${anime.id}`
                           }
-                          title={anime.title.userPreferred}
+                          title={pickTitle(anime.title, titlePref)}
                           className="block relative overflow-hidden bg-secondary hover:scale-[1.03] scale-100 transition-all cursor-pointer duration-200 ease-out rounded"
                           style={{
                             paddingTop: "145%", // 2:3 aspect ratio (3/2 * 100%)
@@ -501,7 +508,7 @@ export default function Card({
                           <Image
                             className="object-cover"
                             src={anime.coverImage.extraLarge}
-                            alt={anime.title.userPreferred}
+                            alt={pickTitle(anime.title, titlePref)}
                             sizes="(min-width: 808px) 50vw, 100vw"
                             quality={100}
                             fill
@@ -513,7 +520,7 @@ export default function Card({
                               ? `/en/manga/${anime.id}`
                               : `/en/anime/${anime.id}`
                           }
-                          title={anime.title.userPreferred}
+                          title={pickTitle(anime.title, titlePref)}
                         >
                           <h1 className="font-outfit font-bold xl:text-base text-[15px] pt-4 line-clamp-2">
                             {anime.status === "RELEASING" ? (
@@ -521,7 +528,7 @@ export default function Card({
                             ) : anime.status === "NOT_YET_RELEASED" ? (
                               <span className="dots bg-red-500" />
                             ) : null}
-                            {anime.title.userPreferred}
+                            {pickTitle(anime.title, titlePref)}
                           </h1>
                         </Link>
                         <h2 className="font-outfit xl:text-[15px] text-[11px] font-light pt-2 text-[#8B8B8B]">
@@ -584,7 +591,7 @@ export default function Card({
                           <PlayIcon className="w-5 h-5 shrink-0" />
                           <h1
                             className="font-semibold font-karla line-clamp-1"
-                            title={a?.anilist.title.romaji}
+                            title={pickTitle(a?.anilist.title, titlePref)}
                           >
                             {`Episode ${a.episode}`}
                           </h1>
@@ -629,9 +636,9 @@ export default function Card({
                               textOverflow: "ellipsis",
                               whiteSpace: "nowrap",
                             }}
-                            title={a?.anilist.title.romaji}
+                            title={pickTitle(a?.anilist.title, titlePref)}
                           >
-                            {a?.anilist.title.romaji}
+                            {pickTitle(a?.anilist.title, titlePref)}
                           </span>{" "}
                           | Episode {a.episode}
                         </p>

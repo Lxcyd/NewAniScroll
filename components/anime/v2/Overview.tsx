@@ -12,12 +12,14 @@ import {
 } from "./helpers";
 import Related from "./Related";
 import styles from "./styles.module.css";
+import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 
 type Props = {
   info: AniListInfoTypes;
 };
 
 export default function Overview({ info }: Props) {
+  const titlePref = useTitlePref();
   const [spoilers, setSpoilers] = useState(false);
 
   const details = useMemo(() => buildDetails(info), [info]);
@@ -459,7 +461,7 @@ export default function Overview({ info }: Props) {
                     OFFICIAL TRAILER
                   </span>
                   <div style={tStyles.playerTitle}>
-                    {info.title.english || info.title.romaji}
+                    {pickTitle(info.title, titlePref)}
                   </div>
                   <div style={tStyles.playerMeta}>
                     {capitalize(info.trailer?.site || "")}

@@ -1,6 +1,7 @@
 import { CSSProperties } from "react";
 import Link from "next/link";
 import { Edge } from "types/info/AnilistInfoTypes";
+import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 
 type Props = {
   relations: Edge[];
@@ -35,6 +36,7 @@ const FORMAT_LABEL: Record<string, string> = {
 };
 
 export default function Related({ relations, currentId }: Props) {
+  const titlePref = useTitlePref();
   // Anime / manga / novels relations only. Drop character / summary noise.
   const KEEP = new Set([
     "PREQUEL",
@@ -135,9 +137,9 @@ export default function Related({ relations, currentId }: Props) {
                 </span>
                 <div
                   style={rStyles.title}
-                  title={n.title.userPreferred || n.title.romaji || ""}
+                  title={pickTitle(n.title, titlePref)}
                 >
-                  {n.title.userPreferred || n.title.romaji || "Untitled"}
+                  {pickTitle(n.title, titlePref)}
                 </div>
                 <div style={rStyles.meta}>{meta}</div>
               </div>
