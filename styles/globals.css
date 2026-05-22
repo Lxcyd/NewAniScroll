@@ -846,52 +846,62 @@ input[type="number"] {
 */
 
 /* Vidstack sets `el.style.width = "X%"` on every chapter based on
-   its cue duration; that width is fixed and must not be overridden.
-   The dynamic `--chapter-fill` / `--chapter-progress` vars are
-   per-chapter progress percentages — they're meant for the track
-   fill, NOT for the chapter's outer size, so any layout rule that
-   reads them (e.g. flex-grow: var(--chapter-fill)) causes the
-   chapter to physically grow as it plays. We use a flex row only
-   for the alignment + horizontal gap, and let each chapter keep
-   the inline width Vidstack hands it. */
+   its cue duration; we don't touch that. The chapter slot becomes
+   the pill: rounded outer + overflow:hidden so the inner track-fill
+   reads as a sharp-edged progress contained inside the pill.
+
+   The fill width inside each chapter is driven by Vidstack via
+   `--chapter-fill` (0%–100% per chapter, not the overall slider
+   percentage). We let Vidstack's default styling handle it. */
 .vds-time-slider .vds-slider-chapters {
   display: flex !important;
   align-items: center;
   width: 100%;
-  /* No `gap` here: the gap is faked per-chapter via right padding
-     below so it only narrows the inner pill, not the chapter slot
-     itself. A real flex gap would steal width from the chapters
-     and accumulate visible drift on the seek cursor. */
 }
 
 .vds-time-slider .vds-slider-chapter {
-  /* Width is set inline by Vidstack (`width: X%`). Don't touch it. */
+  /* Inline width comes from Vidstack — leave it alone. */
   min-width: 0;
   height: 6px;
   position: relative;
-  /* Right-padding fakes the inter-chapter gap. 4px reads as a clean
-     pill separation without sliding the playhead off-position
-     (overall width is preserved because the inner track shrinks
-     instead of the chapter slot). */
-  padding-right: 4px;
   box-sizing: border-box;
+  /* Fake the inter-chapter gap with a right margin that shrinks the
+     chapter visually but does NOT consume slider space (margin on
+     flex items doesn't affect the % width calc). A real `gap` would
+     steal width from neighbours and drift the playhead. */
+  margin-right: 4px;
+  /* Round the chapter slot ITSELF + clip overflow so the inner
+     fill / progress / track always read as a pill, no matter what
+     border-radius Vidstack applies to its own children. */
+  border-radius: 999px;
+  overflow: hidden;
+  /* Lighter background tint for the unplayed portion of each
+     chapter, otherwise the white default is too loud. */
+  background: rgba(255, 255, 255, 0.18);
 }
 .vds-time-slider .vds-slider-chapter:last-child {
-  padding-right: 0;
+  margin-right: 0;
 }
 
-/* The track wrapper inside the chapter is what we actually round
-   into a pill. Vidstack inserts vds-slider-track + vds-slider-track-
-   fill + vds-slider-progress as siblings here. */
-.vds-time-slider .vds-slider-chapter .vds-slider-track {
-  border-radius: 999px !important;
-  overflow: hidden;
-  height: 100% !important;
-  width: 100% !important;
-  position: relative;
-}
+/* Reset rounding on every layer Vidstack stacks inside the chapter
+   (track + track-fill + progress). The pill effect already comes
+   from the chapter's overflow:hidden + border-radius, so children
+   must be flat rectangles that fill the chapter edge to edge. */
+.vds-time-slider .vds-slider-chapter .vds-slider-track,
 .vds-time-slider .vds-slider-chapter .vds-slider-track-fill,
 .vds-time-slider .vds-slider-chapter .vds-slider-progress {
   border-radius: 0 !important;
   height: 100% !important;
+  /* Anchor every layer to the chapter's left edge. Without this,
+     Vidstack centres the track vertically with top:50% which we
+     don't want once the chapter is the pill. */
+  top: 0 !important;
+  bottom: 0 !important;
+  margin: 0 !important;
+}
+
+/* The empty track layer becomes invisible — the chapter's own
+   background acts as the unplayed-portion colour now. */
+.vds-time-slider .vds-slider-chapter .vds-slider-track {
+  background: transparent !important;
 }
