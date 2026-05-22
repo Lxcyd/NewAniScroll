@@ -31,15 +31,29 @@ function getClientIp(req: NextApiRequest): string | null {
 }
 
 /* Drop bots/scrapers/headless before they pollute the visitors stat.
-   The list covers what we actually see in Vercel logs: vercel-favicon,
-   Scrapy, Headless Chrome, generic crawlers, plus our own cache warmer
-   (set X-Warmer header from the warming script). */
-const BOT_UA = /(bot|crawl|spider|headless|scrapy|favicon|vercel|prerender|preview|warmer|wget|curl|axios|node-fetch)/i;
+   Two layers:
+
+   1. UA blocklist — catches anything that identifies itself honestly
+      (Googlebot, Scrapy, curl, our own warmer, etc.).
+
+   2. Browser-fingerprint check — real browsers ALWAYS send a few
+      headers that simplistic crawlers omit: `Accept-Language`,
+      `Sec-Fetch-Site`, and a Chromium/Firefox/Safari/Edge token in UA.
+      Requiring all three rejects most "User-Agent: Chrome/120 fake"
+      probes that previously slipped past the UA blocklist and counted
+      as unique visitors. */
+const BOT_UA = /(bot|crawl|spider|headless|scrapy|favicon|vercel|prerender|preview|warmer|wget|curl|axios|node-fetch|python|java|ruby|go-http|httpclient|okhttp|libwww|lighthouse|pagespeed|gtmetrix|pingdom|uptimerobot|yandex|baidu|duckduck|semrush|ahrefs|mj12|dotbot|petalbot)/i;
+const BROWSER_UA = /(Mozilla\/5\.0).*(Chrome|Firefox|Safari|Edg|OPR|Opera)\//;
 function isBot(req: NextApiRequest): boolean {
   if (req.headers["x-warmer"]) return true;
   const ua = String(req.headers["user-agent"] || "");
-  if (!ua) return true; // no UA = not a real browser
-  return BOT_UA.test(ua);
+  if (!ua) return true;
+  if (BOT_UA.test(ua)) return true;
+  if (!BROWSER_UA.test(ua)) return true;
+  // Real browsers send these. Headless / scripted clients usually don't.
+  if (!req.headers["accept-language"]) return true;
+  if (!req.headers["sec-fetch-site"]) return true;
+  return false;
 }
 
 export default async function handler(

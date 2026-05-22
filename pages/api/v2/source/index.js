@@ -562,7 +562,16 @@ async function getAnimeSamaIframe(serverKey, title, episode, aniId) {
     // KEY: episode count comes from the canonical (first) array, not the host-specific one.
     // Otherwise, when the requested host isn't in season N, we'd skip ahead and incorrectly
     // return episode 1 of a later season (e.g. One Piece OneUpload â†’ saison9 ep 1).
-    if (!iframeUrl) {
+    //
+    // SAFETY: if we already had an explicit year/title match for the season
+    // but the requested host wasn't available there, do NOT fall through to
+    // the cumulative search â€” iterating other seasons of the SAME slug can
+    // accidentally jump into a different era's panneau (e.g. Hunter x Hunter:
+    // the 2011 slug has its own saisons, and if Sibnet is missing on saison1
+    // the old code would happily walk into a "Films" or "OAV" panneau of the
+    // 1999 series under the same slug). Better to return null and let the UI
+    // mark this server as unavailable than to serve the wrong content.
+    if (!iframeUrl && !directTarget) {
       let cumulativeEps = 0;
       for (const season of seasons) {
         const epPath = `${ANIMESAMA_BASE}/catalogue/${slug}/${season.dir}/${langPath}/episodes.js`;
@@ -737,6 +746,15 @@ async function findAnimeSamaSlug(title, aniId) {
     ...((media?.synonyms) || []),
   ].filter(Boolean);
 
+  // Year hint from AniList (e.g. 2011 for Hunter x Hunter remake). Used
+  // below as a *strong* tie-break so the "hunter-x-hunter-2011" slug wins
+  // over the canonical "hunter-x-hunter" slug (1999) when both come back
+  // from the search. Without this, the shorter-slug tie-breaker silently
+  // picks the wrong era and we end up serving 1999 episodes for an
+  // AniList ID that represents the 2011 remake.
+  const aniYear =
+    media?.seasonYear || media?.startDate?.year || null;
+
   // Score every candidate seen across all queries; return the best.
   // Anime-Sama no longer reliably tags "VF" in search results, so we ignore
   // language and rely on token-overlap scoring against the AniList titles.
@@ -767,18 +785,40 @@ async function findAnimeSamaSlug(title, aniId) {
     });
   }
 
-  // Pick the highest-scoring slug. Ties go to the shortest slug (more likely
-  // to be the canonical entry: "baki" over "baki-hanma-special-fan-edit").
+  // Pick the highest-scoring slug.
+  //
+  // Tie-break order (most specific â†’ least specific):
+  //   1. Slug contains the AniList year (handles remakes like
+  //      hunter-x-hunter vs hunter-x-hunter-2011 where the year-suffixed
+  //      slug is a SEPARATE catalogue entry, not a panneau of the base).
+  //   2. Slug contains any other 4-digit year that does NOT match â€”
+  //      penalise it so we don't pick "-2011" when AniList year is 1999.
+  //   3. Shortest slug wins (canonical entry: "baki" over
+  //      "baki-hanma-special-fan-edit").
+  const yearStr = aniYear ? String(aniYear) : null;
+  const slugYearMatch = (slug) => {
+    const m = slug.match(/-(\d{4})(?:-|$)/);
+    if (!m) return null;
+    return parseInt(m[1], 10);
+  };
+
   let chosen = null;
-  let chosenScore = 0;
+  let chosenScore = -Infinity;
   for (const [slug, score] of candidates) {
     if (score === 0) continue;
+    const slugYear = slugYearMatch(slug);
+    // Composite score: token-overlap is the base, year alignment is a
+    // strong boost / penalty so it dominates the tie-breaker.
+    let composite = score;
+    if (yearStr && slugYear === aniYear) composite += 100;
+    else if (yearStr && slugYear && slugYear !== aniYear) composite -= 100;
+    // Tie-break on slug length when composites are equal.
     if (
-      score > chosenScore ||
-      (score === chosenScore && chosen && slug.length < chosen.length)
+      composite > chosenScore ||
+      (composite === chosenScore && chosen && slug.length < chosen.length)
     ) {
       chosen = slug;
-      chosenScore = score;
+      chosenScore = composite;
     }
   }
 
