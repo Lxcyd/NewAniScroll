@@ -22,6 +22,7 @@ import { createList, createUser, getEpisode } from "@/prisma/user";
 import { getServer } from "@/lib/servers";
 import { primeMediaCache } from "@/lib/anilist/getMediaMeta";
 import { getCachedAnime } from "@/lib/db/anime";
+import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { FULL_MEDIA_FIELDS } from "@/lib/anilist/fullMediaQuery";
 import { anilistFetch } from "@/lib/anilist/anilistFetch";
 import Link from "next/link";
@@ -152,6 +153,7 @@ export default function Watch({
   provider,
   epiNumber,
 }) {
+  const titlePref = useTitlePref();
   const [artStorage,        setArtStorage]        = useState(null);
   const [episodeNavigation, setEpisodeNavigation] = useState(null);
   const [episodesList,      setepisodesList]      = useState();
@@ -314,6 +316,7 @@ export default function Watch({
     setMarked,
     setPlayerState,
     setTrack,
+    setSkipTimes,
     aspectRatio,
     setDataMedia,
     ratingModalState,
@@ -461,6 +464,9 @@ export default function Watch({
   // them here anymore.
   useEffect(() => {
     async function fetchSkip() {
+      // Clear stale skip data on episode change before any await so a slow
+      // network request from the previous episode can't overwrite it.
+      setSkipTimes([]);
       if (!info?.idMal) return;
       try {
         const skip = await fetch(
@@ -469,15 +475,24 @@ export default function Watch({
           )}?types[]=ed&types[]=mixed-ed&types[]=mixed-op&types[]=op&types[]=recap&episodeLength=`
         ).then((res) => (res.ok ? res.json() : null));
 
-        const getOp = skip?.results?.find((item) => item.skipType === "op") || null;
-        const getEd = skip?.results?.find((item) => item.skipType === "ed") || null;
+        // AniSkip returns up to one entry per `skipType`. We keep the four
+        // we surface in the seek bar (op, ed, recap, mixed-op/ed). Mixed
+        // variants happen on the first/last episode where the opening or
+        // ending is fused with story content — we treat them the same as
+        // the regular op/ed visually.
+        const KEEP = new Set(["op", "ed", "recap", "mixed-op", "mixed-ed"]);
+        const normalizedType = (t) =>
+          t === "mixed-op" ? "op" : t === "mixed-ed" ? "ed" : t;
+        const collected = (skip?.results || [])
+          .filter((r) => KEEP.has(r?.skipType) && r?.interval)
+          .map((r) => ({
+            start: Math.round(r.interval.startTime),
+            end: Math.round(r.interval.endTime),
+            type: normalizedType(r.skipType),
+          }))
+          .filter((s) => s.end > s.start);
 
-        const skipData = [
-          getOp ? { startTime: Math.round(getOp.interval.startTime), endTime: Math.round(getOp.interval.endTime), text: "Opening" } : null,
-          getEd ? { startTime: Math.round(getEd.interval.startTime), endTime: Math.round(getEd.interval.endTime), text: "Ending"  } : null,
-        ].filter(Boolean);
-
-        setTrack({ skip: skipData });
+        setSkipTimes(collected);
       } catch (e) {
         console.error("Skip fetch error:", e);
       }
@@ -489,6 +504,7 @@ export default function Watch({
       setPlayerState({ currentTime: 0, isPlaying: false });
       setMarked(0);
       setTrack(null);
+      setSkipTimes([]);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [provider, watchId, info?.id]);
@@ -991,7 +1007,7 @@ export default function Watch({
                         href={`/en/anime/${info?.id}`}
                         className="hover:underline line-clamp-1"
                       >
-                        {episodeNavigation?.playing?.title || info?.title?.romaji || "Loading..."}
+                        {episodeNavigation?.playing?.title || (info?.title && pickTitle(info.title, titlePref)) || "Loading..."}
                       </Link>
                     </div>
                     <h3 className="font-karla">

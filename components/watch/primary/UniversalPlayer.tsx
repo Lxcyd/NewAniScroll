@@ -16,6 +16,7 @@ import {
 } from "@vidstack/react/player/layouts/default";
 import HoverPreview from "./HoverPreview";
 import SubtitleSettings from "./SubtitleSettings";
+import SkipOverlay from "./SkipOverlay";
 // @ts-ignore — context module is plain JS, no types
 import { useWatchProvider } from "@/lib/context/watchPageProvider";
 
@@ -1501,6 +1502,11 @@ export default function UniversalPlayer({
 
       {/* Hover preview — actual video frame at the cursor position on the scrubber */}
       <HoverPreview playerRef={playerRef} src={src} isM3U8={isM3U8} />
+
+      {/* AniSkip segment overlay + Skip button. Renders null when no
+          skip data exists for the current episode, so the chrome is
+          unchanged for series AniSkip doesn't cover. */}
+      <SkipOverlay playerRef={playerRef} />
 
       {/* Subtitle picker. Mounted globally (not inside the player) so it can
           float above the controls without being clipped by the player's
