@@ -248,14 +248,22 @@ export function Navbar({
               <ReportButton />
               <ChangelogButton />
             </div>
-            {session ? (
-              <div className="w-10 h-10 relative flex flex-col items-center group shrink-0">
+            {/* Avatar + hover menu — same shell whether signed-in or out.
+                Signed-out users used to only see a single "login" icon
+                that did nothing on hover; now they get the same dropdown
+                affordance with a Sign-In entry + a Settings link, which
+                lets them tweak preferences (title language, etc.) before
+                signing in. The signed-in variant keeps the avatar image
+                + click-to-profile behaviour. */}
+            <div className="w-10 h-10 relative flex flex-col items-center group shrink-0">
+              {session ? (
                 <button
                   type="button"
                   onClick={() =>
                     router.push(`/en/profile/${session?.user?.name}`)
                   }
                   className="rounded-full w-10 h-10 bg-white/30 overflow-hidden"
+                  title="Profile"
                 >
                   <Image
                     src={session?.user?.image?.large}
@@ -265,39 +273,65 @@ export function Navbar({
                     className="w-10 h-10 object-cover"
                   />
                 </button>
-                <div className="hidden absolute z-50 w-28 text-center -bottom-24 text-white shadow-2xl opacity-0 bg-secondary p-1 py-2 rounded-md font-karla font-light invisible group-hover:visible group-hover:opacity-100 duration-300 transition-all md:grid place-items-center gap-1">
-                  <Link
-                    href={`/en/profile/${session?.user?.name}`}
-                    className="hover:text-action"
-                  >
-                    Profile
-                  </Link>
-                  {/* Admin link shows only for users matching the
-                      NEXT_PUBLIC_ADMIN_USERNAMES env var. */}
-                  {isAdminName(session?.user?.name) && (
-                    <Link href="/admin" className="hover:text-action">
-                      Admin
-                    </Link>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => signIn("AniListProvider")}
+                  title="Sign in with AniList"
+                  className="w-10 h-10 bg-white/30 rounded-full overflow-hidden shrink-0"
+                >
+                  <UserIcon className="w-full h-full translate-y-1" />
+                </button>
+              )}
+
+              {/* Hover dropdown — pure CSS via `group-hover`, no JS state.
+                  Padded top by mirroring the avatar height so the hover
+                  bridge doesn't collapse when the cursor moves down. */}
+              <div className="hidden md:grid absolute z-50 right-0 top-full pt-2 w-36 opacity-0 invisible group-hover:visible group-hover:opacity-100 transition-all duration-200">
+                <div className="bg-secondary text-white shadow-2xl rounded-md p-1 py-2 font-karla font-light grid place-items-stretch gap-1 text-center">
+                  {session ? (
+                    <>
+                      <Link
+                        href={`/en/profile/${session?.user?.name}`}
+                        className="hover:text-action py-1"
+                      >
+                        Profile
+                      </Link>
+                      {/* Admin link shows only for users matching the
+                          NEXT_PUBLIC_ADMIN_USERNAMES env var. */}
+                      {isAdminName(session?.user?.name) && (
+                        <Link href="/admin" className="hover:text-action py-1">
+                          Admin
+                        </Link>
+                      )}
+                      <Link href="/en/settings" className="hover:text-action py-1">
+                        Settings
+                      </Link>
+                      <button
+                        type="button"
+                        onClick={() => signOut({ redirect: true })}
+                        className="hover:text-action py-1"
+                      >
+                        Log out
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => signIn("AniListProvider")}
+                        className="hover:text-action py-1"
+                      >
+                        Sign In
+                      </button>
+                      <Link href="/en/settings" className="hover:text-action py-1">
+                        Settings
+                      </Link>
+                    </>
                   )}
-                  <button
-                    type="button"
-                    onClick={() => signOut({ redirect: true })}
-                    className="hover:text-action"
-                  >
-                    Log out
-                  </button>
                 </div>
               </div>
-            ) : (
-              <button
-                type="button"
-                onClick={() => signIn("AniListProvider")}
-                title="Login With AniList"
-                className="w-10 h-10 bg-white/30 rounded-full overflow-hidden shrink-0"
-              >
-                <UserIcon className="w-full h-full translate-y-1" />
-              </button>
-            )}
+            </div>
             {/* </div> */}
           </div>
         </div>

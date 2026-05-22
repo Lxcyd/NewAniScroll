@@ -9,6 +9,7 @@ import { BookOpenIcon, PlayIcon } from "@heroicons/react/20/solid";
 import { useAniList } from "@/lib/anilist/useAnilist";
 import { getFormat } from "@/utils/getFormat";
 import SearchByImage from "./search/searchByImage";
+import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 
 type SearchType = "ANIME" | "MANGA";
 
@@ -26,6 +27,9 @@ export interface DataTypes {
 
 interface Title {
   userPreferred: string;
+  english?: string | null;
+  romaji?: string | null;
+  native?: string | null;
 }
 
 interface CoverImage {
@@ -39,6 +43,7 @@ interface StartDate {
 export default function SearchPalette() {
   const { isOpen, setIsOpen } = useSearch();
   const { quickSearch } = useAniList();
+  const titlePref = useTitlePref();
 
   const [query, setQuery] = useState<string>("");
   const [data, setData] = useState<DataTypes[] | null>(null);
@@ -250,7 +255,7 @@ export default function SearchPalette() {
                                 </div>
                                 <div className="flex flex-col w-full h-full">
                                   <h3 className="font-karla font-semibold">
-                                    {i.title.userPreferred}
+                                    {pickTitle(i.title, titlePref)}
                                   </h3>
                                   <p className="text-sm text-white/50">
                                     {i.startDate.year} {getFormat(i.format)}

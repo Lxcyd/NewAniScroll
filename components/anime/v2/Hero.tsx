@@ -12,6 +12,7 @@ import {
   TitleImage,
 } from "./helpers";
 import { toast } from "sonner";
+import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 
 type HeroProps = {
   info: AniListInfoTypes;
@@ -49,8 +50,8 @@ export default function Hero({
   ratingRank,
   favRank,
 }: HeroProps) {
-  const title =
-    info.title.english || info.title.romaji || info.title.native || "Untitled";
+  const titlePref = useTitlePref();
+  const title = pickTitle(info.title, titlePref);
   const seasonPill = prettySeason(info);
 
   const studios = (info.studios?.edges || []).filter((e) => e.isMain);
