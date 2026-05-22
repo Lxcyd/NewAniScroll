@@ -845,30 +845,51 @@ input[type="number"] {
    custom properties Vidstack writes (--chapter-fill etc.).
 */
 
-/* Container: make sure chapters lay out as a flex row with a small
-   horizontal gap that creates the visible separation between pills. */
+/* Vidstack sets `el.style.width = "X%"` on every chapter based on
+   its cue duration; that width is fixed and must not be overridden.
+   The dynamic `--chapter-fill` / `--chapter-progress` vars are
+   per-chapter progress percentages — they're meant for the track
+   fill, NOT for the chapter's outer size, so any layout rule that
+   reads them (e.g. flex-grow: var(--chapter-fill)) causes the
+   chapter to physically grow as it plays. We use a flex row only
+   for the alignment + horizontal gap, and let each chapter keep
+   the inline width Vidstack hands it. */
 .vds-time-slider .vds-slider-chapters {
   display: flex !important;
   align-items: center;
-  gap: 4px;
   width: 100%;
+  /* No `gap` here: the gap is faked per-chapter via right padding
+     below so it only narrows the inner pill, not the chapter slot
+     itself. A real flex gap would steal width from the chapters
+     and accumulate visible drift on the seek cursor. */
 }
 
-/* Each chapter is its own slot; the inner track / fill / progress
-   must fill it. The flex-grow comes from --chapter-fill (a fraction
-   set by Vidstack). */
 .vds-time-slider .vds-slider-chapter {
-  flex: var(--chapter-fill, 1);
+  /* Width is set inline by Vidstack (`width: X%`). Don't touch it. */
   min-width: 0;
   height: 6px;
   position: relative;
-  overflow: hidden;
-  border-radius: 999px;
+  /* Right-padding fakes the inter-chapter gap. 4px reads as a clean
+     pill separation without sliding the playhead off-position
+     (overall width is preserved because the inner track shrinks
+     instead of the chapter slot). */
+  padding-right: 4px;
+  box-sizing: border-box;
+}
+.vds-time-slider .vds-slider-chapter:last-child {
+  padding-right: 0;
 }
 
-/* The track, fill, and progress inside each chapter inherit the
-   chapter's rounded pill shape via the parent's overflow: hidden. */
-.vds-time-slider .vds-slider-chapter .vds-slider-track,
+/* The track wrapper inside the chapter is what we actually round
+   into a pill. Vidstack inserts vds-slider-track + vds-slider-track-
+   fill + vds-slider-progress as siblings here. */
+.vds-time-slider .vds-slider-chapter .vds-slider-track {
+  border-radius: 999px !important;
+  overflow: hidden;
+  height: 100% !important;
+  width: 100% !important;
+  position: relative;
+}
 .vds-time-slider .vds-slider-chapter .vds-slider-track-fill,
 .vds-time-slider .vds-slider-chapter .vds-slider-progress {
   border-radius: 0 !important;

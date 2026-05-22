@@ -58,8 +58,17 @@ export default async function handler(
   const db = getAdminTursoClient();
   if (db) await ensureAdminSchema();
 
-  // 1. Cache hit?
-  if (db) {
+  // `?refresh=1` lets the watch page force-refetch from upstream
+  // (e.g. after we fix a config issue that caused us to cache an
+  // AniSkip fallback when Anime-Skip should have answered). Without
+  // it we'd keep serving the stale fallback forever from Turso.
+  const refresh = req.query.refresh === "1";
+
+  // 1. Cache hit? Skip when ?refresh=1 OR when we previously cached
+  //    a non-Anime-Skip result AND we now have an aniListId — that
+  //    earlier write probably happened during a transient outage,
+  //    so we re-attempt the better source.
+  if (db && !refresh) {
     try {
       const r = await db.execute({
         sql: `SELECT source, payload FROM skip_episodes
@@ -68,16 +77,20 @@ export default async function handler(
       });
       if (r.rows.length) {
         const row: any = r.rows[0];
-        // Long browser+CDN cache — skip times are practically static.
-        res.setHeader(
-          "Cache-Control",
-          "public, max-age=86400, s-maxage=86400, stale-while-revalidate=604800",
-        );
-        return res.status(200).json({
-          source: row.source,
-          skips: safeParse(String(row.payload)),
-          cached: true,
-        });
+        const cachedSource = String(row.source);
+        const shouldRetryUpstream =
+          aniListId && cachedSource !== "anime_skip";
+        if (!shouldRetryUpstream) {
+          res.setHeader(
+            "Cache-Control",
+            "public, max-age=86400, s-maxage=86400, stale-while-revalidate=604800",
+          );
+          return res.status(200).json({
+            source: cachedSource,
+            skips: safeParse(String(row.payload)),
+            cached: true,
+          });
+        }
       }
     } catch (e: any) {
       console.warn("[skip] cache read failed:", e?.message);
@@ -91,8 +104,13 @@ export default async function handler(
     try {
       skips = await fetchFromAnimeSkip(aniListId, episode);
       if (skips.length) source = "anime_skip";
+      else console.log(`[skip] anime-skip: no data for AniList ${aniListId} ep ${episode}`);
     } catch (e: any) {
-      console.warn("[skip] anime-skip failed:", e?.message);
+      console.warn(
+        `[skip] anime-skip failed for AniList ${aniListId} ep ${episode}:`,
+        e?.message,
+        process.env.ANIME_SKIP_CLIENT_ID ? "" : "(ANIME_SKIP_CLIENT_ID env var is MISSING)",
+      );
     }
   }
 
@@ -215,14 +233,23 @@ async function resolveAnimeSkipShowId(aniListId: number): Promise<string | null>
   if (db) {
     try {
       const r = await db.execute({
-        sql: `SELECT anime_skip_id, not_found FROM skip_show_map
+        sql: `SELECT anime_skip_id, not_found, checked_at FROM skip_show_map
                WHERE anilist_id = ?`,
         args: [aniListId],
       });
       if (r.rows.length) {
         const row: any = r.rows[0];
-        if (Number(row.not_found)) return null;
-        return row.anime_skip_id ? String(row.anime_skip_id) : null;
+        // Negative caches (not_found = 1) get retried after 7 days
+        // — Anime-Skip's catalogue keeps growing, and a transient
+        // outage shouldn't blacklist an anime forever. Positive
+        // caches are kept indefinitely (showId is permanent).
+        const checkedAt = Number(row.checked_at) || 0;
+        const ageDays = (Date.now() / 1000 - checkedAt) / 86400;
+        if (!Number(row.not_found)) {
+          return row.anime_skip_id ? String(row.anime_skip_id) : null;
+        }
+        if (ageDays < 7) return null;
+        // Fall through to re-query upstream.
       }
     } catch {}
   }
