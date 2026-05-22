@@ -9,6 +9,7 @@ import { authOptions } from "../../api/auth/[...nextauth]";
 import Image from "next/image";
 import MobileNav from "@/components/shared/MobileNav";
 import { truncateImgUrl } from "@/utils/imageUtils";
+import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 
 export async function getServerSideProps(context) {
   const session = await getServerSession(context.req, context.res, authOptions);
@@ -21,6 +22,7 @@ export async function getServerSideProps(context) {
 }
 
 export default function Recent({ sessions }) {
+  const titlePref = useTitlePref();
   const [data, setData] = useState(null);
   const [page, setPage] = useState(1);
   const [nextPage, setNextPage] = useState(true);
@@ -95,13 +97,13 @@ export default function Recent({ sessions }) {
               <Link
                 href={`/en/anime/${i.id}`}
                 className=" relative hover:scale-105 scale-100 transition-all duration-200 ease-out"
-                title={i.title.romaji}
+                title={pickTitle(i.title, titlePref)}
               >
                 <div className="w-[140px] h-[190px] lg:w-[170px] lg:h-[230px] object-cover rounded opacity-90 z-20">
                   <div className="absolute bg-gradient-to-b from-black/30 to-transparent from-5% to-30% top-0 z-30 w-[140px] h-[190px] lg:w-[170px] lg:h-[230px] rounded" />
                   <Image
                     src={i.image || truncateImgUrl(i.coverImage)}
-                    alt={i.title.romaji}
+                    alt={pickTitle(i.title, titlePref)}
                     width={500}
                     height={500}
                     className="w-[140px] h-[190px] lg:w-[170px] lg:h-[230px] object-cover rounded opacity-90 z-20"
@@ -124,11 +126,11 @@ export default function Recent({ sessions }) {
               <Link
                 href={`/en/anime/${i.id}`}
                 className="w-full px-1 py-2"
-                title={i.title.romaji}
+                title={pickTitle(i.title, titlePref)}
               >
                 <h1 className="font-karla font-bold xl:text-base text-[15px] line-clamp-2">
                   <span className="dots bg-green-500" />
-                  {i.title.romaji}
+                  {pickTitle(i.title, titlePref)}
                 </h1>
               </Link>
             </div>

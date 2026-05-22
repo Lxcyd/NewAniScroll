@@ -17,6 +17,7 @@ import {
 
 import { scheduleQuery } from "@/lib/graphql/query";
 import MobileNav from "@/components/shared/MobileNav";
+import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 
 import { redis } from "@/lib/redis";
 import Head from "next/head";
@@ -140,6 +141,7 @@ export async function getServerSideProps() {
 }
 
 export default function Schedule({ schedule }: any) {
+  const titlePref = useTitlePref();
   const [filterDay, setFilterDay] = useState("All");
   const [loading, setLoading] = useState(true);
 
@@ -366,7 +368,7 @@ export default function Schedule({ schedule }: any) {
                                 />
                                 <div className="flex flex-col justify-center font-karla p-2">
                                   <h1 className="font-semibold line-clamp-1 text-sm group-hover:text-action transition-all duration-200 ease-out">
-                                    {m.title.romaji}
+                                    {pickTitle(m.title, titlePref)}
                                   </h1>
                                   <p className="text-gray-400 group-hover:text-action/80 transition-all duration-200 ease-out">
                                     Ep {s?.episode}{" "}
@@ -472,7 +474,7 @@ export default function Schedule({ schedule }: any) {
                           />
                           <div className="flex flex-col justify-center font-karla p-2">
                             <h1 className="font-semibold line-clamp-1 text-sm group-hover:text-action transition-all duration-200 ease-out">
-                              {m.title.romaji}
+                              {pickTitle(m.title, titlePref)}
                             </h1>
                             <p className="text-gray-400 group-hover:text-action/80 transition-all duration-200 ease-out">
                               Ep {s.episode} {timeStamptoHour(s.airingAt)}

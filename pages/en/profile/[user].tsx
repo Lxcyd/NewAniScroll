@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { Navbar } from "@/components/shared/NavBar";
 import pls from "@/utils/request";
 import { CurrentMediaTypes } from "..";
+import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 
 type MyListProps = {
   media: CurrentMediaTypes[];
@@ -23,6 +24,7 @@ export default function MyList({
   time,
   userSettings,
 }: MyListProps) {
+  const titlePref = useTitlePref();
   const [listFilter, setListFilter] = useState("all");
   const [visible, setVisible] = useState(false);
   const [useCustomList, setUseCustomList] = useState(true);
@@ -312,9 +314,9 @@ export default function MyList({
                                 <Link
                                   href={`/en/anime/${item.media.id}`}
                                   className="font-semibold font-karla pl-2 text-sm line-clamp-1"
-                                  title={item.media.title.romaji}
+                                  title={pickTitle(item.media.title, titlePref)}
                                 >
-                                  {item.media.title.romaji}
+                                  {pickTitle(item.media.title, titlePref)}
                                 </Link>
                               </div>
                             </td>
