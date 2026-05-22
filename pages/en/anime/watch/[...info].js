@@ -482,13 +482,23 @@ export default function Watch({
         // a bogus "Skip Outro" early in the episode AND add two more
         // cuts to the seek bar). When the canonical op/ed is missing
         // we'd rather have NO skip button than the wrong one.
+        // Each AniSkip submission carries its OWN `episodeLength` (the
+        // duration of the video the submitter timed against). When that
+        // length doesn't match the video we're playing — common, because
+        // different rips/encodes/streams pad intros and credits
+        // differently — the raw start/end timestamps land in the wrong
+        // place. We pass episodeLength through so SkipOverlay can
+        // rescale against the real `duration` reported by Vidstack.
         const KEEP = new Set(["op", "ed", "recap"]);
         const collected = (skip?.results || [])
           .filter((r) => KEEP.has(r?.skipType) && r?.interval)
           .map((r) => ({
-            start: Math.round(r.interval.startTime),
-            end: Math.round(r.interval.endTime),
+            start: r.interval.startTime,
+            end: r.interval.endTime,
             type: r.skipType,
+            // May be undefined on older submissions; fall back to 0
+            // which SkipOverlay interprets as "no rescale info".
+            sourceLength: Number(r.episodeLength) || 0,
           }))
           .filter((s) => s.end > s.start);
 

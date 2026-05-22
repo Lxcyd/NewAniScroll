@@ -66,17 +66,40 @@ export default function SkipOverlay({ playerRef, nextEpisodeHref }: Props) {
   const duration = useMediaState("duration", playerRef);
   const router = useRouter();
 
-  /* Sanitised segments: drop bogus zero-duration markers and dubious
-     entries that would fire the Skip Outro at t=0. We do this *after*
-     the raw data is fetched so the watch-page reducer stays simple. */
+  /* Sanitised segments — three jobs:
+       1. Rescale start/end against the real video duration when the
+          AniSkip submitter timed against a different encode. Each
+          entry carries its own `sourceLength`; if it differs from
+          our `duration` by more than 5 % we scale the timestamps:
+            real_t = submitted_t * duration / sourceLength
+          This is the root cause of segments landing 1+ minute off
+          (e.g. AoT EP1 op submitted as 0:47 → 2:17 against a 25:40
+          rip, but we're playing a 25:56 rip where the real op is
+          2:20 → 3:51).
+       2. Drop bogus zero-duration markers (start == end).
+       3. Drop `ed` segments that start in the first MIN_OUTRO_START
+          seconds — a real outro never does that. */
   const cleanSegments = useMemo(() => {
     if (!Array.isArray(skipTimes)) return [];
-    return skipTimes.filter((s) => {
-      if (s.end - s.start < MIN_SEGMENT_DURATION) return false;
-      if (s.type === "ed" && s.start < MIN_OUTRO_START) return false;
-      return true;
-    });
-  }, [skipTimes]);
+    if (duration <= 0) return [];
+    return skipTimes
+      .map((s: any) => {
+        const src = Number(s.sourceLength) || 0;
+        const needsScale = src > 0 && Math.abs(src - duration) / duration > 0.05;
+        const scale = needsScale ? duration / src : 1;
+        return {
+          ...s,
+          start: Math.round(s.start * scale),
+          end: Math.round(s.end * scale),
+        };
+      })
+      .filter((s) => {
+        if (s.end - s.start < MIN_SEGMENT_DURATION) return false;
+        if (s.type === "ed" && s.start < MIN_OUTRO_START) return false;
+        if (s.end > duration) return false;
+        return true;
+      });
+  }, [skipTimes, duration]);
 
   /* Active segment = the one (if any) whose [start, end] window
      contains currentTime. We require duration > 0 so we don't fire
@@ -250,15 +273,17 @@ export default function SkipOverlay({ playerRef, nextEpisodeHref }: Props) {
                 style={{
                   position: "absolute",
                   left: `${frac * 100}%`,
-                  top: -2,
-                  bottom: -2,
-                  /* 6 px gap reads as a true chapter cut against the
-                     8 px track height; smaller values disappear into
-                     the pill's rounded ends. Negative top/bottom +
-                     transform centres the gap on the boundary. */
-                  width: 6,
-                  background: "rgb(12, 13, 16)",
-                  transform: "translateX(-3px)",
+                  top: 0,
+                  bottom: 0,
+                  /* 3 px reads as a subtle chapter cut against the
+                     6 px flat track, matching the Miruro reference.
+                     Background is the same dark grey as the unplayed
+                     portion of the slider so the cut blends in
+                     visually on the right of the cursor, but still
+                     punches through the brand-red fill on the left. */
+                  width: 3,
+                  background: "rgba(0, 0, 0, 0.85)",
+                  transform: "translateX(-1.5px)",
                   pointerEvents: "none",
                   zIndex: 5,
                 }}

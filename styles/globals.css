@@ -834,21 +834,18 @@ input[type="number"] {
 }
 
 /* ── Vidstack seek-bar chrome ────────────────────────────────────
-   Default Vidstack track is a thin square-ended rectangle. We make
-   it fully pill-shaped (border-radius: 999px) and slightly taller so
-   the chapter cuts SkipOverlay paints on top read as proper
-   segments — matches the Crunchyroll-style reference the user shared.
-   Targeting the deep Vidstack class names is unavoidable; the
-   library doesn't expose CSS custom properties for slider radii. */
+   Match the Miruro reference: thin flat bar, no rounded ends, the
+   chapter cuts SkipOverlay paints come through as clean vertical
+   slits. Hover-thicken (taller on focus) is left to Vidstack's
+   default behaviour. */
 .vds-time-slider .vds-slider-track,
 .vds-time-slider .vds-slider-track-fill,
 .vds-time-slider .vds-slider-progress {
-  border-radius: 999px !important;
+  border-radius: 0 !important;
 }
 
-/* Taller bar so the 6 px-wide chapter cuts and the pill shape are
-   actually visible. 8 px is the sweet spot — bigger than YouTube's
-   4 px but matches the chunky reference from the user. */
+/* Slightly taller than default (5 px) so the gap cuts stay visible
+   without dominating the chrome. */
 .vds-time-slider .vds-slider-track {
-  height: 8px !important;
+  height: 6px !important;
 }
