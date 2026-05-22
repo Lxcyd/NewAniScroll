@@ -247,7 +247,6 @@ export default function SkipOverlay({
      buttons. */
   return (
     <>{buttonStack && playerEl && createPortal(buttonStack, playerEl)}</>
-    </>
   );
 }
 
