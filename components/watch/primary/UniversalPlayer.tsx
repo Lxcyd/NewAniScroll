@@ -1681,23 +1681,28 @@ function buildChaptersVtt(
 function useChaptersVtt(
   segments: Array<{ start: number; end: number; type: string }>,
 ): string | null {
-  // We need the duration to synthesise the trailing "Episode" cue.
-  // It's available from the player ref but at this point in the
-  // component tree we don't have it yet; use the highest segment.end
-  // as a safe lower bound — Vidstack tolerates a final cue that
-  // ends before the real duration (extra time is just unlabelled).
-  const duration = segments.reduce((m, s) => Math.max(m, s.end), 0);
+  // Synthesise the trailing "Episode" cue with a duration that
+  // safely exceeds the last skip's end — using the max(end) caused
+  // Vidstack to render only the cues UP TO that point and no
+  // trailing chapter for the remaining episode. We pad with +60 min
+  // so the trailing cue always extends past the real episode end.
+  // Vidstack clamps to the real duration at runtime.
+  const duration = segments.reduce((m, s) => Math.max(m, s.end), 0) + 3600;
   const vtt = buildChaptersVtt(segments, duration);
   const [url, setUrl] = useState<string | null>(null);
   useEffect(() => {
     if (!vtt) {
+      console.log("[ChaptersVtt] no segments, no chapters track");
       setUrl(null);
       return;
     }
     const blob = new Blob([vtt], { type: "text/vtt" });
     const u = URL.createObjectURL(blob);
+    console.log("[ChaptersVtt] generated", segments.length, "segments → blob", u);
+    console.log("[ChaptersVtt] VTT content:\n" + vtt);
     setUrl(u);
     return () => URL.revokeObjectURL(u);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [vtt]);
   return url;
 }

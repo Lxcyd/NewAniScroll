@@ -90,7 +90,15 @@ export default function SkipOverlay({
         const res = await fetch(
           `/api/v2/skip/${malId}/${episode}?${params.toString()}`,
         );
-        if (!res.ok || cancelled) return;
+        if (!res.ok || cancelled) {
+          console.warn(
+            "[SkipOverlay] proxy returned",
+            res.status,
+            "for",
+            `${malId}/${episode}`,
+          );
+          return;
+        }
         const json = await res.json();
         const raw: Skip[] = Array.isArray(json?.skips) ? json.skips : [];
         // The proxy already filters mixed-* and short intervals, but
@@ -103,12 +111,16 @@ export default function SkipOverlay({
             !(s.type === "ed" && s.start < MIN_OUTRO_START) &&
             s.end <= duration,
         );
+        console.log(
+          `[SkipOverlay] ${malId}/${episode} source=${json?.source} cached=${json?.cached} raw=${raw.length} kept=${parsed.length}`,
+          parsed,
+        );
         if (!cancelled) {
           setSkips(parsed);
           watchCtx?.setSkipTimes?.(parsed);
         }
-      } catch {
-        /* network errors silently leave the seek bar bare */
+      } catch (e: any) {
+        console.warn("[SkipOverlay] fetch error:", e?.message);
       }
     })();
     return () => {
