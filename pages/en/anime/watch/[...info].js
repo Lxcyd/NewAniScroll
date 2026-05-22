@@ -475,20 +475,20 @@ export default function Watch({
           )}?types[]=ed&types[]=mixed-ed&types[]=mixed-op&types[]=op&types[]=recap&episodeLength=`
         ).then((res) => (res.ok ? res.json() : null));
 
-        // AniSkip returns up to one entry per `skipType`. We keep the four
-        // we surface in the seek bar (op, ed, recap, mixed-op/ed). Mixed
-        // variants happen on the first/last episode where the opening or
-        // ending is fused with story content — we treat them the same as
-        // the regular op/ed visually.
-        const KEEP = new Set(["op", "ed", "recap", "mixed-op", "mixed-ed"]);
-        const normalizedType = (t) =>
-          t === "mixed-op" ? "op" : t === "mixed-ed" ? "ed" : t;
+        // AniSkip returns one entry per `skipType`. We only keep the
+        // three canonical types — `mixed-op` / `mixed-ed` are dropped
+        // because in practice they collide with the real op/ed (see
+        // e.g. AoT EP1 where mixed-ed runs 24→114 s, which would fire
+        // a bogus "Skip Outro" early in the episode AND add two more
+        // cuts to the seek bar). When the canonical op/ed is missing
+        // we'd rather have NO skip button than the wrong one.
+        const KEEP = new Set(["op", "ed", "recap"]);
         const collected = (skip?.results || [])
           .filter((r) => KEEP.has(r?.skipType) && r?.interval)
           .map((r) => ({
             start: Math.round(r.interval.startTime),
             end: Math.round(r.interval.endTime),
-            type: normalizedType(r.skipType),
+            type: r.skipType,
           }))
           .filter((s) => s.end > s.start);
 

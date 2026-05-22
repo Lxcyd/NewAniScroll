@@ -250,14 +250,17 @@ export default function SkipOverlay({ playerRef, nextEpisodeHref }: Props) {
                 style={{
                   position: "absolute",
                   left: `${frac * 100}%`,
-                  top: 0,
-                  bottom: 0,
-                  width: 4,
-                  background: "rgba(0,0,0,1)",
-                  transform: "translateX(-2px)",
+                  top: -2,
+                  bottom: -2,
+                  /* 6 px gap reads as a true chapter cut against the
+                     8 px track height; smaller values disappear into
+                     the pill's rounded ends. Negative top/bottom +
+                     transform centres the gap on the boundary. */
+                  width: 6,
+                  background: "rgb(12, 13, 16)",
+                  transform: "translateX(-3px)",
                   pointerEvents: "none",
                   zIndex: 5,
-                  borderRadius: 2,
                 }}
               />
             ))}

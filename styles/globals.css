@@ -834,20 +834,21 @@ input[type="number"] {
 }
 
 /* ── Vidstack seek-bar chrome ────────────────────────────────────
-   The default time-slider track is a thin straight rectangle. We
-   round the whole track + the played-progress fill so every chapter
-   segment carved by SkipOverlay's gap separators reads as a pill,
-   matching the Crunchyroll-style reference the user provided.
-   Targeting the deep Vidstack class names is unavoidable — the
+   Default Vidstack track is a thin square-ended rectangle. We make
+   it fully pill-shaped (border-radius: 999px) and slightly taller so
+   the chapter cuts SkipOverlay paints on top read as proper
+   segments — matches the Crunchyroll-style reference the user shared.
+   Targeting the deep Vidstack class names is unavoidable; the
    library doesn't expose CSS custom properties for slider radii. */
 .vds-time-slider .vds-slider-track,
 .vds-time-slider .vds-slider-track-fill,
 .vds-time-slider .vds-slider-progress {
-  border-radius: 4px !important;
+  border-radius: 999px !important;
 }
 
-/* Slightly taller bar so the gap separators (4px wide black) read
-   as proper chapter cuts instead of hairlines. */
+/* Taller bar so the 6 px-wide chapter cuts and the pill shape are
+   actually visible. 8 px is the sweet spot — bigger than YouTube's
+   4 px but matches the chunky reference from the user. */
 .vds-time-slider .vds-slider-track {
-  height: 6px !important;
+  height: 8px !important;
 }
