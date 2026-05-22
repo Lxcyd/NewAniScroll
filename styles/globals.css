@@ -832,3 +832,22 @@ input::-webkit-inner-spin-button {
 input[type="number"] {
   -moz-appearance: textfield;
 }
+
+/* ── Vidstack seek-bar chrome ────────────────────────────────────
+   The default time-slider track is a thin straight rectangle. We
+   round the whole track + the played-progress fill so every chapter
+   segment carved by SkipOverlay's gap separators reads as a pill,
+   matching the Crunchyroll-style reference the user provided.
+   Targeting the deep Vidstack class names is unavoidable — the
+   library doesn't expose CSS custom properties for slider radii. */
+.vds-time-slider .vds-slider-track,
+.vds-time-slider .vds-slider-track-fill,
+.vds-time-slider .vds-slider-progress {
+  border-radius: 4px !important;
+}
+
+/* Slightly taller bar so the gap separators (4px wide black) read
+   as proper chapter cuts instead of hairlines. */
+.vds-time-slider .vds-slider-track {
+  height: 6px !important;
+}
