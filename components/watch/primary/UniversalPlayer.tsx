@@ -58,6 +58,10 @@ type Props = {
   downloadName?: string;
   /** Persisted player preference — defaults to false. */
   autoplay?: boolean;
+  /** Pre-computed URL for the next episode. SkipOverlay surfaces a
+   *  "Next Episode" button during the outro segment (and in the last
+   *  30 s of the episode) when this is non-null. */
+  nextEpisodeHref?: string | null;
 };
 
 function proxied(url: string, referer?: string | null): string {
@@ -827,6 +831,7 @@ export default function UniversalPlayer({
   serverId,
   downloadName = "anime.mp4",
   autoplay = false,
+  nextEpisodeHref = null,
 }: Props) {
   const playerRef = useRef<MediaPlayerInstance>(null);
   const [subMenuOpen, setSubMenuOpen] = useState(false);
@@ -1504,9 +1509,10 @@ export default function UniversalPlayer({
       <HoverPreview playerRef={playerRef} src={src} isM3U8={isM3U8} />
 
       {/* AniSkip segment overlay + Skip button. Renders null when no
-          skip data exists for the current episode, so the chrome is
-          unchanged for series AniSkip doesn't cover. */}
-      <SkipOverlay playerRef={playerRef} />
+          skip data exists for the current episode AND there's no next
+          episode to surface, so the chrome is unchanged for series
+          AniSkip doesn't cover and one-off OVAs. */}
+      <SkipOverlay playerRef={playerRef} nextEpisodeHref={nextEpisodeHref} />
 
       {/* Subtitle picker. Mounted globally (not inside the player) so it can
           float above the controls without being clipped by the player's

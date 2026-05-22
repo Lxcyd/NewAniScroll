@@ -837,6 +837,18 @@ export default function Watch({
       );
     }
 
+    /* Build the canonical "next episode" URL once so SkipOverlay's
+       "Next Episode" button can use it. We mirror exactly what the
+       episode list does (see components/watch/secondary/episodeLists.tsx)
+       so the navigation feels identical to clicking the next thumbnail
+       — same query params (id + num + optional dub), same provider. */
+    const nextEp = episodeNavigation?.next;
+    const nextEpisodeHref = nextEp
+      ? `/en/anime/watch/${info.id}/${activeServer}?id=${encodeURIComponent(
+          nextEp.id
+        )}&num=${nextEp.number}${dub ? `&dub=${dub}` : ""}`
+      : null;
+
     if (needsBackend) {
       if (hlsData?.error) {
         return (
@@ -863,6 +875,7 @@ export default function Watch({
           streamData={hlsData}
           poster={episodeNavigation?.playing?.img || info?.bannerImage}
           serverId={server.id}
+          nextEpisodeHref={nextEpisodeHref}
           downloadName={`${(info?.title?.romaji || info?.title?.english || "anime").replace(/\s+/g, "_")}_E${epiNumber}${dub ? "_DUB" : ""}`}
           onError={(reason) =>
             markFailed(
@@ -887,6 +900,7 @@ export default function Watch({
         streamData={{ iframe: src }}
         poster={episodeNavigation?.playing?.img || info?.bannerImage}
         serverId={server.id}
+        nextEpisodeHref={nextEpisodeHref}
         onError={(reason) => markFailed(server.id, reason || "Iframe load timeout")}
       />
     );
