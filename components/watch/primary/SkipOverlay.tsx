@@ -173,31 +173,12 @@ export default function SkipOverlay({
     };
   }, [playerRef]);
 
-  /* Track whether Vidstack's control bar is currently visible. The
-     library auto-hides controls after ~2 s of pointer inactivity by
-     toggling `data-user-idle` on its root element. When idle, the
-     controls slide off-screen and our buttons should drop down to
-     sit at the very bottom of the player frame; when controls are
-     visible, the buttons need to clear the time-slider + button row
-     above them. A MutationObserver on the attribute keeps us in
-     sync without polling. */
-  const [controlsVisible, setControlsVisible] = useState(true);
-  useEffect(() => {
-    if (!playerEl) return;
-    const read = () => {
-      // data-user-idle="true" means controls are currently HIDDEN.
-      // Absent attribute or "false" = visible.
-      const idle = playerEl.getAttribute("data-user-idle") === "true";
-      setControlsVisible(!idle);
-    };
-    read();
-    const observer = new MutationObserver(read);
-    observer.observe(playerEl, {
-      attributes: true,
-      attributeFilter: ["data-user-idle"],
-    });
-    return () => observer.disconnect();
-  }, [playerEl]);
+  /* Track whether Vidstack's control bar is currently visible.
+     Vidstack exposes this as `useMediaState("controlsVisible")`
+     which fires re-renders whenever the auto-hide timer flips it.
+     When the bar is hidden the buttons drop to the very bottom of
+     the player frame; when it's visible they sit above it. */
+  const controlsVisible = useMediaState("controlsVisible", playerRef);
 
   const skipTo = (endSeconds: number) => {
     const player = playerRef.current;
@@ -305,13 +286,22 @@ export default function SkipOverlay({
                 style={{
                   position: "absolute",
                   left: `${frac * 100}%`,
-                  top: 0,
-                  bottom: 0,
-                  width: 3,
-                  background: "rgba(0, 0, 0, 0.85)",
-                  transform: "translateX(-1.5px)",
+                  /* Sit slightly above & below the track so the cut
+                     pierces all the way through the fill, no matter
+                     what hover-thickening Vidstack applies. */
+                  top: -2,
+                  bottom: -2,
+                  width: 4,
+                  /* Solid black (player background colour) carves a
+                     clean visual cut through the fill, the same way
+                     YouTube chapter markers work. Semi-transparent
+                     left the fill bleeding through and was reading
+                     as a faint tint instead of a real separator. */
+                  background: "#000",
+                  transform: "translateX(-2px)",
                   pointerEvents: "none",
                   zIndex: 5,
+                  borderRadius: 1,
                 }}
               />
             ))}

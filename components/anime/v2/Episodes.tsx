@@ -375,6 +375,7 @@ function SeasonPicker({
   activeSeasonId: number;
   onPick: (id: number) => void;
 }) {
+  const titlePref = useTitlePref();
   const [open, setOpen] = useState(false);
   const hasMany = seasonList.length > 1;
   const active =
