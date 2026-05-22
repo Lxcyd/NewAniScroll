@@ -13,126 +13,129 @@ const SEGMENT_LABEL: Record<string, string> = {
   recap: "Skip Recap",
 };
 
-/* How early before the very end of the episode we surface the
-   "Next Episode" button when AniSkip has no outro marker. Matches
-   the Crunchyroll / Netflix behaviour. */
 const NEXT_EP_TAIL_SECONDS = 30;
-
-/* Buffer warm-up offset: skip lands `SKIP_PRELOAD_LEAD_MS` before the
-   segment end so the HLS engine has time to fetch the post-skip
-   chunk before playback hits it. */
 const SKIP_PRELOAD_LEAD_MS = 250;
 
-/* Ignore AniSkip entries that:
-   - have no duration (start == end)
-   - are shorter than 5 s (single-frame markers that pollute the bar
-     with extra cuts but aren't worth showing)
-   - start within the first 3 s — AniSkip occasionally has bogus
-     "ed" entries at t=0 for sub-episodes (recaps, OVAs) that fire
-     the Skip Outro button at episode start, which is the bug shown
-     in the user's screenshot. A real outro never starts in the
-     first 3 s. */
+/* Sanity filters: ed segments that start in the first 3 s are bogus
+   recap markers (real outros never do that), and any segment shorter
+   than 5 s is a sub-frame marker that pollutes the chrome without
+   being worth skipping. */
 const MIN_SEGMENT_DURATION = 5;
 const MIN_OUTRO_START = 3;
 
+type Skip = { start: number; end: number; type: string };
+
 type Props = {
   playerRef: React.RefObject<MediaPlayerInstance>;
-  /** Episode after this one — used to wire the "Next Episode" button.
-   *  Pass null to hide that button on the last episode. */
+  /** AniList -> MAL id (passed through from the watch page). Null
+   *  when MAL has no entry for the anime. */
+  malId?: number | null;
+  /** 1-based episode number. */
+  episode?: number;
+  /** Pre-computed URL for the next episode. */
   nextEpisodeHref?: string | null;
 };
 
 /**
- * Visual overlay for AniSkip op/ed/recap intervals.
+ * AniSkip overlay — chapter gaps in the seek bar + Skip + Next buttons.
  *
- *   1. **Seek-bar gap separators.** Thin black vertical lines at the
- *      start and end of every kept segment, portaled into Vidstack's
- *      `.vds-time-slider .vds-slider-track`. Segments shorter than
- *      MIN_SEGMENT_DURATION are dropped so the bar shows at most 4
- *      cuts (op start + op end + ed start + ed end). Recaps are kept
- *      visually but no longer surface a button.
+ * The component owns the AniSkip fetch (rather than the watch page)
+ * so we can wait until the real video `duration` is known and pass
+ * it as `episodeLength` to the API. With that hint AniSkip's server
+ * already filters out submissions that were timed against a
+ * different rip — no need to drop `mixed-*` or rescale by hand on
+ * the client.
  *
- *   2. **Skip + Next Episode buttons.** Bottom-right of the player:
- *        - inside an `op` segment: "Skip Intro"
- *        - inside an `ed` segment: "Skip Outro" + "Next Episode"
- *        - in the last 30 s of the episode: "Next Episode"
- *      Buttons are portaled INTO Vidstack's player element so the
- *      Fullscreen API picks them up (otherwise sibling elements
- *      disappear when the user enters fullscreen).
+ * Anything left over still gets a light sanity pass (MIN_OUTRO_START,
+ * MIN_SEGMENT_DURATION) because individual submissions can still
+ * disagree with each other on small details.
  */
-export default function SkipOverlay({ playerRef, nextEpisodeHref }: Props) {
-  const { skipTimes } = useWatchProvider();
+export default function SkipOverlay({
+  playerRef,
+  malId,
+  episode,
+  nextEpisodeHref,
+}: Props) {
+  const router = useRouter();
   const currentTime = useMediaState("currentTime", playerRef);
   const duration = useMediaState("duration", playerRef);
-  const router = useRouter();
+  const watchCtx = useWatchProvider();
 
-  /* Sanitised segments — three jobs:
-       1. Rescale start/end against the real video duration when the
-          AniSkip submitter timed against a different encode. Each
-          entry carries its own `sourceLength`; if it differs from
-          our `duration` by more than 5 % we scale the timestamps:
-            real_t = submitted_t * duration / sourceLength
-          This is the root cause of segments landing 1+ minute off
-          (e.g. AoT EP1 op submitted as 0:47 → 2:17 against a 25:40
-          rip, but we're playing a 25:56 rip where the real op is
-          2:20 → 3:51).
-       2. Drop bogus zero-duration markers (start == end).
-       3. Drop `ed` segments that start in the first MIN_OUTRO_START
-          seconds — a real outro never does that. */
-  const cleanSegments = useMemo(() => {
-    if (!Array.isArray(skipTimes)) return [];
-    if (duration <= 0) return [];
-    return skipTimes
-      .map((s: any) => {
-        const src = Number(s.sourceLength) || 0;
-        const needsScale = src > 0 && Math.abs(src - duration) / duration > 0.05;
-        const scale = needsScale ? duration / src : 1;
-        return {
-          ...s,
-          start: Math.round(s.start * scale),
-          end: Math.round(s.end * scale),
-        };
-      })
-      .filter((s) => {
-        if (s.end - s.start < MIN_SEGMENT_DURATION) return false;
-        if (s.type === "ed" && s.start < MIN_OUTRO_START) return false;
-        if (s.end > duration) return false;
-        return true;
-      });
-  }, [skipTimes, duration]);
+  /* Locally cache the AniSkip response so we can also push it into
+     watchCtx.skipTimes (other components — currently none, but the
+     contract from the previous iteration — may listen for it). */
+  const [skips, setSkips] = useState<Skip[]>([]);
+
+  useEffect(() => {
+    setSkips([]);
+    watchCtx?.setSkipTimes?.([]);
+    if (!malId || !episode) return;
+    if (duration <= 0) return; // wait for metadata to land
+    let cancelled = false;
+    (async () => {
+      try {
+        const params = new URLSearchParams();
+        ["op", "ed", "recap", "mixed-op", "mixed-ed"].forEach((t) =>
+          params.append("types[]", t)
+        );
+        params.set("episodeLength", String(Math.round(duration)));
+        const res = await fetch(
+          `https://api.aniskip.com/v2/skip-times/${malId}/${episode}?${params.toString()}`
+        );
+        if (!res.ok || cancelled) return;
+        const json = await res.json();
+        const KEEP = new Set(["op", "ed", "recap"]);
+        const parsed: Skip[] = (json?.results || [])
+          .filter((r: any) => KEEP.has(r?.skipType) && r?.interval)
+          .map((r: any) => ({
+            start: Math.round(r.interval.startTime),
+            end: Math.round(r.interval.endTime),
+            type: r.skipType,
+          }))
+          .filter(
+            (s: Skip) =>
+              s.end > s.start &&
+              s.end - s.start >= MIN_SEGMENT_DURATION &&
+              !(s.type === "ed" && s.start < MIN_OUTRO_START) &&
+              s.end <= duration
+          );
+        if (!cancelled) {
+          setSkips(parsed);
+          watchCtx?.setSkipTimes?.(parsed);
+        }
+      } catch {
+        /* network errors silently leave the seek bar bare */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [malId, episode, duration]);
 
   /* Active segment = the one (if any) whose [start, end] window
-     contains currentTime. We require duration > 0 so we don't fire
-     at the very first frames before metadata loads (Vidstack reports
-     duration: 0 briefly at mount). */
+     contains currentTime. */
   const active = useMemo(() => {
     if (duration <= 0) return null;
-    if (cleanSegments.length === 0) return null;
-    for (const s of cleanSegments) {
+    for (const s of skips) {
       if (currentTime >= s.start && currentTime < s.end) return s;
     }
     return null;
-  }, [cleanSegments, currentTime, duration]);
+  }, [skips, currentTime, duration]);
 
-  /* "Next Episode" pill should appear:
-       - whenever we're inside a *valid* `ed` segment (filtered above)
-       - OR in the last NEXT_EP_TAIL_SECONDS of the episode
-     We also require duration > 0 so the button doesn't appear before
-     metadata loads — that was the second half of the "skip outro at
-     0:50" bug, since `currentTime >= 0 - 30` is true. */
   const isInOutro = active?.type === "ed";
   const isNearEnd =
     duration > 0 && currentTime >= duration - NEXT_EP_TAIL_SECONDS;
   const showNext = (isInOutro || isNearEnd) && !!nextEpisodeHref;
 
-  /* Slider portal target — Vidstack mounts it lazily so we poll. */
+  /* Slider portal target — Vidstack's track inside the time slider. */
   const [sliderEl, setSliderEl] = useState<HTMLElement | null>(null);
   useEffect(() => {
     setSliderEl(null);
-    if (!cleanSegments.length) return;
+    if (!skips.length) return;
     let cancelled = false;
     let raf = 0;
-    const findSlider = () => {
+    const find = () => {
       if (cancelled) return;
       const el = playerRef.current?.el?.querySelector(
         ".vds-time-slider .vds-slider-track"
@@ -141,18 +144,18 @@ export default function SkipOverlay({ playerRef, nextEpisodeHref }: Props) {
         setSliderEl(el);
         return;
       }
-      raf = requestAnimationFrame(findSlider);
+      raf = requestAnimationFrame(find);
     };
-    findSlider();
+    find();
     return () => {
       cancelled = true;
       if (raf) cancelAnimationFrame(raf);
     };
-  }, [cleanSegments, playerRef]);
+  }, [skips, playerRef]);
 
-  /* Player root portal target — used so buttons stay visible when
-     the user enters native fullscreen (the Fullscreen API only
-     keeps DOM descendants of the requested element). */
+  /* Player root portal target — for the floating buttons. Must be
+     inside the element the Fullscreen API hands off, otherwise the
+     buttons vanish in native fullscreen mode. */
   const [playerEl, setPlayerEl] = useState<HTMLElement | null>(null);
   useEffect(() => {
     let raf = 0;
@@ -178,7 +181,7 @@ export default function SkipOverlay({ playerRef, nextEpisodeHref }: Props) {
     try {
       player.play?.();
     } catch {
-      /* paused-state autoplay rejection — harmless */
+      /* programmatic play rejection on browsers that block it — harmless */
     }
   };
 
@@ -187,14 +190,14 @@ export default function SkipOverlay({ playerRef, nextEpisodeHref }: Props) {
     router.push(nextEpisodeHref);
   };
 
-  if (!cleanSegments.length && !showNext) return null;
+  if (!skips.length && !showNext) return null;
 
-  /* Boundary fractions (0..1) for the seek-bar gaps. We only draw
-     gaps for KEPT segments (cleanSegments), so the bar has at most
-     2 segments × 2 boundaries = 4 cuts. */
+  /* Boundary fractions for the chapter cuts. Each segment carves two
+     cuts into the bar (one at start, one at end). At most 4 cuts
+     total now that mixed-* are filtered server-side. */
   const boundaries: number[] = [];
   if (duration > 0) {
-    for (const s of cleanSegments) {
+    for (const s of skips) {
       const a = s.start / duration;
       const b = s.end / duration;
       if (a > 0.005 && a < 0.995) boundaries.push(a);
@@ -202,7 +205,7 @@ export default function SkipOverlay({ playerRef, nextEpisodeHref }: Props) {
     }
   }
 
-  const buttonStack = (active || showNext) ? (
+  const buttonStack = active || showNext ? (
     <div
       style={{
         position: "absolute",
@@ -241,7 +244,6 @@ export default function SkipOverlay({ playerRef, nextEpisodeHref }: Props) {
           style={{
             ...btnStyle,
             background: "linear-gradient(135deg, #ff3b5c 0%, #e8294b 100%)",
-            border: "1px solid rgba(255,255,255,0.18)",
           }}
         >
           Next Episode
@@ -261,8 +263,6 @@ export default function SkipOverlay({ playerRef, nextEpisodeHref }: Props) {
 
   return (
     <>
-      {/* Gap separators inside the slider track. Rounded ends carve the
-          bar into pill-shaped chapters, matching the reference design. */}
       {sliderEl && duration > 0 &&
         createPortal(
           <>
@@ -275,12 +275,6 @@ export default function SkipOverlay({ playerRef, nextEpisodeHref }: Props) {
                   left: `${frac * 100}%`,
                   top: 0,
                   bottom: 0,
-                  /* 3 px reads as a subtle chapter cut against the
-                     6 px flat track, matching the Miruro reference.
-                     Background is the same dark grey as the unplayed
-                     portion of the slider so the cut blends in
-                     visually on the right of the cursor, but still
-                     punches through the brand-red fill on the left. */
                   width: 3,
                   background: "rgba(0, 0, 0, 0.85)",
                   transform: "translateX(-1.5px)",
@@ -293,8 +287,6 @@ export default function SkipOverlay({ playerRef, nextEpisodeHref }: Props) {
           sliderEl
         )}
 
-      {/* Buttons portaled into the player root so the Fullscreen API
-          keeps them visible when the user toggles fullscreen. */}
       {buttonStack && playerEl && createPortal(buttonStack, playerEl)}
     </>
   );

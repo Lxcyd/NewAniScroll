@@ -62,6 +62,11 @@ type Props = {
    *  "Next Episode" button during the outro segment (and in the last
    *  30 s of the episode) when this is non-null. */
   nextEpisodeHref?: string | null;
+  /** MAL id for the anime — needed to query AniSkip. Null when MAL
+   *  doesn't have a matching entry (rare). */
+  malId?: number | null;
+  /** 1-based episode number for the AniSkip query. */
+  episodeNumber?: number;
 };
 
 function proxied(url: string, referer?: string | null): string {
@@ -832,6 +837,8 @@ export default function UniversalPlayer({
   downloadName = "anime.mp4",
   autoplay = false,
   nextEpisodeHref = null,
+  malId = null,
+  episodeNumber,
 }: Props) {
   const playerRef = useRef<MediaPlayerInstance>(null);
   const [subMenuOpen, setSubMenuOpen] = useState(false);
@@ -1512,7 +1519,12 @@ export default function UniversalPlayer({
           skip data exists for the current episode AND there's no next
           episode to surface, so the chrome is unchanged for series
           AniSkip doesn't cover and one-off OVAs. */}
-      <SkipOverlay playerRef={playerRef} nextEpisodeHref={nextEpisodeHref} />
+      <SkipOverlay
+        playerRef={playerRef}
+        malId={malId}
+        episode={episodeNumber}
+        nextEpisodeHref={nextEpisodeHref}
+      />
 
       {/* Subtitle picker. Mounted globally (not inside the player) so it can
           float above the controls without being clipped by the player's

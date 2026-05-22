@@ -462,60 +462,20 @@ export default function Watch({
   // autoplay/autoNext are now hydrated from localStorage by WatchPageProvider
   // itself (single source of truth + automatic persistence), so we don't read
   // them here anymore.
+  /* AniSkip fetch — issued from inside the player once `duration` is
+     known so we can pass `episodeLength` to the API. With that hint
+     AniSkip returns only the submissions timed against a matching
+     video length and omits the noisy `mixed-op` / `mixed-ed`
+     entries that would otherwise pollute the seek bar. We expose a
+     tiny callback on the player context that the watch page wires
+     to the MediaPlayer's `onDurationChange`. */
   useEffect(() => {
-    async function fetchSkip() {
-      // Clear stale skip data on episode change before any await so a slow
-      // network request from the previous episode can't overwrite it.
-      setSkipTimes([]);
-      if (!info?.idMal) return;
-      try {
-        const skip = await fetch(
-          `https://api.aniskip.com/v2/skip-times/${info.idMal}/${parseInt(
-            epiNumber
-          )}?types[]=ed&types[]=mixed-ed&types[]=mixed-op&types[]=op&types[]=recap&episodeLength=`
-        ).then((res) => (res.ok ? res.json() : null));
-
-        // AniSkip returns one entry per `skipType`. We only keep the
-        // three canonical types — `mixed-op` / `mixed-ed` are dropped
-        // because in practice they collide with the real op/ed (see
-        // e.g. AoT EP1 where mixed-ed runs 24→114 s, which would fire
-        // a bogus "Skip Outro" early in the episode AND add two more
-        // cuts to the seek bar). When the canonical op/ed is missing
-        // we'd rather have NO skip button than the wrong one.
-        // Each AniSkip submission carries its OWN `episodeLength` (the
-        // duration of the video the submitter timed against). When that
-        // length doesn't match the video we're playing — common, because
-        // different rips/encodes/streams pad intros and credits
-        // differently — the raw start/end timestamps land in the wrong
-        // place. We pass episodeLength through so SkipOverlay can
-        // rescale against the real `duration` reported by Vidstack.
-        const KEEP = new Set(["op", "ed", "recap"]);
-        const collected = (skip?.results || [])
-          .filter((r) => KEEP.has(r?.skipType) && r?.interval)
-          .map((r) => ({
-            start: r.interval.startTime,
-            end: r.interval.endTime,
-            type: r.skipType,
-            // May be undefined on older submissions; fall back to 0
-            // which SkipOverlay interprets as "no rescale info".
-            sourceLength: Number(r.episodeLength) || 0,
-          }))
-          .filter((s) => s.end > s.start);
-
-        setSkipTimes(collected);
-      } catch (e) {
-        console.error("Skip fetch error:", e);
-      }
-    }
-
-    fetchSkip();
-
-    return () => {
-      setPlayerState({ currentTime: 0, isPlaying: false });
-      setMarked(0);
-      setTrack(null);
-      setSkipTimes([]);
-    };
+    // Clear on episode change; the player will refetch with the
+    // new duration as soon as metadata loads.
+    setSkipTimes([]);
+    setPlayerState({ currentTime: 0, isPlaying: false });
+    setMarked(0);
+    setTrack(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [provider, watchId, info?.id]);
 
@@ -886,6 +846,8 @@ export default function Watch({
           poster={episodeNavigation?.playing?.img || info?.bannerImage}
           serverId={server.id}
           nextEpisodeHref={nextEpisodeHref}
+          malId={info?.idMal || null}
+          episodeNumber={parseInt(epiNumber)}
           downloadName={`${(info?.title?.romaji || info?.title?.english || "anime").replace(/\s+/g, "_")}_E${epiNumber}${dub ? "_DUB" : ""}`}
           onError={(reason) =>
             markFailed(
@@ -911,6 +873,8 @@ export default function Watch({
         poster={episodeNavigation?.playing?.img || info?.bannerImage}
         serverId={server.id}
         nextEpisodeHref={nextEpisodeHref}
+        malId={info?.idMal || null}
+        episodeNumber={parseInt(epiNumber)}
         onError={(reason) => markFailed(server.id, reason || "Iframe load timeout")}
       />
     );
