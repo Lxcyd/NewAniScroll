@@ -128,31 +128,6 @@ export default function SkipOverlay({
     duration > 0 && currentTime >= duration - NEXT_EP_TAIL_SECONDS;
   const showNext = (isInOutro || isNearEnd) && !!nextEpisodeHref;
 
-  /* Slider portal target — Vidstack's track inside the time slider. */
-  const [sliderEl, setSliderEl] = useState<HTMLElement | null>(null);
-  useEffect(() => {
-    setSliderEl(null);
-    if (!skips.length) return;
-    let cancelled = false;
-    let raf = 0;
-    const find = () => {
-      if (cancelled) return;
-      const el = playerRef.current?.el?.querySelector(
-        ".vds-time-slider .vds-slider-track"
-      ) as HTMLElement | null;
-      if (el) {
-        setSliderEl(el);
-        return;
-      }
-      raf = requestAnimationFrame(find);
-    };
-    find();
-    return () => {
-      cancelled = true;
-      if (raf) cancelAnimationFrame(raf);
-    };
-  }, [skips, playerRef]);
-
   /* Player root portal target — for the floating buttons. Must be
      inside the element the Fullscreen API hands off, otherwise the
      buttons vanish in native fullscreen mode. */
@@ -198,19 +173,6 @@ export default function SkipOverlay({
   };
 
   if (!skips.length && !showNext) return null;
-
-  /* Boundary fractions for the chapter cuts. Each segment carves two
-     cuts into the bar (one at start, one at end). At most 4 cuts
-     total now that mixed-* are filtered server-side. */
-  const boundaries: number[] = [];
-  if (duration > 0) {
-    for (const s of skips) {
-      const a = s.start / duration;
-      const b = s.end / duration;
-      if (a > 0.005 && a < 0.995) boundaries.push(a);
-      if (b > 0.005 && b < 0.995) boundaries.push(b);
-    }
-  }
 
   const buttonStack = active || showNext ? (
     <div
@@ -274,42 +236,17 @@ export default function SkipOverlay({
     </div>
   ) : null;
 
-  return (
-    <>
-      {sliderEl && duration > 0 &&
-        createPortal(
-          <>
-            {boundaries.map((frac, i) => (
-              <div
-                key={`bound-${i}`}
-                className="aniscroll-skip-gap"
-                style={{
-                  position: "absolute",
-                  left: `${frac * 100}%`,
-                  /* Sit slightly above & below the track so the cut
-                     pierces all the way through the fill, no matter
-                     what hover-thickening Vidstack applies. */
-                  top: -2,
-                  bottom: -2,
-                  width: 4,
-                  /* Solid black (player background colour) carves a
-                     clean visual cut through the fill, the same way
-                     YouTube chapter markers work. Semi-transparent
-                     left the fill bleeding through and was reading
-                     as a faint tint instead of a real separator. */
-                  background: "#000",
-                  transform: "translateX(-2px)",
-                  pointerEvents: "none",
-                  zIndex: 5,
-                  borderRadius: 1,
-                }}
-              />
-            ))}
-          </>,
-          sliderEl
-        )}
+  /* Chapter cuts in the bar are no longer drawn here — they come
+     from Vidstack's native <Track kind="chapters"> system, fed by a
+     dynamically-generated WebVTT in UniversalPlayer (see
+     `buildChaptersVtt` there). Vidstack splits the seek bar into
+     `vds-slider-chapter` divs that globals.css rounds into
+     individual pills, exactly matching the Miruro reference.
 
-      {buttonStack && playerEl && createPortal(buttonStack, playerEl)}
+     This component now only owns the floating Skip / Next Episode
+     buttons. */
+  return (
+    <>{buttonStack && playerEl && createPortal(buttonStack, playerEl)}</>
     </>
   );
 }

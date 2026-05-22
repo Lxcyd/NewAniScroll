@@ -853,6 +853,14 @@ export default function UniversalPlayer({
   const watchCtx = useWatchProvider() || {};
   const ctxAutoplay: boolean = !!watchCtx.autoplay;
   const setAutoPlayCtx: (v: boolean) => void = watchCtx.setAutoPlay || (() => {});
+  /* AniSkip chapter cues, populated by SkipOverlay after it fetches
+     the API. Each entry: { start, end, type }. We translate them
+     into a WebVTT chapters track served via a blob URL so Vidstack
+     splits the seek bar into per-pill chapters natively — same
+     mechanic Miruro uses (no overlay hacks, no DOM portaling). */
+  const skipTimes: Array<{ start: number; end: number; type: string }> =
+    watchCtx.skipTimes || [];
+  const chaptersTrackUrl = useChaptersVtt(skipTimes);
   // Ambient lights toggle — defaults to true if undefined (older context).
   const ctxAmbient: boolean = watchCtx.ambientLights !== false;
   const setAmbientCtx: (v: boolean) => void = watchCtx.setAmbientLights || (() => {});
@@ -1460,6 +1468,18 @@ export default function UniversalPlayer({
               default={t.default || i === 0}
             />
           ))}
+          {/* Chapters track: a synthesised WebVTT from AniSkip's
+              op/ed segments. Vidstack reads this and renders the
+              seek bar as N pill-shaped <vds-slider-chapter> slots
+              (styled in globals.css), matching the Miruro look. */}
+          {chaptersTrackUrl && (
+            <Track
+              key={chaptersTrackUrl}
+              src={chaptersTrackUrl}
+              kind="chapters"
+              default
+            />
+          )}
         </MediaProvider>
 
         <DefaultVideoLayout icons={defaultLayoutIcons} />
@@ -1595,4 +1615,83 @@ function IframeEmbed({
       allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
     />
   );
+}
+
+/* Turns an AniSkip-shaped skip list into a WebVTT chapters string
+   and exposes it as a blob URL. Vidstack accepts text-track sources
+   as URLs only (no inline data), so we materialise the VTT as a
+   short-lived blob and revoke it on change.
+
+   Each kept segment becomes one cue; the gaps BETWEEN segments
+   become implicit "Episode" cues so Vidstack creates N+1 chapter
+   slots and the seek bar splits into per-segment pills. */
+const SEGMENT_NAMES: Record<string, string> = {
+  op: "Intro",
+  ed: "Outro",
+  recap: "Recap",
+};
+function buildChaptersVtt(
+  segments: Array<{ start: number; end: number; type: string }>,
+  duration: number,
+): string | null {
+  if (!segments.length || duration <= 0) return null;
+  // Sort + clamp so we can synthesise the "Episode" cues between
+  // them. We also drop overlaps (defensive: AniSkip can occasionally
+  // ship overlapping op/recap on the same episode).
+  const sorted = [...segments]
+    .filter((s) => s.end > s.start && s.start < duration)
+    .map((s) => ({ ...s, end: Math.min(s.end, duration) }))
+    .sort((a, b) => a.start - b.start);
+  const cues: Array<{ start: number; end: number; name: string }> = [];
+  let cursor = 0;
+  for (const s of sorted) {
+    if (s.start > cursor + 0.5) {
+      cues.push({ start: cursor, end: s.start, name: "Episode" });
+    }
+    cues.push({
+      start: Math.max(s.start, cursor),
+      end: s.end,
+      name: SEGMENT_NAMES[s.type] || s.type,
+    });
+    cursor = s.end;
+  }
+  if (cursor < duration - 0.5) {
+    cues.push({ start: cursor, end: duration, name: "Episode" });
+  }
+  if (cues.length < 2) return null;
+  const fmt = (t: number) => {
+    const h = Math.floor(t / 3600);
+    const m = Math.floor((t % 3600) / 60);
+    const s = (t % 60).toFixed(3);
+    return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${s
+      .padStart(6, "0")}`;
+  };
+  const body = cues
+    .map((c, i) => `${i + 1}\n${fmt(c.start)} --> ${fmt(c.end)}\n${c.name}`)
+    .join("\n\n");
+  return `WEBVTT\n\n${body}\n`;
+}
+
+function useChaptersVtt(
+  segments: Array<{ start: number; end: number; type: string }>,
+): string | null {
+  // We need the duration to synthesise the trailing "Episode" cue.
+  // It's available from the player ref but at this point in the
+  // component tree we don't have it yet; use the highest segment.end
+  // as a safe lower bound — Vidstack tolerates a final cue that
+  // ends before the real duration (extra time is just unlabelled).
+  const duration = segments.reduce((m, s) => Math.max(m, s.end), 0);
+  const vtt = buildChaptersVtt(segments, duration);
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (!vtt) {
+      setUrl(null);
+      return;
+    }
+    const blob = new Blob([vtt], { type: "text/vtt" });
+    const u = URL.createObjectURL(blob);
+    setUrl(u);
+    return () => URL.revokeObjectURL(u);
+  }, [vtt]);
+  return url;
 }

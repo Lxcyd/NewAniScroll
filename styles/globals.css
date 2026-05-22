@@ -834,18 +834,43 @@ input[type="number"] {
 }
 
 /* ── Vidstack seek-bar chrome ────────────────────────────────────
-   Match the Miruro reference: thin flat bar, no rounded ends, the
-   chapter cuts SkipOverlay paints come through as clean vertical
-   slits. Hover-thicken (taller on focus) is left to Vidstack's
-   default behaviour. */
-.vds-time-slider .vds-slider-track,
-.vds-time-slider .vds-slider-track-fill,
-.vds-time-slider .vds-slider-progress {
-  border-radius: 0 !important;
+   Match the Miruro reference: every chapter is its own rounded pill
+   with a visible gap between segments. Vidstack's chapter system
+   wraps the slider-track in N <div class="vds-slider-chapter">
+   elements (one per segment) that we can style individually — gives
+   true per-pill rounding instead of overlay hacks.
+
+   Layout: the chapters container is a flexbox of chapters; each
+   chapter holds its own track + fill + progress, sized by CSS
+   custom properties Vidstack writes (--chapter-fill etc.).
+*/
+
+/* Container: make sure chapters lay out as a flex row with a small
+   horizontal gap that creates the visible separation between pills. */
+.vds-time-slider .vds-slider-chapters {
+  display: flex !important;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
 }
 
-/* Slightly taller than default (5 px) so the gap cuts stay visible
-   without dominating the chrome. */
-.vds-time-slider .vds-slider-track {
-  height: 6px !important;
+/* Each chapter is its own slot; the inner track / fill / progress
+   must fill it. The flex-grow comes from --chapter-fill (a fraction
+   set by Vidstack). */
+.vds-time-slider .vds-slider-chapter {
+  flex: var(--chapter-fill, 1);
+  min-width: 0;
+  height: 6px;
+  position: relative;
+  overflow: hidden;
+  border-radius: 999px;
+}
+
+/* The track, fill, and progress inside each chapter inherit the
+   chapter's rounded pill shape via the parent's overflow: hidden. */
+.vds-time-slider .vds-slider-chapter .vds-slider-track,
+.vds-time-slider .vds-slider-chapter .vds-slider-track-fill,
+.vds-time-slider .vds-slider-chapter .vds-slider-progress {
+  border-radius: 0 !important;
+  height: 100% !important;
 }
