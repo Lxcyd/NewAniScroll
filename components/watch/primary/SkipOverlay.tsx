@@ -173,6 +173,32 @@ export default function SkipOverlay({
     };
   }, [playerRef]);
 
+  /* Track whether Vidstack's control bar is currently visible. The
+     library auto-hides controls after ~2 s of pointer inactivity by
+     toggling `data-user-idle` on its root element. When idle, the
+     controls slide off-screen and our buttons should drop down to
+     sit at the very bottom of the player frame; when controls are
+     visible, the buttons need to clear the time-slider + button row
+     above them. A MutationObserver on the attribute keeps us in
+     sync without polling. */
+  const [controlsVisible, setControlsVisible] = useState(true);
+  useEffect(() => {
+    if (!playerEl) return;
+    const read = () => {
+      // data-user-idle="true" means controls are currently HIDDEN.
+      // Absent attribute or "false" = visible.
+      const idle = playerEl.getAttribute("data-user-idle") === "true";
+      setControlsVisible(!idle);
+    };
+    read();
+    const observer = new MutationObserver(read);
+    observer.observe(playerEl, {
+      attributes: true,
+      attributeFilter: ["data-user-idle"],
+    });
+    return () => observer.disconnect();
+  }, [playerEl]);
+
   const skipTo = (endSeconds: number) => {
     const player = playerRef.current;
     if (!player) return;
@@ -210,11 +236,17 @@ export default function SkipOverlay({
       style={{
         position: "absolute",
         right: 24,
-        bottom: 92,
+        /* Sit ABOVE the Vidstack control row when controls are
+           visible (92 px clears the time slider + button row), drop
+           to the bottom edge with a small inset when controls auto-
+           hide. Transition matches Vidstack's own controls fade so
+           the buttons feel locked to the chrome. */
+        bottom: controlsVisible ? 92 : 24,
         zIndex: 30,
         display: "flex",
         gap: 10,
         pointerEvents: "auto",
+        transition: "bottom 200ms ease",
       }}
     >
       {active && SEGMENT_LABEL[active.type] && (
