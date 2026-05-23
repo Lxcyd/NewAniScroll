@@ -883,15 +883,21 @@ input[type="number"] {
   margin-right: 0;
 }
 
-/* Only flatten the rounding on the inner layers — keep all their
-   other defaults (width driven by --chapter-fill, top/bottom
-   positioning, background colours). The pill effect comes from the
-   chapter slot itself (overflow:hidden + border-radius above), so
-   children just need square edges. Touching their position or size
-   makes Vidstack's progress fill vanish entirely, which we saw on
-   the previous iteration. */
+/* Flatten the rounding on the inner layers — the pill comes from
+   the chapter slot itself. We also stretch them to the full pill
+   height so the rose track-fill fills the chapter top to bottom
+   (its default Vidstack height is smaller than our pill height,
+   which left a tinted halo around each played segment).
+   Critically we do NOT touch `width` / `left` / `right` so
+   Vidstack's --chapter-fill width calc keeps working. */
 .vds-time-slider .vds-slider-chapter .vds-slider-track,
 .vds-time-slider .vds-slider-chapter .vds-slider-track-fill,
 .vds-time-slider .vds-slider-chapter .vds-slider-progress {
   border-radius: 0 !important;
+  top: 0 !important;
+  bottom: 0 !important;
+  /* `height: auto` + top:0/bottom:0 makes the element stretch to
+     the parent without overriding the absolute positioning
+     Vidstack uses to anchor the fill on the left. */
+  height: auto !important;
 }
