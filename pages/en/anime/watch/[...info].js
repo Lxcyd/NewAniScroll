@@ -847,6 +847,7 @@ export default function Watch({
           serverId={server.id}
           nextEpisodeHref={nextEpisodeHref}
           malId={info?.idMal || null}
+          aniListId={info?.id || null}
           episodeNumber={parseInt(epiNumber)}
           downloadName={`${(info?.title?.romaji || info?.title?.english || "anime").replace(/\s+/g, "_")}_E${epiNumber}${dub ? "_DUB" : ""}`}
           onError={(reason) =>
@@ -874,6 +875,7 @@ export default function Watch({
         serverId={server.id}
         nextEpisodeHref={nextEpisodeHref}
         malId={info?.idMal || null}
+        aniListId={info?.id || null}
         episodeNumber={parseInt(epiNumber)}
         onError={(reason) => markFailed(server.id, reason || "Iframe load timeout")}
       />

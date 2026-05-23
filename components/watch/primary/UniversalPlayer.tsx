@@ -62,9 +62,12 @@ type Props = {
    *  "Next Episode" button during the outro segment (and in the last
    *  30 s of the episode) when this is non-null. */
   nextEpisodeHref?: string | null;
-  /** MAL id for the anime — used as the AniSkip lookup key. Null
+  /** MAL id for the anime — used as the AniSkip fallback key. Null
    *  when MAL doesn't have a matching entry (rare). */
   malId?: number | null;
+  /** AniList id — preferred lookup key (our skip proxy hits
+   *  Anime-Skip with this via findShowsByExternalId). */
+  aniListId?: number | null;
   /** 1-based episode number for the skip-times lookup. */
   episodeNumber?: number;
 };
@@ -838,6 +841,7 @@ export default function UniversalPlayer({
   autoplay = false,
   nextEpisodeHref = null,
   malId = null,
+  aniListId = null,
   episodeNumber,
 }: Props) {
   const playerRef = useRef<MediaPlayerInstance>(null);
@@ -1542,6 +1546,7 @@ export default function UniversalPlayer({
       <SkipOverlay
         playerRef={playerRef}
         malId={malId}
+        aniListId={aniListId}
         episode={episodeNumber}
         nextEpisodeHref={nextEpisodeHref}
       />

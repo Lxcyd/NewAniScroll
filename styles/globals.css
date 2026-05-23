@@ -901,3 +901,12 @@ input[type="number"] {
      Vidstack uses to anchor the fill on the left. */
   height: auto !important;
 }
+
+/* Hide the slider thumb dot. Vidstack draws a circular knob at the
+   current playhead position by default; with our per-chapter pill
+   layout it shows up as a rose disc clipping over the chapter
+   border, which reads as a rendering glitch. The chapter fill
+   itself is a perfectly clear "you are here" indicator. */
+.vds-time-slider .vds-slider-thumb {
+  display: none !important;
+}

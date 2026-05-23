@@ -26,9 +26,14 @@ type Skip = { start: number; end: number; type: string };
 
 type Props = {
   playerRef: React.RefObject<MediaPlayerInstance>;
-  /** MAL id of the anime. Required for the AniSkip lookup; the
-   *  overlay is a no-op when this is missing. */
+  /** MAL id of the anime. Required for AniSkip; overlay is a no-op
+   *  when this is missing. */
   malId?: number | null;
+  /** AniList id — preferred source. Our proxy uses it to look up
+   *  the matching Anime-Skip showId (much more accurate data when
+   *  the show is covered there). Falls back to AniSkip when null
+   *  or when Anime-Skip has no entry. */
+  aniListId?: number | null;
   /** 1-based episode number. */
   episode?: number;
   /** Pre-computed URL for the next episode. */
@@ -52,6 +57,7 @@ type Props = {
 export default function SkipOverlay({
   playerRef,
   malId,
+  aniListId,
   episode,
   nextEpisodeHref,
 }: Props) {
@@ -73,40 +79,38 @@ export default function SkipOverlay({
     let cancelled = false;
     (async () => {
       try {
-        /* Direct AniSkip call. We tried routing through our own
-           server (which also queried Anime-Skip and cached results
-           in Turso) but the extra hop kept timing out on slow
-           connections and the data wasn't meaningfully better. We
-           pass episodeLength so AniSkip's server filters out
-           submissions timed against a different rip — that single
-           param removes the bogus "mixed-*" entries we used to
-           strip client-side. */
+        /* Hit our /api/v2/skip proxy which tries Anime-Skip first
+           (more accurate, manually curated) and falls back to
+           AniSkip when the show isn't covered there. Anime-Skip
+           gave SnK EP1's intro as 2:03→3:35 vs AniSkip's bogus
+           0:47→2:17, so when the data is available it's worth the
+           extra request hop. */
         const params = new URLSearchParams();
-        ["op", "ed"].forEach((t) => params.append("types[]", t));
+        if (aniListId) params.set("aniListId", String(aniListId));
         params.set("episodeLength", String(Math.round(duration)));
         const res = await fetch(
-          `https://api.aniskip.com/v2/skip-times/${malId}/${episode}?${params.toString()}`,
+          `/api/v2/skip/${malId}/${episode}?${params.toString()}`,
         );
         if (!res.ok || cancelled) return;
         const json = await res.json();
-        // Keep only the canonical op/ed entries. Mixed variants
-        // (mixed-op / mixed-ed) and recap markers are dropped both
-        // by our `types[]` filter above and by this set in case the
-        // API ever returns extras.
-        const KEEP = new Set(["op", "ed"]);
-        const raw: Skip[] = (json?.results || [])
-          .filter((r: any) => KEEP.has(r?.skipType) && r?.interval)
-          .map((r: any) => ({
-            start: Math.round(r.interval.startTime),
-            end: Math.round(r.interval.endTime),
-            type: r.skipType,
-          }));
+        const raw: Skip[] = Array.isArray(json?.skips) ? json.skips : [];
+        // The proxy already does sanity filtering. We re-clamp the
+        // outro start (`MIN_OUTRO_START`) defensively in case a
+        // bogus submission slipped through, but we DO NOT drop
+        // segments whose end overshoots `duration` here — the
+        // metadata we read at fetch time can lag the real video
+        // by a frame or two and we used to filter the outro out
+        // entirely (only the intro reached the seek bar). Vidstack
+        // clamps overshooting cues at runtime anyway.
         const parsed = raw.filter(
           (s) =>
             s.end > s.start &&
             s.end - s.start >= MIN_SEGMENT_DURATION &&
-            !(s.type === "ed" && s.start < MIN_OUTRO_START) &&
-            s.end <= duration,
+            !(s.type === "ed" && s.start < MIN_OUTRO_START),
+        );
+        console.log(
+          `[SkipOverlay] source=${json?.source} kept=${parsed.length}`,
+          parsed,
         );
         if (!cancelled) {
           setSkips(parsed);
@@ -120,7 +124,7 @@ export default function SkipOverlay({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [malId, episode, duration]);
+  }, [malId, aniListId, episode, duration]);
 
   /* Active segment = the one (if any) whose [start, end] window
      contains currentTime. */
