@@ -80,6 +80,11 @@ img {
   --media-focus: 233 69 96;
   --media-slider-track-fill-bg: var(--brand-primary, #E94560);
   --media-slider-track-progress-bg: var(--brand-glow, rgba(233, 69, 96, 0.35));
+  /* Match the chapter-menu progress bar (rendered under each
+     chapter item in the chapters menu) to the main seek bar's
+     rose fill. Vidstack's default falls back to `var(--media-brand)`
+     which is unparseable as a colour here (it's a triplet). */
+  --media-chapters-progress-bg: var(--brand-primary, #E94560);
   --media-menu-tick-color: var(--brand-primary, #E94560);
   --media-tooltip-bg: rgba(26, 26, 36, 0.95);
   --media-controls-bg: linear-gradient(
@@ -100,9 +105,40 @@ img {
 .vds-player [data-selected] {
   color: var(--brand-primary, #E94560) !important;
 }
-.vds-player button:hover,
-.vds-player [role="menuitem"]:hover {
+.vds-player
+  button:not(.aniscroll-skip-btn):not(.aniscroll-next-btn):hover,
+.vds-player [role="menuitem"]:hover,
+.vds-player a[aria-label]:hover {
   color: var(--brand-primary, #E94560) !important;
+}
+
+/* Floating Skip Intro / Skip Outro button (dark pill on left of
+   the Next Episode CTA). Match the chrome hover — text + arrow
+   tint to rose, subtle background lift. */
+.aniscroll-skip-btn:hover {
+  color: var(--brand-primary, #E94560) !important;
+  background: rgba(20, 22, 30, 0.95) !important;
+  border-color: rgba(255, 255, 255, 0.28) !important;
+}
+
+/* Next Episode CTA is already rose, so a rose tint on text/icon
+   reads as illegible mush. Keep the text + arrow WHITE and lift
+   the button with a brighter gradient + a small scale + stronger
+   shadow — gives a clear hover affordance without losing the
+   label. The `color: white !important` overrides the generic
+   `.vds-player button:hover` colour rule above. */
+.aniscroll-next-btn,
+.aniscroll-next-btn:hover {
+  color: #fff !important;
+}
+.aniscroll-next-btn:hover {
+  background: linear-gradient(
+    135deg,
+    #ff5571 0%,
+    #ef385d 100%
+  ) !important;
+  transform: translateY(-1px) scale(1.02);
+  box-shadow: 0 8px 24px rgba(232, 41, 75, 0.55) !important;
 }
 
 /* Bottom toolbar (download + subtitle-settings) — visually integrated with
@@ -803,6 +839,17 @@ pre code {
   display: block;
 }
 
+/* Strip the player's OUTER rounded corners in fullscreen — the
+   page-layout bezel leaves visible curved gaps against the black
+   fullscreen background. We only flatten the outermost wrappers
+   (the player + its video/provider), NOT inner UI like chapter
+   pills or buttons whose rounding is intentional. */
+[data-media-player][data-fullscreen],
+[data-media-player][data-fullscreen] > [data-media-provider],
+[data-media-player][data-fullscreen] > [data-media-provider] > video {
+  border-radius: 0 !important;
+}
+
 [data-media-provider] {
   height: 100%;
   border: none;
@@ -857,18 +904,35 @@ input[type="number"] {
   display: flex !important;
   align-items: center;
   width: 100%;
+  /* Drop the 1 px default radius — pill rounding lives on each
+     chapter individually. */
+  border-radius: 0 !important;
+  /* Vidstack flips `contain: strict` on the chapters container at
+     hover (theme.css line 1610) which clips the last pill's rounded
+     right edge whenever the cumulative pill widths + 4 px margins
+     push it slightly past the container. Keep containment relaxed
+     so the last pill always renders its full rounded right cap. */
+  contain: layout style !important;
+}
+.vds-time-slider:hover .vds-slider-chapters {
+  contain: layout style !important;
 }
 
 .vds-time-slider .vds-slider-chapter {
-  /* Inline width comes from Vidstack — leave it alone. */
+  /* Inline width (% of slider) comes from Vidstack — leave it alone. */
   min-width: 0;
   height: 6px;
   position: relative;
   box-sizing: border-box;
-  /* Fake the inter-chapter gap with a right margin that shrinks the
-     chapter visually but does NOT consume slider space (margin on
-     flex items doesn't affect the % width calc). A real `gap` would
-     steal width from neighbours and drift the playhead. */
+  /* Reuse Vidstack's own right-margin trick (they ship 2 px by
+     default; we widen to 4 px). It DOES introduce a tiny click drift
+     near the right end of the bar — Vidstack still maps clicks
+     against the full 100 % while the visual layout is shrunk by
+     `(N−1) × 4 px`. Every alternative we tried (padding +
+     background-clip, ::after with overflow:hidden, an inset shadow,
+     a JS width-rescale shim) broke the visual either by squaring
+     off the pill or by killing the rose fill. The drift is ~5–10 s
+     on a 24 min episode; acceptable for a clean look. */
   margin-right: 4px;
   /* Round the chapter slot ITSELF + clip overflow so the inner
      fill / progress / track always read as a pill, no matter what
@@ -884,22 +948,39 @@ input[type="number"] {
 }
 
 /* Flatten the rounding on the inner layers — the pill comes from
-   the chapter slot itself. We also stretch them to the full pill
+   the chapter slot itself. Also stretch them to the full pill
    height so the rose track-fill fills the chapter top to bottom
-   (its default Vidstack height is smaller than our pill height,
-   which left a tinted halo around each played segment).
-   Critically we do NOT touch `width` / `left` / `right` so
-   Vidstack's --chapter-fill width calc keeps working. */
+   (Vidstack's default fill height is smaller than our 6 px pill
+   and left only the top half painted). The track-fill is rendered
+   ONCE at the slider root (not inside each chapter), so the
+   selectors target both the chapter children AND the global slider
+   layers — otherwise the fill keeps its 3 px default height and
+   you only see the upper half painted. Critically we do NOT touch
+   `width` / `left` / `right` so Vidstack's per-chapter width calc
+   keeps working. */
+.vds-time-slider[data-media-slider] .vds-slider-track,
+.vds-time-slider[data-media-slider] .vds-slider-track-fill,
+.vds-time-slider[data-media-slider] .vds-slider-progress,
 .vds-time-slider .vds-slider-chapter .vds-slider-track,
 .vds-time-slider .vds-slider-chapter .vds-slider-track-fill,
 .vds-time-slider .vds-slider-chapter .vds-slider-progress {
   border-radius: 0 !important;
   top: 0 !important;
   bottom: 0 !important;
-  /* `height: auto` + top:0/bottom:0 makes the element stretch to
-     the parent without overriding the absolute positioning
-     Vidstack uses to anchor the fill on the left. */
-  height: auto !important;
+  height: 100% !important;
+}
+
+/* The base track layer is the only one Vidstack vertically centres
+   with `top: 50%; transform: translateY(-50%)` against its own
+   `--track-height`. Now that we forced height to 100%, the
+   translate keeps pulling it up by half the NEW height and the
+   layer ends up sitting above the pill. Cancel the transform on
+   the TRACK only — leaving it on the track-fill / progress / the
+   chapter slot itself preserves Vidstack's hover `scaleY(2)`
+   animation on the chapter pills. */
+.vds-time-slider[data-media-slider] .vds-slider-track,
+.vds-time-slider .vds-slider-chapter .vds-slider-track {
+  transform: none !important;
 }
 
 /* Hide the slider thumb dot. Vidstack draws a circular knob at the

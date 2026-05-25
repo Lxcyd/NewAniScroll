@@ -11,6 +11,7 @@ export default function AdminReports() {
   const [reports, setReports] = useState([]);
   const [loading, setLoading] = useState(true);
   const [severity, setSeverity] = useState("All");
+  const [kind, setKind] = useState("All"); // All | Site | Anime
   const [search, setSearch] = useState("");
 
   const fetchReports = async () => {
@@ -53,8 +54,20 @@ export default function AdminReports() {
 
   // Filter + sort the list. Critical first.
   const sevRank = { Critical: 0, High: 1, Medium: 2, Low: 3 };
+  // Kind is encoded by the report submitter: the title is prefixed
+  // with `[SITE]` for site bugs and `[ANIME] <title> · EP N` for
+  // anime bugs (severity is "anime" for the latter). Either signal
+  // identifies the report kind.
+  const kindOf = (r) => {
+    if (r.severity === "anime") return "Anime";
+    const t = (r.title || "").trim();
+    if (t.startsWith("[ANIME]")) return "Anime";
+    if (t.startsWith("[SITE]")) return "Site";
+    return "Site"; // legacy reports without a prefix default to Site
+  };
   const filtered = reports
     .filter((r) => (severity === "All" ? true : r.severity === severity))
+    .filter((r) => (kind === "All" ? true : kindOf(r) === kind))
     .filter((r) => {
       const q = search.trim().toLowerCase();
       if (!q) return true;
@@ -87,6 +100,18 @@ export default function AdminReports() {
           placeholder="Search title, description, reporter…"
           className="flex-1 min-w-[200px] bg-as-surface text-white ring-1 ring-white/10 rounded px-3 py-2 outline-none focus:ring-as-accent font-karla text-sm"
         />
+        <select
+          value={kind}
+          onChange={(e) => setKind(e.target.value)}
+          className="bg-as-surface text-white/85 ring-1 ring-white/10 rounded px-3 py-2 text-sm font-karla outline-none focus:ring-as-accent"
+          title="Report kind"
+        >
+          {["All", "Site", "Anime"].map((k) => (
+            <option key={k} value={k}>
+              {k}
+            </option>
+          ))}
+        </select>
         <select
           value={severity}
           onChange={(e) => setSeverity(e.target.value)}

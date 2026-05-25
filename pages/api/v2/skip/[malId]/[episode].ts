@@ -60,27 +60,36 @@ export default async function handler(
     return res.status(400).json({ error: "malId + episode required" });
   }
 
-  // 1. Try Anime-Skip first (needs AniList id).
-  let skips: Skip[] = [];
-  let source: "anime_skip" | "aniskip" | "none" = "none";
-  if (aniListId) {
-    try {
-      skips = await fetchFromAnimeSkip(aniListId, episode);
-      if (skips.length) source = "anime_skip";
-    } catch (e: any) {
-      console.warn("[skip] anime-skip failed:", e?.message);
-    }
-  }
-
-  // 2. Fallback to AniSkip.
-  if (!skips.length) {
-    try {
-      skips = await fetchFromAniSkip(malId, episode, episodeLength);
-      if (skips.length) source = "aniskip";
-    } catch (e: any) {
+  // Fetch both in parallel — Anime-Skip tends to have very accurate
+  // intros (manual curation) but spotty outro coverage; AniSkip has
+  // broad outro coverage from crowdsourcing. We MERGE per-type with
+  // Anime-Skip winning when both have the same type, and AniSkip
+  // filling in whatever Anime-Skip is missing (typically the ed).
+  const [animeSkip, aniSkip] = await Promise.all([
+    aniListId
+      ? fetchFromAnimeSkip(aniListId, episode).catch((e: any) => {
+          console.warn("[skip] anime-skip failed:", e?.message);
+          return [] as Skip[];
+        })
+      : Promise.resolve([] as Skip[]),
+    fetchFromAniSkip(malId, episode, episodeLength).catch((e: any) => {
       console.warn("[skip] aniskip failed:", e?.message);
-    }
-  }
+      return [] as Skip[];
+    }),
+  ]);
+
+  const byType = new Map<string, Skip>();
+  // AniSkip first so Anime-Skip overwrites for shared types.
+  for (const s of aniSkip) if (!byType.has(s.type)) byType.set(s.type, s);
+  for (const s of animeSkip) byType.set(s.type, s);
+  const skips: Skip[] = Array.from(byType.values()).sort(
+    (a, b) => a.start - b.start,
+  );
+
+  let source: "merged" | "anime_skip" | "aniskip" | "none" = "none";
+  if (animeSkip.length && aniSkip.length) source = "merged";
+  else if (animeSkip.length) source = "anime_skip";
+  else if (aniSkip.length) source = "aniskip";
 
   res.setHeader(
     "Cache-Control",

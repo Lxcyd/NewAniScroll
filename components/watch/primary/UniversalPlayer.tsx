@@ -8,6 +8,7 @@ import {
   MediaPlayer,
   MediaProvider,
   Track,
+  useMediaState,
   type MediaPlayerInstance,
 } from "@vidstack/react";
 import {
@@ -434,33 +435,37 @@ function SubtitleMenu({
   useEffect(() => {
     if (!playerEl || !anchorEl) return;
 
-    // Snapshot geometry on open — the anchor is guaranteed visible at this
-    // moment (user just clicked it). One-shot cache so the menu doesn't
-    // jump if Vidstack later hides the controls bar.
-    const playerRect = playerEl.getBoundingClientRect();
-    const anchorRect = anchorEl.getBoundingClientRect();
+    // Re-measure on every mount AND on a microtask after, since
+    // Vidstack may animate the controls bar in/out and the anchor's
+    // box can shift in the same frame the menu opens. Two ticks gives
+    // us the post-animation resting position.
+    const measure = () => {
+      // We work in VIEWPORT coordinates (and pair this with `position:
+      // fixed` on the menu) because the player root is `position:
+      // static`, so `position: absolute` would otherwise resolve
+      // against an unrelated ancestor.
+      const playerRect = playerEl.getBoundingClientRect();
+      const anchorRect = anchorEl.getBoundingClientRect();
 
-    // Anchor horizontally to the CC button.
-    const right = Math.max(8, playerRect.right - anchorRect.right);
-    // Match Vidstack's Settings menu: it sits just above the controls bar,
-    // ~4px gap. Reading the bar height from the bottom-most controls group
-    // produces the same vertical alignment as the native menu.
-    const groups = Array.from(
-      playerEl.querySelectorAll<HTMLElement>(".vds-controls-group")
-    ).filter((el) => el.isConnected && el.getBoundingClientRect().height > 0);
-    const bottomMostBar = groups.reduce<DOMRect | null>((best, el) => {
-      const r = el.getBoundingClientRect();
-      return !best || r.bottom > best.bottom ? r : best;
-    }, null);
-    const barHeight = bottomMostBar
-      ? playerRect.bottom - bottomMostBar.top
-      : 56;
-    const bottom = barHeight + 4;
-    const availableHeight = playerRect.height - bottom - 8;
-    // Match Vidstack's max-height (60% of player height) so the menu feels
-    // like part of the same UI family.
-    const maxHeight = Math.max(120, Math.min(Math.floor(playerRect.height * 0.6), availableHeight));
-    setPos({ right, bottom, maxHeight });
+      // Anchor the menu's RIGHT edge to the CC button's right edge —
+      // matches how Vidstack's Settings menu aligns to its own button.
+      const right = Math.max(8, window.innerWidth - anchorRect.right);
+      // Anchor the menu's BOTTOM to ~8 px above the button top, same
+      // vertical alignment as the native chapters / settings menus.
+      const bottom = Math.max(
+        8,
+        window.innerHeight - anchorRect.top + 8,
+      );
+      const availableHeight = anchorRect.top - playerRect.top - 16;
+      const maxHeight = Math.max(
+        120,
+        Math.min(Math.floor(playerRect.height * 0.6), availableHeight),
+      );
+      setPos({ right, bottom, maxHeight });
+    };
+    measure();
+    const r = requestAnimationFrame(measure);
+    return () => cancelAnimationFrame(r);
   }, [playerEl, anchorEl]);
 
   // Vidstack's enter animation: opacity 0→1 + translateY(12px → 0) over 0.3s.
@@ -480,8 +485,15 @@ function SubtitleMenu({
       ref={ref}
       role="menu"
       aria-label="Subtitle track selection"
+      // Tag with Vidstack's menu class + aria-hidden="false" so the
+      // rest of the layer (notably SkipOverlay's auto-hide observer)
+      // treats this popover as a first-class Vidstack menu and the
+      // Skip / Next Episode buttons fade out while it's open — same
+      // behaviour as the chapters / settings menus.
+      className="vds-menu-items"
+      aria-hidden="false"
       style={{
-        position: "absolute",
+        position: "fixed",
         right: pos.right,
         bottom: pos.bottom,
         zIndex: 50,
@@ -546,6 +558,23 @@ function SubtitleMenu({
             }
           }}
         />
+        {/* Customize subtitles shortcut sits right under the master
+            toggle now (used to live in a pinned footer) — keeps the
+            primary "styling" action close to the on/off switch and
+            puts the long language list below where it belongs. */}
+        <SubMenuRow
+          label="Customize subtitles…"
+          selected={false}
+          onClick={() => {
+            onCustomize();
+            onClose();
+          }}
+          icon={
+            <svg viewBox="0 0 24 24" fill="currentColor" style={{ width: 14, height: 14 }}>
+              <path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.488.488 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z" />
+            </svg>
+          }
+        />
       </div>
 
       {/* Scrollable language list. We attach a wheel handler that consumes
@@ -591,27 +620,6 @@ function SubtitleMenu({
         })}
       </div>
 
-      {/* Pinned footer: visual customization shortcut */}
-      <div
-        style={{
-          borderTop: "1px solid rgba(255,255,255,0.08)",
-          padding: 6,
-        }}
-      >
-        <SubMenuRow
-          label="Customize subtitles…"
-          selected={false}
-          onClick={() => {
-            onCustomize();
-            onClose();
-          }}
-          icon={
-            <svg viewBox="0 0 24 24" fill="currentColor" style={{ width: 14, height: 14 }}>
-              <path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.488.488 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z" />
-            </svg>
-          }
-        />
-      </div>
     </div>
   );
 
@@ -864,7 +872,15 @@ export default function UniversalPlayer({
      mechanic Miruro uses (no overlay hacks, no DOM portaling). */
   const skipTimes: Array<{ start: number; end: number; type: string }> =
     watchCtx.skipTimes || [];
-  const chaptersTrackUrl = useChaptersVtt(skipTimes);
+  // Real video duration drives the trailing "Episode" cue. We read
+  // `useMediaState("duration")` (the value Vidstack uses for its own
+  // seek bar — same denominator the chapter pills are scaled against)
+  // rather than the HTML element's `duration` property, otherwise the
+  // pills get scaled against one number while the slider geometry
+  // uses another, and everything visually drifts.
+  const videoDuration = useMediaState("duration", playerRef);
+  const chaptersTrackUrl = useChaptersVtt(skipTimes, videoDuration);
+  useChapterClickCompensation(playerRef, videoDuration);
   // Ambient lights toggle — defaults to true if undefined (older context).
   const ctxAmbient: boolean = watchCtx.ambientLights !== false;
   const setAmbientCtx: (v: boolean) => void = watchCtx.setAmbientLights || (() => {});
@@ -1549,6 +1565,7 @@ export default function UniversalPlayer({
         aniListId={aniListId}
         episode={episodeNumber}
         nextEpisodeHref={nextEpisodeHref}
+        externalMenuOpen={subMenuOpen || subStyleOpen}
       />
 
       {/* Subtitle picker. Mounted globally (not inside the player) so it can
@@ -1635,6 +1652,15 @@ const SEGMENT_NAMES: Record<string, string> = {
   ed: "Outro",
   recap: "Recap",
 };
+// Any slack ≤ this many seconds on either end of the episode gets
+// absorbed into the adjacent skip segment, so the seek bar never
+// shows a sliver-thin "Episode" pill that's too small to be useful.
+// Anything longer (preview / next-ep promo) gets its own dedicated
+// Episode pill so the outro pill aligns with the actual on-screen
+// outro and doesn't visually start ahead of the credits song.
+const EDGE_SNAP_START_SECONDS = 5;
+const EDGE_SNAP_END_SECONDS = 5;
+
 function buildChaptersVtt(
   segments: Array<{ start: number; end: number; type: string }>,
   duration: number,
@@ -1647,6 +1673,21 @@ function buildChaptersVtt(
     .filter((s) => s.end > s.start && s.start < duration)
     .map((s) => ({ ...s, end: Math.min(s.end, duration) }))
     .sort((a, b) => a.start - b.start);
+  // Snap segments to the episode edges when they sit within
+  // EDGE_SNAP_SECONDS, so the seek bar doesn't render a useless
+  // sliver pill at the start/end. First segment that starts close
+  // to 0 gets pulled back to 0; last segment that ends close to
+  // `duration` gets pushed out to `duration`.
+  if (sorted.length) {
+    const first = sorted[0];
+    if (first.start > 0 && first.start <= EDGE_SNAP_START_SECONDS) {
+      first.start = 0;
+    }
+    const last = sorted[sorted.length - 1];
+    if (last.end < duration && duration - last.end <= EDGE_SNAP_END_SECONDS) {
+      last.end = duration;
+    }
+  }
   const cues: Array<{ start: number; end: number; name: string }> = [];
   let cursor = 0;
   for (const s of sorted) {
@@ -1679,14 +1720,19 @@ function buildChaptersVtt(
 
 function useChaptersVtt(
   segments: Array<{ start: number; end: number; type: string }>,
+  videoDuration: number,
 ): string | null {
-  // Synthesise the trailing "Episode" cue with a duration that
-  // safely exceeds the last skip's end — using the max(end) caused
-  // Vidstack to render only the cues UP TO that point and no
-  // trailing chapter for the remaining episode. We pad with +60 min
-  // so the trailing cue always extends past the real episode end.
-  // Vidstack clamps to the real duration at runtime.
-  const duration = segments.reduce((m, s) => Math.max(m, s.end), 0) + 3600;
+  // Anything past `videoDuration` is treated as if it doesn't exist:
+  // segments are clamped, and the trailing Episode cue stops at
+  // `videoDuration`. The trailing cue only renders if there's a real
+  // post-outro gap (> 1 s of grace) — if the outro already runs to
+  // the end, the outro pill itself extends to the bar's right edge.
+  const lastSkipEnd = segments.reduce((m, s) => Math.max(m, s.end), 0);
+  // When metadata hasn't landed yet (videoDuration === 0) fall back
+  // to last-skip + 60 s so we still ship a valid VTT on first render
+  // — the effect re-fires once duration updates and replaces it.
+  const duration =
+    videoDuration > 0 ? videoDuration : lastSkipEnd + 60;
   const vtt = buildChaptersVtt(segments, duration);
   const [url, setUrl] = useState<string | null>(null);
   useEffect(() => {
@@ -1705,3 +1751,110 @@ function useChaptersVtt(
   }, [vtt]);
   return url;
 }
+
+/**
+ * Click-position compensation for the chaptered seek bar.
+ *
+ * We draw the inter-pill gap via `margin-right: 4 px` on each chapter
+ * (see globals.css), which shrinks the visual layout by `(N − 1) × 4 px`.
+ * Vidstack, unaware of those margins, maps clicks against the full
+ * slider width — so clicking on the rightmost pill seeks a few seconds
+ * earlier than the spot the user actually pointed at.
+ *
+ * Fix: intercept `pointerdown` on the time slider in the capture phase
+ * BEFORE Vidstack handles it. We find which pill the cursor is over
+ * (by its bounding rect), convert that to a chapter-relative fraction,
+ * then translate back to a global time using the cue's start/end from
+ * the slider's chapter list. Vidstack's own seek still fires but our
+ * corrected `currentTime` write happens immediately after, in the same
+ * frame, so the visible effect is a perfectly aligned seek.
+ */
+function useChapterClickCompensation(
+  playerRef: React.RefObject<MediaPlayerInstance>,
+  duration: number,
+): void {
+  useEffect(() => {
+    const player = playerRef.current;
+    const root = (player?.el as HTMLElement | undefined) || null;
+    if (!root || !duration || duration <= 0) return;
+    let slider: HTMLElement | null = null;
+    let attached = false;
+    const onPointerDown = (e: PointerEvent) => {
+      if (!slider || !player) return;
+      const pills = Array.from(
+        slider.querySelectorAll<HTMLElement>(".vds-slider-chapter"),
+      );
+      if (pills.length < 2) return; // no chapters → Vidstack's mapping is right
+      const x = e.clientX;
+      let hit: HTMLElement | null = null;
+      for (const p of pills) {
+        const r = p.getBoundingClientRect();
+        if (x >= r.left && x <= r.right) {
+          hit = p;
+          break;
+        }
+      }
+      // If click landed in a gap, snap to the nearest pill edge.
+      if (!hit) {
+        let best: { p: HTMLElement; d: number } | null = null;
+        for (const p of pills) {
+          const r = p.getBoundingClientRect();
+          const d = x < r.left ? r.left - x : x - r.right;
+          if (!best || d < best.d) best = { p, d };
+        }
+        if (!best || best.d > 40) return; // way off → let Vidstack handle
+        hit = best.p;
+      }
+      const idx = pills.indexOf(hit);
+      // Read the cue start/end from the matching TextTrack cue. The
+      // chapters track Vidstack mounts has one cue per pill in DOM
+      // order, so `cues[idx]` is the right one.
+      const video = root.querySelector("video") as HTMLVideoElement | null;
+      const tracks = video?.textTracks;
+      let cue: { startTime: number; endTime: number } | null = null;
+      if (tracks) {
+        for (let i = 0; i < tracks.length; i++) {
+          const t = tracks[i];
+          if (t.kind === "chapters" && t.cues && t.cues.length === pills.length) {
+            const c = t.cues[idx] as TextTrackCue;
+            cue = { startTime: c.startTime, endTime: c.endTime };
+            break;
+          }
+        }
+      }
+      if (!cue) return;
+      const r = hit.getBoundingClientRect();
+      const frac = Math.max(0, Math.min(1, (x - r.left) / r.width));
+      const targetTime = cue.startTime + frac * (cue.endTime - cue.startTime);
+      // Override Vidstack's about-to-fire seek with the corrected
+      // time. We schedule on the next microtask so Vidstack's own
+      // handler (which sets currentTime to its own miscalc) runs
+      // first, then we immediately overwrite with the accurate one.
+      queueMicrotask(() => {
+        try {
+          player.currentTime = targetTime;
+        } catch {}
+      });
+    };
+    const attach = () => {
+      const found = root.querySelector<HTMLElement>(".vds-time-slider");
+      if (!found || found === slider) return;
+      if (slider && attached) {
+        slider.removeEventListener("pointerdown", onPointerDown, true);
+      }
+      slider = found;
+      slider.addEventListener("pointerdown", onPointerDown, true);
+      attached = true;
+    };
+    attach();
+    const mo = new MutationObserver(attach);
+    mo.observe(root, { subtree: true, childList: true });
+    return () => {
+      mo.disconnect();
+      if (slider && attached) {
+        slider.removeEventListener("pointerdown", onPointerDown, true);
+      }
+    };
+  }, [playerRef, duration]);
+}
+
