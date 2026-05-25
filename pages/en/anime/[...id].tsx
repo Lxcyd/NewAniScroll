@@ -23,6 +23,8 @@ import { toast } from "sonner";
 import { Navbar } from "@/components/shared/NavBar";
 import { AniListInfoTypes } from "types/info/AnilistInfoTypes";
 import InfoPage from "@/components/anime/v2/InfoPage";
+import InfoPageMobile from "@/components/anime/v2/mobile/InfoPageMobile";
+import { useIsMobile } from "@/lib/hooks/useIsMobile";
 import { pickTitleImage, slugifyTitle, SeasonInfo, TitleImage } from "@/components/anime/v2/helpers";
 
 type InfoTypes = {
@@ -44,6 +46,9 @@ type InfoTypes = {
   initialFav: boolean;
   initialStatusLabel: string | null;
   initialProgress: number;
+  /** Useragent string sniffed at SSR so the very first render already
+   *  picks the right mobile/desktop layout — no client-only flash. */
+  initialUA: string | null;
 };
 
 // Bump when the shape of `info` changes — or when a SSR-side computation
@@ -68,7 +73,9 @@ export default function Info({
   initialFav,
   initialStatusLabel,
   initialProgress,
+  initialUA,
 }: InfoTypes) {
+  const isMobile = useIsMobile(initialUA);
   const { data: session }: any = useSession();
   const { toggleFavourite } = useAniList(session);
 
@@ -290,19 +297,35 @@ export default function Info({
       <MobileNav hideProfile={true} />
 
       <main>
-        <InfoPage
-          info={info}
-          initialFanarts={fanarts}
-          initialTitleImage={initialTitleImage}
-          seasonInfo={seasonInfo}
-          seasonList={seasonList}
-          statusLabel={statusLabel}
-          fav={fav}
-          progress={progress}
-          watchUrl={watchUrl}
-          onOpenListEditor={handleOpen}
-          onToggleFav={handleToggleFav}
-        />
+        {isMobile ? (
+          <InfoPageMobile
+            info={info}
+            initialFanarts={fanarts}
+            initialTitleImage={initialTitleImage}
+            seasonInfo={seasonInfo}
+            seasonList={seasonList}
+            statusLabel={statusLabel}
+            fav={fav}
+            progress={progress}
+            watchUrl={watchUrl}
+            onOpenListEditor={handleOpen}
+            onToggleFav={handleToggleFav}
+          />
+        ) : (
+          <InfoPage
+            info={info}
+            initialFanarts={fanarts}
+            initialTitleImage={initialTitleImage}
+            seasonInfo={seasonInfo}
+            seasonList={seasonList}
+            statusLabel={statusLabel}
+            fav={fav}
+            progress={progress}
+            watchUrl={watchUrl}
+            onOpenListEditor={handleOpen}
+            onToggleFav={handleToggleFav}
+          />
+        )}
       </main>
 
       <Footer />
@@ -469,6 +492,7 @@ export async function getServerSideProps(ctx: any) {
         initialFav: userList.fav,
         initialStatusLabel: userList.statusLabel,
         initialProgress: userList.progress,
+        initialUA: ctx.req?.headers?.["user-agent"] || null,
       },
     };
   }

@@ -7,7 +7,6 @@ import NextNProgress from "nextjs-progressbar";
 import { SessionProvider } from "next-auth/react";
 import { SkeletonTheme } from "react-loading-skeleton";
 import SearchPalette from "@/components/searchPalette";
-import FloatingBottomNav from "@/components/shared/FloatingBottomNav";
 import { SearchProvider } from "@/lib/context/isOpenState";
 import { WatchPageProvider } from "@/lib/context/watchPageProvider";
 import { useEffect } from "react";
@@ -234,10 +233,6 @@ export default function App({
 
                   <SearchPalette />
                   <Component {...pageProps} />
-                  {/* Global floating nav — hidden on watch pages where it'd overlap the player */}
-                  {!router.pathname.startsWith("/en/anime/watch") && (
-                    <FloatingBottomNav />
-                  )}
                 </m.div>
               </SkeletonTheme>
             </AnimatePresence>

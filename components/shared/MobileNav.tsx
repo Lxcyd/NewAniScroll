@@ -27,12 +27,12 @@ export default function MobileNav({ hideProfile = false }: MobileNavProps) {
         {!isVisible && (
           <button
             onClick={handleShowClick}
-            className="fixed bottom-[30px] right-[20px] z-[100] flex h-[51px] w-[50px] cursor-pointer items-center justify-center rounded-[8px] bg-[#17171f] shadow-lg lg:hidden"
+            className="fixed bottom-[30px] right-[20px] z-[100] flex h-[51px] w-[50px] cursor-pointer items-center justify-center rounded-[8px] bg-[#17171f] shadow-lg ring-1 ring-action/30 lg:hidden"
             id="bars"
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
-              className="h-[42px] w-[61.5px] text-white/60 fill-orange-500"
+              className="h-[42px] w-[61.5px] text-action"
               viewBox="0 0 20 20"
               fill="currentColor"
             >
@@ -173,7 +173,7 @@ export default function MobileNav({ hideProfile = false }: MobileNavProps) {
               <svg
                 width="20"
                 height="21"
-                className="fill-orange-500"
+                className="fill-action"
                 viewBox="0 0 20 21"
                 fill="none"
                 xmlns="http://www.w3.org/2000/svg"
