@@ -259,10 +259,28 @@ export function Navbar({
                 className="bg-white"
                 // title={sessions ? "Go to Profile" : "Login With AniList"}
               > */}
-            {/* Report + changelog — sit just left of the avatar so users can
-                always reach them no matter what page they're on. They share
-                a tight gap so they read as a pair, not two unrelated icons. */}
+            {/* Discord + report + changelog — sit just left of the avatar so
+                users can always reach them no matter what page they're on.
+                They share a tight gap so they read as a group, not separate
+                icons. Discord is first (leftmost) and opens in a new tab. */}
             <div className="flex items-center gap-0">
+              <a
+                href="https://discord.gg/CbrFwstYfC"
+                target="_blank"
+                rel="noopener noreferrer"
+                title="Join our Discord"
+                aria-label="Join our Discord"
+                className="flex-center w-9 h-9 rounded-full text-white/70 hover:text-white hover:bg-white/10 transition-colors"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="currentColor"
+                  className="w-5 h-5"
+                  aria-hidden
+                >
+                  <path d="M20.317 4.37a19.79 19.79 0 0 0-4.885-1.515.07.07 0 0 0-.074.035c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.074-.035 19.74 19.74 0 0 0-4.885 1.515.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.058a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.873-1.295 1.226-1.994a.076.076 0 0 0-.041-.106 13.1 13.1 0 0 1-1.872-.892.077.077 0 0 1-.008-.128c.126-.094.252-.192.372-.291a.074.074 0 0 1 .077-.01c3.927 1.793 8.18 1.793 12.061 0a.074.074 0 0 1 .078.009c.12.099.246.198.373.292a.077.077 0 0 1-.006.127 12.3 12.3 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.363 1.225 1.993a.076.076 0 0 0 .084.028 19.84 19.84 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.06.06 0 0 0-.031-.029zM8.02 15.331c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z" />
+                </svg>
+              </a>
               <ReportButton anime={animeReportContext} />
               <ChangelogButton />
             </div>

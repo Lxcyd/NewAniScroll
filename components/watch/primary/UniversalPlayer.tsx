@@ -745,6 +745,80 @@ function SubMenuRow({
   );
 }
 
+// Action row (vs toggle row): used on small layout to surface Download /
+// Subs / Cast as plain Settings-menu items, since the bottom bar is too
+// narrow on phones to host them as standalone buttons. Either renders a
+// download link OR fires an onClick — exactly one of `href` / `onClick`
+// is required.
+function SettingsActionRow({
+  label,
+  iconPath,
+  href,
+  downloadFilename,
+  onClick,
+}: {
+  label: string;
+  iconPath: string;
+  href?: string;
+  downloadFilename?: string;
+  onClick?: () => void;
+}) {
+  const content = (
+    <>
+      <svg
+        viewBox="0 0 24 24"
+        fill="currentColor"
+        style={{ width: 22, height: 22, marginRight: 6, flexShrink: 0 }}
+      >
+        <path d={iconPath} />
+      </svg>
+      <span style={{ flex: 1 }}>{label}</span>
+    </>
+  );
+  const sharedStyle: React.CSSProperties = {
+    display: "flex",
+    alignItems: "center",
+    cursor: "pointer",
+    userSelect: "none",
+    color: "inherit",
+    textDecoration: "none",
+  };
+  if (href) {
+    return (
+      <a
+        role="menuitem"
+        tabIndex={0}
+        className="vds-menu-button"
+        href={href}
+        download={downloadFilename}
+        style={sharedStyle}
+      >
+        {content}
+      </a>
+    );
+  }
+  return (
+    <div
+      role="menuitem"
+      tabIndex={0}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick?.();
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onClick?.();
+        }
+      }}
+      className="vds-menu-button"
+      style={sharedStyle}
+    >
+      {content}
+    </div>
+  );
+}
+
 // Row injected into Vidstack's Settings menu (above Speed/Quality/Captions).
 // Mirrors the visual style of `.vds-menu-button` so it doesn't look bolted on.
 // We render with role=menuitemcheckbox + aria-checked so screen readers announce
@@ -855,6 +929,33 @@ export default function UniversalPlayer({
   const playerRef = useRef<MediaPlayerInstance>(null);
   const [subMenuOpen, setSubMenuOpen] = useState(false);
   const [subStyleOpen, setSubStyleOpen] = useState(false);
+  // ── Mobile / iOS detection ─────────────────────────────────
+  // Touch the platform exactly once so the player can:
+  //  - Reroute custom buttons (Download / Subs / Cast) into the Settings
+  //    menu on phones — the bottom bar is too narrow to fit them next to
+  //    Time + Fullscreen without overflowing.
+  //  - Bypass iOS Safari's native fullscreen (which swaps in the system
+  //    video player and hides every overlay we draw). Pseudo-fullscreen
+  //    via CSS keeps our chrome on screen.
+  const [isIOS, setIsIOS] = useState(false);
+  const [isSmallLayout, setIsSmallLayout] = useState(false);
+  // iOS pseudo-fullscreen — Safari hides our buttons in real fullscreen
+  // because it swaps the <video> for the native player. We pin the
+  // wrapper to viewport with `position:fixed` and lock orientation.
+  const [iosPseudoFs, setIosPseudoFs] = useState(false);
+  useEffect(() => {
+    const ua = navigator.userAgent || "";
+    // iPadOS 13+ identifies as MacIntel with maxTouchPoints > 1.
+    const ios =
+      /iPad|iPhone|iPod/.test(ua) ||
+      (navigator.platform === "MacIntel" && (navigator as any).maxTouchPoints > 1);
+    setIsIOS(ios);
+    const mq = window.matchMedia("(max-width: 576px)");
+    const sync = () => setIsSmallLayout(mq.matches);
+    sync();
+    mq.addEventListener?.("change", sync);
+    return () => mq.removeEventListener?.("change", sync);
+  }, []);
   // Index of the active text track in the subtitleTracks list. -1 = subtitles off.
   const [activeTrackIdx, setActiveTrackIdx] = useState(-1);
   // Ref to the CC button so we can position the popover above it.
@@ -908,7 +1009,7 @@ export default function UniversalPlayer({
       document.removeEventListener("webkitfullscreenchange", update);
     };
   }, []);
-  const ambientEnabled = ambient && ctxAmbient && !isFullscreen;
+  const ambientEnabled = ambient && ctxAmbient && !isFullscreen && !iosPseudoFs;
   // Reference to the vds-controls-group element where we portal our buttons.
   const [controlsGroupEl, setControlsGroupEl] = useState<HTMLElement | null>(null);
   // Anchor node inside that group: we insert our buttons IMMEDIATELY BEFORE
@@ -973,6 +1074,19 @@ export default function UniversalPlayer({
       if (video && !video.hasAttribute("disableremoteplayback")) {
         video.setAttribute("disableremoteplayback", "");
       }
+      // iOS Safari only honours inline playback when BOTH `playsinline` and
+      // the legacy `webkit-playsinline` attribute are present at the time of
+      // first play. The React `playsInline` prop only writes the modern one,
+      // so older iOS builds fall back to the native fullscreen player on tap.
+      if (video) {
+        if (!video.hasAttribute("playsinline")) video.setAttribute("playsinline", "");
+        if (!video.hasAttribute("webkit-playsinline"))
+          video.setAttribute("webkit-playsinline", "");
+        // Tell Safari we'll handle remote playback ourselves so it doesn't
+        // pop the AirPlay picker the moment the user enters fullscreen.
+        if (!video.hasAttribute("x-webkit-airplay"))
+          video.setAttribute("x-webkit-airplay", "allow");
+      }
 
       // Bottom controls group — last vds-controls-group attached to the document.
       const groups = playerEl.querySelectorAll<HTMLElement>(".vds-controls-group");
@@ -1028,6 +1142,56 @@ export default function UniversalPlayer({
       obs?.disconnect();
     };
   }, []);
+
+  // ── iOS fullscreen interception ──
+  // Safari on iPhone/iPad responds to a fullscreen request by handing the
+  // <video> off to the system player, which hides every overlay we draw
+  // (Skip / Next / custom buttons). Intercept the Vidstack fullscreen
+  // button at capture phase, block the native handler, and toggle a
+  // CSS pseudo-fullscreen on our wrapper. Orientation lock is best-effort
+  // — Safari only allows it after a user gesture inside a real fullscreen.
+  useEffect(() => {
+    if (!isIOS) return;
+    const playerEl = playerRef.current?.el as HTMLElement | undefined;
+    if (!playerEl) return;
+
+    const onClick = (e: MouseEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (!t) return;
+      const btn = t.closest<HTMLElement>(
+        ".vds-fullscreen-button, [data-fullscreen-button], button[aria-label*='ullscreen']",
+      );
+      if (!btn) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      setIosPseudoFs((v) => !v);
+    };
+    // Capture phase so we beat Vidstack's own button handler.
+    playerEl.addEventListener("click", onClick, { capture: true });
+    return () => playerEl.removeEventListener("click", onClick, { capture: true });
+  }, [isIOS]);
+
+  // Lock body scroll while iOS pseudo-fullscreen is active and try to
+  // rotate the screen to landscape — same UX as the native player.
+  useEffect(() => {
+    if (!iosPseudoFs) return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    try {
+      (screen.orientation as any)?.lock?.("landscape").catch(() => {});
+    } catch {}
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setIosPseudoFs(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      try {
+        (screen.orientation as any)?.unlock?.();
+      } catch {}
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [iosPseudoFs]);
 
   // ── Keep controls visible while subtitle menu is open ──
   // Vidstack auto-hides the controls bar after 2s of mouse idle. The CC
@@ -1370,7 +1534,9 @@ export default function UniversalPlayer({
     // permissions to actually load the player.
     const isVidmoly = /vidmoly\.(to|biz|net)/i.test(iframeSrc);
     return (
-      <div className="relative h-full w-full">
+      <div
+        className={`relative h-full w-full${iosPseudoFs ? " moopa-ios-fs" : ""}`}
+      >
         {ambientEnabled && <StaticGlow poster={poster} intense />}
         <IframeEmbed
           src={iframeSrc}
@@ -1378,6 +1544,18 @@ export default function UniversalPlayer({
           onError={onError}
           referrerPolicy={isVidmoly ? "no-referrer" : "origin"}
         />
+        {isIOS && iosPseudoFs && (
+          <button
+            type="button"
+            aria-label="Exit fullscreen"
+            onClick={() => setIosPseudoFs(false)}
+            className="moopa-ios-fs-exit"
+          >
+            <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
+              <path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
+            </svg>
+          </button>
+        )}
       </div>
     );
   }
@@ -1445,7 +1623,10 @@ export default function UniversalPlayer({
     // component (Servers list, episode buttons, etc.) and cover them via
     // the ambient's transform:scale() overflow. With isolate, z-index:-1
     // is clamped to "behind this component but not behind its siblings".
-    <div className="relative h-full w-full" style={{ isolation: "isolate" }}>
+    <div
+      className={`relative h-full w-full${iosPseudoFs ? " moopa-ios-fs" : ""}`}
+      style={{ isolation: "isolate" }}
+    >
       {ambientEnabled && <LiveAmbient playerRef={playerRef} />}
 
       <MediaPlayer
@@ -1509,8 +1690,11 @@ export default function UniversalPlayer({
           the Settings menu so the visual order is:
             [time] ...spacer... [Download] [Subs] [Cast] | [Settings] [PiP] [Fullscreen]
           We portal into the group itself but use settingsAnchorEl as the
-          insertion point — when present, React inserts our nodes before it. */}
-      {controlsGroupEl && createPortal(
+          insertion point — when present, React inserts our nodes before it.
+          On small (mobile) layout the bottom bar barely fits Time + Fullscreen,
+          so we hide these buttons and surface their actions inside the
+          Settings menu instead (see settingsItemsEl portal below). */}
+      {!isSmallLayout && controlsGroupEl && createPortal(
         <CustomControls
           downloadUrl={downloadUrl}
           downloadFilename={`${safeName}.${ext}`}
@@ -1531,9 +1715,34 @@ export default function UniversalPlayer({
 
       {/* Custom toggles injected at the top of Vidstack's Settings menu.
           settingsItemsEl is set/cleared by our MutationObserver depending on
-          whether the menu is currently open. */}
+          whether the menu is currently open. On small layout we also expose
+          Download / Subs / Cast here, since they're hidden from the bar. */}
       {settingsItemsEl && createPortal(
         <>
+          {isSmallLayout && (
+            <>
+              <SettingsActionRow
+                label={`Download ${ext.toUpperCase()}`}
+                href={downloadUrl}
+                downloadFilename={`${safeName}.${ext}`}
+                iconPath="M12 16l-5-5h3V4h4v7h3l-5 5zm-7 2h14v2H5v-2z"
+              />
+              {subtitleTracks.length > 0 && (
+                <SettingsActionRow
+                  label="Subtitles"
+                  onClick={() => setSubMenuOpen(true)}
+                  iconPath="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm-9 11H6v-2h5v2zm7 0h-5v-2h5v2zm0-4H6V9h12v2z"
+                />
+              )}
+              {castAvailable && (
+                <SettingsActionRow
+                  label={castConnected ? "Casting…" : "Cast"}
+                  onClick={requestCast}
+                  iconPath="M1 18v3h3c0-1.66-1.34-3-3-3zm0-4v2c2.76 0 5 2.24 5 5h2c0-3.87-3.13-7-7-7zm18-7H5v1.63c3.96 1.28 7.09 4.41 8.37 8.37H19V7zM1 10v2c4.97 0 9 4.03 9 9h2c0-6.08-4.93-11-11-11zm20-7H3c-1.1 0-2 .9-2 2v3h2V5h18v14h-7v2h7c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"
+                />
+              )}
+            </>
+          )}
           <SettingsToggleRow
             label="Autoplay"
             enabled={ctxAutoplay}
@@ -1550,6 +1759,22 @@ export default function UniversalPlayer({
           />
         </>,
         ensureFirstChildSlot(settingsItemsEl, "moopa-toggles-slot")
+      )}
+
+      {/* Exit pseudo-fullscreen button (iOS direct-stream path). The
+          fullscreen interceptor sets iosPseudoFs; we draw a corner X so the
+          user can leave without hunting for Vidstack's button again. */}
+      {isIOS && iosPseudoFs && (
+        <button
+          type="button"
+          aria-label="Exit fullscreen"
+          onClick={() => setIosPseudoFs(false)}
+          className="moopa-ios-fs-exit"
+        >
+          <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
+            <path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
+          </svg>
+        </button>
       )}
 
       {/* Hover preview — actual video frame at the cursor position on the scrubber */}
@@ -1604,10 +1829,15 @@ function IframeEmbed({
 
   useEffect(() => {
     setFailed(false);
+    // Cellular networks and low-end phones routinely take more than 10 s to
+    // finish the first iframe handshake (extractor host + ad blockers +
+    // worker scripts). 30 s gives a real stream a chance to land before we
+    // mark the server failed — the previous 20 s cap was the #1 source of
+    // "this server doesn't work on my phone" reports.
     const timeout = setTimeout(() => {
       setFailed(true);
-      onError?.("Iframe didn't load within 20s");
-    }, 20000);
+      onError?.("Iframe didn't load within 30s");
+    }, 30000);
     const iframe = iframeRef.current;
     const handleLoad = () => clearTimeout(timeout);
     iframe?.addEventListener("load", handleLoad);
@@ -1634,7 +1864,11 @@ function IframeEmbed({
       scrolling="no"
       allowFullScreen
       referrerPolicy={referrerPolicy}
-      allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
+      // `accelerometer` + `gyroscope` keep some extractors (Vidmoly) from
+      // throwing permission errors on phones. `clipboard-write` is what the
+      // hianime player needs for its "copy stream link" button. The extra
+      // grants are harmless when the host doesn't use them.
+      allow="autoplay; fullscreen; encrypted-media; picture-in-picture; accelerometer; gyroscope; clipboard-write"
     />
   );
 }

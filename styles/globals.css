@@ -141,6 +141,61 @@ img {
   box-shadow: 0 8px 24px rgba(232, 41, 75, 0.55) !important;
 }
 
+/* iOS pseudo-fullscreen: Safari refuses to host our overlays in real
+   fullscreen (it swaps the <video> for the native system player and hides
+   every absolutely-positioned child). We work around it by pinning the
+   wrapper to the viewport and letting the user exit via a corner X. */
+.moopa-ios-fs {
+  position: fixed !important;
+  inset: 0 !important;
+  width: 100vw !important;
+  height: 100dvh !important;
+  z-index: 9999;
+  background: #000;
+  border-radius: 0 !important;
+}
+.moopa-ios-fs > * {
+  border-radius: 0 !important;
+}
+.moopa-ios-fs-exit {
+  position: absolute;
+  top: max(12px, env(safe-area-inset-top));
+  right: max(12px, env(safe-area-inset-right));
+  z-index: 10001;
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  cursor: pointer;
+}
+.moopa-ios-fs-exit:hover {
+  background: rgba(0, 0, 0, 0.7);
+}
+
+/* Mobile / small-layout polish for Vidstack chrome.
+   The DefaultVideoLayout switches to its "small" preset under ~576 px wide.
+   The bottom strip there only fits [Time] + [Fullscreen] comfortably — our
+   Download / Subs / Cast buttons are hidden from the bar (they live in the
+   Settings menu on small layout, see UniversalPlayer.tsx). These rules tame
+   a few rough edges that hurt readability on phones. */
+@media (max-width: 576px) {
+  /* Subtitle popover: never overflow the viewport, respect notches. */
+  .vds-player .vds-menu-items[role="menu"] {
+    max-width: calc(100vw - 24px);
+  }
+  /* 44 px tap target on the menu items we inject (HIG minimum). */
+  .vds-settings-menu-items .vds-menu-button {
+    min-height: 44px;
+  }
+}
+
 /* Bottom toolbar (download + subtitle-settings) — visually integrated with
    Vidstack's bottom control bar. Buttons use the same size / hover behavior
    as Vidstack's native controls so they look like part of the row. */

@@ -574,7 +574,25 @@ export default function Watch({
     );
 
     const controller = new AbortController();
-    const MAX_CONCURRENT = 8;
+    // On phones / Save-Data mode the previous 8-way fan-out competes with the
+    // active server's stream fetch for the device's small connection pool
+    // (Safari iOS caps at 6 simultaneous requests, same origin) and delays
+    // playback start by several seconds. Two concurrent probes is enough on
+    // mobile to clear the list in <10 s without starving the foreground
+    // playback request.
+    const isMobileViewport =
+      typeof window !== "undefined" &&
+      window.matchMedia?.("(max-width: 768px)").matches;
+    const saveData =
+      typeof navigator !== "undefined" &&
+      navigator.connection &&
+      navigator.connection.saveData === true;
+    const MAX_CONCURRENT = isMobileViewport || saveData ? 2 : 8;
+    // Give the active server's source fetch a head-start so the player can
+    // start buffering before we kick off the 20+ probe fan-out. Without this,
+    // mobile users see 3–5 s of black frame before playback because the probes
+    // saturate the connection pool.
+    const PROBE_START_DELAY_MS = isMobileViewport ? 1200 : 250;
     const RETRY_DELAY_MS = 3000;
     let cancelled = false;
 
@@ -641,6 +659,8 @@ export default function Watch({
     };
 
     (async () => {
+      await new Promise((r) => setTimeout(r, PROBE_START_DELAY_MS));
+      if (cancelled) return;
       for (let i = 0; i < toProbe.length && !cancelled; i += MAX_CONCURRENT) {
         const batch = toProbe.slice(i, i + MAX_CONCURRENT);
         await Promise.all(batch.map(probe));
