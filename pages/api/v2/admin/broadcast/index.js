@@ -1,11 +1,19 @@
 import { getServerSession } from "next-auth";
 import { authOptions } from "pages/api/auth/[...nextauth]";
 import { isAdminSession } from "@/lib/auth/isAdmin";
+import { redis } from "@/lib/redis";
 import {
   getAdminTursoClient,
   ensureAdminSchema,
   logAuditEvent,
 } from "@/lib/db/turso-admin";
+
+// Cross-instance cache so every page load doesn't round-trip to Turso.
+// _app.tsx fetches this on mount + every route change with `cache: "no-store"`;
+// 200+ DB hits per 12 h on a tiny project was almost entirely this endpoint.
+const BROADCAST_CACHE_KEY = "broadcast:current";
+const BROADCAST_CACHE_TTL_S = 60;
+let broadcastMemCache = null; // { value, expiresAt }
 
 /**
  * Global broadcast endpoint backed by the admin Turso DB. The `broadcast`
@@ -43,24 +51,73 @@ export default async function handler(req, res) {
 
   try {
     if (req.method === "GET") {
+      // 1. In-process cache (per Vercel function instance — saves both
+      //    Turso and Redis round-trips when one instance is warm).
+      if (broadcastMemCache && broadcastMemCache.expiresAt > Date.now()) {
+        res.setHeader(
+          "Cache-Control",
+          "public, s-maxage=60, stale-while-revalidate=300",
+        );
+        return res.status(200).json(broadcastMemCache.value);
+      }
+      // 2. Redis (cross-instance shared cache).
+      if (redis) {
+        try {
+          const cached = await redis.get(BROADCAST_CACHE_KEY);
+          if (cached) {
+            const parsed = JSON.parse(cached);
+            broadcastMemCache = {
+              value: parsed,
+              expiresAt: Date.now() + BROADCAST_CACHE_TTL_S * 1000,
+            };
+            res.setHeader(
+              "Cache-Control",
+              "public, s-maxage=60, stale-while-revalidate=300",
+            );
+            return res.status(200).json(parsed);
+          }
+        } catch {
+          /* fall through to DB */
+        }
+      }
+
+      // 3. Live DB read.
       const r = await db.execute(
         "SELECT title, message, show_flag, start_at, end_at FROM broadcast WHERE id = 1"
       );
       const row = r.rows?.[0];
-      if (!row) {
-        return res.status(200).json({ title: null, message: null, show: false });
+      const payload = !row
+        ? { title: null, message: null, show: false }
+        : (() => {
+            const now = Math.floor(Date.now() / 1000);
+            const inWindow =
+              (row.start_at == null || now >= Number(row.start_at)) &&
+              (row.end_at == null || now <= Number(row.end_at));
+            return {
+              title: row.title,
+              message: row.message,
+              startAt: row.start_at,
+              endAt: row.end_at,
+              show: Boolean(row.show_flag) && inWindow,
+            };
+          })();
+
+      // Write through to both caches. Don't await Redis — failure shouldn't
+      // delay the response.
+      broadcastMemCache = {
+        value: payload,
+        expiresAt: Date.now() + BROADCAST_CACHE_TTL_S * 1000,
+      };
+      if (redis) {
+        redis
+          .set(BROADCAST_CACHE_KEY, JSON.stringify(payload), "EX", BROADCAST_CACHE_TTL_S)
+          .catch(() => {});
       }
-      const now = Math.floor(Date.now() / 1000);
-      const inWindow =
-        (row.start_at == null || now >= Number(row.start_at)) &&
-        (row.end_at == null || now <= Number(row.end_at));
-      return res.status(200).json({
-        title: row.title,
-        message: row.message,
-        startAt: row.start_at,
-        endAt: row.end_at,
-        show: Boolean(row.show_flag) && inWindow,
-      });
+      res.setHeader(
+        "Cache-Control",
+        "public, s-maxage=60, stale-while-revalidate=300",
+      );
+      return res.status(200).json(payload);
     }
 
     if (req.method === "POST") {
@@ -93,6 +150,9 @@ export default async function handler(req, res) {
         null,
         message
       );
+      // Bust caches so the new message shows up immediately for everyone.
+      broadcastMemCache = null;
+      if (redis) redis.del(BROADCAST_CACHE_KEY).catch(() => {});
       return res.status(200).json({ message: "Broadcast updated" });
     }
 
@@ -104,6 +164,8 @@ export default async function handler(req, res) {
         session?.user?.name || "unknown",
         "broadcast_clear",
       );
+      broadcastMemCache = null;
+      if (redis) redis.del(BROADCAST_CACHE_KEY).catch(() => {});
       return res.status(200).json({ message: "Broadcast cleared" });
     }
 

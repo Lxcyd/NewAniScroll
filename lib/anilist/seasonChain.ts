@@ -166,6 +166,20 @@ export type SeasonEntry = {
   /** AniList format, used to filter out movies / OVAs from the
    *  switcher (we only want TV-like seasons there). */
   format: string | null;
+  /** Full localised titles — present so the Relations widget can render
+   *  proper cards (with cover + title) directly from the season list. */
+  title?: {
+    english?: string | null;
+    romaji?: string | null;
+    userPreferred?: string | null;
+    native?: string | null;
+  } | null;
+  /** Cover image URLs from AniList. Optional because the walker uses
+   *  getMediaMeta() which may return a thinned-out cache row. */
+  coverImage?: {
+    extraLarge?: string | null;
+    large?: string | null;
+  } | null;
 };
 
 /* Same walk as resolveSeasonChain but returns the ordered list of every
@@ -259,6 +273,11 @@ async function resolveSeasonListUncached(
       year: m.seasonYear ?? m.startDate?.year ?? null,
       episodes: m.episodes ?? null,
       format: m.format ?? null,
+      // Pulled from the same Media payload getMediaMeta already returned —
+      // costs nothing extra but lets the Relations widget render full
+      // poster cards without re-fetching per-id on the client.
+      title: m.title || null,
+      coverImage: m.coverImage || null,
     };
   });
 }

@@ -51,7 +51,7 @@ async function serializedFetch(targetUrl, fetchOptions) {
 }
 
 export default async function handler(req, res) {
-  const { url, referer } = req.query;
+  const { url, referer, vcookie } = req.query;
   if (!url) {
     return res.status(400).json({ error: "Missing url parameter" });
   }
@@ -132,12 +132,16 @@ export default async function handler(req, res) {
     // Forward Range header for MP4 streaming/seeking
     if (req.headers.range) headers.Range = req.headers.range;
 
-    // VOE: forward DDoS-Guard cookies captured during extraction. The CDN
-    // (cloudwindow-route, ugc-cdn-caching-*) checks `__ddg9_` against the
-    // requesting IP and rejects requests without it, even if the IP is the
-    // same one that obtained the cookie initially.
+    // VOE: forward DDoS-Guard cookies. The cookie is either:
+    //   1. Passed via the `vcookie` query param (sent by the client — works
+    //      when the Cloudflare Worker is the front-line proxy and the
+    //      Vercel endpoint is hit only as a fallback / for embedded subs).
+    //   2. Looked up from the in-memory jar populated by the VOE extractor
+    //      (works when source-extract + proxy run in the same Vercel
+    //      function instance; failure case is silent — same as today).
     const targetHost = new URL(targetUrl).hostname;
-    const voeCookie = getVoeCookieFor(targetHost);
+    const clientCookie = vcookie ? decodeURIComponent(vcookie) : null;
+    const voeCookie = clientCookie || getVoeCookieFor(targetHost);
     if (voeCookie) headers.Cookie = voeCookie;
 
     // Abort the upstream fetch if the client disconnects.
@@ -184,6 +188,10 @@ export default async function handler(req, res) {
       const refParam = effectiveReferer
         ? `&referer=${encodeURIComponent(effectiveReferer)}`
         : "";
+      // Same for the VOE cookie — nested segment requests need it too.
+      const cookieParam = clientCookie
+        ? `&vcookie=${encodeURIComponent(clientCookie)}`
+        : "";
 
       // Helper to resolve a URL to absolute. We use the WHATWG URL constructor
       // because some CDNs (notably VOE) embed `/` characters inside their
@@ -204,18 +212,21 @@ export default async function handler(req, res) {
       // Rewrite #EXT-X-KEY URI="..." and similar tags (encryption keys, maps)
       body = body.replace(/URI="([^"]+)"/g, (match, uri) => {
         const abs = toAbsolute(uri);
-        return `URI="/api/v2/proxy/m3u8?url=${encodeURIComponent(abs)}${refParam}"`;
+        return `URI="/api/v2/proxy/m3u8?url=${encodeURIComponent(abs)}${refParam}${cookieParam}"`;
       });
 
       // Rewrite segment/playlist URLs (non-# lines)
       body = body.replace(/^(?!#)(.+)$/gm, (line) => {
         const trimmed = line.trim();
         if (!trimmed || trimmed.startsWith("#")) return line;
-        return `/api/v2/proxy/m3u8?url=${encodeURIComponent(toAbsolute(trimmed))}${refParam}`;
+        return `/api/v2/proxy/m3u8?url=${encodeURIComponent(toAbsolute(trimmed))}${refParam}${cookieParam}`;
       });
 
       res.setHeader("Content-Type", "application/vnd.apple.mpegurl");
       res.setHeader("Access-Control-Allow-Origin", "*");
+      // Short edge cache — manifest tokens rotate, but 30 s of sharing across
+      // viewers still saves a real chunk of repeated origin hits.
+      res.setHeader("Cache-Control", "public, s-maxage=30, max-age=0");
       return res.status(200).send(body);
     }
 
@@ -224,6 +235,14 @@ export default async function handler(req, res) {
     res.setHeader("Content-Type", contentType || "application/octet-stream");
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Accept-Ranges", "bytes");
+    // Tokens in the upstream URL act as the cache key, so a segment can be
+    // treated as immutable until the token rotates. Vercel's edge will fan
+    // a single origin hit out to every viewer at that PoP — the single
+    // biggest win for Fast Origin Transfer on the Hobby plan.
+    res.setHeader(
+      "Cache-Control",
+      "public, s-maxage=86400, max-age=3600, immutable",
+    );
     const contentRange = response.headers.get("content-range");
     const contentLength = response.headers.get("content-length");
     if (contentRange) res.setHeader("Content-Range", contentRange);

@@ -13,6 +13,10 @@ export default function AdminReports() {
   const [severity, setSeverity] = useState("All");
   const [kind, setKind] = useState("All"); // All | Site | Anime
   const [search, setSearch] = useState("");
+  // Status filter — both Open and Pending live in the unresolved list (the
+  // GET endpoint already filters resolved_at IS NULL); we just split them
+  // visually so the admin can focus on either bucket.
+  const [status, setStatus] = useState("All"); // All | Open | Pending
 
   const fetchReports = async () => {
     setLoading(true);
@@ -52,6 +56,35 @@ export default function AdminReports() {
     }
   };
 
+  // Optimistic toggle: flip the pending_at on the local row immediately so
+  // the badge changes feel instant. Roll back if the server rejects it.
+  const handleTogglePending = async (id, nextPending) => {
+    const now = Math.floor(Date.now() / 1000);
+    setReports((cur) =>
+      cur.map((r) =>
+        r.id === id ? { ...r, pending_at: nextPending ? now : null } : r,
+      ),
+    );
+    try {
+      const r = await fetch("/api/v2/admin/bug-report", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reportId: id, pending: nextPending }),
+      });
+      const data = await r.json();
+      if (r.status !== 200) throw new Error(data?.error || "Failed");
+      toast.success(data.message);
+    } catch (e) {
+      // Roll back on failure.
+      setReports((cur) =>
+        cur.map((r) =>
+          r.id === id ? { ...r, pending_at: nextPending ? null : now } : r,
+        ),
+      );
+      toast.error(e.message || "Failed");
+    }
+  };
+
   // Filter + sort the list. Critical first.
   const sevRank = { Critical: 0, High: 1, Medium: 2, Low: 3 };
   // Kind is encoded by the report submitter: the title is prefixed
@@ -65,9 +98,11 @@ export default function AdminReports() {
     if (t.startsWith("[SITE]")) return "Site";
     return "Site"; // legacy reports without a prefix default to Site
   };
+  const statusOf = (r) => (r.pending_at ? "Pending" : "Open");
   const filtered = reports
     .filter((r) => (severity === "All" ? true : r.severity === severity))
     .filter((r) => (kind === "All" ? true : kindOf(r) === kind))
+    .filter((r) => (status === "All" ? true : statusOf(r) === status))
     .filter((r) => {
       const q = search.trim().toLowerCase();
       if (!q) return true;
@@ -77,7 +112,15 @@ export default function AdminReports() {
         (r.reporter || "").toLowerCase().includes(q)
       );
     })
-    .sort((a, b) => (sevRank[a.severity] ?? 99) - (sevRank[b.severity] ?? 99));
+    // Open reports float above Pending ones (Pending is "I think this is
+    // done" → lower urgency). Inside each bucket, sort by severity rank so
+    // Critical still leads.
+    .sort((a, b) => {
+      const aPending = a.pending_at ? 1 : 0;
+      const bPending = b.pending_at ? 1 : 0;
+      if (aPending !== bPending) return aPending - bPending;
+      return (sevRank[a.severity] ?? 99) - (sevRank[b.severity] ?? 99);
+    });
 
   return (
     <div className="px-6 py-8 space-y-5">
@@ -113,6 +156,18 @@ export default function AdminReports() {
           ))}
         </select>
         <select
+          value={status}
+          onChange={(e) => setStatus(e.target.value)}
+          className="bg-as-surface text-white/85 ring-1 ring-white/10 rounded px-3 py-2 text-sm font-karla outline-none focus:ring-as-accent"
+          title="Status"
+        >
+          {["All", "Open", "Pending"].map((s) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
+        </select>
+        <select
           value={severity}
           onChange={(e) => setSeverity(e.target.value)}
           className="bg-as-surface text-white/85 ring-1 ring-white/10 rounded px-3 py-2 text-sm font-karla outline-none focus:ring-as-accent"
@@ -139,20 +194,31 @@ export default function AdminReports() {
           </div>
         )}
         {filtered.map((r) => (
-          <ReportRow key={r.id} report={r} onResolve={handleResolved} />
+          <ReportRow
+            key={r.id}
+            report={r}
+            onResolve={handleResolved}
+            onTogglePending={handleTogglePending}
+          />
         ))}
       </div>
     </div>
   );
 }
 
-function ReportRow({ report, onResolve }) {
+function ReportRow({ report, onResolve, onTogglePending }) {
+  const isPending = !!report.pending_at;
   return (
-    <div className="bg-secondary rounded-md p-4 ring-1 ring-white/5">
+    <div
+      className={`bg-secondary rounded-md p-4 ring-1 transition-colors ${
+        isPending ? "ring-amber-500/30 opacity-80" : "ring-white/5"
+      }`}
+    >
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1">
+          <div className="flex flex-wrap items-center gap-2 mb-1">
             <SeverityBadge severity={report.severity} />
+            {isPending && <PendingBadge ts={Number(report.pending_at)} />}
             <Link
               href={report.url || "#"}
               className="text-white font-outfit font-semibold hover:text-action break-words"
@@ -185,13 +251,31 @@ function ReportRow({ report, onResolve }) {
             )}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => onResolve(report.id)}
-          className="px-3 py-1.5 rounded-md bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 text-xs font-semibold shrink-0"
-        >
-          Resolve
-        </button>
+        <div className="flex flex-col gap-1.5 shrink-0">
+          <button
+            type="button"
+            onClick={() => onTogglePending(report.id, !isPending)}
+            title={
+              isPending
+                ? "Move back to Open — the fix didn't hold"
+                : "Mark as Pending — fix shipped, awaiting verification"
+            }
+            className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${
+              isPending
+                ? "bg-amber-500/30 text-amber-200 hover:bg-amber-500/40"
+                : "bg-amber-500/15 text-amber-300 hover:bg-amber-500/25"
+            }`}
+          >
+            {isPending ? "Un-pending" : "Pending"}
+          </button>
+          <button
+            type="button"
+            onClick={() => onResolve(report.id)}
+            className="px-3 py-1.5 rounded-md bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 text-xs font-semibold"
+          >
+            Resolve
+          </button>
+        </div>
       </div>
 
       {Array.isArray(report.images) && report.images.length > 0 && (
@@ -215,6 +299,25 @@ function ReportRow({ report, onResolve }) {
         </div>
       )}
     </div>
+  );
+}
+
+function PendingBadge({ ts }) {
+  // Surface how long the report has been pending so the admin can spot
+  // ones that have aged out without ever being confirmed/resolved.
+  const ageH = ts ? Math.floor((Date.now() / 1000 - ts) / 3600) : null;
+  const label =
+    ageH == null
+      ? "PENDING"
+      : ageH < 1
+      ? "PENDING · <1h"
+      : ageH < 24
+      ? `PENDING · ${ageH}h`
+      : `PENDING · ${Math.floor(ageH / 24)}d`;
+  return (
+    <span className="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded font-bold font-karla bg-amber-500/20 text-amber-300">
+      {label}
+    </span>
   );
 }
 

@@ -59,7 +59,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     try {
       const cached = await redis.get(CACHE_KEY);
       if (cached) {
-        res.setHeader("Cache-Control", "public, s-maxage=30, stale-while-revalidate=60");
+        // Match the 5-minute client poll interval: every browser hit lands
+        // in the edge cache without re-invoking the function. Within the
+        // 5-min window we serve from edge; after, one shielded request
+        // refreshes Redis + reseeds the edge.
+        res.setHeader("Cache-Control", "public, s-maxage=300, stale-while-revalidate=600");
         return res.status(200).json(JSON.parse(cached));
       }
     } catch {
@@ -84,6 +88,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
   }
 
-  res.setHeader("Cache-Control", "public, s-maxage=30, stale-while-revalidate=60");
+  res.setHeader(
+    "Cache-Control",
+    "public, s-maxage=300, stale-while-revalidate=600",
+  );
   return res.status(200).json(payload);
 }

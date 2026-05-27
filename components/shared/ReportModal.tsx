@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { Dialog, Transition } from "@headlessui/react";
 import { toast } from "sonner";
 
@@ -60,12 +60,18 @@ const ReportModal: React.FC<Props> = ({ isOpen, setIsOpen, animeContext }) => {
   // almost always why the user opened the modal in that surface.
   const [tab, setTab] = useState<TabId>(animeContext ? "anime" : "site");
 
-  // Re-sync the active tab whenever the modal opens with a different
-  // context (e.g. navigating between an anime page and the generic
-  // navbar button without unmounting).
+  // Re-sync the active tab whenever the modal TRANSITIONS from closed to
+  // open. We deliberately do NOT depend on `animeContext` — callers build
+  // that object inline (`animeContext={info ? { ... } : null}`), so its
+  // reference changes on every parent render. Keeping it in the deps reset
+  // the tab back to "anime" mid-edit any time the parent re-rendered for an
+  // unrelated reason — which on mobile happens the moment the soft keyboard
+  // opens (viewport-resize → context re-render → new animeContext object).
+  // Reported as: cannot enter a [SITE] report from a watch page on mobile.
   useEffect(() => {
     if (isOpen) setTab(animeContext ? "anime" : "site");
-  }, [isOpen, animeContext]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
 
   // ─ Site-bug state ─────────────────────────────────────────────
   const [siteTitle, setSiteTitle] = useState("");
@@ -292,8 +298,19 @@ const ReportModal: React.FC<Props> = ({ isOpen, setIsOpen, animeContext }) => {
               leaveFrom="opacity-100 scale-100"
               leaveTo="opacity-0 scale-95"
             >
-              <Dialog.Panel className="w-full max-w-md transition-all">
-                <div className="bg-secondary p-6 rounded-lg shadow-xl">
+              <Dialog.Panel className="relative w-full max-w-md transition-all">
+                {/* Cap to viewport-ish so the inner form scrolls inside the
+                    modal (instead of relying on the outer overflow-y-auto,
+                    which on mobile hides its scrollbar entirely and made
+                    users miss the Submit button hidden below the fold).
+                    `scrollbar-thin` is from tailwind-scrollbar — gives a
+                    visible thin track on desktop. iOS Safari only shows
+                    scrollbars during active scroll, so we also draw a fade
+                    gradient at the bottom of the panel (see below) as a
+                    discoverability hint. */}
+                <div
+                  className="bg-secondary p-6 rounded-lg shadow-xl max-h-[85dvh] overflow-y-auto scrollbar-thin scrollbar-thumb-white/25 scrollbar-track-transparent"
+                >
                   <div className="flex items-center justify-between mb-4">
                     <h2 className="text-action text-2xl font-semibold">
                       Report
@@ -389,6 +406,14 @@ const ReportModal: React.FC<Props> = ({ isOpen, setIsOpen, animeContext }) => {
                     </div>
                   </form>
                 </div>
+
+                {/* Bottom-edge "more below" hint — sits over the scroll
+                    container, fades into bg-secondary so partially-clipped
+                    content reads as continuing past the fold. Hidden once
+                    the user scrolls within ~16 px of the bottom so it never
+                    obscures the Submit button. pointer-events:none keeps
+                    the button below clickable through the fade. */}
+                <BottomScrollFade />
               </Dialog.Panel>
             </Transition.Child>
           </div>
@@ -399,6 +424,56 @@ const ReportModal: React.FC<Props> = ({ isOpen, setIsOpen, animeContext }) => {
 };
 
 export default ReportModal;
+
+// Gradient fade overlay rendered as the LAST child of a `relative` parent
+// whose first child is a scrollable container. Watches that sibling's scroll
+// position and fades itself out once the user is within ~16 px of the
+// bottom — that way the Submit button never sits under a darkening overlay
+// when it's actually fully visible.
+function BottomScrollFade() {
+  const ref = useRef<HTMLDivElement>(null);
+  const [atBottom, setAtBottom] = useState(false);
+  const [overflows, setOverflows] = useState(false);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const scroller = el.previousElementSibling as HTMLElement | null;
+    if (!scroller) return;
+
+    const check = () => {
+      const overflowing = scroller.scrollHeight > scroller.clientHeight + 1;
+      setOverflows(overflowing);
+      if (!overflowing) {
+        setAtBottom(true);
+        return;
+      }
+      const remaining =
+        scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
+      setAtBottom(remaining <= 16);
+    };
+
+    check();
+    scroller.addEventListener("scroll", check, { passive: true });
+    // Resize observer covers the soft-keyboard / image-attachment case where
+    // the inner form grows or shrinks without a scroll event firing.
+    const ro = new ResizeObserver(check);
+    ro.observe(scroller);
+    return () => {
+      scroller.removeEventListener("scroll", check);
+      ro.disconnect();
+    };
+  }, []);
+
+  return (
+    <div
+      ref={ref}
+      aria-hidden
+      className="pointer-events-none absolute inset-x-0 bottom-0 h-8 rounded-b-lg bg-gradient-to-t from-secondary to-transparent transition-opacity duration-200"
+      style={{ opacity: overflows && !atBottom ? 1 : 0 }}
+    />
+  );
+}
 
 // ── Site bug tab ───────────────────────────────────────────────
 function SiteTab({

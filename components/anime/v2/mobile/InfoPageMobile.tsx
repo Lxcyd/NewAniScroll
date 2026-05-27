@@ -34,6 +34,7 @@ import type { SeasonEntry } from "@/lib/anilist/seasonChain";
 import CharactersTab from "../CharactersTab";
 import Episodes from "../Episodes";
 import Artworks from "../Artworks";
+import Related from "../Related";
 
 type Props = {
   info: AniListInfoTypes;
@@ -105,7 +106,7 @@ export default function InfoPageMobile({
             artworks: artCount,
           }}
         />
-        {tab === "overview" && <MOverview info={info} />}
+        {tab === "overview" && <MOverview info={info} seasonList={seasonList} />}
         {tab === "episodes" && (
           <div style={S.tabBox}>
             <Episodes
@@ -696,7 +697,13 @@ function MTabs({
 }
 
 /* ─── Overview ────────────────────────────────────────────── */
-function MOverview({ info }: { info: AniListInfoTypes }) {
+function MOverview({
+  info,
+  seasonList,
+}: {
+  info: AniListInfoTypes;
+  seasonList?: SeasonEntry[];
+}) {
   const [exp, setExp] = useState(false);
   const description = stripHtml(info.description || "");
   const aired = formatAiredRange(info);
@@ -802,6 +809,27 @@ function MOverview({ info }: { info: AniListInfoTypes }) {
           <MTrailer trailer={trailer} bannerFallback={info.bannerImage} />
         </section>
       )}
+
+      {/* Relations. Same component as desktop — sorting + scroll behaviour
+          come from Related.tsx so changes stay in one place. The padding
+          tweak below pulls the kicker back to the page edge while letting
+          the cards bleed past it horizontally (which gives the "more
+          content scrolls off the right" affordance for free). */}
+      {(Array.isArray(info.relations?.edges) && info.relations.edges.length > 0) ||
+      (seasonList && seasonList.length > 1) ? (
+        <section style={{ marginLeft: -16, marginRight: -16 }}>
+          <div style={{ ...S.kicker, paddingLeft: 16, paddingRight: 16 }}>
+            RELATIONS
+          </div>
+          <div style={{ paddingLeft: 16, paddingRight: 16 }}>
+            <Related
+              relations={info.relations?.edges || []}
+              seasonList={seasonList}
+              currentId={info.id}
+            />
+          </div>
+        </section>
+      ) : null}
 
       <section>
         <div style={S.kicker}>POPULARITY</div>

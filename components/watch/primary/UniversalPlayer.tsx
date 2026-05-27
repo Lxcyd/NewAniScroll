@@ -29,6 +29,11 @@ type Stream = {
   /** Skip our local /api/v2/proxy/m3u8 — URL is already through an external
    *  proxy that handles CORS + segment rewriting (e.g. anime-proxy for vidmoly). */
   directUrl?: boolean;
+  /** Set by the VOE extractor: DDoS-Guard cookie captured at extraction time.
+   *  Forwarded to the proxy as `vcookie=` so the Cloudflare Worker (which has
+   *  no shared in-memory state with the extractor) can authenticate against
+   *  cloudwindow-route. */
+  voeCookie?: string | null;
 };
 
 type Subtitle = {
@@ -73,10 +78,24 @@ type Props = {
   episodeNumber?: number;
 };
 
-function proxied(url: string, referer?: string | null): string {
+// Proxy base — defaults to the in-tree Vercel endpoint, but production should
+// override via NEXT_PUBLIC_PROXY_BASE (a Cloudflare Worker URL, see worker/).
+// Workers have unmetered bandwidth and an automatic edge cache; the Vercel
+// proxy meters every byte against Fast Origin Transfer.
+const PROXY_BASE =
+  (typeof process !== "undefined" &&
+    (process as any).env?.NEXT_PUBLIC_PROXY_BASE) ||
+  "/api/v2/proxy/m3u8";
+
+function proxied(
+  url: string,
+  referer?: string | null,
+  voeCookie?: string | null,
+): string {
   if (!url) return url;
   const ref = referer ? `&referer=${encodeURIComponent(referer)}` : "";
-  return `/api/v2/proxy/m3u8?url=${encodeURIComponent(url)}${ref}`;
+  const ck = voeCookie ? `&vcookie=${encodeURIComponent(voeCookie)}` : "";
+  return `${PROXY_BASE}?url=${encodeURIComponent(url)}${ref}${ck}`;
 }
 
 /**
@@ -326,7 +345,11 @@ function CustomControls({
       <a
         href={downloadUrl}
         download={downloadFilename}
-        title={`Download ${downloadExt.toUpperCase()}`}
+        title={
+          downloadExt === "m3u8"
+            ? "Download playlist (open with VLC / mpv / yt-dlp)"
+            : `Download ${downloadExt.toUpperCase()}`
+        }
         aria-label="Download"
         className={ICON_BTN_CLS}
         style={ICON_BTN_STYLE}
@@ -1564,7 +1587,11 @@ export default function UniversalPlayer({
   // anime-proxy), use it as-is. Otherwise wrap through our local proxy.
   const src = bestStream!.directUrl
     ? bestStream!.url
-    : proxied(bestStream!.url, bestStream!.referer || streamData?.referer);
+    : proxied(
+        bestStream!.url,
+        bestStream!.referer || streamData?.referer,
+        bestStream!.voeCookie,
+      );
   const isM3U8 =
     bestStream!.isM3U8 === true ||
     (bestStream!.isM3U8 !== false && bestStream!.url.includes(".m3u8"));
@@ -1588,14 +1615,32 @@ export default function UniversalPlayer({
     } catch {}
     return bestStream!.url;
   })();
-  const ext = isM3U8 ? "ts" : "mp4";
-  const downloadUrl = isM3U8
-    ? `/api/v2/download-stream?url=${encodeURIComponent(innerUrl)}` +
-      `&filename=${encodeURIComponent(safeName + ".ts")}` +
-      (refererParam ? `&referer=${encodeURIComponent(refererParam)}` : "")
-    : `/api/v2/download?url=${encodeURIComponent(innerUrl)}` +
-      `&filename=${encodeURIComponent(safeName + ".mp4")}` +
-      (refererParam ? `&referer=${encodeURIComponent(refererParam)}` : "");
+  // Output extension:
+  //   - MP4 streams download as .mp4 directly (single binary file)
+  //   - HLS streams download as .m3u8 playlists (no server-side concat —
+  //     keeps every byte of segment data off Vercel; user opens the file
+  //     in VLC / mpv / yt-dlp / ffmpeg which then pulls segments directly
+  //     from Cloudflare). See worker/src/index.js for the download mode.
+  const ext = isM3U8 ? "m3u8" : "mp4";
+  // Download endpoint: when NEXT_PUBLIC_PROXY_BASE is configured we route
+  // downloads through the Cloudflare Worker (unmetered bandwidth, free).
+  // Otherwise we fall back to the in-tree Vercel endpoints — these still
+  // work but eat Fast Origin Transfer like before.
+  const proxyConfigured = PROXY_BASE !== "/api/v2/proxy/m3u8";
+  const downloadUrl = proxyConfigured
+    ? `${PROXY_BASE}?url=${encodeURIComponent(innerUrl)}` +
+      `&dl=1&filename=${encodeURIComponent(safeName + "." + ext)}` +
+      (refererParam ? `&referer=${encodeURIComponent(refererParam)}` : "") +
+      (bestStream!.voeCookie
+        ? `&vcookie=${encodeURIComponent(bestStream!.voeCookie)}`
+        : "")
+    : isM3U8
+      ? `/api/v2/download-stream?url=${encodeURIComponent(innerUrl)}` +
+        `&filename=${encodeURIComponent(safeName + ".ts")}` +
+        (refererParam ? `&referer=${encodeURIComponent(refererParam)}` : "")
+      : `/api/v2/download?url=${encodeURIComponent(innerUrl)}` +
+        `&filename=${encodeURIComponent(safeName + ".mp4")}` +
+        (refererParam ? `&referer=${encodeURIComponent(refererParam)}` : "");
 
   const subtitleTracks = (streamData?.subtitles || [])
     .map((s) => {
@@ -1722,7 +1767,11 @@ export default function UniversalPlayer({
           {isSmallLayout && (
             <>
               <SettingsActionRow
-                label={`Download ${ext.toUpperCase()}`}
+                label={
+                  ext === "m3u8"
+                    ? "Download playlist (.m3u8)"
+                    : `Download ${ext.toUpperCase()}`
+                }
                 href={downloadUrl}
                 downloadFilename={`${safeName}.${ext}`}
                 iconPath="M12 16l-5-5h3V4h4v7h3l-5 5zm-7 2h14v2H5v-2z"

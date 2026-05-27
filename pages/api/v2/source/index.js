@@ -1247,7 +1247,29 @@ async function getConsumetStream(providerKey, title, episode, sub) {
   }
 }
 
-// â”€â”€ Handler â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Cross-visitor source cache ─────────────────────────────────────────
+// Source extraction is by far the most CPU-expensive endpoint in the API
+// (36 s active CPU over 12 h in the last Vercel observability window).
+// Every probe spins up 8-15 extractors in parallel, each doing 2-4 network
+// hops to an upstream host. When two viewers open the same episode of a
+// popular anime within minutes of each other, we currently do all that
+// work twice.
+//
+// The output is short-lived (CDN tokens typically expire 60-120 min later)
+// but identical across viewers for the (server, aniId, episode, sub) tuple.
+// A 5 min Redis cache wipes the duplicate work without ever serving an
+// expired token: if a token *does* expire mid-cache the client's hls-error
+// fallback kicks in and we mark the server failed, same as today.
+//
+// We only cache the 200 path. Errors stay short — a 404 might be a
+// transient extractor failure (the next visitor retries against fresh
+// upstream state).
+const SOURCE_CACHE_TTL_S = 300;
+function sourceCacheKey({ server, aniId, episode, sub }) {
+  return `src:v1:${server}:${aniId}:${episode}:${sub || "sub"}`;
+}
+
+// ── Handler ─────────────────────────────────────────────────────────────
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ message: "Method not allowed" });
@@ -1266,6 +1288,47 @@ export default async function handler(req, res) {
 
   const { server, aniId, episode, sub = "sub", title, mediaMeta } = req.body;
 
+  // Redis lookup — short-circuit identical (server, aniId, episode, sub)
+  // requests served within the last SOURCE_CACHE_TTL_S. The probe fan-out
+  // on the watch page sends 15-20 of these at once, every page load.
+  const cacheKey = sourceCacheKey({ server, aniId, episode, sub });
+  if (redis && server && aniId && episode != null) {
+    try {
+      const cached = await redis.get(cacheKey);
+      if (cached) {
+        // Edge cache so popular episodes share the result across PoPs too —
+        // adds shielded behaviour even when Redis is hot. 60s is enough to
+        // collapse a burst of probes from one visitor's watch-page mount.
+        res.setHeader(
+          "Cache-Control",
+          "public, s-maxage=60, stale-while-revalidate=120",
+        );
+        return res.status(200).json(JSON.parse(cached));
+      }
+    } catch {
+      /* non-fatal */
+    }
+  }
+
+  const sendOk = (payload) => {
+    if (redis && server && aniId && episode != null) {
+      // Fire-and-forget — never let cache writes block the response.
+      redis
+        .set(cacheKey, JSON.stringify(payload), "EX", SOURCE_CACHE_TTL_S)
+        .catch(() => {});
+    }
+    // Edge cache matches the 5 min Redis TTL — most CDN tokens we proxy
+    // last 60-240 min, so 5 min between refresh is well within the safe
+    // window. Browser cache stays short (60 s) so a manual refresh in
+    // the player picks up a new token if the user's current one fails.
+    res.setHeader("Cache-Control", "public, max-age=60");
+    res.setHeader(
+      "CDN-Cache-Control",
+      "public, s-maxage=300, stale-while-revalidate=600",
+    );
+    return res.status(200).json(payload);
+  };
+
   // If the client passed pre-fetched AniList metadata (from watch page SSR),
   // prime the cache so no helper has to call AniList itself.
   if (mediaMeta && aniId) primeMediaCache(aniId, mediaMeta);
@@ -1277,7 +1340,7 @@ export default async function handler(req, res) {
     if (result.error || !result.streams?.length) {
       return res.status(404).json({ error: result.error || "Source not found" });
     }
-    return res.status(200).json(result);
+    return sendOk(result);
   }
 
 
@@ -1298,7 +1361,7 @@ export default async function handler(req, res) {
     if (!data) {
       return res.status(404).json({ error: "Source not found" });
     }
-    return res.status(200).json(data);
+    return sendOk(data);
   }
 
   // Anime-Sama (VF + VOSTFR) â€” returns iframe embed URL
@@ -1311,7 +1374,7 @@ export default async function handler(req, res) {
     if (!data) {
       return res.status(404).json({ error: "Source not found" });
     }
-    return res.status(200).json(data);
+    return sendOk(data);
   }
 
   // voir-anime.to (VF + VOSTFR) â€” Madara/WordPress source
@@ -1324,7 +1387,7 @@ export default async function handler(req, res) {
     if (!data) {
       return res.status(404).json({ error: "Source not found" });
     }
-    return res.status(200).json(data);
+    return sendOk(data);
   }
 
   // CoorenLabs â€” needs anime title for search
@@ -1338,7 +1401,7 @@ export default async function handler(req, res) {
     if (!data) {
       return res.status(404).json({ error: "Source not found" });
     }
-    return res.status(200).json(data);
+    return sendOk(data);
   }
 
   // Consumet providers (AnimeSaturn, AnimeUnity)
@@ -1351,7 +1414,7 @@ export default async function handler(req, res) {
     if (!data) {
       return res.status(404).json({ error: "Source not found" });
     }
-    return res.status(200).json(data);
+    return sendOk(data);
   }
 
   return res.status(400).json({ error: "Unknown server" });

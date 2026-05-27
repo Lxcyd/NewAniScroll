@@ -16,9 +16,15 @@ import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 
 type Props = {
   info: AniListInfoTypes;
+  /** Optional — full TV/ONA season chain resolved server-side. When
+   *  provided, Relations renders every season AniList only exposes via
+   *  multi-hop prequel/sequel walks (e.g. DanMachi S3 / S4 / S5 from
+   *  S1's page). Without it, Relations falls back to the direct edges
+   *  on `info.relations`. */
+  seasonList?: import("@/lib/anilist/seasonChain").SeasonEntry[];
 };
 
-export default function Overview({ info }: Props) {
+export default function Overview({ info, seasonList }: Props) {
   const titlePref = useTitlePref();
   const [spoilers, setSpoilers] = useState(false);
 
@@ -163,6 +169,7 @@ export default function Overview({ info }: Props) {
             >
               <Related
                 relations={info.relations?.edges || []}
+                seasonList={seasonList}
                 currentId={info.id}
               />
             </div>
@@ -381,46 +388,52 @@ export default function Overview({ info }: Props) {
             minWidth: 0,
           }}
         >
-          <section>
-            {/* Mirror the TAGS header EXACTLY — same flex wrapper, same
-                children shape, same box metrics — wrapped in
-                visibility:hidden so the trailer's top edge lines up
-                pixel-for-pixel with the tags card's top edge.
-                Only emit the placeholder when the TAGS side actually
-                shows the spoilers toggle, otherwise we'd add height
-                here that the other column doesn't have. */}
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                marginBottom: 12,
-              }}
-            >
-              <div style={{ ...tStyles.secKicker, marginBottom: 0 }}>TRAILER</div>
-              {allTags.some((t) => t.isMediaSpoiler || t.isGeneralSpoiler) && (
-                <span
-                  aria-hidden
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 6,
-                    padding: "4px 9px",
-                    borderRadius: 6,
-                    border: "1px solid transparent",
-                    fontSize: 10,
-                    fontWeight: 600,
-                    letterSpacing: "0.06em",
-                    visibility: "hidden",
-                    pointerEvents: "none",
-                  }}
-                >
-                  <svg width="11" height="11" viewBox="0 0 24 24" />
-                  Show Spoilers
-                </span>
-              )}
-            </div>
-            {trailerUrl ? (
+          {/* Trailer section — completely hidden when the show has no
+              trailer (one-piece, older series, music videos with no MV, etc).
+              Showing a "No trailer available" placeholder was wasted real
+              estate and looked like a broken player. When this section
+              disappears the column's flex layout pulls POPULARITY up on its
+              own, which matches the mobile layout's behaviour. */}
+          {trailerUrl && (
+            <section>
+              {/* Mirror the TAGS header EXACTLY — same flex wrapper, same
+                  children shape, same box metrics — wrapped in
+                  visibility:hidden so the trailer's top edge lines up
+                  pixel-for-pixel with the tags card's top edge.
+                  Only emit the placeholder when the TAGS side actually
+                  shows the spoilers toggle, otherwise we'd add height
+                  here that the other column doesn't have. */}
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  marginBottom: 12,
+                }}
+              >
+                <div style={{ ...tStyles.secKicker, marginBottom: 0 }}>TRAILER</div>
+                {allTags.some((t) => t.isMediaSpoiler || t.isGeneralSpoiler) && (
+                  <span
+                    aria-hidden
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                      padding: "4px 9px",
+                      borderRadius: 6,
+                      border: "1px solid transparent",
+                      fontSize: 10,
+                      fontWeight: 600,
+                      letterSpacing: "0.06em",
+                      visibility: "hidden",
+                      pointerEvents: "none",
+                    }}
+                  >
+                    <svg width="11" height="11" viewBox="0 0 24 24" />
+                    Show Spoilers
+                  </span>
+                )}
+              </div>
               <a
                 href={trailerUrl}
                 target="_blank"
@@ -468,17 +481,8 @@ export default function Overview({ info }: Props) {
                   </div>
                 </div>
               </a>
-            ) : (
-              <div style={{ ...tStyles.mainPlayer, cursor: "default" }}>
-                <div style={tStyles.playerBg} />
-                <div style={tStyles.playerOverlay}>
-                  <span style={{ color: "var(--txt-3)", fontSize: 14 }}>
-                    No trailer available
-                  </span>
-                </div>
-              </div>
-            )}
-          </section>
+            </section>
+          )}
 
           <section>
             <div style={tStyles.secKicker}>POPULARITY</div>

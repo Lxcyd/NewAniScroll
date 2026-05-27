@@ -21,7 +21,19 @@ import { Navbar } from "@/components/shared/NavBar";
 import UserRecommendation from "@/components/home/recommendation";
 import { useRouter } from "next/router";
 
-export async function getServerSideProps() {
+export async function getServerSideProps(ctx: any) {
+  // Edge-cache the home page aggressively. The response is identical for
+  // every visitor (anonymous AND logged-in — the personalised carousels
+  // hydrate client-side, the SSR'd content is trending/popular/genre
+  // which is anonymous data). Split headers so browsers keep a short
+  // cache (1 min — fresh on hard refresh) while Vercel's edge holds it
+  // for 2 h + 24 h stale-while-revalidate. Trending/popular only really
+  // shifts once a day so 2 h fresh is plenty.
+  ctx?.res?.setHeader?.("Cache-Control", "public, max-age=60");
+  ctx?.res?.setHeader?.(
+    "CDN-Cache-Control",
+    "public, s-maxage=7200, stale-while-revalidate=86400",
+  );
   let cachedData;
 
   if (redis) {

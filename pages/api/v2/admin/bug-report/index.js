@@ -110,7 +110,7 @@ export default async function handler(req, res) {
   if (req.method === "GET") {
     const r = await db.execute(
       `SELECT id, title, url, description AS desc, severity, reporter,
-              reporter_ip, images, created_at
+              reporter_ip, images, created_at, pending_at
          FROM bug_reports
         WHERE resolved_at IS NULL
         ORDER BY created_at DESC
@@ -122,6 +122,35 @@ export default async function handler(req, res) {
       images: row.images ? safeJsonParse(row.images) : [],
     }));
     return res.status(200).json({ reports });
+  }
+
+  // PATCH — toggle a report's "pending" state. Used when the admin has
+  // shipped a likely fix but wants to keep the row in the dashboard for
+  // verification before fully resolving it.
+  //   body: { reportId, pending: boolean }
+  // pending=true  → set pending_at = now
+  // pending=false → clear pending_at (back to fresh "open")
+  if (req.method === "PATCH") {
+    const { reportId, pending } = req.body || {};
+    if (!reportId) return res.status(400).json({ error: "reportId required" });
+    if (typeof pending !== "boolean") {
+      return res.status(400).json({ error: "pending (boolean) required" });
+    }
+    await db.execute({
+      sql: pending
+        ? `UPDATE bug_reports SET pending_at = strftime('%s','now') WHERE id = ?`
+        : `UPDATE bug_reports SET pending_at = NULL WHERE id = ?`,
+      args: [Number(reportId)],
+    });
+    await logAuditEvent(
+      actor,
+      pending ? "report_pending" : "report_unpending",
+      String(reportId),
+    );
+    return res.status(200).json({
+      message: pending ? "Marked pending" : "Marked open",
+      pending,
+    });
   }
 
   if (req.method === "DELETE") {

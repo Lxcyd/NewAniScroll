@@ -451,6 +451,35 @@ export async function getServerSideProps(ctx: any) {
   const accessToken: string | null = session?.user?.token || null;
   const userListP = loadUserListState(animeIdNum, accessToken);
 
+  // Edge-cache headers for anonymous SSR. The rendered HTML contains
+  // zero user-specific bits when there's no session (heart, watch
+  // status, progress all start empty and hydrate client-side), so we
+  // can let Vercel's edge serve the same response to every visitor of
+  // this PoP. AniList metadata changes slowly (episode count when a new
+  // episode airs, status when a show finishes), so a 1 hour edge cache
+  // with 24h stale-while-revalidate is safe — the worst case is a
+  // viewer seeing an episode count that's off by one for an hour after
+  // an airing, but the next visitor refreshes it in the background.
+  //
+  // We split the headers so:
+  //  - `Cache-Control` controls the BROWSER cache (60s — so a hard
+  //    refresh sees fresh data, no "stuck on yesterday's status").
+  //  - `CDN-Cache-Control` controls Vercel's edge cache (1h + 24h SWR)
+  //    — this is the line that actually saves Fast Origin Transfer.
+  //
+  // Logged-in responses include initialFav / initialStatusLabel from
+  // the user's AniList list and MUST NOT be shared — for those, set
+  // the response to private/no-store across the board.
+  if (session) {
+    ctx.res.setHeader("Cache-Control", "private, no-store");
+  } else {
+    ctx.res.setHeader("Cache-Control", "public, max-age=60");
+    ctx.res.setHeader(
+      "CDN-Cache-Control",
+      "public, s-maxage=3600, stale-while-revalidate=86400",
+    );
+  }
+
   if (cache) {
     const { info, color } = JSON.parse(cache);
 

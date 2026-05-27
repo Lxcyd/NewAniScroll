@@ -49,6 +49,25 @@ export async function getServerSideProps(context) {
   const query = context?.query;
   if (!query) return { notFound: true };
 
+  // Edge-cache the watch SSR for anonymous users. The same anime+episode+
+  // dub combo renders identical HTML for everyone without a session
+  // (info is anime metadata from AniList; userData is null). Logged-in
+  // users get a fresh render every time because we bake their watch
+  // history (`userData`) into props. Watch pages can update when a new
+  // episode airs, so we use a shorter edge cache than anime-info (30 min
+  // vs 1 h) but still well above the previous 5 min — combined with the
+  // 1-day stale-while-revalidate, viewers always see something fresh and
+  // the function only fires once per PoP per 30 min.
+  if (session) {
+    context.res.setHeader("Cache-Control", "private, no-store");
+  } else {
+    context.res.setHeader("Cache-Control", "public, max-age=60");
+    context.res.setHeader(
+      "CDN-Cache-Control",
+      "public, s-maxage=1800, stale-while-revalidate=86400",
+    );
+  }
+
   let proxy = process.env.PROXY_URI || null;
   if (proxy && proxy.endsWith("/")) proxy = proxy.slice(0, -1);
   const disqus = process.env.DISQUS_SHORTNAME || null;
@@ -587,7 +606,11 @@ export default function Watch({
       typeof navigator !== "undefined" &&
       navigator.connection &&
       navigator.connection.saveData === true;
-    const MAX_CONCURRENT = isMobileViewport || saveData ? 2 : 8;
+    // 4 parallel desktop probes (down from 8): the browser caps at 6 conns
+    // per origin, so 8 probes meant the active stream's source fetch waited
+    // its turn behind 2 cold probe requests. 4 leaves a comfortable margin
+    // for the foreground request + image loads + analytics POSTs.
+    const MAX_CONCURRENT = isMobileViewport || saveData ? 2 : 4;
     // Give the active server's source fetch a head-start so the player can
     // start buffering before we kick off the 20+ probe fan-out. Without this,
     // mobile users see 3–5 s of black frame before playback because the probes
@@ -595,6 +618,50 @@ export default function Watch({
     const PROBE_START_DELAY_MS = isMobileViewport ? 1200 : 250;
     const RETRY_DELAY_MS = 3000;
     let cancelled = false;
+
+    // Session-level probe result cache. When navigating between episodes of
+    // the same anime, server availability barely changes — same upstream
+    // hosts, same catalog presence. Hydrate from sessionStorage so the dots
+    // appear instantly, then we still re-validate in the background but
+    // skip servers we just probed in the last PROBE_TTL_MS to save the
+    // round-trip entirely.
+    const PROBE_TTL_MS = 90_000;
+    const probeCacheKey = `aniscroll.probes.${info.id}.${dub ? "dub" : "sub"}`;
+    let cachedProbes = null;
+    try {
+      const raw = sessionStorage.getItem(probeCacheKey);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && Date.now() - parsed.ts < PROBE_TTL_MS) {
+          cachedProbes = parsed;
+          // Re-hydrate UI markers from the cache so the selector dots
+          // appear at the same instant the page renders.
+          for (const id of parsed.confirmed || []) markConfirmed(id);
+          for (const [id, reason] of Object.entries(parsed.failed || {})) {
+            markFailed(id, reason);
+          }
+        }
+      }
+    } catch {
+      /* sessionStorage may be disabled — fall through to full probe */
+    }
+    const cachedConfirmed = new Set(cachedProbes?.confirmed || []);
+    const cachedFailed = new Set(Object.keys(cachedProbes?.failed || {}));
+    // Save back to sessionStorage at the end of probing. The handlers below
+    // call this each time markConfirmed / markFailed fires from a probe so
+    // a partial run still persists what it learned.
+    const persistProbeCache = () => {
+      try {
+        const snapshot = {
+          confirmed: Array.from(cachedConfirmed),
+          failed: Object.fromEntries(
+            Array.from(cachedFailed).map((id) => [id, "cached"]),
+          ),
+          ts: Date.now(),
+        };
+        sessionStorage.setItem(probeCacheKey, JSON.stringify(snapshot));
+      } catch {}
+    };
 
     const probeMeta = info ? {
       id: info.id,
@@ -641,10 +708,22 @@ export default function Watch({
     };
 
     const probe = async (s) => {
+      // Skip probes for servers we already verified in this session — they
+      // were marked from the cache above and re-probing would only cost a
+      // round-trip without changing the visible UI.
+      if (cachedConfirmed.has(s.id) || cachedFailed.has(s.id)) return;
       const first = await attemptProbe(s);
       if (first === "abort" || cancelled) return;
-      if (first === "ok") return markConfirmed(s.id);
-      if (first === "fail-404") return markFailed(s.id, "Source not found");
+      if (first === "ok") {
+        cachedConfirmed.add(s.id);
+        persistProbeCache();
+        return markConfirmed(s.id);
+      }
+      if (first === "fail-404") {
+        cachedFailed.add(s.id);
+        persistProbeCache();
+        return markFailed(s.id, "Source not found");
+      }
 
       // Transient — wait, then try once more before giving up.
       await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
@@ -652,17 +731,32 @@ export default function Watch({
 
       const second = await attemptProbe(s);
       if (second === "abort" || cancelled) return;
-      if (second === "ok") return markConfirmed(s.id);
-      if (second === "fail-404") return markFailed(s.id, "Source not found");
+      if (second === "ok") {
+        cachedConfirmed.add(s.id);
+        persistProbeCache();
+        return markConfirmed(s.id);
+      }
+      if (second === "fail-404") {
+        cachedFailed.add(s.id);
+        persistProbeCache();
+        return markFailed(s.id, "Source not found");
+      }
       // Two transient failures in a row — call it broken.
+      cachedFailed.add(s.id);
+      persistProbeCache();
       markFailed(s.id, "Source unavailable");
     };
 
     (async () => {
       await new Promise((r) => setTimeout(r, PROBE_START_DELAY_MS));
       if (cancelled) return;
-      for (let i = 0; i < toProbe.length && !cancelled; i += MAX_CONCURRENT) {
-        const batch = toProbe.slice(i, i + MAX_CONCURRENT);
+      // Filter out the servers we already have a fresh verdict on so the
+      // batching counts towards genuinely unknown ones.
+      const remaining = toProbe.filter(
+        (s) => !cachedConfirmed.has(s.id) && !cachedFailed.has(s.id),
+      );
+      for (let i = 0; i < remaining.length && !cancelled; i += MAX_CONCURRENT) {
+        const batch = remaining.slice(i, i + MAX_CONCURRENT);
         await Promise.all(batch.map(probe));
       }
     })();

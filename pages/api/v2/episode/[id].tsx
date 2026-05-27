@@ -167,6 +167,16 @@ export default async function handler(
       res.setHeader("X-RateLimit-BeforeReset", headers.msBeforeNext);
     }
 
+    // Edge cache: episode lists change only when a new episode airs.
+    // 30 min on the edge with a day of stale-while-revalidate keeps the
+    // function dormant for popular series. The Redis check above runs
+    // in-function, but with this header most viewers never reach it —
+    // they hit the edge cache instead.
+    res.setHeader("Cache-Control", "public, max-age=60");
+    res.setHeader(
+      "CDN-Cache-Control",
+      "public, s-maxage=1800, stale-while-revalidate=86400",
+    );
     return res.status(200).json(filteredData.filter((i) => i.episodes.length > 0));
   }
 
@@ -208,6 +218,11 @@ export default async function handler(
     res.setHeader("X-RateLimit-BeforeReset", headers.msBeforeNext);
   }
 
+  res.setHeader("Cache-Control", "public, max-age=60");
+  res.setHeader(
+    "CDN-Cache-Control",
+    "public, s-maxage=1800, stale-while-revalidate=86400",
+  );
   return res.status(200).json(data.filter((i) => i.episodes.length > 0));
 }
 

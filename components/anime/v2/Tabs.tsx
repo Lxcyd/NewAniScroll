@@ -104,7 +104,9 @@ export default function Tabs({ info, fanarts, progress, seasonList }: Props) {
         })}
       </div>
       <div>
-        {tab === "overview" && <Overview info={info} />}
+        {tab === "overview" && (
+          <Overview info={info} seasonList={seasonList} />
+        )}
         {tab === "episodes" && (
           <Episodes
             info={info}

@@ -2,10 +2,17 @@ import { CSSProperties } from "react";
 import Link from "next/link";
 import { Edge } from "types/info/AnilistInfoTypes";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
+import type { SeasonEntry } from "@/lib/anilist/seasonChain";
+import styles from "./styles.module.css";
 
 type Props = {
   relations: Edge[];
   currentId: number;
+  /** Full season chain resolved server-side (walks PREQUEL/SEQUEL across
+   *  multiple hops). When provided, every TV-like season in the franchise
+   *  shows up — not just the direct neighbours AniList exposes in
+   *  `info.relations.edges`. */
+  seasonList?: SeasonEntry[];
 };
 
 const RELATION_COLORS: Record<string, string> = {
@@ -35,7 +42,7 @@ const FORMAT_LABEL: Record<string, string> = {
   MUSIC: "MUSIC",
 };
 
-export default function Related({ relations, currentId }: Props) {
+export default function Related({ relations, currentId, seasonList }: Props) {
   const titlePref = useTitlePref();
   // Anime / manga / novels relations only. Drop character / summary noise.
   const KEEP = new Set([
@@ -48,16 +55,98 @@ export default function Related({ relations, currentId }: Props) {
     "SPIN_OFF",
     "OTHER",
   ]);
-  const nodes = (relations || [])
-    .filter((e) => KEEP.has(e.relationType))
-    .slice(0, 8);
+  // Sort key: (formatRank, year). All TV seasons land in one chronological
+  // run regardless of whether they're tagged sequel, spin-off, or side
+  // story — the viewer wants to see every "season" in order first, then
+  // movies, then bonus episodes (SP/OVA/ONA), then printed media. The
+  // relationType tag stays visible on each card, so the user can still
+  // tell at a glance which TV is a direct sequel vs a spin-off.
+  //
+  // formatRank
+  //   0 = TV / TV_SHORT       — full seasons
+  //   1 = MOVIE
+  //   2 = SPECIAL / OVA / ONA
+  //   3 = MUSIC
+  //   4 = MANGA / MANHWA / NOVEL / ONE_SHOT
+  //
+  // year — chronological inside each bucket. Entries without a year
+  // (announced-only) sink to the end of their bucket.
+  const FORMAT_RANK: Record<string, number> = {
+    TV: 0,
+    TV_SHORT: 0,
+    MOVIE: 1,
+    SPECIAL: 2,
+    OVA: 2,
+    ONA: 2,
+    MUSIC: 3,
+    MANGA: 4,
+    MANHWA: 4,
+    NOVEL: 4,
+    ONE_SHOT: 4,
+  };
+  // Start with the direct relations AniList exposes for THIS entry.
+  const directEdges = (relations || []).filter((e) => KEEP.has(e.relationType));
+
+  // Promote the full season chain (walked across PREQUEL/SEQUEL hops on
+  // the server) into Edge shape so non-direct seasons — e.g. S3, S4 from
+  // S1's page — show up alongside the direct edges. We exclude the
+  // current entry's own id from the list, then dedup against any season
+  // that's ALREADY in directEdges so we don't double-render S2 when it's
+  // both a direct sequel AND part of the chain.
+  const directIds = new Set(directEdges.map((e) => Number(e.node?.id)));
+  const currentEntry = seasonList?.find((s) => s.id === currentId);
+  const currentYear = currentEntry?.year ?? null;
+  const seasonEdges: Edge[] = (seasonList || [])
+    .filter((s) => s.id !== currentId && !directIds.has(s.id))
+    .map((s): Edge => {
+      // Direction guess: anything aired before the current entry's first
+      // air year is a prequel, after is a sequel. Falls back to SEQUEL
+      // when years aren't comparable — matches the most common case
+      // (current page is S1 → everything walked is downstream).
+      const relationType =
+        currentYear != null && s.year != null && s.year < currentYear
+          ? "PREQUEL"
+          : "SEQUEL";
+      return {
+        id: `season-${s.id}`,
+        relationType,
+        node: {
+          id: s.id,
+          type: "ANIME",
+          format: s.format || "TV",
+          title: (s.title || { romaji: s.label }) as any,
+          coverImage: (s.coverImage || {}) as any,
+          seasonYear: s.year,
+          episodes: s.episodes,
+        },
+      } as any;
+    });
+
+  const nodes = [...directEdges, ...seasonEdges]
+    .slice()
+    .sort((a, b) => {
+      const fA = FORMAT_RANK[a.node.format] ?? 99;
+      const fB = FORMAT_RANK[b.node.format] ?? 99;
+      if (fA !== fB) return fA - fB;
+      const yA = a.node.seasonYear || Number.POSITIVE_INFINITY;
+      const yB = b.node.seasonYear || Number.POSITIVE_INFINITY;
+      return yA - yB;
+    });
 
   if (nodes.length === 0) {
     return <div style={emptyStyle}>No related entries.</div>;
   }
 
   return (
-    <div style={rStyles.row}>
+    <div
+      // Same scrollbar styling as the Tags / External Sites cards on the
+      // same page — `styles.customScroll` opts out of the site-wide hide
+      // rule with !important overrides (see styles.module.css). One source
+      // of truth means changing scrollbar tokens updates Tags + External
+      // Sites + Relations together.
+      className={styles.customScroll}
+      style={rStyles.row}
+    >
       {nodes.map((edge, i) => {
         const n = edge.node;
         const color = RELATION_COLORS[edge.relationType] || "#8a8fa3";
@@ -182,16 +271,25 @@ const rStyles: Record<string, CSSProperties> = {
        card next to it, so Relations ends up the same height. */
     alignItems: "stretch",
     gap: 4,
-    /* overflow: visible (no auto): if it were auto, the layout would
-       reserve a horizontal scrollbar even when hidden by the global
-       CSS, shaving a few px off card height and breaking the baseline
-       alignment with Details. The card count is bounded so overflow
-       in practice doesn't happen. */
-    overflowX: "visible",
-    /* No paddingBottom: the parent section already has it, and adding
-       it here would push the cards above the Details card's bottom
-       edge by 6px. */
-    height: "100%",
+    /* Horizontal scroll when the franchise has more entries than fit.
+       Visual styling for the scrollbar comes from the `cust-scroll`
+       Tailwind class on the wrapping div (matches the rest of the
+       site: thin track, white/10 thumb, rounded). We just declare
+       the overflow + smooth behaviour here. */
+    overflowX: "auto",
+    overflowY: "hidden",
+    scrollBehavior: "smooth",
+    WebkitOverflowScrolling: "touch",
+    /* Small bottom padding so the thumb doesn't overlap the card's
+       bottom edge. `scrollbar-gutter: stable` keeps the row height
+       constant whether or not a thumb is currently drawn, so the
+       cards don't jump on layout reflow. */
+    paddingBottom: 4,
+    scrollbarGutter: "stable",
+    /* Natural height — works in both layouts. Desktop's grid cell still
+       contains us (the cell has no fixed height of its own, it just
+       sizes to the natural Details card height next to us). Mobile
+       drops us in a normal section so we size to our own content. */
     minHeight: 0,
   },
   card: {
@@ -209,18 +307,21 @@ const rStyles: Record<string, CSSProperties> = {
     borderRadius: 10,
     transition: "all 0.15s",
     cursor: "pointer",
-    /* Force the card to fill the row's height. Without this Safari
-       and older Chromium leave the card at intrinsic height even
-       when the row is align-stretch. */
-    height: "100%",
+    /* Let the card take its natural height (cover aspect-ratio +
+       body content). Used to be height:100% to match the Details
+       card next to it on desktop, but the row now scrolls and we
+       want consistent card heights regardless of parent geometry. */
     minHeight: 0,
   },
   cover: {
     position: "relative",
     width: "100%",
-    /* Take whatever vertical space the body doesn't need. The 3:4
-       ratio still kicks in as a *minimum* via minHeight so very
-       short rows don't squash the artwork. */
+    /* Fixed 3:4 aspect ratio. The component is used in two layouts:
+       desktop wraps it in a sized grid cell (so the row stretches to
+       fill that height), mobile drops it in a natural-flow section
+       (so the row sizes to its content). aspectRatio handles both
+       without conditional styling. */
+    aspectRatio: "3 / 4",
     flex: 1,
     minHeight: 140,
     borderRadius: 7,

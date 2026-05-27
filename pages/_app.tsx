@@ -16,6 +16,7 @@ import { asCssVars, BRAND } from "@/lib/theme";
 import { Toaster, toast } from "sonner";
 import ChangeLogs from "../components/shared/changelogs";
 import AnilistHealthBanner from "../components/shared/AnilistHealthBanner";
+import { Analytics } from "@vercel/analytics/react";
 import type { AppProps } from "next/app";
 
 /**
@@ -86,12 +87,22 @@ export default function App({
       visitorId = "anon-" + Math.random().toString(36).slice(2);
     }
 
+    // Dedupe consecutive identical paths. Next.js fires routeChangeComplete
+    // multiple times for shallow-route updates (slug rewrites, query-only
+    // changes) — without this guard we'd ship 3-5 duplicate analytics POSTs
+    // per real navigation.
+    let lastPath: string | null = null;
     const send = (path: string) => {
+      // Normalise: strip the hash + collapse double slashes so /foo and
+      // /foo#bar both count as one visit.
+      const norm = (path || "/").split("#")[0].replace(/\/+/g, "/");
+      if (norm === lastPath) return;
+      lastPath = norm;
       try {
         fetch("/api/v2/track", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ visitorId, path }),
+          body: JSON.stringify({ visitorId, path: norm }),
           keepalive: true,
         }).catch(() => {});
       } catch {}
@@ -114,7 +125,10 @@ export default function App({
       try {
         const res = await fetch("/api/v2/admin/broadcast", {
           method: "GET",
-          cache: "no-store",
+          // Let the browser honour the server's Cache-Control header
+          // (s-maxage=60). Setting "no-store" here was forcing a network
+          // round-trip on every page load even when the response was
+          // identical to one we'd just received.
           headers: {
             "Content-Type": "application/json",
             "X-Broadcast-Key": "get-broadcast",
@@ -194,7 +208,20 @@ export default function App({
         src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"
         strategy="afterInteractive"
       />
-      <SessionProvider session={session}>
+      {/* SessionProvider polls /api/auth/session every minute by default
+          AND on every window focus. Each poll = 1 Vercel function
+          invocation. With users keeping tabs open for hours that adds up
+          fast on the Hobby tier. We keep the SSR-side session prop (no
+          flash on first render) but disable client polling entirely —
+          the JWT lives in a cookie that's still validated on every
+          server-side request that needs it (getServerSession in API
+          routes), so security isn't affected, just the convenience
+          refresh on the client. */}
+      <SessionProvider
+        session={session}
+        refetchInterval={0}
+        refetchOnWindowFocus={false}
+      >
         <SearchProvider>
           <WatchPageProvider>
             <AnimatePresence mode="wait">
@@ -233,6 +260,12 @@ export default function App({
 
                   <SearchPalette />
                   <Component {...pageProps} />
+                  {/* Vercel Web Analytics — free, beacon-based, doesn't count
+                      against the Hobby function quota and gives us per-page
+                      visitor stats on the Vercel dashboard. Replaces / lives
+                      alongside our own /api/v2/track (which is the only
+                      analytics that sees the visitor IP for moderation). */}
+                  <Analytics />
                 </m.div>
               </SkeletonTheme>
             </AnimatePresence>

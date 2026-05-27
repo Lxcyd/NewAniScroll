@@ -741,6 +741,26 @@ function ReportsCard({ report, onResolve }) {
     }
   };
 
+  // Flip a report's pending state. Same backing endpoint the dedicated
+  // /admin/reports page uses — caller refreshes the list via onResolve()
+  // (which is really "something changed, reload") so the badge updates.
+  const handleTogglePending = async (id, nextPending) => {
+    try {
+      const r = await fetch("/api/v2/admin/bug-report", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reportId: id, pending: nextPending }),
+      });
+      const data = await r.json();
+      if (r.status === 200) {
+        toast.success(data.message);
+        onResolve?.();
+      } else toast.error("Failed");
+    } catch {
+      toast.error("Failed");
+    }
+  };
+
   return (
     <Card
       title="Recent bug reports"
@@ -762,19 +782,30 @@ function ReportsCard({ report, onResolve }) {
         {filtered.length === 0 && (
           <p className="text-sm text-white/40 font-karla">No reports.</p>
         )}
-        {filtered.map((i, idx) => (
+        {filtered.map((i, idx) => {
+          const isPending = !!i.pending_at;
+          return (
           <div
             key={idx}
-            className="bg-primary/40 rounded px-3 py-2 font-karla text-sm"
+            className={`bg-primary/40 rounded px-3 py-2 font-karla text-sm ${
+              isPending ? "ring-1 ring-amber-500/30 opacity-80" : ""
+            }`}
           >
             <div className="flex justify-between items-start gap-2">
               <div className="flex-1 min-w-0">
-                <Link
-                  href={i.url || "#"}
-                  className="block text-white font-semibold hover:text-action break-words"
-                >
-                  {i.title || "(untitled)"}
-                </Link>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {isPending && (
+                    <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded font-bold bg-amber-500/20 text-amber-300 shrink-0">
+                      Pending
+                    </span>
+                  )}
+                  <Link
+                    href={i.url || "#"}
+                    className="block text-white font-semibold hover:text-action break-words"
+                  >
+                    {i.title || "(untitled)"}
+                  </Link>
+                </div>
                 {i.desc && (
                   <p className="text-xs text-white/70 mt-0.5 break-words whitespace-pre-wrap">
                     {i.desc}
@@ -789,6 +820,22 @@ function ReportsCard({ report, onResolve }) {
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 <SeverityDot severity={i.severity} />
+                <button
+                  type="button"
+                  onClick={() => handleTogglePending(i?.id, !isPending)}
+                  title={
+                    isPending
+                      ? "Un-pending (back to Open)"
+                      : "Mark pending (fix shipped, awaiting verification)"
+                  }
+                  className={`transition-colors ${
+                    isPending
+                      ? "text-amber-300 hover:text-amber-200"
+                      : "text-white/40 hover:text-amber-300"
+                  }`}
+                >
+                  ⏳
+                </button>
                 <button
                   type="button"
                   onClick={() => handleResolved(i?.id)}
@@ -820,7 +867,8 @@ function ReportsCard({ report, onResolve }) {
               </div>
             )}
           </div>
-        ))}
+          );
+        })}
       </div>
     </Card>
   );

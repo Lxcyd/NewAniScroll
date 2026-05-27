@@ -93,6 +93,10 @@ export async function ensureAdminSchema(): Promise<void> {
   try { await db.execute(`ALTER TABLE bug_reports ADD COLUMN images TEXT`); } catch {}
   try { await db.execute(`ALTER TABLE bug_reports ADD COLUMN reporter_ip TEXT`); } catch {}
   try { await db.execute(`ALTER TABLE bug_reports ADD COLUMN title TEXT`); } catch {}
+  // `pending_at` flags reports we *think* we fixed but haven't fully verified.
+  // The row stays in the unresolved list (resolved_at is still null) but the
+  // UI separates it visually so the admin can come back and confirm later.
+  try { await db.execute(`ALTER TABLE bug_reports ADD COLUMN pending_at INTEGER`); } catch {}
   await db.execute(`
     CREATE TABLE IF NOT EXISTS broadcast (
       id          INTEGER PRIMARY KEY CHECK (id = 1),
