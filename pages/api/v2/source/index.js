@@ -11,6 +11,36 @@ import { getMediaMeta, primeMediaCache } from "@/lib/anilist/getMediaMeta";
 const DEBUG_SOURCE = process.env.DEBUG_SOURCE === "1";
 const dlog = DEBUG_SOURCE ? console.log.bind(console) : () => {};
 
+// Full Chrome desktop UA — anime-sama / voiranime reject the minimal "Mozilla/5.0"
+// string on some endpoints (returns 403 or empty body) and we have no signal
+// in the failure case. Using the same UA the m3u8 proxy already sends avoids
+// that whole class of failure.
+const SCRAPER_UA =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+  "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+
+// Bounded fetch: the Vercel function has a 10 s wall clock budget. A single
+// hung upstream (anime-sama's catalogue page, a frozen episodes.js, voiranime's
+// admin-ajax) would otherwise burn the entire budget and crash the whole probe
+// chain. 5 s per request lets the slowest reasonable upstream finish while
+// still leaving time for the extractor to run.
+async function fetchWithTimeout(url, options = {}, timeoutMs = 5000) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    return await fetch(url, {
+      ...options,
+      signal: options.signal || ctrl.signal,
+      headers: {
+        "User-Agent": SCRAPER_UA,
+        ...(options.headers || {}),
+      },
+    });
+  } finally {
+    clearTimeout(t);
+  }
+}
+
 // Hosts where server-side extraction returns a REAL playable stream â€” we pull
 // the m3u8 / mp4 directly so the universal Vidstack player can play it (with
 // our subtitle / cast / download chrome) instead of dropping back to an iframe.
@@ -429,15 +459,19 @@ async function getAnimeSamaIframe(serverKey, title, episode, aniId) {
 
     // 2. Search anime-sama â€” use romaji title first, then try french
     const slug = await findAnimeSamaSlug(title, aniId);
-    if (!slug) return null;
+    if (!slug) {
+      console.error(`[anime-sama] ${serverKey} aniId=${aniId} title="${title}" slug NOT FOUND`);
+      return null;
+    }
     dlog(`[anime-sama] Found slug: ${slug} (${langPath})`);
 
     // 3. Try to find the right season/episode
     // Fetch the anime detail page to get season list
-    const detailRes = await fetch(`${ANIMESAMA_BASE}/catalogue/${slug}/`, {
-      headers: { "User-Agent": "Mozilla/5.0" },
-    });
-    if (!detailRes.ok) return null;
+    const detailRes = await fetchWithTimeout(`${ANIMESAMA_BASE}/catalogue/${slug}/`);
+    if (!detailRes.ok) {
+      console.error(`[anime-sama] ${serverKey} detail page ${detailRes.status} for slug=${slug}`);
+      return null;
+    }
     const detailHtml = await detailRes.text();
 
     // Extract panneauAnime() calls to find available seasons
@@ -542,9 +576,7 @@ async function getAnimeSamaIframe(serverKey, title, episode, aniId) {
       const epPath = `${ANIMESAMA_BASE}/catalogue/${slug}/${targetSeason.dir}/${langPath}/episodes.js`;
       dlog(`[anime-sama] Direct season ${targetSeason.dir} (${yearMatchedSeason ? `year ${aniYear}` : `ordinal ${seasonNum}`}): ${epPath}`);
 
-      const epRes = await fetch(epPath, {
-        headers: { "User-Agent": "Mozilla/5.0" },
-      });
+      const epRes = await fetchWithTimeout(epPath);
       if (epRes.ok) {
         const jsContent = await epRes.text();
         const episodeArrays = parseEpisodesJs(jsContent);
@@ -555,6 +587,8 @@ async function getAnimeSamaIframe(serverKey, title, episode, aniId) {
             dlog(`[anime-sama] Found ep ${episode} in ${targetSeason.dir}: ${iframeUrl}`);
           }
         }
+      } else {
+        console.error(`[anime-sama] ${serverKey} episodes.js ${epRes.status} for ${epPath}`);
       }
     }
 
@@ -577,9 +611,7 @@ async function getAnimeSamaIframe(serverKey, title, episode, aniId) {
         const epPath = `${ANIMESAMA_BASE}/catalogue/${slug}/${season.dir}/${langPath}/episodes.js`;
         dlog(`[anime-sama] Trying: ${epPath}`);
 
-        const epRes = await fetch(epPath, {
-          headers: { "User-Agent": "Mozilla/5.0" },
-        });
+        const epRes = await fetchWithTimeout(epPath);
         if (!epRes.ok) {
           dlog(`[anime-sama] No ${langPath.toUpperCase()} for ${season.dir}`);
           continue;
@@ -610,7 +642,10 @@ async function getAnimeSamaIframe(serverKey, title, episode, aniId) {
       }
     }
 
-    if (!iframeUrl) return null;
+    if (!iframeUrl) {
+      console.error(`[anime-sama] ${serverKey} no iframe for ep=${episode} slug=${slug} (seasons=${seasons.length})`);
+      return null;
+    }
 
     // Try server-side extraction for hosts we know how to unpack.
     // Sibnet / Sendvid MUST be extracted (iframes are blocked by X-Frame);
@@ -762,11 +797,19 @@ async function findAnimeSamaSlug(title, aniId) {
   // Baki Hanma) that the search returned because of a fuzzy match on letters.
   const candidates = new Map(); // slug â†’ best score
   for (const q of queries) {
-    const searchRes = await fetch(
-      `${ANIMESAMA_BASE}/catalogue/?search=${encodeURIComponent(q)}`,
-      { headers: { "User-Agent": "Mozilla/5.0" } }
-    );
-    if (!searchRes.ok) continue;
+    let searchRes;
+    try {
+      searchRes = await fetchWithTimeout(
+        `${ANIMESAMA_BASE}/catalogue/?search=${encodeURIComponent(q)}`,
+      );
+    } catch (e) {
+      console.error(`[anime-sama] search "${q}" failed:`, e.message);
+      continue;
+    }
+    if (!searchRes.ok) {
+      console.error(`[anime-sama] search "${q}" HTTP ${searchRes.status}`);
+      continue;
+    }
     const html = await searchRes.text();
     const $ = cheerio.load(html);
 
@@ -907,29 +950,33 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId) {
     };
 
     // Try detail page scrape first
-    const detailRes = await fetch(`${VOIRANIME_BASE}/anime/${slug}/`, {
-      headers: { "User-Agent": "Mozilla/5.0" },
-    });
-    if (detailRes.ok) {
-      const html = await detailRes.text();
-      const epMap = collectEpisodes(html);
-      if (epMap.has(Number(episode))) {
-        episodeUrl = epMap.get(Number(episode));
+    try {
+      const detailRes = await fetchWithTimeout(`${VOIRANIME_BASE}/anime/${slug}/`);
+      if (detailRes.ok) {
+        const html = await detailRes.text();
+        const epMap = collectEpisodes(html);
+        if (epMap.has(Number(episode))) {
+          episodeUrl = epMap.get(Number(episode));
+        }
       }
+    } catch (e) {
+      console.error(`[voiranime] detail fetch failed for ${slug}:`, e.message);
     }
 
     // Fallback: try Madara AJAX chapters endpoint
     if (!episodeUrl) {
       try {
-        const ajaxRes = await fetch(`${VOIRANIME_BASE}/wp-admin/admin-ajax.php`, {
-          method: "POST",
-          headers: {
-            "User-Agent": "Mozilla/5.0",
-            "X-Requested-With": "XMLHttpRequest",
-            "Content-Type": "application/x-www-form-urlencoded",
+        const ajaxRes = await fetchWithTimeout(
+          `${VOIRANIME_BASE}/wp-admin/admin-ajax.php`,
+          {
+            method: "POST",
+            headers: {
+              "X-Requested-With": "XMLHttpRequest",
+              "Content-Type": "application/x-www-form-urlencoded",
+            },
+            body: `action=manga_get_chapters&manga=${slug}`,
           },
-          body: `action=manga_get_chapters&manga=${slug}`,
-        });
+        );
         if (ajaxRes.ok) {
           const html = await ajaxRes.text();
           const epMap = collectEpisodes(html);
@@ -946,8 +993,11 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId) {
     }
 
     // Fetch episode page and extract thisChapterSources
-    const epRes = await fetch(episodeUrl, { headers: { "User-Agent": "Mozilla/5.0" } });
-    if (!epRes.ok) return null;
+    const epRes = await fetchWithTimeout(episodeUrl);
+    if (!epRes.ok) {
+      console.error(`[voiranime] ${serverKey} episode page ${epRes.status} for ${episodeUrl}`);
+      return null;
+    }
     const epHtml = await epRes.text();
 
     const sourcesMatch = epHtml.match(/thisChapterSources\s*=\s*({[\s\S]*?});/);
@@ -989,10 +1039,7 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId) {
     const lower = iframeUrl.toLowerCase();
     if (lower.includes("voe.sx") || lower.includes("voe.")) {
       try {
-        const probe = await fetch(iframeUrl, {
-          headers: { "User-Agent": "Mozilla/5.0" },
-          redirect: "follow",
-        });
+        const probe = await fetchWithTimeout(iframeUrl, { redirect: "follow" });
         if (!probe.ok) {
           dlog(`[voiranime] VOE probe HTTP ${probe.status} â€” hiding server`);
           return null;
@@ -1004,10 +1051,7 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId) {
         // during stream extraction, leaving the player stuck in a load loop.
         const mirrorMatch = html.match(/window\.location\.href\s*=\s*['"]([^'"]+)['"]/);
         if (mirrorMatch) {
-          const mirror = await fetch(mirrorMatch[1], {
-            headers: { "User-Agent": "Mozilla/5.0" },
-            redirect: "follow",
-          });
+          const mirror = await fetchWithTimeout(mirrorMatch[1], { redirect: "follow" });
           if (!mirror.ok) {
             dlog(`[voiranime] VOE mirror HTTP ${mirror.status} â€” video removed, hiding server`);
             return null;
@@ -1067,11 +1111,11 @@ function titleToSlug(title) {
 // Quickly check if /anime/{slug}/ exists by looking for the standard <link rel="canonical"> tag.
 async function voiranimeSlugExists(slug) {
   try {
-    const r = await fetch(`${VOIRANIME_BASE}/anime/${slug}/`, {
-      method: "GET",
-      headers: { "User-Agent": "Mozilla/5.0" },
-      redirect: "manual",
-    });
+    const r = await fetchWithTimeout(
+      `${VOIRANIME_BASE}/anime/${slug}/`,
+      { method: "GET", redirect: "manual" },
+      3500, // tight budget — we probe up to ~10 slug candidates sequentially
+    );
     return r.status === 200;
   } catch {
     return false;
@@ -1131,15 +1175,17 @@ async function findVoiranimeSlug(title, aniId, isVF, seasonNum) {
   // â”€â”€ Strategy 2: search fallback with stricter scoring â”€â”€
   for (const q of titles) {
     try {
-      const res = await fetch(`${VOIRANIME_BASE}/wp-admin/admin-ajax.php`, {
-        method: "POST",
-        headers: {
-          "User-Agent": "Mozilla/5.0",
-          "X-Requested-With": "XMLHttpRequest",
-          "Content-Type": "application/x-www-form-urlencoded",
+      const res = await fetchWithTimeout(
+        `${VOIRANIME_BASE}/wp-admin/admin-ajax.php`,
+        {
+          method: "POST",
+          headers: {
+            "X-Requested-With": "XMLHttpRequest",
+            "Content-Type": "application/x-www-form-urlencoded",
+          },
+          body: `action=wp-manga-search-manga&title=${encodeURIComponent(q)}`,
         },
-        body: `action=wp-manga-search-manga&title=${encodeURIComponent(q)}`,
-      });
+      );
       if (!res.ok) continue;
       const data = await res.json();
       if (!data?.success || !data?.data?.length) continue;
@@ -1368,15 +1414,6 @@ export default async function handler(req, res) {
     return m?.title?.english || m?.title?.romaji || null;
   }
 
-  // HiAnime â€” returns iframe embed URL
-  if (HIANIME_SERVERS[server]) {
-    const searchTitle = await resolveTitle();
-    if (!searchTitle) return sendNotFound("Could not resolve anime title");
-    const data = await getHiAnimeIframe(server, searchTitle, episode, sub);
-    if (!data) return sendNotFound("Source not found");
-    return sendOk(data);
-  }
-
   // Anime-Sama (VF + VOSTFR) â€” returns iframe embed URL
   if (ANIMESAMA_SERVERS[server]) {
     const searchTitle = await resolveTitle();
@@ -1391,15 +1428,6 @@ export default async function handler(req, res) {
     const searchTitle = await resolveTitle();
     if (!searchTitle) return sendNotFound("Could not resolve anime title");
     const data = await getVoiranimeIframe(server, searchTitle, episode, aniId);
-    if (!data) return sendNotFound("Source not found");
-    return sendOk(data);
-  }
-
-  // CoorenLabs â€” needs anime title for search
-  if (COOREN_PROVIDERS[server]) {
-    const searchTitle = await resolveTitle();
-    if (!searchTitle) return sendNotFound("Could not resolve anime title");
-    const data = await getCoorenStream(server, searchTitle, episode, sub);
     if (!data) return sendNotFound("Source not found");
     return sendOk(data);
   }
