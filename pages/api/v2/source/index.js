@@ -1102,15 +1102,24 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId) {
     }
 
     // Try server-side extraction now that we've confirmed the video exists.
-    // Falls back to the raw iframe if extraction fails (e.g. unsupported host
-    // or transient extractor error).
+    const isVoe = lower.includes("voe.sx") || lower.includes("voe.");
     if (EXTRACTABLE_HOSTS.some((h) => lower.includes(h))) {
       const extractor = getExtractor(iframeUrl);
       const result = await extractor(iframeUrl);
       if (result.streams?.length) return result;
-      dlog(`[voiranime] extractor ${serverKey} failed: ${result.error}`);
+      console.error(
+        `[voiranime] ${serverKey} extractor failed for ep=${episode} slug=${slug}: ${result.error}`,
+      );
+      // VOE iframes are blocked by X-Frame-Options on any non-VOE origin,
+      // so a failed extraction has no usable fallback. Hide the server
+      // instead of returning a dead iframe — that's the "appears, then
+      // disappears on click" behaviour we saw in production.
+      if (isVoe) return null;
     }
 
+    // Generic non-VOE fallback: hand the iframe to the client, hoping the
+    // host (vidmoly, sendvid, …) allows embedding.
+    if (isVoe) return null;
     return { iframe: iframeUrl };
   } catch (e) {
     console.error(`voiranime ${serverKey} error:`, e.message);
