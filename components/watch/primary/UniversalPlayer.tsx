@@ -29,6 +29,13 @@ type Stream = {
   /** Skip our local /api/v2/proxy/m3u8 — URL is already through an external
    *  proxy that handles CORS + segment rewriting (e.g. anime-proxy for vidmoly). */
   directUrl?: boolean;
+  /** Origin doesn't send Access-Control-Allow-Origin headers (sibnet's cvn
+   *  CDN is the canonical case). The <video> element has to be created
+   *  WITHOUT `crossorigin="anonymous"` or every Range fetch is blocked by
+   *  the browser. Side effect: the canvas-based LiveAmbient sampler can't
+   *  read pixel data for this source (tainted canvas), so it falls back
+   *  to StaticGlow — small UX cost for actually playing the video. */
+  noCors?: boolean;
   /** Set by the VOE extractor: DDoS-Guard cookie captured at extraction time.
    *  Forwarded to the proxy as `vcookie=` so the Cloudflare Worker (which has
    *  no shared in-memory state with the extractor) can authenticate against
@@ -1699,7 +1706,13 @@ export default function UniversalPlayer({
         // (to satisfy autoplay policy) and flips to false on first user
         // activity, with no React-level reconciliation fighting back.
         volume={1}
-        crossorigin="anonymous"
+        // Skip crossorigin for streams hosted on CDNs that don't send CORS
+        // headers (sibnet's cvn CDN, …). Setting crossorigin would force
+        // CORS preflight on every Range request, which sibnet rejects with
+        // no Access-Control-Allow-Origin — blocks playback entirely. The
+        // trade-off: LiveAmbient canvas sampling tainted, falls back to
+        // StaticGlow on these sources.
+        {...(bestStream!.noCors ? {} : { crossorigin: "anonymous" })}
         aspectRatio="16/9"
         onError={() => onError?.("Playback error")}
       >
