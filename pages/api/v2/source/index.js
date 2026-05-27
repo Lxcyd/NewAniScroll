@@ -1343,7 +1343,10 @@ const SOURCE_CACHE_TTL_S = 300;
 const SOURCE_NOTFOUND_TTL_S = 120;
 const NOT_FOUND_SENTINEL = '{"__nf":1}';
 function sourceCacheKey({ server, aniId, episode, sub }) {
-  return `src:v1:${server}:${aniId}:${episode}:${sub || "sub"}`;
+  // v2: bumped after extractor probe tightening (VOE m3u8 content validation +
+  // variant probing). Old "ok" entries from before this would otherwise still
+  // serve broken streams to clients for ~5 min after deploy.
+  return `src:v2:${server}:${aniId}:${episode}:${sub || "sub"}`;
 }
 
 // ── Handler ─────────────────────────────────────────────────────────────
