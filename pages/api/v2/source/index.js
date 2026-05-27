@@ -1248,23 +1248,24 @@ async function getConsumetStream(providerKey, title, episode, sub) {
 }
 
 // ── Cross-visitor source cache ─────────────────────────────────────────
-// Source extraction is by far the most CPU-expensive endpoint in the API
-// (36 s active CPU over 12 h in the last Vercel observability window).
-// Every probe spins up 8-15 extractors in parallel, each doing 2-4 network
-// hops to an upstream host. When two viewers open the same episode of a
-// popular anime within minutes of each other, we currently do all that
-// work twice.
+// Source extraction is by far the most CPU-expensive endpoint in the API.
+// Every watch-page mount fan-outs 15-20 probes; in practice ~half of those
+// 404 (server doesn't have this anime / episode). Without negative caching,
+// every visitor of a popular episode repeats the same expensive scrape for
+// the same dead servers.
 //
-// The output is short-lived (CDN tokens typically expire 60-120 min later)
-// but identical across viewers for the (server, aniId, episode, sub) tuple.
-// A 5 min Redis cache wipes the duplicate work without ever serving an
-// expired token: if a token *does* expire mid-cache the client's hls-error
-// fallback kicks in and we mark the server failed, same as today.
+// Two TTLs:
+//   - OK_TTL  (5 min): tokens we proxy last 60-240 min, so 5 min is safe.
+//   - 404_TTL (2 min): shorter, because some 404s are transient (upstream
+//     rate-limit, brief CDN outage). 2 min collapses the probe burst from
+//     concurrent viewers without locking in a transient failure for long.
 //
-// We only cache the 200 path. Errors stay short — a 404 might be a
-// transient extractor failure (the next visitor retries against fresh
-// upstream state).
+// Negative entries store a sentinel ({__nf: true}) under the same key as
+// positive entries — a hit is either parsed JSON we serve as 200, or the
+// sentinel we turn into 404.
 const SOURCE_CACHE_TTL_S = 300;
+const SOURCE_NOTFOUND_TTL_S = 120;
+const NOT_FOUND_SENTINEL = '{"__nf":1}';
 function sourceCacheKey({ server, aniId, episode, sub }) {
   return `src:v1:${server}:${aniId}:${episode}:${sub || "sub"}`;
 }
@@ -1292,13 +1293,19 @@ export default async function handler(req, res) {
   // requests served within the last SOURCE_CACHE_TTL_S. The probe fan-out
   // on the watch page sends 15-20 of these at once, every page load.
   const cacheKey = sourceCacheKey({ server, aniId, episode, sub });
-  if (redis && server && aniId && episode != null) {
+  const canCache = redis && server && aniId && episode != null;
+  if (canCache) {
     try {
       const cached = await redis.get(cacheKey);
       if (cached) {
-        // Edge cache so popular episodes share the result across PoPs too —
-        // adds shielded behaviour even when Redis is hot. 60s is enough to
-        // collapse a burst of probes from one visitor's watch-page mount.
+        if (cached === NOT_FOUND_SENTINEL) {
+          // Negative cache hit — skip the expensive scrape entirely. This is
+          // the main CPU win: ~half of probe fan-outs naturally 404, and a
+          // popular episode would re-extract the same dead servers for every
+          // visitor without this.
+          res.setHeader("Cache-Control", "public, max-age=30");
+          return res.status(404).json({ error: "Source not found" });
+        }
         res.setHeader(
           "Cache-Control",
           "public, s-maxage=60, stale-while-revalidate=120",
@@ -1311,7 +1318,7 @@ export default async function handler(req, res) {
   }
 
   const sendOk = (payload) => {
-    if (redis && server && aniId && episode != null) {
+    if (canCache) {
       // Fire-and-forget — never let cache writes block the response.
       redis
         .set(cacheKey, JSON.stringify(payload), "EX", SOURCE_CACHE_TTL_S)
@@ -1329,6 +1336,16 @@ export default async function handler(req, res) {
     return res.status(200).json(payload);
   };
 
+  const sendNotFound = (msg) => {
+    if (canCache) {
+      redis
+        .set(cacheKey, NOT_FOUND_SENTINEL, "EX", SOURCE_NOTFOUND_TTL_S)
+        .catch(() => {});
+    }
+    res.setHeader("Cache-Control", "public, max-age=30");
+    return res.status(404).json({ error: msg || "Source not found" });
+  };
+
   // If the client passed pre-fetched AniList metadata (from watch page SSR),
   // prime the cache so no helper has to call AniList itself.
   if (mediaMeta && aniId) primeMediaCache(aniId, mediaMeta);
@@ -1338,7 +1355,7 @@ export default async function handler(req, res) {
     const url = `https://megaplay.buzz/stream/ani/${aniId}/${episode}/${sub === "dub" ? "dub" : "sub"}`;
     const result = await extractMegaplay(url);
     if (result.error || !result.streams?.length) {
-      return res.status(404).json({ error: result.error || "Source not found" });
+      return sendNotFound(result.error || "Source not found");
     }
     return sendOk(result);
   }
@@ -1354,66 +1371,45 @@ export default async function handler(req, res) {
   // HiAnime â€” returns iframe embed URL
   if (HIANIME_SERVERS[server]) {
     const searchTitle = await resolveTitle();
-    if (!searchTitle) {
-      return res.status(404).json({ error: "Could not resolve anime title" });
-    }
+    if (!searchTitle) return sendNotFound("Could not resolve anime title");
     const data = await getHiAnimeIframe(server, searchTitle, episode, sub);
-    if (!data) {
-      return res.status(404).json({ error: "Source not found" });
-    }
+    if (!data) return sendNotFound("Source not found");
     return sendOk(data);
   }
 
   // Anime-Sama (VF + VOSTFR) â€” returns iframe embed URL
   if (ANIMESAMA_SERVERS[server]) {
     const searchTitle = await resolveTitle();
-    if (!searchTitle) {
-      return res.status(404).json({ error: "Could not resolve anime title" });
-    }
+    if (!searchTitle) return sendNotFound("Could not resolve anime title");
     const data = await getAnimeSamaIframe(server, searchTitle, episode, aniId);
-    if (!data) {
-      return res.status(404).json({ error: "Source not found" });
-    }
+    if (!data) return sendNotFound("Source not found");
     return sendOk(data);
   }
 
   // voir-anime.to (VF + VOSTFR) â€” Madara/WordPress source
   if (VOIRANIME_SERVERS[server]) {
     const searchTitle = await resolveTitle();
-    if (!searchTitle) {
-      return res.status(404).json({ error: "Could not resolve anime title" });
-    }
+    if (!searchTitle) return sendNotFound("Could not resolve anime title");
     const data = await getVoiranimeIframe(server, searchTitle, episode, aniId);
-    if (!data) {
-      return res.status(404).json({ error: "Source not found" });
-    }
+    if (!data) return sendNotFound("Source not found");
     return sendOk(data);
   }
 
   // CoorenLabs â€” needs anime title for search
   if (COOREN_PROVIDERS[server]) {
     const searchTitle = await resolveTitle();
-    if (!searchTitle) {
-      return res.status(404).json({ error: "Could not resolve anime title" });
-    }
-
+    if (!searchTitle) return sendNotFound("Could not resolve anime title");
     const data = await getCoorenStream(server, searchTitle, episode, sub);
-    if (!data) {
-      return res.status(404).json({ error: "Source not found" });
-    }
+    if (!data) return sendNotFound("Source not found");
     return sendOk(data);
   }
 
   // Consumet providers (AnimeSaturn, AnimeUnity)
   if (CONSUMET_PROVIDERS[server]) {
     const searchTitle = await resolveTitle();
-    if (!searchTitle) {
-      return res.status(404).json({ error: "Could not resolve anime title" });
-    }
+    if (!searchTitle) return sendNotFound("Could not resolve anime title");
     const data = await getConsumetStream(server, searchTitle, episode, sub);
-    if (!data) {
-      return res.status(404).json({ error: "Source not found" });
-    }
+    if (!data) return sendNotFound("Source not found");
     return sendOk(data);
   }
 
