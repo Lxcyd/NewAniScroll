@@ -162,9 +162,23 @@ async function handle(request) {
     "User-Agent":
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
     Referer: finalReferer,
-    Origin: finalOrigin,
     Accept: "*/*",
+    "Accept-Language": "en-US,en;q=0.9,fr;q=0.8",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Sec-Fetch-Dest": "video",
+    "Sec-Fetch-Mode": "no-cors",
+    "Sec-Fetch-Site": "cross-site",
   };
+  // Origin is only set when actually needed (some CDNs reject when it's
+  // present for same-origin asset fetches — sibnet's video pipeline being
+  // the canonical case where Origin: video.sibnet.ru caused a 400).
+  if (
+    finalOrigin &&
+    !targetUrl.includes("sibnet.ru") &&
+    !targetUrl.includes("acek-cdn.com")
+  ) {
+    headers.Origin = finalOrigin;
+  }
   const rangeHeader = request.headers.get("range");
   if (rangeHeader) headers.Range = rangeHeader;
   if (vcookie) {
@@ -175,17 +189,62 @@ async function handle(request) {
     }
   }
 
-  // Single retry on 403 — some CDNs reject the first cold hit.
-  let response = await serializedFetch(targetUrl, {
-    headers,
-    redirect: "follow",
-  });
-  if (response.status === 403) {
-    await new Promise((r) => setTimeout(r, 300));
-    response = await serializedFetch(targetUrl, {
-      headers,
-      redirect: "follow",
+  // Manual redirect handling.
+  //
+  // Cloudflare's `fetch(..., { redirect: "follow" })` does NOT carry our
+  // explicit headers across the redirect — it issues a fresh request without
+  // Referer/Origin, which some CDNs (sibnet's dv97/cvnXX hop chain is the
+  // canonical case) reject with 400. We follow manually so every hop keeps
+  // the same User-Agent + Referer the original request had, AND so any
+  // Set-Cookie a hop hands out is replayed on the next hop.
+  let response;
+  let currentUrl = targetUrl;
+  let currentHeaders = { ...headers };
+  const MAX_REDIRECTS = 5;
+  for (let i = 0; i <= MAX_REDIRECTS; i++) {
+    response = await serializedFetch(currentUrl, {
+      headers: currentHeaders,
+      redirect: "manual",
     });
+    // Single retry on 403 (cold CDN hit) — applies only to the FINAL hop.
+    if (response.status === 403 && i === 0) {
+      await new Promise((r) => setTimeout(r, 300));
+      response = await serializedFetch(currentUrl, {
+        headers: currentHeaders,
+        redirect: "manual",
+      });
+    }
+    // Not a redirect → done. 3xx without Location is also "done" (treated
+    // as terminal so we don't loop forever on a broken upstream).
+    const status = response.status;
+    const isRedirect = status >= 300 && status < 400 && status !== 304;
+    const location = isRedirect ? response.headers.get("location") : null;
+    if (!isRedirect || !location) break;
+    // Resolve protocol-relative + relative URLs against the current URL.
+    let next;
+    try {
+      next = new URL(location, currentUrl).toString();
+    } catch {
+      break;
+    }
+    // Carry any Set-Cookie the hop issued into the next hop's Cookie header.
+    const setCookie = response.headers.get("set-cookie");
+    if (setCookie) {
+      // Keep only the `key=value` pair from each Set-Cookie (strip path /
+      // expires / domain attributes).
+      const pairs = setCookie
+        .split(/,\s*(?=[^;]+=)/)
+        .map((c) => c.split(";")[0].trim())
+        .filter(Boolean)
+        .join("; ");
+      currentHeaders = {
+        ...currentHeaders,
+        Cookie: currentHeaders.Cookie
+          ? `${currentHeaders.Cookie}; ${pairs}`
+          : pairs,
+      };
+    }
+    currentUrl = next;
   }
 
   if (!response.ok && response.status !== 206) {
