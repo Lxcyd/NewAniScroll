@@ -1,0 +1,23 @@
+# Fly.io config for the AniScroll stream proxy.
+# Run `fly launch --no-deploy` once to claim a name + region, then `fly deploy`.
+
+app = "aniscroll-proxy"
+primary_region = "cdg"   # Paris — pick the region closest to your viewers.
+
+[build]
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = false   # keep it always-on so there's no cold start
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ["app"]
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory_mb = 256          # plenty — the proxy doesn't buffer
+
+[env]
+  PORT = "8080"

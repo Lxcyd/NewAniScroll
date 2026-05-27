@@ -29,11 +29,6 @@ type Stream = {
   /** Skip our local /api/v2/proxy/m3u8 — URL is already through an external
    *  proxy that handles CORS + segment rewriting (e.g. anime-proxy for vidmoly). */
   directUrl?: boolean;
-  /** Force playback through the in-tree Vercel proxy instead of the Cloudflare
-   *  Worker. Used for hosts that block CF Worker IPs at the source (sibnet:
-   *  400 on first hop, acek-cdn: 530). Vercel's AWS IPs are accepted so
-   *  extraction and segment fetches both ride the same network. */
-  useLocalProxy?: boolean;
   /** Set by the VOE extractor: DDoS-Guard cookie captured at extraction time.
    *  Forwarded to the proxy as `vcookie=` so the Cloudflare Worker (which has
    *  no shared in-memory state with the extractor) can authenticate against
@@ -92,22 +87,15 @@ const PROXY_BASE =
     (process as any).env?.NEXT_PUBLIC_PROXY_BASE) ||
   "/api/v2/proxy/m3u8";
 
-// In-tree Vercel proxy — always available. Used as the fallback when a
-// stream is flagged `useLocalProxy` (sibnet, smoothpre — hosts that block
-// Cloudflare Worker IPs).
-const LOCAL_PROXY = "/api/v2/proxy/m3u8";
-
 function proxied(
   url: string,
   referer?: string | null,
   voeCookie?: string | null,
-  useLocalProxy?: boolean,
 ): string {
   if (!url) return url;
-  const base = useLocalProxy ? LOCAL_PROXY : PROXY_BASE;
   const ref = referer ? `&referer=${encodeURIComponent(referer)}` : "";
   const ck = voeCookie ? `&vcookie=${encodeURIComponent(voeCookie)}` : "";
-  return `${base}?url=${encodeURIComponent(url)}${ref}${ck}`;
+  return `${PROXY_BASE}?url=${encodeURIComponent(url)}${ref}${ck}`;
 }
 
 /**
@@ -1603,7 +1591,6 @@ export default function UniversalPlayer({
         bestStream!.url,
         bestStream!.referer || streamData?.referer,
         bestStream!.voeCookie,
-        bestStream!.useLocalProxy,
       );
   const isM3U8 =
     bestStream!.isM3U8 === true ||
@@ -1639,11 +1626,7 @@ export default function UniversalPlayer({
   // downloads through the Cloudflare Worker (unmetered bandwidth, free).
   // Otherwise we fall back to the in-tree Vercel endpoints — these still
   // work but eat Fast Origin Transfer like before.
-  // Streams flagged useLocalProxy (sibnet/smoothpre — CDNs that block CF
-  // Worker IPs) must download through Vercel too, otherwise the segments
-  // 400/530 mid-download exactly like playback would.
-  const proxyConfigured =
-    PROXY_BASE !== "/api/v2/proxy/m3u8" && !bestStream!.useLocalProxy;
+  const proxyConfigured = PROXY_BASE !== "/api/v2/proxy/m3u8";
   const downloadUrl = proxyConfigured
     ? `${PROXY_BASE}?url=${encodeURIComponent(innerUrl)}` +
       `&dl=1&filename=${encodeURIComponent(safeName + "." + ext)}` +
@@ -1664,12 +1647,7 @@ export default function UniversalPlayer({
       const url = s.file || s.url;
       if (!url) return null;
       return {
-        src: proxied(
-          url,
-          bestStream!.referer || streamData?.referer,
-          null,
-          bestStream!.useLocalProxy,
-        ),
+        src: proxied(url, bestStream!.referer || streamData?.referer),
         label: s.label || s.language || "Subtitle",
         language: s.language || "en",
         kind: (s.kind as any) || "subtitles",

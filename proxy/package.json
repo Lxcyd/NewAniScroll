@@ -1,0 +1,13 @@
+{
+  "name": "aniscroll-proxy",
+  "version": "1.0.0",
+  "description": "Stream proxy for hosts that block Cloudflare Worker IPs (sibnet, acek-cdn)",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

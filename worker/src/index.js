@@ -108,7 +108,22 @@ function corsHeaders(extra = {}) {
   };
 }
 
-async function handle(request) {
+// Hosts whose CDN responds with 4xx/5xx to Cloudflare Worker egress IPs.
+// Requests for these go through ANIME_PROXY_URL (a separate host whose IP
+// range the upstream tolerates — usually Fly.io or Render). The CF edge
+// cache on top of the proxy is what keeps the proxy bandwidth cheap: a
+// segment's URL token is the cache key, so a fresh viewer of an already-
+// fetched segment hits CF for free and never reaches us.
+function needsProxy(targetUrl) {
+  return (
+    targetUrl.includes("sibnet.ru") ||
+    targetUrl.includes("acek-cdn.com") ||
+    targetUrl.includes("dramiyos-cdn") ||
+    targetUrl.includes("mindbodywellness.space")
+  );
+}
+
+async function handle(request, env, ctx) {
   if (request.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: corsHeaders() });
   }
@@ -189,6 +204,41 @@ async function handle(request) {
     }
   }
 
+  // CF edge cache lookup — the same URL across viewers hits this and skips
+  // the upstream fetch entirely. Critical for the proxy-routed hosts: most
+  // segments after the first viewer are free.
+  const cache = caches.default;
+  // Normalise the cache key by stripping vcookie (per-user) and download
+  // params — the upstream bytes are identical, only the wrapper differs.
+  const cacheKeyUrl = new URL(reqUrl);
+  cacheKeyUrl.searchParams.delete("vcookie");
+  cacheKeyUrl.searchParams.delete("dl");
+  cacheKeyUrl.searchParams.delete("filename");
+  const cacheKey = new Request(cacheKeyUrl.toString(), { method: "GET" });
+  // Only use cache for GET. (HEAD doesn't have a body to cache.)
+  if (request.method === "GET" && !isDownload) {
+    const cached = await cache.match(cacheKey);
+    if (cached) return cached;
+  }
+
+  // Route to ANIME_PROXY_URL for hosts that block CF Worker IPs.
+  // The proxy follows the redirect chain with the right Referer, and we
+  // ask for `raw=1` so we still get the upstream m3u8 unrewritten — our
+  // own rewriting (below) then points segments at the Worker so segment
+  // fetches hit the same edge cache.
+  const proxyUrl = env?.ANIME_PROXY_URL || "";
+  let response;
+  if (needsProxy(targetUrl) && proxyUrl) {
+    const proxied =
+      `${proxyUrl.replace(/\/$/, "")}/?url=${encodeURIComponent(targetUrl)}` +
+      `&referer=${encodeURIComponent(finalReferer)}` +
+      (vcookie ? `&vcookie=${encodeURIComponent(decodeURIComponent(vcookie))}` : "") +
+      `&raw=1`;
+    response = await fetch(proxied, {
+      // Range needs to ride through too for video seeking.
+      headers: rangeHeader ? { Range: rangeHeader } : {},
+    });
+  } else {
   // Manual redirect handling.
   //
   // Cloudflare's `fetch(..., { redirect: "follow" })` does NOT carry our
@@ -197,7 +247,6 @@ async function handle(request) {
   // canonical case) reject with 400. We follow manually so every hop keeps
   // the same User-Agent + Referer the original request had, AND so any
   // Set-Cookie a hop hands out is replayed on the next hop.
-  let response;
   let currentUrl = targetUrl;
   let currentHeaders = { ...headers };
   const MAX_REDIRECTS = 5;
@@ -246,6 +295,22 @@ async function handle(request) {
     }
     currentUrl = next;
   }
+  } // end of `else` branch — non-proxied direct fetch
+
+  // Helper that stores the final response under the normalised cache key
+  // before returning it. Skip caching for downloads (Content-Disposition
+  // varies per filename) and for error / partial responses (don't pin a
+  // 4xx upstream blip in cache for 24h).
+  const respondAndCache = (res) => {
+    const okToCache =
+      !isDownload &&
+      request.method === "GET" &&
+      (res.status === 200 || res.status === 206);
+    if (okToCache && ctx) {
+      ctx.waitUntil(cache.put(cacheKey, res.clone()));
+    }
+    return res;
+  };
 
   if (!response.ok && response.status !== 206) {
     const fatal = [401, 403, 404, 410].includes(response.status)
@@ -333,14 +398,16 @@ async function handle(request) {
       });
     }
 
-    return new Response(body, {
-      status: 200,
-      headers: corsHeaders({
-        "Content-Type": "application/vnd.apple.mpegurl",
-        // m3u8 manifests can rotate tokens — short edge cache only.
-        "Cache-Control": "public, s-maxage=30, max-age=0",
+    return respondAndCache(
+      new Response(body, {
+        status: 200,
+        headers: corsHeaders({
+          "Content-Type": "application/vnd.apple.mpegurl",
+          // m3u8 manifests can rotate tokens — short edge cache only.
+          "Cache-Control": "public, s-maxage=30, max-age=0",
+        }),
       }),
-    });
+    );
   }
 
   // Pick a cache policy by content type:
@@ -383,16 +450,18 @@ async function handle(request) {
     passthroughHeaders["Content-Disposition"] = `attachment; filename="${safe}"`;
   }
 
-  return new Response(response.body, {
-    status: response.status,
-    headers: passthroughHeaders,
-  });
+  return respondAndCache(
+    new Response(response.body, {
+      status: response.status,
+      headers: passthroughHeaders,
+    }),
+  );
 }
 
 export default {
-  async fetch(request) {
+  async fetch(request, env, ctx) {
     try {
-      return await handle(request);
+      return await handle(request, env, ctx);
     } catch (err) {
       return new Response(
         JSON.stringify({ error: "Proxy failed", detail: String(err) }),

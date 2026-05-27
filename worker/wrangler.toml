@@ -12,3 +12,15 @@ compatibility_date = "2025-10-01"
 # Observability is on by default — opt out only if you want to save log volume.
 [observability]
 enabled = true
+
+# Per-host routing. Hosts in `needsProxy()` (sibnet, acek-cdn, …) refuse
+# Cloudflare Worker egress IPs outright. For those URLs the Worker fetches
+# through ANIME_PROXY_URL instead — a separate proxy (see the proxy/ dir,
+# typically deployed on Fly.io free tier) whose IPs the upstream tolerates.
+# The CF edge cache layered on top then absorbs the bulk of repeat traffic.
+#
+# Leave the value empty to fall back to a direct fetch (sibnet/smoothpre
+# playback will fail in that case — that's the expected behaviour when no
+# proxy is deployed yet).
+[vars]
+ANIME_PROXY_URL = ""
