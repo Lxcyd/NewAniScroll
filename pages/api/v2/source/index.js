@@ -1343,10 +1343,13 @@ const SOURCE_CACHE_TTL_S = 300;
 const SOURCE_NOTFOUND_TTL_S = 120;
 const NOT_FOUND_SENTINEL = '{"__nf":1}';
 function sourceCacheKey({ server, aniId, episode, sub }) {
-  // v2: bumped after extractor probe tightening (VOE m3u8 content validation +
-  // variant probing). Old "ok" entries from before this would otherwise still
-  // serve broken streams to clients for ~5 min after deploy.
-  return `src:v2:${server}:${aniId}:${episode}:${sub || "sub"}`;
+  // Targeted cache version: VOE entries use v2 (after the extractor probe
+  // tightening shipped today — old "ok" verdicts would keep serving broken
+  // streams for 5 min otherwise). Everything else stays on v1 so working
+  // entries (Sibnet, Sendvid, Vidmoly…) don't all get force-re-extracted at
+  // once, which exposes anime-sama rate limits and creates a brief outage.
+  const v = String(server || "").toLowerCase().includes("voe") ? "v2" : "v1";
+  return `src:${v}:${server}:${aniId}:${episode}:${sub || "sub"}`;
 }
 
 // ── Handler ─────────────────────────────────────────────────────────────
