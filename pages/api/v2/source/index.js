@@ -41,6 +41,25 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 5000) {
   }
 }
 
+// anime-sama.to sits behind Cloudflare "I'm Under Attack" — every direct
+// fetch from a Vercel AWS IP returns 403, so server-side scraping is dead
+// in the water. The Cloudflare Worker that already proxies HLS segments
+// runs on Cloudflare's own network, where anime-sama allows the request
+// through. We route every anime-sama HTML fetch through the Worker so the
+// scrape still works in production.
+//
+// PROXY_BASE comes from NEXT_PUBLIC_PROXY_BASE; if it's unset (local dev)
+// we hit anime-sama directly — usually fine from a residential IP.
+const PROXY_BASE = process.env.NEXT_PUBLIC_PROXY_BASE || "";
+
+async function fetchViaWorker(targetUrl, options = {}, timeoutMs = 5000) {
+  // No worker configured → fall back to a direct fetch. Useful for local
+  // dev where the developer's IP isn't on Cloudflare's blocklist.
+  if (!PROXY_BASE) return fetchWithTimeout(targetUrl, options, timeoutMs);
+  const proxied = `${PROXY_BASE}?url=${encodeURIComponent(targetUrl)}`;
+  return fetchWithTimeout(proxied, options, timeoutMs);
+}
+
 // Hosts where server-side extraction returns a REAL playable stream â€” we pull
 // the m3u8 / mp4 directly so the universal Vidstack player can play it (with
 // our subtitle / cast / download chrome) instead of dropping back to an iframe.
@@ -466,8 +485,9 @@ async function getAnimeSamaIframe(serverKey, title, episode, aniId) {
     dlog(`[anime-sama] Found slug: ${slug} (${langPath})`);
 
     // 3. Try to find the right season/episode
-    // Fetch the anime detail page to get season list
-    const detailRes = await fetchWithTimeout(`${ANIMESAMA_BASE}/catalogue/${slug}/`);
+    // Fetch the anime detail page to get season list (routed via worker —
+    // anime-sama.to 403s direct Vercel fetches).
+    const detailRes = await fetchViaWorker(`${ANIMESAMA_BASE}/catalogue/${slug}/`);
     if (!detailRes.ok) {
       console.error(`[anime-sama] ${serverKey} detail page ${detailRes.status} for slug=${slug}`);
       return null;
@@ -576,7 +596,7 @@ async function getAnimeSamaIframe(serverKey, title, episode, aniId) {
       const epPath = `${ANIMESAMA_BASE}/catalogue/${slug}/${targetSeason.dir}/${langPath}/episodes.js`;
       dlog(`[anime-sama] Direct season ${targetSeason.dir} (${yearMatchedSeason ? `year ${aniYear}` : `ordinal ${seasonNum}`}): ${epPath}`);
 
-      const epRes = await fetchWithTimeout(epPath);
+      const epRes = await fetchViaWorker(epPath);
       if (epRes.ok) {
         const jsContent = await epRes.text();
         const episodeArrays = parseEpisodesJs(jsContent);
@@ -611,7 +631,7 @@ async function getAnimeSamaIframe(serverKey, title, episode, aniId) {
         const epPath = `${ANIMESAMA_BASE}/catalogue/${slug}/${season.dir}/${langPath}/episodes.js`;
         dlog(`[anime-sama] Trying: ${epPath}`);
 
-        const epRes = await fetchWithTimeout(epPath);
+        const epRes = await fetchViaWorker(epPath);
         if (!epRes.ok) {
           dlog(`[anime-sama] No ${langPath.toUpperCase()} for ${season.dir}`);
           continue;
@@ -799,7 +819,7 @@ async function findAnimeSamaSlug(title, aniId) {
   for (const q of queries) {
     let searchRes;
     try {
-      searchRes = await fetchWithTimeout(
+      searchRes = await fetchViaWorker(
         `${ANIMESAMA_BASE}/catalogue/?search=${encodeURIComponent(q)}`,
       );
     } catch (e) {
