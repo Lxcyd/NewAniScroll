@@ -284,16 +284,28 @@ async function handle(request) {
     });
   }
 
-  // Binary content — keys, .ts segments, MP4. The huge bandwidth win lives
-  // here: segments are content-addressed by their URL, never change, and
-  // Cloudflare's edge can fan one origin hit out to thousands of viewers.
-  // We deliberately strip the upstream Cache-Control (some CDNs ship
-  // `no-store`) and substitute our own — the URL token is the cache key, so
-  // when the token rotates a new request misses cache and re-fetches.
+  // Pick a cache policy by content type:
+  //   - Binary (.ts / mp4 / keys): 24 h immutable. Token in URL is the cache
+  //     key, so a rotation misses cache automatically. This is the bandwidth
+  //     win.
+  //   - HTML / JS / JSON (anime-sama catalog pages, embed shells, episodes.js,
+  //     extractor responses): cap at 60 s. These pages embed short-lived
+  //     tokens — caching them for 24 h would re-serve a dead token long after
+  //     it expired upstream.
+  const isTextContent =
+    contentType.includes("text/html") ||
+    contentType.includes("application/xhtml") ||
+    contentType.includes("application/javascript") ||
+    contentType.includes("text/javascript") ||
+    contentType.includes("application/json") ||
+    contentType.includes("text/plain");
+  const cacheControl = isTextContent
+    ? "public, s-maxage=60, max-age=0"
+    : "public, s-maxage=86400, max-age=3600, immutable";
   const passthroughHeaders = corsHeaders({
     "Content-Type": contentType || "application/octet-stream",
     "Accept-Ranges": "bytes",
-    "Cache-Control": "public, s-maxage=86400, max-age=3600, immutable",
+    "Cache-Control": cacheControl,
   });
   const upstreamRange = response.headers.get("content-range");
   const upstreamLength = response.headers.get("content-length");
