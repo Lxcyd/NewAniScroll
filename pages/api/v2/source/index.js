@@ -75,7 +75,12 @@ async function fetchViaWorker(targetUrl, options = {}, timeoutMs = 5000) {
 // included optimistically â€” extractor will return { error: ... } if they're
 // not actually playable, and the caller falls back to the raw iframe.
 const EXTRACTABLE_HOSTS = [
-  "sibnet.ru",
+  // sibnet.ru deliberately omitted: their MP4 CDN (dv97 → cvnXX chain)
+  // blocks Cloudflare Worker IPs (400 on first hop) AND we don't want to
+  // pay Vercel Fast Origin Transfer for it. Sibnet's shell.php embed has
+  // no X-Frame-Options / CSP, so the browser can iframe it directly — the
+  // user's residential IP handles the whole chain client-side, zero proxy
+  // on our side.
   "sendvid.com",
   "vidmoly",
   "embed4me",
