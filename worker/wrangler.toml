@@ -23,4 +23,4 @@ enabled = true
 # playback will fail in that case — that's the expected behaviour when no
 # proxy is deployed yet).
 [vars]
-ANIME_PROXY_URL = ""
+ANIME_PROXY_URL = "https://aniscroll-proxy.fly.dev"

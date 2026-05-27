@@ -457,14 +457,12 @@ const ANIMESAMA_SERVERS = {
   "animesama-sendvid":      { name: "Sendvid",     preferred: ["sendvid.com"],                            lang: "vf" },
   "animesama-vidmoly":      { name: "Vidmoly",     preferred: ["vidmoly.to", "vidmoly.biz", "vidmoly.net"], lang: "vf" },
   "animesama-embed4me":     { name: "Embed4Me",    preferred: ["embed4me.com", "lpayer"],                 lang: "vf" },
-  "animesama-smoothpre":    { name: "Smoothpre",   preferred: ["Smoothpre.com", "smoothpre.com"],         lang: "vf" },
   "animesama-callistanise": { name: "Player",      preferred: ["callistanise.com", "dingtezuni.com", "movearnpre.com"], lang: "vf" },
   // VOSTFR (Japanese + French subs)
   "animesama-sibnet-vo":       { name: "Sibnet",      preferred: ["sibnet.ru"],                              lang: "vostfr" },
   "animesama-sendvid-vo":      { name: "Sendvid",     preferred: ["sendvid.com"],                            lang: "vostfr" },
   "animesama-vidmoly-vo":      { name: "Vidmoly",     preferred: ["vidmoly.to", "vidmoly.biz", "vidmoly.net"], lang: "vostfr" },
   "animesama-embed4me-vo":     { name: "Embed4Me",    preferred: ["embed4me.com", "lpayer"],                 lang: "vostfr" },
-  "animesama-smoothpre-vo":    { name: "Smoothpre",   preferred: ["Smoothpre.com", "smoothpre.com"],         lang: "vostfr" },
   "animesama-callistanise-vo": { name: "Player",      preferred: ["callistanise.com", "dingtezuni.com", "movearnpre.com"], lang: "vostfr" },
 };
 
