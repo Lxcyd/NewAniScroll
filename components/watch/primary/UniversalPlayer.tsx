@@ -568,23 +568,19 @@ function SubtitleMenu({
           enabled={activeIndex >= 0}
           onToggle={(next) => {
             if (next) {
-              // Re-enable: prefer the persisted language (from localStorage),
-              // then English, then the first available track. Matches the
-              // sync-on-mount behavior so the toggle never silently picks
-              // an unexpected track.
+              // Re-enable: persisted lang → French → English → first track.
+              // Same priority order as the on-mount sync so the toggle never
+              // silently picks an unexpected track.
               let pickedIdx = -1;
               try {
                 const wantLang = (localStorage.getItem("moopa.subs.lang") || "").toLowerCase();
-                if (wantLang) {
-                  pickedIdx = tracks.findIndex(
-                    (t) => (t.language || "").toLowerCase() === wantLang
+                const find = (code: string) =>
+                  tracks.findIndex(
+                    (t) => (t.language || "").toLowerCase() === code
                   );
-                }
-                if (pickedIdx < 0) {
-                  pickedIdx = tracks.findIndex(
-                    (t) => (t.language || "").toLowerCase() === "en"
-                  );
-                }
+                if (wantLang) pickedIdx = find(wantLang);
+                if (pickedIdx < 0) pickedIdx = find("fr");
+                if (pickedIdx < 0) pickedIdx = find("en");
               } catch {}
               if (pickedIdx < 0) pickedIdx = activeIndex >= 0 ? activeIndex : 0;
               onSelect(pickedIdx);
@@ -1391,9 +1387,21 @@ export default function UniversalPlayer({
         const enabled = readPrefEnabled();
         if (enabled) {
           const pref = readPrefLang();
+          // Order: user's saved language → French → English → first track.
+          // French is the default for everyone (audience is FR-first) and
+          // falls through to English when no French sub is provided, then to
+          // whatever is first in the list as a last resort.
           const byPref = findByLang(pref);
-          const byEnglish = byPref < 0 ? findByLang("en") : -1;
-          const fallback = byPref >= 0 ? byPref : byEnglish >= 0 ? byEnglish : firstAvailable;
+          const byFrench = byPref < 0 ? findByLang("fr") : -1;
+          const byEnglish = byPref < 0 && byFrench < 0 ? findByLang("en") : -1;
+          const fallback =
+            byPref >= 0
+              ? byPref
+              : byFrench >= 0
+                ? byFrench
+                : byEnglish >= 0
+                  ? byEnglish
+                  : firstAvailable;
           // Apply via the same selection path so persistence stays consistent.
           selectSubtitleTrack(fallback);
           return;

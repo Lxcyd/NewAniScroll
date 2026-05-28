@@ -177,11 +177,15 @@ async function fetchFromAniSkip(
   episode: number,
   episodeLength: number,
 ): Promise<Skip[]> {
+  // AniSkip now hard-rejects the request with HTTP 400 when episodeLength
+  // is missing (`episodeLength must not be less than 0`). Sending 0 is
+  // still accepted and just disables their best-submission tiebreak — the
+  // primary intro/outro entries come back the same. SkipOverlay no longer
+  // waits for the player's duration before firing the fetch, so we just
+  // default the param to 0 instead of reintroducing the 2-3 s wait.
   const params = new URLSearchParams();
   ["op", "ed"].forEach((t) => params.append("types[]", t));
-  if (episodeLength > 0) {
-    params.set("episodeLength", String(Math.round(episodeLength)));
-  }
+  params.set("episodeLength", String(Math.max(0, Math.round(episodeLength))));
   const res = await fetch(
     `https://api.aniskip.com/v2/skip-times/${malId}/${episode}?${params}`,
   );
