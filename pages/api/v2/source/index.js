@@ -1002,6 +1002,11 @@ const VOIRANIME_SERVERS = {
   // VF
   "voiranime-voe":    { name: "VOE", host: ["voe.sx", "voe."], lang: "vf" },
   "voiranime-voe-vo": { name: "VOE", host: ["voe.sx", "voe."], lang: "vostfr" },
+  // Vidmoly — voir-anime tends to carry fresher slugs than anime-sama (their
+  // scrape rotates more often), so adding it gives us a separate uploader to
+  // try when anime-sama's vidmoly URL is dead.
+  "voiranime-vidmoly":    { name: "Vidmoly", host: ["vidmoly.to", "vidmoly.biz", "vidmoly.net"], lang: "vf" },
+  "voiranime-vidmoly-vo": { name: "Vidmoly", host: ["vidmoly.to", "vidmoly.biz", "vidmoly.net"], lang: "vostfr" },
 };
 
 async function getVoiranimeIframe(serverKey, title, episode, aniId) {
@@ -1173,6 +1178,16 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId) {
       } catch (e) {
         // Network error â€” fall through and let the client try
       }
+    }
+
+    // Vidmoly: same bypass as anime-sama — hand the embed URL to the browser
+    // so the m3u8 token IP-binds to the user instead of any proxy. See the
+    // commentary in getAnimeSamaIframe for the full rationale.
+    if (lower.includes("vidmoly")) {
+      return {
+        clientExtract: { type: "vidmoly", embedUrl: iframeUrl },
+        iframe: iframeUrl,
+      };
     }
 
     // Server-side extraction preferred; falls back to a degraded iframe
