@@ -1398,11 +1398,12 @@ const SOURCE_CACHE_TTL_S = 300;
 const SOURCE_NOTFOUND_TTL_S = 120;
 const NOT_FOUND_SENTINEL = '{"__nf":1}';
 function sourceCacheKey({ server, aniId, episode, sub }) {
-  // v9: removed the iframe-reachability probe — user wants every chip
-  // visible (degraded for failed extractions) regardless of whether the
-  // embed URL is currently live. Bump so old null-cached entries flushed
-  // by the probe come back as degraded iframes on next request.
-  return `src:v9:${server}:${aniId}:${episode}:${sub || "sub"}`;
+  // v10: Vidmoly now has a Fly-proxy tier 2 fallback. Worker-blocked
+  // embeds (vidmoly.biz 410 from CF IPs) get extracted via Fly and the
+  // m3u8 wrapped through Fly too, so playback lands in the Universal
+  // Player instead of the iframe fallback. Bump so the v9 degraded
+  // iframe entries flush and the next probe re-runs the tier chain.
+  return `src:v10:${server}:${aniId}:${episode}:${sub || "sub"}`;
 }
 
 // ── Handler ─────────────────────────────────────────────────────────────
