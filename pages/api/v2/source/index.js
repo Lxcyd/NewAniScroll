@@ -1464,7 +1464,12 @@ async function getConsumetStream(providerKey, title, episode, sub) {
 // positive entries — a hit is either parsed JSON we serve as 200, or the
 // sentinel we turn into 404.
 const SOURCE_CACHE_TTL_S = 300;
-const SOURCE_NOTFOUND_TTL_S = 120;
+// Short TTL for negative results: scrapers like sibnet and anime-sama have
+// transient anti-bot rejections that flip to OK on the next attempt. 120 s
+// kept dead chips hidden for 2 full minutes even across reloads. 30 s still
+// absorbs the probe fan-out (15+ POSTs in a single page load all dedupe
+// against the same cache entry) without making the user wait minutes.
+const SOURCE_NOTFOUND_TTL_S = 30;
 const NOT_FOUND_SENTINEL = '{"__nf":1}';
 function sourceCacheKey({ server, aniId, episode, sub }) {
   // v10: Vidmoly now has a Fly-proxy tier 2 fallback. Worker-blocked

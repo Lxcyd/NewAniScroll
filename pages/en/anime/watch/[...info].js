@@ -633,10 +633,16 @@ export default function Watch({
 
     // Session-level probe result cache. When navigating between episodes of
     // the same anime, server availability barely changes — same upstream
-    // hosts, same catalog presence. Hydrate from sessionStorage so the dots
-    // appear instantly, then we still re-validate in the background but
-    // skip servers we just probed in the last PROBE_TTL_MS to save the
-    // round-trip entirely.
+    // hosts, same catalog presence. Hydrate CONFIRMED probes from
+    // sessionStorage so the green dots appear at first paint.
+    //
+    // FAILED probes deliberately don't persist: scrapers like sibnet and
+    // vidmoly have intermittent anti-bot rejections that flip to OK on the
+    // next request, and a 90-second sessionStorage entry would otherwise
+    // hide the chip until the next tab close. Re-probing on reload is the
+    // cheaper cost — at most an extra batch of POSTs that already happen
+    // in the background. In-memory `cachedFailed` still suppresses re-probes
+    // within the SAME mount (episode navigation).
     const PROBE_TTL_MS = 90_000;
     const probeCacheKey = `aniscroll.probes.${info.id}.${dub ? "dub" : "sub"}`;
     let cachedProbes = null;
@@ -649,26 +655,22 @@ export default function Watch({
           // Re-hydrate UI markers from the cache so the selector dots
           // appear at the same instant the page renders.
           for (const id of parsed.confirmed || []) markConfirmed(id);
-          for (const [id, reason] of Object.entries(parsed.failed || {})) {
-            markFailed(id, reason);
-          }
         }
       }
     } catch {
       /* sessionStorage may be disabled — fall through to full probe */
     }
     const cachedConfirmed = new Set(cachedProbes?.confirmed || []);
-    const cachedFailed = new Set(Object.keys(cachedProbes?.failed || {}));
-    // Save back to sessionStorage at the end of probing. The handlers below
-    // call this each time markConfirmed / markFailed fires from a probe so
-    // a partial run still persists what it learned.
+    // cachedFailed stays empty on hydration → every server probes again on
+    // reload. Failures we see DURING this mount still get tracked here so
+    // episode navigation doesn't re-probe known-failed servers.
+    const cachedFailed = new Set();
+    // Save back to sessionStorage as confirmations come in. Failed probes
+    // are intentionally not persisted (see comment above).
     const persistProbeCache = () => {
       try {
         const snapshot = {
           confirmed: Array.from(cachedConfirmed),
-          failed: Object.fromEntries(
-            Array.from(cachedFailed).map((id) => [id, "cached"]),
-          ),
           ts: Date.now(),
         };
         sessionStorage.setItem(probeCacheKey, JSON.stringify(snapshot));
