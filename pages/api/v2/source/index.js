@@ -80,16 +80,22 @@ const EXTRACTABLE_HOSTS = [
   // the result at the CF edge. The custom Vidstack player is back.
   "sibnet.ru",
   "sendvid.com",
-  "vidmoly",
+  // vidmoly intentionally removed — the m3u8 token is IP-bound to whoever
+  // extracts it, so the browser hits 403 unless every request flows through
+  // the same proxy that extracted it. Just handing back the vidmoly.net
+  // iframe lets the user's browser get its own token directly. We also
+  // rewrite vidmoly.to → vidmoly.net below: .to currently 302s to a scam
+  // and emits Mixed-Content HTTP sub-resources, .net serves the real
+  // player over HTTPS with the same embed slug.
   "embed4me",
   "lpayer",        // lpayer.embed4me.com
   "smoothpre",     // hls2 CDN bypass (was TikTok-trapped via /stream/ path)
   "movearnpre",
   "dingtezuni",
   "callistanise",
-  // VOE serves voe.sx â†’ JS-redirect â†’ mirror domain â†’ obfuscated JSON payload.
+  // VOE serves voe.sx → JS-redirect → mirror domain → obfuscated JSON payload.
   // The extractor follows the redirect chain and decodes the payload to a
-  // signed master.m3u8. See lib/extractors.js â†’ extractVoe.
+  // signed master.m3u8. See lib/extractors.js → extractVoe.
   "voe.sx",
   "voe.",          // catches voe-network.net, voe-unblock.com, etc.
 ];
@@ -666,6 +672,14 @@ async function getAnimeSamaIframe(serverKey, title, episode, aniId) {
     if (!iframeUrl) {
       console.error(`[anime-sama] ${serverKey} no iframe for ep=${episode} slug=${slug} (seasons=${seasons.length})`);
       return null;
+    }
+
+    // Per-host iframe rewriting before extraction / probing.
+    // - vidmoly.to currently 302s to a HTTP survey scam; vidmoly.net serves
+    //   the same embed slug over real HTTPS with no Mixed-Content sub-resources.
+    //   Forcing .net here also avoids hitting the dead-iframe probe below.
+    if (/vidmoly\.(to|biz)/i.test(iframeUrl)) {
+      iframeUrl = iframeUrl.replace(/vidmoly\.(to|biz)/i, "vidmoly.net");
     }
 
     // Try server-side extraction for hosts we know how to unpack.
@@ -1388,12 +1402,11 @@ const SOURCE_CACHE_TTL_S = 300;
 const SOURCE_NOTFOUND_TTL_S = 120;
 const NOT_FOUND_SENTINEL = '{"__nf":1}';
 function sourceCacheKey({ server, aniId, episode, sub }) {
-  // v4: v3 ended up serving sibnet videoids that aren't in the upstream
-  // episodes.js (e.g. cvs12-2.sibnet.ru/43/39/88/4339887.mp4 for Death
-  // Note ep 26, while the real DN eps3 only contains 4745xxx ids).
-  // Wiping again with a fresh tag while temporary extractSibnet logging
-  // captures what URL we actually feed the extractor.
-  return `src:v4:${server}:${aniId}:${episode}:${sub || "sub"}`;
+  // v5: same flush justification as v4 plus Vidmoly entries previously
+  // stored proxy-wrapped m3u8 URLs that are now obsolete — Vidmoly is back
+  // to a raw iframe (rewritten to vidmoly.net) so the browser fetches
+  // tokens against its own IP and skips the Fly proxy entirely.
+  return `src:v5:${server}:${aniId}:${episode}:${sub || "sub"}`;
 }
 
 // ── Handler ─────────────────────────────────────────────────────────────
