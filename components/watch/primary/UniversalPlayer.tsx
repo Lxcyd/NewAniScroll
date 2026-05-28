@@ -59,6 +59,11 @@ export type UniversalStreamData = {
   subtitles?: Subtitle[];
   referer?: string;
   error?: boolean;
+  /** Server hands the browser an embed URL to fetch itself, so the IP-bound
+   *  master.m3u8 token is issued to the user's IP — segments then stream
+   *  straight from the host CDN with no proxy. UniversalPlayer runs the
+   *  extractor on mount; if it fails, falls back to the iframe field. */
+  clientExtract?: { type: "vidmoly"; embedUrl: string };
 };
 
 type Props = {
@@ -988,6 +993,16 @@ export default function UniversalPlayer({
   }, []);
   // Index of the active text track in the subtitleTracks list. -1 = subtitles off.
   const [activeTrackIdx, setActiveTrackIdx] = useState(-1);
+  // ── Client-side extraction state ──
+  // When streamData.clientExtract is set, the server is asking the browser to
+  // do the embed-page fetch itself so the resulting CDN token IP-binds to the
+  // user, not to any proxy. While this runs we render a tiny loading frame;
+  // on success we swap in the extracted stream; on failure we fall through
+  // to the iframe fallback (streamData.iframe is set in tandem).
+  const [clientStream, setClientStream] = useState<Stream | null>(null);
+  const [clientStatus, setClientStatus] = useState<
+    "idle" | "pending" | "ok" | "failed"
+  >("idle");
   // Ref to the CC button so we can position the popover above it.
   const subBtnRef = useRef<HTMLButtonElement | null>(null);
   // Context-driven autoplay state — provider hydrates from localStorage on
@@ -1423,6 +1438,59 @@ export default function UniversalPlayer({
     return () => playerEl.removeEventListener("hls-error", handler as EventListener);
   }, [onError, streamData]);
 
+  // ── Client-side extraction runner ──
+  // Vidmoly's master.m3u8 token is bound to whichever IP fetched the embed
+  // page. Doing that fetch from the browser (instead of any server-side
+  // proxy) means the token authorises the user's IP — segments then stream
+  // direct from the vidmoly CDN, no Worker / Fly / Vercel FOT in the path.
+  // We trigger the dynamic import only when this codepath is needed so the
+  // extractor module isn't shipped to users of every other server.
+  useEffect(() => {
+    const ce = streamData?.clientExtract;
+    if (!ce || ce.type !== "vidmoly") {
+      setClientStatus("idle");
+      setClientStream(null);
+      return;
+    }
+    setClientStatus("pending");
+    setClientStream(null);
+    const ac = new AbortController();
+    (async () => {
+      try {
+        const mod = await import("@/lib/clientVidmoly");
+        const res = await mod.extractVidmolyClient(ce.embedUrl, {
+          signal: ac.signal,
+        });
+        if (ac.signal.aborted) return;
+        if (res.masterUrl) {
+          setClientStream({
+            url: res.masterUrl,
+            quality: "auto",
+            isM3U8: res.masterUrl.includes(".m3u8"),
+            // The URL is the raw CDN m3u8 — no extra wrapping needed.
+            directUrl: true,
+          });
+          setClientStatus("ok");
+        } else {
+          console.warn(
+            "[UniversalPlayer] client vidmoly extraction failed:",
+            res.error,
+          );
+          setClientStatus("failed");
+        }
+      } catch (e: any) {
+        if (!ac.signal.aborted) {
+          console.warn(
+            "[UniversalPlayer] client vidmoly threw:",
+            e?.message || e,
+          );
+          setClientStatus("failed");
+        }
+      }
+    })();
+    return () => ac.abort();
+  }, [streamData]);
+
   // ── Autoplay ──
   // Chrome rejects unmuted autoplay without a user gesture, period. The
   // only path that always works is muted-then-let-Chrome's-MEI-decide:
@@ -1545,9 +1613,28 @@ export default function UniversalPlayer({
     } catch {}
   };
 
-  const bestStream =
-    streamData?.streams?.[0] || streamData?.sources?.[0] || null;
-  const iframeSrc = streamData?.iframe || null;
+  // Browser-extraction path: suppress the iframe fallback until extraction
+  // settles, so the player doesn't briefly mount vidmoly's own embed before
+  // the m3u8 URL is ready. `idle` covers the first render before our effect
+  // has fired; `pending` while it's fetching; `ok` once we have the URL.
+  // Only `failed` falls through to the iframe.
+  const wantsClientExtract =
+    streamData?.clientExtract?.type === "vidmoly" && clientStatus !== "failed";
+
+  const bestStream = wantsClientExtract
+    ? clientStatus === "ok"
+      ? clientStream
+      : null
+    : streamData?.streams?.[0] || streamData?.sources?.[0] || null;
+  const iframeSrc = wantsClientExtract ? null : streamData?.iframe || null;
+
+  if (wantsClientExtract && clientStatus !== "ok") {
+    return (
+      <div className="flex-center aspect-video w-full h-full bg-black text-white/40 font-karla">
+        Loading…
+      </div>
+    );
+  }
 
   if (streamData?.error || (!bestStream && !iframeSrc)) {
     return (

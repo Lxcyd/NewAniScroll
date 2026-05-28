@@ -727,6 +727,22 @@ async function getAnimeSamaIframe(serverKey, title, episode, aniId) {
     // sibnet iframe just produces "refused to connect". Keep hiding those.
     const lower = iframeUrl.toLowerCase();
 
+    // Vidmoly bypasses server-side extraction entirely: the master.m3u8 token
+    // is IP-bound, and routing it through any proxy (CF Worker, Fly, Vercel
+    // FOT) costs bandwidth and a guaranteed IP-mismatch the moment one tier
+    // 410s. Instead we hand the client the embed URL and let it fetch the
+    // page itself — token then binds to the user's IP and segments stream
+    // directly from the vidmoly CDN with no proxy. vidmoly.biz reflects any
+    // Origin in Access-Control-Allow-Origin (verified), so the browser fetch
+    // succeeds. If client extraction fails (CORS on the CDN, no source in
+    // HTML, etc.), UniversalPlayer falls back to the iframe.
+    if (lower.includes("vidmoly")) {
+      return {
+        clientExtract: { type: "vidmoly", embedUrl: iframeUrl },
+        iframe: iframeUrl,
+      };
+    }
+
     if (EXTRACTABLE_HOSTS.some((h) => lower.includes(h))) {
       // TEMP diagnostic — remove once Sibnet behaviour stops surprising us.
       if (lower.includes("sibnet")) {
