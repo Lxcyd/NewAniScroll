@@ -685,8 +685,39 @@ async function getAnimeSamaIframe(serverKey, title, episode, aniId) {
       }
       dlog(`[anime-sama] Extraction failed for ${serverKey}: ${result.error}`);
       // For strict hosts (iframe blocked), fail. For vidmoly and others, fall
-      // back to the raw iframe â€” the user's browser may still play it.
+      // back to the raw iframe — the user's browser may still play it.
       if (isStrict) return null;
+    }
+
+    // Iframe sanity probe: anime-sama keeps entries in episodes.js even after
+    // the upstream host has dropped them. Vidmoly in particular currently
+    // redirects every embed URL to http://survey-smiles.com/ (HTTP scam) —
+    // the iframe shows the chip but the browser blocks the load as Mixed
+    // Content, leaving the user staring at a black frame. Follow the redirect
+    // chain server-side; if it leaves the original host we treat the embed
+    // as dead and hide the chip.
+    try {
+      const originalHost = new URL(iframeUrl).hostname.toLowerCase();
+      const baseDomain = originalHost.split(".").slice(-2).join(".");
+      const probe = await fetchWithTimeout(
+        iframeUrl,
+        {
+          method: "GET",
+          headers: { Accept: "text/html,application/xhtml+xml" },
+          redirect: "follow",
+        },
+        4000,
+      );
+      const finalHost = new URL(probe.url).hostname.toLowerCase();
+      const finalBase = finalHost.split(".").slice(-2).join(".");
+      const finalProtocol = new URL(probe.url).protocol;
+      if (finalBase !== baseDomain || finalProtocol !== "https:") {
+        dlog(`[anime-sama] ${serverKey} iframe redirected off-host (${probe.url}) — hiding`);
+        return null;
+      }
+    } catch {
+      // Network error on probe — don't block; the iframe might still work
+      // for the user even if our server can't reach it.
     }
 
     return { iframe: iframeUrl };
