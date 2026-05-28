@@ -60,6 +60,33 @@ async function fetchViaWorker(targetUrl, options = {}, timeoutMs = 5000) {
   return fetchWithTimeout(proxied, options, timeoutMs);
 }
 
+// Vidmoly-specific aliveness check. Anime-sama / voir-anime scrapes often
+// return slugs vidmoly has since removed (file deleted, dmca, expired). Both
+// my browser-side extractor AND the iframe fallback then show vidmoly's own
+// "This video not found" page — useless for the user. A HEAD on vidmoly.biz
+// distinguishes a dead slug (404) from a live one (200): vidmoly returns
+// 404 to every requester for missing slugs, verified against curl from
+// multiple network perspectives and the browser fetch in the failing case.
+// Returns true when the slug is reachable, false when it's gone.
+async function isVidmolyEmbedAlive(embedUrl) {
+  const url = embedUrl.replace(/vidmoly\.(to|biz|net)/i, "vidmoly.biz");
+  try {
+    const res = await fetchWithTimeout(
+      url,
+      {
+        method: "HEAD",
+        headers: { "User-Agent": SCRAPER_UA },
+        redirect: "follow",
+      },
+      3000,
+    );
+    return res.status !== 404;
+  } catch {
+    // Network error → don't punish the chip; let the client try.
+    return true;
+  }
+}
+
 // Quick reachability probe for iframe-fallback URLs. Returns true if the URL
 // (after following redirects) responds with 2xx/3xx that the browser would
 // actually render — false if the embed slug 404s or the host is otherwise
@@ -737,6 +764,13 @@ async function getAnimeSamaIframe(serverKey, title, episode, aniId) {
     // succeeds. If client extraction fails (CORS on the CDN, no source in
     // HTML, etc.), UniversalPlayer falls back to the iframe.
     if (lower.includes("vidmoly")) {
+      // Aniwsama tends to keep dead vidmoly slugs in its catalogue for weeks
+      // after the file is deleted. Probe before serving the chip so a dead
+      // slug yields "server unavailable" instead of vidmoly's own 404 page.
+      if (!(await isVidmolyEmbedAlive(iframeUrl))) {
+        dlog(`[anime-sama] vidmoly slug 404 — hiding chip: ${iframeUrl}`);
+        return null;
+      }
       return {
         clientExtract: { type: "vidmoly", embedUrl: iframeUrl },
         iframe: iframeUrl,
@@ -1184,6 +1218,10 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId) {
     // so the m3u8 token IP-binds to the user instead of any proxy. See the
     // commentary in getAnimeSamaIframe for the full rationale.
     if (lower.includes("vidmoly")) {
+      if (!(await isVidmolyEmbedAlive(iframeUrl))) {
+        dlog(`[voiranime] vidmoly slug 404 — hiding chip: ${iframeUrl}`);
+        return null;
+      }
       return {
         clientExtract: { type: "vidmoly", embedUrl: iframeUrl },
         iframe: iframeUrl,
