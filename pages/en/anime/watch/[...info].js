@@ -527,6 +527,11 @@ export default function Watch({
           mediaMeta: mediaMetaPayload,
         }),
         signal,
+        // The active server's source is the request the user is actually
+        // waiting on (everything else on the page is decoration). Hinting
+        // high priority lets the browser bump it ahead of the probe burst
+        // and any image / analytics fetches in the connection pool.
+        priority: "high",
       });
 
       if (signal?.aborted) return;
@@ -679,6 +684,11 @@ export default function Watch({
             mediaMeta: probeMeta,
           }),
           signal: controller.signal,
+          // Probes are background work — they fill in the server-selector
+          // chips but the user isn't blocked on them. Marking low priority
+          // gets them out of the way of the active stream's source fetch
+          // (which is priority:"high") in the browser's connection scheduler.
+          priority: "low",
         });
 
         if (res.status === 404) return "fail-404";
@@ -984,6 +994,25 @@ export default function Watch({
     <>
       <Head>
         <title>AniScroll • Beta</title>
+        {/* Warm DNS + TCP + TLS for the hosts the player is most likely to
+            hit, in parallel with the rest of the page render. Saves the
+            ~100-300 ms handshake when the actual stream/iframe request
+            fires. preconnect handles all three; dns-prefetch is a fallback
+            for older browsers that ignore preconnect. */}
+        <link rel="preconnect" href="https://megaplay.buzz" crossOrigin="anonymous" />
+        <link rel="preconnect" href="https://video.sibnet.ru" crossOrigin="anonymous" />
+        <link rel="preconnect" href="https://sendvid.com" crossOrigin="anonymous" />
+        <link rel="preconnect" href="https://vidmoly.to" crossOrigin="anonymous" />
+        {process.env.NEXT_PUBLIC_PROXY_BASE && (
+          <>
+            <link rel="preconnect" href={process.env.NEXT_PUBLIC_PROXY_BASE} crossOrigin="anonymous" />
+            <link rel="dns-prefetch" href={process.env.NEXT_PUBLIC_PROXY_BASE} />
+          </>
+        )}
+        <link rel="dns-prefetch" href="https://megaplay.buzz" />
+        <link rel="dns-prefetch" href="https://video.sibnet.ru" />
+        <link rel="dns-prefetch" href="https://sendvid.com" />
+        <link rel="dns-prefetch" href="https://vidmoly.to" />
         <meta
           name="title"
           data-title-romaji={info?.title?.romaji}

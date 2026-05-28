@@ -1931,6 +1931,11 @@ function IframeEmbed({
       // hianime player needs for its "copy stream link" button. The extra
       // grants are harmless when the host doesn't use them.
       allow="autoplay; fullscreen; encrypted-media; picture-in-picture; accelerometer; gyroscope; clipboard-write"
+      // Eager loading + high fetch priority: the iframe IS the page's main
+      // content, so it should win the network race against background
+      // requests (probes, analytics, ads in the loaded extractor).
+      loading="eager"
+      fetchPriority="high"
     />
   );
 }
