@@ -677,8 +677,22 @@ async function getAnimeSamaIframe(serverKey, title, episode, aniId) {
     const isStrict = STRICT_EXTRACT.some((h) => lower.includes(h));
 
     if (EXTRACTABLE_HOSTS.some((h) => lower.includes(h))) {
+      // TEMP diagnostic — investigating why Death Note sibnet extracts
+      // videoids that aren't in the upstream episodes.js. Logs the input
+      // URL the extractor receives + the resolved stream so we can trace
+      // cache pollution vs slug/season mismatch. Remove once root cause
+      // is identified.
+      if (lower.includes("sibnet")) {
+        console.error(
+          `[sibnet-trace] ${serverKey} aniId=${aniId} ep=${episode} slug=${slug} iframeUrl=${iframeUrl}`,
+        );
+      }
       const extractor = getExtractor(iframeUrl);
       const result = await extractor(iframeUrl);
+      if (lower.includes("sibnet")) {
+        const out = result.streams?.[0]?.url || `ERROR:${result.error}`;
+        console.error(`[sibnet-trace] ${serverKey} resolved → ${out}`);
+      }
       if (result.streams?.length) {
         dlog(`[anime-sama] Extracted stream for ${serverKey}: ${result.streams[0].url}`);
         return result;
@@ -1374,13 +1388,12 @@ const SOURCE_CACHE_TTL_S = 300;
 const SOURCE_NOTFOUND_TTL_S = 120;
 const NOT_FOUND_SENTINEL = '{"__nf":1}';
 function sourceCacheKey({ server, aniId, episode, sub }) {
-  // v3: previous v1 entries got polluted earlier in the session (slug
-  // cache mismatches caused some animes to extract the wrong sibnet
-  // videoid and the bad URLs got stored). v3 wipes the lot so every
-  // entry rebuilds from a known-good extraction. VOE was already on v2
-  // for its own reason; collapsing back to a single version since the
-  // VOE-specific tightening is in production.
-  return `src:v3:${server}:${aniId}:${episode}:${sub || "sub"}`;
+  // v4: v3 ended up serving sibnet videoids that aren't in the upstream
+  // episodes.js (e.g. cvs12-2.sibnet.ru/43/39/88/4339887.mp4 for Death
+  // Note ep 26, while the real DN eps3 only contains 4745xxx ids).
+  // Wiping again with a fresh tag while temporary extractSibnet logging
+  // captures what URL we actually feed the extractor.
+  return `src:v4:${server}:${aniId}:${episode}:${sub || "sub"}`;
 }
 
 // ── Handler ─────────────────────────────────────────────────────────────
