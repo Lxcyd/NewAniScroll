@@ -277,31 +277,24 @@ export default function Watch({
   // Done in useEffect (not lazy useState) to avoid SSR/CSR mismatch.
   // We also patch the URL so the slug reflects the actual server in use,
   // not the static "megaplay" the route was initialised with. Otherwise
-  // visiting /watch/{id}/megaplay would show "megaplay" forever even when
-  // the user previously chose a different server.
+  // Load the user's saved server preference. The URL no longer carries the
+  // server id (used to be in the path between {aniId} and the slug); the
+  // canonical URL is now /en/anime/watch/{aniId}/{slug}. localStorage is
+  // the only source of truth for the default server — old shared links
+  // get migrated to the slug-only form by the canonicalization effect
+  // below.
   useEffect(() => {
     const saved = localStorage.getItem("preferred_server");
-    if (saved && saved !== "megaplay") {
-      setActiveServer(saved);
-      try {
-        const url = new URL(window.location.href);
-        const segs = url.pathname.split("/");
-        if (segs.length >= 6 && segs[5] && segs[5] !== saved) {
-          segs[5] = saved;
-          url.pathname = segs.join("/");
-          window.history.replaceState(null, "", url.toString());
-        }
-      } catch {}
-    }
+    if (saved && saved !== "megaplay") setActiveServer(saved);
   }, []);
 
   const router = useRouter();
 
-  // Decorate the URL with a human-readable slug after the
-  // /watch/{id}/{provider} segments. The [...info] route already
-  // ignores extra path parts, so this is purely cosmetic — old links
-  // without the slug keep working. We strip diacritics + lower-case
-  // + collapse non-alphanumerics into single dashes.
+  // Canonicalize the URL to /en/anime/watch/{aniId}/{slug}. Strips any
+  // legacy /{server} segment (old links shared before we removed the
+  // server from the URL) and writes the human-readable slug. The [...info]
+  // route ignores extra path parts so old links keep working; this just
+  // tidies them in-place.
   useEffect(() => {
     if (!info?.id) return;
     const title =
@@ -316,13 +309,13 @@ export default function Watch({
       .slice(0, 60);
     if (!slug) return;
     const path = window.location.pathname;
-    // Path shape: /en/anime/watch/{id}/{provider}[/{slug}]
     const parts = path.split("/").filter(Boolean);
-    // ["en", "anime", "watch", "{id}", "{provider}", ...]
-    if (parts.length < 5) return;
-    if (parts.length === 5 || parts[5] !== slug) {
-      const base = `/${parts.slice(0, 5).join("/")}`;
-      const next = `${base}/${slug}${window.location.search}${window.location.hash}`;
+    // Expected prefix: ["en", "anime", "watch", "{aniId}"]
+    if (parts.length < 4 || parts[2] !== "watch") return;
+    const aniIdPart = parts[3];
+    const desired = `/en/anime/watch/${aniIdPart}/${slug}`;
+    if (path !== desired) {
+      const next = `${desired}${window.location.search}${window.location.hash}`;
       window.history.replaceState(null, "", next);
     }
   }, [info?.id, info?.title?.english, info?.title?.romaji, info?.title?.userPreferred]);
@@ -849,19 +842,9 @@ export default function Watch({
   const handleServerChange = useCallback((serverId) => {
     setActiveServer(serverId);
     localStorage.setItem("preferred_server", serverId);
-    // Reflect the chosen provider in the URL so bookmarks / shares /
-    // browser-back work correctly. `replace` (not `push`) so the back
-    // button doesn't trap the user in their server-switch history.
-    try {
-      const url = new URL(window.location.href);
-      const segs = url.pathname.split("/");
-      // /en/anime/watch/{aniId}/{provider}
-      if (segs.length >= 6 && segs[5]) {
-        segs[5] = serverId;
-        url.pathname = segs.join("/");
-        window.history.replaceState(null, "", url.toString());
-      }
-    } catch {}
+    // The URL no longer encodes the server — preference lives entirely
+    // in localStorage, so shares/bookmarks don't pin a stale server id
+    // and switching players doesn't dirty the browser history.
   }, []);
 
   // ── Media Session (OS-level now playing) ────────────────────
@@ -928,7 +911,7 @@ export default function Watch({
        — same query params (id + num + optional dub), same provider. */
     const nextEp = episodeNavigation?.next;
     const nextEpisodeHref = nextEp
-      ? `/en/anime/watch/${info.id}/${activeServer}?id=${encodeURIComponent(
+      ? `/en/anime/watch/${info.id}?id=${encodeURIComponent(
           nextEp.id
         )}&num=${nextEp.number}${dub ? `&dub=${dub}` : ""}`
       : null;

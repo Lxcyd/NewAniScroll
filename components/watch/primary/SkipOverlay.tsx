@@ -31,6 +31,16 @@ const MIN_OUTRO_START = 3;
 
 type Skip = { start: number; end: number; type: string };
 
+/* Module-level cache so changing servers (which remounts the player and
+   therefore SkipOverlay) doesn't trigger a brand-new network request for
+   the same skip data. The browser HTTP cache would also catch it via the
+   24 h Cache-Control on /api/v2/skip, but a cache hit still costs a
+   round-trip through Service Worker + fetch pipeline; the in-memory Map
+   skips that entirely. Key is `${malId}:${episode}` — sub/dub doesn't
+   change the underlying op/ed timestamps. */
+const SKIP_MEMO = new Map<string, Skip[]>();
+const skipMemoKey = (mal: number, ep: number) => `${mal}:${ep}`;
+
 type Props = {
   playerRef: React.RefObject<MediaPlayerInstance>;
   /** MAL id of the anime. Required for AniSkip; overlay is a no-op
@@ -91,12 +101,19 @@ export default function SkipOverlay({
   const [rawSkips, setRawSkips] = useState<Skip[]>([]);
 
   // Fire the skip fetch the moment malId/episode are known — runs in
-  // parallel with the video loading its metadata.
+  // parallel with the video loading its metadata. A module-level memo
+  // returns immediately on remount (server change) without any network.
   useEffect(() => {
     setSkips([]);
     setRawSkips([]);
     watchCtx?.setSkipTimes?.([]);
     if (!malId || !episode) return;
+    const memoKey = skipMemoKey(malId, episode);
+    const memoed = SKIP_MEMO.get(memoKey);
+    if (memoed) {
+      setRawSkips(memoed);
+      return;
+    }
     let cancelled = false;
     (async () => {
       try {
@@ -116,7 +133,10 @@ export default function SkipOverlay({
         const json = await res.json();
         const arr: Skip[] = Array.isArray(json?.skips) ? json.skips : [];
         console.log(`[SkipOverlay] source=${json?.source} kept=${arr.length}`, arr);
-        if (!cancelled) setRawSkips(arr);
+        if (!cancelled) {
+          SKIP_MEMO.set(memoKey, arr);
+          setRawSkips(arr);
+        }
       } catch (e: any) {
         console.warn("[SkipOverlay] fetch error:", e?.message);
       }
