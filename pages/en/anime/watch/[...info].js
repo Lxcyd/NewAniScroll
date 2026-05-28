@@ -191,6 +191,18 @@ export default function Watch({
   const [failedServers, setFailedServers] = useState(new Map());
   // Set<serverId> — servers that returned a valid source (visible in UI)
   const [confirmedServers, setConfirmedServers] = useState(new Set());
+  // Set<serverId> — servers that returned 200 but only via the fallback
+  // iframe path (extraction failed). The selector renders these red so
+  // the user knows playback won't use the custom Vidstack chrome.
+  const [degradedServers, setDegradedServers] = useState(new Set());
+  const markDegraded = useCallback((id) => {
+    setDegradedServers((prev) => {
+      if (prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.add(id);
+      return next;
+    });
+  }, []);
 
   // Mirror of failedServers for sync reads inside markFailed without forcing
   // markFailed to depend on failedServers (which would invalidate fetchStreamSource
@@ -373,6 +385,7 @@ export default function Watch({
     // pass — anime-sama / hianime servers would silently disappear from the UI.
     setFailedServers(new Map());
     setConfirmedServers(new Set());
+    setDegradedServers(new Set());
 
     async function getInfo() {
       if (!info) return;
@@ -540,6 +553,7 @@ export default function Watch({
         const data = await res.json();
         setHlsData(data);
         markConfirmed(serverId);
+        if (data?.degraded) markDegraded(serverId);
       } else {
         setHlsData({ error: true });
         markFailed(serverId, `HTTP ${res.status}`);
@@ -691,22 +705,23 @@ export default function Watch({
           priority: "low",
         });
 
-        if (res.status === 404) return "fail-404";
-        if (!res.ok) return "retry"; // 5xx, 429, anything non-2xx
+        if (res.status === 404) return { v: "fail-404" };
+        if (!res.ok) return { v: "retry" }; // 5xx, 429, anything non-2xx
 
         // 200 — but the backend sometimes wraps an extractor failure as
         // { error: "..." } or returns nothing playable. Validate the shape.
         let body;
-        try { body = await res.json(); } catch { return "retry"; }
-        if (body?.error) return "retry";
+        try { body = await res.json(); } catch { return { v: "retry" }; }
+        if (body?.error) return { v: "retry" };
         const hasStream =
           (Array.isArray(body?.streams) && body.streams.length > 0) ||
           (Array.isArray(body?.sources) && body.sources.length > 0) ||
           (typeof body?.iframe === "string" && body.iframe.length > 0);
-        return hasStream ? "ok" : "retry";
+        if (!hasStream) return { v: "retry" };
+        return { v: "ok", degraded: !!body?.degraded };
       } catch (e) {
-        if (e?.name === "AbortError") return "abort";
-        return "retry"; // network / DNS / timeout
+        if (e?.name === "AbortError") return { v: "abort" };
+        return { v: "retry" }; // network / DNS / timeout
       }
     };
 
@@ -716,13 +731,14 @@ export default function Watch({
       // round-trip without changing the visible UI.
       if (cachedConfirmed.has(s.id) || cachedFailed.has(s.id)) return;
       const first = await attemptProbe(s);
-      if (first === "abort" || cancelled) return;
-      if (first === "ok") {
+      if (first.v === "abort" || cancelled) return;
+      if (first.v === "ok") {
         cachedConfirmed.add(s.id);
         persistProbeCache();
+        if (first.degraded) markDegraded(s.id);
         return markConfirmed(s.id);
       }
-      if (first === "fail-404") {
+      if (first.v === "fail-404") {
         cachedFailed.add(s.id);
         persistProbeCache();
         return markFailed(s.id, "Source not found");
@@ -733,13 +749,14 @@ export default function Watch({
       if (cancelled || controller.signal.aborted) return;
 
       const second = await attemptProbe(s);
-      if (second === "abort" || cancelled) return;
-      if (second === "ok") {
+      if (second.v === "abort" || cancelled) return;
+      if (second.v === "ok") {
         cachedConfirmed.add(s.id);
         persistProbeCache();
+        if (second.degraded) markDegraded(s.id);
         return markConfirmed(s.id);
       }
-      if (second === "fail-404") {
+      if (second.v === "fail-404") {
         cachedFailed.add(s.id);
         persistProbeCache();
         return markFailed(s.id, "Source not found");
@@ -1127,6 +1144,7 @@ export default function Watch({
                   onChange={handleServerChange}
                   failedServers={failedServers}
                   confirmedServers={confirmedServers}
+                  degradedServers={degradedServers}
                 />
               </div>
 

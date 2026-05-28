@@ -677,15 +677,17 @@ async function getAnimeSamaIframe(serverKey, title, episode, aniId) {
       iframeUrl = iframeUrl.replace(/vidmoly\.to/i, "vidmoly.net");
     }
 
-    // Server-side extraction. ALL anime-sama hosts must extract — we want
-    // every chip to play in the Universal Player (custom chrome, subs,
-    // skip overlay, ambient lights) instead of dropping back to a raw
-    // iframe with no controls and ads. If extraction fails the chip is
-    // hidden; the iframe fallback path that lived here is gone.
+    // Server-side extraction. Preferred path — every chip in the Universal
+    // Player (custom chrome, subs, skip overlay, ambient lights). When the
+    // extractor fails OR the host isn't extractable, fall back to handing
+    // the raw iframe to the client with a `degraded: true` flag: the chip
+    // still shows (rendered in red by the selector so the user knows it's
+    // not in the custom player) but it's their call whether to click and
+    // try the host's own player.
     const lower = iframeUrl.toLowerCase();
 
     if (EXTRACTABLE_HOSTS.some((h) => lower.includes(h))) {
-      // TEMP diagnostic — remove once Sibnet stops mis-identifying videoids.
+      // TEMP diagnostic — remove once Sibnet behaviour stops surprising us.
       if (lower.includes("sibnet")) {
         console.error(
           `[sibnet-trace] ${serverKey} aniId=${aniId} ep=${episode} slug=${slug} iframeUrl=${iframeUrl}`,
@@ -701,14 +703,12 @@ async function getAnimeSamaIframe(serverKey, title, episode, aniId) {
         dlog(`[anime-sama] Extracted stream for ${serverKey}: ${result.streams[0].url}`);
         return result;
       }
-      dlog(`[anime-sama] Extraction failed for ${serverKey}: ${result.error}`);
-      return null;
+      dlog(`[anime-sama] Extraction failed for ${serverKey}: ${result.error} — degraded iframe`);
+      return { iframe: iframeUrl, degraded: true, reason: result.error || "extraction failed" };
     }
 
-    // Host we don't know how to extract — hide rather than mount an iframe
-    // that bypasses the Universal Player chrome.
-    dlog(`[anime-sama] ${serverKey} host not extractable (${iframeUrl}) — hiding`);
-    return null;
+    dlog(`[anime-sama] ${serverKey} host not extractable (${iframeUrl}) — degraded iframe`);
+    return { iframe: iframeUrl, degraded: true, reason: "host not extractable" };
   } catch (e) {
     console.error(`anime-sama ${serverKey} error:`, e.message);
     return null;
@@ -1120,8 +1120,10 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId) {
       }
     }
 
-    // Server-side extraction. Every chip must play in the Universal Player
-    // — no iframe fallback. If extraction fails, hide the chip.
+    // Server-side extraction preferred; falls back to a degraded iframe
+    // chip when the extractor can't unpack the host. The selector renders
+    // degraded chips in red so the user knows playback won't run inside
+    // the custom Vidstack player.
     if (EXTRACTABLE_HOSTS.some((h) => lower.includes(h))) {
       const extractor = getExtractor(iframeUrl);
       const result = await extractor(iframeUrl);
@@ -1129,10 +1131,13 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId) {
       console.error(
         `[voiranime] ${serverKey} extractor failed for ep=${episode} slug=${slug}: ${result.error}`,
       );
-      return null;
+      // VOE iframes are blocked by X-Frame-Options on any non-VOE origin,
+      // so a degraded iframe would just show "refused to connect". For VOE
+      // we still hide.
+      if (lower.includes("voe.sx") || lower.includes("voe.")) return null;
+      return { iframe: iframeUrl, degraded: true, reason: result.error || "extraction failed" };
     }
-    dlog(`[voiranime] ${serverKey} host not extractable (${iframeUrl}) — hiding`);
-    return null;
+    return { iframe: iframeUrl, degraded: true, reason: "host not extractable" };
   } catch (e) {
     console.error(`voiranime ${serverKey} error:`, e.message);
     return null;
@@ -1355,11 +1360,11 @@ const SOURCE_CACHE_TTL_S = 300;
 const SOURCE_NOTFOUND_TTL_S = 120;
 const NOT_FOUND_SENTINEL = '{"__nf":1}';
 function sourceCacheKey({ server, aniId, episode, sub }) {
-  // v6: Vidmoly went back to m3u8 extraction (routed via the CF Worker so
-  // the IP-bound token stays valid on the playback path). Sibnet got a
-  // strict id-match check that earlier v5 entries don't have. Bumping
-  // forces a fresh extraction with the new code on first hit.
-  return `src:v6:${server}:${aniId}:${episode}:${sub || "sub"}`;
+  // v7: previous versions cached not-found sentinels for chips that we
+  // now want to surface in degraded (red) mode. Bumping wipes the
+  // sentinels so the next request runs the new path and stores the
+  // iframe-fallback shape instead of 404.
+  return `src:v7:${server}:${aniId}:${episode}:${sub || "sub"}`;
 }
 
 // ── Handler ─────────────────────────────────────────────────────────────
