@@ -750,6 +750,14 @@ async function getAnimeSamaIframe(serverKey, title, episode, aniId) {
         dlog(`[anime-sama] ${serverKey} iframe redirected off-host (${probe.url}) — hiding`);
         return null;
       }
+      // 4xx means the embed slug no longer exists on the rewritten host
+      // (e.g. anime-sama still lists vidmoly.to/embed-XYZ but XYZ was only
+      // ever on .to and never copied to .biz, so the .biz fetch 404s). Hide
+      // the chip rather than mount an iframe that will just show an error.
+      if (!probe.ok && probe.status !== 405) {
+        dlog(`[anime-sama] ${serverKey} iframe HTTP ${probe.status} — hiding`);
+        return null;
+      }
     } catch {
       // Network error on probe — don't block; the iframe might still work
       // for the user even if our server can't reach it.
