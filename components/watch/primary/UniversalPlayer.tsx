@@ -1934,8 +1934,10 @@ function IframeEmbed({
       // Eager loading + high fetch priority: the iframe IS the page's main
       // content, so it should win the network race against background
       // requests (probes, analytics, ads in the loaded extractor).
+      // `fetchpriority` isn't in the React iframe types yet (Next 14 / React
+      // 18) but the attribute is honoured at runtime by Chromium/WebKit.
       loading="eager"
-      fetchPriority="high"
+      {...({ fetchpriority: "high" } as any)}
     />
   );
 }
