@@ -91,10 +91,20 @@ export default async function handler(
   else if (animeSkip.length) source = "anime_skip";
   else if (aniSkip.length) source = "aniskip";
 
-  res.setHeader(
-    "Cache-Control",
-    "public, max-age=86400, s-maxage=86400, stale-while-revalidate=604800",
-  );
+  // Cache hits only on success. A 24-hour cache on `source=none` would pin
+  // the empty response in the browser even after the upstream API is fixed
+  // or the data lands — bit us when AniSkip changed its episodeLength
+  // requirement and every visitor kept seeing "no skips" for a full day.
+  // Failures get a 60 s cushion so the SkipOverlay fetch fan-out (one per
+  // mount) doesn't re-hammer both upstreams for the same anime+episode.
+  if (source === "none") {
+    res.setHeader("Cache-Control", "public, max-age=60, s-maxage=60");
+  } else {
+    res.setHeader(
+      "Cache-Control",
+      "public, max-age=86400, s-maxage=86400, stale-while-revalidate=604800",
+    );
+  }
   return res.status(200).json({ source, skips });
 }
 
