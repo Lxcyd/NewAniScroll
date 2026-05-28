@@ -675,11 +675,12 @@ async function getAnimeSamaIframe(serverKey, title, episode, aniId) {
     }
 
     // Per-host iframe rewriting before extraction / probing.
-    // - vidmoly.to currently 302s to a HTTP survey scam; vidmoly.net serves
-    //   the same embed slug over real HTTPS with no Mixed-Content sub-resources.
-    //   Forcing .net here also avoids hitting the dead-iframe probe below.
-    if (/vidmoly\.(to|biz)/i.test(iframeUrl)) {
-      iframeUrl = iframeUrl.replace(/vidmoly\.(to|biz)/i, "vidmoly.net");
+    // - vidmoly.to currently 302s to a HTTP survey scam; vidmoly.net 301s to
+    //   vidmoly.biz; vidmoly.biz is the actual working embed host (HTTPS,
+    //   no further redirects, same player). Normalize the lot to .biz so
+    //   the probe sees a stable final URL.
+    if (/vidmoly\.(to|net)/i.test(iframeUrl)) {
+      iframeUrl = iframeUrl.replace(/vidmoly\.(to|net)/i, "vidmoly.biz");
     }
 
     // Try server-side extraction for hosts we know how to unpack.
@@ -725,8 +726,15 @@ async function getAnimeSamaIframe(serverKey, title, episode, aniId) {
     // chain server-side; if it leaves the original host we treat the embed
     // as dead and hide the chip.
     try {
-      const originalHost = new URL(iframeUrl).hostname.toLowerCase();
-      const baseDomain = originalHost.split(".").slice(-2).join(".");
+      // Compare second-level domain only (the part before the TLD), so a
+      // host like vidmoly.net that 301s to vidmoly.biz still counts as
+      // "same family" and doesn't get hidden. We just want to catch
+      // hostile cross-host redirects (vidmoly.to → survey-smiles.com).
+      const sld = (h) => {
+        const parts = h.toLowerCase().split(".");
+        return parts.length >= 2 ? parts[parts.length - 2] : h;
+      };
+      const originalSld = sld(new URL(iframeUrl).hostname);
       const probe = await fetchWithTimeout(
         iframeUrl,
         {
@@ -736,10 +744,9 @@ async function getAnimeSamaIframe(serverKey, title, episode, aniId) {
         },
         4000,
       );
-      const finalHost = new URL(probe.url).hostname.toLowerCase();
-      const finalBase = finalHost.split(".").slice(-2).join(".");
-      const finalProtocol = new URL(probe.url).protocol;
-      if (finalBase !== baseDomain || finalProtocol !== "https:") {
+      const finalUrl = new URL(probe.url);
+      const finalSld = sld(finalUrl.hostname);
+      if (finalSld !== originalSld || finalUrl.protocol !== "https:") {
         dlog(`[anime-sama] ${serverKey} iframe redirected off-host (${probe.url}) — hiding`);
         return null;
       }
