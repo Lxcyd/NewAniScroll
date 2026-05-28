@@ -75,18 +75,13 @@ async function fetchViaWorker(targetUrl, options = {}, timeoutMs = 5000) {
 // included optimistically â€” extractor will return { error: ... } if they're
 // not actually playable, and the caller falls back to the raw iframe.
 const EXTRACTABLE_HOSTS = [
-  // sibnet.ru: extracted again now that the Worker routes sibnet via
-  // ANIME_PROXY_URL (which sits on an IP range sibnet tolerates) and caches
-  // the result at the CF edge. The custom Vidstack player is back.
   "sibnet.ru",
   "sendvid.com",
-  // vidmoly intentionally removed — the m3u8 token is IP-bound to whoever
-  // extracts it, so the browser hits 403 unless every request flows through
-  // the same proxy that extracted it. Just handing back the vidmoly.net
-  // iframe lets the user's browser get its own token directly. We also
-  // rewrite vidmoly.to → vidmoly.net below: .to currently 302s to a scam
-  // and emits Mixed-Content HTTP sub-resources, .net serves the real
-  // player over HTTPS with the same embed slug.
+  // vidmoly: extraction + playback both route through the CF Worker. As
+  // long as the extracted-from IP and the segment-fetched-from IP match
+  // (both = Worker), the IP-bound master token stays valid end-to-end and
+  // the user plays in the Universal Player without an iframe.
+  "vidmoly",
   "embed4me",
   "lpayer",        // lpayer.embed4me.com
   "smoothpre",     // hls2 CDN bypass (was TikTok-trapped via /stream/ path)
@@ -674,29 +669,23 @@ async function getAnimeSamaIframe(serverKey, title, episode, aniId) {
       return null;
     }
 
-    // Per-host iframe rewriting before extraction / probing.
-    // - vidmoly.to currently 302s to a HTTP survey scam; vidmoly.net 301s to
-    //   vidmoly.biz; vidmoly.biz is the actual working embed host (HTTPS,
-    //   no further redirects, same player). Normalize the lot to .biz so
-    //   the probe sees a stable final URL.
-    if (/vidmoly\.(to|net)/i.test(iframeUrl)) {
-      iframeUrl = iframeUrl.replace(/vidmoly\.(to|net)/i, "vidmoly.biz");
+    // Per-host iframe rewriting before extraction.
+    // - vidmoly.to currently 302s to a HTTP survey scam. extractVidmoly
+    //   iterates the .net/.to/.biz triple itself, so we just pick a safe
+    //   variant here for the extraction entry point.
+    if (/vidmoly\.to/i.test(iframeUrl)) {
+      iframeUrl = iframeUrl.replace(/vidmoly\.to/i, "vidmoly.net");
     }
 
-    // Try server-side extraction for hosts we know how to unpack.
-    // Sibnet / Sendvid MUST be extracted (iframes are blocked by X-Frame);
-    // Vidmoly benefits from extraction when possible, but iframe is a valid
-    // fallback (user's browser can load it directly).
+    // Server-side extraction. ALL anime-sama hosts must extract — we want
+    // every chip to play in the Universal Player (custom chrome, subs,
+    // skip overlay, ambient lights) instead of dropping back to a raw
+    // iframe with no controls and ads. If extraction fails the chip is
+    // hidden; the iframe fallback path that lived here is gone.
     const lower = iframeUrl.toLowerCase();
-    const STRICT_EXTRACT = ["sibnet.ru", "sendvid.com"];
-    const isStrict = STRICT_EXTRACT.some((h) => lower.includes(h));
 
     if (EXTRACTABLE_HOSTS.some((h) => lower.includes(h))) {
-      // TEMP diagnostic — investigating why Death Note sibnet extracts
-      // videoids that aren't in the upstream episodes.js. Logs the input
-      // URL the extractor receives + the resolved stream so we can trace
-      // cache pollution vs slug/season mismatch. Remove once root cause
-      // is identified.
+      // TEMP diagnostic — remove once Sibnet stops mis-identifying videoids.
       if (lower.includes("sibnet")) {
         console.error(
           `[sibnet-trace] ${serverKey} aniId=${aniId} ep=${episode} slug=${slug} iframeUrl=${iframeUrl}`,
@@ -713,57 +702,13 @@ async function getAnimeSamaIframe(serverKey, title, episode, aniId) {
         return result;
       }
       dlog(`[anime-sama] Extraction failed for ${serverKey}: ${result.error}`);
-      // For strict hosts (iframe blocked), fail. For vidmoly and others, fall
-      // back to the raw iframe — the user's browser may still play it.
-      if (isStrict) return null;
+      return null;
     }
 
-    // Iframe sanity probe: anime-sama keeps entries in episodes.js even after
-    // the upstream host has dropped them. Vidmoly in particular currently
-    // redirects every embed URL to http://survey-smiles.com/ (HTTP scam) —
-    // the iframe shows the chip but the browser blocks the load as Mixed
-    // Content, leaving the user staring at a black frame. Follow the redirect
-    // chain server-side; if it leaves the original host we treat the embed
-    // as dead and hide the chip.
-    try {
-      // Compare second-level domain only (the part before the TLD), so a
-      // host like vidmoly.net that 301s to vidmoly.biz still counts as
-      // "same family" and doesn't get hidden. We just want to catch
-      // hostile cross-host redirects (vidmoly.to → survey-smiles.com).
-      const sld = (h) => {
-        const parts = h.toLowerCase().split(".");
-        return parts.length >= 2 ? parts[parts.length - 2] : h;
-      };
-      const originalSld = sld(new URL(iframeUrl).hostname);
-      const probe = await fetchWithTimeout(
-        iframeUrl,
-        {
-          method: "GET",
-          headers: { Accept: "text/html,application/xhtml+xml" },
-          redirect: "follow",
-        },
-        4000,
-      );
-      const finalUrl = new URL(probe.url);
-      const finalSld = sld(finalUrl.hostname);
-      if (finalSld !== originalSld || finalUrl.protocol !== "https:") {
-        dlog(`[anime-sama] ${serverKey} iframe redirected off-host (${probe.url}) — hiding`);
-        return null;
-      }
-      // 4xx means the embed slug no longer exists on the rewritten host
-      // (e.g. anime-sama still lists vidmoly.to/embed-XYZ but XYZ was only
-      // ever on .to and never copied to .biz, so the .biz fetch 404s). Hide
-      // the chip rather than mount an iframe that will just show an error.
-      if (!probe.ok && probe.status !== 405) {
-        dlog(`[anime-sama] ${serverKey} iframe HTTP ${probe.status} — hiding`);
-        return null;
-      }
-    } catch {
-      // Network error on probe — don't block; the iframe might still work
-      // for the user even if our server can't reach it.
-    }
-
-    return { iframe: iframeUrl };
+    // Host we don't know how to extract — hide rather than mount an iframe
+    // that bypasses the Universal Player chrome.
+    dlog(`[anime-sama] ${serverKey} host not extractable (${iframeUrl}) — hiding`);
+    return null;
   } catch (e) {
     console.error(`anime-sama ${serverKey} error:`, e.message);
     return null;
@@ -1175,8 +1120,8 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId) {
       }
     }
 
-    // Try server-side extraction now that we've confirmed the video exists.
-    const isVoe = lower.includes("voe.sx") || lower.includes("voe.");
+    // Server-side extraction. Every chip must play in the Universal Player
+    // — no iframe fallback. If extraction fails, hide the chip.
     if (EXTRACTABLE_HOSTS.some((h) => lower.includes(h))) {
       const extractor = getExtractor(iframeUrl);
       const result = await extractor(iframeUrl);
@@ -1184,17 +1129,10 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId) {
       console.error(
         `[voiranime] ${serverKey} extractor failed for ep=${episode} slug=${slug}: ${result.error}`,
       );
-      // VOE iframes are blocked by X-Frame-Options on any non-VOE origin,
-      // so a failed extraction has no usable fallback. Hide the server
-      // instead of returning a dead iframe — that's the "appears, then
-      // disappears on click" behaviour we saw in production.
-      if (isVoe) return null;
+      return null;
     }
-
-    // Generic non-VOE fallback: hand the iframe to the client, hoping the
-    // host (vidmoly, sendvid, …) allows embedding.
-    if (isVoe) return null;
-    return { iframe: iframeUrl };
+    dlog(`[voiranime] ${serverKey} host not extractable (${iframeUrl}) — hiding`);
+    return null;
   } catch (e) {
     console.error(`voiranime ${serverKey} error:`, e.message);
     return null;
@@ -1417,11 +1355,11 @@ const SOURCE_CACHE_TTL_S = 300;
 const SOURCE_NOTFOUND_TTL_S = 120;
 const NOT_FOUND_SENTINEL = '{"__nf":1}';
 function sourceCacheKey({ server, aniId, episode, sub }) {
-  // v5: same flush justification as v4 plus Vidmoly entries previously
-  // stored proxy-wrapped m3u8 URLs that are now obsolete — Vidmoly is back
-  // to a raw iframe (rewritten to vidmoly.net) so the browser fetches
-  // tokens against its own IP and skips the Fly proxy entirely.
-  return `src:v5:${server}:${aniId}:${episode}:${sub || "sub"}`;
+  // v6: Vidmoly went back to m3u8 extraction (routed via the CF Worker so
+  // the IP-bound token stays valid on the playback path). Sibnet got a
+  // strict id-match check that earlier v5 entries don't have. Bumping
+  // forces a fresh extraction with the new code on first hit.
+  return `src:v6:${server}:${aniId}:${episode}:${sub || "sub"}`;
 }
 
 // ── Handler ─────────────────────────────────────────────────────────────
