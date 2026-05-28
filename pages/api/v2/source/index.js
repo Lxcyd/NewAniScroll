@@ -717,12 +717,14 @@ async function getAnimeSamaIframe(serverKey, title, episode, aniId) {
       iframeUrl = iframeUrl.replace(/vidmoly\.to/i, "vidmoly.net");
     }
 
-    // Server-side extraction. Preferred path — every chip in the Universal
-    // Player (custom chrome, subs, skip overlay, ambient lights). When the
-    // extractor fails OR the host isn't extractable, hand back the raw
-    // iframe with `degraded: true` BUT only if the iframe URL is actually
-    // reachable. If the embed slug 404s on every variant, the chip would
-    // lead to a black page — worse than hiding it. Probe first.
+    // Server-side extraction. Preferred path → Universal Player (custom
+    // chrome, subs, skip overlay, ambient lights). When the extractor fails
+    // OR the host isn't extractable, hand back the raw iframe with
+    // `degraded: true`. The chip stays visible (red in the selector) so
+    // the user can still click to try the host's own player — better than
+    // hiding it on a guess, even when the embed slug might be dead.
+    // EXCEPTION: Sibnet sends X-Frame-Options DENY on the embed page, so a
+    // sibnet iframe just produces "refused to connect". Keep hiding those.
     const lower = iframeUrl.toLowerCase();
 
     if (EXTRACTABLE_HOSTS.some((h) => lower.includes(h))) {
@@ -743,12 +745,7 @@ async function getAnimeSamaIframe(serverKey, title, episode, aniId) {
         return result;
       }
       dlog(`[anime-sama] Extraction failed for ${serverKey}: ${result.error}`);
-    }
-
-    const reachable = await isIframeReachable(iframeUrl);
-    if (!reachable) {
-      dlog(`[anime-sama] ${serverKey} iframe unreachable (${iframeUrl}) — hiding`);
-      return null;
+      if (lower.includes("sibnet")) return null;
     }
     return { iframe: iframeUrl, degraded: true, reason: "extraction failed" };
   } catch (e) {
@@ -1163,8 +1160,7 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId) {
     }
 
     // Server-side extraction preferred; falls back to a degraded iframe
-    // chip when the extractor can't unpack the host, provided the iframe
-    // URL is actually reachable.
+    // chip when the extractor can't unpack the host.
     if (EXTRACTABLE_HOSTS.some((h) => lower.includes(h))) {
       const extractor = getExtractor(iframeUrl);
       const result = await extractor(iframeUrl);
@@ -1172,12 +1168,13 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId) {
       console.error(
         `[voiranime] ${serverKey} extractor failed for ep=${episode} slug=${slug}: ${result.error}`,
       );
-      // VOE iframes are X-Frame-blocked on every non-VOE origin, so a
-      // degraded chip would always end at "refused to connect" — hide.
-      if (lower.includes("voe.sx") || lower.includes("voe.")) return null;
+      // VOE iframes are X-Frame-blocked on every non-VOE origin → "refused
+      // to connect". Sibnet does the same. Both: hide rather than serve a
+      // chip that can never load.
+      if (lower.includes("voe.sx") || lower.includes("voe.") || lower.includes("sibnet")) {
+        return null;
+      }
     }
-    const reachable = await isIframeReachable(iframeUrl);
-    if (!reachable) return null;
     return { iframe: iframeUrl, degraded: true, reason: "extraction failed" };
   } catch (e) {
     console.error(`voiranime ${serverKey} error:`, e.message);
@@ -1401,12 +1398,11 @@ const SOURCE_CACHE_TTL_S = 300;
 const SOURCE_NOTFOUND_TTL_S = 120;
 const NOT_FOUND_SENTINEL = '{"__nf":1}';
 function sourceCacheKey({ server, aniId, episode, sub }) {
-  // v8: v7 stored { iframe } for chips whose embed slug was 404 on every
-  // host variant (anime-sama lists vidmoly.to URLs that no longer exist
-  // on .biz/.net either). Those chips lead to a black 404 page in the
-  // iframe, so we now probe reachability before serving degraded — and
-  // hide when nothing reaches. Bump flushes the dead-link cache entries.
-  return `src:v8:${server}:${aniId}:${episode}:${sub || "sub"}`;
+  // v9: removed the iframe-reachability probe — user wants every chip
+  // visible (degraded for failed extractions) regardless of whether the
+  // embed URL is currently live. Bump so old null-cached entries flushed
+  // by the probe come back as degraded iframes on next request.
+  return `src:v9:${server}:${aniId}:${episode}:${sub || "sub"}`;
 }
 
 // ── Handler ─────────────────────────────────────────────────────────────
