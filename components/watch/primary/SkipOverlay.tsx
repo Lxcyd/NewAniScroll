@@ -82,84 +82,41 @@ export default function SkipOverlay({
      watchCtx.skipTimes (other components — currently none, but the
      contract from the previous iteration — may listen for it). */
   const [skips, setSkips] = useState<Skip[]>([]);
+  /* Raw API response, kept separate from `skips` so we can fire the
+     network request as soon as malId/episode are known (in parallel
+     with the video metadata load) and only run the duration-dependent
+     clamp/filter when the player reports its real duration. Previously
+     the fetch waited for duration > 0, which added 2–3 s of perceived
+     lag between "video starts" and "chapter pills appear". */
+  const [rawSkips, setRawSkips] = useState<Skip[]>([]);
 
+  // Fire the skip fetch the moment malId/episode are known — runs in
+  // parallel with the video loading its metadata.
   useEffect(() => {
     setSkips([]);
+    setRawSkips([]);
     watchCtx?.setSkipTimes?.([]);
     if (!malId || !episode) return;
-    if (duration <= 0) return; // wait for metadata to land
     let cancelled = false;
     (async () => {
       try {
         /* Hit our /api/v2/skip proxy which tries Anime-Skip first
            (more accurate, manually curated) and falls back to
-           AniSkip when the show isn't covered there. Anime-Skip
-           gave SnK EP1's intro as 2:03→3:35 vs AniSkip's bogus
-           0:47→2:17, so when the data is available it's worth the
-           extra request hop. */
+           AniSkip when the show isn't covered there. */
         const params = new URLSearchParams();
         if (aniListId) params.set("aniListId", String(aniListId));
-        params.set("episodeLength", String(Math.round(duration)));
+        // No episodeLength hint — AniSkip uses it to pick the best
+        // submission when multiple sources disagree, but skipping it
+        // doesn't break anything and saves us waiting for the player's
+        // duration to populate before kicking off the network call.
         const res = await fetch(
           `/api/v2/skip/${malId}/${episode}?${params.toString()}`,
         );
         if (!res.ok || cancelled) return;
         const json = await res.json();
-        const raw: Skip[] = Array.isArray(json?.skips) ? json.skips : [];
-        // The proxy already does sanity filtering. We re-clamp the
-        // outro start (`MIN_OUTRO_START`) defensively in case a
-        // bogus submission slipped through, but we DO NOT drop
-        // segments whose end overshoots `duration` here — the
-        // metadata we read at fetch time can lag the real video
-        // by a frame or two and we used to filter the outro out
-        // entirely (only the intro reached the seek bar). Vidstack
-        // clamps overshooting cues at runtime anyway.
-        // Clamp every segment to the player's real duration — any
-        // timestamp the source returns past the end is meaningless
-        // (and visually misaligns the chapter pills). Also drop
-        // segments that get clamped to zero-length.
-        const clamped = raw
-          .map((s) => ({ ...s, end: Math.min(s.end, duration) }))
-          .filter(
-            (s) =>
-              s.end > s.start &&
-              s.end - s.start >= MIN_SEGMENT_DURATION &&
-              !(s.type === "ed" && s.start < MIN_OUTRO_START),
-          );
-        // Sanity: an outro that starts BEFORE the intro is junk
-        // data (mis-tagged recap, swapped op/ed, etc.). Drop it
-        // entirely rather than poison the seek bar.
-        const intro = clamped.find((s) => s.type === "op");
-        const filtered = intro
-          ? clamped.filter((s) => s.type !== "ed" || s.start >= intro.end)
-          : clamped;
-        const sorted = [...filtered].sort((a, b) => a.start - b.start);
-        // Snap to episode edges so the Skip button jumps all the way
-        // to 0 / `duration` when the segment sits within
-        // EDGE_SNAP_SECONDS of the boundary — matches the chapter
-        // VTT edge-snap in UniversalPlayer.
-        if (sorted.length) {
-          const first = sorted[0];
-          if (first.start > 0 && first.start <= EDGE_SNAP_START_SECONDS) {
-            first.start = 0;
-          }
-          const last = sorted[sorted.length - 1];
-          if (
-            last.end < duration &&
-            duration - last.end <= EDGE_SNAP_END_SECONDS
-          ) {
-            last.end = duration;
-          }
-        }
-        const parsed = sorted;
-        console.log(
-          `[SkipOverlay] source=${json?.source} kept=${parsed.length}`,
-          parsed,
-        );
-        if (!cancelled) {
-          setSkips(parsed);
-          watchCtx?.setSkipTimes?.(parsed);
-        }
+        const arr: Skip[] = Array.isArray(json?.skips) ? json.skips : [];
+        console.log(`[SkipOverlay] source=${json?.source} kept=${arr.length}`, arr);
+        if (!cancelled) setRawSkips(arr);
       } catch (e: any) {
         console.warn("[SkipOverlay] fetch error:", e?.message);
       }
@@ -168,7 +125,53 @@ export default function SkipOverlay({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [malId, aniListId, episode, duration]);
+  }, [malId, aniListId, episode]);
+
+  // Clamp/filter against the real duration once the player reports it.
+  // Cheap CPU work — runs in microseconds, so the chapter pills appear
+  // the same tick `duration` lands.
+  useEffect(() => {
+    if (duration <= 0 || !rawSkips.length) {
+      setSkips([]);
+      watchCtx?.setSkipTimes?.([]);
+      return;
+    }
+    // Clamp every segment to the player's real duration — any
+    // timestamp past the end visually misaligns the chapter pills.
+    const clamped = rawSkips
+      .map((s) => ({ ...s, end: Math.min(s.end, duration) }))
+      .filter(
+        (s) =>
+          s.end > s.start &&
+          s.end - s.start >= MIN_SEGMENT_DURATION &&
+          !(s.type === "ed" && s.start < MIN_OUTRO_START),
+      );
+    // Sanity: an outro starting BEFORE the intro is junk (mis-tagged
+    // recap, swapped op/ed) — drop it rather than poison the seek bar.
+    const intro = clamped.find((s) => s.type === "op");
+    const filtered = intro
+      ? clamped.filter((s) => s.type !== "ed" || s.start >= intro.end)
+      : clamped;
+    const sorted = [...filtered].sort((a, b) => a.start - b.start);
+    // Snap to episode edges so Skip jumps all the way to 0 / duration
+    // when the segment sits within EDGE_SNAP_SECONDS of the boundary.
+    if (sorted.length) {
+      const first = sorted[0];
+      if (first.start > 0 && first.start <= EDGE_SNAP_START_SECONDS) {
+        first.start = 0;
+      }
+      const last = sorted[sorted.length - 1];
+      if (
+        last.end < duration &&
+        duration - last.end <= EDGE_SNAP_END_SECONDS
+      ) {
+        last.end = duration;
+      }
+    }
+    setSkips(sorted);
+    watchCtx?.setSkipTimes?.(sorted);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rawSkips, duration]);
 
   /* Active segment = the one (if any) whose [start, end] window
      contains currentTime. */
