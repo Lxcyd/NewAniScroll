@@ -183,7 +183,16 @@ async function handle(req, res) {
 
   // Build the proxy URL the rewritten manifest will point at — same origin
   // the client hit so nested segment / key requests come back through us.
-  const proxyBase = `${reqUrl.protocol}//${reqUrl.host}${reqUrl.pathname}`;
+  // `reqUrl.host` is "localhost:PORT" because we parse req.url against a
+  // localhost base (req.url is just path + query on Node's HTTP server).
+  // Behind Fly's edge the real host arrives in X-Forwarded-Host / Host;
+  // without preferring them, every rewritten segment URL points at
+  // localhost:8080 and the client hits net::ERR_CONNECTION_REFUSED.
+  const fwdHost = req.headers["x-forwarded-host"] || req.headers.host;
+  const fwdProto = req.headers["x-forwarded-proto"] ||
+    (fwdHost && fwdHost !== `localhost:${PORT}` ? "https" : reqUrl.protocol.replace(":", ""));
+  const externalHost = fwdHost || reqUrl.host;
+  const proxyBase = `${fwdProto}://${externalHost}${reqUrl.pathname}`;
 
   if (isM3u8) {
     const body = await response.text();
