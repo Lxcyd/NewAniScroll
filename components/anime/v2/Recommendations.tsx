@@ -1,4 +1,4 @@
-import { CSSProperties, useRef } from "react";
+import { CSSProperties, useRef, useCallback } from "react";
 import Link from "next/link";
 import { MediaRecommendation } from "types/info/AnilistInfoTypes";
 
@@ -7,11 +7,54 @@ type Props = {
   forTitle: string;
 };
 
+const DRAG_THRESHOLD = 8;
+
 export default function Recommendations({ items, forTitle }: Props) {
   const ref = useRef<HTMLDivElement>(null);
+  const dragMovedRef = useRef(false);
+  const downPosRef = useRef<{ x: number; y: number } | null>(null);
+
   const scroll = (dir: number) => {
     ref.current?.scrollBy({ left: dir * 520, behavior: "smooth" });
   };
+
+  const scrollStartX = useRef(0);
+  const scrollLeft = useRef(0);
+  const isPointerDown = useRef(false);
+
+  const onPointerDown = useCallback((e: React.PointerEvent) => {
+    dragMovedRef.current = false;
+    downPosRef.current = { x: e.clientX, y: e.clientY };
+    isPointerDown.current = true;
+    scrollStartX.current = e.clientX;
+    scrollLeft.current = ref.current?.scrollLeft ?? 0;
+    ref.current?.setPointerCapture(e.pointerId);
+  }, []);
+
+  const onPointerMove = useCallback((e: React.PointerEvent) => {
+    if (!isPointerDown.current || !ref.current) return;
+    const dx = e.clientX - scrollStartX.current;
+    ref.current.scrollLeft = scrollLeft.current - dx;
+  }, []);
+
+  const onPointerUp = useCallback((e: React.PointerEvent) => {
+    isPointerDown.current = false;
+    const start = downPosRef.current;
+    if (!start) return;
+    const dx = Math.abs(e.clientX - start.x);
+    const dy = Math.abs(e.clientY - start.y);
+    if (dx > DRAG_THRESHOLD || dy > DRAG_THRESHOLD) dragMovedRef.current = true;
+    downPosRef.current = null;
+  }, []);
+
+  const onClickCapture = useCallback((e: React.MouseEvent) => {
+    if (dragMovedRef.current) {
+      e.preventDefault();
+      e.stopPropagation();
+      dragMovedRef.current = false;
+    }
+  }, []);
+
   if (!items || items.length === 0) return null;
   return (
     <div style={rStyles.wrap}>
@@ -47,11 +90,19 @@ export default function Recommendations({ items, forTitle }: Props) {
           </button>
         </div>
       </div>
-      <div ref={ref} style={rStyles.carousel}>
+      <div
+        ref={ref}
+        style={rStyles.carousel}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onClickCapture={onClickCapture}
+      >
         {items.map((r) => (
           <Link
             key={r.id}
             href={`/en/anime/${r.id}`}
+            draggable={false}
             style={{ ...rStyles.cardLink } as CSSProperties}
           >
             <div style={rStyles.cover}>

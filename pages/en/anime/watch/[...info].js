@@ -357,7 +357,7 @@ export default function Watch({
     try {
       const raw = localStorage.getItem("artplayer_settings");
       const existing = raw ? JSON.parse(raw) : {};
-      const entryKey = `${info.id}-${epiNumber}-${dub ? "dub" : "sub"}`;
+      const entryKey = String(info.id);
       existing[entryKey] = {
         ...(existing[entryKey] || {}),
         watchId: watchId || entryKey,
@@ -447,7 +447,7 @@ export default function Watch({
           try {
             const raw = localStorage.getItem("artplayer_settings");
             const existing = raw ? JSON.parse(raw) : {};
-            const entryKey = String(currentEpisode.id);
+            const entryKey = String(info.id);
             existing[entryKey] = {
               ...(existing[entryKey] || {}),
               watchId: currentEpisode.id,
