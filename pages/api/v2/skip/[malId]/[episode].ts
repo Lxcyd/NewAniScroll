@@ -112,7 +112,11 @@ async function fetchFromAnimeSkip(
   aniListId: number,
   episode: number,
 ): Promise<Skip[]> {
-  // 1. AniList id → Anime-Skip showId.
+  // 1. AniList id → Anime-Skip showId(s). Anime-Skip can have MULTIPLE
+  //    shows under the same external id (different submitters, different
+  //    completeness levels). We previously hard-picked [0], which on
+  //    Demon Slayer dropped us into a near-empty submission and missed
+  //    the fully timestamped one sitting at index 1.
   const showRes = await gql<{
     findShowsByExternalId: Array<{ id: string }>;
   }>(
@@ -121,50 +125,69 @@ async function fetchFromAnimeSkip(
      }`,
     { s: "ANILIST", id: String(aniListId) },
   );
-  const showId = showRes?.findShowsByExternalId?.[0]?.id;
-  if (!showId) return [];
+  const showIds =
+    showRes?.findShowsByExternalId?.map((s) => s.id).filter(Boolean) || [];
+  if (showIds.length === 0) return [];
 
-  // 2. Pull every episode with its timestamps. Anime-Skip has no
-  //    "episode by number" query — we filter client-side.
-  const epRes = await gql<{
-    findEpisodesByShowId: Array<{
-      number: string | null;
-      absoluteNumber: string | null;
-      timestamps: Array<{ at: number; type: { name: string } }>;
-    }>;
-  }>(
-    `query($id: ID!) {
-       findEpisodesByShowId(showId: $id) {
-         number absoluteNumber
-         timestamps { at type { name } }
-       }
-     }`,
-    { id: showId },
+  // 2. Fetch every show's episode list in parallel and merge candidates
+  //    for the requested episode number. Pick the candidate with the most
+  //    op/ed timestamps after the points→intervals conversion — that's the
+  //    "most useful" submission for the player.
+  const epLists = await Promise.all(
+    showIds.map((id) =>
+      gql<{
+        findEpisodesByShowId: Array<{
+          number: string | null;
+          absoluteNumber: string | null;
+          timestamps: Array<{ at: number; type: { name: string } }>;
+        }>;
+      }>(
+        `query($id: ID!) {
+           findEpisodesByShowId(showId: $id) {
+             number absoluteNumber
+             timestamps { at type { name } }
+           }
+         }`,
+        { id },
+      ).catch(() => null),
+    ),
   );
-  const episodes = epRes?.findEpisodesByShowId || [];
-  const ep =
-    episodes.find((e) => Number(e.number) === episode) ||
-    episodes.find((e) => Number(e.absoluteNumber) === episode);
-  if (!ep) return [];
 
-  // 3. Anime-Skip's points → intervals: pair each op/ed point with
-  //    the NEXT point of any kind to derive an end time.
-  const sorted = [...ep.timestamps].sort((a, b) => a.at - b.at);
-  const skips: Skip[] = [];
-  for (let i = 0; i < sorted.length; i++) {
-    const cur = sorted[i];
-    const mapped = ANIME_SKIP_TYPE[cur.type?.name];
-    if (!mapped) continue;
-    const next = sorted[i + 1];
-    if (!next) continue;
-    if (next.at - cur.at < 5) continue;
-    skips.push({
-      start: Math.round(cur.at),
-      end: Math.round(next.at),
-      type: mapped,
-    });
+  // Points → intervals: pair each op/ed point with the NEXT point of any
+  // kind to derive an end time. Returns the resulting Skip[] for one
+  // episode submission.
+  const toSkips = (
+    timestamps: Array<{ at: number; type: { name: string } }>,
+  ): Skip[] => {
+    const sorted = [...timestamps].sort((a, b) => a.at - b.at);
+    const out: Skip[] = [];
+    for (let i = 0; i < sorted.length; i++) {
+      const cur = sorted[i];
+      const mapped = ANIME_SKIP_TYPE[cur.type?.name];
+      if (!mapped) continue;
+      const next = sorted[i + 1];
+      if (!next) continue;
+      if (next.at - cur.at < 5) continue;
+      out.push({
+        start: Math.round(cur.at),
+        end: Math.round(next.at),
+        type: mapped,
+      });
+    }
+    return out;
+  };
+
+  let best: Skip[] = [];
+  for (const epList of epLists) {
+    const episodes = epList?.findEpisodesByShowId || [];
+    const ep =
+      episodes.find((e) => Number(e.number) === episode) ||
+      episodes.find((e) => Number(e.absoluteNumber) === episode);
+    if (!ep) continue;
+    const candidate = toSkips(ep.timestamps);
+    if (candidate.length > best.length) best = candidate;
   }
-  return skips;
+  return best;
 }
 
 async function gql<T>(query: string, variables: any): Promise<T> {

@@ -168,8 +168,17 @@ export default function SkipOverlay({
       );
     // Sanity: an outro starting BEFORE the intro is junk (mis-tagged
     // recap, swapped op/ed) — drop it rather than poison the seek bar.
+    //
+    // Exception for late-intro episodes: shows like Demon Slayer ep 1
+    // intentionally delay the OP to the 21-minute mark, with the ED
+    // following immediately after (overlap by a few seconds is common
+    // in the upstream data because the points are sub-second precise).
+    // When the intro lands past LATE_INTRO_THRESHOLD we treat it as an
+    // atypical episode and trust the ED data instead of dropping it.
+    const LATE_INTRO_THRESHOLD = 5 * 60; // 5 min
     const intro = clamped.find((s) => s.type === "op");
-    const filtered = intro
+    const introIsLate = !!intro && intro.start >= LATE_INTRO_THRESHOLD;
+    const filtered = intro && !introIsLate
       ? clamped.filter((s) => s.type !== "ed" || s.start >= intro.end)
       : clamped;
     const sorted = [...filtered].sort((a, b) => a.start - b.start);
