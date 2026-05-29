@@ -477,10 +477,17 @@ export default function Content({
                   </div>
                 );
               })
-            : userData
-                ?.filter((i) => i.title && i.title !== null)
-                ?.slice(0, 10)
-                .map((i) => {
+            : (() => {
+                const seenAniIds = new Set<string>();
+                return userData
+                  ?.filter((i) => {
+                    const key = String(i.aniId || i.aniTitle || "");
+                    if (!key || seenAniIds.has(key)) return false;
+                    seenAniIds.add(key);
+                    return true;
+                  })
+                  ?.slice(0, 10)
+                  .map((i) => {
                   const time = i.timeWatched;
                   const duration = i.duration;
                   let prog = time && duration ? (time / duration) * 100 : 0;
@@ -593,7 +600,8 @@ export default function Content({
                       </Link>
                     </div>
                   );
-                })}
+                })
+              })()}
           {userData &&
             userData?.filter((i) => i.aniId !== null)?.length >= 10 &&
             section !== "Recommendations" && (

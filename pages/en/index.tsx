@@ -825,7 +825,7 @@ export default function Home({
       <MobileNav hideProfile={true} />
 
       <Navbar withNav={true} home={true} />
-      <div className="h-auto w-screen bg-primary text-[#dbdcdd]">
+      <div className="h-auto w-screen bg-primary text-[#dbdcdd] pt-16 lg:pt-0">
         <HeroBanner
           entries={heroEntries}
           firstTrend={firstTrend}
