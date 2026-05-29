@@ -39,7 +39,7 @@ export async function getServerSideProps(ctx: any) {
   let cachedData;
 
   if (redis) {
-    cachedData = await redis.get("index_server");
+    cachedData = await redis.get("index_server_v2");
   }
 
   // Resolve the hero entries (HD logo for the top trending titles) outside
@@ -53,8 +53,8 @@ export async function getServerSideProps(ctx: any) {
     items: any[],
   ): Promise<Array<HeroEntry>> => {
     if (!Array.isArray(items)) return [];
-    // Top 5 visible in the rail (first feature + 4 side previews).
-    const slice = items.slice(0, 5);
+    // Top 8 cycle through the hero carousel (dots + side rail).
+    const slice = items.slice(0, 8);
     return Promise.all(
       slice.map(async (it) => {
         const fanarts = await loadFanarts(Number(it?.id)).catch(() => null);
@@ -72,7 +72,8 @@ export async function getServerSideProps(ctx: any) {
   };
 
   if (cachedData) {
-    const { genre, detail, populars, firstTrend } = JSON.parse(cachedData);
+    const { genre, detail, populars, firstTrend, thisSeason, movies } =
+      JSON.parse(cachedData);
     const [upComing, heroEntries] = await Promise.all([
       getUpcomingAnime(),
       resolveHeroEntries(detail?.data || []),
@@ -85,11 +86,13 @@ export async function getServerSideProps(ctx: any) {
         upComing,
         firstTrend,
         heroEntries,
+        thisSeason: thisSeason || null,
+        movies: movies || null,
       },
     };
   } else {
-    // Single batched GraphQL request fetches trending+popular+genre in ONE
-    // AniList token cost (was: 3 separate requests = 3× rate-limit consumption).
+    // Single batched GraphQL request fetches trending+popular+genre+season+
+    // movies in ONE AniList token cost.
     const [batch, upComing] = await Promise.all([
       aniListHomepageBatch(),
       Promise.race([
@@ -100,15 +103,22 @@ export async function getServerSideProps(ctx: any) {
     const trendingDetail = batch.trending;
     const popularDetail = batch.popular;
     const genreDetail = batch.genre;
+    const seasonDetail = batch.thisSeason;
+    const moviesDetail = batch.movies;
 
     if (redis) {
       await redis.set(
-        "index_server",
+        // Key bumped — payload now carries thisSeason + movies; the old
+        // `index_server` value would lack them and the sections wouldn't
+        // render until the 2 h TTL expired.
+        "index_server_v2",
         JSON.stringify({
           genre: genreDetail.props,
           detail: trendingDetail.props,
           populars: popularDetail.props,
           firstTrend: trendingDetail.props.data?.[0] || null,
+          thisSeason: seasonDetail.props,
+          movies: moviesDetail.props,
         }), // set cache for 2 hours
         "EX",
         60 * 60 * 2
@@ -127,6 +137,8 @@ export async function getServerSideProps(ctx: any) {
         upComing,
         firstTrend: trendingDetail.props.data?.[0] || null,
         heroEntries,
+        thisSeason: seasonDetail.props,
+        movies: moviesDetail.props,
       },
     };
   }
@@ -149,6 +161,8 @@ type HomeProps = {
   upComing: any;
   firstTrend: any;
   heroEntries: HeroEntry[];
+  thisSeason: any;
+  movies: any;
 };
 
 /* ── Cinematic hero ──────────────────────────────────────────────────
@@ -214,18 +228,31 @@ function HeroBanner({
   const prev = () => go(idx - 1, -1);
   const next = () => go(idx + 1, 1);
 
+  // `idx` is in the deps so the timer restarts from zero whenever the
+  // slide changes — manual prev/next/dot clicks included. This keeps the
+  // auto-advance cadence in sync with the progress-pill fill animation
+  // (which also restarts each slide), so the pill always reaches 100%
+  // exactly as the next slide kicks in.
   useEffect(() => {
     if (hovered || list.length < 2) return;
-    const t = window.setInterval(() => {
+    const t = window.setTimeout(() => {
       setDir(1);
       setIdx((i) => (i + 1) % list.length);
     }, HERO_AUTO_INTERVAL_MS);
-    return () => window.clearInterval(t);
-  }, [hovered, list.length]);
+    return () => window.clearTimeout(t);
+  }, [hovered, list.length, idx]);
 
   if (list.length === 0) return null;
-  const active = list[idx % list.length];
-  const otherEntries = list.filter((_, i) => i !== idx % list.length).slice(0, 4);
+  const activeIdx = idx % list.length;
+  const active = list[activeIdx];
+  // Rail order: the CURRENTLY-FEATURED anime's cover first, then the rest
+  // following the cycle order (wrap-around). Up to 5 thumbnails fit the
+  // right rail without overflowing; the dots below still represent all 8.
+  const RAIL_COUNT = Math.min(list.length, 5);
+  const railEntries = Array.from(
+    { length: RAIL_COUNT },
+    (_, k) => list[(activeIdx + k) % list.length],
+  );
 
   const title =
     active.title?.english || active.title?.romaji || "Untitled";
@@ -353,12 +380,12 @@ function HeroBanner({
                 <div className="flex items-center gap-3 mt-2">
                   <button
                     onClick={() => onPlay(active.id)}
-                    className="inline-flex items-center gap-2 rounded-full bg-action px-7 py-3 font-karla font-semibold text-white text-sm tracking-wider shadow-lg shadow-action/40 transition-all hover:bg-action/90 hover:scale-[1.03]"
+                    className="inline-flex items-center gap-2 rounded-full bg-action px-7 py-3 font-karla font-semibold text-white text-sm tracking-wider shadow-lg shadow-action/40 outline-none focus:outline-none focus-visible:outline-none transition-all hover:bg-action/90 hover:scale-[1.03]"
                   >
                     <svg
                       viewBox="0 0 24 24"
                       fill="currentColor"
-                      className="h-4 w-4"
+                      className="h-6 w-6"
                     >
                       <path d="M8 5v14l11-7z" />
                     </svg>
@@ -366,7 +393,7 @@ function HeroBanner({
                   </button>
                   <Link
                     href={`/en/anime/${active.id}`}
-                    className="inline-flex items-center gap-2 rounded-full bg-white/10 px-7 py-3 font-karla font-semibold text-white text-sm tracking-wider ring-1 ring-white/15 backdrop-blur-sm transition-colors hover:bg-white/20"
+                    className="inline-flex items-center gap-2 rounded-full bg-white/10 px-7 py-3 font-karla font-semibold text-white text-sm tracking-wider ring-1 ring-white/15 backdrop-blur-sm outline-none focus:outline-none focus-visible:outline-none transition-colors hover:bg-white/20"
                   >
                     <svg
                       viewBox="0 0 24 24"
@@ -387,7 +414,7 @@ function HeroBanner({
               above the bottom gradient. Clicking a thumb jumps focus in
               the natural direction (right = forward). */}
           <div className="hidden lg:flex w-[35%] xl:w-[40%] flex-col items-end justify-end pb-24 pr-[5%]">
-            {otherEntries.length > 0 && (
+            {railEntries.length > 0 && (
               <div className="flex items-center gap-3">
                 {/* Prev / next arrows — stacked to the left of the covers. */}
                 {list.length > 1 && (
@@ -396,7 +423,7 @@ function HeroBanner({
                       type="button"
                       aria-label="Previous trending"
                       onClick={prev}
-                      className="grid h-10 w-10 place-items-center rounded-full bg-black/40 text-white backdrop-blur-md transition-all hover:bg-action hover:scale-110"
+                      className="grid h-10 w-10 place-items-center rounded-full bg-black/40 text-white backdrop-blur-md outline-none focus:outline-none transition-all hover:bg-action hover:scale-110"
                     >
                       <svg viewBox="0 0 24 24" fill="currentColor" className="h-6 w-6">
                         <path d="M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12z" />
@@ -406,7 +433,7 @@ function HeroBanner({
                       type="button"
                       aria-label="Next trending"
                       onClick={next}
-                      className="grid h-10 w-10 place-items-center rounded-full bg-black/40 text-white backdrop-blur-md transition-all hover:bg-action hover:scale-110"
+                      className="grid h-10 w-10 place-items-center rounded-full bg-black/40 text-white backdrop-blur-md outline-none focus:outline-none transition-all hover:bg-action hover:scale-110"
                     >
                       <svg viewBox="0 0 24 24" fill="currentColor" className="h-6 w-6">
                         <path d="M10 6 8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z" />
@@ -414,14 +441,21 @@ function HeroBanner({
                     </button>
                   </div>
                 )}
-                {otherEntries.map((e) => {
-                  const realIdx = list.findIndex((x) => x.id === e.id);
+                {railEntries.map((e, k) => {
+                  // k === 0 is the currently-featured anime (shown first per
+                  // request) — highlight it with an action-coloured ring.
+                  const realIdx = (activeIdx + k) % list.length;
+                  const isCurrent = k === 0;
                   return (
                     <button
-                      key={e.id}
+                      key={`${e.id}-${k}`}
                       type="button"
-                      onClick={() => go(realIdx, realIdx > idx ? 1 : -1)}
-                      className="group relative h-[180px] w-[126px] overflow-hidden rounded-xl border border-white/10 shadow-xl transition-all duration-300 hover:scale-[1.06] hover:border-action/60"
+                      onClick={() => go(realIdx, k === 0 ? 0 : 1)}
+                      className={`group relative h-[180px] w-[126px] shrink-0 overflow-hidden rounded-xl shadow-xl outline-none focus:outline-none transition-all duration-300 hover:scale-[1.06] ${
+                        isCurrent
+                          ? "ring-2 ring-action"
+                          : "border border-white/10 hover:border-action/60"
+                      }`}
                     >
                       {e.coverImage?.extraLarge ? (
                         <Image
@@ -452,24 +486,57 @@ function HeroBanner({
           </div>
         </div>
 
-        {/* Progress dots — visual cue for the auto-cycle position. Click a
-            dot to jump straight to that entry. */}
-        <div className="absolute bottom-8 left-[7%] z-20 flex gap-1.5">
-          {list.map((_, i) => (
-            <button
-              key={i}
-              type="button"
-              aria-label={`Go to trending ${i + 1}`}
-              onClick={() => go(i, i > idx ? 1 : -1)}
-              className={`h-1.5 rounded-full transition-all ${
-                i === idx % list.length
-                  ? "w-8 bg-action"
-                  : "w-4 bg-white/30 hover:bg-white/50"
-              }`}
-            />
-          ))}
+        {/* Progress pills — the active pill fills over the auto-advance
+            interval so the user can see how long until the next slide.
+            The fill is a CSS keyframe animation (keyed implicitly by the
+            active pill mounting fresh each slide) that pauses while the
+            user hovers — matching the paused auto-advance. Click any pill
+            to jump straight to that entry. */}
+        <div className="absolute bottom-24 left-[7%] z-20 flex gap-1.5">
+          {list.map((_, i) => {
+            const isActive = i === idx % list.length;
+            return (
+              <button
+                key={i}
+                type="button"
+                aria-label={`Go to trending ${i + 1}`}
+                onClick={() => go(i, i > idx ? 1 : -1)}
+                className={`relative h-1.5 overflow-hidden rounded-full transition-all ${
+                  isActive ? "w-9 bg-white/20" : "w-4 bg-white/30 hover:bg-white/50"
+                }`}
+              >
+                {isActive && (
+                  <span
+                    className="absolute inset-y-0 left-0 rounded-full bg-action"
+                    style={{
+                      // Single slide → no auto-advance, so keep it full.
+                      animation:
+                        list.length > 1
+                          ? `heroProgress ${HERO_AUTO_INTERVAL_MS}ms linear forwards`
+                          : undefined,
+                      width: list.length > 1 ? undefined : "100%",
+                      animationPlayState: hovered ? "paused" : "running",
+                    }}
+                  />
+                )}
+              </button>
+            );
+          })}
         </div>
       </div>
+
+      {/* Keyframe for the active progress pill. styled-jsx is available
+          in Next.js page components by default. */}
+      <style jsx>{`
+        @keyframes heroProgress {
+          from {
+            width: 0%;
+          }
+          to {
+            width: 100%;
+          }
+        }
+      `}</style>
     </div>
   );
 }
@@ -504,6 +571,8 @@ export default function Home({
   upComing,
   firstTrend,
   heroEntries,
+  thisSeason,
+  movies,
 }: HomeProps) {
   const { data: sessions }: any = useSession();
   const userSession: SessionTypes = sessions?.user;
@@ -930,6 +999,23 @@ export default function Home({
                 />
               </motion.section>
             )}
+
+            {/* This Season — current-quarter anime by popularity */}
+            {thisSeason?.data?.length > 0 && (
+              <motion.section
+                key="thisSeason"
+                initial={{ y: 20, opacity: 0 }}
+                transition={{ duration: 0.5 }}
+                whileInView={{ y: 0, opacity: 1 }}
+                viewport={{ once: true }}
+              >
+                <Content
+                  ids="thisSeason"
+                  section="This Season"
+                  data={thisSeason.data}
+                />
+              </motion.section>
+            )}
             {/* <div className="w-full h-[150px] bg-white flex-center my-5 text-black">
               ad banner
             </div> */}
@@ -965,6 +1051,23 @@ export default function Home({
                   ids="popularAnime"
                   section="Popular Anime"
                   data={popular}
+                />
+              </motion.section>
+            )}
+
+            {/* Popular Movies — MOVIE-format anime by popularity */}
+            {movies?.data?.length > 0 && (
+              <motion.section
+                key="popularMovies"
+                initial={{ y: 20, opacity: 0 }}
+                whileInView={{ y: 0, opacity: 1 }}
+                transition={{ duration: 0.5 }}
+                viewport={{ once: true }}
+              >
+                <Content
+                  ids="popularMovies"
+                  section="Popular Movies"
+                  data={movies.data}
                 />
               </motion.section>
             )}

@@ -206,6 +206,12 @@ export default function Content({
     if (section === "Popular Anime") {
       router.push(`/en/anime/popular`);
     }
+    if (section === "This Season") {
+      router.push(`/en/search/anime?sort=POPULARITY_DESC&season=current`);
+    }
+    if (section === "Popular Movies") {
+      router.push(`/en/search/anime?sort=POPULARITY_DESC&format=MOVIE`);
+    }
     if (section === "Your Plan") {
       router.push(`/en/profile/${userName}/#planning`);
     }

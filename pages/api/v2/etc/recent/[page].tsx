@@ -2,7 +2,10 @@ import { rateLimitStrict, redis } from "@/lib/redis";
 import { NextApiRequest, NextApiResponse } from "next";
 import { anilistFetch } from "@/lib/anilist/anilistFetch";
 
-// Fetches recently updated anime from AniList (replaces dead api.anify.tv)
+// Fetches recently updated anime from AniList (replaces dead api.anify.tv).
+// We pull a larger recently-updated pool, then sort it by popularity so the
+// "Freshly Added" rail leads with titles people recognise instead of obscure
+// donghua / ONAs (e.g. "Shen Mu 3") that happen to have pushed an episode.
 const ANILIST_QUERY = `
   query ($page: Int, $perPage: Int) {
     Page(page: $page, perPage: $perPage) {
@@ -16,11 +19,17 @@ const ANILIST_QUERY = `
         title { romaji english native }
         currentEpisode: nextAiringEpisode { episode }
         episodes
+        popularity
         coverImage { extraLarge color }
       }
     }
   }
 `;
+
+// Drop the long tail of near-zero-popularity entries entirely — that's where
+// the obscure donghua sit. 5000 keeps niche-but-real seasonal anime while
+// cutting the noise.
+const MIN_POPULARITY = 5000;
 
 export default async function handler(
   req: NextApiRequest,
@@ -40,8 +49,10 @@ export default async function handler(
     }
 
     // ── Cache check ──────────────────────────────────────────
+    // Key bumped to v2 — the sort order + popularity filter changed, so
+    // the old cached payload would serve the obscure-first ordering.
     if (redis) {
-      const cache = await redis.get(`recent-episode`);
+      const cache = await redis.get(`recent-episode-v2`);
       if (cache) {
         return res.status(200).json({ results: JSON.parse(cache) });
       }
@@ -52,7 +63,7 @@ export default async function handler(
 
     const json = await anilistFetch({
       query: ANILIST_QUERY,
-      variables: { page, perPage: 45 },
+      variables: { page, perPage: 50 },
       label: "recent",
     });
     if (!json) {
@@ -61,23 +72,29 @@ export default async function handler(
 
     const mediaList = json?.data?.Page?.media ?? [];
 
-    const results = mediaList.map((i: any) => {
-      // nextAiringEpisode.episode is the NEXT one, so current = episode - 1
-      const nextEp = i.currentEpisode?.episode ?? null;
-      const currentEpisode = nextEp ? nextEp - 1 : i.episodes ?? null;
+    const results = mediaList
+      // Cut the obscure long tail before sorting.
+      .filter((i: any) => (i.popularity ?? 0) >= MIN_POPULARITY)
+      // Popular titles first so the rail leads with recognisable shows.
+      .sort((a: any, b: any) => (b.popularity ?? 0) - (a.popularity ?? 0))
+      .map((i: any) => {
+        // nextAiringEpisode.episode is the NEXT one, so current = episode - 1
+        const nextEp = i.currentEpisode?.episode ?? null;
+        const currentEpisode = nextEp ? nextEp - 1 : i.episodes ?? null;
 
-      return {
-        id: i.id,
-        slug: null, // no gogoanime slug from AniList; consumers should use id
-        title: i.title,
-        currentEpisode,
-        coverImage: i.coverImage?.extraLarge ?? null,
-      };
-    });
+        return {
+          id: i.id,
+          slug: null, // no gogoanime slug from AniList; consumers should use id
+          title: i.title,
+          currentEpisode,
+          popularity: i.popularity ?? 0,
+          coverImage: i.coverImage?.extraLarge ?? null,
+        };
+      });
 
     // ── Cache for 1 hour ─────────────────────────────────────
     if (redis) {
-      await redis.set(`recent-episode`, JSON.stringify(results), "EX", 60 * 60);
+      await redis.set(`recent-episode-v2`, JSON.stringify(results), "EX", 60 * 60);
     }
 
     return res.status(200).json({ results });
