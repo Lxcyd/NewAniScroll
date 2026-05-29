@@ -358,13 +358,16 @@ export default function Watch({
       const raw = localStorage.getItem("artplayer_settings");
       const existing = raw ? JSON.parse(raw) : {};
       const entryKey = String(info.id);
+      const prev = existing[entryKey] || {};
       existing[entryKey] = {
-        ...(existing[entryKey] || {}),
+        ...prev,
         watchId: watchId || entryKey,
         aniId: info.id,
         aniTitle: info?.title?.romaji || info?.title?.english,
         title: `Episode ${epiNumber}`,
-        image:
+        // Keep existing episode thumbnail if present; fall back to cover only
+        // when there's no thumbnail yet (first mount before episode list loads).
+        image: prev.image ||
           info?.coverImage?.extraLarge ||
           info?.coverImage?.large ||
           info?.bannerImage,

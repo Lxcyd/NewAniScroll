@@ -935,18 +935,7 @@ export default function Home({
             )}
 
             {recommendations.length > 0 && (
-              <div className="space-y-4 lg:space-y-5 mb-5 lg:mb-10">
-                <div className="px-5">
-                  <p className="text-sm lg:text-base">
-                    Based on Your List
-                    <br />
-                    <span className="font-karla text-[20px] lg:text-3xl font-bold">
-                      Recommendations
-                    </span>
-                  </p>
-                </div>
-                <UserRecommendation data={recommendations} />
-              </div>
+              <UserRecommendation data={recommendations} />
             )}
 
             {/* SECTION 2 */}
