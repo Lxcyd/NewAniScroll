@@ -275,13 +275,19 @@ function HeroBanner({
       <div className="relative aspect-[21/9] max-h-[780px] min-h-[520px] w-full">
         {/* Background banner. Keyed on the entry id so React swaps the
             <img> cleanly; framer-motion cross-fades + slow Ken-Burns zoom. */}
-        <AnimatePresence mode="popLayout" custom={dir}>
+        <AnimatePresence mode="popLayout">
           <motion.div
             key={`bg-${active.id}`}
-            initial={{ opacity: 0, scale: 1.08 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 1.04 }}
-            transition={{ opacity: { duration: 0.8 }, scale: { duration: 8, ease: "linear" } }}
+            // Opacity-only crossfade. The previous 8 s Ken-Burns `scale`
+            // animation ran continuously behind ~6 backdrop-blur layers
+            // (badges, buttons, pills) — every animated frame forced the
+            // browser to recompute all those blurs, which is what made the
+            // hero stutter badly on first load (before images/layers were
+            // warm). A static background lets the blurs composite once.
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.8 }}
             className="absolute inset-0"
           >
             {bg ? (
@@ -359,14 +365,14 @@ function HeroBanner({
                 {/* Metadata row */}
                 <div className="flex items-center gap-2.5 flex-wrap">
                   {statusInfo && (
-                    <span className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-xs font-karla font-semibold tracking-wider text-white/90 backdrop-blur-sm ring-1 ring-white/10">
+                    <span className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-xs font-karla font-semibold tracking-wider text-white/90 backdrop-blur-sm border border-white/10">
                       <span
                         className={`h-1.5 w-1.5 rounded-full ${statusInfo.dot}`}
                       />
                       {statusInfo.label}
                     </span>
                   )}
-                  <span className="rounded-full bg-[#E94560]/20 px-3 py-1 text-xs font-karla font-semibold tracking-wider text-action ring-1 ring-[#E94560]/40 backdrop-blur-sm">
+                  <span className="rounded-full bg-[#E94560]/20 px-3 py-1 text-xs font-karla font-semibold tracking-wider text-action border border-[#E94560]/40 backdrop-blur-sm">
                     TRENDING #{idx + 1}
                   </span>
                 </div>
@@ -385,7 +391,7 @@ function HeroBanner({
                     <svg
                       viewBox="0 0 24 24"
                       fill="currentColor"
-                      className="h-6 w-6"
+                      className="h-8 w-8"
                     >
                       <path d="M8 5v14l11-7z" />
                     </svg>
@@ -393,12 +399,12 @@ function HeroBanner({
                   </button>
                   <Link
                     href={`/en/anime/${active.id}`}
-                    className="inline-flex items-center gap-2 rounded-full bg-white/10 px-7 py-3 font-karla font-semibold text-white text-sm tracking-wider ring-1 ring-white/15 backdrop-blur-sm outline-none focus:outline-none focus-visible:outline-none transition-colors hover:bg-white/20"
+                    className="inline-flex items-center gap-2 rounded-full bg-white/10 px-7 py-3 font-karla font-semibold text-white text-sm tracking-wider border border-white/15 backdrop-blur-sm outline-none focus:outline-none focus-visible:outline-none transition-colors hover:bg-white/20"
                   >
                     <svg
                       viewBox="0 0 24 24"
                       fill="currentColor"
-                      className="h-4 w-4"
+                      className="h-8 w-8"
                     >
                       <path d="M11 17h2v-6h-2v6zm1-15C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zM11 9h2V7h-2v2z" />
                     </svg>
@@ -453,7 +459,7 @@ function HeroBanner({
                       onClick={() => go(realIdx, k === 0 ? 0 : 1)}
                       className={`group relative h-[180px] w-[126px] shrink-0 overflow-hidden rounded-xl shadow-xl outline-none focus:outline-none transition-all duration-300 hover:scale-[1.06] ${
                         isCurrent
-                          ? "ring-2 ring-action"
+                          ? "border-2 border-action"
                           : "border border-white/10 hover:border-[#E94560]/60"
                       }`}
                     >
@@ -492,7 +498,10 @@ function HeroBanner({
             active pill mounting fresh each slide) that pauses while the
             user hovers — matching the paused auto-advance. Click any pill
             to jump straight to that entry. */}
-        <div className="absolute bottom-24 left-[7%] z-20 flex gap-1.5">
+        {/* Equal-width segmented progress bar. Widened so the row spans
+            roughly to the right edge of the MORE INFO button — the active
+            segment carries the fill animation, inactive ones are dim. */}
+        <div className="absolute bottom-24 left-[7%] z-20 flex gap-2">
           {list.map((_, i) => {
             const isActive = i === idx % list.length;
             return (
@@ -501,8 +510,8 @@ function HeroBanner({
                 type="button"
                 aria-label={`Go to trending ${i + 1}`}
                 onClick={() => go(i, i > idx ? 1 : -1)}
-                className={`relative h-1.5 overflow-hidden rounded-full transition-all ${
-                  isActive ? "w-9 bg-white/20" : "w-4 bg-white/30 hover:bg-white/50"
+                className={`relative h-1.5 w-12 overflow-hidden rounded-full transition-all ${
+                  isActive ? "bg-white/20" : "bg-white/30 hover:bg-white/50"
                 }`}
               >
                 {isActive && (

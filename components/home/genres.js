@@ -86,7 +86,7 @@ export default function Genres() {
         >
           {g.map((a, index) => (
             <Link
-              href={`/en/search/anime/?genres=${a.name}`}
+              href={`/en/search/anime/?genres=${a.name}&sort=POPULARITY_DESC`}
               key={index}
               draggable={false}
               onDragStart={(e) => e.preventDefault()}

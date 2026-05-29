@@ -27,7 +27,7 @@ export default function MobileNav({ hideProfile = false }: MobileNavProps) {
         {!isVisible && (
           <button
             onClick={handleShowClick}
-            className="fixed bottom-[30px] right-[20px] z-[100] flex h-[51px] w-[50px] cursor-pointer items-center justify-center rounded-[8px] bg-[#17171f] shadow-lg ring-1 ring-[#E94560]/40 outline-none focus:outline-none focus-visible:outline-none lg:hidden"
+            className="fixed bottom-[30px] right-[20px] z-[100] flex h-[51px] w-[50px] cursor-pointer items-center justify-center rounded-[8px] bg-[#17171f] shadow-lg border border-[#E94560]/40 outline-none focus:outline-none focus-visible:outline-none lg:hidden"
             id="bars"
           >
             <svg
