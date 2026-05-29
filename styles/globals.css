@@ -1048,13 +1048,15 @@ input[type="number"] {
 }
 
 /* Home hero — active progress pill fill (0 → 100% over the auto-advance
-   interval). Lives here rather than inline styled-jsx because the ESLint
-   `react/no-unknown-property` rule rejects the `jsx` attribute at build. */
+   interval). Uses transform: scaleX (GPU-composited, no per-frame layout
+   reflow) instead of animating width, which was visibly janky over the
+   blur-heavy hero. Lives here rather than inline styled-jsx because the
+   ESLint `react/no-unknown-property` rule rejects the `jsx` attribute. */
 @keyframes heroProgress {
   from {
-    width: 0%;
+    transform: scaleX(0);
   }
   to {
-    width: 100%;
+    transform: scaleX(1);
   }
 }

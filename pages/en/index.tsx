@@ -366,7 +366,7 @@ function HeroBanner({
                       {statusInfo.label}
                     </span>
                   )}
-                  <span className="rounded-full bg-action/20 px-3 py-1 text-xs font-karla font-semibold tracking-wider text-action ring-1 ring-action/30 backdrop-blur-sm">
+                  <span className="rounded-full bg-[#E94560]/20 px-3 py-1 text-xs font-karla font-semibold tracking-wider text-action ring-1 ring-[#E94560]/40 backdrop-blur-sm">
                     TRENDING #{idx + 1}
                   </span>
                 </div>
@@ -380,7 +380,7 @@ function HeroBanner({
                 <div className="flex items-center gap-3 mt-2">
                   <button
                     onClick={() => onPlay(active.id)}
-                    className="inline-flex items-center gap-2 rounded-full bg-action px-7 py-3 font-karla font-semibold text-white text-sm tracking-wider shadow-lg shadow-action/40 outline-none focus:outline-none focus-visible:outline-none transition-all hover:bg-action/90 hover:scale-[1.03]"
+                    className="inline-flex items-center gap-2 rounded-full bg-action px-7 py-3 font-karla font-semibold text-white text-sm tracking-wider shadow-lg shadow-[#E94560]/40 outline-none focus:outline-none focus-visible:outline-none transition-all hover:bg-[#E94560]/90 hover:scale-[1.03]"
                   >
                     <svg
                       viewBox="0 0 24 24"
@@ -454,7 +454,7 @@ function HeroBanner({
                       className={`group relative h-[180px] w-[126px] shrink-0 overflow-hidden rounded-xl shadow-xl outline-none focus:outline-none transition-all duration-300 hover:scale-[1.06] ${
                         isCurrent
                           ? "ring-2 ring-action"
-                          : "border border-white/10 hover:border-action/60"
+                          : "border border-white/10 hover:border-[#E94560]/60"
                       }`}
                     >
                       {e.coverImage?.extraLarge ? (
@@ -507,14 +507,16 @@ function HeroBanner({
               >
                 {isActive && (
                   <span
-                    className="absolute inset-y-0 left-0 rounded-full bg-action"
+                    className="absolute inset-y-0 left-0 w-full rounded-full bg-action"
                     style={{
-                      // Single slide → no auto-advance, so keep it full.
+                      // GPU-composited scaleX fill — smooth, no layout reflow.
+                      transformOrigin: "left",
+                      // Single slide → no auto-advance, keep it filled.
+                      transform: list.length > 1 ? "scaleX(0)" : "scaleX(1)",
                       animation:
                         list.length > 1
                           ? `heroProgress ${HERO_AUTO_INTERVAL_MS}ms linear forwards`
                           : undefined,
-                      width: list.length > 1 ? undefined : "100%",
                       animationPlayState: hovered ? "paused" : "running",
                     }}
                   />
