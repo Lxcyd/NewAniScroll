@@ -479,11 +479,18 @@ export default function Content({
               })
             : (() => {
                 const seenAniIds = new Set<string>();
+                const seenTitles = new Set<string>();
                 return userData
                   ?.filter((i) => {
-                    const key = String(i.aniId || i.aniTitle || "");
-                    if (!key || seenAniIds.has(key)) return false;
-                    seenAniIds.add(key);
+                    if (i.aniId) {
+                      const key = String(i.aniId);
+                      if (seenAniIds.has(key)) return false;
+                      seenAniIds.add(key);
+                      return true;
+                    }
+                    const titleKey = String(i.aniTitle || "").toLowerCase().trim();
+                    if (!titleKey || seenTitles.has(titleKey)) return false;
+                    seenTitles.add(titleKey);
                     return true;
                   })
                   ?.slice(0, 10)

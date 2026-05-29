@@ -726,11 +726,17 @@ export default function Home({
           // newFirst is already sorted most-recent-first, so the first
           // occurrence of each id is the one we keep.
           const seenIds = new Set<string>();
+          const seenTitles = new Set<string>();
           const filteredData = newFirst.filter((entry: any) => {
-            const key = String(entry?.aniId || entry?.aniTitle || "");
-            if (!key) return false;
-            if (seenIds.has(key)) return false;
-            seenIds.add(key);
+            if (entry?.aniId) {
+              const key = String(entry.aniId);
+              if (seenIds.has(key)) return false;
+              seenIds.add(key);
+              return true;
+            }
+            const titleKey = String(entry?.aniTitle || "").toLowerCase().trim();
+            if (!titleKey || seenTitles.has(titleKey)) return false;
+            seenTitles.add(titleKey);
             return true;
           });
 
@@ -739,10 +745,17 @@ export default function Home({
       } else {
         // Dedup by aniId (most reliable) falling back to aniTitle.
         const seenIds = new Set<string>();
+        const seenTitles = new Set<string>();
         const filteredData = data?.WatchListEpisode.filter((entry) => {
-          const key = String(entry?.aniId || entry?.aniTitle || "");
-          if (!key || seenIds.has(key)) return false;
-          seenIds.add(key);
+          if (entry?.aniId) {
+            const key = String(entry.aniId);
+            if (seenIds.has(key)) return false;
+            seenIds.add(key);
+            return true;
+          }
+          const titleKey = String(entry?.aniTitle || "").toLowerCase().trim();
+          if (!titleKey || seenTitles.has(titleKey)) return false;
+          seenTitles.add(titleKey);
           return true;
         });
         setUser(filteredData);

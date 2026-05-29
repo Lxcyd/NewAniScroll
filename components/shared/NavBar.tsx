@@ -237,7 +237,7 @@ export function Navbar({
               type="button"
               title="Search"
               onClick={() => setIsOpen(true)}
-              className="flex lg:hidden flex-center w-[26px] h-[26px]"
+              className="hidden flex-center w-[26px] h-[26px]"
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
