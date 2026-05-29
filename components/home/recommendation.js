@@ -1,40 +1,25 @@
 import Image from "next/image";
 import { useRef, useState } from "react";
 import Link from "next/link";
-import { useDraggable } from "react-use-draggable-scroll";
 import { ChevronRightIcon } from "@heroicons/react/24/outline";
 import { ChevronLeftIcon } from "@heroicons/react/20/solid";
 import { MdChevronRight } from "react-icons/md";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 
+const DRAG_THRESHOLD = 8;
+
 export default function UserRecommendation({ data }) {
   const titlePref = useTitlePref();
   const ref = useRef(null);
-  const { events } = useDraggable(ref);
 
+  // Drag-scroll state
+  const isDown = useRef(false);
+  const startX = useRef(0);
+  const scrollStartLeft = useRef(0);
+
+  // Drag-vs-click discriminator
   const dragMovedRef = useRef(false);
   const downPosRef = useRef(null);
-  const DRAG_THRESHOLD = 8;
-
-  const onPointerDownCapture = (e) => {
-    dragMovedRef.current = false;
-    downPosRef.current = { x: e.clientX, y: e.clientY };
-  };
-  const onPointerUpCapture = (e) => {
-    const start = downPosRef.current;
-    if (!start) return;
-    const dx = Math.abs(e.clientX - start.x);
-    const dy = Math.abs(e.clientY - start.y);
-    if (dx > DRAG_THRESHOLD || dy > DRAG_THRESHOLD) dragMovedRef.current = true;
-    downPosRef.current = null;
-  };
-  const onClickCapture = (e) => {
-    if (dragMovedRef.current) {
-      e.preventDefault();
-      e.stopPropagation();
-      dragMovedRef.current = false;
-    }
-  };
 
   const [scrollLeft, setScrollLeft] = useState(false);
   const [scrollRight, setScrollRight] = useState(true);
@@ -44,6 +29,40 @@ export default function UserRecommendation({ data }) {
     setScrollRight(
       e.target.scrollLeft < e.target.scrollWidth - e.target.clientWidth
     );
+  };
+
+  const onPointerDown = (e) => {
+    if (!ref.current) return;
+    isDown.current = true;
+    dragMovedRef.current = false;
+    downPosRef.current = { x: e.clientX, y: e.clientY };
+    startX.current = e.clientX;
+    scrollStartLeft.current = ref.current.scrollLeft;
+    ref.current.setPointerCapture(e.pointerId);
+  };
+
+  const onPointerMove = (e) => {
+    if (!isDown.current || !ref.current) return;
+    const dx = e.clientX - startX.current;
+    ref.current.scrollLeft = scrollStartLeft.current - dx;
+  };
+
+  const onPointerUp = (e) => {
+    isDown.current = false;
+    const start = downPosRef.current;
+    if (!start) return;
+    const dx = Math.abs(e.clientX - start.x);
+    const dy = Math.abs(e.clientY - start.y);
+    if (dx > DRAG_THRESHOLD || dy > DRAG_THRESHOLD) dragMovedRef.current = true;
+    downPosRef.current = null;
+  };
+
+  const onClickCapture = (e) => {
+    if (dragMovedRef.current) {
+      e.preventDefault();
+      e.stopPropagation();
+      dragMovedRef.current = false;
+    }
   };
 
   const seen = new Set();
@@ -69,13 +88,14 @@ export default function UserRecommendation({ data }) {
         </div>
         <div
           id="recommendationList"
-          className="flex h-full w-full select-none overflow-x-scroll overflow-y-hidden scrollbar-hide lg:gap-8 gap-4 lg:p-10 py-8 px-5 z-30"
-          onScroll={handleScroll}
-          onPointerDownCapture={onPointerDownCapture}
-          onPointerUpCapture={onPointerUpCapture}
-          onClickCapture={onClickCapture}
-          {...events}
           ref={ref}
+          className="flex h-full w-full select-none overflow-x-scroll overflow-y-hidden scrollbar-hide lg:gap-8 gap-4 lg:p-10 py-8 px-5 z-30 cursor-grab active:cursor-grabbing"
+          onScroll={handleScroll}
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          onPointerCancel={onPointerUp}
+          onClickCapture={onClickCapture}
         >
           {filteredData.slice(0, 15).map((i) => (
             <div

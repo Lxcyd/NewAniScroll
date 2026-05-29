@@ -365,12 +365,10 @@ export default function Watch({
         aniId: info.id,
         aniTitle: info?.title?.romaji || info?.title?.english,
         title: `Episode ${epiNumber}`,
-        // Keep existing episode thumbnail if present; fall back to cover only
-        // when there's no thumbnail yet (first mount before episode list loads).
-        image: prev.image ||
-          info?.coverImage?.extraLarge ||
-          info?.coverImage?.large ||
-          info?.bannerImage,
+        // Never overwrite an existing episode thumbnail with the cover art.
+        // The episode effect writes the real 16:9 thumbnail; this mount effect
+        // only fills in the image when there is absolutely nothing yet.
+        image: prev.image || null,
         episode: Number(epiNumber),
         provider,
         dub: !!dub,
@@ -451,6 +449,8 @@ export default function Watch({
             const raw = localStorage.getItem("artplayer_settings");
             const existing = raw ? JSON.parse(raw) : {};
             const entryKey = String(info.id);
+            const episodeImage =
+              playingData?.img || playingData?.image || info?.bannerImage || null;
             existing[entryKey] = {
               ...(existing[entryKey] || {}),
               watchId: currentEpisode.id,
@@ -459,8 +459,9 @@ export default function Watch({
               title:
                 playingData?.title ||
                 `Episode ${currentEpisode.number}`,
-              image:
-                playingData?.img || playingData?.image || info?.coverImage?.large,
+              // Always use the episode thumbnail when available — never fall
+              // back to the cover art so the 16:9 card always shows a 16:9 image.
+              image: episodeImage,
               episode: currentEpisode.number,
               // `getProvider` is the full provider object — store just the
               // id string so the home / recently-watched UIs can compose
