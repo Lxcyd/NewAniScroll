@@ -524,19 +524,6 @@ function HeroBanner({
           })}
         </div>
       </div>
-
-      {/* Keyframe for the active progress pill. styled-jsx is available
-          in Next.js page components by default. */}
-      <style jsx>{`
-        @keyframes heroProgress {
-          from {
-            width: 0%;
-          }
-          to {
-            width: 100%;
-          }
-        }
-      `}</style>
     </div>
   );
 }
