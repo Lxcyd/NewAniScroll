@@ -6,7 +6,7 @@ import Footer from "@/components/shared/footer";
 import Image from "next/image";
 import Content from "@/components/home/content";
 
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 
 import { signOut, useSession } from "next-auth/react";
 import Genres from "@/components/home/genres";
@@ -20,6 +20,8 @@ import { redis } from "@/lib/redis";
 import { Navbar } from "@/components/shared/NavBar";
 import UserRecommendation from "@/components/home/recommendation";
 import { useRouter } from "next/router";
+import { loadFanarts } from "@/lib/db/fanarts";
+import { pickTitleImage, TitleImage } from "@/components/anime/v2/helpers";
 
 export async function getServerSideProps(ctx: any) {
   // Edge-cache the home page aggressively. The response is identical for
@@ -40,9 +42,38 @@ export async function getServerSideProps(ctx: any) {
     cachedData = await redis.get("index_server");
   }
 
+  // Resolve the hero entries (clearart/logo for the top trending titles)
+  // outside the Redis branch — fanart is cheap (single Turso row each) and
+  // keeping it out of the homepage cache lets us swap in new clearart as
+  // fanart entries are reviewed without waiting 2 h for the cache to expire.
+  const resolveHeroEntries = async (
+    items: any[],
+  ): Promise<Array<HeroEntry>> => {
+    if (!Array.isArray(items)) return [];
+    // Top 5 visible in the rail (first feature + 4 side previews).
+    const slice = items.slice(0, 5);
+    return Promise.all(
+      slice.map(async (it) => {
+        const fanarts = await loadFanarts(Number(it?.id)).catch(() => null);
+        return {
+          id: it?.id,
+          title: it?.title || { english: null, romaji: null },
+          coverImage: it?.coverImage || null,
+          bannerImage: it?.bannerImage || null,
+          description: it?.description || "",
+          status: it?.status || null,
+          titleImage: pickTitleImage(fanarts),
+        };
+      }),
+    );
+  };
+
   if (cachedData) {
     const { genre, detail, populars, firstTrend } = JSON.parse(cachedData);
-    const upComing = await getUpcomingAnime();
+    const [upComing, heroEntries] = await Promise.all([
+      getUpcomingAnime(),
+      resolveHeroEntries(detail?.data || []),
+    ]);
     return {
       props: {
         genre,
@@ -50,6 +81,7 @@ export async function getServerSideProps(ctx: any) {
         populars,
         upComing,
         firstTrend,
+        heroEntries,
       },
     };
   } else {
@@ -80,6 +112,10 @@ export async function getServerSideProps(ctx: any) {
       );
     }
 
+    const heroEntries = await resolveHeroEntries(
+      trendingDetail.props.data || [],
+    );
+
     return {
       props: {
         genre: genreDetail.props,
@@ -87,10 +123,21 @@ export async function getServerSideProps(ctx: any) {
         populars: popularDetail.props,
         upComing,
         firstTrend: trendingDetail.props.data?.[0] || null,
+        heroEntries,
       },
     };
   }
 }
+
+type HeroEntry = {
+  id: number;
+  title: { english: string | null; romaji: string | null };
+  coverImage: { extraLarge?: string; color?: string } | null;
+  bannerImage: string | null;
+  description: string;
+  status: string | null;
+  titleImage: TitleImage | null;
+};
 
 type HomeProps = {
   genre: any;
@@ -98,7 +145,309 @@ type HomeProps = {
   populars: any;
   upComing: any;
   firstTrend: any;
+  heroEntries: HeroEntry[];
 };
+
+/* ── Cinematic hero ──────────────────────────────────────────────────
+   Full-bleed banner background, HD clearart/logo overlay, side preview
+   thumbnails of the next four trending titles. Hovering / clicking a
+   side thumb swaps focus; auto-advances every 7 s otherwise.
+   Mobile collapses to a poster-on-the-side card so it doesn't dominate
+   the small viewport — preserves prior behaviour on phones.            */
+const HERO_AUTO_INTERVAL_MS = 8000;
+const STATUS_TAG: Record<string, { label: string; dot: string }> = {
+  RELEASING: { label: "AIRING", dot: "bg-emerald-400" },
+  FINISHED: { label: "FINISHED", dot: "bg-zinc-400" },
+  NOT_YET_RELEASED: { label: "SOON", dot: "bg-sky-400" },
+  CANCELLED: { label: "CANCELLED", dot: "bg-red-400" },
+  HIATUS: { label: "HIATUS", dot: "bg-amber-400" },
+};
+
+function HeroBanner({
+  entries,
+  firstTrend,
+  onPlay,
+  stripDescription,
+}: {
+  entries: HeroEntry[];
+  firstTrend: any;
+  onPlay: (id: number) => void;
+  stripDescription: (s: string) => string;
+}) {
+  // Stable list: SSR-provided entries, falling back to a single entry
+  // synthesised from firstTrend when the fanart fetch returned empty.
+  const list: HeroEntry[] =
+    entries && entries.length > 0
+      ? entries
+      : firstTrend
+        ? [
+            {
+              id: firstTrend.id,
+              title: firstTrend.title,
+              coverImage: firstTrend.coverImage,
+              bannerImage: firstTrend.bannerImage || null,
+              description: firstTrend.description || "",
+              status: firstTrend.status || null,
+              titleImage: null,
+            },
+          ]
+        : [];
+
+  const [idx, setIdx] = useState(0);
+  // Pause auto-advance while the user is hovering or focused so we don't
+  // swap the card under their cursor mid-click.
+  const [hovered, setHovered] = useState(false);
+
+  useEffect(() => {
+    if (hovered || list.length < 2) return;
+    const t = window.setInterval(() => {
+      setIdx((i) => (i + 1) % list.length);
+    }, HERO_AUTO_INTERVAL_MS);
+    return () => window.clearInterval(t);
+  }, [hovered, list.length]);
+
+  if (list.length === 0) return null;
+  const active = list[idx % list.length];
+  const otherEntries = list.filter((_, i) => i !== idx % list.length).slice(0, 4);
+
+  const title =
+    active.title?.english || active.title?.romaji || "Untitled";
+  const statusInfo = active.status ? STATUS_TAG[active.status] : null;
+  // Fall back to coverImage when there's no banner (rare for top trending
+  // but happens on brand-new entries). Cover stretched is uglier but still
+  // gives us something to layer the gradient on.
+  const bg = active.bannerImage || active.coverImage?.extraLarge || null;
+  const accent = active.coverImage?.color || "#E94560";
+
+  return (
+    <div
+      className="hidden lg:block relative w-full overflow-hidden"
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
+      {/* Background banner. Keyed on the entry id so React swaps the <img>
+          cleanly between frames and the framer-motion fade reuses the
+          composited bitmap rather than fading a blank canvas. */}
+      <div className="relative aspect-[21/9] max-h-[680px] min-h-[420px] w-full">
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={`bg-${active.id}`}
+            initial={{ opacity: 0, scale: 1.04 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.7, ease: "easeOut" }}
+            className="absolute inset-0"
+          >
+            {bg ? (
+              <Image
+                src={bg}
+                alt=""
+                fill
+                priority={idx === 0}
+                sizes="100vw"
+                quality={90}
+                className="object-cover object-center"
+              />
+            ) : (
+              <div
+                className="absolute inset-0"
+                style={{ backgroundColor: accent }}
+              />
+            )}
+          </motion.div>
+        </AnimatePresence>
+
+        {/* Cinematic gradients. Bottom fade hides the seam against the
+            next section; left fade boosts text contrast on the logo + CTA
+            stack. Both are pure CSS so they cost nothing per frame. */}
+        <div className="absolute inset-0 bg-gradient-to-r from-primary via-primary/60 to-transparent" />
+        <div className="absolute inset-0 bg-gradient-to-t from-primary via-primary/20 to-transparent" />
+        {/* Subtle vignette anchor so the logo never sits on a hot pixel
+            spot when the banner is bright (white sky, etc.). */}
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_bottom_left,rgba(0,0,0,0.55),transparent_60%)]" />
+
+        {/* Content column */}
+        <div className="absolute inset-0 flex">
+          <div className="flex w-full xl:w-[60%] lg:w-[65%] flex-col justify-end gap-5 pb-16 pl-[8%] pr-8">
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={`stack-${active.id}`}
+                initial={{ opacity: 0, y: 24 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -16 }}
+                transition={{ duration: 0.45, ease: "easeOut" }}
+                className="flex flex-col gap-5"
+              >
+                {/* HD clearart / logo. Falls back to a stylised text
+                    title when no fanart is available. Keeps the same
+                    drop-shadow so both variants feel like the same
+                    layer. */}
+                {active.titleImage ? (
+                  <Image
+                    src={active.titleImage.url}
+                    alt={title}
+                    width={640}
+                    height={260}
+                    quality={95}
+                    priority={idx === 0}
+                    className="h-auto w-auto max-h-[180px] max-w-[60%] object-contain drop-shadow-[0_8px_24px_rgba(0,0,0,0.65)]"
+                  />
+                ) : (
+                  <h1 className="font-outfit font-extrabold text-white text-5xl xl:text-6xl leading-[1.05] max-w-[80%] drop-shadow-[0_4px_16px_rgba(0,0,0,0.7)]">
+                    {title}
+                  </h1>
+                )}
+
+                {/* Metadata row */}
+                <div className="flex items-center gap-3 flex-wrap">
+                  {statusInfo && (
+                    <span className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-xs font-karla font-semibold tracking-wider text-white/90 backdrop-blur-sm">
+                      <span
+                        className={`h-1.5 w-1.5 rounded-full ${statusInfo.dot}`}
+                      />
+                      {statusInfo.label}
+                    </span>
+                  )}
+                  <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-karla font-semibold tracking-wider text-white/90 backdrop-blur-sm">
+                    TRENDING
+                  </span>
+                  <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-karla font-semibold tracking-wider text-white/90 backdrop-blur-sm">
+                    #{idx + 1}
+                  </span>
+                </div>
+
+                {/* Description (2 lines) */}
+                <p className="font-roboto font-light text-base xl:text-lg line-clamp-2 max-w-[90%] text-white/80">
+                  {stripDescription(active.description || "")}
+                </p>
+
+                {/* CTAs */}
+                <div className="flex items-center gap-3 mt-2">
+                  <button
+                    onClick={() => onPlay(active.id)}
+                    className="inline-flex items-center gap-2 rounded-full bg-action px-6 py-3 font-karla font-semibold text-white text-sm tracking-wider shadow-lg shadow-action/30 transition-all hover:bg-action/90 hover:scale-[1.02]"
+                  >
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="currentColor"
+                      className="h-4 w-4"
+                    >
+                      <path d="M8 5v14l11-7z" />
+                    </svg>
+                    WATCH NOW
+                  </button>
+                  <Link
+                    href={`/en/anime/${active.id}`}
+                    className="inline-flex items-center gap-2 rounded-full bg-white/10 px-6 py-3 font-karla font-semibold text-white text-sm tracking-wider backdrop-blur-sm transition-colors hover:bg-white/20"
+                  >
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="currentColor"
+                      className="h-4 w-4"
+                    >
+                      <path d="M11 17h2v-6h-2v6zm1-15C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zM11 9h2V7h-2v2z" />
+                    </svg>
+                    MORE INFO
+                  </Link>
+                </div>
+              </motion.div>
+            </AnimatePresence>
+          </div>
+
+          {/* Right rail with arrows + side thumbnails */}
+          <div className="hidden lg:flex w-[35%] xl:w-[40%] flex-col items-end justify-between pt-10 pb-12 pr-[6%]">
+            {/* Prev / next arrows. Sit at the top so the slider control
+                is reachable without crossing into the artwork. */}
+            <div className="flex gap-2">
+              <button
+                type="button"
+                aria-label="Previous trending"
+                onClick={() =>
+                  setIdx((i) => (i - 1 + list.length) % list.length)
+                }
+                className="grid h-10 w-10 place-items-center rounded-full bg-white/10 text-white backdrop-blur-sm transition-colors hover:bg-white/20"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="currentColor"
+                  className="h-5 w-5"
+                >
+                  <path d="M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12z" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                aria-label="Next trending"
+                onClick={() => setIdx((i) => (i + 1) % list.length)}
+                className="grid h-10 w-10 place-items-center rounded-full bg-white/10 text-white backdrop-blur-sm transition-colors hover:bg-white/20"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="currentColor"
+                  className="h-5 w-5"
+                >
+                  <path d="M10 6 8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Side preview thumbnails — clicking a thumb jumps focus. */}
+            {otherEntries.length > 0 && (
+              <div className="flex items-end gap-3">
+                {otherEntries.map((e) => {
+                  const realIdx = list.findIndex((x) => x.id === e.id);
+                  return (
+                    <button
+                      key={e.id}
+                      type="button"
+                      onClick={() => setIdx(realIdx)}
+                      className="group relative h-[170px] w-[120px] overflow-hidden rounded-lg border border-white/10 shadow-lg transition-transform hover:scale-[1.04] hover:border-white/30"
+                    >
+                      {e.coverImage?.extraLarge ? (
+                        <Image
+                          src={e.coverImage.extraLarge}
+                          alt={
+                            e.title?.english ||
+                            e.title?.romaji ||
+                            "thumbnail"
+                          }
+                          fill
+                          sizes="120px"
+                          className="object-cover"
+                        />
+                      ) : (
+                        <div className="absolute inset-0 bg-white/5" />
+                      )}
+                      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 to-transparent p-2">
+                        <span className="block truncate text-[11px] font-karla font-semibold text-white">
+                          {e.title?.english || e.title?.romaji || ""}
+                        </span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Progress dots — visual cue for the auto-cycle position. */}
+        <div className="absolute bottom-6 left-[8%] flex gap-1.5">
+          {list.map((_, i) => (
+            <span
+              key={i}
+              className={`h-1 rounded-full transition-all ${
+                i === idx % list.length
+                  ? "w-8 bg-action"
+                  : "w-4 bg-white/30"
+              }`}
+            />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export interface SessionTypes {
   name: string;
@@ -129,6 +478,7 @@ export default function Home({
   populars,
   upComing,
   firstTrend,
+  heroEntries,
 }: HomeProps) {
   const { data: sessions }: any = useSession();
   const userSession: SessionTypes = sessions?.user;
@@ -386,42 +736,14 @@ export default function Home({
       <MobileNav hideProfile={true} />
 
       <Navbar withNav={true} home={true} />
-      <div className="h-auto w-screen bg-primary text-[#dbdcdd] pt-[68px]">
-        <div className="hidden lg:flex w-full justify-center my-16">
-          <div className="flex justify-between w-[80%] h-[470px]">
-            <div className="flex flex-col items-start justify-center w-[55%] gap-5">
-              <p className="font-outfit font-extrabold text-[34px] line-clamp-2 leading-10">
-                {firstTrend?.title?.english || firstTrend?.title?.romaji}
-              </p>
-              <p className="font-roboto font-light lg:text-[18px] line-clamp-3 tracking-wide">
-                {removeHtmlTags(firstTrend?.description)}
-              </p>
-              {firstTrend && (
-                <button
-                  onClick={() => {
-                    router.push(`/en/anime/${firstTrend?.id}`);
-                  }}
-                  className="px-5 py-3 text-md font-karla font-semibold tracking-wide bg-action hover:bg-action/90 text-white rounded transition-colors"
-                >
-                  START WATCHING
-                </button>
-              )}
-            </div>
-            <div className="relative block h-[467px] w-[322px]">
-              <div className="absolute bg-gradient-to-t from-primary to-transparent w-full h-full inset-0 z-20" />
-              <Image
-                src={firstTrend?.coverImage?.extraLarge || firstTrend?.image}
-                alt={`cover ${
-                  firstTrend?.title?.english || firstTrend?.title?.romaji
-                }`}
-                fill
-                sizes="100%"
-                quality={100}
-                className="object-cover rounded z-10"
-              />
-            </div>
-          </div>
-        </div>
+      <div className="h-auto w-screen bg-primary text-[#dbdcdd]">
+        <HeroBanner
+          entries={heroEntries}
+          firstTrend={firstTrend}
+          onPlay={(id) => router.push(`/en/anime/${id}`)}
+          stripDescription={removeHtmlTags}
+        />
+
 
         {sessions && (
           <div className="flex items-center justify-center lg:bg-none mt-4 lg:mt-0 w-screen">
