@@ -1,5 +1,5 @@
 import { aniListData, aniListHomepageBatch } from "@/lib/anilist/AniList";
-import { useState, useEffect, useRef, Fragment } from "react";
+import { useState, useEffect, Fragment } from "react";
 import Head from "next/head";
 import Link from "next/link";
 import Footer from "@/components/shared/footer";
@@ -218,23 +218,6 @@ function HeroBanner({
   // from) while the auto-advance always slides left→right.
   const [dir, setDir] = useState(1);
 
-  // CTA row width → drives the progress-bar width so the pills span exactly
-  // from the left edge of WATCH NOW to the right edge of MORE INFO (never
-  // past it). Measured with a ResizeObserver since the button labels — and
-  // therefore the row width — are constant, but we still want to react to
-  // viewport/font changes.
-  const ctaRef = useRef<HTMLDivElement | null>(null);
-  const [ctaWidth, setCtaWidth] = useState<number | null>(null);
-  useEffect(() => {
-    const el = ctaRef.current;
-    if (!el) return;
-    const measure = () => setCtaWidth(el.offsetWidth);
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-
   const go = (next: number, direction: number) => {
     setDir(direction);
     setIdx(((next % list.length) + list.length) % list.length);
@@ -339,7 +322,7 @@ function HeroBanner({
 
         {/* Content column */}
         <div className="absolute inset-0 flex">
-          <div className="relative flex w-full xl:w-[60%] lg:w-[65%] flex-col justify-center gap-5 pb-24 pl-[7%] pr-8">
+          <div className="flex w-full xl:w-[60%] lg:w-[65%] flex-col justify-center gap-5 pb-24 pl-[7%] pr-8">
             <AnimatePresence mode="wait" custom={dir}>
               <motion.div
                 key={`stack-${active.id}`}
@@ -393,76 +376,81 @@ function HeroBanner({
                   {stripDescription(active.description || "")}
                 </p>
 
-                {/* CTAs */}
-                <div ref={ctaRef} className="flex items-center gap-3 mt-2 w-fit">
-                  <button
-                    onClick={() => onPlay(active.id)}
-                    className="inline-flex items-center gap-2 rounded-full bg-action px-7 py-3 font-karla font-semibold text-white text-sm tracking-wider shadow-lg shadow-[#E94560]/40 outline-none focus:outline-none focus-visible:outline-none transition-all hover:bg-[#E94560]/90 hover:scale-[1.03]"
-                  >
-                    <svg
-                      viewBox="0 0 24 24"
-                      fill="currentColor"
-                      className="h-8 w-8"
+                {/* CTAs + progress bar share a w-fit column so the bar
+                    below the buttons is exactly as wide as the button row
+                    (w-full on the bar = the column's content width = the
+                    CTA row). Both live inside the per-slide motion stack so
+                    the active pill remounts fresh each slide → the fill
+                    animation restarts cleanly and the pills never vanish. */}
+                <div className="flex flex-col gap-3 mt-2 w-fit">
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => onPlay(active.id)}
+                      className="inline-flex items-center gap-2 rounded-full bg-action px-7 py-3 font-karla font-semibold text-white text-sm tracking-wider shadow-lg shadow-[#E94560]/40 outline-none focus:outline-none focus-visible:outline-none transition-all hover:bg-[#E94560]/90 hover:scale-[1.03]"
                     >
-                      <path d="M8 5v14l11-7z" />
-                    </svg>
-                    WATCH NOW
-                  </button>
-                  <Link
-                    href={`/en/anime/${active.id}`}
-                    className="inline-flex items-center gap-2 rounded-full bg-white/10 px-7 py-3 font-karla font-semibold text-white text-sm tracking-wider border border-white/15 backdrop-blur-sm outline-none focus:outline-none focus-visible:outline-none transition-colors hover:bg-white/20"
-                  >
-                    <svg
-                      viewBox="0 0 24 24"
-                      fill="currentColor"
-                      className="h-8 w-8"
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="currentColor"
+                        className="h-8 w-8"
+                      >
+                        <path d="M8 5v14l11-7z" />
+                      </svg>
+                      WATCH NOW
+                    </button>
+                    <Link
+                      href={`/en/anime/${active.id}`}
+                      className="inline-flex items-center gap-2 rounded-full bg-white/10 px-7 py-3 font-karla font-semibold text-white text-sm tracking-wider border border-white/15 backdrop-blur-sm outline-none focus:outline-none focus-visible:outline-none transition-colors hover:bg-white/20"
                     >
-                      <path d="M11 17h2v-6h-2v6zm1-15C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zM11 9h2V7h-2v2z" />
-                    </svg>
-                    MORE INFO
-                  </Link>
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="currentColor"
+                        className="h-8 w-8"
+                      >
+                        <path d="M11 17h2v-6h-2v6zm1-15C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zM11 9h2V7h-2v2z" />
+                      </svg>
+                      MORE INFO
+                    </Link>
+                  </div>
+
+                  {/* Segmented progress bar — w-full = width of the CTA
+                      row above. flex-1 pills split it evenly; the active
+                      one fills over the auto-advance interval. */}
+                  <div className="flex w-full gap-2">
+                    {list.map((_, i) => {
+                      const isActive = i === idx % list.length;
+                      return (
+                        <button
+                          key={i}
+                          type="button"
+                          aria-label={`Go to trending ${i + 1}`}
+                          onClick={() => go(i, i > idx ? 1 : -1)}
+                          className={`relative h-1.5 flex-1 overflow-hidden rounded-full transition-all ${
+                            isActive
+                              ? "bg-white/20"
+                              : "bg-white/30 hover:bg-white/50"
+                          }`}
+                        >
+                          {isActive && (
+                            <span
+                              className="absolute inset-y-0 left-0 w-full rounded-full bg-action"
+                              style={{
+                                transformOrigin: "left",
+                                transform:
+                                  list.length > 1 ? "scaleX(0)" : "scaleX(1)",
+                                animation:
+                                  list.length > 1
+                                    ? `heroProgress ${HERO_AUTO_INTERVAL_MS}ms linear forwards`
+                                    : undefined,
+                              }}
+                            />
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
               </motion.div>
             </AnimatePresence>
-
-            {/* Segmented progress bar — persistent (outside AnimatePresence),
-                positioned absolutely within the (relative) content column so
-                left-[7%] matches the column's pl-[7%]: the bar's left edge
-                aligns with WATCH NOW and, width-matched to the CTA row, its
-                right edge lands exactly on MORE INFO's right edge. */}
-            <div
-              className="absolute bottom-10 left-[7%] z-20 flex gap-2"
-              style={ctaWidth ? { width: ctaWidth } : undefined}
-            >
-              {list.map((_, i) => {
-                const isActive = i === idx % list.length;
-                return (
-                  <button
-                    key={i}
-                    type="button"
-                    aria-label={`Go to trending ${i + 1}`}
-                    onClick={() => go(i, i > idx ? 1 : -1)}
-                    className={`relative h-1.5 flex-1 overflow-hidden rounded-full transition-all ${
-                      isActive ? "bg-white/20" : "bg-white/30 hover:bg-white/50"
-                    }`}
-                  >
-                    {isActive && (
-                      <span
-                        className="absolute inset-y-0 left-0 w-full rounded-full bg-action"
-                        style={{
-                          transformOrigin: "left",
-                          transform: list.length > 1 ? "scaleX(0)" : "scaleX(1)",
-                          animation:
-                            list.length > 1
-                              ? `heroProgress ${HERO_AUTO_INTERVAL_MS}ms linear forwards`
-                              : undefined,
-                        }}
-                      />
-                    )}
-                  </button>
-                );
-              })}
-            </div>
           </div>
 
           {/* Right rail — side preview thumbnails with the prev/next
