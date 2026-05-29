@@ -1,5 +1,5 @@
 import { aniListData, aniListHomepageBatch } from "@/lib/anilist/AniList";
-import { useState, useEffect, Fragment } from "react";
+import { useState, useEffect, useRef, Fragment } from "react";
 import Head from "next/head";
 import Link from "next/link";
 import Footer from "@/components/shared/footer";
@@ -217,9 +217,23 @@ function HeroBanner({
   // prev/next feel directional (content slides in from the side you came
   // from) while the auto-advance always slides left→right.
   const [dir, setDir] = useState(1);
-  // Pause auto-advance while the user is hovering or focused so we don't
-  // swap the card under their cursor mid-click.
-  const [hovered, setHovered] = useState(false);
+
+  // CTA row width → drives the progress-bar width so the pills span exactly
+  // from the left edge of WATCH NOW to the right edge of MORE INFO (never
+  // past it). Measured with a ResizeObserver since the button labels — and
+  // therefore the row width — are constant, but we still want to react to
+  // viewport/font changes.
+  const ctaRef = useRef<HTMLDivElement | null>(null);
+  const [ctaWidth, setCtaWidth] = useState<number | null>(null);
+  useEffect(() => {
+    const el = ctaRef.current;
+    if (!el) return;
+    const measure = () => setCtaWidth(el.offsetWidth);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   const go = (next: number, direction: number) => {
     setDir(direction);
@@ -228,19 +242,20 @@ function HeroBanner({
   const prev = () => go(idx - 1, -1);
   const next = () => go(idx + 1, 1);
 
-  // `idx` is in the deps so the timer restarts from zero whenever the
-  // slide changes — manual prev/next/dot clicks included. This keeps the
-  // auto-advance cadence in sync with the progress-pill fill animation
-  // (which also restarts each slide), so the pill always reaches 100%
-  // exactly as the next slide kicks in.
+  // Auto-advance. `idx` is in the deps so the timer restarts from zero
+  // whenever the slide changes — manual prev/next/dot clicks included —
+  // keeping the cadence in sync with the progress-pill fill animation
+  // (which also restarts each slide). We deliberately do NOT pause on
+  // hover: the hero fills the viewport, so the cursor sits over it almost
+  // permanently and a hover-pause would freeze the carousel for good.
   useEffect(() => {
-    if (hovered || list.length < 2) return;
+    if (list.length < 2) return;
     const t = window.setTimeout(() => {
       setDir(1);
       setIdx((i) => (i + 1) % list.length);
     }, HERO_AUTO_INTERVAL_MS);
     return () => window.clearTimeout(t);
-  }, [hovered, list.length, idx]);
+  }, [list.length, idx]);
 
   if (list.length === 0) return null;
   const activeIdx = idx % list.length;
@@ -264,11 +279,7 @@ function HeroBanner({
   const accent = active.coverImage?.color || "#E94560";
 
   return (
-    <div
-      className="hidden lg:block relative w-full overflow-hidden"
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-    >
+    <div className="hidden lg:block relative w-full overflow-hidden">
       {/* +100px taller than before (was max-h 680). The extra height plus
           the tall bottom gradient lets the artwork breathe and dissolve
           into the page. */}
@@ -328,7 +339,7 @@ function HeroBanner({
 
         {/* Content column */}
         <div className="absolute inset-0 flex">
-          <div className="flex w-full xl:w-[60%] lg:w-[65%] flex-col justify-center gap-5 pb-24 pl-[7%] pr-8">
+          <div className="relative flex w-full xl:w-[60%] lg:w-[65%] flex-col justify-center gap-5 pb-24 pl-[7%] pr-8">
             <AnimatePresence mode="wait" custom={dir}>
               <motion.div
                 key={`stack-${active.id}`}
@@ -383,7 +394,7 @@ function HeroBanner({
                 </p>
 
                 {/* CTAs */}
-                <div className="flex items-center gap-3 mt-2">
+                <div ref={ctaRef} className="flex items-center gap-3 mt-2 w-fit">
                   <button
                     onClick={() => onPlay(active.id)}
                     className="inline-flex items-center gap-2 rounded-full bg-action px-7 py-3 font-karla font-semibold text-white text-sm tracking-wider shadow-lg shadow-[#E94560]/40 outline-none focus:outline-none focus-visible:outline-none transition-all hover:bg-[#E94560]/90 hover:scale-[1.03]"
@@ -413,6 +424,45 @@ function HeroBanner({
                 </div>
               </motion.div>
             </AnimatePresence>
+
+            {/* Segmented progress bar — persistent (outside AnimatePresence),
+                positioned absolutely within the (relative) content column so
+                left-[7%] matches the column's pl-[7%]: the bar's left edge
+                aligns with WATCH NOW and, width-matched to the CTA row, its
+                right edge lands exactly on MORE INFO's right edge. */}
+            <div
+              className="absolute bottom-10 left-[7%] z-20 flex gap-2"
+              style={ctaWidth ? { width: ctaWidth } : undefined}
+            >
+              {list.map((_, i) => {
+                const isActive = i === idx % list.length;
+                return (
+                  <button
+                    key={i}
+                    type="button"
+                    aria-label={`Go to trending ${i + 1}`}
+                    onClick={() => go(i, i > idx ? 1 : -1)}
+                    className={`relative h-1.5 flex-1 overflow-hidden rounded-full transition-all ${
+                      isActive ? "bg-white/20" : "bg-white/30 hover:bg-white/50"
+                    }`}
+                  >
+                    {isActive && (
+                      <span
+                        className="absolute inset-y-0 left-0 w-full rounded-full bg-action"
+                        style={{
+                          transformOrigin: "left",
+                          transform: list.length > 1 ? "scaleX(0)" : "scaleX(1)",
+                          animation:
+                            list.length > 1
+                              ? `heroProgress ${HERO_AUTO_INTERVAL_MS}ms linear forwards`
+                              : undefined,
+                        }}
+                      />
+                    )}
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           {/* Right rail — side preview thumbnails with the prev/next
@@ -490,49 +540,6 @@ function HeroBanner({
               </div>
             )}
           </div>
-        </div>
-
-        {/* Progress pills — the active pill fills over the auto-advance
-            interval so the user can see how long until the next slide.
-            The fill is a CSS keyframe animation (keyed implicitly by the
-            active pill mounting fresh each slide) that pauses while the
-            user hovers — matching the paused auto-advance. Click any pill
-            to jump straight to that entry. */}
-        {/* Equal-width segmented progress bar. Widened so the row spans
-            roughly to the right edge of the MORE INFO button — the active
-            segment carries the fill animation, inactive ones are dim. */}
-        <div className="absolute bottom-24 left-[7%] z-20 flex gap-2">
-          {list.map((_, i) => {
-            const isActive = i === idx % list.length;
-            return (
-              <button
-                key={i}
-                type="button"
-                aria-label={`Go to trending ${i + 1}`}
-                onClick={() => go(i, i > idx ? 1 : -1)}
-                className={`relative h-1.5 w-12 overflow-hidden rounded-full transition-all ${
-                  isActive ? "bg-white/20" : "bg-white/30 hover:bg-white/50"
-                }`}
-              >
-                {isActive && (
-                  <span
-                    className="absolute inset-y-0 left-0 w-full rounded-full bg-action"
-                    style={{
-                      // GPU-composited scaleX fill — smooth, no layout reflow.
-                      transformOrigin: "left",
-                      // Single slide → no auto-advance, keep it filled.
-                      transform: list.length > 1 ? "scaleX(0)" : "scaleX(1)",
-                      animation:
-                        list.length > 1
-                          ? `heroProgress ${HERO_AUTO_INTERVAL_MS}ms linear forwards`
-                          : undefined,
-                      animationPlayState: hovered ? "paused" : "running",
-                    }}
-                  />
-                )}
-              </button>
-            );
-          })}
         </div>
       </div>
     </div>
