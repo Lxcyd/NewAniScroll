@@ -322,7 +322,7 @@ function HeroBanner({
 
         {/* Content column */}
         <div className="absolute inset-0 flex">
-          <div className="flex w-full xl:w-[60%] lg:w-[65%] flex-col justify-center gap-5 pb-24 pl-[7%] pr-8">
+          <div className="flex w-full xl:w-[60%] lg:w-[65%] flex-col justify-between gap-5 pt-16 pb-24 pl-[7%] pr-8">
             <AnimatePresence mode="wait" custom={dir}>
               <motion.div
                 key={`stack-${active.id}`}
@@ -412,45 +412,46 @@ function HeroBanner({
                     </Link>
                   </div>
 
-                  {/* Segmented progress bar — w-full = width of the CTA
-                      row above. flex-1 pills split it evenly; the active
-                      one fills over the auto-advance interval. */}
-                  <div className="flex w-full gap-2">
-                    {list.map((_, i) => {
-                      const isActive = i === idx % list.length;
-                      return (
-                        <button
-                          key={i}
-                          type="button"
-                          aria-label={`Go to trending ${i + 1}`}
-                          onClick={() => go(i, i > idx ? 1 : -1)}
-                          className={`relative h-1.5 flex-1 overflow-hidden rounded-full transition-all ${
-                            isActive
-                              ? "bg-white/20"
-                              : "bg-white/30 hover:bg-white/50"
-                          }`}
-                        >
-                          {isActive && (
-                            <span
-                              className="absolute inset-y-0 left-0 w-full rounded-full bg-action"
-                              style={{
-                                transformOrigin: "left",
-                                transform:
-                                  list.length > 1 ? "scaleX(0)" : "scaleX(1)",
-                                animation:
-                                  list.length > 1
-                                    ? `heroProgress ${HERO_AUTO_INTERVAL_MS}ms linear forwards`
-                                    : undefined,
-                              }}
-                            />
-                          )}
-                        </button>
-                      );
-                    })}
-                  </div>
                 </div>
               </motion.div>
             </AnimatePresence>
+
+            {/* Segmented progress bar — outside AnimatePresence so it
+                stays mounted across slide transitions. w-fit matches the
+                CTA button row; flex-1 pills distribute evenly. Placed at
+                the bottom of the column (justify-between) so its bottom
+                edge aligns with the bottom of the cover thumbnails on the
+                right rail (both share pb-24). */}
+            <div className="flex w-fit gap-2">
+              {list.map((_, i) => {
+                const isActive = i === idx % list.length;
+                return (
+                  <button
+                    key={i}
+                    type="button"
+                    aria-label={`Go to trending ${i + 1}`}
+                    onClick={() => go(i, i > idx ? 1 : -1)}
+                    className={`relative h-1.5 w-12 overflow-hidden rounded-full transition-all ${
+                      isActive ? "bg-white/20" : "bg-white/30 hover:bg-white/50"
+                    }`}
+                  >
+                    {isActive && (
+                      <span
+                        className="absolute inset-y-0 left-0 w-full rounded-full bg-action"
+                        style={{
+                          transformOrigin: "left",
+                          transform: list.length > 1 ? "scaleX(0)" : "scaleX(1)",
+                          animation:
+                            list.length > 1
+                              ? `heroProgress ${HERO_AUTO_INTERVAL_MS}ms linear forwards`
+                              : undefined,
+                        }}
+                      />
+                    )}
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           {/* Right rail — side preview thumbnails with the prev/next
@@ -721,26 +722,27 @@ export default function Home({
               new Date(a?.createdAt || 0).getTime(),
           );
 
-          const uniqueTitles = new Set<string>();
+          // Dedup by aniId (most reliable key) falling back to aniTitle.
+          // newFirst is already sorted most-recent-first, so the first
+          // occurrence of each id is the one we keep.
+          const seenIds = new Set<string>();
           const filteredData = newFirst.filter((entry: any) => {
-            if (!entry?.aniTitle) return false;
-            if (uniqueTitles.has(entry.aniTitle)) return false;
-            uniqueTitles.add(entry.aniTitle);
+            const key = String(entry?.aniId || entry?.aniTitle || "");
+            if (!key) return false;
+            if (seenIds.has(key)) return false;
+            seenIds.add(key);
             return true;
           });
 
           if (filteredData.length) setUser(filteredData);
         }
       } else {
-        // Create a Set to store unique aniTitles
-        const uniqueTitles = new Set();
-
-        // Filter out duplicates and store unique entries
+        // Dedup by aniId (most reliable) falling back to aniTitle.
+        const seenIds = new Set<string>();
         const filteredData = data?.WatchListEpisode.filter((entry) => {
-          if (uniqueTitles.has(entry.aniTitle)) {
-            return false;
-          }
-          uniqueTitles.add(entry.aniTitle);
+          const key = String(entry?.aniId || entry?.aniTitle || "");
+          if (!key || seenIds.has(key)) return false;
+          seenIds.add(key);
           return true;
         });
         setUser(filteredData);
