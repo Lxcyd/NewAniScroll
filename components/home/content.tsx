@@ -549,7 +549,12 @@ export default function Content({
                             width={320}
                             height={180}
                             alt="Episode Thumbnail"
-                            className="w-full object-cover group-hover:scale-[1.02] duration-300 ease-out z-10"
+                            // h-full + object-cover so the image fills the
+                            // whole 16:9 card. Without h-full the <img>
+                            // rendered at its intrinsic height (the source
+                            // is wider than 16:9) and left a black band
+                            // below it.
+                            className="absolute inset-0 h-full w-full object-cover group-hover:scale-[1.02] duration-300 ease-out z-10"
                           />
                         )}
                       </Link>

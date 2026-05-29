@@ -21,7 +21,7 @@ import { Navbar } from "@/components/shared/NavBar";
 import UserRecommendation from "@/components/home/recommendation";
 import { useRouter } from "next/router";
 import { loadFanarts } from "@/lib/db/fanarts";
-import { pickTitleImage, TitleImage } from "@/components/anime/v2/helpers";
+import { pickHeroLogo, TitleImage } from "@/components/anime/v2/helpers";
 
 export async function getServerSideProps(ctx: any) {
   // Edge-cache the home page aggressively. The response is identical for
@@ -42,10 +42,13 @@ export async function getServerSideProps(ctx: any) {
     cachedData = await redis.get("index_server");
   }
 
-  // Resolve the hero entries (clearart/logo for the top trending titles)
-  // outside the Redis branch — fanart is cheap (single Turso row each) and
-  // keeping it out of the homepage cache lets us swap in new clearart as
-  // fanart entries are reviewed without waiting 2 h for the cache to expire.
+  // Resolve the hero entries (HD logo for the top trending titles) outside
+  // the Redis branch — fanart is cheap (single Turso row each) and keeping
+  // it out of the homepage cache lets us swap in new logos as fanart
+  // entries are reviewed without waiting 2 h for the cache to expire.
+  // We deliberately pull LOGO only (pickHeroLogo) — clearart character
+  // cut-outs fight the banner behind them; the stylised title text reads
+  // cleanly on top of any background.
   const resolveHeroEntries = async (
     items: any[],
   ): Promise<Array<HeroEntry>> => {
@@ -62,7 +65,7 @@ export async function getServerSideProps(ctx: any) {
           bannerImage: it?.bannerImage || null,
           description: it?.description || "",
           status: it?.status || null,
-          titleImage: pickTitleImage(fanarts),
+          titleImage: pickHeroLogo(fanarts),
         };
       }),
     );
@@ -149,11 +152,13 @@ type HomeProps = {
 };
 
 /* ── Cinematic hero ──────────────────────────────────────────────────
-   Full-bleed banner background, HD clearart/logo overlay, side preview
-   thumbnails of the next four trending titles. Hovering / clicking a
-   side thumb swaps focus; auto-advances every 7 s otherwise.
-   Mobile collapses to a poster-on-the-side card so it doesn't dominate
-   the small viewport — preserves prior behaviour on phones.            */
+   Full-bleed banner background, HD logo overlay (clearart deliberately
+   excluded — see pickHeroLogo), side preview thumbnails of the next four
+   trending titles, and large edge arrows for manual navigation. Hovering
+   pauses the 8 s auto-advance; clicking a side thumb or an arrow swaps
+   focus. The whole block fades into the page below via a tall bottom
+   gradient so there's no visible seam.
+   Hidden < lg so phones keep their lighter layout below.                */
 const HERO_AUTO_INTERVAL_MS = 8000;
 const STATUS_TAG: Record<string, { label: string; dot: string }> = {
   RELEASING: { label: "AIRING", dot: "bg-emerald-400" },
@@ -194,13 +199,25 @@ function HeroBanner({
         : [];
 
   const [idx, setIdx] = useState(0);
+  // `dir` drives the slide direction of the entrance animation so manual
+  // prev/next feel directional (content slides in from the side you came
+  // from) while the auto-advance always slides left→right.
+  const [dir, setDir] = useState(1);
   // Pause auto-advance while the user is hovering or focused so we don't
   // swap the card under their cursor mid-click.
   const [hovered, setHovered] = useState(false);
 
+  const go = (next: number, direction: number) => {
+    setDir(direction);
+    setIdx(((next % list.length) + list.length) % list.length);
+  };
+  const prev = () => go(idx - 1, -1);
+  const next = () => go(idx + 1, 1);
+
   useEffect(() => {
     if (hovered || list.length < 2) return;
     const t = window.setInterval(() => {
+      setDir(1);
       setIdx((i) => (i + 1) % list.length);
     }, HERO_AUTO_INTERVAL_MS);
     return () => window.clearInterval(t);
@@ -225,17 +242,19 @@ function HeroBanner({
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
-      {/* Background banner. Keyed on the entry id so React swaps the <img>
-          cleanly between frames and the framer-motion fade reuses the
-          composited bitmap rather than fading a blank canvas. */}
-      <div className="relative aspect-[21/9] max-h-[680px] min-h-[420px] w-full">
-        <AnimatePresence mode="wait">
+      {/* +100px taller than before (was max-h 680). The extra height plus
+          the tall bottom gradient lets the artwork breathe and dissolve
+          into the page. */}
+      <div className="relative aspect-[21/9] max-h-[780px] min-h-[520px] w-full">
+        {/* Background banner. Keyed on the entry id so React swaps the
+            <img> cleanly; framer-motion cross-fades + slow Ken-Burns zoom. */}
+        <AnimatePresence mode="popLayout" custom={dir}>
           <motion.div
             key={`bg-${active.id}`}
-            initial={{ opacity: 0, scale: 1.04 }}
+            initial={{ opacity: 0, scale: 1.08 }}
             animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.7, ease: "easeOut" }}
+            exit={{ opacity: 0, scale: 1.04 }}
+            transition={{ opacity: { duration: 0.8 }, scale: { duration: 8, ease: "linear" } }}
             className="absolute inset-0"
           >
             {bg ? (
@@ -257,67 +276,76 @@ function HeroBanner({
           </motion.div>
         </AnimatePresence>
 
-        {/* Cinematic gradients. Bottom fade hides the seam against the
-            next section; left fade boosts text contrast on the logo + CTA
-            stack. Both are pure CSS so they cost nothing per frame. */}
-        <div className="absolute inset-0 bg-gradient-to-r from-primary via-primary/60 to-transparent" />
-        <div className="absolute inset-0 bg-gradient-to-t from-primary via-primary/20 to-transparent" />
-        {/* Subtle vignette anchor so the logo never sits on a hot pixel
-            spot when the banner is bright (white sky, etc.). */}
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_bottom_left,rgba(0,0,0,0.55),transparent_60%)]" />
+        {/* Cinematic gradients. Left fade boosts text contrast on the
+            logo + CTA stack. */}
+        <div className="absolute inset-0 bg-gradient-to-r from-primary via-primary/55 to-transparent" />
+        {/* Tall bottom fade — the seam-killer. Uses EXPLICIT primary
+            (#0c0d10) colour stops, not pure black, so it melts into the
+            identically-coloured page below with no visible line. The
+            bottom 20% is solid primary across the FULL width (both edges),
+            then fades up — identical left and right, no asymmetric dark
+            patch (the old bottom-left black vignette caused that). */}
+        <div
+          className="pointer-events-none absolute inset-x-0 bottom-0 h-[70%]"
+          style={{
+            backgroundImage:
+              "linear-gradient(to top, #0c0d10 0%, #0c0d10 20%, rgba(12,13,16,0.65) 48%, rgba(12,13,16,0) 100%)",
+          }}
+        />
 
         {/* Content column */}
         <div className="absolute inset-0 flex">
-          <div className="flex w-full xl:w-[60%] lg:w-[65%] flex-col justify-end gap-5 pb-16 pl-[8%] pr-8">
-            <AnimatePresence mode="wait">
+          <div className="flex w-full xl:w-[60%] lg:w-[65%] flex-col justify-center gap-5 pb-24 pl-[7%] pr-8">
+            <AnimatePresence mode="wait" custom={dir}>
               <motion.div
                 key={`stack-${active.id}`}
-                initial={{ opacity: 0, y: 24 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -16 }}
+                custom={dir}
+                variants={{
+                  enter: (d: number) => ({ opacity: 0, x: d * 40 }),
+                  center: { opacity: 1, x: 0 },
+                  exit: (d: number) => ({ opacity: 0, x: d * -40 }),
+                }}
+                initial="enter"
+                animate="center"
+                exit="exit"
                 transition={{ duration: 0.45, ease: "easeOut" }}
                 className="flex flex-col gap-5"
               >
-                {/* HD clearart / logo. Falls back to a stylised text
-                    title when no fanart is available. Keeps the same
-                    drop-shadow so both variants feel like the same
-                    layer. */}
+                {/* HD logo (stylised title text). Falls back to a styled
+                    <h1> when no logo fanart is available. */}
                 {active.titleImage ? (
                   <Image
                     src={active.titleImage.url}
                     alt={title}
-                    width={640}
-                    height={260}
+                    width={680}
+                    height={280}
                     quality={95}
                     priority={idx === 0}
-                    className="h-auto w-auto max-h-[180px] max-w-[60%] object-contain drop-shadow-[0_8px_24px_rgba(0,0,0,0.65)]"
+                    className="h-auto w-auto max-h-[200px] max-w-[68%] object-contain object-left drop-shadow-[0_10px_30px_rgba(0,0,0,0.7)]"
                   />
                 ) : (
-                  <h1 className="font-outfit font-extrabold text-white text-5xl xl:text-6xl leading-[1.05] max-w-[80%] drop-shadow-[0_4px_16px_rgba(0,0,0,0.7)]">
+                  <h1 className="font-outfit font-extrabold text-white text-5xl xl:text-6xl leading-[1.05] max-w-[85%] drop-shadow-[0_4px_16px_rgba(0,0,0,0.7)]">
                     {title}
                   </h1>
                 )}
 
                 {/* Metadata row */}
-                <div className="flex items-center gap-3 flex-wrap">
+                <div className="flex items-center gap-2.5 flex-wrap">
                   {statusInfo && (
-                    <span className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-xs font-karla font-semibold tracking-wider text-white/90 backdrop-blur-sm">
+                    <span className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-xs font-karla font-semibold tracking-wider text-white/90 backdrop-blur-sm ring-1 ring-white/10">
                       <span
                         className={`h-1.5 w-1.5 rounded-full ${statusInfo.dot}`}
                       />
                       {statusInfo.label}
                     </span>
                   )}
-                  <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-karla font-semibold tracking-wider text-white/90 backdrop-blur-sm">
-                    TRENDING
-                  </span>
-                  <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-karla font-semibold tracking-wider text-white/90 backdrop-blur-sm">
-                    #{idx + 1}
+                  <span className="rounded-full bg-action/20 px-3 py-1 text-xs font-karla font-semibold tracking-wider text-action ring-1 ring-action/30 backdrop-blur-sm">
+                    TRENDING #{idx + 1}
                   </span>
                 </div>
 
                 {/* Description (2 lines) */}
-                <p className="font-roboto font-light text-base xl:text-lg line-clamp-2 max-w-[90%] text-white/80">
+                <p className="font-roboto font-light text-base xl:text-lg line-clamp-2 max-w-[88%] text-white/80">
                   {stripDescription(active.description || "")}
                 </p>
 
@@ -325,7 +353,7 @@ function HeroBanner({
                 <div className="flex items-center gap-3 mt-2">
                   <button
                     onClick={() => onPlay(active.id)}
-                    className="inline-flex items-center gap-2 rounded-full bg-action px-6 py-3 font-karla font-semibold text-white text-sm tracking-wider shadow-lg shadow-action/30 transition-all hover:bg-action/90 hover:scale-[1.02]"
+                    className="inline-flex items-center gap-2 rounded-full bg-action px-7 py-3 font-karla font-semibold text-white text-sm tracking-wider shadow-lg shadow-action/40 transition-all hover:bg-action/90 hover:scale-[1.03]"
                   >
                     <svg
                       viewBox="0 0 24 24"
@@ -338,7 +366,7 @@ function HeroBanner({
                   </button>
                   <Link
                     href={`/en/anime/${active.id}`}
-                    className="inline-flex items-center gap-2 rounded-full bg-white/10 px-6 py-3 font-karla font-semibold text-white text-sm tracking-wider backdrop-blur-sm transition-colors hover:bg-white/20"
+                    className="inline-flex items-center gap-2 rounded-full bg-white/10 px-7 py-3 font-karla font-semibold text-white text-sm tracking-wider ring-1 ring-white/15 backdrop-blur-sm transition-colors hover:bg-white/20"
                   >
                     <svg
                       viewBox="0 0 24 24"
@@ -354,54 +382,46 @@ function HeroBanner({
             </AnimatePresence>
           </div>
 
-          {/* Right rail with arrows + side thumbnails */}
-          <div className="hidden lg:flex w-[35%] xl:w-[40%] flex-col items-end justify-between pt-10 pb-12 pr-[6%]">
-            {/* Prev / next arrows. Sit at the top so the slider control
-                is reachable without crossing into the artwork. */}
-            <div className="flex gap-2">
-              <button
-                type="button"
-                aria-label="Previous trending"
-                onClick={() =>
-                  setIdx((i) => (i - 1 + list.length) % list.length)
-                }
-                className="grid h-10 w-10 place-items-center rounded-full bg-white/10 text-white backdrop-blur-sm transition-colors hover:bg-white/20"
-              >
-                <svg
-                  viewBox="0 0 24 24"
-                  fill="currentColor"
-                  className="h-5 w-5"
-                >
-                  <path d="M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12z" />
-                </svg>
-              </button>
-              <button
-                type="button"
-                aria-label="Next trending"
-                onClick={() => setIdx((i) => (i + 1) % list.length)}
-                className="grid h-10 w-10 place-items-center rounded-full bg-white/10 text-white backdrop-blur-sm transition-colors hover:bg-white/20"
-              >
-                <svg
-                  viewBox="0 0 24 24"
-                  fill="currentColor"
-                  className="h-5 w-5"
-                >
-                  <path d="M10 6 8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z" />
-                </svg>
-              </button>
-            </div>
-
-            {/* Side preview thumbnails — clicking a thumb jumps focus. */}
+          {/* Right rail — side preview thumbnails with the prev/next
+              arrows sitting to their LEFT. Anchored to the lower right
+              above the bottom gradient. Clicking a thumb jumps focus in
+              the natural direction (right = forward). */}
+          <div className="hidden lg:flex w-[35%] xl:w-[40%] flex-col items-end justify-end pb-24 pr-[5%]">
             {otherEntries.length > 0 && (
-              <div className="flex items-end gap-3">
+              <div className="flex items-center gap-3">
+                {/* Prev / next arrows — stacked to the left of the covers. */}
+                {list.length > 1 && (
+                  <div className="z-20 flex flex-col gap-2">
+                    <button
+                      type="button"
+                      aria-label="Previous trending"
+                      onClick={prev}
+                      className="grid h-10 w-10 place-items-center rounded-full bg-black/40 text-white backdrop-blur-md transition-all hover:bg-action hover:scale-110"
+                    >
+                      <svg viewBox="0 0 24 24" fill="currentColor" className="h-6 w-6">
+                        <path d="M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12z" />
+                      </svg>
+                    </button>
+                    <button
+                      type="button"
+                      aria-label="Next trending"
+                      onClick={next}
+                      className="grid h-10 w-10 place-items-center rounded-full bg-black/40 text-white backdrop-blur-md transition-all hover:bg-action hover:scale-110"
+                    >
+                      <svg viewBox="0 0 24 24" fill="currentColor" className="h-6 w-6">
+                        <path d="M10 6 8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z" />
+                      </svg>
+                    </button>
+                  </div>
+                )}
                 {otherEntries.map((e) => {
                   const realIdx = list.findIndex((x) => x.id === e.id);
                   return (
                     <button
                       key={e.id}
                       type="button"
-                      onClick={() => setIdx(realIdx)}
-                      className="group relative h-[170px] w-[120px] overflow-hidden rounded-lg border border-white/10 shadow-lg transition-transform hover:scale-[1.04] hover:border-white/30"
+                      onClick={() => go(realIdx, realIdx > idx ? 1 : -1)}
+                      className="group relative h-[180px] w-[126px] overflow-hidden rounded-xl border border-white/10 shadow-xl transition-all duration-300 hover:scale-[1.06] hover:border-action/60"
                     >
                       {e.coverImage?.extraLarge ? (
                         <Image
@@ -412,13 +432,14 @@ function HeroBanner({
                             "thumbnail"
                           }
                           fill
-                          sizes="120px"
-                          className="object-cover"
+                          sizes="126px"
+                          className="object-cover transition-transform duration-500 group-hover:scale-110"
                         />
                       ) : (
                         <div className="absolute inset-0 bg-white/5" />
                       )}
-                      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 to-transparent p-2">
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-transparent to-transparent" />
+                      <div className="absolute inset-x-0 bottom-0 p-2.5">
                         <span className="block truncate text-[11px] font-karla font-semibold text-white">
                           {e.title?.english || e.title?.romaji || ""}
                         </span>
@@ -431,15 +452,19 @@ function HeroBanner({
           </div>
         </div>
 
-        {/* Progress dots — visual cue for the auto-cycle position. */}
-        <div className="absolute bottom-6 left-[8%] flex gap-1.5">
+        {/* Progress dots — visual cue for the auto-cycle position. Click a
+            dot to jump straight to that entry. */}
+        <div className="absolute bottom-8 left-[7%] z-20 flex gap-1.5">
           {list.map((_, i) => (
-            <span
+            <button
               key={i}
-              className={`h-1 rounded-full transition-all ${
+              type="button"
+              aria-label={`Go to trending ${i + 1}`}
+              onClick={() => go(i, i > idx ? 1 : -1)}
+              className={`h-1.5 rounded-full transition-all ${
                 i === idx % list.length
                   ? "w-8 bg-action"
-                  : "w-4 bg-white/30"
+                  : "w-4 bg-white/30 hover:bg-white/50"
               }`}
             />
           ))}
@@ -740,7 +765,11 @@ export default function Home({
         <HeroBanner
           entries={heroEntries}
           firstTrend={firstTrend}
-          onPlay={(id) => router.push(`/en/anime/${id}`)}
+          onPlay={(id) =>
+            router.push(
+              `/en/anime/watch/${id}/megaplay?id=megaplay-${id}-1&num=1`,
+            )
+          }
           stripDescription={removeHtmlTags}
         />
 

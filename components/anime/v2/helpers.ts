@@ -281,6 +281,21 @@ export function pickTitleImage(fanarts: FanartResponse | null): TitleImage | nul
   return null;
 }
 
+/* Logo-only variant of pickTitleImage. The home hero wants the stylised
+   title TEXT (HD ClearLogo) only — never the transparent character art
+   (clearart), which fights the banner background behind it. Returns the
+   most-liked acceptable-language logo, or null to fall back to text. */
+export function pickHeroLogo(fanarts: FanartResponse | null): TitleImage | null {
+  if (!fanarts) return null;
+  const logos = (fanarts.types.logo || []).filter((a) =>
+    isAcceptableLang(a.language)
+  );
+  if (logos.length > 0) {
+    return { url: logos[0].url, kind: "logo", queue: [] };
+  }
+  return null;
+}
+
 /* Fisher-Yates shuffle. Used to randomise the clearart cycle order at
    SSR so two visitors see different sequences. */
 function shuffle<T>(arr: T[]): T[] {
