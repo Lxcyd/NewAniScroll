@@ -103,6 +103,13 @@ export default function Content({
     if (e.button !== 0) return; // primary button only
     const el = ref.current;
     if (!el) return;
+    // Prevent the browser's native drag of the <a> link / <img> the cursor
+    // landed on. Without this the browser starts a link/image drag, which
+    // SWALLOWS every mousemove — so the scroll appears frozen and then jumps
+    // a whole card when the drag is released. This was the root cause of the
+    // "teleport by one card" behaviour.
+    e.preventDefault();
+
     const startX = e.clientX;
     const startScroll = el.scrollLeft;
     dragMovedRef.current = false;
@@ -111,14 +118,18 @@ export default function Content({
       const dx = ev.clientX - startX;
       if (Math.abs(dx) > DRAG_THRESHOLD) dragMovedRef.current = true;
       el.scrollLeft = startScroll - dx;
-      ev.preventDefault(); // stop text/image selection while dragging
     };
     const onUp = () => {
       document.removeEventListener("mousemove", onMove);
       document.removeEventListener("mouseup", onUp);
+      document.removeEventListener("dragstart", onDragStart);
     };
+    // Belt-and-braces: also veto any native dragstart that slips through.
+    const onDragStart = (ev: Event) => ev.preventDefault();
+
     document.addEventListener("mousemove", onMove);
     document.addEventListener("mouseup", onUp);
+    document.addEventListener("dragstart", onDragStart);
   };
 
   const onClickCapture = (e: React.MouseEvent) => {
