@@ -501,14 +501,16 @@ export default function Content({
                   let prog = time && duration ? (time / duration) * 100 : 0;
                   if (prog > 90) prog = 100;
 
-                  // Portrait cover for the vertical card; fall back to the
-                  // episode thumbnail if no cover was stored.
-                  const cardImage = i.cover || i.image;
+                  // Landscape card. Prefer the episode thumbnail (16:9). If
+                  // there's none, use the portrait cover — which, with
+                  // object-cover, still fills the whole 16:9 box (cropped)
+                  // rather than leaving a black band like a wide banner does.
+                  const cardImage = i.image || i.cover;
 
                   return (
                     <div
                       key={i.watchId}
-                      className="flex flex-col gap-3 shrink-0 cursor-pointer relative group/item"
+                      className="flex flex-col gap-2 shrink-0 cursor-pointer relative group/item"
                     >
                       <div className="absolute flex flex-col gap-1 z-40 top-1 right-1 transition-all duration-200 ease-out opacity-0 group-hover/item:opacity-100 scale-90 group-hover/item:scale-100 group-hover/item:visible invisible ">
                         <HistoryOptions
@@ -540,7 +542,7 @@ export default function Content({
                         )}
                       </div>
                       <Link
-                        className="relative h-[190px] w-[135px] lg:h-[265px] lg:w-[185px] rounded-md overflow-hidden group hover:scale-105 hover:shadow-lg duration-300 ease-out"
+                        className="relative w-[320px] aspect-video rounded-md overflow-hidden group bg-secondary"
                         href={`/en/anime/watch/${i.aniId}/${
                           i.provider
                         }?id=${encodeURIComponent(i.watchId)}&num=${i.episode}${
@@ -549,15 +551,20 @@ export default function Content({
                         draggable={false}
                         onDragStart={(e) => e.preventDefault()}
                       >
-                        <div className="w-full h-full bg-gradient-to-t from-black/70 from-10% to-transparent group-hover:to-black/40 transition-all duration-300 ease-out absolute z-30" />
-                        <div className="absolute bottom-3 left-0 mx-2 text-white flex gap-1.5 items-center w-[90%] z-30">
+                        <div className="w-full h-full bg-gradient-to-t from-black/70 from-20% to-transparent group-hover:to-black/40 transition-all duration-300 ease-out absolute z-30" />
+                        <div className="absolute bottom-3 left-0 mx-2 text-white flex gap-2 items-center w-[80%] z-30">
                           <PlayIcon className="w-5 h-5 shrink-0" />
-                          <h1 className="font-semibold font-karla text-sm">
-                            Episode {i.episode}
+                          <h1
+                            className="font-semibold font-karla line-clamp-1"
+                            title={i?.title || i?.aniTitle}
+                          >
+                            {i?.title === i.aniTitle
+                              ? `Episode ${i.episode}`
+                              : i?.title || i?.aniTitle}
                           </h1>
                         </div>
                         <span
-                          className={`absolute bottom-0 left-0 h-[3px] bg-red-600 z-30`}
+                          className={`absolute bottom-0 left-0 h-[2px] bg-red-600 z-30`}
                           style={{
                             width: `${prog}%`,
                           }}
@@ -566,28 +573,41 @@ export default function Content({
                         {cardImage && (
                           <Image
                             src={cardImage}
-                            width={370}
-                            height={530}
-                            alt={i?.aniTitle || "Recently watched"}
-                            className="absolute inset-0 h-full w-full object-cover brightness-90 group-hover:scale-[1.02] duration-300 ease-out z-10"
+                            width={320}
+                            height={180}
+                            alt="Episode Thumbnail"
+                            // h-full + object-cover so the image fills the
+                            // whole 16:9 card regardless of the source ratio
+                            // (thumbnail OR cover) — no black band.
+                            className="absolute inset-0 h-full w-full object-cover group-hover:scale-[1.02] duration-300 ease-out z-10"
                           />
                         )}
                       </Link>
 
                       <Link
-                        className="w-[135px] lg:w-[185px] line-clamp-2"
+                        className="flex flex-col font-karla w-full"
                         href={`/en/anime/watch/${i.aniId}/${
                           i.provider
                         }?id=${encodeURIComponent(i.watchId)}&num=${i.episode}`}
                         draggable={false}
                         onDragStart={(e) => e.preventDefault()}
                       >
-                        <h1
-                          className="font-karla font-semibold xl:text-base text-[15px]"
-                          title={i.aniTitle}
-                        >
-                          {i.aniTitle}
-                        </h1>
+                        <p className="flex items-center gap-1 text-sm text-gray-400 w-[320px]">
+                          <span
+                            className="text-white"
+                            style={{
+                              display: "inline-block",
+                              maxWidth: "220px",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                            }}
+                            title={i.aniTitle}
+                          >
+                            {i.aniTitle}
+                          </span>{" "}
+                          | Episode {i.episode}
+                        </p>
                       </Link>
                     </div>
                   );
@@ -601,7 +621,7 @@ export default function Content({
                 className="flex flex-col cursor-pointer"
                 onClick={goToPage}
               >
-                <div className="h-[190px] w-[135px] lg:h-[265px] lg:w-[185px] object-cover rounded-md border-secondary border-2 flex flex-col gap-2 items-center text-center justify-center text-[#6a6a6a] hover:text-[#9f9f9f] hover:border-[#757575] transition-colors duration-200">
+                <div className="w-[320px] aspect-video overflow-hidden object-cover rounded-md border-secondary border-2 flex flex-col gap-2 items-center text-center justify-center text-[#6a6a6a] hover:text-[#9f9f9f] hover:border-[#757575] transition-colors duration-200">
                   <h1 className="whitespace-pre-wrap text-sm">
                     More on {section}
                   </h1>

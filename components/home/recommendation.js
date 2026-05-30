@@ -1,54 +1,28 @@
 import Image from "next/image";
 import { useRef, useState } from "react";
 import Link from "next/link";
+import { useDraggable } from "react-use-draggable-scroll";
 import { ChevronRightIcon } from "@heroicons/react/24/outline";
 import { ChevronLeftIcon } from "@heroicons/react/20/solid";
 import { MdChevronRight } from "react-icons/md";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 
-const DRAG_THRESHOLD = 8;
-
 export default function UserRecommendation({ data }) {
   const titlePref = useTitlePref();
   const ref = useRef(null);
+  const { events } = useDraggable(ref);
 
-  // Drag-scroll state
-  const isDown = useRef(false);
-  const startX = useRef(0);
-  const scrollStartLeft = useRef(0);
-
-  // Drag-vs-click discriminator
+  // Drag-vs-click discriminator — same approach as the home Content carousel:
+  // only swallow the click that fires right after a real drag.
   const dragMovedRef = useRef(false);
   const downPosRef = useRef(null);
+  const DRAG_THRESHOLD = 8;
 
-  const [scrollLeft, setScrollLeft] = useState(false);
-  const [scrollRight, setScrollRight] = useState(true);
-
-  const handleScroll = (e) => {
-    setScrollLeft(e.target.scrollLeft > 31);
-    setScrollRight(
-      e.target.scrollLeft < e.target.scrollWidth - e.target.clientWidth
-    );
-  };
-
-  const onPointerDown = (e) => {
-    if (!ref.current) return;
-    isDown.current = true;
+  const onPointerDownCapture = (e) => {
     dragMovedRef.current = false;
     downPosRef.current = { x: e.clientX, y: e.clientY };
-    startX.current = e.clientX;
-    scrollStartLeft.current = ref.current.scrollLeft;
-    ref.current.setPointerCapture(e.pointerId);
   };
-
-  const onPointerMove = (e) => {
-    if (!isDown.current || !ref.current) return;
-    const dx = e.clientX - startX.current;
-    ref.current.scrollLeft = scrollStartLeft.current - dx;
-  };
-
-  const onPointerUp = (e) => {
-    isDown.current = false;
+  const onPointerUpCapture = (e) => {
     const start = downPosRef.current;
     if (!start) return;
     const dx = Math.abs(e.clientX - start.x);
@@ -56,13 +30,31 @@ export default function UserRecommendation({ data }) {
     if (dx > DRAG_THRESHOLD || dy > DRAG_THRESHOLD) dragMovedRef.current = true;
     downPosRef.current = null;
   };
-
   const onClickCapture = (e) => {
     if (dragMovedRef.current) {
       e.preventDefault();
       e.stopPropagation();
       dragMovedRef.current = false;
     }
+  };
+
+  const [scrollLeft, setScrollLeft] = useState(false);
+  const [scrollRight, setScrollRight] = useState(true);
+
+  const slideLeft = () => {
+    const slider = document.getElementById("recommendationList");
+    if (slider?.scrollLeft != null) slider.scrollLeft = slider.scrollLeft - 500;
+  };
+  const slideRight = () => {
+    const slider = document.getElementById("recommendationList");
+    if (slider?.scrollLeft != null) slider.scrollLeft = slider.scrollLeft + 500;
+  };
+
+  const handleScroll = (e) => {
+    setScrollLeft(e.target.scrollLeft > 31);
+    setScrollRight(
+      e.target.scrollLeft < e.target.scrollWidth - e.target.clientWidth
+    );
   };
 
   const seen = new Set();
@@ -80,6 +72,7 @@ export default function UserRecommendation({ data }) {
       </div>
       <div className="relative flex items-center lg:gap-2">
         <div
+          onClick={slideLeft}
           className={`flex items-center mb-5 cursor-pointer hover:text-action absolute left-0 bg-gradient-to-r from-[#0c0d10] z-40 h-full hover:opacity-100 ${
             scrollLeft ? "lg:visible" : "invisible"
           }`}
@@ -88,14 +81,13 @@ export default function UserRecommendation({ data }) {
         </div>
         <div
           id="recommendationList"
-          ref={ref}
-          className="flex h-full w-full select-none overflow-x-scroll overflow-y-hidden scrollbar-hide lg:gap-8 gap-4 lg:p-10 py-8 px-5 z-30 cursor-grab active:cursor-grabbing"
+          className="flex h-full w-full select-none overflow-x-scroll overflow-y-hidden scrollbar-hide lg:gap-8 gap-4 lg:p-10 py-8 px-5 z-30"
           onScroll={handleScroll}
-          onPointerDown={onPointerDown}
-          onPointerMove={onPointerMove}
-          onPointerUp={onPointerUp}
-          onPointerCancel={onPointerUp}
+          onPointerDownCapture={onPointerDownCapture}
+          onPointerUpCapture={onPointerUpCapture}
           onClickCapture={onClickCapture}
+          {...events}
+          ref={ref}
         >
           {filteredData.slice(0, 15).map((i) => (
             <div
@@ -140,8 +132,9 @@ export default function UserRecommendation({ data }) {
           ))}
         </div>
         <MdChevronRight
+          onClick={slideRight}
           size={30}
-          className={`hidden md:block mb-5 cursor-pointer hover:text-action absolute right-0 bg-gradient-to-l from-[#0c0d10] z-40 h-full hover:opacity-100 ${
+          className={`hidden md:block mb-5 cursor-pointer hover:text-action absolute right-0 bg-gradient-to-l from-[#0c0d10] z-40 h-full hover:opacity-100 hover:bg-gradient-to-l ${
             scrollRight ? "visible" : "hidden"
           }`}
         />

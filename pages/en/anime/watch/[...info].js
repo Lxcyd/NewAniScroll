@@ -456,8 +456,12 @@ export default function Watch({
             const raw = localStorage.getItem("artplayer_settings");
             const existing = raw ? JSON.parse(raw) : {};
             const entryKey = String(info.id);
+            // Only ever store a real episode thumbnail here. Do NOT fall back
+            // to bannerImage — a wide banner (≈16:5) doesn't fill the 16:9
+            // card and leaves a black band. When there's no thumbnail the
+            // card uses `cover` (portrait) which object-cover fills cleanly.
             const episodeImage =
-              playingData?.img || playingData?.image || info?.bannerImage || null;
+              playingData?.img || playingData?.image || null;
             existing[entryKey] = {
               ...(existing[entryKey] || {}),
               watchId: currentEpisode.id,
@@ -466,8 +470,6 @@ export default function Watch({
               title:
                 playingData?.title ||
                 `Episode ${currentEpisode.number}`,
-              // Always use the episode thumbnail when available — never fall
-              // back to the cover art so the 16:9 card always shows a 16:9 image.
               image: episodeImage,
               // Portrait cover for the home carousel's vertical cards.
               cover:
