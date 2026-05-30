@@ -179,7 +179,11 @@ const rStyles: Record<string, CSSProperties> = {
     overflowX: "auto",
     overflowY: "hidden",
     paddingBottom: 8,
-    scrollSnapType: "x mandatory",
+    // No scroll-snap: `x mandatory` fought the click-and-drag handler — the
+    // snap held the scroll, then jumped a whole card at once ("teleport by
+    // one card"). Free scrolling lets the drag track the pointer smoothly.
+    userSelect: "none",
+    cursor: "grab",
   },
   cardLink: {
     display: "flex",
@@ -191,7 +195,6 @@ const rStyles: Record<string, CSSProperties> = {
        pins them. */
     flex: "0 0 180px",
     width: 180,
-    scrollSnapAlign: "start",
     textDecoration: "none",
     color: "inherit",
     alignSelf: "flex-start",
