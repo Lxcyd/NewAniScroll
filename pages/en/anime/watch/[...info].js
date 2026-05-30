@@ -369,6 +369,13 @@ export default function Watch({
         // The episode effect writes the real 16:9 thumbnail; this mount effect
         // only fills in the image when there is absolutely nothing yet.
         image: prev.image || null,
+        // Portrait cover of the anime — used by the home Recently Watched
+        // carousel which renders vertical cards (like Trending/Popular).
+        cover:
+          info?.coverImage?.extraLarge ||
+          info?.coverImage?.large ||
+          prev.cover ||
+          null,
         episode: Number(epiNumber),
         provider,
         dub: !!dub,
@@ -462,6 +469,12 @@ export default function Watch({
               // Always use the episode thumbnail when available — never fall
               // back to the cover art so the 16:9 card always shows a 16:9 image.
               image: episodeImage,
+              // Portrait cover for the home carousel's vertical cards.
+              cover:
+                info?.coverImage?.extraLarge ||
+                info?.coverImage?.large ||
+                existing[entryKey]?.cover ||
+                null,
               episode: currentEpisode.number,
               // `getProvider` is the full provider object — store just the
               // id string so the home / recently-watched UIs can compose
