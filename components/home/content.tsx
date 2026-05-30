@@ -1,6 +1,5 @@
 import Link from "next/link";
 import React, { useState, useRef, useEffect, Fragment } from "react";
-import { useDraggable } from "react-use-draggable-scroll";
 import Image from "next/image";
 import { MdChevronRight } from "react-icons/md";
 import {
@@ -85,32 +84,46 @@ export default function Content({
   type = "anime",
 }: ContentProps) {
   const titlePref = useTitlePref();
-  const ref = useRef<HTMLElement>(null!);
-  const { events } = useDraggable(ref);
+  const ref = useRef<HTMLDivElement>(null!);
+
+  // Native drag-to-scroll. We rolled our own (instead of
+  // react-use-draggable-scroll) because the library scrolled in jerky steps
+  // on some carousels and let text/images get selected mid-drag. Pointer
+  // capture keeps every pointermove routed to the track even when the cursor
+  // leaves it, and we set scrollLeft directly so the scroll follows the
+  // pointer pixel-for-pixel.
+  const isDownRef = useRef(false);
+  const startXRef = useRef(0);
+  const startScrollRef = useRef(0);
   // Drag-vs-click discriminator: only swallow the click that fires right
-  // after a real drag. We measure distance from pointerdown to pointerup;
-  // if it's below the threshold the click goes through (navigation works).
-  // The threshold is generous (8px) so hand tremor on a static click
-  // doesn't disable navigation. The flag is set in pointerup, NOT
-  // pointermove, so a moving cursor during the down isn't enough by
-  // itself — the user has to actually displace the pointer between down
-  // and up to count as a drag.
+  // after a real drag. The threshold (8px) is generous so hand tremor on a
+  // static click doesn't disable navigation.
   const dragMovedRef = useRef(false);
   const downPosRef = useRef<{ x: number; y: number } | null>(null);
   const DRAG_THRESHOLD = 8;
-  const onPointerDownCapture = (e: React.PointerEvent) => {
+
+  const onPointerDown = (e: React.PointerEvent) => {
+    // Only primary button / touch / pen — ignore right & middle clicks.
+    if (e.button !== 0 && e.pointerType === "mouse") return;
+    isDownRef.current = true;
     dragMovedRef.current = false;
     downPosRef.current = { x: e.clientX, y: e.clientY };
+    startXRef.current = e.clientX;
+    startScrollRef.current = ref.current?.scrollLeft ?? 0;
+    ref.current?.setPointerCapture(e.pointerId);
   };
-  const onPointerUpCapture = (e: React.PointerEvent) => {
-    const start = downPosRef.current;
-    if (!start) return;
-    const dx = Math.abs(e.clientX - start.x);
-    const dy = Math.abs(e.clientY - start.y);
-    if (dx > DRAG_THRESHOLD || dy > DRAG_THRESHOLD) {
-      dragMovedRef.current = true;
-    }
+  const onPointerMove = (e: React.PointerEvent) => {
+    if (!isDownRef.current || !ref.current) return;
+    const dx = e.clientX - startXRef.current;
+    if (Math.abs(dx) > DRAG_THRESHOLD) dragMovedRef.current = true;
+    ref.current.scrollLeft = startScrollRef.current - dx;
+  };
+  const onPointerUp = (e: React.PointerEvent) => {
+    isDownRef.current = false;
     downPosRef.current = null;
+    if (ref.current?.hasPointerCapture(e.pointerId)) {
+      ref.current.releasePointerCapture(e.pointerId);
+    }
   };
   const onClickCapture = (e: React.MouseEvent) => {
     if (dragMovedRef.current) {
@@ -339,13 +352,14 @@ export default function Content({
         </div>
         <div
           id={ids}
-          className="flex h-full w-full select-none overflow-x-scroll overflow-y-hidden scrollbar-hide lg:gap-8 gap-4 lg:p-10 py-8 px-5 z-30"
+          className="flex h-full w-full select-none touch-pan-y overflow-x-scroll overflow-y-hidden scrollbar-hide lg:gap-8 gap-4 lg:p-10 py-8 px-5 z-30 cursor-grab active:cursor-grabbing"
           onScroll={handleScroll}
-          onPointerDownCapture={onPointerDownCapture}
-          onPointerUpCapture={onPointerUpCapture}
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          onPointerCancel={onPointerUp}
           onClickCapture={onClickCapture}
-          {...events}
-          ref={ref as React.RefObject<HTMLDivElement>}
+          ref={ref}
         >
           {ids !== "recentlyWatched"
             ? slicedData?.map((anime) => {
