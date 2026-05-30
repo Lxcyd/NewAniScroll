@@ -99,38 +99,49 @@ export default function Content({
   // that one click (otherwise the drag would also navigate).
   const dragMovedRef = useRef(false);
 
-  const onMouseDown = (e: React.MouseEvent) => {
-    if (e.button !== 0) return; // primary button only
+  // Attach the drag-to-scroll listeners imperatively in an effect. Doing it
+  // on the real DOM node (rather than React synthetic handlers) lets us bind
+  // mousemove as a NON-passive listener so preventDefault actually works, and
+  // guarantees we operate on the same element we set scrollLeft on.
+  useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    // Prevent the browser's native drag of the <a> link / <img> the cursor
-    // landed on. Without this the browser starts a link/image drag, which
-    // SWALLOWS every mousemove — so the scroll appears frozen and then jumps
-    // a whole card when the drag is released. This was the root cause of the
-    // "teleport by one card" behaviour.
-    e.preventDefault();
 
-    const startX = e.clientX;
-    const startScroll = el.scrollLeft;
-    dragMovedRef.current = false;
+    let isDown = false;
+    let startX = 0;
+    let startScroll = 0;
 
-    const onMove = (ev: MouseEvent) => {
-      const dx = ev.clientX - startX;
+    const onDown = (e: MouseEvent) => {
+      if (e.button !== 0) return;
+      isDown = true;
+      startX = e.pageX;
+      startScroll = el.scrollLeft;
+      dragMovedRef.current = false;
+      // Stop the browser starting a native link/image drag, which would
+      // swallow the mousemove stream and make the carousel jump a whole
+      // card on release instead of scrolling.
+      e.preventDefault();
+    };
+    const onMove = (e: MouseEvent) => {
+      if (!isDown) return;
+      e.preventDefault();
+      const dx = e.pageX - startX;
       if (Math.abs(dx) > DRAG_THRESHOLD) dragMovedRef.current = true;
       el.scrollLeft = startScroll - dx;
     };
     const onUp = () => {
-      document.removeEventListener("mousemove", onMove);
-      document.removeEventListener("mouseup", onUp);
-      document.removeEventListener("dragstart", onDragStart);
+      isDown = false;
     };
-    // Belt-and-braces: also veto any native dragstart that slips through.
-    const onDragStart = (ev: Event) => ev.preventDefault();
 
-    document.addEventListener("mousemove", onMove);
-    document.addEventListener("mouseup", onUp);
-    document.addEventListener("dragstart", onDragStart);
-  };
+    el.addEventListener("mousedown", onDown);
+    window.addEventListener("mousemove", onMove, { passive: false });
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      el.removeEventListener("mousedown", onDown);
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, []);
 
   const onClickCapture = (e: React.MouseEvent) => {
     if (dragMovedRef.current) {
@@ -361,7 +372,6 @@ export default function Content({
           id={ids}
           className="flex h-full w-full select-none touch-pan-y overflow-x-scroll overflow-y-hidden scrollbar-hide lg:gap-8 gap-4 lg:p-10 py-8 px-5 z-30 cursor-grab active:cursor-grabbing"
           onScroll={handleScroll}
-          onMouseDown={onMouseDown}
           onClickCapture={onClickCapture}
           ref={ref}
         >

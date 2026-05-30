@@ -62,6 +62,16 @@ img {
   -webkit-touch-callout: none;
 }
 
+/* Anchors (Next.js <Link>) start a native link-drag when you click-and-drag
+   over them — that drag swallows every mousemove, so the home carousels
+   appear frozen mid-drag and then jump a whole card on release. Disabling
+   the native drag on every <a> lets our drag-to-scroll handler receive the
+   mousemove stream and scroll smoothly. */
+a {
+  -webkit-user-drag: none;
+  user-drag: none;
+}
+
 * {
   -webkit-tap-highlight-color: transparent;
 }
