@@ -87,44 +87,40 @@ export default function Content({
   const ref = useRef<HTMLDivElement>(null!);
 
   // Native drag-to-scroll. We rolled our own (instead of
-  // react-use-draggable-scroll) because the library scrolled in jerky steps
-  // on some carousels and let text/images get selected mid-drag. Pointer
-  // capture keeps every pointermove routed to the track even when the cursor
-  // leaves it, and we set scrollLeft directly so the scroll follows the
-  // pointer pixel-for-pixel.
-  const isDownRef = useRef(false);
-  const startXRef = useRef(0);
-  const startScrollRef = useRef(0);
-  // Drag-vs-click discriminator: only swallow the click that fires right
-  // after a real drag. The threshold (8px) is generous so hand tremor on a
-  // static click doesn't disable navigation.
-  const dragMovedRef = useRef(false);
-  const downPosRef = useRef<{ x: number; y: number } | null>(null);
+  // react-use-draggable-scroll, which scrolled in jerky steps and let
+  // text/images get selected mid-drag). On mousedown we attach mousemove/
+  // mouseup listeners to `document` so the drag keeps tracking even when the
+  // cursor leaves the track, and we set scrollLeft directly so the content
+  // follows the pointer pixel-for-pixel. The dependency-free approach (no
+  // pointer capture, no per-pixel React state) avoids the re-render churn
+  // that made the previous version stutter.
   const DRAG_THRESHOLD = 8;
+  // True between a real drag and the click it produces, so we can swallow
+  // that one click (otherwise the drag would also navigate).
+  const dragMovedRef = useRef(false);
 
-  const onPointerDown = (e: React.PointerEvent) => {
-    // Only primary button / touch / pen — ignore right & middle clicks.
-    if (e.button !== 0 && e.pointerType === "mouse") return;
-    isDownRef.current = true;
+  const onMouseDown = (e: React.MouseEvent) => {
+    if (e.button !== 0) return; // primary button only
+    const el = ref.current;
+    if (!el) return;
+    const startX = e.clientX;
+    const startScroll = el.scrollLeft;
     dragMovedRef.current = false;
-    downPosRef.current = { x: e.clientX, y: e.clientY };
-    startXRef.current = e.clientX;
-    startScrollRef.current = ref.current?.scrollLeft ?? 0;
-    ref.current?.setPointerCapture(e.pointerId);
+
+    const onMove = (ev: MouseEvent) => {
+      const dx = ev.clientX - startX;
+      if (Math.abs(dx) > DRAG_THRESHOLD) dragMovedRef.current = true;
+      el.scrollLeft = startScroll - dx;
+      ev.preventDefault(); // stop text/image selection while dragging
+    };
+    const onUp = () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+    };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
   };
-  const onPointerMove = (e: React.PointerEvent) => {
-    if (!isDownRef.current || !ref.current) return;
-    const dx = e.clientX - startXRef.current;
-    if (Math.abs(dx) > DRAG_THRESHOLD) dragMovedRef.current = true;
-    ref.current.scrollLeft = startScrollRef.current - dx;
-  };
-  const onPointerUp = (e: React.PointerEvent) => {
-    isDownRef.current = false;
-    downPosRef.current = null;
-    if (ref.current?.hasPointerCapture(e.pointerId)) {
-      ref.current.releasePointerCapture(e.pointerId);
-    }
-  };
+
   const onClickCapture = (e: React.MouseEvent) => {
     if (dragMovedRef.current) {
       e.preventDefault();
@@ -354,10 +350,7 @@ export default function Content({
           id={ids}
           className="flex h-full w-full select-none touch-pan-y overflow-x-scroll overflow-y-hidden scrollbar-hide lg:gap-8 gap-4 lg:p-10 py-8 px-5 z-30 cursor-grab active:cursor-grabbing"
           onScroll={handleScroll}
-          onPointerDown={onPointerDown}
-          onPointerMove={onPointerMove}
-          onPointerUp={onPointerUp}
-          onPointerCancel={onPointerUp}
+          onMouseDown={onMouseDown}
           onClickCapture={onClickCapture}
           ref={ref}
         >
