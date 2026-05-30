@@ -167,7 +167,10 @@ export default function PopularAnime({ sessions }) {
                (image OR title). Some legacy watch-history rows are
                half-populated and would render as blank black cards
                with "| Episode" — better to hide those entirely. */
-            ?.filter((i) => i?.watchId && (i?.image || i?.aniTitle || i?.title))
+            ?.filter(
+              (i) =>
+                i?.watchId && (i?.image || i?.cover || i?.aniTitle || i?.title)
+            )
             .map((i) => {
               const time = i.timeWatched;
               const duration = i.duration;
@@ -228,13 +231,16 @@ export default function PopularAnime({ sessions }) {
                         width: `${prog}%`,
                       }}
                     />
-                    {i?.image && (
+                    {(i?.image || i?.cover) && (
                       <Image
-                        src={i?.image}
-                        width={200}
-                        height={200}
+                        src={i?.image || i?.cover}
+                        width={320}
+                        height={180}
                         alt="Episode Thumbnail"
-                        className="w-full object-cover group-hover:scale-[1.02] duration-300 ease-out z-10"
+                        // absolute inset-0 + h-full so the image fills the whole
+                        // 16:9 card regardless of the source ratio (thumbnail OR
+                        // cover OR wide banner) — no black band below it.
+                        className="absolute inset-0 h-full w-full object-cover group-hover:scale-[1.02] duration-300 ease-out z-10"
                       />
                     )}
                   </Link>
