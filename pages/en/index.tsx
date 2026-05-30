@@ -18,7 +18,6 @@ import MobileNav from "@/components/shared/MobileNav";
 import { getGreetings } from "@/utils/getGreetings";
 import { redis } from "@/lib/redis";
 import { Navbar } from "@/components/shared/NavBar";
-import UserRecommendation from "@/components/home/recommendation";
 import { useRouter } from "next/router";
 import { loadFanarts } from "@/lib/db/fanarts";
 import { pickHeroLogo, TitleImage } from "@/components/anime/v2/helpers";
@@ -935,7 +934,19 @@ export default function Home({
             )}
 
             {recommendations.length > 0 && (
-              <UserRecommendation data={recommendations} />
+              <motion.section
+                key="recommendationAnime"
+                initial={{ y: 20, opacity: 0 }}
+                whileInView={{ y: 0, opacity: 1 }}
+                transition={{ duration: 0.5 }}
+                viewport={{ once: true }}
+              >
+                <Content
+                  ids="recommendationAnime"
+                  section="Recommendations"
+                  data={recommendations}
+                />
+              </motion.section>
             )}
 
             {/* SECTION 2 */}
