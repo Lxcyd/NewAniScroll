@@ -295,10 +295,50 @@ export default function Watch({
   // the only source of truth for the default server — old shared links
   // get migrated to the slug-only form by the canonicalization effect
   // below.
+  // The user's saved server preference. We DON'T apply it blindly anymore:
+  // doing so pointed `activeServer` at a server this particular anime doesn't
+  // offer, so the source fetch failed and the player showed nothing. Instead
+  // we remember the preference and only switch to it once it's confirmed
+  // available for THIS anime (see the effect below). `appliedPrefRef` ensures
+  // we only honour the saved preference once per mount — after that the user's
+  // in-session clicks win.
+  const preferredServerRef = useRef(null);
+  const appliedPrefRef = useRef(false);
   useEffect(() => {
-    const saved = localStorage.getItem("preferred_server");
-    if (saved && saved !== "megaplay") setActiveServer(saved);
+    preferredServerRef.current =
+      localStorage.getItem("preferred_server") || null;
   }, []);
+
+  // Apply the saved preference only when it's actually available for this
+  // anime (i.e. it has been confirmed by the probes). Until then we stay on
+  // the safe default. If the preferred server never confirms (this anime
+  // doesn't have it), we simply never switch to it — no dead player.
+  useEffect(() => {
+    if (appliedPrefRef.current) return;
+    const pref = preferredServerRef.current;
+    if (!pref || pref === activeServer) return;
+    if (confirmedServers.has(pref)) {
+      appliedPrefRef.current = true;
+      setActiveServer(pref);
+    }
+  }, [confirmedServers, activeServer]);
+
+  // Safety net: if the active server ends up confirmed-failed (and is NOT in
+  // the confirmed set), jump to the first confirmed server so the user is
+  // never left staring at an empty player. Runs whenever the probe verdicts
+  // change.
+  useEffect(() => {
+    if (confirmedServers.has(activeServer)) return;
+    if (!failedServers.has(activeServer)) return; // still pending — wait
+    // Pick the best confirmed server, honouring the preferred fallback order.
+    const firstConfirmed =
+      PREFERRED_FALLBACK_ORDER.find((id) => confirmedServers.has(id)) ||
+      [...confirmedServers][0];
+    if (firstConfirmed && firstConfirmed !== activeServer) {
+      setActiveServer(firstConfirmed);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [confirmedServers, failedServers, activeServer]);
 
   const router = useRouter();
 
