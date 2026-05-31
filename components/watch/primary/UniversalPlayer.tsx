@@ -1783,18 +1783,8 @@ export default function UniversalPlayer({
           onError={onError}
           referrerPolicy={isVidmoly ? "no-referrer" : "origin"}
         />
-        {isIOS && iosPseudoFs && (
-          <button
-            type="button"
-            aria-label="Exit fullscreen"
-            onClick={() => setIosPseudoFs(false)}
-            className="moopa-ios-fs-exit"
-          >
-            <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
-              <path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
-            </svg>
-          </button>
-        )}
+        {/* No explicit exit-fullscreen cross: re-tapping the fullscreen
+            button toggles pseudo-fullscreen off. */}
       </div>
     );
   }
@@ -2039,18 +2029,10 @@ export default function UniversalPlayer({
       {/* Exit pseudo-fullscreen button (iOS direct-stream path). The
           fullscreen interceptor sets iosPseudoFs; we draw a corner X so the
           user can leave without hunting for Vidstack's button again. */}
-      {isIOS && iosPseudoFs && (
-        <button
-          type="button"
-          aria-label="Exit fullscreen"
-          onClick={() => setIosPseudoFs(false)}
-          className="moopa-ios-fs-exit"
-        >
-          <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
-            <path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
-          </svg>
-        </button>
-      )}
+      {/* No explicit exit-fullscreen button: re-tapping the player's own
+          fullscreen button toggles the pseudo-fullscreen off (the iOS
+          interceptor flips iosPseudoFs each tap), so a separate always-on
+          cross would be redundant clutter. */}
 
       {/* Hover preview — actual video frame at the cursor position on the scrubber */}
       <HoverPreview playerRef={playerRef} src={src} isM3U8={isM3U8} />

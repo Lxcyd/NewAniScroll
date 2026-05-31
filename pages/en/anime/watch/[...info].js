@@ -941,8 +941,18 @@ export default function Watch({
     if (!mediaSession) return;
 
     const now    = episodeNavigation?.playing;
-    const poster = now?.img || info?.bannerImage;
     const title  = now?.title || info?.title?.romaji;
+
+    // Use the portrait cover for the OS "now playing" artwork. Previously we
+    // used the episode thumbnail / bannerImage (wide), which iOS letterboxed
+    // into the square artwork slot as an ugly banner. The portrait cover fills
+    // the slot cleanly. Declare the real (portrait) aspect so iOS doesn't try
+    // to fit it into a 1:1 box.
+    const cover =
+      info?.coverImage?.extraLarge ||
+      info?.coverImage?.large ||
+      now?.img ||
+      info?.bannerImage;
 
     mediaSession.metadata = new MediaMetadata({
       title,
@@ -951,7 +961,12 @@ export default function Watch({
           ? "- Episode " + epiNumber
           : `- ${info?.title?.romaji || info?.title?.english}`
       }`,
-      artwork: poster ? [{ src: poster, sizes: "512x512", type: "image/jpeg" }] : undefined,
+      artwork: cover
+        ? [
+            { src: cover, sizes: "600x900", type: "image/jpeg" },
+            { src: cover, sizes: "1200x1800", type: "image/jpeg" },
+          ]
+        : undefined,
     });
   }, [episodeNavigation, info, epiNumber]);
 
