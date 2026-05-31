@@ -42,3 +42,4 @@ tsconfig.tsbuildinfo
 
 # Migration / one-shot script logs
 migration.log
+.vercel
