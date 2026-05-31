@@ -1067,56 +1067,27 @@ export default function UniversalPlayer({
   const chaptersTrackUrl = useChaptersVtt(skipTimes, videoDuration);
   useChapterClickCompensation(playerRef, videoDuration);
 
-  // Make Vidstack show the FIRST chapter's title immediately.
-  //
-  // Vidstack derives the "• Episode" label from `chapters.activeCue`, a
-  // reactive signal. That signal only re-runs subscribers when its value
-  // CHANGES. The cue covering currentTime=0 is active the instant the track
-  // loads, but it's the signal's initial value and never "changes" — so the
-  // ChapterTitle effect never fires until playback crosses into the SECOND
-  // cue (a real transition). Result: no label on the first pill.
-  //
-  // Fix: once the chapters track has parsed its cues, toggle its mode
-  // disabled→showing. That makes Vidstack re-resolve the active text track
-  // from scratch, pushing activeCue null→cue1 — a real change that the
-  // ChapterTitle effect picks up. Imperceptible (the track is metadata only).
+  // Current chapter title — computed ourselves rather than relying on
+  // Vidstack's built-in <ChapterTitle>. Its title comes from a reactive
+  // `activeCue` signal that only emits on a value CHANGE; the first cue is
+  // active at load but is the signal's initial value, so it's never emitted
+  // and the label stays blank until playback transitions into the second cue
+  // (confirmed: entering the intro then returning to pill 1 makes it appear).
+  // We read the active chapter cue against currentTime directly, so the right
+  // title shows from the first frame and on every pill.
+  const chapterTitle = useActiveChapterTitle(playerRef, chaptersTrackUrl);
+
+  // Drive Vidstack's native chapter-title element with our computed value.
+  // Vidstack's own element only fills in after the first cue transition, so
+  // we write the correct title into it directly. The element keeps its
+  // existing position/styling in the control bar (next to the time); we only
+  // override its text content so the first pill shows a label too.
   useEffect(() => {
-    if (!chaptersTrackUrl) return;
-    const player = playerRef.current;
-    if (!player) return;
-
-    let cancelled = false;
-    const kick = () => {
-      if (cancelled) return;
-      const tracks: any = (player as any).textTracks;
-      if (!tracks) return;
-      const list =
-        typeof tracks.toArray === "function"
-          ? tracks.toArray()
-          : Array.from(tracks as Iterable<any>);
-      const chapters = list.find((t: any) => t.kind === "chapters");
-      // Wait until the track has actually parsed its cues (readyState 2 =
-      // loaded). Retry on the next frame otherwise.
-      if (!chapters || !chapters.cues || chapters.cues.length === 0) {
-        requestAnimationFrame(kick);
-        return;
-      }
-      // hidden (not disabled) as the intermediate state: it still keeps the
-      // cue list parsed so the seek-bar pills don't flicker, but flipping
-      // back to showing re-resolves activeCue null→cue1.
-      chapters.mode = "hidden";
-      requestAnimationFrame(() => {
-        if (cancelled) return;
-        chapters.mode = "showing";
-      });
-    };
-    const raf = requestAnimationFrame(kick);
-
-    return () => {
-      cancelled = true;
-      cancelAnimationFrame(raf);
-    };
-  }, [chaptersTrackUrl]);
+    const root = playerRef.current?.el as HTMLElement | undefined;
+    if (!root) return;
+    const el = root.querySelector<HTMLElement>(".vds-chapter-title");
+    if (el) el.textContent = chapterTitle;
+  }, [chapterTitle]);
   // Ambient lights toggle — defaults to true if undefined (older context).
   const ctxAmbient: boolean = watchCtx.ambientLights !== false;
   const setAmbientCtx: (v: boolean) => void = watchCtx.setAmbientLights || (() => {});
@@ -2246,6 +2217,100 @@ function useChaptersVtt(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [vtt]);
   return url;
+}
+
+/**
+ * Returns the title of the chapter cue covering the current playback time.
+ *
+ * We compute this ourselves instead of using Vidstack's <ChapterTitle>: that
+ * component reads a reactive `activeCue` signal which only emits on a value
+ * CHANGE, so the FIRST cue (active from load) never gets emitted and its
+ * title is missing until playback transitions into the second cue. Reading
+ * the cue list directly against currentTime sidesteps that entirely — the
+ * correct title shows from the first frame and for every pill.
+ */
+function useActiveChapterTitle(
+  playerRef: React.RefObject<MediaPlayerInstance>,
+  chaptersTrackUrl: string | null,
+): string {
+  const [title, setTitle] = useState("");
+
+  useEffect(() => {
+    if (!chaptersTrackUrl) {
+      setTitle("");
+      return;
+    }
+    const player = playerRef.current;
+    if (!player) return;
+
+    // The underlying <video> element — same access pattern the rest of this
+    // file uses (playerRef.current.el). We listen to its native timeupdate.
+    const videoEl =
+      ((player as any).el as HTMLElement | undefined)?.querySelector?.(
+        "video",
+      ) || null;
+    if (!videoEl) {
+      // Provider not mounted yet — bail; the effect re-runs when the track
+      // url changes, and the track only exists once the provider is up.
+      setTitle("");
+    }
+
+    let cues: Array<{ startTime: number; endTime: number; text: string }> = [];
+    let raf = 0;
+    let disposed = false;
+
+    const findCues = () => {
+      const tracks: any = (player as any).textTracks;
+      if (!tracks) return null;
+      const list =
+        typeof tracks.toArray === "function"
+          ? tracks.toArray()
+          : Array.from(tracks as Iterable<any>);
+      const chapters = list.find((t: any) => t.kind === "chapters");
+      if (chapters?.cues && chapters.cues.length > 0) {
+        return Array.from(chapters.cues) as any[];
+      }
+      return null;
+    };
+
+    const update = () => {
+      if (disposed || cues.length === 0) return;
+      const t = player.currentTime;
+      const cue = cues.find((c) => t >= c.startTime && t < c.endTime);
+      setTitle(cue?.text || "");
+    };
+
+    // Poll until the track's cues are parsed, then compute once.
+    const waitForCues = () => {
+      if (disposed) return;
+      const found = findCues();
+      if (!found) {
+        raf = requestAnimationFrame(waitForCues);
+        return;
+      }
+      cues = found;
+      update();
+    };
+    waitForCues();
+
+    // Recompute the title on every timeupdate (continuous during playback)
+    // and on seeked (so a manual seek while paused updates it immediately).
+    const onTime = () => update();
+    videoEl?.addEventListener("timeupdate", onTime);
+    videoEl?.addEventListener("seeked", onTime);
+    videoEl?.addEventListener("loadedmetadata", onTime);
+
+    return () => {
+      disposed = true;
+      cancelAnimationFrame(raf);
+      videoEl?.removeEventListener("timeupdate", onTime);
+      videoEl?.removeEventListener("seeked", onTime);
+      videoEl?.removeEventListener("loadedmetadata", onTime);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chaptersTrackUrl]);
+
+  return title;
 }
 
 /**
