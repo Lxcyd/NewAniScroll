@@ -9,7 +9,9 @@ import {
   MediaProvider,
   Track,
   useMediaState,
+  isHLSProvider,
   type MediaPlayerInstance,
+  type MediaProviderChangeEvent,
 } from "@vidstack/react";
 import {
   defaultLayoutIcons,
@@ -98,6 +100,33 @@ const PROXY_BASE =
   (typeof process !== "undefined" &&
     (process as any).env?.NEXT_PUBLIC_PROXY_BASE) ||
   "/api/v2/proxy/m3u8";
+
+// hls.js tuning for snappier seeking. The defaults buffer only ~30s ahead
+// and keep almost no back-buffer, so every seek (even a few seconds) forces
+// a fresh network round-trip — and each segment here goes through our proxy
+// → CDN, which makes that round-trip slow. We trade a bit of bandwidth for
+// responsiveness:
+//   - maxBufferLength / maxMaxBufferLength: buffer much further ahead so a
+//     forward seek often lands in already-buffered data (instant).
+//   - backBufferLength: keep 60s behind so rewinding is instant too.
+//   - maxBufferSize: raise the byte cap so HD segments aren't evicted early.
+//   - lowLatencyMode off: VOD, we want big buffers not low latency.
+//   - fragLoadingMaxRetry / lower timeouts: fail fast on a stuck segment and
+//     retry rather than hanging the seek.
+const HLS_CONFIG = {
+  lowLatencyMode: false,
+  maxBufferLength: 60,
+  maxMaxBufferLength: 120,
+  maxBufferSize: 120 * 1000 * 1000, // 120 MB
+  backBufferLength: 60,
+  // Make a seek start fetching the target fragment immediately.
+  startFragPrefetch: true,
+  // Don't sit on a slow/stuck segment — bail and retry quickly so the seek
+  // resolves instead of spinning.
+  fragLoadingMaxRetry: 4,
+  fragLoadingRetryDelay: 500,
+  fragLoadingMaxRetryTimeout: 8000,
+};
 
 function proxied(
   url: string,
@@ -958,6 +987,20 @@ export default function UniversalPlayer({
   episodeNumber,
 }: Props) {
   const playerRef = useRef<MediaPlayerInstance>(null);
+
+  // Apply our hls.js tuning the moment the HLS provider is created. Setting
+  // `provider.config` here (before setup) makes hls.js build its instance with
+  // the bigger buffers / fast-fail loading defined in HLS_CONFIG, so seeking
+  // is responsive. No-op for the native MP4 provider.
+  const onProviderChange = (
+    provider: any,
+    _event: MediaProviderChangeEvent,
+  ) => {
+    if (isHLSProvider(provider)) {
+      provider.config = { ...provider.config, ...HLS_CONFIG };
+    }
+  };
+
   const [subMenuOpen, setSubMenuOpen] = useState(false);
   const [subStyleOpen, setSubStyleOpen] = useState(false);
   // ── Mobile / iOS detection ─────────────────────────────────
@@ -1787,6 +1830,10 @@ export default function UniversalPlayer({
           src,
           type: isM3U8 ? "application/vnd.apple.mpegurl" : "video/mp4",
         }}
+        // Bigger buffers + fast-fail segment loading so seeking lands in
+        // already-buffered data instead of a slow proxy→CDN round-trip.
+        // Applied to the hls.js instance via provider-change (HLS only).
+        onProviderChange={onProviderChange}
         poster={poster}
         load="eager"
         playsinline
