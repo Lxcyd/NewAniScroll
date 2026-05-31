@@ -370,7 +370,7 @@ export default function Content({
         </div>
         <div
           id={ids}
-          className="flex h-full w-full select-none touch-pan-y overflow-x-scroll overflow-y-hidden scrollbar-hide lg:gap-8 gap-4 lg:p-10 py-8 px-5 z-30 cursor-grab active:cursor-grabbing"
+          className="flex h-full w-full select-none overflow-x-scroll overflow-y-hidden scrollbar-hide lg:gap-8 gap-4 lg:p-10 py-8 px-5 z-30 lg:cursor-grab lg:active:cursor-grabbing"
           onScroll={handleScroll}
           onClickCapture={onClickCapture}
           ref={ref}
