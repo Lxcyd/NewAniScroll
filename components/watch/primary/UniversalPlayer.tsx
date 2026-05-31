@@ -2172,24 +2172,24 @@ function useChaptersVtt(
   // `videoDuration`. The trailing cue only renders if there's a real
   // post-outro gap (> 1 s of grace) — if the outro already runs to
   // the end, the outro pill itself extends to the bar's right edge.
-  const lastSkipEnd = segments.reduce((m, s) => Math.max(m, s.end), 0);
-  // When metadata hasn't landed yet (videoDuration === 0) fall back
-  // to last-skip + 60 s so we still ship a valid VTT on first render
-  // — the effect re-fires once duration updates and replaces it.
-  const duration =
-    videoDuration > 0 ? videoDuration : lastSkipEnd + 60;
-  const vtt = buildChaptersVtt(segments, duration);
+  // Only build the VTT once we have the REAL duration. Previously we shipped
+  // a fallback VTT (duration = lastSkipEnd + 60) on first render, then rebuilt
+  // it when the true duration arrived. Each rebuild created a new blob URL,
+  // which changed the <Track> `key` and forced Vidstack to remount + reparse
+  // the chapters track — during that window `activeChapter` was empty, so the
+  // "• Intro/Episode" label next to the time was missing at the start of
+  // playback. Waiting for the true duration means a single blob, a single
+  // mount, and the label is present from the first frame the bar shows pills.
+  const vtt =
+    videoDuration > 0 ? buildChaptersVtt(segments, videoDuration) : null;
   const [url, setUrl] = useState<string | null>(null);
   useEffect(() => {
     if (!vtt) {
-      console.log("[ChaptersVtt] no segments, no chapters track");
       setUrl(null);
       return;
     }
     const blob = new Blob([vtt], { type: "text/vtt" });
     const u = URL.createObjectURL(blob);
-    console.log("[ChaptersVtt] generated", segments.length, "segments → blob", u);
-    console.log("[ChaptersVtt] VTT content:\n" + vtt);
     setUrl(u);
     return () => URL.revokeObjectURL(u);
     // eslint-disable-next-line react-hooks/exhaustive-deps
