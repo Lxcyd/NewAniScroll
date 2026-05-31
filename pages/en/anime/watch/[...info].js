@@ -677,16 +677,17 @@ export default function Watch({
       typeof navigator !== "undefined" &&
       navigator.connection &&
       navigator.connection.saveData === true;
-    // 4 parallel desktop probes (down from 8): the browser caps at 6 conns
-    // per origin, so 8 probes meant the active stream's source fetch waited
-    // its turn behind 2 cold probe requests. 4 leaves a comfortable margin
-    // for the foreground request + image loads + analytics POSTs.
-    const MAX_CONCURRENT = isMobileViewport || saveData ? 2 : 4;
-    // Give the active server's source fetch a head-start so the player can
-    // start buffering before we kick off the 20+ probe fan-out. Without this,
-    // mobile users see 3–5 s of black frame before playback because the probes
-    // saturate the connection pool.
-    const PROBE_START_DELAY_MS = isMobileViewport ? 1200 : 250;
+    // Desktop fans out 4 probes; mobile 3. The browser caps at 6 conns per
+    // origin and the ACTIVE server is now probed first, outside this pool and
+    // before the start-delay (see below) — so the foreground stream isn't
+    // competing with the pool for its slot. That lets us bump mobile from 2→3
+    // to clear the selector faster. saveData stays conservative at 2.
+    const MAX_CONCURRENT = saveData ? 2 : isMobileViewport ? 3 : 4;
+    // Head-start before the BACKGROUND pool starts, so the active stream's
+    // source fetch (and the active server's own priority probe) get the
+    // connection pool first. Shorter now (700 ms) because the active server is
+    // probed immediately and separately — the delay only gates the rest.
+    const PROBE_START_DELAY_MS = isMobileViewport ? 700 : 250;
     const RETRY_DELAY_MS = 3000;
     let cancelled = false;
 
@@ -828,18 +829,42 @@ export default function Watch({
       markFailed(s.id, "Source unavailable");
     };
 
+    // Sliding-window pool: as soon as one probe settles, the next one starts —
+    // instead of waiting for a whole batch (Promise.all) to finish. A single
+    // slow server no longer holds up every chip behind it, so the selector
+    // fills in continuously rather than in stuttering paquets.
+    const runPool = async (servers, concurrency) => {
+      let idx = 0;
+      const worker = async () => {
+        while (!cancelled) {
+          const i = idx++;
+          if (i >= servers.length) return;
+          await probe(servers[i]);
+        }
+      };
+      const n = Math.min(concurrency, servers.length);
+      await Promise.all(Array.from({ length: n }, worker));
+    };
+
     (async () => {
-      await new Promise((r) => setTimeout(r, PROBE_START_DELAY_MS));
-      if (cancelled) return;
-      // Filter out the servers we already have a fresh verdict on so the
-      // batching counts towards genuinely unknown ones.
       const remaining = toProbe.filter(
         (s) => !cachedConfirmed.has(s.id) && !cachedFailed.has(s.id),
       );
-      for (let i = 0; i < remaining.length && !cancelled; i += MAX_CONCURRENT) {
-        const batch = remaining.slice(i, i + MAX_CONCURRENT);
-        await Promise.all(batch.map(probe));
+
+      // 1) Probe the ACTIVE server first, immediately (no start delay). It's
+      //    the one the user is actually waiting on — getting its chip lit and
+      //    its source confirmed fast is what makes a player appear quickly.
+      const activeIdx = remaining.findIndex((s) => s.id === activeServer);
+      if (activeIdx >= 0) {
+        const [activeSrv] = remaining.splice(activeIdx, 1);
+        probe(activeSrv); // fire-and-forget, runs in parallel with the wait
       }
+
+      // 2) Give the active stream's source fetch a head-start, then fan out
+      //    the rest through the pool.
+      await new Promise((r) => setTimeout(r, PROBE_START_DELAY_MS));
+      if (cancelled) return;
+      await runPool(remaining, MAX_CONCURRENT);
     })();
 
     return () => {
