@@ -1274,7 +1274,39 @@ export default function UniversalPlayer({
     };
     // Capture phase so we beat Vidstack's own button handler.
     playerEl.addEventListener("click", onClick, { capture: true });
-    return () => playerEl.removeEventListener("click", onClick, { capture: true });
+
+    // Intercepting the fullscreen BUTTON isn't enough: iOS also pushes the
+    // <video> into its system fullscreen player via other paths (tap-to-play
+    // on some versions, the native mini-controls, AirPlay handoff…). Each of
+    // those fires `webkitbeginfullscreen` on the <video>. We catch it, bail
+    // out of the native player immediately, and switch to our own CSS
+    // pseudo-fullscreen so our controls/overlays stay visible.
+    let boundVideo: HTMLVideoElement | null = null;
+    const onBeginFs = () => {
+      try {
+        (boundVideo as any)?.webkitExitFullscreen?.();
+      } catch {}
+      setIosPseudoFs(true);
+    };
+    // The <video> is created by the provider slightly after this effect runs,
+    // so poll a few frames until it exists, then bind the listener once.
+    let raf = 0;
+    const bind = () => {
+      const v = playerEl.querySelector<HTMLVideoElement>("video");
+      if (!v) {
+        raf = requestAnimationFrame(bind);
+        return;
+      }
+      boundVideo = v;
+      v.addEventListener("webkitbeginfullscreen", onBeginFs);
+    };
+    bind();
+
+    return () => {
+      playerEl.removeEventListener("click", onClick, { capture: true });
+      cancelAnimationFrame(raf);
+      boundVideo?.removeEventListener("webkitbeginfullscreen", onBeginFs);
+    };
   }, [isIOS]);
 
   // Lock body scroll while iOS pseudo-fullscreen is active and try to
