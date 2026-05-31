@@ -1067,28 +1067,54 @@ export default function UniversalPlayer({
   const chaptersTrackUrl = useChaptersVtt(skipTimes, videoDuration);
   useChapterClickCompensation(playerRef, videoDuration);
 
-  // When the chapters track mounts, the cue covering currentTime=0 is already
-  // "active" — but a TextTrack only fires `cuechange` on a TRANSITION, never
-  // for a cue that's active the instant the track loads. So Vidstack's chapter
-  // title (the "• Episode" label next to the time) stays empty until playback
-  // crosses into the SECOND cue. We nudge currentTime by a hair once the track
-  // is ready to force a cuechange, which makes Vidstack pick up the first
-  // chapter's title immediately. The nudge is sub-frame and imperceptible.
+  // Make Vidstack show the FIRST chapter's title immediately.
+  //
+  // Vidstack derives the "• Episode" label from `chapters.activeCue`, a
+  // reactive signal. That signal only re-runs subscribers when its value
+  // CHANGES. The cue covering currentTime=0 is active the instant the track
+  // loads, but it's the signal's initial value and never "changes" — so the
+  // ChapterTitle effect never fires until playback crosses into the SECOND
+  // cue (a real transition). Result: no label on the first pill.
+  //
+  // Fix: once the chapters track has parsed its cues, toggle its mode
+  // disabled→showing. That makes Vidstack re-resolve the active text track
+  // from scratch, pushing activeCue null→cue1 — a real change that the
+  // ChapterTitle effect picks up. Imperceptible (the track is metadata only).
   useEffect(() => {
     if (!chaptersTrackUrl) return;
     const player = playerRef.current;
     if (!player) return;
-    let raf2 = 0;
-    const raf1 = requestAnimationFrame(() => {
-      raf2 = requestAnimationFrame(() => {
-        const t = player.currentTime;
-        // Reassign to the same logical position to trigger a cuechange.
-        player.currentTime = t < 0.05 ? t + 0.001 : t;
+
+    let cancelled = false;
+    const kick = () => {
+      if (cancelled) return;
+      const tracks: any = (player as any).textTracks;
+      if (!tracks) return;
+      const list =
+        typeof tracks.toArray === "function"
+          ? tracks.toArray()
+          : Array.from(tracks as Iterable<any>);
+      const chapters = list.find((t: any) => t.kind === "chapters");
+      // Wait until the track has actually parsed its cues (readyState 2 =
+      // loaded). Retry on the next frame otherwise.
+      if (!chapters || !chapters.cues || chapters.cues.length === 0) {
+        requestAnimationFrame(kick);
+        return;
+      }
+      // hidden (not disabled) as the intermediate state: it still keeps the
+      // cue list parsed so the seek-bar pills don't flicker, but flipping
+      // back to showing re-resolves activeCue null→cue1.
+      chapters.mode = "hidden";
+      requestAnimationFrame(() => {
+        if (cancelled) return;
+        chapters.mode = "showing";
       });
-    });
+    };
+    const raf = requestAnimationFrame(kick);
+
     return () => {
-      cancelAnimationFrame(raf1);
-      cancelAnimationFrame(raf2);
+      cancelled = true;
+      cancelAnimationFrame(raf);
     };
   }, [chaptersTrackUrl]);
   // Ambient lights toggle — defaults to true if undefined (older context).
