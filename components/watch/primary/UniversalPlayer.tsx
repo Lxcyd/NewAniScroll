@@ -1261,19 +1261,34 @@ export default function UniversalPlayer({
     const playerEl = playerRef.current?.el as HTMLElement | undefined;
     if (!playerEl) return;
 
-    const onClick = (e: MouseEvent) => {
+    // Block Vidstack's fullscreen on the button across EVERY event it might
+    // act on. On touch devices Vidstack triggers fullscreen on pointerup, so
+    // intercepting `click` alone is too late (the native iOS player has
+    // already opened). We veto pointerup/touchend/click in the capture phase
+    // and only toggle the native fullscreen flag ONCE per tap (pointerup),
+    // letting the others just suppress the default + propagation.
+    const hitFsButton = (e: Event) => {
       const t = e.target as HTMLElement | null;
-      if (!t) return;
-      const btn = t.closest<HTMLElement>(
+      if (!t) return null;
+      return t.closest<HTMLElement>(
         ".vds-fullscreen-button, [data-fullscreen-button], button[aria-label*='ullscreen']",
       );
-      if (!btn) return;
+    };
+    const suppress = (e: Event) => {
+      if (!hitFsButton(e)) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+    };
+    const onPointerUp = (e: Event) => {
+      if (!hitFsButton(e)) return;
       e.preventDefault();
       e.stopImmediatePropagation();
       setIosPseudoFs((v) => !v);
     };
-    // Capture phase so we beat Vidstack's own button handler.
-    playerEl.addEventListener("click", onClick, { capture: true });
+    // Capture phase so we beat Vidstack's own handlers.
+    playerEl.addEventListener("pointerup", onPointerUp, { capture: true });
+    playerEl.addEventListener("touchend", suppress, { capture: true });
+    playerEl.addEventListener("click", suppress, { capture: true });
 
     // Intercepting the fullscreen BUTTON isn't enough: iOS also pushes the
     // <video> into its system fullscreen player via other paths (tap-to-play
@@ -1303,7 +1318,9 @@ export default function UniversalPlayer({
     bind();
 
     return () => {
-      playerEl.removeEventListener("click", onClick, { capture: true });
+      playerEl.removeEventListener("pointerup", onPointerUp, { capture: true });
+      playerEl.removeEventListener("touchend", suppress, { capture: true });
+      playerEl.removeEventListener("click", suppress, { capture: true });
       cancelAnimationFrame(raf);
       boundVideo?.removeEventListener("webkitbeginfullscreen", onBeginFs);
     };
