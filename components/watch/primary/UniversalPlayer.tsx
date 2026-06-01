@@ -1609,6 +1609,16 @@ export default function UniversalPlayer({
         const res = await mod.extractVidmolyClient(ce.embedUrl, {
           signal: ac.signal,
         });
+        // Timeout fired: the extractor resolves with {error:"aborted"} (it
+        // swallows the AbortError internally), so we must flip to "failed"
+        // HERE — before the generic aborted-guard below — or we'd stay stuck
+        // on "pending" and never reach the iframe fallback.
+        if (timedOut) {
+          console.warn("[UniversalPlayer] client vidmoly timed out → iframe");
+          setClientStatus("failed");
+          return;
+        }
+        // Cleanup abort (unmount / source change): drop the result silently.
         if (ac.signal.aborted) return;
         clearTimeout(timeout);
         if (res.masterUrl) {
