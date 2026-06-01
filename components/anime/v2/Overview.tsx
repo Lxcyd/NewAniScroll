@@ -3,16 +3,18 @@ import { AniListInfoTypes } from "types/info/AnilistInfoTypes";
 import {
   formatAiredRange,
   parseDescription,
-  prettyCountry,
   prettyFormat,
   prettySeason,
   prettySource,
-  prettyStatus,
+  statusLabel as statusLabelI18n,
+  countryLabel,
   capitalize,
 } from "./helpers";
 import Related from "./Related";
 import styles from "./styles.module.css";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 
 type Props = {
   info: AniListInfoTypes;
@@ -26,9 +28,10 @@ type Props = {
 
 export default function Overview({ info, seasonList }: Props) {
   const titlePref = useTitlePref();
+  const { t } = useTranslation();
   const [spoilers, setSpoilers] = useState(false);
 
-  const details = useMemo(() => buildDetails(info), [info]);
+  const details = useMemo(() => buildDetails(info, t), [info, t]);
   const allTags = info.tags || [];
   const visibleTags = useMemo(() => {
     const spoilerTags = allTags
@@ -41,7 +44,7 @@ export default function Overview({ info, seasonList }: Props) {
   }, [allTags, spoilers]);
 
   const sites = useMemo(() => buildSites(info), [info]);
-  const popularity = useMemo(() => buildPopularity(info), [info]);
+  const popularity = useMemo(() => buildPopularity(info, t), [info, t]);
 
   const { text: synopsis, source: synopsisSource } = useMemo(
     () => parseDescription(info.description),
@@ -59,17 +62,17 @@ export default function Overview({ info, seasonList }: Props) {
     <div style={tStyles.overviewWrap}>
       {/* Synopsis */}
       <section>
-        <div style={tStyles.secKicker}>SYNOPSIS</div>
+        <div style={tStyles.secKicker}>{t("anime.sectionSynopsis")}</div>
         {synopsis ? (
           <p style={tStyles.synopsisText}>{synopsis}</p>
         ) : (
-          <p style={tStyles.synopsisText}>No synopsis available.</p>
+          <p style={tStyles.synopsisText}>{t("anime.noSynopsis")}</p>
         )}
         <div style={tStyles.synopsisSrc}>
           {/* Use the source AniList embeds in the description (Crunchyroll,
               Kodansha USA, MAL, …) when present — that's the true upstream
               attribution. Fall back to AniList itself when none was given. */}
-          <em>Source: {synopsisSource || "AniList"}</em>
+          <em>{t("anime.source")}: {synopsisSource || "AniList"}</em>
         </div>
       </section>
 
@@ -104,7 +107,7 @@ export default function Overview({ info, seasonList }: Props) {
               paddingBottom: 6,
             }}
           >
-            <div style={tStyles.secKicker}>DETAILS</div>
+            <div style={tStyles.secKicker}>{t("anime.sectionDetails")}</div>
             <div
               style={{
                 ...tStyles.detailsCard,
@@ -159,7 +162,7 @@ export default function Overview({ info, seasonList }: Props) {
               paddingBottom: 6,
             }}
           >
-            <div style={tStyles.secKicker}>RELATIONS</div>
+            <div style={tStyles.secKicker}>{t("anime.sectionRelations")}</div>
             <div
               style={{
                 flex: 1,
@@ -213,7 +216,7 @@ export default function Overview({ info, seasonList }: Props) {
                   marginBottom: 12,
                 }}
               >
-                <div style={{ ...tStyles.secKicker, marginBottom: 0 }}>TAGS</div>
+                <div style={{ ...tStyles.secKicker, marginBottom: 0 }}>{t("anime.sectionTags")}</div>
                 {allTags.some((t) => t.isMediaSpoiler || t.isGeneralSpoiler) && (
                   <button
                     onClick={() => setSpoilers((s) => !s)}
@@ -256,7 +259,7 @@ export default function Overview({ info, seasonList }: Props) {
                         </>
                       )}
                     </svg>
-                    {spoilers ? "Hide Spoilers" : "Show Spoilers"}
+                    {spoilers ? t("anime.hideSpoilers") : t("anime.showSpoilers")}
                   </button>
                 )}
               </div>
@@ -319,7 +322,7 @@ export default function Overview({ info, seasonList }: Props) {
                 flexDirection: "column",
               }}
             >
-              <div style={tStyles.secKicker}>EXTERNAL SITES</div>
+              <div style={tStyles.secKicker}>{t("anime.sectionExternalSites")}</div>
               <div
                 className={styles.customScroll}
                 style={{
@@ -411,7 +414,7 @@ export default function Overview({ info, seasonList }: Props) {
                   marginBottom: 12,
                 }}
               >
-                <div style={{ ...tStyles.secKicker, marginBottom: 0 }}>TRAILER</div>
+                <div style={{ ...tStyles.secKicker, marginBottom: 0 }}>{t("anime.sectionTrailer")}</div>
                 {allTags.some((t) => t.isMediaSpoiler || t.isGeneralSpoiler) && (
                   <span
                     aria-hidden
@@ -485,7 +488,7 @@ export default function Overview({ info, seasonList }: Props) {
           )}
 
           <section>
-            <div style={tStyles.secKicker}>POPULARITY</div>
+            <div style={tStyles.secKicker}>{t("anime.sectionPopularity")}</div>
             <div
               style={{
                 display: "grid",
@@ -512,24 +515,28 @@ export default function Overview({ info, seasonList }: Props) {
   );
 }
 
-function buildDetails(info: AniListInfoTypes): Array<[string, string]> {
+function buildDetails(
+  info: AniListInfoTypes,
+  t: TFunction
+): Array<[string, string]> {
   const studios = (info.studios?.edges || []).filter((e) => e.isMain).map((e) => e.node.name);
   const producers = (info.studios?.edges || [])
     .filter((e) => !e.isMain)
     .map((e) => e.node.name);
   const aired = formatAiredRange(info);
   const premiered = prettySeason(info);
+  const na = t("status.na");
   return [
-    ["Format", prettyFormat(info.format)],
-    ["Status", prettyStatus(info.status)],
-    ["Source", prettySource(info.source)],
-    ["Aired", aired || "N/A"],
-    ["Premiered", premiered || "N/A"],
-    ["Episodes", info.episodes ? String(info.episodes) : "N/A"],
-    ["Duration", info.duration ? `${info.duration} min` : "N/A"],
-    ["Studios", studios.length > 0 ? studios.join(", ") : "N/A"],
-    ["Producers", producers.length > 0 ? producers.slice(0, 2).join(", ") : "N/A"],
-    ["Country", prettyCountry(info.countryOfOrigin)],
+    [t("anime.detailFormat"), prettyFormat(info.format)],
+    [t("anime.detailStatus"), statusLabelI18n(t, info.status)],
+    [t("anime.detailSource"), prettySource(info.source)],
+    [t("anime.detailAired"), aired || na],
+    [t("anime.detailPremiered"), premiered || na],
+    [t("anime.detailEpisodes"), info.episodes ? String(info.episodes) : na],
+    [t("anime.detailDuration"), info.duration ? t("anime.minutes", { count: info.duration }) : na],
+    [t("anime.detailStudios"), studios.length > 0 ? studios.join(", ") : na],
+    [t("anime.detailProducers"), producers.length > 0 ? producers.slice(0, 2).join(", ") : na],
+    [t("anime.detailCountry"), countryLabel(t, info.countryOfOrigin)],
   ];
 }
 
@@ -588,7 +595,8 @@ function colorBySite(name: string): string {
 }
 
 function buildPopularity(
-  info: AniListInfoTypes
+  info: AniListInfoTypes,
+  t: TFunction
 ): Array<[string, string, string]> {
   const find = (pred: (r: any) => boolean) =>
     info.rankings?.find(pred)?.rank ?? null;
@@ -596,17 +604,18 @@ function buildPopularity(
   const rated = find((r) => r.type === "RATED" && r.allTime);
   const seasonal = find((r) => r.type === "POPULAR" && r.season);
   const members = info.popularity;
+  const na = t("status.na");
   return [
-    ["Popularity", popular ? `#${popular}` : "N/A", "#ff7a91"],
-    ["Rating", rated ? `#${rated}` : "N/A", "#f6c544"],
-    ["Seasonal", seasonal ? `#${seasonal}` : "N/A", "#2dd47a"],
+    [t("anime.popularity"), popular ? `#${popular}` : na, "#ff7a91"],
+    [t("anime.rating"), rated ? `#${rated}` : na, "#f6c544"],
+    [t("anime.seasonal"), seasonal ? `#${seasonal}` : na, "#2dd47a"],
     [
-      "Members",
+      t("anime.members"),
       members != null
         ? members >= 1000
           ? (members / 1000).toFixed(0) + "K"
           : String(members)
-        : "N/A",
+        : na,
       "#7ec8ff",
     ],
   ];

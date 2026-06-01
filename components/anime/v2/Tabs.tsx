@@ -6,6 +6,7 @@ import CharactersTab from "./CharactersTab";
 import Artworks from "./Artworks";
 import { FanartResponse, collectArtworks } from "./helpers";
 import type { SeasonEntry } from "@/lib/anilist/seasonChain";
+import { useTranslation } from "react-i18next";
 
 type TabId = "overview" | "episodes" | "characters" | "artworks";
 const VALID_TABS: TabId[] = ["overview", "episodes", "characters", "artworks"];
@@ -29,6 +30,7 @@ function readTabFromHash(): TabId {
 }
 
 export default function Tabs({ info, fanarts, progress, seasonList }: Props) {
+  const { t } = useTranslation();
   const [tab, setTab] = useState<TabId>("overview");
 
   // Restore tab from hash on mount + listen to hashchange (back/forward).
@@ -53,20 +55,20 @@ export default function Tabs({ info, fanarts, progress, seasonList }: Props) {
   }
 
   const tabs: Array<{ id: TabId; label: string; count: number | null }> = [
-    { id: "overview", label: "Overview", count: null },
+    { id: "overview", label: t("anime.overview"), count: null },
     {
       id: "episodes",
-      label: "Episodes",
+      label: t("anime.episodes"),
       count: info.episodes ?? null,
     },
     {
       id: "characters",
-      label: "Characters",
+      label: t("anime.characters"),
       count: info.characters?.edges?.length ?? null,
     },
     {
       id: "artworks",
-      label: "Artworks",
+      label: t("anime.artworks"),
       count: collectArtworks(fanarts).length || null,
     },
   ];
@@ -74,20 +76,20 @@ export default function Tabs({ info, fanarts, progress, seasonList }: Props) {
   return (
     <div style={tStyles.wrap}>
       <div style={tStyles.tabBar}>
-        {tabs.map((t) => {
-          const active = tab === t.id;
+        {tabs.map((tb) => {
+          const active = tab === tb.id;
           return (
             <button
-              key={t.id}
-              onClick={() => switchTab(t.id)}
+              key={tb.id}
+              onClick={() => switchTab(tb.id)}
               style={{
                 ...tStyles.tab,
                 color: active ? "var(--txt-0)" : "var(--txt-2)",
                 borderColor: active ? "var(--accent)" : "transparent",
               }}
             >
-              {t.label}
-              {t.count != null && (
+              {tb.label}
+              {tb.count != null && (
                 <span
                   className="mono"
                   style={{
@@ -96,7 +98,7 @@ export default function Tabs({ info, fanarts, progress, seasonList }: Props) {
                     color: active ? "#ff7a91" : "var(--txt-3)",
                   }}
                 >
-                  {t.count}
+                  {tb.count}
                 </span>
               )}
             </button>

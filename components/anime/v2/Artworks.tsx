@@ -1,6 +1,7 @@
 import { CSSProperties, useEffect, useState } from "react";
 import { collectArtworks, FanartResponse } from "./helpers";
 import styles from "./styles.module.css";
+import { useTranslation } from "react-i18next";
 
 type Props = {
   fanarts: FanartResponse | null;
@@ -24,6 +25,9 @@ export default function Artworks({
   coverFallback,
   bannerFallback,
 }: Props) {
+  const { t } = useTranslation();
+  const typeLabel = (type: string) =>
+    TYPE_LABEL[type] ? t(`anime.artType.${type}`) : type;
   const arts = collectArtworks(fanarts);
   const [lightbox, setLightbox] = useState<string | null>(null);
 
@@ -141,7 +145,7 @@ export default function Artworks({
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={a.url}
-              alt={TYPE_LABEL[a.type] || a.type}
+              alt={typeLabel(a.type)}
               style={aStyles.img}
               loading="lazy"
               decoding="async"
@@ -157,7 +161,7 @@ export default function Artworks({
               <span
                 style={{ fontSize: 13, fontWeight: 600, color: "white" }}
               >
-                {TYPE_LABEL[a.type] || a.type}
+                {typeLabel(a.type)}
               </span>
             </div>
             <span style={aStyles.expand}>
@@ -191,7 +195,7 @@ export default function Artworks({
               setLightbox(null);
             }}
             style={aStyles.lightboxClose}
-            aria-label="Close"
+            aria-label={t("anime.close")}
           >
             ✕
           </button>

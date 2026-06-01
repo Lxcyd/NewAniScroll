@@ -1,6 +1,7 @@
 import { CSSProperties, useRef, useCallback, useEffect } from "react";
 import Link from "next/link";
 import { MediaRecommendation } from "types/info/AnilistInfoTypes";
+import { useTranslation } from "react-i18next";
 
 type Props = {
   items: MediaRecommendation[];
@@ -10,6 +11,7 @@ type Props = {
 const DRAG_THRESHOLD = 8;
 
 export default function Recommendations({ items, forTitle }: Props) {
+  const { t } = useTranslation();
   const ref = useRef<HTMLDivElement>(null);
   const dragMovedRef = useRef(false);
 
@@ -71,11 +73,11 @@ export default function Recommendations({ items, forTitle }: Props) {
     <div style={rStyles.wrap}>
       <div style={rStyles.header}>
         <div>
-          <div style={rStyles.kicker}>RECOMMENDATIONS</div>
+          <div style={rStyles.kicker}>{t("anime.sectionRecommendations")}</div>
           <div style={rStyles.headTitle}>Because you&apos;re watching {forTitle}</div>
         </div>
         <div style={rStyles.nav}>
-          <button style={rStyles.navBtn} onClick={() => scroll(-1)} aria-label="Prev">
+          <button style={rStyles.navBtn} onClick={() => scroll(-1)} aria-label={t("anime.prev")}>
             <svg
               width="14"
               height="14"
@@ -87,7 +89,7 @@ export default function Recommendations({ items, forTitle }: Props) {
               <polyline points="15 18 9 12 15 6" />
             </svg>
           </button>
-          <button style={rStyles.navBtn} onClick={() => scroll(1)} aria-label="Next">
+          <button style={rStyles.navBtn} onClick={() => scroll(1)} aria-label={t("anime.next")}>
             <svg
               width="14"
               height="14"

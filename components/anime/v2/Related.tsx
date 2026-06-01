@@ -4,6 +4,7 @@ import { Edge } from "types/info/AnilistInfoTypes";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import type { SeasonEntry } from "@/lib/anilist/seasonChain";
 import styles from "./styles.module.css";
+import { useTranslation } from "react-i18next";
 
 type Props = {
   relations: Edge[];
@@ -43,6 +44,7 @@ const FORMAT_LABEL: Record<string, string> = {
 };
 
 export default function Related({ relations, currentId, seasonList }: Props) {
+  const { t } = useTranslation();
   const titlePref = useTitlePref();
   // Anime / manga / novels relations only. Drop character / summary noise.
   const KEEP = new Set([
@@ -134,7 +136,7 @@ export default function Related({ relations, currentId, seasonList }: Props) {
     });
 
   if (nodes.length === 0) {
-    return <div style={emptyStyle}>No related entries.</div>;
+    return <div style={emptyStyle}>{t("anime.noRelated")}</div>;
   }
 
   return (
