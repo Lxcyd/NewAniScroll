@@ -24,6 +24,7 @@ import { getServer } from "@/lib/servers";
 import { primeMediaCache } from "@/lib/anilist/getMediaMeta";
 import { getCachedAnime } from "@/lib/db/anime";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
+import { useTranslation } from "react-i18next";
 import { FULL_MEDIA_FIELDS } from "@/lib/anilist/fullMediaQuery";
 import { anilistFetch } from "@/lib/anilist/anilistFetch";
 import Link from "next/link";
@@ -174,6 +175,7 @@ export default function Watch({
   epiNumber,
 }) {
   const titlePref = useTitlePref();
+  const { t } = useTranslation();
   const [artStorage,        setArtStorage]        = useState(null);
   const [episodeNavigation, setEpisodeNavigation] = useState(null);
   const [episodesList,      setepisodesList]      = useState();
@@ -1271,7 +1273,7 @@ export default function Watch({
                         href={`/en/anime/${info?.id}`}
                         className="hover:underline line-clamp-1"
                       >
-                        {episodeNavigation?.playing?.title || (info?.title && pickTitle(info.title, titlePref)) || "Loading..."}
+                        {episodeNavigation?.playing?.title || (info?.title && pickTitle(info.title, titlePref)) || t("common.loading")}
                       </Link>
                     </div>
                     <h3 className="font-karla">

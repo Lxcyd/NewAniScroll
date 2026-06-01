@@ -3,6 +3,7 @@ import Image from "next/image";
 import { useRouter } from "next/router";
 import { toast } from "sonner";
 import { AniListInfoTypes } from "types/info/AnilistInfoTypes";
+import { useTranslation } from "react-i18next";
 
 interface ListEditorProps {
   animeId: number;
@@ -23,6 +24,7 @@ const ListEditor: React.FC<ListEditorProps> = ({
   info = undefined,
   close,
 }) => {
+  const { t } = useTranslation();
   const [status, setStatus] = useState<string>(stats ?? "CURRENT");
   const [progress, setProgress] = useState<number>(prg ?? 0);
   const isAnime: boolean = info?.type === "ANIME";
@@ -59,11 +61,11 @@ const ListEditor: React.FC<ListEditorProps> = ({
       });
       const { data } = await response.json();
       if (data.SaveMediaListEntry === null) {
-        toast.error("Something went wrong");
+        toast.error(t("listEditor.error"));
         return;
       }
       console.log("Saved media list entry", data);
-      toast.success("Media list entry saved");
+      toast.success(t("listEditor.saved"));
       close();
       setTimeout(() => {
         // window.location.reload();
@@ -71,7 +73,7 @@ const ListEditor: React.FC<ListEditorProps> = ({
       }, 1000);
       // showAlert("Media list entry saved", "success");
     } catch (error) {
-      toast.error("Something went wrong");
+      toast.error(t("listEditor.error"));
       console.error(error);
     }
   };
@@ -115,7 +117,7 @@ const ListEditor: React.FC<ListEditorProps> = ({
                   htmlFor="status"
                   className="font-karla font-bold text-sm sm:text-base"
                 >
-                  Status:
+                  {t("listEditor.status")}
                 </label>
                 <select
                   name="status"
@@ -125,13 +127,13 @@ const ListEditor: React.FC<ListEditorProps> = ({
                   className="rounded-sm px-2 py-1 bg-[#363642] w-[50%] sm:w-[150px] text-sm sm:text-base"
                 >
                   <option value="CURRENT">
-                    {isAnime ? "Watching" : "Reading"}
+                    {isAnime ? t("listEditor.watching") : t("listEditor.reading")}
                   </option>
-                  <option value="COMPLETED">Completed</option>
-                  <option value="PAUSED">Paused</option>
-                  <option value="DROPPED">Dropped</option>
+                  <option value="COMPLETED">{t("listEditor.completed")}</option>
+                  <option value="PAUSED">{t("listEditor.paused")}</option>
+                  <option value="DROPPED">{t("listEditor.dropped")}</option>
                   <option value="PLANNING">
-                    Plan to {isAnime ? "watch" : "read"}
+                    {isAnime ? t("listEditor.planToWatch") : t("listEditor.planToRead")}
                   </option>
                 </select>
               </div>
@@ -140,7 +142,7 @@ const ListEditor: React.FC<ListEditorProps> = ({
                   htmlFor="progress"
                   className="font-karla font-bold text-sm sm:text-base"
                 >
-                  Progress:
+                  {t("listEditor.progress")}
                 </label>
                 <input
                   type="number"
@@ -156,10 +158,10 @@ const ListEditor: React.FC<ListEditorProps> = ({
             </div>
             <button
               type="submit"
-              title="Save"
+              title={t("listEditor.save")}
               className="bg-[#363642] text-white rounded-sm mt-2 py-1 text-sm sm:text-base"
             >
-              Save
+              {t("listEditor.save")}
             </button>
           </form>
         </div>

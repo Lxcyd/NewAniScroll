@@ -19,6 +19,12 @@
     "showLess": "Voir moins",
     "done": "Terminé"
   },
+  "footer": {
+    "disclaimer": "Ce site n'héberge aucun fichier sur nos serveurs ; nous ne faisons que créer des liens vers des médias hébergés par des services tiers.",
+    "movies": "Films",
+    "tvShows": "Séries TV",
+    "dmca": "DMCA"
+  },
   "nav": {
     "home": "Accueil",
     "search": "Rechercher",
@@ -208,6 +214,20 @@
     "CN": "Chine",
     "TW": "Taïwan"
   },
+  "listEditor": {
+    "status": "Statut :",
+    "progress": "Progression :",
+    "watching": "En cours",
+    "reading": "En lecture",
+    "completed": "Terminé",
+    "paused": "En pause",
+    "dropped": "Abandonné",
+    "planToWatch": "Prévu (à regarder)",
+    "planToRead": "Prévu (à lire)",
+    "save": "Enregistrer",
+    "saved": "Entrée de liste enregistrée",
+    "error": "Une erreur est survenue"
+  },
   "list": {
     "addToList": "Ajouter à la liste",
     "watching": "En cours",
@@ -351,6 +371,9 @@
     "english": "Anglais",
     "native": "Natif",
     "synonyms": "Synonymes",
+    "sourceNotFound": "Source introuvable",
+    "couldntUpdateFav": "Impossible de mettre à jour le favori : {{message}}",
+    "unknown": "inconnu",
     "noEpisodes": "Aucun épisode trouvé.",
     "noEpisodesYet": "Aucun épisode disponible pour le moment.",
     "watched": "Vu",

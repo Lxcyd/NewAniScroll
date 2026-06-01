@@ -378,6 +378,7 @@ function SeasonPicker({
   onPick: (id: number) => void;
 }) {
   const seasonTitlePref = useTitlePref();
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const hasMany = seasonList.length > 1;
   const active =
@@ -403,7 +404,7 @@ function SeasonPicker({
   const headerLabel = active?.label || pickTitle(info.title, seasonTitlePref);
   const headerSub = active
     ? `${active.year ?? ""}${active.episodes ? ` · ${active.episodes} EP` : ""}`.trim()
-    : `${info.status === "RELEASING" ? "Airing" : "Completed"}${
+    : `${info.status === "RELEASING" ? t("status.airing") : t("list.completed")}${
         info.seasonYear ? ` · ${info.seasonYear}` : ""
       }`;
 

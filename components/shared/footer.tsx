@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { useState } from "react";
 import Logo from "./Logo";
+import { useTranslation } from "react-i18next";
 
 function Footer() {
+  const { t } = useTranslation();
   const [year] = useState(new Date().getFullYear());
   const [season] = useState(getCurrentSeason());
 
@@ -13,8 +15,7 @@ function Footer() {
           <div className="flex flex-col gap-2">
             <Logo size="md" />
             <p className="font-karla lg:text-[0.8rem] text-[0.65rem] text-[#9c9c9c]  lg:w-[520px] italic">
-              This site does not store any files on our server, we only linked
-              to the media which is hosted on 3rd party services.
+              {t("footer.disclaimer")}
             </p>
           </div>
           <div className="flex flex-col gap-10 lg:flex-row lg:items-end lg:gap-[9.06rem] text-[#a7a7a7] text-sm lg:text-end">
@@ -22,22 +23,22 @@ function Footer() {
               <ul className="flex flex-col gap-y-[0.7rem] ">
                 <li className="cursor-pointer hover:text-action">
                   <Link href={`/en/search/anime?season=${season}&year=${year}`}>
-                    This Season
+                    {t("home.thisSeason")}
                   </Link>
                 </li>
                 <li className="cursor-pointer hover:text-action">
-                  <Link href={`/en/search/anime`}>Popular Anime</Link>
+                  <Link href={`/en/search/anime`}>{t("home.popularAnime")}</Link>
                 </li>
               </ul>
               <ul className="flex flex-col gap-y-[0.7rem]">
                 <li className="cursor-pointer hover:text-action">
-                  <Link href={`/en/search/anime?format=MOVIE`}>Movies</Link>
+                  <Link href={`/en/search/anime?format=MOVIE`}>{t("footer.movies")}</Link>
                 </li>
                 <li className="cursor-pointer hover:text-action">
-                  <Link href={`/en/search/anime?format=TV`}>TV Shows</Link>
+                  <Link href={`/en/search/anime?format=TV`}>{t("footer.tvShows")}</Link>
                 </li>
                 <li className="cursor-pointer hover:text-action">
-                  <Link href={`/en/dmca`}>DMCA</Link>
+                  <Link href={`/en/dmca`}>{t("footer.dmca")}</Link>
                 </li>
               </ul>
             </div>

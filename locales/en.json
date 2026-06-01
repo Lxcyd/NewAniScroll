@@ -19,6 +19,12 @@
     "showLess": "Show less",
     "done": "Done"
   },
+  "footer": {
+    "disclaimer": "This site does not store any files on our server, we only linked to the media which is hosted on 3rd party services.",
+    "movies": "Movies",
+    "tvShows": "TV Shows",
+    "dmca": "DMCA"
+  },
   "nav": {
     "home": "Home",
     "search": "Search",
@@ -208,6 +214,20 @@
     "CN": "China",
     "TW": "Taiwan"
   },
+  "listEditor": {
+    "status": "Status:",
+    "progress": "Progress:",
+    "watching": "Watching",
+    "reading": "Reading",
+    "completed": "Completed",
+    "paused": "Paused",
+    "dropped": "Dropped",
+    "planToWatch": "Plan to watch",
+    "planToRead": "Plan to read",
+    "save": "Save",
+    "saved": "Media list entry saved",
+    "error": "Something went wrong"
+  },
   "list": {
     "addToList": "Add to List",
     "watching": "Watching",
@@ -351,6 +371,9 @@
     "english": "English",
     "native": "Native",
     "synonyms": "Synonyms",
+    "sourceNotFound": "Source not found",
+    "couldntUpdateFav": "Couldn't update favourite: {{message}}",
+    "unknown": "unknown",
     "noEpisodes": "No episodes found.",
     "noEpisodesYet": "No episodes available yet.",
     "watched": "Watched",

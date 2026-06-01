@@ -7,6 +7,7 @@ import AniList from "@/components/media/aniList";
 import ListEditor from "@/components/listEditor";
 
 import { useAniList } from "@/lib/anilist/useAnilist";
+import { useTranslation } from "react-i18next";
 import Footer from "@/components/shared/footer";
 import { mediaInfoQuery } from "@/lib/graphql/query";
 import MobileNav from "@/components/shared/MobileNav";
@@ -78,6 +79,7 @@ export default function Info({
   const isMobile = useIsMobile(initialUA);
   const { data: session }: any = useSession();
   const { toggleFavourite } = useAniList(session);
+  const { t } = useTranslation();
 
   // Seed with the SSR-resolved values so the first paint already shows
   // the correct heart / list-status / resume-episode — no flash from
@@ -91,7 +93,7 @@ export default function Info({
 
   useEffect(() => {
     if (chapterNotFound) {
-      toast.error("Source not found");
+      toast.error(t("anime.sourceNotFound"));
       const cleanUrl = window.location.origin + window.location.pathname;
       window.history.replaceState(null, "", cleanUrl);
     }
@@ -153,7 +155,7 @@ export default function Info({
       if (res?.errors?.length) throw new Error(res.errors[0]?.message);
     } catch (e: any) {
       setFav(previous);
-      toast.error(`Couldn't update favourite: ${e?.message || "unknown"}`);
+      toast.error(t("anime.couldntUpdateFav", { message: e?.message || t("anime.unknown") }));
     }
   };
 
