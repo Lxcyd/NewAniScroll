@@ -6,6 +6,11 @@ import { useWatchProvider } from "@/lib/context/watchPageProvider";
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/router";
+// Skip prefetch + shared cache live in a Vidstack-free module so the watch
+// page can warm the cache without pulling this (dynamic) chunk into its
+// bundle. We reuse the same SKIP_MEMO here so a page-level prefetch is a
+// synchronous hit on remount.
+import { SKIP_MEMO, skipMemoKey, prefetchSkips } from "@/lib/skip/prefetchSkips";
 
 const SEGMENT_LABEL: Record<string, string> = {
   op: "Skip Intro",
@@ -38,8 +43,6 @@ type Skip = { start: number; end: number; type: string };
    round-trip through Service Worker + fetch pipeline; the in-memory Map
    skips that entirely. Key is `${malId}:${episode}` — sub/dub doesn't
    change the underlying op/ed timestamps. */
-const SKIP_MEMO = new Map<string, Skip[]>();
-const skipMemoKey = (mal: number, ep: number) => `${mal}:${ep}`;
 
 type Props = {
   playerRef: React.RefObject<MediaPlayerInstance>;
@@ -116,30 +119,11 @@ export default function SkipOverlay({
     }
     let cancelled = false;
     (async () => {
-      try {
-        /* Hit our /api/v2/skip proxy which tries Anime-Skip first
-           (more accurate, manually curated) and falls back to
-           AniSkip when the show isn't covered there. */
-        const params = new URLSearchParams();
-        if (aniListId) params.set("aniListId", String(aniListId));
-        // No episodeLength hint — AniSkip uses it to pick the best
-        // submission when multiple sources disagree, but skipping it
-        // doesn't break anything and saves us waiting for the player's
-        // duration to populate before kicking off the network call.
-        const res = await fetch(
-          `/api/v2/skip/${malId}/${episode}?${params.toString()}`,
-        );
-        if (!res.ok || cancelled) return;
-        const json = await res.json();
-        const arr: Skip[] = Array.isArray(json?.skips) ? json.skips : [];
-        console.log(`[SkipOverlay] source=${json?.source} kept=${arr.length}`, arr);
-        if (!cancelled) {
-          SKIP_MEMO.set(memoKey, arr);
-          setRawSkips(arr);
-        }
-      } catch (e: any) {
-        console.warn("[SkipOverlay] fetch error:", e?.message);
-      }
+      // Shared with the watch page's eager prefetch: if it already ran (or is
+      // in flight) for this episode, this resolves from the memo / the same
+      // request instead of issuing a second one.
+      const arr = await prefetchSkips(malId, episode, aniListId);
+      if (!cancelled) setRawSkips(arr);
     })();
     return () => {
       cancelled = true;

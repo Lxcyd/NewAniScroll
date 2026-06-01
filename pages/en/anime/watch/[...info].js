@@ -3,6 +3,7 @@ import { FlagIcon, ShareIcon } from "@heroicons/react/24/solid";
 import Details from "@/components/watch/primary/details";
 import EpisodeLists from "@/components/watch/secondary/episodeLists";
 import ServerSelector from "@/components/watch/primary/serverSelector";
+import { prefetchSkips } from "@/lib/skip/prefetchSkips";
 import dynamic from "next/dynamic";
 // Vidstack uses Web Components — must be loaded client-only or hydration fails.
 const UniversalPlayer = dynamic(
@@ -562,6 +563,18 @@ export default function Watch({
     setTrack(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [provider, watchId, info?.id]);
+
+  // Warm the AniSkip cache as soon as we know the anime + episode — well
+  // before the dynamic player chunk (and SkipOverlay inside it) has loaded.
+  // By the time the overlay mounts and reads SKIP_MEMO the data is usually
+  // already there, so the chapter pills/skip segments appear the moment the
+  // video reports its duration instead of waiting on a fetch that only starts
+  // after the player JS downloads. Fire-and-forget: the cache is the channel.
+  useEffect(() => {
+    if (!info?.idMal || !epiNumber) return;
+    prefetchSkips(info.idMal, Number(epiNumber), info.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [info?.idMal, info?.id, epiNumber]);
 
   // ── Fetch stream source when server needs backend (hls or api) ──
   // Tracks the latest in-flight request so server-change / navigation aborts it.
