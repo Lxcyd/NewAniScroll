@@ -98,6 +98,12 @@ export default function Content({
   // True between a real drag and the click it produces, so we can swallow
   // that one click (otherwise the drag would also navigate).
   const dragMovedRef = useRef(false);
+  // True while a touch interaction is in flight (and briefly after). Touch
+  // scrolling makes the browser synthesize mousedown/mousemove/mouseup, which
+  // used to arm dragMovedRef and get the following tap swallowed by
+  // onClickCapture — cards became untappable on mobile. We gate the mouse
+  // drag logic off whenever a touch is/was just active.
+  const touchActiveRef = useRef(false);
 
   // Attach the drag-to-scroll listeners imperatively in an effect. Doing it
   // on the real DOM node (rather than React synthetic handlers) lets us bind
@@ -110,9 +116,26 @@ export default function Content({
     let isDown = false;
     let startX = 0;
     let startScroll = 0;
+    let touchReleaseTimer: ReturnType<typeof setTimeout> | undefined;
+
+    // Touch is handled by native overflow scrolling; flag it so the mouse
+    // drag handlers ignore the synthetic mouse events touch emits.
+    const onTouchStart = () => {
+      touchActiveRef.current = true;
+      if (touchReleaseTimer) clearTimeout(touchReleaseTimer);
+    };
+    const onTouchEnd = () => {
+      // Keep the flag up briefly: the synthetic mouse* + click burst fires
+      // just after touchend, and we want all of it ignored.
+      if (touchReleaseTimer) clearTimeout(touchReleaseTimer);
+      touchReleaseTimer = setTimeout(() => {
+        touchActiveRef.current = false;
+      }, 500);
+    };
 
     const onDown = (e: MouseEvent) => {
       if (e.button !== 0) return;
+      if (touchActiveRef.current) return; // synthetic mouse from touch — ignore
       isDown = true;
       startX = e.pageX;
       startScroll = el.scrollLeft;
@@ -133,10 +156,15 @@ export default function Content({
       isDown = false;
     };
 
+    el.addEventListener("touchstart", onTouchStart, { passive: true });
+    el.addEventListener("touchend", onTouchEnd, { passive: true });
     el.addEventListener("mousedown", onDown);
     window.addEventListener("mousemove", onMove, { passive: false });
     window.addEventListener("mouseup", onUp);
     return () => {
+      if (touchReleaseTimer) clearTimeout(touchReleaseTimer);
+      el.removeEventListener("touchstart", onTouchStart);
+      el.removeEventListener("touchend", onTouchEnd);
       el.removeEventListener("mousedown", onDown);
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
@@ -144,6 +172,8 @@ export default function Content({
   }, []);
 
   const onClickCapture = (e: React.MouseEvent) => {
+    // Never swallow a tap: touch scrolling is native and must always navigate.
+    if (touchActiveRef.current) return;
     if (dragMovedRef.current) {
       e.preventDefault();
       e.stopPropagation();

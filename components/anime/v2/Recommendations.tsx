@@ -22,7 +22,13 @@ export default function Recommendations({ items, forTitle }: Props) {
   const scrollLeft = useRef(0);
   const isPointerDown = useRef(false);
 
+  // Mouse-only drag-to-scroll. Touch is left entirely to native overflow
+  // scrolling: hijacking touch pointers here (with setPointerCapture + a
+  // drag-vs-tap threshold) made every tap that wandered a few px register as
+  // a drag, so onClickCapture swallowed the click and cards became untappable
+  // on mobile. Bailing out for non-mouse pointers keeps taps as taps.
   const onPointerDown = useCallback((e: React.PointerEvent) => {
+    if (e.pointerType !== "mouse") return;
     dragMovedRef.current = false;
     downPosRef.current = { x: e.clientX, y: e.clientY };
     isPointerDown.current = true;
@@ -32,12 +38,14 @@ export default function Recommendations({ items, forTitle }: Props) {
   }, []);
 
   const onPointerMove = useCallback((e: React.PointerEvent) => {
+    if (e.pointerType !== "mouse") return;
     if (!isPointerDown.current || !ref.current) return;
     const dx = e.clientX - scrollStartX.current;
     ref.current.scrollLeft = scrollLeft.current - dx;
   }, []);
 
   const onPointerUp = useCallback((e: React.PointerEvent) => {
+    if (e.pointerType !== "mouse") return;
     isPointerDown.current = false;
     const start = downPosRef.current;
     if (!start) return;
