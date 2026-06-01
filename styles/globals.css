@@ -937,6 +937,20 @@ pre code {
   height: 100% !important;
 }
 
+/* Any letterbox left by object-fit: contain must read as pure black so it
+   blends into the video's own black, not the grey Vidstack/provider default.
+   Force black behind the frame on both fullscreen paths (standard Vidstack
+   [data-fullscreen] and the iOS CSS pseudo-fullscreen wrapper). */
+[data-media-player][data-fullscreen],
+[data-media-player][data-fullscreen] [data-media-provider],
+[data-media-player][data-fullscreen] video,
+.moopa-ios-fs,
+.moopa-ios-fs [data-media-player],
+.moopa-ios-fs [data-media-provider],
+.moopa-ios-fs video {
+  background-color: #000 !important;
+}
+
 [data-media-provider] {
   height: 100%;
   border: none;
