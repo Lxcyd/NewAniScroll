@@ -8,56 +8,98 @@ import { useTranslation } from "react-i18next";
  * translation once it resolves — so there's never a blank flash, and English
  * is always the graceful fallback if translation fails or the language is EN.
  *
- * A small in-memory cache dedupes repeat requests within a session (e.g.
- * navigating back to the same anime) so we don't re-hit the API.
+ * A module-level in-memory cache dedupes repeat requests within a session and
+ * is shared with `prefetchTranslations`, so content translated ahead of time
+ * (e.g. the home hero carousel) renders instantly with no English flash.
  */
 const memCache = new Map<string, string>();
+// Tracks in-flight requests so concurrent callers (a prefetch + a live hook)
+// don't fire duplicate POSTs for the same text.
+const inflight = new Map<string, Promise<string>>();
+
+function cacheKeyOf(text: string, lang: string) {
+  return `${lang}:${text}`;
+}
+
+/** Translate one string, hitting the in-memory cache / dedup first. */
+function translateOne(text: string, lang: string): Promise<string> {
+  const key = cacheKeyOf(text, lang);
+  const cached = memCache.get(key);
+  if (cached != null) return Promise.resolve(cached);
+  const existing = inflight.get(key);
+  if (existing) return existing;
+
+  const p = fetch("/api/v2/translate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text, target: lang }),
+  })
+    .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
+    .then((data) => {
+      const result = data?.translated && data.text ? data.text : text;
+      memCache.set(key, result);
+      return result as string;
+    })
+    .catch(() => text)
+    .finally(() => {
+      inflight.delete(key);
+    });
+
+  inflight.set(key, p);
+  return p;
+}
+
+/**
+ * Warm the cache for a batch of strings (e.g. every hero-carousel synopsis)
+ * so they're already translated by the time the user reaches each slide.
+ * No-op for English. Fire-and-forget; runs the requests in parallel.
+ */
+export function prefetchTranslations(
+  texts: Array<string | null | undefined>,
+  lang: string,
+) {
+  if (!lang || lang === "en") return;
+  for (const t of texts) {
+    const text = (t || "").trim();
+    if (!text) continue;
+    if (memCache.has(cacheKeyOf(text, lang))) continue;
+    // Fire and forget — result lands in memCache for the live hook to read.
+    void translateOne(text, lang);
+  }
+}
 
 export function useTranslatedText(source: string | null | undefined): string {
   const { i18n } = useTranslation();
   const lang = i18n.language || "en";
-  const [out, setOut] = useState<string>(source || "");
+  const text = (source || "").trim();
+
+  // Initialise from cache synchronously so a pre-translated string renders
+  // with no English flash on the very first paint.
+  const [out, setOut] = useState<string>(() => {
+    if (!text || lang === "en") return source || "";
+    return memCache.get(cacheKeyOf(text, lang)) ?? (source || "");
+  });
 
   useEffect(() => {
-    const text = source || "";
-    // English (source language) or empty → nothing to translate.
-    if (!text.trim() || lang === "en") {
-      setOut(text);
+    if (!text || lang === "en") {
+      setOut(source || "");
       return;
     }
-
-    const key = `${lang}:${text}`;
-    const cached = memCache.get(key);
+    const cached = memCache.get(cacheKeyOf(text, lang));
     if (cached != null) {
       setOut(cached);
       return;
     }
-
     // Show the original while the translation is in flight.
-    setOut(text);
-
+    setOut(source || "");
     let cancelled = false;
-    fetch("/api/v2/translate", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text, target: lang }),
-    })
-      .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
-      .then((data) => {
-        if (cancelled) return;
-        if (data?.translated && data.text) {
-          memCache.set(key, data.text);
-          setOut(data.text);
-        }
-      })
-      .catch(() => {
-        /* keep the English original */
-      });
-
+    translateOne(text, lang).then((res) => {
+      if (!cancelled) setOut(res);
+    });
     return () => {
       cancelled = true;
     };
-  }, [source, lang]);
+  }, [source, lang, text]);
 
   return out;
 }

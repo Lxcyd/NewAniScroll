@@ -6,7 +6,7 @@ import Footer from "@/components/shared/footer";
 import Image from "next/image";
 import Content from "@/components/home/content";
 import { useTranslation } from "react-i18next";
-import { useTranslatedText } from "@/lib/i18n/useTranslatedText";
+import { useTranslatedText, prefetchTranslations } from "@/lib/i18n/useTranslatedText";
 
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -175,12 +175,12 @@ type HomeProps = {
    gradient so there's no visible seam.
    Hidden < lg so phones keep their lighter layout below.                */
 const HERO_AUTO_INTERVAL_MS = 8000;
-const STATUS_TAG: Record<string, { label: string; dot: string }> = {
-  RELEASING: { label: "AIRING", dot: "bg-emerald-400" },
-  FINISHED: { label: "FINISHED", dot: "bg-zinc-400" },
-  NOT_YET_RELEASED: { label: "SOON", dot: "bg-sky-400" },
-  CANCELLED: { label: "CANCELLED", dot: "bg-red-400" },
-  HIATUS: { label: "HIATUS", dot: "bg-amber-400" },
+const STATUS_TAG: Record<string, { labelKey: string; dot: string }> = {
+  RELEASING: { labelKey: "home.tagAiring", dot: "bg-emerald-400" },
+  FINISHED: { labelKey: "home.tagFinished", dot: "bg-zinc-400" },
+  NOT_YET_RELEASED: { labelKey: "home.tagSoon", dot: "bg-sky-400" },
+  CANCELLED: { labelKey: "home.tagCancelled", dot: "bg-red-400" },
+  HIATUS: { labelKey: "home.tagHiatus", dot: "bg-amber-400" },
 };
 
 function HeroBanner({
@@ -194,7 +194,7 @@ function HeroBanner({
   onPlay: (id: number) => void;
   stripDescription: (s: string) => string;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   // Stable list: SSR-provided entries, falling back to a single entry
   // synthesised from firstTrend when the fanart fetch returned empty.
   const list: HeroEntry[] =
@@ -241,6 +241,19 @@ function HeroBanner({
     }, HERO_AUTO_INTERVAL_MS);
     return () => window.clearTimeout(t);
   }, [list.length, idx]);
+
+  // Pre-translate EVERY carousel synopsis up front (the moment the list +
+  // language are known), in parallel, so by the time the carousel auto-
+  // advances to each slide its French text is already cached and renders
+  // with zero English flash. Fire-and-forget; results land in the shared
+  // translation cache that useTranslatedText reads from.
+  useEffect(() => {
+    if (!list.length || i18n.language === "en") return;
+    prefetchTranslations(
+      list.map((e) => stripDescription(e.description || "")),
+      i18n.language,
+    );
+  }, [list, i18n.language, stripDescription]);
 
   // Compute the active entry's synopsis BEFORE any early return so the
   // translation hook is always called in the same order (rules-of-hooks).
@@ -373,11 +386,11 @@ function HeroBanner({
                       <span
                         className={`h-1.5 w-1.5 rounded-full ${statusInfo.dot}`}
                       />
-                      {statusInfo.label}
+                      {t(statusInfo.labelKey)}
                     </span>
                   )}
                   <span className="rounded-full bg-[#E94560]/20 px-3 py-1 text-xs font-karla font-semibold tracking-wider text-action border border-[#E94560]/40 backdrop-blur-sm">
-                    TRENDING #{idx + 1}
+                    {t("home.trending")} #{idx + 1}
                   </span>
                 </div>
 
