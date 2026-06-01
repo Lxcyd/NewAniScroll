@@ -3,8 +3,10 @@ import { motion } from "framer-motion";
 import Link from "next/link";
 import { Navbar } from "@/components/shared/NavBar";
 import Footer from "@/components/shared/footer";
+import { useTranslation } from "react-i18next";
 
 export default function About() {
+  const { t } = useTranslation();
   return (
     <>
       <Head>
@@ -29,33 +31,14 @@ export default function About() {
         className="flex flex-col justify-center items-center min-h-screen md:py-0 py-16"
       >
         <div className="max-w-screen-lg w-full px-4 py-10">
-          <h1 className="text-4xl font-bold mb-6">About Us</h1>
-          <p className="text-lg mb-8">
-            AniScroll is a platform where you can watch and stream anime or read
-            manga for free, without any ads or VPNs. Our mission is to provide a
-            convenient and enjoyable experience for anime and manga enthusiasts
-            all around the world.
-          </p>
-          <p className="text-lg mb-8">
-            At our site, you will find a vast collection of anime and manga
-            titles from different genres, including action, adventure, comedy,
-            romance, and more. We take pride in our fast and reliable servers,
-            which ensure smooth streaming and reading for all our users.
-          </p>
-          <p className="text-lg mb-8">
-            We believe that anime and manga have the power to inspire and
-            entertain people of all ages and backgrounds. Our service is
-            designed to make it easy for fans to access the content they love,
-            whether they are casual viewers or die-hard fans.
-          </p>
-          <p className="text-lg mb-8">
-            Thank you for choosing our website as your go-to platform for anime
-            and manga. We hope you enjoy your stay here, and feel free to
-            contact us if you have any feedback or suggestions.
-          </p>
+          <h1 className="text-4xl font-bold mb-6">{t("about.title")}</h1>
+          <p className="text-lg mb-8">{t("about.p1")}</p>
+          <p className="text-lg mb-8">{t("about.p2")}</p>
+          <p className="text-lg mb-8">{t("about.p3")}</p>
+          <p className="text-lg mb-8">{t("about.p4")}</p>
           <Link href="/en/contact">
             <div className="bg-[#ffffff] text-black font-medium py-3 px-6 rounded-lg hover:bg-action transition duration-300 ease-in-out">
-              Contact Us
+              {t("about.contactUs")}
             </div>
           </Link>
         </div>

@@ -42,6 +42,18 @@
     "en": "English",
     "fr": "Français"
   },
+  "settings": {
+    "title": "Settings",
+    "storedLocally": "Your preferences are stored locally on this device.",
+    "animeTitleLanguage": "Anime title language",
+    "animeTitleLanguageDesc": "How anime titles are displayed everywhere on the site (search, hero, lists, schedule…).",
+    "default": "Default",
+    "romajiSub": "Japanese romanized",
+    "titleLangNote": "French titles are not supplied by AniList and would have to be guessed from synonyms, which is unreliable — so this picker only covers English and Romaji.",
+    "interfaceLanguage": "Interface language",
+    "interfaceLanguageDesc": "Language used for buttons, menus and labels across the site.",
+    "interfaceLangNote": "We auto-detect your browser language on first visit; your choice here always takes priority and is saved on this device."
+  },
   "home": {
     "recentlyWatched": "Recently Watched",
     "continueWatching": "Continue Watching",
@@ -204,6 +216,18 @@
     "planning": "Planning",
     "paused": "Paused",
     "dropped": "Dropped"
+  },
+  "about": {
+    "title": "About Us",
+    "p1": "AniScroll is a platform where you can watch and stream anime or read manga for free, without any ads or VPNs. Our mission is to provide a convenient and enjoyable experience for anime and manga enthusiasts all around the world.",
+    "p2": "At our site, you will find a vast collection of anime and manga titles from different genres, including action, adventure, comedy, romance, and more. We take pride in our fast and reliable servers, which ensure smooth streaming and reading for all our users.",
+    "p3": "We believe that anime and manga have the power to inspire and entertain people of all ages and backgrounds. Our service is designed to make it easy for fans to access the content they love, whether they are casual viewers or die-hard fans.",
+    "p4": "Thank you for choosing our website as your go-to platform for anime and manga. We hope you enjoy your stay here, and feel free to contact us if you have any feedback or suggestions.",
+    "contactUs": "Contact Us"
+  },
+  "contact": {
+    "title": "Contact Us",
+    "intro": "If you have any questions or comments, please email us at:"
   },
   "anime": {
     "watchNow": "Watch now",

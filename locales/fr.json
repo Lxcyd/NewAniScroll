@@ -42,6 +42,18 @@
     "en": "English",
     "fr": "Français"
   },
+  "settings": {
+    "title": "Paramètres",
+    "storedLocally": "Vos préférences sont enregistrées localement sur cet appareil.",
+    "animeTitleLanguage": "Langue des titres d'anime",
+    "animeTitleLanguageDesc": "Comment les titres d'anime s'affichent partout sur le site (recherche, hero, listes, programme…).",
+    "default": "Par défaut",
+    "romajiSub": "Japonais romanisé",
+    "titleLangNote": "Les titres français ne sont pas fournis par AniList et devraient être devinés à partir de synonymes, ce qui n'est pas fiable — ce sélecteur ne couvre donc que l'anglais et le romaji.",
+    "interfaceLanguage": "Langue de l'interface",
+    "interfaceLanguageDesc": "Langue utilisée pour les boutons, menus et libellés du site.",
+    "interfaceLangNote": "Nous détectons automatiquement la langue de votre navigateur à la première visite ; votre choix ici reste prioritaire et est enregistré sur cet appareil."
+  },
   "home": {
     "recentlyWatched": "Vu récemment",
     "continueWatching": "Reprendre",
@@ -204,6 +216,18 @@
     "planning": "Prévu",
     "paused": "En pause",
     "dropped": "Abandonné"
+  },
+  "about": {
+    "title": "À propos",
+    "p1": "AniScroll est une plateforme où vous pouvez regarder des animes en streaming ou lire des mangas gratuitement, sans publicité ni VPN. Notre mission est d'offrir une expérience pratique et agréable aux passionnés d'anime et de manga du monde entier.",
+    "p2": "Sur notre site, vous trouverez une vaste collection de titres d'anime et de manga de différents genres : action, aventure, comédie, romance et bien plus encore. Nous sommes fiers de nos serveurs rapides et fiables, qui garantissent un streaming et une lecture fluides pour tous nos utilisateurs.",
+    "p3": "Nous pensons que l'anime et le manga ont le pouvoir d'inspirer et de divertir les personnes de tout âge et de tout horizon. Notre service est conçu pour permettre aux fans d'accéder facilement au contenu qu'ils aiment, qu'ils soient spectateurs occasionnels ou passionnés.",
+    "p4": "Merci d'avoir choisi notre site comme plateforme de référence pour l'anime et le manga. Nous espérons que vous apprécierez votre visite, et n'hésitez pas à nous contacter pour tout retour ou suggestion.",
+    "contactUs": "Nous contacter"
+  },
+  "contact": {
+    "title": "Nous contacter",
+    "intro": "Pour toute question ou remarque, écrivez-nous à :"
   },
   "anime": {
     "watchNow": "Regarder",
