@@ -1213,7 +1213,11 @@ function MRecs({ info }: { info: AniListInfoTypes }) {
           gap: 11,
           overflowX: "auto",
           padding: "14px 16px 4px",
-          scrollSnapType: "x mandatory",
+          // `x mandatory` made iOS Safari treat a tap as the start of a
+          // scroll-snap and swallow the click on the card's <Link>, so recs
+          // were untappable on mobile. `proximity` keeps a light snap without
+          // stealing taps.
+          scrollSnapType: "x proximity",
         }}
       >
         {recs.map((r: any) => {
