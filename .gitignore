@@ -11,6 +11,9 @@ build/
 # Local caches (models, scrape artifacts)
 .cache/
 
+# graphify knowledge graph (generated locally, rebuilt by git hooks)
+graphify-out/
+
 # Env files (CRITIQUE - ne jamais commit tes clés)
 .env
 .env.local
