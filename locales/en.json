@@ -141,6 +141,29 @@
     "server": "Server",
     "loading": "Loading…"
   },
+  "status": {
+    "airing": "Airing",
+    "finished": "Finished",
+    "notYetReleased": "Not yet released",
+    "cancelled": "Cancelled",
+    "hiatus": "Hiatus",
+    "na": "N/A"
+  },
+  "country": {
+    "JP": "Japan",
+    "KR": "Korea",
+    "CN": "China",
+    "TW": "Taiwan"
+  },
+  "list": {
+    "addToList": "Add to List",
+    "watching": "Watching",
+    "rewatching": "Rewatching",
+    "completed": "Completed",
+    "planning": "Planning",
+    "paused": "Paused",
+    "dropped": "Dropped"
+  },
   "anime": {
     "watchNow": "Watch now",
     "addToList": "Add to list",
@@ -156,6 +179,41 @@
     "studios": "Studios",
     "genres": "Genres",
     "score": "Score",
-    "favourites": "Favourites"
+    "favourites": "Favourites",
+    "watchNowCta": "WATCH NOW",
+    "rewatchCta": "REWATCH",
+    "comingSoonCta": "COMING SOON",
+    "rated": "RATED #{{rank}}",
+    "average": "AVERAGE",
+    "linkCopied": "Link copied",
+    "addToFavourites": "Add to favourites",
+    "removeFromFavourites": "Remove from favourites",
+    "showNextArtwork": "Show next artwork",
+    "clickForAnotherArtwork": "Click for another artwork",
+    "filterEpisodes": "Filter episodes…",
+    "detailedView": "Detailed view (thumbnails + description)",
+    "compactList": "Compact list",
+    "gridOfNumbers": "Grid of numbers",
+    "readMore": "Read more",
+    "readLess": "Read less",
+    "source": "Source",
+    "synopsis": "Synopsis",
+    "noDescription": "No description available.",
+    "trailer": "Trailer",
+    "season": "Season",
+    "aired": "Aired",
+    "country": "Country",
+    "romaji": "Romaji",
+    "english": "English",
+    "native": "Native",
+    "synonyms": "Synonyms",
+    "noEpisodes": "No episodes found.",
+    "noEpisodesYet": "No episodes available yet.",
+    "watched": "Watched",
+    "upNext": "Up next",
+    "back": "Back",
+    "favourite": "Favourite",
+    "prev": "Prev",
+    "next": "Next"
   }
 }

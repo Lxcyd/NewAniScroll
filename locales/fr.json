@@ -141,6 +141,29 @@
     "server": "Serveur",
     "loading": "Chargement…"
   },
+  "status": {
+    "airing": "En diffusion",
+    "finished": "Terminé",
+    "notYetReleased": "Pas encore sorti",
+    "cancelled": "Annulé",
+    "hiatus": "En pause",
+    "na": "N/A"
+  },
+  "country": {
+    "JP": "Japon",
+    "KR": "Corée",
+    "CN": "Chine",
+    "TW": "Taïwan"
+  },
+  "list": {
+    "addToList": "Ajouter à la liste",
+    "watching": "En cours",
+    "rewatching": "Re-visionnage",
+    "completed": "Terminé",
+    "planning": "Prévu",
+    "paused": "En pause",
+    "dropped": "Abandonné"
+  },
   "anime": {
     "watchNow": "Regarder",
     "addToList": "Ajouter à la liste",
@@ -156,6 +179,41 @@
     "studios": "Studios",
     "genres": "Genres",
     "score": "Note",
-    "favourites": "Favoris"
+    "favourites": "Favoris",
+    "watchNowCta": "REGARDER",
+    "rewatchCta": "REVOIR",
+    "comingSoonCta": "BIENTÔT",
+    "rated": "CLASSÉ #{{rank}}",
+    "average": "MOYENNE",
+    "linkCopied": "Lien copié",
+    "addToFavourites": "Ajouter aux favoris",
+    "removeFromFavourites": "Retirer des favoris",
+    "showNextArtwork": "Afficher l'illustration suivante",
+    "clickForAnotherArtwork": "Cliquez pour une autre illustration",
+    "filterEpisodes": "Filtrer les épisodes…",
+    "detailedView": "Vue détaillée (miniatures + description)",
+    "compactList": "Liste compacte",
+    "gridOfNumbers": "Grille de numéros",
+    "readMore": "Lire plus",
+    "readLess": "Lire moins",
+    "source": "Source",
+    "synopsis": "Synopsis",
+    "noDescription": "Aucune description disponible.",
+    "trailer": "Bande-annonce",
+    "season": "Saison",
+    "aired": "Diffusé",
+    "country": "Pays",
+    "romaji": "Romaji",
+    "english": "Anglais",
+    "native": "Natif",
+    "synonyms": "Synonymes",
+    "noEpisodes": "Aucun épisode trouvé.",
+    "noEpisodesYet": "Aucun épisode disponible pour le moment.",
+    "watched": "Vu",
+    "upNext": "À suivre",
+    "back": "Retour",
+    "favourite": "Favori",
+    "prev": "Précédent",
+    "next": "Suivant"
   }
 }

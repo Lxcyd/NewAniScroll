@@ -1,4 +1,60 @@
 import { AniListInfoTypes, Edge } from "types/info/AnilistInfoTypes";
+import type { TFunction } from "i18next";
+
+/**
+ * i18n-aware variants of the pretty* display helpers. The plain pretty*
+ * functions still exist for non-React / logic callers; these take the
+ * translation function `t` and return the localized label. AniList status /
+ * country / list values are stable English keys mapped to the status.*,
+ * country.*, list.* namespaces.
+ */
+export function statusLabel(t: TFunction, status: string | null): string {
+  switch (status) {
+    case "RELEASING":
+      return t("status.airing");
+    case "FINISHED":
+      return t("status.finished");
+    case "NOT_YET_RELEASED":
+      return t("status.notYetReleased");
+    case "CANCELLED":
+      return t("status.cancelled");
+    case "HIATUS":
+      return t("status.hiatus");
+    default:
+      return status || t("status.na");
+  }
+}
+
+export function countryLabel(t: TFunction, c: string | null): string {
+  switch (c) {
+    case "JP":
+      return t("country.JP");
+    case "KR":
+      return t("country.KR");
+    case "CN":
+      return t("country.CN");
+    case "TW":
+      return t("country.TW");
+    default:
+      return c || t("status.na");
+  }
+}
+
+/** Translate a STATUS_TO_LIST value ("Watching", "Completed", …) or the
+ *  "Add to List" fallback. */
+export function listLabel(t: TFunction, list: string): string {
+  const KEY: Record<string, string> = {
+    "Add to List": "list.addToList",
+    Watching: "list.watching",
+    Rewatching: "list.rewatching",
+    Completed: "list.completed",
+    Planning: "list.planning",
+    Paused: "list.paused",
+    Dropped: "list.dropped",
+  };
+  const k = KEY[list];
+  return k ? t(k) : list;
+}
 
 export const LIST_COLORS: Record<string, string> = {
   Watching: "#22c55e",

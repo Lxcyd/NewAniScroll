@@ -4,6 +4,7 @@ import { AniListInfoTypes } from "types/info/AnilistInfoTypes";
 import styles from "./styles.module.css";
 import type { SeasonEntry } from "@/lib/anilist/seasonChain";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
+import { useTranslation } from "react-i18next";
 
 type EpisodeRow = {
   number: number;
@@ -38,6 +39,7 @@ const ROW_HEIGHT = {
 
 export default function Episodes({ info, progress, seasonList }: Props) {
   const titlePref = useTitlePref();
+  const { t } = useTranslation();
   const [eps, setEps] = useState<EpisodeRow[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -80,7 +82,7 @@ export default function Episodes({ info, progress, seasonList }: Props) {
         const list: EpisodeRow[] = (provider?.episodes || []).map((e: any) => ({
           number: e.number,
           id: e.id,
-          title: e.title || `Episode ${e.number}`,
+          title: e.title || `${t("common.episode")} ${e.number}`,
           duration: info.duration ?? null,
           img: e.img || null,
         }));
@@ -150,7 +152,7 @@ export default function Episodes({ info, progress, seasonList }: Props) {
               type="text"
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
-              placeholder="Filter episodes…"
+              placeholder={t("anime.filterEpisodes")}
               style={tStyles.searchInput}
             />
           </div>
@@ -172,7 +174,7 @@ export default function Episodes({ info, progress, seasonList }: Props) {
             <ViewBtn
               active={view === "detailed"}
               onClick={() => setView("detailed")}
-              title="Detailed view (thumbnails + description)"
+              title={t("anime.detailedView")}
             >
               {/* Picture/image icon — this mode is the one that shows
                   the episode thumbnails, so it earns the photo glyph. */}
@@ -185,7 +187,7 @@ export default function Episodes({ info, progress, seasonList }: Props) {
             <ViewBtn
               active={view === "compact"}
               onClick={() => setView("compact")}
-              title="Compact list"
+              title={t("anime.compactList")}
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
                 <line x1="4" y1="6" x2="20" y2="6" />
@@ -196,7 +198,7 @@ export default function Episodes({ info, progress, seasonList }: Props) {
             <ViewBtn
               active={view === "grid"}
               onClick={() => setView("grid")}
-              title="Grid of numbers"
+              title={t("anime.gridOfNumbers")}
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
                 <rect x="3" y="3" width="7" height="7" rx="1.5" />
@@ -236,7 +238,7 @@ export default function Episodes({ info, progress, seasonList }: Props) {
             fontSize: 13,
           }}
         >
-          No episodes available yet.
+          {t("anime.noEpisodesYet")}
         </div>
       )}
 
@@ -613,6 +615,7 @@ function EpisodeThumb({
 
 /* DETAILED — original card-with-thumb-and-meta row. */
 function DetailedList({ eps, progress, info, isDub, activeAnimeId, otherSeason }: ListProps) {
+  const { t } = useTranslation();
   return (
     <div style={tStyles.epList}>
       {eps.map((ep) => {
@@ -639,8 +642,8 @@ function DetailedList({ eps, progress, info, isDub, activeAnimeId, otherSeason }
                 <span className="mono" style={tStyles.epNum}>
                   EP {String(ep.number).padStart(2, "0")}
                 </span>
-                {watched && <span style={tStyles.watchedTag}>✓ Watched</span>}
-                {current && <span style={tStyles.currentTag}>● Up next</span>}
+                {watched && <span style={tStyles.watchedTag}>✓ {t("anime.watched")}</span>}
+                {current && <span style={tStyles.currentTag}>● {t("anime.upNext")}</span>}
               </div>
               <div style={tStyles.epTitle}>{ep.title}</div>
               <div style={tStyles.epMeta}>

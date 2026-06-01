@@ -8,11 +8,14 @@ import {
   formatAiredRange,
   prettySeason,
   prettyStatus,
+  statusLabel as statusLabelI18n,
+  listLabel,
   SeasonInfo,
   TitleImage,
 } from "./helpers";
 import { toast } from "sonner";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
+import { useTranslation } from "react-i18next";
 
 type HeroProps = {
   info: AniListInfoTypes;
@@ -51,6 +54,7 @@ export default function Hero({
   favRank,
 }: HeroProps) {
   const titlePref = useTitlePref();
+  const { t } = useTranslation();
   const title = pickTitle(info.title, titlePref);
   const seasonPill = prettySeason(info);
 
@@ -84,6 +88,7 @@ export default function Hero({
 
   const list = (statusLabel && STATUS_TO_LIST[statusLabel]) || "Add to List";
   const listColor = LIST_COLORS[list] || "#8a8fa3";
+  const listDisplay = listLabel(t, list);
 
   // Not-yet-released anime: episode 1 doesn't exist yet so a Watch
   // button would lead to a 404. Surface "Coming Soon" with the air date
@@ -95,10 +100,10 @@ export default function Hero({
   // "COMING SOON" if it hasn't aired, "WATCH NOW" otherwise.
   const isCompleted = statusLabel === "COMPLETED";
   const watchLabel = isNotYetReleased
-    ? "COMING SOON"
+    ? t("anime.comingSoonCta")
     : isCompleted
-    ? "REWATCH"
-    : "WATCH NOW";
+    ? t("anime.rewatchCta")
+    : t("anime.watchNowCta");
 
   // Resume target:
   //   - not yet released → no playable episode, button is a no-op link
@@ -430,8 +435,8 @@ export default function Hero({
                   alt={title}
                   onClick={canCycle ? handleCycleClick : undefined}
                   role={canCycle ? "button" : undefined}
-                  aria-label={canCycle ? "Show next artwork" : undefined}
-                  title={canCycle ? "Click for another artwork" : undefined}
+                  aria-label={canCycle ? t("anime.showNextArtwork") : undefined}
+                  title={canCycle ? t("anime.clickForAnotherArtwork") : undefined}
                   style={{
                     ...(titleImage.kind === "clearart"
                       ? hStyles.titleArt
@@ -464,7 +469,7 @@ export default function Hero({
                       <span style={hStyles.statTiny}>/10</span>
                     </div>
                     <div style={hStyles.statLabel}>
-                      {ratingRank ? `RATED #${ratingRank}` : "AVERAGE"}
+                      {ratingRank ? t("anime.rated", { rank: ratingRank }) : t("anime.average")}
                     </div>
                   </div>
                   <div style={hStyles.statSep} />
@@ -506,7 +511,7 @@ export default function Hero({
                   </span>
                   <span style={hStyles.statTiny}>{durLabel}</span>
                 </div>
-                <div style={hStyles.statLabel}>{prettyStatus(info.status).toUpperCase()}</div>
+                <div style={hStyles.statLabel}>{statusLabelI18n(t, info.status).toUpperCase()}</div>
               </div>
             </div>
 
@@ -563,7 +568,7 @@ export default function Hero({
                     flexShrink: 0,
                   }}
                 />
-                <span style={{ flex: 1, textAlign: "left" }}>{list}</span>
+                <span style={{ flex: 1, textAlign: "left" }}>{listDisplay}</span>
                 <svg
                   width="14"
                   height="14"
@@ -593,7 +598,7 @@ export default function Hero({
                     color: fav ? "var(--accent)" : "var(--txt-1)",
                     cursor: "pointer",
                   }}
-                  aria-label={fav ? "Remove from favourites" : "Add to favourites"}
+                  aria-label={fav ? t("anime.removeFromFavourites") : t("anime.addToFavourites")}
                 >
                   <svg
                     width="20"
@@ -612,7 +617,7 @@ export default function Hero({
                       navigator.share({ title, url: window.location.href }).catch(() => {});
                     } else if (typeof navigator !== "undefined") {
                       navigator.clipboard?.writeText(window.location.href);
-                      toast.success("Link copied");
+                      toast.success(t("anime.linkCopied"));
                     }
                   }}
                   style={{
@@ -645,7 +650,7 @@ export default function Hero({
                     <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
                     <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
                   </svg>
-                  Share
+                  {t("anime.share")}
                 </button>
               </div>
             </div>
