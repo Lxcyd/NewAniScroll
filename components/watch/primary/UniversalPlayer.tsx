@@ -1826,9 +1826,6 @@ export default function UniversalPlayer({
           serverId={serverId}
           onError={onError}
           referrerPolicy={isVidmoly ? "no-referrer" : "origin"}
-          // On iOS, Vidmoly's iframe otherwise hands playback to the native
-          // fullscreen player. Drop fullscreen permission so it stays inline.
-          forceInline={isVidmoly && isIOS}
         />
         {/* No explicit exit-fullscreen cross: re-tapping the fullscreen
             button toggles pseudo-fullscreen off. */}
@@ -2119,16 +2116,11 @@ function IframeEmbed({
   serverId,
   onError,
   referrerPolicy = "origin",
-  forceInline = false,
 }: {
   src: string;
   serverId?: string;
   onError?: (reason?: string) => void;
   referrerPolicy?: React.HTMLAttributeReferrerPolicy;
-  // When true, we drop fullscreen permission from the iframe so iOS can't
-  // hand the embedded <video> off to its native fullscreen player — keeping
-  // playback inside our inline iframe (used for Vidmoly on iOS).
-  forceInline?: boolean;
 }) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [failed, setFailed] = useState(false);
@@ -2168,20 +2160,13 @@ function IframeEmbed({
       className="relative z-10 aspect-video h-full w-full bg-black"
       frameBorder="0"
       scrolling="no"
-      // forceInline: omit allowFullScreen so iOS won't route the embedded
-      // <video> into its native fullscreen player (keeps Vidmoly inline).
-      {...(forceInline ? {} : { allowFullScreen: true })}
+      allowFullScreen
       referrerPolicy={referrerPolicy}
       // `accelerometer` + `gyroscope` keep some extractors (Vidmoly) from
       // throwing permission errors on phones. `clipboard-write` is what the
       // hianime player needs for its "copy stream link" button. The extra
-      // grants are harmless when the host doesn't use them. We drop the
-      // `fullscreen` grant in forceInline mode for the same reason as above.
-      allow={
-        forceInline
-          ? "autoplay; encrypted-media; picture-in-picture; accelerometer; gyroscope; clipboard-write"
-          : "autoplay; fullscreen; encrypted-media; picture-in-picture; accelerometer; gyroscope; clipboard-write"
-      }
+      // grants are harmless when the host doesn't use them.
+      allow="autoplay; fullscreen; encrypted-media; picture-in-picture; accelerometer; gyroscope; clipboard-write"
       // Eager loading + high fetch priority: the iframe IS the page's main
       // content, so it should win the network race against background
       // requests (probes, analytics, ads in the loaded extractor).
