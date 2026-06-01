@@ -1592,6 +1592,17 @@ export default function UniversalPlayer({
     setClientStatus("pending");
     setClientStream(null);
     const ac = new AbortController();
+    // Hard timeout: the browser fetch to vidmoly can hang on iOS (slow/blocked
+    // CORS preflight with no fast rejection), leaving us stuck on "Loading…"
+    // forever with no iframe fallback. After 6s we give up and mark the client
+    // extraction failed so the iframe path takes over. We track the timeout
+    // abort separately from the cleanup abort: only the former should flip to
+    // "failed" (a cleanup abort means the component/source went away).
+    let timedOut = false;
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      ac.abort();
+    }, 6000);
     (async () => {
       try {
         const mod = await import("@/lib/clientVidmoly");
@@ -1599,6 +1610,7 @@ export default function UniversalPlayer({
           signal: ac.signal,
         });
         if (ac.signal.aborted) return;
+        clearTimeout(timeout);
         if (res.masterUrl) {
           setClientStream({
             url: res.masterUrl,
@@ -1616,7 +1628,11 @@ export default function UniversalPlayer({
           setClientStatus("failed");
         }
       } catch (e: any) {
-        if (!ac.signal.aborted) {
+        // Timeout abort → fall through to the iframe. Cleanup abort → ignore.
+        if (timedOut) {
+          console.warn("[UniversalPlayer] client vidmoly timed out → iframe");
+          setClientStatus("failed");
+        } else if (!ac.signal.aborted) {
           console.warn(
             "[UniversalPlayer] client vidmoly threw:",
             e?.message || e,
@@ -1625,7 +1641,10 @@ export default function UniversalPlayer({
         }
       }
     })();
-    return () => ac.abort();
+    return () => {
+      clearTimeout(timeout);
+      ac.abort();
+    };
   }, [streamData]);
 
   // ── Autoplay ──
