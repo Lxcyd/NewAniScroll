@@ -9,9 +9,11 @@ import { authOptions } from "../../api/auth/[...nextauth]";
 import Head from "next/head";
 import MobileNav from "@/components/shared/MobileNav";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
+import { useTranslation } from "react-i18next";
 
 export default function TrendingAnime({ sessions }) {
   const titlePref = useTitlePref();
+  const { t } = useTranslation();
   const [data, setData] = useState(null);
   const [page, setPage] = useState(1);
   const [nextPage, setNextPage] = useState(true);
@@ -73,7 +75,7 @@ export default function TrendingAnime({ sessions }) {
         <div className="z-50 bg-primary pt-5 pb-3 shadow-md shadow-primary w-full fixed px-3">
           <Link href="/en" className="flex gap-2 items-center font-karla">
             <ChevronLeftIcon className="w-5 h-5" />
-            <h1 className="text-xl">Trending Now</h1>
+            <h1 className="text-xl">{t("home.trendingNow")}</h1>
           </Link>
         </div>
         <div className="grid grid-cols-2 xs:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-6 gap-3 max-w-6xl pt-16">

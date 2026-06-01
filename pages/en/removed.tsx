@@ -1,8 +1,10 @@
 import MobileNav from "@/components/shared/MobileNav";
 import { Navbar } from "@/components/shared/NavBar";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 
 export default function RemovedPage() {
+  const { t } = useTranslation();
   const [readMore, setReadMore] = useState(false);
 
   return (
@@ -20,7 +22,7 @@ export default function RemovedPage() {
             </svg>
           </div>
           <div className="font-karla font-bold lg:text-3xl text-center">
-            This content has been removed from the site.
+            {t("removed.title")}
           </div>
           <p
             className="hover:text-action text-zinc-500 cursor-pointer"
@@ -28,20 +30,14 @@ export default function RemovedPage() {
               setReadMore((prev) => !prev);
             }}
           >
-            Why am I seeing this?
+            {t("removed.why")}
           </p>
           <p
             className={`opacity-0 ${
               readMore ? "opacity-100" : ""
             } transition-all duration-200 p-2 bg-secondary rounded-md font-roboto text-sm lg:text-base text-zinc-300`}
           >
-            Unfortunately, the media you were trying to access has been removed
-            from our site due to copyright infringement. We take intellectual
-            property rights seriously and strive to maintain a platform that
-            respects the creative works of others. If you have any questions or
-            concerns, please feel free to contact our support team for further
-            assistance. Thank you for your understanding and cooperation in
-            upholding a fair and lawful online environment.
+            {t("removed.explanation")}
           </p>
         </div>
       </div>

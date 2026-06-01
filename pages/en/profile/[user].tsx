@@ -8,6 +8,7 @@ import { Navbar } from "@/components/shared/NavBar";
 import pls from "@/utils/request";
 import { CurrentMediaTypes } from "..";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
+import { useTranslation } from "react-i18next";
 
 type MyListProps = {
   media: CurrentMediaTypes[];
@@ -25,6 +26,7 @@ export default function MyList({
   userSettings,
 }: MyListProps) {
   const titlePref = useTitlePref();
+  const { t } = useTranslation();
   const [listFilter, setListFilter] = useState("all");
   const [visible, setVisible] = useState(false);
   const [useCustomList, setUseCustomList] = useState(true);
@@ -166,13 +168,13 @@ export default function MyList({
           </div>
           {sessions && user.name === sessions?.user.name && (
             <div className="font-karla flex flex-col gap-4">
-              <h1>User Settings</h1>
+              <h1>{t("profile.userSettings")}</h1>
               <div className="flex p-2 items-center justify-between">
                 <h2
                   className="text-sm text-white/70"
-                  title="Disabling this will stop adding your Anime to 'Watched using AniScroll' list."
+                  title={t("profile.watchedToggleTooltip")}
                 >
-                  Custom Lists
+                  {t("profile.customLists")}
                 </h2>
                 <div className="w-5 h-5">
                   <input
@@ -189,7 +191,7 @@ export default function MyList({
             <div className="font-karla grid gap-4">
               <div className="flex md:justify-normal justify-between items-center">
                 <div className="flex items-center gap-3">
-                  <h1>Lists Filter</h1>
+                  <h1>{t("profile.listsFilter")}</h1>
                   <svg
                     xmlns="http://www.w3.org/2000/svg"
                     fill="none"
@@ -237,7 +239,7 @@ export default function MyList({
                   }`}
                 >
                   <h1 className={`cursor-pointer hover:text-action`}>
-                    Show All
+                    {t("profile.showAll")}
                   </h1>
                 </li>
                 {media.map((item) => (
@@ -368,7 +370,7 @@ export default function MyList({
                     d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"
                   />
                 </svg>
-                <span>Start Watching</span>
+                <span>{t("profile.startWatching")}</span>
               </Link>
             </div>
           )}

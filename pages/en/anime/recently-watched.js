@@ -12,8 +12,10 @@ import HistoryOptions from "@/components/home/content/historyOptions";
 import Head from "next/head";
 import MobileNav from "@/components/shared/MobileNav";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
 
 export default function PopularAnime({ sessions }) {
+  const { t } = useTranslation();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [remove, setRemoved] = useState();
@@ -118,7 +120,7 @@ export default function PopularAnime({ sessions }) {
       setRemoved(id || aniId);
 
       if (data?.message === "Episode deleted") {
-        toast.success("Episode removed from history", {
+        toast.success(t("home.episodeRemoved"), {
           position: "bottom-right",
         });
       }
@@ -168,7 +170,7 @@ export default function PopularAnime({ sessions }) {
         <div className="z-50 bg-primary pt-5 pb-3 shadow-md shadow-primary w-full fixed left-0 px-3">
           <Link href="/en" className="flex gap-2 items-center font-karla">
             <ChevronLeftIcon className="w-5 h-5" />
-            <h1 className="text-xl">Recently Watched</h1>
+            <h1 className="text-xl">{t("home.recentlyWatched")}</h1>
           </Link>
         </div>
         <div className="grid grid-cols-1 xs:grid-cols-2 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-4 gap-3 md:gap-7 pt-16">
@@ -274,7 +276,7 @@ export default function PopularAnime({ sessions }) {
                       >
                         {i.aniTitle}
                       </span>{" "}
-                      | Episode {i.episode}
+                      | {t("common.episode")} {i.episode}
                     </p>
                   </Link>
                 </div>

@@ -226,6 +226,20 @@
     "friday": "Friday",
     "saturday": "Saturday"
   },
+  "removed": {
+    "title": "This content has been removed from the site.",
+    "why": "Why am I seeing this?",
+    "explanation": "Unfortunately, the media you were trying to access has been removed from our site due to copyright infringement. We take intellectual property rights seriously and strive to maintain a platform that respects the creative works of others. If you have any questions or concerns, please feel free to contact our support team for further assistance. Thank you for your understanding and cooperation in upholding a fair and lawful online environment."
+  },
+  "profile": {
+    "myLists": "My Lists",
+    "userSettings": "User Settings",
+    "listsFilter": "Lists Filter",
+    "customLists": "Custom Lists",
+    "showAll": "Show All",
+    "startWatching": "Start Watching",
+    "watchedToggleTooltip": "Disabling this will stop adding your Anime to 'Watched using AniScroll' list."
+  },
   "search": {
     "label": "Search",
     "nothingFound": "Oops!",

@@ -226,6 +226,20 @@
     "friday": "Vendredi",
     "saturday": "Samedi"
   },
+  "removed": {
+    "title": "Ce contenu a été retiré du site.",
+    "why": "Pourquoi est-ce que je vois ceci ?",
+    "explanation": "Malheureusement, le média auquel vous tentiez d'accéder a été retiré de notre site pour violation de droits d'auteur. Nous prenons les droits de propriété intellectuelle au sérieux et nous efforçons de maintenir une plateforme qui respecte les œuvres créatives d'autrui. Pour toute question ou préoccupation, n'hésitez pas à contacter notre équipe d'assistance. Merci de votre compréhension et de votre coopération pour maintenir un environnement en ligne juste et légal."
+  },
+  "profile": {
+    "myLists": "Mes listes",
+    "userSettings": "Paramètres utilisateur",
+    "listsFilter": "Filtre des listes",
+    "customLists": "Listes personnalisées",
+    "showAll": "Tout afficher",
+    "startWatching": "Commencer à regarder",
+    "watchedToggleTooltip": "Désactiver ceci arrêtera d'ajouter vos animes à la liste « Vu sur AniScroll »."
+  },
   "search": {
     "label": "Rechercher",
     "nothingFound": "Oups !",
