@@ -2026,13 +2026,32 @@ export default function UniversalPlayer({
         ensureFirstChildSlot(settingsItemsEl, "moopa-toggles-slot")
       )}
 
-      {/* Exit pseudo-fullscreen button (iOS direct-stream path). The
-          fullscreen interceptor sets iosPseudoFs; we draw a corner X so the
-          user can leave without hunting for Vidstack's button again. */}
-      {/* No explicit exit-fullscreen button: re-tapping the player's own
-          fullscreen button toggles the pseudo-fullscreen off (the iOS
-          interceptor flips iosPseudoFs each tap), so a separate always-on
-          cross would be redundant clutter. */}
+      {/* Exit pseudo-fullscreen button (iOS direct-stream path). Re-tapping
+          Vidstack's own fullscreen button is unreliable: its control bar
+          auto-hides after 2s, so the first tap only re-reveals the bar and
+          the "exit" tap is swallowed — leaving the user stuck in fullscreen.
+          An always-on corner X is unambiguous and orientation-independent
+          (positioned with safe-area insets so it clears the notch in BOTH
+          portrait and landscape). */}
+      {iosPseudoFs && (
+        <button
+          type="button"
+          className="moopa-ios-fs-exit"
+          aria-label="Exit fullscreen"
+          onPointerUp={(e) => {
+            // Match the interceptor: act on pointerup, before any synthetic
+            // click, and stop it propagating to the player's handlers.
+            e.preventDefault();
+            e.stopPropagation();
+            setIosPseudoFs(false);
+          }}
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round">
+            <line x1="6" y1="6" x2="18" y2="18" />
+            <line x1="18" y1="6" x2="6" y2="18" />
+          </svg>
+        </button>
+      )}
 
       {/* Hover preview — actual video frame at the cursor position on the scrubber */}
       <HoverPreview playerRef={playerRef} src={src} isM3U8={isM3U8} />
