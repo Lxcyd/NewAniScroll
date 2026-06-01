@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { XMarkIcon, BookmarkIcon, ArrowPathIcon } from "@heroicons/react/24/solid";
 import { Navbar } from "@/components/shared/NavBar";
 import SwipeCard, { SwipeAnime } from "@/components/discover/SwipeCard";
+import { useTranslation } from "react-i18next";
 
 /* The page fetch is now served by /api/v2/discover/<page> (Redis-cached
    server-side) so concurrent visitors share one upstream AniList call. */
@@ -28,6 +29,7 @@ async function addToAniListPlanning(mediaId: number, token: string) {
 }
 
 export default function Discover() {
+  const { t } = useTranslation();
   const { data: session }: any = useSession();
   const [queue, setQueue] = useState<SwipeAnime[]>([]);
   const [page, setPage] = useState(1);
@@ -46,11 +48,11 @@ export default function Discover() {
       setQueue((prev) => [...prev, ...fresh]);
     } catch (e: any) {
       console.error(e);
-      toast.error("Failed to load anime");
+      toast.error(t("discover.failedToLoad"));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   // Initial load
   useEffect(() => {
@@ -81,9 +83,9 @@ export default function Discover() {
         if (session?.user?.token) {
           try {
             await addToAniListPlanning(top.id, session.user.token);
-            toast.success(`Added to Planning: ${top.title?.english || top.title?.romaji}`);
+            toast.success(t("discover.addedToPlanning", { title: top.title?.english || top.title?.romaji }));
           } catch {
-            toast.error("Couldn't save to AniList");
+            toast.error(t("discover.couldntSave"));
           }
         } else {
           // Not signed in — save locally so the choice isn't lost
@@ -94,12 +96,12 @@ export default function Discover() {
               current.push(top.id);
               localStorage.setItem(key, JSON.stringify(current));
             }
-            toast("Saved locally. Sign in with AniList to sync.");
+            toast(t("discover.savedLocally"));
           } catch {}
         }
       }
     },
-    [queue, session]
+    [queue, session, t]
   );
 
   // Action button handlers (same logic as swipe)
@@ -129,9 +131,9 @@ export default function Discover() {
               onClick={() => signIn("AniListProvider")}
               className="font-bold text-as-accent hover:underline"
             >
-              Sign in with AniList
+              {t("nav.signInWithAniList")}
             </button>{" "}
-            to auto-save your swipes to your Planning list.
+            {t("discover.signInHint")}
           </div>
         )}
 
@@ -139,7 +141,7 @@ export default function Discover() {
         <div className="relative flex h-[600px] w-full max-w-md items-center justify-center">
           {queue.length === 0 && !loading && (
             <div className="flex flex-col items-center gap-3 text-center">
-              <div className="text-white/70 font-karla">No more anime to show.</div>
+              <div className="text-white/70 font-karla">{t("discover.noMore")}</div>
               <button
                 type="button"
                 onClick={() => {
@@ -151,7 +153,7 @@ export default function Discover() {
                 className="inline-flex items-center gap-2 rounded-pill bg-as-accent px-4 py-2 text-sm font-karla font-bold text-white shadow-glow"
               >
                 <ArrowPathIcon className="h-4 w-4" />
-                Reload
+                {t("discover.reload")}
               </button>
             </div>
           )}
@@ -174,7 +176,7 @@ export default function Discover() {
               type="button"
               onClick={pass}
               className="flex h-14 w-14 items-center justify-center rounded-full bg-as-card ring-2 ring-as-dropped/60 transition-transform hover:scale-110"
-              aria-label="Pass"
+              aria-label={t("discover.pass")}
             >
               <XMarkIcon className="h-7 w-7 text-as-dropped" />
             </button>
@@ -182,7 +184,7 @@ export default function Discover() {
               type="button"
               onClick={plan}
               className="flex h-14 w-14 items-center justify-center rounded-full bg-as-card ring-2 ring-as-watching/60 transition-transform hover:scale-110"
-              aria-label="Add to Planning"
+              aria-label={t("discover.addToPlanning")}
             >
               <BookmarkIcon className="h-7 w-7 text-as-watching" />
             </button>
@@ -190,7 +192,7 @@ export default function Discover() {
         )}
 
         <div className="mt-4 font-karla text-[11px] text-white/40">
-          Swipe left to pass • Swipe right to add to Planning
+          {t("discover.swipeHint")}
         </div>
       </main>
     </>
