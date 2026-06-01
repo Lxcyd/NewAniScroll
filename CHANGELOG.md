@@ -4,11 +4,17 @@ All notable changes to AniScroll appear here. Most recent first.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [v0.0.1] — Public Beta (2026-06-01)
+
+🎉 The first official beta release of AniScroll is live! Thanks for being here
+early — expect rough edges, and please report anything that breaks. While we're
+in beta the app stays on the `0.x` line, starting here at v0.0.1.
 
 ### Added
 - **Changelog button** in the navbar so users can see what changed without
   diving into git history.
+- **Release notes popup** on first visit after every update, showing the
+  latest changes automatically.
 - **Admin** entry in the profile dropdown for users matching the
   `ADMIN_USERNAMES` env var (comma-separated list).
 - **Admin dashboard refresh** with real Turso stats (anime / fanart counts),

@@ -2,82 +2,119 @@ import { Dialog, Transition } from "@headlessui/react";
 import Link from "next/link";
 import { Fragment, useEffect, useRef, useState } from "react";
 
-const web = {
-  version: "v4.4.1"
+// localStorage key holding the heading of the last release the user has
+// already seen. We key off the heading text (e.g. "[2026-06-01] — Public
+// Beta") rather than a hardcoded version string, so the popup re-displays
+// automatically whenever a new top entry is added to CHANGELOG.md — no
+// manual version bump required.
+const SEEN_KEY = "changelog-seen";
+
+type ParsedRelease = {
+  /** Full heading text, used as the "seen" key, e.g. "[2026-06-01] — Public Beta". */
+  heading: string;
+  /** Human label shown in the modal (heading with surrounding brackets stripped). */
+  title: string;
+  /** Intro paragraph(s) directly under the heading, before the first subsection. */
+  notes: string | null;
+  /** Bullet lines, optionally grouped under "### Added / Changed / Fixed". */
+  changes: string[];
 };
 
-const logs = [
-  {
-    version: "v4.4.1",
-    pre: false,
-    notes: null,
-    highlights: true,
-    changes: [
-      "New player layout for mobile devices",
-      "Added seek buttons in the player",
-      "Added previous and next episode buttons in the player",
-      "Added rate modal when user finished watching the whole series",
-      "Fix: only half of the episodes has episodes thumbnail",
-      "Fix: pressing back button in anime info page redirects user to the wrong page",
-      "Progressively migrate codebase to typescript"
-    ]
+/**
+ * Pull the most-recent release section out of the raw CHANGELOG.md markdown.
+ *
+ * The changelog uses `# Changelog` for the document title and `## [...]` for
+ * each release, so the latest release is the first `##` block. We collect its
+ * intro paragraph and every bullet (`-`) until the next `##`.
+ */
+function parseLatestRelease(md: string): ParsedRelease | null {
+  const lines = md.replace(/\r\n/g, "\n").split("\n");
+
+  // Find the first level-2 heading (first release section).
+  let start = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (/^##\s+/.test(lines[i])) {
+      start = i;
+      break;
+    }
   }
-  // {
-  //   version: "v4.4.0",
-  //   pre: false,
-  //   notes: null,
-  //   highlights: false,
-  //   changes: [
-  //     "Added rate modal when user finished watching the whole series",
-  //     "Fix: only half of the episodes has episodes thumbnail",
-  //     "Fix: pressing back button in anime info page redirects user to the wrong page",
-  //     "Progressively migrate codebase to typescript"
-  //   ]
-  // }
-  // {
-  //   version: "v4.3.1",
-  //   pre: true,
-  //   notes: null,
-  //   highlights: false,
-  //   changes: [
-  //     "Fix: Auto Next Episode forcing to play sub even if dub is selected",
-  //     "Fix: Episode metadata not showing after switching to dub",
-  //     "Fix: Profile picture weirdly cropped",
-  //     "Fix: Weird padding on the navbar in profile page",
-  //   ],
-  // },
-  // {
-  //   version: "v4.3.0",
-  //   pre: true,
-  //   notes: null,
-  //   highlights: false,
-  //   changes: [
-  //     "Added changelogs section",
-  //     "Added recommendations based on user lists",
-  //     "New Player!",
-  //     "And other minor bug fixes!",
-  //   ],
-  // },
-];
+  if (start === -1) return null;
+
+  const heading = lines[start].replace(/^##\s+/, "").trim();
+  const title = heading.replace(/^\[/, "").replace(/\]/, "").trim();
+
+  const notesLines: string[] = [];
+  const changes: string[] = [];
+  let seenBullet = false;
+
+  for (let i = start + 1; i < lines.length; i++) {
+    const raw = lines[i];
+    const trimmed = raw.trim();
+
+    if (/^##\s+/.test(trimmed)) break; // next release → stop
+
+    if (!trimmed) continue;
+    if (/^###\s+/.test(trimmed)) continue; // skip Added/Changed/Fixed sub-headers
+
+    if (/^[-*]\s+/.test(trimmed)) {
+      seenBullet = true;
+      // Strip the bullet marker and collapse markdown bold so the plain-text
+      // modal reads cleanly.
+      changes.push(trimmed.replace(/^[-*]\s+/, "").replace(/\*\*/g, ""));
+      continue;
+    }
+
+    if (seenBullet) {
+      // A non-bullet line after bullets have started is a wrapped
+      // continuation of the previous bullet — append it so we don't drop
+      // the tail of multi-line entries.
+      if (changes.length) {
+        changes[changes.length - 1] += " " + trimmed.replace(/\*\*/g, "");
+      }
+      continue;
+    }
+
+    // Non-bullet, non-heading line before the first bullet → intro note.
+    notesLines.push(trimmed.replace(/\*\*/g, ""));
+  }
+
+  return {
+    heading,
+    title,
+    notes: notesLines.length ? notesLines.join(" ") : null,
+    changes,
+  };
+}
 
 export default function ChangeLogs() {
   let [isOpen, setIsOpen] = useState(false);
+  let [release, setRelease] = useState<ParsedRelease | null>(null);
   let completeButtonRef = useRef(null);
 
   function closeModal() {
-    localStorage.setItem("version", web.version);
+    if (release) localStorage.setItem(SEEN_KEY, release.heading);
     setIsOpen(false);
   }
 
-  function getVersion() {
-    let version = localStorage.getItem("version");
-    if (version !== web.version) {
-      setIsOpen(true);
-    }
-  }
-
   useEffect(() => {
-    getVersion();
+    let cancelled = false;
+    fetch("/api/v2/changelog")
+      .then((r) => (r.ok ? r.text() : Promise.reject(r.status)))
+      .then((md) => {
+        if (cancelled) return;
+        const latest = parseLatestRelease(md);
+        if (!latest) return;
+        setRelease(latest);
+        // Show only if the user hasn't already dismissed this exact release.
+        const seen = localStorage.getItem(SEEN_KEY);
+        if (seen !== latest.heading) setIsOpen(true);
+      })
+      .catch(() => {
+        /* changelog unavailable — silently skip the popup */
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   return (
@@ -170,35 +207,33 @@ export default function ChangeLogs() {
                   </Dialog.Title>
                   <div className="mt-4">
                     <p className="text-sm text-gray-400">
-                      Hi! Welcome to the new changelogs section. Here you can
-                      see a lists of the latest changes and updates to the site.
+                      Here&apos;s what&apos;s new in AniScroll. While we&apos;re
+                      in beta the app stays on the{" "}
+                      <span className="font-medium text-gray-200">
+                        0.x
+                      </span>{" "}
+                      version line — starting at{" "}
+                      <span className="font-medium text-gray-200">v0.0.1</span>.
                     </p>
-                    {/* <p className="inline-block text-sm italic my-2 text-gray-400">
-                      *This update is still in it's pre-release state, please
-                      expect to see some bugs. If you find any, please report
-                      them.
-                    </p> */}
                   </div>
 
-                  {logs.map((x) => (
+                  {release && (
                     <ChangelogsVersions
-                      notes={x.notes}
-                      version={x.version}
-                      pre={x.pre}
-                      key={x.version}
+                      notes={release.notes}
+                      version={release.title}
+                      pre={true}
                     >
-                      {x.changes.map((i, index) => (
+                      {release.changes.map((i, index) => (
                         <p key={index}>- {i}</p>
                       ))}
                     </ChangelogsVersions>
-                  ))}
+                  )}
 
                   <div className="mt-2 text-gray-400 text-sm">
                     <p>
-                      see more changelogs{" "}
-                      <Link href="/changelogs" className="text-blue-500">
-                        here
-                      </Link>
+                      see the full changelog any time from the{" "}
+                      <span className="text-gray-200">changelog button</span> in
+                      the navbar.
                     </p>
                   </div>
 
