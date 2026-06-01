@@ -1,4 +1,4 @@
-import { CSSProperties, useRef, useCallback } from "react";
+import { CSSProperties, useRef, useCallback, useEffect } from "react";
 import Link from "next/link";
 import { MediaRecommendation } from "types/info/AnilistInfoTypes";
 
@@ -12,47 +12,50 @@ const DRAG_THRESHOLD = 8;
 export default function Recommendations({ items, forTitle }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const dragMovedRef = useRef(false);
-  const downPosRef = useRef<{ x: number; y: number } | null>(null);
 
   const scroll = (dir: number) => {
     ref.current?.scrollBy({ left: dir * 520, behavior: "smooth" });
   };
 
-  const scrollStartX = useRef(0);
-  const scrollLeft = useRef(0);
-  const isPointerDown = useRef(false);
+  // Mouse-only drag-to-scroll. We deliberately do NOT use setPointerCapture:
+  // capturing the pointer on the scroll container steals the trailing `click`
+  // from the child <Link>, so plain clicks on a card never navigated. Instead
+  // we bind mousemove/mouseup on window for the duration of a mouse drag.
+  // Touch is left entirely to native overflow scrolling (no JS), so taps stay
+  // taps and remain tappable on mobile.
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
 
-  // Mouse-only drag-to-scroll. Touch is left entirely to native overflow
-  // scrolling: hijacking touch pointers here (with setPointerCapture + a
-  // drag-vs-tap threshold) made every tap that wandered a few px register as
-  // a drag, so onClickCapture swallowed the click and cards became untappable
-  // on mobile. Bailing out for non-mouse pointers keeps taps as taps.
-  const onPointerDown = useCallback((e: React.PointerEvent) => {
-    if (e.pointerType !== "mouse") return;
-    dragMovedRef.current = false;
-    downPosRef.current = { x: e.clientX, y: e.clientY };
-    isPointerDown.current = true;
-    scrollStartX.current = e.clientX;
-    scrollLeft.current = ref.current?.scrollLeft ?? 0;
-    ref.current?.setPointerCapture(e.pointerId);
-  }, []);
+    let isDown = false;
+    let startX = 0;
+    let startScroll = 0;
 
-  const onPointerMove = useCallback((e: React.PointerEvent) => {
-    if (e.pointerType !== "mouse") return;
-    if (!isPointerDown.current || !ref.current) return;
-    const dx = e.clientX - scrollStartX.current;
-    ref.current.scrollLeft = scrollLeft.current - dx;
-  }, []);
+    const onDown = (e: MouseEvent) => {
+      if (e.button !== 0) return;
+      isDown = true;
+      startX = e.clientX;
+      startScroll = el.scrollLeft;
+      dragMovedRef.current = false;
+    };
+    const onMove = (e: MouseEvent) => {
+      if (!isDown) return;
+      const dx = e.clientX - startX;
+      if (Math.abs(dx) > DRAG_THRESHOLD) dragMovedRef.current = true;
+      el.scrollLeft = startScroll - dx;
+    };
+    const onUp = () => {
+      isDown = false;
+    };
 
-  const onPointerUp = useCallback((e: React.PointerEvent) => {
-    if (e.pointerType !== "mouse") return;
-    isPointerDown.current = false;
-    const start = downPosRef.current;
-    if (!start) return;
-    const dx = Math.abs(e.clientX - start.x);
-    const dy = Math.abs(e.clientY - start.y);
-    if (dx > DRAG_THRESHOLD || dy > DRAG_THRESHOLD) dragMovedRef.current = true;
-    downPosRef.current = null;
+    el.addEventListener("mousedown", onDown);
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      el.removeEventListener("mousedown", onDown);
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
   }, []);
 
   const onClickCapture = useCallback((e: React.MouseEvent) => {
@@ -101,9 +104,6 @@ export default function Recommendations({ items, forTitle }: Props) {
       <div
         ref={ref}
         style={rStyles.carousel}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
         onClickCapture={onClickCapture}
       >
         {items.map((r) => (
