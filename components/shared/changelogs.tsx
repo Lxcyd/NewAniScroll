@@ -87,6 +87,26 @@ function parseLatestRelease(md: string): ParsedRelease | null {
   };
 }
 
+/** Render a paragraph with **bold** spans turned into <strong>. */
+function renderBold(text: string): React.ReactNode[] {
+  const out: React.ReactNode[] = [];
+  const re = /\*\*([^*]+)\*\*/g;
+  let last = 0;
+  let m: RegExpExecArray | null;
+  let key = 0;
+  while ((m = re.exec(text))) {
+    if (m.index > last) out.push(text.slice(last, m.index));
+    out.push(
+      <strong key={key++} className="font-semibold text-gray-100">
+        {m[1]}
+      </strong>,
+    );
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) out.push(text.slice(last));
+  return out;
+}
+
 export default function ChangeLogs() {
   const { t } = useTranslation();
   let [isOpen, setIsOpen] = useState(false);
@@ -211,17 +231,23 @@ export default function ChangeLogs() {
                     <p className="text-sm text-gray-400">{t("changelog.intro")}</p>
                   </div>
 
-                  {release && (
-                    <ChangelogsVersions
-                      notes={release.notes}
-                      version={release.title}
-                      pre={true}
-                    >
-                      {release.changes.map((i, index) => (
-                        <p key={index}>- {i}</p>
+                  {/* Release content is pulled from the locale files (so it's
+                      translated) rather than from the raw CHANGELOG.md. The
+                      "seen" trigger above still keys off the file's latest
+                      heading so the popup re-displays on every new release. */}
+                  <ChangelogsVersions
+                    notes={null}
+                    version={t("changelog.releaseTitle")}
+                    pre={true}
+                  >
+                    {t("changelog.releaseBody")
+                      .split("\n\n")
+                      .map((para, index) => (
+                        <p key={index} className="mb-2 last:mb-0">
+                          {renderBold(para)}
+                        </p>
                       ))}
-                    </ChangelogsVersions>
-                  )}
+                  </ChangelogsVersions>
 
                   <div className="mt-2 text-gray-400 text-sm">
                     <p>{t("changelog.seeFull")}</p>
@@ -267,8 +293,8 @@ export function ChangelogsVersions({
     <>
       <div className="my-2 flex items-center justify-evenly">
         <div className="w-full h-[1px] bg-gradient-to-r from-white/5 to-white/40" />
-        <p className="relative flex flex-1 whitespace-nowrap font-bold mx-2 font-inter">
-          {version}
+        <p className="relative flex flex-1 items-center font-bold mx-2 font-inter text-center justify-center">
+          <span>{version}</span>
           {pre && (
             <span className="flex text-xs font-light font-roboto ml-1 italic">
               pre

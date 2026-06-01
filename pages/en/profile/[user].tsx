@@ -9,6 +9,7 @@ import pls from "@/utils/request";
 import { CurrentMediaTypes } from "..";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { useTranslation } from "react-i18next";
+import { listLabel } from "@/components/anime/v2/helpers";
 
 type MyListProps = {
   media: CurrentMediaTypes[];
@@ -110,7 +111,7 @@ export default function MyList({
           </div>
           <div className="flex items-center justify-between">
             <div className="flex gap-2 text-sm font-karla">
-              Created At :
+              {t("profile.createdAt")}
               <UnixTimeConverter unixTime={user.createdAt} />
             </div>
             <div className="flex items-center gap-2">
@@ -133,7 +134,7 @@ export default function MyList({
                       d="M9.53 16.122a3 3 0 00-5.78 1.128 2.25 2.25 0 01-2.4 2.245 4.5 4.5 0 008.4-2.245c0-.399-.078-.78-.22-1.128zm0 0a15.998 15.998 0 003.388-1.62m-5.043-.025a15.994 15.994 0 011.622-3.395m3.42 3.42a15.995 15.995 0 004.764-4.648l3.876-5.814a1.151 1.151 0 00-1.597-1.597L14.146 6.32a15.996 15.996 0 00-4.649 4.763m3.42 3.42a6.776 6.776 0 00-3.42-3.42"
                     />
                   </svg>
-                  <span className="group-hover:text-black">Edit Profile</span>
+                  <span className="group-hover:text-black">{t("profile.editProfile")}</span>
                 </Link>
               ) : null}
             </div>
@@ -250,7 +251,7 @@ export default function MyList({
                       item.name === listFilter && "bg-secondary text-action"
                     }`}
                   >
-                    <h1 className="">{item.name}</h1>
+                    <h1 className="">{listLabel(t, item.name)}</h1>
                     <div className="text-gray-400 opacity-0 invisible duration-200 transition-all group-hover:visible group-hover:opacity-100">
                       ({item.entries.length})
                     </div>
@@ -270,7 +271,7 @@ export default function MyList({
                   id={item.status?.toLowerCase()}
                   className="flex flex-col gap-5 mx-3"
                 >
-                  <h1 className="font-karla font-bold text-xl">{item.name}</h1>
+                  <h1 className="font-karla font-bold text-xl">{listLabel(t, item.name)}</h1>
                   <table className="bg-secondary rounded-lg">
                     <thead>
                       <tr>

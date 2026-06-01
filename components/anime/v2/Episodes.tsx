@@ -654,7 +654,7 @@ function DetailedList({ eps, progress, info, isDub, activeAnimeId, otherSeason }
               </div>
             </div>
             <span style={{ ...tStyles.epPlay, pointerEvents: "none" }}>
-              {locked ? "Locked" : current ? "Resume" : watched ? "Replay" : "Play"}
+              {locked ? t("anime.locked") : current ? t("anime.resume") : watched ? t("anime.replay") : t("anime.play")}
             </span>
           </Link>
         );

@@ -74,7 +74,7 @@ export default function Recommendations({ items, forTitle }: Props) {
       <div style={rStyles.header}>
         <div>
           <div style={rStyles.kicker}>{t("anime.sectionRecommendations")}</div>
-          <div style={rStyles.headTitle}>Because you&apos;re watching {forTitle}</div>
+          <div style={rStyles.headTitle}>{t("anime.becauseWatching", { title: forTitle })}</div>
         </div>
         <div style={rStyles.nav}>
           <button style={rStyles.navBtn} onClick={() => scroll(-1)} aria-label={t("anime.prev")}>

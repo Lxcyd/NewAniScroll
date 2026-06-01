@@ -1216,7 +1216,7 @@ function MRecs({ info }: { info: AniListInfoTypes }) {
         <div>
           <div style={S.kicker}>{t("anime.sectionRecommendations")}</div>
           <div style={{ fontSize: 16, fontWeight: 700, marginTop: 2 }}>
-            Because you're watching
+            {t("anime.becauseWatching", { title: pickTitle(info.title, titlePref) })}
           </div>
         </div>
       </div>

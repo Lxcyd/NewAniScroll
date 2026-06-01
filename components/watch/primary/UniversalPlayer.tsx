@@ -24,6 +24,7 @@ import SkipOverlay from "./SkipOverlay";
 import { useWatchProvider } from "@/lib/context/watchPageProvider";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
+import { VIDSTACK_FR } from "@/lib/i18n/vidstackFr";
 
 type Stream = {
   url: string;
@@ -991,7 +992,7 @@ export default function UniversalPlayer({
   aniListId = null,
   episodeNumber,
 }: Props) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const playerRef = useRef<MediaPlayerInstance>(null);
 
   // Apply our hls.js tuning the moment the HLS provider is created. Setting
@@ -1994,7 +1995,10 @@ export default function UniversalPlayer({
           )}
         </MediaProvider>
 
-        <DefaultVideoLayout icons={defaultLayoutIcons} />
+        <DefaultVideoLayout
+          icons={defaultLayoutIcons}
+          translations={i18n.language === "fr" ? (VIDSTACK_FR as any) : undefined}
+        />
       </MediaPlayer>
 
       {/* Custom buttons portaled INTO Vidstack's bottom control group, BEFORE

@@ -5,6 +5,8 @@ import { AniListInfoTypes } from "types/info/AnilistInfoTypes";
 import { SessionTypes } from "pages/en";
 import Link from "next/link";
 import Image from "next/image";
+import { useTranslation } from "react-i18next";
+import { statusLabel } from "@/components/anime/v2/helpers";
 
 type DetailsProps = {
   info: AniListInfoTypes;
@@ -28,6 +30,7 @@ export default function Details({
   handleOpen,
 }: DetailsProps) {
   const { markPlanning } = useAniList(session);
+  const { t } = useTranslation();
 
   const [showDesc, setShowDesc] = useState(false);
 
@@ -76,7 +79,7 @@ export default function Details({
         >
           <div className="grid grid-cols-2 gap-1 items-center">
             <h2 className="text-sm font-light font-roboto text-[#878787]">
-              Studios
+              {t("anime.detailStudios")}
             </h2>
             <div className="row-start-2">
               {info ? (
@@ -114,13 +117,13 @@ export default function Details({
           </div>
           <div className="grid gap-1 items-center">
             <h2 className="text-sm font-light font-roboto text-[#878787]">
-              Status
+              {t("anime.detailStatus")}
             </h2>
-            <div>{info ? info.status : <Skeleton width={75} />}</div>
+            <div>{info ? statusLabel(t, info.status) : <Skeleton width={75} />}</div>
           </div>
           <div className="grid gap-1 items-center overflow-y-hidden">
             <h2 className="text-sm font-light font-roboto text-[#878787]">
-              Titles
+              {t("anime.titles")}
             </h2>
             <div className="grid grid-flow-dense grid-cols-2 gap-2 h-full w-full">
               {info ? (
@@ -173,7 +176,7 @@ export default function Details({
                 onClick={() => setShowDesc((prev) => !prev)}
                 className="flex justify-center items-end rounded-md pb-5 font-semibold font-karla cursor-pointer w-full h-full bg-gradient-to-t from-secondary hover:from-20% to-transparent absolute inset-0"
               >
-                Read More
+                {t("anime.readMore")}
               </span>
             )}
           </>

@@ -1063,13 +1063,13 @@ export default function Watch({
       if (hlsData?.error) {
         return (
           <div className="flex-center aspect-video w-full h-full bg-black text-white/50 font-karla flex-col gap-2 rounded-card ring-1 ring-white/5">
-            <p>Server "{server.name}" unavailable</p>
+            <p>{t("player.serverUnavailable", { name: server.name })}</p>
             <button
               type="button"
               onClick={() => handleServerChange("megaplay")}
               className="text-as-accent underline text-sm"
             >
-              Switch to Megaplay
+              {t("player.switchToMegaplay")}
             </button>
           </div>
         );
@@ -1170,12 +1170,12 @@ export default function Watch({
       <Modal open={open} onClose={() => handleClose()}>
         {!sessions && (
           <div className="flex-center flex-col gap-5 px-10 py-5 bg-secondary rounded-md">
-            <h1 className="text-md font-extrabold font-karla">Edit your list</h1>
+            <h1 className="text-md font-extrabold font-karla">{t("nav.editYourList")}</h1>
             <button
               className="flex items-center bg-[#363642] rounded-md text-white p-1"
               onClick={() => signIn("AniListProvider")}
             >
-              <h1 className="px-1 font-bold font-karla">Login with AniList</h1>
+              <h1 className="px-1 font-bold font-karla">{t("nav.loginWithAniList")}</h1>
               <div className="scale-[60%] pb-[1px]">
                 <AniList />
               </div>
@@ -1292,7 +1292,7 @@ export default function Watch({
                       className="flex items-center gap-2 px-3 py-1 ring-[1px] ring-white/20 rounded overflow-hidden"
                     >
                       <ShareIcon className="w-5 h-5" />
-                      <span className="hidden lg:block">share</span>
+                      <span className="hidden lg:block">{t("anime.share")}</span>
                     </button>
                     <button
                       type="button"
@@ -1300,7 +1300,7 @@ export default function Watch({
                       className="flex items-center gap-2 px-3 py-1 ring-[1px] ring-white/20 rounded overflow-hidden"
                     >
                       <FlagIcon className="w-5 h-5" />
-                      <span className="hidden lg:block">report</span>
+                      <span className="hidden lg:block">{t("nav.report")}</span>
                     </button>
                   </div>
                 </div>

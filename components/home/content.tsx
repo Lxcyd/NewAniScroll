@@ -698,7 +698,7 @@ export default function Content({
             >
               <div className="h-[190px] w-[135px] lg:h-[265px] lg:w-[185px] object-cover rounded-md border-secondary border-2 flex flex-col gap-2 items-center text-center justify-center text-[#6a6a6a] hover:text-[#9f9f9f] hover:border-[#757575] transition-colors duration-200">
                 <h1 className="whitespace-pre-wrap text-sm">
-                  More on {section}
+                  {t("home.moreOn", { section: sectionLabel(t, section) })}
                 </h1>
                 <ArrowRightCircleIcon className="w-5 h-5" />
               </div>

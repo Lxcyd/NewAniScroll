@@ -10,6 +10,7 @@ import { useAniList } from "@/lib/anilist/useAnilist";
 import { getFormat } from "@/utils/getFormat";
 import SearchByImage from "./search/searchByImage";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
+import { useTranslation } from "react-i18next";
 
 type SearchType = "ANIME" | "MANGA";
 
@@ -44,6 +45,7 @@ export default function SearchPalette() {
   const { isOpen, setIsOpen } = useSearch();
   const { quickSearch } = useAniList();
   const titlePref = useTitlePref();
+  const { t } = useTranslation();
 
   const [query, setQuery] = useState<string>("");
   const [data, setData] = useState<DataTypes[] | null>(null);
@@ -143,7 +145,7 @@ export default function SearchPalette() {
                 >
                   <div className="flex justify-between py-1 font-karla">
                     <div className="flex items-center px-2 gap-2">
-                      <p>For quick access :</p>
+                      <p>{t("search.quickAccess")}</p>
                       <div className="bg-secondary text-white text-xs font-bold px-2 py-1 rounded-md">
                         <span>CTRL</span>
                       </div>
@@ -223,7 +225,7 @@ export default function SearchPalette() {
                     <Combobox.Input
                       ref={focusInput}
                       className="p-5 text-white w-full bg-transparent border-0 outline-none"
-                      placeholder="Search something..."
+                      placeholder={t("search.searchSomething")}
                       onChange={(event) => setQuery(event.target.value)}
                     />
                   </div>
@@ -266,7 +268,7 @@ export default function SearchPalette() {
                           : !loading &&
                             debounceSearch !== "" && (
                               <p className="flex-center font-karla gap-3 p-5">
-                                No results found.
+                                {t("search.noResults")}
                               </p>
                             )}
                         {nextPage && (
