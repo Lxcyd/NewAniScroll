@@ -167,6 +167,16 @@ a {
 .moopa-ios-fs > * {
   border-radius: 0 !important;
 }
+/* The Vidstack player inside the iOS pseudo-fullscreen wrapper keeps the
+   aspectRatio="16/9" prop, so it stays a 16:9 box centered in the fullscreen
+   container — leaving black bands left/right on phones (~19.5:9 in landscape).
+   Make the player fill the wrapper; the inner <video> is object-fit: contain,
+   so the frame shows whole (no cropping). */
+.moopa-ios-fs [data-media-player] {
+  aspect-ratio: auto !important;
+  width: 100% !important;
+  height: 100% !important;
+}
 .moopa-ios-fs-exit {
   position: absolute;
   top: max(12px, env(safe-area-inset-top));
@@ -913,6 +923,18 @@ pre code {
 [data-media-player][data-fullscreen] > [data-media-provider],
 [data-media-player][data-fullscreen] > [data-media-provider] > video {
   border-radius: 0 !important;
+}
+
+/* In fullscreen the player must fill the whole screen. Our `aspectRatio="16/9"`
+   prop pins the player box to 16:9, so on screens wider than 16:9 (phones in
+   landscape are ~19.5:9) it gets pillarboxed with black bands left/right.
+   Drop the forced ratio in fullscreen and let the player span the viewport;
+   the inner <video> stays object-fit: contain, so the frame is shown whole
+   (no cropping) and any residual letterbox is only the source's true ratio. */
+[data-media-player][data-fullscreen] {
+  aspect-ratio: auto !important;
+  width: 100% !important;
+  height: 100% !important;
 }
 
 [data-media-provider] {
