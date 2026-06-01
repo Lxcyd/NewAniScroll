@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
 
 /**
  * AnilistHealthBanner
@@ -24,6 +25,7 @@ const POLL_MS = 5 * 60_000;
 const TOAST_ID = "anilist-down";
 
 export default function AnilistHealthBanner() {
+  const { t } = useTranslation();
   // Track which kind of toast (if any) is currently shown so we can swap
   // it cleanly when the failure cause changes (e.g. user comes back online
   // but the server still reports AniList down).
@@ -41,11 +43,10 @@ export default function AnilistHealthBanner() {
 
     const showAnilistDown = (message: string | null) => {
       if (shownRef.current === "anilist") return;
-      toast.error("AniList is currently unavailable", {
+      toast.error(t("health.anilistDown"), {
         id: TOAST_ID,
         description:
-          (message ? `${message}. ` : "") +
-          "Some features (search, list updates, fresh metadata) may not work for the moment. Cached data is still being served.",
+          (message ? `${message}. ` : "") + t("health.anilistDownDesc"),
         duration: Infinity,
       });
       shownRef.current = "anilist";
@@ -53,10 +54,9 @@ export default function AnilistHealthBanner() {
 
     const showNetworkIssue = () => {
       if (shownRef.current === "network") return;
-      toast.error("Connection issue", {
+      toast.error(t("health.connectionIssue"), {
         id: TOAST_ID,
-        description:
-          "We can't reach the server right now — this looks like a local network problem. Some features may be unavailable until the connection is back.",
+        description: t("health.connectionIssueDesc"),
         duration: Infinity,
       });
       shownRef.current = "network";
@@ -133,7 +133,7 @@ export default function AnilistHealthBanner() {
       clearInterval(id);
       window.removeEventListener("online", onOnline);
     };
-  }, []);
+  }, [t]);
 
   return null;
 }

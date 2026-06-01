@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 // @ts-ignore — react-dom types not installed but createPortal is exported
 import { createPortal } from "react-dom";
+import { useTranslation } from "react-i18next";
 
 /**
  * Bell-icon button that opens a modal displaying CHANGELOG.md. Lightweight
@@ -16,6 +17,7 @@ import { createPortal } from "react-dom";
  * Keep-a-Changelog content.
  */
 export default function ChangelogButton() {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [content, setContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -31,7 +33,8 @@ export default function ChangelogButton() {
         if (!cancelled) setContent(text);
       })
       .catch(() => {
-        if (!cancelled) setContent("# Changelog\n\n_Unable to load changelog._");
+        if (!cancelled)
+          setContent(`# Changelog\n\n_${t("changelog.unableToLoad")}_`);
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -54,8 +57,8 @@ export default function ChangelogButton() {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        title="Changelog"
-        aria-label="Changelog"
+        title={t("nav.changelog")}
+        aria-label={t("nav.changelog")}
         className="flex-center w-9 h-9 rounded-full text-white/70 hover:text-white hover:bg-white/10 transition-colors"
       >
         {/* Material Symbols "deployed_code_update" — a document with a
@@ -86,7 +89,7 @@ export default function ChangelogButton() {
       {open && typeof document !== "undefined" && createPortal(
         <ChangelogOverlay onClose={() => setOpen(false)}>
           <div className="font-karla text-sm leading-relaxed text-white/85">
-            {loading && <p className="text-white/40">Loading…</p>}
+            {loading && <p className="text-white/40">{t("common.loading")}</p>}
             {content && <Markdown source={content} />}
           </div>
         </ChangelogOverlay>,

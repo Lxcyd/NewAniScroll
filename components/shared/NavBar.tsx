@@ -11,8 +11,10 @@ import { AniListInfoTypes } from "types/info/AnilistInfoTypes";
 import Logo from "./Logo";
 import ChangelogButton from "./ChangelogButton";
 import ReportButton from "./ReportButton";
+import LanguageToggle from "./LanguageToggle";
 import { isAdminName } from "@/lib/auth/isAdmin";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
+import { useTranslation } from "react-i18next";
 
 const getScrollPosition = (el: Window | Element = window) => {
   if (el instanceof Window) {
@@ -53,6 +55,7 @@ export function Navbar({
   const { data: session }: { data: any } = useSession();
   const router = useRouter();
   const titlePref = useTitlePref();
+  const { t } = useTranslation();
   const [scrollPosition, setScrollPosition] = useState<
     { x: number; y: number } | undefined
   >();
@@ -144,7 +147,7 @@ export function Navbar({
             <button
               type="button"
               onClick={() => setIsOpen(true)}
-              title="Search"
+              title={t("nav.search")}
               className="hidden lg:flex absolute left-1/2 -translate-x-1/2 top-1/2 -translate-y-1/2 items-center gap-2 w-[320px] h-9 px-4 rounded-full bg-white/10 hover:bg-white/15 ring-1 ring-white/10 text-white/70 hover:text-white/90 transition-all"
             >
               <svg
@@ -163,7 +166,7 @@ export function Navbar({
                   d="M15 15l6 6m-11-4a7 7 0 110-14 7 7 0 010 14z"
                 ></path>
               </svg>
-              <span className="text-base font-karla truncate">Search anime…</span>
+              <span className="text-base font-karla truncate">{t("common.searchPlaceholder")}</span>
             </button>
           )}
 
@@ -185,7 +188,7 @@ export function Navbar({
                     href={`/en/search/anime?season=${season.toLowerCase()}&year=${year}`}
                     className="hover:text-action/80 transition-all duration-150 ease-linear whitespace-nowrap"
                   >
-                    This Season
+                    {t("home.thisSeason")}
                   </Link>
                 </li>
                 <li>
@@ -193,7 +196,7 @@ export function Navbar({
                     href="/en/search/anime"
                     className="hover:text-action/80 transition-all duration-150 ease-linear whitespace-nowrap"
                   >
-                    Anime
+                    {t("nav.search")}
                   </Link>
                 </li>
                 <li>
@@ -201,7 +204,7 @@ export function Navbar({
                     href="/en/schedule"
                     className="hover:text-action/80 transition-all duration-150 ease-linear whitespace-nowrap"
                   >
-                    Schedule
+                    {t("nav.schedule")}
                   </Link>
                 </li>
                 {!session && (
@@ -210,7 +213,7 @@ export function Navbar({
                       onClick={() => signIn("AniListProvider")}
                       className="hover:text-action/80 transition-all duration-150 ease-linear whitespace-nowrap"
                     >
-                      Sign In
+                      {t("nav.signIn")}
                     </button>
                   </li>
                 )}
@@ -220,7 +223,7 @@ export function Navbar({
                       href={`/en/profile/${session?.user?.name}`}
                       className="hover:text-action/80 transition-all duration-150 ease-linear whitespace-nowrap"
                     >
-                      My List
+                      {t("nav.myList")}
                     </Link>
                   </li>
                 )}
@@ -235,7 +238,7 @@ export function Navbar({
             {/* Mobile-only search icon — desktop has the inline pill above. */}
             <button
               type="button"
-              title="Search"
+              title={t("nav.search")}
               onClick={() => setIsOpen(true)}
               className="hidden flex-center w-[26px] h-[26px]"
             >
@@ -299,7 +302,7 @@ export function Navbar({
                     router.push(`/en/profile/${session?.user?.name}`)
                   }
                   className="rounded-full w-10 h-10 bg-white/30 overflow-hidden"
-                  title="Profile"
+                  title={t("nav.profile")}
                 >
                   <Image
                     src={session?.user?.image?.large}
@@ -313,7 +316,7 @@ export function Navbar({
                 <button
                   type="button"
                   onClick={() => signIn("AniListProvider")}
-                  title="Sign in with AniList"
+                  title={t("nav.signInWithAniList")}
                   className="w-10 h-10 bg-white/30 rounded-full overflow-hidden shrink-0"
                 >
                   <UserIcon className="w-full h-full translate-y-1" />
@@ -331,24 +334,24 @@ export function Navbar({
                         href={`/en/profile/${session?.user?.name}`}
                         className="hover:text-action py-1"
                       >
-                        Profile
+                        {t("nav.profile")}
                       </Link>
                       {/* Admin link shows only for users matching the
                           NEXT_PUBLIC_ADMIN_USERNAMES env var. */}
                       {isAdminName(session?.user?.name) && (
                         <Link href="/admin" className="hover:text-action py-1">
-                          Admin
+                          {t("nav.admin")}
                         </Link>
                       )}
                       <Link href="/en/settings" className="hover:text-action py-1">
-                        Settings
+                        {t("nav.settings")}
                       </Link>
                       <button
                         type="button"
                         onClick={() => signOut({ redirect: true })}
                         className="hover:text-action py-1"
                       >
-                        Log out
+                        {t("nav.signOut")}
                       </button>
                     </>
                   ) : (
@@ -358,13 +361,17 @@ export function Navbar({
                         onClick={() => signIn("AniListProvider")}
                         className="hover:text-action py-1"
                       >
-                        Sign In
+                        {t("nav.signIn")}
                       </button>
                       <Link href="/en/settings" className="hover:text-action py-1">
-                        Settings
+                        {t("nav.settings")}
                       </Link>
                     </>
                   )}
+                  {/* Language switch — visible to everyone, signed in or not. */}
+                  <div className="mt-1 pt-2 border-t border-white/10">
+                    <LanguageToggle />
+                  </div>
                 </div>
               </div>
             </div>

@@ -1,6 +1,7 @@
 import { Dialog, Transition } from "@headlessui/react";
 import Link from "next/link";
 import { Fragment, useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 // localStorage key holding the heading of the last release the user has
 // already seen. We key off the heading text (e.g. "[2026-06-01] — Public
@@ -87,6 +88,7 @@ function parseLatestRelease(md: string): ParsedRelease | null {
 }
 
 export default function ChangeLogs() {
+  const { t } = useTranslation();
   let [isOpen, setIsOpen] = useState(false);
   let [release, setRelease] = useState<ParsedRelease | null>(null);
   let completeButtonRef = useRef(null);
@@ -155,7 +157,7 @@ export default function ChangeLogs() {
                     className="text-lg font-medium leading-6 text-gray-100"
                   >
                     <div className="flex justify-between items-center gap-2">
-                      <p className="text-xl">Changelogs</p>
+                      <p className="text-xl">{t("changelog.title")}</p>
                       <div className="flex gap-2 items-center">
                         {/* Github Icon */}
                         <Link
@@ -206,15 +208,7 @@ export default function ChangeLogs() {
                     </div>
                   </Dialog.Title>
                   <div className="mt-4">
-                    <p className="text-sm text-gray-400">
-                      Here&apos;s what&apos;s new in AniScroll. While we&apos;re
-                      in beta the app stays on the{" "}
-                      <span className="font-medium text-gray-200">
-                        0.x
-                      </span>{" "}
-                      version line — starting at{" "}
-                      <span className="font-medium text-gray-200">v0.0.1</span>.
-                    </p>
+                    <p className="text-sm text-gray-400">{t("changelog.intro")}</p>
                   </div>
 
                   {release && (
@@ -230,11 +224,7 @@ export default function ChangeLogs() {
                   )}
 
                   <div className="mt-2 text-gray-400 text-sm">
-                    <p>
-                      see the full changelog any time from the{" "}
-                      <span className="text-gray-200">changelog button</span> in
-                      the navbar.
-                    </p>
+                    <p>{t("changelog.seeFull")}</p>
                   </div>
 
                   <div className="flex items-center gap-2 mt-4">
@@ -245,7 +235,7 @@ export default function ChangeLogs() {
                       onClick={closeModal}
                       ref={completeButtonRef}
                     >
-                      Got it, thanks!
+                      {t("changelog.gotIt")}
                     </button>
                   </div>
                 </Dialog.Panel>

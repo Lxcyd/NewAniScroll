@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import { Dialog, Transition } from "@headlessui/react";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
 
 /* Two-tab report form.
  *
@@ -56,6 +57,7 @@ interface Props {
 type TabId = "site" | "anime";
 
 const ReportModal: React.FC<Props> = ({ isOpen, setIsOpen, animeContext }) => {
+  const { t } = useTranslation();
   // Default to the anime tab when an animeContext is supplied — that's
   // almost always why the user opened the modal in that surface.
   const [tab, setTab] = useState<TabId>(animeContext ? "anime" : "site");
@@ -112,7 +114,7 @@ const ReportModal: React.FC<Props> = ({ isOpen, setIsOpen, animeContext }) => {
     if (!files) return;
     const slots = MAX_IMAGES - images.length;
     if (slots <= 0) {
-      toast.error(`You already attached ${MAX_IMAGES} images.`);
+      toast.error(t("report.errors.tooManyImages", { max: MAX_IMAGES }));
       return;
     }
     const chosen = Array.from(files).slice(0, slots);
@@ -120,7 +122,7 @@ const ReportModal: React.FC<Props> = ({ isOpen, setIsOpen, animeContext }) => {
     const valid = encoded.filter((x): x is string => Boolean(x));
     const rejected = encoded.length - valid.length;
     if (rejected > 0) {
-      toast.error(`${rejected} file(s) skipped (too large or not an image).`);
+      toast.error(t("report.errors.filesSkipped", { count: rejected }));
     }
     if (valid.length) setImages((cur) => [...cur, ...valid]);
   };
@@ -149,7 +151,7 @@ const ReportModal: React.FC<Props> = ({ isOpen, setIsOpen, animeContext }) => {
   } | null => {
     if (tab === "site") {
       if (!siteTitle.trim() || !siteDesc.trim()) {
-        toast.error("Title and description are required.");
+        toast.error(t("report.errors.titleDescRequired"));
         return null;
       }
       return {
@@ -160,7 +162,7 @@ const ReportModal: React.FC<Props> = ({ isOpen, setIsOpen, animeContext }) => {
     }
     // anime tab
     if (animeIssues.size === 0) {
-      toast.error("Please pick at least one issue.");
+      toast.error(t("report.errors.pickIssue"));
       return null;
     }
     const ctxBits: string[] = [];
@@ -218,18 +220,18 @@ const ReportModal: React.FC<Props> = ({ isOpen, setIsOpen, animeContext }) => {
       });
       const json = await res.json();
       if (res.status === 429) {
-        toast.error(json.message || "Too many reports, please wait.");
+        toast.error(json.message || t("report.errors.tooManyReports"));
         return;
       }
       if (!res.ok) {
-        toast.error(json.error || "Submission failed.");
+        toast.error(json.error || t("report.errors.submissionFailed"));
         return;
       }
-      toast.success(json.message || "Report sent.");
+      toast.success(json.message || t("report.success"));
       closeModal();
     } catch (err: any) {
       console.error(err);
-      toast.error("Something went wrong: " + err.message);
+      toast.error(t("report.errors.somethingWrong", { message: err.message }));
     } finally {
       setSubmitting(false);
     }
@@ -258,7 +260,7 @@ const ReportModal: React.FC<Props> = ({ isOpen, setIsOpen, animeContext }) => {
             ? "text-white/30 cursor-not-allowed"
             : "text-white/60 hover:text-white hover:bg-white/5"
         }`}
-        title={disabled ? "Open this from an anime page" : undefined}
+        title={disabled ? t("report.openThisFromAnimePage") : undefined}
       >
         {children}
       </button>
@@ -313,7 +315,7 @@ const ReportModal: React.FC<Props> = ({ isOpen, setIsOpen, animeContext }) => {
                 >
                   <div className="flex items-center justify-between mb-4">
                     <h2 className="text-action text-2xl font-semibold">
-                      Report
+                      {t("report.title")}
                     </h2>
                     <button
                       type="button"
@@ -327,9 +329,9 @@ const ReportModal: React.FC<Props> = ({ isOpen, setIsOpen, animeContext }) => {
 
                   {/* Tab switcher */}
                   <div className="flex gap-1 mb-5 bg-image rounded-lg p-1">
-                    <TabBtn id="site">Site bug</TabBtn>
+                    <TabBtn id="site">{t("report.siteBug")}</TabBtn>
                     <TabBtn id="anime" disabled={animeTabDisabled}>
-                      Anime bug
+                      {t("report.animeBug")}
                     </TabBtn>
                   </div>
 
@@ -356,7 +358,7 @@ const ReportModal: React.FC<Props> = ({ isOpen, setIsOpen, animeContext }) => {
                     {/* Shared: screenshot attachments */}
                     <div className="mt-4">
                       <label className="block text-txt text-sm font-medium mb-2">
-                        Screenshots ({images.length}/{MAX_IMAGES})
+                        {t("report.screenshots", { count: images.length, max: MAX_IMAGES })}
                       </label>
                       <div className="flex flex-wrap gap-2">
                         {images.map((src, i) => (
@@ -391,7 +393,7 @@ const ReportModal: React.FC<Props> = ({ isOpen, setIsOpen, animeContext }) => {
                         )}
                       </div>
                       <p className="mt-1 text-[10px] text-white/40">
-                        Max 2&nbsp;MB per image.
+                        {t("report.maxImageSize")}
                       </p>
                     </div>
 
@@ -401,7 +403,7 @@ const ReportModal: React.FC<Props> = ({ isOpen, setIsOpen, animeContext }) => {
                         disabled={submitting}
                         className="w-full bg-action text-white py-2 px-4 rounded-md font-semibold hover:bg-action/80 focus:ring focus:ring-action focus:outline-none transition duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
                       >
-                        {submitting ? "Sending…" : "Submit Report"}
+                        {submitting ? t("report.submitting") : t("report.submit")}
                       </button>
                     </div>
                   </form>
@@ -491,15 +493,24 @@ function SiteTab({
   severity: Severity;
   setSeverity: (s: Severity) => void;
 }) {
+  const { t } = useTranslation();
+  const severityLabel: Record<Severity, string> = {
+    Low: t("report.severityLow"),
+    Medium: t("report.severityMedium"),
+    High: t("report.severityHigh"),
+    Critical: t("report.severityCritical"),
+  };
   return (
     <div className="space-y-4">
       <div>
-        <label className="block text-txt text-sm font-medium mb-2">Title</label>
+        <label className="block text-txt text-sm font-medium mb-2">
+          {t("report.titleLabel")}
+        </label>
         <input
           type="text"
           maxLength={120}
           className="w-full bg-image text-txt rounded-md border border-txt focus:ring-action focus:border-action transition duration-300 focus:outline-none py-2 px-3"
-          placeholder="Short summary, e.g. 'Subtitles disappear in fullscreen'"
+          placeholder={t("report.titlePlaceholder")}
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           required
@@ -507,12 +518,12 @@ function SiteTab({
       </div>
       <div>
         <label className="block text-txt text-sm font-medium mb-2">
-          Description
+          {t("report.descriptionLabel")}
         </label>
         <textarea
           rows={4}
           className="w-full bg-image text-txt rounded-md border border-txt focus:ring-action focus:border-action transition duration-300 focus:outline-none py-2 px-3"
-          placeholder="Steps to reproduce, what happened, what you expected…"
+          placeholder={t("report.descriptionPlaceholder")}
           value={desc}
           onChange={(e) => setDesc(e.target.value)}
           required
@@ -520,7 +531,7 @@ function SiteTab({
       </div>
       <div>
         <label className="block text-txt text-sm font-medium mb-2">
-          Severity
+          {t("report.severity")}
         </label>
         <div className="flex gap-2">
           {SITE_SEVERITY.map((s) => {
@@ -536,7 +547,7 @@ function SiteTab({
                     : "bg-image text-white/60 hover:text-white"
                 }`}
               >
-                {s}
+                {severityLabel[s]}
               </button>
             );
           })}
@@ -560,10 +571,11 @@ function AnimeTab({
   notes: string;
   setNotes: (s: string) => void;
 }) {
+  const { t } = useTranslation();
   if (!context) {
     return (
       <p className="text-white/60 text-sm">
-        Open an anime or episode page to report an anime-specific issue.
+        {t("report.openFromAnimePage")}
       </p>
     );
   }
@@ -571,17 +583,19 @@ function AnimeTab({
     <div className="space-y-4">
       <div className="text-sm">
         <div className="text-white/40 text-xs uppercase tracking-wider mb-1">
-          Reporting
+          {t("report.reporting")}
         </div>
         <div className="text-white font-medium">{context.animeTitle}</div>
         {context.episode != null && (
-          <div className="text-white/60 text-xs">Episode {context.episode}</div>
+          <div className="text-white/60 text-xs">
+            {t("common.episode")} {context.episode}
+          </div>
         )}
       </div>
 
       <div>
         <label className="block text-txt text-sm font-medium mb-2">
-          What's the issue?
+          {t("report.whatsTheIssue")}
         </label>
         <div className="space-y-1.5">
           {ANIME_ISSUES.map((iss) => {
@@ -615,7 +629,7 @@ function AnimeTab({
                     </svg>
                   )}
                 </span>
-                {iss.label}
+                {t(`report.issues.${iss.id}`)}
               </button>
             );
           })}
@@ -624,13 +638,13 @@ function AnimeTab({
 
       <div>
         <label className="block text-txt text-sm font-medium mb-2">
-          Notes (optional)
+          {t("report.notesLabel")}
         </label>
         <textarea
           rows={3}
           maxLength={500}
           className="w-full bg-image text-txt rounded-md border border-txt focus:ring-action focus:border-action transition duration-300 focus:outline-none py-2 px-3"
-          placeholder="Anything else we should know — up to 500 characters"
+          placeholder={t("report.notesPlaceholder")}
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
         />

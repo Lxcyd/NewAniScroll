@@ -6,9 +6,11 @@ import { BackwardIcon, ForwardIcon } from "@heroicons/react/24/solid";
 import Link from "next/link";
 import { useCountdown } from "../../lib/hooks/useCountdownSeconds";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
+import { useTranslation } from "react-i18next";
 
 export default function Schedule({ data, scheduleData, anime, update }) {
   const titlePref = useTitlePref();
+  const { t } = useTranslation();
   let now = new Date();
   let currentDay =
     now.toLocaleString("default", { weekday: "long" }).toLowerCase() +
@@ -101,22 +103,22 @@ export default function Schedule({ data, scheduleData, anime, update }) {
               {/* Countdown Timer */}
               <div className="flex flex-col items-center">
                 <span className="text-action/80">{day}</span>
-                <span className="text-sm lg:text-base font-medium">Days</span>
+                <span className="text-sm lg:text-base font-medium">{t("home.days")}</span>
               </div>
               <span></span>
               <div className="flex flex-col items-center">
                 <span className="text-action/80">{hours}</span>
-                <span className="text-sm lg:text-base font-medium">Hours</span>
+                <span className="text-sm lg:text-base font-medium">{t("home.hours")}</span>
               </div>
               <span></span>
               <div className="flex flex-col items-center">
                 <span className="text-action/80">{minutes}</span>
-                <span className="text-sm lg:text-base font-medium">Mins</span>
+                <span className="text-sm lg:text-base font-medium">{t("home.mins")}</span>
               </div>
               <span></span>
               <div className="flex flex-col items-center">
                 <span className="text-action/80">{seconds}</span>
-                <span className="text-sm lg:text-base font-medium">Secs</span>
+                <span className="text-sm lg:text-base font-medium">{t("home.secs")}</span>
               </div>
             </div>
           </div>

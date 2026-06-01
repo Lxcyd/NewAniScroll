@@ -9,6 +9,7 @@ import { SkeletonTheme } from "react-loading-skeleton";
 import SearchPalette from "@/components/searchPalette";
 import { SearchProvider } from "@/lib/context/isOpenState";
 import { WatchPageProvider } from "@/lib/context/watchPageProvider";
+import I18nProvider from "@/lib/i18n/I18nProvider";
 import { useEffect } from "react";
 import { unixTimestampToRelativeTime } from "@/utils/getTimes";
 import { asCssVars, BRAND } from "@/lib/theme";
@@ -222,6 +223,7 @@ export default function App({
         refetchInterval={0}
         refetchOnWindowFocus={false}
       >
+        <I18nProvider>
         <SearchProvider>
           <WatchPageProvider>
             <AnimatePresence mode="wait">
@@ -271,6 +273,7 @@ export default function App({
             </AnimatePresence>
           </WatchPageProvider>
         </SearchProvider>
+        </I18nProvider>
       </SessionProvider>
     </>
   );

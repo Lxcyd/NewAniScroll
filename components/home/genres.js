@@ -2,6 +2,7 @@ import Image from "next/image";
 import { ChevronRightIcon } from "@heroicons/react/24/outline";
 import Link from "next/link";
 import { useRef } from "react";
+import { useTranslation } from "react-i18next";
 
 // Full AniList genre list with a representative cover for each. The search
 // route accepts the genre name verbatim (?genres=<name>); names here must
@@ -31,6 +32,7 @@ const g = [
 ];
 
 export default function Genres() {
+  const { t } = useTranslation();
   const scrollRef = useRef(null);
   // Drag-to-scroll state. `moved` flips true once the pointer travels past
   // the threshold so the click-capture handler can swallow the navigation
@@ -70,7 +72,7 @@ export default function Genres() {
   return (
     <div className="antialiased">
       <div className="flex items-center justify-between lg:justify-normal lg:gap-3 px-5">
-        <h1 className="font-karla text-[20px] font-bold">Top Genres</h1>
+        <h1 className="font-karla text-[20px] font-bold">{t("home.topGenres")}</h1>
         <ChevronRightIcon className="w-5 h-5" />
       </div>
       <div className="flex items-center relative">

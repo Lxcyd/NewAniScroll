@@ -14,6 +14,8 @@ import HistoryOptions from "./content/historyOptions";
 import { toast } from "sonner";
 import { truncateImgUrl } from "@/utils/imageUtils";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
+import { useTranslation } from "react-i18next";
+import { sectionLabel } from "@/lib/i18n/sectionLabel";
 
 type ContentProps = {
   ids: string;
@@ -84,6 +86,7 @@ export default function Content({
   type = "anime",
 }: ContentProps) {
   const titlePref = useTitlePref();
+  const { t } = useTranslation();
   const ref = useRef<HTMLDivElement>(null!);
 
   // Native drag-to-scroll. We rolled our own (instead of
@@ -330,7 +333,7 @@ export default function Content({
       setRemoved(id || aniId);
 
       if (data?.message === "Episode deleted") {
-        toast.success("Episode removed from history");
+        toast.success(t("home.episodeRemoved"));
       }
     } else {
       if (id) {
@@ -386,7 +389,7 @@ export default function Content({
         }`}
         onClick={goToPage}
       >
-        <h1 className="font-karla text-[20px] font-bold">{section}</h1>
+        <h1 className="font-karla text-[20px] font-bold">{sectionLabel(t, section)}</h1>
         <ChevronRightIcon className="w-5 h-5" />
       </div>
       <div className="relative flex items-center lg:gap-2">
@@ -664,7 +667,7 @@ export default function Content({
                           >
                             {i.aniTitle}
                           </span>{" "}
-                          | Episode {i.episode}
+                          | {t("common.episode")} {i.episode}
                         </p>
                       </Link>
                     </div>
@@ -681,7 +684,7 @@ export default function Content({
               >
                 <div className="w-[320px] aspect-video overflow-hidden object-cover rounded-md border-secondary border-2 flex flex-col gap-2 items-center text-center justify-center text-[#6a6a6a] hover:text-[#9f9f9f] hover:border-[#757575] transition-colors duration-200">
                   <h1 className="whitespace-pre-wrap text-sm">
-                    More on {section}
+                    {t("home.moreOn", { section: sectionLabel(t, section) })}
                   </h1>
                   <ArrowRightCircleIcon className="w-5 h-5" />
                 </div>
