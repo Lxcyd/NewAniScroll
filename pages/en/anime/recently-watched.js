@@ -54,7 +54,17 @@ export default function PopularAnime({ sessions }) {
       // 3. Prefer server list if it has anything; otherwise show local.
       const merged =
         serverList && serverList.length > 0 ? serverList : localList;
-      setData(merged);
+
+      // Sort most-recent-first. The server query orders by createdDate desc,
+      // but rows with a null/stale createdDate land in an undefined spot, and
+      // the local list comes back in Object.keys order — both produced a wrong
+      // order here. Sorting client-side makes it deterministic.
+      const sorted = [...merged].sort(
+        (a, b) =>
+          new Date(b?.createdDate || b?.createdAt || 0).getTime() -
+          new Date(a?.createdDate || a?.createdAt || 0).getTime(),
+      );
+      setData(sorted);
       setLoading(false);
     };
     fetchData();

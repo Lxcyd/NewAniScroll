@@ -742,10 +742,22 @@ export default function Home({
           if (filteredData.length) setUser(filteredData);
         }
       } else {
+        // Sort most-recent-first before dedup. The Prisma query already
+        // orders by createdDate desc, but rows with a null/stale createdDate
+        // (older entries, or ones created via createList without a watch
+        // update) land in an undefined position, so the carousel order ended
+        // up wrong. Re-sorting on the client makes it deterministic and
+        // consistent with the anonymous (localStorage) branch above.
+        const newFirst = [...(data?.WatchListEpisode ?? [])].sort(
+          (a, b) =>
+            new Date(b?.createdDate || 0).getTime() -
+            new Date(a?.createdDate || 0).getTime(),
+        );
+
         // Dedup by aniId (most reliable) falling back to aniTitle.
         const seenIds = new Set<string>();
         const seenTitles = new Set<string>();
-        const filteredData = data?.WatchListEpisode.filter((entry) => {
+        const filteredData = newFirst.filter((entry) => {
           if (entry?.aniId) {
             const key = String(entry.aniId);
             if (seenIds.has(key)) return false;
