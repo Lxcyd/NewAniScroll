@@ -5,6 +5,7 @@ import { ChevronDownIcon } from "@heroicons/react/24/outline";
 import { useRouter } from "next/router";
 import { AniListInfoTypes } from "types/info/AnilistInfoTypes";
 import { Episode } from "types/api/Episode";
+import { useTranslation } from "react-i18next";
 
 type EpisodeListsProps = {
   info: AniListInfoTypes;
@@ -28,6 +29,7 @@ export default function EpisodeLists({
   dub,
 }: EpisodeListsProps) {
   const progress = info.mediaListEntry?.progress;
+  const { t } = useTranslation();
 
   const router = useRouter();
 
@@ -45,7 +47,7 @@ export default function EpisodeLists({
           }}
           className="text-xl font-karla font-semibold"
         >
-          Next Episode {">"}
+          {t("player.nextEpisodeBtn")} {">"}
         </button>
         {episode && (
           <div className="relative flex gap-2 items-center group">
@@ -66,7 +68,7 @@ export default function EpisodeLists({
             >
               {episode?.map((x) => (
                 <option key={x.id} value={x.number}>
-                  Episode {x.number}
+                  {t("common.episode")} {x.number}
                 </option>
               ))}
             </select>
@@ -137,7 +139,7 @@ export default function EpisodeLists({
                         }}
                       />
                       <span className="absolute bottom-2 left-2 font-karla font-bold text-sm text-white">
-                        Episode {item?.number}
+                        {t("common.episode")} {item?.number}
                       </span>
                       {item.id == watchId && (
                         <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 scale-[1.5]">
@@ -162,7 +164,7 @@ export default function EpisodeLists({
                       {mapData?.title || info?.title?.romaji}
                     </h1>
                     <p className="line-clamp-2 text-xs italic font-outfit font-extralight">
-                      {mapData?.description || `Episode ${item.number}`}
+                      {mapData?.description || `${t("common.episode")} ${item.number}`}
                     </p>
                   </div>
                 </Link>
@@ -184,7 +186,7 @@ export default function EpisodeLists({
                       : "cursor-pointer hover:scale-[1.02] ring-0 hover:ring-1 hover:shadow-lg ring-white"
                   }`}
                 >
-                  Episode {item.number}
+                  {t("common.episode")} {item.number}
                 </Link>
               );
             })

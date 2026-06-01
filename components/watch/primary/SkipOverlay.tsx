@@ -11,10 +11,11 @@ import { useRouter } from "next/router";
 // bundle. We reuse the same SKIP_MEMO here so a page-level prefetch is a
 // synchronous hit on remount.
 import { SKIP_MEMO, skipMemoKey, prefetchSkips } from "@/lib/skip/prefetchSkips";
+import { useTranslation } from "react-i18next";
 
-const SEGMENT_LABEL: Record<string, string> = {
-  op: "Skip Intro",
-  ed: "Skip Outro",
+const SEGMENT_LABEL_KEY: Record<string, string> = {
+  op: "player.skipIntro",
+  ed: "player.skipOutro",
 };
 
 const NEXT_EP_TAIL_SECONDS = 30;
@@ -86,6 +87,7 @@ export default function SkipOverlay({
   nextEpisodeHref,
   externalMenuOpen = false,
 }: Props) {
+  const { t } = useTranslation();
   const router = useRouter();
   const currentTime = useMediaState("currentTime", playerRef);
   const duration = useMediaState("duration", playerRef);
@@ -336,14 +338,14 @@ export default function SkipOverlay({
         transition: "bottom 200ms ease, opacity 150ms ease",
       }}
     >
-      {active && SEGMENT_LABEL[active.type] && (
+      {active && SEGMENT_LABEL_KEY[active.type] && (
         <button
           type="button"
           onClick={() => skipTo(active.end)}
           className="aniscroll-skip-btn"
           style={btnStyle}
         >
-          {SEGMENT_LABEL[active.type]}
+          {t(SEGMENT_LABEL_KEY[active.type])}
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
             <path
               d="M5 4l10 8-10 8V4zM19 5v14"
@@ -365,7 +367,7 @@ export default function SkipOverlay({
             background: "linear-gradient(135deg, #ff3b5c 0%, #e8294b 100%)",
           }}
         >
-          Next Episode
+          {t("player.nextEpisodeBtn")}
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
             <path
               d="M5 4l10 8-10 8V4zM19 5v14"

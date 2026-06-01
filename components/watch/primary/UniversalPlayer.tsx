@@ -22,6 +22,8 @@ import SubtitleSettings from "./SubtitleSettings";
 import SkipOverlay from "./SkipOverlay";
 // @ts-ignore — context module is plain JS, no types
 import { useWatchProvider } from "@/lib/context/watchPageProvider";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 
 type Stream = {
   url: string;
@@ -381,6 +383,7 @@ function CustomControls({
   castConnected: boolean;
   onCastClick: () => void;
 }) {
+  const { t } = useTranslation();
   return (
     <>
       <a
@@ -388,10 +391,10 @@ function CustomControls({
         download={downloadFilename}
         title={
           downloadExt === "m3u8"
-            ? "Download playlist (open with VLC / mpv / yt-dlp)"
-            : `Download ${downloadExt.toUpperCase()}`
+            ? t("player.downloadPlaylist")
+            : `${t("player.download")} ${downloadExt.toUpperCase()}`
         }
-        aria-label="Download"
+        aria-label={t("player.download")}
         className={ICON_BTN_CLS}
         style={ICON_BTN_STYLE}
       >
@@ -405,8 +408,8 @@ function CustomControls({
           ref={subBtnRef}
           type="button"
           onClick={onSubsClick}
-          title="Subtitles"
-          aria-label="Subtitles"
+          title={t("player.subtitles")}
+          aria-label={t("player.subtitles")}
           className={ICON_BTN_CLS}
           style={ICON_BTN_STYLE}
         >
@@ -420,8 +423,8 @@ function CustomControls({
         <button
           type="button"
           onClick={onCastClick}
-          title={castConnected ? "Casting…" : "Cast"}
-          aria-label="Cast"
+          title={castConnected ? t("player.casting") : t("player.cast")}
+          aria-label={t("player.cast")}
           className={ICON_BTN_CLS}
           style={{
             ...ICON_BTN_STYLE,
@@ -462,6 +465,7 @@ function SubtitleMenu({
   // top-level <body> tree is hidden).
   playerEl: HTMLElement | null;
 }) {
+  const { t } = useTranslation();
   const ref = useRef<HTMLDivElement>(null);
 
   // Close on outside click / Escape.
@@ -548,7 +552,7 @@ function SubtitleMenu({
     <div
       ref={ref}
       role="menu"
-      aria-label="Subtitle track selection"
+      aria-label={t("player.subtitleTrackSelection")}
       // Tag with Vidstack's menu class + aria-hidden="false" so the
       // rest of the layer (notably SkipOverlay's auto-hide observer)
       // treats this popover as a first-class Vidstack menu and the
@@ -623,7 +627,7 @@ function SubtitleMenu({
             primary "styling" action close to the on/off switch and
             puts the long language list below where it belongs. */}
         <SubMenuRow
-          label="Customize subtitles…"
+          label={t("player.customizeSubtitles")}
           selected={false}
           onClick={() => {
             onCustomize();
@@ -662,12 +666,12 @@ function SubtitleMenu({
           opacity: activeIndex < 0 ? 0.55 : 1,
         }}
       >
-        {tracks.map((t, i) => {
+        {tracks.map((tr, i) => {
           const isActive = activeIndex === i;
           return (
             <SubMenuRow
-              key={`${t.language}-${i}`}
-              label={t.label || t.language || `Track ${i + 1}`}
+              key={`${tr.language}-${i}`}
+              label={tr.label || tr.language || t("player.track", { n: i + 1 })}
               selected={isActive}
               onClick={() => {
                 // Picking a track always enables subs (and switches if
@@ -695,6 +699,7 @@ function SubtitleToggleRow({
   enabled: boolean;
   onToggle: (next: boolean) => void;
 }) {
+  const { t } = useTranslation();
   return (
     <div
       role="switch"
@@ -717,7 +722,7 @@ function SubtitleToggleRow({
         userSelect: "none",
       }}
     >
-      <span style={{ flex: 1, fontWeight: 500 }}>Subtitles</span>
+      <span style={{ flex: 1, fontWeight: 500 }}>{t("player.subtitles")}</span>
       <span
         aria-hidden
         style={{
@@ -986,6 +991,7 @@ export default function UniversalPlayer({
   aniListId = null,
   episodeNumber,
 }: Props) {
+  const { t } = useTranslation();
   const playerRef = useRef<MediaPlayerInstance>(null);
 
   // Apply our hls.js tuning the moment the HLS provider is created. Setting
@@ -1797,7 +1803,7 @@ export default function UniversalPlayer({
   if (wantsClientExtract && clientStatus !== "ok") {
     return (
       <div className="flex-center aspect-video w-full h-full bg-black text-white/40 font-karla">
-        Loading…
+        {t("player.loading")}
       </div>
     );
   }
@@ -2029,8 +2035,8 @@ export default function UniversalPlayer({
               <SettingsActionRow
                 label={
                   ext === "m3u8"
-                    ? "Download playlist (.m3u8)"
-                    : `Download ${ext.toUpperCase()}`
+                    ? t("player.downloadM3u8")
+                    : `${t("player.download")} ${ext.toUpperCase()}`
                 }
                 href={downloadUrl}
                 downloadFilename={`${safeName}.${ext}`}
@@ -2038,14 +2044,14 @@ export default function UniversalPlayer({
               />
               {subtitleTracks.length > 0 && (
                 <SettingsActionRow
-                  label="Subtitles"
+                  label={t("player.subtitles")}
                   onClick={() => setSubMenuOpen(true)}
                   iconPath="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm-9 11H6v-2h5v2zm7 0h-5v-2h5v2zm0-4H6V9h12v2z"
                 />
               )}
               {castAvailable && (
                 <SettingsActionRow
-                  label={castConnected ? "Casting…" : "Cast"}
+                  label={castConnected ? t("player.casting") : t("player.cast")}
                   onClick={requestCast}
                   iconPath="M1 18v3h3c0-1.66-1.34-3-3-3zm0-4v2c2.76 0 5 2.24 5 5h2c0-3.87-3.13-7-7-7zm18-7H5v1.63c3.96 1.28 7.09 4.41 8.37 8.37H19V7zM1 10v2c4.97 0 9 4.03 9 9h2c0-6.08-4.93-11-11-11zm20-7H3c-1.1 0-2 .9-2 2v3h2V5h18v14h-7v2h7c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"
                 />
@@ -2053,14 +2059,14 @@ export default function UniversalPlayer({
             </>
           )}
           <SettingsToggleRow
-            label="Autoplay"
+            label={t("player.autoplay")}
             enabled={ctxAutoplay}
             onToggle={setAutoPlayCtx}
             // Material "play_arrow" icon — same family as the rest of the menu.
             iconPath="M8 5v14l11-7z"
           />
           <SettingsToggleRow
-            label="Ambient lights"
+            label={t("player.ambientLights")}
             enabled={ctxAmbient}
             onToggle={setAmbientCtx}
             // Material "lightbulb_outline" icon.
@@ -2186,10 +2192,10 @@ function IframeEmbed({
    Each kept segment becomes one cue; the gaps BETWEEN segments
    become implicit "Episode" cues so Vidstack creates N+1 chapter
    slots and the seek bar splits into per-segment pills. */
-const SEGMENT_NAMES: Record<string, string> = {
-  op: "Intro",
-  ed: "Outro",
-  recap: "Recap",
+const SEGMENT_NAME_KEY: Record<string, string> = {
+  op: "player.chapterIntro",
+  ed: "player.chapterOutro",
+  recap: "player.chapterRecap",
 };
 // Any slack ≤ this many seconds on either end of the episode gets
 // absorbed into the adjacent skip segment, so the seek bar never
@@ -2203,6 +2209,7 @@ const EDGE_SNAP_END_SECONDS = 5;
 function buildChaptersVtt(
   segments: Array<{ start: number; end: number; type: string }>,
   duration: number,
+  t: TFunction,
 ): string | null {
   if (!segments.length || duration <= 0) return null;
   // Sort + clamp so we can synthesise the "Episode" cues between
@@ -2231,23 +2238,23 @@ function buildChaptersVtt(
   let cursor = 0;
   for (const s of sorted) {
     if (s.start > cursor + 0.5) {
-      cues.push({ start: cursor, end: s.start, name: "Episode" });
+      cues.push({ start: cursor, end: s.start, name: t("player.chapterEpisode") });
     }
     cues.push({
       start: Math.max(s.start, cursor),
       end: s.end,
-      name: SEGMENT_NAMES[s.type] || s.type,
+      name: SEGMENT_NAME_KEY[s.type] ? t(SEGMENT_NAME_KEY[s.type]) : s.type,
     });
     cursor = s.end;
   }
   if (cursor < duration - 0.5) {
-    cues.push({ start: cursor, end: duration, name: "Episode" });
+    cues.push({ start: cursor, end: duration, name: t("player.chapterEpisode") });
   }
   if (cues.length < 2) return null;
-  const fmt = (t: number) => {
-    const h = Math.floor(t / 3600);
-    const m = Math.floor((t % 3600) / 60);
-    const s = (t % 60).toFixed(3);
+  const fmt = (sec: number) => {
+    const h = Math.floor(sec / 3600);
+    const m = Math.floor((sec % 3600) / 60);
+    const s = (sec % 60).toFixed(3);
     return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${s
       .padStart(6, "0")}`;
   };
@@ -2261,6 +2268,7 @@ function useChaptersVtt(
   segments: Array<{ start: number; end: number; type: string }>,
   videoDuration: number,
 ): string | null {
+  const { t } = useTranslation();
   // Anything past `videoDuration` is treated as if it doesn't exist:
   // segments are clamped, and the trailing Episode cue stops at
   // `videoDuration`. The trailing cue only renders if there's a real
@@ -2275,7 +2283,7 @@ function useChaptersVtt(
   // playback. Waiting for the true duration means a single blob, a single
   // mount, and the label is present from the first frame the bar shows pills.
   const vtt =
-    videoDuration > 0 ? buildChaptersVtt(segments, videoDuration) : null;
+    videoDuration > 0 ? buildChaptersVtt(segments, videoDuration, t) : null;
   const [url, setUrl] = useState<string | null>(null);
   useEffect(() => {
     if (!vtt) {

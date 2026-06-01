@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 // @ts-ignore — react-dom types not installed but createPortal is exported
 import { createPortal } from "react-dom";
+import { useTranslation } from "react-i18next";
 
 /**
  * Subtitle styling control. Persists user preferences to localStorage and
@@ -106,6 +107,7 @@ export default function SubtitleSettings({
   open: boolean;
   onClose: () => void;
 }) {
+  const { t } = useTranslation();
   const [s, setS] = useState<Settings>(DEFAULTS);
   const [fsHost, setFsHost] = useState<Element | null>(null);
 
@@ -154,11 +156,11 @@ export default function SubtitleSettings({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-4 flex items-center justify-between">
-          <h3 className="font-outfit text-lg font-bold text-white">Subtitles</h3>
+          <h3 className="font-outfit text-lg font-bold text-white">{t("player.subtitles")}</h3>
           <button
             onClick={onClose}
             className="rounded-md p-1 text-white/60 hover:bg-white/10 hover:text-white"
-            aria-label="Close"
+            aria-label={t("player.close")}
           >
             <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
               <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
@@ -170,7 +172,7 @@ export default function SubtitleSettings({
           {/* Size */}
           <div>
             <label className="mb-1.5 flex justify-between text-xs uppercase tracking-wider text-white/50">
-              Size <span className="font-mono normal-case text-white/80">{s.size}%</span>
+              {t("player.size")} <span className="font-mono normal-case text-white/80">{s.size}%</span>
             </label>
             <input
               type="range"
@@ -186,7 +188,7 @@ export default function SubtitleSettings({
           {/* Position */}
           <div>
             <label className="mb-1.5 flex justify-between text-xs uppercase tracking-wider text-white/50">
-              Position <span className="font-mono normal-case text-white/80">{s.position}%</span>
+              {t("player.position")} <span className="font-mono normal-case text-white/80">{s.position}%</span>
             </label>
             <input
               type="range"
@@ -206,7 +208,7 @@ export default function SubtitleSettings({
           {/* Line height (gap between lines) */}
           <div>
             <label className="mb-1.5 flex justify-between text-xs uppercase tracking-wider text-white/50">
-              Line height <span className="font-mono normal-case text-white/80">{s.lineHeight}%</span>
+              {t("player.lineHeight")} <span className="font-mono normal-case text-white/80">{s.lineHeight}%</span>
             </label>
             <input
               type="range"
@@ -225,7 +227,7 @@ export default function SubtitleSettings({
 
           {/* Text color */}
           <div className="flex items-center justify-between gap-3">
-            <label className="text-xs uppercase tracking-wider text-white/50">Text color</label>
+            <label className="text-xs uppercase tracking-wider text-white/50">{t("player.textColor")}</label>
             <input
               type="color"
               value={s.color}
@@ -237,7 +239,7 @@ export default function SubtitleSettings({
           {/* Background master toggle */}
           <div className="flex items-center justify-between gap-3">
             <label className="text-xs uppercase tracking-wider text-white/50">
-              Background
+              {t("player.background")}
             </label>
             <button
               role="switch"
@@ -258,7 +260,7 @@ export default function SubtitleSettings({
             className="flex items-center justify-between gap-3"
             style={{ opacity: s.background ? 1 : 0.4, pointerEvents: s.background ? "auto" : "none" }}
           >
-            <label className="text-xs uppercase tracking-wider text-white/50">Bg color</label>
+            <label className="text-xs uppercase tracking-wider text-white/50">{t("player.bgColor")}</label>
             <div className="flex items-center gap-2">
               <input
                 type="color"
@@ -281,7 +283,7 @@ export default function SubtitleSettings({
 
           {/* Font family */}
           <div className="flex items-center justify-between gap-3">
-            <label className="text-xs uppercase tracking-wider text-white/50">Font</label>
+            <label className="text-xs uppercase tracking-wider text-white/50">{t("player.font")}</label>
             <select
               value={s.fontFamily}
               onChange={(e) => update({ fontFamily: e.target.value })}
@@ -297,7 +299,7 @@ export default function SubtitleSettings({
 
           {/* Preview */}
           <div className="rounded-md bg-black/60 p-4">
-            <div className="text-center text-white/40 text-[10px] uppercase mb-2">Preview</div>
+            <div className="text-center text-white/40 text-[10px] uppercase mb-2">{t("player.preview")}</div>
             <div
               style={{
                 fontSize: `${s.size}%`,
@@ -311,7 +313,7 @@ export default function SubtitleSettings({
                 borderRadius: 4,
               }}
             >
-              The quick brown fox jumps<br />over the lazy dog
+              {t("player.previewText")}
             </div>
           </div>
 
@@ -320,13 +322,13 @@ export default function SubtitleSettings({
               onClick={() => setS(DEFAULTS)}
               className="flex-1 rounded-md bg-white/5 px-3 py-2 text-xs text-white/70 ring-1 ring-white/10 hover:bg-white/10"
             >
-              Reset
+              {t("player.reset")}
             </button>
             <button
               onClick={onClose}
               className="flex-1 rounded-md bg-as-accent px-3 py-2 text-xs font-semibold text-white hover:bg-as-accent/90"
             >
-              Done
+              {t("common.done")}
             </button>
           </div>
         </div>

@@ -1,10 +1,11 @@
 import { getServersByLang } from "@/lib/servers";
 import { SignalIcon } from "@heroicons/react/24/solid";
+import { useTranslation } from "react-i18next";
 
 const LANG_CONFIG = {
-  multi: { label: "Multi", flag: "🌐", description: "Sub / Dub" },
-  vo: { label: "VO", flag: "🇯🇵", description: "Japanese" },
-  vf: { label: "VF", flag: "🇫🇷", description: "French" },
+  multi: { labelKey: "player.langMulti", flag: "🌐", descKey: "player.langMultiDesc" },
+  vo: { labelKey: "player.langVO", flag: "🇯🇵", descKey: "player.langVODesc" },
+  vf: { labelKey: "player.langVF", flag: "🇫🇷", descKey: "player.langVFDesc" },
 };
 
 // Decide whether a server should be visible in the selector.
@@ -26,6 +27,7 @@ function LangGroup({
   confirmedServers,
   degradedServers,
 }) {
+  const { t } = useTranslation();
   const config = LANG_CONFIG[langKey];
   const visible = (servers || []).filter((s) =>
     shouldShow(s, activeServer, confirmedServers, failedServers)
@@ -37,10 +39,10 @@ function LangGroup({
       <div className="flex items-center gap-1.5">
         <span className="text-base leading-none">{config.flag}</span>
         <span className="text-xs text-white/40 font-karla uppercase tracking-wider">
-          {config.label}
+          {t(config.labelKey)}
         </span>
         <span className="text-[10px] text-white/25 font-karla">
-          {config.description}
+          {t(config.descKey)}
         </span>
       </div>
       <div className="flex flex-wrap gap-2">
@@ -67,9 +69,9 @@ function LangGroup({
             ? "bg-red-500/10 text-white/85 ring-1 ring-red-500/40 hover:bg-red-500/20 hover:ring-red-500/60"
             : "bg-as-surface/70 text-white/80 ring-1 ring-white/5 hover:bg-as-surface hover:text-white hover:ring-white/20";
           const title = isFailed
-            ? `Broken: ${isFailed}`
+            ? t("player.serverBroken", { reason: isFailed })
             : isDegraded
-            ? "Degraded — falls back to host's own player (extraction failed). Click to test."
+            ? t("player.serverDegraded")
             : "";
           return (
             <button
@@ -99,20 +101,21 @@ export default function ServerSelector({
   confirmedServers,
   degradedServers,
 }) {
+  const { t } = useTranslation();
   const groups = getServersByLang();
 
   return (
     <div className="flex flex-col gap-3 py-3">
       <div className="flex items-center gap-2 text-sm font-karla font-semibold text-white/70">
         <SignalIcon className="w-4 h-4 text-as-accent" />
-        <span>Servers</span>
+        <span>{t("player.servers")}</span>
         <span className="ml-2 text-[10px] text-white/40 font-karla">
           <span className="inline-block h-1.5 w-1.5 rounded-full bg-as-watching mr-1 align-middle" />
-          available
+          {t("player.available")}
         </span>
         <span className="ml-2 text-[10px] text-white/40 font-karla">
           <span className="inline-block h-1.5 w-1.5 rounded-full bg-red-500 mr-1 align-middle" />
-          degraded (iframe fallback)
+          {t("player.degraded")}
         </span>
       </div>
 
