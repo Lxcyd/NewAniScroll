@@ -1365,6 +1365,21 @@ export default function UniversalPlayer({
     }
   }, [subMenuOpen]);
 
+  // ── Keep controls visible in iOS pseudo-fullscreen ──
+  // Exiting pseudo-fullscreen is done by re-tapping the fullscreen button. If
+  // Vidstack's idle auto-hide hides the bar (after ~2s), the first tap only
+  // re-reveals it and the exit tap is lost — the user gets stuck. Pinning the
+  // controls visible (controls.pause) for the whole pseudo-fullscreen session
+  // keeps the fullscreen button on screen so a single tap always exits.
+  useEffect(() => {
+    const player = playerRef.current;
+    if (!player || !iosPseudoFs) return;
+    try { (player as any).controls?.pause?.(); } catch {}
+    return () => {
+      try { (player as any).controls?.resume?.(); } catch {}
+    };
+  }, [iosPseudoFs]);
+
   // ── Keep controls visible while hovering custom buttons ──
   // Vidstack auto-hides its controls after ~2 s of mouse inactivity. Our
   // custom buttons (Download / Subs / Cast) are portaled into Vidstack's
@@ -2026,32 +2041,10 @@ export default function UniversalPlayer({
         ensureFirstChildSlot(settingsItemsEl, "moopa-toggles-slot")
       )}
 
-      {/* Exit pseudo-fullscreen button (iOS direct-stream path). Re-tapping
-          Vidstack's own fullscreen button is unreliable: its control bar
-          auto-hides after 2s, so the first tap only re-reveals the bar and
-          the "exit" tap is swallowed — leaving the user stuck in fullscreen.
-          An always-on corner X is unambiguous and orientation-independent
-          (positioned with safe-area insets so it clears the notch in BOTH
-          portrait and landscape). */}
-      {iosPseudoFs && (
-        <button
-          type="button"
-          className="moopa-ios-fs-exit"
-          aria-label="Exit fullscreen"
-          onPointerUp={(e) => {
-            // Match the interceptor: act on pointerup, before any synthetic
-            // click, and stop it propagating to the player's handlers.
-            e.preventDefault();
-            e.stopPropagation();
-            setIosPseudoFs(false);
-          }}
-        >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round">
-            <line x1="6" y1="6" x2="18" y2="18" />
-            <line x1="18" y1="6" x2="6" y2="18" />
-          </svg>
-        </button>
-      )}
+      {/* No exit cross: the fullscreen button itself toggles pseudo-fullscreen
+          off. To make that reliable we keep the control bar from auto-hiding
+          while in pseudo-fullscreen (see the controls.pause() effect), so the
+          fullscreen button is always visible and a single tap exits. */}
 
       {/* Hover preview — actual video frame at the cursor position on the scrubber */}
       <HoverPreview playerRef={playerRef} src={src} isM3U8={isM3U8} />

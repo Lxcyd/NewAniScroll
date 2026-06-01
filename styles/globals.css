@@ -940,16 +940,28 @@ pre code {
 }
 
 /* Any letterbox left by object-fit: contain must read as pure black so it
-   blends into the video's own black, not the grey Vidstack/provider default.
-   Force black behind the frame on both fullscreen paths (standard Vidstack
-   [data-fullscreen] and the iOS CSS pseudo-fullscreen wrapper). */
+   blends into the video's own black, not the grey Vidstack default. The grey
+   is Vidstack's theme background (exposed via CSS variables), NOT our
+   provider/video — so plain `background: #000` on those wasn't enough.
+   Neutralise the Vidstack background variables on the player root; this
+   colours the structural video layers without touching the control chrome,
+   which paints its own backgrounds on top. */
 [data-media-player][data-fullscreen],
-[data-media-player][data-fullscreen] [data-media-provider],
-[data-media-player][data-fullscreen] video,
 .moopa-ios-fs,
+.moopa-ios-fs [data-media-player] {
+  --media-bg: #000 !important;
+  --video-bg: #000 !important;
+  --default-video-bg: #000 !important;
+  --media-tooltip-bg: #000;
+}
+/* Paint only the video stack layers black — provider + the layout element
+   that wraps the <video> — never the controls/menus/pills. */
+[data-media-player][data-fullscreen],
+[data-media-player][data-fullscreen] > [data-media-provider],
+[data-media-player][data-fullscreen] .vds-video-layout,
 .moopa-ios-fs [data-media-player],
 .moopa-ios-fs [data-media-provider],
-.moopa-ios-fs video {
+.moopa-ios-fs .vds-video-layout {
   background-color: #000 !important;
 }
 
