@@ -1,5 +1,6 @@
 import { CSSProperties } from "react";
 import { AniListInfoTypes } from "types/info/AnilistInfoTypes";
+import { useTranslation } from "react-i18next";
 
 type Props = { info: AniListInfoTypes };
 
@@ -10,6 +11,15 @@ const ROLE_COLOR: Record<string, string> = {
 };
 
 export default function CharactersTab({ info }: Props) {
+  const { t } = useTranslation();
+  const roleLabel = (role: string) => {
+    const key: Record<string, string> = {
+      MAIN: "anime.roleMain",
+      SUPPORTING: "anime.roleSupporting",
+      BACKGROUND: "anime.roleBackground",
+    };
+    return key[role] ? t(key[role]) : role;
+  };
   const edges = info.characters?.edges || [];
   if (edges.length === 0) {
     return (
@@ -23,7 +33,7 @@ export default function CharactersTab({ info }: Props) {
           fontSize: 13,
         }}
       >
-        No character data.
+        {t("anime.noCharacterData")}
       </div>
     );
   }
@@ -63,7 +73,7 @@ export default function CharactersTab({ info }: Props) {
                   color: ROLE_COLOR[role] || "var(--txt-3)",
                 }}
               >
-                {role}
+                {roleLabel(role)}
               </div>
               <div style={cStyles.name}>{e.node.name.full}</div>
               {va && <div style={cStyles.va}>VA · {va.name.full}</div>}

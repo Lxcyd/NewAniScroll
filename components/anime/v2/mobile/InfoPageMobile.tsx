@@ -25,11 +25,15 @@ import {
   prettyStatus as helpersPrettyStatus,
   prettyFormat,
   prettySource,
-  prettyCountry,
   prettySeason,
   stripHtml,
   compactNumber,
+  statusLabel as statusLabelI18n,
+  countryLabel,
+  listLabel,
 } from "../helpers";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import type { SeasonEntry } from "@/lib/anilist/seasonChain";
 import CharactersTab from "../CharactersTab";
 import Episodes from "../Episodes";
@@ -143,6 +147,7 @@ export default function InfoPageMobile({
 
 /* ─── Top bar ─────────────────────────────────────────────── */
 function MTopBar({ scrolled, title }: { scrolled: boolean; title: string }) {
+  const { t } = useTranslation();
   return (
     <header
       style={{
@@ -158,7 +163,7 @@ function MTopBar({ scrolled, title }: { scrolled: boolean; title: string }) {
       <button
         onClick={() => history.back()}
         style={S.iconBtn}
-        aria-label="Back"
+        aria-label={t("anime.back")}
       >
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <polyline points="15 18 9 12 15 6" />
@@ -207,6 +212,7 @@ function MHero({
   onOpenListEditor: () => void;
   onToggleFav: () => void;
 }) {
+  const { t } = useTranslation();
   const banner = info.bannerImage || info.coverImage?.extraLarge;
   const cover =
     info.coverImage?.extraLarge || info.coverImage?.large;
@@ -469,7 +475,7 @@ function MHero({
                       opacity: 0.9,
                     }}
                   >
-                    {progress > 0 ? "RESUME" : "WATCH NOW"}
+                    {progress > 0 ? t("anime.resumeCta") : t("anime.watchNowCta")}
                   </div>
                   <div
                     style={{
@@ -510,7 +516,12 @@ function MActions({
   onOpenListEditor: () => void;
   onToggleFav: () => void;
 }) {
+  const { t } = useTranslation();
+  // Keep the English label as the color key (LIST_COLORS), translate display.
   const label = statusLabel ? helpersPrettyStatus(statusLabel) : "Add to list";
+  const labelDisplay = statusLabel
+    ? statusLabelI18n(t, statusLabel)
+    : t("list.addToList");
   const color = LIST_COLORS[label] || "#8a8fa3";
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -550,7 +561,7 @@ function MActions({
             textOverflow: "ellipsis",
           }}
         >
-          {label}
+          {labelDisplay}
         </span>
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <polyline points="6 9 12 15 18 9" />
@@ -559,7 +570,7 @@ function MActions({
       <div style={{ display: "flex", gap: 8 }}>
         <button
           onClick={onToggleFav}
-          aria-label="Favourite"
+          aria-label={t("anime.favourite")}
           style={{
             width: 44,
             height: 44,
@@ -612,7 +623,7 @@ function MActions({
             <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
             <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
           </svg>
-          Share
+          {t("anime.share")}
         </button>
       </div>
     </div>
@@ -626,18 +637,19 @@ function MTabs({
   counts,
 }: {
   tab: TabId;
-  setTab: (t: TabId) => void;
+  setTab: (next: TabId) => void;
   counts: { episodes: number; characters: number; artworks: number };
 }) {
+  const { t } = useTranslation();
   const tabs: Array<{ id: TabId; label: string; count?: number }> = [
-    { id: "overview", label: "Overview" },
-    { id: "episodes", label: "Episodes", count: counts.episodes || undefined },
+    { id: "overview", label: t("anime.overview") },
+    { id: "episodes", label: t("anime.episodes"), count: counts.episodes || undefined },
     {
       id: "characters",
-      label: "Characters",
+      label: t("anime.characters"),
       count: counts.characters || undefined,
     },
-    { id: "artworks", label: "Artworks", count: counts.artworks || undefined },
+    { id: "artworks", label: t("anime.artworks"), count: counts.artworks || undefined },
   ];
   return (
     <div
@@ -704,6 +716,7 @@ function MOverview({
   info: AniListInfoTypes;
   seasonList?: SeasonEntry[];
 }) {
+  const { t } = useTranslation();
   const [exp, setExp] = useState(false);
   const description = stripHtml(info.description || "");
   const aired = formatAiredRange(info);
@@ -720,14 +733,14 @@ function MOverview({
     .slice(0, 3)
     .join(", ");
   const details: Array<[string, string | null]> = [
-    ["Format", prettyFormat(info.format || null)],
-    ["Status", helpersPrettyStatus(info.status || null)],
-    ["Source", prettySource((info as any).source || null)],
-    ["Aired", aired],
-    ["Premiered", premiered],
-    ["Studios", studios || null],
-    ["Producers", producers || null],
-    ["Country", prettyCountry((info as any).countryOfOrigin || null)],
+    [t("anime.detailFormat"), prettyFormat(info.format || null)],
+    [t("anime.detailStatus"), statusLabelI18n(t, info.status || null)],
+    [t("anime.detailSource"), prettySource((info as any).source || null)],
+    [t("anime.detailAired"), aired],
+    [t("anime.detailPremiered"), premiered],
+    [t("anime.detailStudios"), studios || null],
+    [t("anime.detailProducers"), producers || null],
+    [t("anime.detailCountry"), countryLabel(t, (info as any).countryOfOrigin || null)],
   ].filter(([, v]) => !!v) as Array<[string, string]>;
 
   const tags = (info.tags || [])
@@ -748,10 +761,10 @@ function MOverview({
   const seasonalRank =
     info.rankings?.find((r) => r.type === "RATED" && r.season)?.rank ?? null;
   const popularityStats: Array<[string, string, string]> = [
-    ["Popularity", popRank ? `#${popRank}` : compactNumber(popularity ?? null) || "—", "#ff7a91"],
-    ["Rating", ratingRank ? `#${ratingRank}` : "—", "#f6c544"],
-    ["Seasonal", seasonalRank ? `#${seasonalRank}` : "—", "#2dd47a"],
-    ["Members", compactNumber(favourites ?? null) || "—", "#7ec8ff"],
+    [t("anime.popularity"), popRank ? `#${popRank}` : compactNumber(popularity ?? null) || "—", "#ff7a91"],
+    [t("anime.rating"), ratingRank ? `#${ratingRank}` : "—", "#f6c544"],
+    [t("anime.seasonal"), seasonalRank ? `#${seasonalRank}` : "—", "#2dd47a"],
+    [t("anime.members"), compactNumber(favourites ?? null) || "—", "#7ec8ff"],
   ];
 
   return (
@@ -765,7 +778,7 @@ function MOverview({
     >
       {description && (
         <section>
-          <div style={S.kicker}>SYNOPSIS</div>
+          <div style={S.kicker}>{t("anime.sectionSynopsis")}</div>
           <p
             style={{
               fontSize: 13.5,
@@ -795,7 +808,7 @@ function MOverview({
               cursor: "pointer",
             }}
           >
-            {exp ? "Show less" : "Read more"}
+            {exp ? t("anime.readLess") : t("anime.readMore")}
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ transform: exp ? "rotate(180deg)" : undefined }}>
               <polyline points="6 9 12 15 18 9" />
             </svg>
@@ -805,7 +818,7 @@ function MOverview({
 
       {trailer?.id && trailer?.site && (
         <section>
-          <div style={S.kicker}>TRAILER</div>
+          <div style={S.kicker}>{t("anime.sectionTrailer")}</div>
           <MTrailer trailer={trailer} bannerFallback={info.bannerImage} />
         </section>
       )}
@@ -832,7 +845,7 @@ function MOverview({
       ) : null}
 
       <section>
-        <div style={S.kicker}>POPULARITY</div>
+        <div style={S.kicker}>{t("anime.sectionPopularity")}</div>
         <div
           style={{
             display: "grid",
@@ -879,7 +892,7 @@ function MOverview({
 
       {details.length > 0 && (
         <section>
-          <div style={S.kicker}>DETAILS</div>
+          <div style={S.kicker}>{t("anime.sectionDetails")}</div>
           <div
             style={{
               background: "#161924",
@@ -920,7 +933,7 @@ function MOverview({
 
       {tags.length > 0 && (
         <section>
-          <div style={S.kicker}>TAGS</div>
+          <div style={S.kicker}>{t("anime.sectionTags")}</div>
           <div
             style={{
               background: "#161924",
@@ -987,7 +1000,7 @@ function MOverview({
 
       {externalLinks.length > 0 && (
         <section>
-          <div style={S.kicker}>EXTERNAL SITES</div>
+          <div style={S.kicker}>{t("anime.sectionExternalSites")}</div>
           <div
             style={{ display: "flex", flexDirection: "column", gap: 7 }}
           >
@@ -1184,6 +1197,7 @@ function MTrailer({
 /* ─── Recommendations ─────────────────────────────────────── */
 function MRecs({ info }: { info: AniListInfoTypes }) {
   const titlePref = useTitlePref();
+  const { t } = useTranslation();
   const recs = (info.recommendations?.nodes || [])
     .map((n: any) => n.mediaRecommendation)
     .filter(Boolean)
@@ -1200,7 +1214,7 @@ function MRecs({ info }: { info: AniListInfoTypes }) {
         }}
       >
         <div>
-          <div style={S.kicker}>RECOMMENDATIONS</div>
+          <div style={S.kicker}>{t("anime.sectionRecommendations")}</div>
           <div style={{ fontSize: 16, fontWeight: 700, marginTop: 2 }}>
             Because you're watching
           </div>

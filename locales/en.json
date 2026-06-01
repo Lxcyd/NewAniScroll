@@ -183,6 +183,7 @@
     "watchNowCta": "WATCH NOW",
     "rewatchCta": "REWATCH",
     "comingSoonCta": "COMING SOON",
+    "resumeCta": "RESUME",
     "rated": "RATED #{{rank}}",
     "average": "AVERAGE",
     "linkCopied": "Link copied",
@@ -246,6 +247,10 @@
     "sectionRecommendations": "RECOMMENDATIONS",
     "noRelated": "No related entries.",
     "close": "Close",
+    "noCharacterData": "No character data.",
+    "roleMain": "MAIN",
+    "roleSupporting": "SUPPORTING",
+    "roleBackground": "BACKGROUND",
     "artType": {
       "background": "Key Visual",
       "poster": "Poster",

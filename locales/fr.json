@@ -183,6 +183,7 @@
     "watchNowCta": "REGARDER",
     "rewatchCta": "REVOIR",
     "comingSoonCta": "BIENTÔT",
+    "resumeCta": "REPRENDRE",
     "rated": "CLASSÉ #{{rank}}",
     "average": "MOYENNE",
     "linkCopied": "Lien copié",
@@ -246,6 +247,10 @@
     "sectionRecommendations": "RECOMMANDATIONS",
     "noRelated": "Aucune entrée liée.",
     "close": "Fermer",
+    "noCharacterData": "Aucune donnée de personnage.",
+    "roleMain": "PRINCIPAL",
+    "roleSupporting": "SECONDAIRE",
+    "roleBackground": "FIGURANT",
     "artType": {
       "background": "Visuel clé",
       "poster": "Affiche",
