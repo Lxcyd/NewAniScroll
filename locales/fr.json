@@ -217,6 +217,34 @@
     "paused": "En pause",
     "dropped": "Abandonné"
   },
+  "days": {
+    "sunday": "Dimanche",
+    "monday": "Lundi",
+    "tuesday": "Mardi",
+    "wednesday": "Mercredi",
+    "thursday": "Jeudi",
+    "friday": "Vendredi",
+    "saturday": "Samedi"
+  },
+  "search": {
+    "label": "Rechercher",
+    "nothingFound": "Oups !",
+    "nothingFoundSub": "Aucun résultat...",
+    "searchByImage": "Recherche par image",
+    "genres": "Genres",
+    "sort": "Trier",
+    "format": "Format",
+    "season": "Saison",
+    "year": "Année",
+    "any": "Tous"
+  },
+  "schedule": {
+    "title": "Programme",
+    "nextAiring": "Prochaine diffusion",
+    "airingNow": "En diffusion",
+    "today": "Aujourd'hui",
+    "all": "Tous"
+  },
   "discover": {
     "failedToLoad": "Échec du chargement des animes",
     "couldntSave": "Impossible d'enregistrer sur AniList",

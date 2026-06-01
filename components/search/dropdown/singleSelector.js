@@ -2,9 +2,11 @@ import { Fragment, useState } from "react";
 import { Combobox, Listbox, Transition } from "@headlessui/react";
 import { CheckIcon, ChevronDownIcon } from "@heroicons/react/20/solid";
 import React from "react";
+import { useTranslation } from "react-i18next";
 
 export default function SingleSelector({ data, label, selected, setSelected }) {
   // const [selected, setSelected] = useState();
+  const { t } = useTranslation();
   const [query, setQuery] = useState("");
 
   const filteredData =
@@ -29,7 +31,7 @@ export default function SingleSelector({ data, label, selected, setSelected }) {
             onChange={(event) => setQuery(event.target.value)}
           /> */}
           <Listbox.Button className="w-full border-none py-2 text-start pl-3 text-sm leading-5 bg-secondary text-gray-400">
-            <span>{selected?.name || "Any"}</span>
+            <span>{selected?.name || t("search.any")}</span>
             <div className="absolute inset-y-0 right-0 flex items-center pr-2">
               <ChevronDownIcon
                 className="h-5 w-5 text-gray-400"

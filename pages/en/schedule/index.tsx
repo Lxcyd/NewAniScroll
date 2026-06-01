@@ -18,6 +18,19 @@ import {
 import { scheduleQuery } from "@/lib/graphql/query";
 import MobileNav from "@/components/shared/MobileNav";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
+import { useTranslation } from "react-i18next";
+
+/* Map an English weekday (the logical key used for sections / filtering)
+   to its translated label. */
+const DAY_KEY: Record<string, string> = {
+  Sunday: "days.sunday",
+  Monday: "days.monday",
+  Tuesday: "days.tuesday",
+  Wednesday: "days.wednesday",
+  Thursday: "days.thursday",
+  Friday: "days.friday",
+  Saturday: "days.saturday",
+};
 
 import { redis } from "@/lib/redis";
 import Head from "next/head";
@@ -142,6 +155,8 @@ export async function getServerSideProps() {
 
 export default function Schedule({ schedule }: any) {
   const titlePref = useTitlePref();
+  const { t } = useTranslation();
+  const dayLabel = (d: string) => (DAY_KEY[d] ? t(DAY_KEY[d]) : d);
   const [filterDay, setFilterDay] = useState("All");
   const [loading, setLoading] = useState(true);
 
@@ -268,7 +283,7 @@ export default function Schedule({ schedule }: any) {
                   filterDay === "All" ? "text-action" : ""
                 }`}
               >
-                All
+                {t("schedule.all")}
               </button>
               {day.map((i) => (
                 <button
@@ -284,7 +299,7 @@ export default function Schedule({ schedule }: any) {
                     filterDay === i ? "text-action" : ""
                   }`}
                 >
-                  {i}
+                  {dayLabel(i)}
                 </button>
               ))}
             </ul>
@@ -315,7 +330,7 @@ export default function Schedule({ schedule }: any) {
                   className="grid gap-5 px-5"
                 >
                   <h2 className="font-bold font-outfit text-white text-2xl">
-                    {day}
+                    {dayLabel(day as string)}
                   </h2>
                   {Object.entries(timeSlots).map(([time, animeList]) => (
                     <motion.div
@@ -407,7 +422,7 @@ export default function Schedule({ schedule }: any) {
                     // id={day}
                     className="font-bold font-outfit text-white text-2xl"
                   >
-                    {day}
+                    {dayLabel(day)}
                   </h2>
                   <motion.div
                     initial={{
@@ -451,7 +466,7 @@ export default function Schedule({ schedule }: any) {
                             >
                               {/* <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-sky-400 opacity-75"></span> */}
                               <span className="relative inline-flex rounded-full h-3 w-3 bg-sky-500"></span>
-                              <span className="tooltip">Next Airing</span>
+                              <span className="tooltip">{t("schedule.nextAiring")}</span>
                             </span>
                           </p>
                           <p className="absolute flex top-0 right-0 -mt-1 -mr-1 justify-center items-center">
@@ -462,7 +477,7 @@ export default function Schedule({ schedule }: any) {
                             >
                               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-orange-400 opacity-75"></span>
                               <span className="relative inline-flex rounded-full h-3 w-3 bg-orange-500"></span>
-                              <span className="tooltip">Airing Now</span>
+                              <span className="tooltip">{t("schedule.airingNow")}</span>
                             </span>
                           </p>
                           <Image

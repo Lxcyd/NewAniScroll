@@ -217,6 +217,34 @@
     "paused": "Paused",
     "dropped": "Dropped"
   },
+  "days": {
+    "sunday": "Sunday",
+    "monday": "Monday",
+    "tuesday": "Tuesday",
+    "wednesday": "Wednesday",
+    "thursday": "Thursday",
+    "friday": "Friday",
+    "saturday": "Saturday"
+  },
+  "search": {
+    "label": "Search",
+    "nothingFound": "Oops!",
+    "nothingFoundSub": "Nothing's Found...",
+    "searchByImage": "Search by image",
+    "genres": "Genres",
+    "sort": "Sort",
+    "format": "Format",
+    "season": "Season",
+    "year": "Year",
+    "any": "Any"
+  },
+  "schedule": {
+    "title": "Schedule",
+    "nextAiring": "Next Airing",
+    "airingNow": "Airing Now",
+    "today": "Today",
+    "all": "All"
+  },
   "discover": {
     "failedToLoad": "Failed to load anime",
     "couldntSave": "Couldn't save to AniList",

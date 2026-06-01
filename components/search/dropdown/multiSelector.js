@@ -2,6 +2,7 @@ import { Fragment, useState } from "react";
 import { Combobox, Transition } from "@headlessui/react";
 import { CheckIcon, ChevronDownIcon } from "@heroicons/react/20/solid";
 import React from "react";
+import { useTranslation } from "react-i18next";
 
 export default function MultiSelector({
   data,
@@ -12,6 +13,7 @@ export default function MultiSelector({
   inputRef,
 }) {
   // const [selected, setSelected] = useState();
+  const { t } = useTranslation();
   const [query, setQuery] = useState("");
 
   const filteredMain =
@@ -42,7 +44,7 @@ export default function MultiSelector({
           <Combobox.Input
             className="w-full border-none py-2 pl-3 pr-10 text-sm leading-5 bg-secondary text-gray-300 focus:ring-0 outline-none"
             displayValue={(item) => item?.map((item) => item?.name).join(", ")}
-            placeholder="Any"
+            placeholder={t("search.any")}
             onChange={(event) => setQuery(event.target.value)}
           />
           <Combobox.Button className="absolute inset-y-0 right-0 flex items-center pr-2">

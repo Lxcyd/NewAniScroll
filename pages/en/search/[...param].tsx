@@ -31,6 +31,7 @@ import SearchByImage, {
 import { PlayIcon } from "@heroicons/react/24/outline";
 import { StaticImport } from "next/dist/shared/lib/get-img-props";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
+import { useTranslation } from "react-i18next";
 
 export async function getServerSideProps(context: any) {
   const { param } = context.query;
@@ -127,6 +128,7 @@ export default function Card({
   const inputRef = useRef(null);
   const router = useRouter();
   const titlePref = useTitlePref();
+  const { t } = useTranslation();
 
   const [data, setData] = useState<any>();
   const [imageSearch, setImageSearch] = useState<TraceMoeResultTypes[]>();
@@ -332,7 +334,7 @@ export default function Card({
               <InputSelect
                 inputRef={inputRef}
                 data={mediaType}
-                label="Search"
+                label={t("search.label")}
                 keyDown={handleKeyDown}
                 query={search}
                 setQuery={setQuery}
@@ -345,7 +347,7 @@ export default function Card({
                 other={tagsOption}
                 selected={genre}
                 setSelected={setGenre}
-                label="Genres"
+                label={t("search.genres")}
                 inputRef={inputRef}
               />
               {/* SORT */}
@@ -353,35 +355,35 @@ export default function Card({
                 data={sortOptions}
                 selected={sort}
                 setSelected={setSelectedSort}
-                label="Sort"
+                label={t("search.sort")}
               /> */}
               {/* FORMAT */}
               <SingleSelector
                 data={index === 0 ? animeFormatOptions : mangaFormatOptions}
                 selected={format}
                 setSelected={setFormat}
-                label="Format"
+                label={t("search.format")}
               />
               {/* SEASON */}
               <SingleSelector
                 data={seasonOptions}
                 selected={season}
                 setSelected={setSeason}
-                label="Season"
+                label={t("search.season")}
               />
               {/* YEAR */}
               <SingleSelector
                 data={yearOptions}
                 selected={year}
                 setSelected={setYear}
-                label="Year"
+                label={t("search.year")}
               />
             </div>
             <div className="w-full lg:hidden">
               <InputSelect
                 inputRef={inputRef}
                 data={mediaType}
-                label="Search"
+                label={t("search.label")}
                 keyDown={handleKeyDown}
                 query={search}
                 setQuery={setQuery}
@@ -415,7 +417,7 @@ export default function Card({
                   other={tagsOption}
                   selected={genre}
                   setSelected={setGenre}
-                  label="Genres"
+                  label={t("search.genres")}
                   inputRef={inputRef}
                 />
                 {/* SORT */}
@@ -423,28 +425,28 @@ export default function Card({
                 data={sortOptions}
                 selected={sort}
                 setSelected={setSelectedSort}
-                label="Sort"
+                label={t("search.sort")}
               /> */}
                 {/* FORMAT */}
                 <SingleSelector
                   data={index === 0 ? animeFormatOptions : mangaFormatOptions}
                   selected={format}
                   setSelected={setFormat}
-                  label="Format"
+                  label={t("search.format")}
                 />
                 {/* SEASON */}
                 <SingleSelector
                   data={seasonOptions}
                   selected={season}
                   setSelected={setSeason}
-                  label="Season"
+                  label={t("search.season")}
                 />
                 {/* YEAR */}
                 <SingleSelector
                   data={yearOptions}
                   selected={year}
                   setSelected={setYear}
-                  label="Year"
+                  label={t("search.year")}
                 />
               </div>
             </div>
@@ -461,7 +463,7 @@ export default function Card({
                 ? ""
                 : !data && (
                     <div className="w-full text-[#ff7f57] col-span-6 items-center flex justify-center text-center font-bold font-karla xl:text-2xl">
-                      Oops!<br></br> Nothing's Found...
+                      {t("search.nothingFound")}<br></br> {t("search.nothingFoundSub")}
                     </div>
                   )}
 
