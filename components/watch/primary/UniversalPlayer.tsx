@@ -1093,7 +1093,26 @@ export default function UniversalPlayer({
     const root = playerRef.current?.el as HTMLElement | undefined;
     if (!root) return;
     const el = root.querySelector<HTMLElement>(".vds-chapter-title");
-    if (el) el.textContent = chapterTitle;
+    if (!el) return;
+
+    // Vidstack writes the active cue's own text into this element on a delay
+    // (one transition behind), so a plain textContent assignment races with
+    // Vidstack and can leave both labels in the DOM → "ÉpisodeEpisode".
+    // We own the element: write our value, then keep it pinned with a
+    // MutationObserver that re-applies our text whenever Vidstack mutates it.
+    let applying = false;
+    const apply = () => {
+      if (el.textContent === chapterTitle) return;
+      applying = true;
+      el.textContent = chapterTitle;
+      applying = false;
+    };
+    apply();
+    const obs = new MutationObserver(() => {
+      if (!applying) apply();
+    });
+    obs.observe(el, { childList: true, characterData: true, subtree: true });
+    return () => obs.disconnect();
   }, [chapterTitle]);
   // Ambient lights toggle — defaults to true if undefined (older context).
   const ctxAmbient: boolean = watchCtx.ambientLights !== false;

@@ -15,6 +15,7 @@ import styles from "./styles.module.css";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
+import { useTranslatedText } from "@/lib/i18n/useTranslatedText";
 
 type Props = {
   info: AniListInfoTypes;
@@ -46,10 +47,13 @@ export default function Overview({ info, seasonList }: Props) {
   const sites = useMemo(() => buildSites(info), [info]);
   const popularity = useMemo(() => buildPopularity(info, t), [info, t]);
 
-  const { text: synopsis, source: synopsisSource } = useMemo(
+  const { text: synopsisRaw, source: synopsisSource } = useMemo(
     () => parseDescription(info.description),
     [info.description]
   );
+  // Auto-translate the AniList synopsis into the active UI language (cached
+  // server-side). Falls back to the English original while loading / on error.
+  const synopsis = useTranslatedText(synopsisRaw);
 
   const trailerUrl =
     info.trailer && info.trailer.site === "youtube" && info.trailer.id

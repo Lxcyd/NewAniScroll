@@ -16,6 +16,7 @@ import {
 import { toast } from "sonner";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { useTranslation } from "react-i18next";
+import { genreLabel } from "@/lib/i18n/genreLabel";
 
 type HeroProps = {
   info: AniListInfoTypes;
@@ -518,7 +519,7 @@ export default function Hero({
             <div style={hStyles.chipsRow}>
               {(info.genres || []).slice(0, 4).map((g) => (
                 <span key={g} style={hStyles.genreChip}>
-                  {g}
+                  {genreLabel(t, g)}
                 </span>
               ))}
               {(studios.length > 0 || producers.length > 0) && (

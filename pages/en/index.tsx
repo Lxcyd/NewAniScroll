@@ -5,6 +5,8 @@ import Link from "next/link";
 import Footer from "@/components/shared/footer";
 import Image from "next/image";
 import Content from "@/components/home/content";
+import { useTranslation } from "react-i18next";
+import { useTranslatedText } from "@/lib/i18n/useTranslatedText";
 
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -192,6 +194,7 @@ function HeroBanner({
   onPlay: (id: number) => void;
   stripDescription: (s: string) => string;
 }) {
+  const { t } = useTranslation();
   // Stable list: SSR-provided entries, falling back to a single entry
   // synthesised from firstTrend when the fanart fetch returned empty.
   const list: HeroEntry[] =
@@ -238,6 +241,14 @@ function HeroBanner({
     }, HERO_AUTO_INTERVAL_MS);
     return () => window.clearTimeout(t);
   }, [list.length, idx]);
+
+  // Compute the active entry's synopsis BEFORE any early return so the
+  // translation hook is always called in the same order (rules-of-hooks).
+  // Guarded against an empty list (the early return below handles render).
+  const safeActive = list.length ? list[idx % list.length] : null;
+  const localizedDescription = useTranslatedText(
+    safeActive ? stripDescription(safeActive.description || "") : "",
+  );
 
   if (list.length === 0) return null;
   const activeIdx = idx % list.length;
@@ -372,7 +383,7 @@ function HeroBanner({
 
                 {/* Description (2 lines) */}
                 <p className="font-roboto font-light text-base xl:text-lg line-clamp-2 max-w-[88%] text-white/80">
-                  {stripDescription(active.description || "")}
+                  {localizedDescription}
                 </p>
 
                 {/* CTAs + progress bar share a w-fit column so the bar
@@ -394,7 +405,7 @@ function HeroBanner({
                       >
                         <path d="M8 5v14l11-7z" />
                       </svg>
-                      WATCH NOW
+                      {t("anime.watchNowCta")}
                     </button>
                     <Link
                       href={`/en/anime/${active.id}`}
@@ -407,7 +418,7 @@ function HeroBanner({
                       >
                         <path d="M11 17h2v-6h-2v6zm1-15C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zM11 9h2V7h-2v2z" />
                       </svg>
-                      MORE INFO
+                      {t("anime.moreInfoCta")}
                     </Link>
                   </div>
 

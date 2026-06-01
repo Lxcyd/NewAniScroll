@@ -7,6 +7,8 @@ import Link from "next/link";
 import Image from "next/image";
 import { useTranslation } from "react-i18next";
 import { statusLabel } from "@/components/anime/v2/helpers";
+import { genreLabel } from "@/lib/i18n/genreLabel";
+import { useTranslatedText } from "@/lib/i18n/useTranslatedText";
 
 type DetailsProps = {
   info: AniListInfoTypes;
@@ -34,7 +36,9 @@ export default function Details({
 
   const [showDesc, setShowDesc] = useState(false);
 
-  const truncatedDesc = truncateText(description, 420);
+  // Auto-translate the synopsis into the active UI language (server-cached).
+  const localizedDesc = useTranslatedText(description);
+  const truncatedDesc = truncateText(localizedDesc, 420);
 
   function handlePlan() {
     if (onList === false) {
@@ -153,7 +157,7 @@ export default function Details({
               key={index}
               className="border border-action text-gray-100 py-1 px-2 rounded-md font-karla text-sm"
             >
-              {item}
+              {genreLabel(t, item)}
             </div>
           ))}
       </div>
@@ -164,14 +168,14 @@ export default function Details({
             <p
               dangerouslySetInnerHTML={{
                 __html: showDesc
-                  ? description
-                  : description?.length > 420
+                  ? localizedDesc
+                  : localizedDesc?.length > 420
                   ? truncatedDesc
-                  : description
+                  : localizedDesc
               }}
               className={`p-5 text-sm font-light font-roboto text-[#e4e4e4] `}
             />
-            {!showDesc && description?.length > 120 && (
+            {!showDesc && localizedDesc?.length > 120 && (
               <span
                 onClick={() => setShowDesc((prev) => !prev)}
                 className="flex justify-center items-end rounded-md pb-5 font-semibold font-karla cursor-pointer w-full h-full bg-gradient-to-t from-secondary hover:from-20% to-transparent absolute inset-0"

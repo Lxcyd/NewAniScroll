@@ -34,6 +34,8 @@ import {
 } from "../helpers";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
+import { genreLabel } from "@/lib/i18n/genreLabel";
+import { useTranslatedText } from "@/lib/i18n/useTranslatedText";
 import type { SeasonEntry } from "@/lib/anilist/seasonChain";
 import CharactersTab from "../CharactersTab";
 import Episodes from "../Episodes";
@@ -359,7 +361,7 @@ function MHero({
         >
           {genres.map((g) => (
             <span key={g} style={S.chipPink}>
-              {g}
+              {genreLabel(t, g)}
             </span>
           ))}
           {studios.length > 0 && genres.length > 0 && (
@@ -718,7 +720,7 @@ function MOverview({
 }) {
   const { t } = useTranslation();
   const [exp, setExp] = useState(false);
-  const description = stripHtml(info.description || "");
+  const description = useTranslatedText(stripHtml(info.description || ""));
   const aired = formatAiredRange(info);
   const premiered = prettySeason(info);
   const studios = (info.studios?.edges || [])

@@ -291,9 +291,9 @@ export function ChangelogsVersions({
 }: ChangelogsVersionsProps) {
   return (
     <>
-      <div className="my-2 flex items-center justify-evenly">
-        <div className="w-full h-[1px] bg-gradient-to-r from-white/5 to-white/40" />
-        <p className="relative flex flex-1 items-center font-bold mx-2 font-inter text-center justify-center">
+      <div className="my-2 flex items-center gap-2">
+        <div className="flex-1 h-[1px] bg-gradient-to-r from-white/5 to-white/40" />
+        <p className="relative flex shrink-0 items-center font-bold font-inter text-sm text-center">
           <span>{version}</span>
           {pre && (
             <span className="flex text-xs font-light font-roboto ml-1 italic">
@@ -301,7 +301,7 @@ export function ChangelogsVersions({
             </span>
           )}
         </p>
-        <div className="w-full h-[1px] bg-gradient-to-l from-white/5 to-white/40" />
+        <div className="flex-1 h-[1px] bg-gradient-to-l from-white/5 to-white/40" />
       </div>
 
       <div className="flex flex-col gap-2 text-sm py-2 text-gray-200">

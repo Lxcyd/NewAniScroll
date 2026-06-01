@@ -2,6 +2,9 @@
  * Pink/red genre pills (AniScroll-style).
  * Can render as pills (default) or inline separated by bullets (compact).
  */
+import { useTranslation } from "react-i18next";
+import { genreLabel } from "@/lib/i18n/genreLabel";
+
 export default function GenrePills({
   genres,
   variant = "pills",
@@ -11,6 +14,7 @@ export default function GenrePills({
   variant?: "pills" | "inline";
   max?: number;
 }) {
+  const { t } = useTranslation();
   if (!genres?.length) return null;
   const list = max ? genres.slice(0, max) : genres;
 
@@ -20,7 +24,7 @@ export default function GenrePills({
         {list.map((g, i) => (
           <span key={g} className="flex items-center gap-1.5">
             {i > 0 && <span className="opacity-50">•</span>}
-            <span>{g}</span>
+            <span>{genreLabel(t, g)}</span>
           </span>
         ))}
       </div>
@@ -34,7 +38,7 @@ export default function GenrePills({
           key={g}
           className="inline-flex items-center rounded-pill bg-as-accent/15 px-2.5 py-1 text-[11px] font-karla font-semibold text-as-accent ring-1 ring-as-accent/30"
         >
-          {g}
+          {genreLabel(t, g)}
         </span>
       ))}
     </div>
