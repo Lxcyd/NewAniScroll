@@ -629,8 +629,11 @@ export default function Watch({
     return () => {
       setEpisodeNavigation(null);
     };
+    // `info?.id` is a dependency now that `info` is hydrated client-side — on a
+    // cold SSR it arrives after mount, and without it here getInfo() would bail
+    // early (if (!info) return) and never re-run, leaving the player stuck.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessions?.user?.name, epiNumber, dub]);
+  }, [sessions?.user?.name, epiNumber, dub, info?.id]);
 
   // ── Auto-next / auto-play + skip data ───────────────────────
   // autoplay/autoNext are now hydrated from localStorage by WatchPageProvider
@@ -668,6 +671,11 @@ export default function Watch({
   // ── Fetch stream source when server needs backend (hls or api) ──
   // Tracks the latest in-flight request so server-change / navigation aborts it.
   const activeFetchCtrl = useRef(null);
+  // Flipped true the moment the ACTIVE server's source settles (cache hit, OK,
+  // or error). The background probe fan-out waits on this so the active stream
+  // — the request that actually gates the player — gets the connection pool to
+  // itself first, instead of competing with ~17 low-priority probes.
+  const activeSourceSettledRef = useRef(false);
 
   // Slim AniList metadata payload — sent with every probe so the source API
   // skips its own AniList fetches (one batched fetch per page instead of per probe).
@@ -679,6 +687,10 @@ export default function Watch({
   } : null;
 
   const fetchStreamSource = useCallback(async (serverId, signal) => {
+    // `info` is hydrated client-side now — on a cold SSR it can be null for the
+    // first render(s). Bail until we have it (this callback re-creates when
+    // info?.id changes, so the effect re-fires with real metadata).
+    if (!info?.id) return;
     const server = getServer(serverId);
     if (server.type === "iframe") {
       setHlsData(null);
@@ -700,6 +712,7 @@ export default function Watch({
       setHlsLoading(false);
       markConfirmed(serverId);
       if (prefetched?.degraded) markDegraded(serverId);
+      activeSourceSettledRef.current = true;
       return;
     }
 
@@ -746,6 +759,9 @@ export default function Watch({
       markFailed(serverId, "Network error");
     } finally {
       if (!signal?.aborted) setHlsLoading(false);
+      // Unblock the background probe fan-out whatever the outcome (success or
+      // failure) so a dead active server never starves the selector forever.
+      activeSourceSettledRef.current = true;
     }
   }, [info?.id, epiNumber, dub, markFailed]);
 
@@ -754,6 +770,7 @@ export default function Watch({
     activeFetchCtrl.current?.abort();
     const ctrl = new AbortController();
     activeFetchCtrl.current = ctrl;
+    activeSourceSettledRef.current = false; // gate the probe fan-out again
     fetchStreamSource(activeServer, ctrl.signal);
     return () => ctrl.abort();
   }, [activeServer, fetchStreamSource]);
@@ -974,17 +991,30 @@ export default function Watch({
         (s) => !cachedConfirmed.has(s.id) && !cachedFailed.has(s.id),
       );
 
-      // 1) Probe the ACTIVE server first, immediately (no start delay). It's
-      //    the one the user is actually waiting on — getting its chip lit and
-      //    its source confirmed fast is what makes a player appear quickly.
+      // 1) The active server's source is fetched by fetchStreamSource (its own
+      //    effect, priority:"high") — that lights its chip via markConfirmed.
+      //    We DON'T separately probe it here: that was a duplicate /api/v2/source
+      //    round-trip competing with the very request the player waits on.
       const activeIdx = remaining.findIndex((s) => s.id === activeServer);
-      if (activeIdx >= 0) {
-        const [activeSrv] = remaining.splice(activeIdx, 1);
-        probe(activeSrv); // fire-and-forget, runs in parallel with the wait
-      }
+      if (activeIdx >= 0) remaining.splice(activeIdx, 1);
 
-      // 2) Give the active stream's source fetch a head-start, then fan out
-      //    the rest through the pool.
+      // 2) Hold the background fan-out until the ACTIVE stream's source has
+      //    settled, so the player's own request owns the (small) connection
+      //    pool first. Poll the ref with a hard ceiling so a hung active
+      //    source never blocks the selector indefinitely.
+      const waitForActive = async () => {
+        const ceil = Date.now() + 4000; // never wait longer than 4s
+        while (
+          !activeSourceSettledRef.current &&
+          !cancelled &&
+          Date.now() < ceil
+        ) {
+          await new Promise((r) => setTimeout(r, 100));
+        }
+      };
+      await waitForActive();
+      // A short extra beat so the first segment warm (warmStream) also gets a
+      // head-start before the probe burst hits the pool.
       await new Promise((r) => setTimeout(r, PROBE_START_DELAY_MS));
       if (cancelled) return;
       await runPool(remaining, MAX_CONCURRENT);
