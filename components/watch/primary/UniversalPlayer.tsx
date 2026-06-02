@@ -1529,6 +1529,13 @@ export default function UniversalPlayer({
       return -1;
     };
 
+    // Apply our language preference exactly once per source. Crucially we do
+    // this EVEN when a track is already "showing" — megaplay ships its English
+    // track with `default: true`, so Vidstack auto-shows it before we run, and
+    // gating on "nothing showing yet" meant we never overrode it. After this
+    // first authoritative pass we step back and only mirror manual changes.
+    let prefApplied = false;
+
     const sync = () => {
       let captionIndex = 0;
       let activeIdx = -1;
@@ -1547,27 +1554,38 @@ export default function UniversalPlayer({
         captionIndex++;
       }
 
-      // No track is currently showing → decide based on persisted prefs.
-      if (!hasAnyShowing && firstAvailable >= 0) {
+      // First authoritative pass for this source: pick the track that matches
+      // the user's saved language, else the SITE language default:
+      //   - site FR → French, then English, then first track.
+      //   - site EN → English, then first track.
+      if (!prefApplied && firstAvailable >= 0) {
         const enabled = readPrefEnabled();
         if (enabled) {
           const pref = readPrefLang();
-          // Default subtitle language follows the SITE language:
-          //   - site FR → French, falling back to English, then first track.
-          //   - site EN → English, then first track.
-          // A user's saved language preference (from manually picking a track)
-          // always wins over the site default.
           const siteIsFrench = i18n.language === "fr";
           const byPref = findByLang(pref);
           let resolved = byPref;
           if (resolved < 0 && siteIsFrench) resolved = findByLang("fr");
           if (resolved < 0) resolved = findByLang("en");
           if (resolved < 0 && siteIsFrench) resolved = findByLang("fr");
-          const fallback = resolved >= 0 ? resolved : firstAvailable;
-          // Apply via the same selection path so persistence stays consistent.
-          selectSubtitleTrack(fallback);
+          const target = resolved >= 0 ? resolved : firstAvailable;
+          prefApplied = true;
+          // Only re-select if it isn't already the showing track — avoids a
+          // redundant mode-change event loop.
+          if (target !== activeIdx) {
+            selectSubtitleTrack(target);
+            return;
+          }
+          setActiveTrackIdx(target);
           return;
         }
+        // Subtitles disabled by preference → turn everything off once.
+        if (hasAnyShowing) {
+          prefApplied = true;
+          selectSubtitleTrack(-1);
+          return;
+        }
+        prefApplied = true;
       }
       setActiveTrackIdx(activeIdx);
     };
@@ -2510,6 +2528,47 @@ function useChapterClickCompensation(
     // overriding it would just re-introduce a small offset. With chapters the
     // pills carry a 4px right-margin Vidstack doesn't account for, so we remap
     // the click against the pill the cursor is actually over.
+    // Compute the time at clientX from the PILLS' own geometry, which excludes
+    // the inter-pill margins. The pills tile the timeline linearly: their
+    // widths sum to the full duration, and the 4px gaps between them are dead
+    // space (no time). So we walk the pills, mapping x → cumulative pill-pixel
+    // position → fraction of total pill width → time. This is exact whether the
+    // click lands inside a pill or in a gap, with NO dependency on text-track
+    // cues (which Vidstack sometimes parses late or with a different count).
+    const timeAtX = (x: number, pills: HTMLElement[]): number | null => {
+      let totalW = 0;
+      const rects = pills.map((p) => {
+        const r = p.getBoundingClientRect();
+        totalW += r.width;
+        return r;
+      });
+      if (totalW <= 0) return null;
+
+      let cumBefore = 0;
+      for (let i = 0; i < rects.length; i++) {
+        const r = rects[i];
+        const gapAfter =
+          i < rects.length - 1 ? rects[i + 1].left - r.right : 0;
+        // x is within this pill (or in the gap right after it, which we treat
+        // as the pill's trailing edge — the nearest real time).
+        if (x < r.left) {
+          // Before the first pill → clamp to start.
+          return 0;
+        }
+        if (x <= r.right) {
+          const within = x - r.left;
+          return ((cumBefore + within) / totalW) * duration;
+        }
+        if (gapAfter > 0 && x <= r.right + gapAfter) {
+          // In the dead gap → snap to this pill's end (its full width).
+          return ((cumBefore + r.width) / totalW) * duration;
+        }
+        cumBefore += r.width;
+      }
+      // Past the last pill → clamp to end.
+      return duration;
+    };
+
     const onPointerDown = (e: PointerEvent) => {
       if (!slider || !player || !duration || duration <= 0) return;
       const pills = Array.from(
@@ -2517,48 +2576,8 @@ function useChapterClickCompensation(
       );
       if (pills.length < 2) return; // no chapters → Vidstack's mapping is right
 
-      const x = e.clientX;
-      let hit: HTMLElement | null = null;
-      for (const p of pills) {
-        const r = p.getBoundingClientRect();
-        if (x >= r.left && x <= r.right) {
-          hit = p;
-          break;
-        }
-      }
-      // Click landed in an inter-pill gap → snap to the nearest pill edge.
-      if (!hit) {
-        let best: { p: HTMLElement; d: number } | null = null;
-        for (const p of pills) {
-          const r = p.getBoundingClientRect();
-          const d = x < r.left ? r.left - x : x - r.right;
-          if (!best || d < best.d) best = { p, d };
-        }
-        if (!best || best.d > 40) return; // way off → let Vidstack handle
-        hit = best.p;
-      }
-
-      const idx = pills.indexOf(hit);
-      // Map the click to the matching chapter cue's [start, end] using the
-      // pill's OWN box (which already excludes the margins), so the time is
-      // exactly where the cursor points.
-      const video = root.querySelector("video") as HTMLVideoElement | null;
-      const tracks = video?.textTracks;
-      let cue: { startTime: number; endTime: number } | null = null;
-      if (tracks) {
-        for (let i = 0; i < tracks.length; i++) {
-          const tr = tracks[i];
-          if (tr.kind === "chapters" && tr.cues && tr.cues.length === pills.length) {
-            const c = tr.cues[idx] as TextTrackCue;
-            cue = { startTime: c.startTime, endTime: c.endTime };
-            break;
-          }
-        }
-      }
-      if (!cue) return;
-      const r = hit.getBoundingClientRect();
-      const frac = Math.max(0, Math.min(1, (x - r.left) / r.width));
-      const targetTime = cue.startTime + frac * (cue.endTime - cue.startTime);
+      const targetTime = timeAtX(e.clientX, pills);
+      if (targetTime == null) return;
       // Vidstack's own pointerdown handler fires right after this and sets
       // currentTime to its margin-skewed value; overwrite it on the next
       // microtask with the geometrically-correct time.

@@ -27,7 +27,6 @@ export default function HoverPreview({
   const labelRef = useRef<HTMLSpanElement>(null);
   const hlsRef = useRef<Hls | null>(null);
   const seekRafRef = useRef<number>(0);
-  const lastSeekRef = useRef<number>(-1);
   // Pre-cached thumbnails keyed by their timestamp BUCKET (integer seconds,
   // snapped to THUMB_INTERVAL_S). Storing by time — not by percent — lets us
   // pack a thumbnail every few seconds regardless of episode length, instead
@@ -189,17 +188,6 @@ export default function HoverPreview({
       }
     };
 
-    const drawLiveFrame = () => {
-      if (video.readyState < 2 || video.videoWidth === 0) return false;
-      try {
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        return true;
-      } catch (e) {
-        console.warn("[HoverPreview] drawImage failed:", (e as Error).message);
-        return false;
-      }
-    };
-
     const drawPlaceholder = () => {
       ctx.fillStyle = "#1a1a24";
       ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -209,10 +197,13 @@ export default function HoverPreview({
       ctx.fillText("…", canvas.width / 2, canvas.height / 2);
     };
 
-    const drawFrame = (timeSec?: number) => {
-      // Priority: cached thumbnail (instant) → live video frame → placeholder
-      if (typeof timeSec === "number" && drawCachedAt(timeSec)) return;
-      if (drawLiveFrame()) return;
+    const drawFrame = (timeSec: number) => {
+      // STATIC thumbnail only: show the closest pre-cached frame, or a
+      // placeholder until the background walk reaches this point. We do NOT
+      // draw the hidden video's live frame here — that was the bug: the hidden
+      // video keeps moving (it's mid-seek for the background pre-cache), so the
+      // preview kept "playing" instead of staying on the hovered frame.
+      if (drawCachedAt(timeSec)) return;
       drawPlaceholder();
     };
 
@@ -222,19 +213,6 @@ export default function HoverPreview({
       const x = e.clientX - rect.left;
       const ratio = Math.max(0, Math.min(1, x / rect.width));
       const time = ratio * duration;
-
-      // Throttle seeks to one per RAF — prevents queueing dozens of seeks
-      if (Math.abs(time - lastSeekRef.current) > 0.5) {
-        lastSeekRef.current = time;
-        cancelAnimationFrame(seekRafRef.current);
-        seekRafRef.current = requestAnimationFrame(() => {
-          if (video.readyState >= 1) {
-            try {
-              video.currentTime = time;
-            } catch {}
-          }
-        });
-      }
 
       // Position tooltip above the slider, follow the cursor
       const playerRect = playerEl.getBoundingClientRect();
@@ -248,7 +226,7 @@ export default function HoverPreview({
       wrap.style.top = `${sliderTop - 110}px`;
       wrap.style.opacity = "1";
 
-      // Update label (hidden) and draw cached thumbnail INSTANTLY
+      // Update label (hidden) and draw the closest cached (static) thumbnail.
       label.textContent = formatTime(time);
       drawFrame(time);
     };
@@ -257,20 +235,12 @@ export default function HoverPreview({
       wrap.style.opacity = "0";
     };
 
-    // Draw frame whenever the hidden video seeks
-    const handleSeeked = () => drawFrame();
-
     slider.addEventListener("pointermove", handleMove as EventListener);
     slider.addEventListener("pointerleave", handleLeave as EventListener);
-    video.addEventListener("seeked", handleSeeked);
-    const handleLoaded = () => drawFrame();
-    video.addEventListener("loadeddata", handleLoaded);
 
       return () => {
         slider.removeEventListener("pointermove", handleMove as EventListener);
         slider.removeEventListener("pointerleave", handleLeave as EventListener);
-        video.removeEventListener("seeked", handleSeeked);
-        video.removeEventListener("loadeddata", handleLoaded);
         cancelAnimationFrame(seekRafRef.current);
       };
     }
