@@ -15,6 +15,7 @@ const UniversalPlayer = dynamic(
     ),
   }
 );
+import PlayerErrorBoundary from "@/components/watch/primary/PlayerErrorBoundary";
 import { getServerSession } from "next-auth";
 import { useWatchProvider } from "@/lib/context/watchPageProvider";
 import { authOptions } from "../../../api/auth/[...nextauth]";
@@ -1235,25 +1236,27 @@ export default function Watch({
       // Unified player: Vidstack for direct streams (HLS/MP4 with speed /
       // quality / captions / chromecast / PiP / ambient light), iframe chrome
       // for embed-only hosts (vidmoly, voe, streamtape, hianime).
+      const playerKey = `${server.id}-${info.id}-${epiNumber}-${dub ? "dub" : "sub"}`;
       return (
-        <UniversalPlayer
-          key={`${server.id}-${info.id}-${epiNumber}-${dub ? "dub" : "sub"}`}
-          autoplay={!!autoplay}
-          streamData={hlsData}
-          poster={episodeNavigation?.playing?.img || info?.bannerImage}
-          serverId={server.id}
-          nextEpisodeHref={nextEpisodeHref}
-          malId={info?.idMal || null}
-          aniListId={info?.id || null}
-          episodeNumber={parseInt(epiNumber)}
-          downloadName={`${(info?.title?.romaji || info?.title?.english || "anime").replace(/\s+/g, "_")}_E${epiNumber}${dub ? "_DUB" : ""}`}
-          onError={(reason) =>
-            markFailed(
-              server.id,
-              reason || (hlsData?.iframe ? "Iframe load timeout" : "Playback failed")
-            )
-          }
-        />
+        <PlayerErrorBoundary key={playerKey} resetKey={playerKey}>
+          <UniversalPlayer
+            autoplay={!!autoplay}
+            streamData={hlsData}
+            poster={episodeNavigation?.playing?.img || info?.bannerImage}
+            serverId={server.id}
+            nextEpisodeHref={nextEpisodeHref}
+            malId={info?.idMal || null}
+            aniListId={info?.id || null}
+            episodeNumber={parseInt(epiNumber)}
+            downloadName={`${(info?.title?.romaji || info?.title?.english || "anime").replace(/\s+/g, "_")}_E${epiNumber}${dub ? "_DUB" : ""}`}
+            onError={(reason) =>
+              markFailed(
+                server.id,
+                reason || (hlsData?.iframe ? "Iframe load timeout" : "Playback failed")
+              )
+            }
+          />
+        </PlayerErrorBoundary>
       );
     }
 
@@ -1264,18 +1267,20 @@ export default function Watch({
       dub: !!dub,
     });
 
+    const iframeKey = `${server.id}-${info.id}-${epiNumber}-${dub ? "dub" : "sub"}`;
     return (
-      <UniversalPlayer
-        key={`${server.id}-${info.id}-${epiNumber}-${dub ? "dub" : "sub"}`}
-        streamData={{ iframe: src }}
-        poster={episodeNavigation?.playing?.img || info?.bannerImage}
-        serverId={server.id}
-        nextEpisodeHref={nextEpisodeHref}
-        malId={info?.idMal || null}
-        aniListId={info?.id || null}
-        episodeNumber={parseInt(epiNumber)}
-        onError={(reason) => markFailed(server.id, reason || "Iframe load timeout")}
-      />
+      <PlayerErrorBoundary key={iframeKey} resetKey={iframeKey}>
+        <UniversalPlayer
+          streamData={{ iframe: src }}
+          poster={episodeNavigation?.playing?.img || info?.bannerImage}
+          serverId={server.id}
+          nextEpisodeHref={nextEpisodeHref}
+          malId={info?.idMal || null}
+          aniListId={info?.id || null}
+          episodeNumber={parseInt(epiNumber)}
+          onError={(reason) => markFailed(server.id, reason || "Iframe load timeout")}
+        />
+      </PlayerErrorBoundary>
     );
   }, [activeServer, episodeNavigation, hlsLoading, hlsData, info, epiNumber, dub, markFailed, handleServerChange, autoplay]);
 

@@ -384,13 +384,14 @@ function seekAndWait(video: HTMLVideoElement, time: number): Promise<void> {
       cleanup();
       reject(e);
     }
-    // Safety timeout
+    // Safety timeout — keep it short so one slow/stuck seek doesn't stall the
+    // whole background thumbnail walk (we just skip that frame and move on).
     setTimeout(() => {
       if (!resolved) {
         resolved = true;
         cleanup();
         reject(new Error("seek timeout"));
       }
-    }, 10000);
+    }, 3000);
   });
 }

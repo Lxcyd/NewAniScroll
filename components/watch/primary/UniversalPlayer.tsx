@@ -1610,16 +1610,17 @@ export default function UniversalPlayer({
   }, [onError, streamData]);
 
   // ── Focused seeking ──
-  // When the user jumps to a new position, hls.js may still be busy finishing
-  // the segment loads queued for the OLD position (it has a big forward buffer
-  // by config). Those stale loads hog the connection + the proxy, so the target
-  // segment arrives late and playback resumes with a visible delay.
+  // When the user jumps to a new position, hls.js may still be finishing the
+  // segment loads queued for the OLD position (it buffers far ahead by config),
+  // so the segment under the new playhead arrives late and playback resumes
+  // with a visible delay.
   //
-  // On every seek that lands OUTSIDE the currently buffered range, we abort the
-  // in-flight loads (`stopLoad`) and restart the loader anchored at the target
-  // time (`startLoad(target)`). hls.js then fetches the segment under the
-  // playhead FIRST instead of draining the old queue — playback resumes fast.
-  // Seeks that land inside the buffer are left alone (already instant).
+  // hls.js already flushes + refetches on a seek, but only AFTER the current
+  // in-flight fragment finishes. We nudge it to drop the stale work and refetch
+  // the target immediately — but ONLY for a big jump that lands outside the
+  // buffered range, and we debounce so a scrub (many rapid `seeking` events)
+  // doesn't thrash the loader. This is what was throwing before: firing
+  // stopLoad/startLoad on every intermediate seeking event during a drag.
   useEffect(() => {
     const playerEl = playerRef.current?.el as HTMLElement | undefined;
     if (!playerEl) return;
@@ -1629,33 +1630,36 @@ export default function UniversalPlayer({
     const isBuffered = (t: number): boolean => {
       const b = video.buffered;
       for (let i = 0; i < b.length; i++) {
-        // small epsilon so a seek to the very edge of the buffer still counts
         if (t >= b.start(i) - 0.25 && t <= b.end(i) + 0.25) return true;
       }
       return false;
     };
 
-    const onSeeking = () => {
-      // Prefer the instance captured at provider-setup; fall back to reading it
-      // off the live provider in case setup fired before this effect ran.
-      const provider = (playerRef.current as any)?.provider;
-      const hls = hlsRef.current || provider?.instance || null;
-      if (!hls || typeof hls.startLoad !== "function") return;
-      const target = video.currentTime;
-      if (isBuffered(target)) return; // already have it → no need to disrupt
-      try {
-        // Abort queued/in-flight segment requests for the old position…
-        hls.stopLoad();
-        // …and re-anchor the loader on the new playhead so the segment we
-        // actually need is fetched first.
-        hls.startLoad(target);
-      } catch {
-        /* hls instance torn down mid-seek — ignore */
-      }
+    let debounce: ReturnType<typeof setTimeout> | null = null;
+    const onSeeked = () => {
+      // Run on `seeked` (the seek has settled), not on every intermediate
+      // `seeking` event during a drag — that avoids interrupting hls mid-load.
+      if (debounce) clearTimeout(debounce);
+      debounce = setTimeout(() => {
+        const provider = (playerRef.current as any)?.provider;
+        const hls = hlsRef.current || provider?.instance || null;
+        if (!hls || typeof hls.startLoad !== "function") return;
+        const target = video.currentTime;
+        if (isBuffered(target)) return; // already have it → don't disturb
+        try {
+          hls.stopLoad();
+          hls.startLoad(target);
+        } catch {
+          /* hls torn down mid-seek — ignore */
+        }
+      }, 80);
     };
 
-    video.addEventListener("seeking", onSeeking);
-    return () => video.removeEventListener("seeking", onSeeking);
+    video.addEventListener("seeked", onSeeked);
+    return () => {
+      if (debounce) clearTimeout(debounce);
+      video.removeEventListener("seeked", onSeeked);
+    };
   }, [streamData]);
 
   // ── Client-side extraction runner ──
@@ -2501,24 +2505,62 @@ function useChapterClickCompensation(
     if (!root || !duration || duration <= 0) return;
     let slider: HTMLElement | null = null;
     let attached = false;
-    // Map the click X to a time using the FULL slider track geometry. When the
-    // seek bar is split into chapter pills, the pills carry CSS gaps/margins, so
-    // Vidstack's per-pill mapping (and our old per-pill math) drifts from where
-    // the cursor actually is — that's the "click here, video lands there" gap.
-    // The whole track still represents [0, duration] linearly, so measuring
-    // against the track itself is exact, chapters or not.
+    // Only compensate when the seek bar is actually split into chapter pills.
+    // Without chapters Vidstack's native click→time mapping is exact, so
+    // overriding it would just re-introduce a small offset. With chapters the
+    // pills carry a 4px right-margin Vidstack doesn't account for, so we remap
+    // the click against the pill the cursor is actually over.
     const onPointerDown = (e: PointerEvent) => {
       if (!slider || !player || !duration || duration <= 0) return;
-      // Prefer the inner track element (the actual 0→100% rail) when present;
-      // fall back to the slider root. Both share the same horizontal extent.
-      const track =
-        slider.querySelector<HTMLElement>(".vds-slider-track") || slider;
-      const r = track.getBoundingClientRect();
-      if (r.width <= 0) return;
-      const frac = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
-      const targetTime = frac * duration;
+      const pills = Array.from(
+        slider.querySelectorAll<HTMLElement>(".vds-slider-chapter"),
+      );
+      if (pills.length < 2) return; // no chapters → Vidstack's mapping is right
+
+      const x = e.clientX;
+      let hit: HTMLElement | null = null;
+      for (const p of pills) {
+        const r = p.getBoundingClientRect();
+        if (x >= r.left && x <= r.right) {
+          hit = p;
+          break;
+        }
+      }
+      // Click landed in an inter-pill gap → snap to the nearest pill edge.
+      if (!hit) {
+        let best: { p: HTMLElement; d: number } | null = null;
+        for (const p of pills) {
+          const r = p.getBoundingClientRect();
+          const d = x < r.left ? r.left - x : x - r.right;
+          if (!best || d < best.d) best = { p, d };
+        }
+        if (!best || best.d > 40) return; // way off → let Vidstack handle
+        hit = best.p;
+      }
+
+      const idx = pills.indexOf(hit);
+      // Map the click to the matching chapter cue's [start, end] using the
+      // pill's OWN box (which already excludes the margins), so the time is
+      // exactly where the cursor points.
+      const video = root.querySelector("video") as HTMLVideoElement | null;
+      const tracks = video?.textTracks;
+      let cue: { startTime: number; endTime: number } | null = null;
+      if (tracks) {
+        for (let i = 0; i < tracks.length; i++) {
+          const tr = tracks[i];
+          if (tr.kind === "chapters" && tr.cues && tr.cues.length === pills.length) {
+            const c = tr.cues[idx] as TextTrackCue;
+            cue = { startTime: c.startTime, endTime: c.endTime };
+            break;
+          }
+        }
+      }
+      if (!cue) return;
+      const r = hit.getBoundingClientRect();
+      const frac = Math.max(0, Math.min(1, (x - r.left) / r.width));
+      const targetTime = cue.startTime + frac * (cue.endTime - cue.startTime);
       // Vidstack's own pointerdown handler fires right after this and sets
-      // currentTime to its (chapter-skewed) value; overwrite it on the next
+      // currentTime to its margin-skewed value; overwrite it on the next
       // microtask with the geometrically-correct time.
       queueMicrotask(() => {
         try {
