@@ -1082,7 +1082,10 @@ export default function UniversalPlayer({
   // uses another, and everything visually drifts.
   const videoDuration = useMediaState("duration", playerRef);
   const chaptersTrackUrl = useChaptersVtt(skipTimes, videoDuration);
-  useChapterClickCompensation(playerRef, videoDuration);
+  // No JS click-compensation anymore: the chapter pills now use a transparent
+  // border (not a margin) for the inter-pill gap, so they keep their full
+  // geometric width and Vidstack's native click→time mapping is exact. The old
+  // compensation raced Vidstack's own seek and produced a ~1s visible drift.
 
   // Current chapter title — computed ourselves rather than relying on
   // Vidstack's built-in <ChapterTitle>. Its title comes from a reactive
@@ -1676,6 +1679,13 @@ export default function UniversalPlayer({
         const hls = hlsRef.current || provider?.instance || null;
         if (!hls || typeof hls.startLoad !== "function") return;
         const target = video.currentTime;
+        const dur = video.duration;
+        // Don't touch the loader near the very end of the video. Calling
+        // startLoad() with a target past the last fragment makes hls.js fail to
+        // find a segment and reset to the start — which is exactly the "outro
+        // sends me back to 0 on its own" bug (seeking into the outro fired this
+        // with a target close to duration). Leave the last few seconds to hls.
+        if (isFinite(dur) && dur > 0 && target >= dur - 5) return;
         if (isBuffered(target)) return; // already have it → don't disturb
         try {
           hls.stopLoad();
@@ -2509,155 +2519,4 @@ function useActiveChapterTitle(
   return title;
 }
 
-/**
- * Click-position compensation for the chaptered seek bar.
- *
- * We draw the inter-pill gap via `margin-right: 4 px` on each chapter
- * (see globals.css), which shrinks the visual layout by `(N − 1) × 4 px`.
- * Vidstack, unaware of those margins, maps clicks against the full
- * slider width — so clicking on the rightmost pill seeks a few seconds
- * earlier than the spot the user actually pointed at.
- *
- * Fix: intercept `pointerdown` on the time slider in the capture phase
- * BEFORE Vidstack handles it. We find which pill the cursor is over
- * (by its bounding rect), convert that to a chapter-relative fraction,
- * then translate back to a global time using the cue's start/end from
- * the slider's chapter list. Vidstack's own seek still fires but our
- * corrected `currentTime` write happens immediately after, in the same
- * frame, so the visible effect is a perfectly aligned seek.
- */
-function useChapterClickCompensation(
-  playerRef: React.RefObject<MediaPlayerInstance>,
-  duration: number,
-): void {
-  useEffect(() => {
-    const player = playerRef.current;
-    const root = (player?.el as HTMLElement | undefined) || null;
-    if (!root || !duration || duration <= 0) return;
-    let slider: HTMLElement | null = null;
-    let attached = false;
-    // Only compensate when the seek bar is split into chapter pills. Without
-    // chapters Vidstack's native click→time mapping is exact. With chapters the
-    // pills carry a 4px right-margin Vidstack ignores, so its mapping drifts
-    // more the further right you click. We remap the click to the time of the
-    // pill the cursor is over.
-    //
-    // We map each pill to its EXACT [start, end] from the chapter cues, so a
-    // click anywhere on pill i resolves to cue[i].start + fraction × cueLen.
-    // Cues give absolute times (independent of any width/margin assumption), so
-    // there's zero cumulative error. If the cues aren't available/aligned we
-    // fall back to cumulative pill-pixel geometry (margins excluded).
-    const readChapterCues = (): Array<{ start: number; end: number }> | null => {
-      const v = root.querySelector("video") as HTMLVideoElement | null;
-      const tracks = v?.textTracks;
-      if (!tracks) return null;
-      for (let i = 0; i < tracks.length; i++) {
-        const tr = tracks[i];
-        if (tr.kind === "chapters" && tr.cues && tr.cues.length > 0) {
-          return Array.from(tr.cues as Iterable<TextTrackCue>).map((c) => ({
-            start: c.startTime,
-            end: c.endTime,
-          }));
-        }
-      }
-      return null;
-    };
-
-    const timeAtX = (x: number, pills: HTMLElement[]): number | null => {
-      const rects = pills.map((p) => p.getBoundingClientRect());
-      const cues = readChapterCues();
-      const useCues = cues && cues.length === rects.length;
-
-      let totalW = 0;
-      for (const r of rects) totalW += r.width;
-      if (totalW <= 0) return null;
-
-      let cumBefore = 0;
-      for (let i = 0; i < rects.length; i++) {
-        const r = rects[i];
-        const gapAfter = i < rects.length - 1 ? rects[i + 1].left - r.right : 0;
-
-        if (x < r.left) return useCues ? cues![0].start : 0;
-
-        if (x <= r.right) {
-          const frac = Math.max(0, Math.min(1, (x - r.left) / r.width));
-          return useCues
-            ? cues![i].start + frac * (cues![i].end - cues![i].start)
-            : ((cumBefore + (x - r.left)) / totalW) * duration;
-        }
-        if (gapAfter > 0 && x <= r.right + gapAfter) {
-          // In the dead gap → snap to this pill's end time.
-          return useCues
-            ? cues![i].end
-            : ((cumBefore + r.width) / totalW) * duration;
-        }
-        cumBefore += r.width;
-      }
-      return useCues ? cues![cues!.length - 1].end : duration;
-    };
-
-    const video = () =>
-      root.querySelector("video") as HTMLVideoElement | null;
-
-    // Apply the corrected time. Vidstack commits its OWN (margin-skewed) seek
-    // on pointerup/change, AFTER our pointerdown — so a single microtask write
-    // gets overwritten. We instead correct on the next `seeked` (Vidstack has
-    // settled by then) and, as a guard against any late write, re-assert once
-    // more on a short timeout. We only correct when our target differs from
-    // where Vidstack landed, so we never fight a click we already got right.
-    const applyCorrected = (targetTime: number) => {
-      const p = playerRef.current;
-      if (!p) return;
-      const v = video();
-      if (!v) {
-        try { p.currentTime = targetTime; } catch {}
-        return;
-      }
-      let done = false;
-      const fix = () => {
-        if (done) return;
-        if (Math.abs(v.currentTime - targetTime) > 0.4) {
-          try { p.currentTime = targetTime; } catch {}
-        }
-        done = true;
-        v.removeEventListener("seeked", onSeeked);
-      };
-      const onSeeked = () => fix();
-      v.addEventListener("seeked", onSeeked, { once: true });
-      // Fallback if `seeked` never fires (already at a buffered spot, etc.).
-      setTimeout(fix, 120);
-    };
-
-    const onPointerDown = (e: PointerEvent) => {
-      if (!slider || !player || !duration || duration <= 0) return;
-      const pills = Array.from(
-        slider.querySelectorAll<HTMLElement>(".vds-slider-chapter"),
-      );
-      if (pills.length < 2) return; // no chapters → Vidstack's mapping is right
-
-      const targetTime = timeAtX(e.clientX, pills);
-      if (targetTime == null) return;
-      applyCorrected(targetTime);
-    };
-    const attach = () => {
-      const found = root.querySelector<HTMLElement>(".vds-time-slider");
-      if (!found || found === slider) return;
-      if (slider && attached) {
-        slider.removeEventListener("pointerdown", onPointerDown, true);
-      }
-      slider = found;
-      slider.addEventListener("pointerdown", onPointerDown, true);
-      attached = true;
-    };
-    attach();
-    const mo = new MutationObserver(attach);
-    mo.observe(root, { subtree: true, childList: true });
-    return () => {
-      mo.disconnect();
-      if (slider && attached) {
-        slider.removeEventListener("pointerdown", onPointerDown, true);
-      }
-    };
-  }, [playerRef, duration]);
-}
 

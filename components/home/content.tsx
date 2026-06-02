@@ -254,7 +254,19 @@ export default function Content({
   }
 
   const array = data;
-  let filteredData = array?.filter((item: any) => item !== null);
+  // Drop nulls AND de-duplicate by id — some sources (AniList recommendations
+  // especially) return the same anime twice, which rendered as duplicate cards
+  // and triggered React duplicate-key warnings.
+  const dedupeSeen = new Set<any>();
+  let filteredData = array?.filter((item: any) => {
+    if (item == null) return false;
+    const id = item.id ?? item.aniId ?? item.watchId;
+    if (id != null) {
+      if (dedupeSeen.has(id)) return false;
+      dedupeSeen.add(id);
+    }
+    return true;
+  });
   const slicedData: SlicedDataTypes[] =
     filteredData?.length > 15 ? filteredData?.slice(0, 15) : filteredData;
 
