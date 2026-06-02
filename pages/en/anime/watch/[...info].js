@@ -680,6 +680,7 @@ export default function Watch({
   // skips its own AniList fetches (one batched fetch per page instead of per probe).
   const mediaMetaPayload = info ? {
     id: info.id,
+    idMal: info.idMal,
     title: info.title,
     synonyms: info.synonyms,
     relations: info.relations,
@@ -878,6 +879,7 @@ export default function Watch({
 
     const probeMeta = info ? {
       id: info.id,
+      idMal: info.idMal,
       title: info.title,
       synonyms: info.synonyms,
       relations: info.relations,

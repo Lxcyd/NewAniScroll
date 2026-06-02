@@ -145,6 +145,7 @@ export default function Hero({
 
     const mediaMeta = {
       id: info.id,
+      idMal: (info as any).idMal,
       title: info.title,
       synonyms: (info as any).synonyms,
       relations: (info as any).relations,

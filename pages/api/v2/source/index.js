@@ -1562,8 +1562,21 @@ export default async function handler(req, res) {
   if (mediaMeta && aniId) primeMediaCache(aniId, mediaMeta);
 
   // Megaplay â€” extract m3u8 + subtitles directly (no iframe).
+  // Megaplay migrated its stream routes: the old /stream/ani/<aniListId>/...
+  // path now times out. The current scheme is keyed by MAL id:
+  //   /stream/mal/<malId>/<episode>/<sub|dub>
+  // So we resolve the MAL id from the shared media cache (idMal is in
+  // FULL_MEDIA_FIELDS) before building the URL.
   if (server === "megaplay") {
-    const url = `https://megaplay.buzz/stream/ani/${aniId}/${episode}/${sub === "dub" ? "dub" : "sub"}`;
+    let malId = mediaMeta?.idMal || null;
+    if (!malId) {
+      const meta = await getMediaMeta(aniId);
+      malId = meta?.idMal || null;
+    }
+    if (!malId) {
+      return sendNotFound("megaplay: no MAL id for this anime");
+    }
+    const url = `https://megaplay.buzz/stream/mal/${malId}/${episode}/${sub === "dub" ? "dub" : "sub"}`;
     const result = await extractMegaplay(url);
     if (result.error || !result.streams?.length) {
       return sendNotFound(result.error || "Source not found");
