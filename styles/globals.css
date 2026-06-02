@@ -106,6 +106,24 @@ a {
   --video-border-radius: 12px;
 }
 
+/* No rounded corners in fullscreen — the player fills the whole screen, so a
+   12px radius just leaves black wedges at the corners. Covers native
+   fullscreen (Vidstack sets [data-fullscreen]) and our iOS CSS pseudo-
+   fullscreen wrapper. */
+.vds-player[data-fullscreen],
+.vds-player[data-fullscreen] video,
+.vds-player[data-fullscreen] .vds-poster {
+  --video-border-radius: 0px;
+  border-radius: 0 !important;
+}
+:fullscreen .vds-player,
+:fullscreen .vds-player video,
+:-webkit-full-screen .vds-player,
+:-webkit-full-screen .vds-player video {
+  --video-border-radius: 0px;
+  border-radius: 0 !important;
+}
+
 .vds-player .vds-caption-button,
 .vds-player .vds-captions-menu,
 .vds-captions-menu {

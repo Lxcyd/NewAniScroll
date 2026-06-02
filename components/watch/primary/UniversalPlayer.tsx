@@ -1502,6 +1502,12 @@ export default function UniversalPlayer({
     } catch {}
   };
 
+  // Tracks the site language across renders so we can tell a genuine
+  // language SWITCH (user flipped FR↔EN mid-session) from a normal mount.
+  // On a switch we force the subtitle to the new site language even over a
+  // previously saved manual pick; on a plain mount the saved pick wins.
+  const prevLangRef = useRef(i18n.language);
+
   // Sync state when tracks are added/changed (e.g. after Vidstack mounts).
   // Also auto-apply the persisted language preference whenever a new track
   // list arrives (episode change, anime change).
@@ -1510,6 +1516,10 @@ export default function UniversalPlayer({
     if (!player) return;
     const tracks = player.textTracks;
     if (!tracks) return;
+
+    // Did the SITE language just change (vs a re-run from a source change)?
+    const langSwitched = prevLangRef.current !== i18n.language;
+    prevLangRef.current = i18n.language;
 
     // Returns the (caption-only) index of the track whose language best
     // matches `pref`, or -1 if none. Exact match wins; case-insensitive.
@@ -1561,8 +1571,11 @@ export default function UniversalPlayer({
       if (!prefApplied && firstAvailable >= 0) {
         const enabled = readPrefEnabled();
         if (enabled) {
-          const pref = readPrefLang();
           const siteIsFrench = i18n.language === "fr";
+          // On a site-language switch, force the new language and IGNORE the
+          // saved manual pick (the user just expressed a stronger preference
+          // by switching the whole site). On a normal mount the saved pick wins.
+          const pref = langSwitched ? null : readPrefLang();
           const byPref = findByLang(pref);
           let resolved = byPref;
           if (resolved < 0 && siteIsFrench) resolved = findByLang("fr");
@@ -2523,50 +2536,96 @@ function useChapterClickCompensation(
     if (!root || !duration || duration <= 0) return;
     let slider: HTMLElement | null = null;
     let attached = false;
-    // Only compensate when the seek bar is actually split into chapter pills.
-    // Without chapters Vidstack's native click→time mapping is exact, so
-    // overriding it would just re-introduce a small offset. With chapters the
-    // pills carry a 4px right-margin Vidstack doesn't account for, so we remap
-    // the click against the pill the cursor is actually over.
-    // Compute the time at clientX from the PILLS' own geometry, which excludes
-    // the inter-pill margins. The pills tile the timeline linearly: their
-    // widths sum to the full duration, and the 4px gaps between them are dead
-    // space (no time). So we walk the pills, mapping x → cumulative pill-pixel
-    // position → fraction of total pill width → time. This is exact whether the
-    // click lands inside a pill or in a gap, with NO dependency on text-track
-    // cues (which Vidstack sometimes parses late or with a different count).
+    // Only compensate when the seek bar is split into chapter pills. Without
+    // chapters Vidstack's native click→time mapping is exact. With chapters the
+    // pills carry a 4px right-margin Vidstack ignores, so its mapping drifts
+    // more the further right you click. We remap the click to the time of the
+    // pill the cursor is over.
+    //
+    // We map each pill to its EXACT [start, end] from the chapter cues, so a
+    // click anywhere on pill i resolves to cue[i].start + fraction × cueLen.
+    // Cues give absolute times (independent of any width/margin assumption), so
+    // there's zero cumulative error. If the cues aren't available/aligned we
+    // fall back to cumulative pill-pixel geometry (margins excluded).
+    const readChapterCues = (): Array<{ start: number; end: number }> | null => {
+      const v = root.querySelector("video") as HTMLVideoElement | null;
+      const tracks = v?.textTracks;
+      if (!tracks) return null;
+      for (let i = 0; i < tracks.length; i++) {
+        const tr = tracks[i];
+        if (tr.kind === "chapters" && tr.cues && tr.cues.length > 0) {
+          return Array.from(tr.cues as Iterable<TextTrackCue>).map((c) => ({
+            start: c.startTime,
+            end: c.endTime,
+          }));
+        }
+      }
+      return null;
+    };
+
     const timeAtX = (x: number, pills: HTMLElement[]): number | null => {
+      const rects = pills.map((p) => p.getBoundingClientRect());
+      const cues = readChapterCues();
+      const useCues = cues && cues.length === rects.length;
+
       let totalW = 0;
-      const rects = pills.map((p) => {
-        const r = p.getBoundingClientRect();
-        totalW += r.width;
-        return r;
-      });
+      for (const r of rects) totalW += r.width;
       if (totalW <= 0) return null;
 
       let cumBefore = 0;
       for (let i = 0; i < rects.length; i++) {
         const r = rects[i];
-        const gapAfter =
-          i < rects.length - 1 ? rects[i + 1].left - r.right : 0;
-        // x is within this pill (or in the gap right after it, which we treat
-        // as the pill's trailing edge — the nearest real time).
-        if (x < r.left) {
-          // Before the first pill → clamp to start.
-          return 0;
-        }
+        const gapAfter = i < rects.length - 1 ? rects[i + 1].left - r.right : 0;
+
+        if (x < r.left) return useCues ? cues![0].start : 0;
+
         if (x <= r.right) {
-          const within = x - r.left;
-          return ((cumBefore + within) / totalW) * duration;
+          const frac = Math.max(0, Math.min(1, (x - r.left) / r.width));
+          return useCues
+            ? cues![i].start + frac * (cues![i].end - cues![i].start)
+            : ((cumBefore + (x - r.left)) / totalW) * duration;
         }
         if (gapAfter > 0 && x <= r.right + gapAfter) {
-          // In the dead gap → snap to this pill's end (its full width).
-          return ((cumBefore + r.width) / totalW) * duration;
+          // In the dead gap → snap to this pill's end time.
+          return useCues
+            ? cues![i].end
+            : ((cumBefore + r.width) / totalW) * duration;
         }
         cumBefore += r.width;
       }
-      // Past the last pill → clamp to end.
-      return duration;
+      return useCues ? cues![cues!.length - 1].end : duration;
+    };
+
+    const video = () =>
+      root.querySelector("video") as HTMLVideoElement | null;
+
+    // Apply the corrected time. Vidstack commits its OWN (margin-skewed) seek
+    // on pointerup/change, AFTER our pointerdown — so a single microtask write
+    // gets overwritten. We instead correct on the next `seeked` (Vidstack has
+    // settled by then) and, as a guard against any late write, re-assert once
+    // more on a short timeout. We only correct when our target differs from
+    // where Vidstack landed, so we never fight a click we already got right.
+    const applyCorrected = (targetTime: number) => {
+      const p = playerRef.current;
+      if (!p) return;
+      const v = video();
+      if (!v) {
+        try { p.currentTime = targetTime; } catch {}
+        return;
+      }
+      let done = false;
+      const fix = () => {
+        if (done) return;
+        if (Math.abs(v.currentTime - targetTime) > 0.4) {
+          try { p.currentTime = targetTime; } catch {}
+        }
+        done = true;
+        v.removeEventListener("seeked", onSeeked);
+      };
+      const onSeeked = () => fix();
+      v.addEventListener("seeked", onSeeked, { once: true });
+      // Fallback if `seeked` never fires (already at a buffered spot, etc.).
+      setTimeout(fix, 120);
     };
 
     const onPointerDown = (e: PointerEvent) => {
@@ -2578,14 +2637,7 @@ function useChapterClickCompensation(
 
       const targetTime = timeAtX(e.clientX, pills);
       if (targetTime == null) return;
-      // Vidstack's own pointerdown handler fires right after this and sets
-      // currentTime to its margin-skewed value; overwrite it on the next
-      // microtask with the geometrically-correct time.
-      queueMicrotask(() => {
-        try {
-          player.currentTime = targetTime;
-        } catch {}
-      });
+      applyCorrected(targetTime);
     };
     const attach = () => {
       const found = root.querySelector<HTMLElement>(".vds-time-slider");

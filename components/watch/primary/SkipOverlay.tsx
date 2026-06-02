@@ -299,7 +299,17 @@ export default function SkipOverlay({
   const skipTo = (endSeconds: number) => {
     const player = playerRef.current;
     if (!player) return;
-    const target = Math.max(0, endSeconds - SKIP_PRELOAD_LEAD_MS / 1000);
+    let target = Math.max(0, endSeconds - SKIP_PRELOAD_LEAD_MS / 1000);
+    // Clamp so we never seek to or past the very end. AniSkip's outro `end` can
+    // exceed the actual video length (especially on megaplay, whose encode is a
+    // few seconds shorter than the source AniSkip was timed against) — seeking
+    // to >= duration makes the browser fire `ended`, which on some servers
+    // wraps the playhead back to 0 ("skip outro sent me to the start"). Staying
+    // ~1s inside the video avoids that entirely.
+    if (duration > 0) {
+      target = Math.min(target, duration - 1);
+      if (target < 0) target = 0;
+    }
     player.currentTime = target;
     try {
       player.play?.();
