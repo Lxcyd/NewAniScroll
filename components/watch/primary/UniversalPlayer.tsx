@@ -1643,65 +1643,12 @@ export default function UniversalPlayer({
     return () => playerEl.removeEventListener("hls-error", handler as EventListener);
   }, [onError, streamData]);
 
-  // ── Focused seeking ──
-  // When the user jumps to a new position, hls.js may still be finishing the
-  // segment loads queued for the OLD position (it buffers far ahead by config),
-  // so the segment under the new playhead arrives late and playback resumes
-  // with a visible delay.
-  //
-  // hls.js already flushes + refetches on a seek, but only AFTER the current
-  // in-flight fragment finishes. We nudge it to drop the stale work and refetch
-  // the target immediately — but ONLY for a big jump that lands outside the
-  // buffered range, and we debounce so a scrub (many rapid `seeking` events)
-  // doesn't thrash the loader. This is what was throwing before: firing
-  // stopLoad/startLoad on every intermediate seeking event during a drag.
-  useEffect(() => {
-    const playerEl = playerRef.current?.el as HTMLElement | undefined;
-    if (!playerEl) return;
-    const video = playerEl.querySelector<HTMLVideoElement>("video");
-    if (!video) return;
-
-    const isBuffered = (t: number): boolean => {
-      const b = video.buffered;
-      for (let i = 0; i < b.length; i++) {
-        if (t >= b.start(i) - 0.25 && t <= b.end(i) + 0.25) return true;
-      }
-      return false;
-    };
-
-    let debounce: ReturnType<typeof setTimeout> | null = null;
-    const onSeeked = () => {
-      // Run on `seeked` (the seek has settled), not on every intermediate
-      // `seeking` event during a drag — that avoids interrupting hls mid-load.
-      if (debounce) clearTimeout(debounce);
-      debounce = setTimeout(() => {
-        const provider = (playerRef.current as any)?.provider;
-        const hls = hlsRef.current || provider?.instance || null;
-        if (!hls || typeof hls.startLoad !== "function") return;
-        const target = video.currentTime;
-        const dur = video.duration;
-        // Don't touch the loader near the very end of the video. Calling
-        // startLoad() with a target past the last fragment makes hls.js fail to
-        // find a segment and reset to the start — which is exactly the "outro
-        // sends me back to 0 on its own" bug (seeking into the outro fired this
-        // with a target close to duration). Leave the last few seconds to hls.
-        if (isFinite(dur) && dur > 0 && target >= dur - 5) return;
-        if (isBuffered(target)) return; // already have it → don't disturb
-        try {
-          hls.stopLoad();
-          hls.startLoad(target);
-        } catch {
-          /* hls torn down mid-seek — ignore */
-        }
-      }, 80);
-    };
-
-    video.addEventListener("seeked", onSeeked);
-    return () => {
-      if (debounce) clearTimeout(debounce);
-      video.removeEventListener("seeked", onSeeked);
-    };
-  }, [streamData]);
+  // NOTE: we no longer manually nudge hls.js on seek (stopLoad/startLoad).
+  // hls.js already flushes and refetches at the new position natively, and our
+  // HLS_CONFIG enables startFragPrefetch + large buffers. The manual nudge
+  // actually ADDED latency (it restarts the whole loader) and, near the end of
+  // the video, made hls.js reset to 0 ("outro sent me back to the start"). The
+  // real seek latency is the proxy→CDN round-trip, which a nudge can't help.
 
   // ── Client-side extraction runner ──
   // Vidmoly's master.m3u8 token is bound to whichever IP fetched the embed

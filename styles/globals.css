@@ -1052,33 +1052,39 @@ input[type="number"] {
 }
 
 .vds-time-slider .vds-slider-chapter {
-  /* Inline width (% of slider) comes from Vidstack — leave it alone. */
+  /* Inline width (% of slider) comes from Vidstack — leave it alone, and add
+     NOTHING that changes the box width (no margin, no border). The pills stay
+     edge-to-edge so their total width == slider width == duration, and
+     Vidstack's native click→time mapping stays pixel-exact (no JS needed).
+     The visual gap between pills is painted by a ::after overlay below, which
+     is position:absolute and therefore takes zero layout space. */
   min-width: 0;
   height: 6px;
   position: relative;
   box-sizing: border-box;
-  /* Inter-pill gap via a TRANSPARENT right border instead of margin.
-     Critical difference: with `box-sizing: border-box` the border lives
-     INSIDE the pill's Vidstack-assigned width, so the slot keeps its full
-     geometric width. Vidstack maps clicks against that full width → the
-     native click→time mapping stays exact and we need ZERO JS compensation
-     (which was always racing Vidstack's own seek and showing a 1s drift).
-     `background-clip: padding-box` keeps the grey track tint from painting
-     under the transparent border, and `overflow: hidden` clips the rose
-     fill to the padding box too — so the 4px gap reads as empty space. */
-  border-right: 4px solid transparent;
-  background-clip: padding-box;
   /* Round the chapter slot ITSELF + clip overflow so the inner
-     fill / progress / track always read as a pill, no matter what
-     border-radius Vidstack applies to its own children. */
+     fill / progress / track always read as a pill. */
   border-radius: 999px;
   overflow: hidden;
   /* Lighter background tint for the unplayed portion of each
      chapter, otherwise the white default is too loud. */
   background-color: rgba(255, 255, 255, 0.18);
 }
-.vds-time-slider .vds-slider-chapter:last-child {
-  border-right-width: 0;
+/* Inter-pill gap: a 4px black notch painted on top of the RIGHT edge of every
+   pill except the last. position:absolute → no layout impact → no click drift.
+   It sits above the fill (z-index) so the gap reads as empty even when the rose
+   progress has filled the pill. The parent's `overflow:hidden` would clip it,
+   so we let it draw within the pill's own right edge. */
+.vds-time-slider .vds-slider-chapter:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  top: -1px;
+  bottom: -1px;
+  right: 0;
+  width: 4px;
+  background: #0a0a0f;
+  z-index: 2;
+  pointer-events: none;
 }
 
 /* Flatten the rounding on the inner layers — the pill comes from
