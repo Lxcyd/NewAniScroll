@@ -27,9 +27,9 @@ import { getCachedAnime } from "@/lib/db/anime";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { useTranslation } from "react-i18next";
 import { FULL_MEDIA_FIELDS } from "@/lib/anilist/fullMediaQuery";
-import { getPrefetchedSource, sourceKey, setPrefetchedSource } from "@/lib/watch/sourcePrefetch";
-import { getPrefetchedEpisodes, setPrefetchedEpisodes } from "@/lib/watch/episodePrefetch";
-import { getPrefetchedInfo } from "@/lib/watch/infoPrefetch";
+import { getPrefetchedSource, sourceKey, setPrefetchedSource, clearPrefetchedSourcesFor } from "@/lib/watch/sourcePrefetch";
+import { getPrefetchedEpisodes, setPrefetchedEpisodes, clearPrefetchedEpisodesFor } from "@/lib/watch/episodePrefetch";
+import { getPrefetchedInfo, clearPrefetchedInfoFor } from "@/lib/watch/infoPrefetch";
 import { anilistFetch } from "@/lib/anilist/anilistFetch";
 import Link from "next/link";
 import MobileNav from "@/components/shared/MobileNav";
@@ -79,9 +79,15 @@ export async function getServerSideProps(context) {
   const disqus = process.env.DISQUS_SHORTNAME || null;
 
   const [aniId, provider] = query?.info;
-  const watchId   = query?.id;
+  // The visible `?id=` is now cosmetic only (`{server}-{episode}`, no AniList
+  // id). The watch-list DB key, however, MUST stay globally unique per episode —
+  // `{server}-{episode}` alone collides across anime (every show's ep 1 would
+  // map to the same row). Derive the key from the AniList id + episode, which is
+  // stable and unique regardless of which server/URL opened it.
   const epiNumber = query?.num;
   const dub       = query?.dub;
+  const watchId =
+    aniId && epiNumber ? `${aniId}-${epiNumber}` : query?.id || null;
 
   const removed   = await getRemovedMedia();
   const isRemoved = removed?.find((i) => +i?.aniId === +aniId);
@@ -456,6 +462,49 @@ export default function Watch({
       window.history.replaceState(null, "", next);
     }
   }, [info?.id, info?.title?.english, info?.title?.romaji, info?.title?.userPreferred]);
+
+  // ── Keep the visible ?id= in sync with the active server ─────
+  // The `id` query param is purely cosmetic for the URL bar (real routing is
+  // the path + ?num=). We show it as `{server}-{episode}` — the numeric AniList
+  // id that used to sit in the middle (`megaplay-113415-1`) is useless noise, so
+  // we drop it. And when the user switches players, the server segment updates
+  // to the new server's name instead of staying pinned to whatever opened the
+  // page. replaceState (not push) so it doesn't pollute history or reload.
+  useEffect(() => {
+    if (!activeServer || epiNumber == null) return;
+    const params = new URLSearchParams(window.location.search);
+    const desiredId = `${activeServer}-${epiNumber}`;
+    if (params.get("id") === desiredId) return;
+    params.set("id", desiredId);
+    const next = `${window.location.pathname}?${params.toString()}${window.location.hash}`;
+    window.history.replaceState(null, "", next);
+  }, [activeServer, epiNumber]);
+
+  // ── Free prefetch caches when leaving the watch page ─────────
+  // The source / episode / info prefetch maps and the HLS segment buffer can
+  // hold a lot of data (the source cache alone keeps every server's master
+  // playlist + extracted stream; hls.js buffers up to tens of MB of video).
+  // Once the user navigates away from this anime's watch page there's no reason
+  // to keep any of it resident — drop every cached entry for this aniId on
+  // unmount so memory doesn't accumulate across a browsing session. Vidstack
+  // already tears down the hls.js instance (and its buffer) when the player
+  // unmounts; this clears the prefetch maps that would otherwise linger.
+  const resolvedAniIdRef = useRef(aniId || ssrInfo?.id || null);
+  useEffect(() => {
+    const id = aniId || ssrInfo?.id;
+    if (id) resolvedAniIdRef.current = id;
+  }, [aniId, ssrInfo?.id]);
+  useEffect(() => {
+    return () => {
+      const id = resolvedAniIdRef.current;
+      if (!id) return;
+      try {
+        clearPrefetchedSourcesFor(id);
+        clearPrefetchedEpisodesFor(id);
+        clearPrefetchedInfoFor(id);
+      } catch {}
+    };
+  }, []);
 
   const {
     theaterMode,
@@ -1216,9 +1265,11 @@ export default function Watch({
        so the navigation feels identical to clicking the next thumbnail
        — same query params (id + num + optional dub), same provider. */
     const nextEp = episodeNavigation?.next;
+    // Clean ?id= form: `{server}-{episode}` (no AniList id in the middle). Keeps
+    // the URL bar tidy and matches what the in-page sync writes on server change.
     const nextEpisodeHref = nextEp
       ? `/en/anime/watch/${info.id}?id=${encodeURIComponent(
-          nextEp.id
+          `${activeServer}-${nextEp.number}`
         )}&num=${nextEp.number}${dub ? `&dub=${dub}` : ""}`
       : null;
 

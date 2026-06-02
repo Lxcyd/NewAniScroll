@@ -35,3 +35,8 @@ export function getPrefetchedInfo(aniId: number | string): any | null {
   }
   return e.data;
 }
+
+/** Drop the cached Media payload for an anime. */
+export function clearPrefetchedInfoFor(aniId: number | string): void {
+  store.delete(String(aniId));
+}

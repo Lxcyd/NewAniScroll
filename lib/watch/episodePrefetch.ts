@@ -46,6 +46,12 @@ export function setPrefetchedEpisodes(
   store.set(key(aniId, dub), { data, at: Date.now() });
 }
 
+/** Drop every cached episode list for an anime (both sub + dub). */
+export function clearPrefetchedEpisodesFor(aniId: number | string): void {
+  store.delete(key(aniId, false));
+  store.delete(key(aniId, true));
+}
+
 /**
  * Fetch + cache the episode list. Deduplicates concurrent calls for the same
  * key (the info-page prefetch and the watch page can race). Returns the parsed
