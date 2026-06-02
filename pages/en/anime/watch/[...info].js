@@ -26,6 +26,7 @@ import { getCachedAnime } from "@/lib/db/anime";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { useTranslation } from "react-i18next";
 import { FULL_MEDIA_FIELDS } from "@/lib/anilist/fullMediaQuery";
+import { getPrefetchedSource, sourceKey, setPrefetchedSource } from "@/lib/watch/sourcePrefetch";
 import { anilistFetch } from "@/lib/anilist/anilistFetch";
 import Link from "next/link";
 import MobileNav from "@/components/shared/MobileNav";
@@ -601,6 +602,21 @@ export default function Watch({
     setHlsLoading(true);
     setHlsData(null);
 
+    // Fast path: the info page may have already resolved this exact source in
+    // the background (megaplay, resume episode). If a fresh entry is in the
+    // shared prefetch cache, use it immediately — no fetch, no extraction wait.
+    const sub = dub ? "dub" : "sub";
+    const prefetched = getPrefetchedSource(
+      sourceKey(info.id, parseInt(epiNumber), serverId, sub),
+    );
+    if (prefetched && !signal?.aborted) {
+      setHlsData(prefetched);
+      setHlsLoading(false);
+      markConfirmed(serverId);
+      if (prefetched?.degraded) markDegraded(serverId);
+      return;
+    }
+
     try {
       const res = await fetch("/api/v2/source", {
         method: "POST",
@@ -626,6 +642,12 @@ export default function Watch({
       if (res.ok) {
         const data = await res.json();
         setHlsData(data);
+        if (data && !data.error) {
+          setPrefetchedSource(
+            sourceKey(info.id, parseInt(epiNumber), serverId, sub),
+            data,
+          );
+        }
         markConfirmed(serverId);
         if (data?.degraded) markDegraded(serverId);
       } else {

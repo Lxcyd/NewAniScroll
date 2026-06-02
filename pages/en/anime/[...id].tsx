@@ -1,6 +1,8 @@
 import Head from "next/head";
 import { useEffect, useState } from "react";
+import { useRouter } from "next/router";
 import Modal from "@/components/modal";
+import { resolveSource, warmStream } from "@/lib/watch/sourcePrefetch";
 
 import { signIn, useSession } from "next-auth/react";
 import AniList from "@/components/media/aniList";
@@ -80,6 +82,7 @@ export default function Info({
   const { data: session }: any = useSession();
   const { toggleFavourite } = useAniList(session);
   const { t } = useTranslation();
+  const router = useRouter();
 
   // Seed with the SSR-resolved values so the first paint already shows
   // the correct heart / list-status / resume-episode — no flash from
@@ -139,6 +142,72 @@ export default function Info({
     setStatusLabel(initialStatusLabel);
     setFav(initialFav);
   }, [info?.id, initialProgress, initialStatusLabel, initialFav]);
+
+  // ── Prefetch the player for the "Watch" target ───────────────────────
+  // Visitors who open an anime page usually go on to watch it, so we warm
+  // the whole playback path in the background once the page is idle (so the
+  // info page itself — images, metadata — keeps priority). When the user hits
+  // "Watch", the route + player chunk are cached, the episode source is
+  // already resolved (read from the shared cache), and the first HLS segment
+  // is primed — playback starts almost instantly. Everything here is
+  // best-effort and fire-and-forget; failures never affect the info page.
+  useEffect(() => {
+    if (!info?.id) return;
+    const resumeEp = Math.max(1, (progress || 0) + 1);
+    const server = "megaplay";
+    const watchHref = `/en/anime/watch/${info.id}/${server}?id=${server}-${info.id}-${resumeEp}&num=${resumeEp}`;
+
+    let cancelled = false;
+    const run = () => {
+      if (cancelled) return;
+      // 1. Warm the Next.js route + the player's dynamic chunk.
+      try {
+        router.prefetch(watchHref);
+      } catch {}
+      void import("@/components/watch/primary/UniversalPlayer").catch(() => {});
+
+      // 2. Resolve the episode source (low priority) and, once we have it,
+      //    prime the HLS manifest + first segment so playback starts with no
+      //    buffering. Reads from / writes to the shared prefetch cache that
+      //    the watch page consults first.
+      resolveSource(
+        {
+          aniId: info.id,
+          episode: resumeEp,
+          server,
+          sub: "sub",
+          title: info?.title?.romaji || info?.title?.english || undefined,
+          mediaMeta: {
+            id: info.id,
+            title: info.title,
+            synonyms: (info as any).synonyms,
+            relations: info.relations,
+          },
+        },
+        { priority: "low" as any },
+      ).then((data) => {
+        if (!cancelled && data) warmStream(data);
+      });
+    };
+
+    // Wait for an idle moment so the info page's own fetches go first.
+    const w = window as any;
+    let idleId: number | undefined;
+    let timeoutId: number | undefined;
+    if (typeof w.requestIdleCallback === "function") {
+      idleId = w.requestIdleCallback(run, { timeout: 2500 });
+    } else {
+      timeoutId = window.setTimeout(run, 1200);
+    }
+    return () => {
+      cancelled = true;
+      if (idleId != null && typeof w.cancelIdleCallback === "function") {
+        w.cancelIdleCallback(idleId);
+      }
+      if (timeoutId != null) window.clearTimeout(timeoutId);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [info?.id, progress]);
 
   /* Optimistic favourite toggle. Flips the heart immediately so the
      click feels instant; if the AniList mutation fails we roll back
