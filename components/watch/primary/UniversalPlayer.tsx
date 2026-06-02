@@ -970,6 +970,16 @@ export default function UniversalPlayer({
   // abort in-flight segment loads and re-anchor on the new position.
   const hlsRef = useRef<any>(null);
 
+  // Identity-stable caches for the <MediaPlayer> `src` object and the subtitle
+  // <Track> list. These MUST keep the same object identity across re-renders
+  // that don't change the underlying value — handing Vidstack a new `src` object
+  // makes it fire provider-change and reload from 0 (the end-reset bug). We
+  // can't use useMemo for them because they're computed AFTER the loading/iframe
+  // early-returns below, and a conditionally-called hook breaks rules-of-hooks.
+  // A ref-backed memo keyed on a string signature is unconditional and safe.
+  const srcMemoRef = useRef<{ key: string; value: { src: string; type: "application/vnd.apple.mpegurl" | "video/mp4" } } | null>(null);
+  const subsMemoRef = useRef<{ key: string; value: any[] } | null>(null);
+
   // Apply our hls.js tuning the moment the HLS provider is created. Setting
   // `provider.config` here (before setup) makes hls.js build its instance with
   // the bigger buffers / fast-fail loading defined in HLS_CONFIG, so seeking
@@ -2047,6 +2057,27 @@ export default function UniversalPlayer({
     bestStream!.isM3U8 === true ||
     (bestStream!.isM3U8 !== false && bestStream!.url.includes(".m3u8"));
 
+  // CRITICAL: memoize the src object handed to <MediaPlayer>. Passing an inline
+  // object literal `src={{ src, type }}` minted a NEW identity on EVERY render,
+  // and Vidstack treats a new `src` object as a source change — it fires
+  // `provider-change`, DESTROYS the hls.js instance and reloads from currentTime
+  // 0. Our MutationObserver calls setState (host attach flags) whenever Vidstack
+  // rebuilds its controls bar, which it does on a benign `durationchange` near
+  // the end. That re-render + fresh src object = the "video resets to the start"
+  // bug (confirmed by the JUMP-TO-0 trace: provider-change → load → hlsDestroying
+  // → emptied → ct 0). A stable src identity stops the reload entirely.
+  const srcKey = `${src}|${isM3U8 ? 1 : 0}`;
+  if (!srcMemoRef.current || srcMemoRef.current.key !== srcKey) {
+    srcMemoRef.current = {
+      key: srcKey,
+      value: {
+        src,
+        type: isM3U8 ? "application/vnd.apple.mpegurl" : "video/mp4",
+      },
+    };
+  }
+  const playerSrc = srcMemoRef.current.value;
+
   // Download URL — same-origin endpoint that streams the actual video.
   // For HLS, we use /api/v2/download-stream which fetches m3u8 + concatenates
   // every segment into one .ts file (browser saves it as a single playable
@@ -2093,25 +2124,39 @@ export default function UniversalPlayer({
         `&filename=${encodeURIComponent(safeName + ".mp4")}` +
         (refererParam ? `&referer=${encodeURIComponent(refererParam)}` : "");
 
-  const subtitleTracks = (streamData?.subtitles || [])
-    .map((s) => {
-      const url = s.file || s.url;
-      if (!url) return null;
-      return {
-        src: proxied(url, bestStream!.referer || streamData?.referer),
-        label: s.label || s.language || "Subtitle",
-        language: s.language || "en",
-        kind: (s.kind as any) || "subtitles",
-        default: s.default,
-      };
-    })
-    .filter(Boolean) as Array<{
-      src: string;
-      label: string;
-      language: string;
-      kind: any;
-      default?: boolean;
-    }>;
+  // Identity-stable for the same reason as playerSrc: a fresh array each render
+  // makes the <Track> children reconcile, and Vidstack tears down / re-adds text
+  // tracks (the `set mode`/`add` + subtitle-blob ERR_FILE_NOT_FOUND seen in the
+  // trace). Keyed by the subtitle source list so it only rebuilds when the
+  // stream's subtitles actually change.
+  const subsKey = JSON.stringify(
+    (streamData?.subtitles || []).map((s) => [s.file || s.url, s.label, s.language, s.kind, s.default]),
+  );
+  if (!subsMemoRef.current || subsMemoRef.current.key !== subsKey) {
+    subsMemoRef.current = {
+      key: subsKey,
+      value: (streamData?.subtitles || [])
+        .map((s) => {
+          const url = s.file || s.url;
+          if (!url) return null;
+          return {
+            src: proxied(url, bestStream!.referer || streamData?.referer),
+            label: s.label || s.language || "Subtitle",
+            language: s.language || "en",
+            kind: (s.kind as any) || "subtitles",
+            default: s.default,
+          };
+        })
+        .filter(Boolean),
+    };
+  }
+  const subtitleTracks = subsMemoRef.current.value as Array<{
+    src: string;
+    label: string;
+    language: string;
+    kind: any;
+    default?: boolean;
+  }>;
 
   return (
     // `isolation: isolate` creates a new stacking context here. Without it,
@@ -2132,10 +2177,7 @@ export default function UniversalPlayer({
         // player without being clipped. The bg-black still draws the player
         // box; only stray child elements can now overflow.
         className="vds-player relative z-10 h-full w-full overflow-visible bg-black"
-        src={{
-          src,
-          type: isM3U8 ? "application/vnd.apple.mpegurl" : "video/mp4",
-        }}
+        src={playerSrc}
         // Bigger buffers + fast-fail segment loading so seeking lands in
         // already-buffered data instead of a slow proxy→CDN round-trip.
         // Applied to the hls.js instance via provider-change (HLS only).
