@@ -2,7 +2,8 @@ import Head from "next/head";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import Modal from "@/components/modal";
-import { resolveSource, warmStream } from "@/lib/watch/sourcePrefetch";
+import { resolveSource, warmStream, clearPrefetchedSourcesFor } from "@/lib/watch/sourcePrefetch";
+import SERVERS from "@/lib/servers";
 import { prefetchSkips } from "@/lib/skip/prefetchSkips";
 import { prefetchEpisodeList } from "@/lib/watch/episodePrefetch";
 import { setPrefetchedInfo } from "@/lib/watch/infoPrefetch";
@@ -171,6 +172,10 @@ export default function Info({
     const malId = (info as any)?.idMal as number | undefined;
 
     let cancelled = false;
+    // Aborts every in-flight prefetch fetch the moment the user leaves this
+    // info page (unmount / navigates to another anime). Paired with a cache
+    // purge in cleanup so nothing we warmed lingers after we're gone.
+    const ac = new AbortController();
 
     // ── Tier 1: the things the watch page actually blocks on ───────────
     // The player can't render until the EPISODE LIST returns (it builds
@@ -197,24 +202,38 @@ export default function Info({
         relations: info.relations,
       };
       const titleStr = info?.title?.romaji || info?.title?.english || undefined;
-      const warmServer = (srv: string) =>
+      const warmServer = (srv: string, priority: "high" | "low") =>
         resolveSource(
           { aniId: info.id, episode: resumeEp, server: srv, sub: "sub", title: titleStr, mediaMeta },
-          { priority: "low" as any },
+          { priority: priority as any, signal: ac.signal },
         ).then((data) => {
-          if (!cancelled && data) warmStream(data);
+          if (!cancelled && data) warmStream(data, ac.signal);
         });
 
-      // Warm megaplay (the default the watch page starts on) AND the user's
-      // saved preferred server (the one the page switches to once confirmed —
-      // and the one they actually watch). Warming only megaplay left the
-      // player cold when the page jumped to the preferred server.
-      void warmServer(server);
+      // Priority order:
+      //  1. megaplay — the server the watch page starts on.
+      //  2. the user's saved preferred server — the one the page switches to
+      //     once confirmed (and the one they actually watch).
+      // Both at HIGH priority so they resolve first.
       let preferred: string | null = null;
       try {
         preferred = localStorage.getItem("preferred_server");
       } catch {}
-      if (preferred && preferred !== server) void warmServer(preferred);
+
+      const prioritised = [server];
+      if (preferred && preferred !== server) prioritised.push(preferred);
+      for (const srv of prioritised) void warmServer(srv, "high");
+
+      // 3. Then warm EVERY other available server (api/hls) in the background
+      //    at low priority, so switching to any of them on the watch page is
+      //    instant. The watch page's own probes also seed this cache, but
+      //    warming here means they're ready before the user even navigates.
+      const rest = SERVERS.filter(
+        (s: any) =>
+          (s.type === "hls" || s.type === "api") &&
+          !prioritised.includes(s.id),
+      ).map((s: any) => s.id);
+      for (const srv of rest) void warmServer(srv, "low");
     };
 
     // ── Tier 2: nice-to-have warmups, deferred to a real idle moment ───
@@ -247,6 +266,20 @@ export default function Info({
         w.cancelIdleCallback(idleId);
       }
       if (idleTimeoutId != null) window.clearTimeout(idleTimeoutId);
+
+      // Stop every in-flight prefetch the instant we leave the page.
+      ac.abort();
+
+      // Purge what we cached for this anime — UNLESS we're navigating to its
+      // own watch page, which is exactly the consumer this cache exists for.
+      // (The cleanup also fires on that SPA navigation; purging then would
+      // throw away the warm sources right before the player reads them.)
+      const goingToWatch =
+        typeof window !== "undefined" &&
+        new RegExp(`/anime/watch/${info.id}(?:[/?#]|$)`).test(
+          window.location.pathname + window.location.search,
+        );
+      if (!goingToWatch) clearPrefetchedSourcesFor(info.id);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [info?.id, progress]);

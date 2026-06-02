@@ -43,6 +43,22 @@ export function setPrefetchedSource(key: string, data: any) {
 }
 
 /**
+ * Drop every cached source for an anime. Called when the user leaves the info
+ * page that warmed them — we don't want a watch page reached later (with a
+ * possibly rotated token) reading a stale entry, and there's no reason to keep
+ * the memory around once the page that prefetched them is gone.
+ *
+ * Keys are `${aniId}:${episode}:${server}:${sub}`, so a prefix match on
+ * `${aniId}:` covers every episode/server/sub combo we warmed for it.
+ */
+export function clearPrefetchedSourcesFor(aniId: number | string): void {
+  const prefix = `${aniId}:`;
+  Array.from(store.keys()).forEach((key) => {
+    if (key.startsWith(prefix)) store.delete(key);
+  });
+}
+
+/**
  * Resolve a source via /api/v2/source and cache it. Deduplicates concurrent
  * calls for the same key (the prefetch + the watch page can race). Returns the
  * source payload, or null on failure (caller falls back to its own fetch).
@@ -59,7 +75,7 @@ export async function resolveSource(
     title?: string;
     mediaMeta?: any;
   },
-  opts: { priority?: "high" | "low" | "auto" } = {},
+  opts: { priority?: "high" | "low" | "auto"; signal?: AbortSignal } = {},
 ): Promise<any | null> {
   const key = sourceKey(params.aniId, params.episode, params.server, params.sub);
   const cached = getPrefetchedSource(key);
@@ -78,6 +94,7 @@ export async function resolveSource(
       title: params.title,
       mediaMeta: params.mediaMeta,
     }),
+    signal: opts.signal,
     // @ts-ignore — `priority` is a valid fetch init in modern browsers.
     priority: opts.priority || "auto",
   })
@@ -101,12 +118,12 @@ export async function resolveSource(
  * Fire-and-forget; failures are silently ignored. Only fetches a small slice
  * of the first segment (Range) to avoid pulling the whole episode.
  */
-export async function warmStream(streamData: any) {
+export async function warmStream(streamData: any, signal?: AbortSignal) {
   try {
     const url: string | undefined =
       streamData?.sources?.[0]?.url || streamData?.streams?.[0]?.url;
     if (!url || !/\.m3u8(\?|$)/i.test(url)) return;
-    const res = await fetch(url, { priority: "low" } as any);
+    const res = await fetch(url, { priority: "low", signal } as any);
     if (!res.ok) return;
     const text = await res.text();
     // Pull the first media segment URI from the manifest and warm a small
@@ -124,6 +141,7 @@ export async function warmStream(streamData: any) {
     await fetch(segUrl, {
       headers: { Range: "bytes=0-262143" },
       priority: "low",
+      signal,
     } as any).catch(() => {});
   } catch {
     /* ignore */
