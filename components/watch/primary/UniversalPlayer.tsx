@@ -329,39 +329,6 @@ function LiveAmbient({
   );
 }
 
-// Inserts (or reuses) a wrapper <div> immediately before `anchor` so React can
-// portal our buttons there. Returning a stable DOM node keeps React happy
-// across renders (no remount churn).
-function ensureSiblingBefore(anchor: HTMLElement, id: string): HTMLElement {
-  const parent = anchor.parentElement;
-  if (!parent) return anchor;
-  const existing = parent.querySelector<HTMLElement>(`:scope > [data-slot="${id}"]`);
-  if (existing) return existing;
-  const slot = document.createElement("div");
-  slot.dataset.slot = id;
-  slot.style.display = "contents";
-  parent.insertBefore(slot, anchor);
-  return slot;
-}
-
-// Inserts (or reuses) a wrapper <div> as the FIRST child of `parent`. Same
-// rationale as ensureSiblingBefore — gives React a stable portal target.
-function ensureFirstChildSlot(parent: HTMLElement, id: string): HTMLElement {
-  const existing = parent.querySelector<HTMLElement>(`:scope > [data-slot="${id}"]`);
-  if (existing) {
-    // Re-position to first child if Vidstack rebuilt the menu and pushed it down.
-    if (parent.firstChild !== existing) {
-      parent.insertBefore(existing, parent.firstChild);
-    }
-    return existing;
-  }
-  const slot = document.createElement("div");
-  slot.dataset.slot = id;
-  slot.style.display = "contents";
-  parent.insertBefore(slot, parent.firstChild);
-  return slot;
-}
-
 const ICON_BTN_CLS =
   "vds-button moopa-vds-btn group ring-media-focus relative inline-flex h-10 w-10 cursor-pointer items-center justify-center rounded-md outline-none ring-inset hover:bg-white/20 data-[focus]:ring-4";
 const ICON_BTN_STYLE: React.CSSProperties = {
@@ -1002,11 +969,6 @@ export default function UniversalPlayer({
   // Live hls.js instance — captured on provider setup so the seek handler can
   // abort in-flight segment loads and re-anchor on the new position.
   const hlsRef = useRef<any>(null);
-  // Set true once we've detected the bogus near-end reset (see the end-reset
-  // guard effect). Shared with the autoplay effect so a post-reset reload at
-  // currentTime 0 isn't treated as a fresh start to auto-play from. Reset per
-  // source and on a deliberate user seek.
-  const endReachedRef = useRef(false);
 
   // Apply our hls.js tuning the moment the HLS provider is created. Setting
   // `provider.config` here (before setup) makes hls.js build its instance with
@@ -1027,42 +989,6 @@ export default function UniversalPlayer({
       const hls = provider.instance || null;
       hlsRef.current = hls;
       if (hls) {
-        // Preventive end-reset fix. On megaplay encodes whose declared duration
-        // overshoots the real media, hls.js hits the phantom tail, can't load a
-        // fragment that doesn't exist, and recovers by re-attaching its
-        // MediaSource — which reloads the <video> from 0. We intercept the fatal
-        // media/buffer errors that precede that re-attach and, if we're near the
-        // end, stop hls's loader and pause instead of letting it reset. The DOM
-        // guard effect is the safety net if this misses; this just avoids the
-        // visible flash to 0. hls.js Events.ERROR === "hlsError".
-        const onHlsError = (_evt: any, data: any) => {
-          if (!data?.fatal) return;
-          const el = playerRef.current?.el as HTMLElement | undefined;
-          const v = el?.querySelector<HTMLVideoElement>("video");
-          if (!v) return;
-          const dur = v.duration;
-          const nearEnd =
-            Number.isFinite(dur) && dur > 0 && v.currentTime >= dur * 0.85;
-          const mediaish =
-            data.type === "mediaError" ||
-            data.type === "bufferError" ||
-            /buffer|media|nudge|stall/i.test(String(data.details || ""));
-          if (nearEnd && mediaish) {
-            // We're at the real end of a duration-inflated encode. Freeze here
-            // instead of letting hls re-attach and bounce to 0.
-            try {
-              hls.stopLoad();
-              v.pause();
-              endReachedRef.current = true;
-            } catch {}
-          }
-        };
-        try {
-          // hls.js Events.ERROR === "hlsError"; the typed enum isn't imported
-          // here, so call through `any`.
-          (hls as any).on("hlsError", onHlsError);
-        } catch {}
-
         // ── TEMP DEBUG: trace the end-reset ──────────────────────────────
         // Logs every hls.js + media event with currentTime/duration/buffered
         // so we can see EXACTLY what fires (and in what order) at the moment
@@ -1291,18 +1217,39 @@ export default function UniversalPlayer({
     };
   }, []);
   const ambientEnabled = ambient && ctxAmbient && !isFullscreen && !iosPseudoFs;
-  // Reference to the vds-controls-group element where we portal our buttons.
-  const [controlsGroupEl, setControlsGroupEl] = useState<HTMLElement | null>(null);
-  // Anchor node inside that group: we insert our buttons IMMEDIATELY BEFORE
-  // Vidstack's settings menu so the order is:
-  //   [time]  ...spacer...  [Download] [Subs] [Cast] | [Settings] [PiP] [Fullscreen]
-  const [settingsAnchorEl, setSettingsAnchorEl] = useState<HTMLElement | null>(null);
-  // The list of items rendered inside Vidstack's Settings menu when it's open.
-  // We portal an "Autoplay" toggle row into here so the user can flip it
-  // alongside Speed / Quality / Captions.
-  const [settingsItemsEl, setSettingsItemsEl] = useState<HTMLElement | null>(null);
   const [castAvailable, setCastAvailable] = useState(false);
   const [castConnected, setCastConnected] = useState(false);
+
+  // STABLE portal hosts. We portal our custom buttons / settings rows into
+  // these divs (whose children ONLY React manages) and then position the divs
+  // inside Vidstack's controls group / settings menu imperatively. Vidstack
+  // rebuilding its own subtree (it does so even on a benign `durationchange`
+  // near the end of playback) detaches our host as a single unit but never
+  // touches React's children inside it — so React never has to remove a node
+  // that Vidstack already removed. That `removeChild` throw was what tripped the
+  // PlayerErrorBoundary → player remount → HLS reload from 0 ("video resets to
+  // the start near the end"). Stable containers eliminate it at the source.
+  const controlsHostRef = useRef<HTMLDivElement | null>(null);
+  const settingsHostRef = useRef<HTMLDivElement | null>(null);
+  if (typeof document !== "undefined") {
+    if (!controlsHostRef.current) {
+      const d = document.createElement("div");
+      d.dataset.slot = "moopa-custom-controls-host";
+      d.style.display = "contents";
+      controlsHostRef.current = d;
+    }
+    if (!settingsHostRef.current) {
+      const d = document.createElement("div");
+      d.dataset.slot = "moopa-settings-host";
+      d.style.display = "contents";
+      settingsHostRef.current = d;
+    }
+  }
+  // Whether each host is currently attached into the live Vidstack subtree.
+  // Drives the conditional portal render; flipping these never unmounts the
+  // <video>, only re-targets our injected chrome.
+  const [controlsHostAttached, setControlsHostAttached] = useState(false);
+  const [settingsHostAttached, setSettingsHostAttached] = useState(false);
 
   // Locate (and re-locate) Vidstack's bottom controls group + Settings menu
   // anchor. Vidstack remounts its layout in several situations — viewport
@@ -1379,19 +1326,32 @@ export default function UniversalPlayer({
         }
       }
 
-      // Update only if the node identity changed — avoids pointless re-renders.
-      setControlsGroupEl((prev) => (prev === bottom ? prev : bottom));
-
-      if (bottom) {
+      // Position the STABLE controls host inside the live group, before the
+      // Settings menu. We move the host node (a single unit) — React's content
+      // inside it is never disturbed, so no portal teardown / removeChild.
+      const controlsHost = controlsHostRef.current;
+      if (bottom && controlsHost && !isSmallLayout) {
         const anchor =
           bottom.querySelector<HTMLElement>(".vds-settings-menu") ||
           bottom.querySelector<HTMLElement>("media-menu.vds-menu") ||
           bottom.querySelector<HTMLElement>("[data-class*='settings']") ||
           bottom.querySelector<HTMLElement>(".vds-pip-button") ||
           null;
-        setSettingsAnchorEl((prev) => (prev === anchor ? prev : anchor));
+        // Re-insert only if the host isn't already correctly placed (avoids
+        // needless DOM churn on every observer callback).
+        if (anchor) {
+          if (controlsHost.parentElement !== bottom || controlsHost.nextSibling !== anchor) {
+            bottom.insertBefore(controlsHost, anchor);
+          }
+        } else if (controlsHost.parentElement !== bottom) {
+          bottom.appendChild(controlsHost);
+        }
+        setControlsHostAttached((p) => (p ? p : true));
       } else {
-        setSettingsAnchorEl((prev) => (prev === null ? prev : null));
+        // No group (or small layout) — detach the host. React content survives
+        // in the orphaned node; flipping the flag just hides the chrome.
+        if (controlsHost?.parentElement) controlsHost.remove();
+        setControlsHostAttached((p) => (p ? false : p));
       }
 
       // The Settings menu is opened/closed dynamically. Vidstack tags the
@@ -1413,7 +1373,17 @@ export default function UniversalPlayer({
           itemsEl.offsetParent !== null;
         if (!isOpen) itemsEl = null;
       }
-      setSettingsItemsEl((prev) => (prev === itemsEl ? prev : itemsEl));
+      // Position the STABLE settings host as the first child of the menu list.
+      const settingsHost = settingsHostRef.current;
+      if (itemsEl && settingsHost) {
+        if (settingsHost.parentElement !== itemsEl || itemsEl.firstChild !== settingsHost) {
+          itemsEl.insertBefore(settingsHost, itemsEl.firstChild);
+        }
+        setSettingsHostAttached((p) => (p ? p : true));
+      } else {
+        if (settingsHost?.parentElement) settingsHost.remove();
+        setSettingsHostAttached((p) => (p ? false : p));
+      }
     };
 
     setup();
@@ -1422,7 +1392,9 @@ export default function UniversalPlayer({
       cancelled = true;
       obs?.disconnect();
     };
-  }, []);
+    // `isSmallLayout` gates whether the controls host attaches to the bar, so
+    // re-run the locator when the breakpoint flips.
+  }, [isSmallLayout]);
 
   // ── iOS fullscreen interception ──
   // Safari on iPhone/iPad responds to a fullscreen request by handing the
@@ -1779,133 +1751,15 @@ export default function UniversalPlayer({
     return () => playerEl.removeEventListener("hls-error", handler as EventListener);
   }, [onError, streamData]);
 
-  // ── End-reset guard ──
-  // Symptom: during NORMAL playback near the outro (not yet at the end) the
-  // playhead jumps back to 0 on its own. Root cause is in the HLS/media layer:
-  // as the forward buffer reaches the last fragment, some megaplay encodes
-  // declare a `duration` slightly LONGER than the real media. Playback reaches
-  // the last real frame, hls.js can't fill the phantom tail, and it RE-ATTACHES
-  // its MediaSource to recover. That revokes the old MSE blob (you see
-  // `blob:… ERR_FILE_NOT_FOUND` + a fresh `removeChild` in the console) and the
-  // <video> reloads from scratch at currentTime 0 — via `emptied`/`loadstart`,
-  // NOT a `seeking`, which is why a seek-only guard never caught it.
-  //
-  // We handle BOTH shapes of the reset:
-  //   • seek-to-0     → repair immediately.
-  //   • reload-to-0   → latch "end reached", then once the element is playable
-  //                     again seek back to the last real position and pause.
-  // The repair target is `lastTime - 1` (real, already-played content) — never
-  // `duration - x`, which is the phantom tail with no data and would just
-  // re-trigger the loop. `endReachedRef` also tells the autoplay effect not to
-  // replay from 0 after the reload. A deliberate slider seek clears the latch so
-  // a genuine replay still works, and a new source resets everything.
-  useEffect(() => {
-    const playerEl = playerRef.current?.el as HTMLElement | undefined;
-    if (!playerEl) return;
-
-    endReachedRef.current = false;
-    let lastTime = 0;
-    let userSeeking = false;
-    let video: HTMLVideoElement | null = null;
-
-    const markUserSeek = () => {
-      userSeeking = true;
-      endReachedRef.current = false;
-      window.clearTimeout((markUserSeek as any)._t);
-      (markUserSeek as any)._t = window.setTimeout(() => {
-        userSeeking = false;
-      }, 1200);
-    };
-
-    const onTimeUpdate = () => {
-      if (video && !video.seeking && video.currentTime > 1) {
-        lastTime = video.currentTime;
-      }
-    };
-
-    const wasNearEnd = () => {
-      if (!video) return false;
-      const dur = video.duration;
-      const ref = Number.isFinite(dur) && dur > 0 ? dur : lastTime + 1;
-      return lastTime >= Math.max(30, ref * 0.85);
-    };
-
-    // Restore the playhead to just before where playback actually stalled, on
-    // real buffered data, then pause. Used by both the seek-to-0 and the
-    // reload-to-0 paths.
-    const restoreAndPause = () => {
-      if (!video) return;
-      try {
-        const dur = video.duration;
-        let target = lastTime - 1;
-        if (Number.isFinite(dur) && dur > 0) target = Math.min(target, dur - 1);
-        video.currentTime = Math.max(0, target);
-        video.pause();
-      } catch {}
-    };
-
-    // Path A — a plain seek/jump back to ~0 from deep in the video.
-    const onSeek = () => {
-      if (!video || endReachedRef.current) return;
-      if (video.currentTime <= 1.5 && wasNearEnd() && !userSeeking && !video.ended) {
-        endReachedRef.current = true;
-        restoreAndPause();
-      }
-    };
-
-    // Path B — the MediaSource re-attach. The element empties and reloads at 0.
-    // We can't restore yet (no buffer); latch and wait for it to become
-    // playable, then snap back. Only treat it as the bug if it happened right
-    // after we were near the end and the user didn't ask for it.
-    const onReload = () => {
-      if (!video || endReachedRef.current || userSeeking) return;
-      if (wasNearEnd() && !video.ended) {
-        endReachedRef.current = true;
-      }
-    };
-    const onPlayable = () => {
-      if (!video || !endReachedRef.current) return;
-      // Element is back with fresh data; park it at the real end, paused.
-      restoreAndPause();
-    };
-
-    const sliderEl = playerEl.querySelector(".vds-time-slider");
-    let pollId = 0;
-    const bind = () => {
-      video = playerEl.querySelector<HTMLVideoElement>("video");
-      if (!video) return false;
-      video.addEventListener("timeupdate", onTimeUpdate);
-      video.addEventListener("seeking", onSeek);
-      video.addEventListener("seeked", onSeek);
-      video.addEventListener("emptied", onReload);
-      video.addEventListener("loadstart", onReload);
-      video.addEventListener("loadedmetadata", onPlayable);
-      video.addEventListener("canplay", onPlayable);
-      return true;
-    };
-    if (!bind()) {
-      let tries = 0;
-      pollId = window.setInterval(() => {
-        if (bind() || ++tries > 40) window.clearInterval(pollId);
-      }, 250);
-    }
-    sliderEl?.addEventListener("pointerdown", markUserSeek);
-    sliderEl?.addEventListener("keydown", markUserSeek);
-
-    return () => {
-      window.clearTimeout((markUserSeek as any)._t);
-      window.clearInterval(pollId);
-      video?.removeEventListener("timeupdate", onTimeUpdate);
-      video?.removeEventListener("seeking", onSeek);
-      video?.removeEventListener("seeked", onSeek);
-      video?.removeEventListener("emptied", onReload);
-      video?.removeEventListener("loadstart", onReload);
-      video?.removeEventListener("loadedmetadata", onPlayable);
-      video?.removeEventListener("canplay", onPlayable);
-      sliderEl?.removeEventListener("pointerdown", markUserSeek);
-      sliderEl?.removeEventListener("keydown", markUserSeek);
-    };
-  }, [streamData]);
+  // NOTE: the earlier "end-reset guard" (watching for seek/reload to 0 near the
+  // end) was removed. A full event trace proved the real cause was NOT the
+  // HLS/media layer: a benign `durationchange` near the end made Vidstack
+  // rebuild its controls subtree, which threw `removeChild` from a React portal
+  // whose container Vidstack had just destroyed. The PlayerErrorBoundary caught
+  // that and REMOUNTED the player → the HLS source reloaded from currentTime 0.
+  // Fixed at the source by portaling our chrome into stable host nodes we own
+  // (see controlsHostRef / settingsHostRef), so Vidstack rebuilds no longer
+  // tear down our portals and the boundary never fires.
 
   // NOTE: we no longer manually nudge hls.js on seek (stopLoad/startLoad).
   // hls.js already flushes and refetches at the new position natively, and our
@@ -2021,9 +1875,7 @@ export default function UniversalPlayer({
       // was a path into the "video jumps back to the start near the end" bug.
       // Past the first second the user is already watching; a re-buffer must not
       // trigger a fresh play() (and we never want to fight a user/end pause).
-      // endReachedRef covers the reload-to-0 case, where currentTime IS 0 again
-      // but we must NOT auto-play (it would restart the just-finished episode).
-      if (video.ended || video.currentTime > 1 || endReachedRef.current) return;
+      if (video.ended || video.currentTime > 1) return;
       try {
         video.setAttribute("muted", "");
         video.defaultMuted = true;
@@ -2347,12 +2199,14 @@ export default function UniversalPlayer({
       {/* Custom buttons portaled INTO Vidstack's bottom control group, BEFORE
           the Settings menu so the visual order is:
             [time] ...spacer... [Download] [Subs] [Cast] | [Settings] [PiP] [Fullscreen]
-          We portal into the group itself but use settingsAnchorEl as the
-          insertion point — when present, React inserts our nodes before it.
-          On small (mobile) layout the bottom bar barely fits Time + Fullscreen,
-          so we hide these buttons and surface their actions inside the
-          Settings menu instead (see settingsItemsEl portal below). */}
-      {!isSmallLayout && controlsGroupEl && createPortal(
+          The portal target is our STABLE host div (controlsHostRef), which the
+          MutationObserver positions before the Settings menu inside the live
+          controls group. Because the host's identity never changes across
+          renders, React never tears the portal down when Vidstack rebuilds its
+          bar — which is what used to throw `removeChild` and trigger a player
+          remount (HLS reload to 0). On small (mobile) layout the host isn't
+          attached to the bar; those actions surface in the Settings menu. */}
+      {!isSmallLayout && controlsHostAttached && controlsHostRef.current && createPortal(
         <CustomControls
           downloadUrl={downloadUrl}
           downloadFilename={`${safeName}.${ext}`}
@@ -2364,18 +2218,13 @@ export default function UniversalPlayer({
           castConnected={castConnected}
           onCastClick={requestCast}
         />,
-        // When we have a Settings anchor we render into a wrapper inserted
-        // BEFORE it; otherwise we append at the end of the group.
-        settingsAnchorEl
-          ? ensureSiblingBefore(settingsAnchorEl, "moopa-custom-controls-slot")
-          : controlsGroupEl
+        controlsHostRef.current,
       )}
 
-      {/* Custom toggles injected at the top of Vidstack's Settings menu.
-          settingsItemsEl is set/cleared by our MutationObserver depending on
-          whether the menu is currently open. On small layout we also expose
-          Download / Subs / Cast here, since they're hidden from the bar. */}
-      {settingsItemsEl && createPortal(
+      {/* Custom toggles injected at the top of Vidstack's Settings menu, via the
+          STABLE settingsHostRef the observer parks at the top of the open menu
+          list. Same rationale as above: stable container → no portal teardown. */}
+      {settingsHostAttached && settingsHostRef.current && createPortal(
         <>
           {isSmallLayout && (
             <>
@@ -2420,7 +2269,7 @@ export default function UniversalPlayer({
             iconPath="M9 21c0 .55.45 1 1 1h4c.55 0 1-.45 1-1v-1H9v1zm3-19C8.14 2 5 5.14 5 9c0 2.38 1.19 4.47 3 5.74V17c0 .55.45 1 1 1h6c.55 0 1-.45 1-1v-2.26c1.81-1.27 3-3.36 3-5.74 0-3.86-3.14-7-7-7zm2.85 11.1-.85.6V16h-4v-2.3l-.85-.6C7.8 12.16 7 10.63 7 9c0-2.76 2.24-5 5-5s5 2.24 5 5c0 1.63-.8 3.16-2.15 4.1z"
           />
         </>,
-        ensureFirstChildSlot(settingsItemsEl, "moopa-toggles-slot")
+        settingsHostRef.current,
       )}
 
       {/* No exit cross: the fullscreen button itself toggles pseudo-fullscreen
