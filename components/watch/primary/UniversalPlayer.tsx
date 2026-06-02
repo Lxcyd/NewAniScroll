@@ -2520,8 +2520,20 @@ function useChaptersVtt(
   // "• Intro/Episode" label next to the time was missing at the start of
   // playback. Waiting for the true duration means a single blob, a single
   // mount, and the label is present from the first frame the bar shows pills.
+  //
+  // CRITICAL: quantize the duration to whole seconds before building the VTT.
+  // hls.js refines `duration` by a few hundredths near the end (e.g. 1435.02 →
+  // 1435.11), which fires `durationchange`. If the VTT text tracked that, every
+  // refinement minted a NEW blob URL → new <Track> key → Vidstack remounts the
+  // chapters track → its teardown threw `removeChild` → PlayerErrorBoundary →
+  // player remount → HLS reload from 0. THIS was the real "video resets to the
+  // start near the end" cause (the JUMP-TO-0 trace shows provider-change/load
+  // fired from a ref re-mount right after a durationchange). Rounding means a
+  // sub-second drift yields the SAME VTT → same blob → no track remount, no
+  // reset.
+  const quantizedDuration = videoDuration > 0 ? Math.round(videoDuration) : 0;
   const vtt =
-    videoDuration > 0 ? buildChaptersVtt(segments, videoDuration, t) : null;
+    quantizedDuration > 0 ? buildChaptersVtt(segments, quantizedDuration, t) : null;
   const [url, setUrl] = useState<string | null>(null);
   useEffect(() => {
     if (!vtt) {
