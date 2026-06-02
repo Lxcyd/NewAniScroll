@@ -21,13 +21,14 @@ import { authOptions } from "../../../api/auth/[...nextauth]";
 import { getRemovedMedia } from "@/prisma/removed";
 import { createList, createUser, getEpisode } from "@/prisma/user";
 import { getServer } from "@/lib/servers";
-import { primeMediaCache } from "@/lib/anilist/getMediaMeta";
+import { primeMediaCache, getCachedMediaMeta } from "@/lib/anilist/getMediaMeta";
 import { getCachedAnime } from "@/lib/db/anime";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { useTranslation } from "react-i18next";
 import { FULL_MEDIA_FIELDS } from "@/lib/anilist/fullMediaQuery";
 import { getPrefetchedSource, sourceKey, setPrefetchedSource } from "@/lib/watch/sourcePrefetch";
 import { getPrefetchedEpisodes, setPrefetchedEpisodes } from "@/lib/watch/episodePrefetch";
+import { getPrefetchedInfo } from "@/lib/watch/infoPrefetch";
 import { anilistFetch } from "@/lib/anilist/anilistFetch";
 import Link from "next/link";
 import MobileNav from "@/components/shared/MobileNav";
@@ -87,44 +88,58 @@ export async function getServerSideProps(context) {
     return { redirect: { destination: "/en/removed", permanent: false } };
   }
 
-  // Hard 3s timeout — never let AniList block navigation. The page can hydrate
-  // with `info=null` and re-fetch client-side if needed, instead of hanging the SSR.
-  // Falls back to the persistent Turso cache if AniList is slow/down so the page
-  // still renders something useful.
+  // ── Non-blocking metadata resolution ──────────────────────────────────
+  // Navigation here is SPA (router.push from the info page), but the Pages
+  // Router still awaits getServerSideProps before mounting the page — so the
+  // ONE thing that must stay fast is this function. The watch page no longer
+  // depends on the SSR `info`: it hydrates from the shared client cache (or
+  // GET /api/v2/media/[id]) on mount. So we try the *synchronous, in-process*
+  // memory cache first (primed by the info page's SSR in the same lambda) and
+  // only fall back to a short AniList fetch when it's a genuine cold/direct
+  // hit — never letting a slow upstream gate the navigation.
   let data = { data: { Media: null } };
-  // DEV-only: setting ANILIST_SIMULATE_DOWN=1 short-circuits the AniList fetch
-  // so we can verify the DB fallback path without actually downing AniList.
-  const simulateDown = process.env.ANILIST_SIMULATE_DOWN === "1";
-  try {
-    if (simulateDown) throw new Error("simulated AniList outage");
-    const json = await anilistFetch({
-      query: `query ($id: Int) {
-        Media (id: $id) {
-          mediaListEntry { progress status customLists repeat }
-          ${FULL_MEDIA_FIELDS}
-        }
-      }`,
-      variables: { id: Number(aniId) },
-      authToken: accessToken,
-      timeoutMs: 3000,
-      label: `watch-ssr:${aniId}`,
-    });
-    if (json) {
-      data = json;
-      // Prime memory + DB so source-API probes / refreshes can read instantly.
-      if (data?.data?.Media) primeMediaCache(aniId, data.data.Media);
-    }
-  } catch (e) {
-    console.warn(`[watch SSR] AniList fetch failed for ${aniId}:`, e.message);
+
+  // 1. Memory cache — instant, no I/O. The info page primed this for the same
+  //    container on the previous request, so SPA navigation almost always hits.
+  const mem = getCachedMediaMeta(Number(aniId));
+  if (mem) {
+    data = { data: { Media: { ...mem, mediaListEntry: null } } };
   }
 
-  // Fallback to DB cache when AniList didn't return Media (timeout/down/non-200).
-  // Stale data is fine here — better than rendering an empty page.
+  // 2. Cold/direct hit only: fetch from AniList with a tight timeout. We don't
+  //    want a full render with no metadata on a shared link, but we also never
+  //    block longer than ~2.5s — the client will hydrate the rest.
+  const simulateDown = process.env.ANILIST_SIMULATE_DOWN === "1";
+  if (!data?.data?.Media) {
+    try {
+      if (simulateDown) throw new Error("simulated AniList outage");
+      const json = await anilistFetch({
+        query: `query ($id: Int) {
+          Media (id: $id) {
+            mediaListEntry { progress status customLists repeat }
+            ${FULL_MEDIA_FIELDS}
+          }
+        }`,
+        variables: { id: Number(aniId) },
+        authToken: accessToken,
+        timeoutMs: 2500,
+        label: `watch-ssr:${aniId}`,
+      });
+      if (json?.data?.Media) {
+        data = json;
+        // Prime memory + DB so source-API probes / refreshes can read instantly.
+        primeMediaCache(aniId, data.data.Media);
+      }
+    } catch (e) {
+      console.warn(`[watch SSR] AniList fetch failed for ${aniId}:`, e.message);
+    }
+  }
+
+  // 3. Last-resort persistent fallback (AniList slow/down on a cold hit).
   if (!data?.data?.Media) {
     try {
       const cached = await getCachedAnime(Number(aniId));
       if (cached?.data) {
-        // Preserve the AniList-only mediaListEntry (we never cache it).
         data = { data: { Media: { ...cached.data, mediaListEntry: null } } };
       }
     } catch (e) {
@@ -156,6 +171,7 @@ export async function getServerSideProps(context) {
       dub:        dub || null,
       userData:   userData?.[0] || null,
       info:       data?.data?.Media || null,
+      aniId:      aniId || null,
       proxy,
       disqus,
     },
@@ -166,7 +182,7 @@ export async function getServerSideProps(context) {
 // Page component
 // ─────────────────────────────────────────────────────────────
 export default function Watch({
-  info,
+  info: ssrInfo,
   watchId,
   disqus,
   proxy,
@@ -175,9 +191,71 @@ export default function Watch({
   sessions,
   provider,
   epiNumber,
+  aniId,
 }) {
   const titlePref = useTitlePref();
   const { t } = useTranslation();
+
+  // ── Client-hydratable metadata ────────────────────────────────────────
+  // `info` no longer relies solely on the SSR prop. To make SPA navigation
+  // from the anime info page feel instant, we initialise from the shared
+  // client cache (the info page primed it) when available, fall back to the
+  // SSR `info`, and as a last resort fetch GET /api/v2/media/[id] on mount.
+  // This means a cold SSR (memory miss → `ssrInfo` null) still renders fast:
+  // the player hydrates from the client the moment metadata arrives.
+  const resolvedAniId = ssrInfo?.id || (aniId ? Number(aniId) : null);
+  // Initialise from the SSR prop on BOTH server and the first client render so
+  // hydration matches. The client cache / API fill in afterwards in an effect.
+  const [info, setInfo] = useState(ssrInfo || null);
+
+  // Resolve metadata client-side when the SSR didn't supply it (cold/direct
+  // hit with a memory miss). Prefer the prefetch cache (primed by the info
+  // page during SPA navigation), then the warm API. Runs post-hydration so it
+  // never causes an SSR/CSR mismatch.
+  useEffect(() => {
+    if (info?.id) return;
+    if (!resolvedAniId) return;
+    const cached = getPrefetchedInfo(resolvedAniId);
+    if (cached) {
+      setInfo(cached);
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/v2/media/${resolvedAniId}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((m) => {
+        if (!cancelled && m && !m.error) setInfo(m);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [info?.id, resolvedAniId]);
+
+  // If the SSR served metadata without the per-user list entry (it now skips
+  // the AniList fetch on a memory hit), backfill mediaListEntry from the API
+  // so the "on list" state and resume progress are correct for signed-in users.
+  useEffect(() => {
+    if (!sessions?.user?.name) return;
+    if (!info?.id) return;
+    if (info.mediaListEntry) return;
+    let cancelled = false;
+    fetch(`/api/v2/media/${info.id}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((m) => {
+        if (!cancelled && m?.mediaListEntry) {
+          setInfo((prev) =>
+            prev ? { ...prev, mediaListEntry: m.mediaListEntry } : prev,
+          );
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [info?.id, sessions?.user?.name]);
+
   const [artStorage,        setArtStorage]        = useState(null);
   const [episodeNavigation, setEpisodeNavigation] = useState(null);
   const [episodesList,      setepisodesList]      = useState();

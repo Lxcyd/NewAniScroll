@@ -5,6 +5,7 @@ import Modal from "@/components/modal";
 import { resolveSource, warmStream } from "@/lib/watch/sourcePrefetch";
 import { prefetchSkips } from "@/lib/skip/prefetchSkips";
 import { prefetchEpisodeList } from "@/lib/watch/episodePrefetch";
+import { setPrefetchedInfo } from "@/lib/watch/infoPrefetch";
 
 import { signIn, useSession } from "next-auth/react";
 import AniList from "@/components/media/aniList";
@@ -153,6 +154,13 @@ export default function Info({
   // already resolved (read from the shared cache), and the first HLS segment
   // is primed — playback starts almost instantly. Everything here is
   // best-effort and fire-and-forget; failures never affect the info page.
+  // Stash the full Media payload in the shared client cache the instant we
+  // have it (synchronously, before any idle deferral) so a fast click on
+  // "Watch" can hydrate the watch page from memory with zero network wait.
+  useEffect(() => {
+    if (info?.id) setPrefetchedInfo(info.id, info);
+  }, [info?.id, info]);
+
   useEffect(() => {
     if (!info?.id) return;
     const resumeEp = Math.max(1, (progress || 0) + 1);

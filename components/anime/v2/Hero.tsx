@@ -1,4 +1,5 @@
 import { CSSProperties, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/router";
 import { AniListInfoTypes } from "types/info/AnilistInfoTypes";
 import {
   LIST_COLORS,
@@ -56,6 +57,7 @@ export default function Hero({
 }: HeroProps) {
   const titlePref = useTitlePref();
   const { t } = useTranslation();
+  const router = useRouter();
   const title = pickTitle(info.title, titlePref);
   const seasonPill = prettySeason(info);
 
@@ -356,7 +358,24 @@ export default function Hero({
                 /* Coming-soon button is informational only — short-
                    circuit the navigation that the "#" href would
                    otherwise trigger (which jumps to top of page). */
-                if (isNotYetReleased) e.preventDefault();
+                if (isNotYetReleased) {
+                  e.preventDefault();
+                  return;
+                }
+                /* SPA-navigate instead of a full page load. Keeping the
+                   React tree mounted preserves the client prefetch caches
+                   (info / episode list / source) the watch page reads, so
+                   the player can render with zero network wait. Respect
+                   modifier-clicks (open-in-new-tab) by falling through to
+                   the native <a> in that case. */
+                if (
+                  e.metaKey || e.ctrlKey || e.shiftKey || e.altKey ||
+                  e.button !== 0
+                ) {
+                  return;
+                }
+                e.preventDefault();
+                router.push(watchHref);
               }}
               style={
                 {
