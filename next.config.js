@@ -142,6 +142,24 @@ module.exports = withPWA({
   // distDir: process.env.BUILD_DIR || ".next",
   // Uncomment this if you want to use Docker
   // output: "standalone",
+  // French URLs (/fr/...) are served by the existing /en/... page tree — there
+  // is no physical pages/fr/** directory. The visible /fr prefix is swapped in
+  // client-side (history.replaceState) when the site language is French; this
+  // rewrite makes those /fr URLs actually resolve on reload / when shared, with
+  // zero page duplication. getServerSideProps reads `query`, not the locale
+  // segment, so it works identically under either prefix.
+  async rewrites() {
+    return [
+      {
+        source: "/fr",
+        destination: "/en",
+      },
+      {
+        source: "/fr/:path*",
+        destination: "/en/:path*",
+      },
+    ];
+  },
   async redirects() {
     return [
       {

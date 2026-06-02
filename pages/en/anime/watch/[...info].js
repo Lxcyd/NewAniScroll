@@ -444,10 +444,13 @@ export default function Watch({
     if (!slug) return;
     const path = window.location.pathname;
     const parts = path.split("/").filter(Boolean);
-    // Expected prefix: ["en", "anime", "watch", "{aniId}"]
+    // Expected prefix: ["{locale}", "anime", "watch", "{aniId}"]
     if (parts.length < 4 || parts[2] !== "watch") return;
+    // Preserve whatever locale prefix is currently in the URL (/en or /fr) so
+    // we don't fight the I18nProvider's locale swap.
+    const locale = parts[0] === "fr" ? "fr" : "en";
     const aniIdPart = parts[3];
-    const desired = `/en/anime/watch/${aniIdPart}/${slug}`;
+    const desired = `/${locale}/anime/watch/${aniIdPart}/${slug}`;
     if (path !== desired) {
       const next = `${desired}${window.location.search}${window.location.hash}`;
       window.history.replaceState(null, "", next);

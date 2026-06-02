@@ -116,13 +116,19 @@ export default function Info({
     if (!info?.id) return;
     const slug = slugifyTitle(info.title);
     if (!slug) return;
-    const expected = `/en/anime/${info.id}/${slug}`;
     const current = window.location.pathname;
+    // Preserve the current locale prefix (/en or /fr) so we don't fight the
+    // I18nProvider's locale swap.
+    const locale = current.startsWith("/fr/") || current === "/fr" ? "fr" : "en";
+    const expected = `/${locale}/anime/${info.id}/${slug}`;
     if (current === expected) return;
-    // Only rewrite when the current path is the bare /en/anime/{id}
+    // Only rewrite when the current path is the bare /{locale}/anime/{id}
     // form — don't touch URLs that already carry some other segment
     // the user typed manually.
-    if (current === `/en/anime/${info.id}` || current === `/en/anime/${info.id}/`) {
+    if (
+      current === `/${locale}/anime/${info.id}` ||
+      current === `/${locale}/anime/${info.id}/`
+    ) {
       const search = window.location.search || "";
       const hash = window.location.hash || "";
       window.history.replaceState(null, "", expected + search + hash);
