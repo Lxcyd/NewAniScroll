@@ -28,9 +28,19 @@ export default function HoverPreview({
   const hlsRef = useRef<Hls | null>(null);
   const seekRafRef = useRef<number>(0);
   const lastSeekRef = useRef<number>(-1);
-  // Pre-cached thumbnails: Map<percent (0-100, integer step), ImageBitmap>
+  // Pre-cached thumbnails keyed by their timestamp BUCKET (integer seconds,
+  // snapped to THUMB_INTERVAL_S). Storing by time — not by percent — lets us
+  // pack a thumbnail every few seconds regardless of episode length, instead
+  // of a fixed 21 frames spread thin across a 24-minute episode.
   const thumbCacheRef = useRef<Map<number, HTMLCanvasElement>>(new Map());
   const cachingActiveRef = useRef(false);
+
+  // YouTube-style density: one low-res thumbnail every few seconds. Smaller
+  // canvas (112×63) keeps each capture cheap and memory low, so we can afford
+  // many more of them. ~144 frames for a 24-min episode vs the old 21.
+  const THUMB_INTERVAL_S = 10;
+  const THUMB_W = 112;
+  const THUMB_H = 63;
 
   // Subscribe to slider state so we know when the user is hovering
   const duration = useMediaState("duration", playerRef);
@@ -84,24 +94,25 @@ export default function HoverPreview({
       if (!isFinite(video.duration) || video.duration === 0) return;
       cachingActiveRef.current = true;
 
-      const STEP = 5; // every 5% (21 thumbnails for full video)
-      for (let pct = 0; pct <= 100; pct += STEP) {
+      const dur = video.duration;
+      // Walk the episode every THUMB_INTERVAL_S seconds. Keyed by the integer
+      // second bucket so hovers can snap to the nearest captured frame.
+      for (let t = 0; t <= dur; t += THUMB_INTERVAL_S) {
         if (!cachingActiveRef.current) return; // src changed
-        const target = (pct / 100) * video.duration;
-
-        // Skip if already cached
-        if (thumbCacheRef.current.has(pct)) continue;
+        const bucket = Math.round(t);
+        if (thumbCacheRef.current.has(bucket)) continue;
 
         try {
-          await seekAndWait(video, target);
-          // Capture frame
+          await seekAndWait(video, t);
           const c = document.createElement("canvas");
-          c.width = 160;
-          c.height = 90;
+          c.width = THUMB_W;
+          c.height = THUMB_H;
           const cx = c.getContext("2d");
           if (cx && video.videoWidth > 0) {
+            // Low quality on purpose — these are tiny scrubber previews.
+            cx.imageSmoothingQuality = "low";
             cx.drawImage(video, 0, 0, c.width, c.height);
-            thumbCacheRef.current.set(pct, c);
+            thumbCacheRef.current.set(bucket, c);
           }
         } catch {
           // Skip failed seeks
@@ -151,15 +162,17 @@ export default function HoverPreview({
       const ctx = canvas.getContext("2d");
       if (!ctx) return () => {};
 
-    /** Try to render from the pre-cached thumbnail (instant) at the given pct. */
-    const drawCachedAt = (pct: number): boolean => {
+    /** Render the pre-cached thumbnail (instant) closest to the given time. */
+    const drawCachedAt = (timeSec: number): boolean => {
       const cache = thumbCacheRef.current;
       if (cache.size === 0) return false;
-      // Find closest cached percent
+      // Snap to the nearest captured bucket; if it's missing (caching still
+      // walking the episode), search outward for the closest one we do have.
+      const want = Math.round(timeSec / THUMB_INTERVAL_S) * THUMB_INTERVAL_S;
       let best = -1;
       let bestDiff = Infinity;
       cache.forEach((_, k) => {
-        const d = Math.abs(k - pct);
+        const d = Math.abs(k - want);
         if (d < bestDiff) {
           bestDiff = d;
           best = k;
@@ -196,9 +209,9 @@ export default function HoverPreview({
       ctx.fillText("…", canvas.width / 2, canvas.height / 2);
     };
 
-    const drawFrame = (pct?: number) => {
+    const drawFrame = (timeSec?: number) => {
       // Priority: cached thumbnail (instant) → live video frame → placeholder
-      if (typeof pct === "number" && drawCachedAt(pct)) return;
+      if (typeof timeSec === "number" && drawCachedAt(timeSec)) return;
       if (drawLiveFrame()) return;
       drawPlaceholder();
     };
@@ -237,7 +250,7 @@ export default function HoverPreview({
 
       // Update label (hidden) and draw cached thumbnail INSTANTLY
       label.textContent = formatTime(time);
-      drawFrame(ratio * 100);
+      drawFrame(time);
     };
 
     const handleLeave = () => {
