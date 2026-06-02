@@ -1059,61 +1059,45 @@ input[type="number"] {
      further left than it should, and the error grows toward the right end. That
      compression is the click "offset" (Vidstack maps the click against the full
      slider rect correctly, but paints the fill/cursor on the squeezed pills).
-     With margin:0 the pills are edge-to-edge, sum == 100%, no compression →
-     what you click is where it lands. The visual gap is drawn by the ::after
-     overlay (position:absolute → zero layout impact, so it can't reintroduce
-     the offset). */
+     With margin:0 the pills are edge-to-edge, sum == 100% → what you click is
+     where it lands. The gap + rounding come from clip-path (below), which is a
+     PAINT-only operation: it consumes zero layout width, so it can't bring the
+     compression / offset back. */
   margin: 0 !important;
   min-width: 0;
   height: 5px;
   position: relative;
   box-sizing: border-box;
-  /* No per-pill rounding / overflow clipping. A 5px-tall pill with a 999px
-     radius rounds its *whole* short side into a lozenge, and overflow:hidden
-     then clips the rose fill into that lozenge — which, combined with the gap
-     notch, read as the "broken pills" look. We make the bar a single flat
-     track and round only the two outer ends below. */
   background-color: rgba(255, 255, 255, 0.22);
+  /* Each chapter is its own rounded capsule with a gap to the next one. We do
+     it with clip-path instead of border-radius+margin because:
+       • border-radius alone on edge-to-edge pills makes adjacent rounded ends
+         "pinch" together (both round inward at the shared seam) — the broken
+         look from before.
+       • a margin to separate them would re-introduce the flex compression and
+         the click offset.
+     `inset(0 4px 0 0 round 999px)` clips this chapter's paint (background AND
+     its child track-fill) to a fully-rounded capsule whose right edge is pulled
+     in 4px — that 4px is the gap before the next capsule. Because it's clip,
+     not layout, the chapter still occupies its exact X% width and the click
+     mapping is untouched. The rose fill, being a descendant, is clipped to the
+     same capsule, so it fills each segment with a clean rounded cap. */
+  clip-path: inset(0 4px 0 0 round 999px);
 }
-/* Round only the outer corners of the whole bar — left cap on the first pill,
-   right cap on the last — so the track reads as one continuous rounded bar
-   with internal dividers, instead of N separate lozenges. */
-.vds-time-slider .vds-slider-chapter:first-child {
-  border-top-left-radius: 999px;
-  border-bottom-left-radius: 999px;
-}
+/* Last capsule has no neighbour → no right gap, just the rounded cap. */
 .vds-time-slider .vds-slider-chapter:last-child {
-  border-top-right-radius: 999px;
-  border-bottom-right-radius: 999px;
-}
-/* Inter-pill gap: a slim divider painted on the right edge of every pill except
-   the last. position:absolute → no layout space → no click drift. z-index above
-   the rose fill so the gap stays visible even on a filled pill. The colour is a
-   touch translucent so it reads as a seam, not a hard black bite out of the
-   rose fill. */
-.vds-time-slider .vds-slider-chapter:not(:last-child)::after {
-  content: "";
-  position: absolute;
-  top: -1px;
-  bottom: -1px;
-  right: 0;
-  width: 2px;
-  background: rgba(10, 10, 15, 0.92);
-  z-index: 3;
-  pointer-events: none;
+  clip-path: inset(0 0 0 0 round 999px);
 }
 
-/* Flatten the rounding on the inner layers — the pill comes from
-   the chapter slot itself. Also stretch them to the full pill
-   height so the rose track-fill fills the chapter top to bottom
-   (Vidstack's default fill height is smaller than our 6 px pill
-   and left only the top half painted). The track-fill is rendered
-   ONCE at the slider root (not inside each chapter), so the
-   selectors target both the chapter children AND the global slider
-   layers — otherwise the fill keeps its 3 px default height and
-   you only see the upper half painted. Critically we do NOT touch
-   `width` / `left` / `right` so Vidstack's per-chapter width calc
-   keeps working. */
+/* Flatten the rounding on the inner layers (the capsule shape now comes from
+   the chapter's clip-path) and stretch them to the full pill height so the rose
+   track-fill paints the capsule top-to-bottom — Vidstack's default fill height
+   is smaller than our 5px pill and otherwise leaves only the upper half painted.
+   The DefaultTimeSlider renders the track / track-fill / progress ONLY inside
+   each .vds-slider-chapter (there is no root-level fill), so the per-chapter
+   selectors are what matter; the [data-media-slider] ones are a harmless belt
+   for the single-chapter (no-AniSkip) case. We never touch width / left / right
+   so Vidstack's per-chapter width calc keeps working. */
 .vds-time-slider[data-media-slider] .vds-slider-track,
 .vds-time-slider[data-media-slider] .vds-slider-track-fill,
 .vds-time-slider[data-media-slider] .vds-slider-progress,
