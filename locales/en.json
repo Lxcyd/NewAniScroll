@@ -28,6 +28,8 @@
   "nav": {
     "home": "Home",
     "search": "Search",
+    "season": "Season",
+    "animeBrowse": "Anime",
     "schedule": "Schedule",
     "myList": "My List",
     "trending": "Trending",

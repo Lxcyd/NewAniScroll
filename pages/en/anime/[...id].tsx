@@ -219,7 +219,11 @@ export default function Info({
       if (malId) void prefetchSkips(malId, resumeEp, info.id);
     };
 
-    const timeoutId = window.setTimeout(runCritical, 800);
+    // Short delay: just enough to let the info page's first paint + its own
+    // above-the-fold image/metadata fetches kick off, but well under the time
+    // it takes a user to read the page and click "Watch". (Was 800ms, which
+    // lost the race on fast clicks — the prefetch hadn't started yet.)
+    const timeoutId = window.setTimeout(runCritical, 200);
 
     const w = window as any;
     let idleId: number | undefined;

@@ -188,7 +188,7 @@ export function Navbar({
                     href={`/en/search/anime?season=${season.toLowerCase()}&year=${year}`}
                     className="hover:text-action/80 transition-all duration-150 ease-linear whitespace-nowrap"
                   >
-                    {t("home.thisSeason")}
+                    {t("nav.season")}
                   </Link>
                 </li>
                 <li>
@@ -196,7 +196,7 @@ export function Navbar({
                     href="/en/search/anime"
                     className="hover:text-action/80 transition-all duration-150 ease-linear whitespace-nowrap"
                   >
-                    {t("nav.search")}
+                    {t("nav.animeBrowse")}
                   </Link>
                 </li>
                 <li>

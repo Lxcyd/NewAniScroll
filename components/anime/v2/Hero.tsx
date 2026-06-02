@@ -18,6 +18,8 @@ import { toast } from "sonner";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { useTranslation } from "react-i18next";
 import { genreLabel } from "@/lib/i18n/genreLabel";
+import { resolveSource, warmStream } from "@/lib/watch/sourcePrefetch";
+import { prefetchEpisodeList } from "@/lib/watch/episodePrefetch";
 
 type HeroProps = {
   info: AniListInfoTypes;
@@ -121,6 +123,44 @@ export default function Hero({
     : isCompleted
     ? `/en/anime/watch/${info.id}/megaplay?id=megaplay-${info.id}-1&num=1`
     : watchUrl || `/en/anime/watch/${info.id}/megaplay?id=megaplay-${info.id}-1&num=1`;
+
+  // ── Intent-based prefetch ──────────────────────────────────────────────
+  // Warm the entire playback path the instant the user shows intent to watch
+  // (hover / pointer-down on the button) — earlier than the page-level idle
+  // prefetch, and exactly when it matters. By the time the click navigates,
+  // the route + player chunk + episode list + source are already in flight or
+  // cached, so the player boxes appear with little to no wait. Idempotent.
+  const warmedRef = useRef(false);
+  const warmWatch = () => {
+    if (warmedRef.current || isNotYetReleased || !info?.id) return;
+    warmedRef.current = true;
+    try {
+      router.prefetch(watchHref);
+    } catch {}
+    void import("@/components/watch/primary/UniversalPlayer").catch(() => {});
+    void prefetchEpisodeList(info.id, {
+      releasing: (info as any)?.status === "RELEASING",
+      priority: "high",
+    });
+    resolveSource(
+      {
+        aniId: info.id,
+        episode: epNum,
+        server: "megaplay",
+        sub: "sub",
+        title: info?.title?.romaji || info?.title?.english || undefined,
+        mediaMeta: {
+          id: info.id,
+          title: info.title,
+          synonyms: (info as any).synonyms,
+          relations: (info as any).relations,
+        },
+      },
+      { priority: "high" as any },
+    ).then((data) => {
+      if (data) warmStream(data);
+    });
+  };
 
   // For coming-soon anime, build a friendly air-date string from
   // nextAiringEpisode.airingAt (epoch seconds) or fall back to
@@ -354,6 +394,9 @@ export default function Hero({
             />
             <a
               href={watchHref}
+              onPointerEnter={warmWatch}
+              onPointerDown={warmWatch}
+              onFocus={warmWatch}
               onClick={(e) => {
                 /* Coming-soon button is informational only — short-
                    circuit the navigation that the "#" href would

@@ -4,6 +4,7 @@ import { signIn, signOut, useSession } from "next-auth/react";
 import Image from "next/image";
 import Link from "next/link";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 
 type MobileNavProps = {
   hideProfile?: boolean;
@@ -11,6 +12,7 @@ type MobileNavProps = {
 
 export default function MobileNav({ hideProfile = false }: MobileNavProps) {
   const { data: sessions }: { data: any } = useSession();
+  const { t } = useTranslation();
   const [isVisible, setIsVisible] = useState(false);
 
   const handleShowClick = () => {
@@ -86,7 +88,7 @@ export default function MobileNav({ hideProfile = false }: MobileNavProps) {
                   href="/en/schedule"
                   className="font-karla font-bold text-white/60 group-hover:text-action"
                 >
-                  schedule
+                  {t("nav.schedule")}
                 </Link>
               </button>
               <button className="group flex gap-[1px] flex-col items-center">
@@ -98,7 +100,7 @@ export default function MobileNav({ hideProfile = false }: MobileNavProps) {
                   href="/en/search/anime"
                   className="font-karla font-bold text-white/60 group-hover:text-action"
                 >
-                  search
+                  {t("nav.animeBrowse")}
                 </Link>
               </button>
               <button className="group flex gap-[1px] flex-col items-center">
