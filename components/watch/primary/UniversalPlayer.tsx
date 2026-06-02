@@ -1062,6 +1062,94 @@ export default function UniversalPlayer({
           // here, so call through `any`.
           (hls as any).on("hlsError", onHlsError);
         } catch {}
+
+        // ── TEMP DEBUG: trace the end-reset ──────────────────────────────
+        // Logs every hls.js + media event with currentTime/duration/buffered
+        // so we can see EXACTLY what fires (and in what order) at the moment
+        // the playhead bounces to 0, instead of guessing. Toggle with
+        // localStorage.setItem("aniscroll:debugPlayer","1"); remove once fixed.
+        try {
+          const host =
+            typeof window !== "undefined" ? window.location.hostname : "";
+          const dbg =
+            typeof window !== "undefined" &&
+            (window.localStorage?.getItem("aniscroll:debugPlayer") === "1" ||
+              // Auto-on for local + the dev.aniscroll.com staging host so we can
+              // capture the end-reset trace without any manual toggle. Never
+              // fires on the production domain. (Remove this whole block once
+              // the end-reset is fixed.)
+              host === "localhost" ||
+              host === "127.0.0.1" ||
+              host.startsWith("dev."));
+          if (dbg) {
+            const el = playerRef.current?.el as HTMLElement | undefined;
+            const v = el?.querySelector<HTMLVideoElement>("video") || null;
+            const t0 = performance.now();
+            const stamp = () => `+${((performance.now() - t0) / 1000).toFixed(2)}s`;
+            const snap = () => {
+              if (!v) return "(no video)";
+              let bufEnd = -1;
+              try {
+                if (v.buffered.length)
+                  bufEnd = v.buffered.end(v.buffered.length - 1);
+              } catch {}
+              return `ct=${v.currentTime.toFixed(2)} dur=${
+                Number.isFinite(v.duration) ? v.duration.toFixed(2) : v.duration
+              } bufEnd=${bufEnd.toFixed(2)} paused=${v.paused} ended=${v.ended} seeking=${v.seeking} ready=${v.readyState}`;
+            };
+            const HLS_EVENTS = [
+              "hlsMediaAttaching", "hlsMediaAttached", "hlsMediaDetaching",
+              "hlsMediaDetached", "hlsManifestLoading", "hlsManifestParsed",
+              "hlsLevelLoading", "hlsLevelLoaded", "hlsFragLoading",
+              "hlsFragLoaded", "hlsFragBuffered", "hlsBufferEos",
+              "hlsBufferFlushing", "hlsError", "hlsDestroying",
+            ];
+            HLS_EVENTS.forEach((name) => {
+              try {
+                (hls as any).on(name, (_e: any, d: any) => {
+                  const extra =
+                    name === "hlsError"
+                      ? ` type=${d?.type} details=${d?.details} fatal=${d?.fatal} code=${d?.response?.code}`
+                      : name === "hlsLevelLoaded"
+                        ? ` live=${d?.details?.live} totalduration=${d?.details?.totalduration?.toFixed?.(2)}`
+                        : "";
+                  // eslint-disable-next-line no-console
+                  console.log(`[PLYR ${stamp()}] ${name}${extra} | ${snap()}`);
+                });
+              } catch {}
+            });
+            const MEDIA_EVENTS = [
+              "emptied", "loadstart", "loadedmetadata", "loadeddata",
+              "durationchange", "canplay", "seeking", "seeked", "waiting",
+              "stalled", "ended", "play", "pause", "ratechange", "error",
+            ];
+            if (v) {
+              MEDIA_EVENTS.forEach((name) =>
+                v.addEventListener(name, () => {
+                  // eslint-disable-next-line no-console
+                  console.log(`[PLYR ${stamp()}] <video> ${name} | ${snap()}`);
+                }),
+              );
+              // Catch the actual jump-to-0 with a stack trace so we can see WHO
+              // set currentTime (hls vs our code vs Vidstack).
+              let prev = 0;
+              v.addEventListener("timeupdate", () => {
+                if (!v.seeking) {
+                  if (prev > 30 && v.currentTime <= 1.5) {
+                    // eslint-disable-next-line no-console
+                    console.warn(
+                      `[PLYR ${stamp()}] ⚠️ JUMP TO 0 (prev=${prev.toFixed(2)}) | ${snap()}`,
+                      new Error("jump-to-0 stack").stack,
+                    );
+                  }
+                  prev = v.currentTime;
+                }
+              });
+            }
+            // eslint-disable-next-line no-console
+            console.log(`[PLYR ${stamp()}] debug attached | ${snap()}`);
+          }
+        } catch {}
       }
     }
   };
