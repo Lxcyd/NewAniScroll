@@ -918,11 +918,30 @@ export default function Watch({
           (Array.isArray(body?.sources) && body.sources.length > 0) ||
           (typeof body?.iframe === "string" && body.iframe.length > 0);
         if (!hasStream) return { v: "retry" };
-        return { v: "ok", degraded: !!body?.degraded };
+        // Return the resolved payload so the caller can seed the prefetch
+        // cache — switching to this server then reads it instantly (no second
+        // /api/v2/source round-trip + extraction wait).
+        return { v: "ok", degraded: !!body?.degraded, data: body };
       } catch (e) {
         if (e?.name === "AbortError") return { v: "abort" };
         return { v: "retry" }; // network / DNS / timeout
       }
+    };
+
+    // Seed the shared prefetch cache with a probe's resolved source so that
+    // SWITCHING to that server is instant — fetchStreamSource reads this cache
+    // first. This is what "prefetch every available server" comes down to: the
+    // probes already resolve each server's source to light its chip, so we just
+    // keep the payload instead of throwing it away.
+    const sub = dub ? "dub" : "sub";
+    const seedSourceCache = (serverId, data) => {
+      if (!data || data.error) return;
+      try {
+        setPrefetchedSource(
+          sourceKey(info.id, parseInt(epiNumber), serverId, sub),
+          data,
+        );
+      } catch {}
     };
 
     const probe = async (s) => {
@@ -935,6 +954,7 @@ export default function Watch({
       if (first.v === "ok") {
         cachedConfirmed.add(s.id);
         persistProbeCache();
+        seedSourceCache(s.id, first.data);
         if (first.degraded) markDegraded(s.id);
         return markConfirmed(s.id);
       }
@@ -953,6 +973,7 @@ export default function Watch({
       if (second.v === "ok") {
         cachedConfirmed.add(s.id);
         persistProbeCache();
+        seedSourceCache(s.id, second.data);
         if (second.degraded) markDegraded(s.id);
         return markConfirmed(s.id);
       }
