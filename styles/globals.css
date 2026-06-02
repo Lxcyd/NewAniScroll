@@ -1052,38 +1052,37 @@ input[type="number"] {
 }
 
 .vds-time-slider .vds-slider-chapter {
-  /* Inline width (% of slider) comes from Vidstack — leave it alone, and add
-     NOTHING that changes the box width (no margin, no border). The pills stay
-     edge-to-edge so their total width == slider width == duration, and
-     Vidstack's native click→time mapping stays pixel-exact (no JS needed).
-     The visual gap between pills is painted by a ::after overlay below, which
-     is position:absolute and therefore takes zero layout space. */
+  /* CRITICAL: kill Vidstack's native `margin-right: 2px` on each chapter.
+     Vidstack writes `style.width = "X%"` on every chapter (X = chapterDuration /
+     totalDuration). Those %s sum to 100%. Any margin on top makes the flex row
+     overflow → flex COMPRESSES every pill below its X% → a given time renders
+     further left than it should, and the error grows toward the right end. That
+     compression is the click "offset" you saw (Vidstack maps the click against
+     the full slider rect correctly, but paints the fill/cursor on the squeezed
+     pills). With margin:0 the pills are edge-to-edge, sum == 100%, no
+     compression → what you click is where it lands. The visual gap is drawn by
+     the ::after overlay (position:absolute → zero layout impact). */
+  margin: 0 !important;
   min-width: 0;
   height: 6px;
   position: relative;
   box-sizing: border-box;
-  /* Round the chapter slot ITSELF + clip overflow so the inner
-     fill / progress / track always read as a pill. */
   border-radius: 999px;
   overflow: hidden;
-  /* Lighter background tint for the unplayed portion of each
-     chapter, otherwise the white default is too loud. */
   background-color: rgba(255, 255, 255, 0.18);
 }
-/* Inter-pill gap: a 4px black notch painted on top of the RIGHT edge of every
-   pill except the last. position:absolute → no layout impact → no click drift.
-   It sits above the fill (z-index) so the gap reads as empty even when the rose
-   progress has filled the pill. The parent's `overflow:hidden` would clip it,
-   so we let it draw within the pill's own right edge. */
+/* Inter-pill gap: a notch painted on the right edge of every pill except the
+   last. position:absolute → no layout space → no click drift. z-index above the
+   rose fill so the gap stays visible even on a filled pill. */
 .vds-time-slider .vds-slider-chapter:not(:last-child)::after {
   content: "";
   position: absolute;
-  top: -1px;
-  bottom: -1px;
+  top: 0;
+  bottom: 0;
   right: 0;
-  width: 4px;
+  width: 3px;
   background: #0a0a0f;
-  z-index: 2;
+  z-index: 3;
   pointer-events: none;
 }
 

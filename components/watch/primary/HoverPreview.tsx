@@ -34,12 +34,12 @@ export default function HoverPreview({
   const thumbCacheRef = useRef<Map<number, HTMLCanvasElement>>(new Map());
   const cachingActiveRef = useRef(false);
 
-  // YouTube-style density: one low-res thumbnail every few seconds. Smaller
-  // canvas (112×63) keeps each capture cheap and memory low, so we can afford
-  // many more of them. ~144 frames for a 24-min episode vs the old 21.
+  // YouTube-style density at a CRISP resolution. We capture at 320×180 (16:9)
+  // which is sharp at the ~192px-wide preview the tooltip shows, while still
+  // being cheap enough to cache one every 10s (~144 frames for a 24-min ep).
   const THUMB_INTERVAL_S = 10;
-  const THUMB_W = 112;
-  const THUMB_H = 63;
+  const THUMB_W = 320;
+  const THUMB_H = 180;
 
   // Subscribe to slider state so we know when the user is hovering
   const duration = useMediaState("duration", playerRef);
@@ -59,14 +59,28 @@ export default function HoverPreview({
 
     if (isM3U8 && Hls.isSupported()) {
       const hls = new Hls({
-        maxBufferLength: 30,
-        maxMaxBufferLength: 60,
-        backBufferLength: 30,
-        startLevel: 0,
+        // Small buffer — we only seek-and-grab single frames, never play.
+        maxBufferLength: 6,
+        maxMaxBufferLength: 12,
+        backBufferLength: 0,
+        // Pick a MID quality level (not the lowest) so the thumbnails are
+        // crisp. startLevel:-1 lets hls.js auto-pick based on bandwidth; we
+        // then cap it to a mid rung below so previews aren't full-HD-heavy.
+        startLevel: -1,
         capLevelToPlayerSize: false,
         xhrSetup: (xhr) => {
           xhr.withCredentials = false;
         },
+      });
+      // Cap the preview decoder to a middle quality rung once levels are known:
+      // sharp enough for a 192px tooltip, far lighter than the top rung, so the
+      // background thumbnail walk doesn't compete hard with the main player.
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        const n = hls.levels?.length || 0;
+        if (n > 1) {
+          // middle rung (round down), but never the very lowest
+          hls.currentLevel = Math.max(1, Math.floor((n - 1) / 2));
+        }
       });
       hls.loadSource(src);
       hls.attachMedia(video);
@@ -108,8 +122,8 @@ export default function HoverPreview({
           c.height = THUMB_H;
           const cx = c.getContext("2d");
           if (cx && video.videoWidth > 0) {
-            // Low quality on purpose — these are tiny scrubber previews.
-            cx.imageSmoothingQuality = "low";
+            cx.imageSmoothingEnabled = true;
+            cx.imageSmoothingQuality = "high";
             cx.drawImage(video, 0, 0, c.width, c.height);
             thumbCacheRef.current.set(bucket, c);
           }
@@ -216,14 +230,14 @@ export default function HoverPreview({
 
       // Position tooltip above the slider, follow the cursor
       const playerRect = playerEl.getBoundingClientRect();
-      const tipWidth = wrap.offsetWidth || 160;
+      const tipWidth = wrap.offsetWidth || 192;
       const left = Math.min(
         Math.max(8, e.clientX - playerRect.left - tipWidth / 2),
         playerRect.width - tipWidth - 8
       );
       const sliderTop = rect.top - playerRect.top;
       wrap.style.left = `${left}px`;
-      wrap.style.top = `${sliderTop - 110}px`;
+      wrap.style.top = `${sliderTop - 128}px`;
       wrap.style.opacity = "1";
 
       // Update label (hidden) and draw the closest cached (static) thumbnail.
@@ -277,10 +291,10 @@ export default function HoverPreview({
     >
       <canvas
         ref={canvasRef}
-        width={160}
-        height={90}
+        width={320}
+        height={180}
         className="rounded-md bg-black ring-1 ring-white/20 shadow-xl"
-        style={{ width: "160px", height: "90px" }}
+        style={{ width: "192px", height: "108px" }}
       />
       {/* Hidden label — kept in DOM so existing code can update it without crashing */}
       <span ref={labelRef} className="sr-only">0:00</span>

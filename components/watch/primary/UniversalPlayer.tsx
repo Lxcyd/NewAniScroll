@@ -118,12 +118,17 @@ const PROXY_BASE =
 //     retry rather than hanging the seek.
 const HLS_CONFIG = {
   lowLatencyMode: false,
-  maxBufferLength: 60,
-  maxMaxBufferLength: 120,
-  maxBufferSize: 120 * 1000 * 1000, // 120 MB
-  backBufferLength: 60,
-  // Make a seek start fetching the target fragment immediately.
-  startFragPrefetch: true,
+  // Forward buffer kept moderate. A very large forward buffer made hls.js
+  // prefetch all the way to the end during normal playback near the outro; on
+  // some megaplay encodes that ends in a buffer-EOS → reload cycle that wraps
+  // the playhead back to 0 ("video restarts on its own near the end"). 30s is
+  // plenty for smooth playback and seeks.
+  maxBufferLength: 30,
+  maxMaxBufferLength: 60,
+  maxBufferSize: 80 * 1000 * 1000, // 80 MB
+  backBufferLength: 30,
+  // NOTE: startFragPrefetch removed — it could fetch a non-existent fragment
+  // past the last one near the end and trigger the reset-to-0 loop above.
   // Don't sit on a slow/stuck segment — bail and retry quickly so the seek
   // resolves instead of spinning.
   fragLoadingMaxRetry: 4,
