@@ -5,6 +5,7 @@ import Link from "next/link";
 import Footer from "@/components/shared/footer";
 import Image from "next/image";
 import Content from "@/components/home/content";
+import CarouselSkeleton from "@/components/home/CarouselSkeleton";
 import { useTranslation } from "react-i18next";
 import { useTranslatedText, prefetchTranslations } from "@/lib/i18n/useTranslatedText";
 
@@ -597,16 +598,19 @@ export default function Home({
   const {
     anime: currentAnime,
     recommendations,
+    loading: currentLoading,
   }: {
     anime: CurrentMediaTypes[];
     recommendations: CurrentMediaTypes[];
+    loading: boolean;
   } = GetMedia(sessions, {
     stats: "CURRENT",
   });
-  const { anime: plan }: { anime: CurrentMediaTypes[] } = GetMedia(sessions, {
-    stats: "PLANNING",
-  });
-  const { anime: release } = GetMedia(sessions);
+  const { anime: plan, loading: planLoading }: { anime: CurrentMediaTypes[]; loading: boolean } =
+    GetMedia(sessions, {
+      stats: "PLANNING",
+    });
+  const { anime: release, loading: releaseLoading } = GetMedia(sessions);
 
   const router = useRouter();
 
@@ -726,45 +730,40 @@ export default function Home({
         console.error(error);
         // Handle the error here
       }
-      if (!data) {
-        // The previous version called Object.keys() on the raw localStorage
-        // string, which silently produced numeric character indices rather
-        // than the actual entry keys. Parsing first fixes that and lets
-        // the Recently Watched carousel actually populate for anonymous /
-        // Prisma-less sessions.
+      // Read the device-local watch history (artplayer_settings) — works for
+      // everyone, signed in or not. Most-recent-first, deduped by aniId.
+      const readLocalHistory = (): any[] => {
         let parsed: Record<string, any> | null = null;
         try {
           const raw = localStorage.getItem("artplayer_settings");
           parsed = raw ? JSON.parse(raw) : null;
         } catch {}
-        if (parsed && typeof parsed === "object") {
-          const arr = Object.values(parsed) as any[];
-          const newFirst = arr.sort(
-            (a: any, b: any) =>
-              new Date(b?.createdAt || 0).getTime() -
-              new Date(a?.createdAt || 0).getTime(),
-          );
-
-          // Dedup by aniId (most reliable key) falling back to aniTitle.
-          // newFirst is already sorted most-recent-first, so the first
-          // occurrence of each id is the one we keep.
-          const seenIds = new Set<string>();
-          const seenTitles = new Set<string>();
-          const filteredData = newFirst.filter((entry: any) => {
-            if (entry?.aniId) {
-              const key = String(entry.aniId);
-              if (seenIds.has(key)) return false;
-              seenIds.add(key);
-              return true;
-            }
-            const titleKey = String(entry?.aniTitle || "").toLowerCase().trim();
-            if (!titleKey || seenTitles.has(titleKey)) return false;
-            seenTitles.add(titleKey);
+        if (!parsed || typeof parsed !== "object") return [];
+        const arr = (Object.values(parsed) as any[]).sort(
+          (a: any, b: any) =>
+            new Date(b?.createdAt || 0).getTime() -
+            new Date(a?.createdAt || 0).getTime(),
+        );
+        const seenIds = new Set<string>();
+        const seenTitles = new Set<string>();
+        return arr.filter((entry: any) => {
+          if (entry?.aniId) {
+            const key = String(entry.aniId);
+            if (seenIds.has(key)) return false;
+            seenIds.add(key);
             return true;
-          });
+          }
+          const titleKey = String(entry?.aniTitle || "").toLowerCase().trim();
+          if (!titleKey || seenTitles.has(titleKey)) return false;
+          seenTitles.add(titleKey);
+          return true;
+        });
+      };
 
-          if (filteredData.length) setUser(filteredData);
-        }
+      if (!data) {
+        // Anonymous / Prisma-less session → device-local history only.
+        const local = readLocalHistory();
+        if (local.length) setUser(local);
       } else {
         // Sort most-recent-first before dedup. The Prisma query already
         // orders by createdDate desc, but rows with a null/stale createdDate
@@ -793,7 +792,10 @@ export default function Home({
           seenTitles.add(titleKey);
           return true;
         });
-        setUser(filteredData);
+        // A signed-in user with an empty server list (e.g. they only ever
+        // watched anonymously, or the Prisma write failed) should still see
+        // their device-local history rather than an empty section.
+        setUser(filteredData.length ? filteredData : readLocalHistory());
       }
       // const data = await res.json();
     }
@@ -915,7 +917,7 @@ export default function Home({
             animate={{ opacity: 1 }}
             transition={{ duration: 0.5, staggerChildren: 0.2 }} // Add staggerChildren prop
           >
-            {user && user?.length > 0 && user?.some((i) => i?.watchId) && (
+            {user && user?.length > 0 && user?.some((i) => i?.watchId || i?.aniId) && (
               <motion.section // Add motion.div to each child component
                 key="recentlyWatched"
                 initial={{ y: 20, opacity: 0 }}
@@ -950,6 +952,12 @@ export default function Home({
                 />
               </motion.section>
             )}
+            {/* Reserve the row's height while the signed-in user's lists are
+                still loading, so the carousel doesn't pop in and shove the
+                sections below it down the page. */}
+            {sessions && releaseLoading && releaseData?.length === 0 && (
+              <CarouselSkeleton variant="landscape" />
+            )}
 
             {sessions && listAnime && listAnime?.length > 0 && (
               <motion.section // Add motion.div to each child component
@@ -968,6 +976,9 @@ export default function Home({
                 />
               </motion.section>
             )}
+            {sessions && currentLoading && !listAnime?.length && (
+              <CarouselSkeleton />
+            )}
 
             {recommendations.length > 0 && (
               <motion.section
@@ -983,6 +994,9 @@ export default function Home({
                   data={recommendations}
                 />
               </motion.section>
+            )}
+            {sessions && currentLoading && recommendations.length === 0 && (
+              <CarouselSkeleton />
             )}
 
             {/* SECTION 2 */}
@@ -1001,6 +1015,9 @@ export default function Home({
                   userName={userSession?.name}
                 />
               </motion.section>
+            )}
+            {sessions && planLoading && !planned?.length && (
+              <CarouselSkeleton />
             )}
           </motion.div>
 

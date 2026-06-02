@@ -376,7 +376,9 @@ export default function Content({
   // header + empty carousel.
   if (
     ids === "recentlyWatched" &&
-    (!userData || userData.length === 0 || !userData.some((i: any) => i?.watchId))
+    (!userData ||
+      userData.length === 0 ||
+      !userData.some((i: any) => i?.watchId || i?.aniId))
   ) {
     return null;
   }
