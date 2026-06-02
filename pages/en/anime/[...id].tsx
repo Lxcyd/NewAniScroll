@@ -3,6 +3,8 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import Modal from "@/components/modal";
 import { resolveSource, warmStream } from "@/lib/watch/sourcePrefetch";
+import { prefetchSkips } from "@/lib/skip/prefetchSkips";
+import { prefetchEpisodeList } from "@/lib/watch/episodePrefetch";
 
 import { signIn, useSession } from "next-auth/react";
 import AniList from "@/components/media/aniList";
@@ -157,19 +159,30 @@ export default function Info({
     const server = "megaplay";
     const watchHref = `/en/anime/watch/${info.id}/${server}?id=${server}-${info.id}-${resumeEp}&num=${resumeEp}`;
 
+    const releasing = info.status === "RELEASING";
+    const malId = (info as any)?.idMal as number | undefined;
+
     let cancelled = false;
-    const run = () => {
+
+    // ── Tier 1: the things the watch page actually blocks on ───────────
+    // The player can't render until the EPISODE LIST returns (it builds
+    // `episodeNavigation` from it) and the SOURCE resolves. These are the
+    // gate on "time to player", so we start them on a short fixed delay —
+    // long enough not to fight the info page's above-the-fold fetches, but
+    // well before a typical user finishes reading and clicks "Watch".
+    const runCritical = () => {
       if (cancelled) return;
-      // 1. Warm the Next.js route + the player's dynamic chunk.
+      // Warm the Next.js route + the player's dynamic chunk.
       try {
         router.prefetch(watchHref);
       } catch {}
       void import("@/components/watch/primary/UniversalPlayer").catch(() => {});
 
-      // 2. Resolve the episode source (low priority) and, once we have it,
-      //    prime the HLS manifest + first segment so playback starts with no
-      //    buffering. Reads from / writes to the shared prefetch cache that
-      //    the watch page consults first.
+      // Episode list — the request the player waits on. Writes to the shared
+      // cache the watch page reads first, and primes the browser HTTP cache.
+      void prefetchEpisodeList(info.id, { releasing, priority: "low" });
+
+      // Resolve the episode source and stash it for the watch page to read.
       resolveSource(
         {
           aniId: info.id,
@@ -190,21 +203,32 @@ export default function Info({
       });
     };
 
-    // Wait for an idle moment so the info page's own fetches go first.
+    // ── Tier 2: nice-to-have warmups, deferred to a real idle moment ───
+    // AniSkip chapter data shares SKIP_MEMO with the watch page; it only
+    // matters once the video reports its duration, so it can wait for idle.
+    const runIdle = () => {
+      if (cancelled) return;
+      if (malId) void prefetchSkips(malId, resumeEp, info.id);
+    };
+
+    const timeoutId = window.setTimeout(runCritical, 800);
+
     const w = window as any;
     let idleId: number | undefined;
-    let timeoutId: number | undefined;
+    let idleTimeoutId: number | undefined;
     if (typeof w.requestIdleCallback === "function") {
-      idleId = w.requestIdleCallback(run, { timeout: 2500 });
+      idleId = w.requestIdleCallback(runIdle, { timeout: 3000 });
     } else {
-      timeoutId = window.setTimeout(run, 1200);
+      idleTimeoutId = window.setTimeout(runIdle, 1500);
     }
+
     return () => {
       cancelled = true;
+      window.clearTimeout(timeoutId);
       if (idleId != null && typeof w.cancelIdleCallback === "function") {
         w.cancelIdleCallback(idleId);
       }
-      if (timeoutId != null) window.clearTimeout(timeoutId);
+      if (idleTimeoutId != null) window.clearTimeout(idleTimeoutId);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [info?.id, progress]);

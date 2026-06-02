@@ -27,6 +27,7 @@ import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { useTranslation } from "react-i18next";
 import { FULL_MEDIA_FIELDS } from "@/lib/anilist/fullMediaQuery";
 import { getPrefetchedSource, sourceKey, setPrefetchedSource } from "@/lib/watch/sourcePrefetch";
+import { getPrefetchedEpisodes, setPrefetchedEpisodes } from "@/lib/watch/episodePrefetch";
 import { anilistFetch } from "@/lib/anilist/anilistFetch";
 import Link from "next/link";
 import MobileNav from "@/components/shared/MobileNav";
@@ -444,11 +445,18 @@ export default function Watch({
       if (info.mediaListEntry) setOnList(true);
       setDataMedia(info);
 
-      const raw = await fetch(
-        `/api/v2/episode/${info.id}?releasing=${
-          info.status === "RELEASING" ? "true" : "false"
-        }${dub ? "&dub=true" : ""}`
-      ).then((res) => res.json());
+      // Fast path: the info page may have already fetched + cached this exact
+      // episode list in the background. If so, use it immediately so the player
+      // can build `episodeNavigation` and render without waiting on the network.
+      let raw = getPrefetchedEpisodes(info.id, !!dub);
+      if (!raw) {
+        raw = await fetch(
+          `/api/v2/episode/${info.id}?releasing=${
+            info.status === "RELEASING" ? "true" : "false"
+          }${dub ? "&dub=true" : ""}`
+        ).then((res) => res.json());
+        if (Array.isArray(raw)) setPrefetchedEpisodes(info.id, !!dub, raw);
+      }
 
       const response = Array.isArray(raw) ? raw : [];
       const getMap  = response.find((i) => i?.map === true) || response[0];
