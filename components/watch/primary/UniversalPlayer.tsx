@@ -104,36 +104,41 @@ const PROXY_BASE =
     (process as any).env?.NEXT_PUBLIC_PROXY_BASE) ||
   "/api/v2/proxy/m3u8";
 
-// hls.js tuning for snappier seeking. The defaults buffer only ~30s ahead
-// and keep almost no back-buffer, so every seek (even a few seconds) forces
-// a fresh network round-trip — and each segment here goes through our proxy
-// → CDN, which makes that round-trip slow. We trade a bit of bandwidth for
-// responsiveness:
-//   - maxBufferLength / maxMaxBufferLength: buffer much further ahead so a
-//     forward seek often lands in already-buffered data (instant).
-//   - backBufferLength: keep 60s behind so rewinding is instant too.
-//   - maxBufferSize: raise the byte cap so HD segments aren't evicted early.
-//   - lowLatencyMode off: VOD, we want big buffers not low latency.
-//   - fragLoadingMaxRetry / lower timeouts: fail fast on a stuck segment and
-//     retry rather than hanging the seek.
+// hls.js tuning for snappy seeking. The defaults buffer only ~30s ahead and
+// keep almost no back-buffer, so every seek forces a fresh network round-trip —
+// and each megaplay segment goes through our proxy → CDN. That round-trip is
+// fast for popular titles (JJK: edge-cached at the Worker) but slow for less
+// popular ones (SnK / Demon Slayer: cache miss → origin fetch). The fix is to
+// buffer far MORE aggressively so a seek usually lands in data we already
+// fetched, and to prefetch ahead of playback so the buffer stays deep.
+//
+// (An earlier version cut these buffers + dropped startFragPrefetch to chase
+// the "video resets near the end" bug. That bug's real cause was elsewhere —
+// the chapters-VTT blob being rebuilt on a sub-second durationchange, since
+// fixed by quantizing the duration — so the buffer cuts were unnecessary and
+// just made seeking slow. Restored here.)
 const HLS_CONFIG = {
   lowLatencyMode: false,
-  // Forward buffer kept moderate. A very large forward buffer made hls.js
-  // prefetch all the way to the end during normal playback near the outro; on
-  // some megaplay encodes that ends in a buffer-EOS → reload cycle that wraps
-  // the playhead back to 0 ("video restarts on its own near the end"). 30s is
-  // plenty for smooth playback and seeks.
-  maxBufferLength: 30,
-  maxMaxBufferLength: 60,
-  maxBufferSize: 80 * 1000 * 1000, // 80 MB
-  backBufferLength: 30,
-  // NOTE: startFragPrefetch removed — it could fetch a non-existent fragment
-  // past the last one near the end and trigger the reset-to-0 loop above.
-  // Don't sit on a slow/stuck segment — bail and retry quickly so the seek
-  // resolves instead of spinning.
-  fragLoadingMaxRetry: 4,
+  // Buffer well ahead so forward seeks land in already-fetched data. The byte
+  // cap (maxBufferSize) is the real ceiling for HD; the seconds caps just let
+  // hls.js keep filling when bandwidth is there.
+  maxBufferLength: 60,
+  maxMaxBufferLength: 240,
+  maxBufferSize: 120 * 1000 * 1000, // 120 MB — freed on player unmount
+  // Keep a deep back-buffer so rewinds / small back-seeks are instant too.
+  backBufferLength: 90,
+  // Prefetch the first fragment before playback starts and keep the loader
+  // working ahead of the playhead — the biggest win for "click far ahead and it
+  // loads fast". Safe now that the end-reset cause is fixed.
+  startFragPrefetch: true,
+  // Tolerate slow CDN segments a bit longer before giving up, but still fail
+  // fast enough that a genuinely dead segment doesn't hang the seek.
+  fragLoadingMaxRetry: 6,
   fragLoadingRetryDelay: 500,
-  fragLoadingMaxRetryTimeout: 8000,
+  fragLoadingMaxRetryTimeout: 10000,
+  // Don't stall on tiny gaps between segments (some megaplay encodes have a few
+  // ms of PTS drift at boundaries); jump them instead of buffering forever.
+  maxBufferHole: 0.5,
 };
 
 function proxied(
