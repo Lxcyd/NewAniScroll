@@ -190,25 +190,31 @@ export default function Info({
       // cache the watch page reads first, and primes the browser HTTP cache.
       void prefetchEpisodeList(info.id, { releasing, priority: "low" });
 
-      // Resolve the episode source and stash it for the watch page to read.
-      resolveSource(
-        {
-          aniId: info.id,
-          episode: resumeEp,
-          server,
-          sub: "sub",
-          title: info?.title?.romaji || info?.title?.english || undefined,
-          mediaMeta: {
-            id: info.id,
-            title: info.title,
-            synonyms: (info as any).synonyms,
-            relations: info.relations,
-          },
-        },
-        { priority: "low" as any },
-      ).then((data) => {
-        if (!cancelled && data) warmStream(data);
-      });
+      const mediaMeta = {
+        id: info.id,
+        title: info.title,
+        synonyms: (info as any).synonyms,
+        relations: info.relations,
+      };
+      const titleStr = info?.title?.romaji || info?.title?.english || undefined;
+      const warmServer = (srv: string) =>
+        resolveSource(
+          { aniId: info.id, episode: resumeEp, server: srv, sub: "sub", title: titleStr, mediaMeta },
+          { priority: "low" as any },
+        ).then((data) => {
+          if (!cancelled && data) warmStream(data);
+        });
+
+      // Warm megaplay (the default the watch page starts on) AND the user's
+      // saved preferred server (the one the page switches to once confirmed —
+      // and the one they actually watch). Warming only megaplay left the
+      // player cold when the page jumped to the preferred server.
+      void warmServer(server);
+      let preferred: string | null = null;
+      try {
+        preferred = localStorage.getItem("preferred_server");
+      } catch {}
+      if (preferred && preferred !== server) void warmServer(preferred);
     };
 
     // ── Tier 2: nice-to-have warmups, deferred to a real idle moment ───

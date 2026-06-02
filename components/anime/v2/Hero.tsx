@@ -142,24 +142,37 @@ export default function Hero({
       releasing: (info as any)?.status === "RELEASING",
       priority: "high",
     });
-    resolveSource(
-      {
-        aniId: info.id,
-        episode: epNum,
-        server: "megaplay",
-        sub: "sub",
-        title: info?.title?.romaji || info?.title?.english || undefined,
-        mediaMeta: {
-          id: info.id,
-          title: info.title,
-          synonyms: (info as any).synonyms,
-          relations: (info as any).relations,
-        },
-      },
-      { priority: "high" as any },
-    ).then((data) => {
-      if (data) warmStream(data);
-    });
+
+    const mediaMeta = {
+      id: info.id,
+      title: info.title,
+      synonyms: (info as any).synonyms,
+      relations: (info as any).relations,
+    };
+    const titleStr = info?.title?.romaji || info?.title?.english || undefined;
+    const warmServer = (server: string, sub: "sub" | "dub") =>
+      resolveSource(
+        { aniId: info.id, episode: epNum, server, sub, title: titleStr, mediaMeta },
+        { priority: "high" as any },
+      ).then((data) => {
+        if (data) warmStream(data);
+      });
+
+    // Always warm megaplay (the safe default the watch page starts on).
+    void warmServer("megaplay", "sub");
+
+    // The watch page switches to the user's saved `preferred_server` once it's
+    // confirmed for this anime — and that one is what they actually end up
+    // watching. Warm it too (if different) so the switch doesn't trigger a cold
+    // source fetch + extraction wait. This is the case that made the player
+    // feel slow: megaplay was warm but the page jumped to an unwarmed server.
+    let preferred: string | null = null;
+    try {
+      preferred = localStorage.getItem("preferred_server");
+    } catch {}
+    if (preferred && preferred !== "megaplay") {
+      void warmServer(preferred, "sub");
+    }
   };
 
   // For coming-soon anime, build a friendly air-date string from

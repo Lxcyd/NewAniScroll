@@ -312,13 +312,11 @@ export default function Watch({
     "animesama-sibnet",
     "animesama-sendvid",
     "animesama-oneupload",
-    "animesama-embed4me",
     "animesama-callistanise",
     "voiranime-voe",
     "voiranime-streamtape",
     "animesama-sibnet-vo",
     "animesama-sendvid-vo",
-    "animesama-embed4me-vo",
     "voiranime-voe-vo",
     "voiranime-streamtape-vo",
   ];
