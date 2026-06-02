@@ -1648,6 +1648,95 @@ export default function UniversalPlayer({
     return () => playerEl.removeEventListener("hls-error", handler as EventListener);
   }, [onError, streamData]);
 
+  // ── End-reset guard ──
+  // Symptom: during NORMAL playback near the outro (not yet at the end) the
+  // playhead jumps back to ~0 on its own. Root cause is in the HLS/media layer,
+  // not our code: as the forward buffer reaches the last fragment, some
+  // megaplay encodes report a `duration` slightly longer than the real media.
+  // The element stalls a hair before `duration`, hls.js can't fill the gap,
+  // and its stall-recovery re-anchors to `startPosition` (0). The browser then
+  // fires a `seeking`→`seeked` to 0 — no `ended`, no user gesture.
+  //
+  // We can't stop the stall, but we can refuse the bogus rewind: remember the
+  // last real playback position, and if the element seeks back to ~0 from deep
+  // in the video without the user asking and without genuinely ending, treat
+  // the content as finished (snap to the very end and pause) instead of
+  // restarting from scratch. A user who actually wants to rewind to the start
+  // does it through the seek bar, which sets `userSeeking` first — we honour
+  // that and skip the guard.
+  useEffect(() => {
+    const playerEl = playerRef.current?.el as HTMLElement | undefined;
+    if (!playerEl) return;
+
+    let lastTime = 0;
+    let userSeeking = false;
+    let video: HTMLVideoElement | null = null;
+
+    // A pointer/keydown on the slider, or the player's own seek API, flips this
+    // on briefly so a *deliberate* jump to the start isn't mistaken for the bug.
+    const markUserSeek = () => {
+      userSeeking = true;
+      window.clearTimeout((markUserSeek as any)._t);
+      (markUserSeek as any)._t = window.setTimeout(() => {
+        userSeeking = false;
+      }, 1200);
+    };
+
+    const onTimeUpdate = () => {
+      if (video && !video.seeking) lastTime = video.currentTime;
+    };
+
+    const onSeeking = () => {
+      if (!video) return;
+      const dur = video.duration;
+      if (!Number.isFinite(dur) || dur <= 0) return;
+      const target = video.currentTime;
+      // Was deep in the video, now snapping to the very start, not by the user,
+      // and not because the media genuinely ended → this is the bogus reset.
+      const wasNearEnd = lastTime >= Math.max(30, dur * 0.85);
+      const jumpedToStart = target <= 1.5;
+      if (wasNearEnd && jumpedToStart && !userSeeking && !video.ended) {
+        // Treat as "reached the end": park at the last second and pause so the
+        // user sees the outro frozen instead of being thrown back to minute 0.
+        try {
+          video.currentTime = Math.max(0, dur - 0.25);
+          video.pause();
+        } catch {}
+      }
+    };
+
+    // Vidstack mounts the <video> asynchronously after the provider is set up,
+    // so it may not exist when this effect first runs. Bind as soon as it
+    // appears (poll briefly, then give up — a source that never produces a
+    // <video> is an iframe embed we don't guard).
+    const sliderEl = playerEl.querySelector(".vds-time-slider");
+    let pollId = 0;
+    const bind = () => {
+      video = playerEl.querySelector<HTMLVideoElement>("video");
+      if (!video) return false;
+      video.addEventListener("timeupdate", onTimeUpdate);
+      video.addEventListener("seeking", onSeeking);
+      return true;
+    };
+    if (!bind()) {
+      let tries = 0;
+      pollId = window.setInterval(() => {
+        if (bind() || ++tries > 40) window.clearInterval(pollId);
+      }, 250);
+    }
+    sliderEl?.addEventListener("pointerdown", markUserSeek);
+    sliderEl?.addEventListener("keydown", markUserSeek);
+
+    return () => {
+      window.clearTimeout((markUserSeek as any)._t);
+      window.clearInterval(pollId);
+      video?.removeEventListener("timeupdate", onTimeUpdate);
+      video?.removeEventListener("seeking", onSeeking);
+      sliderEl?.removeEventListener("pointerdown", markUserSeek);
+      sliderEl?.removeEventListener("keydown", markUserSeek);
+    };
+  }, [streamData]);
+
   // NOTE: we no longer manually nudge hls.js on seek (stopLoad/startLoad).
   // hls.js already flushes and refetches at the new position natively, and our
   // HLS_CONFIG enables startFragPrefetch + large buffers. The manual nudge

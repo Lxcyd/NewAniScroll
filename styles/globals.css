@@ -1057,31 +1057,48 @@ input[type="number"] {
      totalDuration). Those %s sum to 100%. Any margin on top makes the flex row
      overflow → flex COMPRESSES every pill below its X% → a given time renders
      further left than it should, and the error grows toward the right end. That
-     compression is the click "offset" you saw (Vidstack maps the click against
-     the full slider rect correctly, but paints the fill/cursor on the squeezed
-     pills). With margin:0 the pills are edge-to-edge, sum == 100%, no
-     compression → what you click is where it lands. The visual gap is drawn by
-     the ::after overlay (position:absolute → zero layout impact). */
+     compression is the click "offset" (Vidstack maps the click against the full
+     slider rect correctly, but paints the fill/cursor on the squeezed pills).
+     With margin:0 the pills are edge-to-edge, sum == 100%, no compression →
+     what you click is where it lands. The visual gap is drawn by the ::after
+     overlay (position:absolute → zero layout impact, so it can't reintroduce
+     the offset). */
   margin: 0 !important;
   min-width: 0;
-  height: 6px;
+  height: 5px;
   position: relative;
   box-sizing: border-box;
-  border-radius: 999px;
-  overflow: hidden;
-  background-color: rgba(255, 255, 255, 0.18);
+  /* No per-pill rounding / overflow clipping. A 5px-tall pill with a 999px
+     radius rounds its *whole* short side into a lozenge, and overflow:hidden
+     then clips the rose fill into that lozenge — which, combined with the gap
+     notch, read as the "broken pills" look. We make the bar a single flat
+     track and round only the two outer ends below. */
+  background-color: rgba(255, 255, 255, 0.22);
 }
-/* Inter-pill gap: a notch painted on the right edge of every pill except the
-   last. position:absolute → no layout space → no click drift. z-index above the
-   rose fill so the gap stays visible even on a filled pill. */
+/* Round only the outer corners of the whole bar — left cap on the first pill,
+   right cap on the last — so the track reads as one continuous rounded bar
+   with internal dividers, instead of N separate lozenges. */
+.vds-time-slider .vds-slider-chapter:first-child {
+  border-top-left-radius: 999px;
+  border-bottom-left-radius: 999px;
+}
+.vds-time-slider .vds-slider-chapter:last-child {
+  border-top-right-radius: 999px;
+  border-bottom-right-radius: 999px;
+}
+/* Inter-pill gap: a slim divider painted on the right edge of every pill except
+   the last. position:absolute → no layout space → no click drift. z-index above
+   the rose fill so the gap stays visible even on a filled pill. The colour is a
+   touch translucent so it reads as a seam, not a hard black bite out of the
+   rose fill. */
 .vds-time-slider .vds-slider-chapter:not(:last-child)::after {
   content: "";
   position: absolute;
-  top: 0;
-  bottom: 0;
+  top: -1px;
+  bottom: -1px;
   right: 0;
-  width: 3px;
-  background: #0a0a0f;
+  width: 2px;
+  background: rgba(10, 10, 15, 0.92);
   z-index: 3;
   pointer-events: none;
 }
