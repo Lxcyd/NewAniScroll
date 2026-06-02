@@ -1002,6 +1002,11 @@ export default function UniversalPlayer({
   // Live hls.js instance — captured on provider setup so the seek handler can
   // abort in-flight segment loads and re-anchor on the new position.
   const hlsRef = useRef<any>(null);
+  // Set true once we've detected the bogus near-end reset (see the end-reset
+  // guard effect). Shared with the autoplay effect so a post-reset reload at
+  // currentTime 0 isn't treated as a fresh start to auto-play from. Reset per
+  // source and on a deliberate user seek.
+  const endReachedRef = useRef(false);
 
   // Apply our hls.js tuning the moment the HLS provider is created. Setting
   // `provider.config` here (before setup) makes hls.js build its instance with
@@ -1019,7 +1024,45 @@ export default function UniversalPlayer({
   // Capture the hls.js instance once Vidstack has set the provider up.
   const onProviderSetup = (provider: any) => {
     if (isHLSProvider(provider)) {
-      hlsRef.current = provider.instance || null;
+      const hls = provider.instance || null;
+      hlsRef.current = hls;
+      if (hls) {
+        // Preventive end-reset fix. On megaplay encodes whose declared duration
+        // overshoots the real media, hls.js hits the phantom tail, can't load a
+        // fragment that doesn't exist, and recovers by re-attaching its
+        // MediaSource — which reloads the <video> from 0. We intercept the fatal
+        // media/buffer errors that precede that re-attach and, if we're near the
+        // end, stop hls's loader and pause instead of letting it reset. The DOM
+        // guard effect is the safety net if this misses; this just avoids the
+        // visible flash to 0. hls.js Events.ERROR === "hlsError".
+        const onHlsError = (_evt: any, data: any) => {
+          if (!data?.fatal) return;
+          const el = playerRef.current?.el as HTMLElement | undefined;
+          const v = el?.querySelector<HTMLVideoElement>("video");
+          if (!v) return;
+          const dur = v.duration;
+          const nearEnd =
+            Number.isFinite(dur) && dur > 0 && v.currentTime >= dur * 0.85;
+          const mediaish =
+            data.type === "mediaError" ||
+            data.type === "bufferError" ||
+            /buffer|media|nudge|stall/i.test(String(data.details || ""));
+          if (nearEnd && mediaish) {
+            // We're at the real end of a duration-inflated encode. Freeze here
+            // instead of letting hls re-attach and bounce to 0.
+            try {
+              hls.stopLoad();
+              v.pause();
+              endReachedRef.current = true;
+            } catch {}
+          }
+        };
+        try {
+          // hls.js Events.ERROR === "hlsError"; the typed enum isn't imported
+          // here, so call through `any`.
+          (hls as any).on("hlsError", onHlsError);
+        } catch {}
+      }
     }
   };
 
@@ -1650,37 +1693,36 @@ export default function UniversalPlayer({
 
   // ── End-reset guard ──
   // Symptom: during NORMAL playback near the outro (not yet at the end) the
-  // playhead jumps back to ~0 on its own. Root cause is in the HLS/media layer,
-  // not our code: as the forward buffer reaches the last fragment, some
-  // megaplay encodes report a `duration` slightly LONGER than the real media.
-  // Playback reaches the last real frame, stalls (waiting for data that doesn't
-  // exist), and hls.js's stall-recovery re-anchors to `startPosition` (0) — the
-  // browser fires a `seeking`/`seeked` to ~0, no `ended`, no user gesture.
+  // playhead jumps back to 0 on its own. Root cause is in the HLS/media layer:
+  // as the forward buffer reaches the last fragment, some megaplay encodes
+  // declare a `duration` slightly LONGER than the real media. Playback reaches
+  // the last real frame, hls.js can't fill the phantom tail, and it RE-ATTACHES
+  // its MediaSource to recover. That revokes the old MSE blob (you see
+  // `blob:… ERR_FILE_NOT_FOUND` + a fresh `removeChild` in the console) and the
+  // <video> reloads from scratch at currentTime 0 — via `emptied`/`loadstart`,
+  // NOT a `seeking`, which is why a seek-only guard never caught it.
   //
-  // We can't stop the stall, but we refuse the bogus rewind. The critical part:
-  // we must NOT seek to `duration - x` to "finish" it — that lands in the same
-  // phantom region with no data and re-triggers the exact same stall→reset loop
-  // (the reason the first version of this guard didn't help). Instead we snap
-  // back to `lastTime - 1`, which is real, already-buffered content, then pause
-  // — so the user sees the outro frozen instead of minute 0, and no further
-  // stall can fire because we're paused on real data. A deliberate rewind via
-  // the slider sets `userSeeking`, which we honour (and which also clears the
-  // one-shot latch so a genuine replay still works).
+  // We handle BOTH shapes of the reset:
+  //   • seek-to-0     → repair immediately.
+  //   • reload-to-0   → latch "end reached", then once the element is playable
+  //                     again seek back to the last real position and pause.
+  // The repair target is `lastTime - 1` (real, already-played content) — never
+  // `duration - x`, which is the phantom tail with no data and would just
+  // re-trigger the loop. `endReachedRef` also tells the autoplay effect not to
+  // replay from 0 after the reload. A deliberate slider seek clears the latch so
+  // a genuine replay still works, and a new source resets everything.
   useEffect(() => {
     const playerEl = playerRef.current?.el as HTMLElement | undefined;
     if (!playerEl) return;
 
+    endReachedRef.current = false;
     let lastTime = 0;
     let userSeeking = false;
-    let endHandled = false;
     let video: HTMLVideoElement | null = null;
 
-    // A pointer/keydown on the slider flips this on briefly so a *deliberate*
-    // jump to the start isn't mistaken for the bug; it also clears the one-shot
-    // latch so an intentional replay from the end is allowed.
     const markUserSeek = () => {
       userSeeking = true;
-      endHandled = false;
+      endReachedRef.current = false;
       window.clearTimeout((markUserSeek as any)._t);
       (markUserSeek as any)._t = window.setTimeout(() => {
         userSeeking = false;
@@ -1688,50 +1730,69 @@ export default function UniversalPlayer({
     };
 
     const onTimeUpdate = () => {
-      if (video && !video.seeking) lastTime = video.currentTime;
-    };
-
-    // Returns true and repairs the playhead if `target` is a bogus reset.
-    const handleIfBogusReset = (target: number): boolean => {
-      if (!video || endHandled) return false;
-      const dur = video.duration;
-      if (!Number.isFinite(dur) || dur <= 0) return false;
-      const wasNearEnd = lastTime >= Math.max(30, dur * 0.85);
-      const jumpedToStart = target <= 1.5;
-      if (wasNearEnd && jumpedToStart && !userSeeking && !video.ended) {
-        endHandled = true;
-        try {
-          // Snap to real, already-buffered content just shy of where playback
-          // actually stalled — NOT into the phantom tail past the real media.
-          video.currentTime = Math.max(0, lastTime - 1);
-          video.pause();
-        } catch {}
-        return true;
+      if (video && !video.seeking && video.currentTime > 1) {
+        lastTime = video.currentTime;
       }
-      return false;
     };
 
-    const onSeeking = () => {
-      if (video) handleIfBogusReset(video.currentTime);
-    };
-    // Backstop: some resets surface as a `seeked` (or a raw currentTime drop on
-    // `timeupdate`) without a catchable `seeking`. Cover both.
-    const onSeeked = () => {
-      if (video) handleIfBogusReset(video.currentTime);
+    const wasNearEnd = () => {
+      if (!video) return false;
+      const dur = video.duration;
+      const ref = Number.isFinite(dur) && dur > 0 ? dur : lastTime + 1;
+      return lastTime >= Math.max(30, ref * 0.85);
     };
 
-    // Vidstack mounts the <video> asynchronously after the provider is set up,
-    // so it may not exist when this effect first runs. Bind as soon as it
-    // appears (poll briefly, then give up — a source that never produces a
-    // <video> is an iframe embed we don't guard).
+    // Restore the playhead to just before where playback actually stalled, on
+    // real buffered data, then pause. Used by both the seek-to-0 and the
+    // reload-to-0 paths.
+    const restoreAndPause = () => {
+      if (!video) return;
+      try {
+        const dur = video.duration;
+        let target = lastTime - 1;
+        if (Number.isFinite(dur) && dur > 0) target = Math.min(target, dur - 1);
+        video.currentTime = Math.max(0, target);
+        video.pause();
+      } catch {}
+    };
+
+    // Path A — a plain seek/jump back to ~0 from deep in the video.
+    const onSeek = () => {
+      if (!video || endReachedRef.current) return;
+      if (video.currentTime <= 1.5 && wasNearEnd() && !userSeeking && !video.ended) {
+        endReachedRef.current = true;
+        restoreAndPause();
+      }
+    };
+
+    // Path B — the MediaSource re-attach. The element empties and reloads at 0.
+    // We can't restore yet (no buffer); latch and wait for it to become
+    // playable, then snap back. Only treat it as the bug if it happened right
+    // after we were near the end and the user didn't ask for it.
+    const onReload = () => {
+      if (!video || endReachedRef.current || userSeeking) return;
+      if (wasNearEnd() && !video.ended) {
+        endReachedRef.current = true;
+      }
+    };
+    const onPlayable = () => {
+      if (!video || !endReachedRef.current) return;
+      // Element is back with fresh data; park it at the real end, paused.
+      restoreAndPause();
+    };
+
     const sliderEl = playerEl.querySelector(".vds-time-slider");
     let pollId = 0;
     const bind = () => {
       video = playerEl.querySelector<HTMLVideoElement>("video");
       if (!video) return false;
       video.addEventListener("timeupdate", onTimeUpdate);
-      video.addEventListener("seeking", onSeeking);
-      video.addEventListener("seeked", onSeeked);
+      video.addEventListener("seeking", onSeek);
+      video.addEventListener("seeked", onSeek);
+      video.addEventListener("emptied", onReload);
+      video.addEventListener("loadstart", onReload);
+      video.addEventListener("loadedmetadata", onPlayable);
+      video.addEventListener("canplay", onPlayable);
       return true;
     };
     if (!bind()) {
@@ -1747,8 +1808,12 @@ export default function UniversalPlayer({
       window.clearTimeout((markUserSeek as any)._t);
       window.clearInterval(pollId);
       video?.removeEventListener("timeupdate", onTimeUpdate);
-      video?.removeEventListener("seeking", onSeeking);
-      video?.removeEventListener("seeked", onSeeked);
+      video?.removeEventListener("seeking", onSeek);
+      video?.removeEventListener("seeked", onSeek);
+      video?.removeEventListener("emptied", onReload);
+      video?.removeEventListener("loadstart", onReload);
+      video?.removeEventListener("loadedmetadata", onPlayable);
+      video?.removeEventListener("canplay", onPlayable);
       sliderEl?.removeEventListener("pointerdown", markUserSeek);
       sliderEl?.removeEventListener("keydown", markUserSeek);
     };
@@ -1868,7 +1933,9 @@ export default function UniversalPlayer({
       // was a path into the "video jumps back to the start near the end" bug.
       // Past the first second the user is already watching; a re-buffer must not
       // trigger a fresh play() (and we never want to fight a user/end pause).
-      if (video.ended || video.currentTime > 1) return;
+      // endReachedRef covers the reload-to-0 case, where currentTime IS 0 again
+      // but we must NOT auto-play (it would restart the just-finished episode).
+      if (video.ended || video.currentTime > 1 || endReachedRef.current) return;
       try {
         video.setAttribute("muted", "");
         video.defaultMuted = true;
