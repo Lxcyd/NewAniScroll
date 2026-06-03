@@ -1793,6 +1793,69 @@ export default function UniversalPlayer({
     };
   }, [streamData]);
 
+  // ── Persistent volume (app-wide) ──
+  // Remember the player volume across episodes, anime AND sessions. We store a
+  // single app-wide value in localStorage and restore it onto each new <video>.
+  // Done imperatively (not via a controlled `volume` prop) so Vidstack doesn't
+  // reset the user's level on every render. We persist on the element's native
+  // `volumechange`, ignoring the value while muted (muted reports volume 0 on
+  // some browsers, which would otherwise overwrite the saved level with 0).
+  useEffect(() => {
+    const playerEl = playerRef.current?.el as HTMLElement | undefined;
+    if (!playerEl) return;
+    const KEY = "aniscroll:volume";
+
+    let video: HTMLVideoElement | null = null;
+    const readSaved = (): number | null => {
+      try {
+        const raw = localStorage.getItem(KEY);
+        if (raw == null) return null;
+        const v = parseFloat(raw);
+        return Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : null;
+      } catch {
+        return null;
+      }
+    };
+
+    const onVolumeChange = () => {
+      if (!video || video.muted) return;
+      try {
+        localStorage.setItem(KEY, String(video.volume));
+      } catch {}
+    };
+
+    let pollId = 0;
+    const bind = () => {
+      video = playerEl.querySelector<HTMLVideoElement>("video");
+      if (!video) return false;
+      const saved = readSaved();
+      if (saved != null) {
+        // Apply through the player instance so Vidstack's own state stays in
+        // sync (the volume slider reflects it immediately).
+        const player = playerRef.current as any;
+        try {
+          if (player) player.volume = saved;
+          else video.volume = saved;
+        } catch {
+          video.volume = saved;
+        }
+      }
+      video.addEventListener("volumechange", onVolumeChange);
+      return true;
+    };
+    if (!bind()) {
+      let tries = 0;
+      pollId = window.setInterval(() => {
+        if (bind() || ++tries > 40) window.clearInterval(pollId);
+      }, 250);
+    }
+
+    return () => {
+      window.clearInterval(pollId);
+      video?.removeEventListener("volumechange", onVolumeChange);
+    };
+  }, [streamData]);
+
   // ── Autoplay ──
   // Chrome rejects unmuted autoplay without a user gesture, period. The
   // only path that always works is muted-then-let-Chrome's-MEI-decide:
@@ -2131,7 +2194,9 @@ export default function UniversalPlayer({
         // render. The effect sets `video.muted = true` directly at mount
         // (to satisfy autoplay policy) and flips to false on first user
         // activity, with no React-level reconciliation fighting back.
-        volume={1}
+        // `volume` is likewise NOT passed as a controlled prop (it would reset
+        // the user's level on every render). We restore the app-wide saved
+        // volume and persist changes imperatively — see the effect below.
         // Skip crossorigin for streams hosted on CDNs that don't send CORS
         // headers (sibnet's cvn CDN, …). Setting crossorigin would force
         // CORS preflight on every Range request, which sibnet rejects with

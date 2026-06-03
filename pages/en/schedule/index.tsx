@@ -354,7 +354,7 @@ export default function Schedule({ schedule }: any) {
                     >
                       <div className="ml-4 flex items-center gap-2">
                         <h3 className="text-lg text-gray-200 font-semibold">
-                          {time && timeStamptoAMPM(time)}
+                          {time && timeStamptoAMPM(time, i18n.language)}
                         </h3>
                         {/* {!isAired(time) && <p>Airing Next</p>} */}
                         <p

@@ -84,15 +84,21 @@ export function convertSecondsToTime(sec: number) {
   return time.trim();
 }
 
-// Function to convert timestamp to AM/PM time format
-export const timeStamptoAMPM = (timestamp: number | string) => {
+// Convert a timestamp to a clock label. French uses the 24-hour clock; English
+// keeps 12-hour AM/PM.
+export const timeStamptoAMPM = (
+  timestamp: number | string,
+  lang: string = "en",
+) => {
   const date = new Date(Number(timestamp) * 1000);
+  const minutes = date.getMinutes().toString().padStart(2, "0");
+  if (lang === "fr") {
+    return `${date.getHours().toString().padStart(2, "0")}:${minutes}`;
+  }
   const hours = date.getHours();
-  const minutes = date.getMinutes();
   const ampm = hours >= 12 ? "PM" : "AM";
-  const formattedHours = hours % 12 || 12; // Convert to 12-hour format
-
-  return `${formattedHours}:${minutes.toString().padStart(2, "0")} ${ampm}`;
+  const formattedHours = hours % 12 || 12; // 12-hour format
+  return `${formattedHours}:${minutes} ${ampm}`;
 };
 
 export const timeStamptoHour = (timestamp: number, lang: string = "en") => {
