@@ -34,6 +34,15 @@ import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { useTranslation } from "react-i18next";
 
 export async function getServerSideProps(context: any) {
+  // Search results are public and keyed entirely by the query string, so the
+  // SSR output for a given URL is identical for every visitor (no session is
+  // read here). Edge-cache briefly so repeated / shared searches hit the CDN
+  // instead of re-running SSR.
+  context?.res?.setHeader?.("Cache-Control", "public, max-age=30");
+  context?.res?.setHeader?.(
+    "CDN-Cache-Control",
+    "public, s-maxage=300, stale-while-revalidate=600",
+  );
   const { param } = context.query;
 
   const { search, format, genres, season, year, sort } = context.query;

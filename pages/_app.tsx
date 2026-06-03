@@ -188,10 +188,12 @@ export default function App({
       }
     }
     getBroadcast();
-    // Poll every 30s so a freshly-published broadcast appears without
-    // the visitor having to refresh the page. The toast carries a fixed
-    // id so repeated polls update in place instead of stacking.
-    const interval = setInterval(getBroadcast, 30_000);
+    // Poll for freshly-published broadcasts. 5 min (not 30 s) is plenty for
+    // an admin announcement banner and cuts this endpoint's edge-requests /
+    // invocations ~10x per open tab (it was the busiest client poll). The
+    // toast carries a fixed id so repeated polls update in place instead of
+    // stacking, and any active broadcast still shows immediately on load.
+    const interval = setInterval(getBroadcast, 300_000);
     return () => {
       cancelled = true;
       clearInterval(interval);

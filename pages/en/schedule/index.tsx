@@ -53,7 +53,17 @@ const isAired = (timestamp: number | null) => {
   return timestamp <= currentTime;
 };
 
-export async function getServerSideProps() {
+export async function getServerSideProps(ctx: any) {
+  // Public, identical for every visitor — the airing schedule only shifts
+  // when AniList updates airing times (and the per-episode countdowns are
+  // computed client-side from absolute airingAt timestamps, so a slightly
+  // stale page still renders correct counters). Edge-cache it so repeat
+  // visits are served from Vercel's CDN instead of re-invoking SSR.
+  ctx?.res?.setHeader?.("Cache-Control", "public, max-age=60");
+  ctx?.res?.setHeader?.(
+    "CDN-Cache-Control",
+    "public, s-maxage=3600, stale-while-revalidate=86400",
+  );
   const now = new Date();
   // Adjust for Japan timezone (add 9 hours)
   const nowJapan = new Date(now.getTime() + 9 * 60 * 60 * 1000);
