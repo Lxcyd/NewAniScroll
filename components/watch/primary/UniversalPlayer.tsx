@@ -1032,10 +1032,10 @@ export default function UniversalPlayer({
   // pills get scaled against one number while the slider geometry
   // uses another, and everything visually drifts.
   const videoDuration = useMediaState("duration", playerRef);
-  // Reactive volume — same proven hook as `videoDuration`. Drives the persist
-  // effect below (the previous `volume-change` DOM-event read never fired
-  // reliably). Reads from Vidstack's $state.volume, i.e. the ACTUAL level.
+  // Reactive volume + muted — same proven hook as `videoDuration`, reading
+  // Vidstack's $state (the actual values). Drive the persistence effect below.
   const volumeState = useMediaState("volume", playerRef);
+  const mutedState = useMediaState("muted", playerRef);
   const chaptersTrackUrl = useChaptersVtt(skipTimes, videoDuration);
   // No JS click-compensation anymore: the chapter pills now use a transparent
   // border (not a margin) for the inter-pill gap, so they keep their full
@@ -1804,88 +1804,91 @@ export default function UniversalPlayer({
   // the reactive `volumeState` (above). `volumePersistArmedRef` gates saving
   // until ~0.5s after restore settles, so the default (1) → restore churn can't
   // overwrite the saved value before we've applied it.
-  // TEMP DEBUG: trace volume restore/persist. Auto-on for localhost + dev.*.
-  const VOL_DBG =
-    typeof window !== "undefined" &&
-    (window.location.hostname === "localhost" ||
-      window.location.hostname === "127.0.0.1" ||
-      window.location.hostname.startsWith("dev."));
-  const vlog = (...a: any[]) => {
-    // eslint-disable-next-line no-console
-    if (VOL_DBG) console.log("[VOL]", ...a);
-  };
+  // Persistence is GATED on real user interaction (this latch), never on the
+  // mount lifecycle. The player re-mounts several times during server fallback;
+  // an earlier "arm 0.5s after restore" gate kept getting reset to false and its
+  // timer cleared by the next re-mount, so the latch never opened and nothing
+  // ever saved (the [VOL] trace showed every change with `armed:false`). A
+  // one-way latch set on the first pointer/keyboard interaction can't be undone
+  // by re-mounts, and it naturally excludes the autoplay-mute + restore churn
+  // (those happen with no user input). useRef so it survives every re-mount.
+  const volArmedRef = useRef(false);
 
-  const volumePersistArmedRef = useRef(false);
+  // ── Restore saved volume/mute + arm persistence ──
   useEffect(() => {
-    const player = playerRef.current as any;
-    const el = player?.el as HTMLElement | undefined;
-    vlog("restore effect run", { hasPlayer: !!player, hasEl: !!el });
-    if (!player || !el) return;
-    volumePersistArmedRef.current = false;
+    let el: HTMLElement | null = null;
+    let player: any = null;
+    let pollId = 0;
 
-    let saved: number | null = null;
-    try {
-      const raw = localStorage.getItem("aniscroll:volume");
-      const v = raw == null ? NaN : parseFloat(raw);
-      saved = Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : null;
-      vlog("read saved", { raw, saved });
-    } catch (e) {
-      vlog("read saved THREW", e);
-    }
-
-    let armTimer = 0;
-    const apply = (from: string) => {
-      let before: any = "?";
+    const readNum = (k: string): number | null => {
       try {
-        before = player.volume;
-      } catch {}
-      if (saved != null) {
-        try {
-          player.volume = saved;
-        } catch (e) {
-          vlog("set player.volume THREW", e);
-        }
+        const raw = localStorage.getItem(k);
+        const v = raw == null ? NaN : parseFloat(raw);
+        return Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : null;
+      } catch {
+        return null;
       }
-      let after: any = "?";
+    };
+    const savedVol = readNum("aniscroll:volume");
+    let savedMuted: boolean | null = null;
+    try {
+      const m = localStorage.getItem("aniscroll:muted");
+      savedMuted = m == null ? null : m === "1";
+    } catch {}
+
+    const apply = () => {
+      if (!player) return;
       try {
-        after = player.volume;
+        if (savedVol != null) player.volume = savedVol;
+        // Only ever restore an intentional MUTE. Don't force unmute — autoplay
+        // owns the muted-to-start behaviour and would fight us.
+        if (savedMuted === true) player.muted = true;
       } catch {}
-      vlog(`apply(${from})`, { before, saved, after });
-      window.clearTimeout(armTimer);
-      armTimer = window.setTimeout(() => {
-        volumePersistArmedRef.current = true;
-        vlog("ARMED — saving enabled");
-      }, 500);
+    };
+    const arm = () => {
+      volArmedRef.current = true;
     };
 
-    apply("mount");
-    const onCanPlay = () => apply("can-play");
-    el.addEventListener("can-play", onCanPlay);
-    const fallback = window.setTimeout(() => apply("fallback-1500ms"), 1500);
+    const bind = () => {
+      player = playerRef.current;
+      el = (player?.el as HTMLElement) || null;
+      if (!player || !el) return false;
+      apply();
+      el.addEventListener("can-play", apply);
+      // Capture phase so we latch before the click's own handlers run.
+      el.addEventListener("pointerdown", arm, true);
+      el.addEventListener("keydown", arm, true);
+      return true;
+    };
+    if (!bind()) {
+      let tries = 0;
+      pollId = window.setInterval(() => {
+        if (bind() || ++tries > 40) window.clearInterval(pollId);
+      }, 250);
+    }
 
     return () => {
-      el.removeEventListener("can-play", onCanPlay);
-      window.clearTimeout(fallback);
-      window.clearTimeout(armTimer);
+      window.clearInterval(pollId);
+      el?.removeEventListener("can-play", apply);
+      el?.removeEventListener("pointerdown", arm, true);
+      el?.removeEventListener("keydown", arm, true);
     };
   }, [streamData]);
 
-  // Persist every user volume change (independent of mute) once armed.
+  // Persist the level + mute, but only after the user has actually touched the
+  // player (so autoplay-mute and the restore don't overwrite the saved value).
   useEffect(() => {
-    vlog("volumeState changed", {
-      volumeState,
-      armed: volumePersistArmedRef.current,
-    });
-    if (!volumePersistArmedRef.current) return;
-    if (typeof volumeState !== "number") return;
+    if (!volArmedRef.current) return;
     try {
-      const val = String(Math.min(1, Math.max(0, volumeState)));
-      localStorage.setItem("aniscroll:volume", val);
-      vlog("SAVED", val);
-    } catch (e) {
-      vlog("save THREW", e);
-    }
-  }, [volumeState]);
+      if (typeof volumeState === "number") {
+        localStorage.setItem(
+          "aniscroll:volume",
+          String(Math.min(1, Math.max(0, volumeState))),
+        );
+      }
+      localStorage.setItem("aniscroll:muted", mutedState ? "1" : "0");
+    } catch {}
+  }, [volumeState, mutedState]);
 
   // ── Autoplay ──
   // Chrome rejects unmuted autoplay without a user gesture, period. The
