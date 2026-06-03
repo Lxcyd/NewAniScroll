@@ -1032,6 +1032,10 @@ export default function UniversalPlayer({
   // pills get scaled against one number while the slider geometry
   // uses another, and everything visually drifts.
   const videoDuration = useMediaState("duration", playerRef);
+  // Reactive volume — same proven hook as `videoDuration`. Drives the persist
+  // effect below (the previous `volume-change` DOM-event read never fired
+  // reliably). Reads from Vidstack's $state.volume, i.e. the ACTUAL level.
+  const volumeState = useMediaState("volume", playerRef);
   const chaptersTrackUrl = useChaptersVtt(skipTimes, videoDuration);
   // No JS click-compensation anymore: the chapter pills now use a transparent
   // border (not a margin) for the inter-pill gap, so they keep their full
@@ -1795,71 +1799,62 @@ export default function UniversalPlayer({
 
   // ── Persistent volume (app-wide, shared across every player) ──
   // One value in localStorage, restored onto every player instance and every
-  // episode/anime/session. We drive it through Vidstack's own API + event (not
-  // the raw <video>) because setting `video.volume` directly desyncs Vidstack's
-  // media state, which then re-asserts its default (1) and "loses" the restore —
-  // the reason the previous attempt didn't stick. `volume` is independent of
-  // `muted`, so we save it even while muted (autoplay starts muted), but we only
-  // start saving AFTER the restore so the initial default can't overwrite it.
+  // episode/anime/session. Restore goes through Vidstack's `player.volume`
+  // setter (which queues onto the canPlay queue and survives init); saving reads
+  // the reactive `volumeState` (above). `volumePersistArmedRef` gates saving
+  // until ~0.5s after restore settles, so the default (1) → restore churn can't
+  // overwrite the saved value before we've applied it.
+  const volumePersistArmedRef = useRef(false);
   useEffect(() => {
     const player = playerRef.current as any;
-    const playerEl = playerRef.current?.el as HTMLElement | undefined;
-    if (!player || !playerEl) return;
-    const KEY = "aniscroll:volume";
+    const el = player?.el as HTMLElement | undefined;
+    if (!player || !el) return;
+    volumePersistArmedRef.current = false;
 
-    const readSaved = (): number | null => {
-      try {
-        const raw = localStorage.getItem(KEY);
-        if (raw == null) return null;
-        const v = parseFloat(raw);
-        return Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : null;
-      } catch {
-        return null;
+    let saved: number | null = null;
+    try {
+      const raw = localStorage.getItem("aniscroll:volume");
+      const v = raw == null ? NaN : parseFloat(raw);
+      saved = Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : null;
+    } catch {}
+
+    let armTimer = 0;
+    const apply = () => {
+      if (saved != null) {
+        try {
+          player.volume = saved;
+        } catch {}
       }
+      // Arm saving only after the restore has had time to settle into $state.
+      window.clearTimeout(armTimer);
+      armTimer = window.setTimeout(() => {
+        volumePersistArmedRef.current = true;
+      }, 500);
     };
 
-    // `saving` only flips on once the player is ready, so the volume churn
-    // during init (Vidstack's default → our restore) can't overwrite the saved
-    // level. After that, every user change is persisted.
-    let saving = false;
-    const saved = readSaved();
-    const restore = () => {
-      if (saved == null) return;
-      try {
-        if (Math.abs((player.volume ?? 1) - saved) > 0.001) player.volume = saved;
-      } catch {}
-    };
-
-    // Vidstack emits `volume-change` with detail { volume, muted } on any real
-    // change. Persist the level (independent of mute) once we're past init.
-    const onVolumeChange = (e: Event) => {
-      if (!saving) return;
-      const v = (e as CustomEvent).detail?.volume;
-      if (typeof v !== "number") return;
-      try {
-        localStorage.setItem(KEY, String(Math.min(1, Math.max(0, v))));
-      } catch {}
-    };
-
-    restore(); // apply early for a snappy first paint…
-    const enable = () => {
-      restore(); // …and re-assert once ready (init may have reset it)…
-      saving = true; // …then start persisting user changes.
-    };
-    playerEl.addEventListener("can-play", enable);
-    // Fallback in case `can-play` already fired before this effect ran.
-    const enableTimer = window.setTimeout(enable, 2000);
-    playerEl.addEventListener("volume-change", onVolumeChange as EventListener);
+    apply(); // queues the volume; applied when the provider is ready
+    el.addEventListener("can-play", apply);
+    // Fallback if can-play already fired before this effect attached.
+    const fallback = window.setTimeout(apply, 1500);
 
     return () => {
-      window.clearTimeout(enableTimer);
-      playerEl.removeEventListener("can-play", enable);
-      playerEl.removeEventListener(
-        "volume-change",
-        onVolumeChange as EventListener,
-      );
+      el.removeEventListener("can-play", apply);
+      window.clearTimeout(fallback);
+      window.clearTimeout(armTimer);
     };
   }, [streamData]);
+
+  // Persist every user volume change (independent of mute) once armed.
+  useEffect(() => {
+    if (!volumePersistArmedRef.current) return;
+    if (typeof volumeState !== "number") return;
+    try {
+      localStorage.setItem(
+        "aniscroll:volume",
+        String(Math.min(1, Math.max(0, volumeState))),
+      );
+    } catch {}
+  }, [volumeState]);
 
   // ── Autoplay ──
   // Chrome rejects unmuted autoplay without a user gesture, period. The
