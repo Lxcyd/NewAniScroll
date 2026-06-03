@@ -323,13 +323,11 @@ export default function Watch({
     "hianime-tcloud",
     "animesaturn",
     "animesama-sibnet",
-    "animesama-sendvid",
     "animesama-oneupload",
     "animesama-callistanise",
     "voiranime-voe",
     "voiranime-streamtape",
     "animesama-sibnet-vo",
-    "animesama-sendvid-vo",
     "voiranime-voe-vo",
     "voiranime-streamtape-vo",
   ];

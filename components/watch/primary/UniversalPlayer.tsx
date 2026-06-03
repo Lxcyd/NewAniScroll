@@ -1793,19 +1793,20 @@ export default function UniversalPlayer({
     };
   }, [streamData]);
 
-  // ── Persistent volume (app-wide) ──
-  // Remember the player volume across episodes, anime AND sessions. We store a
-  // single app-wide value in localStorage and restore it onto each new <video>.
-  // Done imperatively (not via a controlled `volume` prop) so Vidstack doesn't
-  // reset the user's level on every render. We persist on the element's native
-  // `volumechange`, ignoring the value while muted (muted reports volume 0 on
-  // some browsers, which would otherwise overwrite the saved level with 0).
+  // ── Persistent volume (app-wide, shared across every player) ──
+  // One value in localStorage, restored onto every player instance and every
+  // episode/anime/session. We drive it through Vidstack's own API + event (not
+  // the raw <video>) because setting `video.volume` directly desyncs Vidstack's
+  // media state, which then re-asserts its default (1) and "loses" the restore —
+  // the reason the previous attempt didn't stick. `volume` is independent of
+  // `muted`, so we save it even while muted (autoplay starts muted), but we only
+  // start saving AFTER the restore so the initial default can't overwrite it.
   useEffect(() => {
+    const player = playerRef.current as any;
     const playerEl = playerRef.current?.el as HTMLElement | undefined;
-    if (!playerEl) return;
+    if (!player || !playerEl) return;
     const KEY = "aniscroll:volume";
 
-    let video: HTMLVideoElement | null = null;
     const readSaved = (): number | null => {
       try {
         const raw = localStorage.getItem(KEY);
@@ -1817,42 +1818,46 @@ export default function UniversalPlayer({
       }
     };
 
-    const onVolumeChange = () => {
-      if (!video || video.muted) return;
+    // `saving` only flips on once the player is ready, so the volume churn
+    // during init (Vidstack's default → our restore) can't overwrite the saved
+    // level. After that, every user change is persisted.
+    let saving = false;
+    const saved = readSaved();
+    const restore = () => {
+      if (saved == null) return;
       try {
-        localStorage.setItem(KEY, String(video.volume));
+        if (Math.abs((player.volume ?? 1) - saved) > 0.001) player.volume = saved;
       } catch {}
     };
 
-    let pollId = 0;
-    const bind = () => {
-      video = playerEl.querySelector<HTMLVideoElement>("video");
-      if (!video) return false;
-      const saved = readSaved();
-      if (saved != null) {
-        // Apply through the player instance so Vidstack's own state stays in
-        // sync (the volume slider reflects it immediately).
-        const player = playerRef.current as any;
-        try {
-          if (player) player.volume = saved;
-          else video.volume = saved;
-        } catch {
-          video.volume = saved;
-        }
-      }
-      video.addEventListener("volumechange", onVolumeChange);
-      return true;
+    // Vidstack emits `volume-change` with detail { volume, muted } on any real
+    // change. Persist the level (independent of mute) once we're past init.
+    const onVolumeChange = (e: Event) => {
+      if (!saving) return;
+      const v = (e as CustomEvent).detail?.volume;
+      if (typeof v !== "number") return;
+      try {
+        localStorage.setItem(KEY, String(Math.min(1, Math.max(0, v))));
+      } catch {}
     };
-    if (!bind()) {
-      let tries = 0;
-      pollId = window.setInterval(() => {
-        if (bind() || ++tries > 40) window.clearInterval(pollId);
-      }, 250);
-    }
+
+    restore(); // apply early for a snappy first paint…
+    const enable = () => {
+      restore(); // …and re-assert once ready (init may have reset it)…
+      saving = true; // …then start persisting user changes.
+    };
+    playerEl.addEventListener("can-play", enable);
+    // Fallback in case `can-play` already fired before this effect ran.
+    const enableTimer = window.setTimeout(enable, 2000);
+    playerEl.addEventListener("volume-change", onVolumeChange as EventListener);
 
     return () => {
-      window.clearInterval(pollId);
-      video?.removeEventListener("volumechange", onVolumeChange);
+      window.clearTimeout(enableTimer);
+      playerEl.removeEventListener("can-play", enable);
+      playerEl.removeEventListener(
+        "volume-change",
+        onVolumeChange as EventListener,
+      );
     };
   }, [streamData]);
 
