@@ -1804,10 +1804,22 @@ export default function UniversalPlayer({
   // the reactive `volumeState` (above). `volumePersistArmedRef` gates saving
   // until ~0.5s after restore settles, so the default (1) → restore churn can't
   // overwrite the saved value before we've applied it.
+  // TEMP DEBUG: trace volume restore/persist. Auto-on for localhost + dev.*.
+  const VOL_DBG =
+    typeof window !== "undefined" &&
+    (window.location.hostname === "localhost" ||
+      window.location.hostname === "127.0.0.1" ||
+      window.location.hostname.startsWith("dev."));
+  const vlog = (...a: any[]) => {
+    // eslint-disable-next-line no-console
+    if (VOL_DBG) console.log("[VOL]", ...a);
+  };
+
   const volumePersistArmedRef = useRef(false);
   useEffect(() => {
     const player = playerRef.current as any;
     const el = player?.el as HTMLElement | undefined;
+    vlog("restore effect run", { hasPlayer: !!player, hasEl: !!el });
     if (!player || !el) return;
     volumePersistArmedRef.current = false;
 
@@ -1816,29 +1828,43 @@ export default function UniversalPlayer({
       const raw = localStorage.getItem("aniscroll:volume");
       const v = raw == null ? NaN : parseFloat(raw);
       saved = Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : null;
-    } catch {}
+      vlog("read saved", { raw, saved });
+    } catch (e) {
+      vlog("read saved THREW", e);
+    }
 
     let armTimer = 0;
-    const apply = () => {
+    const apply = (from: string) => {
+      let before: any = "?";
+      try {
+        before = player.volume;
+      } catch {}
       if (saved != null) {
         try {
           player.volume = saved;
-        } catch {}
+        } catch (e) {
+          vlog("set player.volume THREW", e);
+        }
       }
-      // Arm saving only after the restore has had time to settle into $state.
+      let after: any = "?";
+      try {
+        after = player.volume;
+      } catch {}
+      vlog(`apply(${from})`, { before, saved, after });
       window.clearTimeout(armTimer);
       armTimer = window.setTimeout(() => {
         volumePersistArmedRef.current = true;
+        vlog("ARMED — saving enabled");
       }, 500);
     };
 
-    apply(); // queues the volume; applied when the provider is ready
-    el.addEventListener("can-play", apply);
-    // Fallback if can-play already fired before this effect attached.
-    const fallback = window.setTimeout(apply, 1500);
+    apply("mount");
+    const onCanPlay = () => apply("can-play");
+    el.addEventListener("can-play", onCanPlay);
+    const fallback = window.setTimeout(() => apply("fallback-1500ms"), 1500);
 
     return () => {
-      el.removeEventListener("can-play", apply);
+      el.removeEventListener("can-play", onCanPlay);
       window.clearTimeout(fallback);
       window.clearTimeout(armTimer);
     };
@@ -1846,14 +1872,19 @@ export default function UniversalPlayer({
 
   // Persist every user volume change (independent of mute) once armed.
   useEffect(() => {
+    vlog("volumeState changed", {
+      volumeState,
+      armed: volumePersistArmedRef.current,
+    });
     if (!volumePersistArmedRef.current) return;
     if (typeof volumeState !== "number") return;
     try {
-      localStorage.setItem(
-        "aniscroll:volume",
-        String(Math.min(1, Math.max(0, volumeState))),
-      );
-    } catch {}
+      const val = String(Math.min(1, Math.max(0, volumeState)));
+      localStorage.setItem("aniscroll:volume", val);
+      vlog("SAVED", val);
+    } catch (e) {
+      vlog("save THREW", e);
+    }
   }, [volumeState]);
 
   // ── Autoplay ──
