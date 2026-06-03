@@ -1001,7 +1001,59 @@ export default function UniversalPlayer({
   // Capture the hls.js instance once Vidstack has set the provider up.
   const onProviderSetup = (provider: any) => {
     if (isHLSProvider(provider)) {
-      hlsRef.current = provider.instance || null;
+      const hls = provider.instance || null;
+      hlsRef.current = hls;
+
+      // ── TEMP DIAGNOSTIC: why is one anime fast and another slow on the SAME
+      // megaplay CDN? Measure it instead of guessing. Prints the stream's
+      // quality levels (resolution + declared bitrate) once, then a one-line
+      // rolling summary of real fragment size + download time + throughput.
+      // Compare the line between a "fast" title (JJK/MHA) and a "slow" one
+      // (SnK/Demon Slayer): if the slow one shows much bigger KB/frag at a
+      // similar Mbps, it's encode bitrate; if similar KB but lower Mbps, it's
+      // origin latency. Auto-on for localhost + dev.* host only.
+      try {
+        const host =
+          typeof window !== "undefined" ? window.location.hostname : "";
+        const dbg =
+          host === "localhost" || host === "127.0.0.1" || host.startsWith("dev.");
+        if (hls && dbg) {
+          (hls as any).on("hlsManifestParsed", (_e: any, d: any) => {
+            const levels = (d?.levels || [])
+              .map(
+                (l: any) =>
+                  `${l.height || "?"}p@${Math.round((l.bitrate || 0) / 1000)}k`,
+              )
+              .join(", ");
+            // eslint-disable-next-line no-console
+            console.log(`[DIAG] levels: ${levels || "(none)"}`);
+          });
+          let n = 0;
+          let sumBytes = 0;
+          let sumMs = 0;
+          (hls as any).on("hlsFragLoaded", (_e: any, d: any) => {
+            const st = d?.frag?.stats || d?.stats;
+            if (!st) return;
+            const bytes = st.total || st.loaded || 0;
+            const ms =
+              (st.loading?.end || 0) - (st.loading?.start || 0) || 0;
+            if (bytes <= 0 || ms <= 0) return;
+            n++;
+            sumBytes += bytes;
+            sumMs += ms;
+            if (n % 5 === 0) {
+              const lvl = hls.levels?.[hls.currentLevel];
+              const avgKB = Math.round(sumBytes / n / 1024);
+              const avgMs = Math.round(sumMs / n);
+              const mbps = ((sumBytes * 8) / (sumMs / 1000) / 1e6).toFixed(1);
+              // eslint-disable-next-line no-console
+              console.log(
+                `[DIAG] ${lvl?.height || "?"}p | avg ${avgKB} KB/frag | ${avgMs} ms/frag | ${mbps} Mbps`,
+              );
+            }
+          });
+        }
+      } catch {}
     }
   };
 
