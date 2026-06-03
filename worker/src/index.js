@@ -108,21 +108,6 @@ function corsHeaders(extra = {}) {
   };
 }
 
-// Hosts whose CDN responds with 4xx/5xx to Cloudflare Worker egress IPs.
-// Requests for these go through ANIME_PROXY_URL (a separate host whose IP
-// range the upstream tolerates — usually Fly.io or Render). The CF edge
-// cache on top of the proxy is what keeps the proxy bandwidth cheap: a
-// segment's URL token is the cache key, so a fresh viewer of an already-
-// fetched segment hits CF for free and never reaches us.
-function needsProxy(targetUrl) {
-  return (
-    targetUrl.includes("sibnet.ru") ||
-    targetUrl.includes("acek-cdn.com") ||
-    targetUrl.includes("dramiyos-cdn") ||
-    targetUrl.includes("mindbodywellness.space")
-  );
-}
-
 async function handle(request, env, ctx) {
   if (request.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: corsHeaders() });
@@ -221,24 +206,7 @@ async function handle(request, env, ctx) {
     if (cached) return cached;
   }
 
-  // Route to ANIME_PROXY_URL for hosts that block CF Worker IPs.
-  // The proxy follows the redirect chain with the right Referer, and we
-  // ask for `raw=1` so we still get the upstream m3u8 unrewritten — our
-  // own rewriting (below) then points segments at the Worker so segment
-  // fetches hit the same edge cache.
-  const proxyUrl = env?.ANIME_PROXY_URL || "";
   let response;
-  if (needsProxy(targetUrl) && proxyUrl) {
-    const proxied =
-      `${proxyUrl.replace(/\/$/, "")}/?url=${encodeURIComponent(targetUrl)}` +
-      `&referer=${encodeURIComponent(finalReferer)}` +
-      (vcookie ? `&vcookie=${encodeURIComponent(decodeURIComponent(vcookie))}` : "") +
-      `&raw=1`;
-    response = await fetch(proxied, {
-      // Range needs to ride through too for video seeking.
-      headers: rangeHeader ? { Range: rangeHeader } : {},
-    });
-  } else {
   // Manual redirect handling.
   //
   // Cloudflare's `fetch(..., { redirect: "follow" })` does NOT carry our
@@ -295,7 +263,6 @@ async function handle(request, env, ctx) {
     }
     currentUrl = next;
   }
-  } // end of `else` branch — non-proxied direct fetch
 
   // Helper that stores the final response under the normalised cache key
   // before returning it. Skip caching for downloads (Content-Disposition

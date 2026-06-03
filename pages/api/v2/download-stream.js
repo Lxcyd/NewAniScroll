@@ -2,8 +2,6 @@
  * GET /api/v2/download-stream?url=<m3u8_url>&filename=<name>&referer=<ref>
  *
  * Server-side concatenates all HLS segments into a single .ts download.
- * For sources that need IP-bound auth (vidmoly), we route everything through
- * anime-proxy so the segment fetches use the same IP as the m3u8 fetch.
  *
  * Inspired by SertraFurr/Anime-Sama-Downloader's segment streaming approach.
  * The browser receives one continuous video/mp2t stream as a single file.
@@ -11,31 +9,17 @@
 
 import { Readable } from "stream";
 
-const ANIME_PROXY_URL = (process.env.ANIME_PROXY_URL || "").replace(/\/$/, "");
-
 const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0.0.0";
 
-// Hosts whose tokens are bound to the IP that fetched the embed (vidmoly CDN).
-// For these, we MUST route segment fetches through anime-proxy.
-function needsAnimeProxy(url) {
-  if (!ANIME_PROXY_URL) return false;
-  return /vmwesa\.|vidmoly\.|vidcdn\./i.test(url);
-}
-
 async function fetchSegment(url, referer, signal) {
-  const target = needsAnimeProxy(url)
-    ? `${ANIME_PROXY_URL}/?url=${encodeURIComponent(url)}` +
-      (referer ? `&origin=${encodeURIComponent(referer)}` : "")
-    : url;
-
   const headers = {
     "User-Agent": UA,
     Accept: "*/*",
   };
-  if (!needsAnimeProxy(url) && referer) headers.Referer = referer;
+  if (referer) headers.Referer = referer;
 
-  const r = await fetch(target, { headers, signal });
+  const r = await fetch(url, { headers, signal });
   if (!r.ok) throw new Error(`segment HTTP ${r.status}`);
   return r;
 }

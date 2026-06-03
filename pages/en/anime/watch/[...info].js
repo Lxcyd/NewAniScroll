@@ -324,7 +324,6 @@ export default function Watch({
     "animesaturn",
     "animesama-sibnet",
     "animesama-oneupload",
-    "animesama-callistanise",
     "voiranime-voe",
     "voiranime-streamtape",
     "animesama-sibnet-vo",
