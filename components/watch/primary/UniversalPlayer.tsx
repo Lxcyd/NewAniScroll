@@ -1686,12 +1686,66 @@ export default function UniversalPlayer({
   // (see controlsHostRef / settingsHostRef), so Vidstack rebuilds no longer
   // tear down our portals and the boundary never fires.
 
-  // NOTE: we no longer manually nudge hls.js on seek (stopLoad/startLoad).
-  // hls.js already flushes and refetches at the new position natively, and our
-  // HLS_CONFIG enables startFragPrefetch + large buffers. The manual nudge
-  // actually ADDED latency (it restarts the whole loader) and, near the end of
-  // the video, made hls.js reset to 0 ("outro sent me back to the start"). The
-  // real seek latency is the proxy→CDN round-trip, which a nudge can't help.
+  // ── Spam-seek coalescing ──
+  // A single seek is handled fine by hls.js natively, so we leave it alone.
+  // But when the user SPAMS the scrub bar, every click lands on an unbuffered
+  // spot and kicks off a fresh segment fetch; on a slow/cache-miss CDN those
+  // stack up and the player appears to "load for a long time" before it settles
+  // on the last position. We detect rapid consecutive seeks and, on the 2nd+
+  // one, immediately `stopLoad()` (which aborts the in-flight fragment request
+  // — closing its connection so we stop waiting on a fetch the user already
+  // skipped past) and then, once the user stops moving for ~180ms, `startLoad()`
+  // at the FINAL position. Net effect: only the position you land on gets
+  // fetched, instead of every spot you flew over. We never touch the isolated
+  // single-seek path, so normal seeking keeps hls.js's native (no-extra-latency)
+  // behaviour.
+  useEffect(() => {
+    const playerEl = playerRef.current?.el as HTMLElement | undefined;
+    if (!playerEl) return;
+
+    let video: HTMLVideoElement | null = null;
+    let seekCount = 0;
+    let lastSeekAt = 0;
+    let settleTimer = 0;
+
+    const onSeeking = () => {
+      const hls = hlsRef.current;
+      if (!hls || !video) return;
+      const now = performance.now();
+      seekCount = now - lastSeekAt < 450 ? seekCount + 1 : 1;
+      lastSeekAt = now;
+      if (seekCount < 2) return; // isolated seek → let hls.js handle it natively
+
+      // Spam: drop whatever fragment is mid-flight right now…
+      try { hls.stopLoad(); } catch {}
+      window.clearTimeout(settleTimer);
+      // …and resume loading only once the user settles, at the final spot.
+      settleTimer = window.setTimeout(() => {
+        try { hls.startLoad(video!.currentTime); } catch {}
+        seekCount = 0;
+      }, 180);
+    };
+
+    let pollId = 0;
+    const bind = () => {
+      video = playerEl.querySelector<HTMLVideoElement>("video");
+      if (!video) return false;
+      video.addEventListener("seeking", onSeeking);
+      return true;
+    };
+    if (!bind()) {
+      let tries = 0;
+      pollId = window.setInterval(() => {
+        if (bind() || ++tries > 40) window.clearInterval(pollId);
+      }, 250);
+    }
+
+    return () => {
+      window.clearTimeout(settleTimer);
+      window.clearInterval(pollId);
+      video?.removeEventListener("seeking", onSeeking);
+    };
+  }, [streamData]);
 
   // ── Client-side extraction runner ──
   // Vidmoly's master.m3u8 token is bound to whichever IP fetched the embed
