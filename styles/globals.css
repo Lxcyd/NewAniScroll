@@ -28,6 +28,19 @@ body {
   overflow-x: hidden;
 }
 
+/* Heart "favourite" fill animation — used by the anime info page (desktop
+   Hero + mobile header). Defined globally so the inline `animation:
+   heart-pop ...` on the heart SVGs resolves whether the desktop or the
+   mobile layout renders. Fires whenever `fav` flips false→true (a user
+   click OR the client-side hydration of the signed-in user's list state,
+   now that the page's SSR is user-agnostic + edge-cached). */
+@keyframes heart-pop {
+  0%   { transform: scale(1); }
+  35%  { transform: scale(1.35); }
+  62%  { transform: scale(0.9); }
+  100% { transform: scale(1); }
+}
+
 /* Hide ALL scrollbars site-wide (vertical + horizontal) while keeping the
    scroll behavior intact. Targets:
    - WebKit (Chrome / Edge / Safari) via ::-webkit-scrollbar

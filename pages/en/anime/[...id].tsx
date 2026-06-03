@@ -21,8 +21,6 @@ import MobileNav from "@/components/shared/MobileNav";
 import { redis } from "@/lib/redis";
 import { primeMediaCache } from "@/lib/anilist/getMediaMeta";
 import { anilistFetch } from "@/lib/anilist/anilistFetch";
-import { getServerSession } from "next-auth";
-import { authOptions } from "../../api/auth/[...nextauth]";
 import { getCachedAnime } from "@/lib/db/anime";
 import { loadFanarts, FanartPayload } from "@/lib/db/fanarts";
 import { resolveSeasonChain, resolveSeasonList, SeasonEntry } from "@/lib/anilist/seasonChain";
@@ -152,6 +150,49 @@ export default function Info({
     setStatusLabel(initialStatusLabel);
     setFav(initialFav);
   }, [info?.id, initialProgress, initialStatusLabel, initialFav]);
+
+  // Hydrate the signed-in user's heart / progress / list-status CLIENT-side.
+  // The SSR HTML is now identical for everyone (so Vercel edge-caches the page
+  // for logged-in users too — the big invocation/FOT win). We pull the
+  // per-user bits straight from AniList here (browser → AniList, zero Vercel
+  // cost) and let the heart fill in with the pop animation in Hero when `fav`
+  // flips false→true. Anonymous visitors skip this entirely.
+  useEffect(() => {
+    const token = session?.user?.token;
+    const aniId = Number(info?.id);
+    if (!token || !Number.isFinite(aniId)) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("https://graphql.anilist.co", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            query:
+              "query ($id: Int) { Media(id: $id) { isFavourite mediaListEntry { progress status } } }",
+            variables: { id: aniId },
+          }),
+        });
+        if (!res.ok || cancelled) return;
+        const json = await res.json();
+        if (cancelled) return;
+        const media = json?.data?.Media;
+        if (!media) return;
+        setProgress(Number(media.mediaListEntry?.progress) || 0);
+        setStatusLabel(media.mediaListEntry?.status ?? null);
+        setFav(media.isFavourite === true);
+      } catch {
+        /* best-effort — heart just stays empty on failure */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [session?.user?.token, info?.id]);
 
   // ── Prefetch the player for the "Watch" target ───────────────────────
   // Visitors who open an anime page usually go on to watch it, so we warm
@@ -486,40 +527,6 @@ export default function Info({
   );
 }
 
-/* Per-user list state fetched at SSR so the heart + watch button
-   render correct on the first paint. Returns the empty shape when
-   the user isn't signed in or AniList doesn't have a list entry yet.
-   Uses the user's token through the global limiter; AniList returns
-   isFavourite + mediaListEntry in a single small query. */
-async function loadUserListState(
-  aniId: number,
-  accessToken: string | null
-): Promise<{ fav: boolean; statusLabel: string | null; progress: number }> {
-  const empty = { fav: false, statusLabel: null, progress: 0 };
-  if (!accessToken || !Number.isFinite(aniId)) return empty;
-  const json = await anilistFetch({
-    query: `
-      query ($id: Int) {
-        Media(id: $id) {
-          isFavourite
-          mediaListEntry { progress status }
-        }
-      }
-    `,
-    variables: { id: aniId },
-    authToken: accessToken,
-    timeoutMs: 3500,
-    label: `userList:${aniId}`,
-    cacheSeconds: 0,
-  });
-  const media = json?.data?.Media;
-  if (!media) return empty;
-  return {
-    fav: media.isFavourite === true,
-    statusLabel: media.mediaListEntry?.status ?? null,
-    progress: Number(media.mediaListEntry?.progress) || 0,
-  };
-}
 
 /* Emit RFC 8288 `Link: rel=preload` HTTP headers so the browser starts
    downloading the hero artwork BEFORE we've finished computing the rest
@@ -596,42 +603,28 @@ export async function getServerSideProps(ctx: any) {
 
   const animeIdNum = Number(id?.[0]);
 
-  // The user-specific list/favourite is fetched in parallel with the
-  // rest. It's the only piece we can't cache (per-user) but it's a
-  // tiny query and we want it inline so the heart paints right.
-  const session: any = await getServerSession(ctx.req, ctx.res, authOptions);
-  timer.mark("session");
-  const accessToken: string | null = session?.user?.token || null;
-  const userListP = loadUserListState(animeIdNum, accessToken);
-
-  // Edge-cache headers for anonymous SSR. The rendered HTML contains
-  // zero user-specific bits when there's no session (heart, watch
-  // status, progress all start empty and hydrate client-side), so we
-  // can let Vercel's edge serve the same response to every visitor of
-  // this PoP. AniList metadata changes slowly (episode count when a new
-  // episode airs, status when a show finishes), so a 1 hour edge cache
-  // with 24h stale-while-revalidate is safe — the worst case is a
-  // viewer seeing an episode count that's off by one for an hour after
-  // an airing, but the next visitor refreshes it in the background.
+  // The signed-in user's heart / progress / list-status are NO LONGER read
+  // here. Fetching the session server-side made the SSR response per-user,
+  // which forced `private, no-store` and re-invoked this function on EVERY
+  // logged-in view. They now hydrate client-side (with a heart fill-in
+  // animation — see the effect in the component below), so the SSR payload
+  // is identical for everyone and Vercel's edge cache serves every visitor,
+  // logged-in or not. This is the big invocation / Fast Origin Transfer win
+  // on the site's busiest page — same pattern the home page already uses for
+  // its personalised carousels.
   //
-  // We split the headers so:
-  //  - `Cache-Control` controls the BROWSER cache (60s — so a hard
-  //    refresh sees fresh data, no "stuck on yesterday's status").
-  //  - `CDN-Cache-Control` controls Vercel's edge cache (1h + 24h SWR)
-  //    — this is the line that actually saves Fast Origin Transfer.
-  //
-  // Logged-in responses include initialFav / initialStatusLabel from
-  // the user's AniList list and MUST NOT be shared — for those, set
-  // the response to private/no-store across the board.
-  if (session) {
-    ctx.res.setHeader("Cache-Control", "private, no-store");
-  } else {
-    ctx.res.setHeader("Cache-Control", "public, max-age=60");
-    ctx.res.setHeader(
-      "CDN-Cache-Control",
-      "public, s-maxage=3600, stale-while-revalidate=86400",
-    );
-  }
+  // Headers:
+  //  - `Cache-Control` → BROWSER cache (60s, so a hard refresh sees fresh
+  //    metadata, no "stuck on yesterday's status").
+  //  - `CDN-Cache-Control` → Vercel's edge cache (1h + 24h stale-while-
+  //    revalidate). AniList metadata shifts slowly (episode count on an
+  //    airing, status on a finale), so worst case a viewer sees a count
+  //    off by one for an hour while the next visitor refreshes it.
+  ctx.res.setHeader("Cache-Control", "public, max-age=60");
+  ctx.res.setHeader(
+    "CDN-Cache-Control",
+    "public, s-maxage=3600, stale-while-revalidate=86400",
+  );
 
   if (cache) {
     const { info, color } = JSON.parse(cache);
@@ -655,10 +648,9 @@ export async function getServerSideProps(ctx: any) {
 
     // Now wait on the slower stuff in parallel. The browser is already
     // pulling the images while these resolve.
-    const [seasonInfo, seasonList, userList] = await Promise.all([
+    const [seasonInfo, seasonList] = await Promise.all([
       resolveSeasonChain(animeIdNum).catch(() => ({ number: null, total: null })),
       resolveSeasonList(animeIdNum).catch(() => []),
-      userListP.catch(() => ({ fav: false, statusLabel: null, progress: 0 })),
     ]);
     timer.end(`cache-hit id=${id?.[0]}`);
     return {
@@ -671,9 +663,11 @@ export async function getServerSideProps(ctx: any) {
         initialTitleImage,
         seasonInfo,
         seasonList,
-        initialFav: userList.fav,
-        initialStatusLabel: userList.statusLabel,
-        initialProgress: userList.progress,
+        // Per-user fields hydrate client-side now (see component) so this
+        // SSR payload stays identical for everyone → edge-cacheable.
+        initialFav: false,
+        initialStatusLabel: null,
+        initialProgress: 0,
         initialUA: ctx.req?.headers?.["user-agent"] || null,
       },
     };
@@ -747,10 +741,9 @@ export async function getServerSideProps(ctx: any) {
     );
   }
 
-  const [seasonInfo, seasonList, userList] = await Promise.all([
+  const [seasonInfo, seasonList] = await Promise.all([
     seasonInfoP,
     seasonListP,
-    userListP.catch(() => ({ fav: false, statusLabel: null, progress: 0 })),
   ]);
   timer.end(`cache-miss id=${id?.[0]}`);
 
@@ -764,9 +757,10 @@ export async function getServerSideProps(ctx: any) {
       initialTitleImage,
       seasonInfo,
       seasonList,
-      initialFav: userList.fav,
-      initialStatusLabel: userList.statusLabel,
-      initialProgress: userList.progress,
+      // Per-user fields hydrate client-side (see component) → cacheable SSR.
+      initialFav: false,
+      initialStatusLabel: null,
+      initialProgress: 0,
     },
   };
 }
