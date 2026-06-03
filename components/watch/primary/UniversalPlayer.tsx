@@ -153,42 +153,6 @@ function proxied(
 }
 
 /**
- * StaticGlow — CSS-only ambient (poster + pink accent).
- * Used as the base layer always, and as the ONLY layer for iframe embeds
- * (where we can't reach into the cross-origin video element).
- */
-function StaticGlow({
-  poster,
-  intense = false,
-}: {
-  poster?: string;
-  intense?: boolean;
-}) {
-  // CSS-only fallback ambient. Used before LiveAmbient has its first video
-  // frame to draw from, and as the only ambient layer for iframe embeds
-  // (where cross-origin restrictions prevent canvas sampling).
-  //
-  // If no poster is provided we render nothing — a hardcoded brand-color
-  // gradient would tint the entire player and pollute LiveAmbient's edges.
-  if (!poster) return null;
-  return (
-    <div
-      aria-hidden
-      className="pointer-events-none absolute inset-0 h-full w-full"
-      style={{
-        zIndex: 0,
-        backgroundImage: `url(${poster})`,
-        backgroundSize: "cover",
-        backgroundPosition: "center",
-        filter: "blur(140px) saturate(1.8)",
-        transform: "scale(1.1)",
-        opacity: intense ? 0.95 : 0.8,
-      }}
-    />
-  );
-}
-
-/**
  * LiveAmbient — projector stack with GPU bilinear scaling.
  *
  * The previous "stretch a small canvas to full size via CSS" approach was
@@ -2000,7 +1964,9 @@ export default function UniversalPlayer({
       <div
         className={`relative h-full w-full${iosPseudoFs ? " moopa-ios-fs" : ""}`}
       >
-        {ambientEnabled && <StaticGlow poster={poster} intense />}
+        {/* No ambient glow behind iframe embeds — the poster-based gradient was
+            distracting and added nothing for an embed we can't sample frames
+            from. (Removed per request.) */}
         <IframeEmbed
           src={iframeSrc}
           serverId={serverId}

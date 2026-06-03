@@ -155,7 +155,7 @@ export async function getServerSideProps() {
 
 export default function Schedule({ schedule }: any) {
   const titlePref = useTitlePref();
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const dayLabel = (d: string) => (DAY_KEY[d] ? t(DAY_KEY[d]) : d);
   const [filterDay, setFilterDay] = useState("All");
   const [loading, setLoading] = useState(true);
@@ -387,7 +387,7 @@ export default function Schedule({ schedule }: any) {
                                   </h1>
                                   <p className="text-gray-400 group-hover:text-action/80 transition-all duration-200 ease-out">
                                     Ep {s?.episode}{" "}
-                                    {timeStamptoHour(s.airingAt)}
+                                    {timeStamptoHour(s.airingAt, i18n.language)}
                                   </p>
                                 </div>
                               </Link>
@@ -492,7 +492,7 @@ export default function Schedule({ schedule }: any) {
                               {pickTitle(m.title, titlePref)}
                             </h1>
                             <p className="text-gray-400 group-hover:text-action/80 transition-all duration-200 ease-out">
-                              Ep {s.episode} {timeStamptoHour(s.airingAt)}
+                              Ep {s.episode} {timeStamptoHour(s.airingAt, i18n.language)}
                             </p>
                           </div>
                         </Link>

@@ -421,12 +421,12 @@ export default function Info({
         <div>
           {!session && (
             <div className="flex-center flex-col gap-5 px-10 py-5 bg-secondary rounded-md">
-              <div className="text-md font-extrabold font-karla">Edit your list</div>
+              <div className="text-md font-extrabold font-karla">{t("nav.editYourList")}</div>
               <button
                 className="flex items-center bg-[#363642] rounded-md text-white p-1"
                 onClick={() => signIn("AniListProvider")}
               >
-                <h1 className="px-1 font-bold font-karla">Login with AniList</h1>
+                <h1 className="px-1 font-bold font-karla">{t("nav.loginWithAniList")}</h1>
                 <div className="scale-[60%] pb-[1px]">
                   <AniList />
                 </div>

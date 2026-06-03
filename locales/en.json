@@ -66,6 +66,7 @@
   },
   "home": {
     "recentlyWatched": "Recently Watched",
+    "playNext": "Play Next Episode",
     "continueWatching": "Continue Watching",
     "freshlyAdded": "Freshly Added",
     "newEpisodes": "New Episodes",

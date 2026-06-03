@@ -95,15 +95,17 @@ export const timeStamptoAMPM = (timestamp: number | string) => {
   return `${formattedHours}:${minutes.toString().padStart(2, "0")} ${ampm}`;
 };
 
-export const timeStamptoHour = (timestamp: number) => {
+export const timeStamptoHour = (timestamp: number, lang: string = "en") => {
   const currentTime = new Date().getTime() / 1000;
+  const fr = lang === "fr";
+  // French uses the 24-hour clock; English keeps 12-hour AM/PM.
   const formattedTime = new Date(timestamp * 1000).toLocaleTimeString(
-    undefined,
-    { hour: "numeric", minute: "numeric", hour12: true }
+    fr ? "fr-FR" : undefined,
+    { hour: "numeric", minute: "numeric", hour12: !fr }
   );
-  const status = timestamp <= currentTime ? "aired" : "airing";
-
-  return `${status} at ${formattedTime}`;
+  const aired = timestamp <= currentTime;
+  if (fr) return `${aired ? "diffusé à" : "diffusion à"} ${formattedTime}`;
+  return `${aired ? "aired" : "airing"} at ${formattedTime}`;
 };
 
 export function unixTimestampToRelativeTime(unixTimestamp: number) {

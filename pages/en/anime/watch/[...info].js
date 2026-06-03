@@ -275,6 +275,12 @@ export default function Watch({
   // Stable initial value to avoid SSR/CSR hydration mismatch.
   // The user's saved preference is loaded after mount in a useEffect below.
   const [activeServer, setActiveServer] = useState("megaplay");
+  // Gates the first source fetch until we've read the user's saved server
+  // preference from localStorage. Without this gate the page fetched + showed
+  // megaplay (the SSR-safe default) first, then visibly SWITCHED to the user's
+  // server once it confirmed — the jarring flip the user reported. With the
+  // gate, the very first fetch already targets the preferred server.
+  const [serverResolved, setServerResolved] = useState(false);
   const [hlsData, setHlsData]           = useState(null);
   const [hlsLoading, setHlsLoading]     = useState(false);
   // Map<serverId, reason string> — failed servers (kept for tracking, hidden from UI)
@@ -393,8 +399,18 @@ export default function Watch({
   const preferredServerRef = useRef(null);
   const appliedPrefRef = useRef(false);
   useEffect(() => {
-    preferredServerRef.current =
-      localStorage.getItem("preferred_server") || null;
+    const pref = localStorage.getItem("preferred_server") || null;
+    preferredServerRef.current = pref;
+    // Select the user's server UP FRONT so it's the one loaded in priority — not
+    // megaplay-then-switch. If the anime doesn't actually offer this server the
+    // fetch fails and the safety-net effect below falls back to a confirmed one,
+    // which is exactly the "sauf s'il n'a pas l'anime" behaviour we want. With
+    // no saved preference we keep the megaplay default.
+    if (pref) {
+      appliedPrefRef.current = true;
+      setActiveServer(pref);
+    }
+    setServerResolved(true);
   }, []);
 
   // Apply the saved preference only when it's actually available for this
@@ -818,6 +834,9 @@ export default function Watch({
   }, [info?.id, epiNumber, dub, markFailed]);
 
   useEffect(() => {
+    // Hold the first fetch until the saved server preference has been read, so
+    // we fetch the user's server first instead of megaplay-then-switch.
+    if (!serverResolved) return;
     // Abort any previous in-flight fetch before starting a new one
     activeFetchCtrl.current?.abort();
     const ctrl = new AbortController();
@@ -825,7 +844,7 @@ export default function Watch({
     activeSourceSettledRef.current = false; // gate the probe fan-out again
     fetchStreamSource(activeServer, ctrl.signal);
     return () => ctrl.abort();
-  }, [activeServer, fetchStreamSource]);
+  }, [activeServer, fetchStreamSource, serverResolved]);
 
   // ── Pre-check all servers on page load ─────────────────────
   // Probes are batched (max N concurrent) to avoid overwhelming the dev server
