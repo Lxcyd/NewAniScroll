@@ -153,10 +153,13 @@ export default function Related({ relations, currentId, seasonList }: Props) {
         const n = edge.node;
         const color = RELATION_COLORS[edge.relationType] || "#8a8fa3";
         const isCurrent = n.id === currentId;
-        const kind =
+        const kindRaw =
           FORMAT_LABEL[n.format] ||
           n.format ||
           (n.type === "MANGA" ? "MANGA" : "ANIME");
+        // Only a few format labels differ per-language (FILM/MUSIQUE/ROMAN in
+        // FR); the rest (TV/OVA/ONA…) fall through to the English abbreviation.
+        const kind = t(`anime.fmt.${n.format}`, { defaultValue: kindRaw });
         const href =
           n.type === "ANIME"
             ? `/en/anime/${n.id}`
@@ -165,10 +168,16 @@ export default function Related({ relations, currentId, seasonList }: Props) {
             : `/en/anime/${n.id}`;
 
         const meta = [
-          n.type === "ANIME" ? "Anime" : n.type === "MANGA" ? "Manga" : null,
-          n.episodes ? `${n.episodes} EP` : null,
+          n.type === "ANIME"
+            ? t("anime.typeAnime")
+            : n.type === "MANGA"
+            ? t("anime.typeManga")
+            : null,
+          n.episodes ? `${n.episodes} ${t("anime.epShort")}` : null,
           n.seasonYear ? String(n.seasonYear) : null,
-          edge.relationType.replace(/_/g, " ").toLowerCase(),
+          t(`anime.rel.${edge.relationType}`, {
+            defaultValue: edge.relationType.replace(/_/g, " ").toLowerCase(),
+          }),
         ]
           .filter(Boolean)
           .join(" · ");

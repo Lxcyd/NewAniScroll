@@ -68,7 +68,16 @@ export default function Recommendations({ items, forTitle }: Props) {
     }
   }, []);
 
-  if (!items || items.length === 0) return null;
+  // AniList can list the same target anime across several recommendation
+  // edges, which surfaced as visible duplicates in the carousel (e.g. the
+  // same title twice in a row). Dedup by media id, keeping first occurrence.
+  const seen = new Set<number>();
+  const uniqueItems = (items || []).filter((r) => {
+    if (r?.id == null || seen.has(r.id)) return false;
+    seen.add(r.id);
+    return true;
+  });
+  if (uniqueItems.length === 0) return null;
   return (
     <div style={rStyles.wrap}>
       <div style={rStyles.header}>
@@ -108,7 +117,7 @@ export default function Recommendations({ items, forTitle }: Props) {
         style={rStyles.carousel}
         onClickCapture={onClickCapture}
       >
-        {items.map((r) => (
+        {uniqueItems.map((r) => (
           <Link
             key={r.id}
             href={`/en/anime/${r.id}`}

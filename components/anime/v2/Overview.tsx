@@ -16,6 +16,7 @@ import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { useTranslatedText } from "@/lib/i18n/useTranslatedText";
+import { translateTag } from "@/lib/i18n/animeTags";
 
 type Props = {
   info: AniListInfoTypes;
@@ -29,7 +30,7 @@ type Props = {
 
 export default function Overview({ info, seasonList }: Props) {
   const titlePref = useTitlePref();
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [spoilers, setSpoilers] = useState(false);
 
   const details = useMemo(() => buildDetails(info, t), [info, t]);
@@ -278,18 +279,18 @@ export default function Overview({ info, seasonList }: Props) {
               >
                 {visibleTags.length === 0 ? (
                   <div style={{ color: "var(--txt-3)", fontSize: 12 }}>
-                    No tags.
+                    {t("anime.noTags")}
                   </div>
                 ) : (
                   <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                    {visibleTags.map((t) => {
-                      const v = t.rank ?? 0;
-                      const isSpoiler = t.isMediaSpoiler || t.isGeneralSpoiler;
+                    {visibleTags.map((tag) => {
+                      const v = tag.rank ?? 0;
+                      const isSpoiler = tag.isMediaSpoiler || tag.isGeneralSpoiler;
                       return (
                         <div
-                          key={t.id}
+                          key={tag.id}
                           style={{ display: "flex", alignItems: "center", gap: 10 }}
-                          title={t.description || undefined}
+                          title={tag.description || undefined}
                         >
                           <span
                             style={{
@@ -301,7 +302,7 @@ export default function Overview({ info, seasonList }: Props) {
                               whiteSpace: "nowrap",
                             }}
                           >
-                            {t.name}
+                            {translateTag(tag.name, i18n.language)}
                           </span>
                           <div style={tStyles.tagBar}>
                             <div style={{ ...tStyles.tagFill, width: v + "%" }} />

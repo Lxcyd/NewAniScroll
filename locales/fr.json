@@ -439,6 +439,25 @@
     "noSynopsis": "Aucun synopsis disponible.",
     "showSpoilers": "Afficher les spoilers",
     "hideSpoilers": "Masquer les spoilers",
+    "noTags": "Aucun tag.",
+    "typeAnime": "Anime",
+    "typeManga": "Manga",
+    "epShort": "ép",
+    "rel": {
+      "PREQUEL": "préquelle",
+      "SEQUEL": "suite",
+      "PARENT": "œuvre parente",
+      "SIDE_STORY": "histoire parallèle",
+      "ALTERNATIVE": "version alternative",
+      "ADAPTATION": "adaptation",
+      "SPIN_OFF": "spin-off",
+      "OTHER": "autre"
+    },
+    "fmt": {
+      "MOVIE": "FILM",
+      "MUSIC": "MUSIQUE",
+      "NOVEL": "ROMAN"
+    },
     "detailFormat": "Format",
     "detailStatus": "Statut",
     "detailSource": "Source",

@@ -36,6 +36,7 @@ import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { genreLabel } from "@/lib/i18n/genreLabel";
 import { useTranslatedText } from "@/lib/i18n/useTranslatedText";
+import { translateTag } from "@/lib/i18n/animeTags";
 import type { SeasonEntry } from "@/lib/anilist/seasonChain";
 import CharactersTab from "../CharactersTab";
 import Episodes from "../Episodes";
@@ -733,7 +734,7 @@ function MOverview({
   info: AniListInfoTypes;
   seasonList?: SeasonEntry[];
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [exp, setExp] = useState(false);
   const description = useTranslatedText(stripHtml(info.description || ""));
   const aired = formatAiredRange(info);
@@ -962,9 +963,9 @@ function MOverview({
               gap: 10,
             }}
           >
-            {tags.map((t: any) => (
+            {tags.map((tag: any) => (
               <div
-                key={t.name}
+                key={tag.name}
                 style={{ display: "flex", alignItems: "center", gap: 10 }}
               >
                 <span
@@ -977,7 +978,7 @@ function MOverview({
                     whiteSpace: "nowrap",
                   }}
                 >
-                  {t.name}
+                  {translateTag(tag.name, i18n.language)}
                 </span>
                 <div
                   style={{
@@ -991,7 +992,7 @@ function MOverview({
                   <div
                     style={{
                       height: "100%",
-                      width: `${t.rank || 0}%`,
+                      width: `${tag.rank || 0}%`,
                       background:
                         "linear-gradient(90deg, #ff3b5c, #ff7a91)",
                       borderRadius: 3,
@@ -1007,7 +1008,7 @@ function MOverview({
                     fontFamily: "ui-monospace, monospace",
                   }}
                 >
-                  {t.rank || 0}%
+                  {tag.rank || 0}%
                 </span>
               </div>
             ))}
