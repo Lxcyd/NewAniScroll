@@ -182,7 +182,7 @@ module.exports = withPWA({
       },
       {
         source: "/discord",
-        destination: "https://discord.gg/v5fjSdKwr2",
+        destination: "https://discord.gg/CbrFwstYfC",
         permanent: false,
         basePath: false,
       },
