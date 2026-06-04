@@ -149,7 +149,7 @@
     "gotIt": "Got it, thanks!",
     "seeFull": "see the full changelog any time from the changelog button in the navbar.",
     "unableToLoad": "Unable to load changelog.",
-    "releaseTitle": "v0.0.1 — Public Beta (2026-06-01)",
+    "releaseTitle": "v0.0.1 — Public Beta (2026-06-04)",
     "releaseBody": "👋 Welcome to AniScroll — a fast, clean place to watch anime, with no ads and no tracking getting in your way. 🔗 Sign in with your AniList account to sync your list and keep your watch progress across devices, or just dive straight in.\n\n🚧 This is our first public beta. The platform is stable but still evolving, so you may occasionally encounter bugs, unavailable episodes or playback issues. 🐛 If something doesn't work as expected, use the **report button**: select the issue (won't play, wrong subtitles, incorrect skip timings…) and the anime and episode are sent to us automatically so we can resolve it quickly. Your feedback directly shapes the product.\n\n🩷 Thank you for joining AniScroll during its early access. We're committed to building a fast, reliable and ad-free streaming experience, and your support helps make that possible."
   },
   "health": {
