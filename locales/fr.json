@@ -177,6 +177,7 @@
     "speedMedium": "Moyen",
     "speedSlow": "Lent",
     "slowHint": "Lecteur lent ? Essayez-en un autre.",
+    "speedMeasured": "mesuré",
     "available": "disponible",
     "degraded": "dégradé (repli iframe)",
     "langMulti": "Multi",

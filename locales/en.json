@@ -177,6 +177,7 @@
     "speedMedium": "Medium",
     "speedSlow": "Slow",
     "slowHint": "Player slow? Try another one.",
+    "speedMeasured": "measured",
     "available": "available",
     "degraded": "degraded (iframe fallback)",
     "langMulti": "Multi",

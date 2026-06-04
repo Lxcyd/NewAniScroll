@@ -1020,6 +1020,58 @@ export default function UniversalPlayer({
   const watchCtx = useWatchProvider() || {};
   const ctxAutoplay: boolean = !!watchCtx.autoplay;
   const setAutoPlayCtx: (v: boolean) => void = watchCtx.setAutoPlay || (() => {});
+
+  // ── Live playback-speed measurement ──────────────────────────────────
+  // Report the ACTIVE server's real speed (hls.js download throughput vs the
+  // stream's own bitrate, plus rebuffering) up to the watch context, so the
+  // server selector can draw a DYNAMIC poinçon. megaplay & co. vary wildly per
+  // title — a static rank lies; this measures what's actually happening now.
+  const setLiveSpeedFor: (id: string, tier: string) => void =
+    watchCtx.setLiveSpeedFor || (() => {});
+  const resetLiveSpeed: () => void = watchCtx.resetLiveSpeed || (() => {});
+  const waitingState = useMediaState("waiting", playerRef);
+  const waitingRef = useRef(false);
+  const lastStallRef = useRef(0);
+  useEffect(() => {
+    waitingRef.current = !!waitingState;
+    if (waitingState) lastStallRef.current = Date.now();
+  }, [waitingState]);
+  // Fresh measurements per episode/anime — a server fast on ep 1 can be slow
+  // on ep 12, so don't carry stale dots across episodes.
+  useEffect(() => {
+    resetLiveSpeed();
+    lastStallRef.current = 0;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aniListId, episodeNumber]);
+  useEffect(() => {
+    if (!serverId) return;
+    const measure = () => {
+      const hls: any = hlsRef.current;
+      let tier: "fast" | "medium" | "slow" | null = null;
+      if (
+        hls &&
+        typeof hls.bandwidthEstimate === "number" &&
+        hls.bandwidthEstimate > 0
+      ) {
+        const lvl = hls.levels?.[hls.currentLevel];
+        const bitrate = lvl?.bitrate || 0;
+        if (bitrate > 0) {
+          const headroom = hls.bandwidthEstimate / bitrate;
+          tier = headroom >= 4 ? "fast" : headroom >= 2 ? "medium" : "slow";
+        }
+      }
+      // Rebuffering trumps the estimate: stalled now (or in the last 12s) is
+      // never "fast".
+      const recentlyStalled = Date.now() - lastStallRef.current < 12000;
+      if (waitingRef.current) tier = "slow";
+      else if (recentlyStalled && tier === "fast") tier = "medium";
+      if (tier) setLiveSpeedFor(serverId, tier);
+    };
+    measure();
+    const id = setInterval(measure, 2500);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serverId]);
   /* AniSkip chapter cues, populated by SkipOverlay after it fetches
      the API. Each entry: { start, end, type }. We translate them
      into a WebVTT chapters track served via a blob URL so Vidstack

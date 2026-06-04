@@ -1,6 +1,8 @@
 import { getServersByLang } from "@/lib/servers";
 import { SignalIcon } from "@heroicons/react/24/solid";
 import { useTranslation } from "react-i18next";
+// @ts-ignore — plain JS context, no types
+import { useWatchProvider } from "@/lib/context/watchPageProvider";
 
 const LANG_CONFIG = {
   multi: { labelKey: "player.langMulti", flag: "🌐", descKey: "player.langMultiDesc" },
@@ -8,14 +10,23 @@ const LANG_CONFIG = {
   vf: { labelKey: "player.langVF", flag: "🇫🇷", descKey: "player.langVFDesc" },
 };
 
-// Speed "poinçon": a colored dot per server, keyed on its `speed` rank from
-// lib/servers.js (1 = fastest). Green = fast, amber = medium, red = slow — so
-// a viewer can pick a quick server at a glance and switch off a slow one.
-function speedInfo(speed) {
+// Speed "poinçon" tiers. Green = fast, amber = medium, red = slow.
+const SPEED_TIERS = {
+  fast: { color: "#2dd47a", labelKey: "player.speedFast" },
+  medium: { color: "#f6c544", labelKey: "player.speedMedium" },
+  slow: { color: "#ff6b6b", labelKey: "player.speedSlow" },
+};
+
+// A server's dot reflects its MEASURED speed when we have a live reading
+// (UniversalPlayer writes the active stream's real throughput/rebuffering to
+// the watch context), otherwise its static `speed` rank from lib/servers.js
+// (1 = fastest). megaplay & co. vary per title, so the live reading is the
+// truthful one — the static rank is just the at-rest estimate.
+function staticTier(speed) {
   const s = speed ?? 99;
-  if (s <= 2) return { color: "#2dd47a", labelKey: "player.speedFast" };
-  if (s <= 4) return { color: "#f6c544", labelKey: "player.speedMedium" };
-  return { color: "#ff6b6b", labelKey: "player.speedSlow" };
+  if (s <= 2) return "fast";
+  if (s <= 4) return "medium";
+  return "slow";
 }
 
 // Decide whether a server should be visible in the selector.
@@ -38,6 +49,7 @@ function LangGroup({
   degradedServers,
 }) {
   const { t } = useTranslation();
+  const { liveSpeed } = useWatchProvider() || {};
   const config = LANG_CONFIG[langKey];
   const visible = (servers || []).filter((s) =>
     shouldShow(s, activeServer, confirmedServers, failedServers)
@@ -58,26 +70,36 @@ function LangGroup({
       <div className="flex flex-wrap gap-2">
         {visible.map((server) => {
           const isActive = activeServer === server.id;
-          // Active server = orange ring. Every chip also carries a speed
-          // "poinçon" (colored dot, see speedInfo) so the fastest servers are
-          // obvious at a glance. Degraded (iframe-fallback) servers look
-          // identical otherwise.
+          // Active server = orange ring. Every chip carries a speed poinçon:
+          // its MEASURED tier when we have a live reading for that server, else
+          // its static rank. Measured dots get a faint ring so a real reading
+          // is distinguishable from the at-rest estimate.
           const baseClasses = isActive
             ? "bg-action/25 text-white ring-1 ring-action shadow-[0_0_12px_rgba(255,127,87,0.35)]"
             : "bg-as-surface/70 text-white/80 ring-1 ring-white/5 hover:bg-as-surface hover:text-white hover:ring-white/20";
-          const sp = speedInfo(server.speed);
+          const measured = liveSpeed?.[server.id];
+          const sp =
+            SPEED_TIERS[measured || staticTier(server.speed)] || SPEED_TIERS.medium;
+          const tip = measured
+            ? `${t(sp.labelKey)} · ${t("player.speedMeasured")}`
+            : t(sp.labelKey);
           return (
             <button
               key={server.id}
               type="button"
               onClick={() => onChange(server.id)}
-              title={t(sp.labelKey)}
+              title={tip}
               className={`inline-flex items-center gap-1.5 rounded-pill px-3 py-1.5 text-sm font-karla font-medium transition-all duration-200 ${baseClasses}`}
             >
               <span
                 aria-hidden="true"
                 className="inline-block w-[7px] h-[7px] rounded-full shrink-0"
-                style={{ background: sp.color, boxShadow: `0 0 6px ${sp.color}80` }}
+                style={{
+                  background: sp.color,
+                  boxShadow: measured
+                    ? `0 0 0 2px ${sp.color}33, 0 0 7px ${sp.color}99`
+                    : `0 0 6px ${sp.color}80`,
+                }}
               />
               {server.name}
             </button>
