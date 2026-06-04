@@ -2,7 +2,7 @@
 
 All notable changes to AniScroll appear here. Most recent first.
 
-## [v0.0.1] — Public Beta (2026-06-01)
+## [v0.0.1] — Public Beta (2026-06-04)
 
 👋 Welcome to AniScroll | a fast, clean place to watch anime, with no ads
 and no tracking getting in your way. 🔗 Sign in with your AniList account to
