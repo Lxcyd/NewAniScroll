@@ -95,14 +95,16 @@ type Props = {
   episodeNumber?: number;
 };
 
-// Proxy base — defaults to the in-tree Vercel endpoint, but production should
-// override via NEXT_PUBLIC_PROXY_BASE (a Cloudflare Worker URL, see worker/).
-// Workers have unmetered bandwidth and an automatic edge cache; the Vercel
-// proxy meters every byte against Fast Origin Transfer.
+// Proxy base — defaults to the Cloudflare Worker (unmetered + edge cache).
+// We hardcode the Worker as the DEFAULT (not the in-tree Vercel proxy)
+// because the NEXT_PUBLIC_PROXY_BASE env var proved unreliable: an empty
+// value silently fell back to /api/v2/proxy/m3u8, which Vercel throttles
+// once Fast Origin Transfer is over budget — that took every proxy-routed
+// server down in prod. The env var still overrides this if ever set.
 const PROXY_BASE =
   (typeof process !== "undefined" &&
     (process as any).env?.NEXT_PUBLIC_PROXY_BASE) ||
-  "/api/v2/proxy/m3u8";
+  "https://aniscroll-proxy.luc-deldem.workers.dev";
 
 // hls.js tuning for snappy seeking. The defaults buffer only ~30s ahead and
 // keep almost no back-buffer, so every seek forces a fresh network round-trip —

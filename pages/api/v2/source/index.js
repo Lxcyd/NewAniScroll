@@ -48,9 +48,14 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 5000) {
 // through. We route every anime-sama HTML fetch through the Worker so the
 // scrape still works in production.
 //
-// PROXY_BASE comes from NEXT_PUBLIC_PROXY_BASE; if it's unset (local dev)
-// we hit anime-sama directly — usually fine from a residential IP.
-const PROXY_BASE = process.env.NEXT_PUBLIC_PROXY_BASE || "";
+// PROXY_BASE defaults to the Cloudflare Worker (env var still overrides).
+// anime-sama.to 403s direct Vercel fetches, so routing the scrape through the
+// Worker's Cloudflare IPs is what makes server-side scraping work in prod.
+// Hardcoded default (not "") because the env var proved unreliable — see
+// UniversalPlayer for the full story.
+const PROXY_BASE =
+  process.env.NEXT_PUBLIC_PROXY_BASE ||
+  "https://aniscroll-proxy.luc-deldem.workers.dev";
 
 async function fetchViaWorker(targetUrl, options = {}, timeoutMs = 5000) {
   // No worker configured → fall back to a direct fetch. Useful for local
