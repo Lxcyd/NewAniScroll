@@ -3,7 +3,6 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import Modal from "@/components/modal";
 import { resolveSource, warmStream, clearPrefetchedSourcesFor } from "@/lib/watch/sourcePrefetch";
-import SERVERS from "@/lib/servers";
 import { prefetchSkips } from "@/lib/skip/prefetchSkips";
 import { prefetchEpisodeList } from "@/lib/watch/episodePrefetch";
 import { setPrefetchedInfo } from "@/lib/watch/infoPrefetch";
@@ -272,16 +271,15 @@ export default function Info({
       if (preferred && preferred !== server) prioritised.push(preferred);
       for (const srv of prioritised) void warmServer(srv, "high");
 
-      // 3. Then warm EVERY other available server (api/hls) in the background
-      //    at low priority, so switching to any of them on the watch page is
-      //    instant. The watch page's own probes also seed this cache, but
-      //    warming here means they're ready before the user even navigates.
-      const rest = SERVERS.filter(
-        (s: any) =>
-          (s.type === "hls" || s.type === "api") &&
-          !prioritised.includes(s.id),
-      ).map((s: any) => s.id);
-      for (const srv of rest) void warmServer(srv, "low");
+      // We deliberately DON'T warm every other server here anymore. Doing so
+      // fired a /api/v2/source resolution — heavy anime-sama / voiranime
+      // scraping — for ~8 servers on EVERY info-page view, even when the
+      // visitor was only browsing and never watched. That's a big, mostly
+      // wasted cost (invocations + CPU + scraping bandwidth). Only megaplay
+      // (the server the watch page starts on) and the user's preferred server
+      // are warmed above; any other server resolves on-demand the instant it's
+      // selected on the watch page (~1-2s — and the watch page's own probes
+      // seed the cache too), so the UX cost is negligible.
     };
 
     // ── Tier 2: nice-to-have warmups, deferred to a real idle moment ───
