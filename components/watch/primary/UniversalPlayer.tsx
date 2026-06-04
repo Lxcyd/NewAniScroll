@@ -2171,18 +2171,9 @@ export default function UniversalPlayer({
   // the file directly.
   const safeName = downloadName.replace(/[^\w.-]/g, "_") || "anime";
   const refererParam = bestStream!.referer || streamData?.referer;
-  // Unwrap anime-proxy wrapping if present — download-stream handles its own
-  // anime-proxy routing per host detection.
-  const innerUrl = (() => {
-    try {
-      const u = new URL(bestStream!.url);
-      if (u.hostname.endsWith("anime-api-proxy.vercel.app")) {
-        const inner = u.searchParams.get("url");
-        if (inner) return inner;
-      }
-    } catch {}
-    return bestStream!.url;
-  })();
+  // The stream URL is the raw CDN URL now (the anime-proxy that used to wrap
+  // some of these was retired), so it's used as-is for the download.
+  const innerUrl = bestStream!.url;
   // Output extension:
   //   - MP4 streams download as .mp4 directly (single binary file)
   //   - HLS streams download as .m3u8 playlists (no server-side concat —
