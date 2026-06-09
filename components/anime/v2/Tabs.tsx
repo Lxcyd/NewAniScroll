@@ -34,15 +34,23 @@ export default function Tabs({ info, fanarts, progress, seasonList }: Props) {
   const { t } = useTranslation();
   const [tab, setTab] = useState<TabId>("overview");
 
-  // Restore tab from hash on mount + listen to hashchange (back/forward).
-  // We can't use the hash as the initial useState value because SSR has
-  // no window — that would cause a hydration mismatch.
+  // Restore tab from hash on mount + on hashchange AND popstate (back/forward).
+  // hashchange fires when the hash itself changes, but a back/forward that lands
+  // on the same hash — or swaps to a different anime page on the same [...id]
+  // route — only emits popstate, so we sync on both. We also re-sync whenever
+  // the route's id changes (client-side nav between anime keeps this component
+  // mounted, so the hash from the previous anime must be re-read). We can't seed
+  // useState from the hash (SSR has no window → hydration mismatch).
   useEffect(() => {
     const sync = () => setTab(readTabFromHash());
     sync();
     window.addEventListener("hashchange", sync);
-    return () => window.removeEventListener("hashchange", sync);
-  }, []);
+    window.addEventListener("popstate", sync);
+    return () => {
+      window.removeEventListener("hashchange", sync);
+      window.removeEventListener("popstate", sync);
+    };
+  }, [info.id]);
 
   function switchTab(next: TabId) {
     setTab(next);
