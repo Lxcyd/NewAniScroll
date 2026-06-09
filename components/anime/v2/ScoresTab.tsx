@@ -97,16 +97,20 @@ export default function ScoresTab({ info, seasonList }: Props) {
             } as SeasonEntry,
           ];
     return base.map((s) => {
-      // Episode count: AniList `episodes` when known; otherwise, for the entry
-      // that matches this page (the current info), fall back to the aired count
-      // derived from nextAiringEpisode. Jikan's count (loaded async) tops this
-      // up later in seasonsWithCount. Never below 1 so the column always shows.
+      // Episode count: prefer AniList's own `episodes` for this entry — it
+      // defines THIS season's boundary, so we don't bleed a neighbouring
+      // season's episodes in (e.g. MAL's "AoT S3" lists 22 eps spanning S3+S3
+      // Part 2, but AniList's S3 entry is 12). When AniList's count is unknown
+      // (ongoing show), fall back to the aired count from nextAiringEpisode, and
+      // only then let Jikan top it up. Never below 1 so the column always shows.
+      const aniKnown = s.episodes != null;
       const fromAni =
         s.episodes ?? (s.id === info.id ? airedFromNext : 0) ?? 0;
       return {
         ...s,
         seasonScore: toScore10(s.averageScore),
         aniEpCount: Math.max(0, fromAni),
+        aniKnown,
       };
     });
   }, [seasonList, info, airedFromNext]);
@@ -146,17 +150,20 @@ export default function ScoresTab({ info, seasonList }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [info.id, seasons.map((s) => s.id).join(",")]);
 
-  // Final per-season episode count: the larger of AniList's count and the
-  // highest episode number Jikan returned (Jikan sometimes knows more aired
-  // episodes than AniList's stale `episodes` field). Always ≥ 1.
+  // Final per-season episode count.
+  //   - AniList knows this season's length → use it verbatim (the column ends
+  //     exactly where the season does; we don't pull in a MAL entry's extra
+  //     episodes that belong to the next AniList season).
+  //   - AniList doesn't (ongoing show) → take the larger of the aired-count
+  //     fallback and Jikan's highest episode number.
   const seasonsWithCount = useMemo(() => {
     return seasons.map((s) => {
-      // Jikan sometimes knows more aired episodes than AniList's stale
-      // `episodes` field, so take the larger of the two.
       const epMap = epScores.get(s.id);
       const jikanMax =
         epMap && epMap.size > 0 ? Math.max(...Array.from(epMap.keys())) : 0;
-      const epCount = Math.max(1, s.aniEpCount, jikanMax);
+      const epCount = s.aniKnown
+        ? Math.max(1, s.aniEpCount)
+        : Math.max(1, s.aniEpCount, jikanMax);
       return { ...s, epCount };
     });
   }, [seasons, epScores]);
@@ -370,7 +377,13 @@ export default function ScoresTab({ info, seasonList }: Props) {
         ))}
       </div>
 
-      <PanZoom fullscreen={fullscreen}>{grid}</PanZoom>
+      {/* Inline = a plain scrollable box (normal page behaviour). Fullscreen =
+          a pan/zoom canvas you can drag + zoom. */}
+      {fullscreen ? (
+        <PanZoom>{grid}</PanZoom>
+      ) : (
+        <div style={s.inlineScroller}>{grid}</div>
+      )}
 
       <p style={s.footnote}>{t("anime.scoreGridNote")}</p>
     </>
@@ -387,86 +400,87 @@ export default function ScoresTab({ info, seasonList }: Props) {
   return <div style={s.root}>{body}</div>;
 }
 
-/* ── Pan + zoom wrapper ───────────────────────────────────────
-   Left-click drag to pan, scroll wheel to zoom (toward the cursor). The inner
-   content is transformed with translate()+scale(); the outer box clips and owns
-   the gestures. Double-click resets. Works the same inline and in fullscreen
-   (the parent just gives it more room). */
-function PanZoom({
-  children,
-  fullscreen,
-}: {
-  children: React.ReactNode;
-  fullscreen: boolean;
-}) {
+/* ── Pan + zoom canvas (fullscreen only) ──────────────────────
+   Left-click drag to pan, scroll wheel to zoom toward the cursor, double-click
+   to re-centre. The content is centred in the viewport on open. */
+function PanZoom({ children }: { children: React.ReactNode }) {
   const boxRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
   const [tf, setTf] = useState({ x: 0, y: 0, scale: 1 });
-  const drag = useRef<{ active: boolean; sx: number; sy: number; ox: number; oy: number }>(
-    { active: false, sx: 0, sy: 0, ox: 0, oy: 0 },
-  );
+  const drag = useRef({ active: false, sx: 0, sy: 0, ox: 0, oy: 0 });
 
-  // Reset transform whenever we toggle fullscreen so the view re-centres.
+  // Centre the content within the box (horizontally always; vertically only
+  // when it fits, otherwise pin to the top so the first rows are visible).
+  const centre = () => {
+    const box = boxRef.current;
+    const content = contentRef.current;
+    if (!box || !content) return;
+    const bw = box.clientWidth;
+    const bh = box.clientHeight;
+    const cw = content.scrollWidth;
+    const ch = content.scrollHeight;
+    const x = Math.max(0, (bw - cw) / 2);
+    const y = ch < bh ? (bh - ch) / 2 : 0;
+    setTf({ x, y, scale: 1 });
+  };
+
   useEffect(() => {
-    setTf({ x: 0, y: 0, scale: 1 });
-  }, [fullscreen]);
+    // Centre once the overlay has laid out.
+    const id = requestAnimationFrame(centre);
+    return () => cancelAnimationFrame(id);
+  }, []);
 
   const onWheel = (e: React.WheelEvent) => {
-    // Inline, only zoom when Ctrl/⌘ is held so a normal scroll still moves the
-    // page past the grid. In fullscreen the wheel always zooms (nothing else to
-    // scroll). Without an intent to zoom, let the event bubble normally.
-    if (!fullscreen && !e.ctrlKey && !e.metaKey) return;
     e.preventDefault();
     const box = boxRef.current;
     if (!box) return;
     const rect = box.getBoundingClientRect();
-    // Pointer position relative to the box.
     const px = e.clientX - rect.left;
     const py = e.clientY - rect.top;
     setTf((prev) => {
       const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
       const scale = Math.min(6, Math.max(0.3, prev.scale * factor));
-      // Keep the point under the cursor fixed while zooming.
       const k = scale / prev.scale;
-      const x = px - (px - prev.x) * k;
-      const y = py - (py - prev.y) * k;
-      return { x, y, scale };
+      // Keep the point under the cursor fixed while zooming.
+      return { x: px - (px - prev.x) * k, y: py - (py - prev.y) * k, scale };
     });
   };
 
   const onPointerDown = (e: React.PointerEvent) => {
-    // Left button only.
     if (e.button !== 0) return;
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     drag.current = { active: true, sx: e.clientX, sy: e.clientY, ox: tf.x, oy: tf.y };
   };
   const onPointerMove = (e: React.PointerEvent) => {
     if (!drag.current.active) return;
-    const dx = e.clientX - drag.current.sx;
-    const dy = e.clientY - drag.current.sy;
-    setTf((prev) => ({ ...prev, x: drag.current.ox + dx, y: drag.current.oy + dy }));
+    setTf((prev) => ({
+      ...prev,
+      x: drag.current.ox + (e.clientX - drag.current.sx),
+      y: drag.current.oy + (e.clientY - drag.current.sy),
+    }));
   };
   const endDrag = (e: React.PointerEvent) => {
     drag.current.active = false;
     try {
       (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
     } catch {
-      /* pointer already released */
+      /* already released */
     }
   };
-  const reset = () => setTf({ x: 0, y: 0, scale: 1 });
 
   return (
     <div
       ref={boxRef}
-      style={fullscreen ? s.panBoxFs : s.panBox}
+      style={s.panBoxFs}
       onWheel={onWheel}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={endDrag}
       onPointerLeave={endDrag}
-      onDoubleClick={reset}
+      onDoubleClick={centre}
     >
       <div
+        ref={contentRef}
         style={{
           transform: `translate(${tf.x}px, ${tf.y}px) scale(${tf.scale})`,
           transformOrigin: "0 0",
@@ -559,8 +573,16 @@ const s: Record<string, CSSProperties> = {
   legendItem: { display: "flex", alignItems: "center", gap: 6 },
   legendDot: { width: 11, height: 11, borderRadius: "50%", display: "inline-block" },
   legendLabel: { fontSize: 12, color: "var(--txt-2)" },
-  // Inner grid padding — the frame (border/bg) is provided by the PanZoom box.
-  seasonsPad: { display: "flex", flexDirection: "column", gap: 18, padding: 16 },
+  // Single-season grid: fills the available width so the cells stretch edge to
+  // edge (no narrow centred column). gridPad is for the multi-season table,
+  // which is fixed-width content (max-content) and scrolls horizontally instead.
+  seasonsPad: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 14,
+    padding: 16,
+    width: "100%",
+  },
   gridPad: { padding: 12, width: "max-content" },
   seasonBlock: { display: "flex", flexDirection: "column", gap: 6 },
   // One row of the grid: a fixed-width range label on the left, then the
@@ -622,20 +644,24 @@ const s: Record<string, CSSProperties> = {
   cellEmpty: { minWidth: 56 },
   footnote: { fontSize: 11.5, color: "var(--txt-3)", lineHeight: 1.5 },
 
-  // ── Pan / zoom + fullscreen ──
-  // The pan box clips and owns the drag/zoom gestures. Inline it's a tall-ish
-  // viewport; in fullscreen it fills the remaining overlay height. `touchAction:
-  // none` so a drag doesn't also scroll the page on touch devices.
-  panBox: {
-    position: "relative",
-    overflow: "hidden",
+  // ── Inline (non-fullscreen) container ──
+  // Full-width framed box. Scrolls inside on its own (horizontally for a wide
+  // multi-season table, vertically for a tall single-season grid) — normal page
+  // behaviour, no pan/zoom. Numbers aren't selectable.
+  inlineScroller: {
+    width: "100%",
+    maxHeight: "70vh",
+    overflow: "auto",
     borderRadius: 12,
     border: "1px solid var(--line)",
     background: "var(--bg-1)",
-    height: "min(70vh, 720px)",
-    cursor: "grab",
-    touchAction: "none",
+    userSelect: "none",
+    WebkitUserSelect: "none",
   },
+
+  // ── Pan / zoom canvas (fullscreen only) ──
+  // The box clips and owns the drag/zoom gestures and fills the overlay height.
+  // `touchAction: none` so a drag doesn't also scroll the page on touch devices.
   panBoxFs: {
     position: "relative",
     overflow: "hidden",
@@ -646,6 +672,8 @@ const s: Record<string, CSSProperties> = {
     minHeight: 0,
     cursor: "grab",
     touchAction: "none",
+    userSelect: "none",
+    WebkitUserSelect: "none",
   },
   fsOverlay: {
     position: "fixed",
