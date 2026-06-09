@@ -144,7 +144,9 @@ export default function ChangeLogs() {
       <Transition appear show={isOpen} as={Fragment}>
         <Dialog
           as="div"
-          className="relative z-50"
+          // Must sit above the navbar (z-[9999]) and the mobile nav FAB
+          // (z-[1000]) — at z-50 those were peeking through the overlay.
+          className="relative z-[10000]"
           onClose={closeModal}
           initialFocus={completeButtonRef}
         >

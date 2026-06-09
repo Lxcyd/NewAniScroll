@@ -18,7 +18,7 @@ import getUpcomingAnime from "@/lib/anilist/getUpcomingAnime";
 
 import GetMedia from "@/lib/anilist/getMedia";
 import MobileNav from "@/components/shared/MobileNav";
-import { getGreetings } from "@/utils/getGreetings";
+import { getGreetingKey } from "@/utils/getGreetings";
 import { redis } from "@/lib/redis";
 import { Navbar } from "@/components/shared/NavBar";
 import { useRouter } from "next/router";
@@ -594,6 +594,7 @@ export default function Home({
 }: HomeProps) {
   const { data: sessions }: any = useSession();
   const userSession: SessionTypes = sessions?.user;
+  const { t } = useTranslation();
 
   const {
     anime: currentAnime,
@@ -891,12 +892,10 @@ export default function Home({
         {sessions && (
           <div className="flex items-center justify-center lg:bg-none mt-4 lg:mt-0 w-screen">
             <div className="lg:w-[85%] w-screen px-5 lg:px-0 lg:text-4xl flex items-center gap-3 text-2xl font-bold font-karla">
-              {getGreetings() && (
-                <>
-                  {getGreetings()},
-                  <h1 className="lg:hidden">{sessions?.user.name}</h1>
-                </>
-              )}
+              <>
+                {t(getGreetingKey())},
+                <h1 className="lg:hidden">{sessions?.user.name}</h1>
+              </>
               <button
                 onClick={() => signOut()}
                 className="hidden text-center relative lg:flex justify-center group"

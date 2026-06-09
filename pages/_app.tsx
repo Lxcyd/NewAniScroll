@@ -2,7 +2,7 @@ import "../styles/globals.css";
 import "react-loading-skeleton/dist/skeleton.css";
 import Script from "next/script";
 import { useRouter } from "next/router";
-import { AnimatePresence, motion as m } from "framer-motion";
+import { motion as m } from "framer-motion";
 import NextNProgress from "nextjs-progressbar";
 import { SessionProvider } from "next-auth/react";
 import { SkeletonTheme } from "react-loading-skeleton";
@@ -244,8 +244,7 @@ export default function App({
         <I18nProvider>
         <SearchProvider>
           <WatchPageProvider>
-            <AnimatePresence mode="wait">
-              <SkeletonTheme baseColor="#232329" highlightColor="#2a2a32">
+            <SkeletonTheme baseColor="#232329" highlightColor="#2a2a32">
                 <Toaster richColors theme="dark" closeButton />
                 {/* <SecretPage
                   cheatCode={"aofienaef"}
@@ -253,21 +252,17 @@ export default function App({
                 /> */}
                 <ChangeLogs />
                 <AnilistHealthBanner />
+                {/* Per-route fade-in only. We deliberately do NOT use
+                    <AnimatePresence mode="wait"> here: on browser back/forward
+                    (popstate) the exit animation could stall and leave the new
+                    page pinned at opacity:0 — content "didn't load" until you
+                    navigated again. A keyless mount that simply animates from
+                    0→1 opacity on each render has no exit phase to get stuck on,
+                    so back/forward always paints. */}
                 <m.div
-                  key={`route-${router.route}`}
-                  transition={{ duration: 0.5 }}
-                  initial="initialState"
-                  animate="animateState"
-                  exit="exitState"
-                  variants={{
-                    initialState: {
-                      opacity: 0,
-                    },
-                    animateState: {
-                      opacity: 1,
-                    },
-                    exitState: {},
-                  }}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ duration: 0.3 }}
                   className="z-50 w-full"
                 >
                   <NextNProgress
@@ -288,7 +283,6 @@ export default function App({
                   <Analytics />
                 </m.div>
               </SkeletonTheme>
-            </AnimatePresence>
           </WatchPageProvider>
         </SearchProvider>
         </I18nProvider>

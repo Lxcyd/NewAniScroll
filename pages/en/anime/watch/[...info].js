@@ -30,6 +30,7 @@ import { FULL_MEDIA_FIELDS } from "@/lib/anilist/fullMediaQuery";
 import { getPrefetchedSource, sourceKey, setPrefetchedSource, clearPrefetchedSourcesFor } from "@/lib/watch/sourcePrefetch";
 import { getPrefetchedEpisodes, setPrefetchedEpisodes, clearPrefetchedEpisodesFor } from "@/lib/watch/episodePrefetch";
 import { getPrefetchedInfo, clearPrefetchedInfoFor } from "@/lib/watch/infoPrefetch";
+import { markComplete } from "@/lib/watch/progress";
 import { anilistFetch } from "@/lib/anilist/anilistFetch";
 import Link from "next/link";
 import MobileNav from "@/components/shared/MobileNav";
@@ -698,6 +699,32 @@ export default function Watch({
     // early (if (!info) return) and never re-run, leaving the player stuck.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessions?.user?.name, epiNumber, dub, info?.id]);
+
+  // ── Mark the previous episode complete when advancing ────────
+  // When the user moves on to the next episode (N → N+1), the one they just
+  // left is, by definition, finished — so we pin its progress to the end. That
+  // makes the home/info "continue watching" show the right next episode and
+  // keeps a future rewatch starting clean from 0 (see lib/watch/progress.ts).
+  // Only forward moves count; jumping BACK to an earlier episode must not wipe
+  // a genuine mid-episode resume point. The natural end-of-video case is
+  // handled inside the player itself via `markComplete` on `ended`.
+  const prevEpiRef = useRef(null);
+  useEffect(() => {
+    const ep = parseInt(epiNumber, 10);
+    const id = info?.id;
+    const prev = prevEpiRef.current;
+    if (
+      id != null &&
+      prev != null &&
+      prev.id === id && // same anime — don't carry across a series switch
+      Number.isFinite(ep) &&
+      ep === prev.ep + 1
+    ) {
+      markComplete(id, prev.ep);
+    }
+    if (id != null && Number.isFinite(ep)) prevEpiRef.current = { id, ep };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [epiNumber, info?.id]);
 
   // ── Auto-next / auto-play + skip data ───────────────────────
   // autoplay/autoNext are now hydrated from localStorage by WatchPageProvider

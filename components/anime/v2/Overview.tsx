@@ -355,15 +355,7 @@ export default function Overview({ info, seasonList }: Props) {
                           textDecoration: "none",
                         }}
                       >
-                        <div
-                          style={{
-                            ...tStyles.siteLogo,
-                            background: s.color + "22",
-                            color: s.color,
-                          }}
-                        >
-                          {s.initial}
-                        </div>
+                        <SiteLogo site={s} />
                         <span style={tStyles.siteName}>{s.name}</span>
                         <svg
                           width="14"
@@ -545,7 +537,7 @@ function buildDetails(
   ];
 }
 
-type SiteRow = { id: string; name: string; url: string; color: string; initial: string };
+type SiteRow = { id: string; name: string; url: string; color: string; initial: string; icon?: string | null };
 
 function buildSites(info: AniListInfoTypes): SiteRow[] {
   const out: SiteRow[] = [];
@@ -557,6 +549,7 @@ function buildSites(info: AniListInfoTypes): SiteRow[] {
     url: info.siteUrl || `https://anilist.co/anime/${info.id}`,
     color: "#3577ff",
     initial: "A",
+    icon: "https://anilist.co/img/icons/icon.svg",
   });
   if (info.idMal) {
     out.push({
@@ -565,11 +558,14 @@ function buildSites(info: AniListInfoTypes): SiteRow[] {
       url: `https://myanimelist.net/anime/${info.idMal}`,
       color: "#2e51a2",
       initial: "M",
+      icon: "https://cdn.myanimelist.net/images/favicon.ico",
     });
   }
 
   // AniList-provided external links (streaming, official, social, etc.).
-  // Pre-existing entries are not duplicated.
+  // Pre-existing entries are not duplicated. AniList supplies an `icon`
+  // logo URL for most known sites; we fall back to a Google-favicon lookup
+  // (then to the coloured letter) when it doesn't.
   for (const link of info.externalLinks || []) {
     if (!link.url) continue;
     const id = `ext-${link.id}`;
@@ -580,9 +576,54 @@ function buildSites(info: AniListInfoTypes): SiteRow[] {
       url: link.url,
       color: link.color || colorBySite(link.site),
       initial: (link.site[0] || "?").toUpperCase(),
+      icon: link.icon || faviconFor(link.url),
     });
   }
   return out;
+}
+
+/** Site logo badge: shows the real site icon when available, falling back to
+ *  the coloured letter on a load error (broken/blocked favicon). */
+function SiteLogo({ site }: { site: SiteRow }) {
+  const [failed, setFailed] = useState(false);
+  const showIcon = site.icon && !failed;
+  return (
+    <div
+      style={{
+        ...tStyles.siteLogo,
+        background: site.color + "22",
+        color: site.color,
+        overflow: "hidden",
+      }}
+    >
+      {showIcon ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={site.icon as string}
+          alt=""
+          width={20}
+          height={20}
+          loading="lazy"
+          style={{ width: 20, height: 20, objectFit: "contain", borderRadius: 4 }}
+          onError={() => setFailed(true)}
+        />
+      ) : (
+        site.initial
+      )}
+    </div>
+  );
+}
+
+/** Best-effort favicon URL from a link's origin, used when AniList didn't
+ *  supply an `icon`. Google's favicon service returns a crisp 64px PNG and
+ *  degrades to a generic globe rather than failing, so it's a safe default. */
+function faviconFor(url: string): string | null {
+  try {
+    const { hostname } = new URL(url);
+    return `https://www.google.com/s2/favicons?domain=${hostname}&sz=64`;
+  } catch {
+    return null;
+  }
 }
 
 function colorBySite(name: string): string {

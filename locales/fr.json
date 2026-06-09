@@ -1,4 +1,10 @@
 {
+  "greeting": {
+    "morning": "Bonjour",
+    "afternoon": "Bon après-midi",
+    "evening": "Bonsoir",
+    "night": "Bonne nuit"
+  },
   "common": {
     "loading": "Chargement…",
     "search": "Rechercher",

@@ -1017,22 +1017,7 @@ function MOverview({
                     color: "#f4f5f8",
                   }}
                 >
-                  <div
-                    style={{
-                      width: 30,
-                      height: 30,
-                      borderRadius: 7,
-                      display: "grid",
-                      placeItems: "center",
-                      fontSize: 13,
-                      fontWeight: 700,
-                      background: color + "22",
-                      color,
-                      flexShrink: 0,
-                    }}
-                  >
-                    {(s.site || "?").charAt(0).toUpperCase()}
-                  </div>
+                  <MSiteLogo site={s} color={color} />
                   <span
                     style={{
                       flex: 1,
@@ -1053,6 +1038,53 @@ function MOverview({
             })}
           </div>
         </section>
+      )}
+    </div>
+  );
+}
+
+/* ─── External-site logo ──────────────────────────────────────
+   Shows the real site icon (AniList-supplied `icon`, else a Google
+   favicon lookup), falling back to the coloured letter on load error. */
+function MSiteLogo({ site, color }: { site: any; color: string }) {
+  const [failed, setFailed] = useState(false);
+  let icon: string | null = site.icon || null;
+  if (!icon && site.url) {
+    try {
+      icon = `https://www.google.com/s2/favicons?domain=${new URL(site.url).hostname}&sz=64`;
+    } catch {
+      icon = null;
+    }
+  }
+  return (
+    <div
+      style={{
+        width: 30,
+        height: 30,
+        borderRadius: 7,
+        display: "grid",
+        placeItems: "center",
+        fontSize: 13,
+        fontWeight: 700,
+        background: color + "22",
+        color,
+        flexShrink: 0,
+        overflow: "hidden",
+      }}
+    >
+      {icon && !failed ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={icon}
+          alt=""
+          width={18}
+          height={18}
+          loading="lazy"
+          style={{ width: 18, height: 18, objectFit: "contain", borderRadius: 4 }}
+          onError={() => setFailed(true)}
+        />
+      ) : (
+        (site.site || "?").charAt(0).toUpperCase()
       )}
     </div>
   );

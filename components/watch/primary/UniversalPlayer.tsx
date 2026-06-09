@@ -25,6 +25,7 @@ import { useWatchProvider } from "@/lib/context/watchPageProvider";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { VIDSTACK_FR } from "@/lib/i18n/vidstackFr";
+import { getResumeTime, saveProgress, markComplete } from "@/lib/watch/progress";
 
 type Stream = {
   url: string;
@@ -142,6 +143,11 @@ const HLS_CONFIG = {
   // ms of PTS drift at boundaries); jump them instead of buffering forever.
   maxBufferHole: 0.5,
 };
+
+// Never auto-resume into the last few seconds of an episode — at that point
+// the episode is effectively done, so we'd rather start it (or the next one)
+// clean than drop the user onto the end card.
+const END_GUARD = 15;
 
 function proxied(
   url: string,
@@ -1976,6 +1982,82 @@ export default function UniversalPlayer({
       localStorage.setItem("aniscroll:muted", mutedState ? "1" : "0");
     } catch {}
   }, [volumeState, mutedState]);
+
+  // ── Resume + auto-save playback progress (continue where you left off) ──
+  // Progress is keyed on aniId+episode (NOT the server), so the position is
+  // shared across every player: stop at 10 min on one server, switch servers,
+  // resume at 10 min. We seek once when the media can play, then save the
+  // position on a throttle while watching, and mark the episode complete on its
+  // natural end. See lib/watch/progress.ts for the storage model.
+  useEffect(() => {
+    if (aniListId == null || episodeNumber == null) return;
+
+    let el: HTMLElement | null = null;
+    let video: HTMLVideoElement | null = null;
+    let pollId = 0;
+    let lastSavedAt = 0;
+    let resumeApplied = false;
+
+    const resume = () => {
+      if (resumeApplied || !video) return;
+      const at = getResumeTime(aniListId, episodeNumber);
+      if (at > 0 && video.duration && at < video.duration - END_GUARD) {
+        try {
+          video.currentTime = at;
+        } catch {}
+      }
+      // Mark applied even when there's nothing to resume — we only want to
+      // honour the saved point ONCE per mount, never fight a later user seek.
+      resumeApplied = true;
+    };
+
+    const onTimeUpdate = () => {
+      if (!video) return;
+      const now = performance.now();
+      if (now - lastSavedAt < 3000) return; // throttle writes to ~every 3s
+      lastSavedAt = now;
+      saveProgress(aniListId, episodeNumber, video.currentTime, video.duration || 0);
+    };
+
+    const onEnded = () => {
+      if (!video) return;
+      markComplete(aniListId, episodeNumber, video.duration || 0);
+    };
+
+    const bind = () => {
+      const player = playerRef.current;
+      el = (player?.el as HTMLElement) || null;
+      video = el?.querySelector<HTMLVideoElement>("video") || null;
+      if (!video) return false;
+      // can-play fires once metadata + first frames are ready → safe to seek.
+      el!.addEventListener("can-play", resume);
+      video.addEventListener("loadeddata", resume);
+      video.addEventListener("timeupdate", onTimeUpdate);
+      video.addEventListener("ended", onEnded);
+      // Last-chance save when the user navigates away / closes the tab.
+      window.addEventListener("pagehide", onTimeUpdate);
+      return true;
+    };
+
+    if (!bind()) {
+      let tries = 0;
+      pollId = window.setInterval(() => {
+        if (bind() || ++tries > 40) window.clearInterval(pollId);
+      }, 250);
+    }
+
+    return () => {
+      window.clearInterval(pollId);
+      el?.removeEventListener("can-play", resume);
+      video?.removeEventListener("loadeddata", resume);
+      video?.removeEventListener("timeupdate", onTimeUpdate);
+      video?.removeEventListener("ended", onEnded);
+      window.removeEventListener("pagehide", onTimeUpdate);
+    };
+    // Re-bind per episode/anime and whenever the stream (server) changes so the
+    // resume seek runs on the freshly-loaded source.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aniListId, episodeNumber, streamData]);
 
   // ── Autoplay ──
   // Chrome rejects unmuted autoplay without a user gesture, period. The
