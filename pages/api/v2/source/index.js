@@ -849,6 +849,26 @@ async function getAnimeSamaIframe(serverKey, title, episode, aniId) {
  */
 const PREQUEL_FORMATS = new Set(["TV", "ONA", "OVA", "TV_SHORT"]);
 
+/**
+ * Does `prequel` look like an actual PREVIOUS SEASON of `current`, rather than
+ * an unrelated spin-off AniList happens to tag as a prequel?
+ *
+ * AniList's PREQUEL edges aren't all "season N-1": One Piece (id 21) lists the
+ * 1-episode ONA "MONSTERS: Ippaku Sanjou Hiryuu Jigoku" (an Oda one-shot) as a
+ * prequel, so a blind walk returns season=2 and we'd serve every One Piece
+ * episode from the wrong saga. A genuine previous season shares the franchise
+ * title; a spin-off doesn't. We require a meaningful shared title token before
+ * counting the edge.
+ */
+function looksLikePreviousSeason(currentTitles, prequelTitles) {
+  for (const cur of currentTitles) {
+    for (const prev of prequelTitles) {
+      if (scoreSlugAgainstTitle(prev, cur) > 0) return true;
+    }
+  }
+  return false;
+}
+
 async function detectSeasonNumber(aniId) {
   const cacheKey = String(aniId);
   if (seasonCache.has(cacheKey)) return seasonCache.get(cacheKey);
@@ -856,6 +876,9 @@ async function detectSeasonNumber(aniId) {
   let season = 1;
   let currentId = Number(aniId);
   const visited = new Set();
+
+  const titlesOf = (m) =>
+    [m?.title?.romaji, m?.title?.english, m?.title?.native].filter(Boolean);
 
   while (currentId && !visited.has(currentId)) {
     visited.add(currentId);
@@ -865,7 +888,11 @@ async function detectSeasonNumber(aniId) {
     const prequel = edges.find(
       (e) => e.relationType === "PREQUEL" && PREQUEL_FORMATS.has(e.node?.format)
     );
-    if (prequel) {
+    // Only follow the prequel when it actually reads as a previous season of
+    // the SAME franchise (shared title token). This stops spin-off ONAs/OVAs
+    // (One Piece's "MONSTERS", recap shorts, side-stories) from inflating the
+    // season count and routing episodes to the wrong saga.
+    if (prequel && looksLikePreviousSeason(titlesOf(media), titlesOf(prequel.node))) {
       season++;
       currentId = prequel.node.id;
     } else {
