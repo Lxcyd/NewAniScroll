@@ -598,12 +598,18 @@ function buildSites(info: AniListInfoTypes): SiteRow[] {
 
 // Sites whose AniList icon is a FULL-COLOUR logo we must not recolour — tinting
 // these to a single brand colour would destroy their multi-colour branding.
-// (Ported from the reference project's _colorfulIconSites / _neverRecolorSites.)
+// Verbatim from the reference project's _colorfulIconSites + _neverRecolorSites
+// (AnimeDetailPopup.razor), matched case-insensitively.
 const COLORFUL_ICON_SITES = new Set(
   [
-    "AlphaPolis", "Bandai Channel", "Carlsen Manga!", "Disney Plus", "Disney+",
-    "Gau Gau", "Kana", "Manman Manhua", "Pixiv", "Renta!", "SuBLime",
-    "Tencent Comics", "Viki", "WeComics",
+    "Alpha Manga", "AlphaPolis", "Asacomi", "Bandai Channel", "Carlsen Manga!",
+    "Ciao Plus", "Disney Plus", "Disney+", "Dongman Manhua", "FEEL web",
+    "Flower Comics", "Gau Gau", "Ichijin Plus", "Kana", "Kanmanhua",
+    "Manga UP!", "MangaPlaza", "Manman Manhua", "Nico Nico Seiga", "ONO",
+    "Piccoma", "Pixiv Comic", "Pixiv", "Pocket Magazine", "Renta!",
+    "Rimacomi Plus", "SORAJIMA TOON", "Star+", "SuBLime", "Takecomic",
+    "Tencent Comics", "Viki", "WeComics", "Weekly CoroCoro Comic", "Yanmaga",
+    "Yawaraka Spirits", "Young Animal",
   ].map((s) => s.toLowerCase()),
 );
 
@@ -622,9 +628,16 @@ function SiteLogo({ site }: { site: SiteRow }) {
   const [failed, setFailed] = useState(false);
   const color = site.color || "#7ec8ff";
   const hasIcon = !!site.icon && !failed;
-  // Recolour only monochrome AniList glyphs, and never the inherently
-  // full-colour brands (Disney+, Viki, …) or full-colour favicons.
-  const recolor = site.monochrome && !COLORFUL_ICON_SITES.has(site.name.toLowerCase());
+  // Recolour only monochrome AniList glyphs, and only when we have a usable
+  // brand colour (non-black hex) — never the inherently full-colour brands
+  // (Disney+, Viki, …) or full-colour favicons. Mirrors the reference's
+  // shouldRecolor guard (brandColor non-empty, != #000000, starts with #).
+  const usableColor =
+    typeof color === "string" && color.startsWith("#") && color !== "#000000";
+  const recolor =
+    !!site.monochrome &&
+    usableColor &&
+    !COLORFUL_ICON_SITES.has(site.name.toLowerCase());
 
   return (
     <div

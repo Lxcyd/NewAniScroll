@@ -1044,11 +1044,17 @@ function MOverview({
 }
 
 // Inherently full-colour brand icons we must never tint to a single colour.
+// Verbatim from the reference project's _colorfulIconSites + _neverRecolorSites.
 const M_COLORFUL_ICON_SITES = new Set(
   [
-    "AlphaPolis", "Bandai Channel", "Carlsen Manga!", "Disney Plus", "Disney+",
-    "Gau Gau", "Kana", "Manman Manhua", "Pixiv", "Renta!", "SuBLime",
-    "Tencent Comics", "Viki", "WeComics",
+    "Alpha Manga", "AlphaPolis", "Asacomi", "Bandai Channel", "Carlsen Manga!",
+    "Ciao Plus", "Disney Plus", "Disney+", "Dongman Manhua", "FEEL web",
+    "Flower Comics", "Gau Gau", "Ichijin Plus", "Kana", "Kanmanhua",
+    "Manga UP!", "MangaPlaza", "Manman Manhua", "Nico Nico Seiga", "ONO",
+    "Piccoma", "Pixiv Comic", "Pixiv", "Pocket Magazine", "Renta!",
+    "Rimacomi Plus", "SORAJIMA TOON", "Star+", "SuBLime", "Takecomic",
+    "Tencent Comics", "Viki", "WeComics", "Weekly CoroCoro Comic", "Yanmaga",
+    "Yawaraka Spirits", "Young Animal",
   ].map((s) => s.toLowerCase()),
 );
 
@@ -1070,8 +1076,12 @@ function MSiteLogo({ site, color }: { site: any; color: string }) {
       icon = null;
     }
   }
+  const usableColor =
+    typeof color === "string" && color.startsWith("#") && color !== "#000000";
   const recolor =
-    monochrome && !M_COLORFUL_ICON_SITES.has((site.site || "").toLowerCase());
+    monochrome &&
+    usableColor &&
+    !M_COLORFUL_ICON_SITES.has((site.site || "").toLowerCase());
   const hasIcon = !!icon && !failed;
 
   return (
