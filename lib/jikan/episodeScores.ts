@@ -74,18 +74,39 @@ async function setJson(key: string, value: unknown, ttl: number): Promise<void> 
   }
 }
 
-async function jikanFetch(path: string): Promise<any | null> {
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 8000);
-  try {
-    const res = await fetch(`${JIKAN_BASE}${path}`, { signal: ctrl.signal });
-    if (!res.ok) return null;
-    return await res.json();
-  } catch {
-    return null;
-  } finally {
-    clearTimeout(timer);
+type JikanResult = { ok: boolean; data: any | null; rateLimited: boolean };
+
+/** One Jikan GET with a single retry on 429 (rate limit). Distinguishes a
+ *  rate-limited failure from a genuine empty/404 so the caller can avoid
+ *  caching a transient miss. */
+async function jikanFetch(path: string): Promise<JikanResult> {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 8000);
+    try {
+      const res = await fetch(`${JIKAN_BASE}${path}`, { signal: ctrl.signal });
+      if (res.status === 429) {
+        clearTimeout(timer);
+        if (attempt === 0) {
+          await sleep(1200); // back off once, then retry
+          continue;
+        }
+        return { ok: false, data: null, rateLimited: true };
+      }
+      if (!res.ok) {
+        clearTimeout(timer);
+        return { ok: false, data: null, rateLimited: false };
+      }
+      const data = await res.json();
+      clearTimeout(timer);
+      return { ok: true, data, rateLimited: false };
+    } catch {
+      clearTimeout(timer);
+      // Network/abort — treat like a transient failure (don't cache a miss).
+      return { ok: false, data: null, rateLimited: true };
+    }
   }
+  return { ok: false, data: null, rateLimited: true };
 }
 
 /** MAL /5 score → /10 with one decimal, or null when unrated / 0. */
@@ -104,29 +125,38 @@ export async function getSeasonEpisodeScores(
   const empty: SeasonScores = { aniId: input.aniId, episodes: [], source: "none" };
   if (!input.idMal) return empty;
 
-  const cacheKey = `jikan:eps:v1:${input.idMal}`;
+  const cacheKey = `jikan:eps:v2:${input.idMal}`;
   const cached = await getJson<SeasonScores>(cacheKey);
   if (cached) return { ...cached, aniId: input.aniId };
 
   const episodes: EpisodeScore[] = [];
   let page = 1;
   let hasNext = true;
+  let transientFail = false;
   while (hasNext && page <= MAX_PAGES) {
-    const data = await jikanFetch(`/anime/${input.idMal}/episodes?page=${page}`);
-    const list: any[] = data?.data || [];
+    const r = await jikanFetch(`/anime/${input.idMal}/episodes?page=${page}`);
+    if (!r.ok) {
+      // Rate-limited / network blip → bail without caching so the next request
+      // retries. A genuine 404 (no episode data) just yields an empty list and
+      // is cached as a miss below.
+      if (r.rateLimited) transientFail = true;
+      break;
+    }
+    const list: any[] = r.data?.data || [];
     for (const e of list) {
       const num = Number(e.mal_id);
       if (!Number.isFinite(num)) continue;
       episodes.push({ number: num, score: toScore(e.score) });
     }
-    hasNext = !!data?.pagination?.has_next_page;
+    hasNext = !!r.data?.pagination?.has_next_page;
     page += 1;
     // Gentle pacing between pages to stay within Jikan's rate limit.
     if (hasNext && page <= MAX_PAGES) await sleep(400);
   }
 
   if (episodes.length === 0) {
-    await setJson(cacheKey, empty, TTL_MISS_S);
+    // Only cache a real miss; a transient rate-limit must be retried next time.
+    if (!transientFail) await setJson(cacheKey, empty, TTL_MISS_S);
     return empty;
   }
 

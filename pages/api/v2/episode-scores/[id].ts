@@ -41,14 +41,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
-    const results = await Promise.all(
-      seasons.map((s) =>
-        getSeasonEpisodeScores({
+    // SEQUENTIAL, not Promise.all: Jikan rate-limits aggressively (~3 req/s),
+    // and firing every season at once got the later ones 429'd → cached as a
+    // miss (AoT S2/S3 came back empty). One season at a time stays under the
+    // limit; results are Redis-cached so warm loads are instant regardless.
+    const results = [];
+    for (const s of seasons) {
+      results.push(
+        await getSeasonEpisodeScores({
           aniId: Number(s.aniId),
           idMal: s.idMal ?? null,
         }),
-      ),
-    );
+      );
+    }
     // Long edge cache — episode scores barely change and the lib already
     // caches in Redis. SWR keeps it warm without blocking.
     res.setHeader(
