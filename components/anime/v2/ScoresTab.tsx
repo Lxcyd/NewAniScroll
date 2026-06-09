@@ -36,13 +36,14 @@ type Tier = {
   min: number;
 };
 
-// Conventional, self-explanatory tiers mapped onto a /10 score.
+// Conventional, self-explanatory tiers mapped onto a /10 score. The score
+// number is always white for a consistent look across every tier.
 const TIERS: Tier[] = [
   { key: "masterpiece", label: "Masterpiece", color: "#2f80ed", text: "#fff", min: 9.0 },
   { key: "great", label: "Great", color: "#1f7a3f", text: "#fff", min: 8.0 },
-  { key: "good", label: "Good", color: "#4caf50", text: "#0b2010", min: 7.0 },
-  { key: "average", label: "Average", color: "#e0c000", text: "#2a2400", min: 6.0 },
-  { key: "weak", label: "Weak", color: "#e8862b", text: "#2a1500", min: 5.0 },
+  { key: "good", label: "Good", color: "#4caf50", text: "#fff", min: 7.0 },
+  { key: "average", label: "Average", color: "#e0c000", text: "#fff", min: 6.0 },
+  { key: "weak", label: "Weak", color: "#e8862b", text: "#fff", min: 5.0 },
   { key: "poor", label: "Poor", color: "#e0413e", text: "#fff", min: 0 },
 ];
 
@@ -276,7 +277,16 @@ export default function ScoresTab({ info, seasonList }: Props) {
                   return (
                     <td key={season.id} style={s.cellWrap}>
                       <span
-                        style={{ ...s.cell, background: tier.color, color: tier.text }}
+                        style={{
+                          ...s.cell,
+                          background: tier.color,
+                          color: tier.text,
+                          // Keep the white number legible on the lighter tiers
+                          // (yellow/green); skip the shadow on the grey "—".
+                          ...(score != null
+                            ? { textShadow: "0 1px 2px rgba(0,0,0,0.45)" }
+                            : null),
+                        }}
                       >
                         {score != null ? score.toFixed(1) : "—"}
                       </span>
