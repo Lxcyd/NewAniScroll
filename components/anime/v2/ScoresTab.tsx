@@ -9,17 +9,16 @@ import { useTranslation } from "react-i18next";
  * (one column per season, one row per episode, cells colour-coded by tier).
  *
  * Data:
- *   - Real per-episode scores come from TMDB via /api/v2/episode-scores
- *     (vote_average /10). Painted whenever TMDB has the episode.
- *   - When TMDB has no key / no match / no rating for an episode, the cell
- *     falls back to that season's AniList averageScore — so the grid is never
- *     empty and degrades gracefully.
+ *   - Per-episode scores come from Jikan (MyAnimeList) via
+ *     /api/v2/episode-scores, keyed on each AniList season's MAL id so the
+ *     episode mapping is exact. MAL scores are /5, doubled to /10.
+ *   - An episode with no rating (not aired yet, or no community votes) renders
+ *     as a grey "—" cell — never a stand-in number.
  *
- * Adaptive layout:
- *   - ≤ 30 episodes  → full grid (one cell per episode).
- *   - more episodes  → "banded" mode (E1–10, E11–20…) so a 1000-episode show
- *     stays readable. Banded cells use the season average (per-episode detail
- *     isn't meaningful at that zoom).
+ * Layout:
+ *   - Single season            → rows of 20 cells, labelled by range (E1–20).
+ *   - Multiple seasons         → side-by-side column table (one col per season).
+ *   The grid can be panned/zoomed and opened fullscreen (see PanZoom).
  */
 
 type Props = {
@@ -100,8 +99,8 @@ export default function ScoresTab({ info, seasonList }: Props) {
     return base.map((s) => {
       // Episode count: AniList `episodes` when known; otherwise, for the entry
       // that matches this page (the current info), fall back to the aired count
-      // derived from nextAiringEpisode. TMDB's count (loaded async) tops this up
-      // later via `tmdbEpCount`. Never below 1 so the column always shows.
+      // derived from nextAiringEpisode. Jikan's count (loaded async) tops this
+      // up later in seasonsWithCount. Never below 1 so the column always shows.
       const fromAni =
         s.episodes ?? (s.id === info.id ? airedFromNext : 0) ?? 0;
       return {
@@ -112,7 +111,7 @@ export default function ScoresTab({ info, seasonList }: Props) {
     });
   }, [seasonList, info, airedFromNext]);
 
-  // Fetch real per-episode scores (TMDB). Keyed by aniId → episodes map.
+  // Fetch real per-episode scores (Jikan). Keyed by aniId → episodes map.
   const [epScores, setEpScores] = useState<Map<number, Map<number, number | null>>>(
     new Map(),
   );
@@ -148,7 +147,7 @@ export default function ScoresTab({ info, seasonList }: Props) {
   }, [info.id, seasons.map((s) => s.id).join(",")]);
 
   // Final per-season episode count: the larger of AniList's count and the
-  // highest episode number TMDB returned (TMDB sometimes knows more aired
+  // highest episode number Jikan returned (Jikan sometimes knows more aired
   // episodes than AniList's stale `episodes` field). Always ≥ 1.
   const seasonsWithCount = useMemo(() => {
     return seasons.map((s) => {
@@ -167,7 +166,7 @@ export default function ScoresTab({ info, seasonList }: Props) {
   // how the flat episode list wraps into rows.
   const ROW_SIZE = 20;
 
-  // Header average — mean of the real per-episode (TMDB) scores actually shown.
+  // Header average — mean of the real per-episode (Jikan) scores actually shown.
   // Falls back to the mean of season averages when no per-episode data exists
   // (no key / no match / nothing aired yet) so the header never disappears.
   const overall = useMemo(() => {
