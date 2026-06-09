@@ -17,6 +17,7 @@ import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { useTranslatedText } from "@/lib/i18n/useTranslatedText";
 import { translateTag } from "@/lib/i18n/animeTags";
+import { hexToCssFilter } from "@/lib/color/hexToCssFilter";
 
 type Props = {
   info: AniListInfoTypes;
@@ -587,9 +588,10 @@ function buildSites(info: AniListInfoTypes): SiteRow[] {
       url: link.url,
       color: link.color || colorBySite(link.site),
       initial: (link.site[0] || "?").toUpperCase(),
-      // AniList's own icon is a white monochrome glyph (recolour it); the
-      // favicon fallback is a full-colour image (leave it alone).
-      icon: link.icon || faviconFor(link.url),
+      // AniList serves these icons as monochrome grey+alpha PNGs — recolour them
+      // to the brand colour. When AniList gives no icon we render a play glyph
+      // (no favicon lookup; matches the reference project's behaviour).
+      icon: link.icon || null,
       monochrome: !!link.icon,
     });
   }
@@ -630,14 +632,20 @@ function SiteLogo({ site }: { site: SiteRow }) {
   const hasIcon = !!site.icon && !failed;
   // Recolour only monochrome AniList glyphs, and only when we have a usable
   // brand colour (non-black hex) — never the inherently full-colour brands
-  // (Disney+, Viki, …) or full-colour favicons. Mirrors the reference's
-  // shouldRecolor guard (brandColor non-empty, != #000000, starts with #).
+  // (Disney+, Viki, …). Mirrors the reference's shouldRecolor guard
+  // (brandColor non-empty, != #000000, starts with #).
   const usableColor =
     typeof color === "string" && color.startsWith("#") && color !== "#000000";
   const recolor =
     !!site.monochrome &&
     usableColor &&
     !COLORFUL_ICON_SITES.has(site.name.toLowerCase());
+  // White→brand-colour CSS filter (memoised). Same technique as the reference
+  // project — far more reliable than a mask for grey+alpha PNGs.
+  const filter = useMemo(
+    () => (recolor ? hexToCssFilter(color) : null),
+    [recolor, color],
+  );
 
   return (
     <div
@@ -649,51 +657,22 @@ function SiteLogo({ site }: { site: SiteRow }) {
       }}
     >
       {hasIcon ? (
-        !recolor ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={site.icon as string}
-            alt=""
-            width={20}
-            height={20}
-            loading="lazy"
-            style={{ width: 20, height: 20, objectFit: "contain", borderRadius: 4 }}
-            onError={() => setFailed(true)}
-          />
-        ) : (
-          // Monochrome icon → paint it the brand colour via a mask. A hidden
-          // <img> with the same src drives onError so a broken icon still falls
-          // back to the SVG glyph below.
-          <>
-            <span
-              aria-hidden
-              style={{
-                width: 20,
-                height: 20,
-                display: "block",
-                backgroundColor: color,
-                WebkitMaskImage: `url(${site.icon})`,
-                maskImage: `url(${site.icon})`,
-                WebkitMaskRepeat: "no-repeat",
-                maskRepeat: "no-repeat",
-                WebkitMaskPosition: "center",
-                maskPosition: "center",
-                WebkitMaskSize: "contain",
-                maskSize: "contain",
-              }}
-            />
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={site.icon as string}
-              alt=""
-              width={0}
-              height={0}
-              loading="lazy"
-              style={{ display: "none" }}
-              onError={() => setFailed(true)}
-            />
-          </>
-        )
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={site.icon as string}
+          alt=""
+          width={20}
+          height={20}
+          loading="lazy"
+          style={{
+            width: 20,
+            height: 20,
+            objectFit: "contain",
+            borderRadius: 4,
+            ...(filter ? { filter } : null),
+          }}
+          onError={() => setFailed(true)}
+        />
       ) : (
         <PlayBadge color={color} />
       )}
@@ -719,18 +698,6 @@ function PlayBadge({ color }: { color: string }) {
       <polygon points="10,8 16,12 10,16" fill={color} stroke="none" />
     </svg>
   );
-}
-
-/** Best-effort favicon URL from a link's origin, used when AniList didn't
- *  supply an `icon`. Google's favicon service returns a crisp 64px PNG and
- *  degrades to a generic globe rather than failing, so it's a safe default. */
-function faviconFor(url: string): string | null {
-  try {
-    const { hostname } = new URL(url);
-    return `https://www.google.com/s2/favicons?domain=${hostname}&sz=64`;
-  } catch {
-    return null;
-  }
 }
 
 function colorBySite(name: string): string {

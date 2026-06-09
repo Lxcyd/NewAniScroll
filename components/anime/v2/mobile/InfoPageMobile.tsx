@@ -13,7 +13,7 @@
  * import noise.
  */
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AniListInfoTypes } from "types/info/AnilistInfoTypes";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import {
@@ -37,6 +37,7 @@ import type { TFunction } from "i18next";
 import { genreLabel } from "@/lib/i18n/genreLabel";
 import { useTranslatedText } from "@/lib/i18n/useTranslatedText";
 import { translateTag } from "@/lib/i18n/animeTags";
+import { hexToCssFilter } from "@/lib/color/hexToCssFilter";
 import type { SeasonEntry } from "@/lib/anilist/seasonChain";
 import CharactersTab from "../CharactersTab";
 import Episodes from "../Episodes";
@@ -1059,29 +1060,24 @@ const M_COLORFUL_ICON_SITES = new Set(
 );
 
 /* ─── External-site logo ──────────────────────────────────────
-   AniList serves a (mostly white, monochrome) `icon` for known links. We
-   recolour it to the brand colour via a CSS mask — unless it's a full-colour
-   brand (Disney+, Viki, …) or a favicon fallback, which render as-is. No icon /
-   load error → a brand-coloured play-button glyph. Mirrors the reference
-   project's AnimeDetailPopup icon logic and the desktop SiteLogo. */
+   AniList serves its external-link icons as monochrome grey+alpha PNGs. We
+   recolour them to the brand colour with a white→colour CSS filter — unless
+   the site is an inherently full-colour brand (Disney+, Viki, …). No icon →
+   a brand-coloured play-button glyph (no favicon lookup). Mirrors the
+   reference project's AnimeDetailPopup icon logic and the desktop SiteLogo. */
 function MSiteLogo({ site, color }: { site: any; color: string }) {
   const [failed, setFailed] = useState(false);
-  let icon: string | null = site.icon || null;
-  let monochrome = !!site.icon; // AniList icon → monochrome glyph
-  if (!icon && site.url) {
-    try {
-      icon = `https://www.google.com/s2/favicons?domain=${new URL(site.url).hostname}&sz=64`;
-      monochrome = false; // favicon is full colour
-    } catch {
-      icon = null;
-    }
-  }
+  const icon: string | null = site.icon || null;
   const usableColor =
     typeof color === "string" && color.startsWith("#") && color !== "#000000";
   const recolor =
-    monochrome &&
+    !!site.icon &&
     usableColor &&
     !M_COLORFUL_ICON_SITES.has((site.site || "").toLowerCase());
+  const filter = useMemo(
+    () => (recolor ? hexToCssFilter(color) : null),
+    [recolor, color],
+  );
   const hasIcon = !!icon && !failed;
 
   return (
@@ -1101,48 +1097,22 @@ function MSiteLogo({ site, color }: { site: any; color: string }) {
       }}
     >
       {hasIcon ? (
-        !recolor ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={icon as string}
-            alt=""
-            width={18}
-            height={18}
-            loading="lazy"
-            style={{ width: 18, height: 18, objectFit: "contain", borderRadius: 4 }}
-            onError={() => setFailed(true)}
-          />
-        ) : (
-          <>
-            <span
-              aria-hidden
-              style={{
-                width: 18,
-                height: 18,
-                display: "block",
-                backgroundColor: color,
-                WebkitMaskImage: `url(${icon})`,
-                maskImage: `url(${icon})`,
-                WebkitMaskRepeat: "no-repeat",
-                maskRepeat: "no-repeat",
-                WebkitMaskPosition: "center",
-                maskPosition: "center",
-                WebkitMaskSize: "contain",
-                maskSize: "contain",
-              }}
-            />
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={icon as string}
-              alt=""
-              width={0}
-              height={0}
-              loading="lazy"
-              style={{ display: "none" }}
-              onError={() => setFailed(true)}
-            />
-          </>
-        )
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={icon as string}
+          alt=""
+          width={18}
+          height={18}
+          loading="lazy"
+          style={{
+            width: 18,
+            height: 18,
+            objectFit: "contain",
+            borderRadius: 4,
+            ...(filter ? { filter } : null),
+          }}
+          onError={() => setFailed(true)}
+        />
       ) : (
         <svg
           width="15"
