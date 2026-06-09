@@ -97,9 +97,13 @@ const ListEditor: React.FC<ListEditorProps> = ({
   const isAnime = info?.type !== "MANGA";
   const totalEp = info?.episodes ?? max ?? 0;
 
-  // null = "not in list". Seed from the caller's current status (undefined →
-  // not in list); the prefill effect refines it from the user's real entry.
-  const [status, setStatus] = useState<Status | null>((stats as Status) || null);
+  // null = "not in list". We do NOT seed from the caller's `stats` prop: that
+  // value comes from the info page's own (sometimes stale / not-yet-resolved)
+  // status and caused the editor to show e.g. "Watching" for an anime that's
+  // actually not in the list. The prefill effect below is the single source of
+  // truth — it sets the real status (or null) straight from the user's AniList
+  // entry. Until it resolves we show null ("Not in list") as the safe default.
+  const [status, setStatus] = useState<Status | null>(null);
   const [score, setScore] = useState<number>(0);
   const [progress, setProgress] = useState<number>(prg ?? 0);
   const [startDate, setStartDate] = useState<string>("");
@@ -153,21 +157,27 @@ const ListEditor: React.FC<ListEditorProps> = ({
         if (cancelled) return;
         const media = json?.data?.Media;
         const e = media?.mediaListEntry;
-        if (media?.isFavourite) setFavorited(true);
+        setFavorited(media?.isFavourite === true);
         if (e) {
-          if (typeof e.id === "number") setEntryId(e.id);
-          if (e.status) setStatus(e.status as Status);
-          if (typeof e.score === "number") setScore(e.score);
-          if (typeof e.progress === "number") setProgress(e.progress);
-          if (typeof e.repeat === "number") setRewatches(e.repeat);
+          setEntryId(typeof e.id === "number" ? e.id : null);
+          setStatus((e.status as Status) ?? null);
+          setScore(typeof e.score === "number" ? e.score : 0);
+          setProgress(typeof e.progress === "number" ? e.progress : 0);
+          setRewatches(typeof e.repeat === "number" ? e.repeat : 0);
           setHideFromLists(!!e.hiddenFromStatusLists);
           setIsPrivate(!!e.private);
-          if (e.notes) setNotes(e.notes);
+          setNotes(e.notes || "");
           setStartDate(fuzzyToInput(e.startedAt));
           setFinishDate(fuzzyToInput(e.completedAt));
+        } else {
+          // No entry → the anime is genuinely NOT in the user's list. Force the
+          // authoritative "not in list" state so a stale page status can't leave
+          // the editor showing e.g. "Watching".
+          setEntryId(null);
+          setStatus(null);
         }
       } catch {
-        /* prefill is best-effort — defaults already seed the form */
+        /* prefill is best-effort — the safe "not in list" default already set */
       }
     })();
     return () => {
