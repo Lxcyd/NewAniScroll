@@ -65,7 +65,7 @@ function toScore10(avg: number | null | undefined): number | null {
 type ApiSeason = {
   aniId: number;
   episodes: { number: number; score: number | null }[];
-  source: "tmdb" | "none";
+  source: "jikan" | "none";
 };
 
 export default function ScoresTab({ info, seasonList }: Props) {
@@ -87,6 +87,7 @@ export default function ScoresTab({ info, seasonList }: Props) {
         : [
             {
               id: info.id,
+              idMal: info.idMal ?? null,
               number: 1,
               label: "Season 1",
               year: info.seasonYear ?? info.startDate?.year ?? null,
@@ -118,12 +119,9 @@ export default function ScoresTab({ info, seasonList }: Props) {
 
   useEffect(() => {
     let cancelled = false;
-    const payload = seasons.map((s) => ({
-      aniId: s.id,
-      title: { romaji: s.title?.romaji ?? null, english: s.title?.english ?? null },
-      year: s.year ?? null,
-      episodeCount: s.episodes ?? null,
-    }));
+    // Each season carries its own MAL id; Jikan returns that entry's exact
+    // episodes, so there's no season-number guessing server-side.
+    const payload = seasons.map((s) => ({ aniId: s.id, idMal: s.idMal ?? null }));
     if (payload.length === 0) return;
     fetch(
       `/api/v2/episode-scores/${info.id}?seasons=${encodeURIComponent(
@@ -135,7 +133,7 @@ export default function ScoresTab({ info, seasonList }: Props) {
         if (cancelled || !data?.seasons?.length) return;
         const next = new Map<number, Map<number, number | null>>();
         for (const s of data.seasons) {
-          if (s.source !== "tmdb") continue;
+          if (s.source !== "jikan") continue;
           const m = new Map<number, number | null>();
           for (const e of s.episodes) m.set(e.number, e.score);
           next.set(s.aniId, m);
@@ -154,10 +152,12 @@ export default function ScoresTab({ info, seasonList }: Props) {
   // episodes than AniList's stale `episodes` field). Always ≥ 1.
   const seasonsWithCount = useMemo(() => {
     return seasons.map((s) => {
-      const tmdbMap = epScores.get(s.id);
-      const tmdbMax =
-        tmdbMap && tmdbMap.size > 0 ? Math.max(...Array.from(tmdbMap.keys())) : 0;
-      const epCount = Math.max(1, s.aniEpCount, tmdbMax);
+      // Jikan sometimes knows more aired episodes than AniList's stale
+      // `episodes` field, so take the larger of the two.
+      const epMap = epScores.get(s.id);
+      const jikanMax =
+        epMap && epMap.size > 0 ? Math.max(...Array.from(epMap.keys())) : 0;
+      const epCount = Math.max(1, s.aniEpCount, jikanMax);
       return { ...s, epCount };
     });
   }, [seasons, epScores]);

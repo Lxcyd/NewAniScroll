@@ -1,29 +1,27 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { getSeasonEpisodeScores, tmdbEnabled } from "@/lib/tmdb/episodeScores";
+import {
+  getSeasonEpisodeScores,
+  episodeScoresEnabled,
+} from "@/lib/jikan/episodeScores";
 
 /**
  * GET /api/v2/episode-scores/[id]?seasons=<json>
  *
- * Returns real per-episode scores (TMDB vote_average /10) for each season in
- * the franchise so the info-page Scores grid can paint true per-episode cells
- * instead of repeating the season average.
+ * Returns real per-episode scores for each season in the franchise so the
+ * info-page Scores grid can paint true per-episode cells.
  *
- * `seasons` is a URL-encoded JSON array of:
- *   { aniId, title:{romaji,english}, year, episodeCount }
- * — exactly the season chain the info page already resolved at SSR, passed
- * straight through so this route does zero AniList work.
+ * Scores come from Jikan (MyAnimeList) keyed on each season's MAL id, which
+ * maps 1:1 to that AniList entry's episodes — no season-number guessing.
  *
- * Degrades gracefully: when TMDB has no key / no match, a season's `episodes`
- * comes back empty with source:"none" and the client falls back to the AniList
- * season score for that column.
+ * `seasons` is a URL-encoded JSON array of `{ aniId, idMal }` — the season
+ * chain the info page already resolved at SSR, passed straight through so this
+ * route does zero AniList work.
+ *
+ * Degrades gracefully: a season with no MAL id (or a Jikan miss) comes back
+ * empty with source:"none" and the grid shows grey cells for it.
  */
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  let seasons: Array<{
-    aniId: number;
-    title?: { romaji?: string | null; english?: string | null } | null;
-    year?: number | null;
-    episodeCount?: number | null;
-  }> = [];
+  let seasons: Array<{ aniId: number; idMal?: number | null }> = [];
 
   try {
     const raw = String(req.query.seasons || "[]");
@@ -34,12 +32,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   // Cap the fan-out — a franchise with dozens of entries shouldn't fire dozens
-  // of TMDB chains in one request. The grid only shows a handful of columns.
+  // of Jikan chains in one request. The grid only shows a handful of columns.
   seasons = seasons.slice(0, 12);
 
-  if (!tmdbEnabled()) {
-    // No key configured — tell the client so it can skip the fetch next time
-    // and just render season scores. Cache briefly at the edge.
+  if (!episodeScoresEnabled()) {
     res.setHeader("Cache-Control", "public, s-maxage=3600");
     return res.status(200).json({ enabled: false, seasons: [] });
   }
@@ -49,9 +45,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       seasons.map((s) =>
         getSeasonEpisodeScores({
           aniId: Number(s.aniId),
-          title: s.title,
-          year: s.year ?? null,
-          episodeCount: s.episodeCount ?? null,
+          idMal: s.idMal ?? null,
         }),
       ),
     );

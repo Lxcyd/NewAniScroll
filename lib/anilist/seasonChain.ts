@@ -16,8 +16,8 @@ import {
    AniList publishing a brand-new sequel, which is rare and tolerates
    a week of staleness. */
 const REDIS_KEY_CHAIN = (id: number) => `seasonChain:v1:${id}`;
-// v2: SeasonEntry gained `averageScore` (feeds the info-page score grid).
-const REDIS_KEY_LIST = (id: number) => `seasonList:v2:${id}`;
+// v3: SeasonEntry gained `idMal` (feeds Jikan per-episode score lookups).
+const REDIS_KEY_LIST = (id: number) => `seasonList:v3:${id}`;
 const TTL_SECONDS = 7 * 24 * 60 * 60;
 
 async function redisGetJson<T>(key: string): Promise<T | null> {
@@ -156,6 +156,9 @@ async function resolveSeasonChainUncached(startId: number): Promise<SeasonInfo> 
 /** Lightweight entry exposed to the Episodes tab's season switcher. */
 export type SeasonEntry = {
   id: number;
+  /** MyAnimeList id for this season — used to fetch precise per-episode
+   *  scores from Jikan (each AniList season maps 1:1 to its MAL entry). */
+  idMal?: number | null;
   /** Position in the chain, 1-based. */
   number: number;
   /** Display label (e.g. "Season 2 Part 2"). */
@@ -272,6 +275,7 @@ async function resolveSeasonListUncached(
     const part = partMatch ? ` Part ${partMatch[1].toUpperCase()}` : "";
     return {
       id: Number(m.id),
+      idMal: m.idMal ?? null,
       number: fromTitle ?? i + 1,
       label: `Season ${fromTitle ?? i + 1}${part}`,
       year: m.seasonYear ?? m.startDate?.year ?? null,

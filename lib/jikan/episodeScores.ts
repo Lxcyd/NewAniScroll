@@ -1,0 +1,143 @@
+import { redis } from "@/lib/redis";
+
+/**
+ * Per-episode anime ratings via Jikan (the unofficial MyAnimeList API).
+ *
+ * Why Jikan over TMDB: every AniList season entry carries its own MyAnimeList
+ * id (`idMal`), and Jikan's `/anime/{idMal}/episodes` returns EXACTLY that
+ * entry's episodes with a per-episode community `score`. So the mapping is 1:1
+ * — no season-number guessing, which is what made TMDB mis-handle split-cours
+ * shows (JJK seasons sharing scores, AoT seasons mislabelled / missing the
+ * tail). MAL scores are on a /5 scale, so we ×2 to land on the same /10 scale
+ * the grid's tiers expect.
+ *
+ * Keyless, but rate-limited (~3 req/s, 60/min). We cache aggressively in Redis
+ * (7d for a hit, 1d for a miss) and the API route caches at the edge, so a
+ * given anime is fetched from Jikan at most once per week.
+ *
+ * Everything degrades gracefully: no idMal, a Jikan outage, or a 404 returns
+ * { source: "none", episodes: [] } and the grid shows grey cells.
+ */
+
+const JIKAN_BASE = "https://api.jikan.moe/v4";
+
+const TTL_OK_S = 7 * 24 * 3600;
+const TTL_MISS_S = 24 * 3600;
+
+// Jikan paginates episodes 100 per page. Cap the pages we'll walk so a
+// thousand-episode show (One Piece ≈ 12 pages) stays bounded.
+const MAX_PAGES = 14;
+
+export type EpisodeScore = {
+  /** 1-based episode number within the season. */
+  number: number;
+  /** Score on a /10 scale, or null when unrated. */
+  score: number | null;
+};
+
+export type SeasonScores = {
+  /** The AniList season id these scores belong to. */
+  aniId: number;
+  episodes: EpisodeScore[];
+  /** Source marker so the UI can tell real data from a fallback. */
+  source: "jikan" | "none";
+};
+
+export type ResolveInput = {
+  aniId: number;
+  /** MyAnimeList id for this AniList season — the precise lookup key. */
+  idMal?: number | null;
+};
+
+/** Episode scores are MAL-id based, so the feature is "enabled" whenever we can
+ *  reach Jikan — there's no API key to gate on. Kept for API-route parity. */
+export function episodeScoresEnabled(): boolean {
+  return true;
+}
+
+async function getJson<T>(key: string): Promise<T | null> {
+  if (!redis) return null;
+  try {
+    const raw = await redis.get(key);
+    return raw ? (JSON.parse(raw) as T) : null;
+  } catch {
+    return null;
+  }
+}
+
+async function setJson(key: string, value: unknown, ttl: number): Promise<void> {
+  if (!redis) return;
+  try {
+    await redis.set(key, JSON.stringify(value), "EX", ttl);
+  } catch {
+    /* non-fatal */
+  }
+}
+
+async function jikanFetch(path: string): Promise<any | null> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 8000);
+  try {
+    const res = await fetch(`${JIKAN_BASE}${path}`, { signal: ctrl.signal });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** MAL /5 score → /10 with one decimal, or null when unrated / 0. */
+function toScore(v: unknown): number | null {
+  if (typeof v !== "number" || v <= 0) return null;
+  return Math.round(v * 2 * 10) / 10;
+}
+
+/**
+ * Per-episode scores for one AniList season, looked up by its MAL id. Never
+ * throws; returns { source: "none", episodes: [] } when unavailable.
+ */
+export async function getSeasonEpisodeScores(
+  input: ResolveInput,
+): Promise<SeasonScores> {
+  const empty: SeasonScores = { aniId: input.aniId, episodes: [], source: "none" };
+  if (!input.idMal) return empty;
+
+  const cacheKey = `jikan:eps:v1:${input.idMal}`;
+  const cached = await getJson<SeasonScores>(cacheKey);
+  if (cached) return { ...cached, aniId: input.aniId };
+
+  const episodes: EpisodeScore[] = [];
+  let page = 1;
+  let hasNext = true;
+  while (hasNext && page <= MAX_PAGES) {
+    const data = await jikanFetch(`/anime/${input.idMal}/episodes?page=${page}`);
+    const list: any[] = data?.data || [];
+    for (const e of list) {
+      const num = Number(e.mal_id);
+      if (!Number.isFinite(num)) continue;
+      episodes.push({ number: num, score: toScore(e.score) });
+    }
+    hasNext = !!data?.pagination?.has_next_page;
+    page += 1;
+    // Gentle pacing between pages to stay within Jikan's rate limit.
+    if (hasNext && page <= MAX_PAGES) await sleep(400);
+  }
+
+  if (episodes.length === 0) {
+    await setJson(cacheKey, empty, TTL_MISS_S);
+    return empty;
+  }
+
+  // Jikan numbers episodes from 1 per MAL entry, which already matches AniList's
+  // per-season numbering — no renumbering needed.
+  episodes.sort((a, b) => a.number - b.number);
+  const result: SeasonScores = { aniId: input.aniId, episodes, source: "jikan" };
+  await setJson(cacheKey, result, TTL_OK_S);
+  return result;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}

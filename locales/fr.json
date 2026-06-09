@@ -404,7 +404,7 @@
     "scores": "Notes",
     "scoreGridTitle": "Notes par épisode",
     "avgScore": "moy.",
-    "scoreGridNote": "Les notes par épisode proviennent de la communauté TMDB (sur 10). Les épisodes pas encore diffusés ou sans note TMDB apparaissent en gris.",
+    "scoreGridNote": "Les notes par épisode proviennent de la communauté MyAnimeList (sur 10). Les épisodes pas encore diffusés ou sans note apparaissent en gris.",
     "tier": {
       "masterpiece": "Chef-d'œuvre",
       "great": "Excellent",
