@@ -539,3 +539,29 @@
   flex-shrink: 0;
 }
 .list-editor-checkbox-row:hover { color: rgba(255, 255, 255, 0.85); }
+
+/* Remove-from-list button — shown at the bottom of the body when the anime is
+   on the user's list. Red, full-width, with a trash icon. */
+.le-delete-btn {
+  width: 100%;
+  margin-top: 4px;
+  background: rgba(239, 68, 68, 0.06);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  border-radius: 12px;
+  color: rgba(239, 68, 68, 0.8);
+  padding: 14px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: background 0.18s, border-color 0.18s, color 0.18s, transform 0.13s;
+  font-family: inherit;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.le-delete-btn:hover  { background: rgba(239, 68, 68, 0.12); border-color: rgba(239, 68, 68, 0.4); color: #ef4444; }
+.le-delete-btn:active { transform: scale(0.98); background: rgba(239, 68, 68, 0.16); }
+.le-delete-btn:disabled { opacity: 0.55; cursor: default; }

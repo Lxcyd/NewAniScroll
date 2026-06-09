@@ -97,7 +97,9 @@ const ListEditor: React.FC<ListEditorProps> = ({
   const isAnime = info?.type !== "MANGA";
   const totalEp = info?.episodes ?? max ?? 0;
 
-  const [status, setStatus] = useState<Status>((stats as Status) || "CURRENT");
+  // null = "not in list". Seed from the caller's current status (undefined →
+  // not in list); the prefill effect refines it from the user's real entry.
+  const [status, setStatus] = useState<Status | null>((stats as Status) || null);
   const [score, setScore] = useState<number>(0);
   const [progress, setProgress] = useState<number>(prg ?? 0);
   const [startDate, setStartDate] = useState<string>("");
@@ -110,6 +112,10 @@ const ListEditor: React.FC<ListEditorProps> = ({
 
   const [statusOpen, setStatusOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  // The AniList mediaListEntry id — needed to DeleteMediaListEntry when the
+  // user sets status to "Not in list" or clicks "Remove from list". null = the
+  // anime isn't on the user's list yet.
+  const [entryId, setEntryId] = useState<number | null>(null);
 
   const ddRef = useRef<HTMLDivElement>(null);
 
@@ -133,7 +139,7 @@ const ListEditor: React.FC<ListEditorProps> = ({
               Media(id: $id) {
                 isFavourite
                 mediaListEntry {
-                  status score(format: POINT_10_DECIMAL) progress repeat
+                  id status score(format: POINT_10_DECIMAL) progress repeat
                   private hiddenFromStatusLists notes
                   startedAt { year month day }
                   completedAt { year month day }
@@ -149,6 +155,7 @@ const ListEditor: React.FC<ListEditorProps> = ({
         const e = media?.mediaListEntry;
         if (media?.isFavourite) setFavorited(true);
         if (e) {
+          if (typeof e.id === "number") setEntryId(e.id);
           if (e.status) setStatus(e.status as Status);
           if (typeof e.score === "number") setScore(e.score);
           if (typeof e.progress === "number") setProgress(e.progress);
@@ -240,10 +247,62 @@ const ListEditor: React.FC<ListEditorProps> = ({
     }
   };
 
+  // Delete the user's entry for this media (used by "Remove from list" and by
+  // saving with status = "Not in list"). No-op when the anime isn't on the
+  // list. Returns true on success.
+  const deleteEntry = async (): Promise<boolean> => {
+    const token = session?.user?.token;
+    if (!token || !entryId) return true; // nothing to delete
+    try {
+      const res = await fetch("https://graphql.anilist.co/", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          query: `mutation ($id: Int) { DeleteMediaListEntry(id: $id) { deleted } }`,
+          variables: { id: entryId },
+        }),
+      });
+      const json = await res.json();
+      return !!json?.data?.DeleteMediaListEntry?.deleted;
+    } catch {
+      return false;
+    }
+  };
+
+  const handleRemove = async () => {
+    const token = session?.user?.token;
+    if (!token) return;
+    setSaving(true);
+    const ok = await deleteEntry();
+    if (!ok) {
+      toast.error(t("listEditor.error"));
+      setSaving(false);
+      return;
+    }
+    toast.success(t("listEditor.removed"));
+    close();
+    setTimeout(() => router.reload(), 800);
+  };
+
   const handleSave = async () => {
     const token = session?.user?.token;
     if (!token) return;
     setSaving(true);
+
+    // Status set to "Not in list" → delete the entry instead of saving.
+    if (status === null) {
+      const ok = await deleteEntry();
+      if (!ok) {
+        toast.error(t("listEditor.error"));
+        setSaving(false);
+        return;
+      }
+      toast.success(entryId ? t("listEditor.removed") : t("listEditor.saved"));
+      close();
+      setTimeout(() => router.reload(), 800);
+      return;
+    }
+
     try {
       const startedAt = inputToFuzzy(startDate);
       const completedAt = inputToFuzzy(finishDate);
@@ -365,11 +424,13 @@ const ListEditor: React.FC<ListEditorProps> = ({
             <span className="list-editor-label">{t("listEditor.status")}</span>
             <button
               type="button"
-              className={`le-dd-trigger le-dd-trigger-${STATUS_KEY[status]}`}
+              className={`le-dd-trigger ${status ? `le-dd-trigger-${STATUS_KEY[status]}` : ""}`}
               onClick={() => setStatusOpen((o) => !o)}
             >
-              <span className={`le-dd-dot le-dd-dot-${STATUS_KEY[status]}`} />
-              <span className="le-dd-trigger-text">{statusLabel(status)}</span>
+              <span className={`le-dd-dot le-dd-dot-${status ? STATUS_KEY[status] : "none"}`} />
+              <span className="le-dd-trigger-text">
+                {status ? statusLabel(status) : t("listEditor.notInList")}
+              </span>
               <svg
                 className={`le-dd-chevron ${statusOpen ? "open" : ""}`}
                 width="14"
@@ -384,6 +445,32 @@ const ListEditor: React.FC<ListEditorProps> = ({
             </button>
             {statusOpen && (
               <div className="le-dd-list">
+                {/* "Not in list" — clears the status (the entry is deleted on
+                    Save). Shown first so the user can always remove the entry. */}
+                <button
+                  type="button"
+                  className={`le-dd-option ${status === null ? "selected" : ""}`}
+                  onClick={() => {
+                    setStatus(null);
+                    setStatusOpen(false);
+                  }}
+                >
+                  <span className="le-dd-dot le-dd-dot-none" />
+                  <span className="le-dd-option-text">{t("listEditor.notInList")}</span>
+                  {status === null && (
+                    <svg
+                      width="13"
+                      height="13"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth={3}
+                      strokeLinecap="round"
+                    >
+                      <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                  )}
+                </button>
                 {STATUS_ORDER.map((s) => {
                   const sel = status === s;
                   return (
@@ -597,6 +684,34 @@ const ListEditor: React.FC<ListEditorProps> = ({
               onChange={(e) => setNotes(e.target.value)}
             />
           </div>
+
+          {/* REMOVE FROM LIST — only when the anime is on the user's list
+              (status set or an existing entry). Deletes the entry. */}
+          {(status !== null || entryId !== null) && (
+            <button
+              type="button"
+              className="le-delete-btn"
+              onClick={handleRemove}
+              disabled={saving}
+            >
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <polyline points="3 6 5 6 21 6" />
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                <line x1="10" y1="11" x2="10" y2="17" />
+                <line x1="14" y1="11" x2="14" y2="17" />
+              </svg>
+              {t("listEditor.removeFromList")}
+            </button>
+          )}
         </div>
       </div>
     </div>

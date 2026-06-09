@@ -277,6 +277,9 @@
     "notes": "Notes",
     "addNotes": "Ajouter des notes...",
     "favourite": "Favori",
+    "notInList": "Pas dans la liste",
+    "removeFromList": "Retirer de la liste",
+    "removed": "Retiré de la liste",
     "save": "Enregistrer",
     "saved": "Entrée de liste enregistrée",
     "error": "Une erreur est survenue"

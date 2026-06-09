@@ -277,6 +277,9 @@
     "notes": "Notes",
     "addNotes": "Add notes...",
     "favourite": "Favourite",
+    "notInList": "Not in list",
+    "removeFromList": "Remove from list",
+    "removed": "Removed from list",
     "save": "Save",
     "saved": "Media list entry saved",
     "error": "Something went wrong"

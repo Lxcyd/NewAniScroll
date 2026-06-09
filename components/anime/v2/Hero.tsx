@@ -35,6 +35,9 @@ type HeroProps = {
   watchUrl?: string;
   /** Current list status from AniList for the signed-in user. */
   statusLabel: string | null;
+  /** False while a signed-in user's list status is still loading. Until it's
+   *  true we render a neutral placeholder instead of flashing "Add to List". */
+  statusResolved?: boolean;
   /** True if the user has favourited this title. */
   fav: boolean;
   /** Parent opens the existing modal-based list editor. */
@@ -52,6 +55,7 @@ export default function Hero({
   seasonInfo,
   watchUrl,
   statusLabel,
+  statusResolved = true,
   fav,
   onOpenListEditor,
   onToggleFav,
@@ -94,7 +98,10 @@ export default function Hero({
 
   const list = (statusLabel && STATUS_TO_LIST[statusLabel]) || "Add to List";
   const listColor = LIST_COLORS[list] || "#8a8fa3";
-  const listDisplay = listLabel(t, list);
+  // While a signed-in user's status is still loading, show a neutral "…"
+  // placeholder instead of "Add to List" so the button doesn't flash the
+  // wrong label then flip once AniList answers.
+  const listDisplay = statusResolved ? listLabel(t, list) : "…";
 
   // Not-yet-released anime: episode 1 doesn't exist yet so a Watch
   // button would lead to a 404. Surface "Coming Soon" with the air date

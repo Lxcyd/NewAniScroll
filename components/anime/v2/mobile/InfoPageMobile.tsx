@@ -51,6 +51,7 @@ type Props = {
   seasonInfo: SeasonInfo;
   seasonList: SeasonEntry[];
   statusLabel: string | null;
+  statusResolved?: boolean;
   fav: boolean;
   progress: number;
   watchUrl?: string;
@@ -67,6 +68,7 @@ export default function InfoPageMobile({
   seasonInfo,
   seasonList,
   statusLabel,
+  statusResolved = true,
   fav,
   progress,
   watchUrl,
@@ -100,6 +102,7 @@ export default function InfoPageMobile({
           progress={progress}
           watchUrl={watchUrl}
           statusLabel={statusLabel}
+          statusResolved={statusResolved}
           fav={fav}
           onOpenListEditor={onOpenListEditor}
           onToggleFav={onToggleFav}
@@ -162,6 +165,7 @@ function MHero({
   progress,
   watchUrl,
   statusLabel,
+  statusResolved = true,
   fav,
   onOpenListEditor,
   onToggleFav,
@@ -173,6 +177,7 @@ function MHero({
   progress: number;
   watchUrl?: string;
   statusLabel: string | null;
+  statusResolved?: boolean;
   fav: boolean;
   onOpenListEditor: () => void;
   onToggleFav: () => void;
@@ -459,6 +464,7 @@ function MHero({
             )}
             <MActions
               statusLabel={statusLabel}
+              statusResolved={statusResolved}
               fav={fav}
               onOpenListEditor={onOpenListEditor}
               onToggleFav={onToggleFav}
@@ -472,11 +478,13 @@ function MHero({
 
 function MActions({
   statusLabel,
+  statusResolved = true,
   fav,
   onOpenListEditor,
   onToggleFav,
 }: {
   statusLabel: string | null;
+  statusResolved?: boolean;
   fav: boolean;
   onOpenListEditor: () => void;
   onToggleFav: () => void;
@@ -484,7 +492,11 @@ function MActions({
   const { t } = useTranslation();
   // Keep the English label as the color key (LIST_COLORS), translate display.
   const label = statusLabel ? helpersPrettyStatus(statusLabel) : "Add to list";
-  const labelDisplay = statusLabel
+  // Show a neutral placeholder while a signed-in user's status is still loading
+  // so the button doesn't flash "Add to list" then flip to the real status.
+  const labelDisplay = !statusResolved
+    ? "…"
+    : statusLabel
     ? statusLabelI18n(t, statusLabel)
     : t("list.addToList");
   const color = LIST_COLORS[label] || "#8a8fa3";

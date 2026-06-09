@@ -24,6 +24,9 @@ type Props = {
    *  Drives the season switcher in the Episodes tab. */
   seasonList: SeasonEntry[];
   statusLabel: string | null;
+  /** False while a signed-in user's list status is still loading — Hero shows
+   *  a loading placeholder instead of flashing "Add to list". */
+  statusResolved?: boolean;
   fav: boolean;
   progress: number;
   watchUrl?: string;
@@ -38,6 +41,7 @@ export default function InfoPage({
   seasonInfo,
   seasonList,
   statusLabel,
+  statusResolved = true,
   fav,
   progress,
   watchUrl,
@@ -66,6 +70,7 @@ export default function InfoPage({
         seasonInfo={seasonInfo}
         watchUrl={watchUrl}
         statusLabel={statusLabel}
+        statusResolved={statusResolved}
         fav={fav}
         onOpenListEditor={onOpenListEditor}
         onToggleFav={onToggleFav}

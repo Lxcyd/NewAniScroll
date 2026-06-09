@@ -92,6 +92,13 @@ export default function Info({
   const [statusLabel, setStatusLabel] = useState<string | null>(initialStatusLabel);
   const [domainUrl, setDomainUrl] = useState("");
   const [fav, setFav] = useState<boolean>(initialFav);
+  // Whether the signed-in user's list status has finished resolving. The page
+  // SSRs an identical (status=null) HTML for everyone so it can be edge-cached,
+  // then fetches the per-user status from AniList on the client. Until that
+  // settles we must NOT render "Add to list" for a signed-in user — otherwise
+  // the button flashes "Add to list" then flips to the real status. For
+  // anonymous visitors there's nothing to load, so it's resolved from the start.
+  const [statusResolved, setStatusResolved] = useState<boolean>(!session);
 
   const [open, setOpen] = useState(false);
 
@@ -148,7 +155,10 @@ export default function Info({
     setProgress(initialProgress);
     setStatusLabel(initialStatusLabel);
     setFav(initialFav);
-  }, [info?.id, initialProgress, initialStatusLabel, initialFav]);
+    // Navigating to another anime restarts the per-user resolution: a signed-in
+    // user's status is unknown again until the fetch below re-runs.
+    setStatusResolved(!session);
+  }, [info?.id, initialProgress, initialStatusLabel, initialFav, session]);
 
   // Hydrate the signed-in user's heart / progress / list-status CLIENT-side.
   // The SSR HTML is now identical for everyone (so Vercel edge-caches the page
@@ -186,6 +196,11 @@ export default function Info({
         setFav(media.isFavourite === true);
       } catch {
         /* best-effort — heart just stays empty on failure */
+      } finally {
+        // Status is now known (real value or confirmed "not in list"): the
+        // button can stop showing its loading placeholder. Always flips so a
+        // network failure doesn't leave the button stuck loading forever.
+        if (!cancelled) setStatusResolved(true);
       }
     })();
     return () => {
@@ -507,6 +522,7 @@ export default function Info({
             seasonInfo={seasonInfo}
             seasonList={seasonList}
             statusLabel={statusLabel}
+            statusResolved={statusResolved}
             fav={fav}
             progress={progress}
             watchUrl={watchUrl}
@@ -521,6 +537,7 @@ export default function Info({
             seasonInfo={seasonInfo}
             seasonList={seasonList}
             statusLabel={statusLabel}
+            statusResolved={statusResolved}
             fav={fav}
             progress={progress}
             watchUrl={watchUrl}
