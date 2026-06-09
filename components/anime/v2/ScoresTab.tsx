@@ -1,4 +1,4 @@
-import { CSSProperties, useEffect, useMemo, useState } from "react";
+import { CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import { AniListInfoTypes } from "types/info/AnilistInfoTypes";
 import type { SeasonEntry } from "@/lib/anilist/seasonChain";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
@@ -212,34 +212,29 @@ export default function ScoresTab({ info, seasonList }: Props) {
     [seasonsWithCount],
   );
 
-  return (
-    <div style={s.root}>
-      <div style={s.header}>
-        <div style={s.headerTitle}>
-          {pickTitle(info.title, titlePref)}
-          <span style={s.headerSub}>{t("anime.scoreGridTitle")}</span>
-        </div>
-        {overall != null && (
-          <div style={s.overall} className="mono">
-            <span style={s.star}>★</span>
-            {overall.toFixed(1)}
-            <span style={s.overallLabel}>{t("anime.avgScore")}</span>
-          </div>
-        )}
-      </div>
+  const [fullscreen, setFullscreen] = useState(false);
 
-      <div style={s.legend}>
-        {TIERS.map((tier) => (
-          <div key={tier.key} style={s.legendItem}>
-            <span style={{ ...s.legendDot, background: tier.color }} />
-            <span style={s.legendLabel}>{t(`anime.tier.${tier.key}`)}</span>
-          </div>
-        ))}
-      </div>
+  // Close fullscreen on Escape.
+  useEffect(() => {
+    if (!fullscreen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setFullscreen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    // Lock body scroll while the overlay is open.
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [fullscreen]);
 
-      {multiSeason ? (
+  // The grid itself (table for multi-season, rows for single season). Wrapped by
+  // PanZoom so it can be dragged + zoomed, both inline and in fullscreen.
+  const grid = multiSeason ? (
         // ── Column table: one column per season, one row per episode ──
-        <div style={s.scroller}>
+        <div style={s.gridPad}>
           <table style={s.table} className="mono">
             <thead>
               <tr>
@@ -294,7 +289,7 @@ export default function ScoresTab({ info, seasonList }: Props) {
         </div>
       ) : (
         // ── Single season: rows of 20 episode cells, labelled by range ──
-        <div style={s.seasons}>
+        <div style={s.seasonsPad}>
           {seasonsWithCount.map((season) => {
             const epMap = epScores.get(season.id);
             const rows = Math.ceil(season.epCount / ROW_SIZE);
@@ -338,10 +333,166 @@ export default function ScoresTab({ info, seasonList }: Props) {
             );
           })}
         </div>
-      )}
+      );
+
+  const body = (
+    <>
+      <div style={s.header}>
+        <div style={s.headerTitle}>
+          {pickTitle(info.title, titlePref)}
+          <span style={s.headerSub}>{t("anime.scoreGridTitle")}</span>
+        </div>
+        <div style={s.headerRight}>
+          {overall != null && (
+            <div style={s.overall} className="mono">
+              <span style={s.star}>★</span>
+              {overall.toFixed(1)}
+              <span style={s.overallLabel}>{t("anime.avgScore")}</span>
+            </div>
+          )}
+          <button
+            type="button"
+            style={s.fsBtn}
+            onClick={() => setFullscreen((v) => !v)}
+            title={fullscreen ? t("common.close") : t("anime.fullscreen")}
+            aria-label={fullscreen ? t("common.close") : t("anime.fullscreen")}
+          >
+            {fullscreen ? <IconExitFs /> : <IconEnterFs />}
+          </button>
+        </div>
+      </div>
+
+      <div style={s.legend}>
+        {TIERS.map((tier) => (
+          <div key={tier.key} style={s.legendItem}>
+            <span style={{ ...s.legendDot, background: tier.color }} />
+            <span style={s.legendLabel}>{t(`anime.tier.${tier.key}`)}</span>
+          </div>
+        ))}
+      </div>
+
+      <PanZoom fullscreen={fullscreen}>{grid}</PanZoom>
 
       <p style={s.footnote}>{t("anime.scoreGridNote")}</p>
+    </>
+  );
+
+  if (fullscreen) {
+    return (
+      <div style={s.fsOverlay}>
+        <div style={s.fsInner}>{body}</div>
+      </div>
+    );
+  }
+
+  return <div style={s.root}>{body}</div>;
+}
+
+/* ── Pan + zoom wrapper ───────────────────────────────────────
+   Left-click drag to pan, scroll wheel to zoom (toward the cursor). The inner
+   content is transformed with translate()+scale(); the outer box clips and owns
+   the gestures. Double-click resets. Works the same inline and in fullscreen
+   (the parent just gives it more room). */
+function PanZoom({
+  children,
+  fullscreen,
+}: {
+  children: React.ReactNode;
+  fullscreen: boolean;
+}) {
+  const boxRef = useRef<HTMLDivElement>(null);
+  const [tf, setTf] = useState({ x: 0, y: 0, scale: 1 });
+  const drag = useRef<{ active: boolean; sx: number; sy: number; ox: number; oy: number }>(
+    { active: false, sx: 0, sy: 0, ox: 0, oy: 0 },
+  );
+
+  // Reset transform whenever we toggle fullscreen so the view re-centres.
+  useEffect(() => {
+    setTf({ x: 0, y: 0, scale: 1 });
+  }, [fullscreen]);
+
+  const onWheel = (e: React.WheelEvent) => {
+    // Inline, only zoom when Ctrl/⌘ is held so a normal scroll still moves the
+    // page past the grid. In fullscreen the wheel always zooms (nothing else to
+    // scroll). Without an intent to zoom, let the event bubble normally.
+    if (!fullscreen && !e.ctrlKey && !e.metaKey) return;
+    e.preventDefault();
+    const box = boxRef.current;
+    if (!box) return;
+    const rect = box.getBoundingClientRect();
+    // Pointer position relative to the box.
+    const px = e.clientX - rect.left;
+    const py = e.clientY - rect.top;
+    setTf((prev) => {
+      const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
+      const scale = Math.min(6, Math.max(0.3, prev.scale * factor));
+      // Keep the point under the cursor fixed while zooming.
+      const k = scale / prev.scale;
+      const x = px - (px - prev.x) * k;
+      const y = py - (py - prev.y) * k;
+      return { x, y, scale };
+    });
+  };
+
+  const onPointerDown = (e: React.PointerEvent) => {
+    // Left button only.
+    if (e.button !== 0) return;
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    drag.current = { active: true, sx: e.clientX, sy: e.clientY, ox: tf.x, oy: tf.y };
+  };
+  const onPointerMove = (e: React.PointerEvent) => {
+    if (!drag.current.active) return;
+    const dx = e.clientX - drag.current.sx;
+    const dy = e.clientY - drag.current.sy;
+    setTf((prev) => ({ ...prev, x: drag.current.ox + dx, y: drag.current.oy + dy }));
+  };
+  const endDrag = (e: React.PointerEvent) => {
+    drag.current.active = false;
+    try {
+      (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+    } catch {
+      /* pointer already released */
+    }
+  };
+  const reset = () => setTf({ x: 0, y: 0, scale: 1 });
+
+  return (
+    <div
+      ref={boxRef}
+      style={fullscreen ? s.panBoxFs : s.panBox}
+      onWheel={onWheel}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={endDrag}
+      onPointerLeave={endDrag}
+      onDoubleClick={reset}
+    >
+      <div
+        style={{
+          transform: `translate(${tf.x}px, ${tf.y}px) scale(${tf.scale})`,
+          transformOrigin: "0 0",
+          width: "max-content",
+          willChange: "transform",
+        }}
+      >
+        {children}
+      </div>
     </div>
+  );
+}
+
+function IconEnterFs() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3" />
+    </svg>
+  );
+}
+function IconExitFs() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M8 3v3a2 2 0 0 1-2 2H3M21 8h-3a2 2 0 0 1-2-2V3M3 16h3a2 2 0 0 1 2 2v3M16 21v-3a2 2 0 0 1 2-2h3" />
+    </svg>
   );
 }
 
@@ -369,6 +520,20 @@ const s: Record<string, CSSProperties> = {
     textTransform: "uppercase",
     color: "var(--txt-3)",
   },
+  headerRight: { display: "flex", alignItems: "center", gap: 14 },
+  fsBtn: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: 34,
+    height: 34,
+    borderRadius: 8,
+    border: "1px solid var(--line)",
+    background: "var(--bg-2)",
+    color: "var(--txt-2)",
+    cursor: "pointer",
+    flexShrink: 0,
+  },
   overall: {
     display: "flex",
     alignItems: "baseline",
@@ -395,15 +560,9 @@ const s: Record<string, CSSProperties> = {
   legendItem: { display: "flex", alignItems: "center", gap: 6 },
   legendDot: { width: 11, height: 11, borderRadius: "50%", display: "inline-block" },
   legendLabel: { fontSize: 12, color: "var(--txt-2)" },
-  seasons: {
-    display: "flex",
-    flexDirection: "column",
-    gap: 18,
-    padding: 16,
-    borderRadius: 12,
-    border: "1px solid var(--line)",
-    background: "var(--bg-1)",
-  },
+  // Inner grid padding — the frame (border/bg) is provided by the PanZoom box.
+  seasonsPad: { display: "flex", flexDirection: "column", gap: 18, padding: 16 },
+  gridPad: { padding: 12, width: "max-content" },
   seasonBlock: { display: "flex", flexDirection: "column", gap: 6 },
   // One row of the grid: a fixed-width range label on the left, then the
   // episode cells flowing to the right. The label column is fixed so every
@@ -436,16 +595,9 @@ const s: Record<string, CSSProperties> = {
     fontWeight: 700,
   },
   // ── Multi-season column table ──
-  scroller: {
-    overflowX: "auto",
-    borderRadius: 12,
-    border: "1px solid var(--line)",
-    background: "var(--bg-1)",
-  },
   table: {
     borderCollapse: "separate",
     borderSpacing: 6,
-    margin: "4px auto",
     minWidth: "max-content",
   },
   th: {
@@ -470,4 +622,46 @@ const s: Record<string, CSSProperties> = {
   cellWrap: { padding: 0 },
   cellEmpty: { minWidth: 56 },
   footnote: { fontSize: 11.5, color: "var(--txt-3)", lineHeight: 1.5 },
+
+  // ── Pan / zoom + fullscreen ──
+  // The pan box clips and owns the drag/zoom gestures. Inline it's a tall-ish
+  // viewport; in fullscreen it fills the remaining overlay height. `touchAction:
+  // none` so a drag doesn't also scroll the page on touch devices.
+  panBox: {
+    position: "relative",
+    overflow: "hidden",
+    borderRadius: 12,
+    border: "1px solid var(--line)",
+    background: "var(--bg-1)",
+    height: "min(70vh, 720px)",
+    cursor: "grab",
+    touchAction: "none",
+  },
+  panBoxFs: {
+    position: "relative",
+    overflow: "hidden",
+    borderRadius: 12,
+    border: "1px solid var(--line)",
+    background: "var(--bg-1)",
+    flex: 1,
+    minHeight: 0,
+    cursor: "grab",
+    touchAction: "none",
+  },
+  fsOverlay: {
+    position: "fixed",
+    inset: 0,
+    zIndex: 10000,
+    background: "var(--surface-bg, #0e0e16)",
+    display: "flex",
+    flexDirection: "column",
+  },
+  fsInner: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 14,
+    padding: 18,
+    height: "100%",
+    boxSizing: "border-box",
+  },
 };
