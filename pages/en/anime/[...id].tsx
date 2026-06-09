@@ -462,9 +462,10 @@ export default function Info({
 
       <Navbar info={info} />
 
-      <Modal open={open} onClose={() => handleClose()}>
-        <div>
-          {!session && (
+      {/* Signed-out: keep the simple "log in" prompt inside the generic Modal. */}
+      {!session && (
+        <Modal open={open} onClose={() => handleClose()}>
+          <div>
             <div className="flex-center flex-col gap-5 px-10 py-5 bg-secondary rounded-md">
               <div className="text-md font-extrabold font-karla">{t("nav.editYourList")}</div>
               <button
@@ -477,20 +478,23 @@ export default function Info({
                 </div>
               </button>
             </div>
-          )}
-          {session && info && (
-            <ListEditor
-              animeId={info.id}
-              session={session}
-              stats={statusLabel || undefined}
-              prg={progress}
-              max={info?.episodes ?? undefined}
-              info={info}
-              close={handleClose}
-            />
-          )}
-        </div>
-      </Modal>
+          </div>
+        </Modal>
+      )}
+
+      {/* Signed-in: the full editor renders its OWN overlay (matching the
+          reference design), so it's not wrapped in <Modal>. */}
+      {open && session && info && (
+        <ListEditor
+          animeId={info.id}
+          session={session}
+          stats={statusLabel || undefined}
+          prg={progress}
+          max={info?.episodes ?? undefined}
+          info={info}
+          close={handleClose}
+        />
+      )}
 
       <MobileNav hideProfile={true} />
 
