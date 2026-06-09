@@ -1,23 +1,25 @@
-import { CSSProperties, useMemo } from "react";
+import { CSSProperties, useEffect, useMemo, useState } from "react";
 import { AniListInfoTypes } from "types/info/AnilistInfoTypes";
 import type { SeasonEntry } from "@/lib/anilist/seasonChain";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { useTranslation } from "react-i18next";
 
 /**
- * Per-season score grid, styled after the "Screen Score" episode-grid format
- * (one column per season, one row per episode, each cell colour-coded by tier).
+ * Per-season / per-episode score grid, styled after the "Screen Score" format
+ * (one column per season, one row per episode, cells colour-coded by tier).
  *
- * AniList exposes a single averageScore per ANIME (per season), not per
- * episode — so every episode cell in a season shares that season's score. This
- * keeps the recognisable SS2 visual while staying 100% backed by data we
- * already have (no third-party episode-rating API).
+ * Data:
+ *   - Real per-episode scores come from TMDB via /api/v2/episode-scores
+ *     (vote_average /10). Painted whenever TMDB has the episode.
+ *   - When TMDB has no key / no match / no rating for an episode, the cell
+ *     falls back to that season's AniList averageScore — so the grid is never
+ *     empty and degrades gracefully.
  *
  * Adaptive layout:
- *   - ≤ ~26 episodes  → full grid (one cell per episode), like the screenshot.
- *   - more episodes   → "banded" mode: instead of N tiny rows we render a few
- *     episode-range bands per season (E1–10, E11–20, …) so a 1000-episode show
- *     (One Piece) doesn't produce a kilometre-long column.
+ *   - ≤ 30 episodes  → full grid (one cell per episode).
+ *   - more episodes  → "banded" mode (E1–10, E11–20…) so a 1000-episode show
+ *     stays readable. Banded cells use the season average (per-episode detail
+ *     isn't meaningful at that zoom).
  */
 
 type Props = {
@@ -34,19 +36,21 @@ type Tier = {
   min: number;
 };
 
-// Tiers mirror the SS2 legend, mapped onto AniList's /10 score.
+// Conventional, self-explanatory tiers mapped onto a /10 score.
 const TIERS: Tier[] = [
-  { key: "goat", label: "G.O.A.T", color: "#2f80ed", text: "#fff", min: 9.5 },
-  { key: "peak", label: "Peak", color: "#1f7a3f", text: "#fff", min: 8.8 },
-  { key: "tight", label: "Tight", color: "#4caf50", text: "#0b2010", min: 8.0 },
-  { key: "decent", label: "Decent", color: "#e0c000", text: "#2a2400", min: 7.0 },
-  { key: "mid", label: "Mid", color: "#e8862b", text: "#2a1500", min: 6.0 },
-  { key: "flat", label: "Flat", color: "#e0413e", text: "#fff", min: 0 },
+  { key: "masterpiece", label: "Masterpiece", color: "#2f80ed", text: "#fff", min: 9.0 },
+  { key: "great", label: "Great", color: "#1f7a3f", text: "#fff", min: 8.0 },
+  { key: "good", label: "Good", color: "#4caf50", text: "#0b2010", min: 7.0 },
+  { key: "average", label: "Average", color: "#e0c000", text: "#2a2400", min: 6.0 },
+  { key: "weak", label: "Weak", color: "#e8862b", text: "#2a1500", min: 5.0 },
+  { key: "poor", label: "Poor", color: "#e0413e", text: "#fff", min: 0 },
 ];
 
+const NA_TIER: Tier = { key: "na", label: "—", color: "var(--bg-3)", text: "var(--txt-3)", min: 0 };
+
 function tierFor(score10: number | null): Tier {
-  if (score10 == null) return { key: "na", label: "—", color: "var(--bg-3)", text: "var(--txt-3)", min: 0 };
-  return TIERS.find((traw) => score10 >= traw.min) || TIERS[TIERS.length - 1];
+  if (score10 == null) return NA_TIER;
+  return TIERS.find((tier) => score10 >= tier.min) || TIERS[TIERS.length - 1];
 }
 
 /** AniList averageScore (0-100) → /10 with one decimal, or null. */
@@ -55,65 +59,123 @@ function toScore10(avg: number | null | undefined): number | null {
   return Math.round((avg / 10) * 10) / 10;
 }
 
+type ApiSeason = {
+  aniId: number;
+  episodes: { number: number; score: number | null }[];
+  source: "tmdb" | "none";
+};
+
 export default function ScoresTab({ info, seasonList }: Props) {
   const { t } = useTranslation();
   const titlePref = useTitlePref();
 
-  // Build the season columns. Prefer the resolved season chain; if it's empty
-  // (standalone anime / chain unresolved), fall back to a single column built
-  // from `info` itself so the tab always shows something useful.
+  // Season columns — prefer the resolved chain, else a single column from info.
   const seasons = useMemo(() => {
-    const list = (seasonList && seasonList.length > 0
-      ? seasonList
-      : [
-          {
-            id: info.id,
-            number: 1,
-            label: "Season 1",
-            year: info.seasonYear ?? info.startDate?.year ?? null,
-            episodes: info.episodes ?? null,
-            averageScore: info.averageScore ?? null,
-            format: info.format ?? null,
-            title: info.title,
-          } as SeasonEntry,
-        ]
-    ).map((s) => ({
+    const base: SeasonEntry[] =
+      seasonList && seasonList.length > 0
+        ? seasonList
+        : [
+            {
+              id: info.id,
+              number: 1,
+              label: "Season 1",
+              year: info.seasonYear ?? info.startDate?.year ?? null,
+              episodes: info.episodes ?? null,
+              averageScore: info.averageScore ?? null,
+              format: info.format ?? null,
+              title: info.title,
+            } as SeasonEntry,
+          ];
+    return base.map((s) => ({
       ...s,
-      score10: toScore10(s.averageScore),
-      // Use the season's own episode count; fall back to 1 (movies/specials).
+      seasonScore: toScore10(s.averageScore),
       epCount: Math.max(1, s.episodes ?? 0) || 1,
     }));
-    return list;
   }, [seasonList, info]);
 
-  // Longest column drives the number of rows we render.
-  const maxEpisodes = useMemo(
-    () => Math.max(1, ...seasons.map((s) => s.epCount)),
-    [seasons]
+  // Fetch real per-episode scores (TMDB). Keyed by aniId → episodes map.
+  const [epScores, setEpScores] = useState<Map<number, Map<number, number | null>>>(
+    new Map(),
   );
 
-  // Switch to banded mode past this many episodes so huge shows stay readable.
+  useEffect(() => {
+    let cancelled = false;
+    const payload = seasons.map((s) => ({
+      aniId: s.id,
+      title: { romaji: s.title?.romaji ?? null, english: s.title?.english ?? null },
+      year: s.year ?? null,
+      episodeCount: s.episodes ?? null,
+    }));
+    if (payload.length === 0) return;
+    fetch(
+      `/api/v2/episode-scores/${info.id}?seasons=${encodeURIComponent(
+        JSON.stringify(payload),
+      )}`,
+    )
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { enabled?: boolean; seasons?: ApiSeason[] } | null) => {
+        if (cancelled || !data?.seasons?.length) return;
+        const next = new Map<number, Map<number, number | null>>();
+        for (const s of data.seasons) {
+          if (s.source !== "tmdb") continue;
+          const m = new Map<number, number | null>();
+          for (const e of s.episodes) m.set(e.number, e.score);
+          next.set(s.aniId, m);
+        }
+        if (next.size > 0) setEpScores(next);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [info.id, seasons.map((s) => s.id).join(",")]);
+
+  const maxEpisodes = useMemo(
+    () => Math.max(1, ...seasons.map((s) => s.epCount)),
+    [seasons],
+  );
+
   const BAND_THRESHOLD = 30;
   const banded = maxEpisodes > BAND_THRESHOLD;
 
-  // For banded mode, choose a band size that yields ~12-15 bands max.
   const bandSize = useMemo(() => {
     if (!banded) return 1;
     const targetBands = 14;
     const raw = Math.ceil(maxEpisodes / targetBands);
-    // Round to a friendly step (5, 10, 25, 50, 100…).
     const steps = [5, 10, 25, 50, 100, 200, 500];
-    return steps.find((s) => s >= raw) || raw;
+    return steps.find((step) => step >= raw) || raw;
   }, [banded, maxEpisodes]);
 
   const rowCount = banded ? Math.ceil(maxEpisodes / bandSize) : maxEpisodes;
 
-  // Average score across all scored seasons — shown in the header strip.
+  // Resolve a cell's score: real per-episode (TMDB) when present, else the
+  // season average. In banded mode we always use the season average.
+  const cellScore = (
+    season: (typeof seasons)[number],
+    rowIdx: number,
+  ): number | null => {
+    if (banded) return season.seasonScore;
+    const epNum = rowIdx + 1;
+    const perEp = epScores.get(season.id)?.get(epNum);
+    if (perEp != null) return perEp;
+    return season.seasonScore;
+  };
+
+  // Header average — mean of every painted cell so it reflects what's shown.
   const overall = useMemo(() => {
-    const scored = seasons.map((s) => s.score10).filter((v): v is number => v != null);
-    if (scored.length === 0) return null;
-    return Math.round((scored.reduce((a, b) => a + b, 0) / scored.length) * 10) / 10;
-  }, [seasons]);
+    const vals: number[] = [];
+    for (const season of seasons) {
+      const rows = banded ? Math.ceil(season.epCount / bandSize) : season.epCount;
+      for (let i = 0; i < rows; i++) {
+        const v = cellScore(season, i);
+        if (v != null) vals.push(v);
+      }
+    }
+    if (vals.length === 0) return null;
+    return Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 10) / 10;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seasons, epScores, banded, bandSize]);
 
   const rowLabel = (i: number) => {
     if (!banded) return `E${i + 1}`;
@@ -124,7 +186,6 @@ export default function ScoresTab({ info, seasonList }: Props) {
 
   return (
     <div style={s.root}>
-      {/* Header / summary strip */}
       <div style={s.header}>
         <div style={s.headerTitle}>
           {pickTitle(info.title, titlePref)}
@@ -139,17 +200,15 @@ export default function ScoresTab({ info, seasonList }: Props) {
         )}
       </div>
 
-      {/* Legend */}
       <div style={s.legend}>
         {TIERS.map((tier) => (
           <div key={tier.key} style={s.legendItem}>
             <span style={{ ...s.legendDot, background: tier.color }} />
-            <span style={s.legendLabel}>{tier.label}</span>
+            <span style={s.legendLabel}>{t(`anime.tier.${tier.key}`)}</span>
           </div>
         ))}
       </div>
 
-      {/* Grid */}
       <div style={s.scroller}>
         <table style={s.table} className="mono">
           <thead>
@@ -167,25 +226,20 @@ export default function ScoresTab({ info, seasonList }: Props) {
               <tr key={rowIdx}>
                 <td style={s.rowHead}>{rowLabel(rowIdx)}</td>
                 {seasons.map((season) => {
-                  // Does this season actually have an episode in this row?
                   const seasonRows = banded
                     ? Math.ceil(season.epCount / bandSize)
                     : season.epCount;
-                  const present = rowIdx < seasonRows;
-                  if (!present) {
+                  if (rowIdx >= seasonRows) {
                     return <td key={season.id} style={s.cellEmpty} />;
                   }
-                  const tier = tierFor(season.score10);
+                  const score = cellScore(season, rowIdx);
+                  const tier = tierFor(score);
                   return (
                     <td key={season.id} style={s.cellWrap}>
                       <span
-                        style={{
-                          ...s.cell,
-                          background: tier.color,
-                          color: tier.text,
-                        }}
+                        style={{ ...s.cell, background: tier.color, color: tier.text }}
                       >
-                        {season.score10 != null ? season.score10.toFixed(1) : "—"}
+                        {score != null ? score.toFixed(1) : "—"}
                       </span>
                     </td>
                   );
@@ -292,9 +346,5 @@ const s: Record<string, CSSProperties> = {
     fontWeight: 700,
   },
   cellEmpty: { minWidth: 56 },
-  footnote: {
-    fontSize: 11.5,
-    color: "var(--txt-3)",
-    lineHeight: 1.5,
-  },
+  footnote: { fontSize: 11.5, color: "var(--txt-3)", lineHeight: 1.5 },
 };

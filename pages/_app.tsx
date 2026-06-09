@@ -69,6 +69,22 @@ export default function App({
     }
   }, []);
 
+  // GPU saver: when the tab isn't visible, freeze all CSS animations site-wide
+  // by toggling a `tab-hidden` class on <html> (see globals.css). Loaders,
+  // pulsing status dots, and entrance animations don't need to keep compositing
+  // on the GPU for a tab nobody is looking at. Everything resumes instantly on
+  // refocus — no feature is removed, only paused while invisible.
+  useEffect(() => {
+    const root = document.documentElement;
+    const apply = () => {
+      if (document.hidden) root.classList.add("tab-hidden");
+      else root.classList.remove("tab-hidden");
+    };
+    apply();
+    document.addEventListener("visibilitychange", apply);
+    return () => document.removeEventListener("visibilitychange", apply);
+  }, []);
+
   // Lightweight pageview analytics — fires on every route change. The
   // visitor_id is a stable random token kept in localStorage so we can
   // count unique visitors without identifying anyone. Fully fire-and-

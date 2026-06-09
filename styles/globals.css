@@ -28,6 +28,17 @@ body {
   overflow-x: hidden;
 }
 
+/* GPU saver: freeze all CSS animations + transitions while the tab is in the
+   background. `_app.tsx` toggles `html.tab-hidden` on visibilitychange. This
+   stops loaders / pulsing dots / entrance animations from compositing on the
+   GPU for a tab no one is viewing; they resume the instant the tab is focused.
+   No animation is removed — only paused while invisible. */
+html.tab-hidden *,
+html.tab-hidden *::before,
+html.tab-hidden *::after {
+  animation-play-state: paused !important;
+}
+
 /* Heart "favourite" fill animation — used by the anime info page (desktop
    Hero + mobile header). Defined globally so the inline `animation:
    heart-pop ...` on the heart SVGs resolves whether the desktop or the

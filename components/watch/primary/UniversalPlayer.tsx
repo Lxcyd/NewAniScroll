@@ -205,9 +205,39 @@ function LiveAmbient({
 
     let raf = 0;
     let lastFrameTime = -1;
+    let lastSampleAt = 0;
 
-    const tick = () => {
+    // GPU budget: the ambient glow is a soft, heavily-blurred backdrop — it
+    // does not need 60 fps. Sampling at ~30 fps halves the per-frame canvas
+    // work (8+ drawImage calls across 5 layers) with no perceptible change.
+    const SAMPLE_INTERVAL_MS = 1000 / 30;
+
+    // Pause sampling entirely when the tab is hidden OR the player is scrolled
+    // out of view. Browsers already throttle rAF in background tabs, but the
+    // player is often just off-screen (user scrolled to comments / episode
+    // list) while the tab stays foreground — there we'd otherwise keep burning
+    // GPU drawing a glow nobody can see. An IntersectionObserver flips this.
+    let onScreen = true;
+    const playerEl0 = playerRef.current?.el as HTMLElement | undefined;
+    let io: IntersectionObserver | null = null;
+    if (playerEl0 && typeof IntersectionObserver !== "undefined") {
+      io = new IntersectionObserver(
+        (entries) => {
+          for (const e of entries) onScreen = e.isIntersecting;
+        },
+        { threshold: 0.01 },
+      );
+      io.observe(playerEl0);
+    }
+
+    const tick = (now: number) => {
       raf = requestAnimationFrame(tick);
+
+      // Skip all work while hidden / off-screen — cheapest possible early-out.
+      if (document.hidden || !onScreen) return;
+      // Throttle to the ambient sample rate.
+      if (now - lastSampleAt < SAMPLE_INTERVAL_MS) return;
+      lastSampleAt = now;
 
       const playerEl = playerRef.current?.el as HTMLElement | undefined;
       const video = playerEl?.querySelector("video") as HTMLVideoElement | null;
@@ -245,7 +275,10 @@ function LiveAmbient({
     };
 
     raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
+    return () => {
+      cancelAnimationFrame(raf);
+      io?.disconnect();
+    };
   }, [playerRef]);
 
   // Wrapper sits BEHIND the player (z:-1). pointer-events:none so the player
