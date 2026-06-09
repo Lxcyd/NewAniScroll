@@ -46,7 +46,9 @@ const TIERS: Tier[] = [
   { key: "poor", label: "Poor", color: "#e0413e", text: "#fff", min: 0 },
 ];
 
-const NA_TIER: Tier = { key: "na", label: "—", color: "var(--bg-3)", text: "var(--txt-3)", min: 0 };
+// Unrated / not-yet-aired episodes: a clearly muted grey cell so it reads as
+// "no score" rather than a real rating.
+const NA_TIER: Tier = { key: "na", label: "—", color: "#2b2b33", text: "#6b6b78", min: 0 };
 
 function tierFor(score10: number | null): Tier {
   if (score10 == null) return NA_TIER;
@@ -69,6 +71,13 @@ export default function ScoresTab({ info, seasonList }: Props) {
   const { t } = useTranslation();
   const titlePref = useTitlePref();
 
+  // Last-aired episode for the CURRENT AniList entry, used when `episodes` is
+  // null (ongoing shows like One Piece report episodes:null but expose the next
+  // airing episode — episode N means N-1 have aired).
+  const airedFromNext = info.nextAiringEpisode?.episode
+    ? info.nextAiringEpisode.episode - 1
+    : 0;
+
   // Season columns — prefer the resolved chain, else a single column from info.
   const seasons = useMemo(() => {
     const base: SeasonEntry[] =
@@ -86,12 +95,20 @@ export default function ScoresTab({ info, seasonList }: Props) {
               title: info.title,
             } as SeasonEntry,
           ];
-    return base.map((s) => ({
-      ...s,
-      seasonScore: toScore10(s.averageScore),
-      epCount: Math.max(1, s.episodes ?? 0) || 1,
-    }));
-  }, [seasonList, info]);
+    return base.map((s) => {
+      // Episode count: AniList `episodes` when known; otherwise, for the entry
+      // that matches this page (the current info), fall back to the aired count
+      // derived from nextAiringEpisode. TMDB's count (loaded async) tops this up
+      // later via `tmdbEpCount`. Never below 1 so the column always shows.
+      const fromAni =
+        s.episodes ?? (s.id === info.id ? airedFromNext : 0) ?? 0;
+      return {
+        ...s,
+        seasonScore: toScore10(s.averageScore),
+        aniEpCount: Math.max(0, fromAni),
+      };
+    });
+  }, [seasonList, info, airedFromNext]);
 
   // Fetch real per-episode scores (TMDB). Keyed by aniId → episodes map.
   const [epScores, setEpScores] = useState<Map<number, Map<number, number | null>>>(
@@ -131,9 +148,22 @@ export default function ScoresTab({ info, seasonList }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [info.id, seasons.map((s) => s.id).join(",")]);
 
+  // Final per-season episode count: the larger of AniList's count and the
+  // highest episode number TMDB returned (TMDB sometimes knows more aired
+  // episodes than AniList's stale `episodes` field). Always ≥ 1.
+  const seasonsWithCount = useMemo(() => {
+    return seasons.map((s) => {
+      const tmdbMap = epScores.get(s.id);
+      const tmdbMax =
+        tmdbMap && tmdbMap.size > 0 ? Math.max(...Array.from(tmdbMap.keys())) : 0;
+      const epCount = Math.max(1, s.aniEpCount, tmdbMax);
+      return { ...s, epCount };
+    });
+  }, [seasons, epScores]);
+
   const maxEpisodes = useMemo(
-    () => Math.max(1, ...seasons.map((s) => s.epCount)),
-    [seasons],
+    () => Math.max(1, ...seasonsWithCount.map((s) => s.epCount)),
+    [seasonsWithCount],
   );
 
   const BAND_THRESHOLD = 30;
@@ -149,33 +179,42 @@ export default function ScoresTab({ info, seasonList }: Props) {
 
   const rowCount = banded ? Math.ceil(maxEpisodes / bandSize) : maxEpisodes;
 
-  // Resolve a cell's score: real per-episode (TMDB) when present, else the
-  // season average. In banded mode we always use the season average.
+  // Resolve a cell's score.
+  //   - Per-episode mode: the real TMDB score when present, else null. A null
+  //     means the episode isn't aired yet or has no community rating — the cell
+  //     renders GRAY ("—") so it's clearly "not rated", never a stand-in number.
+  //   - Banded mode: the season average (per-episode detail isn't meaningful at
+  //     that zoom; bands summarise a whole range).
   const cellScore = (
-    season: (typeof seasons)[number],
+    season: (typeof seasonsWithCount)[number],
     rowIdx: number,
   ): number | null => {
     if (banded) return season.seasonScore;
     const epNum = rowIdx + 1;
     const perEp = epScores.get(season.id)?.get(epNum);
-    if (perEp != null) return perEp;
-    return season.seasonScore;
+    return perEp != null ? perEp : null;
   };
 
-  // Header average — mean of every painted cell so it reflects what's shown.
+  // Header average. Prefer the mean of the real per-episode (TMDB) scores that
+  // are actually painted; if none exist (no key / no match / nothing aired yet)
+  // fall back to the mean of the season averages so the header still shows a
+  // meaningful number instead of disappearing.
   const overall = useMemo(() => {
-    const vals: number[] = [];
-    for (const season of seasons) {
-      const rows = banded ? Math.ceil(season.epCount / bandSize) : season.epCount;
-      for (let i = 0; i < rows; i++) {
-        const v = cellScore(season, i);
-        if (v != null) vals.push(v);
-      }
+    const epVals: number[] = [];
+    for (const season of seasonsWithCount) {
+      const m = epScores.get(season.id);
+      if (!m) continue;
+      for (const v of Array.from(m.values())) if (v != null) epVals.push(v);
     }
-    if (vals.length === 0) return null;
-    return Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 10) / 10;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [seasons, epScores, banded, bandSize]);
+    const pool =
+      epVals.length > 0
+        ? epVals
+        : seasonsWithCount
+            .map((s) => s.seasonScore)
+            .filter((v): v is number => v != null);
+    if (pool.length === 0) return null;
+    return Math.round((pool.reduce((a, b) => a + b, 0) / pool.length) * 10) / 10;
+  }, [seasonsWithCount, epScores]);
 
   const rowLabel = (i: number) => {
     if (!banded) return `E${i + 1}`;
@@ -214,7 +253,7 @@ export default function ScoresTab({ info, seasonList }: Props) {
           <thead>
             <tr>
               <th style={{ ...s.th, ...s.rowHeadCell }} />
-              {seasons.map((season) => (
+              {seasonsWithCount.map((season) => (
                 <th key={season.id} style={s.th}>
                   S{season.number}
                 </th>
@@ -225,7 +264,7 @@ export default function ScoresTab({ info, seasonList }: Props) {
             {Array.from({ length: rowCount }).map((_, rowIdx) => (
               <tr key={rowIdx}>
                 <td style={s.rowHead}>{rowLabel(rowIdx)}</td>
-                {seasons.map((season) => {
+                {seasonsWithCount.map((season) => {
                   const seasonRows = banded
                     ? Math.ceil(season.epCount / bandSize)
                     : season.epCount;

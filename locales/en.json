@@ -404,7 +404,7 @@
     "scores": "Scores",
     "scoreGridTitle": "Episode scores",
     "avgScore": "avg",
-    "scoreGridNote": "Per-episode scores are TMDB community ratings (out of 10). When an episode has no TMDB rating yet, the cell falls back to the season's AniList average.",
+    "scoreGridNote": "Per-episode scores are TMDB community ratings (out of 10). Episodes not yet aired or without a TMDB rating are shown in grey.",
     "tier": {
       "masterpiece": "Masterpiece",
       "great": "Great",
