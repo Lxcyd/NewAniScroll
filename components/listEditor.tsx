@@ -36,6 +36,9 @@ interface ListEditorProps {
     score: number;
     removed: boolean;
   }) => void;
+  /** Called whenever the favourite heart is toggled, so the info-page heart
+   *  stays in sync (the heart is independent of the Save flow). */
+  onFavouriteChange?: (fav: boolean) => void;
 }
 
 type Status = "CURRENT" | "PLANNING" | "COMPLETED" | "DROPPED" | "PAUSED" | "REPEATING";
@@ -92,6 +95,19 @@ function scoreHexColor(score: number): string {
   );
 }
 
+// Deterministic, vivid colour for a custom-list chip derived from its name —
+// same list always gets the same colour, but each list a different one. We hash
+// the name to a hue and use a fixed pleasant saturation/lightness so every
+// colour reads well on the dark modal (no muddy/near-black hues).
+function customListColor(name: string): string {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
+  }
+  const hue = hash % 360;
+  return `hsl(${hue}, 70%, 58%)`;
+}
+
 const ListEditor: React.FC<ListEditorProps> = ({
   animeId,
   session,
@@ -101,6 +117,7 @@ const ListEditor: React.FC<ListEditorProps> = ({
   info = undefined,
   close,
   onSaved,
+  onFavouriteChange,
 }) => {
   const { t } = useTranslation();
   const isAnime = info?.type !== "MANGA";
@@ -285,7 +302,9 @@ const ListEditor: React.FC<ListEditorProps> = ({
   const handleToggleFavourite = async () => {
     const token = session?.user?.token;
     if (!token) return;
-    setFavorited((f) => !f); // optimistic
+    const next = !favorited;
+    setFavorited(next); // optimistic
+    onFavouriteChange?.(next); // keep the info-page heart in sync immediately
     try {
       await fetch("https://graphql.anilist.co/", {
         method: "POST",
@@ -298,7 +317,8 @@ const ListEditor: React.FC<ListEditorProps> = ({
         }),
       });
     } catch {
-      setFavorited((f) => !f); // revert on failure
+      setFavorited(!next); // revert on failure
+      onFavouriteChange?.(!next);
     }
   };
 
@@ -327,19 +347,15 @@ const ListEditor: React.FC<ListEditorProps> = ({
   const handleRemove = async () => {
     const token = session?.user?.token;
     if (!token) return;
-    setSaving(true);
-    const ok = await deleteEntry();
-    if (!ok) {
-      toast.error(t("listEditor.error"));
-      setSaving(false);
-      return;
-    }
-    toast.success(t("listEditor.removed"));
-    // Apply in place (no reload): drop the entry from the whole-list cache and
-    // tell the parent to update the page.
+    // Optimistic: drop from the cache, update the page, and close immediately;
+    // the delete mutation runs in the background.
     if (session?.user?.name) patchListEntry(session.user.name, animeId, null);
     onSaved?.({ status: null, progress: 0, score: 0, removed: true });
+    toast.success(t("listEditor.removed"));
     close();
+    deleteEntry().then((ok) => {
+      if (!ok) toast.error(t("listEditor.error"));
+    });
   };
 
   const handleSave = async () => {
@@ -347,106 +363,117 @@ const ListEditor: React.FC<ListEditorProps> = ({
     if (!token) return;
     setSaving(true);
 
-    // Status set to "Not in list" → delete the entry instead of saving.
+    // Status set to "Not in list" → delete the entry (optimistic, like remove).
     if (status === null) {
-      const ok = await deleteEntry();
-      if (!ok) {
-        toast.error(t("listEditor.error"));
-        setSaving(false);
-        return;
-      }
-      toast.success(entryId ? t("listEditor.removed") : t("listEditor.saved"));
       if (session?.user?.name) patchListEntry(session.user.name, animeId, null);
       onSaved?.({ status: null, progress: 0, score: 0, removed: true });
+      toast.success(entryId ? t("listEditor.removed") : t("listEditor.saved"));
       close();
+      deleteEntry().then((ok) => {
+        if (!ok) toast.error(t("listEditor.error"));
+      });
       return;
     }
 
-    try {
-      const startedAt = inputToFuzzy(startDate);
-      const completedAt = inputToFuzzy(finishDate);
-      // customLists is sent as an array of enabled names; AniList toggles the
-      // entry onto exactly those lists.
-      const res = await fetch("https://graphql.anilist.co/", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({
-          query: `mutation (
-            $mediaId: Int!, $status: MediaListStatus, $score: Float, $progress: Int,
-            $repeat: Int, $private: Boolean, $hiddenFromStatusLists: Boolean,
-            $notes: String, $startedAt: FuzzyDateInput, $completedAt: FuzzyDateInput,
-            $customLists: [String]
-          ) {
-            SaveMediaListEntry(
-              mediaId: $mediaId, status: $status, score: $score, progress: $progress,
-              repeat: $repeat, private: $private, hiddenFromStatusLists: $hiddenFromStatusLists,
-              notes: $notes, startedAt: $startedAt, completedAt: $completedAt,
-              customLists: $customLists
-            ) {
-              id mediaId status score(format: POINT_10_DECIMAL) progress repeat
-              private hiddenFromStatusLists notes customLists
-              startedAt { year month day } completedAt { year month day }
-            }
-          }`,
-          variables: {
-            mediaId: animeId,
-            status,
-            score,
-            progress,
-            repeat: rewatches,
-            private: isPrivate,
-            hiddenFromStatusLists: hideFromLists,
-            notes: notes || null,
-            startedAt,
-            completedAt,
-            customLists,
-          },
-        }),
+    // OPTIMISTIC SAVE — the AniList mutation can take a second or two, and
+    // making the user stare at the modal that whole time is what felt "très
+    // longue". Instead we apply the change immediately (cache patch + notify
+    // the page) and close, then fire the mutation in the background. On the
+    // rare failure we surface a toast; the next whole-list refresh reconciles.
+    const startedAt = inputToFuzzy(startDate);
+    const completedAt = inputToFuzzy(finishDate);
+    const userName = session?.user?.name;
+
+    if (userName) {
+      patchListEntry(userName, animeId, {
+        id: entryId ?? 0,
+        mediaId: animeId,
+        status,
+        score: score || null,
+        progress,
+        repeat: rewatches,
+        private: isPrivate,
+        hiddenFromStatusLists: hideFromLists,
+        notes: notes || null,
+        startedAt: startDate ? inputToFuzzy(startDate) : null,
+        completedAt: finishDate ? inputToFuzzy(finishDate) : null,
+        customLists,
       });
-      const json = await res.json();
-      const saved = json?.data?.SaveMediaListEntry;
-      if (!saved) {
-        toast.error(t("listEditor.error"));
-        setSaving(false);
-        return;
-      }
-      toast.success(t("listEditor.saved"));
-      // Update the whole-list cache with the saved entry so the page + future
-      // opens reflect it without a network round-trip.
-      if (session?.user?.name) {
-        const cl =
-          saved.customLists && typeof saved.customLists === "object"
-            ? Object.entries(saved.customLists)
-                .filter(([, v]) => v === true)
-                .map(([k]) => k)
-            : customLists;
-        patchListEntry(session.user.name, animeId, {
-          id: Number(saved.id),
-          mediaId: animeId,
-          status: saved.status ?? null,
-          score: typeof saved.score === "number" ? saved.score : null,
-          progress: Number(saved.progress) || 0,
-          repeat: Number(saved.repeat) || 0,
-          private: !!saved.private,
-          hiddenFromStatusLists: !!saved.hiddenFromStatusLists,
-          notes: saved.notes || null,
-          startedAt: saved.startedAt || null,
-          completedAt: saved.completedAt || null,
-          customLists: cl,
-        });
-      }
-      onSaved?.({
-        status: saved.status ?? null,
-        progress: Number(saved.progress) || 0,
-        score: typeof saved.score === "number" ? saved.score : 0,
-        removed: false,
-      });
-      close();
-    } catch (e) {
-      console.error(e);
-      toast.error(t("listEditor.error"));
-      setSaving(false);
     }
+    onSaved?.({ status, progress, score, removed: false });
+    toast.success(t("listEditor.saved"));
+    close();
+
+    // Background mutation — fire-and-forget. We still patch the cache with the
+    // authoritative server response (entry id, etc.) when it returns.
+    fetch("https://graphql.anilist.co/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        query: `mutation (
+          $mediaId: Int!, $status: MediaListStatus, $score: Float, $progress: Int,
+          $repeat: Int, $private: Boolean, $hiddenFromStatusLists: Boolean,
+          $notes: String, $startedAt: FuzzyDateInput, $completedAt: FuzzyDateInput,
+          $customLists: [String]
+        ) {
+          SaveMediaListEntry(
+            mediaId: $mediaId, status: $status, score: $score, progress: $progress,
+            repeat: $repeat, private: $private, hiddenFromStatusLists: $hiddenFromStatusLists,
+            notes: $notes, startedAt: $startedAt, completedAt: $completedAt,
+            customLists: $customLists
+          ) {
+            id mediaId status score(format: POINT_10_DECIMAL) progress repeat
+            private hiddenFromStatusLists notes customLists
+            startedAt { year month day } completedAt { year month day }
+          }
+        }`,
+        variables: {
+          mediaId: animeId,
+          status,
+          score,
+          progress,
+          repeat: rewatches,
+          private: isPrivate,
+          hiddenFromStatusLists: hideFromLists,
+          notes: notes || null,
+          startedAt,
+          completedAt,
+          customLists,
+        },
+      }),
+    })
+      .then((res) => res.json())
+      .then((json) => {
+        const saved = json?.data?.SaveMediaListEntry;
+        if (!saved) {
+          toast.error(t("listEditor.error"));
+          return;
+        }
+        // Reconcile the cache with the server's authoritative record.
+        if (userName) {
+          const cl =
+            saved.customLists && typeof saved.customLists === "object"
+              ? Object.entries(saved.customLists)
+                  .filter(([, v]) => v === true)
+                  .map(([k]) => k)
+              : customLists;
+          patchListEntry(userName, animeId, {
+            id: Number(saved.id),
+            mediaId: animeId,
+            status: saved.status ?? null,
+            score: typeof saved.score === "number" ? saved.score : null,
+            progress: Number(saved.progress) || 0,
+            repeat: Number(saved.repeat) || 0,
+            private: !!saved.private,
+            hiddenFromStatusLists: !!saved.hiddenFromStatusLists,
+            notes: saved.notes || null,
+            startedAt: saved.startedAt || null,
+            completedAt: saved.completedAt || null,
+            customLists: cl,
+          });
+        }
+      })
+      .catch(() => toast.error(t("listEditor.error")));
   };
 
   const statusLabel = (s: Status): string => {
@@ -586,11 +613,22 @@ const ListEditor: React.FC<ListEditorProps> = ({
               <div className="le-custom-lists">
                 {availableCustomLists.map((name) => {
                   const on = customLists.includes(name);
+                  const color = customListColor(name);
                   return (
                     <button
                       type="button"
                       key={name}
                       className={`le-custom-chip ${on ? "on" : ""}`}
+                      style={
+                        on
+                          ? {
+                              // Tinted background + solid border in the list's colour.
+                              background: `color-mix(in srgb, ${color} 18%, transparent)`,
+                              borderColor: color,
+                              color,
+                            }
+                          : undefined
+                      }
                       onClick={() =>
                         setCustomLists((prev) =>
                           prev.includes(name)
@@ -599,7 +637,13 @@ const ListEditor: React.FC<ListEditorProps> = ({
                         )
                       }
                     >
-                      <span className="le-custom-chip-dot" />
+                      <span
+                        className="le-custom-chip-dot"
+                        style={{
+                          background: color,
+                          boxShadow: on ? `0 0 6px ${color}` : undefined,
+                        }}
+                      />
                       {name}
                     </button>
                   );

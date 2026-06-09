@@ -536,6 +536,7 @@ export default function Info({
             setProgress(next.progress);
             setStatusResolved(true);
           }}
+          onFavouriteChange={(f) => setFav(f)}
         />
       )}
 
