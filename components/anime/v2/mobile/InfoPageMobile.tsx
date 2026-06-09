@@ -41,6 +41,7 @@ import type { SeasonEntry } from "@/lib/anilist/seasonChain";
 import CharactersTab from "../CharactersTab";
 import Episodes from "../Episodes";
 import Artworks from "../Artworks";
+import ScoresTab from "../ScoresTab";
 import Related from "../Related";
 
 type Props = {
@@ -57,7 +58,7 @@ type Props = {
   onToggleFav: () => void;
 };
 
-type TabId = "overview" | "episodes" | "characters" | "artworks";
+type TabId = "overview" | "episodes" | "scores" | "characters" | "artworks";
 
 export default function InfoPageMobile({
   info,
@@ -120,6 +121,11 @@ export default function InfoPageMobile({
               progress={progress}
               seasonList={seasonList}
             />
+          </div>
+        )}
+        {tab === "scores" && (
+          <div style={S.tabBox}>
+            <ScoresTab info={info} seasonList={seasonList} />
           </div>
         )}
         {tab === "characters" && (
@@ -618,6 +624,7 @@ function MTabs({
   const tabs: Array<{ id: TabId; label: string; count?: number }> = [
     { id: "overview", label: t("anime.overview") },
     { id: "episodes", label: t("anime.episodes"), count: counts.episodes || undefined },
+    { id: "scores", label: t("anime.scores") },
     {
       id: "characters",
       label: t("anime.characters"),

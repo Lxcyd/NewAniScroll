@@ -68,13 +68,59 @@ export default function SearchPalette() {
 
   async function advance(): Promise<void> {
     setLoading(true);
-    const res = await quickSearch({
-      search: debounceSearch,
-      type,
-    });
-    setData(res?.data?.Page?.results);
-    setNextPage(res?.data?.Page?.pageInfo?.hasNextPage);
+
+    // Run AniList live search AND our local Turso FTS in parallel, then merge.
+    // Why: AniList's `search` param matches poorly on French / alternate
+    // titles (searching "le chateau ambulant" returns nothing), whereas
+    // voir-anime.to finds it because it indexes localized titles. Our local
+    // FTS row indexes romaji + english + native + synonyms, so it matches the
+    // same way voir-anime does. Merging the two gives AniList's live coverage
+    // plus synonym/French-title matching, deduped by id. AniList results come
+    // first (more authoritative ordering); local-only hits are appended.
+    // Manga uses AniList only — the local FTS is anime-only.
+    const [aniRes, localRes] = await Promise.all([
+      quickSearch({ search: debounceSearch, type }),
+      type === "ANIME" ? fetchLocalSearch(debounceSearch) : Promise.resolve([]),
+    ]);
+
+    const aniResults: DataTypes[] = aniRes?.data?.Page?.results || [];
+    const seen = new Set(aniResults.map((r) => r.id));
+    const merged = [
+      ...aniResults,
+      ...localRes.filter((r) => r && !seen.has(r.id)),
+    ];
+
+    setData(merged);
+    setNextPage(aniRes?.data?.Page?.pageInfo?.hasNextPage ?? false);
     setLoading(false);
+  }
+
+  // Query the local Turso FTS endpoint. Maps the cached Media payload onto the
+  // subset of fields this palette renders. Never throws — a search outage on
+  // our side must not break AniList results.
+  async function fetchLocalSearch(q: string): Promise<DataTypes[]> {
+    if (!q || q === " ") return [];
+    try {
+      const res = await fetch(`/api/v2/search?q=${encodeURIComponent(q)}&limit=8`);
+      if (!res.ok) return [];
+      const json = await res.json();
+      const rows: any[] = json?.results || [];
+      return rows
+        .filter((m) => m?.id && m?.title)
+        .map((m) => ({
+          id: m.id,
+          title: m.title,
+          coverImage: { medium: m.coverImage?.medium || m.coverImage?.large || "" },
+          type: m.type,
+          format: m.format,
+          bannerImage: m.bannerImage,
+          isLicensed: m.isLicensed,
+          genres: m.genres || [],
+          startDate: { year: m.startDate?.year ?? 0 },
+        }));
+    } catch {
+      return [];
+    }
   }
 
   useEffect(() => {
@@ -247,20 +293,26 @@ export default function SearchPalette() {
                                 }
                               >
                                 <div className="shrink-0">
-                                  <Image
-                                    src={i.coverImage.medium}
-                                    alt="coverImage"
-                                    width={100}
-                                    height={100}
-                                    className="w-16 h-16 object-cover rounded"
-                                  />
+                                  {i.coverImage?.medium ? (
+                                    <Image
+                                      src={i.coverImage.medium}
+                                      alt="coverImage"
+                                      width={100}
+                                      height={100}
+                                      className="w-16 h-16 object-cover rounded"
+                                    />
+                                  ) : (
+                                    <div className="w-16 h-16 rounded bg-primary/40" />
+                                  )}
                                 </div>
                                 <div className="flex flex-col w-full h-full">
                                   <h3 className="font-karla font-semibold">
                                     {pickTitle(i.title, titlePref)}
                                   </h3>
                                   <p className="text-sm text-white/50">
-                                    {i.startDate.year} {getFormat(i.format)}
+                                    {[i.startDate?.year || null, getFormat(i.format)]
+                                      .filter(Boolean)
+                                      .join(" ")}
                                   </p>
                                 </div>
                               </Combobox.Option>

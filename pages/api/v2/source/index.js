@@ -578,8 +578,13 @@ async function getAnimeSamaIframe(serverKey, title, episode, aniId) {
     // match against AniList's seasonYear/startDate when multiple versions exist.
     const seasons = seasonMatches
       .map((m) => {
-        const path = m[2]; // e.g. "saison1/vostfr" or "saison3-2/vostfr"
-        const dirMatch = path.match(/^(saison[^/]+)\//);
+        const path = m[2]; // e.g. "saison1/vostfr", "saison3-2/vostfr", "film/vostfr"
+        // Accept saisonN dirs AND non-season content dirs (film/oav/special/
+        // scan). Films are stored as panneauAnime("Film","film/vostfr") with
+        // NO "saison" prefix — the old saison-only regex dropped them, so movie
+        // entries never resolved a player. We keep them as season-like slots
+        // (ordinal-numbered) so a MOVIE AniList id maps onto the film panel.
+        const dirMatch = path.match(/^(saison[^/]+|film[^/]*|oav[^/]*|special[^/]*|scan[^/]*)\//i);
         if (!dirMatch) return null;
         const yearMatch = m[1].match(/\b(19|20)\d{2}\b/);
         return {
@@ -587,6 +592,7 @@ async function getAnimeSamaIframe(serverKey, title, episode, aniId) {
           dir: dirMatch[1],
           path: m[2],
           year: yearMatch ? parseInt(yearMatch[0], 10) : null,
+          isFilm: /^film/i.test(dirMatch[1]),
         };
       })
       .filter(Boolean)
@@ -596,12 +602,20 @@ async function getAnimeSamaIframe(serverKey, title, episode, aniId) {
       seasons.push({ label: "Saison 1", ordinal: 1, dir: "saison1", path: `saison1/${langPath}` });
     }
 
+    // Shared AniList metadata (cached) — reused for movie detection, year and
+    // title matching below.
+    const meta = await getMediaMeta(aniId);
+
+    // Movies: when AniList says this is a MOVIE and a film panel exists, target
+    // it directly — season ordinals don't apply (a film isn't "season N").
+    const isMovie = meta?.format === "MOVIE";
+    const filmSeason = seasons.find((s) => s.isFilm);
+
     dlog(`[anime-sama] Seasons: ${seasons.map((s) => `${s.ordinal}=${s.dir}${s.year ? `(${s.year})` : ""}`).join(", ")}`);
 
     // 3.5. YEAR MATCHING â€” if multiple seasons have explicit years and AniList
     // gave us a year, prefer the season whose year matches. Solves the HxH
     // 1999-vs-2011 case where they share the same slug.
-    const meta = await getMediaMeta(aniId);
     const aniYear = meta?.seasonYear || meta?.startDate?.year || null;
     let yearMatchedSeason = null;
     if (aniYear) {
@@ -660,14 +674,26 @@ async function getAnimeSamaIframe(serverKey, title, episode, aniId) {
     const episodeIndex = Number(episode) - 1;
     let iframeUrl = null;
 
-    // Priority: explicit year match > title match > PREQUEL ordinal
-    const directTarget = yearMatchedSeason ||
+    // Priority: MOVIE → film panel > explicit year match > title match >
+    // PREQUEL ordinal. A MOVIE AniList id has no meaningful season ordinal, so
+    // when the catalogue carries a "film" panel we go straight to it; this is
+    // what was missing for films like Le Château ambulant (the panel existed
+    // but the saison-only parser dropped it and ordinal logic never reached it).
+    const directTarget = (isMovie && filmSeason) ||
+      yearMatchedSeason ||
       titleMatchedSeason ||
       (seasonNum > 1 ? seasons.find((s) => s.ordinal === seasonNum) : null);
 
     if (directTarget) {
       const targetSeason = directTarget;
-      const epPath = `${ANIMESAMA_BASE}/catalogue/${slug}/${targetSeason.dir}/${langPath}/episodes.js`;
+      // Films are often single-language (e.g. only "film/vostfr"). For a film
+      // panel use the language baked into its own panneau path rather than the
+      // requested langPath, so a VF request for a VOSTFR-only film still
+      // resolves instead of 404ing on a non-existent "film/vf".
+      const targetLang = targetSeason.isFilm
+        ? (targetSeason.path.split("/")[1] || langPath)
+        : langPath;
+      const epPath = `${ANIMESAMA_BASE}/catalogue/${slug}/${targetSeason.dir}/${targetLang}/episodes.js`;
       dlog(`[anime-sama] Direct season ${targetSeason.dir} (${yearMatchedSeason ? `year ${aniYear}` : `ordinal ${seasonNum}`}): ${epPath}`);
 
       const epRes = await fetchViaWorker(epPath);
@@ -1076,6 +1102,17 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId) {
       `href=["'](${baseEsc}/anime/${slugEsc}/[^"']+?-(\\d+)(?:-(?:vf|vostfr))?/)["']`,
       "gi"
     );
+    // Film / movie pattern: a child URL with NO episode number, e.g.
+    // /anime/howl-no-ugoku-shiro-vf/film-vf-howl-no-ugoku-shiro/. Madara stores
+    // single-entry films as one "chapter" whose slug starts with "film"/"movie"
+    // instead of carrying a digit, so the episode regex above never sees them —
+    // that's why films had no playable server. We match any non-feed child of
+    // the anime path that looks like a film/movie/ova/oav stub and treat it as
+    // "episode 1".
+    const filmRegex = new RegExp(
+      `href=["'](${baseEsc}/anime/${slugEsc}/(?:film|movie|ova|oav|special)[^"']*/)["']`,
+      "gi"
+    );
 
     const collectEpisodes = (html) => {
       const map = new Map();
@@ -1085,12 +1122,22 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId) {
         const epNum = parseInt(m[2], 10);
         if (!map.has(epNum)) map.set(epNum, m[1]);
       }
+      // If the page exposes no numbered episodes but does carry a film/movie
+      // entry, register it as episode 1 so single-entry films resolve. We only
+      // do this when there are no numbered episodes to avoid mis-mapping a
+      // "film" bonus that sits alongside a real numbered season.
+      if (map.size === 0) {
+        filmRegex.lastIndex = 0;
+        const fm = filmRegex.exec(html);
+        if (fm) map.set(1, fm[1]);
+      }
       return map;
     };
 
-    // Try detail page scrape first
+    // Try detail page scrape first. Routed via the CF Worker — voir-anime.to
+    // 403s direct Vercel fetches (Cloudflare), same as anime-sama.
     try {
-      const detailRes = await fetchWithTimeout(`${VOIRANIME_BASE}/anime/${slug}/`);
+      const detailRes = await fetchViaWorker(`${VOIRANIME_BASE}/anime/${slug}/`);
       if (detailRes.ok) {
         const html = await detailRes.text();
         const epMap = collectEpisodes(html);
@@ -1102,7 +1149,10 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId) {
       console.error(`[voiranime] detail fetch failed for ${slug}:`, e.message);
     }
 
-    // Fallback: try Madara AJAX chapters endpoint
+    // Fallback: try Madara AJAX chapters endpoint. This stays a DIRECT fetch:
+    // the CF Worker only proxies GETs (it drops the method/body), so routing a
+    // POST through it would silently become a GET and fail. Best-effort only —
+    // the detail-page scrape above (via Worker) is the primary path.
     if (!episodeUrl) {
       try {
         const ajaxRes = await fetchWithTimeout(
@@ -1131,8 +1181,9 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId) {
       return null;
     }
 
-    // Fetch episode page and extract thisChapterSources
-    const epRes = await fetchWithTimeout(episodeUrl);
+    // Fetch episode page and extract thisChapterSources. Via the Worker —
+    // voir-anime.to 403s direct Vercel fetches (Cloudflare).
+    const epRes = await fetchViaWorker(episodeUrl);
     if (!epRes.ok) {
       console.error(`[voiranime] ${serverKey} episode page ${epRes.status} for ${episodeUrl}`);
       return null;
@@ -1267,12 +1318,17 @@ function titleToSlug(title) {
     .replace(/^-+|-+$/g, "");
 }
 
-// Quickly check if /anime/{slug}/ exists by looking for the standard <link rel="canonical"> tag.
+// Quickly check if /anime/{slug}/ exists. Routed through the CF Worker because
+// voir-anime.to (Cloudflare) 403s direct fetches from Vercel's AWS IPs — the
+// same reason anime-sama scraping goes via the Worker. The Worker returns 200
+// for a live anime page and 410/4xx for a dead slug, so a 200 is a reliable
+// "exists" signal. We follow redirects (a missing-language slug 301s to the
+// catalogue, which would NOT be a 200) so a redirect doesn't count as a hit.
 async function voiranimeSlugExists(slug) {
   try {
-    const r = await fetchWithTimeout(
+    const r = await fetchViaWorker(
       `${VOIRANIME_BASE}/anime/${slug}/`,
-      { method: "GET", redirect: "manual" },
+      { method: "GET", redirect: "follow" },
       3500, // tight budget — we probe up to ~10 slug candidates sequentially
     );
     return r.status === 200;
@@ -1311,13 +1367,26 @@ async function findVoiranimeSlug(title, aniId, isVF, seasonNum) {
   const titles = [...titleSet];
 
   // â”€â”€ Strategy 1: direct slug guessing (much faster than search) â”€â”€
-  // For S2+ try {base}-{N}, S1 try {base}. Always try with/without -vf.
+  // For S2+ try several season-suffix conventions voir-anime actually uses:
+  //   {base}-s{N}-vf  (e.g. kaiju-no-8-s2-vf  â† the real one)
+  //   {base}-{N}-vf   (e.g. kaiju-no-8-2-vf)
+  //   {base}-saison-{N}-vf
+  // S1 just tries {base}. Always honour the -vf vs un-suffixed (VOSTFR) split.
   const slugCandidates = new Set();
   for (const t of titles) {
     const base = titleToSlug(t);
     if (!base) continue;
     if (seasonNum > 1) {
-      slugCandidates.add(isVF ? `${base}-${seasonNum}-vf` : `${base}-${seasonNum}`);
+      // Order matters — most-common voir-anime convention first.
+      const seasonForms = [
+        `${base}-s${seasonNum}`,
+        `${base}-${seasonNum}`,
+        `${base}-saison-${seasonNum}`,
+        `${base}-season-${seasonNum}`,
+      ];
+      for (const form of seasonForms) {
+        slugCandidates.add(isVF ? `${form}-vf` : form);
+      }
     }
     slugCandidates.add(isVF ? `${base}-vf` : base);
     // NOTE: do NOT fall back to the un-suffixed slug for VF requests â€” that
@@ -1357,9 +1426,12 @@ async function findVoiranimeSlug(title, aniId, isVF, seasonNum) {
           const slug = r.url.replace(/^.*\/anime\//, "").replace(/\/$/, "");
           const isVfSlug = /-vf$/i.test(slug);
           const cleanSlug = slug.replace(/-vf$/i, "");
-          const seasonMatch = cleanSlug.match(/-(\d+)$/);
+          // Season suffix conventions voir-anime mixes: "-s2", "-2",
+          // "-saison-2", "-season-2". Parse any of them so the right season
+          // entry scores highest instead of defaulting to S1.
+          const seasonMatch = cleanSlug.match(/-(?:s|saison-|season-)?(\d+)$/);
           const slugSeason = seasonMatch ? Number(seasonMatch[1]) : 1;
-          const seasonStripped = cleanSlug.replace(/-\d+$/, "");
+          const seasonStripped = cleanSlug.replace(/-(?:s|saison-|season-)?\d+$/, "");
 
           let score = 0;
           // HARD reject if language mismatches â€” VF request must yield -vf slug, etc.

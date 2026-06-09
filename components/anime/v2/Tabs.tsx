@@ -4,12 +4,13 @@ import Overview from "./Overview";
 import Episodes from "./Episodes";
 import CharactersTab from "./CharactersTab";
 import Artworks from "./Artworks";
+import ScoresTab from "./ScoresTab";
 import { FanartResponse, collectArtworks } from "./helpers";
 import type { SeasonEntry } from "@/lib/anilist/seasonChain";
 import { useTranslation } from "react-i18next";
 
-type TabId = "overview" | "episodes" | "characters" | "artworks";
-const VALID_TABS: TabId[] = ["overview", "episodes", "characters", "artworks"];
+type TabId = "overview" | "episodes" | "scores" | "characters" | "artworks";
+const VALID_TABS: TabId[] = ["overview", "episodes", "scores", "characters", "artworks"];
 
 type Props = {
   info: AniListInfoTypes;
@@ -60,6 +61,11 @@ export default function Tabs({ info, fanarts, progress, seasonList }: Props) {
       id: "episodes",
       label: t("anime.episodes"),
       count: info.episodes ?? null,
+    },
+    {
+      id: "scores",
+      label: t("anime.scores"),
+      count: null,
     },
     {
       id: "characters",
@@ -115,6 +121,9 @@ export default function Tabs({ info, fanarts, progress, seasonList }: Props) {
             progress={progress}
             seasonList={seasonList}
           />
+        )}
+        {tab === "scores" && (
+          <ScoresTab info={info} seasonList={seasonList} />
         )}
         {tab === "characters" && <CharactersTab info={info} />}
         {tab === "artworks" && (

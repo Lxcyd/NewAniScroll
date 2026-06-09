@@ -16,7 +16,8 @@ import {
    AniList publishing a brand-new sequel, which is rare and tolerates
    a week of staleness. */
 const REDIS_KEY_CHAIN = (id: number) => `seasonChain:v1:${id}`;
-const REDIS_KEY_LIST = (id: number) => `seasonList:v1:${id}`;
+// v2: SeasonEntry gained `averageScore` (feeds the info-page score grid).
+const REDIS_KEY_LIST = (id: number) => `seasonList:v2:${id}`;
 const TTL_SECONDS = 7 * 24 * 60 * 60;
 
 async function redisGetJson<T>(key: string): Promise<T | null> {
@@ -163,6 +164,9 @@ export type SeasonEntry = {
   year: number | null;
   /** Total episodes if known. */
   episodes: number | null;
+  /** AniList averageScore (0-100) for this season — drives the colour of
+   *  the per-season score grid on the info page. Null when unscored. */
+  averageScore?: number | null;
   /** AniList format, used to filter out movies / OVAs from the
    *  switcher (we only want TV-like seasons there). */
   format: string | null;
@@ -272,6 +276,7 @@ async function resolveSeasonListUncached(
       label: `Season ${fromTitle ?? i + 1}${part}`,
       year: m.seasonYear ?? m.startDate?.year ?? null,
       episodes: m.episodes ?? null,
+      averageScore: m.averageScore ?? null,
       format: m.format ?? null,
       // Pulled from the same Media payload getMediaMeta already returned —
       // costs nothing extra but lets the Relations widget render full

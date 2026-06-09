@@ -11,6 +11,7 @@ import {
   prettyStatus,
   statusLabel as statusLabelI18n,
   listLabel,
+  slugifyTitle,
   SeasonInfo,
   TitleImage,
 } from "./helpers";
@@ -118,11 +119,14 @@ export default function Hero({
   //     progress+1 which would be EP <total+1> and 404 anyway)
   //   - otherwise → respect the parent-computed watchUrl (progress+1)
   const epNum = isCompleted ? 1 : parseEpNumFromWatchUrl(watchUrl) ?? 1;
+  // Human-readable anime slug for the second path segment (was "megaplay").
+  // The watch route treats this segment as cosmetic, so it's safe as a slug.
+  const watchSlug = slugifyTitle(info?.title) || "watch";
   const watchHref = isNotYetReleased
     ? "#"
     : isCompleted
-    ? `/en/anime/watch/${info.id}/megaplay?id=megaplay-${info.id}-1&num=1`
-    : watchUrl || `/en/anime/watch/${info.id}/megaplay?id=megaplay-${info.id}-1&num=1`;
+    ? `/en/anime/watch/${info.id}/${watchSlug}?id=megaplay-${info.id}-1&num=1`
+    : watchUrl || `/en/anime/watch/${info.id}/${watchSlug}?id=megaplay-${info.id}-1&num=1`;
 
   // ── Intent-based prefetch ──────────────────────────────────────────────
   // Warm the entire playback path the instant the user shows intent to watch

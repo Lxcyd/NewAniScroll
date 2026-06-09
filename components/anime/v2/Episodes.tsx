@@ -4,6 +4,7 @@ import { AniListInfoTypes } from "types/info/AnilistInfoTypes";
 import styles from "./styles.module.css";
 import type { SeasonEntry } from "@/lib/anilist/seasonChain";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
+import { slugifyTitle } from "./helpers";
 import { useTranslation } from "react-i18next";
 
 type EpisodeRow = {
@@ -332,7 +333,12 @@ function watchHref(
   overrideAnimeId?: number
 ) {
   const id = overrideAnimeId ?? info.id;
-  return `/en/anime/watch/${id}/megaplay?id=${ep.id}&num=${ep.number}${
+  // Second path segment is now the human-readable anime slug (was "megaplay").
+  // It's cosmetic for routing; the watch page re-canonicalizes it from the
+  // loaded metadata, so when an override season is picked the slug self-heals
+  // to that season's title on arrival. Falls back to "watch" when unresolved.
+  const slug = slugifyTitle(info?.title) || "watch";
+  return `/en/anime/watch/${id}/${slug}?id=${ep.id}&num=${ep.number}${
     isDub ? "&dub=true" : ""
   }`;
 }

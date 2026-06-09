@@ -365,8 +365,14 @@ export default function Info({
   }
 
   const title = info?.title?.english || info?.title?.romaji || "Anime";
+  // The second path segment is the human-readable anime slug (was "megaplay").
+  // The watch route ignores it for routing (real provider falls back to the
+  // first episode-list provider), so it's purely a readable/SEO URL — e.g.
+  // /anime/watch/178754/kaijuu-8-gou-2nd-season?num=8. Falls back to "watch"
+  // when the title hasn't resolved yet so the URL is never empty.
+  const watchSlug = slugifyTitle(info?.title) || "watch";
   const watchUrl = info
-    ? `/en/anime/watch/${info.id}/megaplay?id=megaplay-${info.id}-${
+    ? `/en/anime/watch/${info.id}/${watchSlug}?id=megaplay-${info.id}-${
         Math.max(1, progress + 1)
       }&num=${Math.max(1, progress + 1)}`
     : undefined;
