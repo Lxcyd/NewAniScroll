@@ -91,37 +91,56 @@ async function tmdbFetch(path: string, params: Record<string, string> = {}) {
   }
 }
 
+/** A resolved TMDB target for an AniList entry.
+ *   - `{ tvId, seasonNumbers: [n] }`  — one TMDB season (a sequel AniList entry
+ *     that maps onto a single TMDB season, e.g. AoT S2 → TMDB season 2).
+ *   - `{ tvId, seasonNumbers: [1,2,…] }` — every TMDB season, concatenated, for
+ *     a single AniList entry that spans the whole TMDB show (One Piece: one
+ *     AniList id, but TMDB splits it into many sagas). */
+type TmdbTarget = { tvId: number; seasonNumbers: number[] };
+
+/** Strip "Season N / Part N / Cour N / Nth Season" so a sequel AniList title
+ *  still matches the parent TMDB show (TMDB has no separate "… Season 2" entry,
+ *  it's one show with multiple seasons). */
+function stripSeasonSuffix(t: string): string {
+  return t
+    .replace(/\b(season|part|cour|saison)\s*\d+\b/gi, "")
+    .replace(/\b\d+(st|nd|rd|th)\s+season\b/gi, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
 /**
- * Resolve { tvId, seasonNumber } for an AniList season. Cached per AniList id.
- * Returns null when no confident TMDB match exists.
+ * Resolve which TMDB show + season(s) an AniList entry maps to. Cached per
+ * AniList id. Returns null when no confident TMDB match exists.
  */
-async function resolveTmdbSeason(
-  input: ResolveInput,
-): Promise<{ tvId: number; seasonNumber: number } | null> {
-  const cacheKey = `tmdb:map:v1:${input.aniId}`;
-  const cached = await getJson<{ tvId: number; seasonNumber: number } | null>(cacheKey);
+async function resolveTmdbTarget(input: ResolveInput): Promise<TmdbTarget | null> {
+  const cacheKey = `tmdb:map:v2:${input.aniId}`;
+  const cached = await getJson<TmdbTarget | null>(cacheKey);
   if (cached !== null) return cached;
 
-  const queries = [input.title?.english, input.title?.romaji]
+  const raw = [input.title?.english, input.title?.romaji]
     .map((s) => (s || "").trim())
     .filter(Boolean);
+  // Try the stripped form too so "Attack on Titan Season 2" → "Attack on Titan".
+  const queries = Array.from(
+    new Set([...raw, ...raw.map(stripSeasonSuffix)].filter(Boolean)),
+  );
   if (queries.length === 0) {
     await setJson(cacheKey, null, TTL_MISS_S);
     return null;
   }
 
-  // 1. Find the TV show.
+  // 1. Find the TV show. IMPORTANT: do NOT filter the search by year — a sequel
+  //    season's year (e.g. AoT S2 = 2017) would exclude the parent TMDB show,
+  //    whose first_air_date is season 1's year (2013). Year is used only to pick
+  //    the right season below.
   let tvId: number | null = null;
   let showSeasons: any[] = [];
   for (const q of queries) {
-    const search = await tmdbFetch("/search/tv", {
-      query: q,
-      include_adult: "false",
-      ...(input.year ? { first_air_date_year: String(input.year) } : {}),
-    });
+    const search = await tmdbFetch("/search/tv", { query: q, include_adult: "false" });
     const results: any[] = search?.results || [];
     if (results.length === 0) continue;
-    // Prefer an exact-ish name match; otherwise the most popular result.
     const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "");
     const nq = norm(q);
     const exact = results.find(
@@ -135,7 +154,7 @@ async function resolveTmdbSeason(
     showSeasons = (details.seasons || []).filter(
       (s: any) => s.season_number >= 1, // skip "Specials" (season 0)
     );
-    break;
+    if (showSeasons.length > 0) break;
   }
 
   if (!tvId || showSeasons.length === 0) {
@@ -143,8 +162,36 @@ async function resolveTmdbSeason(
     return null;
   }
 
-  // 2. Pick the TMDB season that best matches this AniList entry.
-  //    Priority: air-year match → episode-count match → fewest-difference.
+  const totalTmdbEps = showSeasons.reduce(
+    (sum, s) => sum + (s.episode_count || 0),
+    0,
+  );
+
+  // SPAN-ALL case: one AniList entry that covers the whole TMDB show. We detect
+  // it when AniList gives no episode count, or a count that clearly exceeds the
+  // biggest single TMDB season and reaches across the show (One Piece: one id,
+  // ~1000+ eps, TMDB split into 60-100-ep sagas). Concatenate every season.
+  const biggestSeason = Math.max(
+    ...showSeasons.map((s) => s.episode_count || 0),
+    0,
+  );
+  const spanAll =
+    showSeasons.length > 1 &&
+    (input.episodeCount == null ||
+      input.episodeCount > biggestSeason * 1.5) &&
+    (input.episodeCount == null || input.episodeCount <= totalTmdbEps * 1.2);
+
+  if (spanAll) {
+    const out: TmdbTarget = {
+      tvId,
+      seasonNumbers: showSeasons.map((s) => s.season_number).sort((a, b) => a - b),
+    };
+    await setJson(cacheKey, out, TTL_OK_S);
+    return out;
+  }
+
+  // SINGLE-SEASON case: pick the TMDB season that best matches this AniList
+  // entry. Priority: air-year match → episode-count match → fewest-difference.
   let best: { season_number: number; score: number } | null = null;
   for (const sn of showSeasons) {
     let score = 0;
@@ -159,23 +206,29 @@ async function resolveTmdbSeason(
     }
   }
 
-  // If the show has exactly one season, always use it.
   const seasonNumber =
     showSeasons.length === 1 ? showSeasons[0].season_number : best?.season_number;
-
   if (seasonNumber == null) {
     await setJson(cacheKey, null, TTL_MISS_S);
     return null;
   }
 
-  const out = { tvId, seasonNumber };
+  const out: TmdbTarget = { tvId, seasonNumbers: [seasonNumber] };
   await setJson(cacheKey, out, TTL_OK_S);
   return out;
 }
 
+const toScore = (v: unknown): number | null =>
+  // TMDB returns 0 for "no votes" — treat that as unrated (null).
+  typeof v === "number" && v > 0 ? Math.round(v * 10) / 10 : null;
+
 /**
- * Per-episode scores for one AniList season. Never throws; returns
+ * Per-episode scores for one AniList entry. Never throws; returns
  * { source: "none", episodes: [] } when TMDB is unavailable / unmatched.
+ *
+ * For a span-all target (One Piece), every TMDB season is fetched and the
+ * episodes are renumbered into a single continuous 1..N sequence so they line
+ * up with AniList's flat episode numbering.
  */
 export async function getSeasonEpisodeScores(
   input: ResolveInput,
@@ -183,37 +236,47 @@ export async function getSeasonEpisodeScores(
   const empty: SeasonScores = { aniId: input.aniId, episodes: [], source: "none" };
   if (!TMDB_KEY) return empty;
 
-  const cacheKey = `tmdb:eps:v1:${input.aniId}`;
+  const cacheKey = `tmdb:eps:v2:${input.aniId}`;
   const cached = await getJson<SeasonScores>(cacheKey);
   if (cached) return cached;
 
-  const map = await resolveTmdbSeason(input);
-  if (!map) {
+  const target = await resolveTmdbTarget(input);
+  if (!target) {
     await setJson(cacheKey, empty, TTL_MISS_S);
     return empty;
   }
 
-  const season = await tmdbFetch(`/tv/${map.tvId}/season/${map.seasonNumber}`);
-  const episodes: any[] = season?.episodes || [];
+  const episodes: EpisodeScore[] = [];
+  if (target.seasonNumbers.length === 1) {
+    // Single season — keep TMDB's own episode numbers.
+    const season = await tmdbFetch(
+      `/tv/${target.tvId}/season/${target.seasonNumbers[0]}`,
+    );
+    for (const e of season?.episodes || []) {
+      episodes.push({ number: Number(e.episode_number), score: toScore(e.vote_average) });
+    }
+  } else {
+    // Span-all — concatenate every season into one continuous 1..N run so the
+    // numbers match AniList's flat per-show episode count.
+    let running = 0;
+    for (const sn of target.seasonNumbers) {
+      const season = await tmdbFetch(`/tv/${target.tvId}/season/${sn}`);
+      const eps: any[] = season?.episodes || [];
+      // Order by TMDB's own episode number so the running index stays correct.
+      eps.sort((a, b) => (a.episode_number || 0) - (b.episode_number || 0));
+      for (const e of eps) {
+        running += 1;
+        episodes.push({ number: running, score: toScore(e.vote_average) });
+      }
+    }
+  }
+
   if (episodes.length === 0) {
     await setJson(cacheKey, empty, TTL_MISS_S);
     return empty;
   }
 
-  const result: SeasonScores = {
-    aniId: input.aniId,
-    episodes: episodes.map((e) => ({
-      number: Number(e.episode_number),
-      // TMDB returns 0 for "no votes" — treat that as unrated (null) so the
-      // grid falls back to the season score instead of painting a fake 0.
-      score:
-        typeof e.vote_average === "number" && e.vote_average > 0
-          ? Math.round(e.vote_average * 10) / 10
-          : null,
-    })),
-    source: "tmdb",
-  };
-
+  const result: SeasonScores = { aniId: input.aniId, episodes, source: "tmdb" };
   await setJson(cacheKey, result, TTL_OK_S);
   return result;
 }

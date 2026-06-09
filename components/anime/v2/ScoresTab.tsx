@@ -162,44 +162,14 @@ export default function ScoresTab({ info, seasonList }: Props) {
     });
   }, [seasons, epScores]);
 
-  const maxEpisodes = useMemo(
-    () => Math.max(1, ...seasonsWithCount.map((s) => s.epCount)),
-    [seasonsWithCount],
-  );
+  // Episodes per row in the grid — each row is labelled on the left with its
+  // episode range ("E1–20"). EVERY episode keeps its own cell; this is purely
+  // how the flat episode list wraps into rows.
+  const ROW_SIZE = 20;
 
-  const BAND_THRESHOLD = 30;
-  const banded = maxEpisodes > BAND_THRESHOLD;
-
-  const bandSize = useMemo(() => {
-    if (!banded) return 1;
-    const targetBands = 14;
-    const raw = Math.ceil(maxEpisodes / targetBands);
-    const steps = [5, 10, 25, 50, 100, 200, 500];
-    return steps.find((step) => step >= raw) || raw;
-  }, [banded, maxEpisodes]);
-
-  const rowCount = banded ? Math.ceil(maxEpisodes / bandSize) : maxEpisodes;
-
-  // Resolve a cell's score.
-  //   - Per-episode mode: the real TMDB score when present, else null. A null
-  //     means the episode isn't aired yet or has no community rating — the cell
-  //     renders GRAY ("—") so it's clearly "not rated", never a stand-in number.
-  //   - Banded mode: the season average (per-episode detail isn't meaningful at
-  //     that zoom; bands summarise a whole range).
-  const cellScore = (
-    season: (typeof seasonsWithCount)[number],
-    rowIdx: number,
-  ): number | null => {
-    if (banded) return season.seasonScore;
-    const epNum = rowIdx + 1;
-    const perEp = epScores.get(season.id)?.get(epNum);
-    return perEp != null ? perEp : null;
-  };
-
-  // Header average. Prefer the mean of the real per-episode (TMDB) scores that
-  // are actually painted; if none exist (no key / no match / nothing aired yet)
-  // fall back to the mean of the season averages so the header still shows a
-  // meaningful number instead of disappearing.
+  // Header average — mean of the real per-episode (TMDB) scores actually shown.
+  // Falls back to the mean of season averages when no per-episode data exists
+  // (no key / no match / nothing aired yet) so the header never disappears.
   const overall = useMemo(() => {
     const epVals: number[] = [];
     for (const season of seasonsWithCount) {
@@ -217,12 +187,9 @@ export default function ScoresTab({ info, seasonList }: Props) {
     return Math.round((pool.reduce((a, b) => a + b, 0) / pool.length) * 10) / 10;
   }, [seasonsWithCount, epScores]);
 
-  const rowLabel = (i: number) => {
-    if (!banded) return `E${i + 1}`;
-    const from = i * bandSize + 1;
-    const to = Math.min((i + 1) * bandSize, maxEpisodes);
-    return from === to ? `E${from}` : `E${from}–${to}`;
-  };
+  // Show a per-season heading only when there's more than one season; a single
+  // season doesn't need its own "S1" label above the grid.
+  const multiSeason = seasonsWithCount.length > 1;
 
   return (
     <div style={s.root}>
@@ -249,54 +216,59 @@ export default function ScoresTab({ info, seasonList }: Props) {
         ))}
       </div>
 
-      <div style={s.scroller}>
-        <table style={s.table} className="mono">
-          <thead>
-            <tr>
-              <th style={{ ...s.th, ...s.rowHeadCell }} />
-              {seasonsWithCount.map((season) => (
-                <th key={season.id} style={s.th}>
-                  S{season.number}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {Array.from({ length: rowCount }).map((_, rowIdx) => (
-              <tr key={rowIdx}>
-                <td style={s.rowHead}>{rowLabel(rowIdx)}</td>
-                {seasonsWithCount.map((season) => {
-                  const seasonRows = banded
-                    ? Math.ceil(season.epCount / bandSize)
-                    : season.epCount;
-                  if (rowIdx >= seasonRows) {
-                    return <td key={season.id} style={s.cellEmpty} />;
-                  }
-                  const score = cellScore(season, rowIdx);
-                  const tier = tierFor(score);
-                  return (
-                    <td key={season.id} style={s.cellWrap}>
-                      <span
-                        style={{
-                          ...s.cell,
-                          background: tier.color,
-                          color: tier.text,
-                          // Keep the white number legible on the lighter tiers
-                          // (yellow/green); skip the shadow on the grey "—".
-                          ...(score != null
-                            ? { textShadow: "0 1px 2px rgba(0,0,0,0.45)" }
-                            : null),
-                        }}
-                      >
-                        {score != null ? score.toFixed(1) : "—"}
-                      </span>
-                    </td>
-                  );
-                })}
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <div style={s.seasons}>
+        {seasonsWithCount.map((season) => {
+          const epMap = epScores.get(season.id);
+          const rows = Math.ceil(season.epCount / ROW_SIZE);
+          return (
+            <section key={season.id} style={s.seasonBlock}>
+              {multiSeason && (
+                <div style={s.seasonHead}>
+                  <span style={s.seasonName}>S{season.number}</span>
+                  {season.seasonScore != null && (
+                    <span style={s.seasonAvg} className="mono">
+                      ★ {season.seasonScore.toFixed(1)}
+                    </span>
+                  )}
+                </div>
+              )}
+              {Array.from({ length: rows }).map((_, rowIdx) => {
+                const from = rowIdx * ROW_SIZE + 1;
+                const to = Math.min((rowIdx + 1) * ROW_SIZE, season.epCount);
+                return (
+                  <div key={rowIdx} style={s.epRow}>
+                    <span style={s.epRowLabel}>
+                      {from === to ? `E${from}` : `E${from}–${to}`}
+                    </span>
+                    <div style={s.epRowCells}>
+                      {Array.from({ length: to - from + 1 }).map((__, i) => {
+                        const epNum = from + i;
+                        const score = epMap?.get(epNum) ?? null;
+                        const tier = tierFor(score);
+                        return (
+                          <span
+                            key={epNum}
+                            title={`${t("common.episode")} ${epNum}`}
+                            style={{
+                              ...s.cell,
+                              background: tier.color,
+                              color: tier.text,
+                              ...(score != null
+                                ? { textShadow: "0 1px 2px rgba(0,0,0,0.45)" }
+                                : null),
+                            }}
+                          >
+                            {score != null ? score.toFixed(1) : "—"}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </section>
+          );
+        })}
       </div>
 
       <p style={s.footnote}>{t("anime.scoreGridNote")}</p>
@@ -354,46 +326,53 @@ const s: Record<string, CSSProperties> = {
   legendItem: { display: "flex", alignItems: "center", gap: 6 },
   legendDot: { width: 11, height: 11, borderRadius: "50%", display: "inline-block" },
   legendLabel: { fontSize: 12, color: "var(--txt-2)" },
-  scroller: {
-    overflowX: "auto",
+  seasons: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 18,
+    padding: 16,
     borderRadius: 12,
     border: "1px solid var(--line)",
     background: "var(--bg-1)",
   },
-  table: {
-    borderCollapse: "separate",
-    borderSpacing: 6,
-    margin: "4px auto",
-    minWidth: "max-content",
+  seasonBlock: { display: "flex", flexDirection: "column", gap: 6 },
+  seasonHead: {
+    display: "flex",
+    alignItems: "baseline",
+    gap: 8,
+    marginBottom: 2,
   },
-  th: {
-    fontSize: 13,
-    fontWeight: 700,
-    color: "var(--txt-1)",
-    padding: "4px 8px",
-    textAlign: "center",
-    minWidth: 56,
-  },
-  rowHeadCell: { minWidth: 52 },
-  rowHead: {
-    fontSize: 12,
+  seasonName: { fontSize: 14, fontWeight: 800, color: "var(--txt-0)" },
+  seasonAvg: { fontSize: 12, fontWeight: 600, color: "var(--txt-3)" },
+  // One row of the grid: a fixed-width range label on the left, then the
+  // episode cells flowing to the right. The label column is fixed so every
+  // row's cells line up vertically into clean columns.
+  epRow: { display: "flex", alignItems: "center", gap: 10 },
+  epRowLabel: {
+    flex: "0 0 auto",
+    width: 76,
+    textAlign: "right",
+    fontSize: 11.5,
     fontWeight: 600,
     color: "var(--txt-2)",
-    textAlign: "right",
-    paddingRight: 8,
     whiteSpace: "nowrap",
   },
-  cellWrap: { padding: 0 },
+  epRowCells: {
+    display: "grid",
+    gridTemplateColumns: "repeat(20, minmax(0, 1fr))",
+    gap: 5,
+    flex: 1,
+    minWidth: 0,
+  },
   cell: {
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    minWidth: 56,
-    height: 34,
-    borderRadius: 7,
-    fontSize: 14,
+    minWidth: 0,
+    height: 30,
+    borderRadius: 6,
+    fontSize: 12.5,
     fontWeight: 700,
   },
-  cellEmpty: { minWidth: 56 },
   footnote: { fontSize: 11.5, color: "var(--txt-3)", lineHeight: 1.5 },
 };
