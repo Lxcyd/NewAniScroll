@@ -166,6 +166,33 @@ export default function Info({
   // per-user bits straight from AniList here (browser → AniList, zero Vercel
   // cost) and let the heart fill in with the pop animation in Hero when `fav`
   // flips false→true. Anonymous visitors skip this entirely.
+  //
+  // Perceived latency: the AniList round-trip can take a beat, so the button
+  // would sit on its "…" placeholder for a moment on every visit. We cache the
+  // resolved per-user bits in sessionStorage (short TTL) keyed by aniId and
+  // seed state from it SYNCHRONOUSLY on mount — so a revisit / SPA navigation
+  // shows the real status instantly while the fetch below just refreshes it.
+  const USER_STATE_TTL_MS = 5 * 60 * 1000;
+  useEffect(() => {
+    const aniId = Number(info?.id);
+    if (!session?.user?.token || !Number.isFinite(aniId)) return;
+    try {
+      const raw = sessionStorage.getItem(`aniscroll.userState.${aniId}`);
+      if (raw) {
+        const c = JSON.parse(raw);
+        if (c && Date.now() - c.ts < USER_STATE_TTL_MS) {
+          setProgress(Number(c.progress) || 0);
+          setStatusLabel(c.status ?? null);
+          setFav(c.fav === true);
+          setStatusResolved(true); // show cached value immediately; refresh in bg
+        }
+      }
+    } catch {
+      /* sessionStorage disabled — fall through to the network fetch */
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [info?.id, session?.user?.token]);
+
   useEffect(() => {
     const token = session?.user?.token;
     const aniId = Number(info?.id);
@@ -191,9 +218,19 @@ export default function Info({
         if (cancelled) return;
         const media = json?.data?.Media;
         if (!media) return;
-        setProgress(Number(media.mediaListEntry?.progress) || 0);
-        setStatusLabel(media.mediaListEntry?.status ?? null);
-        setFav(media.isFavourite === true);
+        const nextProgress = Number(media.mediaListEntry?.progress) || 0;
+        const nextStatus = media.mediaListEntry?.status ?? null;
+        const nextFav = media.isFavourite === true;
+        setProgress(nextProgress);
+        setStatusLabel(nextStatus);
+        setFav(nextFav);
+        // Cache for instant display on the next visit / SPA navigation.
+        try {
+          sessionStorage.setItem(
+            `aniscroll.userState.${aniId}`,
+            JSON.stringify({ progress: nextProgress, status: nextStatus, fav: nextFav, ts: Date.now() }),
+          );
+        } catch {}
       } catch {
         /* best-effort — heart just stays empty on failure */
       } finally {

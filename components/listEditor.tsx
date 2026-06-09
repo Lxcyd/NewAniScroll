@@ -247,6 +247,14 @@ const ListEditor: React.FC<ListEditorProps> = ({
     }
   };
 
+  // Drop the cached per-user state for this anime so the post-reload info page
+  // doesn't briefly seed the button from a now-stale sessionStorage entry.
+  const invalidateUserStateCache = () => {
+    try {
+      sessionStorage.removeItem(`aniscroll.userState.${animeId}`);
+    } catch {}
+  };
+
   // Delete the user's entry for this media (used by "Remove from list" and by
   // saving with status = "Not in list"). No-op when the anime isn't on the
   // list. Returns true on success.
@@ -280,6 +288,7 @@ const ListEditor: React.FC<ListEditorProps> = ({
       return;
     }
     toast.success(t("listEditor.removed"));
+    invalidateUserStateCache();
     close();
     setTimeout(() => router.reload(), 800);
   };
@@ -298,6 +307,7 @@ const ListEditor: React.FC<ListEditorProps> = ({
         return;
       }
       toast.success(entryId ? t("listEditor.removed") : t("listEditor.saved"));
+      invalidateUserStateCache();
       close();
       setTimeout(() => router.reload(), 800);
       return;
@@ -342,6 +352,7 @@ const ListEditor: React.FC<ListEditorProps> = ({
         return;
       }
       toast.success(t("listEditor.saved"));
+      invalidateUserStateCache();
       close();
       setTimeout(() => router.reload(), 800);
     } catch (e) {
