@@ -1043,19 +1043,37 @@ function MOverview({
   );
 }
 
+// Inherently full-colour brand icons we must never tint to a single colour.
+const M_COLORFUL_ICON_SITES = new Set(
+  [
+    "AlphaPolis", "Bandai Channel", "Carlsen Manga!", "Disney Plus", "Disney+",
+    "Gau Gau", "Kana", "Manman Manhua", "Pixiv", "Renta!", "SuBLime",
+    "Tencent Comics", "Viki", "WeComics",
+  ].map((s) => s.toLowerCase()),
+);
+
 /* ─── External-site logo ──────────────────────────────────────
-   Shows the real site icon (AniList-supplied `icon`, else a Google
-   favicon lookup), falling back to the coloured letter on load error. */
+   AniList serves a (mostly white, monochrome) `icon` for known links. We
+   recolour it to the brand colour via a CSS mask — unless it's a full-colour
+   brand (Disney+, Viki, …) or a favicon fallback, which render as-is. No icon /
+   load error → a brand-coloured play-button glyph. Mirrors the reference
+   project's AnimeDetailPopup icon logic and the desktop SiteLogo. */
 function MSiteLogo({ site, color }: { site: any; color: string }) {
   const [failed, setFailed] = useState(false);
   let icon: string | null = site.icon || null;
+  let monochrome = !!site.icon; // AniList icon → monochrome glyph
   if (!icon && site.url) {
     try {
       icon = `https://www.google.com/s2/favicons?domain=${new URL(site.url).hostname}&sz=64`;
+      monochrome = false; // favicon is full colour
     } catch {
       icon = null;
     }
   }
+  const recolor =
+    monochrome && !M_COLORFUL_ICON_SITES.has((site.site || "").toLowerCase());
+  const hasIcon = !!icon && !failed;
+
   return (
     <div
       style={{
@@ -1072,19 +1090,63 @@ function MSiteLogo({ site, color }: { site: any; color: string }) {
         overflow: "hidden",
       }}
     >
-      {icon && !failed ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={icon}
-          alt=""
-          width={18}
-          height={18}
-          loading="lazy"
-          style={{ width: 18, height: 18, objectFit: "contain", borderRadius: 4 }}
-          onError={() => setFailed(true)}
-        />
+      {hasIcon ? (
+        !recolor ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={icon as string}
+            alt=""
+            width={18}
+            height={18}
+            loading="lazy"
+            style={{ width: 18, height: 18, objectFit: "contain", borderRadius: 4 }}
+            onError={() => setFailed(true)}
+          />
+        ) : (
+          <>
+            <span
+              aria-hidden
+              style={{
+                width: 18,
+                height: 18,
+                display: "block",
+                backgroundColor: color,
+                WebkitMaskImage: `url(${icon})`,
+                maskImage: `url(${icon})`,
+                WebkitMaskRepeat: "no-repeat",
+                maskRepeat: "no-repeat",
+                WebkitMaskPosition: "center",
+                maskPosition: "center",
+                WebkitMaskSize: "contain",
+                maskSize: "contain",
+              }}
+            />
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={icon as string}
+              alt=""
+              width={0}
+              height={0}
+              loading="lazy"
+              style={{ display: "none" }}
+              onError={() => setFailed(true)}
+            />
+          </>
+        )
       ) : (
-        (site.site || "?").charAt(0).toUpperCase()
+        <svg
+          width="15"
+          height="15"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke={color}
+          strokeWidth={2}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <rect x="2" y="2" width="20" height="20" rx="4" />
+          <polygon points="10,8 16,12 10,16" fill={color} stroke="none" />
+        </svg>
       )}
     </div>
   );

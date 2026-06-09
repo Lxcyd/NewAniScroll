@@ -537,7 +537,18 @@ function buildDetails(
   ];
 }
 
-type SiteRow = { id: string; name: string; url: string; color: string; initial: string; icon?: string | null };
+type SiteRow = {
+  id: string;
+  name: string;
+  url: string;
+  color: string;
+  initial: string;
+  icon?: string | null;
+  /** True when `icon` is a white/monochrome glyph that should be recoloured to
+   *  the brand colour (AniList's external-link icons). Full-colour icons
+   *  (favicons, our canonical AniList/MAL logos) set this false. */
+  monochrome?: boolean;
+};
 
 function buildSites(info: AniListInfoTypes): SiteRow[] {
   const out: SiteRow[] = [];
@@ -576,41 +587,124 @@ function buildSites(info: AniListInfoTypes): SiteRow[] {
       url: link.url,
       color: link.color || colorBySite(link.site),
       initial: (link.site[0] || "?").toUpperCase(),
+      // AniList's own icon is a white monochrome glyph (recolour it); the
+      // favicon fallback is a full-colour image (leave it alone).
       icon: link.icon || faviconFor(link.url),
+      monochrome: !!link.icon,
     });
   }
   return out;
 }
 
-/** Site logo badge: shows the real site icon when available, falling back to
- *  the coloured letter on a load error (broken/blocked favicon). */
+// Sites whose AniList icon is a FULL-COLOUR logo we must not recolour — tinting
+// these to a single brand colour would destroy their multi-colour branding.
+// (Ported from the reference project's _colorfulIconSites / _neverRecolorSites.)
+const COLORFUL_ICON_SITES = new Set(
+  [
+    "AlphaPolis", "Bandai Channel", "Carlsen Manga!", "Disney Plus", "Disney+",
+    "Gau Gau", "Kana", "Manman Manhua", "Pixiv", "Renta!", "SuBLime",
+    "Tencent Comics", "Viki", "WeComics",
+  ].map((s) => s.toLowerCase()),
+);
+
+/**
+ * Site logo badge.
+ *
+ * AniList serves a (mostly white, monochrome) `icon` for known external links.
+ * Following the reference project's logic, we recolour that monochrome icon to
+ * the site's brand colour with a CSS mask — so a white-on-white logo becomes a
+ * crisp brand-coloured glyph — UNLESS the icon is one of the inherently
+ * full-colour ones (COLORFUL_ICON_SITES), which render unchanged. When there's
+ * no icon (or it fails to load) we fall back to a brand-coloured play-button
+ * SVG rather than a bare letter.
+ */
 function SiteLogo({ site }: { site: SiteRow }) {
   const [failed, setFailed] = useState(false);
-  const showIcon = site.icon && !failed;
+  const color = site.color || "#7ec8ff";
+  const hasIcon = !!site.icon && !failed;
+  // Recolour only monochrome AniList glyphs, and never the inherently
+  // full-colour brands (Disney+, Viki, …) or full-colour favicons.
+  const recolor = site.monochrome && !COLORFUL_ICON_SITES.has(site.name.toLowerCase());
+
   return (
     <div
       style={{
         ...tStyles.siteLogo,
-        background: site.color + "22",
-        color: site.color,
+        background: color + "22",
+        color,
         overflow: "hidden",
       }}
     >
-      {showIcon ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={site.icon as string}
-          alt=""
-          width={20}
-          height={20}
-          loading="lazy"
-          style={{ width: 20, height: 20, objectFit: "contain", borderRadius: 4 }}
-          onError={() => setFailed(true)}
-        />
+      {hasIcon ? (
+        !recolor ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={site.icon as string}
+            alt=""
+            width={20}
+            height={20}
+            loading="lazy"
+            style={{ width: 20, height: 20, objectFit: "contain", borderRadius: 4 }}
+            onError={() => setFailed(true)}
+          />
+        ) : (
+          // Monochrome icon → paint it the brand colour via a mask. A hidden
+          // <img> with the same src drives onError so a broken icon still falls
+          // back to the SVG glyph below.
+          <>
+            <span
+              aria-hidden
+              style={{
+                width: 20,
+                height: 20,
+                display: "block",
+                backgroundColor: color,
+                WebkitMaskImage: `url(${site.icon})`,
+                maskImage: `url(${site.icon})`,
+                WebkitMaskRepeat: "no-repeat",
+                maskRepeat: "no-repeat",
+                WebkitMaskPosition: "center",
+                maskPosition: "center",
+                WebkitMaskSize: "contain",
+                maskSize: "contain",
+              }}
+            />
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={site.icon as string}
+              alt=""
+              width={0}
+              height={0}
+              loading="lazy"
+              style={{ display: "none" }}
+              onError={() => setFailed(true)}
+            />
+          </>
+        )
       ) : (
-        site.initial
+        <PlayBadge color={color} />
       )}
     </div>
+  );
+}
+
+/** Brand-coloured play-button glyph — the icon fallback used when a site has
+ *  no usable logo (matches the reference project's SVG fallback). */
+function PlayBadge({ color }: { color: string }) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke={color}
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <rect x="2" y="2" width="20" height="20" rx="4" />
+      <polygon points="10,8 16,12 10,16" fill={color} stroke="none" />
+    </svg>
   );
 }
 

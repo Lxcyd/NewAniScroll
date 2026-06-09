@@ -1,6 +1,5 @@
 import { rateLimiterRedis, redis } from "@/lib/redis";
 import * as cheerio from "cheerio";
-import { ANIME } from "@consumet/extensions";
 import { getExtractor, extractMegaplay } from "@/lib/extractors";
 import { getMediaMeta, primeMediaCache } from "@/lib/anilist/getMediaMeta";
 
@@ -1466,10 +1465,11 @@ async function findVoiranimeSlug(title, aniId, isVF, seasonNum) {
   return null;
 }
 
-// â”€â”€ Consumet providers (AnimeSaturn, AnimeUnity) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-const CONSUMET_PROVIDERS = {
-  animesaturn: { cls: ANIME.AnimeSaturn, lang: "sub" },
-};
+// â”€â”€ Consumet providers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// AnimeSaturn was removed at user request; no consumet-backed servers remain.
+// The dispatch below is kept (guarded on an empty map) so re-adding a provider
+// is a one-line change.
+const CONSUMET_PROVIDERS = {};
 
 async function getConsumetStream(providerKey, title, episode, sub) {
   try {

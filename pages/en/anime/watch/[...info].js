@@ -322,7 +322,6 @@ export default function Watch({
     "hianime-vidsrc",
     "hianime-megacloud",
     "hianime-tcloud",
-    "animesaturn",
     "animesama-sibnet",
     "animesama-oneupload",
     "voiranime-voe",
