@@ -67,8 +67,10 @@
   to   { transform: translateY(0);    opacity: 1; }
 }
 @keyframes leModalFadeScale {
-  from { transform: scale(0.96); opacity: 0; }
-  to   { transform: scale(1);    opacity: 1; }
+  /* Fade only — no scale. Scaling up from centre dragged the whole body
+     upward by ~2px as the modal grew, which read as a layout jump. */
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
 
 /* Header — banner + gradient stay fully within bounds (no negative overhang),

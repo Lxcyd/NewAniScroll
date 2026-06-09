@@ -641,7 +641,10 @@ const ListEditor: React.FC<ListEditorProps> = ({
                         className="le-custom-chip-dot"
                         style={{
                           background: color,
-                          boxShadow: on ? `0 0 6px ${color}` : undefined,
+                          // Always glow in the list's colour; brighter when selected.
+                          boxShadow: on
+                            ? `0 0 8px ${color}, 0 0 3px ${color}`
+                            : `0 0 6px ${color}`,
                         }}
                       />
                       {name}
