@@ -268,11 +268,11 @@
 }
 .le-dd-trigger:hover { background: rgba(255, 255, 255, 0.07); }
 
-.le-dd-trigger-current    { border-color: rgba(16, 185, 129, 0.35); color: #86efac; }
+.le-dd-trigger-current    { border-color: rgba(34, 197, 94, 0.35);  color: #86efac; }
 .le-dd-trigger-repeating  { border-color: rgba(6, 182, 212, 0.35);  color: #67e8f9; }
 .le-dd-trigger-completed  { border-color: rgba(59, 130, 246, 0.35); color: #93c5fd; }
 .le-dd-trigger-planning   { border-color: rgba(168, 85, 247, 0.35); color: #d8b4fe; }
-.le-dd-trigger-paused     { border-color: rgba(245, 158, 11, 0.35); color: #fdba74; }
+.le-dd-trigger-paused     { border-color: rgba(249, 115, 22, 0.35); color: #fdba74; }
 .le-dd-trigger-dropped    { border-color: rgba(239, 68, 68, 0.35);  color: #fca5a5; }
 
 .le-dd-trigger-text { flex: 1; }
@@ -286,11 +286,11 @@
 
 .le-dd-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
 .le-dd-dot-none      { background: rgba(255, 255, 255, 0.25); }
-.le-dd-dot-current   { background: #10b981; box-shadow: 0 0 6px rgba(16, 185, 129, 0.7); }
+.le-dd-dot-current   { background: #22c55e; box-shadow: 0 0 6px rgba(34, 197, 94, 0.7); }
 .le-dd-dot-repeating { background: #06b6d4; box-shadow: 0 0 6px rgba(6, 182, 212, 0.7); }
 .le-dd-dot-completed { background: #3b82f6; box-shadow: 0 0 6px rgba(59, 130, 246, 0.7); }
 .le-dd-dot-planning  { background: #a855f7; box-shadow: 0 0 6px rgba(168, 85, 247, 0.7); }
-.le-dd-dot-paused    { background: #f59e0b; box-shadow: 0 0 6px rgba(245, 158, 11, 0.7); }
+.le-dd-dot-paused    { background: #f97316; box-shadow: 0 0 6px rgba(249, 115, 22, 0.7); }
 .le-dd-dot-dropped   { background: #ef4444; box-shadow: 0 0 6px rgba(239, 68, 68, 0.7); }
 
 .le-dd-list {
@@ -334,11 +334,11 @@
 .le-dd-option:hover { background: rgba(255, 255, 255, 0.05); color: white; }
 .le-dd-option-text { flex: 1; }
 .le-dd-option.selected { color: white; }
-.le-dd-option.selected.le-opt-current   { background: rgba(16, 185, 129, 0.08); color: #86efac; }
+.le-dd-option.selected.le-opt-current   { background: rgba(34, 197, 94, 0.08); color: #86efac; }
 .le-dd-option.selected.le-opt-repeating  { background: rgba(6, 182, 212, 0.08);  color: #67e8f9; }
 .le-dd-option.selected.le-opt-completed  { background: rgba(59, 130, 246, 0.08); color: #93c5fd; }
 .le-dd-option.selected.le-opt-planning   { background: rgba(168, 85, 247, 0.08); color: #d8b4fe; }
-.le-dd-option.selected.le-opt-paused     { background: rgba(245, 158, 11, 0.08); color: #fdba74; }
+.le-dd-option.selected.le-opt-paused     { background: rgba(249, 115, 22, 0.08); color: #fdba74; }
 .le-dd-option.selected.le-opt-dropped    { background: rgba(239, 68, 68, 0.08);  color: #fca5a5; }
 
 /* Score / Episode / Rewatch controls */
