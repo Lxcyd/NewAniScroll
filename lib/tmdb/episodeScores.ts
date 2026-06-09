@@ -257,13 +257,19 @@ export async function getSeasonEpisodeScores(
     }
   } else {
     // Span-all — concatenate every season into one continuous 1..N run so the
-    // numbers match AniList's flat per-show episode count.
+    // numbers match AniList's flat per-show episode count. Fetch the seasons in
+    // PARALLEL (a long show can have 20+ TMDB seasons; doing them sequentially
+    // would blow the serverless time budget), then stitch them in season order.
+    const seasonData = await Promise.all(
+      target.seasonNumbers.map(async (sn) => {
+        const season = await tmdbFetch(`/tv/${target.tvId}/season/${sn}`);
+        const eps: any[] = season?.episodes || [];
+        eps.sort((a, b) => (a.episode_number || 0) - (b.episode_number || 0));
+        return eps;
+      }),
+    );
     let running = 0;
-    for (const sn of target.seasonNumbers) {
-      const season = await tmdbFetch(`/tv/${target.tvId}/season/${sn}`);
-      const eps: any[] = season?.episodes || [];
-      // Order by TMDB's own episode number so the running index stays correct.
-      eps.sort((a, b) => (a.episode_number || 0) - (b.episode_number || 0));
+    for (const eps of seasonData) {
       for (const e of eps) {
         running += 1;
         episodes.push({ number: running, score: toScore(e.vote_average) });
