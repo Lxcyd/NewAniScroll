@@ -20,6 +20,7 @@ import MobileNav from "@/components/shared/MobileNav";
 import { redis } from "@/lib/redis";
 import { primeMediaCache } from "@/lib/anilist/getMediaMeta";
 import { anilistFetch } from "@/lib/anilist/anilistFetch";
+import { getUserList, peekListEntry, hasUserList, patchListEntry } from "@/lib/anilist/userListCache";
 import { getCachedAnime } from "@/lib/db/anime";
 import { loadFanarts, FanartPayload } from "@/lib/db/fanarts";
 import { resolveSeasonChain, resolveSeasonList, SeasonEntry } from "@/lib/anilist/seasonChain";
@@ -161,43 +162,46 @@ export default function Info({
   }, [info?.id, initialProgress, initialStatusLabel, initialFav, session]);
 
   // Hydrate the signed-in user's heart / progress / list-status CLIENT-side.
-  // The SSR HTML is now identical for everyone (so Vercel edge-caches the page
-  // for logged-in users too — the big invocation/FOT win). We pull the
-  // per-user bits straight from AniList here (browser → AniList, zero Vercel
-  // cost) and let the heart fill in with the pop animation in Hero when `fav`
-  // flips false→true. Anonymous visitors skip this entirely.
-  //
-  // Perceived latency: the AniList round-trip can take a beat, so the button
-  // would sit on its "…" placeholder for a moment on every visit. We cache the
-  // resolved per-user bits in sessionStorage (short TTL) keyed by aniId and
-  // seed state from it SYNCHRONOUSLY on mount — so a revisit / SPA navigation
-  // shows the real status instantly while the fetch below just refreshes it.
-  const USER_STATE_TTL_MS = 5 * 60 * 1000;
-  useEffect(() => {
-    const aniId = Number(info?.id);
-    if (!session?.user?.token || !Number.isFinite(aniId)) return;
-    try {
-      const raw = sessionStorage.getItem(`aniscroll.userState.${aniId}`);
-      if (raw) {
-        const c = JSON.parse(raw);
-        if (c && Date.now() - c.ts < USER_STATE_TTL_MS) {
-          setProgress(Number(c.progress) || 0);
-          setStatusLabel(c.status ?? null);
-          setFav(c.fav === true);
-          setStatusResolved(true); // show cached value immediately; refresh in bg
-        }
-      }
-    } catch {
-      /* sessionStorage disabled — fall through to the network fetch */
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [info?.id, session?.user?.token]);
-
+  // The SSR HTML is identical for everyone (so Vercel edge-caches the page for
+  // logged-in users too). Rather than query AniList per-anime every time an
+  // info page opens (slow, repeated for every anime browsed), we fetch the
+  // user's WHOLE list once per session (lib/anilist/userListCache) and look the
+  // current anime up locally — O(1) map read, no per-page network. A cached
+  // list (mem or sessionStorage) means the right status shows instantly; the
+  // first load of a session pays one full-list fetch, then every subsequent
+  // anime is free. The favourite flag isn't in MediaListCollection, so we read
+  // it from the same lightweight per-anime query only as a side fetch.
   useEffect(() => {
     const token = session?.user?.token;
+    const userName = session?.user?.name;
     const aniId = Number(info?.id);
-    if (!token || !Number.isFinite(aniId)) return;
+    if (!token || !userName || !Number.isFinite(aniId)) return;
     let cancelled = false;
+
+    // 1. Synchronous seed from whatever list is already cached → instant status.
+    const cached = peekListEntry(userName, aniId);
+    if (cached) {
+      setStatusLabel(cached.status ?? null);
+      setProgress(cached.progress || 0);
+      setStatusResolved(true);
+    } else if (hasUserList(userName)) {
+      // List is cached and this anime isn't on it → confirmed "not in list".
+      setStatusLabel(null);
+      setProgress(0);
+      setStatusResolved(true);
+    }
+
+    // 2. Refresh the whole list (cache-aware) and re-read this anime from it.
+    (async () => {
+      const map = await getUserList(userName, token);
+      if (cancelled) return;
+      const e = map.get(aniId);
+      setStatusLabel(e?.status ?? null);
+      setProgress(e?.progress || 0);
+      setStatusResolved(true);
+    })();
+
+    // 3. Favourite is per-media, not in the collection — fetch it separately.
     (async () => {
       try {
         const res = await fetch("https://graphql.anilist.co", {
@@ -208,42 +212,22 @@ export default function Info({
             Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({
-            query:
-              "query ($id: Int) { Media(id: $id) { isFavourite mediaListEntry { progress status } } }",
+            query: "query ($id: Int) { Media(id: $id) { isFavourite } }",
             variables: { id: aniId },
           }),
         });
         if (!res.ok || cancelled) return;
         const json = await res.json();
-        if (cancelled) return;
-        const media = json?.data?.Media;
-        if (!media) return;
-        const nextProgress = Number(media.mediaListEntry?.progress) || 0;
-        const nextStatus = media.mediaListEntry?.status ?? null;
-        const nextFav = media.isFavourite === true;
-        setProgress(nextProgress);
-        setStatusLabel(nextStatus);
-        setFav(nextFav);
-        // Cache for instant display on the next visit / SPA navigation.
-        try {
-          sessionStorage.setItem(
-            `aniscroll.userState.${aniId}`,
-            JSON.stringify({ progress: nextProgress, status: nextStatus, fav: nextFav, ts: Date.now() }),
-          );
-        } catch {}
+        if (!cancelled) setFav(json?.data?.Media?.isFavourite === true);
       } catch {
-        /* best-effort — heart just stays empty on failure */
-      } finally {
-        // Status is now known (real value or confirmed "not in list"): the
-        // button can stop showing its loading placeholder. Always flips so a
-        // network failure doesn't leave the button stuck loading forever.
-        if (!cancelled) setStatusResolved(true);
+        /* heart stays empty on failure */
       }
     })();
+
     return () => {
       cancelled = true;
     };
-  }, [session?.user?.token, info?.id]);
+  }, [session?.user?.token, session?.user?.name, info?.id]);
 
   // ── Prefetch the player for the "Watch" target ───────────────────────
   // Visitors who open an anime page usually go on to watch it, so we warm
@@ -545,6 +529,13 @@ export default function Info({
           max={info?.episodes ?? undefined}
           info={info}
           close={handleClose}
+          onSaved={(next) => {
+            // Apply the edit in place — no full page reload. The editor already
+            // patched the whole-list cache; we just sync the button/progress.
+            setStatusLabel(next.removed ? null : next.status);
+            setProgress(next.progress);
+            setStatusResolved(true);
+          }}
         />
       )}
 

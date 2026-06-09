@@ -540,6 +540,49 @@
 }
 .list-editor-checkbox-row:hover { color: rgba(255, 255, 255, 0.85); }
 
+/* Custom lists — toggle chips. "on" chips use the accent; off chips are muted. */
+.le-custom-lists {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+.le-custom-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 11px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.15s, border-color 0.15s, color 0.15s, transform 0.1s;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.le-custom-chip:hover  { background: rgba(255, 255, 255, 0.08); color: rgba(255, 255, 255, 0.8); }
+.le-custom-chip:active { transform: scale(0.96); }
+.le-custom-chip-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.3);
+  flex-shrink: 0;
+  transition: background 0.15s, box-shadow 0.15s;
+}
+.le-custom-chip.on {
+  background: var(--brand-glow);
+  border-color: var(--brand-primary);
+  color: #fff;
+}
+.le-custom-chip.on .le-custom-chip-dot {
+  background: var(--brand-primary);
+  box-shadow: 0 0 6px var(--brand-glow);
+}
+
 /* Remove-from-list button — shown at the bottom of the body when the anime is
    on the user's list. Red, full-width, with a trash icon. */
 .le-delete-btn {

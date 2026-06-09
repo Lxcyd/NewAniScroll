@@ -1,8 +1,8 @@
 import { useEffect, useState, useCallback, useRef } from "react";
-import { useRouter } from "next/router";
 import { toast } from "sonner";
 import { AniListInfoTypes } from "types/info/AnilistInfoTypes";
 import { useTranslation } from "react-i18next";
+import { peekListEntry, patchListEntry, UserListEntry } from "@/lib/anilist/userListCache";
 
 /**
  * Full list editor — layout/design adapted from the AniScroll reference editor
@@ -27,6 +27,15 @@ interface ListEditorProps {
   max?: number;
   info?: AniListInfoTypes;
   close: () => void;
+  /** Called after a successful save/remove with the new state so the parent can
+   *  update the page in place (no full reload). When omitted the editor just
+   *  closes. */
+  onSaved?: (next: {
+    status: string | null;
+    progress: number;
+    score: number;
+    removed: boolean;
+  }) => void;
 }
 
 type Status = "CURRENT" | "PLANNING" | "COMPLETED" | "DROPPED" | "PAUSED" | "REPEATING";
@@ -91,11 +100,26 @@ const ListEditor: React.FC<ListEditorProps> = ({
   max,
   info = undefined,
   close,
+  onSaved,
 }) => {
   const { t } = useTranslation();
-  const router = useRouter();
   const isAnime = info?.type !== "MANGA";
-  const totalEp = info?.episodes ?? max ?? 0;
+  // Episode total: prefer the AniList `episodes` count, fall back to `max`, then
+  // to the next-airing episode minus one (releasing shows have episodes:null on
+  // AniList until they finish — that's why One Piece showed no "/total"). 0 when
+  // genuinely unknown (the progress bar then just tracks raw progress).
+  const totalEp =
+    info?.episodes ??
+    max ??
+    (info?.nextAiringEpisode?.episode
+      ? info.nextAiringEpisode.episode - 1
+      : 0) ??
+    0;
+
+  // Names of the user's AniList custom lists (synced into the session at login).
+  const availableCustomLists: string[] = Array.isArray(session?.user?.list)
+    ? session.user.list
+    : [];
 
   // null = "not in list". We do NOT seed from the caller's `stats` prop: that
   // value comes from the info page's own (sometimes stale / not-yet-resolved)
@@ -113,6 +137,8 @@ const ListEditor: React.FC<ListEditorProps> = ({
   const [isPrivate, setIsPrivate] = useState<boolean>(false);
   const [notes, setNotes] = useState<string>("");
   const [favorited, setFavorited] = useState<boolean>(false);
+  // Names of the custom lists this entry is currently on (toggled by chips).
+  const [customLists, setCustomLists] = useState<string[]>([]);
 
   const [statusOpen, setStatusOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -124,12 +150,41 @@ const ListEditor: React.FC<ListEditorProps> = ({
   const ddRef = useRef<HTMLDivElement>(null);
 
   // ── Prefill from the user's existing AniList entry ───────────────
-  // The info-page only carries { progress status repeat }, so we fetch the
-  // full entry (score, dates, private, hidden, notes, favourite) on open.
+  // We seed SYNCHRONOUSLY from the whole-list cache (lib/anilist/userListCache)
+  // so every field — including the score / episode progress bars — is already
+  // correct on the first paint instead of animating up from 0 when the modal
+  // opens. We then refresh from a full per-entry query (the cache omits a couple
+  // of fields the editor uses) to pick up anything stale.
+  const seedFromEntry = useCallback((e: Partial<UserListEntry> | null | undefined) => {
+    if (e && (e.status || e.id)) {
+      setEntryId(typeof e.id === "number" ? e.id : null);
+      setStatus((e.status as Status) ?? null);
+      setScore(typeof e.score === "number" ? e.score! : 0);
+      setProgress(typeof e.progress === "number" ? e.progress! : 0);
+      setRewatches(typeof e.repeat === "number" ? e.repeat! : 0);
+      setHideFromLists(!!e.hiddenFromStatusLists);
+      setIsPrivate(!!e.private);
+      setNotes(e.notes || "");
+      setStartDate(fuzzyToInput(e.startedAt));
+      setFinishDate(fuzzyToInput(e.completedAt));
+      setCustomLists(Array.isArray(e.customLists) ? e.customLists : []);
+    } else {
+      // Genuinely NOT in the list — force the authoritative "not in list" state.
+      setEntryId(null);
+      setStatus(null);
+    }
+  }, []);
+
   useEffect(() => {
     const token = session?.user?.token;
+    const userName = session?.user?.name;
     if (!token || !animeId) return;
     let cancelled = false;
+
+    // 1. Instant seed from the cached whole-list entry (no network).
+    if (userName) seedFromEntry(peekListEntry(userName, animeId));
+
+    // 2. Authoritative refresh — full per-entry query (customLists included).
     (async () => {
       try {
         const res = await fetch("https://graphql.anilist.co/", {
@@ -144,7 +199,7 @@ const ListEditor: React.FC<ListEditorProps> = ({
                 isFavourite
                 mediaListEntry {
                   id status score(format: POINT_10_DECIMAL) progress repeat
-                  private hiddenFromStatusLists notes
+                  private hiddenFromStatusLists notes customLists
                   startedAt { year month day }
                   completedAt { year month day }
                 }
@@ -158,32 +213,22 @@ const ListEditor: React.FC<ListEditorProps> = ({
         const media = json?.data?.Media;
         const e = media?.mediaListEntry;
         setFavorited(media?.isFavourite === true);
-        if (e) {
-          setEntryId(typeof e.id === "number" ? e.id : null);
-          setStatus((e.status as Status) ?? null);
-          setScore(typeof e.score === "number" ? e.score : 0);
-          setProgress(typeof e.progress === "number" ? e.progress : 0);
-          setRewatches(typeof e.repeat === "number" ? e.repeat : 0);
-          setHideFromLists(!!e.hiddenFromStatusLists);
-          setIsPrivate(!!e.private);
-          setNotes(e.notes || "");
-          setStartDate(fuzzyToInput(e.startedAt));
-          setFinishDate(fuzzyToInput(e.completedAt));
-        } else {
-          // No entry → the anime is genuinely NOT in the user's list. Force the
-          // authoritative "not in list" state so a stale page status can't leave
-          // the editor showing e.g. "Watching".
-          setEntryId(null);
-          setStatus(null);
-        }
+        // customLists arrives as { name: bool } — flatten to enabled names.
+        const cl =
+          e?.customLists && typeof e.customLists === "object"
+            ? Object.entries(e.customLists)
+                .filter(([, v]) => v === true)
+                .map(([k]) => k)
+            : [];
+        seedFromEntry(e ? { ...e, customLists: cl } : null);
       } catch {
-        /* prefill is best-effort — the safe "not in list" default already set */
+        /* best-effort — the cache seed (or "not in list") already applied */
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [animeId, session?.user?.token]);
+  }, [animeId, session?.user?.token, session?.user?.name, seedFromEntry]);
 
   // Close the status dropdown on outside click.
   useEffect(() => {
@@ -257,14 +302,6 @@ const ListEditor: React.FC<ListEditorProps> = ({
     }
   };
 
-  // Drop the cached per-user state for this anime so the post-reload info page
-  // doesn't briefly seed the button from a now-stale sessionStorage entry.
-  const invalidateUserStateCache = () => {
-    try {
-      sessionStorage.removeItem(`aniscroll.userState.${animeId}`);
-    } catch {}
-  };
-
   // Delete the user's entry for this media (used by "Remove from list" and by
   // saving with status = "Not in list"). No-op when the anime isn't on the
   // list. Returns true on success.
@@ -298,9 +335,11 @@ const ListEditor: React.FC<ListEditorProps> = ({
       return;
     }
     toast.success(t("listEditor.removed"));
-    invalidateUserStateCache();
+    // Apply in place (no reload): drop the entry from the whole-list cache and
+    // tell the parent to update the page.
+    if (session?.user?.name) patchListEntry(session.user.name, animeId, null);
+    onSaved?.({ status: null, progress: 0, score: 0, removed: true });
     close();
-    setTimeout(() => router.reload(), 800);
   };
 
   const handleSave = async () => {
@@ -317,15 +356,17 @@ const ListEditor: React.FC<ListEditorProps> = ({
         return;
       }
       toast.success(entryId ? t("listEditor.removed") : t("listEditor.saved"));
-      invalidateUserStateCache();
+      if (session?.user?.name) patchListEntry(session.user.name, animeId, null);
+      onSaved?.({ status: null, progress: 0, score: 0, removed: true });
       close();
-      setTimeout(() => router.reload(), 800);
       return;
     }
 
     try {
       const startedAt = inputToFuzzy(startDate);
       const completedAt = inputToFuzzy(finishDate);
+      // customLists is sent as an array of enabled names; AniList toggles the
+      // entry onto exactly those lists.
       const res = await fetch("https://graphql.anilist.co/", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
@@ -333,13 +374,19 @@ const ListEditor: React.FC<ListEditorProps> = ({
           query: `mutation (
             $mediaId: Int!, $status: MediaListStatus, $score: Float, $progress: Int,
             $repeat: Int, $private: Boolean, $hiddenFromStatusLists: Boolean,
-            $notes: String, $startedAt: FuzzyDateInput, $completedAt: FuzzyDateInput
+            $notes: String, $startedAt: FuzzyDateInput, $completedAt: FuzzyDateInput,
+            $customLists: [String]
           ) {
             SaveMediaListEntry(
               mediaId: $mediaId, status: $status, score: $score, progress: $progress,
               repeat: $repeat, private: $private, hiddenFromStatusLists: $hiddenFromStatusLists,
-              notes: $notes, startedAt: $startedAt, completedAt: $completedAt
-            ) { id mediaId status progress score }
+              notes: $notes, startedAt: $startedAt, completedAt: $completedAt,
+              customLists: $customLists
+            ) {
+              id mediaId status score(format: POINT_10_DECIMAL) progress repeat
+              private hiddenFromStatusLists notes customLists
+              startedAt { year month day } completedAt { year month day }
+            }
           }`,
           variables: {
             mediaId: animeId,
@@ -352,19 +399,49 @@ const ListEditor: React.FC<ListEditorProps> = ({
             notes: notes || null,
             startedAt,
             completedAt,
+            customLists,
           },
         }),
       });
       const json = await res.json();
-      if (!json?.data?.SaveMediaListEntry) {
+      const saved = json?.data?.SaveMediaListEntry;
+      if (!saved) {
         toast.error(t("listEditor.error"));
         setSaving(false);
         return;
       }
       toast.success(t("listEditor.saved"));
-      invalidateUserStateCache();
+      // Update the whole-list cache with the saved entry so the page + future
+      // opens reflect it without a network round-trip.
+      if (session?.user?.name) {
+        const cl =
+          saved.customLists && typeof saved.customLists === "object"
+            ? Object.entries(saved.customLists)
+                .filter(([, v]) => v === true)
+                .map(([k]) => k)
+            : customLists;
+        patchListEntry(session.user.name, animeId, {
+          id: Number(saved.id),
+          mediaId: animeId,
+          status: saved.status ?? null,
+          score: typeof saved.score === "number" ? saved.score : null,
+          progress: Number(saved.progress) || 0,
+          repeat: Number(saved.repeat) || 0,
+          private: !!saved.private,
+          hiddenFromStatusLists: !!saved.hiddenFromStatusLists,
+          notes: saved.notes || null,
+          startedAt: saved.startedAt || null,
+          completedAt: saved.completedAt || null,
+          customLists: cl,
+        });
+      }
+      onSaved?.({
+        status: saved.status ?? null,
+        progress: Number(saved.progress) || 0,
+        score: typeof saved.score === "number" ? saved.score : 0,
+        removed: false,
+      });
       close();
-      setTimeout(() => router.reload(), 800);
     } catch (e) {
       console.error(e);
       toast.error(t("listEditor.error"));
@@ -500,6 +577,36 @@ const ListEditor: React.FC<ListEditorProps> = ({
               </div>
             )}
           </div>
+
+          {/* CUSTOM LISTS — toggle chips for each of the user's AniList custom
+              lists. Only shown when the account has at least one. */}
+          {availableCustomLists.length > 0 && (
+            <div className="list-editor-field">
+              <span className="list-editor-label">{t("listEditor.customLists")}</span>
+              <div className="le-custom-lists">
+                {availableCustomLists.map((name) => {
+                  const on = customLists.includes(name);
+                  return (
+                    <button
+                      type="button"
+                      key={name}
+                      className={`le-custom-chip ${on ? "on" : ""}`}
+                      onClick={() =>
+                        setCustomLists((prev) =>
+                          prev.includes(name)
+                            ? prev.filter((n) => n !== name)
+                            : [...prev, name],
+                        )
+                      }
+                    >
+                      <span className="le-custom-chip-dot" />
+                      {name}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* SCORE + EPISODE PROGRESS */}
           <div className="list-editor-grid-2">
