@@ -115,7 +115,7 @@ function stripSeasonSuffix(t: string): string {
  * AniList id. Returns null when no confident TMDB match exists.
  */
 async function resolveTmdbTarget(input: ResolveInput): Promise<TmdbTarget | null> {
-  const cacheKey = `tmdb:map:v2:${input.aniId}`;
+  const cacheKey = `tmdb:map:v3:${input.aniId}`;
   const cached = await getJson<TmdbTarget | null>(cacheKey);
   if (cached !== null) return cached;
 
@@ -137,16 +137,32 @@ async function resolveTmdbTarget(input: ResolveInput): Promise<TmdbTarget | null
   //    the right season below.
   let tvId: number | null = null;
   let showSeasons: any[] = [];
+  const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "");
   for (const q of queries) {
     const search = await tmdbFetch("/search/tv", { query: q, include_adult: "false" });
     const results: any[] = search?.results || [];
     if (results.length === 0) continue;
-    const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "");
     const nq = norm(q);
-    const exact = results.find(
+    // Disambiguate same-named shows (e.g. "One Piece" 1999 anime vs the 2023
+    // Netflix live-action). Prefer: a name match whose first_air_date year is at
+    // or before the AniList year (sequels share season 1's year, so the anime's
+    // first-air year is ≤ the entry's year) AND animation-genre when known →
+    // then any exact name match → then the most popular result.
+    const exacts = results.filter(
       (r) => norm(r.name || "") === nq || norm(r.original_name || "") === nq,
     );
-    const chosen = exact || results[0];
+    const yearPref = input.year
+      ? (exacts.length ? exacts : results).find((r) => {
+          const y = r.first_air_date
+            ? Number(String(r.first_air_date).slice(0, 4))
+            : null;
+          // The franchise's TMDB show starts at season 1's year; an AniList
+          // sequel entry's year is ≥ that. Pick the candidate whose start year
+          // is the closest at-or-before the entry's year.
+          return y != null && y <= (input.year as number);
+        })
+      : null;
+    const chosen = yearPref || exacts[0] || results[0];
     if (!chosen?.id) continue;
     const details = await tmdbFetch(`/tv/${chosen.id}`);
     if (!details) continue;
@@ -236,7 +252,7 @@ export async function getSeasonEpisodeScores(
   const empty: SeasonScores = { aniId: input.aniId, episodes: [], source: "none" };
   if (!TMDB_KEY) return empty;
 
-  const cacheKey = `tmdb:eps:v2:${input.aniId}`;
+  const cacheKey = `tmdb:eps:v3:${input.aniId}`;
   const cached = await getJson<SeasonScores>(cacheKey);
   if (cached) return cached;
 
@@ -257,19 +273,38 @@ export async function getSeasonEpisodeScores(
     }
   } else {
     // Span-all — concatenate every season into one continuous 1..N run so the
-    // numbers match AniList's flat per-show episode count. Fetch the seasons in
-    // PARALLEL (a long show can have 20+ TMDB seasons; doing them sequentially
-    // would blow the serverless time budget), then stitch them in season order.
-    const seasonData = await Promise.all(
-      target.seasonNumbers.map(async (sn) => {
-        const season = await tmdbFetch(`/tv/${target.tvId}/season/${sn}`);
-        const eps: any[] = season?.episodes || [];
-        eps.sort((a, b) => (a.episode_number || 0) - (b.episode_number || 0));
-        return eps;
-      }),
+    // numbers match AniList's flat per-show episode count.
+    //
+    // BULK FETCH: a long show has 20+ TMDB seasons. Fetching each individually
+    // hit TMDB's rate limit / the serverless time budget and 500'd, returning
+    // only a partial run. Instead use TMDB's `append_to_response`, which packs
+    // up to 20 seasons into ONE /tv request (returned as `season/N` keys). We
+    // batch the season numbers in groups of 20 → at most 1-2 requests total.
+    const APPEND_MAX = 20;
+    const batches: number[][] = [];
+    for (let i = 0; i < target.seasonNumbers.length; i += APPEND_MAX) {
+      batches.push(target.seasonNumbers.slice(i, i + APPEND_MAX));
+    }
+    const bySeason = new Map<number, any[]>();
+    const batchResults = await Promise.all(
+      batches.map((batch) =>
+        tmdbFetch(`/tv/${target.tvId}`, {
+          append_to_response: batch.map((n) => `season/${n}`).join(","),
+        }),
+      ),
     );
+    for (const data of batchResults) {
+      if (!data) continue;
+      for (const sn of target.seasonNumbers) {
+        const season = data[`season/${sn}`];
+        if (season?.episodes) bySeason.set(sn, season.episodes);
+      }
+    }
     let running = 0;
-    for (const eps of seasonData) {
+    for (const sn of target.seasonNumbers) {
+      const eps = (bySeason.get(sn) || [])
+        .slice()
+        .sort((a, b) => (a.episode_number || 0) - (b.episode_number || 0));
       for (const e of eps) {
         running += 1;
         episodes.push({ number: running, score: toScore(e.vote_average) });

@@ -187,9 +187,30 @@ export default function ScoresTab({ info, seasonList }: Props) {
     return Math.round((pool.reduce((a, b) => a + b, 0) / pool.length) * 10) / 10;
   }, [seasonsWithCount, epScores]);
 
-  // Show a per-season heading only when there's more than one season; a single
-  // season doesn't need its own "S1" label above the grid.
+  // Multi-season shows use a SIDE-BY-SIDE COLUMN table (one column per season,
+  // one row per episode) — the original layout. A single season with many
+  // episodes instead flows as rows of 20 cells so it stays compact.
   const multiSeason = seasonsWithCount.length > 1;
+
+  // Unique column header per season. Most chains number cleanly (S1…S6), but a
+  // split-cours season can repeat a number (AoT "S3" + "S3 Part 2"); fall back
+  // to a sequential index so no two columns read identically.
+  const colLabels = useMemo(() => {
+    const seen = new Map<number, number>();
+    return seasonsWithCount.map((season, idx) => {
+      const n = season.number;
+      const count = (seen.get(n) || 0) + 1;
+      seen.set(n, count);
+      // First occurrence keeps "S{n}"; a repeat becomes "S{idx+1}" (its chain
+      // position) so the column is still distinct and ordered.
+      return count === 1 ? `S${n}` : `S${idx + 1}`;
+    });
+  }, [seasonsWithCount]);
+
+  const maxEpisodes = useMemo(
+    () => Math.max(1, ...seasonsWithCount.map((s) => s.epCount)),
+    [seasonsWithCount],
+  );
 
   return (
     <div style={s.root}>
@@ -216,41 +237,43 @@ export default function ScoresTab({ info, seasonList }: Props) {
         ))}
       </div>
 
-      <div style={s.seasons}>
-        {seasonsWithCount.map((season) => {
-          const epMap = epScores.get(season.id);
-          const rows = Math.ceil(season.epCount / ROW_SIZE);
-          return (
-            <section key={season.id} style={s.seasonBlock}>
-              {multiSeason && (
-                <div style={s.seasonHead}>
-                  <span style={s.seasonName}>S{season.number}</span>
-                  {season.seasonScore != null && (
-                    <span style={s.seasonAvg} className="mono">
-                      ★ {season.seasonScore.toFixed(1)}
-                    </span>
-                  )}
-                </div>
-              )}
-              {Array.from({ length: rows }).map((_, rowIdx) => {
-                const from = rowIdx * ROW_SIZE + 1;
-                const to = Math.min((rowIdx + 1) * ROW_SIZE, season.epCount);
+      {multiSeason ? (
+        // ── Column table: one column per season, one row per episode ──
+        <div style={s.scroller}>
+          <table style={s.table} className="mono">
+            <thead>
+              <tr>
+                <th style={{ ...s.th, ...s.rowHeadCell }} />
+                {seasonsWithCount.map((season, ci) => (
+                  <th key={season.id} style={s.th}>
+                    <div style={s.thInner}>
+                      <span>{colLabels[ci]}</span>
+                      {season.seasonScore != null && (
+                        <span style={s.thAvg}>★ {season.seasonScore.toFixed(1)}</span>
+                      )}
+                    </div>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {Array.from({ length: maxEpisodes }).map((_, rowIdx) => {
+                const epNum = rowIdx + 1;
                 return (
-                  <div key={rowIdx} style={s.epRow}>
-                    <span style={s.epRowLabel}>
-                      {from === to ? `E${from}` : `E${from}–${to}`}
-                    </span>
-                    <div style={s.epRowCells}>
-                      {Array.from({ length: to - from + 1 }).map((__, i) => {
-                        const epNum = from + i;
-                        const score = epMap?.get(epNum) ?? null;
-                        const tier = tierFor(score);
-                        return (
+                  <tr key={rowIdx}>
+                    <td style={s.rowHead}>E{epNum}</td>
+                    {seasonsWithCount.map((season) => {
+                      if (epNum > season.epCount) {
+                        return <td key={season.id} style={s.cellEmpty} />;
+                      }
+                      const score = epScores.get(season.id)?.get(epNum) ?? null;
+                      const tier = tierFor(score);
+                      return (
+                        <td key={season.id} style={s.cellWrap}>
                           <span
-                            key={epNum}
-                            title={`${t("common.episode")} ${epNum}`}
                             style={{
                               ...s.cell,
+                              minWidth: 56,
                               background: tier.color,
                               color: tier.text,
                               ...(score != null
@@ -260,16 +283,62 @@ export default function ScoresTab({ info, seasonList }: Props) {
                           >
                             {score != null ? score.toFixed(1) : "—"}
                           </span>
-                        );
-                      })}
-                    </div>
-                  </div>
+                        </td>
+                      );
+                    })}
+                  </tr>
                 );
               })}
-            </section>
-          );
-        })}
-      </div>
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        // ── Single season: rows of 20 episode cells, labelled by range ──
+        <div style={s.seasons}>
+          {seasonsWithCount.map((season) => {
+            const epMap = epScores.get(season.id);
+            const rows = Math.ceil(season.epCount / ROW_SIZE);
+            return (
+              <section key={season.id} style={s.seasonBlock}>
+                {Array.from({ length: rows }).map((_, rowIdx) => {
+                  const from = rowIdx * ROW_SIZE + 1;
+                  const to = Math.min((rowIdx + 1) * ROW_SIZE, season.epCount);
+                  return (
+                    <div key={rowIdx} style={s.epRow}>
+                      <span style={s.epRowLabel}>
+                        {from === to ? `E${from}` : `E${from}–${to}`}
+                      </span>
+                      <div style={s.epRowCells}>
+                        {Array.from({ length: to - from + 1 }).map((__, i) => {
+                          const epNum = from + i;
+                          const score = epMap?.get(epNum) ?? null;
+                          const tier = tierFor(score);
+                          return (
+                            <span
+                              key={epNum}
+                              title={`${t("common.episode")} ${epNum}`}
+                              style={{
+                                ...s.cell,
+                                background: tier.color,
+                                color: tier.text,
+                                ...(score != null
+                                  ? { textShadow: "0 1px 2px rgba(0,0,0,0.45)" }
+                                  : null),
+                              }}
+                            >
+                              {score != null ? score.toFixed(1) : "—"}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </section>
+            );
+          })}
+        </div>
+      )}
 
       <p style={s.footnote}>{t("anime.scoreGridNote")}</p>
     </div>
@@ -336,14 +405,6 @@ const s: Record<string, CSSProperties> = {
     background: "var(--bg-1)",
   },
   seasonBlock: { display: "flex", flexDirection: "column", gap: 6 },
-  seasonHead: {
-    display: "flex",
-    alignItems: "baseline",
-    gap: 8,
-    marginBottom: 2,
-  },
-  seasonName: { fontSize: 14, fontWeight: 800, color: "var(--txt-0)" },
-  seasonAvg: { fontSize: 12, fontWeight: 600, color: "var(--txt-3)" },
   // One row of the grid: a fixed-width range label on the left, then the
   // episode cells flowing to the right. The label column is fixed so every
   // row's cells line up vertically into clean columns.
@@ -374,5 +435,39 @@ const s: Record<string, CSSProperties> = {
     fontSize: 12.5,
     fontWeight: 700,
   },
+  // ── Multi-season column table ──
+  scroller: {
+    overflowX: "auto",
+    borderRadius: 12,
+    border: "1px solid var(--line)",
+    background: "var(--bg-1)",
+  },
+  table: {
+    borderCollapse: "separate",
+    borderSpacing: 6,
+    margin: "4px auto",
+    minWidth: "max-content",
+  },
+  th: {
+    fontSize: 13,
+    fontWeight: 700,
+    color: "var(--txt-1)",
+    padding: "4px 8px",
+    textAlign: "center",
+    minWidth: 56,
+  },
+  thInner: { display: "flex", flexDirection: "column", alignItems: "center", gap: 1 },
+  thAvg: { fontSize: 10.5, fontWeight: 600, color: "var(--txt-3)" },
+  rowHeadCell: { minWidth: 44 },
+  rowHead: {
+    fontSize: 12,
+    fontWeight: 600,
+    color: "var(--txt-2)",
+    textAlign: "right",
+    paddingRight: 8,
+    whiteSpace: "nowrap",
+  },
+  cellWrap: { padding: 0 },
+  cellEmpty: { minWidth: 56 },
   footnote: { fontSize: 11.5, color: "var(--txt-3)", lineHeight: 1.5 },
 };
