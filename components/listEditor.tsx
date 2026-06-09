@@ -33,9 +33,9 @@ type Status = "CURRENT" | "PLANNING" | "COMPLETED" | "DROPPED" | "PAUSED" | "REP
 
 const STATUS_ORDER: Status[] = [
   "CURRENT",
-  "PLANNING",
-  "COMPLETED",
   "REPEATING",
+  "COMPLETED",
+  "PLANNING",
   "PAUSED",
   "DROPPED",
 ];
