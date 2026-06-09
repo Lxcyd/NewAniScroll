@@ -445,32 +445,6 @@ const ListEditor: React.FC<ListEditorProps> = ({
             </button>
             {statusOpen && (
               <div className="le-dd-list">
-                {/* "Not in list" — clears the status (the entry is deleted on
-                    Save). Shown first so the user can always remove the entry. */}
-                <button
-                  type="button"
-                  className={`le-dd-option ${status === null ? "selected" : ""}`}
-                  onClick={() => {
-                    setStatus(null);
-                    setStatusOpen(false);
-                  }}
-                >
-                  <span className="le-dd-dot le-dd-dot-none" />
-                  <span className="le-dd-option-text">{t("listEditor.notInList")}</span>
-                  {status === null && (
-                    <svg
-                      width="13"
-                      height="13"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth={3}
-                      strokeLinecap="round"
-                    >
-                      <polyline points="20 6 9 17 4 12" />
-                    </svg>
-                  )}
-                </button>
                 {STATUS_ORDER.map((s) => {
                   const sel = status === s;
                   return (
