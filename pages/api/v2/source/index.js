@@ -869,36 +869,124 @@ function looksLikePreviousSeason(currentTitles, prequelTitles) {
   return false;
 }
 
+// ── Robust season-number extraction from a title ─────────────────────────────
+// Ported from components/anime/v2/helpers (extractSeasonFromTitle /
+// isSeasonContinuation), which the score grid already uses to number split-cours
+// franchises correctly. Counting PREQUEL hops alone is fragile: it BOTH
+// over-counts (AoT "Final Season" walks S3Part2→S3→S2→S1 = 5, but it's S4) and
+// under-counts (a title AniList didn't link, or whose only prequel edge is a
+// spin-off, stops at 1). Reading the number straight out of the title is the
+// reliable primary signal; the hop walk is the fallback.
+const ROMAN_MAP = { i: 1, ii: 2, iii: 3, iv: 4, v: 5, vi: 6, vii: 7, viii: 8, ix: 9, x: 10 };
+const ORDINAL_WORDS_MAP = {
+  first: 1, second: 2, third: 3, fourth: 4, fifth: 5,
+  sixth: 6, seventh: 7, eighth: 8, ninth: 9, tenth: 10,
+};
+function parseRomanOrInt2(s) {
+  const n = Number(s);
+  if (Number.isFinite(n) && n > 0) return n;
+  return ROMAN_MAP[String(s).toLowerCase()] || null;
+}
+
+/** Pull an explicit season number out of a title, or null. */
+function seasonNumFromTitle(media) {
+  const candidates = [media?.title?.english, media?.title?.romaji, media?.title?.native]
+    .filter(Boolean)
+    .map((s) => String(s).trim());
+  for (const t of candidates) {
+    let m = t.match(/\bSeason\s+(\d+|[IVX]+)\b/i);
+    if (m) { const n = parseRomanOrInt2(m[1]); if (n) return n; }
+    m = t.match(/\b(\d+)(?:st|nd|rd|th)\s+Season\b/i);
+    if (m) return Number(m[1]);
+    m = t.match(/\b(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth)\s+Season\b/i);
+    if (m) { const n = ORDINAL_WORDS_MAP[m[1].toLowerCase()]; if (n) return n; }
+    m = t.match(/(?:第)?\s*(\d+)\s*期/); // Japanese "2期"
+    if (m) return Number(m[1]);
+    m = t.match(/(?:^|\s)S(\d+)(?:\s|$)/); // trailing "S2"
+    if (m) return Number(m[1]);
+    m = t.match(/\s([IVX]+)\s+(?:Part\s+\d+|Part\s+[IVX]+|[A-Z][a-z])/); // "IV Part 2" / "IV: Sub"
+    if (m) { const n = parseRomanOrInt2(m[1]); if (n && n > 1) return n; }
+    m = t.match(/\s([IVX]+):/);
+    if (m) { const n = parseRomanOrInt2(m[1]); if (n && n > 1) return n; }
+    m = t.match(/\s([IVX]+)$/i); // trailing roman, not a "Part" cour
+    if (m && !/\bPart\s+[IVX]+$/i.test(t)) { const n = parseRomanOrInt2(m[1]); if (n && n > 1) return n; }
+  }
+  return null;
+}
+
+/** Does a title read like a CONTINUATION (Part 2 / Cour 2 / Final Chapters) of
+ *  the previous season rather than a brand-new season? Such a hop must NOT add
+ *  to the season count. */
+function isSeasonContinuationTitle(media) {
+  const candidates = [media?.title?.english, media?.title?.romaji, media?.title?.native]
+    .filter(Boolean)
+    .map((s) => String(s).trim());
+  for (const t of candidates) {
+    if (/\bPart\s+(?:[2-9]\d*|I{2,}|IV|VI*|IX|X)\b/i.test(t)) return true;
+    if (/\bCour\s+(?:[2-9]\d*)\b/i.test(t)) return true;
+    if (/\b(?:[2-9]\d*)(?:nd|rd|th)\s+Cour\b/i.test(t)) return true;
+    if (/\bFinal\s+Chapter/i.test(t)) return true;
+  }
+  return false;
+}
+
 async function detectSeasonNumber(aniId) {
   const cacheKey = String(aniId);
   if (seasonCache.has(cacheKey)) return seasonCache.get(cacheKey);
 
-  let season = 1;
   let currentId = Number(aniId);
   const visited = new Set();
-
   const titlesOf = (m) =>
     [m?.title?.romaji, m?.title?.english, m?.title?.native].filter(Boolean);
 
+  // SIGNAL 1 — the start entry's own title. If it spells out a season number
+  // ("… Season 2", "2nd Season", "2期", "S2"), trust it: it's exact and immune
+  // to chain quirks. This alone fixes the under-count cases where the PREQUEL
+  // edges are missing or only point at spin-offs.
+  const startMedia = await getMediaMeta(currentId);
+  const titleSeason = startMedia ? seasonNumFromTitle(startMedia) : null;
+
+  // SIGNAL 2 — walk the PREQUEL chain, counting CONTINUATION-AWARE: each hop to
+  // a genuine previous season adds 1, but a "Part 2" / "Final Chapters" node
+  // shares its Part-1 season, so crossing it adds 0. `distinct` is the number of
+  // distinct seasons strictly BEFORE the start entry → start season = distinct+1.
+  // This fixes the over-count (AoT Final Season no longer counts each Part hop).
+  // If an ANCESTOR spells out its own season number, anchor on it: the start is
+  // that number plus the distinct seasons we crossed after it.
+  let distinct = 0;
   while (currentId && !visited.has(currentId)) {
     visited.add(currentId);
-    const media = await getMediaMeta(currentId);
+    const media = currentId === Number(aniId) ? startMedia : await getMediaMeta(currentId);
     if (!media) break;
+    // An explicit number on an ANCESTOR anchors the whole count and ends the walk.
+    if (currentId !== Number(aniId)) {
+      const explicit = seasonNumFromTitle(media);
+      if (explicit != null) {
+        // This ancestor IS `explicit`; the start sits `distinct` seasons later.
+        distinct += explicit - 1;
+        break;
+      }
+    }
     const edges = media.relations?.edges || [];
     const prequel = edges.find(
       (e) => e.relationType === "PREQUEL" && PREQUEL_FORMATS.has(e.node?.format)
     );
-    // Only follow the prequel when it actually reads as a previous season of
-    // the SAME franchise (shared title token). This stops spin-off ONAs/OVAs
-    // (One Piece's "MONSTERS", recap shorts, side-stories) from inflating the
-    // season count and routing episodes to the wrong saga.
     if (prequel && looksLikePreviousSeason(titlesOf(media), titlesOf(prequel.node))) {
-      season++;
+      // Crossing INTO the prequel: the CURRENT node being a "Part 2" means it
+      // shares the prequel's season, so this hop adds no new distinct season.
+      if (!isSeasonContinuationTitle(media)) distinct++;
       currentId = prequel.node.id;
     } else {
       break;
     }
   }
+  const walkSeason = distinct + 1;
+
+  // Trust the explicit title number when present (most reliable); otherwise the
+  // continuation-aware walk. Take the max so a title that says "Season 2" can't
+  // be dragged below 2 by a broken chain, and a deep chain isn't capped by a
+  // title that happens to omit its number.
+  const season = Math.max(titleSeason || 1, walkSeason);
 
   seasonCache.set(cacheKey, season);
   return season;
