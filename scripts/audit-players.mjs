@@ -45,7 +45,14 @@ const args = Object.fromEntries(
 );
 const SITE = (args.site || process.env.SITE_URL || "https://dev.aniscroll.com").replace(/\/$/, "");
 const LIMIT = args.limit ? Number(args.limit) : Infinity;
-const CONCURRENCY = Number(args.concurrency || 4);
+// Concurrency = how many inspect requests are in flight at once. The work is
+// 100% network-bound (Vercel → CF Worker → upstream), so raising this — not
+// threads — is what speeds the audit up. The /api/v2/source rate-limiter allows
+// 50 req/s per IP; we default high and let the token bucket below stay under it.
+const CONCURRENCY = Number(args.concurrency || 32);
+// Global request-rate cap (req/s), kept just under the server's 50 r/s limiter
+// so a high concurrency can't trip 429s. Tune with --rate.
+const RATE_PER_S = Number(args.rate || 40);
 const ONE_ID = args.id ? Number(args.id) : null;
 const ONLY = args.only ? String(args.only).toLowerCase() : null; // animesama|voiranime
 const LANG = args.lang ? String(args.lang).toLowerCase() : null; // vostfr|vf
@@ -132,6 +139,28 @@ console.log(
     `(sources: ${SOURCES.join(",")}; langs: ${LANGS.join(",")}; site: ${SITE})`,
 );
 
+// ── rate limiter (token bucket) ──────────────────────────────────────────────
+// Caps the GLOBAL request rate regardless of concurrency so a fat pool can't
+// blow past the server's 50 r/s limiter. Refills RATE_PER_S tokens per second,
+// burst capped at one second's worth.
+const bucket = { tokens: RATE_PER_S, last: Date.now() };
+function refill() {
+  const now = Date.now();
+  bucket.tokens = Math.min(RATE_PER_S, bucket.tokens + ((now - bucket.last) / 1000) * RATE_PER_S);
+  bucket.last = now;
+}
+async function takeToken() {
+  for (;;) {
+    refill();
+    if (bucket.tokens >= 1) {
+      bucket.tokens -= 1;
+      return;
+    }
+    // Sleep just long enough for the next token to accrue.
+    await new Promise((r) => setTimeout(r, Math.ceil(1000 / RATE_PER_S)));
+  }
+}
+
 // ── inspect call ────────────────────────────────────────────────────────────
 // The endpoint can be slow for big franchises (it walks seasons + episodes.js
 // through the CF Worker), so we cap each request with our own AbortController —
@@ -141,23 +170,37 @@ const REQUEST_TIMEOUT_MS = Number(args["request-timeout"] || 45000);
 
 async function inspect(aniId, source, lang) {
   const u = `${SITE}/api/v2/source/inspect?aniId=${aniId}&source=${source}&lang=${lang}`;
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), REQUEST_TIMEOUT_MS);
-  try {
-    const res = await fetch(u, {
-      headers: { "User-Agent": "aniscroll-audit/1.0", "X-Warmer": "1" },
-      signal: ctrl.signal,
-    });
-    if (!res.ok) return { found: false, httpError: res.status };
-    return await res.json();
-  } catch (e) {
-    return {
-      found: false,
-      fetchError: e?.name === "AbortError" ? "timeout" : e?.message || String(e),
-    };
-  } finally {
-    clearTimeout(timer);
+  // Up to 3 attempts, backing off on a 429 (rate-limited) so a brief overshoot
+  // doesn't drop the anime from the audit.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await takeToken();
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), REQUEST_TIMEOUT_MS);
+    try {
+      const res = await fetch(u, {
+        headers: { "User-Agent": "aniscroll-audit/1.0", "X-Warmer": "1" },
+        signal: ctrl.signal,
+      });
+      if (res.status === 429) {
+        clearTimeout(timer);
+        await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+        continue;
+      }
+      if (!res.ok) return { found: false, httpError: res.status };
+      return await res.json();
+    } catch (e) {
+      clearTimeout(timer);
+      // A timeout is worth one retry (slow upstream); other errors aren't.
+      if (e?.name === "AbortError" && attempt < 2) continue;
+      return {
+        found: false,
+        fetchError: e?.name === "AbortError" ? "timeout" : e?.message || String(e),
+      };
+    } finally {
+      clearTimeout(timer);
+    }
   }
+  return { found: false, fetchError: "rate-limited" };
 }
 
 /**
@@ -196,29 +239,42 @@ let done = 0;
 const t0 = Date.now();
 
 async function auditOne(anime) {
+  const combos = [];
+  for (const source of SOURCES) for (const lang of LANGS) combos.push({ source, lang });
+
+  // The server caches the season/slug per aniId after the first resolve, so the
+  // 4 combos share work. We do the FIRST combo alone (warms that cache), then
+  // fire the rest in parallel — avoids a 4-way cold-resolve stampede on the same
+  // anime while still overlapping the bulk of the latency.
+  const results = [];
+  results.push({ ...combos[0], r: await inspect(anime.aniId, combos[0].source, combos[0].lang) });
+  if (combos.length > 1) {
+    const rest = await Promise.all(
+      combos.slice(1).map(async (c) => ({ ...c, r: await inspect(anime.aniId, c.source, c.lang) })),
+    );
+    results.push(...rest);
+  }
+
   const issues = [];
   const details = [];
-  for (const source of SOURCES) {
-    for (const lang of LANGS) {
-      const r = await inspect(anime.aniId, source, lang);
-      const verdict = classify(anime, r);
-      bump(`${source}:${lang}:${verdict.type}`);
-      const entry = {
-        source,
-        lang,
-        type: verdict.type,
-        slug: r.slug ?? null,
-        seasonNum: r.seasonNum ?? null,
-        chosenSeasonDir: r.chosenSeasonDir ?? null,
-        chosenSeasonLabel: r.chosenSeasonLabel ?? null,
-        episodeCount: r.episodeCount ?? 0,
-      };
-      details.push(entry);
-      // Only the actionable verdicts go in `issues`; ok/ongoing-behind/unknown
-      // are kept in `details` for context but don't flag the anime.
-      if (verdict.type === "missing-player" || verdict.type === "wrong-season" || verdict.type === "episode-count-low") {
-        issues.push(entry);
-      }
+  for (const { source, lang, r } of results) {
+    const verdict = classify(anime, r);
+    bump(`${source}:${lang}:${verdict.type}`);
+    const entry = {
+      source,
+      lang,
+      type: verdict.type,
+      slug: r.slug ?? null,
+      seasonNum: r.seasonNum ?? null,
+      chosenSeasonDir: r.chosenSeasonDir ?? null,
+      chosenSeasonLabel: r.chosenSeasonLabel ?? null,
+      episodeCount: r.episodeCount ?? 0,
+    };
+    details.push(entry);
+    // Only the actionable verdicts go in `issues`; ok/ongoing-behind/unknown
+    // are kept in `details` for context but don't flag the anime.
+    if (verdict.type === "missing-player" || verdict.type === "wrong-season" || verdict.type === "episode-count-low") {
+      issues.push(entry);
     }
   }
   if (issues.length > 0 || details.some((d) => d.type !== "ok")) {
@@ -234,9 +290,11 @@ async function auditOne(anime) {
   }
   done++;
   if (done % 10 === 0 || done === total) {
-    const elapsed = ((Date.now() - t0) / 1000).toFixed(0);
+    const elapsed = (Date.now() - t0) / 1000;
+    const rate = done / elapsed;
+    const eta = rate > 0 ? Math.round((total - done) / rate) : 0;
     process.stdout.write(
-      `\r[audit] ${done}/${total}  flagged=${report.length}  ${elapsed}s`,
+      `\r[audit] ${done}/${total}  flagged=${report.length}  ${rate.toFixed(1)}/s  ${elapsed.toFixed(0)}s  ETA ${eta}s   `,
     );
   }
 }
