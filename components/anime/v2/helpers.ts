@@ -641,6 +641,34 @@ function parseRomanOrInt(s: string): number | null {
   return r || null;
 }
 
+/* Does a title read like a *continuation* of the previous season rather than
+   a brand-new one? "Part 2", "Cour 2", "2nd Cour", "The Final Chapters", and a
+   trailing "Part N" all denote a split of one season across multiple broadcast
+   runs (AoT "The Final Season Part 2", Slime "Season 2 Part 2"). Such an entry
+   must inherit the previous entry's season number, not bump it. */
+export function isSeasonContinuation(
+  title:
+    | { english?: string | null; romaji?: string | null; native?: string | null }
+    | null
+    | undefined
+): boolean {
+  if (!title) return false;
+  const candidates = [title.english, title.romaji, title.native].filter(
+    Boolean
+  ) as string[];
+  for (const raw of candidates) {
+    const t = raw.trim();
+    // "Part 2" / "Part II" / "Cour 2" / "2nd Cour" — but NOT "Part 1" (a
+    // first part starts a season, it doesn't continue one).
+    if (/\bPart\s+(?:[2-9]\d*|I{2,}|IV|VI*|IX|X)\b/i.test(t)) return true;
+    if (/\bCour\s+(?:[2-9]\d*)\b/i.test(t)) return true;
+    if (/\b(?:[2-9]\d*)(?:nd|rd|th)\s+Cour\b/i.test(t)) return true;
+    // "The Final Chapters" — AoT's continuation of "The Final Season".
+    if (/\bFinal\s+Chapter/i.test(t)) return true;
+  }
+  return false;
+}
+
 /* Compute season position by walking PREQUEL / SEQUEL relations.
    Inputs are AniList "Media" payloads keyed by id (the SSR caller hydrates
    the map via getMediaMeta() for every ancestor / descendant on demand).

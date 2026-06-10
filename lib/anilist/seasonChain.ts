@@ -3,6 +3,7 @@ import { redis } from "@/lib/redis";
 import {
   computeSeasonInfo,
   extractSeasonFromTitle,
+  isSeasonContinuation,
   isSeasonLike,
   sharesFranchise,
   SeasonInfo,
@@ -17,7 +18,9 @@ import {
    a week of staleness. */
 const REDIS_KEY_CHAIN = (id: number) => `seasonChain:v1:${id}`;
 // v3: SeasonEntry gained `idMal` (feeds Jikan per-episode score lookups).
-const REDIS_KEY_LIST = (id: number) => `seasonList:v3:${id}`;
+// v4: numbering now uses a running counter so split-cours + unnumbered
+//     "Final Season" entries get the right S<n> (AoT Final Season = S4, not S5).
+const REDIS_KEY_LIST = (id: number) => `seasonList:v4:${id}`;
 const TTL_SECONDS = 7 * 24 * 60 * 60;
 
 async function redisGetJson<T>(key: string): Promise<T | null> {
@@ -267,8 +270,28 @@ async function resolveSeasonListUncached(
     .map((id) => map.get(id))
     .filter((m) => m && isSeasonLike(m));
 
-  return seasonLike.map((m, i) => {
+  // Number the chain with a running counter rather than the raw index. The
+  // index over-counts whenever a season is split across multiple broadcast
+  // runs: AoT's chain is [S1, S2, S3, S3 Part 2, The Final Season, …]. "S3
+  // Part 2" must stay S3, and "The Final Season" — which carries no number in
+  // its title — is the *next* distinct season (S4), not index+1 (S5).
+  //
+  // Rule per entry, walking chronologically:
+  //   - explicit number in the title  → trust it; it anchors the counter.
+  //   - "Part 2"/"Cour 2"/continuation → inherit the previous season's number.
+  //   - otherwise (a fresh, unnumbered season like "The Final Season")
+  //                                    → previous distinct season + 1.
+  let running = 0;
+  return seasonLike.map((m) => {
     const fromTitle = extractSeasonFromTitle(m.title);
+    const continuation = isSeasonContinuation(m.title);
+    if (fromTitle != null) {
+      running = fromTitle;
+    } else if (continuation) {
+      running = Math.max(1, running); // inherit current season (don't bump)
+    } else {
+      running = running + 1; // a new, unnumbered season
+    }
     const partMatch = String(
       m.title?.english || m.title?.romaji || ""
     ).match(/\b(?:Part|Cour)\s+(\d+|[IVX]+)\b/i);
@@ -276,8 +299,8 @@ async function resolveSeasonListUncached(
     return {
       id: Number(m.id),
       idMal: m.idMal ?? null,
-      number: fromTitle ?? i + 1,
-      label: `Season ${fromTitle ?? i + 1}${part}`,
+      number: running,
+      label: `Season ${running}${part}`,
       year: m.seasonYear ?? m.startDate?.year ?? null,
       episodes: m.episodes ?? null,
       averageScore: m.averageScore ?? null,

@@ -168,11 +168,6 @@ export default function ScoresTab({ info, seasonList }: Props) {
     });
   }, [seasons, epScores]);
 
-  // Episodes per row in the grid — each row is labelled on the left with its
-  // episode range ("E1–20"). EVERY episode keeps its own cell; this is purely
-  // how the flat episode list wraps into rows.
-  const ROW_SIZE = 20;
-
   // Header average — mean of the real per-episode (Jikan) scores actually shown.
   // Falls back to the mean of season averages when no per-episode data exists
   // (no key / no match / nothing aired yet) so the header never disappears.
@@ -198,18 +193,18 @@ export default function ScoresTab({ info, seasonList }: Props) {
   // episodes instead flows as rows of 20 cells so it stays compact.
   const multiSeason = seasonsWithCount.length > 1;
 
-  // Unique column header per season. Most chains number cleanly (S1…S6), but a
-  // split-cours season can repeat a number (AoT "S3" + "S3 Part 2"); fall back
-  // to a sequential index so no two columns read identically.
+  // Column header per season. Each entry already carries its true season number
+  // (S1…S4 for AoT, with the Final Season correctly numbered 4). A split-cours
+  // season repeats a number (AoT "S3" + "S3 Part 2"); we disambiguate the
+  // repeat with a part marker — "S3", "S3·2", "S4", "S4·2" — so it reads as the
+  // same season's second cour rather than a different season.
   const colLabels = useMemo(() => {
     const seen = new Map<number, number>();
-    return seasonsWithCount.map((season, idx) => {
+    return seasonsWithCount.map((season) => {
       const n = season.number;
-      const count = (seen.get(n) || 0) + 1;
-      seen.set(n, count);
-      // First occurrence keeps "S{n}"; a repeat becomes "S{idx+1}" (its chain
-      // position) so the column is still distinct and ordered.
-      return count === 1 ? `S${n}` : `S${idx + 1}`;
+      const part = (seen.get(n) || 0) + 1;
+      seen.set(n, part);
+      return part === 1 ? `S${n}` : `S${n}·${part}`;
     });
   }, [seasonsWithCount]);
 
@@ -219,6 +214,23 @@ export default function ScoresTab({ info, seasonList }: Props) {
   );
 
   const [fullscreen, setFullscreen] = useState(false);
+
+  // Viewport width drives how many episode cells fit per row in the single-
+  // season grid. Wide screens keep the dense 20-wide layout; narrow ones (phones
+  // in fullscreen) drop to fewer columns so each cell stays legible instead of
+  // being crushed. Tracked on resize.
+  const [vw, setVw] = useState<number>(
+    typeof window !== "undefined" ? window.innerWidth : 1280,
+  );
+  useEffect(() => {
+    const onResize = () => setVw(window.innerWidth);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  // Episodes per row in the single-season grid — responsive so cells stay
+  // readable on small screens. Each row is labelled on the left with its range.
+  const ROW_SIZE = vw < 480 ? 6 : vw < 768 ? 10 : vw < 1100 ? 15 : 20;
 
   // Close fullscreen on Escape.
   useEffect(() => {
@@ -238,67 +250,122 @@ export default function ScoresTab({ info, seasonList }: Props) {
 
   // The grid itself (table for multi-season, rows for single season). Wrapped by
   // PanZoom so it can be dragged + zoomed, both inline and in fullscreen.
+  // One score cell (shared by both table orientations).
+  const scoreCell = (season: (typeof seasonsWithCount)[number], epNum: number) => {
+    if (epNum > season.epCount) {
+      return <td key={season.id} style={s.cellEmpty} />;
+    }
+    const score = epScores.get(season.id)?.get(epNum) ?? null;
+    const tier = tierFor(score);
+    return (
+      <td key={season.id} style={s.cellWrap}>
+        <span
+          style={{
+            ...s.cell,
+            minWidth: 56,
+            background: tier.color,
+            color: tier.text,
+            ...(score != null
+              ? { textShadow: "0 1px 2px rgba(0,0,0,0.45)" }
+              : null),
+          }}
+        >
+          {score != null ? score.toFixed(1) : "—"}
+        </span>
+      </td>
+    );
+  };
+
+  // Multi-season orientation flips with the viewport:
+  //   - PC / landscape → episodes down the rows, seasons across the columns
+  //     (wide table, the classic layout).
+  //   - Mobile / portrait → seasons down the rows, episodes across the columns
+  //     (a phone is taller than wide, so the long axis — episodes — runs
+  //     horizontally and you scroll sideways through a season's run).
+  const portrait = vw < 768;
+
   const grid = multiSeason ? (
-        // ── Column table: one column per season, one row per episode ──
-        <div style={s.gridPad}>
-          <table style={s.table} className="mono">
-            <thead>
-              <tr>
-                <th style={{ ...s.th, ...s.rowHeadCell }} />
-                {seasonsWithCount.map((season, ci) => (
-                  <th key={season.id} style={s.th}>
-                    <div style={s.thInner}>
-                      <span>{colLabels[ci]}</span>
-                      {season.seasonScore != null && (
-                        <span style={s.thAvg}>★ {season.seasonScore.toFixed(1)}</span>
-                      )}
-                    </div>
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {Array.from({ length: maxEpisodes }).map((_, rowIdx) => {
-                const epNum = rowIdx + 1;
-                return (
-                  <tr key={rowIdx}>
-                    <td style={s.rowHead}>E{epNum}</td>
-                    {seasonsWithCount.map((season) => {
-                      if (epNum > season.epCount) {
-                        return <td key={season.id} style={s.cellEmpty} />;
-                      }
-                      const score = epScores.get(season.id)?.get(epNum) ?? null;
-                      const tier = tierFor(score);
-                      return (
-                        <td key={season.id} style={s.cellWrap}>
-                          <span
-                            style={{
-                              ...s.cell,
-                              minWidth: 56,
-                              background: tier.color,
-                              color: tier.text,
-                              ...(score != null
-                                ? { textShadow: "0 1px 2px rgba(0,0,0,0.45)" }
-                                : null),
-                            }}
-                          >
-                            {score != null ? score.toFixed(1) : "—"}
+        portrait ? (
+          // ── Portrait: one ROW per season, one column per episode ──
+          <div style={s.gridPad}>
+            <table style={s.table} className="mono">
+              <thead>
+                <tr>
+                  <th style={{ ...s.th, ...s.rowHeadCell }} />
+                  {Array.from({ length: maxEpisodes }).map((_, ci) => (
+                    <th key={ci} style={s.thEp}>
+                      E{ci + 1}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {seasonsWithCount.map((season, ri) => (
+                  <tr key={season.id}>
+                    <td style={s.rowHeadSeasonCell}>
+                      <div style={s.rowHeadSeason}>
+                        <span>{colLabels[ri]}</span>
+                        {season.seasonScore != null && (
+                          <span style={s.rowHeadAvg}>
+                            ★ {season.seasonScore.toFixed(1)}
                           </span>
-                        </td>
-                      );
-                    })}
+                        )}
+                      </div>
+                    </td>
+                    {Array.from({ length: maxEpisodes }).map((_, ci) =>
+                      scoreCell(season, ci + 1),
+                    )}
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          // ── Landscape: one column per season, one row per episode ──
+          <div style={s.gridPad}>
+            <table style={s.table} className="mono">
+              <thead>
+                <tr>
+                  <th style={{ ...s.th, ...s.rowHeadCell }} />
+                  {seasonsWithCount.map((season, ci) => (
+                    <th key={season.id} style={s.th}>
+                      <div style={s.thInner}>
+                        <span>{colLabels[ci]}</span>
+                        {season.seasonScore != null && (
+                          <span style={s.thAvg}>★ {season.seasonScore.toFixed(1)}</span>
+                        )}
+                      </div>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {Array.from({ length: maxEpisodes }).map((_, rowIdx) => {
+                  const epNum = rowIdx + 1;
+                  return (
+                    <tr key={rowIdx}>
+                      <td style={s.rowHead}>E{epNum}</td>
+                      {seasonsWithCount.map((season) => scoreCell(season, epNum))}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )
       ) : (
-        // ── Single season: rows of 20 episode cells, labelled by range ──
+        // ── Single season: rows of N episode cells (N responsive), labelled by
+        //    range ("E1–20" on desktop, "E1–6" on a phone) ──
         <div style={s.seasonsPad}>
           {seasonsWithCount.map((season) => {
             const epMap = epScores.get(season.id);
             const rows = Math.ceil(season.epCount / ROW_SIZE);
+            // Fixed column count per row so cells line up vertically even on the
+            // last, partially-filled row.
+            const cellsGrid: CSSProperties = {
+              ...s.epRowCells,
+              gridTemplateColumns: `repeat(${ROW_SIZE}, minmax(0, 1fr))`,
+            };
             return (
               <section key={season.id} style={s.seasonBlock}>
                 {Array.from({ length: rows }).map((_, rowIdx) => {
@@ -309,7 +376,7 @@ export default function ScoresTab({ info, seasonList }: Props) {
                       <span style={s.epRowLabel}>
                         {from === to ? `E${from}` : `E${from}–${to}`}
                       </span>
-                      <div style={s.epRowCells}>
+                      <div style={cellsGrid}>
                         {Array.from({ length: to - from + 1 }).map((__, i) => {
                           const epNum = from + i;
                           const score = epMap?.get(epNum) ?? null;
@@ -378,11 +445,22 @@ export default function ScoresTab({ info, seasonList }: Props) {
       </div>
 
       {/* Inline = a plain scrollable box (normal page behaviour). Fullscreen =
-          a pan/zoom canvas you can drag + zoom. */}
+          a pan/zoom canvas you can drag + zoom. The multi-season table is
+          fixed-width content, so we centre it horizontally when it's narrower
+          than the box (it still scrolls when wider). The single-season grid is
+          already full-width and shouldn't be centred. */}
       {fullscreen ? (
-        <PanZoom>{grid}</PanZoom>
+        <PanZoom centreContent={multiSeason}>{grid}</PanZoom>
       ) : (
-        <div style={s.inlineScroller}>{grid}</div>
+        <div
+          style={
+            multiSeason
+              ? { ...s.inlineScroller, ...s.inlineScrollerCentred }
+              : s.inlineScroller
+          }
+        >
+          {grid}
+        </div>
       )}
 
       <p style={s.footnote}>{t("anime.scoreGridNote")}</p>
@@ -403,14 +481,23 @@ export default function ScoresTab({ info, seasonList }: Props) {
 /* ── Pan + zoom canvas (fullscreen only) ──────────────────────
    Left-click drag to pan, scroll wheel to zoom toward the cursor, double-click
    to re-centre. The content is centred in the viewport on open. */
-function PanZoom({ children }: { children: React.ReactNode }) {
+function PanZoom({
+  children,
+  centreContent = true,
+}: {
+  children: React.ReactNode;
+  /** When true (multi-season), centre the content horizontally even if it's
+   *  narrower than the box. The single-season grid is full-width so it pins to
+   *  the left edge instead. */
+  centreContent?: boolean;
+}) {
   const boxRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const [tf, setTf] = useState({ x: 0, y: 0, scale: 1 });
   const drag = useRef({ active: false, sx: 0, sy: 0, ox: 0, oy: 0 });
 
-  // Centre the content within the box (horizontally always; vertically only
-  // when it fits, otherwise pin to the top so the first rows are visible).
+  // Centre the content within the box (horizontally when requested; vertically
+  // only when it fits, otherwise pin to the top so the first rows are visible).
   const centre = () => {
     const box = boxRef.current;
     const content = contentRef.current;
@@ -419,7 +506,7 @@ function PanZoom({ children }: { children: React.ReactNode }) {
     const bh = box.clientHeight;
     const cw = content.scrollWidth;
     const ch = content.scrollHeight;
-    const x = Math.max(0, (bw - cw) / 2);
+    const x = centreContent ? Math.max(0, (bw - cw) / 2) : 0;
     const y = ch < bh ? (bh - ch) / 2 : 0;
     setTf({ x, y, scale: 1 });
   };
@@ -583,7 +670,7 @@ const s: Record<string, CSSProperties> = {
     padding: 16,
     width: "100%",
   },
-  gridPad: { padding: 12, width: "max-content" },
+  gridPad: { padding: 12, width: "max-content", margin: "0 auto", textAlign: "left" },
   seasonBlock: { display: "flex", flexDirection: "column", gap: 6 },
   // One row of the grid: a fixed-width range label on the left, then the
   // episode cells flowing to the right. The label column is fixed so every
@@ -640,6 +727,27 @@ const s: Record<string, CSSProperties> = {
     paddingRight: 8,
     whiteSpace: "nowrap",
   },
+  // Portrait (mobile) multi-season table: episode column headers across the top,
+  // season row labels (with avg) down the left.
+  thEp: {
+    fontSize: 11,
+    fontWeight: 700,
+    color: "var(--txt-2)",
+    padding: "2px 4px",
+    textAlign: "center",
+    minWidth: 56,
+  },
+  rowHeadSeasonCell: { paddingRight: 10, whiteSpace: "nowrap", verticalAlign: "middle" },
+  rowHeadSeason: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 1,
+    fontSize: 12.5,
+    fontWeight: 700,
+    color: "var(--txt-1)",
+    textAlign: "left",
+  },
+  rowHeadAvg: { fontSize: 10, fontWeight: 600, color: "var(--txt-3)" },
   cellWrap: { padding: 0 },
   cellEmpty: { minWidth: 56 },
   footnote: { fontSize: 11.5, color: "var(--txt-3)", lineHeight: 1.5 },
@@ -650,13 +758,20 @@ const s: Record<string, CSSProperties> = {
   // behaviour, no pan/zoom. Numbers aren't selectable.
   inlineScroller: {
     width: "100%",
-    maxHeight: "70vh",
+    maxHeight: "80vh",
     overflow: "auto",
     borderRadius: 12,
     border: "1px solid var(--line)",
     background: "var(--bg-1)",
     userSelect: "none",
     WebkitUserSelect: "none",
+  },
+  // Multi-season: centre the fixed-width table horizontally when it fits, while
+  // staying scrollable when it's wider than the box. `margin-inline:auto` on the
+  // max-content child (gridPad) does exactly this without the left-edge clipping
+  // that flex `justify-content:center` causes on overflow.
+  inlineScrollerCentred: {
+    textAlign: "center",
   },
 
   // ── Pan / zoom canvas (fullscreen only) ──
@@ -686,8 +801,8 @@ const s: Record<string, CSSProperties> = {
   fsInner: {
     display: "flex",
     flexDirection: "column",
-    gap: 14,
-    padding: 18,
+    gap: 10,
+    padding: 14,
     height: "100%",
     boxSizing: "border-box",
   },
