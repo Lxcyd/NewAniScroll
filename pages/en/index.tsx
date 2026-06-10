@@ -55,8 +55,13 @@ export async function getServerSideProps(ctx: any) {
     items: any[],
   ): Promise<Array<HeroEntry>> => {
     if (!Array.isArray(items)) return [];
-    // Top 8 cycle through the hero carousel (dots + side rail).
-    const slice = items.slice(0, 8);
+    // Don't recommend anime that hasn't aired yet — a "BIENTÔT" entry in the
+    // hero carousel can't actually be watched. (The dedicated "Upcoming"
+    // section, fed by getUpcomingAnime, is where those belong.) Then take the
+    // top 8 to cycle through the hero carousel (dots + side rail).
+    const slice = items
+      .filter((it) => it?.status !== "NOT_YET_RELEASED")
+      .slice(0, 8);
     return Promise.all(
       slice.map(async (it) => {
         const fanarts = await loadFanarts(Number(it?.id)).catch(() => null);
@@ -73,9 +78,19 @@ export async function getServerSideProps(ctx: any) {
     );
   };
 
+  // First trending entry that has actually aired — used for the hero's initial
+  // banner / "Watch" button so it never lands on a not-yet-released title.
+  const pickFirstTrend = (items: any[]): any =>
+    (Array.isArray(items)
+      ? items.find((it) => it?.status !== "NOT_YET_RELEASED")
+      : null) ||
+    (Array.isArray(items) ? items[0] : null) ||
+    null;
+
   if (cachedData) {
-    const { genre, detail, populars, firstTrend, thisSeason, movies } =
+    const { genre, detail, populars, thisSeason, movies } =
       JSON.parse(cachedData);
+    const firstTrend = pickFirstTrend(detail?.data || []);
     const [upComing, heroEntries] = await Promise.all([
       getUpcomingAnime(),
       resolveHeroEntries(detail?.data || []),
@@ -137,7 +152,7 @@ export async function getServerSideProps(ctx: any) {
         detail: trendingDetail.props,
         populars: popularDetail.props,
         upComing,
-        firstTrend: trendingDetail.props.data?.[0] || null,
+        firstTrend: pickFirstTrend(trendingDetail.props.data || []),
         heroEntries,
         thisSeason: seasonDetail.props,
         movies: moviesDetail.props,

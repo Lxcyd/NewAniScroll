@@ -20,7 +20,8 @@ const REDIS_KEY_CHAIN = (id: number) => `seasonChain:v1:${id}`;
 // v3: SeasonEntry gained `idMal` (feeds Jikan per-episode score lookups).
 // v4: numbering now uses a running counter so split-cours + unnumbered
 //     "Final Season" entries get the right S<n> (AoT Final Season = S4, not S5).
-const REDIS_KEY_LIST = (id: number) => `seasonList:v4:${id}`;
+// v5: SeasonEntry gained `status` (flags not-yet-released seasons in the UI).
+const REDIS_KEY_LIST = (id: number) => `seasonList:v5:${id}`;
 const TTL_SECONDS = 7 * 24 * 60 * 60;
 
 async function redisGetJson<T>(key: string): Promise<T | null> {
@@ -176,6 +177,10 @@ export type SeasonEntry = {
   /** AniList format, used to filter out movies / OVAs from the
    *  switcher (we only want TV-like seasons there). */
   format: string | null;
+  /** AniList release status (FINISHED / RELEASING / NOT_YET_RELEASED / …).
+   *  Lets the UI flag a season that hasn't aired yet instead of showing a
+   *  bare "TV" with no year / episode count. */
+  status?: string | null;
   /** Full localised titles — present so the Relations widget can render
    *  proper cards (with cover + title) directly from the season list. */
   title?: {
@@ -305,6 +310,7 @@ async function resolveSeasonListUncached(
       episodes: m.episodes ?? null,
       averageScore: m.averageScore ?? null,
       format: m.format ?? null,
+      status: m.status ?? null,
       // Pulled from the same Media payload getMediaMeta already returned —
       // costs nothing extra but lets the Relations widget render full
       // poster cards without re-fetching per-id on the client.

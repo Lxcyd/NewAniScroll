@@ -499,75 +499,93 @@ export default function ScoresTab({ info, seasonList }: Props) {
 }
 
 /* ── Pan + zoom canvas (fullscreen only) ──────────────────────
-   Left-click drag to pan, scroll wheel to zoom toward the cursor, double-click
-   to re-centre. The content is centred in the viewport on open. */
+   A NATIVE scroller (real scrollbars). Drag with the mouse to pan, scroll wheel
+   to zoom toward the cursor, double-click to reset. Zoom uses the CSS `zoom`
+   property (crisp re-rasterisation, not a blurry bitmap upscale). */
 function PanZoom({
   children,
   centreContent = true,
 }: {
   children: React.ReactNode;
-  /** When true (multi-season), centre the content horizontally even if it's
-   *  narrower than the box. The single-season grid is full-width so it pins to
-   *  the left edge instead. */
+  /** When true (multi-season), centre the content horizontally if it's narrower
+   *  than the box. The single-season grid is full-width so it pins left. */
   centreContent?: boolean;
 }) {
   const boxRef = useRef<HTMLDivElement>(null);
-  const contentRef = useRef<HTMLDivElement>(null);
-  const [tf, setTf] = useState({ x: 0, y: 0, scale: 1 });
-  const drag = useRef({ active: false, sx: 0, sy: 0, ox: 0, oy: 0 });
+  const innerRef = useRef<HTMLDivElement>(null);
+  const [scale, setScale] = useState(1);
+  // Drag-to-scroll: remember where the drag started and the scroll offset then,
+  // and move scrollLeft/scrollTop by the cursor delta.
+  const drag = useRef({ active: false, sx: 0, sy: 0, sl: 0, st: 0, moved: false });
 
-  // Centre the content within the box (horizontally when requested; vertically
-  // only when it fits, otherwise pin to the top so the first rows are visible).
+  // Centre / reset: scale back to 1 and centre the scroll position (or pin to
+  // the start when the content is wider/taller than the box).
   const centre = () => {
-    const box = boxRef.current;
-    const content = contentRef.current;
-    if (!box || !content) return;
-    const bw = box.clientWidth;
-    const bh = box.clientHeight;
-    // contentRef is the OUTER (translate-only) wrapper — translate doesn't
-    // affect clientWidth/scrollWidth, so this reads the natural 1× size no
-    // matter the current zoom. The reset lands at scale 1, so natural == final.
-    const cw = content.scrollWidth;
-    const ch = content.scrollHeight;
-    const x = centreContent ? Math.max(0, (bw - cw) / 2) : 0;
-    const y = ch < bh ? (bh - ch) / 2 : 0;
-    setTf({ x, y, scale: 1 });
+    setScale(1);
+    // Wait for the zoom reset to lay out before measuring + centring scroll.
+    requestAnimationFrame(() => {
+      const box = boxRef.current;
+      if (!box) return;
+      box.scrollLeft = centreContent
+        ? Math.max(0, (box.scrollWidth - box.clientWidth) / 2)
+        : 0;
+      box.scrollTop = 0;
+    });
   };
 
   useEffect(() => {
-    // Centre once the overlay has laid out.
     const id = requestAnimationFrame(centre);
     return () => cancelAnimationFrame(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Zoom toward the cursor: keep the content point under the pointer fixed by
+  // adjusting the scroll offset to compensate for the size change.
   const onWheel = (e: React.WheelEvent) => {
     e.preventDefault();
     const box = boxRef.current;
     if (!box) return;
     const rect = box.getBoundingClientRect();
-    const px = e.clientX - rect.left;
-    const py = e.clientY - rect.top;
-    setTf((prev) => {
+    // Pointer position in the scrolled content space, at the current scale.
+    const cx = box.scrollLeft + (e.clientX - rect.left);
+    const cy = box.scrollTop + (e.clientY - rect.top);
+    setScale((prev) => {
       const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
-      const scale = Math.min(6, Math.max(0.3, prev.scale * factor));
-      const k = scale / prev.scale;
-      // Keep the point under the cursor fixed while zooming.
-      return { x: px - (px - prev.x) * k, y: py - (py - prev.y) * k, scale };
+      const next = Math.min(6, Math.max(0.3, prev * factor));
+      const k = next / prev;
+      // After the content grows by k, move scroll so the same point stays under
+      // the cursor. Applied next frame once the new size is laid out.
+      requestAnimationFrame(() => {
+        box.scrollLeft = cx * k - (e.clientX - rect.left);
+        box.scrollTop = cy * k - (e.clientY - rect.top);
+      });
+      return next;
     });
   };
 
   const onPointerDown = (e: React.PointerEvent) => {
     if (e.button !== 0) return;
+    const box = boxRef.current;
+    if (!box) return;
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-    drag.current = { active: true, sx: e.clientX, sy: e.clientY, ox: tf.x, oy: tf.y };
+    drag.current = {
+      active: true,
+      sx: e.clientX,
+      sy: e.clientY,
+      sl: box.scrollLeft,
+      st: box.scrollTop,
+      moved: false,
+    };
   };
   const onPointerMove = (e: React.PointerEvent) => {
     if (!drag.current.active) return;
-    setTf((prev) => ({
-      ...prev,
-      x: drag.current.ox + (e.clientX - drag.current.sx),
-      y: drag.current.oy + (e.clientY - drag.current.sy),
-    }));
+    const box = boxRef.current;
+    if (!box) return;
+    const dx = e.clientX - drag.current.sx;
+    const dy = e.clientY - drag.current.sy;
+    if (Math.abs(dx) > 2 || Math.abs(dy) > 2) drag.current.moved = true;
+    box.scrollLeft = drag.current.sl - dx;
+    box.scrollTop = drag.current.st - dy;
   };
   const endDrag = (e: React.PointerEvent) => {
     drag.current.active = false;
@@ -582,6 +600,7 @@ function PanZoom({
     <div
       ref={boxRef}
       style={s.panBoxFs}
+      className="score-pan-scroller"
       onWheel={onWheel}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
@@ -589,32 +608,14 @@ function PanZoom({
       onPointerLeave={endDrag}
       onDoubleClick={centre}
     >
-      {/* Pan (translate) and zoom are split across two elements:
-          - the OUTER wrapper translates → smooth panning, GPU-composited.
-          - the INNER content uses the CSS `zoom` property to scale. Unlike
-            `transform: scale()`, `zoom` re-runs layout + rasterisation at the
-            new size, so text stays razor-sharp at any zoom instead of being a
-            blurry bitmap upscale. The cursor-anchored zoom math is identical
-            (the box→content mapping is the same), so onWheel is unchanged. */}
+      {/* `zoom` (not `transform: scale`) so text re-rasterises sharp at any
+          magnification. `zoom` is widely supported (Chrome/Edge/Safari, Firefox
+          126+); cast to satisfy the React CSSProperties type. */}
       <div
-        ref={contentRef}
-        style={{
-          transform: `translate(${tf.x}px, ${tf.y}px)`,
-          transformOrigin: "0 0",
-          width: "max-content",
-          willChange: "transform",
-        }}
+        ref={innerRef}
+        style={{ zoom: scale, width: "max-content", margin: "0 auto" } as CSSProperties}
       >
-        <div
-          style={{
-            // `zoom` isn't in the React CSSProperties type but is widely
-            // supported (Chrome/Edge/Safari, Firefox 126+); cast to satisfy TS.
-            zoom: tf.scale,
-            width: "max-content",
-          } as CSSProperties}
-        >
-          {children}
-        </div>
+        {children}
       </div>
     </div>
   );
@@ -814,11 +815,12 @@ const s: Record<string, CSSProperties> = {
   },
 
   // ── Pan / zoom canvas (fullscreen only) ──
-  // The box clips and owns the drag/zoom gestures and fills the overlay height.
-  // `touchAction: none` so a drag doesn't also scroll the page on touch devices.
+  // A real overflow:auto scroller — native scrollbars, plus drag-to-scroll and
+  // wheel-zoom wired up in PanZoom. Fills the overlay height. `touchAction:none`
+  // so a drag doesn't also bounce the page on touch devices.
   panBoxFs: {
     position: "relative",
-    overflow: "hidden",
+    overflow: "auto",
     borderRadius: 12,
     border: "1px solid var(--line)",
     background: "var(--bg-1)",

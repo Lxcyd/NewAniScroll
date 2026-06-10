@@ -502,9 +502,11 @@ function SeasonPicker({
                 <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start" }}>
                   <span style={{ fontSize: 12.5, fontWeight: 600 }}>{s.label}</span>
                   <span style={{ fontSize: 10.5, color: "var(--txt-3)" }}>
-                    {[s.year, s.episodes ? `${s.episodes} EP` : null]
-                      .filter(Boolean)
-                      .join(" · ") || s.format}
+                    {s.status === "NOT_YET_RELEASED"
+                      ? t("anime.notYetReleased")
+                      : [s.year, s.episodes ? `${s.episodes} EP` : null]
+                          .filter(Boolean)
+                          .join(" · ") || s.format}
                   </span>
                 </div>
                 {isActive && (
