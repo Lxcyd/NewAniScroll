@@ -464,23 +464,15 @@ export default function ScoresTab({ info, seasonList }: Props) {
         ))}
       </div>
 
-      {/* Inline = a plain scrollable box (normal page behaviour). Fullscreen =
-          a pan/zoom canvas you can drag + zoom. The multi-season table is
-          fixed-width content, so we centre it horizontally when it's narrower
-          than the box (it still scrolls when wider). The single-season grid is
-          already full-width and shouldn't be centred. */}
+      {/* Inline = a horizontally drag-scrollable box with a visible scrollbar
+          (normal page behaviour, no zoom). Fullscreen = a pan/zoom canvas. The
+          multi-season table is fixed-width, so we centre it when it's narrower
+          than the box (still scrolls when wider). The single-season grid is
+          already full-width and isn't centred. */}
       {fullscreen ? (
         <PanZoom centreContent={multiSeason}>{grid}</PanZoom>
       ) : (
-        <div
-          style={
-            multiSeason
-              ? { ...s.inlineScroller, ...s.inlineScrollerCentred }
-              : s.inlineScroller
-          }
-        >
-          {grid}
-        </div>
+        <DragScroller centreContent={multiSeason}>{grid}</DragScroller>
       )}
 
       <p style={s.footnote}>{t("anime.scoreGridNote")}</p>
@@ -546,25 +538,34 @@ function PanZoom({
     const box = boxRef.current;
     if (!box) return;
     const rect = box.getBoundingClientRect();
+    // Capture the pointer offset NOW — the React event is pooled, so reading
+    // e.clientX inside the rAF below would be stale/null.
+    const offX = e.clientX - rect.left;
+    const offY = e.clientY - rect.top;
     // Pointer position in the scrolled content space, at the current scale.
-    const cx = box.scrollLeft + (e.clientX - rect.left);
-    const cy = box.scrollTop + (e.clientY - rect.top);
+    const cx = box.scrollLeft + offX;
+    const cy = box.scrollTop + offY;
+    const dir = e.deltaY < 0 ? 1 : -1;
     setScale((prev) => {
-      const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
+      const factor = dir > 0 ? 1.12 : 1 / 1.12;
       const next = Math.min(6, Math.max(0.3, prev * factor));
       const k = next / prev;
       // After the content grows by k, move scroll so the same point stays under
       // the cursor. Applied next frame once the new size is laid out.
       requestAnimationFrame(() => {
-        box.scrollLeft = cx * k - (e.clientX - rect.left);
-        box.scrollTop = cy * k - (e.clientY - rect.top);
+        box.scrollLeft = cx * k - offX;
+        box.scrollTop = cy * k - offY;
       });
       return next;
     });
   };
 
+  // JS drag-to-scroll is MOUSE-ONLY. On touch we let the browser scroll the box
+  // natively (panBoxFs sets touchAction:pan-x pan-y + momentum) — native touch
+  // scrolling is far smoother than writing scrollLeft per pointermove, which is
+  // what made mobile feel laggy. Pinch-zoom on touch is handled natively too.
   const onPointerDown = (e: React.PointerEvent) => {
-    if (e.button !== 0) return;
+    if (e.pointerType !== "mouse" || e.button !== 0) return;
     const box = boxRef.current;
     if (!box) return;
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
@@ -613,10 +614,74 @@ function PanZoom({
           126+); cast to satisfy the React CSSProperties type. */}
       <div
         ref={innerRef}
-        style={{ zoom: scale, width: "max-content", margin: "0 auto" } as CSSProperties}
+        style={{
+          zoom: scale,
+          width: "max-content",
+          margin: "0 auto",
+          // Isolate the grid's layout/paint so a zoom reflow doesn't ripple out
+          // — keeps re-zoom on a 1000-cell franchise (One Piece) responsive.
+          contain: "layout paint",
+        } as CSSProperties}
       >
         {children}
       </div>
+    </div>
+  );
+}
+
+/* ── Inline drag-scroller (non-fullscreen) ────────────────────
+   A plain scrollable box with a visible scrollbar. No zoom. Mouse can click-
+   and-drag HORIZONTALLY to scroll (for the wide multi-season table); touch uses
+   native scrolling. Vertical scroll stays native so a long single-season grid
+   still scrolls the page normally. */
+function DragScroller({
+  children,
+  centreContent = false,
+}: {
+  children: React.ReactNode;
+  centreContent?: boolean;
+}) {
+  const boxRef = useRef<HTMLDivElement>(null);
+  const drag = useRef({ active: false, sx: 0, sl: 0 });
+
+  const onPointerDown = (e: React.PointerEvent) => {
+    // Mouse-only horizontal drag; touch scrolls natively (smoother on mobile).
+    if (e.pointerType !== "mouse" || e.button !== 0) return;
+    const box = boxRef.current;
+    if (!box || box.scrollWidth <= box.clientWidth) return; // nothing to pan
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    drag.current = { active: true, sx: e.clientX, sl: box.scrollLeft };
+  };
+  const onPointerMove = (e: React.PointerEvent) => {
+    if (!drag.current.active) return;
+    const box = boxRef.current;
+    if (!box) return;
+    box.scrollLeft = drag.current.sl - (e.clientX - drag.current.sx);
+  };
+  const endDrag = (e: React.PointerEvent) => {
+    drag.current.active = false;
+    try {
+      (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+    } catch {
+      /* already released */
+    }
+  };
+
+  return (
+    <div
+      ref={boxRef}
+      className="score-pan-scroller"
+      style={
+        centreContent
+          ? { ...s.inlineScroller, ...s.inlineScrollerCentred }
+          : s.inlineScroller
+      }
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={endDrag}
+      onPointerLeave={endDrag}
+    >
+      {children}
     </div>
   );
 }
@@ -805,7 +870,8 @@ const s: Record<string, CSSProperties> = {
     background: "var(--bg-1)",
     userSelect: "none",
     WebkitUserSelect: "none",
-  },
+    WebkitOverflowScrolling: "touch",
+  } as CSSProperties,
   // Multi-season: centre the fixed-width table horizontally when it fits, while
   // staying scrollable when it's wider than the box. `margin-inline:auto` on the
   // max-content child (gridPad) does exactly this without the left-edge clipping
@@ -815,9 +881,10 @@ const s: Record<string, CSSProperties> = {
   },
 
   // ── Pan / zoom canvas (fullscreen only) ──
-  // A real overflow:auto scroller — native scrollbars, plus drag-to-scroll and
-  // wheel-zoom wired up in PanZoom. Fills the overlay height. `touchAction:none`
-  // so a drag doesn't also bounce the page on touch devices.
+  // A real overflow:auto scroller — native scrollbars, mouse drag-to-scroll and
+  // wheel-zoom wired up in PanZoom. Fills the overlay height. `touchAction:pan-x
+  // pan-y` + momentum lets TOUCH devices scroll natively (smooth, no JS per
+  // frame) and pinch-zoom natively, instead of us hijacking every touch.
   panBoxFs: {
     position: "relative",
     overflow: "auto",
@@ -827,10 +894,13 @@ const s: Record<string, CSSProperties> = {
     flex: 1,
     minHeight: 0,
     cursor: "grab",
-    touchAction: "none",
+    // pan-x pan-y → native (smooth) scroll on touch; pinch-zoom → let the
+    // browser magnify natively (crisp, zero JS) instead of our laggy JS zoom.
+    touchAction: "pan-x pan-y pinch-zoom",
+    WebkitOverflowScrolling: "touch",
     userSelect: "none",
     WebkitUserSelect: "none",
-  },
+  } as CSSProperties,
   fsOverlay: {
     position: "fixed",
     inset: 0,
