@@ -196,15 +196,15 @@ export default function ScoresTab({ info, seasonList }: Props) {
   // Column header per season. Each entry already carries its true season number
   // (S1…S4 for AoT, with the Final Season correctly numbered 4). A split-cours
   // season repeats a number (AoT "S3" + "S3 Part 2"); we disambiguate the
-  // repeat with a part marker — "S3", "S3·2", "S4", "S4·2" — so it reads as the
-  // same season's second cour rather than a different season.
+  // repeat with a part marker — "S3", "S3 Pt. 2", "S4", "S4 Pt. 2" — so it reads
+  // as the same season's second cour rather than a different season.
   const colLabels = useMemo(() => {
     const seen = new Map<number, number>();
     return seasonsWithCount.map((season) => {
       const n = season.number;
       const part = (seen.get(n) || 0) + 1;
       seen.set(n, part);
-      return part === 1 ? `S${n}` : `S${n}·${part}`;
+      return part === 1 ? `S${n}` : `S${n} Pt. ${part}`;
     });
   }, [seasonsWithCount]);
 
@@ -288,16 +288,15 @@ export default function ScoresTab({ info, seasonList }: Props) {
   };
 
   // Multi-season orientation flips with the viewport:
-  //   - PC / landscape → episodes down the rows, seasons across the columns
-  //     (wide table, the classic layout).
-  //   - Mobile / portrait → seasons down the rows, episodes across the columns
-  //     (a phone is taller than wide, so the long axis — episodes — runs
-  //     horizontally and you scroll sideways through a season's run).
-  const portrait = vw < 768;
+  //   - PC / wide → seasons down the rows, episodes across the columns
+  //     (the wide screen has room for a long horizontal episode axis).
+  //   - Mobile / narrow → seasons across the columns, episodes down the rows
+  //     (the classic table; a phone scrolls vertically through episodes).
+  const transposed = vw >= 768;
 
   const grid = multiSeason ? (
-        portrait ? (
-          // ── Portrait: one ROW per season, one column per episode ──
+        transposed ? (
+          // ── Transposed (PC): one ROW per season, one column per episode ──
           <div style={s.gridPad}>
             <table style={s.table} className="mono">
               <thead>
@@ -332,7 +331,7 @@ export default function ScoresTab({ info, seasonList }: Props) {
             </table>
           </div>
         ) : (
-          // ── Landscape: one column per season, one row per episode ──
+          // ── Classic (mobile): one column per season, one row per episode ──
           <div style={s.gridPad}>
             <table style={s.table} className="mono">
               <thead>
@@ -525,6 +524,9 @@ function PanZoom({
     if (!box || !content) return;
     const bw = box.clientWidth;
     const bh = box.clientHeight;
+    // contentRef is the OUTER (translate-only) wrapper — translate doesn't
+    // affect clientWidth/scrollWidth, so this reads the natural 1× size no
+    // matter the current zoom. The reset lands at scale 1, so natural == final.
     const cw = content.scrollWidth;
     const ch = content.scrollHeight;
     const x = centreContent ? Math.max(0, (bw - cw) / 2) : 0;
@@ -587,16 +589,32 @@ function PanZoom({
       onPointerLeave={endDrag}
       onDoubleClick={centre}
     >
+      {/* Pan (translate) and zoom are split across two elements:
+          - the OUTER wrapper translates → smooth panning, GPU-composited.
+          - the INNER content uses the CSS `zoom` property to scale. Unlike
+            `transform: scale()`, `zoom` re-runs layout + rasterisation at the
+            new size, so text stays razor-sharp at any zoom instead of being a
+            blurry bitmap upscale. The cursor-anchored zoom math is identical
+            (the box→content mapping is the same), so onWheel is unchanged. */}
       <div
         ref={contentRef}
         style={{
-          transform: `translate(${tf.x}px, ${tf.y}px) scale(${tf.scale})`,
+          transform: `translate(${tf.x}px, ${tf.y}px)`,
           transformOrigin: "0 0",
           width: "max-content",
           willChange: "transform",
         }}
       >
-        {children}
+        <div
+          style={{
+            // `zoom` isn't in the React CSSProperties type but is widely
+            // supported (Chrome/Edge/Safari, Firefox 126+); cast to satisfy TS.
+            zoom: tf.scale,
+            width: "max-content",
+          } as CSSProperties}
+        >
+          {children}
+        </div>
       </div>
     </div>
   );
