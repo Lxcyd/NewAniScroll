@@ -155,10 +155,8 @@
     "gotIt": "Compris, merci !",
     "seeFull": "consultez le changelog complet à tout moment via le bouton nouveautés dans la barre de navigation.",
     "unableToLoad": "Impossible de charger le changelog.",
-    "releaseTitle": "v0.0.2 — Notes par épisode & lecteurs plus fiables (2026-06-10)",
-    "releaseImage": "/changelog/score-grid.png",
-    "releaseImageAlt": "La nouvelle grille de notes par épisode sur la page de One Piece",
-    "releaseBody": "✨ **Nouveau : onglet Notes par épisode.** Chaque anime a désormais un onglet **Notes** — une grille colorée des notes de la communauté pour chaque épisode (MyAnimeList, sur 10), organisée saison par saison pour repérer les meilleurs arcs d'un coup d'œil. Ouvrez-la en plein écran pour vous déplacer et zoomer librement.\n\n🎬 **Lecteurs : les bons épisodes, et plus nombreux.** Nous avons revu la détection des saisons sur anime-sama et voir-anime : les animes à plusieurs saisons ne diffusent plus la mauvaise saison (une saison 2 qui jouait en réalité la saison 1), et nous avons corrigé un bug qui masquait des lecteurs voir-anime pourtant fonctionnels sur de nombreuses séries populaires. Beaucoup plus d'animes ont maintenant un lecteur VF/VOSTFR.\n\n🔧 Aussi dans cette mise à jour : reprise automatique de la lecture entre lecteurs et appareils, les recommandations de l'accueil n'affichent plus d'animes pas encore sortis, la VF manquante des premiers épisodes de One Piece, et plusieurs corrections plus petites. 🐛 Un souci ? Le **bouton signaler** nous envoie automatiquement l'anime et l'épisode."
+    "releaseTitle": "v0.0.2 (2026-06-10)",
+    "releaseBody": "✨ Nouvel onglet **Notes** — les notes de la communauté pour chaque épisode, saison par saison.\n\n🎬 Lecteurs corrigés : les animes à plusieurs saisons diffusent enfin la bonne saison, et bien plus de titres ont un lecteur VF/VOSTFR.\n\n🔧 Plus la reprise auto entre appareils et des correctifs."
   },
   "health": {
     "anilistDown": "AniList est actuellement indisponible",
