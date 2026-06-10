@@ -651,7 +651,15 @@ export async function getServerSideProps(ctx: any) {
   const cacheKey = `anime:${CACHE_VERSION}:${id}`;
 
   if (redis) {
-    cache = await redis.get(cacheKey);
+    // Guarded: a Redis blip (timeout / dropped connection) must NOT crash the
+    // whole SSR with FUNCTION_INVOCATION_FAILED — we just fall through to the
+    // live AniList path as if it were a cache miss.
+    try {
+      cache = await redis.get(cacheKey);
+    } catch (e: any) {
+      console.warn(`[anime SSR] redis.get failed:`, e?.message);
+      cache = null;
+    }
   }
   timer.mark("redis");
 
@@ -680,8 +688,20 @@ export async function getServerSideProps(ctx: any) {
     "public, s-maxage=3600, stale-while-revalidate=86400",
   );
 
+  // A corrupt / partial cached value must not crash the function — treat a
+  // parse failure as a cache miss and fall through to the live fetch below.
+  let parsedCache: { info?: any; color?: any } | null = null;
   if (cache) {
-    const { info, color } = JSON.parse(cache);
+    try {
+      parsedCache = JSON.parse(cache);
+    } catch (e: any) {
+      console.warn(`[anime SSR] corrupt cache for ${id?.[0]}:`, e?.message);
+      parsedCache = null;
+    }
+  }
+
+  if (parsedCache?.info) {
+    const { info, color } = parsedCache;
 
     // Banner + cover URLs are already in the cached `info`, so we can
     // tell the browser to start fetching them RIGHT NOW via Link:
@@ -787,12 +807,16 @@ export async function getServerSideProps(ctx: any) {
   );
 
   if (redis) {
-    await redis.set(
-      cacheKey,
-      JSON.stringify({ info: data, color }),
-      "EX",
-      cacheTime
-    );
+    try {
+      await redis.set(
+        cacheKey,
+        JSON.stringify({ info: data, color }),
+        "EX",
+        cacheTime
+      );
+    } catch (e: any) {
+      console.warn(`[anime SSR] redis.set failed:`, e?.message);
+    }
   }
 
   const [seasonInfo, seasonList] = await Promise.all([
