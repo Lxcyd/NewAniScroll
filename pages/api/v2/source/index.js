@@ -948,11 +948,13 @@ async function detectSeasonNumber(aniId) {
   }
   const walkSeason = distinct + 1;
 
-  // Trust the explicit title number when present (most reliable); otherwise the
-  // continuation-aware walk. Take the max so a title that says "Season 2" can't
-  // be dragged below 2 by a broken chain, and a deep chain isn't capped by a
-  // title that happens to omit its number.
-  const season = Math.max(titleSeason || 1, walkSeason);
+  // An EXPLICIT number in the start title is authoritative: "2nd Season" means
+  // S2 no matter how many OVA/Part bridges the PREQUEL walk crosses. Taking the
+  // max would let the walk's over-count win (Slime "2nd Season" walks through a
+  // Coleus OVA + Part split → 3, dragging S2 to S3 and missing the -2- slug).
+  // So trust the title number when it's there; fall back to the walk only when
+  // the title carries no number at all.
+  const season = titleSeason != null ? titleSeason : walkSeason;
 
   seasonCache.set(cacheKey, season);
   return season;
