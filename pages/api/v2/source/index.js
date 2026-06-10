@@ -624,60 +624,26 @@ async function getAnimeSamaIframe(serverKey, title, episode, aniId) {
       }
     }
 
-    // 3.6. TITLE MATCHING â€” prefer the panneau whose label is most similar to
-    // the AniList title. Solves the "Baki Hanma saison 1" vs "Baki Hanma saison 2"
-    // case where the PREQUEL chain over-counts because AniList's chain
-    // includes ONAs that anime-sama merges into a single panneau slot.
-    //
-    // Score = token-overlap between panneau label and AniList titles, with a
-    // small bonus for matching the season suffix ("saison 1" â†’ bonus when
-    // AniList title doesn't have a "Season N" hint, "saison 2" â†’ bonus when
-    // AniList title has "Season 2" / "2nd Season" / "Part 2").
+    // 3.6. SEASON SCORING — pick the panneau that best matches this AniList
+    // entry. `detectSeasonNumber` is now reliable (title-anchored +
+    // continuation-aware), so the panel whose "Saison N" label equals it is the
+    // PRIMARY signal; title token-overlap breaks ties (Baki/HxH same-slug eras).
     const aniTitles = [
       meta?.title?.romaji,
       meta?.title?.english,
       ...(meta?.synonyms || []),
     ].filter(Boolean);
-    const aniSeasonHint = (() => {
-      const t = `${meta?.title?.romaji || ""} ${meta?.title?.english || ""}`;
-      const m = t.match(/\b(?:season|part|saison)\s*(\d+)\b|(\d+)(?:st|nd|rd|th)\s*season/i);
-      if (!m) return null;
-      return parseInt(m[1] || m[2], 10);
-    })();
-    let titleMatchedSeason = null;
-    if (aniTitles.length > 0 && seasons.length > 1) {
-      let best = { season: null, score: 0 };
-      for (const s of seasons) {
-        let bestForSeason = 0;
-        for (const t of aniTitles) {
-          const sc = scoreSlugAgainstTitle(s.label, t);
-          if (sc > bestForSeason) bestForSeason = sc;
-        }
-        // Tie-breaker on the panneau's own "saison N" suffix vs AniList hint.
-        const labelSeasonMatch = s.label.match(/saison\s*(\d+)/i);
-        const labelSeasonNum = labelSeasonMatch ? parseInt(labelSeasonMatch[1], 10) : null;
-        if (aniSeasonHint != null && labelSeasonNum === aniSeasonHint) {
-          bestForSeason += 5; // strong signal
-        } else if (aniSeasonHint == null && labelSeasonNum === 1) {
-          bestForSeason += 1; // mild bias toward "saison 1" when no hint
-        }
-        if (bestForSeason > best.score) best = { season: s, score: bestForSeason };
-      }
-      if (best.season && best.score > 0) {
-        titleMatchedSeason = best.season;
-        dlog(`[anime-sama] Title match: "${best.season.label}" (score ${best.score})`);
-      }
-    }
+    const titleMatchedSeason = pickAnimeSamaSeason(seasons, aniTitles, seasonNum);
 
     // 4. If we detected a specific season from AniList, go directly to it
     const episodeIndex = Number(episode) - 1;
     let iframeUrl = null;
 
-    // Priority: MOVIE → film panel > explicit year match > title match >
-    // PREQUEL ordinal. A MOVIE AniList id has no meaningful season ordinal, so
-    // when the catalogue carries a "film" panel we go straight to it; this is
-    // what was missing for films like Le Château ambulant (the panel existed
-    // but the saison-only parser dropped it and ordinal logic never reached it).
+    // Priority: MOVIE → film panel > explicit year match (same-slug remakes like
+    // HxH 1999/2011) > scored season match (label==seasonNum, then title overlap)
+    // > raw ordinal. The scored match folds in the old "title match" + the
+    // reliable seasonNum, so an unnumbered later season ("Final Season") lands on
+    // its real panel instead of falling back to saison1.
     const directTarget = (isMovie && filmSeason) ||
       yearMatchedSeason ||
       titleMatchedSeason ||
@@ -1141,6 +1107,40 @@ async function findAnimeSamaSlug(title, aniId) {
 
   slugCache.set(cacheKey, chosen);
   return chosen;
+}
+
+/**
+ * Pick the anime-sama panneau (season) that best matches an AniList entry.
+ *
+ * Single scorer shared by the player and the audit so they always agree:
+ *   - +6 when the panel's own "Saison N" label equals the reliable detected
+ *     seasonNum (the primary, now-trustworthy signal — detectSeasonNumber is
+ *     title-anchored + continuation-aware);
+ *   - + token-overlap between the panel label and the AniList titles (breaks
+ *     ties between same-slug eras, e.g. HxH 1999 vs 2011, Baki vs Baki Hanma).
+ *
+ * NO "bias toward saison 1 when unnumbered" — that bias is exactly what made
+ * unnumbered later seasons ("Final Season") collapse onto saison1. When the
+ * detected season is 1 we simply don't add the label bonus, so token overlap
+ * decides, which is correct. Returns null when nothing scores.
+ */
+function pickAnimeSamaSeason(seasons, aniTitles, seasonNum) {
+  if (!Array.isArray(seasons) || seasons.length <= 1) return null;
+  if (!aniTitles || aniTitles.length === 0) return null;
+  let best = { season: null, score: 0 };
+  for (const s of seasons) {
+    let score = 0;
+    for (const t of aniTitles) {
+      const sc = scoreSlugAgainstTitle(s.label, t);
+      if (sc > score) score = sc;
+    }
+    const labelSeasonMatch = s.label.match(/saison\s*(\d+)/i);
+    const labelSeasonNum = labelSeasonMatch ? parseInt(labelSeasonMatch[1], 10) : null;
+    // Strong, reliable signal: the panel's season number equals the detected one.
+    if (seasonNum > 1 && labelSeasonNum === seasonNum) score += 6;
+    if (score > best.score) best = { season: s, score };
+  }
+  return best.season && best.score > 0 ? best.season : null;
 }
 
 /** Match an episodes.js array to a preferred host list. Returns null if no match. */
@@ -1655,29 +1655,10 @@ export async function inspectAnimeSama(aniId, lang = "vostfr") {
     const aniYear = meta?.seasonYear || meta?.startDate?.year || null;
     let yearMatchedSeason = aniYear ? seasons.find((s) => s.year === aniYear) : null;
 
+    // Same scorer the player uses, so the audit reflects exactly what the player
+    // would pick (label==seasonNum primary, title overlap tie-break).
     const aniTitles = [meta?.title?.romaji, meta?.title?.english, ...(meta?.synonyms || [])].filter(Boolean);
-    const aniSeasonHint = (() => {
-      const t = `${meta?.title?.romaji || ""} ${meta?.title?.english || ""}`;
-      const m = t.match(/\b(?:season|part|saison)\s*(\d+)\b|(\d+)(?:st|nd|rd|th)\s*season/i);
-      return m ? parseInt(m[1] || m[2], 10) : null;
-    })();
-    let titleMatchedSeason = null;
-    if (aniTitles.length > 0 && seasons.length > 1) {
-      let best = { season: null, score: 0 };
-      for (const s of seasons) {
-        let bestForSeason = 0;
-        for (const t of aniTitles) {
-          const sc = scoreSlugAgainstTitle(s.label, t);
-          if (sc > bestForSeason) bestForSeason = sc;
-        }
-        const labelSeasonMatch = s.label.match(/saison\s*(\d+)/i);
-        const labelSeasonNum = labelSeasonMatch ? parseInt(labelSeasonMatch[1], 10) : null;
-        if (aniSeasonHint != null && labelSeasonNum === aniSeasonHint) bestForSeason += 5;
-        else if (aniSeasonHint == null && labelSeasonNum === 1) bestForSeason += 1;
-        if (bestForSeason > best.score) best = { season: s, score: bestForSeason };
-      }
-      if (best.season && best.score > 0) titleMatchedSeason = best.season;
-    }
+    const titleMatchedSeason = pickAnimeSamaSeason(seasons, aniTitles, out.seasonNum);
 
     const directTarget =
       (isMovie && filmSeason) ||
