@@ -404,7 +404,7 @@
     "scores": "Scores",
     "scoreGridTitle": "Episode scores",
     "avgScore": "avg",
-    "scoreGridNote": "Per-episode scores are MyAnimeList community ratings (out of 10). Episodes not yet aired or without a rating are shown in grey.",
+    "scoreGridNote": "Per-episode scores are MyAnimeList community ratings (out of 10). Episodes not yet aired or without a rating are shown in grey. The average shown here is the mean of all episode scores — it differs from the anime's overall rating, which is how users score the show as a whole.",
     "tier": {
       "masterpiece": "Masterpiece",
       "great": "Great",

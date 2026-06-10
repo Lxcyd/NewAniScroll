@@ -1112,21 +1112,53 @@ async function findAnimeSamaSlug(title, aniId) {
 /**
  * Pick the anime-sama panneau (season) that best matches an AniList entry.
  *
- * Single scorer shared by the player and the audit so they always agree:
- *   - +6 when the panel's own "Saison N" label equals the reliable detected
- *     seasonNum (the primary, now-trustworthy signal — detectSeasonNumber is
- *     title-anchored + continuation-aware);
- *   - + token-overlap between the panel label and the AniList titles (breaks
- *     ties between same-slug eras, e.g. HxH 1999 vs 2011, Baki vs Baki Hanma).
+ * Single scorer shared by the player and the audit so they always agree.
+ * anime-sama lays panels out three different ways, and a robust pick has to
+ * handle all three:
  *
- * NO "bias toward saison 1 when unnumbered" — that bias is exactly what made
- * unnumbered later seasons ("Final Season") collapse onto saison1. When the
- * detected season is 1 we simply don't add the label bonus, so token overlap
- * decides, which is correct. Returns null when nothing scores.
+ *   A. CLEANLY NUMBERED — "Saison 1", "Saison 2", … (Haikyuu, AoT). The
+ *      detected seasonNum maps to the matching "Saison N" label. If seasonNum
+ *      overshoots the panels available (AniList counts a later entry the site
+ *      folded in — e.g. Haikyuu "TO THE TOP" is AniList S5 but the site's S4),
+ *      we CLAMP to the highest numbered season so we never fall back to S1.
+ *   B. NAME-LABELLED — one slug holds a whole franchise as panels named by
+ *      sub-series ("Zero", "Stay Night", "Heaven's Feel" under `fate`). Here
+ *      seasonNum is meaningless; title token-overlap against the label is the
+ *      only signal, so "Fate/Zero" → the "Zero" panel.
+ *   C. SINGLE SEASON-LIKE PANEL (a franchise entry that has its OWN slug, e.g.
+ *      tokyo-ghoul-re) → handled by the caller (it falls to seasons[0]); we
+ *      return null.
+ *
+ * No "bias toward saison 1 when unnumbered" — that bias is what made unnumbered
+ * later seasons ("Final Season") collapse onto saison1. Returns null when
+ * nothing scores (caller falls back to ordinal/seasons[0]).
  */
 function pickAnimeSamaSeason(seasons, aniTitles, seasonNum) {
   if (!Array.isArray(seasons) || seasons.length <= 1) return null;
   if (!aniTitles || aniTitles.length === 0) return null;
+
+  // Season-like panels only (drop film/oav/scan) with their "Saison N" number.
+  const seasonPanels = seasons
+    .filter((s) => !s.isFilm && /^saison/i.test(s.dir || ""))
+    .map((s) => {
+      const m = s.label.match(/saison\s*(\d+)/i);
+      return { s, labelNum: m ? parseInt(m[1], 10) : null };
+    });
+  const numbered = seasonPanels.filter((p) => p.labelNum != null);
+  const maxLabelNum = numbered.reduce((mx, p) => Math.max(mx, p.labelNum), 0);
+
+  // Case A — cleanly numbered panels and a detected season > 1: target the
+  // matching "Saison N", clamping to the max so an overshooting seasonNum lands
+  // on the last real season instead of falling back to S1.
+  if (seasonNum > 1 && numbered.length > 0) {
+    const want = Math.min(seasonNum, maxLabelNum);
+    const hit = numbered.find((p) => p.labelNum === want);
+    if (hit) return hit.s;
+  }
+
+  // Case B (and S1 of a numbered set) — token-overlap between the panel label
+  // and the AniList titles, with a +6 boost when a numbered panel equals the
+  // detected season (reinforces A, harmless elsewhere). Best score wins.
   let best = { season: null, score: 0 };
   for (const s of seasons) {
     let score = 0;
@@ -1134,10 +1166,9 @@ function pickAnimeSamaSeason(seasons, aniTitles, seasonNum) {
       const sc = scoreSlugAgainstTitle(s.label, t);
       if (sc > score) score = sc;
     }
-    const labelSeasonMatch = s.label.match(/saison\s*(\d+)/i);
-    const labelSeasonNum = labelSeasonMatch ? parseInt(labelSeasonMatch[1], 10) : null;
-    // Strong, reliable signal: the panel's season number equals the detected one.
-    if (seasonNum > 1 && labelSeasonNum === seasonNum) score += 6;
+    const m = s.label.match(/saison\s*(\d+)/i);
+    const labelNum = m ? parseInt(m[1], 10) : null;
+    if (seasonNum > 1 && labelNum === Math.min(seasonNum, maxLabelNum)) score += 6;
     if (score > best.score) best = { season: s, score };
   }
   return best.season && best.score > 0 ? best.season : null;

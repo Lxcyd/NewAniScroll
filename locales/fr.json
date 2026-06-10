@@ -404,7 +404,7 @@
     "scores": "Notes",
     "scoreGridTitle": "Notes par épisode",
     "avgScore": "moy.",
-    "scoreGridNote": "Les notes par épisode proviennent de la communauté MyAnimeList (sur 10). Les épisodes pas encore diffusés ou sans note apparaissent en gris.",
+    "scoreGridNote": "Les notes par épisode proviennent de la communauté MyAnimeList (sur 10). Les épisodes pas encore diffusés ou sans note apparaissent en gris. La moyenne affichée ici est la moyenne des notes de tous les épisodes — elle diffère de la note globale de l'anime, qui correspond à la note attribuée par les utilisateurs à l'œuvre dans son ensemble.",
     "tier": {
       "masterpiece": "Chef-d'œuvre",
       "great": "Excellent",
