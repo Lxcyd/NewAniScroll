@@ -155,6 +155,7 @@
     "gotIt": "Got it, thanks!",
     "seeFull": "see the full changelog any time from the changelog button in the navbar.",
     "unableToLoad": "Unable to load changelog.",
+    "version": "v0.0.2",
     "releaseTitle": "v0.0.2 (2026-06-10)",
     "releaseBody": "✨ New **Scores** tab — community ratings for every episode, season by season.\n\n🎬 Fixed players: multi-season shows now play the right season, and many more titles have a working VF/VOSTFR source.\n\n🔧 Plus auto-resume across devices and smaller fixes."
   },

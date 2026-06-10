@@ -155,6 +155,7 @@
     "gotIt": "Compris, merci !",
     "seeFull": "consultez le changelog complet à tout moment via le bouton nouveautés dans la barre de navigation.",
     "unableToLoad": "Impossible de charger le changelog.",
+    "version": "v0.0.2",
     "releaseTitle": "v0.0.2 (2026-06-10)",
     "releaseBody": "✨ Nouvel onglet **Notes** — les notes de la communauté pour chaque épisode, saison par saison.\n\n🎬 Lecteurs corrigés : les animes à plusieurs saisons diffusent enfin la bonne saison, et bien plus de titres ont un lecteur VF/VOSTFR.\n\n🔧 Plus la reprise auto entre appareils et des correctifs."
   },

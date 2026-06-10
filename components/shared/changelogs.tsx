@@ -3,89 +3,17 @@ import Link from "next/link";
 import { Fragment, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-// localStorage key holding the heading of the last release the user has
-// already seen. We key off the heading text (e.g. "[2026-06-01] — Public
-// Beta") rather than a hardcoded version string, so the popup re-displays
-// automatically whenever a new top entry is added to CHANGELOG.md — no
-// manual version bump required.
-const SEEN_KEY = "changelog-seen";
-
-type ParsedRelease = {
-  /** Full heading text, used as the "seen" key, e.g. "[2026-06-01] — Public Beta". */
-  heading: string;
-  /** Human label shown in the modal (heading with surrounding brackets stripped). */
-  title: string;
-  /** Intro paragraph(s) directly under the heading, before the first subsection. */
-  notes: string | null;
-  /** Bullet lines, optionally grouped under "### Added / Changed / Fixed". */
-  changes: string[];
-};
-
-/**
- * Pull the most-recent release section out of the raw CHANGELOG.md markdown.
- *
- * The changelog uses `# Changelog` for the document title and `## [...]` for
- * each release, so the latest release is the first `##` block. We collect its
- * intro paragraph and every bullet (`-`) until the next `##`.
- */
-function parseLatestRelease(md: string): ParsedRelease | null {
-  const lines = md.replace(/\r\n/g, "\n").split("\n");
-
-  // Find the first level-2 heading (first release section).
-  let start = -1;
-  for (let i = 0; i < lines.length; i++) {
-    if (/^##\s+/.test(lines[i])) {
-      start = i;
-      break;
-    }
-  }
-  if (start === -1) return null;
-
-  const heading = lines[start].replace(/^##\s+/, "").trim();
-  const title = heading.replace(/^\[/, "").replace(/\]/, "").trim();
-
-  const notesLines: string[] = [];
-  const changes: string[] = [];
-  let seenBullet = false;
-
-  for (let i = start + 1; i < lines.length; i++) {
-    const raw = lines[i];
-    const trimmed = raw.trim();
-
-    if (/^##\s+/.test(trimmed)) break; // next release → stop
-
-    if (!trimmed) continue;
-    if (/^###\s+/.test(trimmed)) continue; // skip Added/Changed/Fixed sub-headers
-
-    if (/^[-*]\s+/.test(trimmed)) {
-      seenBullet = true;
-      // Strip the bullet marker and collapse markdown bold so the plain-text
-      // modal reads cleanly.
-      changes.push(trimmed.replace(/^[-*]\s+/, "").replace(/\*\*/g, ""));
-      continue;
-    }
-
-    if (seenBullet) {
-      // A non-bullet line after bullets have started is a wrapped
-      // continuation of the previous bullet — append it so we don't drop
-      // the tail of multi-line entries.
-      if (changes.length) {
-        changes[changes.length - 1] += " " + trimmed.replace(/\*\*/g, "");
-      }
-      continue;
-    }
-
-    // Non-bullet, non-heading line before the first bullet → intro note.
-    notesLines.push(trimmed.replace(/\*\*/g, ""));
-  }
-
-  return {
-    heading,
-    title,
-    notes: notesLines.length ? notesLines.join(" ") : null,
-    changes,
-  };
-}
+// localStorage key holding the changelog VERSION the user last dismissed.
+// We trigger off an explicit version string (changelog.version in the locale
+// files) rather than the CHANGELOG.md heading fetched over HTTP. Why:
+//   - the i18n bundle ships with the app build, so a returning visitor sees the
+//     new version the instant the new build loads — no waiting on the
+//     /api/v2/changelog response, which was edge+browser cached for an hour and
+//     could serve the OLD markdown to returning users (so the popup never fired);
+//   - the modal already renders its content from i18n, so there's nothing left
+//     to fetch.
+// To ship a release popup: bump `changelog.version` in en/fr.json.
+const SEEN_KEY = "changelog-seen-version";
 
 /** Render a paragraph with **bold** spans turned into <strong>. */
 function renderBold(text: string): React.ReactNode[] {
@@ -110,34 +38,35 @@ function renderBold(text: string): React.ReactNode[] {
 export default function ChangeLogs() {
   const { t } = useTranslation();
   let [isOpen, setIsOpen] = useState(false);
-  let [release, setRelease] = useState<ParsedRelease | null>(null);
   let completeButtonRef = useRef(null);
 
+  // The current release version, straight from the (bundled) locale files.
+  const version = t("changelog.version");
+
   function closeModal() {
-    if (release) localStorage.setItem(SEEN_KEY, release.heading);
+    try {
+      localStorage.setItem(SEEN_KEY, version);
+    } catch {
+      /* storage unavailable — popup will just show again next load */
+    }
     setIsOpen(false);
   }
 
   useEffect(() => {
-    let cancelled = false;
-    fetch("/api/v2/changelog")
-      .then((r) => (r.ok ? r.text() : Promise.reject(r.status)))
-      .then((md) => {
-        if (cancelled) return;
-        const latest = parseLatestRelease(md);
-        if (!latest) return;
-        setRelease(latest);
-        // Show only if the user hasn't already dismissed this exact release.
-        const seen = localStorage.getItem(SEEN_KEY);
-        if (seen !== latest.heading) setIsOpen(true);
-      })
-      .catch(() => {
-        /* changelog unavailable — silently skip the popup */
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    // Show the popup whenever the current release version differs from the one
+    // the user last dismissed. No network: the version + body come from the
+    // i18n bundle that ships with this build, so a returning visitor sees a new
+    // release the instant the new build loads (the old /api/v2/changelog fetch
+    // was edge/browser cached for an hour and could miss the new release).
+    if (!version || version === "changelog.version") return; // i18n not ready
+    let seen: string | null = null;
+    try {
+      seen = localStorage.getItem(SEEN_KEY);
+    } catch {
+      /* storage unavailable → treat as unseen */
+    }
+    if (seen !== version) setIsOpen(true);
+  }, [version]);
 
   return (
     <>
@@ -206,10 +135,9 @@ export default function ChangeLogs() {
                     <p className="text-sm text-gray-400">{t("changelog.intro")}</p>
                   </div>
 
-                  {/* Release content is pulled from the locale files (so it's
-                      translated) rather than from the raw CHANGELOG.md. The
-                      "seen" trigger above still keys off the file's latest
-                      heading so the popup re-displays on every new release. */}
+                  {/* Release content + the trigger version both come from the
+                      locale files (translated, and bundled with the build) so
+                      the popup re-displays on every new release with no fetch. */}
                   <ChangelogsVersions
                     notes={null}
                     version={t("changelog.releaseTitle")}
