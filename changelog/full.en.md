@@ -20,6 +20,9 @@ All notable changes to AniScroll appear here. Most recent first.
 - Missing VF for early One Piece episodes, External Sites icons, the greeting
   translation, and the changelog appearing under the navbar.
 
+### Removed
+- The AnimeSaturn player was removed.
+
 ## [v0.0.1] — Public Beta (2026-06-04)
 
 👋 Welcome to AniScroll | a fast, clean place to watch anime, with no ads

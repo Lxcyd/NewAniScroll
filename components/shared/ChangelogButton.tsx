@@ -176,6 +176,21 @@ function ChangelogOverlay({
 }
 
 /**
+ * Colour for a changelog change-type section header. Matches the English and
+ * French section names (Added/Ajouté, Changed/Modifié, Fixed/Corrigé,
+ * Removed/Retiré|Supprimé) and returns a Tailwind text colour, or null when the
+ * heading isn't a known section (so it keeps the default tone).
+ */
+function sectionColor(text: string): string | null {
+  const t = text.toLowerCase();
+  if (/\b(added|ajout)/.test(t)) return "text-emerald-400";   // green
+  if (/\b(changed|modifi)/.test(t)) return "text-yellow-400"; // yellow
+  if (/\b(fixed|corrig)/.test(t)) return "text-orange-400";   // orange
+  if (/\b(removed|retir|supprim)/.test(t)) return "text-red-400"; // red
+  return null;
+}
+
+/**
  * Discord-style minimal markdown renderer. Goes through the source line
  * by line so heading prefixes (`#`, `##`, `###`) always render as
  * headings even when blank lines around them are missing.
@@ -223,11 +238,16 @@ function Markdown({ source }: { source: string }) {
       const text = headingMatch[2];
       const sizes = ["text-2xl", "text-xl", "text-lg", "text-base"];
       const tones = ["text-white", "text-white", "text-white", "text-white/90"];
+      // Colour the change-type section headers (### Added / Changed / Fixed /
+      // Removed, and their FR equivalents) so each category reads at a glance.
+      const sectionTone = sectionColor(text);
       const Tag = (`h${level}` as unknown) as keyof JSX.IntrinsicElements;
       nodes.push(
         <Tag
           key={i}
-          className={`mt-4 mb-2 font-outfit font-bold ${sizes[level - 1]} ${tones[level - 1]}`}
+          className={`mt-4 mb-2 font-outfit font-bold ${sizes[level - 1]} ${
+            sectionTone || tones[level - 1]
+          }`}
         >
           {renderInline(text)}
         </Tag>,

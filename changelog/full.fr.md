@@ -21,6 +21,9 @@ Toutes les nouveautés d'AniScroll, les plus récentes en premier.
 - VF manquante des premiers épisodes de One Piece, icônes des sites externes,
   traduction du message d'accueil, et changelog passant sous la barre de navigation.
 
+### Retiré
+- Le lecteur AnimeSaturn a été retiré.
+
 ## [v0.0.1] — Bêta publique (2026-06-04)
 
 👋 Bienvenue sur AniScroll | un endroit rapide et épuré pour regarder des
