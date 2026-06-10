@@ -1237,25 +1237,20 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId) {
     // Some Madara installs require the episode list via admin-ajax (chapters).
     let episodeUrl = null;
 
-    // Episode URL pattern: /anime/{parent_slug}/{any-stub}-(N|0N)(-vf|-vostfr)?/
-    // The "any-stub" doesn't have to start with parent_slug exactly â€” sometimes
-    // typography differs (e.g. "fish-man" vs "fishman"). So we just match any
-    // episode-looking URL within the parent's anime path.
+    // Episode URLs may sit under the parent slug OR a short child-slug variant
+    // (e.g. tokyo-ghoul-vf → tokyo-ghoul-vf-a) — see buildVoiranimeEpRegex.
     const slugEsc = slug.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
     const baseEsc = VOIRANIME_BASE.replace(/\./g, "\\.");
-    const epRegex = new RegExp(
-      `href=["'](${baseEsc}/anime/${slugEsc}/[^"']+?-(\\d+)(?:-(?:vf|vostfr))?/)["']`,
-      "gi"
-    );
+    const epRegex = buildVoiranimeEpRegex(slug);
     // Film / movie pattern: a child URL with NO episode number, e.g.
     // /anime/howl-no-ugoku-shiro-vf/film-vf-howl-no-ugoku-shiro/. Madara stores
     // single-entry films as one "chapter" whose slug starts with "film"/"movie"
     // instead of carrying a digit, so the episode regex above never sees them —
     // that's why films had no playable server. We match any non-feed child of
     // the anime path that looks like a film/movie/ova/oav stub and treat it as
-    // "episode 1".
+    // "episode 1". Same optional child-slug suffix as the episode regex.
     const filmRegex = new RegExp(
-      `href=["'](${baseEsc}/anime/${slugEsc}/(?:film|movie|ova|oav|special)[^"']*/)["']`,
+      `href=["'](${baseEsc}/anime/${slugEsc}(?:-[a-z0-9]{1,3})?/(?:film|movie|ova|oav|special)[^"']*/)["']`,
       "gi"
     );
 
@@ -1450,6 +1445,28 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId) {
     console.error(`voiranime ${serverKey} error:`, e.message);
     return null;
   }
+}
+
+/**
+ * Build the regex that finds episode URLs for a voir-anime slug.
+ *
+ * voir-anime frequently stores a series' episodes under a CHILD slug that's the
+ * parent slug plus a short disambiguator: the parent page `/anime/tokyo-ghoul-vf/`
+ * lists episodes at `/anime/tokyo-ghoul-vf-a/tokyo-ghoul-12-vf/`. A strict
+ * `/anime/{slug}/…` match misses those entirely → the whole series reads as
+ * "missing player" even though it's right there. So we allow an OPTIONAL short
+ * suffix segment (`-a`, `-2`, …) after the parent slug — short enough (≤3 chars)
+ * that it's a disambiguator, not a different anime (`naruto` won't swallow
+ * `naruto-shippuden`). The episode number is the last `-N` before the trailing
+ * slash, optionally followed by `-vf`/`-vostfr`.
+ */
+function buildVoiranimeEpRegex(slug) {
+  const slugEsc = slug.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
+  const baseEsc = VOIRANIME_BASE.replace(/\./g, "\\.");
+  return new RegExp(
+    `href=["'](${baseEsc}/anime/${slugEsc}(?:-[a-z0-9]{1,3})?/[^"']+?-(\\d+)(?:-(?:vf|vostfr))?/)["']`,
+    "gi",
+  );
 }
 
 // Convert a title to a URL slug (lowercase, hyphens, no diacritics).
@@ -1752,12 +1769,7 @@ export async function inspectVoiranime(aniId, lang = "vostfr") {
     out.slug = slug;
 
     // Reproduce getVoiranimeIframe's episode collection (detail page → AJAX).
-    const slugEsc = slug.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
-    const baseEsc = VOIRANIME_BASE.replace(/\./g, "\\.");
-    const epRegex = new RegExp(
-      `href=["'](${baseEsc}/anime/${slugEsc}/[^"']+?-(\\d+)(?:-(?:vf|vostfr))?/)["']`,
-      "gi",
-    );
+    const epRegex = buildVoiranimeEpRegex(slug);
     const collect = (html) => {
       const map = new Map();
       let m;
