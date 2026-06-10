@@ -2,6 +2,12 @@ import { useEffect, useRef, useState } from "react";
 // @ts-ignore — react-dom types not installed but createPortal is exported
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
+import {
+  IoAddCircleOutline,
+  IoSyncOutline,
+  IoBuildOutline,
+  IoRemoveCircleOutline,
+} from "react-icons/io5";
 
 /**
  * Bell-icon button that opens a modal displaying CHANGELOG.md. Lightweight
@@ -184,17 +190,19 @@ function ChangelogOverlay({
 }
 
 /**
- * Colour for a changelog change-type section header. Matches the English and
- * French section names (Added/Ajouté, Changed/Modifié, Fixed/Corrigé,
- * Removed/Retiré|Supprimé) and returns a Tailwind text colour, or null when the
- * heading isn't a known section (so it keeps the default tone).
+ * Icon + (soft, neutral) colour for a changelog change-type section header.
+ * Matches the English and French section names (Added/Ajouté, Changed/Modifié,
+ * Fixed/Corrigé, Removed/Retiré|Supprimé). Returns null for any other heading so
+ * it keeps the default tone with no icon. Tones are the lighter -300 shades so
+ * they read as gentle accents rather than loud labels.
  */
-function sectionColor(text: string): string | null {
+type SectionMeta = { color: string; Icon: React.ComponentType<{ className?: string }> };
+function sectionMeta(text: string): SectionMeta | null {
   const t = text.toLowerCase();
-  if (/\b(added|ajout)/.test(t)) return "text-emerald-400";   // green
-  if (/\b(changed|modifi)/.test(t)) return "text-yellow-400"; // yellow
-  if (/\b(fixed|corrig)/.test(t)) return "text-orange-400";   // orange
-  if (/\b(removed|retir|supprim)/.test(t)) return "text-red-400"; // red
+  if (/\b(added|ajout)/.test(t)) return { color: "text-emerald-300", Icon: IoAddCircleOutline };
+  if (/\b(changed|modifi)/.test(t)) return { color: "text-amber-300", Icon: IoSyncOutline };
+  if (/\b(fixed|corrig)/.test(t)) return { color: "text-orange-300", Icon: IoBuildOutline };
+  if (/\b(removed|retir|supprim)/.test(t)) return { color: "text-rose-300", Icon: IoRemoveCircleOutline };
   return null;
 }
 
@@ -246,17 +254,19 @@ function Markdown({ source }: { source: string }) {
       const text = headingMatch[2];
       const sizes = ["text-2xl", "text-xl", "text-lg", "text-base"];
       const tones = ["text-white", "text-white", "text-white", "text-white/90"];
-      // Colour the change-type section headers (### Added / Changed / Fixed /
-      // Removed, and their FR equivalents) so each category reads at a glance.
-      const sectionTone = sectionColor(text);
+      // Change-type section headers (### Added / Changed / Fixed / Removed, and
+      // their FR equivalents) get a soft accent colour + an ion-icon so each
+      // category reads at a glance.
+      const section = sectionMeta(text);
       const Tag = (`h${level}` as unknown) as keyof JSX.IntrinsicElements;
       nodes.push(
         <Tag
           key={i}
-          className={`mt-4 mb-2 font-outfit font-bold ${sizes[level - 1]} ${
-            sectionTone || tones[level - 1]
-          }`}
+          className={`mt-4 mb-2 flex items-center gap-2 font-outfit font-bold ${
+            sizes[level - 1]
+          } ${section ? section.color : tones[level - 1]}`}
         >
+          {section && <section.Icon className="shrink-0 text-[1.1em]" />}
           {renderInline(text)}
         </Tag>,
       );
