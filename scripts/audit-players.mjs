@@ -71,13 +71,27 @@ const db = createClient({ url, authToken });
 
 // Pull the catalogue. Only TV-like formats have seasons/episodes worth auditing;
 // drop movies/music and not-yet-released entries (nothing to serve yet).
+//
+// We DON'T select the full `data` blob — there are ~13k rows and transferring
+// every JSON payload in one query blows libsql's HTTP headers timeout. Instead
+// we json_extract just the fields we need (episode count, title, status), which
+// keeps the result set tiny.
+const SELECT_FIELDS = `
+  id,
+  json_extract(data, '$.episodes')                  AS episodes,
+  json_extract(data, '$.nextAiringEpisode.episode') AS next_ep,
+  json_extract(data, '$.status')                    AS j_status,
+  json_extract(data, '$.format')                    AS j_format,
+  json_extract(data, '$.title.english')             AS t_en,
+  json_extract(data, '$.title.romaji')              AS t_ro`;
+
 let rows;
 if (ONE_ID) {
-  rows = (await db.execute({ sql: "SELECT id, data FROM anime WHERE id = ?", args: [ONE_ID] })).rows;
+  rows = (await db.execute({ sql: `SELECT ${SELECT_FIELDS} FROM anime WHERE id = ?`, args: [ONE_ID] })).rows;
 } else {
   rows = (
     await db.execute({
-      sql: `SELECT id, data FROM anime
+      sql: `SELECT ${SELECT_FIELDS} FROM anime
              WHERE format IN ('TV','ONA','OVA','TV_SHORT')
                AND (status IS NULL OR status != 'NOT_YET_RELEASED')
                AND (popularity IS NULL OR popularity >= ?)
@@ -88,31 +102,26 @@ if (ONE_ID) {
 }
 
 /** Expected episode count for THIS AniList entry (not the whole franchise). */
-function expectedEpisodes(media) {
-  if (!media) return null;
-  if (typeof media.episodes === "number" && media.episodes > 0) return media.episodes;
+function expectedEpisodes(episodes, nextEp) {
+  if (typeof episodes === "number" && episodes > 0) return episodes;
   // Ongoing show: AniList reports episodes:null but exposes the next airing ep.
-  const next = media.nextAiringEpisode?.episode;
-  if (typeof next === "number" && next > 1) return next - 1;
+  if (typeof nextEp === "number" && nextEp > 1) return nextEp - 1;
   return null;
 }
 
 const animes = rows
   .map((r) => {
-    let media = null;
-    try {
-      media = typeof r.data === "string" ? JSON.parse(r.data) : r.data;
-    } catch {
-      /* skip rows with corrupt blobs */
-    }
-    if (!media) return null;
+    const status = r.j_status || null;
     return {
       aniId: Number(r.id),
-      title: media.title?.english || media.title?.romaji || `#${r.id}`,
-      format: media.format || null,
-      status: media.status || null,
-      aniEpisodes: expectedEpisodes(media),
-      ongoing: media.status === "RELEASING",
+      title: r.t_en || r.t_ro || `#${r.id}`,
+      format: r.j_format || null,
+      status,
+      aniEpisodes: expectedEpisodes(
+        typeof r.episodes === "number" ? r.episodes : r.episodes != null ? Number(r.episodes) : null,
+        typeof r.next_ep === "number" ? r.next_ep : r.next_ep != null ? Number(r.next_ep) : null,
+      ),
+      ongoing: status === "RELEASING",
     };
   })
   .filter(Boolean);
@@ -124,16 +133,30 @@ console.log(
 );
 
 // ── inspect call ────────────────────────────────────────────────────────────
+// The endpoint can be slow for big franchises (it walks seasons + episodes.js
+// through the CF Worker), so we cap each request with our own AbortController —
+// Node's default headers timeout would otherwise throw an uncaught rejection
+// that derails the whole batch. A timeout is just recorded as found:false.
+const REQUEST_TIMEOUT_MS = Number(args["request-timeout"] || 45000);
+
 async function inspect(aniId, source, lang) {
   const u = `${SITE}/api/v2/source/inspect?aniId=${aniId}&source=${source}&lang=${lang}`;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), REQUEST_TIMEOUT_MS);
   try {
     const res = await fetch(u, {
       headers: { "User-Agent": "aniscroll-audit/1.0", "X-Warmer": "1" },
+      signal: ctrl.signal,
     });
     if (!res.ok) return { found: false, httpError: res.status };
     return await res.json();
   } catch (e) {
-    return { found: false, fetchError: e?.message || String(e) };
+    return {
+      found: false,
+      fetchError: e?.name === "AbortError" ? "timeout" : e?.message || String(e),
+    };
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -223,9 +246,20 @@ async function worker() {
   while (queue.length) {
     const a = queue.shift();
     if (!a) return;
-    await auditOne(a);
+    try {
+      await auditOne(a);
+    } catch (e) {
+      // A single anime must never kill the batch — record and move on.
+      console.error(`\n[audit] error on ${a.aniId} (${a.title}): ${e?.message || e}`);
+      done++;
+    }
   }
 }
+
+// Belt-and-braces: an unhandled rejection should be logged, not fatal.
+process.on("unhandledRejection", (e) => {
+  console.error(`\n[audit] unhandledRejection: ${e?.message || e}`);
+});
 await Promise.all(Array.from({ length: CONCURRENCY }, worker));
 
 // ── output ─────────────────────────────────────────────────────────────────
