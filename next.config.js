@@ -110,6 +110,16 @@ const withPWA = require("next-pwa")({
 
 module.exports = withPWA({
   reactStrictMode: true,
+  // The changelog API routes read changelog/*.md at runtime via a template-
+  // literal path (`full.${lang}.md`), which Next's static file tracer can't
+  // resolve — so it wouldn't bundle the files and the routes would 404 in
+  // production. Explicitly include the folder for those functions.
+  experimental: {
+    outputFileTracingIncludes: {
+      "/api/v2/changelog": ["./changelog/**"],
+      "/api/v2/changelog-popup": ["./changelog/**"],
+    },
+  },
   webpack(config, options) {
     config.resolve.extensions.push(".ts", ".tsx");
     return config;

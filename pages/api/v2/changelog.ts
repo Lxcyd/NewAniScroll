@@ -3,18 +3,23 @@ import { readFile } from "fs/promises";
 import path from "path";
 
 /**
- * Returns the raw markdown contents of /CHANGELOG.md so the client-side
- * modal can render it without bundling the file (which would also bloat
- * the JS payload of every page load).
+ * Returns the FULL changelog markdown for the navbar button. One hand-written
+ * file per language under changelog/:
+ *   changelog/full.fr.md  /  changelog/full.en.md
  *
- * Cached for 1h at the edge so we don't hit disk on every navbar mount.
+ * (The short release-popup uses changelog/popup.<lang>.md via
+ * /api/v2/changelog-popup. The full text is no longer auto-translated — both
+ * languages are maintained directly.)
+ *
+ * Cached 1h at the edge — the changelog changes rarely.
  */
 export default async function handler(
-  _req: NextApiRequest,
+  req: NextApiRequest,
   res: NextApiResponse,
 ) {
+  const lang = String(req.query.lang || "en").toLowerCase() === "fr" ? "fr" : "en";
   try {
-    const filePath = path.join(process.cwd(), "CHANGELOG.md");
+    const filePath = path.join(process.cwd(), "changelog", `full.${lang}.md`);
     const content = await readFile(filePath, "utf-8");
     res.setHeader("Cache-Control", "public, max-age=3600, s-maxage=3600");
     res.setHeader("Content-Type", "text/plain; charset=utf-8");

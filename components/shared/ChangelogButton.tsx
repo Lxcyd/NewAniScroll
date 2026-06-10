@@ -23,36 +23,19 @@ export default function ChangelogButton() {
   const [loading, setLoading] = useState(false);
 
   const { i18n } = useTranslation();
-  const lang = i18n.language || "en";
+  const lang = i18n.language?.startsWith("fr") ? "fr" : "en";
 
-  // Lazy-load the markdown only when the modal opens for the first time.
-  // When the UI is in French we translate the whole document once via the
-  // cached /api/v2/translate endpoint — Google preserves the markdown
-  // structure (#, -, **) and the result is Redis-cached so subsequent opens
-  // are instant. English is the graceful fallback if translation fails.
+  // Lazy-load the full changelog when the modal first opens. Each language now
+  // has its own hand-written file (changelog/full.<lang>.md), served by
+  // /api/v2/changelog?lang=… — no more on-the-fly translation.
   useEffect(() => {
     if (!open || content !== null) return;
     let cancelled = false;
     setLoading(true);
-    fetch("/api/v2/changelog")
+    fetch(`/api/v2/changelog?lang=${lang}`)
       .then((r) => (r.ok ? r.text() : Promise.reject(r.status)))
-      .then(async (text) => {
-        if (cancelled) return;
-        if (lang === "en") {
-          setContent(text);
-          return;
-        }
-        try {
-          const res = await fetch("/api/v2/translate", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ text, target: lang }),
-          });
-          const data = await res.json();
-          if (!cancelled) setContent(data?.translated ? data.text : text);
-        } catch {
-          if (!cancelled) setContent(text);
-        }
+      .then((text) => {
+        if (!cancelled) setContent(text);
       })
       .catch(() => {
         if (!cancelled)
