@@ -18,9 +18,12 @@ function parsePopup(md: string): { version: string; body: string } | null {
   const text = md.replace(/\r\n/g, "\n").trim();
   if (!text) return null;
   const lines = text.split("\n");
-  const version = (lines.shift() || "").trim();
+  // First line is the version. Tolerate a leading markdown heading marker
+  // (`#`, `##`, …) so the file reads nicely on its own and an edit like
+  // "## v0.0.2" doesn't leak the hashes into the version / title.
+  const version = (lines.shift() || "").replace(/^#+\s*/, "").trim();
   if (!version) return null;
-  // Drop a leading `---` separator if present.
+  // Drop a leading `---` separator if present (optional).
   if ((lines[0] || "").trim() === "---") lines.shift();
   const body = lines.join("\n").trim();
   return { version, body };
