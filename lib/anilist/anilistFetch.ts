@@ -56,6 +56,15 @@ if (redis) {
   });
 }
 
+// A purely in-process limiter, always available. Used by `skipCache` callers
+// (the player audit) so they throttle WITHOUT spending a Redis EVALSHA per call
+// — the audit fan-out was burning the Upstash free request quota. Same budget
+// so it can't out-pace AniList's real limit.
+const memLimiter = new RateLimiterMemory({
+  points: POINTS_PER_MINUTE,
+  duration: WINDOW_S,
+});
+
 type FetchOpts = {
   query: string;
   variables?: Record<string, unknown>;
@@ -67,6 +76,11 @@ type FetchOpts = {
   cacheSeconds?: number;
   /** Short label used in logs to identify the caller. */
   label?: string;
+  /** Skip ALL Redis touches for this call: no response-cache read/write and an
+   *  in-process limiter instead of the Redis one. Used by the player audit so
+   *  its big fan-out doesn't spend Redis requests (Upstash free quota). The call
+   *  still hits AniList live and still throttles. */
+  skipCache?: boolean;
 };
 
 type Json = any;
@@ -105,11 +119,12 @@ async function writeResponseCache(key: string, ttl: number, value: Json): Promis
 /* Wait for the limiter to grant a point, with a hard wait cap so we don't
    block SSR for 30s when the budget is exhausted. Returns true if we got
    a point, false if we should fail-fast. */
-async function acquire(label: string): Promise<boolean> {
+async function acquire(label: string, useMemory = false): Promise<boolean> {
+  const lim = useMemory ? memLimiter : limiter;
   const start = Date.now();
   while (Date.now() - start < QUEUE_WAIT_MS) {
     try {
-      await limiter.consume("global", 1);
+      await lim.consume("global", 1);
       return true;
     } catch (rej: any) {
       // RateLimiterRes when blocked — wait the suggested ms, capped.
@@ -129,13 +144,15 @@ export async function anilistFetch(opts: FetchOpts): Promise<Json | null> {
     timeoutMs = DEFAULT_TIMEOUT_MS,
     cacheSeconds = RESPONSE_CACHE_TTL_S,
     label = "anilist",
+    skipCache = false,
   } = opts;
 
   const body = JSON.stringify({ query, variables });
   const dedupKey = `${authToken ? `u:${authToken.slice(0, 12)}|` : ""}${hashKey(body)}`;
-  const cacheKey = authToken ? null : `anilist:resp:v1:${hashKey(body)}`;
+  // skipCache (audit) → no Redis response cache at all.
+  const cacheKey = authToken || skipCache ? null : `anilist:resp:v1:${hashKey(body)}`;
 
-  // 1. Response cache (skipped for authenticated user-specific calls)
+  // 1. Response cache (skipped for authenticated user-specific calls + audit)
   if (cacheKey && cacheSeconds > 0) {
     const cached = await readResponseCache(cacheKey);
     if (cached) return cached;
@@ -146,7 +163,9 @@ export async function anilistFetch(opts: FetchOpts): Promise<Json | null> {
   if (existing) return existing;
 
   const promise = (async (): Promise<Json | null> => {
-    const ok = await acquire(label);
+    // Audit calls throttle in-process (memory limiter) so they don't each spend
+    // a Redis EVALSHA on the shared limiter.
+    const ok = await acquire(label, skipCache);
     if (!ok) return null;
 
     const ctrl = new AbortController();
@@ -168,7 +187,7 @@ export async function anilistFetch(opts: FetchOpts): Promise<Json | null> {
       if (res.status === 429) {
         const retryAfter = Number(res.headers.get("retry-after")) || 60;
         try {
-          await limiter.block("global", retryAfter);
+          await (skipCache ? memLimiter : limiter).block("global", retryAfter);
         } catch {
           /* non-fatal */
         }

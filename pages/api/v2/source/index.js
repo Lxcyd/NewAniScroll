@@ -896,7 +896,7 @@ function isSeasonContinuationTitle(media) {
   return false;
 }
 
-async function detectSeasonNumber(aniId) {
+async function detectSeasonNumber(aniId, mediaOpts = {}) {
   const cacheKey = String(aniId);
   if (seasonCache.has(cacheKey)) return seasonCache.get(cacheKey);
 
@@ -909,7 +909,7 @@ async function detectSeasonNumber(aniId) {
   // ("… Season 2", "2nd Season", "2期", "S2"), trust it: it's exact and immune
   // to chain quirks. This alone fixes the under-count cases where the PREQUEL
   // edges are missing or only point at spin-offs.
-  const startMedia = await getMediaMeta(currentId);
+  const startMedia = await getMediaMeta(currentId, mediaOpts);
   const titleSeason = startMedia ? seasonNumFromTitle(startMedia) : null;
 
   // SIGNAL 2 — walk the PREQUEL chain, counting CONTINUATION-AWARE: each hop to
@@ -922,7 +922,7 @@ async function detectSeasonNumber(aniId) {
   let distinct = 0;
   while (currentId && !visited.has(currentId)) {
     visited.add(currentId);
-    const media = currentId === Number(aniId) ? startMedia : await getMediaMeta(currentId);
+    const media = currentId === Number(aniId) ? startMedia : await getMediaMeta(currentId, mediaOpts);
     if (!media) break;
     // An explicit number on an ANCESTOR anchors the whole count and ends the walk.
     if (currentId !== Number(aniId)) {
@@ -985,7 +985,7 @@ function scoreSlugAgainstTitle(slug, target) {
   return score;
 }
 
-async function findAnimeSamaSlug(title, aniId) {
+async function findAnimeSamaSlug(title, aniId, mediaOpts = {}) {
   const cacheKey = `${aniId}-${title}`;
   if (slugCache.has(cacheKey)) return slugCache.get(cacheKey);
 
@@ -999,7 +999,7 @@ async function findAnimeSamaSlug(title, aniId) {
   if (stripped && stripped !== title) queries.push(stripped);
 
   // Reuse the shared AniList cache (no extra request when SSR already populated it)
-  const media = await getMediaMeta(aniId);
+  const media = await getMediaMeta(aniId, mediaOpts);
   if (media) {
     if (media.synonyms) queries.push(...media.synonyms);
     if (media.title?.english && !queries.includes(media.title.english))
@@ -1504,7 +1504,7 @@ async function voiranimeSlugExists(slug) {
 // Words that indicate a movie / special / film entry â€” never the main TV series.
 const MOVIE_WORDS = ["film", "movie", "stampede", "special", "ova", "fan-letter", "kai", "log-", "log:", "episode-of", "adventure-of", "heart-of-gold", "glorious-island"];
 
-async function findVoiranimeSlug(title, aniId, isVF, seasonNum) {
+async function findVoiranimeSlug(title, aniId, isVF, seasonNum, mediaOpts = {}) {
   const cacheKey = `${aniId}-${isVF ? "vf" : "vostfr"}-${seasonNum}`;
   if (voirSlugCache.has(cacheKey)) return voirSlugCache.get(cacheKey);
 
@@ -1517,7 +1517,7 @@ async function findVoiranimeSlug(title, aniId, isVF, seasonNum) {
   const stripped = stripSeason(title);
   if (stripped) titleSet.add(stripped);
 
-  const m = await getMediaMeta(aniId);
+  const m = await getMediaMeta(aniId, mediaOpts);
   if (m) {
     for (const t of [m.title?.english, m.title?.romaji, ...(m.synonyms || [])]) {
       if (t) {
@@ -1658,13 +1658,16 @@ export async function inspectAnimeSama(aniId, lang = "vostfr") {
     lastEpUrl: null,
     seasonsAvailable: [],
   };
+  // Audit is read-only and must not spend Redis (Upstash quota): skip the
+  // response cache + Redis limiter on every AniList lookup this triggers.
+  const RO = { skipCache: true };
   try {
-    const meta = await getMediaMeta(aniId);
+    const meta = await getMediaMeta(aniId, RO);
     const title = meta?.title?.english || meta?.title?.romaji || null;
     if (!title) return out;
 
-    out.seasonNum = await detectSeasonNumber(aniId);
-    const slug = await findAnimeSamaSlug(title, aniId);
+    out.seasonNum = await detectSeasonNumber(aniId, RO);
+    const slug = await findAnimeSamaSlug(title, aniId, RO);
     if (!slug) return out;
     out.slug = slug;
 
@@ -1760,13 +1763,16 @@ export async function inspectVoiranime(aniId, lang = "vostfr") {
     firstEpUrl: null,
     lastEpUrl: null,
   };
+  // Audit is read-only and must not spend Redis (Upstash quota): skip the
+  // response cache + Redis limiter on every AniList lookup this triggers.
+  const RO = { skipCache: true };
   try {
-    const meta = await getMediaMeta(aniId);
+    const meta = await getMediaMeta(aniId, RO);
     const title = meta?.title?.english || meta?.title?.romaji || null;
     if (!title) return out;
 
-    out.seasonNum = await detectSeasonNumber(aniId);
-    const slug = await findVoiranimeSlug(title, aniId, isVF, out.seasonNum);
+    out.seasonNum = await detectSeasonNumber(aniId, RO);
+    const slug = await findVoiranimeSlug(title, aniId, isVF, out.seasonNum, RO);
     if (!slug) return out;
     out.slug = slug;
 
