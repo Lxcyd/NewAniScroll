@@ -1492,6 +1492,215 @@ async function findVoiranimeSlug(title, aniId, isVF, seasonNum) {
   return null;
 }
 
+// ── Audit / inspection helpers ───────────────────────────────────────────
+// These reuse the SAME resolution path the player uses (detectSeasonNumber +
+// findSlug + the season/episode listing), but stop BEFORE stream extraction
+// and return the matching metadata instead. The audit script
+// (scripts/audit-players.mjs) calls these (via /api/v2/source/inspect) to
+// compare what each source resolves to against the AniList episode count, so
+// we can find anime that map to the wrong season / slug (e.g. a Season 2 that
+// falls back to the Season 1 panel) or that are missing entirely.
+//
+// They are READ-ONLY and never throw: on any failure they return
+// { found: false, ... } so a batch audit can't be derailed by one bad anime.
+
+/** Inspect what anime-sama resolves to for an AniList id + language. */
+export async function inspectAnimeSama(aniId, lang = "vostfr") {
+  const langPath = lang === "vf" ? "vf" : "vostfr";
+  const out = {
+    source: "animesama",
+    lang: langPath,
+    found: false,
+    slug: null,
+    seasonNum: null,
+    chosenSeasonDir: null,
+    chosenSeasonLabel: null,
+    episodeCount: 0,
+    firstEpUrl: null,
+    lastEpUrl: null,
+    seasonsAvailable: [],
+  };
+  try {
+    const meta = await getMediaMeta(aniId);
+    const title = meta?.title?.english || meta?.title?.romaji || null;
+    if (!title) return out;
+
+    out.seasonNum = await detectSeasonNumber(aniId);
+    const slug = await findAnimeSamaSlug(title, aniId);
+    if (!slug) return out;
+    out.slug = slug;
+
+    const detailRes = await fetchViaWorker(`${ANIMESAMA_BASE}/catalogue/${slug}/`);
+    if (!detailRes.ok) return out;
+    const detailHtml = await detailRes.text();
+
+    const seasonMatches = [
+      ...detailHtml.matchAll(/panneauAnime\s*\(\s*"([^"]+)"\s*,\s*"([^"]+)"\s*\)/g),
+    ];
+    const seasons = seasonMatches
+      .map((m) => {
+        const path = m[2];
+        const dirMatch = path.match(
+          /^(saison[^/]+|film[^/]*|oav[^/]*|special[^/]*|scan[^/]*)\//i,
+        );
+        if (!dirMatch) return null;
+        const yearMatch = m[1].match(/\b(19|20)\d{2}\b/);
+        return {
+          label: m[1],
+          dir: dirMatch[1],
+          path: m[2],
+          year: yearMatch ? parseInt(yearMatch[0], 10) : null,
+          isFilm: /^film/i.test(dirMatch[1]),
+        };
+      })
+      .filter(Boolean)
+      .map((s, i) => ({ ...s, ordinal: i + 1 }));
+    if (seasons.length === 0) {
+      seasons.push({ label: "Saison 1", ordinal: 1, dir: "saison1", path: `saison1/${langPath}`, year: null, isFilm: false });
+    }
+    out.seasonsAvailable = seasons.map((s) => ({ dir: s.dir, label: s.label, ordinal: s.ordinal, year: s.year }));
+
+    // Mirror the player's season-selection logic so the audit sees the SAME
+    // target the player would pick (year match → title match → ordinal).
+    const isMovie = meta?.format === "MOVIE";
+    const filmSeason = seasons.find((s) => s.isFilm);
+    const aniYear = meta?.seasonYear || meta?.startDate?.year || null;
+    let yearMatchedSeason = aniYear ? seasons.find((s) => s.year === aniYear) : null;
+
+    const aniTitles = [meta?.title?.romaji, meta?.title?.english, ...(meta?.synonyms || [])].filter(Boolean);
+    const aniSeasonHint = (() => {
+      const t = `${meta?.title?.romaji || ""} ${meta?.title?.english || ""}`;
+      const m = t.match(/\b(?:season|part|saison)\s*(\d+)\b|(\d+)(?:st|nd|rd|th)\s*season/i);
+      return m ? parseInt(m[1] || m[2], 10) : null;
+    })();
+    let titleMatchedSeason = null;
+    if (aniTitles.length > 0 && seasons.length > 1) {
+      let best = { season: null, score: 0 };
+      for (const s of seasons) {
+        let bestForSeason = 0;
+        for (const t of aniTitles) {
+          const sc = scoreSlugAgainstTitle(s.label, t);
+          if (sc > bestForSeason) bestForSeason = sc;
+        }
+        const labelSeasonMatch = s.label.match(/saison\s*(\d+)/i);
+        const labelSeasonNum = labelSeasonMatch ? parseInt(labelSeasonMatch[1], 10) : null;
+        if (aniSeasonHint != null && labelSeasonNum === aniSeasonHint) bestForSeason += 5;
+        else if (aniSeasonHint == null && labelSeasonNum === 1) bestForSeason += 1;
+        if (bestForSeason > best.score) best = { season: s, score: bestForSeason };
+      }
+      if (best.season && best.score > 0) titleMatchedSeason = best.season;
+    }
+
+    const directTarget =
+      (isMovie && filmSeason) ||
+      yearMatchedSeason ||
+      titleMatchedSeason ||
+      (out.seasonNum > 1 ? seasons.find((s) => s.ordinal === out.seasonNum) : null) ||
+      seasons[0];
+
+    if (!directTarget) return out;
+    out.chosenSeasonDir = directTarget.dir;
+    out.chosenSeasonLabel = directTarget.label;
+
+    const targetLang = directTarget.isFilm
+      ? (directTarget.path.split("/")[1] || langPath)
+      : langPath;
+    const epPath = `${ANIMESAMA_BASE}/catalogue/${slug}/${directTarget.dir}/${targetLang}/episodes.js`;
+    const epRes = await fetchViaWorker(epPath);
+    if (!epRes.ok) {
+      // The chosen season has no episodes.js in this language — still report
+      // the resolution; episodeCount stays 0 so the audit flags it.
+      return out;
+    }
+    const jsContent = await epRes.text();
+    const episodeArrays = parseEpisodesJs(jsContent);
+    if (episodeArrays.length === 0) return out;
+    // Canonical count = the longest host array (host availability varies).
+    const canonical = episodeArrays.reduce((a, b) => (b.length > a.length ? b : a), []);
+    out.found = true;
+    out.episodeCount = canonical.length;
+    out.firstEpUrl = canonical[0] || null;
+    out.lastEpUrl = canonical[canonical.length - 1] || null;
+    return out;
+  } catch (e) {
+    return { ...out, error: e?.message || String(e) };
+  }
+}
+
+/** Inspect what voir-anime resolves to for an AniList id + language. */
+export async function inspectVoiranime(aniId, lang = "vostfr") {
+  const isVF = lang === "vf";
+  const out = {
+    source: "voiranime",
+    lang: isVF ? "vf" : "vostfr",
+    found: false,
+    slug: null,
+    seasonNum: null,
+    episodeCount: 0,
+    episodeNumbers: [],
+    firstEpUrl: null,
+    lastEpUrl: null,
+  };
+  try {
+    const meta = await getMediaMeta(aniId);
+    const title = meta?.title?.english || meta?.title?.romaji || null;
+    if (!title) return out;
+
+    out.seasonNum = await detectSeasonNumber(aniId);
+    const slug = await findVoiranimeSlug(title, aniId, isVF, out.seasonNum);
+    if (!slug) return out;
+    out.slug = slug;
+
+    // Reproduce getVoiranimeIframe's episode collection (detail page → AJAX).
+    const slugEsc = slug.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
+    const baseEsc = VOIRANIME_BASE.replace(/\./g, "\\.");
+    const epRegex = new RegExp(
+      `href=["'](${baseEsc}/anime/${slugEsc}/[^"']+?-(\\d+)(?:-(?:vf|vostfr))?/)["']`,
+      "gi",
+    );
+    const collect = (html) => {
+      const map = new Map();
+      let m;
+      epRegex.lastIndex = 0;
+      while ((m = epRegex.exec(html)) !== null) {
+        const n = parseInt(m[2], 10);
+        if (!map.has(n)) map.set(n, m[1]);
+      }
+      return map;
+    };
+
+    let epMap = new Map();
+    try {
+      const detailRes = await fetchViaWorker(`${VOIRANIME_BASE}/anime/${slug}/`);
+      if (detailRes.ok) epMap = collect(await detailRes.text());
+    } catch { /* ignore */ }
+    if (epMap.size === 0) {
+      try {
+        const ajaxRes = await fetchWithTimeout(`${VOIRANIME_BASE}/wp-admin/admin-ajax.php`, {
+          method: "POST",
+          headers: {
+            "X-Requested-With": "XMLHttpRequest",
+            "Content-Type": "application/x-www-form-urlencoded",
+          },
+          body: `action=manga_get_chapters&manga=${slug}`,
+        });
+        if (ajaxRes.ok) epMap = collect(await ajaxRes.text());
+      } catch { /* ignore */ }
+    }
+
+    if (epMap.size === 0) return out;
+    const nums = [...epMap.keys()].sort((a, b) => a - b);
+    out.found = true;
+    out.episodeCount = nums.length;
+    out.episodeNumbers = nums;
+    out.firstEpUrl = epMap.get(nums[0]) || null;
+    out.lastEpUrl = epMap.get(nums[nums.length - 1]) || null;
+    return out;
+  } catch (e) {
+    return { ...out, error: e?.message || String(e) };
+  }
+}
+
 // â”€â”€ Consumet providers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // AnimeSaturn was removed at user request; no consumet-backed servers remain.
 // The dispatch below is kept (guarded on an empty map) so re-adding a provider
