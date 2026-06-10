@@ -4,16 +4,27 @@ import { Fragment, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 // localStorage key holding the changelog VERSION the user last dismissed.
-// We trigger off an explicit version string (changelog.version in the locale
-// files) rather than the CHANGELOG.md heading fetched over HTTP. Why:
-//   - the i18n bundle ships with the app build, so a returning visitor sees the
-//     new version the instant the new build loads — no waiting on the
-//     /api/v2/changelog response, which was edge+browser cached for an hour and
-//     could serve the OLD markdown to returning users (so the popup never fired);
-//   - the modal already renders its content from i18n, so there's nothing left
-//     to fetch.
-// To ship a release popup: bump `changelog.version` in en/fr.json.
+// The popup's content lives in its own per-language markdown files
+// (CHANGELOG_POPUP.fr.md / CHANGELOG_POPUP.en.md), served by
+// /api/v2/changelog-popup. The FIRST line of that file is the version string,
+// which is the auto-display trigger: the popup opens whenever it differs from
+// the version the user last dismissed. To ship a release popup, bump that first
+// line in both files. (The full CHANGELOG.md + its navbar button are separate.)
 const SEEN_KEY = "changelog-seen-version";
+
+/** Parse a CHANGELOG_POPUP.*.md: first line = version, then `---`, then the
+ *  body (paragraphs separated by blank lines). */
+function parsePopup(md: string): { version: string; body: string } | null {
+  const text = md.replace(/\r\n/g, "\n").trim();
+  if (!text) return null;
+  const lines = text.split("\n");
+  const version = (lines.shift() || "").trim();
+  if (!version) return null;
+  // Drop a leading `---` separator if present.
+  if ((lines[0] || "").trim() === "---") lines.shift();
+  const body = lines.join("\n").trim();
+  return { version, body };
+}
 
 /** Render a paragraph with **bold** spans turned into <strong>. */
 function renderBold(text: string): React.ReactNode[] {
@@ -36,16 +47,17 @@ function renderBold(text: string): React.ReactNode[] {
 }
 
 export default function ChangeLogs() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   let [isOpen, setIsOpen] = useState(false);
+  let [version, setVersion] = useState<string | null>(null);
+  let [body, setBody] = useState<string>("");
   let completeButtonRef = useRef(null);
 
-  // The current release version, straight from the (bundled) locale files.
-  const version = t("changelog.version");
+  const lang = i18n.language?.startsWith("fr") ? "fr" : "en";
 
   function closeModal() {
     try {
-      localStorage.setItem(SEEN_KEY, version);
+      if (version) localStorage.setItem(SEEN_KEY, version);
     } catch {
       /* storage unavailable — popup will just show again next load */
     }
@@ -53,20 +65,32 @@ export default function ChangeLogs() {
   }
 
   useEffect(() => {
-    // Show the popup whenever the current release version differs from the one
-    // the user last dismissed. No network: the version + body come from the
-    // i18n bundle that ships with this build, so a returning visitor sees a new
-    // release the instant the new build loads (the old /api/v2/changelog fetch
-    // was edge/browser cached for an hour and could miss the new release).
-    if (!version || version === "changelog.version") return; // i18n not ready
-    let seen: string | null = null;
-    try {
-      seen = localStorage.getItem(SEEN_KEY);
-    } catch {
-      /* storage unavailable → treat as unseen */
-    }
-    if (seen !== version) setIsOpen(true);
-  }, [version]);
+    let cancelled = false;
+    // Fetch the per-language popup markdown. Cache-bust so a returning visitor
+    // doesn't get a stale browser-cached copy and miss a new release.
+    fetch(`/api/v2/changelog-popup?lang=${lang}&t=${Date.now()}`, { cache: "no-store" })
+      .then((r) => (r.ok ? r.text() : Promise.reject(r.status)))
+      .then((md) => {
+        if (cancelled) return;
+        const parsed = parsePopup(md);
+        if (!parsed) return;
+        setVersion(parsed.version);
+        setBody(parsed.body);
+        let seen: string | null = null;
+        try {
+          seen = localStorage.getItem(SEEN_KEY);
+        } catch {
+          /* storage unavailable → treat as unseen */
+        }
+        if (seen !== parsed.version) setIsOpen(true);
+      })
+      .catch(() => {
+        /* popup changelog unavailable — silently skip */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [lang]);
 
   return (
     <>
@@ -135,21 +159,19 @@ export default function ChangeLogs() {
                     <p className="text-sm text-gray-400">{t("changelog.intro")}</p>
                   </div>
 
-                  {/* Release content + the trigger version both come from the
-                      locale files (translated, and bundled with the build) so
-                      the popup re-displays on every new release with no fetch. */}
+                  {/* Title + body come from the per-language popup markdown
+                      (CHANGELOG_POPUP.<lang>.md): first line = version (the
+                      title), the rest = paragraphs separated by blank lines. */}
                   <ChangelogsVersions
                     notes={null}
-                    version={t("changelog.releaseTitle")}
+                    version={version || ""}
                     pre={true}
                   >
-                    {t("changelog.releaseBody")
-                      .split("\n\n")
-                      .map((para, index) => (
-                        <p key={index} className="mb-2 last:mb-0">
-                          {renderBold(para)}
-                        </p>
-                      ))}
+                    {body.split(/\n\s*\n/).map((para, index) => (
+                      <p key={index} className="mb-2 last:mb-0">
+                        {renderBold(para.replace(/\n/g, " ").trim())}
+                      </p>
+                    ))}
                   </ChangelogsVersions>
 
                   <div className="mt-2 text-gray-400 text-sm">
