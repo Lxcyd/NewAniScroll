@@ -65,6 +65,48 @@ async function getJson<T>(key: string): Promise<T | null> {
   }
 }
 
+/** Cache key for a season's scores (by MAL id). */
+function cacheKeyFor(idMal: number): string {
+  return `jikan:eps:v2:${idMal}`;
+}
+
+/**
+ * Batch cache read for many seasons in ONE Redis round-trip (MGET). This is the
+ * hot path: once an anime has been seen, every season is in Redis, so the whole
+ * grid resolves from a single MGET instead of N serial GETs. Returns the cached
+ * SeasonScores per input (null when not cached / no idMal).
+ */
+export async function getCachedSeasonScoresBatch(
+  inputs: ResolveInput[],
+): Promise<(SeasonScores | null)[]> {
+  if (!redis || inputs.length === 0) return inputs.map(() => null);
+  // Only MGET the inputs that have a key; map results back by index.
+  const keyed = inputs.map((inp) => (inp.idMal ? cacheKeyFor(inp.idMal) : null));
+  const realKeys = keyed.filter((k): k is string => k != null);
+  if (realKeys.length === 0) return inputs.map(() => null);
+  let raws: (string | null)[] = [];
+  try {
+    raws = await redis.mget(...realKeys);
+  } catch {
+    return inputs.map(() => null);
+  }
+  // Re-thread the MGET results (in realKeys order) back to input positions.
+  const byKey = new Map<string, string | null>();
+  realKeys.forEach((k, i) => byKey.set(k, raws[i]));
+  return inputs.map((inp, i) => {
+    const k = keyed[i];
+    if (!k) return null;
+    const raw = byKey.get(k);
+    if (!raw) return null;
+    try {
+      const parsed = JSON.parse(raw) as SeasonScores;
+      return { ...parsed, aniId: inp.aniId };
+    } catch {
+      return null;
+    }
+  });
+}
+
 async function setJson(key: string, value: unknown, ttl: number): Promise<void> {
   if (!redis) return;
   try {
@@ -125,7 +167,7 @@ export async function getSeasonEpisodeScores(
   const empty: SeasonScores = { aniId: input.aniId, episodes: [], source: "none" };
   if (!input.idMal) return empty;
 
-  const cacheKey = `jikan:eps:v2:${input.idMal}`;
+  const cacheKey = cacheKeyFor(input.idMal);
   const cached = await getJson<SeasonScores>(cacheKey);
   if (cached) return { ...cached, aniId: input.aniId };
 

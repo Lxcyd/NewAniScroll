@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import {
   getSeasonEpisodeScores,
+  getCachedSeasonScoresBatch,
   episodeScoresEnabled,
 } from "@/lib/jikan/episodeScores";
 
@@ -41,24 +42,36 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
-    // SEQUENTIAL, not Promise.all: Jikan rate-limits aggressively (~3 req/s),
-    // and firing every season at once got the later ones 429'd → cached as a
-    // miss (AoT S2/S3 came back empty). One season at a time stays under the
-    // limit; results are Redis-cached so warm loads are instant regardless.
-    const results = [];
-    for (const s of seasons) {
-      results.push(
-        await getSeasonEpisodeScores({
-          aniId: Number(s.aniId),
-          idMal: s.idMal ?? null,
-        }),
-      );
+    const inputs = seasons.map((s) => ({
+      aniId: Number(s.aniId),
+      idMal: s.idMal ?? null,
+    }));
+
+    // Fast path: one Redis MGET pulls every season that's already cached. Once
+    // an anime has been seen, ALL seasons are warm, so the whole grid resolves
+    // from this single round-trip — no per-season serial GET, no Jikan calls.
+    const cached = await getCachedSeasonScoresBatch(inputs);
+    const results = [...cached];
+
+    // Only the cache MISSES hit Jikan, and those stay SEQUENTIAL: Jikan rate-
+    // limits aggressively (~3 req/s) and firing all at once gets the later ones
+    // 429'd → cached as a miss (AoT S2/S3 came back empty). One at a time stays
+    // under the limit; the fetch also re-checks the cache so this is safe.
+    let didFetch = false;
+    for (let i = 0; i < inputs.length; i++) {
+      if (results[i]) continue; // already warm from the MGET
+      results[i] = await getSeasonEpisodeScores(inputs[i]);
+      didFetch = true;
     }
-    // Long edge cache — episode scores barely change and the lib already
-    // caches in Redis. SWR keeps it warm without blocking.
+
+    // Long edge cache — episode scores barely change and the lib already caches
+    // in Redis. SWR keeps it warm without blocking. When everything was warm we
+    // can cache even more aggressively at the edge (nothing left to revalidate).
     res.setHeader(
       "Cache-Control",
-      "public, s-maxage=86400, stale-while-revalidate=604800",
+      didFetch
+        ? "public, s-maxage=86400, stale-while-revalidate=604800"
+        : "public, s-maxage=604800, stale-while-revalidate=604800",
     );
     return res.status(200).json({ enabled: true, seasons: results });
   } catch (e: any) {

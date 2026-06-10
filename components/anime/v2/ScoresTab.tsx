@@ -126,6 +126,37 @@ export default function ScoresTab({ info, seasonList }: Props) {
     // episodes, so there's no season-number guessing server-side.
     const payload = seasons.map((s) => ({ aniId: s.id, idMal: s.idMal ?? null }));
     if (payload.length === 0) return;
+
+    const toMap = (apiSeasons: ApiSeason[]) => {
+      const next = new Map<number, Map<number, number | null>>();
+      for (const s of apiSeasons) {
+        if (s.source !== "jikan") continue;
+        const m = new Map<number, number | null>();
+        for (const e of s.episodes) m.set(e.number, e.score);
+        next.set(s.aniId, m);
+      }
+      return next;
+    };
+
+    // Session cache: re-opening the Scores tab (or revisiting this anime in the
+    // same tab) paints instantly with zero network. Keyed by the season set.
+    const ssKey = `aniscroll:scores:${info.id}:${payload
+      .map((p) => p.idMal ?? "x")
+      .join(",")}`;
+    try {
+      const hit = sessionStorage.getItem(ssKey);
+      if (hit) {
+        const arr = JSON.parse(hit) as ApiSeason[];
+        const map = toMap(arr);
+        if (map.size > 0) {
+          setEpScores(map);
+          return; // fresh enough for the session — skip the fetch entirely
+        }
+      }
+    } catch {
+      /* sessionStorage unavailable / quota — fall through to network */
+    }
+
     fetch(
       `/api/v2/episode-scores/${info.id}?seasons=${encodeURIComponent(
         JSON.stringify(payload),
@@ -134,14 +165,19 @@ export default function ScoresTab({ info, seasonList }: Props) {
       .then((r) => (r.ok ? r.json() : null))
       .then((data: { enabled?: boolean; seasons?: ApiSeason[] } | null) => {
         if (cancelled || !data?.seasons?.length) return;
-        const next = new Map<number, Map<number, number | null>>();
-        for (const s of data.seasons) {
-          if (s.source !== "jikan") continue;
-          const m = new Map<number, number | null>();
-          for (const e of s.episodes) m.set(e.number, e.score);
-          next.set(s.aniId, m);
+        const next = toMap(data.seasons);
+        if (next.size > 0) {
+          setEpScores(next);
+          // Stash only the seasons that actually carried scores.
+          try {
+            sessionStorage.setItem(
+              ssKey,
+              JSON.stringify(data.seasons.filter((s) => s.source === "jikan")),
+            );
+          } catch {
+            /* quota — non-fatal */
+          }
         }
-        if (next.size > 0) setEpScores(next);
       })
       .catch(() => {});
     return () => {
