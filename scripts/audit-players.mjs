@@ -92,9 +92,25 @@ const SELECT_FIELDS = `
   json_extract(data, '$.title.english')             AS t_en,
   json_extract(data, '$.title.romaji')              AS t_ro`;
 
+// --ids-file=path : audit only the AniList ids listed in a file (one per line
+// or comma-separated). Used to re-check a specific set after a fix.
+let idsFromFile = null;
+if (args["ids-file"]) {
+  const raw = await import("node:fs/promises").then((fs) => fs.readFile(args["ids-file"], "utf8"));
+  idsFromFile = [...new Set(raw.split(/[\s,]+/).map((x) => Number(x)).filter((n) => Number.isFinite(n) && n > 0))];
+}
+
 let rows;
 if (ONE_ID) {
   rows = (await db.execute({ sql: `SELECT ${SELECT_FIELDS} FROM anime WHERE id = ?`, args: [ONE_ID] })).rows;
+} else if (idsFromFile) {
+  const placeholders = idsFromFile.map(() => "?").join(",");
+  rows = (
+    await db.execute({
+      sql: `SELECT ${SELECT_FIELDS} FROM anime WHERE id IN (${placeholders})`,
+      args: idsFromFile,
+    })
+  ).rows;
 } else {
   rows = (
     await db.execute({
@@ -205,24 +221,48 @@ async function inspect(aniId, source, lang) {
 
 /**
  * Classify one source/lang result against the AniList episode count.
- *   missing-player        — source resolved nothing
- *   wrong-season          — source count is WAY over AniList (fell to wrong panel)
- *   episode-count-low     — source has notably FEWER eps than AniList (missing eps)
- *   ongoing-behind        — ongoing show, source a bit behind (info only)
- *   ok                    — counts line up
- *   unknown               — no AniList count to compare against
+ *
+ * The episode COUNT alone over-flags: anime-sama legitimately merges split-cours
+ * into one panel (a 12-ep AniList cour sits inside a 24-ep "Saison N" panel —
+ * the content is correct, only the count differs) and parks OVAs/specials (tiny
+ * aniEp) inside multi-ep panels. So we separate the genuine bug from benign
+ * count differences using the chosen panel:
+ *
+ *   missing-player   — source resolved nothing.
+ *   wrong-season     — a LATER season (seasonNum>1) collapsed onto saison1 even
+ *                      though the chosen panel can't be that season (the real
+ *                      "S2 served S1" bug). This is the actionable one.
+ *   merged-cours     — landed on a sensible season panel but the count is bigger
+ *                      than the AniList cour (cours merged / OVA in a panel).
+ *                      Content is right; info-only, NOT flagged as a bug.
+ *   episode-count-low— fewer eps than AniList on a finished show (missing eps).
+ *   ongoing-behind   — ongoing show, source a bit behind (info-only).
+ *   ok               — counts line up.
+ *   unknown          — no AniList count to compare against.
  */
 function classify(anime, r) {
   if (!r || !r.found) return { type: "missing-player" };
   const aniEp = anime.aniEpisodes;
   const srcEp = r.episodeCount || 0;
-  if (!aniEp) return { type: "unknown", srcEp };
+  const dir = r.chosenSeasonDir || "";
+  const sn = r.seasonNum || 1;
+  // Did we collapse a later season onto saison1? That's the real, actionable
+  // wrong-season bug (the chosen panel is the first one, not season N).
+  const collapsedToS1 = sn > 1 && /^saison1(\b|$|hs)/.test(dir);
+  if (!aniEp) {
+    // No AniList count: still flag the collapse, it's content-wrong regardless.
+    return collapsedToS1 ? { type: "wrong-season", aniEp, srcEp } : { type: "unknown", srcEp };
+  }
 
   const diff = srcEp - aniEp;
-  // Strong wrong-season tell: source carries many more episodes than this
-  // entry should have → it's pointing at a bigger/earlier panel.
-  if (diff >= 3 && srcEp >= aniEp * 1.5) return { type: "wrong-season", aniEp, srcEp };
-  if (diff > COUNT_TOLERANCE) return { type: "wrong-season", aniEp, srcEp };
+  if (diff > COUNT_TOLERANCE) {
+    // More eps than the AniList cour. Only a BUG when it collapsed to saison1
+    // for a later season; otherwise it's anime-sama merging cours into one
+    // panel (right content, bigger count) → benign, info-only.
+    return collapsedToS1
+      ? { type: "wrong-season", aniEp, srcEp }
+      : { type: "merged-cours", aniEp, srcEp };
+  }
   if (diff < -COUNT_TOLERANCE) {
     if (anime.ongoing) return { type: "ongoing-behind", aniEp, srcEp };
     return { type: "episode-count-low", aniEp, srcEp };
