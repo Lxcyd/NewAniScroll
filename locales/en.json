@@ -155,8 +155,10 @@
     "gotIt": "Got it, thanks!",
     "seeFull": "see the full changelog any time from the changelog button in the navbar.",
     "unableToLoad": "Unable to load changelog.",
-    "releaseTitle": "v0.0.1 — Public Beta (2026-06-04)",
-    "releaseBody": "👋 Welcome to AniScroll — a fast, clean place to watch anime, with no ads and no tracking getting in your way. 🔗 Sign in with your AniList account to sync your list and keep your watch progress across devices, or just dive straight in.\n\n🚧 This is our first public beta. The platform is stable but still evolving, so you may occasionally encounter bugs, unavailable episodes or playback issues. 🐛 If something doesn't work as expected, use the **report button**: select the issue (won't play, wrong subtitles, incorrect skip timings…) and the anime and episode are sent to us automatically so we can resolve it quickly. Your feedback directly shapes the product.\n\n🩷 Thank you for joining AniScroll during its early access. We're committed to building a fast, reliable and ad-free streaming experience, and your support helps make that possible."
+    "releaseTitle": "v0.0.2 — Episode scores & sturdier players (2026-06-10)",
+    "releaseImage": "/changelog/score-grid.png",
+    "releaseImageAlt": "The new per-episode Scores grid on the One Piece info page",
+    "releaseBody": "✨ **New: per-episode Scores tab.** Every anime now has a **Scores** tab — a colour-coded grid of community ratings for each episode (MyAnimeList, out of 10), laid out season by season so you can spot the best arcs at a glance. Open it fullscreen to pan and zoom freely.\n\n🎬 **Players: the right episodes, more of them.** We reworked season matching on anime-sama and voir-anime, so multi-season shows no longer serve the wrong season (a Season 2 quietly playing Season 1), and fixed a bug that hid working voir-anime players for many popular series. A lot more anime now have a playable VF/VOSTFR source.\n\n🔧 Also in this update: auto-resume across players and devices, home recommendations no longer show unreleased anime, missing VF for early One Piece episodes, and a handful of smaller fixes. 🐛 Spot something off? The **report button** sends us the anime and episode automatically."
   },
   "health": {
     "anilistDown": "AniList is currently unavailable",

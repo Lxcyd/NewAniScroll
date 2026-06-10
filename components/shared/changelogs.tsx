@@ -215,6 +215,23 @@ export default function ChangeLogs() {
                     version={t("changelog.releaseTitle")}
                     pre={true}
                   >
+                    {/* Optional hero image for the release (e.g. a screenshot of
+                        a new feature). Only rendered when releaseImage resolves
+                        to a real path — `t()` returns the key itself when the
+                        key is missing, so we guard against that. */}
+                    {(() => {
+                      const img = t("changelog.releaseImage");
+                      if (!img || img === "changelog.releaseImage") return null;
+                      return (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={img}
+                          alt={t("changelog.releaseImageAlt")}
+                          className="mb-3 w-full rounded-md border border-white/10"
+                          loading="lazy"
+                        />
+                      );
+                    })()}
                     {t("changelog.releaseBody")
                       .split("\n\n")
                       .map((para, index) => (
