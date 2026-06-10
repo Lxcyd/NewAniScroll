@@ -25,6 +25,14 @@ export default function ChangelogButton() {
   const { i18n } = useTranslation();
   const lang = i18n.language?.startsWith("fr") ? "fr" : "en";
 
+  // Invalidate the cached markdown when the UI language changes, so the next
+  // open re-fetches the file for the new language. Without this, switching
+  // language without a page reload kept showing the previously-loaded language
+  // (the content !== null guard below short-circuited the refetch).
+  useEffect(() => {
+    setContent(null);
+  }, [lang]);
+
   // Lazy-load the full changelog when the modal first opens. Each language now
   // has its own hand-written file (changelog/full.<lang>.md), served by
   // /api/v2/changelog?lang=… — no more on-the-fly translation.
