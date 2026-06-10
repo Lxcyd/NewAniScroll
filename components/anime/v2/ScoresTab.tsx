@@ -230,7 +230,18 @@ export default function ScoresTab({ info, seasonList }: Props) {
 
   // Episodes per row in the single-season grid — responsive so cells stay
   // readable on small screens. Each row is labelled on the left with its range.
-  const ROW_SIZE = vw < 480 ? 6 : vw < 768 ? 10 : vw < 1100 ? 15 : 20;
+  // Fullscreen has the whole viewport to work with, so it packs many more
+  // episodes per row (≈ one cell per 70px of width) and fills the screen instead
+  // of leaving big empty margins; inline keeps the compact 6/10/15/20 steps.
+  const ROW_SIZE = fullscreen
+    ? Math.max(vw < 480 ? 6 : vw < 768 ? 10 : 20, Math.min(60, Math.floor((vw - 120) / 70)))
+    : vw < 480
+      ? 6
+      : vw < 768
+        ? 10
+        : vw < 1100
+          ? 15
+          : 20;
 
   // Close fullscreen on Escape.
   useEffect(() => {
@@ -356,7 +367,17 @@ export default function ScoresTab({ info, seasonList }: Props) {
       ) : (
         // ── Single season: rows of N episode cells (N responsive), labelled by
         //    range ("E1–20" on desktop, "E1–6" on a phone) ──
-        <div style={s.seasonsPad}>
+        // Inline it's full-width (100%). In fullscreen the PanZoom content
+        // wrapper is max-content, which would shrink-wrap a 100%-width child to
+        // nothing — so we give it an explicit viewport-derived width so the grid
+        // actually spans the screen instead of hugging the centre.
+        <div
+          style={
+            fullscreen
+              ? { ...s.seasonsPad, width: vw - 80 }
+              : s.seasonsPad
+          }
+        >
           {seasonsWithCount.map((season) => {
             const epMap = epScores.get(season.id);
             const rows = Math.ceil(season.epCount / ROW_SIZE);
