@@ -1920,7 +1920,12 @@ export default async function handler(req, res) {
     return res.status(405).json({ message: "Method not allowed" });
   }
 
-  if (redis) {
+  // Internal callers (cache warmer, crons, audit) send X-Warmer: 1. They're
+  // trusted and shouldn't spend a Redis EVALSHA on the per-IP limiter — that
+  // consume() is a write and was needless quota burn during bulk runs.
+  const isInternal = req.headers["x-warmer"] === "1";
+
+  if (redis && !isInternal) {
     try {
       const ipAddress = req.socket.remoteAddress;
       await rateLimiterRedis.consume(ipAddress);

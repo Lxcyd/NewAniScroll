@@ -38,7 +38,12 @@ const POINTS_PER_MINUTE = 28;
 const WINDOW_S = 60;
 const QUEUE_WAIT_MS = 5_000;
 const DEFAULT_TIMEOUT_MS = 5_000;
-const RESPONSE_CACHE_TTL_S = 60;
+// Default response-cache lifetime. AniList metadata (titles, relations, scores,
+// trending/popular) shifts slowly, so 30 min is plenty — and the old 60 s meant
+// a popular query was re-written to Redis every minute, a major write-quota
+// sink. Callers that need fresher data pass their own cacheSeconds (search=30s,
+// admin refresh / health=0).
+const RESPONSE_CACHE_TTL_S = 30 * 60;
 
 let limiter: RateLimiterRedis | RateLimiterMemory;
 if (redis) {
