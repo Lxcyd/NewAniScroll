@@ -8,6 +8,7 @@ import ScoresTab from "./ScoresTab";
 import { FanartResponse, collectArtworks } from "./helpers";
 import type { SeasonEntry } from "@/lib/anilist/seasonChain";
 import { useTranslation } from "react-i18next";
+import { replaceUrlPreservingState } from "@/lib/navigation/replaceUrl";
 
 type TabId = "overview" | "episodes" | "scores" | "characters" | "artworks";
 const VALID_TABS: TabId[] = ["overview", "episodes", "scores", "characters", "artworks"];
@@ -91,9 +92,10 @@ export default function Tabs({ info, fanarts, progress, seasonList }: Props) {
     // overview is the default → keep the URL clean (no #overview).
     const newHash = next === "overview" ? "" : `#${next}`;
     const url = window.location.pathname + window.location.search + newHash;
-    // replaceState (not pushState) so hammering tabs doesn't pollute
-    // the back stack with one entry per click.
-    window.history.replaceState(null, "", url);
+    // replaceState (not pushState) so hammering tabs doesn't pollute the back
+    // stack — routed through the helper so Next's history state survives and
+    // back/forward into this entry still re-renders the page.
+    replaceUrlPreservingState(url);
   }
 
   const tabs: Array<{ id: TabId; label: string; count: number | null }> = [

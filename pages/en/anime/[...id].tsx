@@ -31,6 +31,7 @@ import InfoPage from "@/components/anime/v2/InfoPage";
 import InfoPageMobile from "@/components/anime/v2/mobile/InfoPageMobile";
 import { useIsMobile } from "@/lib/hooks/useIsMobile";
 import { pickTitleImage, slugifyTitle, SeasonInfo, TitleImage } from "@/components/anime/v2/helpers";
+import { replaceUrlPreservingState } from "@/lib/navigation/replaceUrl";
 
 type InfoTypes = {
   info: AniListInfoTypes;
@@ -109,7 +110,7 @@ export default function Info({
     if (chapterNotFound) {
       toast.error(t("anime.sourceNotFound"));
       const cleanUrl = window.location.origin + window.location.pathname;
-      window.history.replaceState(null, "", cleanUrl);
+      replaceUrlPreservingState(cleanUrl);
     }
   }, [chapterNotFound]);
 
@@ -138,7 +139,7 @@ export default function Info({
     ) {
       const search = window.location.search || "";
       const hash = window.location.hash || "";
-      window.history.replaceState(null, "", expected + search + hash);
+      replaceUrlPreservingState(expected + search + hash);
     }
   }, [info?.id, info?.title]);
 

@@ -28,6 +28,7 @@ import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { useTranslation } from "react-i18next";
 import { FULL_MEDIA_FIELDS } from "@/lib/anilist/fullMediaQuery";
 import { getPrefetchedSource, sourceKey, setPrefetchedSource, clearPrefetchedSourcesFor } from "@/lib/watch/sourcePrefetch";
+import { replaceUrlPreservingState } from "@/lib/navigation/replaceUrl";
 import { getPrefetchedEpisodes, setPrefetchedEpisodes, clearPrefetchedEpisodesFor } from "@/lib/watch/episodePrefetch";
 import { getPrefetchedInfo, clearPrefetchedInfoFor } from "@/lib/watch/infoPrefetch";
 import { markComplete } from "@/lib/watch/progress";
@@ -472,7 +473,7 @@ export default function Watch({
     const desired = `/${locale}/anime/watch/${aniIdPart}/${slug}`;
     if (path !== desired) {
       const next = `${desired}${window.location.search}${window.location.hash}`;
-      window.history.replaceState(null, "", next);
+      replaceUrlPreservingState(next);
     }
   }, [info?.id, info?.title?.english, info?.title?.romaji, info?.title?.userPreferred]);
 
@@ -490,7 +491,7 @@ export default function Watch({
     if (params.get("id") === desiredId) return;
     params.set("id", desiredId);
     const next = `${window.location.pathname}?${params.toString()}${window.location.hash}`;
-    window.history.replaceState(null, "", next);
+    replaceUrlPreservingState(next);
   }, [activeServer, epiNumber]);
 
   // ── Free prefetch caches when leaving the watch page ─────────

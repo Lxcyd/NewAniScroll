@@ -119,6 +119,11 @@ module.exports = withPWA({
       "/api/v2/changelog": ["./changelog/**"],
       "/api/v2/changelog-popup": ["./changelog/**"],
     },
+    // Restore the scroll position on browser back/forward. Pages-router SSR
+    // pages re-fetch their data on popstate; without this flag the page lands
+    // back at the top, which reads as "back navigation is broken" even when
+    // the route renders correctly.
+    scrollRestoration: true,
   },
   webpack(config, options) {
     config.resolve.extensions.push(".ts", ".tsx");

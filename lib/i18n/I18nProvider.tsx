@@ -16,14 +16,18 @@ import { useRouter } from "next/router";
 
 import i18n from "./config";
 import { getLang, LANG_EVENT, Lang } from "./languagePref";
+import { replaceUrlPreservingState } from "@/lib/navigation/replaceUrl";
 
 /**
  * Swap the visible URL's locale prefix to match the active language. When the
  * site language is French we show `/fr/...`; English shows `/en/...`. The /fr
  * URLs are rewritten to the /en page tree in next.config.js, so this is purely
- * cosmetic (the page already rendered) and reload/share-safe. We use
- * history.replaceState (not router.push) so it doesn't add history entries or
- * trigger a navigation.
+ * cosmetic (the page already rendered) and reload/share-safe.
+ *
+ * MUST go through replaceUrlPreservingState: this runs after EVERY route
+ * change, and the old raw `history.replaceState(null, …)` nulled Next's router
+ * state on every entry of a French session — which is what broke back/forward
+ * site-wide (Next's popstate does nothing when the entry's state is null).
  */
 function syncUrlLocale(lang: Lang) {
   if (typeof window === "undefined") return;
@@ -33,7 +37,7 @@ function syncUrlLocale(lang: Lang) {
   // Only rewrite when the path starts with the OTHER locale prefix.
   if (pathname === other || pathname.startsWith(other + "/")) {
     const swapped = want + pathname.slice(other.length);
-    window.history.replaceState(null, "", swapped + search + hash);
+    replaceUrlPreservingState(swapped + search + hash);
   }
 }
 
