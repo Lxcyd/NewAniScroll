@@ -1102,6 +1102,41 @@ export default function Watch({
       await Promise.all(Array.from({ length: n }, worker));
     };
 
+    // Server-side availability hydration: a cross-visitor snapshot of which
+    // servers resolved for this (anime, episode, lang) last time anyone
+    // watched it. Pre-marks the chips green at first paint even on a COLD
+    // visit (sessionStorage only helps within the same tab). The probes below
+    // still run to confirm/refresh — this just removes the blank-selector wait.
+    // A single Redis GET; failure is silently ignored.
+    const hydrateFromServer = async () => {
+      try {
+        const r = await fetch(
+          `/api/v2/availability?aniId=${info.id}&episode=${parseInt(epiNumber)}&sub=${sub}`,
+          { signal: controller.signal },
+        );
+        if (!r.ok) return;
+        const { servers } = await r.json();
+        if (cancelled || !Array.isArray(servers)) return;
+        // Only mark the chip green for instant feedback — do NOT add to
+        // cachedConfirmed, so the probe below still runs to CONFIRM the
+        // snapshot (it could be a few hours stale) and seed the stream-source
+        // prefetch cache (clicking the chip is then instant). A probe that
+        // comes back failed will flip the chip via markFailed, self-correcting
+        // a stale snapshot.
+        for (const id of servers) {
+          if (typeof markConfirmed === "function") markConfirmed(id);
+        }
+      } catch {
+        /* offline / aborted — fall through to the normal probe fan-out */
+      }
+    };
+
+    // Kick the server-side hydration immediately, in parallel with the
+    // active-stream wait below — green chips appear as soon as the GET returns
+    // (~50ms) instead of after the probe pool. Not awaited: it only paints
+    // chips, it doesn't gate probing.
+    hydrateFromServer();
+
     (async () => {
       const remaining = toProbe.filter(
         (s) => !cachedConfirmed.has(s.id) && !cachedFailed.has(s.id),
@@ -1134,6 +1169,27 @@ export default function Watch({
       await new Promise((r) => setTimeout(r, PROBE_START_DELAY_MS));
       if (cancelled) return;
       await runPool(remaining, MAX_CONCURRENT);
+
+      // Publish the confirmed-server snapshot so the NEXT visitor's chips
+      // light up instantly (server-side availability cache). Fire-and-forget,
+      // never blocks anything; the endpoint collapses concurrent writes so a
+      // popular episode costs ~1 Redis write regardless of viewer count.
+      if (!cancelled && cachedConfirmed.size > 0) {
+        try {
+          fetch("/api/v2/availability", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              aniId: info.id,
+              episode: parseInt(epiNumber),
+              sub,
+              servers: Array.from(cachedConfirmed),
+            }),
+            keepalive: true,
+            priority: "low",
+          }).catch(() => {});
+        } catch {}
+      }
     })();
 
     return () => {
