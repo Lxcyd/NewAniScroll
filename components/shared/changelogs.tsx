@@ -3,20 +3,40 @@ import Link from "next/link";
 import { Fragment, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-// localStorage key holding the changelog VERSION the user last dismissed.
-// The popup's content lives in its own per-language markdown files
-// (CHANGELOG_POPUP.fr.md / CHANGELOG_POPUP.en.md), served by
-// /api/v2/changelog-popup. The FIRST line of that file is the version string,
-// which is the auto-display trigger: the popup opens whenever it differs from
-// the version the user last dismissed. To ship a release popup, bump that first
-// line in both files. (The full CHANGELOG.md + its navbar button are separate.)
-const SEEN_KEY = "changelog-seen-version";
+// localStorage key holding the set of changelog SIGNATURES the user has already
+// dismissed. The popup's content lives in its own per-language markdown files
+// (changelog/popup.fr.md / popup.en.md), served by /api/v2/changelog-popup.
+//
+// The auto-display trigger is a content hash of the whole file, NOT just the
+// version line. So ANY edit to a popup file — fixing a typo, adding a line,
+// bumping the version — re-shows the popup to returning visitors. You no longer
+// have to bump the version to make a change visible. (Previously this keyed off
+// the version string alone, so editing the body without bumping the version
+// left returning users seeing nothing.)
+//
+// We store a *set* of dismissed signatures (one per content the user closed),
+// so switching UI language shows that language's text once, then both stay
+// dismissed. (The full CHANGELOG.md + its navbar button are separate.)
+const SEEN_KEY = "changelog-seen-signatures";
 
-/** Parse a CHANGELOG_POPUP.*.md: first line = version, then `---`, then the
- *  body (paragraphs separated by blank lines). */
-function parsePopup(md: string): { version: string; body: string } | null {
+/** Tiny stable string hash (djb2 → unsigned base36). Detects "file changed". */
+function hashStr(s: string): string {
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
+  return (h >>> 0).toString(36);
+}
+
+/** Parse a popup.*.md: first line = version, then optional `---`, then the body
+ *  (paragraphs separated by blank lines). `sig` is a content hash of the whole
+ *  normalised file — the auto-display trigger. */
+function parsePopup(
+  md: string,
+): { version: string; body: string; sig: string } | null {
   const text = md.replace(/\r\n/g, "\n").trim();
   if (!text) return null;
+  // Hash the whole normalised file so any change (not only the version line)
+  // re-triggers the popup.
+  const sig = hashStr(text);
   const lines = text.split("\n");
   // First line is the version. Tolerate a leading markdown heading marker
   // (`#`, `##`, …) so the file reads nicely on its own and an edit like
@@ -26,7 +46,17 @@ function parsePopup(md: string): { version: string; body: string } | null {
   // Drop a leading `---` separator if present (optional).
   if ((lines[0] || "").trim() === "---") lines.shift();
   const body = lines.join("\n").trim();
-  return { version, body };
+  return { version, body, sig };
+}
+
+/** Read the dismissed-signature set from localStorage (comma-separated). */
+function readSeenSet(): Set<string> {
+  try {
+    const raw = localStorage.getItem(SEEN_KEY);
+    return new Set(raw ? raw.split(",").filter(Boolean) : []);
+  } catch {
+    return new Set();
+  }
 }
 
 /** Render a paragraph with **bold** spans turned into <strong>. */
@@ -54,13 +84,19 @@ export default function ChangeLogs() {
   let [isOpen, setIsOpen] = useState(false);
   let [version, setVersion] = useState<string | null>(null);
   let [body, setBody] = useState<string>("");
+  // Content signature of the currently-shown popup, used to record dismissal.
+  let [sig, setSig] = useState<string | null>(null);
   let completeButtonRef = useRef(null);
 
   const lang = i18n.language?.startsWith("fr") ? "fr" : "en";
 
   function closeModal() {
     try {
-      if (version) localStorage.setItem(SEEN_KEY, version);
+      if (sig) {
+        const seen = readSeenSet();
+        seen.add(sig);
+        localStorage.setItem(SEEN_KEY, Array.from(seen).join(","));
+      }
     } catch {
       /* storage unavailable — popup will just show again next load */
     }
@@ -79,13 +115,11 @@ export default function ChangeLogs() {
         if (!parsed) return;
         setVersion(parsed.version);
         setBody(parsed.body);
-        let seen: string | null = null;
-        try {
-          seen = localStorage.getItem(SEEN_KEY);
-        } catch {
-          /* storage unavailable → treat as unseen */
-        }
-        if (seen !== parsed.version) setIsOpen(true);
+        setSig(parsed.sig);
+        // Show the popup unless this exact content has already been dismissed.
+        // Keying off the content hash means editing the file (even without a
+        // version bump) re-shows it automatically.
+        if (!readSeenSet().has(parsed.sig)) setIsOpen(true);
       })
       .catch(() => {
         /* popup changelog unavailable — silently skip */
