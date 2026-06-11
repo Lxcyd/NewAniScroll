@@ -413,7 +413,7 @@ export default function Hero({
           <div style={hStyles.leftCol}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src={info.coverImage.extraLarge || info.coverImage.large}
+              src={info.coverImage?.extraLarge || info.coverImage?.large || ""}
               alt={title}
               style={hStyles.cover}
             />

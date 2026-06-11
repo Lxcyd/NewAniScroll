@@ -66,7 +66,9 @@ type InfoTypes = {
 //      which is cached three layers deep so it's cheap) so this bump
 //      is only needed to refresh the `info` payload — not strictly
 //      required for the switcher to work.
-const CACHE_VERSION = "v4";
+// v5: flush any partial/legacy SSR blobs (missing coverImage/title) that
+// crashed Hero with FUNCTION_INVOCATION_FAILED on the back-button path.
+const CACHE_VERSION = "v5";
 
 export default function Info({
   info,
@@ -700,7 +702,19 @@ export async function getServerSideProps(ctx: any) {
     }
   }
 
-  if (parsedCache?.info) {
+  // A cached entry is only usable if it carries the fields the page renders
+  // unconditionally. A partial/legacy blob missing coverImage or title would
+  // crash SSR (Hero reads info.coverImage.* and the title) with
+  // FUNCTION_INVOCATION_FAILED — exactly the back-button 500. Treat such an
+  // entry as a miss and fall through to the live fetch, which rebuilds a
+  // complete payload.
+  const cacheUsable =
+    !!parsedCache?.info?.coverImage &&
+    !!(parsedCache.info.title?.userPreferred ||
+       parsedCache.info.title?.romaji ||
+       parsedCache.info.title?.english);
+
+  if (parsedCache?.info && cacheUsable) {
     const { info, color } = parsedCache;
 
     // Banner + cover URLs are already in the cached `info`, so we can
