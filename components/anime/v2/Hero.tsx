@@ -19,7 +19,6 @@ import { toast } from "sonner";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { useTranslation } from "react-i18next";
 import { genreLabel } from "@/lib/i18n/genreLabel";
-import { resolveSource, warmStream } from "@/lib/watch/sourcePrefetch";
 import { prefetchEpisodeList } from "@/lib/watch/episodePrefetch";
 
 type HeroProps = {
@@ -145,6 +144,9 @@ export default function Hero({
   const warmWatch = () => {
     if (warmedRef.current || isNotYetReleased || !info?.id) return;
     warmedRef.current = true;
+    // Cheap, local warm-ups only: the Next.js route, the player JS chunk, and
+    // the episode list. These cost no upstream/worker calls and make the watch
+    // page paint instantly on click.
     try {
       router.prefetch(watchHref);
     } catch {}
@@ -153,38 +155,12 @@ export default function Hero({
       releasing: (info as any)?.status === "RELEASING",
       priority: "high",
     });
-
-    const mediaMeta = {
-      id: info.id,
-      idMal: (info as any).idMal,
-      title: info.title,
-      synonyms: (info as any).synonyms,
-      relations: (info as any).relations,
-    };
-    const titleStr = info?.title?.romaji || info?.title?.english || undefined;
-    const warmServer = (server: string, sub: "sub" | "dub") =>
-      resolveSource(
-        { aniId: info.id, episode: epNum, server, sub, title: titleStr, mediaMeta },
-        { priority: "high" as any },
-      ).then((data) => {
-        if (data) warmStream(data);
-      });
-
-    // Always warm megaplay (the safe default the watch page starts on).
-    void warmServer("megaplay", "sub");
-
-    // The watch page switches to the user's saved `preferred_server` once it's
-    // confirmed for this anime — and that one is what they actually end up
-    // watching. Warm it too (if different) so the switch doesn't trigger a cold
-    // source fetch + extraction wait. This is the case that made the player
-    // feel slow: megaplay was warm but the page jumped to an unwarmed server.
-    let preferred: string | null = null;
-    try {
-      preferred = localStorage.getItem("preferred_server");
-    } catch {}
-    if (preferred && preferred !== "megaplay") {
-      void warmServer(preferred, "sub");
-    }
+    // NOTE: we deliberately no longer pre-resolve the video source here
+    // (resolveSource/warmStream). That spent a worker round-trip + extraction
+    // on a play that might never happen, on every hover of the watch button.
+    // With player_map (persistent verified resolution) + the per-episode
+    // availability cache, the watch page resolves the source fast on its own,
+    // so the speculative info-page warm no longer earns its cost.
   };
 
   // For coming-soon anime, build a friendly air-date string from
