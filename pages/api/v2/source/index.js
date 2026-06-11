@@ -540,6 +540,18 @@ const ANIMESAMA_SERVERS = {
 };
 
 /**
+ * anime-sama stores some panels with MULTIPLE dub tracks under sibling language
+ * dirs: a VF release can live at `vf`, `vf1` or `vf2` (e.g. One Piece keeps a
+ * Netflix VF at `vf` and an older VF at `vf2`). A plain `vf` request must fall
+ * back to those siblings instead of 404ing. Order: the requested dir first,
+ * then its numbered variants. VOSTFR rarely splits, so we leave it as-is.
+ */
+function animeSamaLangDirs(langPath) {
+  if (langPath === "vf") return ["vf", "vf1", "vf2", "vf3"];
+  return [langPath];
+}
+
+/**
  * Fetch an iframe URL straight from a KNOWN anime-sama panel — the player_map
  * fast-path. Skips slug search, season detection and the detail page entirely
  * (1 upstream fetch instead of 4–8).
@@ -556,7 +568,7 @@ const ANIMESAMA_SERVERS = {
 async function fetchPanelIframe(slug, seasonDir, langPath, serverDef, index) {
   const tryLangs = /^film/i.test(seasonDir)
     ? [langPath, langPath === "vf" ? "vostfr" : "vf"] // films are often single-language
-    : [langPath];
+    : animeSamaLangDirs(langPath);
   for (const lp of tryLangs) {
     const epPath = `${ANIMESAMA_BASE}/catalogue/${slug}/${seasonDir}/${lp}/episodes.js`;
     let epRes;
@@ -766,14 +778,22 @@ async function resolveAnimeSamaHeuristically(
       // panel use the language baked into its own panneau path rather than the
       // requested langPath, so a VF request for a VOSTFR-only film still
       // resolves instead of 404ing on a non-existent "film/vf".
-      const targetLang = targetSeason.isFilm
-        ? (targetSeason.path.split("/")[1] || langPath)
-        : langPath;
-      const epPath = `${ANIMESAMA_BASE}/catalogue/${slug}/${targetSeason.dir}/${targetLang}/episodes.js`;
-      dlog(`[anime-sama] Direct season ${targetSeason.dir} (${yearMatchedSeason ? `year ${aniYear}` : `ordinal ${seasonNum}`}): ${epPath}`);
+      // Language dirs to try, in order. Films often carry their own single
+      // language in the panneau path; otherwise a VF request also tries the
+      // numbered dub tracks (vf1/vf2) some series use.
+      const targetLangs = targetSeason.isFilm
+        ? [targetSeason.path.split("/")[1] || langPath]
+        : animeSamaLangDirs(langPath);
+      let epRes = null;
+      let usedLang = targetLangs[0];
+      for (const lp of targetLangs) {
+        const p = `${ANIMESAMA_BASE}/catalogue/${slug}/${targetSeason.dir}/${lp}/episodes.js`;
+        const r = await fetchViaWorker(p);
+        if (r.ok) { epRes = r; usedLang = lp; break; }
+      }
+      dlog(`[anime-sama] Direct season ${targetSeason.dir}/${usedLang} (${yearMatchedSeason ? `year ${aniYear}` : `ordinal ${seasonNum}`})`);
 
-      const epRes = await fetchViaWorker(epPath);
-      if (epRes.ok) {
+      if (epRes && epRes.ok) {
         const jsContent = await epRes.text();
         const episodeArrays = parseEpisodesJs(jsContent);
         if (episodeArrays.length > 0) {
@@ -830,7 +850,7 @@ async function resolveAnimeSamaHeuristically(
           }
         }
       } else {
-        console.error(`[anime-sama] ${serverKey} episodes.js ${epRes.status} for ${epPath}`);
+        console.error(`[anime-sama] ${serverKey} no episodes.js for ${slug}/${targetSeason.dir} in ${targetLangs.join("/")}`);
       }
     }
 
@@ -850,11 +870,15 @@ async function resolveAnimeSamaHeuristically(
     if (!iframeUrl && !directTarget) {
       let cumulativeEps = 0;
       for (const season of seasons) {
-        const epPath = `${ANIMESAMA_BASE}/catalogue/${slug}/${season.dir}/${langPath}/episodes.js`;
-        dlog(`[anime-sama] Trying: ${epPath}`);
-
-        const epRes = await fetchViaWorker(epPath);
-        if (!epRes.ok) {
+        // Same VF track fallback (vf → vf1/vf2) as the direct path.
+        let epRes = null;
+        for (const lp of animeSamaLangDirs(langPath)) {
+          const r = await fetchViaWorker(
+            `${ANIMESAMA_BASE}/catalogue/${slug}/${season.dir}/${lp}/episodes.js`,
+          );
+          if (r.ok) { epRes = r; break; }
+        }
+        if (!epRes) {
           dlog(`[anime-sama] No ${langPath.toUpperCase()} for ${season.dir}`);
           continue;
         }
@@ -1496,20 +1520,43 @@ function pickAnimeSamaSeason(seasons, aniTitles, seasonNum) {
   const numbered = seasonPanels.filter((p) => p.labelNum != null);
   const maxLabelNum = numbered.reduce((mx, p) => Math.max(mx, p.labelNum), 0);
 
+  // A "hors-série" / recap / log panel (dir like `saison1hs`, or a label that
+  // reads "One Piece Log…", "Recap", "Résumé") is NEVER the main series for a
+  // normal episode request. anime-sama parks these under a saison*hs dir whose
+  // LABEL still contains the franchise name ("One Piece Log: Fish-Man Island
+  // Saga"), so the plain title-overlap below would pick it over the real
+  // "Saga 1 (East Blue)" panel (whose label shares no token with "One Piece").
+  // Exclude them from selection entirely.
+  const isSideStory = (s) =>
+    /hs$/i.test(s.dir || "") || /\b(log|recap|r[ée]sum[ée]|digest|special)\b/i.test(s.label || "");
+
   // Case A — cleanly numbered panels and a detected season > 1: target the
   // matching "Saison N", clamping to the max so an overshooting seasonNum lands
   // on the last real season instead of falling back to S1.
   if (seasonNum > 1 && numbered.length > 0) {
     const want = Math.min(seasonNum, maxLabelNum);
-    const hit = numbered.find((p) => p.labelNum === want);
+    const hit = numbered.find((p) => p.labelNum === want && !isSideStory(p.s));
     if (hit) return hit.s;
+  }
+
+  // S1 of a SAGA-SEGMENTED series — One Piece, Naruto…: `saison1`,`saison2`,…
+  // are consecutive arcs of one long series, and AniList counts it all as
+  // season 1. Episode 1 must enter the cumulative chain at the numbered
+  // `saison1` panel, not a name-labelled side panel. When seasonNum is 1 and a
+  // real (non-side-story) `saison1` exists, return it so the caller's cumulative
+  // walk starts from the right place.
+  if (seasonNum <= 1) {
+    const s1 = seasonPanels.find((p) => p.labelNum === 1 && !isSideStory(p.s));
+    if (s1) return s1.s;
   }
 
   // Case B (and S1 of a numbered set) — token-overlap between the panel label
   // and the AniList titles, with a +6 boost when a numbered panel equals the
   // detected season (reinforces A, harmless elsewhere). Best score wins.
+  // Side-story/recap panels are excluded so they never out-score the main one.
   let best = { season: null, score: 0 };
   for (const s of seasons) {
+    if (isSideStory(s)) continue;
     let score = 0;
     for (const t of aniTitles) {
       const sc = scoreSlugAgainstTitle(s.label, t);
@@ -2175,12 +2222,17 @@ export async function inspectAnimeSama(aniId, lang = "vostfr") {
     out.chosenSeasonDir = directTarget.dir;
     out.chosenSeasonLabel = directTarget.label;
 
-    const targetLang = directTarget.isFilm
-      ? (directTarget.path.split("/")[1] || langPath)
-      : langPath;
-    const epPath = `${ANIMESAMA_BASE}/catalogue/${slug}/${directTarget.dir}/${targetLang}/episodes.js`;
-    const epRes = await fetchViaWorker(epPath);
-    if (!epRes.ok) {
+    // Mirror the resolver's language handling: film panels carry their own
+    // language; a VF request also tries vf1/vf2 dub tracks.
+    const targetLangs = directTarget.isFilm
+      ? [directTarget.path.split("/")[1] || langPath]
+      : animeSamaLangDirs(langPath);
+    let epRes = null;
+    for (const lp of targetLangs) {
+      const r = await fetchViaWorker(`${ANIMESAMA_BASE}/catalogue/${slug}/${directTarget.dir}/${lp}/episodes.js`);
+      if (r.ok) { epRes = r; break; }
+    }
+    if (!epRes) {
       // The chosen season has no episodes.js in this language — still report
       // the resolution; episodeCount stays 0 so the audit flags it.
       return out;
