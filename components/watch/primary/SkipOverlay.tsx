@@ -19,6 +19,11 @@ const SEGMENT_LABEL_KEY: Record<string, string> = {
 };
 
 const NEXT_EP_TAIL_SECONDS = 30;
+// Start preloading the next episode's route this many seconds before the end —
+// earlier than the Next button (NEXT_EP_TAIL_SECONDS) so the route + player
+// chunk are already cached by the time the user clicks. Route-level prefetch
+// only (no source extraction) so it costs no worker calls.
+const NEXT_EP_PRELOAD_SECONDS = 75;
 const SKIP_PRELOAD_LEAD_MS = 250;
 // Mirror the chapter-VTT edge snap so the Skip button jumps all
 // the way to the real episode boundary when the segment ends
@@ -203,6 +208,26 @@ export default function SkipOverlay({
     duration > 0 && currentTime >= duration - NEXT_EP_TAIL_SECONDS;
   const showNext = (isInOutro || isNearEnd) && !!nextEpisodeHref;
 
+  // Preload the next episode's route a bit BEFORE the Next button appears, so
+  // clicking it paints the next page instantly (no cold route/chunk fetch).
+  // Triggers when the player crosses the outro OR the preload window near the
+  // end. Route prefetch only — deliberately no source pre-extraction here, so
+  // it spends zero worker calls on an episode the user might not advance to.
+  const shouldPreloadNext =
+    !!nextEpisodeHref &&
+    (isInOutro ||
+      (duration > 0 && currentTime >= duration - NEXT_EP_PRELOAD_SECONDS));
+  useEffect(() => {
+    if (!shouldPreloadNext || !nextEpisodeHref) return;
+    try {
+      router.prefetch(nextEpisodeHref);
+    } catch {
+      /* prefetch unsupported — the click still works, just not warmed */
+    }
+    // Warm the player chunk too (idempotent dynamic import).
+    void import("@/components/watch/primary/UniversalPlayer").catch(() => {});
+  }, [shouldPreloadNext, nextEpisodeHref, router]);
+
   /* Player root portal target — for the floating buttons. Must be
      inside the element the Fullscreen API hands off, otherwise the
      buttons vanish in native fullscreen mode. */
@@ -320,6 +345,22 @@ export default function SkipOverlay({
 
   const goToNextEpisode = () => {
     if (!nextEpisodeHref) return;
+    // Leave fullscreen FIRST. Otherwise the new page loads underneath the
+    // fullscreen video element and the user just sees the current frame frozen
+    // — it looks like the button did nothing. Exiting fullscreen makes the
+    // navigation (and its loading state) visible. Best-effort on every API:
+    // Vidstack's player, then the raw DOM Fullscreen API.
+    try {
+      const p: any = playerRef?.current;
+      if (p?.exitFullscreen) {
+        // Vidstack returns a promise; navigate regardless of its outcome.
+        Promise.resolve(p.exitFullscreen()).catch(() => {});
+      } else if (typeof document !== "undefined" && document.fullscreenElement) {
+        document.exitFullscreen?.();
+      }
+    } catch {
+      /* fullscreen exit unsupported / rejected — navigate anyway */
+    }
     router.push(nextEpisodeHref);
   };
 
