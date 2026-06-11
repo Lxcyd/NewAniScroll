@@ -1938,13 +1938,25 @@ function titleToSlug(title) {
  */
 function titleToSlugVariants(title) {
   const out = new Set();
+  const add = (s) => { if (isUsableSlugBase(s)) out.add(s); };
   const primary = titleToSlug(title);
-  if (isUsableSlugBase(primary)) out.add(primary);
+  add(primary);
   // Collapse punctuation that sits BETWEEN two alphanumerics (drop it entirely)
   // before slugifying, so "Re:Zero" → "rezero", "Fate/Zero" → "fatezero".
-  const collapsed = (title || "").replace(/([a-z0-9])[^a-z0-9\s]+([a-z0-9])/gi, "$1$2");
-  const collapsedSlug = titleToSlug(collapsed);
-  if (isUsableSlugBase(collapsedSlug)) out.add(collapsedSlug);
+  add(titleToSlug((title || "").replace(/([a-z0-9])[^a-z0-9\s]+([a-z0-9])/gi, "$1$2")));
+  // The multiplication sign "×" (and "&") joining two words is rendered as the
+  // LETTER "x" with NO separator on voir-anime: "SPY×FAMILY" → spyxfamily (not
+  // spy-family / spyfamily). Only when the title actually has such a join do we
+  // emit the fully-joined "…x…" form — guarded so ordinary multi-word titles
+  // (which must keep their hyphens) are untouched.
+  if (/[×✕✗⨯]/.test(title || "") || /[a-z0-9]\s*&\s*[a-z0-9]/i.test(title || "")) {
+    const xJoined = (title || "")
+      .replace(/\s*[×✕✗⨯]\s*/g, " x ")
+      .replace(/([a-z0-9])\s*&\s*([a-z0-9])/gi, "$1 x $2");
+    // Fully joined (spy x family → spyxfamily) and hyphen-x (spy-x-family).
+    add(titleToSlug(xJoined).replace(/-/g, ""));
+    add(titleToSlug(xJoined));
+  }
   return [...out];
 }
 

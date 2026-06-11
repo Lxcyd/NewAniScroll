@@ -175,13 +175,16 @@ export default function PopularAnime({ sessions }) {
         </div>
         <div className="grid grid-cols-1 xs:grid-cols-2 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-4 gap-3 md:gap-7 pt-16">
           {data
-            /* Require both a watch id AND something meaningful to show
-               (image OR title). Some legacy watch-history rows are
-               half-populated and would render as blank black cards
-               with "| Episode" — better to hide those entirely. */
+            /* Show a row when it has an identity (watchId OR aniId — many
+               localStorage rows are keyed by aniId and have no watchId) AND
+               something meaningful to display (image OR title). This mirrors
+               the home "Vu récemment" carousel's filter; the old stricter
+               `watchId && …` test dropped every aniId-only row, leaving this
+               page blank while the carousel showed the same history. */
             ?.filter(
               (i) =>
-                i?.watchId && (i?.image || i?.cover || i?.aniTitle || i?.title)
+                (i?.watchId || i?.aniId) &&
+                (i?.image || i?.cover || i?.aniTitle || i?.title)
             )
             .map((i) => {
               const time = i.timeWatched;
@@ -191,7 +194,7 @@ export default function PopularAnime({ sessions }) {
 
               return (
                 <div
-                  key={i.watchId}
+                  key={i.watchId || i.aniId}
                   className="flex flex-col gap-2 shrink-0 cursor-pointer relative group/item"
                 >
                   <div className="absolute flex flex-col gap-1 z-40 top-1 right-1 transition-all duration-200 ease-out opacity-0 group-hover/item:opacity-100 scale-90 group-hover/item:scale-100 group-hover/item:visible invisible">
