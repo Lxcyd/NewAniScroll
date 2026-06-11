@@ -1939,13 +1939,26 @@ function titleToSlug(title) {
 function titleToSlugVariants(title) {
   const out = new Set();
   const primary = titleToSlug(title);
-  if (primary) out.add(primary);
+  if (isUsableSlugBase(primary)) out.add(primary);
   // Collapse punctuation that sits BETWEEN two alphanumerics (drop it entirely)
   // before slugifying, so "Re:Zero" → "rezero", "Fate/Zero" → "fatezero".
   const collapsed = (title || "").replace(/([a-z0-9])[^a-z0-9\s]+([a-z0-9])/gi, "$1$2");
   const collapsedSlug = titleToSlug(collapsed);
-  if (collapsedSlug) out.add(collapsedSlug);
+  if (isUsableSlugBase(collapsedSlug)) out.add(collapsedSlug);
   return [...out];
+}
+
+/**
+ * A slug base is only usable if it carries real alphabetic content. A title in
+ * a non-Latin script (Thai/Chinese/Japanese synonym like "เกิดชาตินี้พี่ต้องเทพ ซีซั่น 2"
+ * or "第2季") gets stripped to nothing but its digits by titleToSlug → "2",
+ * which is a catastrophic candidate (matches /anime/2/, or passes the numeric
+ * confidence floor). Require ≥3 letters so only meaningful Latin slugs survive.
+ */
+function isUsableSlugBase(slug) {
+  if (!slug) return false;
+  const letters = slug.replace(/[^a-z]/gi, "");
+  return letters.length >= 3;
 }
 
 // Quickly check if /anime/{slug}/ exists. Routed through the CF Worker because
