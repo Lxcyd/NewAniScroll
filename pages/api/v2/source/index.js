@@ -1118,6 +1118,57 @@ function scoreSlugAgainstTitle(slug, target) {
   return score;
 }
 
+// Stopwords (EN + FR + romaji particles) that carry no identifying signal, so a
+// slug sharing ONLY these with a title is not a real match. Without this filter
+// the token scorer let "my-name" win for "My-HiME" (shared "my") and
+// "les-minions" for "Moomin" (shared "les") — serving a completely wrong anime.
+const SLUG_STOPWORDS = new Set([
+  "the", "les", "des", "une", "der", "die", "das", "and", "for", "you", "her",
+  "his", "day", "new", "of", "my", "no", "to", "wa", "ga", "ni", "de", "la",
+  "le", "wo", "san", "kun", "chan", "season", "part", "tv", "ova", "ona", "aux",
+  "sur",
+]);
+
+// Significant (non-stopword, ≥3-char) tokens of a string, de-duped.
+function significantTokens(s) {
+  return [
+    ...new Set(
+      normalizeForMatch(s.replace(/-/g, " "))
+        .split(" ")
+        .filter((t) => t.length >= 3 && !SLUG_STOPWORDS.has(t)),
+    ),
+  ];
+}
+
+/**
+ * Confidence (0..1) that `slug` actually denotes one of `titles`, based on how
+ * much of the slug's SIGNIFICANT tokens overlap a title's significant tokens.
+ *
+ * 1.0 when the slug is an exact slugified form of any title (covers romaji/FR
+ * official slugs like "shingeki-no-kyojin" for "Attack on Titan", whose tokens
+ * fully cover the romaji synonym). Near 0 when the only shared words are
+ * stopwords ("my-name" vs "My-HiME", "les-minions" vs "Moomin") → a wrong-anime
+ * false positive. A slug made purely of stopwords/numbers (e.g. "no-6") returns
+ * 1 so the caller's exact-match/length logic still governs it.
+ */
+function slugTitleConfidence(slug, titles) {
+  const slugSig = significantTokens(slug);
+  if (slugSig.length === 0) return 1; // numeric/stopword-only slug — not our call
+  const slugLen = slugSig.reduce((a, t) => a + t.length, 0);
+  let best = 0;
+  for (const t of (titles || []).filter(Boolean)) {
+    const ts = titleToSlug(t);
+    if (ts === slug || ts.replace(/-/g, "") === slug.replace(/-/g, "")) return 1;
+    const titleSig = new Set(significantTokens(t));
+    if (titleSig.size === 0) continue;
+    const matched = slugSig.filter((tok) => titleSig.has(tok)).reduce((a, tok) => a + tok.length, 0);
+    const titleLen = significantTokens(t).reduce((a, tok) => a + tok.length, 0);
+    const cov = matched / Math.min(slugLen, titleLen);
+    if (cov > best) best = cov;
+  }
+  return best;
+}
+
 async function findAnimeSamaSlug(title, aniId, mediaOpts = {}) {
   const cacheKey = `${aniId}-${title}`;
   if (slugCache.has(cacheKey)) return slugCache.get(cacheKey);
@@ -1224,6 +1275,15 @@ async function findAnimeSamaSlug(title, aniId, mediaOpts = {}) {
   let chosenScore = -Infinity;
   for (const [slug, score] of candidates) {
     if (score === 0) continue;
+    // CONFIDENCE FLOOR: reject a slug whose only overlap with every known title
+    // is stopwords (confidence ≈ 0). Those are wrong-anime false positives —
+    // the token scorer otherwise let "my-name" win for "My-HiME" or
+    // "les-minions" for "Moomin". A genuine romaji/FR slug
+    // ("shingeki-no-kyojin", "ken-le-survivant") always shares ≥1 significant
+    // token, so this never rejects a real match. Slugs at low-but-nonzero
+    // confidence are kept here and disambiguated downstream by the episode-count
+    // check in the resolver.
+    if (slugTitleConfidence(slug, targets) <= 0) continue;
     const slugYear = slugYearMatch(slug);
     // Composite score: token-overlap is the base, year alignment is a
     // strong boost / penalty so it dominates the tie-breaker.
