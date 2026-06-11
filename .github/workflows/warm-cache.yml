@@ -98,7 +98,11 @@ jobs:
           SINCE="${SINCE:-7}"
           TYPES="${{ inputs.images_types }}"
           TYPES="${TYPES:-clearart,hdmovieclearart}"
-          ARGS="--since-days=$SINCE --types=$TYPES"
+          # --budget caps how many NEW CF transformations (5,000/month free
+          # tier) a scheduled run may consume; already-cached variants are
+          # free and don't count. Keeps the daily delta from ever draining
+          # the month's quota on its own.
+          ARGS="--since-days=$SINCE --types=$TYPES --budget=300"
           if [ -n "${{ inputs.concurrency }}" ]; then
             ARGS="$ARGS --concurrency=${{ inputs.concurrency }}"
           fi
