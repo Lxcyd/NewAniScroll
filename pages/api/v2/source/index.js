@@ -1615,6 +1615,29 @@ function titleToSlug(title) {
     .replace(/^-+|-+$/g, "");
 }
 
+/**
+ * All plausible base slugs for a title. The default titleToSlug turns every
+ * run of non-alphanumerics into a hyphen, but the scrapers don't agree on how
+ * to treat punctuation between two letters:
+ *   "Re:Zero …"  → voir-anime uses "rezero-…" (colon COLLAPSED, no hyphen)
+ *                  while titleToSlug gives "re-zero-…".
+ * So whenever a title has punctuation glued between two word-chars (`Re:Zero`,
+ * `Fate/stay`, `K-On`→ already fine), we also emit a variant where that
+ * punctuation is DROPPED (letters joined). Returns a de-duped array, primary
+ * (hyphenated) form first. Cheap — used only to widen direct slug guessing.
+ */
+function titleToSlugVariants(title) {
+  const out = new Set();
+  const primary = titleToSlug(title);
+  if (primary) out.add(primary);
+  // Collapse punctuation that sits BETWEEN two alphanumerics (drop it entirely)
+  // before slugifying, so "Re:Zero" → "rezero", "Fate/Zero" → "fatezero".
+  const collapsed = (title || "").replace(/([a-z0-9])[^a-z0-9\s]+([a-z0-9])/gi, "$1$2");
+  const collapsedSlug = titleToSlug(collapsed);
+  if (collapsedSlug) out.add(collapsedSlug);
+  return [...out];
+}
+
 // Quickly check if /anime/{slug}/ exists. Routed through the CF Worker because
 // voir-anime.to (Cloudflare) 403s direct fetches from Vercel's AWS IPs — the
 // same reason anime-sama scraping goes via the Worker. The Worker returns 200
@@ -1628,9 +1651,14 @@ async function voiranimeSlugExists(slug) {
       { method: "GET", redirect: "follow" },
       3500, // tight budget — we probe up to ~10 slug candidates sequentially
     );
-    return r.status === 200;
+    if (r.status === 200) return "yes";
+    // 5xx / 429 = the Worker or voir-anime is rate-limited / challenged, NOT a
+    // verdict on whether the slug exists. Report it as inconclusive so the caller
+    // doesn't cache a permanent "missing" for a slug that may be perfectly valid.
+    if (r.status >= 500 || r.status === 429) return "unknown";
+    return "no"; // a real 4xx (404/410) → this slug genuinely doesn't exist
   } catch {
-    return false;
+    return "unknown"; // network/timeout — also inconclusive
   }
 }
 
@@ -1669,32 +1697,54 @@ async function findVoiranimeSlug(title, aniId, isVF, seasonNum, mediaOpts = {}) 
   //   {base}-{N}-vf   (e.g. kaiju-no-8-2-vf)
   //   {base}-saison-{N}-vf
   // S1 just tries {base}. Always honour the -vf vs un-suffixed (VOSTFR) split.
+  //
+  // ORDER IS CRITICAL: the probe loop accepts the FIRST slug that exists. For a
+  // season ≥2 the un-suffixed base often ALSO exists (it's the season-1 page) —
+  // accepting it would serve S1. So we add every season-suffixed form FIRST
+  // (across all titles + slug variants), and only then the bare bases. The bare
+  // base is the right answer only for season 1.
   const slugCandidates = new Set();
-  for (const t of titles) {
-    const base = titleToSlug(t);
-    if (!base) continue;
-    if (seasonNum > 1) {
-      // Order matters — most-common voir-anime convention first.
-      const seasonForms = [
-        `${base}-s${seasonNum}`,
-        `${base}-${seasonNum}`,
-        `${base}-saison-${seasonNum}`,
-        `${base}-season-${seasonNum}`,
-      ];
-      for (const form of seasonForms) {
-        slugCandidates.add(isVF ? `${form}-vf` : form);
+  const bareBases = [];
+  // titleToSlugVariants tries BOTH the hyphenated and the punctuation-collapsed
+  // base (voir-anime writes "Re:Zero" as "rezero", not "re-zero"), hyphenated
+  // first so the common case is tried before the collapsed one.
+  if (seasonNum > 1) {
+    for (const t of titles) {
+      for (const base of titleToSlugVariants(t)) {
+        if (!base) continue;
+        // Most-common voir-anime convention first.
+        for (const form of [
+          `${base}-s${seasonNum}`,
+          `${base}-${seasonNum}`,
+          `${base}-saison-${seasonNum}`,
+          `${base}-season-${seasonNum}`,
+        ]) {
+          slugCandidates.add(isVF ? `${form}-vf` : form);
+        }
       }
     }
-    slugCandidates.add(isVF ? `${base}-vf` : base);
-    // NOTE: do NOT fall back to the un-suffixed slug for VF requests â€” that
-    // slug is the VOSTFR variant and would silently serve the wrong language.
   }
+  for (const t of titles) {
+    for (const base of titleToSlugVariants(t)) {
+      if (!base) continue;
+      bareBases.push(isVF ? `${base}-vf` : base);
+      // NOTE: do NOT fall back to the un-suffixed slug for VF requests â€” that
+      // slug is the VOSTFR variant and would silently serve the wrong language.
+    }
+  }
+  // For season 1 the bare base IS the target, so it must be probed. For S2+ the
+  // bare base is only a last resort AFTER all -sN forms failed (some franchises
+  // really do use a plain slug for a later season).
+  for (const b of bareBases) slugCandidates.add(b);
 
+  let sawInconclusive = false;
   for (const cand of slugCandidates) {
-    if (await voiranimeSlugExists(cand)) {
+    const exists = await voiranimeSlugExists(cand);
+    if (exists === "yes") {
       voirSlugCache.set(cacheKey, cand);
       return cand;
     }
+    if (exists === "unknown") sawInconclusive = true;
   }
 
   // â”€â”€ Strategy 2: search fallback with stricter scoring â”€â”€
@@ -1758,8 +1808,10 @@ async function findVoiranimeSlug(title, aniId, isVF, seasonNum, mediaOpts = {}) 
     } catch {}
   }
 
-  // Cache the failure too â€” avoid hammering search on every probe
-  voirSlugCache.set(cacheKey, null);
+  // Cache the failure too — avoid hammering search on every probe. EXCEPT when a
+  // probe was inconclusive (Worker/voir-anime 5xx/429/timeout): the slug might
+  // be valid, so don't pin a permanent "missing" — let the next request retry.
+  if (!sawInconclusive) voirSlugCache.set(cacheKey, null);
   return null;
 }
 
