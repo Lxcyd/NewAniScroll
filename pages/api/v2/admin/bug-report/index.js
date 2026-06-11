@@ -6,6 +6,36 @@ import {
   ensureAdminSchema,
   logAuditEvent,
 } from "@/lib/db/turso-admin";
+import { flagPlayerMap } from "@/lib/db/playerMap";
+
+/**
+ * Feed a user report back into the player_map. The watch URL carries the
+ * AniList id (/anime/watch/{id}/…) and the server chip (?id=animesama-vidmoly…),
+ * which encodes source + lang ("-vo" chips are VOSTFR, the rest VF). Flagging
+ * bumps fail_count and forces re-verification; three strikes demote a
+ * `verified` mapping to `broken` so we stop serving what users say is wrong.
+ * Best-effort: a malformed URL just skips the flag, never fails the report.
+ */
+async function flagPlayerMapFromReport(url) {
+  try {
+    if (typeof url !== "string") return;
+    const aniMatch = url.match(/\/anime\/watch\/(\d+)/);
+    const serverMatch = url.match(/[?&]id=([a-z0-9-]+)/i);
+    if (!aniMatch || !serverMatch) return;
+    const aniId = Number(aniMatch[1]);
+    const serverKey = serverMatch[1].toLowerCase();
+    const source = serverKey.startsWith("animesama")
+      ? "animesama"
+      : serverKey.startsWith("voiranime")
+        ? "voiranime"
+        : null;
+    if (!aniId || !source) return;
+    const lang = /(^|-)vo(-|\d|$)/.test(serverKey.replace(source, "")) ? "vostfr" : "vf";
+    await flagPlayerMap(aniId, source, lang, "user report");
+  } catch {
+    /* never let the feedback loop break report submission */
+  }
+}
 
 // Accept large payloads because attached images travel inline as base64.
 // 5 images × ~1.5 MB each → ~10 MB ceiling.
@@ -93,6 +123,10 @@ export default async function handler(req, res) {
         images.length ? JSON.stringify(images) : null,
       ],
     });
+    // Feedback loop: a report filed from a watch page flags the corresponding
+    // player_map row for re-verification (fire-and-forget).
+    flagPlayerMapFromReport(data.url);
+
     return res.status(200).json({
       message: "Report received",
       id: Number(r.lastInsertRowid),

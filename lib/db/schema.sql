@@ -60,3 +60,31 @@ CREATE TABLE IF NOT EXISTS scrape_state (
   value     TEXT,
   updated_at INTEGER NOT NULL
 );
+
+-- ─────────────────────────────────────────────────────────────────────────
+-- player_map — verified source-of-truth for player resolution.
+-- One row per (aniId, source, lang): the resolved slug / season panel /
+-- merged-list offset + a verification status (verified/heuristic/broken/
+-- absent). The watch-time resolver reads this before running any slug/season
+-- heuristics; scripts/verify-player-map.mjs promotes/demotes rows. See
+-- lib/db/playerMap.ts for the full lifecycle.
+-- ─────────────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS player_map (
+  ani_id        INTEGER NOT NULL,
+  source        TEXT    NOT NULL,           -- animesama | voiranime
+  lang          TEXT    NOT NULL,           -- vostfr | vf
+  status        TEXT    NOT NULL,           -- verified | heuristic | broken | absent
+  slug          TEXT,
+  season_dir    TEXT,                       -- anime-sama panel dir (saison2, film…)
+  ep_offset     INTEGER NOT NULL DEFAULT 0, -- merged-panel episode offset
+  episode_count INTEGER,                    -- canonical count at check time
+  confidence    REAL,                       -- slug-title confidence (0..1)
+  fail_count    INTEGER NOT NULL DEFAULT 0, -- runtime failures / user reports
+  note          TEXT,                       -- verdict / demotion reason
+  checked_at    INTEGER NOT NULL,
+  expires_at    INTEGER NOT NULL,           -- re-verification deadline
+  PRIMARY KEY (ani_id, source, lang)
+);
+
+CREATE INDEX IF NOT EXISTS idx_player_map_status  ON player_map(status);
+CREATE INDEX IF NOT EXISTS idx_player_map_expires ON player_map(expires_at);

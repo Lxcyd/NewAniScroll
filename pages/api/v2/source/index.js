@@ -2,6 +2,7 @@ import { rateLimiterRedis, redis } from "@/lib/redis";
 import * as cheerio from "cheerio";
 import { getExtractor, extractMegaplay } from "@/lib/extractors";
 import { getMediaMeta, primeMediaCache } from "@/lib/anilist/getMediaMeta";
+import { getPlayerMapEntry, upsertPlayerMap, flagPlayerMap } from "@/lib/db/playerMap";
 
 /* Per-provider trace logger. Off by default â€” set DEBUG_SOURCE=1 in
    .env.local to see the chatty `[anime-sama]` / `[voiranime]` /
@@ -538,19 +539,130 @@ const ANIMESAMA_SERVERS = {
   "animesama-callistanise-vo": { name: "Player",      preferred: ["callistanise.com", "dingtezuni.com", "movearnpre.com"], lang: "vostfr" },
 };
 
+/**
+ * Fetch an iframe URL straight from a KNOWN anime-sama panel — the player_map
+ * fast-path. Skips slug search, season detection and the detail page entirely
+ * (1 upstream fetch instead of 4–8).
+ *
+ * Returns { panelOk, iframeUrl }:
+ *   panelOk=false           → the panel itself is unreachable/empty: the MAPPING
+ *                             is broken (site restructured) — caller flags the
+ *                             row and falls back to the full heuristics.
+ *   panelOk=true, url=null  → the panel is fine but this host/episode isn't in
+ *                             it (host not mirrored, or episode not aired yet).
+ *                             That's an authoritative miss — the heuristics
+ *                             would reach the same panel and conclude the same.
+ */
+async function fetchPanelIframe(slug, seasonDir, langPath, serverDef, index) {
+  const tryLangs = /^film/i.test(seasonDir)
+    ? [langPath, langPath === "vf" ? "vostfr" : "vf"] // films are often single-language
+    : [langPath];
+  for (const lp of tryLangs) {
+    const epPath = `${ANIMESAMA_BASE}/catalogue/${slug}/${seasonDir}/${lp}/episodes.js`;
+    let epRes;
+    try {
+      epRes = await fetchViaWorker(epPath);
+    } catch {
+      continue;
+    }
+    if (!epRes.ok) continue;
+    const episodeArrays = parseEpisodesJs(await epRes.text());
+    if (episodeArrays.length === 0) continue;
+    const bestArray = findPreferredArray(episodeArrays, serverDef.preferred);
+    if (bestArray && index >= 0 && index < bestArray.length) {
+      return { panelOk: true, iframeUrl: bestArray[index] };
+    }
+    return { panelOk: true, iframeUrl: null };
+  }
+  return { panelOk: false, iframeUrl: null };
+}
+
 async function getAnimeSamaIframe(serverKey, title, episode, aniId) {
   try {
     const serverDef = ANIMESAMA_SERVERS[serverKey];
     if (!serverDef) return null;
 
     const langPath = serverDef.lang === "vostfr" ? "vostfr" : "vf";
+    const episodeIndex = Number(episode) - 1;
+
+    // ── player_map: the persistent, verified resolution layer ──────────────
+    // verified/heuristic rows let us skip every guessing step; absent/broken
+    // rows let us skip the source entirely instead of re-probing (and possibly
+    // re-guessing WRONG) on every cold start.
+    const nowS = Math.floor(Date.now() / 1000);
+    const mapRow = await getPlayerMapEntry(aniId, "animesama", langPath);
+    if (
+      mapRow &&
+      (mapRow.status === "absent" || mapRow.status === "broken") &&
+      mapRow.expiresAt > nowS
+    ) {
+      dlog(`[anime-sama] player_map says ${mapRow.status} for ${aniId}/${langPath} — skipping`);
+      return null;
+    }
+
+    let iframeUrl = null;
+    let resolvedViaMap = false;
+    if (
+      mapRow?.slug &&
+      mapRow?.seasonDir &&
+      (mapRow.status === "verified" || mapRow.status === "heuristic")
+    ) {
+      const fast = await fetchPanelIframe(
+        mapRow.slug,
+        mapRow.seasonDir,
+        langPath,
+        serverDef,
+        episodeIndex + (mapRow.epOffset || 0),
+      );
+      if (fast.panelOk) {
+        resolvedViaMap = true;
+        iframeUrl = fast.iframeUrl;
+        dlog(`[anime-sama] player_map hit: ${mapRow.slug}/${mapRow.seasonDir} (+${mapRow.epOffset || 0}) → ${iframeUrl ? "found" : "host/ep absent"}`);
+        if (!iframeUrl) return null; // authoritative miss — heuristics would agree
+      } else {
+        // The mapped panel is gone (source restructured). Record the failure —
+        // three strikes demote verified→broken — and re-derive from scratch.
+        flagPlayerMap(aniId, "animesama", langPath, "mapped panel unreachable");
+        dlog(`[anime-sama] player_map row stale for ${aniId}/${langPath} — falling back to heuristics`);
+      }
+    }
+
+    if (!iframeUrl) {
+      iframeUrl = await resolveAnimeSamaHeuristically(
+        serverKey, serverDef, title, episode, episodeIndex, aniId, langPath, mapRow,
+      );
+    }
+    if (!iframeUrl) return null;
+    return await finalizeAnimeSamaIframe(serverKey, serverDef, iframeUrl);
+  } catch (error) {
+    console.error(`[anime-sama] ${serverKey} failed:`, error.message);
+    return null;
+  }
+}
+
+/**
+ * The original guess-everything resolution pipeline (slug search → season
+ * detection → panel scoring → merged-offset). Runs only on a player_map miss;
+ * on success it WRITES BACK what it learned as a `heuristic` row so the next
+ * request (and the verifier) start from this answer instead of re-deriving it.
+ */
+async function resolveAnimeSamaHeuristically(
+  serverKey, serverDef, title, episode, episodeIndex, aniId, langPath, mapRow,
+) {
+  {
+    // Seed the slug when the map knows it but lacks a usable season dir —
+    // still skips the expensive catalogue search.
+    const knownSlug =
+      mapRow?.slug && (mapRow.status === "verified" || mapRow.status === "heuristic")
+        ? mapRow.slug
+        : null;
 
     // 1. Detect which season this AniList ID represents
     const seasonNum = await detectSeasonNumber(aniId);
     dlog(`[anime-sama] AniList ${aniId} â†’ detected season ${seasonNum}`);
 
     // 2. Search anime-sama â€” use romaji title first, then try french
-    const slug = await findAnimeSamaSlug(title, aniId);
+    const slug = knownSlug || (await findAnimeSamaSlug(title, aniId));
     if (!slug) {
       console.error(`[anime-sama] ${serverKey} aniId=${aniId} title="${title}" slug NOT FOUND`);
       return null;
@@ -636,7 +748,6 @@ async function getAnimeSamaIframe(serverKey, title, episode, aniId) {
     const titleMatchedSeason = pickAnimeSamaSeason(seasons, aniTitles, seasonNum);
 
     // 4. If we detected a specific season from AniList, go directly to it
-    const episodeIndex = Number(episode) - 1;
     let iframeUrl = null;
 
     // Priority: MOVIE → film panel > explicit year match (same-slug remakes like
@@ -698,6 +809,24 @@ async function getAnimeSamaIframe(serverKey, title, episode, aniId) {
           if (bestArray && useIndex >= 0 && useIndex < bestArray.length) {
             iframeUrl = bestArray[useIndex];
             dlog(`[anime-sama] Found ep ${episode} in ${targetSeason.dir}: ${iframeUrl}`);
+            // WRITE-BACK: persist what we just derived (slug + panel + offset)
+            // so the next request takes the fast-path and the verifier can
+            // promote it. Guarded so an unchanged mapping isn't rewritten on
+            // every episode click (Turso write budget).
+            if (!mapRow || mapRow.slug !== slug || mapRow.seasonDir !== targetSeason.dir) {
+              upsertPlayerMap({
+                aniId,
+                source: "animesama",
+                lang: langPath,
+                status: "heuristic",
+                slug,
+                seasonDir: targetSeason.dir,
+                epOffset: useIndex - episodeIndex,
+                episodeCount: canonicalLen,
+                animeStatus: meta?.status ?? null,
+                note: "runtime resolution",
+              }).catch(() => {});
+            }
           }
         }
       } else {
@@ -746,6 +875,23 @@ async function getAnimeSamaIframe(serverKey, title, episode, aniId) {
           if (bestArray && localIndex < bestArray.length) {
             iframeUrl = bestArray[localIndex];
             dlog(`[anime-sama] Found ep ${episode} in ${season.dir}: ${iframeUrl}`);
+            // SLUG-ONLY write-back: cumulative numbering spans multiple panels,
+            // so a single season_dir+offset row can't represent it — but the
+            // slug alone still spares the next request the catalogue search.
+            if (!mapRow || mapRow.slug !== slug) {
+              upsertPlayerMap({
+                aniId,
+                source: "animesama",
+                lang: langPath,
+                status: "heuristic",
+                slug,
+                seasonDir: null,
+                epOffset: 0,
+                episodeCount: null,
+                animeStatus: meta?.status ?? null,
+                note: "runtime resolution (cumulative panels)",
+              }).catch(() => {});
+            }
           } else {
             dlog(`[anime-sama] ${season.dir} has ep ${episode} but not on ${serverDef.preferred[0] || serverDef.preferred}`);
           }
@@ -759,7 +905,17 @@ async function getAnimeSamaIframe(serverKey, title, episode, aniId) {
       console.error(`[anime-sama] ${serverKey} no iframe for ep=${episode} slug=${slug} (seasons=${seasons.length})`);
       return null;
     }
+    return iframeUrl;
+  }
+}
 
+/**
+ * Shared post-resolution step: per-host rewrites + server-side extraction.
+ * Runs on the iframe URL whether it came from the player_map fast-path or the
+ * heuristic pipeline.
+ */
+async function finalizeAnimeSamaIframe(serverKey, serverDef, iframeUrl) {
+  try {
     // Per-host iframe rewriting before extraction.
     // - vidmoly.to currently 302s to a HTTP survey scam. extractVidmoly
     //   iterates the .net/.to/.biz triple itself, so we just pick a safe
@@ -804,9 +960,7 @@ async function getAnimeSamaIframe(serverKey, title, episode, aniId) {
     if (EXTRACTABLE_HOSTS.some((h) => lower.includes(h))) {
       // TEMP diagnostic — remove once Sibnet behaviour stops surprising us.
       if (lower.includes("sibnet")) {
-        console.error(
-          `[sibnet-trace] ${serverKey} aniId=${aniId} ep=${episode} slug=${slug} iframeUrl=${iframeUrl}`,
-        );
+        console.error(`[sibnet-trace] ${serverKey} iframeUrl=${iframeUrl}`);
       }
       const extractor = getExtractor(iframeUrl);
       const result = await extractor(iframeUrl);
@@ -1419,14 +1573,36 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId) {
     const serverDef = VOIRANIME_SERVERS[serverKey];
     if (!serverDef) return null;
     const isVF = serverDef.lang === "vf";
+    const lang = isVF ? "vf" : "vostfr";
 
-    const seasonNum = await detectSeasonNumber(aniId);
-    const slug = await findVoiranimeSlug(title, aniId, isVF, seasonNum);
-    if (!slug) {
-      dlog(`[voiranime] No slug found for ${title} (${isVF ? "vf" : "vostfr"}, S${seasonNum})`);
+    // ── player_map read-through (same lifecycle as anime-sama) ──────────────
+    // The slug IS the whole mapping on voir-anime (each season has its own
+    // slug), so a verified row skips findVoiranimeSlug's ~10 worker probes.
+    const nowS = Math.floor(Date.now() / 1000);
+    const mapRow = await getPlayerMapEntry(aniId, "voiranime", lang);
+    if (
+      mapRow &&
+      (mapRow.status === "absent" || mapRow.status === "broken") &&
+      mapRow.expiresAt > nowS
+    ) {
+      dlog(`[voiranime] player_map says ${mapRow.status} for ${aniId}/${lang} — skipping`);
       return null;
     }
-    dlog(`[voiranime] Slug: ${slug} (${isVF ? "vf" : "vostfr"}, S${seasonNum})`);
+    const mappedSlug =
+      mapRow?.slug && (mapRow.status === "verified" || mapRow.status === "heuristic")
+        ? mapRow.slug
+        : null;
+
+    let slug = mappedSlug;
+    if (!slug) {
+      const seasonNum = await detectSeasonNumber(aniId);
+      slug = await findVoiranimeSlug(title, aniId, isVF, seasonNum);
+      if (!slug) {
+        dlog(`[voiranime] No slug found for ${title} (${lang}, S${seasonNum})`);
+        return null;
+      }
+    }
+    dlog(`[voiranime] Slug: ${slug} (${lang}${mappedSlug ? ", via player_map" : ""})`);
 
     // Fetch the anime detail page to get the full episode list.
     // Some Madara installs require the episode list via admin-ajax (chapters).
@@ -1471,6 +1647,7 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId) {
 
     // Try detail page scrape first. Routed via the CF Worker — voir-anime.to
     // 403s direct Vercel fetches (Cloudflare), same as anime-sama.
+    let detailDead = false; // 4xx on a mapped slug = the mapping itself is gone
     try {
       const detailRes = await fetchViaWorker(`${VOIRANIME_BASE}/anime/${slug}/`);
       if (detailRes.ok) {
@@ -1479,6 +1656,8 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId) {
         if (epMap.has(Number(episode))) {
           episodeUrl = epMap.get(Number(episode));
         }
+      } else if (detailRes.status >= 400 && detailRes.status < 500 && detailRes.status !== 429) {
+        detailDead = true;
       }
     } catch (e) {
       console.error(`[voiranime] detail fetch failed for ${slug}:`, e.message);
@@ -1512,8 +1691,32 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId) {
     }
 
     if (!episodeUrl) {
+      // A mapped slug whose page 4xxes is a dead mapping (slug renamed /
+      // removed): record the strike so three failures demote verified→broken
+      // and the verifier re-derives it. An episode merely missing from a live
+      // page is NOT flagged — that's just "not aired / not carried yet".
+      if (mappedSlug && detailDead) {
+        flagPlayerMap(aniId, "voiranime", lang, "mapped slug page 4xx");
+      }
       dlog(`[voiranime] Episode ${episode} not found in ${slug}`);
       return null;
+    }
+
+    // WRITE-BACK: the slug resolved this episode — persist it so the next
+    // request (and the verifier) skip the probe storm. Guarded against
+    // rewriting an unchanged mapping on every click.
+    if (!mapRow || mapRow.slug !== slug) {
+      upsertPlayerMap({
+        aniId,
+        source: "voiranime",
+        lang,
+        status: "heuristic",
+        slug,
+        seasonDir: null,
+        epOffset: 0,
+        episodeCount: null,
+        note: "runtime resolution",
+      }).catch(() => {});
     }
 
     // Fetch episode page and extract thisChapterSources. Via the Worker —
