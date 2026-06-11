@@ -1988,9 +1988,17 @@ async function voiranimeSlugExists(slug) {
 // Words that indicate a movie / special / film entry â€” never the main TV series.
 const MOVIE_WORDS = ["film", "movie", "stampede", "special", "ova", "fan-letter", "kai", "log-", "log:", "episode-of", "adventure-of", "heart-of-gold", "glorious-island"];
 
+// Hard wall-clock budget for a single slug resolution. The whole /api/v2/source
+// request must finish inside Vercel's 10s function limit, and the resolver also
+// fetches the detail page + extracts after this returns — so slug-finding gets
+// a slice. Past the deadline we stop probing and let the caller fall back /
+// fail fast rather than letting a slow upstream blow the whole request.
+const VOIR_SLUG_BUDGET_MS = 6000;
+
 async function findVoiranimeSlug(title, aniId, isVF, seasonNum, mediaOpts = {}) {
   const cacheKey = `${aniId}-${isVF ? "vf" : "vostfr"}-${seasonNum}`;
   if (voirSlugCache.has(cacheKey)) return voirSlugCache.get(cacheKey);
+  const deadline = Date.now() + VOIR_SLUG_BUDGET_MS;
 
   // Strip season suffixes for base title
   const stripSeason = (t) =>
@@ -2060,18 +2068,38 @@ async function findVoiranimeSlug(title, aniId, isVF, seasonNum, mediaOpts = {}) 
   // really do use a plain slug for a later season).
   for (const b of bareBases) slugCandidates.add(b);
 
+  // Probe candidates in PRIORITY-ORDERED BATCHES instead of one-by-one. The old
+  // sequential loop awaited a ~1-3s worker round-trip per candidate; with a
+  // dozen candidates (every title × every slug variant × every season form)
+  // that ran 25s+ and blew the Vercel 10s budget → the player timed out and
+  // showed as broken on a cold (uncached) visit. We keep the order intact (so
+  // the most-likely slug still wins ties) by probing in small concurrent
+  // batches and taking the earliest-listed hit within each batch. A hard cap
+  // bounds the total work.
+  const ordered = Array.from(slugCandidates).slice(0, 16);
+  const BATCH = 4;
   let sawInconclusive = false;
-  for (const cand of slugCandidates) {
-    const exists = await voiranimeSlugExists(cand);
-    if (exists === "yes") {
-      voirSlugCache.set(cacheKey, cand);
-      return cand;
+  for (let i = 0; i < ordered.length; i += BATCH) {
+    if (Date.now() > deadline) { sawInconclusive = true; break; } // out of budget
+    const batch = ordered.slice(i, i + BATCH);
+    const results = await Promise.all(
+      batch.map(async (cand) => ({ cand, exists: await voiranimeSlugExists(cand) })),
+    );
+    // Earliest candidate in the batch that exists wins (preserves priority).
+    const hit = results.find((r) => r.exists === "yes");
+    if (hit) {
+      voirSlugCache.set(cacheKey, hit.cand);
+      return hit.cand;
     }
-    if (exists === "unknown") sawInconclusive = true;
+    if (results.some((r) => r.exists === "unknown")) sawInconclusive = true;
   }
 
   // â”€â”€ Strategy 2: search fallback with stricter scoring â”€â”€
-  for (const q of titles) {
+  // Cap to the first few title variants — searching every synonym is what
+  // pushed a cold resolve past the function budget. The english + romaji +
+  // stripped forms (first in the set) carry almost all the matching power.
+  for (const q of titles.slice(0, 3)) {
+    if (Date.now() > deadline) { sawInconclusive = true; break; }
     try {
       const res = await fetchWithTimeout(
         `${VOIRANIME_BASE}/wp-admin/admin-ajax.php`,
