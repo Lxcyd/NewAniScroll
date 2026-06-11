@@ -19,11 +19,13 @@ const SEGMENT_LABEL_KEY: Record<string, string> = {
 };
 
 const NEXT_EP_TAIL_SECONDS = 30;
-// Start preloading the next episode's route this many seconds before the end —
-// earlier than the Next button (NEXT_EP_TAIL_SECONDS) so the route + player
-// chunk are already cached by the time the user clicks. Route-level prefetch
-// only (no source extraction) so it costs no worker calls.
-const NEXT_EP_PRELOAD_SECONDS = 75;
+// Preload the next episode's route a short lead BEFORE the Next button appears,
+// so the route + player chunk are already cached by the time the button shows
+// and the user clicks. Relative to the button's own appearance window
+// (NEXT_EP_TAIL_SECONDS), not an absolute time from the end — so it scales to
+// short episodes too. Route-level prefetch only (no source extraction), so it
+// costs no worker calls.
+const NEXT_EP_PRELOAD_LEAD_SECONDS = 10;
 const SKIP_PRELOAD_LEAD_MS = 250;
 // Mirror the chapter-VTT edge snap so the Skip button jumps all
 // the way to the real episode boundary when the segment ends
@@ -208,15 +210,19 @@ export default function SkipOverlay({
     duration > 0 && currentTime >= duration - NEXT_EP_TAIL_SECONDS;
   const showNext = (isInOutro || isNearEnd) && !!nextEpisodeHref;
 
-  // Preload the next episode's route a bit BEFORE the Next button appears, so
-  // clicking it paints the next page instantly (no cold route/chunk fetch).
-  // Triggers when the player crosses the outro OR the preload window near the
-  // end. Route prefetch only — deliberately no source pre-extraction here, so
-  // it spends zero worker calls on an episode the user might not advance to.
+  // Preload the next episode's route a short lead BEFORE the Next button
+  // appears, so clicking it paints the next page instantly (no cold
+  // route/chunk fetch). The button shows at the outro or within
+  // NEXT_EP_TAIL_SECONDS of the end; we start the preload
+  // NEXT_EP_PRELOAD_LEAD_SECONDS earlier than that. Route prefetch only —
+  // deliberately no source pre-extraction, so it spends zero worker calls on
+  // an episode the user might not advance to.
   const shouldPreloadNext =
     !!nextEpisodeHref &&
     (isInOutro ||
-      (duration > 0 && currentTime >= duration - NEXT_EP_PRELOAD_SECONDS));
+      (duration > 0 &&
+        currentTime >=
+          duration - (NEXT_EP_TAIL_SECONDS + NEXT_EP_PRELOAD_LEAD_SECONDS)));
   useEffect(() => {
     if (!shouldPreloadNext || !nextEpisodeHref) return;
     try {
