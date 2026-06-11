@@ -243,9 +243,28 @@ async function inspect(aniId, source, lang) {
 function classify(anime, r) {
   if (!r || !r.found) return { type: "missing-player" };
   const aniEp = anime.aniEpisodes;
-  const srcEp = r.episodeCount || 0;
   const dir = r.chosenSeasonDir || "";
   const sn = r.seasonNum || 1;
+
+  // MERGED PANEL: the season landed on a franchise panel that concatenates every
+  // season's episodes, and the resolver computed a valid offset into it (Gintama,
+  // Fairy Tail, DBZ Kai…). The player will index at offset+ep, so this is the
+  // CORRECT content — not a wrong-season collapse. Compare AniList's count to the
+  // per-season window the offset exposes, not the whole merged length.
+  if (r.merged && r.mergedOffset > 0) {
+    const eff = Number(r.effectiveEpisodes) || (r.episodeCount - r.mergedOffset);
+    if (!aniEp) return { type: "ok", aniEp, srcEp: eff, merged: true };
+    const d = eff - aniEp;
+    if (d < -COUNT_TOLERANCE) {
+      return anime.ongoing
+        ? { type: "ongoing-behind", aniEp, srcEp: eff, merged: true }
+        : { type: "episode-count-low", aniEp, srcEp: eff, merged: true };
+    }
+    // Within tolerance or a few extra (recap/OVA) → merged but correct.
+    return { type: "ok", aniEp, srcEp: eff, merged: true };
+  }
+
+  const srcEp = r.episodeCount || 0;
   // Did we collapse a later season onto saison1? That's the real, actionable
   // wrong-season bug (the chosen panel is the first one, not season N).
   const collapsedToS1 = sn > 1 && /^saison1(\b|$|hs)/.test(dir);
@@ -309,6 +328,9 @@ async function auditOne(anime) {
       chosenSeasonDir: r.chosenSeasonDir ?? null,
       chosenSeasonLabel: r.chosenSeasonLabel ?? null,
       episodeCount: r.episodeCount ?? 0,
+      merged: r.merged ?? false,
+      mergedOffset: r.mergedOffset ?? 0,
+      effectiveEpisodes: r.effectiveEpisodes ?? null,
     };
     details.push(entry);
     // Only the actionable verdicts go in `issues`; ok/ongoing-behind/unknown

@@ -667,8 +667,36 @@ async function getAnimeSamaIframe(serverKey, title, episode, aniId) {
         const episodeArrays = parseEpisodesJs(jsContent);
         if (episodeArrays.length > 0) {
           const bestArray = findPreferredArray(episodeArrays, serverDef.preferred);
-          if (bestArray && episodeIndex >= 0 && episodeIndex < bestArray.length) {
-            iframeUrl = bestArray[episodeIndex];
+          // MERGED-PANEL OFFSET: some franchises are stored as ONE saison1 panel
+          // that concatenates every season's episodes (Gintama 365ep, Fairy Tail
+          // 328ep, DBZ Kai 291ep…). For a season ≥2 that means episode 1 lives at
+          // the merged index `offset+0`, not 0 — without this we'd serve S1 ep1
+          // when the user asked for S2 ep1. We only offset when we're confident
+          // the panel really is a merged concatenation:
+          //   • this is season ≥2 (S1 needs no offset),
+          //   • the panel holds clearly MORE episodes than this entry alone
+          //     (canonical ≥ ownEps + a few), so it isn't a normal single season,
+          //   • the computed offset lands the requested episode inside the panel.
+          // The offset itself is the summed episode counts of the prequel chain
+          // (computeSeasonStartOffset). If any of these don't hold we fall back
+          // to the plain index — never worse than before.
+          const canonicalLen = Math.max(...episodeArrays.map((a) => a.length));
+          const ownEps = Number(meta?.episodes) || 0;
+          let useIndex = episodeIndex;
+          const looksMerged =
+            seasonNum > 1 &&
+            ownEps > 0 &&
+            canonicalLen >= ownEps + episodeIndex + 1 &&
+            canonicalLen > ownEps + 2;
+          if (looksMerged) {
+            const offset = await resolveMergedOffset(aniId, episodeIndex, canonicalLen, ownEps);
+            if (offset > 0) {
+              useIndex = episodeIndex + offset;
+              dlog(`[anime-sama] Merged panel ${targetSeason.dir}: S${seasonNum} ep${episode} → merged index ${useIndex} (offset ${offset}, panel ${canonicalLen}ep)`);
+            }
+          }
+          if (bestArray && useIndex >= 0 && useIndex < bestArray.length) {
+            iframeUrl = bestArray[useIndex];
             dlog(`[anime-sama] Found ep ${episode} in ${targetSeason.dir}: ${iframeUrl}`);
           }
         }
@@ -958,6 +986,111 @@ async function detectSeasonNumber(aniId, mediaOpts = {}) {
 
   seasonCache.set(cacheKey, season);
   return season;
+}
+
+// Cache of computed prequel season-size lists (id → ordered episode counts).
+const seasonSizesCache = new Map();
+
+/**
+ * Ordered episode counts of the seasons BEFORE this AniList entry in its
+ * franchise, FARTHEST-first (i.e. [S1, S2, …, S(n-1)] for an entry that is
+ * season n). Walks the SAME continuation-aware PREQUEL chain as
+ * detectSeasonNumber; a "Part 2" continuation still contributes its own episodes
+ * (they ARE earlier episodes in a merged list).
+ *
+ * Returns `{ sizes, complete }`:
+ *   • sizes    — the ordered counts (may be empty for a first season),
+ *   • complete — true only if EVERY prequel had a known episode count. When a
+ *     count is missing we can't trust offset arithmetic, so callers must not
+ *     offset (complete=false). We still return the partial list for diagnostics.
+ *
+ * Why a LIST and not a single sum: an anime-sama panel doesn't always start at
+ * the franchise root. `tokyo-ghoul-re`'s saison1 holds only :re + :re 2 (24 ep),
+ * not the original Tokyo Ghoul. The caller anchors this list against the real
+ * panel length to find where the panel begins (see resolveMergedOffset), so the
+ * offset is derived from the panel — not assumed to start at S1.
+ */
+async function computeSeasonSizes(aniId, mediaOpts = {}) {
+  const cacheKey = String(aniId);
+  if (seasonSizesCache.has(cacheKey)) return seasonSizesCache.get(cacheKey);
+
+  const titlesOf = (m) =>
+    [m?.title?.romaji, m?.title?.english, m?.title?.native].filter(Boolean);
+
+  let currentId = Number(aniId);
+  const visited = new Set();
+  const sizesNearestFirst = [];
+  let complete = true;
+
+  // Walk strictly the prequels (we never count the start entry's own episodes).
+  while (currentId && !visited.has(currentId)) {
+    visited.add(currentId);
+    const media = await getMediaMeta(currentId, mediaOpts);
+    if (!media) break;
+    const edges = media.relations?.edges || [];
+    const prequel = edges.find(
+      (e) => e.relationType === "PREQUEL" && PREQUEL_FORMATS.has(e.node?.format),
+    );
+    if (!prequel || !looksLikePreviousSeason(titlesOf(media), titlesOf(prequel.node))) {
+      break;
+    }
+    // Prefer the edge node's count (already fetched); fall back to a full meta
+    // lookup if the edge omitted it.
+    let prevEps = Number(prequel.node?.episodes);
+    if (!Number.isFinite(prevEps) || prevEps <= 0) {
+      const prevMeta = await getMediaMeta(prequel.node.id, mediaOpts);
+      prevEps = Number(prevMeta?.episodes);
+    }
+    if (!Number.isFinite(prevEps) || prevEps <= 0) {
+      complete = false; // unknown count → offset arithmetic can't be trusted
+    }
+    sizesNearestFirst.push(prevEps > 0 ? prevEps : 0);
+    currentId = prequel.node.id;
+  }
+
+  const sizes = sizesNearestFirst.reverse(); // farthest-first: [S1, …, S(n-1)]
+  const result = { sizes, complete };
+  seasonSizesCache.set(cacheKey, result);
+  return result;
+}
+
+/**
+ * Resolve the merged-list offset for an entry against an ACTUAL panel of length
+ * `panelLen`. Returns the offset to add to a 0-based episode index, or 0 to keep
+ * the plain index.
+ *
+ * SAFE-FIRST: we only offset when it is mathematically CERTAIN that the panel is
+ * the franchise concatenated from season 1. That is exactly when
+ *
+ *     sum(all prequel seasons)  +  this entry's own episodes  ==  panelLen
+ *
+ * (within ±1 for a single recap/ONA discrepancy). When that holds, the panel
+ * provably starts at S1 and the offset is the full prequel sum — episode 1 of
+ * this season lives at index `sum`.
+ *
+ * Why ONLY the full chain (not an arbitrary suffix): matching a *partial* suffix
+ * by arithmetic coincidence is dangerous. tokyo-ghoul-re's panel is 24 ep (=:re
+ * + :re 2), and a suffix match would think :re sits AFTER √A and serve √A's
+ * episodes. Its full chain (MONSTERS + Tokyo Ghoul + √A = 25) + own 12 = 37 ≠ 24,
+ * so the strict test rejects it and we keep the safe plain index. Likewise
+ * Gintama's AniList chain (201) + own ≠ the 365-ep panel, so it isn't offset
+ * either. We'd rather leave a franchise-merge case unfixed than ever serve the
+ * wrong episode.
+ *
+ * Any failure → 0 (caller uses the plain index, exactly as before). Centralised
+ * so the live resolver and the audit stay in lock-step.
+ */
+async function resolveMergedOffset(aniId, episodeIndex, panelLen, ownEps, mediaOpts = {}) {
+  if (!(ownEps > 0) || !(panelLen > 0)) return 0;
+  const { sizes, complete } = await computeSeasonSizes(aniId, mediaOpts);
+  if (!complete || sizes.length === 0) return 0; // unknown counts → don't risk it
+
+  const fullChain = sizes.reduce((a, b) => a + b, 0);
+  if (!(fullChain > 0)) return 0;
+  // CERTAINTY TEST: panel == whole franchise from S1 (±1 recap/ONA).
+  if (Math.abs(fullChain + ownEps - panelLen) > 1) return 0;
+  if (episodeIndex + fullChain >= panelLen) return 0; // would fall off the end
+  return fullChain;
 }
 
 // Normalize a title for similarity scoring: lowercase, strip diacritics +
@@ -1657,6 +1790,9 @@ export async function inspectAnimeSama(aniId, lang = "vostfr") {
     firstEpUrl: null,
     lastEpUrl: null,
     seasonsAvailable: [],
+    merged: false,
+    mergedOffset: 0,
+    effectiveEpisodes: null,
   };
   // Audit is read-only and must not spend Redis (Upstash quota): skip the
   // response cache + Redis limiter on every AniList lookup this triggers.
@@ -1743,6 +1879,30 @@ export async function inspectAnimeSama(aniId, lang = "vostfr") {
     out.episodeCount = canonical.length;
     out.firstEpUrl = canonical[0] || null;
     out.lastEpUrl = canonical[canonical.length - 1] || null;
+
+    // MERGED-PANEL detection (mirrors the live resolver). When a season ≥2 lands
+    // on a single panel that concatenates the whole franchise, the player offsets
+    // into the merged list — so this is RESOLVED, not a wrong-season miss. Report
+    // the offset + the effective per-season window so the audit can tell the
+    // difference between "merged panel, handled" and a genuine mismatch.
+    const ownEps = Number(meta?.episodes) || 0;
+    const looksMerged =
+      out.seasonNum > 1 &&
+      ownEps > 0 &&
+      canonical.length >= ownEps + 1 &&
+      canonical.length > ownEps + 2;
+    if (looksMerged) {
+      const offset = await resolveMergedOffset(aniId, 0, canonical.length, ownEps, RO);
+      if (offset > 0) {
+        out.merged = true;
+        out.mergedOffset = offset;
+        // Episodes actually addressable for THIS season within the merged panel.
+        out.effectiveEpisodes = Math.min(ownEps || canonical.length - offset, canonical.length - offset);
+        out.firstEpUrl = canonical[offset] || out.firstEpUrl;
+        const lastIdx = Math.min(canonical.length - 1, offset + (ownEps ? ownEps - 1 : canonical.length - 1 - offset));
+        out.lastEpUrl = canonical[lastIdx] || out.lastEpUrl;
+      }
+    }
     return out;
   } catch (e) {
     return { ...out, error: e?.message || String(e) };
