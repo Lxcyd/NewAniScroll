@@ -1,4 +1,4 @@
-import { CSSProperties, useMemo, useState } from "react";
+import { CSSProperties, useEffect, useMemo, useState } from "react";
 import { AniListInfoTypes } from "types/info/AnilistInfoTypes";
 import {
   formatAiredRange,
@@ -640,12 +640,17 @@ function SiteLogo({ site }: { site: SiteRow }) {
     !!site.monochrome &&
     usableColor &&
     !COLORFUL_ICON_SITES.has(site.name.toLowerCase());
-  // White→brand-colour CSS filter (memoised). Same technique as the reference
-  // project — far more reliable than a mask for grey+alpha PNGs.
-  const filter = useMemo(
-    () => (recolor ? hexToCssFilter(color) : null),
-    [recolor, color],
-  );
+  // White→brand-colour CSS filter. Computed ONLY after mount: the SPSA solver
+  // in hexToCssFilter isn't guaranteed bit-identical between the server and
+  // client bundles, so emitting the filter in the SSR markup risked a tiny
+  // value drift (7440% vs 7305%) → React hydration mismatch (#418/#423/#425).
+  // Rendering null on the server + first client render and applying the filter
+  // in an effect sidesteps it entirely; the recolour just lands one frame
+  // later, which is imperceptible for a 20px link glyph.
+  const [filter, setFilter] = useState<string | null>(null);
+  useEffect(() => {
+    setFilter(recolor ? hexToCssFilter(color) : null);
+  }, [recolor, color]);
 
   return (
     <div

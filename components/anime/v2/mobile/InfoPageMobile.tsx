@@ -38,7 +38,7 @@ import { genreLabel } from "@/lib/i18n/genreLabel";
 import { useTranslatedText } from "@/lib/i18n/useTranslatedText";
 import { translateTag } from "@/lib/i18n/animeTags";
 import { hexToCssFilter } from "@/lib/color/hexToCssFilter";
-import { fanartSrc, onFanartError } from "@/lib/images/fanartFallback";
+import { useFanartSrc, onFanartError } from "@/lib/images/fanartFallback";
 import type { SeasonEntry } from "@/lib/anilist/seasonChain";
 import CharactersTab from "../CharactersTab";
 import Episodes from "../Episodes";
@@ -188,6 +188,9 @@ function MHero({
   const banner = info.bannerImage || info.coverImage?.extraLarge;
   const cover =
     info.coverImage?.extraLarge || info.coverImage?.large;
+  // Hydration-safe: proxy URL on SSR + first client render, swaps to origin
+  // only after mount if the CF quota is flagged exhausted.
+  const titleImageSrc = useFanartSrc(titleImage?.url);
   const rating =
     typeof info.averageScore === "number" ? (info.averageScore / 10).toFixed(2) : "—";
   const ratingRank =
@@ -240,7 +243,7 @@ function MHero({
         >
           {titleImage?.url ? (
             <img
-              src={fanartSrc(titleImage.url)}
+              src={titleImageSrc}
               alt={title}
               /* CF transformation quota exhausted → proxied URL 429s →
                  fall back to the original fanart.tv file. */

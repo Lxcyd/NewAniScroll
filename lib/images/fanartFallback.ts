@@ -20,13 +20,16 @@
  *    ORIGINAL assets.fanart.tv URL (untransformed, no quota) so it renders
  *    immediately, and count the failure.
  *  - Only after several failures in the session do we conclude the quota is
- *    genuinely exhausted and set a flag.
- *  - `fanartSrc` (wrap the src at render time): once that flag is up, point
- *    every subsequent fanart straight at the origin — we stop hammering an
- *    exhausted endpoint. Below the threshold we keep using the proxy so a
- *    transient 502 doesn't cost us the cached AVIFs.
+ *    genuinely exhausted and set a session flag.
+ *  - `useFanartSrc(url)`: returns the proxied URL on the server AND on the
+ *    first client render (so SSR markup matches hydration — reading
+ *    sessionStorage during render caused React hydration errors #418/#423/
+ *    #425). Only AFTER mount does it re-evaluate the flag and, if the quota
+ *    is exhausted, swap to the origin URL — a normal post-hydration re-render,
+ *    never a markup mismatch.
  */
 
+import { useEffect, useState } from "react";
 import type { SyntheticEvent } from "react";
 
 const FANART_ORIGIN = "https://assets.fanart.tv";
@@ -71,19 +74,67 @@ function recordFailure(): void {
   } catch {}
 }
 
-/** Wrap every fanart src with this. Passes the proxied URL through normally;
- *  once enough in-session failures prove the quota is exhausted, it rewrites
- *  to the origin URL so we stop calling the dead transformation endpoint. */
-export function fanartSrc<T extends string | null | undefined>(url: T): T | string {
-  if (!url) return url;
-  if (!proxyMarkedDown()) return url;
+/**
+ * Hook form — hydration-safe. Returns the proxied `url` unchanged on the
+ * server and on the first client render; only after mount does it swap to the
+ * origin URL when the session is flagged as quota-exhausted. Use this for any
+ * fanart <img>/<Image> `src`.
+ *
+ * MUST NOT read sessionStorage during render: the server can't, so the
+ * server-rendered `src` would differ from a flagged client's first render and
+ * React would throw a hydration mismatch (the #418/#423/#425 errors).
+ */
+export function useFanartSrc<T extends string | null | undefined>(url: T): T | string {
+  const [resolved, setResolved] = useState<T | string>(url);
+  useEffect(() => {
+    if (!url) {
+      setResolved(url);
+      return;
+    }
+    setResolved(proxyMarkedDown() ? originalFanartUrl(url) ?? url : url);
+  }, [url]);
+  return resolved;
+}
+
+/**
+ * Booleans-only hook for list rendering, where calling useFanartSrc per item
+ * would violate the rules of hooks. Returns `false` on the server AND the
+ * first client render (markup matches), then `true` after mount if the
+ * session flagged the quota exhausted. Pair with `resolveFanartSrc(url, down)`
+ * to map each item's URL in a `.map`.
+ */
+export function useFanartProxyDown(): boolean {
+  const [down, setDown] = useState(false);
+  useEffect(() => {
+    if (proxyMarkedDown()) setDown(true);
+  }, []);
+  return down;
+}
+
+/** Pure mapper: given the proxy-down flag (from useFanartProxyDown), return
+ *  either the proxied URL (flag false) or the origin URL (flag true). Safe in
+ *  a `.map` because it's a plain function, not a hook. */
+export function resolveFanartSrc<T extends string | null | undefined>(
+  url: T,
+  proxyDown: boolean,
+): T | string {
+  if (!url || !proxyDown) return url;
   return originalFanartUrl(url) ?? url;
+}
+
+/** Imperative variant for use OUTSIDE render (effects, event handlers, plain
+ *  `new Image()` prefetches) — reads the session flag directly. Never call
+ *  this during render; use useFanartSrc there or hydration will break. */
+export function fanartSrcNow<T extends string | null | undefined>(url: T): T | string {
+  if (!url) return url;
+  return proxyMarkedDown() ? originalFanartUrl(url) ?? url : url;
 }
 
 /** onError handler for any <img>/<Image> showing a fanart. Swaps to the
  *  original (untransformed) URL exactly once — if THAT fails too, the image
  *  is genuinely gone and we leave it alone (no retry loop). Each swap counts
- *  toward the exhaustion threshold. */
+ *  toward the exhaustion threshold. Safe to use outside render (event
+ *  handler), so it can read/write sessionStorage freely. */
 export function onFanartError(e: SyntheticEvent<HTMLImageElement>): void {
   const img = e.currentTarget;
   const fallback = originalFanartUrl(img.src);

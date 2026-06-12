@@ -11,11 +11,30 @@
  * The solver is the well-known SPSA approach (Barrett Sonntag's "hex to CSS
  * filter"): it searches invert/sepia/saturate/hue-rotate/brightness/contrast
  * values whose composed effect, applied to black, lands on the target colour.
- * It's deterministic per colour and we memoise the result, so the per-render
- * cost is a single Map lookup.
+ * We memoise the result, so the per-render cost is a single Map lookup.
+ *
+ * DETERMINISM (critical): the SPSA solver perturbs in random directions. With
+ * Math.random() the server and the client computed DIFFERENT filter strings
+ * for the same colour, so the recoloured icon's inline `style` didn't match on
+ * hydration → React errors #418/#423/#425. We seed a small PRNG from the
+ * target colour instead, so the same hex always yields the exact same filter
+ * on the server and in the browser.
  */
 
 type RGB = [number, number, number];
+
+/* Mulberry32 — tiny deterministic PRNG. Seeded per-solve from the target
+   colour so SPSA explores the same path on server and client. */
+function makeRng(seed: number): () => number {
+  let a = seed >>> 0;
+  return function () {
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
 
 class Color {
   r: number;
@@ -151,10 +170,12 @@ class Solver {
   target: Color;
   targetHSL: { h: number; s: number; l: number };
   reusedColor: Color;
-  constructor(target: Color) {
+  rng: () => number;
+  constructor(target: Color, rng: () => number) {
     this.target = target;
     this.targetHSL = target.hsl();
     this.reusedColor = new Color(0, 0, 0);
+    this.rng = rng;
   }
   solve() {
     const result = this.solveNarrow(this.solveWide());
@@ -190,7 +211,7 @@ class Solver {
     for (let k = 0; k < iters; k++) {
       const ck = c / Math.pow(k + 1, gamma);
       for (let i = 0; i < 6; i++) {
-        deltas[i] = Math.random() > 0.5 ? 1 : -1;
+        deltas[i] = this.rng() > 0.5 ? 1 : -1;
         highArgs[i] = values[i] + ck * deltas[i];
         lowArgs[i] = values[i] - ck * deltas[i];
       }
@@ -273,7 +294,9 @@ export function hexToCssFilter(hex: string): string | null {
   if (!rgb) {
     return null;
   }
-  const solver = new Solver(new Color(rgb[0], rgb[1], rgb[2]));
+  // Seed the PRNG from the colour so the solve is identical on server/client.
+  const seed = (rgb[0] << 16) | (rgb[1] << 8) | rgb[2];
+  const solver = new Solver(new Color(rgb[0], rgb[1], rgb[2]), makeRng(seed));
   const filter = solver.solve();
   filterCache.set(hex, filter);
   return filter;

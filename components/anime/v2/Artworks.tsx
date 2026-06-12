@@ -2,7 +2,7 @@ import { CSSProperties, useEffect, useState } from "react";
 import { collectArtworks, FanartResponse } from "./helpers";
 import styles from "./styles.module.css";
 import { useTranslation } from "react-i18next";
-import { fanartSrc, onFanartError } from "@/lib/images/fanartFallback";
+import { useFanartProxyDown, resolveFanartSrc, onFanartError } from "@/lib/images/fanartFallback";
 
 type Props = {
   fanarts: FanartResponse | null;
@@ -31,6 +31,9 @@ export default function Artworks({
     TYPE_LABEL[type] ? t(`anime.artType.${type}`) : type;
   const arts = collectArtworks(fanarts);
   const [lightbox, setLightbox] = useState<string | null>(null);
+  // false on SSR + first client render (markup matches), true after mount
+  // when the CF transformation quota is flagged exhausted.
+  const proxyDown = useFanartProxyDown();
 
   // Augment with the AniList cover / banner if we have basically nothing else.
   const augmented =
@@ -145,7 +148,7 @@ export default function Artworks({
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src={fanartSrc(a.url)}
+              src={resolveFanartSrc(a.url, proxyDown)}
               alt={typeLabel(a.type)}
               style={aStyles.img}
               loading="lazy"
@@ -191,7 +194,7 @@ export default function Artworks({
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src={fanartSrc(lightbox)}
+            src={resolveFanartSrc(lightbox, proxyDown)}
             alt=""
             style={aStyles.lightboxImg}
             onError={onFanartError}

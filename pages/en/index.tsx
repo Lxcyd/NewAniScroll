@@ -24,7 +24,7 @@ import { Navbar } from "@/components/shared/NavBar";
 import { useRouter } from "next/router";
 import { loadFanarts } from "@/lib/db/fanarts";
 import { pickHeroLogo, TitleImage } from "@/components/anime/v2/helpers";
-import { fanartSrc, onFanartError } from "@/lib/images/fanartFallback";
+import { useFanartSrc, onFanartError } from "@/lib/images/fanartFallback";
 
 export async function getServerSideProps(ctx: any) {
   // Edge-cache the home page aggressively. The response is identical for
@@ -295,6 +295,11 @@ function HeroBanner({
   const title =
     active.title?.english || active.title?.romaji || "Untitled";
   const statusInfo = active.status ? STATUS_TAG[active.status] : null;
+  // Hydration-safe fanart src: proxy URL on SSR + first client render, swaps
+  // to origin only after mount if the CF quota is flagged exhausted. Calling
+  // fanartSrc (which reads sessionStorage) inline during render caused the
+  // hydration mismatch (#418/#423/#425).
+  const heroLogoSrc = useFanartSrc(active.titleImage?.url);
   // Fall back to coverImage when there's no banner (rare for top trending
   // but happens on brand-new entries). Cover stretched is uglier but still
   // gives us something to layer the gradient on.
@@ -383,7 +388,7 @@ function HeroBanner({
                 {active.titleImage ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
-                    src={fanartSrc(active.titleImage.url)}
+                    src={heroLogoSrc}
                     alt={title}
                     width={680}
                     height={280}
