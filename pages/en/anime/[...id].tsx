@@ -470,15 +470,15 @@ export default function Info({
             return null;
           }
         })()}
-        {initialTitleImage?.url && (
-          <link
-            rel="preload"
-            as="image"
-            href={initialTitleImage.url}
-            // @ts-expect-error fetchPriority not in lib.dom yet
-            fetchpriority="high"
-          />
-        )}
+        {/* No rel=preload for the clearart: its <img> may swap to the
+            original assets.fanart.tv URL at render time when the CF
+            transformation proxy errors (429/502 once the monthly quota is
+            spent — see lib/images/fanartFallback). A preload pinned to the
+            proxy URL would then go unconsumed and Chrome logs "preloaded but
+            not used". The <img> is already loading="eager" + fetchpriority
+            "high", and we keep the preconnect above, so first-paint speed is
+            unchanged. Banner/cover stay preloaded — those AniList URLs are
+            stable and never rewritten. */}
         {info?.bannerImage && (
           <link
             rel="preload"
@@ -733,7 +733,9 @@ export async function getServerSideProps(ctx: any) {
     const fanarts = await loadFanarts(animeIdNum).catch(() => null);
     timer.mark("fanarts");
     const initialTitleImage = pickTitleImage(fanarts);
-    if (initialTitleImage?.url) appendPreloadHeader(ctx.res, initialTitleImage.url);
+    // No clearart preload header — see the <link> note above: the <img> may
+    // swap to assets.fanart.tv on proxy error, leaving a proxy-URL preload
+    // unconsumed ("preloaded but not used"). preconnect handles the latency.
 
     // Now wait on the slower stuff in parallel. The browser is already
     // pulling the images while these resolve.
@@ -812,7 +814,8 @@ export async function getServerSideProps(ctx: any) {
   const fanarts = await loadFanarts(animeIdNum).catch(() => null);
   timer.mark("fanarts");
   const initialTitleImage = pickTitleImage(fanarts);
-  if (initialTitleImage?.url) appendPreloadHeader(ctx.res, initialTitleImage.url);
+  // No clearart preload header — the <img> may swap to assets.fanart.tv on
+  // proxy error, which would leave a proxy-URL preload unconsumed.
 
   const seasonInfoP = resolveSeasonChain(animeIdNum).catch(
     () => ({ number: null, total: null })

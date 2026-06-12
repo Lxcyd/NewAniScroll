@@ -27,6 +27,13 @@ import type { TFunction } from "i18next";
 import { VIDSTACK_FR } from "@/lib/i18n/vidstackFr";
 import { getResumeTime, saveProgress, markComplete } from "@/lib/watch/progress";
 
+// Trace logger — off by default. Set NEXT_PUBLIC_DEBUG_SOURCE=1 to surface the
+// vidmoly-fallback diagnostics. These are EXPECTED control-flow branches
+// (client extraction fails → iframe fallback), not real errors, so they don't
+// belong in a production console.
+const DEBUG = process.env.NEXT_PUBLIC_DEBUG_SOURCE === "1";
+const dwarn = DEBUG ? console.warn.bind(console) : () => {};
+
 type Stream = {
   url: string;
   quality?: string;
@@ -1847,7 +1854,7 @@ export default function UniversalPlayer({
         // HERE — before the generic aborted-guard below — or we'd stay stuck
         // on "pending" and never reach the iframe fallback.
         if (timedOut) {
-          console.warn("[UniversalPlayer] client vidmoly timed out → iframe");
+          dwarn("[UniversalPlayer] client vidmoly timed out → iframe");
           setClientStatus("failed");
           return;
         }
@@ -1864,7 +1871,7 @@ export default function UniversalPlayer({
           });
           setClientStatus("ok");
         } else {
-          console.warn(
+          dwarn(
             "[UniversalPlayer] client vidmoly extraction failed:",
             res.error,
           );
@@ -1873,10 +1880,10 @@ export default function UniversalPlayer({
       } catch (e: any) {
         // Timeout abort → fall through to the iframe. Cleanup abort → ignore.
         if (timedOut) {
-          console.warn("[UniversalPlayer] client vidmoly timed out → iframe");
+          dwarn("[UniversalPlayer] client vidmoly timed out → iframe");
           setClientStatus("failed");
         } else if (!ac.signal.aborted) {
-          console.warn(
+          dwarn(
             "[UniversalPlayer] client vidmoly threw:",
             e?.message || e,
           );

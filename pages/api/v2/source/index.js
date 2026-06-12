@@ -982,15 +982,14 @@ async function finalizeAnimeSamaIframe(serverKey, serverDef, iframeUrl) {
     }
 
     if (EXTRACTABLE_HOSTS.some((h) => lower.includes(h))) {
-      // TEMP diagnostic — remove once Sibnet behaviour stops surprising us.
       if (lower.includes("sibnet")) {
-        console.error(`[sibnet-trace] ${serverKey} iframeUrl=${iframeUrl}`);
+        dlog(`[sibnet-trace] ${serverKey} iframeUrl=${iframeUrl}`);
       }
       const extractor = getExtractor(iframeUrl);
       const result = await extractor(iframeUrl);
       if (lower.includes("sibnet")) {
         const out = result.streams?.[0]?.url || `ERROR:${result.error}`;
-        console.error(`[sibnet-trace] ${serverKey} resolved → ${out}`);
+        dlog(`[sibnet-trace] ${serverKey} resolved → ${out}`);
       }
       if (result.streams?.length) {
         dlog(`[anime-sama] Extracted stream for ${serverKey}: ${result.streams[0].url}`);
