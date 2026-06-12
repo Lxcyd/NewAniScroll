@@ -1,7 +1,7 @@
-## v0.0.3
+## v0.0.2
 
-↩️ **Back navigation** works again everywhere — no more frozen pages or unwanted jumps.
+✨ New **Scores** tab — community ratings for every episode, season by season.
 
-🕗 The **Recently watched** menu no longer shows up empty: it now displays your full history.
+🎬 Fixed players: multi-season shows now play the right season, and many more titles have a working VF/VOSTFR source.
 
-🖼️ More reliable anime artwork and cleaner players.
+🔧 Watch progress is saved and restored across players and devices.

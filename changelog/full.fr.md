@@ -2,21 +2,6 @@
 
 Toutes les nouveautés d'AniScroll, les plus récentes en premier.
 
-## [v0.0.3] — Navigation & stabilité (2026-06-12)
-
-### Corrigé
-- **Retour / avance arrière** : revenir en arrière (depuis un lecteur ou entre
-  les pages) refonctionne partout, sans page figée ni saut indésirable, et la
-  position de défilement est restaurée.
-- **Vu récemment** : la page n'apparaît plus vide alors que l'historique est
-  bien là — elle affiche désormais le même contenu que le carrousel d'accueil,
-  connecté ou non, avec un message clair quand l'historique est réellement vide.
-- **Visuels des animes** : quand une image ne peut pas être optimisée, l'image
-  d'origine s'affiche à la place au lieu d'un visuel cassé.
-- **Lecteurs** : aperçus de la barre de progression désactivés sur les sources
-  qui ne les supportent pas (fini les erreurs en arrière-plan), et console plus
-  propre.
-
 ## [v0.0.2] — Notes par épisode & lecteurs plus fiables (2026-06-10)
 
 ### Ajouté

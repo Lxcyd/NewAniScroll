@@ -2,20 +2,6 @@
 
 All notable changes to AniScroll appear here. Most recent first.
 
-## [v0.0.3] — Navigation & stability (2026-06-12)
-
-### Fixed
-- **Back / forward navigation**: going back (from a player or between pages)
-  works again everywhere — no more frozen page or unwanted jump — and the
-  scroll position is restored.
-- **Recently watched**: the page no longer shows up empty while your history
-  is right there. It now mirrors the home carousel, signed in or not, with a
-  clear message when the history really is empty.
-- **Anime artwork**: when an image can't be optimised, the original image is
-  shown instead of a broken one.
-- **Players**: scrubber preview thumbnails disabled on sources that don't
-  support them (no more background errors), plus a cleaner console.
-
 ## [v0.0.2] — Episode scores & sturdier players (2026-06-10)
 
 ### Added
