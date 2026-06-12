@@ -381,16 +381,25 @@ function HeroBanner({
                 {/* HD logo (stylised title text). Falls back to a styled
                     <h1> when no logo fanart is available. */}
                 {active.titleImage ? (
-                  <Image
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
                     src={fanartSrc(active.titleImage.url)}
                     alt={title}
                     width={680}
                     height={280}
-                    quality={95}
-                    priority={idx === 0}
-                    /* CF transformation quota exhausted → proxied URL 429s →
-                       fall back to the original fanart.tv file. */
+                    /* CF transformation quota exhausted → proxied URL 429/502s
+                       → fall back to the original fanart.tv file. */
                     onError={onFanartError}
+                    /* Plain <img>, NOT next/image: with `priority` next/image
+                       injects a <link rel=preload as=image> pinned to this
+                       src. When onError swaps the src to assets.fanart.tv the
+                       preload goes unconsumed → Chrome's "preloaded but not
+                       used" warning. loading=eager + fetchPriority=high give
+                       the same first-paint priority with no auto-preload. */
+                    loading={idx === 0 ? "eager" : "lazy"}
+                    // @ts-expect-error fetchPriority not in lib.dom yet
+                    fetchpriority={idx === 0 ? "high" : undefined}
+                    decoding="async"
                     className="h-auto w-auto max-h-[200px] max-w-[68%] object-contain object-left drop-shadow-[0_10px_30px_rgba(0,0,0,0.7)]"
                   />
                 ) : (
