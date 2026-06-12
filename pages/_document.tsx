@@ -14,6 +14,9 @@ export default function Document() {
           crossOrigin="anonymous"
         />
         <link rel="icon" type="image/png" href="/logo.png" />
+        {/* Chrome deprecated the apple- prefixed meta in favour of the
+            standard one; ship both (Safari still reads the apple- one). */}
+        <meta name="mobile-web-app-capable" content="yes"></meta>
         <meta name="apple-mobile-web-app-capable" content="yes"></meta>
         <meta
           name="apple-mobile-web-app-status-bar-style"

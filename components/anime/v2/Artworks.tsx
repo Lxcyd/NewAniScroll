@@ -2,6 +2,7 @@ import { CSSProperties, useEffect, useState } from "react";
 import { collectArtworks, FanartResponse } from "./helpers";
 import styles from "./styles.module.css";
 import { useTranslation } from "react-i18next";
+import { fanartSrc, onFanartError } from "@/lib/images/fanartFallback";
 
 type Props = {
   fanarts: FanartResponse | null;
@@ -144,11 +145,12 @@ export default function Artworks({
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src={a.url}
+              src={fanartSrc(a.url)}
               alt={typeLabel(a.type)}
               style={aStyles.img}
               loading="lazy"
               decoding="async"
+              onError={onFanartError}
             />
             <div style={aStyles.gradient} />
             <div style={aStyles.label}>
@@ -188,7 +190,12 @@ export default function Artworks({
           aria-modal="true"
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={lightbox} alt="" style={aStyles.lightboxImg} />
+          <img
+            src={fanartSrc(lightbox)}
+            alt=""
+            style={aStyles.lightboxImg}
+            onError={onFanartError}
+          />
           <button
             onClick={(e) => {
               e.stopPropagation();

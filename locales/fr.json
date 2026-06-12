@@ -94,6 +94,7 @@
     "recommendations": "Recommandations",
     "moreOn": "Plus sur {{section}}",
     "episodeRemoved": "Épisode retiré de l'historique",
+    "noHistory": "Rien ici pour l'instant — les épisodes que vous regardez apparaîtront ici.",
     "removeFailed": "Échec de la suppression de l'épisode",
     "topGenres": "Genres populaires",
     "days": "Jours",

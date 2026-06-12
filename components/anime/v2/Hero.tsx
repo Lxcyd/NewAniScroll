@@ -20,6 +20,7 @@ import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { useTranslation } from "react-i18next";
 import { genreLabel } from "@/lib/i18n/genreLabel";
 import { prefetchEpisodeList } from "@/lib/watch/episodePrefetch";
+import { fanartSrc, onFanartError } from "@/lib/images/fanartFallback";
 
 type HeroProps = {
   info: AniListInfoTypes;
@@ -227,8 +228,9 @@ export default function Hero({
   // (~70ms TTFB) so on-demand at click time is fine.
   useEffect(() => {
     if (!canCycle) return;
-    const first = cycleQueue[0];
-    const next = cycleQueue[1];
+    // fanartSrc: skip the transformation proxy once it 429'd this session.
+    const first = fanartSrc(cycleQueue[0]);
+    const next = fanartSrc(cycleQueue[1]);
     if (!first || !next) return;
 
     let cancelled = false;
@@ -279,7 +281,7 @@ export default function Hero({
   async function handleCycleClick() {
     if (!canCycle || fading) return;
     const nextIdx = (cycleIdx + 1) % cycleQueue.length;
-    const nextUrl = cycleQueue[nextIdx];
+    const nextUrl = fanartSrc(cycleQueue[nextIdx]);
 
     setFading(true);
 
@@ -495,8 +497,12 @@ export default function Hero({
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
-                  src={currentTitleUrl}
+                  src={fanartSrc(currentTitleUrl)}
                   alt={title}
+                  /* CF transformation quota exhausted → proxied URL 429s →
+                     retry the original assets.fanart.tv file (untransformed,
+                     quota-free) instead of showing a broken image. */
+                  onError={onFanartError}
                   onClick={canCycle ? handleCycleClick : undefined}
                   role={canCycle ? "button" : undefined}
                   aria-label={canCycle ? t("anime.showNextArtwork") : undefined}

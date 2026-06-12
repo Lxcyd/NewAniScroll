@@ -2513,8 +2513,16 @@ export default function UniversalPlayer({
           while in pseudo-fullscreen (see the controls.pause() effect), so the
           fullscreen button is always visible and a single tap exits. */}
 
-      {/* Hover preview — actual video frame at the cursor position on the scrubber */}
-      <HoverPreview playerRef={playerRef} src={src} isM3U8={isM3U8} />
+      {/* Hover preview — actual video frame at the cursor position on the
+          scrubber. Skipped for noCors streams (sibnet's cvn CDN, …): the
+          preview's hidden <video> MUST run in CORS mode (its frames are
+          drawn to a canvas, which a no-cors source would security-taint),
+          but these CDNs send no Access-Control-Allow-Origin — every fetch
+          would be blocked, spamming the console with CORS errors and never
+          producing a single thumbnail. */}
+      {!bestStream!.noCors && (
+        <HoverPreview playerRef={playerRef} src={src} isM3U8={isM3U8} />
+      )}
 
       {/* AniSkip segment overlay + Skip button. Renders null when no
           skip data exists for the current episode AND there's no next

@@ -38,6 +38,7 @@ import { genreLabel } from "@/lib/i18n/genreLabel";
 import { useTranslatedText } from "@/lib/i18n/useTranslatedText";
 import { translateTag } from "@/lib/i18n/animeTags";
 import { hexToCssFilter } from "@/lib/color/hexToCssFilter";
+import { fanartSrc, onFanartError } from "@/lib/images/fanartFallback";
 import type { SeasonEntry } from "@/lib/anilist/seasonChain";
 import CharactersTab from "../CharactersTab";
 import Episodes from "../Episodes";
@@ -239,8 +240,11 @@ function MHero({
         >
           {titleImage?.url ? (
             <img
-              src={titleImage.url}
+              src={fanartSrc(titleImage.url)}
               alt={title}
+              /* CF transformation quota exhausted → proxied URL 429s →
+                 fall back to the original fanart.tv file. */
+              onError={onFanartError}
               style={{
                 maxHeight: 130,
                 maxWidth: "80%",

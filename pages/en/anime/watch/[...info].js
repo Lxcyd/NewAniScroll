@@ -819,6 +819,9 @@ export default function Watch({
           sub: dub ? "dub" : "sub",
           title: info?.title?.romaji || info?.title?.english,
           mediaMeta: mediaMetaPayload,
+          // Absent source → 204 instead of 404, so an unavailable server
+          // doesn't print a spurious console error (see source/index.js).
+          soft404: true,
         }),
         signal,
         // The active server's source is the request the user is actually
@@ -830,7 +833,12 @@ export default function Watch({
 
       if (signal?.aborted) return;
 
-      if (res.ok) {
+      // 204 = "source absent" under the soft404 contract (res.ok is true for
+      // 204, but there's no body — json() would throw).
+      if (res.status === 204) {
+        setHlsData({ error: true });
+        markFailed(serverId, "Source not found");
+      } else if (res.ok) {
         const data = await res.json();
         setHlsData(data);
         if (data && !data.error) {
@@ -994,6 +1002,9 @@ export default function Watch({
             sub: dub ? "dub" : "sub",
             title: info?.title?.romaji || info?.title?.english,
             mediaMeta: probeMeta,
+            // Absent source → 204 instead of 404 (half the probes miss by
+            // design; they shouldn't read as console errors).
+            soft404: true,
           }),
           signal: controller.signal,
           // Probes are background work — they fill in the server-selector
@@ -1003,7 +1014,10 @@ export default function Watch({
           priority: "low",
         });
 
-        if (res.status === 404) return { v: "fail-404" };
+        // 204 = the soft404 contract's "source absent" (404 kept for callers
+        // that don't send the flag — handle both, terminal either way).
+        if (res.status === 204 || res.status === 404)
+          return { v: "fail-404" };
         if (!res.ok) return { v: "retry" }; // 5xx, 429, anything non-2xx
 
         // 200 — but the backend sometimes wraps an extractor failure as

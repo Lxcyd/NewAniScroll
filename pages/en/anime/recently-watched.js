@@ -53,9 +53,23 @@ export default function PopularAnime({ sessions }) {
         }
       } catch {}
 
-      // 3. Prefer server list if it has anything; otherwise show local.
-      const merged =
-        serverList && serverList.length > 0 ? serverList : localList;
+      // A row is renderable when it has an identity (watchId OR aniId — many
+      // localStorage rows are keyed by aniId and have no watchId) AND
+      // something meaningful to display (image OR title).
+      const displayable = (i) =>
+        (i?.watchId || i?.aniId) &&
+        (i?.image || i?.cover || i?.aniTitle || i?.title);
+
+      // 3. Prefer the server list — but judge it on its RENDERABLE rows, not
+      //    its raw length. A signed-in user can have Prisma rows that carry
+      //    no image/title (created via list-sync, or by a failed episode
+      //    update): the old `serverList.length > 0` test then locked us onto
+      //    a list the display filter dropped entirely, rendering this page
+      //    blank while the home carousel (which falls back to localStorage)
+      //    showed the same history fine.
+      const serverShown = (serverList || []).filter(displayable);
+      const localShown = localList.filter(displayable);
+      const merged = serverShown.length > 0 ? serverShown : localShown;
 
       // Sort most-recent-first. The server query orders by createdDate desc,
       // but rows with a null/stale createdDate land in an undefined spot, and
@@ -174,19 +188,8 @@ export default function PopularAnime({ sessions }) {
           </Link>
         </div>
         <div className="grid grid-cols-1 xs:grid-cols-2 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-4 gap-3 md:gap-7 pt-16">
-          {data
-            /* Show a row when it has an identity (watchId OR aniId — many
-               localStorage rows are keyed by aniId and have no watchId) AND
-               something meaningful to display (image OR title). This mirrors
-               the home "Vu récemment" carousel's filter; the old stricter
-               `watchId && …` test dropped every aniId-only row, leaving this
-               page blank while the carousel showed the same history. */
-            ?.filter(
-              (i) =>
-                (i?.watchId || i?.aniId) &&
-                (i?.image || i?.cover || i?.aniTitle || i?.title)
-            )
-            .map((i) => {
+          {/* Rows are pre-filtered to displayable ones in fetchData. */}
+          {data?.map((i) => {
               const time = i.timeWatched;
               const duration = i.duration;
               let prog = (time / duration) * 100;
@@ -194,7 +197,10 @@ export default function PopularAnime({ sessions }) {
 
               return (
                 <div
-                  key={i.watchId || i.aniId}
+                  /* Server (Prisma) rows are per-episode: several rows share
+                     the same watchId/aniId, so include the row id to keep
+                     React keys unique. */
+                  key={i.id || i.watchId || i.aniId}
                   className="flex flex-col gap-2 shrink-0 cursor-pointer relative group/item"
                 >
                   <div className="absolute flex flex-col gap-1 z-40 top-1 right-1 transition-all duration-200 ease-out opacity-0 group-hover/item:opacity-100 scale-90 group-hover/item:scale-100 group-hover/item:visible invisible">
@@ -285,6 +291,13 @@ export default function PopularAnime({ sessions }) {
                 </div>
               );
             })}
+
+          {/* Explicit empty state — a blank grid reads as a bug. */}
+          {!loading && (!data || data.length === 0) && (
+            <p className="col-span-full text-center text-gray-400 font-karla pt-10">
+              {t("home.noHistory")}
+            </p>
+          )}
 
           {loading && (
             <>

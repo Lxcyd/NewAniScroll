@@ -93,12 +93,15 @@ export async function resolveSource(
       sub: params.sub,
       title: params.title,
       mediaMeta: params.mediaMeta,
+      // Absent source → 204 instead of 404 so a background prefetch miss
+      // never prints a console error (see source/index.js).
+      soft404: true,
     }),
     signal: opts.signal,
     // @ts-ignore — `priority` is a valid fetch init in modern browsers.
     priority: opts.priority || "auto",
   })
-    .then((r) => (r.ok ? r.json() : null))
+    .then((r) => (r.ok && r.status !== 204 ? r.json() : null))
     .then((data) => {
       if (data && !data.error) setPrefetchedSource(key, data);
       return data && !data.error ? data : null;

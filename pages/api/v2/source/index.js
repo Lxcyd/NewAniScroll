@@ -2518,6 +2518,19 @@ export default async function handler(req, res) {
 
   const { server, aniId, episode, sub = "sub", title, mediaMeta } = req.body;
 
+  // The watch page's probe fan-out + active-source fetch send soft404:true —
+  // "source absent" is an EXPECTED outcome for them (half the probes miss by
+  // design), so we answer 204 No Content instead of 404. Browsers print a
+  // console error for every non-2xx fetch response and there is no way to
+  // suppress it from JS; a page with a few absent servers looked like it was
+  // throwing errors when nothing was wrong. Scripts / warmers / the audit
+  // don't send the flag and keep the hard 404 contract.
+  const wantsSoft404 = req.body?.soft404 === true;
+  const notFoundStatus = (msg) =>
+    wantsSoft404
+      ? res.status(204).end()
+      : res.status(404).json({ error: msg || "Source not found" });
+
   // Redis lookup — short-circuit identical (server, aniId, episode, sub)
   // requests served within the last SOURCE_CACHE_TTL_S. The probe fan-out
   // on the watch page sends 15-20 of these at once, every page load.
@@ -2533,7 +2546,7 @@ export default async function handler(req, res) {
           // popular episode would re-extract the same dead servers for every
           // visitor without this.
           res.setHeader("Cache-Control", "public, max-age=30");
-          return res.status(404).json({ error: "Source not found" });
+          return notFoundStatus("Source not found");
         }
         res.setHeader(
           "Cache-Control",
@@ -2572,7 +2585,7 @@ export default async function handler(req, res) {
         .catch(() => {});
     }
     res.setHeader("Cache-Control", "public, max-age=30");
-    return res.status(404).json({ error: msg || "Source not found" });
+    return notFoundStatus(msg);
   };
 
   // If the client passed pre-fetched AniList metadata (from watch page SSR),

@@ -5,7 +5,15 @@
       "PowerShell(*)",
       "WebFetch(*)",
       "Read(*)",
-      "Bash(node -e \"require\\('dotenv'\\).config\\({path:'.env.local'}\\);const{createClient}=require\\('@libsql/client'\\);\\(async\\(\\)=>{const d=createClient\\({url:process.env.TURSO_FANARTS_DATABASE_URL,authToken:process.env.TURSO_FANARTS_AUTH_TOKEN}\\);const r=await d.execute\\('SELECT COUNT\\(*\\) AS n FROM anime_fanarts'\\);console.log\\('target rows:',r.rows[0].n\\);process.exit\\(Number\\(r.rows[0].n\\)>=122510?0:1\\)}\\)\\(\\);\")"
+      "Bash(node -e \"require\\('dotenv'\\).config\\({path:'.env.local'}\\);const{createClient}=require\\('@libsql/client'\\);\\(async\\(\\)=>{const d=createClient\\({url:process.env.TURSO_FANARTS_DATABASE_URL,authToken:process.env.TURSO_FANARTS_AUTH_TOKEN}\\);const r=await d.execute\\('SELECT COUNT\\(*\\) AS n FROM anime_fanarts'\\);console.log\\('target rows:',r.rows[0].n\\);process.exit\\(Number\\(r.rows[0].n\\)>=122510?0:1\\)}\\)\\(\\);\")",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(rm -f .git/COMMIT_EDITMSG_tmp)",
+      "Bash(git push *)",
+      "Bash(cat > *)"
+    ],
+    "additionalDirectories": [
+      "C:\\Users\\Luc\\Github\\NewAniScroll\\.git"
     ]
   }
 }

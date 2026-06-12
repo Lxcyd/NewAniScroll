@@ -24,6 +24,7 @@ import { Navbar } from "@/components/shared/NavBar";
 import { useRouter } from "next/router";
 import { loadFanarts } from "@/lib/db/fanarts";
 import { pickHeroLogo, TitleImage } from "@/components/anime/v2/helpers";
+import { fanartSrc, onFanartError } from "@/lib/images/fanartFallback";
 
 export async function getServerSideProps(ctx: any) {
   // Edge-cache the home page aggressively. The response is identical for
@@ -381,12 +382,15 @@ function HeroBanner({
                     <h1> when no logo fanart is available. */}
                 {active.titleImage ? (
                   <Image
-                    src={active.titleImage.url}
+                    src={fanartSrc(active.titleImage.url)}
                     alt={title}
                     width={680}
                     height={280}
                     quality={95}
                     priority={idx === 0}
+                    /* CF transformation quota exhausted → proxied URL 429s →
+                       fall back to the original fanart.tv file. */
+                    onError={onFanartError}
                     className="h-auto w-auto max-h-[200px] max-w-[68%] object-contain object-left drop-shadow-[0_10px_30px_rgba(0,0,0,0.7)]"
                   />
                 ) : (
