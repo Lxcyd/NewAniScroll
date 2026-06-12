@@ -1,7 +1,7 @@
-## v0.0.2
+## v0.0.3
 
-✨ Nouvel onglet **Notes** — les notes de la communauté pour chaque épisode, saison par saison.
+↩️ Le **retour en arrière** refonctionne partout — fini les pages figées et les sauts indésirables.
 
-🎬 Lecteurs corrigés : les animes à plusieurs saisons diffusent enfin la bonne saison, et bien plus de titres ont un lecteur VF/VOSTFR.
+🕗 Le menu **Vu récemment** ne s'affiche plus vide : il montre bien tout votre historique.
 
-🔧 La progression de lecture est sauvegardée et restaurée entre les lecteurs et les appareils.
+🖼️ Visuels d'animes plus fiables et lecteurs plus propres.
