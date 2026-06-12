@@ -279,6 +279,11 @@ function HeroBanner({
   const localizedDescription = useTranslatedText(
     safeActive ? stripDescription(safeActive.description || "") : "",
   );
+  // Same rules-of-hooks discipline: call useFanartSrc BEFORE the early return,
+  // off the guarded `safeActive`, so the hook order is stable across renders.
+  // Hydration-safe: proxy URL on SSR + first client render, swaps to origin
+  // after mount when the CF quota is flagged exhausted.
+  const heroLogoSrc = useFanartSrc(safeActive?.titleImage?.url);
 
   if (list.length === 0) return null;
   const activeIdx = idx % list.length;
@@ -295,11 +300,6 @@ function HeroBanner({
   const title =
     active.title?.english || active.title?.romaji || "Untitled";
   const statusInfo = active.status ? STATUS_TAG[active.status] : null;
-  // Hydration-safe fanart src: proxy URL on SSR + first client render, swaps
-  // to origin only after mount if the CF quota is flagged exhausted. Calling
-  // fanartSrc (which reads sessionStorage) inline during render caused the
-  // hydration mismatch (#418/#423/#425).
-  const heroLogoSrc = useFanartSrc(active.titleImage?.url);
   // Fall back to coverImage when there's no banner (rare for top trending
   // but happens on brand-new entries). Cover stretched is uglier but still
   // gives us something to layer the gradient on.
