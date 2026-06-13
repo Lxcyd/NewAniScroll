@@ -82,7 +82,7 @@ export async function fullSyncFromAniList(): Promise<{ ok: boolean; count: numbe
         query: `query ($userName: String) {
           MediaListCollection(userName: $userName, type: ANIME) {
             lists { entries {
-              status score(format: POINT_10_DECIMAL) progress
+              status score(format: POINT_10_DECIMAL) progress updatedAt
               startedAt { year month day } completedAt { year month day } notes
               media { id episodes title { english romaji native userPreferred } coverImage { large } }
             } }
@@ -113,6 +113,12 @@ export async function fullSyncFromAniList(): Promise<{ ok: boolean; count: numbe
           completedAt: emptyFuzzy(e.completedAt),
           notes: e.notes || null,
           updatedAt: now,
+          // AniList's MediaList.updatedAt (Unix seconds) is the real last-activity
+          // signal that drives auto-pause. Fall back to `now` if absent.
+          activityAt:
+            typeof e.updatedAt === "number" && e.updatedAt > 0
+              ? e.updatedAt * 1000
+              : now,
         });
       }
     }
@@ -169,6 +175,7 @@ export async function onEpisodeFinished(args: EpisodeFinishedArgs): Promise<void
   const patch: Parameters<typeof upsertLocalEntry>[1] = {
     progress: nextProgress,
     total: totalEp ?? prev?.total ?? null,
+    activityAt: Date.now(), // real watch activity — resets the auto-pause clock
   };
   if (title) patch.title = title;
   if (coverImage) patch.coverImage = coverImage;
@@ -253,14 +260,23 @@ export async function runAutoPauseSweep(): Promise<void> {
   if (!prefs.autoPause) return;
 
   const cutoff = Date.now() - prefs.autoPauseDays * 24 * 60 * 60 * 1000;
+  // Inactivity is measured by `activityAt` (real last watch / AniList activity),
+  // NOT `updatedAt` (which a sync/import bumps to "now" for every entry — using
+  // it here would make nothing ever look stale). Fall back to `updatedAt` only
+  // for legacy entries that predate `activityAt`.
   const stale = Object.values(getLocalList()).filter(
-    (e) => e.status === "CURRENT" && e.updatedAt < cutoff,
+    (e) => e.status === "CURRENT" && (e.activityAt ?? e.updatedAt) < cutoff,
   );
   if (stale.length === 0) return;
 
-  // Pause locally first (instant, offline-safe). Preserve updatedAt.
+  // Pause locally first (instant, offline-safe). Preserve both timestamps so a
+  // paused entry doesn't look freshly active (and isn't re-swept immediately).
   for (const e of stale) {
-    upsertLocalEntry(e.mediaId, { status: "PAUSED", updatedAt: e.updatedAt });
+    upsertLocalEntry(e.mediaId, {
+      status: "PAUSED",
+      updatedAt: e.updatedAt,
+      activityAt: e.activityAt ?? e.updatedAt,
+    });
   }
 
   // Push upstream only if enabled + connected.

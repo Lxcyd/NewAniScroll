@@ -19,7 +19,7 @@ import {
   ImportResult,
 } from "@/lib/list/importExport";
 import { useLocalList } from "@/lib/list/localList";
-import { fullSyncFromAniList } from "@/lib/list/syncEngine";
+import { fullSyncFromAniList, runAutoPauseSweep } from "@/lib/list/syncEngine";
 import { useEffect, useRef, useState } from "react";
 import { useSession, signIn } from "next-auth/react";
 import { useTranslation } from "react-i18next";
@@ -174,8 +174,13 @@ export default function Settings() {
     setSyncing(true);
     try {
       const r = await fullSyncFromAniList();
-      if (r.ok) toast.success(t("settings.sync.synced", { count: r.count }));
-      else toast.error(t("settings.sync.syncFailed"));
+      if (r.ok) {
+        toast.success(t("settings.sync.synced", { count: r.count }));
+        // Run the auto-pause sweep immediately on the freshly-pulled list so the
+        // user sees stale CURRENT entries move to PAUSED right after syncing,
+        // not only on the next page load.
+        await runAutoPauseSweep().catch(() => {});
+      } else toast.error(t("settings.sync.syncFailed"));
     } finally {
       setSyncing(false);
     }
@@ -381,7 +386,11 @@ export default function Settings() {
                 label={t("settings.sync.autoPause")}
                 desc={t("settings.sync.autoPauseDesc")}
                 checked={syncPrefs.autoPause}
-                onChange={(v) => setSyncPrefs({ autoPause: v })}
+                onChange={(v) => {
+                  setSyncPrefs({ autoPause: v });
+                  // Apply right away when turning it on (don't wait for a reload).
+                  if (v) runAutoPauseSweep().catch(() => {});
+                }}
               />
               {/* Always shown so the delay is discoverable; disabled until the
                   auto-pause toggle is on (greyed, like the other gated rows). */}

@@ -37,8 +37,14 @@ export type LocalEntry = {
   startedAt: FuzzyDate | null;
   completedAt: FuzzyDate | null;
   notes: string | null;
-  /** epoch ms of the last touch — drives auto-pause + "recently" ordering. */
+  /** epoch ms of the last LOCAL write — drives "recently" ordering on My List. */
   updatedAt: number;
+  /** epoch ms of the last real WATCH activity (an episode finished, or AniList's
+   *  own MediaList.updatedAt at sync time). Drives auto-pause. Distinct from
+   *  `updatedAt`: importing/syncing rewrites `updatedAt` to "now", but must NOT
+   *  reset inactivity — otherwise nothing ever looks stale. Falls back to
+   *  `updatedAt` when missing (older entries written before this field). */
+  activityAt?: number;
 };
 
 export type LocalListMap = Record<number, LocalEntry>;
@@ -104,6 +110,8 @@ export function upsertLocalEntry(
       patch.completedAt !== undefined ? patch.completedAt : prev?.completedAt ?? null,
     notes: patch.notes !== undefined ? patch.notes : prev?.notes ?? null,
     updatedAt: patch.updatedAt !== undefined ? patch.updatedAt : Date.now(),
+    activityAt:
+      patch.activityAt !== undefined ? patch.activityAt : prev?.activityAt,
   };
   map[mediaId] = next;
   writeLocalList(map);
