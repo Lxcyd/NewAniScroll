@@ -966,6 +966,91 @@ function SettingsToggleRow({
   );
 }
 
+// Navigational row that opens a sub-panel inside the Settings menu (mirrors how
+// Speed / Quality drill into their own panel). Shows a trailing chevron and,
+// optionally, the current value as a hint — same chrome as the toggle rows.
+function SettingsSubmenuRow({
+  label,
+  hint,
+  onOpen,
+  iconPath,
+}: {
+  label: string;
+  hint?: string;
+  onOpen: () => void;
+  iconPath: string;
+}) {
+  return (
+    <div
+      role="menuitem"
+      tabIndex={0}
+      onClick={(e) => {
+        e.stopPropagation();
+        onOpen();
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onOpen();
+        }
+      }}
+      className="vds-menu-button"
+      style={{ display: "flex", alignItems: "center", cursor: "pointer", userSelect: "none" }}
+    >
+      <svg
+        viewBox="0 0 24 24"
+        fill="currentColor"
+        style={{ width: 22, height: 22, marginRight: 6, flexShrink: 0 }}
+      >
+        <path d={iconPath} />
+      </svg>
+      <span style={{ flex: 1 }}>{label}</span>
+      {hint && (
+        <span style={{ opacity: 0.6, marginRight: 4, fontSize: "0.92em" }}>{hint}</span>
+      )}
+      {/* chevron-right */}
+      <svg viewBox="0 0 24 24" fill="currentColor" style={{ width: 18, height: 18, flexShrink: 0 }}>
+        <path d="M8.59 16.59 13.17 12 8.59 7.41 10 6l6 6-6 6z" />
+      </svg>
+    </div>
+  );
+}
+
+// Header row of a sub-panel: a back arrow + title that returns to the main
+// Settings list. Matches Vidstack's own submenu back affordance.
+function SettingsSubmenuHeader({ label, onBack }: { label: string; onBack: () => void }) {
+  return (
+    <div
+      role="menuitem"
+      tabIndex={0}
+      onClick={(e) => {
+        e.stopPropagation();
+        onBack();
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onBack();
+        }
+      }}
+      className="vds-menu-button"
+      style={{
+        display: "flex",
+        alignItems: "center",
+        cursor: "pointer",
+        userSelect: "none",
+        fontWeight: 600,
+      }}
+    >
+      {/* chevron-left */}
+      <svg viewBox="0 0 24 24" fill="currentColor" style={{ width: 22, height: 22, marginRight: 6, flexShrink: 0 }}>
+        <path d="M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12z" />
+      </svg>
+      <span style={{ flex: 1 }}>{label}</span>
+    </div>
+  );
+}
+
 /**
  * Unified player:
  *  - Direct streams → Vidstack MediaPlayer with DefaultVideoLayout
@@ -1034,6 +1119,10 @@ export default function UniversalPlayer({
 
   const [subMenuOpen, setSubMenuOpen] = useState(false);
   const [subStyleOpen, setSubStyleOpen] = useState(false);
+  // Whether the "Automation" sub-panel (auto-skip intro/outro + auto next) is
+  // expanded inside the Settings menu. Lives at the player root so closing the
+  // whole settings menu (below) can collapse it back to the main list.
+  const [automationOpen, setAutomationOpen] = useState(false);
   // ── Mobile / iOS detection ─────────────────────────────────
   // Touch the platform exactly once so the player can:
   //  - Reroute custom buttons (Download / Subs / Cast) into the Settings
@@ -1262,6 +1351,12 @@ export default function UniversalPlayer({
   // <video>, only re-targets our injected chrome.
   const [controlsHostAttached, setControlsHostAttached] = useState(false);
   const [settingsHostAttached, setSettingsHostAttached] = useState(false);
+
+  // Collapse the Automation sub-panel back to the main list whenever the
+  // Settings menu closes, so reopening always lands on the top-level list.
+  useEffect(() => {
+    if (!settingsHostAttached) setAutomationOpen(false);
+  }, [settingsHostAttached]);
 
   // Locate (and re-locate) Vidstack's bottom controls group + Settings menu
   // anchor. Vidstack remounts its layout in several situations — viewport
@@ -2490,73 +2585,98 @@ export default function UniversalPlayer({
           STABLE settingsHostRef the observer parks at the top of the open menu
           list. Same rationale as above: stable container → no portal teardown. */}
       {settingsHostAttached && settingsHostRef.current && createPortal(
-        <>
-          {isSmallLayout && (
-            <>
-              <SettingsActionRow
-                label={
-                  ext === "m3u8"
-                    ? t("player.downloadM3u8")
-                    : `${t("player.download")} ${ext.toUpperCase()}`
-                }
-                href={downloadUrl}
-                downloadFilename={`${safeName}.${ext}`}
-                iconPath="M12 16l-5-5h3V4h4v7h3l-5 5zm-7 2h14v2H5v-2z"
-              />
-              {subtitleTracks.length > 0 && (
+        automationOpen ? (
+          /* ── Automation sub-panel ───────────────────────────────────
+             Drilled into from the "Automation" row below. SkipOverlay
+             reads playerPrefs and performs the actual skips / next-ep. */
+          <>
+            <SettingsSubmenuHeader
+              label={t("player.automation")}
+              onBack={() => setAutomationOpen(false)}
+            />
+            <SettingsToggleRow
+              label={t("player.autoSkipIntro")}
+              enabled={playerPrefs.autoSkipIntro}
+              onToggle={(v) => setPlayerPrefs({ autoSkipIntro: v })}
+              // Material "fast_forward" icon.
+              iconPath="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z"
+            />
+            <SettingsToggleRow
+              label={t("player.autoSkipOutro")}
+              enabled={playerPrefs.autoSkipOutro}
+              onToggle={(v) => setPlayerPrefs({ autoSkipOutro: v })}
+              // Material "fast_forward" icon (shared with intro — same action).
+              iconPath="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z"
+            />
+            <SettingsToggleRow
+              label={t("player.autoNextEpisode")}
+              enabled={playerPrefs.autoNextEpisode}
+              onToggle={(v) => setPlayerPrefs({ autoNextEpisode: v })}
+              // Material "skip_next" icon.
+              iconPath="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"
+            />
+            <SettingsToggleRow
+              label={t("player.rateOnComplete")}
+              enabled={playerPrefs.rateOnComplete}
+              onToggle={(v) => setPlayerPrefs({ rateOnComplete: v })}
+              // Material "star" icon.
+              iconPath="M12 17.27 18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"
+            />
+          </>
+        ) : (
+          <>
+            {isSmallLayout && (
+              <>
                 <SettingsActionRow
-                  label={t("player.subtitles")}
-                  onClick={() => setSubMenuOpen(true)}
-                  iconPath="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm-9 11H6v-2h5v2zm7 0h-5v-2h5v2zm0-4H6V9h12v2z"
+                  label={
+                    ext === "m3u8"
+                      ? t("player.downloadM3u8")
+                      : `${t("player.download")} ${ext.toUpperCase()}`
+                  }
+                  href={downloadUrl}
+                  downloadFilename={`${safeName}.${ext}`}
+                  iconPath="M12 16l-5-5h3V4h4v7h3l-5 5zm-7 2h14v2H5v-2z"
                 />
-              )}
-              {castAvailable && (
-                <SettingsActionRow
-                  label={castConnected ? t("player.casting") : t("player.cast")}
-                  onClick={requestCast}
-                  iconPath="M1 18v3h3c0-1.66-1.34-3-3-3zm0-4v2c2.76 0 5 2.24 5 5h2c0-3.87-3.13-7-7-7zm18-7H5v1.63c3.96 1.28 7.09 4.41 8.37 8.37H19V7zM1 10v2c4.97 0 9 4.03 9 9h2c0-6.08-4.93-11-11-11zm20-7H3c-1.1 0-2 .9-2 2v3h2V5h18v14h-7v2h7c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"
-                />
-              )}
-            </>
-          )}
-          <SettingsToggleRow
-            label={t("player.autoplay")}
-            enabled={ctxAutoplay}
-            onToggle={setAutoPlayCtx}
-            // Material "play_arrow" icon — same family as the rest of the menu.
-            iconPath="M8 5v14l11-7z"
-          />
-          <SettingsToggleRow
-            label={t("player.ambientLights")}
-            enabled={ctxAmbient}
-            onToggle={setAmbientCtx}
-            // Material "lightbulb_outline" icon.
-            iconPath="M9 21c0 .55.45 1 1 1h4c.55 0 1-.45 1-1v-1H9v1zm3-19C8.14 2 5 5.14 5 9c0 2.38 1.19 4.47 3 5.74V17c0 .55.45 1 1 1h6c.55 0 1-.45 1-1v-2.26c1.81-1.27 3-3.36 3-5.74 0-3.86-3.14-7-7-7zm2.85 11.1-.85.6V16h-4v-2.3l-.85-.6C7.8 12.16 7 10.63 7 9c0-2.76 2.24-5 5-5s5 2.24 5 5c0 1.63-.8 3.16-2.15 4.1z"
-          />
-          {/* Player automation — auto-skip intro/outro + auto next episode.
-              Persisted in localStorage (playerPrefs); SkipOverlay acts on them. */}
-          <SettingsToggleRow
-            label={t("player.autoSkipIntro")}
-            enabled={playerPrefs.autoSkipIntro}
-            onToggle={(v) => setPlayerPrefs({ autoSkipIntro: v })}
-            // Material "fast_forward" icon.
-            iconPath="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z"
-          />
-          <SettingsToggleRow
-            label={t("player.autoSkipOutro")}
-            enabled={playerPrefs.autoSkipOutro}
-            onToggle={(v) => setPlayerPrefs({ autoSkipOutro: v })}
-            // Material "fast_forward" icon (shared with intro — same action).
-            iconPath="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z"
-          />
-          <SettingsToggleRow
-            label={t("player.autoNextEpisode")}
-            enabled={playerPrefs.autoNextEpisode}
-            onToggle={(v) => setPlayerPrefs({ autoNextEpisode: v })}
-            // Material "skip_next" icon.
-            iconPath="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"
-          />
-        </>,
+                {subtitleTracks.length > 0 && (
+                  <SettingsActionRow
+                    label={t("player.subtitles")}
+                    onClick={() => setSubMenuOpen(true)}
+                    iconPath="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm-9 11H6v-2h5v2zm7 0h-5v-2h5v2zm0-4H6V9h12v2z"
+                  />
+                )}
+                {castAvailable && (
+                  <SettingsActionRow
+                    label={castConnected ? t("player.casting") : t("player.cast")}
+                    onClick={requestCast}
+                    iconPath="M1 18v3h3c0-1.66-1.34-3-3-3zm0-4v2c2.76 0 5 2.24 5 5h2c0-3.87-3.13-7-7-7zm18-7H5v1.63c3.96 1.28 7.09 4.41 8.37 8.37H19V7zM1 10v2c4.97 0 9 4.03 9 9h2c0-6.08-4.93-11-11-11zm20-7H3c-1.1 0-2 .9-2 2v3h2V5h18v14h-7v2h7c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"
+                  />
+                )}
+              </>
+            )}
+            <SettingsToggleRow
+              label={t("player.autoplay")}
+              enabled={ctxAutoplay}
+              onToggle={setAutoPlayCtx}
+              // Material "play_arrow" icon — same family as the rest of the menu.
+              iconPath="M8 5v14l11-7z"
+            />
+            <SettingsToggleRow
+              label={t("player.ambientLights")}
+              enabled={ctxAmbient}
+              onToggle={setAmbientCtx}
+              // Material "lightbulb_outline" icon.
+              iconPath="M9 21c0 .55.45 1 1 1h4c.55 0 1-.45 1-1v-1H9v1zm3-19C8.14 2 5 5.14 5 9c0 2.38 1.19 4.47 3 5.74V17c0 .55.45 1 1 1h6c.55 0 1-.45 1-1v-2.26c1.81-1.27 3-3.36 3-5.74 0-3.86-3.14-7-7-7zm2.85 11.1-.85.6V16h-4v-2.3l-.85-.6C7.8 12.16 7 10.63 7 9c0-2.76 2.24-5 5-5s5 2.24 5 5c0 1.63-.8 3.16-2.15 4.1z"
+            />
+            {/* Drill-in to the player automation toggles (auto-skip intro/outro,
+                auto next episode). Grouped so the main menu stays compact. */}
+            <SettingsSubmenuRow
+              label={t("player.automation")}
+              onOpen={() => setAutomationOpen(true)}
+              // Material "fast_forward" icon.
+              iconPath="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z"
+            />
+          </>
+        ),
         settingsHostRef.current,
       )}
 

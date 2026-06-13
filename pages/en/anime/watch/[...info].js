@@ -26,6 +26,7 @@ import { primeMediaCache, getCachedMediaMeta } from "@/lib/anilist/getMediaMeta"
 import { getCachedAnime } from "@/lib/db/anime";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { onEpisodeFinished } from "@/lib/list/syncEngine";
+import { getPlayerPrefs } from "@/lib/prefs/playerPrefs";
 import { useTranslation } from "react-i18next";
 import { FULL_MEDIA_FIELDS } from "@/lib/anilist/fullMediaQuery";
 import { getPrefetchedSource, sourceKey, setPrefetchedSource, clearPrefetchedSourcesFor } from "@/lib/watch/sourcePrefetch";
@@ -722,9 +723,18 @@ export default function Watch({
         total,
         title: info?.title,
         coverImage: info?.coverImage?.large || info?.coverImage?.extraLarge || null,
-      }).catch(() => {});
+      })
+        .then((res) => {
+          // Offer the rate popup once, the moment the anime tips into COMPLETED
+          // (last episode finished), unless the user disabled it. The modal
+          // itself pushes the score to AniList when connected.
+          if (res?.completed && getPlayerPrefs().rateOnComplete) {
+            setRatingModalState((prev) => ({ ...prev, isOpen: true }));
+          }
+        })
+        .catch(() => {});
     },
-    [info],
+    [info, setRatingModalState],
   );
 
   // ── Mark the previous episode complete when advancing ────────

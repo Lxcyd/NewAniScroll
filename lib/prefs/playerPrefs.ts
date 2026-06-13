@@ -18,12 +18,15 @@ export type PlayerPrefs = {
   autoSkipOutro: boolean;
   /** Navigate to the next episode automatically when the current one ends. */
   autoNextEpisode: boolean;
+  /** Show the rate popup when an anime becomes COMPLETED (last episode). */
+  rateOnComplete: boolean;
 };
 
 export const DEFAULT_PLAYER_PREFS: PlayerPrefs = {
   autoSkipIntro: false,
   autoSkipOutro: false,
   autoNextEpisode: false,
+  rateOnComplete: true,
 };
 
 const KEY = "aniscroll:playerPrefs";

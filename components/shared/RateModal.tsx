@@ -1,5 +1,7 @@
 import { useAniList } from "@/lib/anilist/useAnilist";
 import { useWatchProvider } from "@/lib/context/watchPageProvider";
+import { upsertLocalEntry } from "@/lib/list/localList";
+import { todayFuzzy } from "@/lib/list/types";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -26,8 +28,22 @@ export default function RateModal({
     const data = new FormData(event.target);
     const rating = data.get("rating");
     const notes = data.get("notes");
+    const mediaId = dataMedia?.id;
     try {
-      await markComplete(dataMedia?.id, { notes, scoreRaw: rating });
+      // Always persist to the local list (the resilient mirror) so the score
+      // sticks even for guests with no AniList session. rating is 1-100
+      // (scoreRaw); the local list stores POINT_10_DECIMAL → divide by 10.
+      if (mediaId != null) {
+        const scoreRaw = Number(rating);
+        upsertLocalEntry(Number(mediaId), {
+          status: "COMPLETED",
+          score: Number.isFinite(scoreRaw) && scoreRaw > 0 ? scoreRaw / 10 : null,
+          notes: typeof notes === "string" && notes ? notes : null,
+          completedAt: todayFuzzy(),
+        });
+      }
+      // Push to AniList too when connected (no-op for guests).
+      await markComplete(mediaId, { notes, scoreRaw: rating });
       toast.success("Successfully rated!");
       setToggle((prev: any) => {
         return {

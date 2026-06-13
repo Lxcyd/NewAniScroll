@@ -155,12 +155,15 @@ export type EpisodeFinishedArgs = {
  * AniList push (only when master enabled + session): mirror progress/status,
  * respecting the individual autoProgress / autoWatching toggles.
  */
-export async function onEpisodeFinished(args: EpisodeFinishedArgs): Promise<void> {
+export async function onEpisodeFinished(
+  args: EpisodeFinishedArgs,
+): Promise<{ completed: boolean }> {
   const { aniId, episode, total, title, coverImage } = args;
-  if (!Number.isFinite(aniId) || !Number.isFinite(episode) || episode <= 0) return;
+  if (!Number.isFinite(aniId) || !Number.isFinite(episode) || episode <= 0)
+    return { completed: false };
 
   const dedupeKey = `${aniId}:${episode}`;
-  if (recentlyFinished.has(dedupeKey)) return;
+  if (recentlyFinished.has(dedupeKey)) return { completed: false };
   recentlyFinished.add(dedupeKey);
   // Allow a re-fire after a while (e.g. a genuine rewatch later in the session).
   setTimeout(() => recentlyFinished.delete(dedupeKey), 60_000);
@@ -187,7 +190,12 @@ export async function onEpisodeFinished(args: EpisodeFinishedArgs): Promise<void
     if (!prev?.startedAt) patch.startedAt = todayFuzzy();
   }
   // Final episode → COMPLETED (never downgrades a REPEATING rewatch count here).
+  // `justCompleted` = this finish is what tips the entry into COMPLETED (it
+  // wasn't already), so the caller can offer the rate-on-complete popup exactly
+  // once — not every time the user re-finishes the last episode.
+  let justCompleted = false;
   if (totalEp != null && nextProgress >= totalEp) {
+    justCompleted = prev?.status !== "COMPLETED";
     nextStatus = "COMPLETED";
     patch.status = "COMPLETED";
     if (!prev?.completedAt) patch.completedAt = todayFuzzy();
@@ -196,7 +204,7 @@ export async function onEpisodeFinished(args: EpisodeFinishedArgs): Promise<void
 
   // ── AniList push (opt-in) ──────────────────────────────────────
   const session = await getAniListSession(prefs);
-  if (!session?.user?.token) return;
+  if (!session?.user?.token) return { completed: justCompleted };
   const token = session.user.token;
   const userName = session.user.name;
 
@@ -216,7 +224,8 @@ export async function onEpisodeFinished(args: EpisodeFinishedArgs): Promise<void
     }
   }
   // Nothing to push (both relevant toggles off).
-  if (payload.progress === undefined && payload.status === undefined) return;
+  if (payload.progress === undefined && payload.status === undefined)
+    return { completed: justCompleted };
 
   const saved = await saveMediaListEntry(token, payload);
   if (saved && userName) {
@@ -243,6 +252,7 @@ export async function onEpisodeFinished(args: EpisodeFinishedArgs): Promise<void
       progress: saved.progress,
     });
   }
+  return { completed: justCompleted };
 }
 
 /**

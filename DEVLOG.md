@@ -7,6 +7,29 @@ Ordre anti-chronologique (le plus récent en haut). Une entrée = une session/su
 
 ---
 
+## 2026-06-13 — Sous-menu Automatisation du lecteur + popup note à la complétion
+
+### Contexte
+Suite des toggles lecteur. Demandes : (1) regrouper les toggles d'automatisation du lecteur dans une **sous-section** du menu Vidstack ; (2) **popup de note** quand un anime devient « Terminé », **désactivable** ; (3) confirmer que l'incrément de progression, le passage Prévu→En cours et le marquage Terminé auto étaient déjà là. (Rewatch, public/privé profil, fusion conflit, notifications → sessions suivantes.)
+
+### Décisions prises
+1. **Déjà en place (confirmé, non retouché)** : l'incrément de progression au visionnage est porté par `autoProgress` (+ progress local toujours MAJ) ; « Retirer de Prévu au démarrage » = le toggle `autoWatching` existant (PLANNING→CURRENT, `syncEngine.ts:184`) ; le marquage **COMPLETED** à la fin est **inconditionnel** (`syncEngine.ts:190`) — on le garde tel quel (le gater réduirait la fonctionnalité demandée).
+2. **Sous-menu « Automatisation »** (`UniversalPlayer.tsx`) : nouveau pattern in-portal repliable. State `automationOpen` au root du player ; deux nouveaux composants `SettingsSubmenuRow` (ligne nav + chevron) et `SettingsSubmenuHeader` (retour). Quand ouvert, le host portalé (`settingsHostRef`) affiche header + les toggles ; sinon la ligne « Automatisation ». Reset de `automationOpen` quand le menu réglages se ferme (`useEffect([settingsHostAttached])`).
+3. **Popup note à la complétion** : `playerPrefs.rateOnComplete` (défaut **true**, désactivable via un toggle dans le sous-menu Automatisation). `onEpisodeFinished` retourne maintenant `{ completed }` où `justCompleted = prev?.status !== "COMPLETED"` (la finition fait basculer en COMPLETED → on n'ouvre la popup **qu'une fois**, pas à chaque re-finition du dernier ep). `handleEpisodeComplete` (`[...info].js`) ouvre `RateModal` (via `setRatingModalState`) si `completed` + pref ON.
+4. **RateModal rendu local-safe** : `markComplete` (`useAnilist`) est **AniList-only** (`if (!accessToken) return`) → pour les invités la note était perdue. Ajout d'un `upsertLocalEntry(mediaId, { status: COMPLETED, score: scoreRaw/10, notes, completedAt })` avant le push AniList. scoreRaw 1-100 → local POINT_10_DECIMAL (÷10).
+
+### Leçons / pièges
+- `RateModal` est branché sur `dataMedia` du watch context (déjà fourni) et était **dormant** (aucun `isOpen:true` ne le déclenchait) avant cette session.
+- Beaucoup des demandes utilisateur étaient **déjà implémentées** — vérifier le code AVANT de re-coder a évité du travail en double (et un toggle Terminé qui aurait *cassé* le comportement attendu).
+- Le sous-menu n'utilise PAS l'API `<Menu>` native de Vidstack : tout est portalé custom dans `settingsHostRef` (comme Autoplay/Ambient), donc un simple swap d'état suffit pour le drill-in.
+
+### État déployé / à faire
+- Branche `dev`. `tsc --noEmit` clean, JSON locales validés.
+- ⏳ **À tester** : ouvrir menu lecteur → « Automatisation » → 4 toggles + retour ; finir le dernier ep d'un anime → popup note ; désactiver « Noter à la fin » → plus de popup ; en invité, noter → score visible dans `/en/my-list`.
+- ⏭️ **Sessions suivantes** : rewatch/compteur, public/privé (profil entier), fusion conflit auto au resync, notifications (nouvel ep + rappel reprise).
+
+---
+
 ## 2026-06-13 — Verrou réglages AniList hors-ligne + auto-skip/auto-next lecteur
 
 ### Contexte
