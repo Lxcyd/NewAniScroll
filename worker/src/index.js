@@ -127,6 +127,14 @@ async function handle(request, env, ctx) {
   // intentionally don't concat server-side here.
   const isDownload = reqUrl.searchParams.get("dl") === "1";
   const downloadFilename = reqUrl.searchParams.get("filename") || null;
+  // Pre-warm depth budget (see the m3u8 warm-up below). A normal player request
+  // arrives with no `warm` param (depth 0). It warms its children at depth 1,
+  // which warm THEIRS at depth 2, then it stops. Two levels is exactly what an
+  // HLS tree needs — master(0) → variant playlist(1) → opening segments(2) — so
+  // the very first segment the player plays is already cached, without letting a
+  // manifest fan out into an unbounded subrequest tree (CF caps at 50/req).
+  const warmDepth = Math.max(0, parseInt(reqUrl.searchParams.get("warm") || "0", 10) || 0);
+  const WARM_MAX_DEPTH = 2;
 
   if (!url) {
     return new Response(JSON.stringify({ error: "Missing url parameter" }), {
@@ -195,10 +203,14 @@ async function handle(request, env, ctx) {
   const cache = caches.default;
   // Normalise the cache key by stripping vcookie (per-user) and download
   // params — the upstream bytes are identical, only the wrapper differs.
+  // `warm` is stripped too so a pre-warm subrequest stores under the SAME key
+  // the player's plain request later looks up (otherwise the warm would be a
+  // wasted miss).
   const cacheKeyUrl = new URL(reqUrl);
   cacheKeyUrl.searchParams.delete("vcookie");
   cacheKeyUrl.searchParams.delete("dl");
   cacheKeyUrl.searchParams.delete("filename");
+  cacheKeyUrl.searchParams.delete("warm");
   const cacheKey = new Request(cacheKeyUrl.toString(), { method: "GET" });
   // Only use cache for GET. (HEAD doesn't have a body to cache.)
   if (request.method === "GET" && !isDownload) {
@@ -338,12 +350,48 @@ async function handle(request, env, ctx) {
     const rewrite = (abs) =>
       `${proxyBase}?url=${encodeURIComponent(abs)}${refParam}${cookieParam}`;
 
+    // Collect the first few resource URLs (in playlist order) as we rewrite, so
+    // we can pre-warm them into the edge cache below. For a MASTER playlist these
+    // are the variant sub-playlists; for a MEDIA playlist they're the opening
+    // .ts/.m4s segments — both are exactly what the player fetches next, and both
+    // are where the mewstream/lumiflow CDN's cold-hit latency spikes (measured up
+    // to ~5 s on a cache miss). Warming them now, while the manifest is still in
+    // flight to the player, means the player's request lands on a HIT instead of
+    // paying that spike on the user's first Play / seek.
+    const resourceUrls = [];
     body = body.replace(/URI="([^"]+)"/g, (_m, uri) => `URI="${rewrite(toAbsolute(uri))}"`);
     body = body.replace(/^(?!#)(.+)$/gm, (line) => {
       const t = line.trim();
       if (!t || t.startsWith("#")) return line;
-      return rewrite(toAbsolute(t));
+      const abs = toAbsolute(t);
+      resourceUrls.push(abs);
+      return rewrite(abs);
     });
+
+    // Pre-warm the first N resources through this same Worker URL so they get
+    // stored under the normal cache key (respondAndCache path) — the player's
+    // subsequent request then matches the edge cache. Fire-and-forget via
+    // waitUntil so it never delays the manifest response. Cap at 3 to keep the
+    // warm-up cheap (one extra subrequest budget item each) and avoid hammering
+    // the CDN; the deep hls.js buffer covers everything past the opening few.
+    if (ctx && warmDepth < WARM_MAX_DEPTH && resourceUrls.length > 0) {
+      const WARM_COUNT = 3;
+      const childDepth = warmDepth + 1;
+      const warm = async () => {
+        await Promise.all(
+          resourceUrls.slice(0, WARM_COUNT).map((abs) =>
+            // Hit our own proxy URL (not the CDN directly) so the response lands
+            // in caches.default under the exact key the player will look up.
+            // Carry warm=<childDepth> so a warmed master playlist warms its
+            // variant (depth 1), which warms its opening segments (depth 2),
+            // then stops. The cache key normalises `warm` out (strip list) so
+            // the player's plain request still matches what we stored here.
+            fetch(`${rewrite(abs)}&warm=${childDepth}`).catch(() => {}),
+          ),
+        );
+      };
+      ctx.waitUntil(warm());
+    }
 
     // Download mode → emit as attachment so the browser saves the .m3u8
     // playlist. VLC / mpv / yt-dlp / ffmpeg can open it directly and fetch
