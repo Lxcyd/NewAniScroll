@@ -69,17 +69,6 @@
     "interfaceLanguage": "Interface language",
     "interfaceLanguageDesc": "Language used for buttons, menus and labels across the site.",
     "interfaceLangNote": "We auto-detect your browser language on first visit; your choice here always takes priority and is saved on this device.",
-    "player": {
-      "title": "Video player",
-      "desc": "Automate playback: skip the intro, outro and advance to the next episode hands-free.",
-      "autoSkipIntro": "Auto-skip intro",
-      "autoSkipIntroDesc": "Jumps past the opening as soon as it starts. If you seek back into the intro it won't be skipped again.",
-      "autoSkipOutro": "Auto-skip outro",
-      "autoSkipOutroDesc": "Jumps past the ending as soon as it starts. If you seek back into the outro it won't be skipped again.",
-      "autoNextEpisode": "Auto next episode",
-      "autoNextEpisodeDesc": "Advances to the next episode as soon as the current one ends.",
-      "note": "These settings are saved on this device. Skips rely on AniSkip data, which is unavailable for some episodes."
-    },
     "sync": {
       "title": "List & AniList Sync",
       "desc": "Automate your list as you watch. Rules always update your local list; when the master switch is on and you're connected, they also push to AniList.",
@@ -267,6 +256,9 @@
     "customizeSubtitles": "Customize subtitles…",
     "track": "Track {{n}}",
     "ambientLights": "Ambient lights",
+    "autoSkipIntro": "Auto-skip intro",
+    "autoSkipOutro": "Auto-skip outro",
+    "autoNextEpisode": "Auto next episode",
     "subtitleTrackSelection": "Subtitle track selection",
     "close": "Close",
     "textColor": "Text color",

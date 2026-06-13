@@ -26,6 +26,7 @@ import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { VIDSTACK_FR } from "@/lib/i18n/vidstackFr";
 import { getResumeTime, saveProgress, markComplete } from "@/lib/watch/progress";
+import { usePlayerPrefs, setPlayerPrefs } from "@/lib/prefs/playerPrefs";
 
 // Trace logger — off by default. Set NEXT_PUBLIC_DEBUG_SOURCE=1 to surface the
 // vidmoly-fallback diagnostics. These are EXPECTED control-flow branches
@@ -1080,6 +1081,10 @@ export default function UniversalPlayer({
   const watchCtx = useWatchProvider() || {};
   const ctxAutoplay: boolean = !!watchCtx.autoplay;
   const setAutoPlayCtx: (v: boolean) => void = watchCtx.setAutoPlay || (() => {});
+  // Persistent (localStorage) player automation prefs — auto-skip intro/outro
+  // and auto next episode. SkipOverlay reads the same module and performs the
+  // actual skips/navigation; here we only render the toggle rows in the menu.
+  const playerPrefs = usePlayerPrefs();
 
   // ── Live playback-speed measurement ──────────────────────────────────
   // Report the ACTIVE server's real speed (hls.js download throughput vs the
@@ -2527,6 +2532,29 @@ export default function UniversalPlayer({
             onToggle={setAmbientCtx}
             // Material "lightbulb_outline" icon.
             iconPath="M9 21c0 .55.45 1 1 1h4c.55 0 1-.45 1-1v-1H9v1zm3-19C8.14 2 5 5.14 5 9c0 2.38 1.19 4.47 3 5.74V17c0 .55.45 1 1 1h6c.55 0 1-.45 1-1v-2.26c1.81-1.27 3-3.36 3-5.74 0-3.86-3.14-7-7-7zm2.85 11.1-.85.6V16h-4v-2.3l-.85-.6C7.8 12.16 7 10.63 7 9c0-2.76 2.24-5 5-5s5 2.24 5 5c0 1.63-.8 3.16-2.15 4.1z"
+          />
+          {/* Player automation — auto-skip intro/outro + auto next episode.
+              Persisted in localStorage (playerPrefs); SkipOverlay acts on them. */}
+          <SettingsToggleRow
+            label={t("player.autoSkipIntro")}
+            enabled={playerPrefs.autoSkipIntro}
+            onToggle={(v) => setPlayerPrefs({ autoSkipIntro: v })}
+            // Material "fast_forward" icon.
+            iconPath="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z"
+          />
+          <SettingsToggleRow
+            label={t("player.autoSkipOutro")}
+            enabled={playerPrefs.autoSkipOutro}
+            onToggle={(v) => setPlayerPrefs({ autoSkipOutro: v })}
+            // Material "fast_forward" icon (shared with intro — same action).
+            iconPath="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z"
+          />
+          <SettingsToggleRow
+            label={t("player.autoNextEpisode")}
+            enabled={playerPrefs.autoNextEpisode}
+            onToggle={(v) => setPlayerPrefs({ autoNextEpisode: v })}
+            // Material "skip_next" icon.
+            iconPath="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"
           />
         </>,
         settingsHostRef.current,
