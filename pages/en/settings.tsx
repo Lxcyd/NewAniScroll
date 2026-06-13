@@ -1,7 +1,9 @@
 import Head from "next/head";
+import Image from "next/image";
 import { motion } from "framer-motion";
 import { Navbar } from "@/components/shared/NavBar";
 import Footer from "@/components/shared/footer";
+import AniListLogo from "@/components/media/aniList";
 import {
   getTitlePref,
   setTitlePref,
@@ -11,7 +13,7 @@ import {
 import { getLang, setLang, Lang, LANG_EVENT } from "@/lib/i18n/languagePref";
 import { useSyncPrefs, setSyncPrefs } from "@/lib/prefs/syncPrefs";
 import {
-  downloadExport,
+  downloadExportXml,
   importFromJson,
   importFromAniListUsername,
   importFromMalXml,
@@ -21,7 +23,7 @@ import {
 import { useLocalList } from "@/lib/list/localList";
 import { fullSyncFromAniList, runAutoPauseSweep } from "@/lib/list/syncEngine";
 import { useEffect, useRef, useState } from "react";
-import { useSession, signIn } from "next-auth/react";
+import { useSession, signIn, signOut } from "next-auth/react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
@@ -205,6 +207,34 @@ export default function Settings() {
 
   const handleResyncNow = () => runPull();
 
+  // Export as MyAnimeList XML (importable by AniList). Maps AniList ids -> MAL
+  // ids first; entries without a MAL mapping can't be represented and are
+  // skipped (reported in the toast).
+  const handleExport = async () => {
+    setBusy(true);
+    setMalProgress(null);
+    try {
+      const r = await downloadExportXml((done, total) =>
+        setMalProgress({ done, total }),
+      );
+      if (r.skipped > 0) {
+        toast.success(
+          t("settings.list.exportDoneSkipped", {
+            exported: r.exported,
+            skipped: r.skipped,
+          }),
+        );
+      } else {
+        toast.success(t("settings.list.exportDone", { exported: r.exported }));
+      }
+    } catch {
+      toast.error(t("settings.list.exportError"));
+    } finally {
+      setBusy(false);
+      setMalProgress(null);
+    }
+  };
+
   const reportResult = (r: ImportResult) => {
     toast.success(
       t("settings.list.importDone", { imported: r.imported, total: r.total }),
@@ -359,6 +389,66 @@ export default function Settings() {
             <h2 className="text-xl font-semibold mb-1">{t("settings.sync.title")}</h2>
             <p className="text-white/60 text-sm mb-4">{t("settings.sync.desc")}</p>
 
+            {/* Connected AniList account card */}
+            <div className="mb-4 rounded-xl bg-white/5 ring-1 ring-white/10 p-4 flex items-center gap-4">
+              {isLoggedIn ? (
+                <>
+                  {session?.user?.image?.large ? (
+                    <Image
+                      src={session.user.image.large}
+                      alt={session?.user?.name || "avatar"}
+                      width={48}
+                      height={48}
+                      className="w-12 h-12 rounded-full object-cover ring-2 ring-white/10 shrink-0"
+                    />
+                  ) : (
+                    <div className="w-12 h-12 rounded-full bg-white/10 shrink-0" />
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold truncate">
+                        {session?.user?.name}
+                      </span>
+                      <span className="scale-[55%] origin-left -ml-1">
+                        <AniListLogo />
+                      </span>
+                    </div>
+                    <div className="text-white/50 text-xs">
+                      {t("settings.sync.connected")}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => signOut({ redirect: false })}
+                    className="shrink-0 px-3 py-1.5 rounded-lg bg-white/10 ring-1 ring-white/10 text-sm hover:bg-white/15"
+                  >
+                    {t("nav.signOut")}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <span className="scale-[70%] origin-left shrink-0">
+                    <AniListLogo />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="font-semibold">
+                      {t("settings.sync.notConnected")}
+                    </div>
+                    <div className="text-white/50 text-xs">
+                      {t("settings.sync.connectPrompt")}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => signIn("AniListProvider")}
+                    className="shrink-0 px-4 py-2 rounded-lg bg-action text-white text-sm font-medium hover:opacity-90"
+                  >
+                    {t("nav.signInWithAniList")}
+                  </button>
+                </>
+              )}
+            </div>
+
             <div className="rounded-xl bg-white/5 ring-1 ring-white/10 px-4 divide-y divide-white/5">
               <Toggle
                 label={t("settings.sync.master")}
@@ -421,16 +511,6 @@ export default function Settings() {
               </div>
             </div>
 
-            {!isLoggedIn && (
-              <button
-                type="button"
-                onClick={() => signIn("AniListProvider")}
-                className="mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-action text-white text-sm font-medium hover:opacity-90"
-              >
-                {t("nav.signInWithAniList")}
-              </button>
-            )}
-
             {/* Resync now — pull AniList → local on demand (only useful when
                 sync is on and connected). */}
             {isLoggedIn && syncPrefs.enabled && (
@@ -468,8 +548,8 @@ export default function Settings() {
             <div className="flex flex-wrap gap-3 mb-4">
               <button
                 type="button"
-                onClick={downloadExport}
-                disabled={localList.length === 0}
+                onClick={handleExport}
+                disabled={localList.length === 0 || busy}
                 className="px-4 py-2 rounded-lg bg-white/10 ring-1 ring-white/10 text-sm font-medium hover:bg-white/15 disabled:opacity-40"
               >
                 {t("settings.list.export")}

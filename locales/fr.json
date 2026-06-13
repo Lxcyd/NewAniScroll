@@ -91,6 +91,9 @@
       "confirmBody": "Activer la synchronisation télécharge votre liste AniList et écrase la liste locale de cet appareil. Les entrées présentes uniquement en local (absentes d'AniList) seront perdues (exportez d'abord si vous voulez une sauvegarde).",
       "cancel": "Annuler",
       "confirmEnable": "Activer et remplacer",
+      "connected": "Connecté à AniList",
+      "notConnected": "Non connecté",
+      "connectPrompt": "Connectez-vous pour synchroniser votre liste avec AniList.",
       "note": "Ces réglages sont enregistrés sur cet appareil. Votre liste locale est toujours conservée comme copie résiliente : elle fonctionne même si AniList est indisponible."
     },
     "list": {
@@ -98,15 +101,18 @@
       "desc": "Votre liste locale est sur cet appareil ({{count}} entrées). Exportez-la pour la sauvegarder ou la transférer entre appareils.",
       "merge": "Fusionner",
       "replace": "Remplacer",
-      "export": "Exporter (JSON)",
-      "importFile": "Importer un fichier (JSON / XML MAL)",
+      "export": "Exporter (XML)",
+      "exportDone": "{{exported}} entrées exportées (XML compatible AniList)",
+      "exportDoneSkipped": "{{exported}} entrées exportées — {{skipped}} ignorées (pas d'id MAL)",
+      "exportError": "Échec de l'export — impossible de joindre AniList pour mapper les ids.",
+      "importFile": "Importer un fichier (XML / JSON)",
       "importUser": "Importer",
       "anilistUserPlaceholder": "Pseudo AniList (liste publique)",
       "importDone": "{{imported}} entrées importées sur {{total}}",
       "importError": "Échec de l'import — vérifiez le fichier ou le pseudo.",
       "userNotFound": "Utilisateur AniList introuvable ou liste privée.",
-      "mapping": "Correspondance des entrées MyAnimeList… {{done}}/{{total}}",
-      "note": "Le XML MAL est mappé automatiquement vers les ids AniList (les entrées sans correspondance sont ignorées). Le pseudo AniList importe une liste publique sans connexion."
+      "mapping": "Correspondance avec AniList… {{done}}/{{total}}",
+      "note": "L'export utilise le format XML MyAnimeList, qu'AniList peut importer. L'import XML MAL est mappé automatiquement vers les ids AniList (les entrées sans correspondance sont ignorées) ; le pseudo AniList importe une liste publique sans connexion."
     }
   },
   "home": {

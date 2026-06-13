@@ -91,6 +91,9 @@
       "confirmBody": "Enabling sync downloads your AniList list and overwrites the local list on this device. Any local-only entries not on AniList will be lost (export first if you want a backup).",
       "cancel": "Cancel",
       "confirmEnable": "Enable & replace",
+      "connected": "Connected to AniList",
+      "notConnected": "Not connected",
+      "connectPrompt": "Sign in to sync your list with AniList.",
       "note": "These settings are saved on this device. Your local list is always kept as a resilient copy, so it still works if AniList is down."
     },
     "list": {
@@ -98,15 +101,18 @@
       "desc": "Your local list lives on this device ({{count}} entries). Export it to back it up or move it between devices.",
       "merge": "Merge",
       "replace": "Replace",
-      "export": "Export (JSON)",
-      "importFile": "Import file (JSON / MAL XML)",
+      "export": "Export (XML)",
+      "exportDone": "Exported {{exported}} entries (AniList-compatible XML)",
+      "exportDoneSkipped": "Exported {{exported}} entries — {{skipped}} skipped (no MAL id)",
+      "exportError": "Export failed — couldn't reach AniList to map ids.",
+      "importFile": "Import file (XML / JSON)",
       "importUser": "Import",
       "anilistUserPlaceholder": "AniList username (public list)",
       "importDone": "Imported {{imported}} of {{total}} entries",
       "importError": "Import failed — check the file or username.",
       "userNotFound": "AniList user not found or list is private.",
-      "mapping": "Mapping MyAnimeList entries… {{done}}/{{total}}",
-      "note": "MAL XML is mapped to AniList ids automatically (unmatched entries are skipped). AniList username imports a public list without signing in."
+      "mapping": "Mapping with AniList… {{done}}/{{total}}",
+      "note": "Export uses the MyAnimeList XML format, which AniList can import. MAL XML import is mapped to AniList ids automatically (unmatched entries are skipped); AniList username imports a public list without signing in."
     }
   },
   "home": {

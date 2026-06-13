@@ -19,7 +19,7 @@ import {
   LocalEntry,
   LocalListExport,
   importEntries,
-  buildExport,
+  getLocalList,
   ImportMode,
 } from "./localList";
 import type { Status, FuzzyDate } from "./types";
@@ -28,17 +28,155 @@ const ENDPOINT = "https://graphql.anilist.co/";
 
 export type ImportResult = { imported: number; skipped: number; total: number };
 
-// ── Export ────────────────────────────────────────────────────────
+// ── Export (MyAnimeList XML — importable by AniList & MAL) ──────────
 
-/** Trigger a browser download of the current local list as JSON. */
-export function downloadExport(): void {
-  if (typeof window === "undefined") return;
-  const data = buildExport();
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+/** AniList status → MAL <my_status> label (reverse of MAL_STATUS_MAP). */
+const STATUS_TO_MAL: Record<Status, string> = {
+  CURRENT: "Watching",
+  REPEATING: "Watching",
+  COMPLETED: "Completed",
+  PAUSED: "On-Hold",
+  DROPPED: "Dropped",
+  PLANNING: "Plan to Watch",
+};
+
+/** FuzzyDate → "YYYY-MM-DD" (MAL uses this; "0000-00-00" means unset). */
+function fuzzyToMalDate(d?: FuzzyDate | null): string {
+  if (!d?.year) return "0000-00-00";
+  const mm = String(d.month ?? 0).padStart(2, "0");
+  const dd = String(d.day ?? 0).padStart(2, "0");
+  return `${d.year}-${mm}-${dd}`;
+}
+
+function xmlEscape(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+/** Map AniList ids → MAL ids in batches (aliased `Media(id:) { idMal }`). The
+ *  XML format is keyed by MAL id, so AniList entries without a MAL mapping
+ *  can't be represented and are skipped. */
+async function mapAniToMal(aniIds: number[]): Promise<Map<number, number>> {
+  const out = new Map<number, number>();
+  for (let i = 0; i < aniIds.length; i += MAL_BATCH) {
+    const chunk = aniIds.slice(i, i + MAL_BATCH);
+    const fields = chunk
+      .map((id, j) => `m${j}: Media(id: ${id}, type: ANIME) { id idMal }`)
+      .join("\n");
+    try {
+      const res = await fetch(ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: `query { ${fields} }` }),
+      });
+      const json = await res.json();
+      const data = json?.data || {};
+      for (const key of Object.keys(data)) {
+        const m = data[key];
+        if (m?.id && m?.idMal) out.set(Number(m.id), Number(m.idMal));
+      }
+    } catch {
+      /* skip this batch on failure */
+    }
+    if (i + MAL_BATCH < aniIds.length) await sleep(MAL_BATCH_DELAY_MS);
+  }
+  return out;
+}
+
+export type ExportResult = { exported: number; skipped: number; total: number };
+
+/**
+ * Build + download the local list as a MyAnimeList-format XML file. This is the
+ * format both MAL and AniList accept on import. Returns a summary (entries with
+ * no MAL mapping are skipped). `onProgress` reports id-mapping progress.
+ */
+export async function downloadExportXml(
+  onProgress?: (done: number, total: number) => void,
+): Promise<ExportResult> {
+  if (typeof window === "undefined") return { exported: 0, skipped: 0, total: 0 };
+  const entries = Object.values(getLocalList());
+  if (entries.length === 0) {
+    // Still emit a valid (empty) file so the action does something predictable.
+    triggerDownload(buildMalXml([]), "xml");
+    return { exported: 0, skipped: 0, total: 0 };
+  }
+
+  const aniIds = entries.map((e) => e.mediaId);
+  let mapped = 0;
+  const malMap = await mapAniToMal(aniIds);
+  onProgress?.(aniIds.length, aniIds.length);
+
+  const rows: MalExportRow[] = [];
+  for (const e of entries) {
+    const malId = malMap.get(e.mediaId);
+    if (!malId) continue; // no MAL id → can't be in a MAL/AniList XML
+    mapped++;
+    rows.push({
+      malId,
+      title: e.title?.romaji || e.title?.english || e.title?.userPreferred || "",
+      episodes: e.total ?? 0,
+      watched: e.progress ?? 0,
+      status: e.status ? STATUS_TO_MAL[e.status] : "Plan to Watch",
+      score: e.score ? Math.round(e.score) : 0,
+      start: fuzzyToMalDate(e.startedAt),
+      finish: fuzzyToMalDate(e.completedAt),
+    });
+  }
+  triggerDownload(buildMalXml(rows), "xml");
+  return { exported: mapped, skipped: entries.length - mapped, total: entries.length };
+}
+
+type MalExportRow = {
+  malId: number;
+  title: string;
+  episodes: number;
+  watched: number;
+  status: string;
+  score: number;
+  start: string;
+  finish: string;
+};
+
+/** Assemble the MAL export XML document from mapped rows. */
+function buildMalXml(rows: MalExportRow[]): string {
+  const items = rows
+    .map(
+      (r) => `  <anime>
+    <series_animedb_id>${r.malId}</series_animedb_id>
+    <series_title><![CDATA[${r.title}]]></series_title>
+    <series_episodes>${r.episodes}</series_episodes>
+    <my_watched_episodes>${r.watched}</my_watched_episodes>
+    <my_start_date>${r.start}</my_start_date>
+    <my_finish_date>${r.finish}</my_finish_date>
+    <my_score>${r.score}</my_score>
+    <my_status>${xmlEscape(r.status)}</my_status>
+    <my_times_watched>0</my_times_watched>
+    <update_on_import>1</update_on_import>
+  </anime>`,
+    )
+    .join("\n");
+  return `<?xml version="1.0" encoding="UTF-8" ?>
+<myanimelist>
+  <myinfo>
+    <user_export_type>1</user_export_type>
+    <user_total_anime>${rows.length}</user_total_anime>
+  </myinfo>
+${items}
+</myanimelist>
+`;
+}
+
+/** Download a string as a file (xml/json) named with today's date. */
+function triggerDownload(content: string, ext: "xml" | "json"): void {
+  const type = ext === "xml" ? "application/xml" : "application/json";
+  const blob = new Blob([content], { type });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `aniscroll-list-${new Date().toISOString().slice(0, 10)}.json`;
+  a.download = `aniscroll-list-${new Date().toISOString().slice(0, 10)}.${ext}`;
   document.body.appendChild(a);
   a.click();
   a.remove();
