@@ -450,6 +450,9 @@ export default function Settings() {
             </div>
 
             <div className="rounded-xl bg-white/5 ring-1 ring-white/10 px-4 divide-y divide-white/5">
+              {/* All AniList sync settings are gated behind a connected
+                  account — when not signed in they're shown but locked
+                  (greyed/disabled) since they only push to AniList. */}
               <Toggle
                 label={t("settings.sync.master")}
                 desc={
@@ -459,18 +462,21 @@ export default function Settings() {
                 }
                 checked={syncPrefs.enabled}
                 onChange={handleMasterToggle}
+                disabled={!isLoggedIn}
               />
               <Toggle
                 label={t("settings.sync.autoProgress")}
                 desc={t("settings.sync.autoProgressDesc")}
                 checked={syncPrefs.autoProgress}
                 onChange={(v) => setSyncPrefs({ autoProgress: v })}
+                disabled={!isLoggedIn}
               />
               <Toggle
                 label={t("settings.sync.autoWatching")}
                 desc={t("settings.sync.autoWatchingDesc")}
                 checked={syncPrefs.autoWatching}
                 onChange={(v) => setSyncPrefs({ autoWatching: v })}
+                disabled={!isLoggedIn}
               />
               <Toggle
                 label={t("settings.sync.autoPause")}
@@ -481,12 +487,14 @@ export default function Settings() {
                   // Apply right away when turning it on (don't wait for a reload).
                   if (v) runAutoPauseSweep().catch(() => {});
                 }}
+                disabled={!isLoggedIn}
               />
               {/* Always shown so the delay is discoverable; disabled until the
-                  auto-pause toggle is on (greyed, like the other gated rows). */}
+                  auto-pause toggle is on (greyed, like the other gated rows) —
+                  also locked entirely when not connected. */}
               <div
                 className={`flex items-center justify-between gap-4 py-3 ${
-                  syncPrefs.autoPause ? "" : "opacity-40"
+                  isLoggedIn && syncPrefs.autoPause ? "" : "opacity-40"
                 }`}
               >
                 <div className="text-sm">{t("settings.sync.autoPauseDays")}</div>
@@ -495,7 +503,7 @@ export default function Settings() {
                     type="number"
                     min={1}
                     max={3650}
-                    disabled={!syncPrefs.autoPause}
+                    disabled={!isLoggedIn || !syncPrefs.autoPause}
                     value={syncPrefs.autoPauseDays}
                     onChange={(e) => {
                       const v = parseInt(e.target.value, 10);

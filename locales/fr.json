@@ -70,7 +70,7 @@
     "interfaceLanguageDesc": "Langue utilisée pour les boutons, menus et libellés du site.",
     "interfaceLangNote": "Nous détectons automatiquement la langue de votre navigateur à la première visite ; votre choix ici reste prioritaire et est enregistré sur cet appareil.",
     "sync": {
-      "title": "Synchronisation AniList",
+      "title": "Liste et Synchronisation AniList",
       "desc": "Automatisez votre liste pendant que vous regardez. Les règles mettent toujours à jour votre liste locale ; quand l'interrupteur principal est activé et que vous êtes connecté, elles poussent aussi vers AniList.",
       "master": "Activer la synchronisation AniList",
       "masterDesc": "Pousser les changements automatiques vers votre compte AniList connecté.",

@@ -70,7 +70,7 @@
     "interfaceLanguageDesc": "Language used for buttons, menus and labels across the site.",
     "interfaceLangNote": "We auto-detect your browser language on first visit; your choice here always takes priority and is saved on this device.",
     "sync": {
-      "title": "AniList synchronisation",
+      "title": "List & AniList Sync",
       "desc": "Automate your list as you watch. Rules always update your local list; when the master switch is on and you're connected, they also push to AniList.",
       "master": "Enable AniList sync",
       "masterDesc": "Push automated changes to your connected AniList account.",
