@@ -128,13 +128,17 @@ async function handle(request, env, ctx) {
   const isDownload = reqUrl.searchParams.get("dl") === "1";
   const downloadFilename = reqUrl.searchParams.get("filename") || null;
   // Pre-warm depth budget (see the m3u8 warm-up below). A normal player request
-  // arrives with no `warm` param (depth 0). It warms its children at depth 1,
-  // which warm THEIRS at depth 2, then it stops. Two levels is exactly what an
-  // HLS tree needs — master(0) → variant playlist(1) → opening segments(2) — so
-  // the very first segment the player plays is already cached, without letting a
-  // manifest fan out into an unbounded subrequest tree (CF caps at 50/req).
+  // arrives with no `warm` param (depth 0); it warms its child PLAYLISTS at
+  // depth 1, then stops. We deliberately warm ONLY the manifest tree (master →
+  // variant playlists — small text files, a few KB each) and NOT the segments:
+  // a segment is a multi-MB binary, and an earlier 2-level version that warmed
+  // the opening segments re-downloaded ~12 × multi-MB in parallel, starving the
+  // Worker's I/O budget and turning a 0.5 s cold segment into a 25-78 s stall on
+  // less-popular titles. Warming just the playlists kills the manifest-resolution
+  // spike (the part that visibly delayed Play/seek) at near-zero cost; the deep
+  // hls.js buffer covers the segments themselves.
   const warmDepth = Math.max(0, parseInt(reqUrl.searchParams.get("warm") || "0", 10) || 0);
-  const WARM_MAX_DEPTH = 2;
+  const WARM_MAX_DEPTH = 1;
 
   if (!url) {
     return new Response(JSON.stringify({ error: "Missing url parameter" }), {
@@ -375,22 +379,25 @@ async function handle(request, env, ctx) {
     // warm-up cheap (one extra subrequest budget item each) and avoid hammering
     // the CDN; the deep hls.js buffer covers everything past the opening few.
     if (ctx && warmDepth < WARM_MAX_DEPTH && resourceUrls.length > 0) {
-      const WARM_COUNT = 3;
       const childDepth = warmDepth + 1;
-      const warm = async () => {
-        await Promise.all(
-          resourceUrls.slice(0, WARM_COUNT).map((abs) =>
-            // Hit our own proxy URL (not the CDN directly) so the response lands
-            // in caches.default under the exact key the player will look up.
-            // Carry warm=<childDepth> so a warmed master playlist warms its
-            // variant (depth 1), which warms its opening segments (depth 2),
-            // then stops. The cache key normalises `warm` out (strip list) so
-            // the player's plain request still matches what we stored here.
-            fetch(`${rewrite(abs)}&warm=${childDepth}`).catch(() => {}),
-          ),
-        );
-      };
-      ctx.waitUntil(warm());
+      // Only warm child PLAYLISTS, never segments — keep the warm to small text
+      // fetches so it can't compete for I/O with the player's real segment
+      // requests. A master playlist's children are variant .m3u8s; a media
+      // playlist's children are .ts/.m4s segments (skipped). Cap at 4 variants.
+      const playlists = resourceUrls
+        .filter((u) => /\.m3u8(\?|$)/i.test(u))
+        .slice(0, 4);
+      if (playlists.length > 0) {
+        const warm = async () => {
+          // Sequential, not parallel: a warm fetch must never burst alongside
+          // the player's foreground requests. Carry warm=<childDepth> so the
+          // cache key (which strips `warm`) matches the player's plain lookup.
+          for (const abs of playlists) {
+            await fetch(`${rewrite(abs)}&warm=${childDepth}`).catch(() => {});
+          }
+        };
+        ctx.waitUntil(warm());
+      }
     }
 
     // Download mode → emit as attachment so the browser saves the .m3u8
