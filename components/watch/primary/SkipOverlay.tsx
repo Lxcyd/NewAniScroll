@@ -3,7 +3,8 @@ import {
   useMediaState,
 } from "@vidstack/react";
 import { useWatchProvider } from "@/lib/context/watchPageProvider";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { usePlayerPrefs } from "@/lib/prefs/playerPrefs";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/router";
 // Skip prefetch + shared cache live in a Vidstack-free module so the watch
@@ -99,6 +100,7 @@ export default function SkipOverlay({
   const currentTime = useMediaState("currentTime", playerRef);
   const duration = useMediaState("duration", playerRef);
   const watchCtx = useWatchProvider();
+  const playerPrefs = usePlayerPrefs();
 
   /* Locally cache the AniSkip response so we can also push it into
      watchCtx.skipTimes (other components — currently none, but the
@@ -369,6 +371,53 @@ export default function SkipOverlay({
     }
     router.push(nextEpisodeHref);
   };
+
+  /* ── Auto-skip intro/outro ───────────────────────────────────────
+     When the matching pref is on we jump past a segment the moment it
+     becomes active — same destination as clicking its Skip button.
+
+     Crucially we record each segment we auto-skipped (by a stable
+     start-end-type key) so that if the user manually seeks BACK into
+     it we don't fight them by skipping again — they clearly wanted to
+     watch it. The record is per-episode: it resets whenever the skips
+     array changes (new episode / server). */
+  const autoSkippedRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    // New episode / refreshed segments → forget what we auto-skipped.
+    autoSkippedRef.current = new Set();
+  }, [skips]);
+  useEffect(() => {
+    if (!active) return;
+    const wantSkip =
+      (active.type === "op" && playerPrefs.autoSkipIntro) ||
+      (active.type === "ed" && playerPrefs.autoSkipOutro);
+    if (!wantSkip) return;
+    const key = `${active.type}:${active.start}-${active.end}`;
+    if (autoSkippedRef.current.has(key)) return; // already auto-skipped once
+    autoSkippedRef.current.add(key);
+    skipTo(active.end);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, playerPrefs.autoSkipIntro, playerPrefs.autoSkipOutro]);
+
+  /* ── Auto next episode ───────────────────────────────────────────
+     When enabled, advance the moment the player reaches the very end.
+     Guard with a ref so the navigation fires exactly once even though
+     `currentTime` keeps ticking. Reset per-episode via nextEpisodeHref. */
+  const autoAdvancedRef = useRef(false);
+  useEffect(() => {
+    autoAdvancedRef.current = false;
+  }, [nextEpisodeHref]);
+  useEffect(() => {
+    if (!playerPrefs.autoNextEpisode || !nextEpisodeHref) return;
+    if (autoAdvancedRef.current) return;
+    // Fire within the last second so we don't depend on the `ended`
+    // event (which some servers swallow / wrap back to 0).
+    if (duration > 0 && currentTime >= duration - 1) {
+      autoAdvancedRef.current = true;
+      goToNextEpisode();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentTime, duration, playerPrefs.autoNextEpisode, nextEpisodeHref]);
 
   if (!skips.length && !showNext) return null;
 
