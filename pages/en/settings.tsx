@@ -12,6 +12,7 @@ import {
 } from "@/lib/prefs/titlePref";
 import { getLang, setLang, Lang, LANG_EVENT } from "@/lib/i18n/languagePref";
 import { useSyncPrefs, setSyncPrefs } from "@/lib/prefs/syncPrefs";
+import { usePlayerPrefs, setPlayerPrefs } from "@/lib/prefs/playerPrefs";
 import {
   downloadExportXml,
   importFromJson,
@@ -127,6 +128,7 @@ export default function Settings() {
   // next-auth's default Session type — `any` matches the codebase convention.
   const { data: session }: any = useSession();
   const syncPrefs = useSyncPrefs();
+  const playerPrefs = usePlayerPrefs();
   const localList = useLocalList();
   const [titlePref, setTitlePrefState] = useState<TitlePref>("en");
   const [uiLang, setUiLangState] = useState<Lang>("en");
@@ -382,6 +384,21 @@ export default function Settings() {
             <p className="text-white/40 text-xs mt-3">
               {t("settings.interfaceLangNote")}
             </p>
+          </section>
+
+          {/* ── Video player ─────────────────────────────────────── */}
+          <section className="mb-10">
+            <h2 className="text-xl font-semibold mb-1">{t("settings.player.title")}</h2>
+            <p className="text-white/60 text-sm mb-4">{t("settings.player.desc")}</p>
+            <div className="rounded-xl bg-white/5 ring-1 ring-white/10 px-4 divide-y divide-white/5">
+              <Toggle
+                label={t("settings.player.rateOnComplete")}
+                desc={t("settings.player.rateOnCompleteDesc")}
+                checked={playerPrefs.rateOnComplete}
+                onChange={(v) => setPlayerPrefs({ rateOnComplete: v })}
+              />
+            </div>
+            <p className="text-white/40 text-xs mt-3">{t("settings.player.note")}</p>
           </section>
 
           {/* ── AniList synchronisation ──────────────────────────── */}

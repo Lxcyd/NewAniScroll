@@ -20,6 +20,9 @@ const SEGMENT_LABEL_KEY: Record<string, string> = {
 };
 
 const NEXT_EP_TAIL_SECONDS = 30;
+// Show the rate popup this many seconds before the final episode ends, so it's
+// on screen during the credits rather than after a hard cut at the very end.
+const RATE_PROMPT_LEAD_SECONDS = 25;
 // Preload the next episode's route a short lead BEFORE the Next button appears,
 // so the route + player chunk are already cached by the time the button shows
 // and the user clicks. Relative to the button's own appearance window
@@ -71,6 +74,10 @@ type Props = {
    *  is open inside the player — same hide behaviour as Vidstack's
    *  native menus. */
   externalMenuOpen?: boolean;
+  /** True when this is the final episode of the anime. */
+  isFinalEpisode?: boolean;
+  /** Fired once a few seconds before the final episode ends (rate popup). */
+  onFinalEpisodeNearEnd?: () => void;
 };
 
 /**
@@ -94,6 +101,8 @@ export default function SkipOverlay({
   episode,
   nextEpisodeHref,
   externalMenuOpen = false,
+  isFinalEpisode = false,
+  onFinalEpisodeNearEnd,
 }: Props) {
   const { t } = useTranslation();
   const router = useRouter();
@@ -418,6 +427,24 @@ export default function SkipOverlay({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentTime, duration, playerPrefs.autoNextEpisode, nextEpisodeHref]);
+
+  /* ── Rate popup on the final episode ─────────────────────────────
+     Surface the rate popup a little BEFORE the last episode ends (so it's
+     on screen while the credits roll, not after a hard cut to the end).
+     Fires once per episode, guarded by a ref reset on episode change. */
+  const ratePromptedRef = useRef(false);
+  useEffect(() => {
+    ratePromptedRef.current = false;
+  }, [episode]);
+  useEffect(() => {
+    if (!isFinalEpisode || !onFinalEpisodeNearEnd) return;
+    if (ratePromptedRef.current) return;
+    if (duration > 0 && currentTime >= duration - RATE_PROMPT_LEAD_SECONDS) {
+      ratePromptedRef.current = true;
+      onFinalEpisodeNearEnd();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentTime, duration, isFinalEpisode, onFinalEpisodeNearEnd]);
 
   if (!skips.length && !showNext) return null;
 

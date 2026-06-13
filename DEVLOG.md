@@ -7,6 +7,28 @@ Ordre anti-chronologique (le plus récent en haut). Une entrée = une session/su
 
 ---
 
+## 2026-06-13 — Popup note refondue (centrée, /10, traduite) + Auto play dans Automatisation
+
+### Contexte
+Retours sur la session précédente : (1) « Lecture auto » manquait dans le sous-menu Automatisation ; (2) le toggle « Noter à la fin » doit vivre dans les **Réglages du site**, pas dans le lecteur ; (3) refonte de la popup de note — centrée plein écran, déclenchée un peu **avant** la fin de l'anime, **sur 10** (pas 100), plus belle (style du site) et **traduite**.
+
+### Décisions prises
+1. **Auto play → sous-menu Automatisation** (`UniversalPlayer.tsx`) : déplacé dans le drill-in, retiré de la liste racine. Ambient lights reste racine. Le toggle `rateOnComplete` est **retiré** du lecteur (clés `player.rateOnComplete` supprimées des locales).
+2. **Toggle « Noter à la fin » → page Réglages** : nouvelle section « Lecteur vidéo » dans `settings.tsx` avec le seul toggle `rateOnComplete` (clés `settings.player.*`). La pref reste dans `lib/prefs/playerPrefs.ts` (défaut true).
+3. **Déclenchement avant la fin** : nouveau flux. La watch page calcule `isFinalEpisode` (`episodeNumber >= total`) et passe `onFinalEpisodeNearEnd` au player → `SkipOverlay`. SkipOverlay fire le callback **une fois** quand `currentTime >= duration - RATE_PROMPT_LEAD_SECONDS` (25 s) sur l'épisode final (ref `ratePromptedRef`, reset sur changement d'`episode`). Remplace l'ancien déclenchement à la complétion via `onEpisodeFinished` (qui ne renvoie plus de signal utilisé pour ça, mais garde `{ completed }`).
+4. **RateModal réécrit** (`components/shared/RateModal.tsx`) : overlay centré (`fixed inset-0 flex items-center justify-center`, fond `bg-black/60 + backdrop-blur`), carte `bg-secondary ring-white/10`, cover + titre de l'anime, **rangée de 10 étoiles** (hover preview), input note, boutons Plus tard / Enregistrer. Score **1-10** : écrit tel quel en local (POINT_10_DECIMAL) et envoyé à AniList en `scoreRaw = score*10` (échelle /100). Traduit via namespace i18n `rate.*` (FR + EN). Suppression du prop `position` et du guard `!isFullscreen` à l'appel.
+
+### Leçons / pièges
+- `dataMedia` (watch context) = `setDataMedia(info)` → porte `title` + `coverImage.large`, donc la carte de la popup peut les afficher sans fetch.
+- `markComplete` (`useAnilist`) est AniList-only (`if(!accessToken) return`) → la popup écrit TOUJOURS en local d'abord (déjà fait à la session précédente, conservé).
+- Le déclenchement « avant la fin » vit dans SkipOverlay (qui a déjà `currentTime`/`duration`), PAS dans la watch page (qui ne suit pas le temps en continu) — `isFinalEpisode` est le seul bit qu'on lui passe.
+
+### État déployé / à faire
+- Branche `dev`. `tsc --noEmit` clean, JSON locales validés.
+- ⏳ **À tester** : menu lecteur → Automatisation contient bien Lecture auto + 3 toggles ; Réglages → Lecteur vidéo → toggle « Noter à la fin » ; regarder le dernier ep d'un anime → popup centrée ~25 s avant la fin, noter sur 10 → score en local/AniList ; désactiver le toggle → pas de popup.
+
+---
+
 ## 2026-06-13 — Sous-menu Automatisation du lecteur + popup note à la complétion
 
 ### Contexte

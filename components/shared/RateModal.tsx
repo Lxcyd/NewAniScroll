@@ -3,149 +3,158 @@ import { useWatchProvider } from "@/lib/context/watchPageProvider";
 import { upsertLocalEntry } from "@/lib/list/localList";
 import { todayFuzzy } from "@/lib/list/types";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 type Props = {
   toggle: boolean;
-  position: "top" | "bottom";
   setToggle: (prev: any) => void;
   session: any;
 };
 
-export default function RateModal({
-  toggle,
-  position,
-  setToggle,
-  session,
-}: Props) {
-  const [startRate, setStartRate] = useState(false);
+/**
+ * Rate-on-complete popup. Shown (centred) when an anime's last episode is
+ * nearly over — see SkipOverlay's RATE_PROMPT_LEAD trigger. Scores on a 1-10
+ * scale (POINT_10): we store that value straight into the local list and send
+ * `scoreRaw = score * 10` to AniList (which uses a 100-point raw scale).
+ */
+export default function RateModal({ toggle, setToggle, session }: Props) {
+  const { t } = useTranslation();
   const { markComplete } = useAniList(session);
-
   const { dataMedia } = useWatchProvider();
 
-  async function handleSubmit(event: any) {
-    event.preventDefault();
-    const data = new FormData(event.target);
-    const rating = data.get("rating");
-    const notes = data.get("notes");
+  // 0 = nothing picked yet. Hover state previews the star fill.
+  const [score, setScore] = useState(0);
+  const [hover, setHover] = useState(0);
+  const [notes, setNotes] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const title =
+    dataMedia?.title?.userPreferred ||
+    dataMedia?.title?.english ||
+    dataMedia?.title?.romaji ||
+    "";
+
+  function close() {
+    setToggle((prev: any) => ({ ...prev, isOpen: false }));
+    // Reset for a potential next anime in the same session.
+    setScore(0);
+    setHover(0);
+    setNotes("");
+  }
+
+  async function submit() {
     const mediaId = dataMedia?.id;
+    if (!score || mediaId == null) {
+      close();
+      return;
+    }
+    setBusy(true);
     try {
-      // Always persist to the local list (the resilient mirror) so the score
-      // sticks even for guests with no AniList session. rating is 1-100
-      // (scoreRaw); the local list stores POINT_10_DECIMAL → divide by 10.
-      if (mediaId != null) {
-        const scoreRaw = Number(rating);
-        upsertLocalEntry(Number(mediaId), {
-          status: "COMPLETED",
-          score: Number.isFinite(scoreRaw) && scoreRaw > 0 ? scoreRaw / 10 : null,
-          notes: typeof notes === "string" && notes ? notes : null,
-          completedAt: todayFuzzy(),
-        });
-      }
-      // Push to AniList too when connected (no-op for guests).
-      await markComplete(mediaId, { notes, scoreRaw: rating });
-      toast.success("Successfully rated!");
-      setToggle((prev: any) => {
-        return {
-          ...prev,
-          isOpen: false,
-        };
+      // Local list = the resilient mirror; persist even for guests.
+      upsertLocalEntry(Number(mediaId), {
+        status: "COMPLETED",
+        score, // POINT_10_DECIMAL
+        notes: notes.trim() ? notes.trim() : null,
+        completedAt: todayFuzzy(),
       });
-    } catch (error) {
-      toast.error("Failed to rate!");
+      // Push to AniList when connected (no-op for guests). scoreRaw is /100.
+      await markComplete(mediaId, { notes, scoreRaw: score * 10 });
+      toast.success(t("rate.success"));
+      close();
+    } catch {
+      toast.error(t("rate.error"));
+    } finally {
+      setBusy(false);
     }
   }
 
-  function handleClose() {
-    setToggle((prev: any) => {
-      return {
-        ...prev,
-        isOpen: false,
-      };
-    });
-  }
+  const shown = hover || score;
+
   return (
-    <>
+    <div
+      aria-hidden={!toggle}
+      onClick={close}
+      className={`fixed inset-0 z-[120] flex items-center justify-center px-4 transition-opacity duration-300 ${
+        toggle ? "opacity-100" : "opacity-0 pointer-events-none"
+      }`}
+      style={{ backgroundColor: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)" }}
+    >
       <div
-        className={`w-full h-[20dvh] fixed bg-gradient-to-${
-          position === "top"
-            ? `b top-0 from-black/20`
-            : "t -bottom-5 from-black/40"
-        } to-transparent z-10 transition-all duration-200 ease-in-out ${
-          toggle ? "" : "opacity-0 pointer-events-none"
+        onClick={(e) => e.stopPropagation()}
+        className={`w-full max-w-sm rounded-2xl bg-secondary ring-1 ring-white/10 shadow-2xl p-6 text-white font-karla transition-all duration-300 ${
+          toggle ? "translate-y-0 scale-100" : "translate-y-4 scale-95"
         }`}
-      />
-      <div
-        style={{ width: startRate ? "300px" : "240px" }}
-        className={`${
-          position === "top"
-            ? toggle
-              ? `top-5`
-              : `-top-48`
-            : toggle
-            ? `bottom-10`
-            : `-bottom-48`
-        } fixed text-white font-semibold z-50 font-karla transition-all duration-300 ease-in-out left-1/2 transform -translate-x-1/2 bg-secondary p-3 rounded flex flex-col justify-center items-center gap-4`}
       >
-        <p className="text-lg">What do you think?</p>
+        {dataMedia?.coverImage?.large && (
+          <img
+            src={dataMedia.coverImage.large}
+            alt=""
+            className="w-16 h-24 object-cover rounded-lg mx-auto mb-4 ring-1 ring-white/10"
+          />
+        )}
+        <h3 className="text-xl font-semibold text-center">{t("rate.title")}</h3>
+        {title && (
+          <p className="text-white/60 text-sm text-center mt-1 line-clamp-2">{title}</p>
+        )}
+
+        {/* 1-10 star row */}
         <div
-          className={`flex gap-2 font-medium text-center transition-all duration-200 ${
-            startRate
-              ? "scale-50 hidden pointer-events-none"
-              : "scale-100 opacity-100"
-          }`}
+          className="flex justify-center gap-1 mt-5"
+          onMouseLeave={() => setHover(0)}
         >
+          {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
+            <button
+              key={n}
+              type="button"
+              aria-label={`${n}/10`}
+              onMouseEnter={() => setHover(n)}
+              onClick={() => setScore(n)}
+              className="p-0.5 transition-transform hover:scale-110 focus:outline-none"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                className={`w-6 h-6 transition-colors ${
+                  n <= shown ? "text-action" : "text-white/20"
+                }`}
+                fill="currentColor"
+              >
+                <path d="M12 17.27 18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z" />
+              </svg>
+            </button>
+          ))}
+        </div>
+        <p className="text-center text-sm mt-2 h-5 text-white/70">
+          {shown ? t("rate.scoreOutOf", { score: shown }) : t("rate.tapToRate")}
+        </p>
+
+        <input
+          type="text"
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          placeholder={t("rate.notesPlaceholder")}
+          className="mt-4 w-full bg-white/10 rounded-lg px-3 py-2 text-sm ring-1 ring-white/10 focus:outline-none focus:ring-action placeholder-white/40"
+        />
+
+        <div className="flex gap-3 mt-5">
           <button
-            onClick={() => setStartRate(true)}
-            className="w-[100px] py-1 bg-action/10 rounded text-action"
+            type="button"
+            onClick={close}
+            disabled={busy}
+            className="flex-1 py-2 rounded-lg bg-white/10 ring-1 ring-white/10 text-sm font-medium hover:bg-white/15 disabled:opacity-40"
           >
-            Rate Now
+            {t("rate.skip")}
           </button>
           <button
-            onClick={handleClose}
-            className="w-[100px] py-1 border border-opacity-0 hover:border-opacity-10 rounded border-white"
+            type="button"
+            onClick={submit}
+            disabled={busy || !score}
+            className="flex-1 py-2 rounded-lg bg-action text-white text-sm font-medium hover:opacity-90 disabled:opacity-40"
           >
-            Close
+            {busy ? t("rate.saving") : t("rate.submit")}
           </button>
         </div>
-        {startRate && (
-          <form
-            onSubmit={handleSubmit}
-            className="flex flex-col items-center gap-3 w-full"
-          >
-            <input
-              type="number"
-              min={1}
-              max={100}
-              required
-              name="rating"
-              placeholder="rate from 1-100"
-              className="appearance-none w-full text-white placeholder-zinc-400 bg-white/10 py-1 px-2 rounded text-sm"
-            />
-            <input
-              type="text"
-              name="notes"
-              placeholder="notes"
-              className="appearance-none w-full text-white placeholder-zinc-400 bg-white/10 py-1 px-2 rounded text-sm"
-            />
-            <div className="flex gap-2 w-full">
-              <button
-                type="submit"
-                className="w-full py-1 bg-action/10 hover:bg-action/20 rounded text-action"
-              >
-                Submit
-              </button>
-              <button
-                type="button"
-                onClick={handleClose}
-                className="w-full py-1 rounded hover:bg-white/20"
-              >
-                Cancel
-              </button>
-            </div>
-          </form>
-        )}
       </div>
-    </>
+    </div>
   );
 }

@@ -69,6 +69,13 @@
     "interfaceLanguage": "Interface language",
     "interfaceLanguageDesc": "Language used for buttons, menus and labels across the site.",
     "interfaceLangNote": "We auto-detect your browser language on first visit; your choice here always takes priority and is saved on this device.",
+    "player": {
+      "title": "Video player",
+      "desc": "Playback-related settings.",
+      "rateOnComplete": "Ask for a rating when an anime is finished",
+      "rateOnCompleteDesc": "Shows a rating dialog when you finish the last episode of an anime.",
+      "note": "This setting is saved on this device. The rating is stored in your local list (and pushed to AniList when sync is on)."
+    },
     "sync": {
       "title": "List & AniList Sync",
       "desc": "Automate your list as you watch. Rules always update your local list; when the master switch is on and you're connected, they also push to AniList.",
@@ -260,7 +267,6 @@
     "autoSkipIntro": "Auto-skip intro",
     "autoSkipOutro": "Auto-skip outro",
     "autoNextEpisode": "Auto next episode",
-    "rateOnComplete": "Rate when completed",
     "subtitleTrackSelection": "Subtitle track selection",
     "close": "Close",
     "textColor": "Text color",
@@ -277,6 +283,17 @@
     "previewText": "The quick brown fox jumps over the lazy dog.",
     "sub": "Sub",
     "dub": "Dub"
+  },
+  "rate": {
+    "title": "How was it?",
+    "tapToRate": "Tap a star to rate",
+    "scoreOutOf": "{{score}}/10",
+    "notesPlaceholder": "Add a note (optional)",
+    "skip": "Not now",
+    "submit": "Save rating",
+    "saving": "Saving…",
+    "success": "Rating saved!",
+    "error": "Couldn't save your rating."
   },
   "genres": {
     "action": "Action",

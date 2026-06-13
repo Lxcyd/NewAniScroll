@@ -107,6 +107,12 @@ type Props = {
    *  a callback (not called directly here) because the player has no access to
    *  the AniList `info` / session needed to build the sync payload. */
   onEpisodeComplete?: (info: { aniListId: number; episodeNumber: number }) => void;
+  /** True when the episode being watched is the FINAL one of the anime. Lets
+   *  SkipOverlay surface the rate popup slightly BEFORE it ends. */
+  isFinalEpisode?: boolean;
+  /** Fired once when the final episode is nearly over (a few seconds before the
+   *  end). The watch page opens the rate popup from here. */
+  onFinalEpisodeNearEnd?: () => void;
 };
 
 // Proxy base — defaults to the Cloudflare Worker (unmetered + edge cache).
@@ -1072,6 +1078,8 @@ export default function UniversalPlayer({
   aniListId = null,
   episodeNumber,
   onEpisodeComplete,
+  isFinalEpisode = false,
+  onFinalEpisodeNearEnd,
 }: Props) {
   const { t, i18n } = useTranslation();
   const playerRef = useRef<MediaPlayerInstance>(null);
@@ -2595,6 +2603,13 @@ export default function UniversalPlayer({
               onBack={() => setAutomationOpen(false)}
             />
             <SettingsToggleRow
+              label={t("player.autoplay")}
+              enabled={ctxAutoplay}
+              onToggle={setAutoPlayCtx}
+              // Material "play_arrow" icon.
+              iconPath="M8 5v14l11-7z"
+            />
+            <SettingsToggleRow
               label={t("player.autoSkipIntro")}
               enabled={playerPrefs.autoSkipIntro}
               onToggle={(v) => setPlayerPrefs({ autoSkipIntro: v })}
@@ -2614,13 +2629,6 @@ export default function UniversalPlayer({
               onToggle={(v) => setPlayerPrefs({ autoNextEpisode: v })}
               // Material "skip_next" icon.
               iconPath="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"
-            />
-            <SettingsToggleRow
-              label={t("player.rateOnComplete")}
-              enabled={playerPrefs.rateOnComplete}
-              onToggle={(v) => setPlayerPrefs({ rateOnComplete: v })}
-              // Material "star" icon.
-              iconPath="M12 17.27 18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"
             />
           </>
         ) : (
@@ -2654,21 +2662,15 @@ export default function UniversalPlayer({
               </>
             )}
             <SettingsToggleRow
-              label={t("player.autoplay")}
-              enabled={ctxAutoplay}
-              onToggle={setAutoPlayCtx}
-              // Material "play_arrow" icon — same family as the rest of the menu.
-              iconPath="M8 5v14l11-7z"
-            />
-            <SettingsToggleRow
               label={t("player.ambientLights")}
               enabled={ctxAmbient}
               onToggle={setAmbientCtx}
               // Material "lightbulb_outline" icon.
               iconPath="M9 21c0 .55.45 1 1 1h4c.55 0 1-.45 1-1v-1H9v1zm3-19C8.14 2 5 5.14 5 9c0 2.38 1.19 4.47 3 5.74V17c0 .55.45 1 1 1h6c.55 0 1-.45 1-1v-2.26c1.81-1.27 3-3.36 3-5.74 0-3.86-3.14-7-7-7zm2.85 11.1-.85.6V16h-4v-2.3l-.85-.6C7.8 12.16 7 10.63 7 9c0-2.76 2.24-5 5-5s5 2.24 5 5c0 1.63-.8 3.16-2.15 4.1z"
             />
-            {/* Drill-in to the player automation toggles (auto-skip intro/outro,
-                auto next episode). Grouped so the main menu stays compact. */}
+            {/* Drill-in to the player automation toggles (autoplay, auto-skip
+                intro/outro, auto next episode). Grouped to keep the main menu
+                compact. */}
             <SettingsSubmenuRow
               label={t("player.automation")}
               onOpen={() => setAutomationOpen(true)}
@@ -2707,6 +2709,8 @@ export default function UniversalPlayer({
         episode={episodeNumber}
         nextEpisodeHref={nextEpisodeHref}
         externalMenuOpen={subMenuOpen || subStyleOpen}
+        isFinalEpisode={isFinalEpisode}
+        onFinalEpisodeNearEnd={onFinalEpisodeNearEnd}
       />
 
       {/* Subtitle picker. Mounted globally (not inside the player) so it can

@@ -723,19 +723,31 @@ export default function Watch({
         total,
         title: info?.title,
         coverImage: info?.coverImage?.large || info?.coverImage?.extraLarge || null,
-      })
-        .then((res) => {
-          // Offer the rate popup once, the moment the anime tips into COMPLETED
-          // (last episode finished), unless the user disabled it. The modal
-          // itself pushes the score to AniList when connected.
-          if (res?.completed && getPlayerPrefs().rateOnComplete) {
-            setRatingModalState((prev) => ({ ...prev, isOpen: true }));
-          }
-        })
-        .catch(() => {});
+      }).catch(() => {});
     },
-    [info, setRatingModalState],
+    [info],
   );
+
+  // Total episodes for the current anime (same derivation as above), so we can
+  // tell whether the episode being watched is the FINAL one — used to surface
+  // the rate popup a little BEFORE the last episode actually ends.
+  const totalEpisodes = useMemo(
+    () =>
+      info?.episodes ??
+      (info?.nextAiringEpisode?.episode ? info.nextAiringEpisode.episode - 1 : null),
+    [info],
+  );
+  const isFinalEpisode = useMemo(() => {
+    const ep = parseInt(epiNumber, 10);
+    return totalEpisodes != null && Number.isFinite(ep) && ep >= totalEpisodes;
+  }, [epiNumber, totalEpisodes]);
+
+  // Open the rate popup (once) when the final episode is nearly over, unless the
+  // user disabled it in Settings. SkipOverlay calls this from inside the player.
+  const handleFinalEpisodeNearEnd = useCallback(() => {
+    if (!getPlayerPrefs().rateOnComplete) return;
+    setRatingModalState((prev) => (prev.isOpen ? prev : { ...prev, isOpen: true }));
+  }, [setRatingModalState]);
 
   // ── Mark the previous episode complete when advancing ────────
   // When the user moves on to the next episode (N → N+1), the one they just
@@ -1460,6 +1472,8 @@ export default function Watch({
             aniListId={info?.id || null}
             episodeNumber={parseInt(epiNumber)}
             onEpisodeComplete={handleEpisodeComplete}
+            isFinalEpisode={isFinalEpisode}
+            onFinalEpisodeNearEnd={handleFinalEpisodeNearEnd}
             downloadName={`${(info?.title?.romaji || info?.title?.english || "anime").replace(/\s+/g, "_")}_E${epiNumber}${dub ? "_DUB" : ""}`}
             onError={(reason) =>
               markFailed(
@@ -1491,11 +1505,13 @@ export default function Watch({
           aniListId={info?.id || null}
           episodeNumber={parseInt(epiNumber)}
           onEpisodeComplete={handleEpisodeComplete}
+          isFinalEpisode={isFinalEpisode}
+          onFinalEpisodeNearEnd={handleFinalEpisodeNearEnd}
           onError={(reason) => markFailed(server.id, reason || "Iframe load timeout")}
         />
       </PlayerErrorBoundary>
     );
-  }, [activeServer, episodeNavigation, hlsLoading, hlsData, info, epiNumber, dub, markFailed, handleServerChange, autoplay, handleEpisodeComplete]);
+  }, [activeServer, episodeNavigation, hlsLoading, hlsData, info, epiNumber, dub, markFailed, handleServerChange, autoplay, handleEpisodeComplete, isFinalEpisode, handleFinalEpisodeNearEnd]);
 
   // ── Render ───────────────────────────────────────────────────
   return (
@@ -1577,14 +1593,11 @@ export default function Watch({
       />
 
       <main className="w-screen h-full">
-        {!ratingModalState.isFullscreen && (
-          <RateModal
-            toggle={ratingModalState.isOpen}
-            setToggle={setRatingModalState}
-            position="bottom"
-            session={sessions}
-          />
-        )}
+        <RateModal
+          toggle={ratingModalState.isOpen}
+          setToggle={setRatingModalState}
+          session={sessions}
+        />
 
         <Navbar
           info={info}
