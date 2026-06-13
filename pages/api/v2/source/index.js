@@ -1,6 +1,6 @@
 import { rateLimiterRedis, redis } from "@/lib/redis";
 import * as cheerio from "cheerio";
-import { getExtractor, extractMegaplay, extractVidnest } from "@/lib/extractors";
+import { getExtractor, extractMegaplay } from "@/lib/extractors";
 import { getMediaMeta, primeMediaCache } from "@/lib/anilist/getMediaMeta";
 import { getPlayerMapEntry, upsertPlayerMap, flagPlayerMap } from "@/lib/db/playerMap";
 
@@ -2592,36 +2592,35 @@ export default async function handler(req, res) {
   if (mediaMeta && aniId) primeMediaCache(aniId, mediaMeta);
 
   // Megaplay â€” extract m3u8 + subtitles directly (no iframe).
-  // Megaplay migrated its stream routes: the old /stream/ani/<aniListId>/...
-  // path now times out. The current scheme is keyed by MAL id:
+  // Megaplay exposes two equivalent stream routes (both verified live):
   //   /stream/mal/<malId>/<episode>/<sub|dub>
-  // So we resolve the MAL id from the shared media cache (idMal is in
-  // FULL_MEDIA_FIELDS) before building the URL.
+  //   /stream/ani/<aniListId>/<episode>/<sub|dub>
+  // They resolve to the SAME MegaCloud source when both ids map. We try the MAL
+  // route first (historically the better-mapped of the two) and fall back to the
+  // AniList route â€” which crucially also covers titles that have NO MAL id, or
+  // whose MAL mapping Megaplay hasn't synced yet (their own docs warn the
+  // AniList/MAL mapping is incomplete). Either route succeeding is a hit.
   if (server === "megaplay") {
     let malId = mediaMeta?.idMal || null;
     if (!malId) {
       const meta = await getMediaMeta(aniId);
       malId = meta?.idMal || null;
     }
-    if (!malId) {
-      return sendNotFound("megaplay: no MAL id for this anime");
+    const lang = sub === "dub" ? "dub" : "sub";
+    // Candidate routes in priority order; skip the MAL one when there's no id.
+    const routes = [];
+    if (malId) routes.push(`https://megaplay.buzz/stream/mal/${malId}/${episode}/${lang}`);
+    if (aniId) routes.push(`https://megaplay.buzz/stream/ani/${aniId}/${episode}/${lang}`);
+    if (routes.length === 0) {
+      return sendNotFound("megaplay: no MAL or AniList id for this anime");
     }
-    const url = `https://megaplay.buzz/stream/mal/${malId}/${episode}/${sub === "dub" ? "dub" : "sub"}`;
-    const result = await extractMegaplay(url);
-    if (result.error || !result.streams?.length) {
-      return sendNotFound(result.error || "Source not found");
+    let lastError = "Source not found";
+    for (const url of routes) {
+      const result = await extractMegaplay(url);
+      if (!result.error && result.streams?.length) return sendOk(result);
+      lastError = result.error || lastError;
     }
-    return sendOk(result);
-  }
-
-  // VidNest â€” keyed by AniList id; its API returns a custom-base64-wrapped
-  // HLS master.m3u8 + multi-language subs (decoded in extractVidnest). No iframe.
-  if (server === "vidnest") {
-    const result = await extractVidnest(aniId, episode, sub);
-    if (result.error || !result.streams?.length) {
-      return sendNotFound(result.error || "Source not found");
-    }
-    return sendOk(result);
+    return sendNotFound(lastError);
   }
 
 
