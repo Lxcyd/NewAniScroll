@@ -1463,7 +1463,7 @@ export default function Watch({
             ~100-300 ms handshake when the actual stream/iframe request
             fires. preconnect handles all three; dns-prefetch is a fallback
             for older browsers that ignore preconnect. */}
-        <link rel="preconnect" href="https://vidnest.fun" crossOrigin="anonymous" />
+        <link rel="preconnect" href="https://new.vidnest.fun" crossOrigin="anonymous" />
         <link rel="preconnect" href="https://megaplay.buzz" crossOrigin="anonymous" />
         <link rel="preconnect" href="https://video.sibnet.ru" crossOrigin="anonymous" />
         <link rel="preconnect" href="https://sendvid.com" crossOrigin="anonymous" />
@@ -1474,7 +1474,7 @@ export default function Watch({
             <link rel="dns-prefetch" href={process.env.NEXT_PUBLIC_PROXY_BASE} />
           </>
         )}
-        <link rel="dns-prefetch" href="https://vidnest.fun" />
+        <link rel="dns-prefetch" href="https://new.vidnest.fun" />
         <link rel="dns-prefetch" href="https://megaplay.buzz" />
         <link rel="dns-prefetch" href="https://video.sibnet.ru" />
         <link rel="dns-prefetch" href="https://sendvid.com" />

@@ -1,6 +1,6 @@
 import { rateLimiterRedis, redis } from "@/lib/redis";
 import * as cheerio from "cheerio";
-import { getExtractor, extractMegaplay } from "@/lib/extractors";
+import { getExtractor, extractMegaplay, extractVidnest } from "@/lib/extractors";
 import { getMediaMeta, primeMediaCache } from "@/lib/anilist/getMediaMeta";
 import { getPlayerMapEntry, upsertPlayerMap, flagPlayerMap } from "@/lib/db/playerMap";
 
@@ -2608,6 +2608,16 @@ export default async function handler(req, res) {
     }
     const url = `https://megaplay.buzz/stream/mal/${malId}/${episode}/${sub === "dub" ? "dub" : "sub"}`;
     const result = await extractMegaplay(url);
+    if (result.error || !result.streams?.length) {
+      return sendNotFound(result.error || "Source not found");
+    }
+    return sendOk(result);
+  }
+
+  // VidNest â€” keyed by AniList id; its API returns a custom-base64-wrapped
+  // HLS master.m3u8 + multi-language subs (decoded in extractVidnest). No iframe.
+  if (server === "vidnest") {
+    const result = await extractVidnest(aniId, episode, sub);
     if (result.error || !result.streams?.length) {
       return sendNotFound(result.error || "Source not found");
     }
