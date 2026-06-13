@@ -28,6 +28,8 @@ const NEXT_EP_TAIL_SECONDS = 30;
 // film the cap wins (~3min before the end instead of 14).
 const RATE_PROMPT_FRACTION = 0.88;
 const RATE_PROMPT_MAX_LEAD_SECONDS = 180;
+// Single-episode works (films / OVAs): prompt only at the very end (95%).
+const RATE_PROMPT_SINGLE_FRACTION = 0.95;
 // Preload the next episode's route a short lead BEFORE the Next button appears,
 // so the route + player chunk are already cached by the time the button shows
 // and the user clicks. Relative to the button's own appearance window
@@ -81,6 +83,9 @@ type Props = {
   externalMenuOpen?: boolean;
   /** True when this is the final episode of the anime. */
   isFinalEpisode?: boolean;
+  /** True when the anime is a single-episode work (film / OVA). The rate popup
+   *  waits until the very end (95%) for these — no ED/preview tail to skip. */
+  isSingleEpisode?: boolean;
   /** Fired once a few seconds before the final episode ends (rate popup). */
   onFinalEpisodeNearEnd?: () => void;
 };
@@ -107,6 +112,7 @@ export default function SkipOverlay({
   nextEpisodeHref,
   externalMenuOpen = false,
   isFinalEpisode = false,
+  isSingleEpisode = false,
   onFinalEpisodeNearEnd,
 }: Props) {
   const { t } = useTranslation();
@@ -446,17 +452,21 @@ export default function SkipOverlay({
     if (!isFinalEpisode || !onFinalEpisodeNearEnd) return;
     if (ratePromptedRef.current) return;
     if (duration <= 0) return;
-    // Later of {88%, duration - 3min} so long films don't prompt too early.
-    const threshold = Math.max(
-      duration * RATE_PROMPT_FRACTION,
-      duration - RATE_PROMPT_MAX_LEAD_SECONDS,
-    );
+    // Single-episode works (films / OVAs) have no ED + next-ep tail to skip, so
+    // we wait until the very end (95%) to avoid prompting mid-climax. Series
+    // get the earlier-but-capped trigger: later of {88%, duration - 3min}.
+    const threshold = isSingleEpisode
+      ? duration * RATE_PROMPT_SINGLE_FRACTION
+      : Math.max(
+          duration * RATE_PROMPT_FRACTION,
+          duration - RATE_PROMPT_MAX_LEAD_SECONDS,
+        );
     if (currentTime >= threshold) {
       ratePromptedRef.current = true;
       onFinalEpisodeNearEnd();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentTime, duration, isFinalEpisode, onFinalEpisodeNearEnd]);
+  }, [currentTime, duration, isFinalEpisode, isSingleEpisode, onFinalEpisodeNearEnd]);
 
   if (!skips.length && !showNext) return null;
 

@@ -7,6 +7,30 @@ Ordre anti-chronologique (le plus récent en haut). Une entrée = une session/su
 
 ---
 
+## 2026-06-14 — Affinage notifs : films 1-ep, new-ep RELEASING, reco resume théma
+
+### Contexte
+Retours sur les notifs + popup. (1) Les films courts : se baser sur « 1 seul épisode » plutôt que la durée. (2) Nouvel épisode : uniquement les animes **RELEASING**. (3) Rappel de reprise : un algo paced qui recommande UN anime en pause/stalled (≠ DROPPED) théma-matché à ce qu'on regarde récemment.
+
+### Décisions prises
+1. **Popup films** (`SkipOverlay.tsx`) : nouveau prop `isSingleEpisode` (watch page : `totalEpisodes === 1 || info.format === "MOVIE"`). Si single → seuil **95%** (`RATE_PROMPT_SINGLE_FRACTION`), sinon le `max(88%, durée-180s)` des séries. Threadé via `UniversalPlayer` → `SkipOverlay`.
+2. **New-episode = RELEASING only** (`computeNotifications.ts`) : `fetchAiring` récupère aussi `status` ; on n'émet l'alerte que si `status === "RELEASING"`.
+3. **Reco resume théma-matchée** :
+   - Candidats : `PAUSED` ou `CURRENT` non touchés depuis **≥ 30 j** (`RESUME_STALE_DAYS`), hors ceux qui ont déjà une alerte new-ep. **DROPPED exclu** (demande explicite — l'utilisateur les a lâchés exprès).
+   - Matching : `fetchThemes` (batch AniList `genres` + `tags{name}`, caché par id) ; `themeOverlap` = genres ×2 + tags ×1, comparé au set « regardé récemment » (`CURRENT`/`COMPLETED` actifs < 30 j). Meilleur score gagne ; égalité → le plus récemment stale.
+   - Pacing : une nouvelle reco au plus **tous les 3 jours** (`RESUME_INTERVAL_MS`), mais on **persiste le pick** (`{mediaId, at}` en localStorage) et on le **ré-émet** pendant toute la fenêtre tant qu'il reste un candidat valide — sinon il disparaîtrait au recompute suivant (NavBar se remonte par page).
+4. **Nettoyage** : `resumeAfterDays` retiré de `ComputeOpts` (remplacé par `RESUME_STALE_DAYS` fixe) ; import `getSyncPrefs` retiré du hook.
+
+### Leçons / pièges
+- **Le pick resume doit persister**, pas être re-décidé à chaque recompute : sinon `markResumeShown` fermait la porte et la notif s'évaporait au prochain rendu. D'où le `{mediaId, at}` stocké + ré-émission dans la fenêtre.
+- `themesCache` est une `Map` par id (pas par requête) : on ne refait pas la requête genres/tags pour un id déjà connu.
+
+### État déployé / à faire
+- Branche `dev`. `tsc` + `next lint` (fichiers touchés) clean.
+- ⏳ Tester : film (1 ep) → popup à 95% ; série en cours de diffusion en retard → alerte ; un PAUSED ancien proche théma d'un anime regardé → reco resume, et pas de 2e reco avant 3 j.
+
+---
+
 ## 2026-06-14 — Notifications in-app (cloche NavBar) + fix popup films
 
 ### Contexte

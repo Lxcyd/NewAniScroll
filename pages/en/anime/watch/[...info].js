@@ -741,6 +741,12 @@ export default function Watch({
     const ep = parseInt(epiNumber, 10);
     return totalEpisodes != null && Number.isFinite(ep) && ep >= totalEpisodes;
   }, [epiNumber, totalEpisodes]);
+  // Single-episode work (film / OVA): the rate popup should wait until the very
+  // end rather than fire at 88%, since there's no ED/preview tail.
+  const isSingleEpisode = useMemo(
+    () => totalEpisodes === 1 || info?.format === "MOVIE",
+    [totalEpisodes, info?.format],
+  );
 
   // Open the rate popup (once) when the final episode is nearly over, unless the
   // user disabled it in Settings. SkipOverlay calls this from inside the player.
@@ -1473,6 +1479,7 @@ export default function Watch({
             episodeNumber={parseInt(epiNumber)}
             onEpisodeComplete={handleEpisodeComplete}
             isFinalEpisode={isFinalEpisode}
+            isSingleEpisode={isSingleEpisode}
             onFinalEpisodeNearEnd={handleFinalEpisodeNearEnd}
             downloadName={`${(info?.title?.romaji || info?.title?.english || "anime").replace(/\s+/g, "_")}_E${epiNumber}${dub ? "_DUB" : ""}`}
             onError={(reason) =>
@@ -1506,12 +1513,13 @@ export default function Watch({
           episodeNumber={parseInt(epiNumber)}
           onEpisodeComplete={handleEpisodeComplete}
           isFinalEpisode={isFinalEpisode}
+          isSingleEpisode={isSingleEpisode}
           onFinalEpisodeNearEnd={handleFinalEpisodeNearEnd}
           onError={(reason) => markFailed(server.id, reason || "Iframe load timeout")}
         />
       </PlayerErrorBoundary>
     );
-  }, [activeServer, episodeNavigation, hlsLoading, hlsData, info, epiNumber, dub, markFailed, handleServerChange, autoplay, handleEpisodeComplete, isFinalEpisode, handleFinalEpisodeNearEnd]);
+  }, [activeServer, episodeNavigation, hlsLoading, hlsData, info, epiNumber, dub, markFailed, handleServerChange, autoplay, handleEpisodeComplete, isFinalEpisode, isSingleEpisode, handleFinalEpisodeNearEnd]);
 
   // ── Render ───────────────────────────────────────────────────
   return (

@@ -110,6 +110,8 @@ type Props = {
   /** True when the episode being watched is the FINAL one of the anime. Lets
    *  SkipOverlay surface the rate popup slightly BEFORE it ends. */
   isFinalEpisode?: boolean;
+  /** True for single-episode works (film / OVA) — rate popup waits till 95%. */
+  isSingleEpisode?: boolean;
   /** Fired once when the final episode is nearly over (a few seconds before the
    *  end). The watch page opens the rate popup from here. */
   onFinalEpisodeNearEnd?: () => void;
@@ -1079,6 +1081,7 @@ export default function UniversalPlayer({
   episodeNumber,
   onEpisodeComplete,
   isFinalEpisode = false,
+  isSingleEpisode = false,
   onFinalEpisodeNearEnd,
 }: Props) {
   const { t, i18n } = useTranslation();
@@ -2710,6 +2713,7 @@ export default function UniversalPlayer({
         nextEpisodeHref={nextEpisodeHref}
         externalMenuOpen={subMenuOpen || subStyleOpen}
         isFinalEpisode={isFinalEpisode}
+        isSingleEpisode={isSingleEpisode}
         onFinalEpisodeNearEnd={onFinalEpisodeNearEnd}
       />
 

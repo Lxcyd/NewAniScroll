@@ -10,7 +10,6 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getTitlePref } from "@/lib/prefs/titlePref";
-import { getSyncPrefs } from "@/lib/prefs/syncPrefs";
 import { LOCAL_LIST_EVENT } from "@/lib/list/localList";
 import {
   computeNotifications,
@@ -56,7 +55,6 @@ export function useNotifications(): UseNotifications {
     const myRun = ++runIdRef.current;
     computeNotifications({
       titlePref: getTitlePref(),
-      resumeAfterDays: getSyncPrefs().autoPauseDays,
     })
       .then((next) => {
         if (myRun === runIdRef.current) setNotifications(next);
