@@ -76,7 +76,7 @@
       "masterDesc": "Push automated changes to your connected AniList account.",
       "masterDescGuest": "Connect AniList to also push these changes to your account — the rules already apply to your local list.",
       "autoProgress": "Update episode count",
-      "autoProgressDesc": "When you finish an episode, set your progress to that episode.",
+      "autoProgressDesc": "When you finish an episode, update your watched-episode count.",
       "autoWatching": "Auto set to Watching",
       "autoWatchingDesc": "Finishing the first episode of an anime marks it as Watching.",
       "autoPause": "Auto-pause stale anime",

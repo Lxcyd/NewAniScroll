@@ -76,7 +76,7 @@
       "masterDesc": "Pousser les changements automatiques vers votre compte AniList connecté.",
       "masterDescGuest": "Connectez AniList pour pousser aussi ces changements vers votre compte — les règles s'appliquent déjà à votre liste locale.",
       "autoProgress": "Mettre à jour le nombre d'épisodes",
-      "autoProgressDesc": "À la fin d'un épisode, définit votre progression sur cet épisode.",
+      "autoProgressDesc": "À la fin d'un épisode, met à jour le nombre d'épisodes vus.",
       "autoWatching": "Passer en « En cours » automatiquement",
       "autoWatchingDesc": "Finir le premier épisode d'un anime le marque « En cours ».",
       "autoPause": "Mettre en pause les anime inactifs",
