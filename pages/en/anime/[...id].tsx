@@ -83,7 +83,7 @@ export default function Info({
   initialUA,
 }: InfoTypes) {
   const isMobile = useIsMobile(initialUA);
-  const { data: session }: any = useSession();
+  const { data: session, status: sessionStatus }: any = useSession();
   const { toggleFavourite } = useAniList(session);
   const { t } = useTranslation();
   const router = useRouter();
@@ -235,8 +235,14 @@ export default function Info({
   // Visitors without an AniList session get their status/progress from the
   // local list (lib/list/localList.ts) instead. We re-read on the local-list
   // change event so finishing an episode (or editing) reflects immediately.
+  //
+  // IMPORTANT: only run once next-auth has CONFIRMED there's no session
+  // (status === "unauthenticated"). During the brief "loading" phase right
+  // after hydration `session` is undefined for a signed-in user too — acting
+  // on it then would flash "Add to list" (status null) over their real
+  // AniList status until the signed-in effect resolves.
   useEffect(() => {
-    if (session?.user?.token) return; // signed-in path handled above
+    if (sessionStatus !== "unauthenticated") return;
     const aniId = Number(info?.id);
     if (!Number.isFinite(aniId)) return;
     const read = () => {
@@ -248,7 +254,7 @@ export default function Info({
     read();
     window.addEventListener(LOCAL_LIST_EVENT, read);
     return () => window.removeEventListener(LOCAL_LIST_EVENT, read);
-  }, [session?.user?.token, info?.id]);
+  }, [sessionStatus, info?.id]);
 
   // ── Prefetch the player for the "Watch" target ───────────────────────
   // Visitors who open an anime page usually go on to watch it, so we warm
