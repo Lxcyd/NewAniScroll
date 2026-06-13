@@ -7,6 +7,29 @@ Ordre anti-chronologique (le plus récent en haut). Une entrée = une session/su
 
 ---
 
+## 2026-06-14 — Notifications in-app (cloche NavBar) + fix popup films
+
+### Contexte
+(1) La popup de note à 88% arrivait trop tôt sur les films (88% de 2h = 14 min avant la fin). (2) Lot notifications : alerte nouvel épisode + rappel de reprise, **in-app** (pas de web push), via une **cloche dans la NavBar** (choix utilisateur).
+
+### Décisions prises
+1. **Fix films** (`SkipOverlay.tsx`) : le seuil de la popup de note devient `max(durée*0.88, durée - 180s)` (`RATE_PROMPT_FRACTION` + `RATE_PROMPT_MAX_LEAD_SECONDS=180`). Épisode 24 min → ~88% inchangé ; film 2h → plafonné à 3 min avant la fin.
+2. **`lib/notifications/computeNotifications.ts`** : calcule les notifs depuis la **liste locale**. `new-episode` pour chaque entrée CURRENT dont le dernier épisode diffusé (`nextAiringEpisode.episode - 1`, sinon `episodes`) dépasse `progress` — via une **requête batch AniList** `Page.media(id_in:)`. `resume` pour les CURRENT/PAUSED dont `activityAt` dépasse `autoPauseDays` (réutilise le réglage existant). Dédoublonnage : pas de rappel resume si une alerte nouvel-épisode existe déjà pour le même média. **Cache module-level** (clé = ids triés, TTL 15 min) pour ne pas re-hit AniList à chaque navigation (la NavBar se remonte par page).
+3. **`lib/notifications/useNotifications.ts`** : hook qui recompute au mount + sur `LOCAL_LIST_EVENT`/`storage`, garde l'état « lu » dans localStorage (`aniscroll:notifReadIds`). **Id stable** `kind:mediaId:nombre` → un épisode plus récent change l'id donc re-passe en non-lu. Prune des ids lus qui ne correspondent plus à une notif vivante. `runIdRef` anti-race sur les computes async concurrents.
+4. **`components/shared/NotificationBell.tsx`** : cloche + pastille (compteur non-lus, "9+"), dropdown (ferme sur clic-dehors/Escape), ouverture = `markAllRead`. Chaque item linke `/en/anime/<id>`. Montée dans `NavBar.tsx` avant `ReportButton`. Clés i18n `notifications.*` (FR+EN).
+
+### Leçons / pièges
+- `pickTitle` ne renvoie jamais vide ("Untitled" au pire) → pas besoin de chaîne de fallback maison dans `localTitle`.
+- On ne met en cache que les réponses AniList **réussies** (pas dans le `catch`), sinon un échec transitoire serait mémorisé 15 min.
+- Web push **non** fait (app fermée = pas de notif) — c'est in-app only, par choix ; le service worker push reste un chantier futur si besoin.
+
+### État déployé / à faire
+- Branche `dev`. `tsc --noEmit` + `next lint` (fichiers touchés) clean, JSON validés.
+- ⏳ Tester : avoir un anime CURRENT en retard d'épisode → pastille + entrée « épisode N sorti » ; un PAUSED ancien → entrée « en pause depuis X jours » ; ouvrir la cloche efface la pastille.
+- ⏭️ Le lot « idées listes » est maintenant **épuisé** (rewatch, public/privé, fusion conflit, notifications). Web push = optionnel futur.
+
+---
+
 ## 2026-06-14 — Réglages timing : auto-next au bouton, popup note à 88%
 
 ### Contexte

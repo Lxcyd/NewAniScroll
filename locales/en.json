@@ -292,6 +292,13 @@
     "sub": "Sub",
     "dub": "Dub"
   },
+  "notifications": {
+    "title": "Notifications",
+    "empty": "You're all caught up.",
+    "newEpisode": "Episode {{episode}} is out",
+    "newEpisodes": "{{count}} new episodes (up to ep {{episode}})",
+    "resumeBody": "Paused for {{days}} days — pick it back up?"
+  },
   "rate": {
     "title": "How was it?",
     "tapToRate": "Tap a star to rate",

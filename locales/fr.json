@@ -292,6 +292,13 @@
     "sub": "VOSTFR",
     "dub": "VF"
   },
+  "notifications": {
+    "title": "Notifications",
+    "empty": "Vous êtes à jour.",
+    "newEpisode": "L'épisode {{episode}} est sorti",
+    "newEpisodes": "{{count}} nouveaux épisodes (jusqu'à l'épisode {{episode}})",
+    "resumeBody": "En pause depuis {{days}} jours — on reprend ?"
+  },
   "rate": {
     "title": "Alors, ce verdict ?",
     "tapToRate": "Touchez une étoile pour noter",

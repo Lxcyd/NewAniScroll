@@ -20,11 +20,14 @@ const SEGMENT_LABEL_KEY: Record<string, string> = {
 };
 
 const NEXT_EP_TAIL_SECONDS = 30;
-// Show the rate popup once the viewer passes this fraction of the final
-// episode (88%). Late enough that the story is effectively over (the last ~12%
-// is almost always ED + next-ep preview), early enough that they're still
-// watching when it appears.
+// Rate-popup trigger on the final episode. We want it ~88% through a normal
+// ~24min episode (the last ~12% is almost always ED + next-ep preview), but a
+// flat fraction misfires on long runtimes: 88% of a 2h film is 14min early.
+// So we take the LATER of {88%, duration - RATE_PROMPT_MAX_LEAD} — capping how
+// far before the end it can ever appear. For a 24min ep both land ~88%; for a
+// film the cap wins (~3min before the end instead of 14).
 const RATE_PROMPT_FRACTION = 0.88;
+const RATE_PROMPT_MAX_LEAD_SECONDS = 180;
 // Preload the next episode's route a short lead BEFORE the Next button appears,
 // so the route + player chunk are already cached by the time the button shows
 // and the user clicks. Relative to the button's own appearance window
@@ -442,7 +445,13 @@ export default function SkipOverlay({
   useEffect(() => {
     if (!isFinalEpisode || !onFinalEpisodeNearEnd) return;
     if (ratePromptedRef.current) return;
-    if (duration > 0 && currentTime >= duration * RATE_PROMPT_FRACTION) {
+    if (duration <= 0) return;
+    // Later of {88%, duration - 3min} so long films don't prompt too early.
+    const threshold = Math.max(
+      duration * RATE_PROMPT_FRACTION,
+      duration - RATE_PROMPT_MAX_LEAD_SECONDS,
+    );
+    if (currentTime >= threshold) {
       ratePromptedRef.current = true;
       onFinalEpisodeNearEnd();
     }
