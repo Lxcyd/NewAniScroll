@@ -7,6 +7,32 @@ Ordre anti-chronologique (le plus récent en haut). Une entrée = une session/su
 
 ---
 
+## 2026-06-14 — Lot listes : rewatch local, fusion conflit au resync, profil privé
+
+### Contexte
+Suite des « idées de réglages liste » validées. Trois chantiers : (1) compteur de **rewatch** stocké en local ; (2) **fusion de conflit automatique** au resync AniList (plus de `replace` destructif) ; (3) **profil public/privé** — option choisie par l'utilisateur : « masquer la page profil aux autres » (gating serveur réel).
+
+### Décisions prises
+1. **Rewatch local** : ajout du champ `repeat?: number` à `LocalEntry` (`localList.ts`, défaut 0 dans `upsertLocalEntry`). L'éditeur (`listEditor.tsx`) avait déjà le champ `rewatches` (poussé vers AniList via `repeat`) mais ne l'écrivait PAS en local → ajout du seed (`setRewatches(e.repeat)` en mode local) et de l'écriture (`repeat: rewatches` dans le `upsertLocalEntry` local). `fullSyncFromAniList` récupère aussi `repeat` depuis AniList.
+2. **Fusion conflit au resync** (`syncEngine.ts`) : `fullSyncFromAniList` ne fait plus un `importEntries(remote, "replace")` aveugle. Nouveau : on lit le local courant, et pour chaque média présent des deux côtés on `reconcileEntry(local, remote)` — **garde la progression la plus avancée** (et le statut CURRENT/COMPLETED correspondant + l'`activityAt` max) ; AniList gagne sur les égalités et tous les autres champs. Les entrées **uniquement locales** (absentes d'AniList) sont **conservées** (avant elles étaient perdues). Résultat : resync **non destructif**.
+3. **Profil privé** (gating serveur) :
+   - `getServerSideProps` de `profile/[user].tsx` : `getUser(query.user, false)` récupère les réglages du user VISÉ ; si `setting.private === true` et que le visiteur n'est pas le propriétaire (`session.user.name` ≠ `query.user`, comparaison insensible à la casse) → `props: { isPrivate: true }`. Le composant rend une page « profil privé » (pas un 404 — le user existe, il a juste masqué sa liste).
+   - **Toggle dans Réglages** (`settings.tsx`, section « Profil », visible si connecté) : charge `setting.private` via `GET /api/user/profile?name=`, l'écrit via `PUT` (merge sur le `setting` existant pour ne pas écraser `CustomLists`). Optimiste + revert sur échec.
+   - Clés i18n : `settings.profile.*`, `profile.privateTitle/privateBody`.
+
+### Leçons / pièges
+- Le `setting` Prisma est un JSON unique partagé (déjà `CustomLists`) → **merger** `{ ...profileSettings, private }` au PUT, sinon on efface les autres réglages.
+- La page profil lit la liste **AniList publique** d'un pseudo (AniList applique SA confidentialité) ; notre flag `private` ne gouverne QUE la page profil AniScroll — c'est explicité dans la note du réglage.
+- `getUser(query.user)` est sensible à la casse côté Prisma ; pas de ligne = pas privé = visible (défaut sûr).
+- TS : `for..of` sur `Map.values()` exige `Array.from(...)` avec la cible TS du repo (erreur TS2802).
+
+### État déployé / à faire
+- Branche `dev`. `tsc --noEmit` clean, JSON locales validés.
+- ⏳ **À tester** : éditer un rewatch en local → persiste dans `/en/my-list` après reload ; sync ON, avancer un ep hors-ligne puis resync → progression locale conservée si plus avancée ; activer « Profil privé » dans Réglages → ouvrir `/profile/<toi>` en navigation privée (non connecté) = page « profil privé », connecté = liste visible.
+- ⏭️ **Restant** : notifications (nouvel ep + rappel reprise) — session dédiée.
+
+---
+
 ## 2026-06-13 — Popup note refondue (centrée, /10, traduite) + Auto play dans Automatisation
 
 ### Contexte

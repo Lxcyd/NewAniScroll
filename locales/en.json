@@ -76,6 +76,14 @@
       "rateOnCompleteDesc": "Shows a rating dialog when you finish the last episode of an anime.",
       "note": "This setting is saved on this device. The rating is stored in your local list (and pushed to AniList when sync is on)."
     },
+    "profile": {
+      "title": "Profile",
+      "desc": "Control who can see your AniScroll profile page.",
+      "private": "Private profile",
+      "privateDesc": "Hide your profile page from other users. Only you can open it while signed in.",
+      "note": "This only affects your AniScroll profile page. Your AniList account privacy is managed separately on AniList.",
+      "saveError": "Couldn't update your profile visibility."
+    },
     "sync": {
       "title": "List & AniList Sync",
       "desc": "Automate your list as you watch. Rules always update your local list; when the master switch is on and you're connected, they also push to AniList.",
@@ -392,7 +400,9 @@
     "createdAt": "Created At :",
     "editProfile": "Edit Profile",
     "startWatching": "Start Watching",
-    "watchedToggleTooltip": "Disabling this will stop adding your Anime to 'Watched using AniScroll' list."
+    "watchedToggleTooltip": "Disabling this will stop adding your Anime to 'Watched using AniScroll' list.",
+    "privateTitle": "This profile is private",
+    "privateBody": "This user has chosen to keep their list hidden. Only they can view it."
   },
   "myList": {
     "localDesc": "Saved on this device, no account needed.",

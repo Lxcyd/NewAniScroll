@@ -82,7 +82,7 @@ export async function fullSyncFromAniList(): Promise<{ ok: boolean; count: numbe
         query: `query ($userName: String) {
           MediaListCollection(userName: $userName, type: ANIME) {
             lists { entries {
-              status score(format: POINT_10_DECIMAL) progress updatedAt
+              status score(format: POINT_10_DECIMAL) progress repeat updatedAt
               startedAt { year month day } completedAt { year month day } notes
               media { id episodes title { english romaji native userPreferred } coverImage { large } }
             } }
@@ -106,6 +106,7 @@ export async function fullSyncFromAniList(): Promise<{ ok: boolean; count: numbe
           status: (e.status as Status) ?? null,
           score: typeof e.score === "number" && e.score > 0 ? e.score : null,
           progress: Number(e.progress) || 0,
+          repeat: Number(e.repeat) || 0,
           total: typeof e.media?.episodes === "number" ? e.media.episodes : null,
           title: e.media?.title || undefined,
           coverImage: e.media?.coverImage?.large ?? null,
@@ -122,13 +123,51 @@ export async function fullSyncFromAniList(): Promise<{ ok: boolean; count: numbe
         });
       }
     }
-    const entries = Array.from(byId.values());
-    // Replace: AniList is the source of truth at sync time (per user choice).
-    const count = importEntries(entries, "replace");
+    // ── Conflict resolution (automatic) ────────────────────────────
+    // AniList is authoritative, but we don't blindly drop local-only progress:
+    // when the SAME anime exists in both and they DISAGREE on progress, keep
+    // the more-advanced one (and its matching status) so a few episodes watched
+    // offline / on another device aren't lost. Entries only in local (not on
+    // AniList yet) are preserved too. This makes resync non-destructive.
+    const localNow = getLocalList();
+    const resolved: LocalEntry[] = [];
+    for (const remote of Array.from(byId.values())) {
+      const local = localNow[remote.mediaId];
+      resolved.push(local ? reconcileEntry(local, remote) : remote);
+    }
+    // Carry over entries that exist ONLY locally (absent from AniList).
+    for (const local of Object.values(localNow)) {
+      if (!byId.has(local.mediaId)) resolved.push(local);
+    }
+    // We've already merged, so a straight replace writes the resolved set.
+    const count = importEntries(resolved, "replace");
     return { ok: true, count };
   } catch {
     return { ok: false, count: 0 };
   }
+}
+
+/**
+ * Merge one local entry with its AniList counterpart, keeping whichever side is
+ * more advanced. AniList wins on ties and on every non-progress field (it's the
+ * source of truth while sync is on) — we only defend local progress that's
+ * genuinely ahead of AniList (e.g. episodes watched offline since the last push).
+ */
+function reconcileEntry(local: LocalEntry, remote: LocalEntry): LocalEntry {
+  const localAhead = (local.progress ?? 0) > (remote.progress ?? 0);
+  if (!localAhead) return remote;
+  return {
+    ...remote,
+    progress: local.progress,
+    // Keep local's status only when it reflects the more-advanced progress
+    // (CURRENT/COMPLETED); otherwise trust AniList's status.
+    status:
+      local.status === "CURRENT" || local.status === "COMPLETED"
+        ? local.status
+        : remote.status,
+    // Local activity is more recent if it's ahead — preserve it for auto-pause.
+    activityAt: Math.max(local.activityAt ?? 0, remote.activityAt ?? 0),
+  };
 }
 
 /** De-dupe guard: the player re-binds its `ended` listener per episode/server,

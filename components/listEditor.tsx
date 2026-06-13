@@ -218,6 +218,7 @@ const ListEditor: React.FC<ListEditorProps> = ({
         setStatus((e.status as Status) ?? null);
         setScore(typeof e.score === "number" ? e.score : 0);
         setProgress(typeof e.progress === "number" ? e.progress : 0);
+        setRewatches(typeof e.repeat === "number" ? e.repeat : 0);
         setNotes(e.notes || "");
         setStartDate(fuzzyToInput(e.startedAt));
         setFinishDate(fuzzyToInput(e.completedAt));
@@ -420,6 +421,7 @@ const ListEditor: React.FC<ListEditorProps> = ({
         coverImage:
           info?.coverImage?.large || info?.coverImage?.extraLarge || null,
         notes: notes || null,
+        repeat: rewatches,
         startedAt: startDate ? toFuzzy(startDate) : null,
         completedAt: finishDate ? toFuzzy(finishDate) : null,
       });

@@ -148,6 +148,55 @@ export default function Settings() {
     if (mounted) setTitlePrefState(livePref);
   }, [livePref, mounted]);
 
+  // ── Profile visibility (server-side, requires AniList login) ─────
+  // Stored in the Prisma user `setting` JSON. When private, only the owner can
+  // open /profile/<name>. We load the current value once the session resolves.
+  const [profilePrivate, setProfilePrivate] = useState(false);
+  const [profileSettings, setProfileSettings] = useState<any>(null);
+  const [profileBusy, setProfileBusy] = useState(false);
+  useEffect(() => {
+    const name = session?.user?.name;
+    if (!name) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch(`/api/user/profile?name=${encodeURIComponent(name)}`);
+        if (!r.ok) return;
+        const u = await r.json();
+        if (cancelled) return;
+        setProfileSettings(u?.setting || {});
+        setProfilePrivate(u?.setting?.private === true);
+      } catch {
+        /* best-effort — toggle just stays at its default */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [session?.user?.name]);
+
+  const updateProfilePrivate = async (next: boolean) => {
+    const name = session?.user?.name;
+    if (!name || profileBusy) return;
+    setProfilePrivate(next); // optimistic
+    setProfileBusy(true);
+    try {
+      const settings = { ...(profileSettings || {}), private: next };
+      const r = await fetch("/api/user/profile", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, settings }),
+      });
+      if (!r.ok) throw new Error("save failed");
+      setProfileSettings(settings);
+    } catch {
+      setProfilePrivate(!next); // revert
+      toast.error(t("settings.profile.saveError"));
+    } finally {
+      setProfileBusy(false);
+    }
+  };
+
   const updateTitlePref = (next: TitlePref) => {
     setTitlePrefState(next);
     setTitlePref(next);
@@ -550,6 +599,24 @@ export default function Settings() {
             )}
             <p className="text-white/40 text-xs mt-3">{t("settings.sync.note")}</p>
           </section>
+
+          {/* ── Profile visibility (logged-in only) ──────────────── */}
+          {isLoggedIn && (
+            <section className="mb-10">
+              <h2 className="text-xl font-semibold mb-1">{t("settings.profile.title")}</h2>
+              <p className="text-white/60 text-sm mb-4">{t("settings.profile.desc")}</p>
+              <div className="rounded-xl bg-white/5 ring-1 ring-white/10 px-4 divide-y divide-white/5">
+                <Toggle
+                  label={t("settings.profile.private")}
+                  desc={t("settings.profile.privateDesc")}
+                  checked={profilePrivate}
+                  onChange={updateProfilePrivate}
+                  disabled={profileBusy}
+                />
+              </div>
+              <p className="text-white/40 text-xs mt-3">{t("settings.profile.note")}</p>
+            </section>
+          )}
 
           {/* ── My list (local) ──────────────────────────────────── */}
           <section className="mb-10">

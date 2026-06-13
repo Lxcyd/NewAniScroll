@@ -37,6 +37,8 @@ export type LocalEntry = {
   startedAt: FuzzyDate | null;
   completedAt: FuzzyDate | null;
   notes: string | null;
+  /** Number of times re-watched (AniList `repeat`). Defaults to 0. */
+  repeat?: number;
   /** epoch ms of the last LOCAL write — drives "recently" ordering on My List. */
   updatedAt: number;
   /** epoch ms of the last real WATCH activity (an episode finished, or AniList's
@@ -109,6 +111,7 @@ export function upsertLocalEntry(
     completedAt:
       patch.completedAt !== undefined ? patch.completedAt : prev?.completedAt ?? null,
     notes: patch.notes !== undefined ? patch.notes : prev?.notes ?? null,
+    repeat: patch.repeat !== undefined ? patch.repeat : prev?.repeat ?? 0,
     updatedAt: patch.updatedAt !== undefined ? patch.updatedAt : Date.now(),
     activityAt:
       patch.activityAt !== undefined ? patch.activityAt : prev?.activityAt,

@@ -17,6 +17,9 @@ type MyListProps = {
   user: any;
   time: any;
   userSettings: any;
+  /** Set when the viewed profile is private and the viewer isn't the owner. */
+  isPrivate?: boolean;
+  viewedName?: string;
 };
 
 export default function MyList({
@@ -25,9 +28,42 @@ export default function MyList({
   user,
   time,
   userSettings,
+  isPrivate,
+  viewedName,
 }: MyListProps) {
   const titlePref = useTitlePref();
   const { t } = useTranslation();
+
+  // Private-profile guard: the owner sees their list normally (handled
+  // server-side), everyone else lands here.
+  if (isPrivate) {
+    return (
+      <>
+        <Head>
+          <title>{viewedName ? `${viewedName} • AniScroll` : "AniScroll"}</title>
+        </Head>
+        <Navbar withNav toTop shrink bgHover scrollP={110} paddingY={"py-1"} />
+        <div className="flex flex-col items-center justify-center min-h-screen px-4 text-center">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            fill="none"
+            viewBox="0 0 24 24"
+            strokeWidth={1.5}
+            stroke="currentColor"
+            className="w-12 h-12 text-white/50 mb-4"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z"
+            />
+          </svg>
+          <h1 className="text-2xl font-bold mb-2">{t("profile.privateTitle")}</h1>
+          <p className="text-white/60 max-w-sm">{t("profile.privateBody")}</p>
+        </div>
+      </>
+    );
+  }
   const [listFilter, setListFilter] = useState("all");
   const [visible, setVisible] = useState(false);
   const [useCustomList, setUseCustomList] = useState(true);
@@ -455,6 +491,20 @@ export async function getServerSideProps(context: any) {
     return {
       notFound: true,
     };
+  }
+
+  // ── Profile visibility gate ──────────────────────────────────────
+  // Look up the VIEWED user's app settings. When their profile is marked
+  // private, only the owner (signed in as the same AniList name) may see it;
+  // everyone else gets a "private profile" page (not a 404, so it's clear the
+  // user exists but chose to hide their list).
+  const viewedUserData = await getUser(query.user, false).catch(() => null);
+  const isOwner =
+    !!session?.user?.name &&
+    String(session.user.name).toLowerCase() ===
+      String(query.user).toLowerCase();
+  if (viewedUserData?.setting?.private === true && !isOwner) {
+    return { props: { isPrivate: true, viewedName: query.user } };
   }
 
   let userData;
