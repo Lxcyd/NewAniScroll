@@ -20,9 +20,11 @@ const SEGMENT_LABEL_KEY: Record<string, string> = {
 };
 
 const NEXT_EP_TAIL_SECONDS = 30;
-// Show the rate popup this many seconds before the final episode ends, so it's
-// on screen during the credits rather than after a hard cut at the very end.
-const RATE_PROMPT_LEAD_SECONDS = 25;
+// Show the rate popup once the viewer passes this fraction of the final
+// episode (88%). Late enough that the story is effectively over (the last ~12%
+// is almost always ED + next-ep preview), early enough that they're still
+// watching when it appears.
+const RATE_PROMPT_FRACTION = 0.88;
 // Preload the next episode's route a short lead BEFORE the Next button appears,
 // so the route + player chunk are already cached by the time the button shows
 // and the user clicks. Relative to the button's own appearance window
@@ -409,9 +411,10 @@ export default function SkipOverlay({
   }, [active, playerPrefs.autoSkipIntro, playerPrefs.autoSkipOutro]);
 
   /* ── Auto next episode ───────────────────────────────────────────
-     When enabled, advance the moment the player reaches the very end.
-     Guard with a ref so the navigation fires exactly once even though
-     `currentTime` keeps ticking. Reset per-episode via nextEpisodeHref. */
+     When enabled, advance as soon as the "Next Episode" button would
+     appear (the outro starts, or we're within NEXT_EP_TAIL_SECONDS of the
+     end) — i.e. exactly when `showNext` flips true. Guard with a ref so it
+     fires once. Reset per-episode via nextEpisodeHref. */
   const autoAdvancedRef = useRef(false);
   useEffect(() => {
     autoAdvancedRef.current = false;
@@ -419,19 +422,19 @@ export default function SkipOverlay({
   useEffect(() => {
     if (!playerPrefs.autoNextEpisode || !nextEpisodeHref) return;
     if (autoAdvancedRef.current) return;
-    // Fire within the last second so we don't depend on the `ended`
-    // event (which some servers swallow / wrap back to 0).
-    if (duration > 0 && currentTime >= duration - 1) {
+    if (showNext) {
       autoAdvancedRef.current = true;
       goToNextEpisode();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentTime, duration, playerPrefs.autoNextEpisode, nextEpisodeHref]);
+  }, [showNext, playerPrefs.autoNextEpisode, nextEpisodeHref]);
 
   /* ── Rate popup on the final episode ─────────────────────────────
-     Surface the rate popup a little BEFORE the last episode ends (so it's
-     on screen while the credits roll, not after a hard cut to the end).
-     Fires once per episode, guarded by a ref reset on episode change. */
+     Surface the rate popup once the viewer is ~88% through the last episode
+     — late enough that they've effectively finished the story (the tail is
+     almost always the ED + next-episode preview), early enough to still be
+     watching when it pops. A % threshold (not a fixed lead) adapts to both
+     ~24min TV episodes and longer specials/films. Fires once per episode. */
   const ratePromptedRef = useRef(false);
   useEffect(() => {
     ratePromptedRef.current = false;
@@ -439,7 +442,7 @@ export default function SkipOverlay({
   useEffect(() => {
     if (!isFinalEpisode || !onFinalEpisodeNearEnd) return;
     if (ratePromptedRef.current) return;
-    if (duration > 0 && currentTime >= duration - RATE_PROMPT_LEAD_SECONDS) {
+    if (duration > 0 && currentTime >= duration * RATE_PROMPT_FRACTION) {
       ratePromptedRef.current = true;
       onFinalEpisodeNearEnd();
     }

@@ -7,6 +7,24 @@ Ordre anti-chronologique (le plus récent en haut). Une entrée = une session/su
 
 ---
 
+## 2026-06-14 — Réglages timing : auto-next au bouton, popup note à 88%
+
+### Contexte
+Deux ajustements de déclenchement dans `SkipOverlay.tsx`.
+
+### Décisions prises
+1. **Auto épisode suivant** déclenché quand le **bouton « Next Episode » apparaît** (`showNext` = début de l'outro OU dans les `NEXT_EP_TAIL_SECONDS` de la fin), au lieu de l'ancien `duration - 1s`. Effet dépend de `showNext`, gardé par `autoAdvancedRef`.
+2. **Popup de note** déclenchée à **88% de la durée** (`RATE_PROMPT_FRACTION = 0.88`) au lieu d'un lead fixe de 25 s. Un seuil en % s'adapte aux épisodes TV ~24 min comme aux specials/films ; 88% = le dernier ~12% est quasi toujours ED + preview, donc l'histoire est finie mais le spectateur regarde encore.
+
+### Leçons / pièges
+- Sur le dernier épisode il n'y a en général **pas** de `nextEpisodeHref` → l'auto-next ne se déclenche pas, donc aucun conflit avec la popup de note. Si `autoSkipOutro` est actif, le saut pousse `currentTime` au-delà de 88% → la popup s'ouvre quand même.
+
+### État déployé / à faire
+- Branche `dev`. `tsc --noEmit` clean.
+- ⏳ Tester : auto-next part dès l'apparition du bouton ; popup note vers 88% du dernier ep.
+
+---
+
 ## 2026-06-14 — Lot listes : rewatch local, fusion conflit au resync, profil privé
 
 ### Contexte
