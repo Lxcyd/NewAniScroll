@@ -20,6 +20,7 @@ import { primeMediaCache } from "@/lib/anilist/getMediaMeta";
 import { anilistFetch } from "@/lib/anilist/anilistFetch";
 import { getUserList, peekListEntry, hasUserList, patchListEntry } from "@/lib/anilist/userListCache";
 import { peekLocalEntry, LOCAL_LIST_EVENT } from "@/lib/list/localList";
+import { useSyncPrefs } from "@/lib/prefs/syncPrefs";
 import { getCachedAnime } from "@/lib/db/anime";
 import { loadFanarts, FanartPayload } from "@/lib/db/fanarts";
 import { resolveSeasonChain, resolveSeasonList, SeasonEntry } from "@/lib/anilist/seasonChain";
@@ -84,6 +85,10 @@ export default function Info({
 }: InfoTypes) {
   const isMobile = useIsMobile(initialUA);
   const { data: session, status: sessionStatus }: any = useSession();
+  // When AniList sync is off, a connected user's status comes from the local
+  // list too (the editor writes there), so the info page must read from the
+  // same place to stay consistent.
+  const syncEnabled = useSyncPrefs().enabled;
   const { toggleFavourite } = useAniList(session);
   const { t } = useTranslation();
   const router = useRouter();
@@ -177,6 +182,8 @@ export default function Info({
     const token = session?.user?.token;
     const userName = session?.user?.name;
     const aniId = Number(info?.id);
+    // Sync off → the local-list effect below owns the status instead.
+    if (!syncEnabled) return;
     if (!token || !userName || !Number.isFinite(aniId)) return;
     let cancelled = false;
 
@@ -229,20 +236,23 @@ export default function Info({
     return () => {
       cancelled = true;
     };
-  }, [session?.user?.token, session?.user?.name, info?.id]);
+  }, [session?.user?.token, session?.user?.name, info?.id, syncEnabled]);
 
-  // ── Local-list status for guests ─────────────────────────────────────
-  // Visitors without an AniList session get their status/progress from the
-  // local list (lib/list/localList.ts) instead. We re-read on the local-list
-  // change event so finishing an episode (or editing) reflects immediately.
+  // ── Local-list status (guests, and connected users with sync off) ─────
+  // Status/progress come from the local list (lib/list/localList.ts) when the
+  // user has no AniList session OR has turned sync off (the editor writes
+  // locally in both cases). We re-read on the local-list change event so
+  // finishing an episode (or editing) reflects immediately.
   //
-  // IMPORTANT: only run once next-auth has CONFIRMED there's no session
-  // (status === "unauthenticated"). During the brief "loading" phase right
-  // after hydration `session` is undefined for a signed-in user too — acting
-  // on it then would flash "Add to list" (status null) over their real
-  // AniList status until the signed-in effect resolves.
+  // IMPORTANT for the signed-in case: only treat a missing session as "guest"
+  // once next-auth has CONFIRMED it (status === "unauthenticated"). During the
+  // brief post-hydration "loading" phase `session` is undefined for a signed-in
+  // user too — acting then would flash "Add to list" over their real status.
   useEffect(() => {
-    if (sessionStatus !== "unauthenticated") return;
+    const useLocal =
+      !syncEnabled /* connected-but-off or guest-with-off */ ||
+      sessionStatus === "unauthenticated";
+    if (!useLocal) return;
     const aniId = Number(info?.id);
     if (!Number.isFinite(aniId)) return;
     const read = () => {
@@ -254,7 +264,7 @@ export default function Info({
     read();
     window.addEventListener(LOCAL_LIST_EVENT, read);
     return () => window.removeEventListener(LOCAL_LIST_EVENT, read);
-  }, [sessionStatus, info?.id]);
+  }, [sessionStatus, syncEnabled, info?.id]);
 
   // ── Prefetch the player for the "Watch" target ───────────────────────
   // Visitors who open an anime page usually go on to watch it, so we warm

@@ -9,6 +9,7 @@ import {
   removeLocalEntry,
 } from "@/lib/list/localList";
 import { inputToFuzzy as toFuzzy } from "@/lib/list/types";
+import { useSyncPrefs } from "@/lib/prefs/syncPrefs";
 
 /**
  * Full list editor — layout/design adapted from the AniScroll reference editor
@@ -198,9 +199,12 @@ const ListEditor: React.FC<ListEditorProps> = ({
     }
   }, []);
 
-  // When the user has no AniList session we operate on the LOCAL list
-  // (lib/list/localList.ts) instead of AniList — same UI, different store.
-  const isLocal = !session?.user?.token;
+  // Operate on the LOCAL list (lib/list/localList.ts) instead of AniList when
+  // EITHER the user has no AniList session OR they've turned the AniList sync
+  // master toggle off. "Sync off" means "don't touch my AniList account" — so
+  // even an explicit manual edit here stays local until they re-enable sync.
+  const syncEnabled = useSyncPrefs().enabled;
+  const isLocal = !session?.user?.token || !syncEnabled;
 
   useEffect(() => {
     if (!animeId) return;
