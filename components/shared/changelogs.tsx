@@ -87,43 +87,68 @@ export default function ChangeLogs() {
   // Content signature of the currently-shown popup, used to record dismissal.
   let [sig, setSig] = useState<string | null>(null);
   let completeButtonRef = useRef(null);
+  // Signatures of THIS release across every language (en + fr). Dismissing in
+  // one language records all of them, so switching UI language afterwards does
+  // NOT re-show the same release's popup in the other language. We still key off
+  // a content hash per language (so editing a popup file re-triggers it), but a
+  // single dismiss covers the whole release. See SEEN_KEY notes above.
+  const allSigsRef = useRef<Set<string>>(new Set());
 
   const lang = i18n.language?.startsWith("fr") ? "fr" : "en";
 
-  function closeModal() {
+  function markSeen(sigs: string[]) {
     try {
-      if (sig) {
-        const seen = readSeenSet();
-        seen.add(sig);
-        localStorage.setItem(SEEN_KEY, Array.from(seen).join(","));
-      }
+      const seen = readSeenSet();
+      for (const s of sigs) if (s) seen.add(s);
+      localStorage.setItem(SEEN_KEY, Array.from(seen).join(","));
     } catch {
       /* storage unavailable — popup will just show again next load */
     }
+  }
+
+  function closeModal() {
+    // Record every language's signature for this release, not just the one
+    // currently shown, so a language switch doesn't re-open it.
+    const sigs = Array.from(allSigsRef.current);
+    if (sig) sigs.push(sig);
+    markSeen(sigs);
     setIsOpen(false);
   }
 
+  // Load EVERY language's popup once on mount to collect all signatures for the
+  // current release. This lets a single dismiss cover all languages, and lets
+  // us decide visibility against the active language's content.
   useEffect(() => {
     let cancelled = false;
-    // Fetch the per-language popup markdown. Cache-bust so a returning visitor
-    // doesn't get a stale browser-cached copy and miss a new release.
-    fetch(`/api/v2/changelog-popup?lang=${lang}&t=${Date.now()}`, { cache: "no-store" })
-      .then((r) => (r.ok ? r.text() : Promise.reject(r.status)))
-      .then((md) => {
-        if (cancelled) return;
-        const parsed = parsePopup(md);
-        if (!parsed) return;
-        setVersion(parsed.version);
-        setBody(parsed.body);
-        setSig(parsed.sig);
-        // Show the popup unless this exact content has already been dismissed.
-        // Keying off the content hash means editing the file (even without a
-        // version bump) re-shows it automatically.
-        if (!readSeenSet().has(parsed.sig)) setIsOpen(true);
-      })
-      .catch(() => {
-        /* popup changelog unavailable — silently skip */
-      });
+    const LANGS = ["en", "fr"] as const;
+    Promise.all(
+      LANGS.map((l) =>
+        fetch(`/api/v2/changelog-popup?lang=${l}&t=${Date.now()}`, { cache: "no-store" })
+          .then((r) => (r.ok ? r.text() : Promise.reject(r.status)))
+          .then((md) => ({ l, parsed: parsePopup(md) }))
+          .catch(() => ({ l, parsed: null })),
+      ),
+    ).then((results) => {
+      if (cancelled) return;
+      const sigs = new Set<string>();
+      let active: ReturnType<typeof parsePopup> = null;
+      for (const { l, parsed } of results) {
+        if (parsed) {
+          sigs.add(parsed.sig);
+          if (l === lang) active = parsed;
+        }
+      }
+      allSigsRef.current = sigs;
+      if (active) {
+        setVersion(active.version);
+        setBody(active.body);
+        setSig(active.sig);
+      }
+      // Show only if NONE of this release's signatures have been dismissed yet.
+      const seen = readSeenSet();
+      const alreadySeen = Array.from(sigs).some((s) => seen.has(s));
+      if (active && !alreadySeen) setIsOpen(true);
+    });
     return () => {
       cancelled = true;
     };
