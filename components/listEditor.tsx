@@ -3,6 +3,12 @@ import { toast } from "sonner";
 import { AniListInfoTypes } from "types/info/AnilistInfoTypes";
 import { useTranslation } from "react-i18next";
 import { peekListEntry, patchListEntry, UserListEntry } from "@/lib/anilist/userListCache";
+import {
+  peekLocalEntry,
+  upsertLocalEntry,
+  removeLocalEntry,
+} from "@/lib/list/localList";
+import { inputToFuzzy as toFuzzy } from "@/lib/list/types";
 
 /**
  * Full list editor — layout/design adapted from the AniScroll reference editor
@@ -192,11 +198,35 @@ const ListEditor: React.FC<ListEditorProps> = ({
     }
   }, []);
 
+  // When the user has no AniList session we operate on the LOCAL list
+  // (lib/list/localList.ts) instead of AniList — same UI, different store.
+  const isLocal = !session?.user?.token;
+
   useEffect(() => {
+    if (!animeId) return;
+    let cancelled = false;
+
+    // ── Local mode: seed straight from the local list, no network. ──
+    if (isLocal) {
+      const e = peekLocalEntry(animeId);
+      if (e) {
+        setEntryId(null);
+        setStatus((e.status as Status) ?? null);
+        setScore(typeof e.score === "number" ? e.score : 0);
+        setProgress(typeof e.progress === "number" ? e.progress : 0);
+        setNotes(e.notes || "");
+        setStartDate(fuzzyToInput(e.startedAt));
+        setFinishDate(fuzzyToInput(e.completedAt));
+      } else {
+        setEntryId(null);
+        setStatus(null);
+      }
+      return;
+    }
+
     const token = session?.user?.token;
     const userName = session?.user?.name;
-    if (!token || !animeId) return;
-    let cancelled = false;
+    if (!token) return;
 
     // 1. Instant seed from the cached whole-list entry (no network).
     if (userName) seedFromEntry(peekListEntry(userName, animeId));
@@ -245,7 +275,7 @@ const ListEditor: React.FC<ListEditorProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [animeId, session?.user?.token, session?.user?.name, seedFromEntry]);
+  }, [animeId, isLocal, session?.user?.token, session?.user?.name, seedFromEntry]);
 
   // Close the status dropdown on outside click.
   useEffect(() => {
@@ -345,6 +375,14 @@ const ListEditor: React.FC<ListEditorProps> = ({
   };
 
   const handleRemove = async () => {
+    // Local mode: just drop the local entry and update the page.
+    if (isLocal) {
+      removeLocalEntry(animeId);
+      onSaved?.({ status: null, progress: 0, score: 0, removed: true });
+      toast.success(t("listEditor.removed"));
+      close();
+      return;
+    }
     const token = session?.user?.token;
     if (!token) return;
     // Optimistic: drop from the cache, update the page, and close immediately;
@@ -359,6 +397,33 @@ const ListEditor: React.FC<ListEditorProps> = ({
   };
 
   const handleSave = async () => {
+    // ── Local mode: write to the local list, no AniList call. ──
+    if (isLocal) {
+      if (status === null) {
+        removeLocalEntry(animeId);
+        onSaved?.({ status: null, progress: 0, score: 0, removed: true });
+        toast.success(t("listEditor.saved"));
+        close();
+        return;
+      }
+      upsertLocalEntry(animeId, {
+        status,
+        score: score || null,
+        progress,
+        total: totalEp > 0 ? totalEp : null,
+        title: info?.title,
+        coverImage:
+          info?.coverImage?.large || info?.coverImage?.extraLarge || null,
+        notes: notes || null,
+        startedAt: startDate ? toFuzzy(startDate) : null,
+        completedAt: finishDate ? toFuzzy(finishDate) : null,
+      });
+      onSaved?.({ status, progress, score, removed: false });
+      toast.success(t("listEditor.saved"));
+      close();
+      return;
+    }
+
     const token = session?.user?.token;
     if (!token) return;
     setSaving(true);
@@ -513,6 +578,7 @@ const ListEditor: React.FC<ListEditorProps> = ({
               <div className="list-editor-poster" style={{ backgroundImage: `url('${poster}')` }} />
             )}
             <span className="list-editor-title">{title}</span>
+            {!isLocal && (
             <button
               type="button"
               aria-label={t("listEditor.favourite")}
@@ -531,6 +597,7 @@ const ListEditor: React.FC<ListEditorProps> = ({
                 <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
               </svg>
             </button>
+            )}
             <button
               type="button"
               className="list-editor-save-btn"

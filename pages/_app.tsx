@@ -18,6 +18,7 @@ import { Toaster, toast } from "sonner";
 import ChangeLogs from "../components/shared/changelogs";
 import AnilistHealthBanner from "../components/shared/AnilistHealthBanner";
 import { Analytics } from "@vercel/analytics/react";
+import { runAutoPauseSweep } from "@/lib/list/syncEngine";
 import type { AppProps } from "next/app";
 
 /**
@@ -214,6 +215,21 @@ export default function App({
       cancelled = true;
       clearInterval(interval);
     };
+  }, []);
+
+  // Auto-pause sweep: once per app load, move long-untouched CURRENT entries to
+  // PAUSED (local list + AniList push when sync is enabled). No-op unless the
+  // user turned on auto-pause in Settings. Deferred to idle so it never blocks
+  // first paint, and best-effort (failures are swallowed inside the engine).
+  useEffect(() => {
+    const run = () => runAutoPauseSweep().catch(() => {});
+    const ric = (window as any).requestIdleCallback;
+    if (typeof ric === "function") {
+      const id = ric(run, { timeout: 4000 });
+      return () => (window as any).cancelIdleCallback?.(id);
+    }
+    const tid = setTimeout(run, 2000);
+    return () => clearTimeout(tid);
   }, []);
 
   const handleCheatCodeEntered = () => {

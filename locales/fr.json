@@ -68,7 +68,38 @@
     "titleLangNote": "Les titres français ne sont pas fournis par AniList et devraient être devinés à partir de synonymes, ce qui n'est pas fiable — ce sélecteur ne couvre donc que l'anglais et le romaji.",
     "interfaceLanguage": "Langue de l'interface",
     "interfaceLanguageDesc": "Langue utilisée pour les boutons, menus et libellés du site.",
-    "interfaceLangNote": "Nous détectons automatiquement la langue de votre navigateur à la première visite ; votre choix ici reste prioritaire et est enregistré sur cet appareil."
+    "interfaceLangNote": "Nous détectons automatiquement la langue de votre navigateur à la première visite ; votre choix ici reste prioritaire et est enregistré sur cet appareil.",
+    "sync": {
+      "title": "Synchronisation AniList",
+      "desc": "Automatisez votre liste pendant que vous regardez. Les règles mettent toujours à jour votre liste locale ; quand l'interrupteur principal est activé et que vous êtes connecté, elles poussent aussi vers AniList.",
+      "master": "Activer la synchronisation AniList",
+      "masterDesc": "Pousser les changements automatiques vers votre compte AniList connecté.",
+      "masterDescGuest": "Connectez AniList pour pousser aussi ces changements vers votre compte — les règles s'appliquent déjà à votre liste locale.",
+      "autoProgress": "Mettre à jour le nombre d'épisodes",
+      "autoProgressDesc": "À la fin d'un épisode, définit votre progression sur cet épisode.",
+      "autoWatching": "Passer en « En cours » automatiquement",
+      "autoWatchingDesc": "Finir le premier épisode d'un anime le marque « En cours ».",
+      "autoPause": "Mettre en pause les anime inactifs",
+      "autoPauseDesc": "Passe un anime « En cours » en « En pause » s'il n'a pas été touché depuis un moment.",
+      "autoPauseDays": "Inactivité avant la mise en pause",
+      "days": "jours",
+      "note": "Ces réglages sont enregistrés sur cet appareil."
+    },
+    "list": {
+      "title": "Ma liste (locale)",
+      "desc": "Votre liste locale est sur cet appareil ({{count}} entrées). Exportez-la pour la sauvegarder ou la transférer entre appareils.",
+      "merge": "Fusionner",
+      "replace": "Remplacer",
+      "export": "Exporter (JSON)",
+      "importFile": "Importer un fichier (JSON / XML MAL)",
+      "importUser": "Importer",
+      "anilistUserPlaceholder": "Pseudo AniList (liste publique)",
+      "importDone": "{{imported}} entrées importées sur {{total}}",
+      "importError": "Échec de l'import — vérifiez le fichier ou le pseudo.",
+      "userNotFound": "Utilisateur AniList introuvable ou liste privée.",
+      "mapping": "Correspondance des entrées MyAnimeList… {{done}}/{{total}}",
+      "note": "Le XML MAL est mappé automatiquement vers les ids AniList (les entrées sans correspondance sont ignorées). Le pseudo AniList importe une liste publique sans connexion."
+    }
   },
   "home": {
     "recentlyWatched": "Vu récemment",
@@ -326,6 +357,11 @@
     "editProfile": "Modifier le profil",
     "startWatching": "Commencer à regarder",
     "watchedToggleTooltip": "Désactiver ceci arrêtera d'ajouter vos animes à la liste « Vu sur AniScroll »."
+  },
+  "myList": {
+    "localDesc": "Enregistrée sur cet appareil, aucun compte requis.",
+    "manageInSettings": "Importer / exporter dans les Paramètres",
+    "empty": "Votre liste est vide — terminez un épisode ou importez une liste pour commencer."
   },
   "search": {
     "label": "Rechercher",

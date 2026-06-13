@@ -68,7 +68,38 @@
     "titleLangNote": "French titles are not supplied by AniList and would have to be guessed from synonyms, which is unreliable — so this picker only covers English and Romaji.",
     "interfaceLanguage": "Interface language",
     "interfaceLanguageDesc": "Language used for buttons, menus and labels across the site.",
-    "interfaceLangNote": "We auto-detect your browser language on first visit; your choice here always takes priority and is saved on this device."
+    "interfaceLangNote": "We auto-detect your browser language on first visit; your choice here always takes priority and is saved on this device.",
+    "sync": {
+      "title": "AniList synchronisation",
+      "desc": "Automate your list as you watch. Rules always update your local list; when the master switch is on and you're connected, they also push to AniList.",
+      "master": "Enable AniList sync",
+      "masterDesc": "Push automated changes to your connected AniList account.",
+      "masterDescGuest": "Connect AniList to also push these changes to your account — the rules already apply to your local list.",
+      "autoProgress": "Update episode count",
+      "autoProgressDesc": "When you finish an episode, set your progress to that episode.",
+      "autoWatching": "Auto set to Watching",
+      "autoWatchingDesc": "Finishing the first episode of an anime marks it as Watching.",
+      "autoPause": "Auto-pause stale anime",
+      "autoPauseDesc": "Move a Watching anime to Paused when it hasn't been touched in a while.",
+      "autoPauseDays": "Inactivity before pausing",
+      "days": "days",
+      "note": "These settings are saved on this device."
+    },
+    "list": {
+      "title": "My list (local)",
+      "desc": "Your local list lives on this device ({{count}} entries). Export it to back it up or move it between devices.",
+      "merge": "Merge",
+      "replace": "Replace",
+      "export": "Export (JSON)",
+      "importFile": "Import file (JSON / MAL XML)",
+      "importUser": "Import",
+      "anilistUserPlaceholder": "AniList username (public list)",
+      "importDone": "Imported {{imported}} of {{total}} entries",
+      "importError": "Import failed — check the file or username.",
+      "userNotFound": "AniList user not found or list is private.",
+      "mapping": "Mapping MyAnimeList entries… {{done}}/{{total}}",
+      "note": "MAL XML is mapped to AniList ids automatically (unmatched entries are skipped). AniList username imports a public list without signing in."
+    }
   },
   "home": {
     "recentlyWatched": "Recently Watched",
@@ -326,6 +357,11 @@
     "editProfile": "Edit Profile",
     "startWatching": "Start Watching",
     "watchedToggleTooltip": "Disabling this will stop adding your Anime to 'Watched using AniScroll' list."
+  },
+  "myList": {
+    "localDesc": "Saved on this device, no account needed.",
+    "manageInSettings": "Import / export in Settings",
+    "empty": "Your list is empty — finish an episode or import a list to get started."
   },
   "search": {
     "label": "Search",

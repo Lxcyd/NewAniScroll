@@ -1,14 +1,12 @@
 import Head from "next/head";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/router";
-import Modal from "@/components/modal";
 import { resolveSource, warmStream, clearPrefetchedSourcesFor } from "@/lib/watch/sourcePrefetch";
 import { prefetchSkips } from "@/lib/skip/prefetchSkips";
 import { prefetchEpisodeList } from "@/lib/watch/episodePrefetch";
 import { setPrefetchedInfo } from "@/lib/watch/infoPrefetch";
 
-import { signIn, useSession } from "next-auth/react";
-import AniList from "@/components/media/aniList";
+import { useSession } from "next-auth/react";
 import ListEditor from "@/components/listEditor";
 
 import { useAniList } from "@/lib/anilist/useAnilist";
@@ -21,6 +19,7 @@ import { redis } from "@/lib/redis";
 import { primeMediaCache } from "@/lib/anilist/getMediaMeta";
 import { anilistFetch } from "@/lib/anilist/anilistFetch";
 import { getUserList, peekListEntry, hasUserList, patchListEntry } from "@/lib/anilist/userListCache";
+import { peekLocalEntry, LOCAL_LIST_EVENT } from "@/lib/list/localList";
 import { getCachedAnime } from "@/lib/db/anime";
 import { loadFanarts, FanartPayload } from "@/lib/db/fanarts";
 import { resolveSeasonChain, resolveSeasonList, SeasonEntry } from "@/lib/anilist/seasonChain";
@@ -231,6 +230,25 @@ export default function Info({
       cancelled = true;
     };
   }, [session?.user?.token, session?.user?.name, info?.id]);
+
+  // ── Local-list status for guests ─────────────────────────────────────
+  // Visitors without an AniList session get their status/progress from the
+  // local list (lib/list/localList.ts) instead. We re-read on the local-list
+  // change event so finishing an episode (or editing) reflects immediately.
+  useEffect(() => {
+    if (session?.user?.token) return; // signed-in path handled above
+    const aniId = Number(info?.id);
+    if (!Number.isFinite(aniId)) return;
+    const read = () => {
+      const e = peekLocalEntry(aniId);
+      setStatusLabel(e?.status ?? null);
+      setProgress(e?.progress || 0);
+      setStatusResolved(true);
+    };
+    read();
+    window.addEventListener(LOCAL_LIST_EVENT, read);
+    return () => window.removeEventListener(LOCAL_LIST_EVENT, read);
+  }, [session?.user?.token, info?.id]);
 
   // ── Prefetch the player for the "Watch" target ───────────────────────
   // Visitors who open an anime page usually go on to watch it, so we warm
@@ -501,29 +519,11 @@ export default function Info({
 
       <Navbar info={info} />
 
-      {/* Signed-out: keep the simple "log in" prompt inside the generic Modal. */}
-      {!session && (
-        <Modal open={open} onClose={() => handleClose()}>
-          <div>
-            <div className="flex-center flex-col gap-5 px-10 py-5 bg-secondary rounded-md">
-              <div className="text-md font-extrabold font-karla">{t("nav.editYourList")}</div>
-              <button
-                className="flex items-center bg-[#363642] rounded-md text-white p-1"
-                onClick={() => signIn("AniListProvider")}
-              >
-                <h1 className="px-1 font-bold font-karla">{t("nav.loginWithAniList")}</h1>
-                <div className="scale-[60%] pb-[1px]">
-                  <AniList />
-                </div>
-              </button>
-            </div>
-          </div>
-        </Modal>
-      )}
-
-      {/* Signed-in: the full editor renders its OWN overlay (matching the
-          reference design), so it's not wrapped in <Modal>. */}
-      {open && session && info && (
+      {/* List editor renders its OWN overlay (matching the reference design),
+          so it's not wrapped in <Modal>. Works for everyone: signed-in users
+          edit their AniList entry, guests edit the local list (the editor
+          detects the missing session and switches to local mode). */}
+      {open && info && (
         <ListEditor
           animeId={info.id}
           session={session}

@@ -1,0 +1,85 @@
+/**
+ * AniList synchronisation preferences (local, per-device).
+ *
+ * Same pattern as lib/prefs/titlePref.ts: a single localStorage key, a
+ * CustomEvent for same-tab notification, and a hook returning the live value.
+ *
+ * The "master" toggle (`enabled`) gates whether anything is pushed to AniList
+ * at all. The three sub-toggles are independent rules that ALSO apply to the
+ * local list regardless of `enabled` (see lib/list/syncEngine.ts) — `enabled`
+ * only controls the AniList push, never the local-list bookkeeping.
+ */
+
+import { useEffect, useState } from "react";
+
+export type SyncPrefs = {
+  /** Master: push automations to the connected AniList account. */
+  enabled: boolean;
+  /** Update episode progress on episode finish. */
+  autoProgress: boolean;
+  /** First finished episode → status CURRENT. */
+  autoWatching: boolean;
+  /** CURRENT entries untouched for `autoPauseDays` → PAUSED. */
+  autoPause: boolean;
+  /** Inactivity window for auto-pause, in days. */
+  autoPauseDays: number;
+};
+
+export const DEFAULT_SYNC_PREFS: SyncPrefs = {
+  enabled: false,
+  autoProgress: true,
+  autoWatching: true,
+  autoPause: false,
+  autoPauseDays: 30,
+};
+
+const KEY = "aniscroll:syncPrefs";
+export const SYNC_PREFS_EVENT = "aniscroll:syncPrefs:change";
+
+export function getSyncPrefs(): SyncPrefs {
+  if (typeof window === "undefined") return DEFAULT_SYNC_PREFS;
+  try {
+    const raw = window.localStorage.getItem(KEY);
+    if (!raw) return DEFAULT_SYNC_PREFS;
+    const parsed = JSON.parse(raw);
+    // Merge over defaults so a stored object missing a newer field is safe.
+    return {
+      ...DEFAULT_SYNC_PREFS,
+      ...parsed,
+      autoPauseDays:
+        Number.isFinite(parsed?.autoPauseDays) && parsed.autoPauseDays > 0
+          ? Math.floor(parsed.autoPauseDays)
+          : DEFAULT_SYNC_PREFS.autoPauseDays,
+    };
+  } catch {
+    return DEFAULT_SYNC_PREFS;
+  }
+}
+
+export function setSyncPrefs(patch: Partial<SyncPrefs>): SyncPrefs {
+  const next = { ...getSyncPrefs(), ...patch };
+  if (typeof window !== "undefined") {
+    try {
+      window.localStorage.setItem(KEY, JSON.stringify(next));
+    } catch {
+      /* best-effort */
+    }
+    window.dispatchEvent(new CustomEvent(SYNC_PREFS_EVENT));
+  }
+  return next;
+}
+
+export function useSyncPrefs(): SyncPrefs {
+  const [prefs, setPrefs] = useState<SyncPrefs>(DEFAULT_SYNC_PREFS);
+  useEffect(() => {
+    const read = () => setPrefs(getSyncPrefs());
+    read();
+    window.addEventListener(SYNC_PREFS_EVENT, read);
+    window.addEventListener("storage", read);
+    return () => {
+      window.removeEventListener(SYNC_PREFS_EVENT, read);
+      window.removeEventListener("storage", read);
+    };
+  }, []);
+  return prefs;
+}

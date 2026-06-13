@@ -101,6 +101,11 @@ type Props = {
   aniListId?: number | null;
   /** 1-based episode number for the skip-times lookup. */
   episodeNumber?: number;
+  /** Fired once when the episode reaches its natural end. The watch page wires
+   *  this to the list sync engine (local list + optional AniList push). Kept as
+   *  a callback (not called directly here) because the player has no access to
+   *  the AniList `info` / session needed to build the sync payload. */
+  onEpisodeComplete?: (info: { aniListId: number; episodeNumber: number }) => void;
 };
 
 // Proxy base — defaults to the Cloudflare Worker (unmetered + edge cache).
@@ -980,12 +985,21 @@ export default function UniversalPlayer({
   malId = null,
   aniListId = null,
   episodeNumber,
+  onEpisodeComplete,
 }: Props) {
   const { t, i18n } = useTranslation();
   const playerRef = useRef<MediaPlayerInstance>(null);
   // Live hls.js instance — captured on provider setup so the seek handler can
   // abort in-flight segment loads and re-anchor on the new position.
   const hlsRef = useRef<any>(null);
+
+  // Keep the latest onEpisodeComplete in a ref so the (episode-scoped) ended
+  // listener always calls the current handler without re-binding on every
+  // render — the parent passes a fresh closure each time it re-renders.
+  const onEpisodeCompleteRef = useRef(onEpisodeComplete);
+  useEffect(() => {
+    onEpisodeCompleteRef.current = onEpisodeComplete;
+  }, [onEpisodeComplete]);
 
   // Identity-stable caches for the <MediaPlayer> `src` object and the subtitle
   // <Track> list. These MUST keep the same object identity across re-renders
@@ -2029,6 +2043,9 @@ export default function UniversalPlayer({
     const onEnded = () => {
       if (!video) return;
       markComplete(aniListId, episodeNumber, video.duration || 0);
+      // Notify the list sync engine (local list + optional AniList push). The
+      // watch page owns the actual sync logic since it has `info` + session.
+      onEpisodeCompleteRef.current?.({ aniListId, episodeNumber });
     };
 
     const bind = () => {

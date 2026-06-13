@@ -25,6 +25,7 @@ import { getServer } from "@/lib/servers";
 import { primeMediaCache, getCachedMediaMeta } from "@/lib/anilist/getMediaMeta";
 import { getCachedAnime } from "@/lib/db/anime";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
+import { onEpisodeFinished } from "@/lib/list/syncEngine";
 import { useTranslation } from "react-i18next";
 import { FULL_MEDIA_FIELDS } from "@/lib/anilist/fullMediaQuery";
 import { getPrefetchedSource, sourceKey, setPrefetchedSource, clearPrefetchedSourcesFor } from "@/lib/watch/sourcePrefetch";
@@ -1354,6 +1355,31 @@ export default function Watch({
   function handleOpen()  { setOpen(true);  document.body.style.overflow = "hidden"; }
   function handleClose() { setOpen(false); document.body.style.overflow = "auto";   }
 
+  // ── List sync on episode end ─────────────────────────────────
+  // The player fires onEpisodeComplete at the natural end of an episode; we
+  // hand the sync engine the full media context (total episodes, title, cover)
+  // so it can update the local list and — when AniList sync is enabled and the
+  // user is connected — push progress/status upstream. Total episodes: prefer
+  // the AniList `episodes` count, fall back to the next-airing episode minus
+  // one for still-releasing shows (matches the list editor's logic).
+  const handleEpisodeComplete = useCallback(
+    ({ aniListId, episodeNumber }) => {
+      const total =
+        info?.episodes ??
+        (info?.nextAiringEpisode?.episode
+          ? info.nextAiringEpisode.episode - 1
+          : null);
+      onEpisodeFinished({
+        aniId: aniListId,
+        episode: episodeNumber,
+        total,
+        title: info?.title,
+        coverImage: info?.coverImage?.large || info?.coverImage?.extraLarge || null,
+      }).catch(() => {});
+    },
+    [info],
+  );
+
   // ── Player ───────────────────────────────────────────────────
   // Memoized JSX — recomputes ONLY when player-relevant state changes.
   // Wrapping as a function component (`function Player(){}` defined inside Watch)
@@ -1417,6 +1443,7 @@ export default function Watch({
             malId={info?.idMal || null}
             aniListId={info?.id || null}
             episodeNumber={parseInt(epiNumber)}
+            onEpisodeComplete={handleEpisodeComplete}
             downloadName={`${(info?.title?.romaji || info?.title?.english || "anime").replace(/\s+/g, "_")}_E${epiNumber}${dub ? "_DUB" : ""}`}
             onError={(reason) =>
               markFailed(
@@ -1447,11 +1474,12 @@ export default function Watch({
           malId={info?.idMal || null}
           aniListId={info?.id || null}
           episodeNumber={parseInt(epiNumber)}
+          onEpisodeComplete={handleEpisodeComplete}
           onError={(reason) => markFailed(server.id, reason || "Iframe load timeout")}
         />
       </PlayerErrorBoundary>
     );
-  }, [activeServer, episodeNavigation, hlsLoading, hlsData, info, epiNumber, dub, markFailed, handleServerChange, autoplay]);
+  }, [activeServer, episodeNavigation, hlsLoading, hlsData, info, epiNumber, dub, markFailed, handleServerChange, autoplay, handleEpisodeComplete]);
 
   // ── Render ───────────────────────────────────────────────────
   return (

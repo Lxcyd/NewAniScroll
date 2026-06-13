@@ -217,16 +217,18 @@ export function Navbar({
                     </button>
                   </li>
                 )}
-                {session && (
-                  <li>
-                    <Link
-                      href={`/en/profile/${session?.user?.name}`}
-                      className="hover:text-action/80 transition-all duration-150 ease-linear whitespace-nowrap"
-                    >
-                      {t("nav.myList")}
-                    </Link>
-                  </li>
-                )}
+                {/* My List: AniList profile when signed in, local list page
+                    otherwise (guests get a full local list too). */}
+                <li>
+                  <Link
+                    href={
+                      session ? `/en/profile/${session?.user?.name}` : "/en/my-list"
+                    }
+                    className="hover:text-action/80 transition-all duration-150 ease-linear whitespace-nowrap"
+                  >
+                    {t("nav.myList")}
+                  </Link>
+                </li>
               </ul>
             )}
           </div>
@@ -363,6 +365,9 @@ export function Navbar({
                       >
                         {t("nav.signIn")}
                       </button>
+                      <Link href="/en/my-list" className="hover:text-action py-1">
+                        {t("nav.myList")}
+                      </Link>
                       <Link href="/en/settings" className="hover:text-action py-1">
                         {t("nav.settings")}
                       </Link>
