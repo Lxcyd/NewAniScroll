@@ -350,6 +350,7 @@ export default function Overview({ info, seasonList }: Props) {
                         href={s.url}
                         target="_blank"
                         rel="noreferrer"
+                        className={styles.siteBtn}
                         style={{
                           ...tStyles.siteBtn,
                           borderLeft: `3px solid ${s.color}`,

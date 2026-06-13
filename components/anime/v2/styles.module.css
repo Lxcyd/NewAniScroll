@@ -78,6 +78,22 @@
   background: var(--txt-3) !important;
 }
 
+/* External-site rows ("Watch & More"): slide-right hover + press feedback.
+   Ported from the reference project's .platform-row (modal.css). The row's
+   base layout/colour still come from the inline tStyles.siteBtn; this class
+   only layers on the transition and the :hover / :active transforms, which
+   inline styles can't express. */
+.siteBtn {
+  transition: background 0.18s, transform 0.15s, border-color 0.18s;
+}
+.siteBtn:hover {
+  background: var(--bg-3) !important;
+  transform: translateX(3px);
+}
+.siteBtn:active {
+  transform: translateX(1px) scale(0.99);
+}
+
 .root button:hover {
   filter: brightness(1.08);
 }
