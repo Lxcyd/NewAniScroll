@@ -33,37 +33,6 @@ export default function MyList({
 }: MyListProps) {
   const titlePref = useTitlePref();
   const { t } = useTranslation();
-
-  // Private-profile guard: the owner sees their list normally (handled
-  // server-side), everyone else lands here.
-  if (isPrivate) {
-    return (
-      <>
-        <Head>
-          <title>{viewedName ? `${viewedName} • AniScroll` : "AniScroll"}</title>
-        </Head>
-        <Navbar withNav toTop shrink bgHover scrollP={110} paddingY={"py-1"} />
-        <div className="flex flex-col items-center justify-center min-h-screen px-4 text-center">
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            fill="none"
-            viewBox="0 0 24 24"
-            strokeWidth={1.5}
-            stroke="currentColor"
-            className="w-12 h-12 text-white/50 mb-4"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z"
-            />
-          </svg>
-          <h1 className="text-2xl font-bold mb-2">{t("profile.privateTitle")}</h1>
-          <p className="text-white/60 max-w-sm">{t("profile.privateBody")}</p>
-        </div>
-      </>
-    );
-  }
   const [listFilter, setListFilter] = useState("all");
   const [visible, setVisible] = useState(false);
   const [useCustomList, setUseCustomList] = useState(true);
@@ -107,6 +76,39 @@ export default function MyList({
     }
     return media.filter((m: { name: string }) => m.name === status);
   };
+
+  // Private-profile guard: the owner sees their list normally (handled
+  // server-side), everyone else lands here. Placed AFTER all hooks so the
+  // hook call order stays stable (rules-of-hooks).
+  if (isPrivate) {
+    return (
+      <>
+        <Head>
+          <title>{viewedName ? `${viewedName} • AniScroll` : "AniScroll"}</title>
+        </Head>
+        <Navbar withNav toTop shrink bgHover scrollP={110} paddingY={"py-1"} />
+        <div className="flex flex-col items-center justify-center min-h-screen px-4 text-center">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            fill="none"
+            viewBox="0 0 24 24"
+            strokeWidth={1.5}
+            stroke="currentColor"
+            className="w-12 h-12 text-white/50 mb-4"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z"
+            />
+          </svg>
+          <h1 className="text-2xl font-bold mb-2">{t("profile.privateTitle")}</h1>
+          <p className="text-white/60 max-w-sm">{t("profile.privateBody")}</p>
+        </div>
+      </>
+    );
+  }
+
   return (
     <>
       <Head>
