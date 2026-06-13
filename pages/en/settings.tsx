@@ -308,28 +308,33 @@ export default function Settings() {
                 checked={syncPrefs.autoPause}
                 onChange={(v) => setSyncPrefs({ autoPause: v })}
               />
-              {syncPrefs.autoPause && (
-                <div className="flex items-center justify-between gap-4 py-3">
-                  <div className="text-sm">{t("settings.sync.autoPauseDays")}</div>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="number"
-                      min={1}
-                      max={3650}
-                      value={syncPrefs.autoPauseDays}
-                      onChange={(e) => {
-                        const v = parseInt(e.target.value, 10);
-                        if (Number.isFinite(v) && v > 0)
-                          setSyncPrefs({ autoPauseDays: v });
-                      }}
-                      className="w-20 bg-white/10 rounded-md px-2 py-1 text-sm text-center ring-1 ring-white/10 focus:outline-none focus:ring-action"
-                    />
-                    <span className="text-white/50 text-sm">
-                      {t("settings.sync.days")}
-                    </span>
-                  </div>
+              {/* Always shown so the delay is discoverable; disabled until the
+                  auto-pause toggle is on (greyed, like the other gated rows). */}
+              <div
+                className={`flex items-center justify-between gap-4 py-3 ${
+                  syncPrefs.autoPause ? "" : "opacity-40"
+                }`}
+              >
+                <div className="text-sm">{t("settings.sync.autoPauseDays")}</div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min={1}
+                    max={3650}
+                    disabled={!syncPrefs.autoPause}
+                    value={syncPrefs.autoPauseDays}
+                    onChange={(e) => {
+                      const v = parseInt(e.target.value, 10);
+                      if (Number.isFinite(v) && v > 0)
+                        setSyncPrefs({ autoPauseDays: v });
+                    }}
+                    className="w-20 bg-white/10 rounded-md px-2 py-1 text-sm text-center ring-1 ring-white/10 focus:outline-none focus:ring-action disabled:cursor-not-allowed"
+                  />
+                  <span className="text-white/50 text-sm">
+                    {t("settings.sync.days")}
+                  </span>
                 </div>
-              )}
+              </div>
             </div>
 
             {!isLoggedIn && (
