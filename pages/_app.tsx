@@ -18,7 +18,7 @@ import { Toaster, toast } from "sonner";
 import ChangeLogs from "../components/shared/changelogs";
 import AnilistHealthBanner from "../components/shared/AnilistHealthBanner";
 import { Analytics } from "@vercel/analytics/react";
-import { runAutoPauseSweep } from "@/lib/list/syncEngine";
+import { runAutoPauseSweep, fullSyncFromAniList } from "@/lib/list/syncEngine";
 import type { AppProps } from "next/app";
 
 /**
@@ -217,18 +217,22 @@ export default function App({
     };
   }, []);
 
-  // Auto-pause sweep: once per app load, move long-untouched CURRENT entries to
-  // PAUSED (local list + AniList push when sync is enabled). No-op unless the
-  // user turned on auto-pause in Settings. Deferred to idle so it never blocks
-  // first paint, and best-effort (failures are swallowed inside the engine).
+  // Once per app load, deferred to idle (never blocks first paint), best-effort:
+  //   1. Resync: pull AniList → local when sync is on + connected. Keeps the
+  //      local mirror fresh (and recovers it after AniList was down). No-op /
+  //      leaves local untouched on failure, so the list survives an outage.
+  //   2. Auto-pause sweep on the (now fresh) local list.
   useEffect(() => {
-    const run = () => runAutoPauseSweep().catch(() => {});
+    const run = async () => {
+      await fullSyncFromAniList().catch(() => {});
+      await runAutoPauseSweep().catch(() => {});
+    };
     const ric = (window as any).requestIdleCallback;
     if (typeof ric === "function") {
-      const id = ric(run, { timeout: 4000 });
+      const id = ric(() => void run(), { timeout: 4000 });
       return () => (window as any).cancelIdleCallback?.(id);
     }
-    const tid = setTimeout(run, 2000);
+    const tid = setTimeout(() => void run(), 2000);
     return () => clearTimeout(tid);
   }, []);
 

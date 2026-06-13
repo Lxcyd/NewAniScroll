@@ -19,6 +19,7 @@ import {
   ImportResult,
 } from "@/lib/list/importExport";
 import { useLocalList } from "@/lib/list/localList";
+import { fullSyncFromAniList } from "@/lib/list/syncEngine";
 import { useEffect, useRef, useState } from "react";
 import { useSession, signIn } from "next-auth/react";
 import { useTranslation } from "react-i18next";
@@ -163,6 +164,42 @@ export default function Settings() {
   );
   const fileRef = useRef<HTMLInputElement>(null);
 
+  // ── AniList sync state ───────────────────────────────────────────
+  // Enabling sync overwrites the local list with AniList, so we gate it behind
+  // a confirmation dialog. Disabling needs no confirmation (local list stays).
+  const [confirmSync, setConfirmSync] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+
+  const runPull = async () => {
+    setSyncing(true);
+    try {
+      const r = await fullSyncFromAniList();
+      if (r.ok) toast.success(t("settings.sync.synced", { count: r.count }));
+      else toast.error(t("settings.sync.syncFailed"));
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  // Confirmed enable: flip the toggle on, then pull AniList → local (overwrite).
+  const enableSync = async () => {
+    setConfirmSync(false);
+    setSyncPrefs({ enabled: true });
+    await runPull();
+  };
+
+  const handleMasterToggle = (next: boolean) => {
+    if (next) {
+      // Turning ON: confirm first (it replaces the local list).
+      if (isLoggedIn) setConfirmSync(true);
+      else setSyncPrefs({ enabled: true }); // guest: nothing to pull/overwrite
+    } else {
+      setSyncPrefs({ enabled: false });
+    }
+  };
+
+  const handleResyncNow = () => runPull();
+
   const reportResult = (r: ImportResult) => {
     toast.success(
       t("settings.list.importDone", { imported: r.imported, total: r.total }),
@@ -224,6 +261,44 @@ export default function Settings() {
         <link rel="icon" type="image/png" href="/logo.png" />
       </Head>
       <Navbar withNav={true} scrollP={5} shrink={true} />
+
+      {/* Confirmation before enabling sync — it replaces the local list with
+          the AniList list, so we make the consequence explicit. */}
+      {confirmSync && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 px-4"
+          onClick={() => setConfirmSync(false)}
+        >
+          <div
+            className="w-full max-w-md rounded-xl bg-secondary ring-1 ring-white/10 p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-lg font-semibold mb-2">
+              {t("settings.sync.confirmTitle")}
+            </h3>
+            <p className="text-white/70 text-sm mb-6">
+              {t("settings.sync.confirmBody")}
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setConfirmSync(false)}
+                className="px-4 py-2 rounded-lg bg-white/10 ring-1 ring-white/10 text-sm hover:bg-white/15"
+              >
+                {t("settings.sync.cancel")}
+              </button>
+              <button
+                type="button"
+                onClick={enableSync}
+                className="px-4 py-2 rounded-lg bg-action text-white text-sm font-medium hover:opacity-90"
+              >
+                {t("settings.sync.confirmEnable")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
@@ -288,7 +363,7 @@ export default function Settings() {
                     : t("settings.sync.masterDescGuest")
                 }
                 checked={syncPrefs.enabled}
-                onChange={(v) => setSyncPrefs({ enabled: v })}
+                onChange={handleMasterToggle}
               />
               <Toggle
                 label={t("settings.sync.autoProgress")}
@@ -344,6 +419,19 @@ export default function Settings() {
                 className="mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-action text-white text-sm font-medium hover:opacity-90"
               >
                 {t("nav.signInWithAniList")}
+              </button>
+            )}
+
+            {/* Resync now — pull AniList → local on demand (only useful when
+                sync is on and connected). */}
+            {isLoggedIn && syncPrefs.enabled && (
+              <button
+                type="button"
+                onClick={handleResyncNow}
+                disabled={syncing}
+                className="mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-white/10 ring-1 ring-white/10 text-sm font-medium hover:bg-white/15 disabled:opacity-40"
+              >
+                {syncing ? t("settings.sync.syncing") : t("settings.sync.resyncNow")}
               </button>
             )}
             <p className="text-white/40 text-xs mt-3">{t("settings.sync.note")}</p>

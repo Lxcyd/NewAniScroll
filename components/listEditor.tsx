@@ -392,6 +392,7 @@ const ListEditor: React.FC<ListEditorProps> = ({
     // Optimistic: drop from the cache, update the page, and close immediately;
     // the delete mutation runs in the background.
     if (session?.user?.name) patchListEntry(session.user.name, animeId, null);
+    removeLocalEntry(animeId); // keep the local mirror in sync with the delete
     onSaved?.({ status: null, progress: 0, score: 0, removed: true });
     toast.success(t("listEditor.removed"));
     close();
@@ -435,6 +436,7 @@ const ListEditor: React.FC<ListEditorProps> = ({
     // Status set to "Not in list" → delete the entry (optimistic, like remove).
     if (status === null) {
       if (session?.user?.name) patchListEntry(session.user.name, animeId, null);
+      removeLocalEntry(animeId); // mirror the delete locally
       onSaved?.({ status: null, progress: 0, score: 0, removed: true });
       toast.success(entryId ? t("listEditor.removed") : t("listEditor.saved"));
       close();
@@ -541,6 +543,19 @@ const ListEditor: React.FC<ListEditorProps> = ({
             customLists: cl,
           });
         }
+        // Recopy AniList's authoritative record into the local mirror so the
+        // local list stays usable when AniList is later unavailable.
+        upsertLocalEntry(animeId, {
+          status: (saved.status as Status) ?? null,
+          score: typeof saved.score === "number" && saved.score > 0 ? saved.score : null,
+          progress: Number(saved.progress) || 0,
+          total: totalEp > 0 ? totalEp : null,
+          title: info?.title,
+          coverImage: info?.coverImage?.large || info?.coverImage?.extraLarge || null,
+          notes: saved.notes || null,
+          startedAt: saved.startedAt || null,
+          completedAt: saved.completedAt || null,
+        });
       })
       .catch(() => toast.error(t("listEditor.error")));
   };

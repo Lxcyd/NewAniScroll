@@ -83,7 +83,15 @@
       "autoPauseDesc": "Passe un anime « En cours » en « En pause » s'il n'a pas été touché depuis un moment.",
       "autoPauseDays": "Inactivité avant la mise en pause",
       "days": "jours",
-      "note": "Ces réglages sont enregistrés sur cet appareil."
+      "resyncNow": "Resynchroniser maintenant",
+      "syncing": "Synchronisation…",
+      "synced": "{{count}} entrées synchronisées depuis AniList",
+      "syncFailed": "Impossible de joindre AniList — votre liste locale est inchangée.",
+      "confirmTitle": "Remplacer votre liste locale par celle d'AniList ?",
+      "confirmBody": "Activer la synchronisation télécharge votre liste AniList et écrase la liste locale de cet appareil. Les entrées présentes uniquement en local (absentes d'AniList) seront perdues (exportez d'abord si vous voulez une sauvegarde).",
+      "cancel": "Annuler",
+      "confirmEnable": "Activer et remplacer",
+      "note": "Ces réglages sont enregistrés sur cet appareil. Votre liste locale est toujours conservée comme copie résiliente : elle fonctionne même si AniList est indisponible."
     },
     "list": {
       "title": "Ma liste (locale)",

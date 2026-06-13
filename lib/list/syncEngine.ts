@@ -22,11 +22,15 @@ import {
   getLocalList,
   peekLocalEntry,
   upsertLocalEntry,
+  importEntries,
+  LocalEntry,
   LocalTitle,
 } from "./localList";
-import { todayFuzzy, Status } from "./types";
+import { todayFuzzy, Status, FuzzyDate } from "./types";
 import { saveMediaListEntry } from "./anilistPush";
 import { patchListEntry, peekListEntry } from "@/lib/anilist/userListCache";
+
+const ENDPOINT = "https://graphql.anilist.co/";
 
 type AniSession = { user?: { token?: string; name?: string } } | null;
 
@@ -39,6 +43,85 @@ async function getAniListSession(prefs: SyncPrefs): Promise<AniSession> {
     return s?.user?.token ? s : null;
   } catch {
     return null;
+  }
+}
+
+const emptyFuzzy = (d?: FuzzyDate | null): FuzzyDate | null =>
+  !d || (!d.year && !d.month && !d.day)
+    ? null
+    : { year: d.year ?? null, month: d.month ?? null, day: d.day ?? null };
+
+/**
+ * Full pull: replace the entire local list with the signed-in user's AniList
+ * list. This is the "AniList overwrites local" operation — run when the user
+ * enables sync (after they confirm), on app load while sync is on, and from the
+ * manual "Resync now" button.
+ *
+ * The local list stays the always-displayed, resilient mirror: if this fetch
+ * fails (AniList down / offline) we DON'T clobber the existing local list —
+ * we just keep what we have and report failure, so the user still has a list.
+ *
+ * Returns { ok, count }. ok=false means the pull failed and local was left
+ * untouched.
+ */
+export async function fullSyncFromAniList(): Promise<{ ok: boolean; count: number }> {
+  const prefs = getSyncPrefs();
+  const session = await getAniListSession(prefs);
+  const token = session?.user?.token;
+  const userName = session?.user?.name;
+  if (!token || !userName) return { ok: false, count: 0 };
+
+  try {
+    const res = await fetch(ENDPOINT, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        query: `query ($userName: String) {
+          MediaListCollection(userName: $userName, type: ANIME) {
+            lists { entries {
+              status score(format: POINT_10_DECIMAL) progress
+              startedAt { year month day } completedAt { year month day } notes
+              media { id episodes title { english romaji native userPreferred } coverImage { large } }
+            } }
+          }
+        }`,
+        variables: { userName },
+      }),
+    });
+    if (!res.ok) return { ok: false, count: 0 };
+    const json = await res.json();
+    if (json?.errors?.length) return { ok: false, count: 0 };
+    const lists = json?.data?.MediaListCollection?.lists || [];
+    const byId = new Map<number, LocalEntry>();
+    const now = Date.now();
+    for (const list of lists) {
+      for (const e of list?.entries || []) {
+        const mediaId = Number(e?.media?.id);
+        if (!Number.isFinite(mediaId)) continue;
+        byId.set(mediaId, {
+          mediaId,
+          status: (e.status as Status) ?? null,
+          score: typeof e.score === "number" && e.score > 0 ? e.score : null,
+          progress: Number(e.progress) || 0,
+          total: typeof e.media?.episodes === "number" ? e.media.episodes : null,
+          title: e.media?.title || undefined,
+          coverImage: e.media?.coverImage?.large ?? null,
+          startedAt: emptyFuzzy(e.startedAt),
+          completedAt: emptyFuzzy(e.completedAt),
+          notes: e.notes || null,
+          updatedAt: now,
+        });
+      }
+    }
+    const entries = Array.from(byId.values());
+    // Replace: AniList is the source of truth at sync time (per user choice).
+    const count = importEntries(entries, "replace");
+    return { ok: true, count };
+  } catch {
+    return { ok: false, count: 0 };
   }
 }
 
@@ -144,6 +227,13 @@ export async function onEpisodeFinished(args: EpisodeFinishedArgs): Promise<void
       startedAt: existing?.startedAt ?? payload.startedAt ?? null,
       completedAt: payload.completedAt ?? existing?.completedAt ?? null,
       customLists: existing?.customLists ?? [],
+    });
+    // Recopy AniList's authoritative result into the local mirror so the two
+    // stay identical (AniList is the source of truth while sync is on).
+    upsertLocalEntry(aniId, {
+      status: saved.status ?? null,
+      score: saved.score,
+      progress: saved.progress,
     });
   }
 }

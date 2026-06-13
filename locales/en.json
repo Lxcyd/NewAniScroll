@@ -83,7 +83,15 @@
       "autoPauseDesc": "Move a Watching anime to Paused when it hasn't been touched in a while.",
       "autoPauseDays": "Inactivity before pausing",
       "days": "days",
-      "note": "These settings are saved on this device."
+      "resyncNow": "Resync now",
+      "syncing": "Syncing…",
+      "synced": "Synced {{count}} entries from AniList",
+      "syncFailed": "Couldn't reach AniList — your local list is unchanged.",
+      "confirmTitle": "Replace your local list with AniList?",
+      "confirmBody": "Enabling sync downloads your AniList list and overwrites the local list on this device. Any local-only entries not on AniList will be lost (export first if you want a backup).",
+      "cancel": "Cancel",
+      "confirmEnable": "Enable & replace",
+      "note": "These settings are saved on this device. Your local list is always kept as a resilient copy, so it still works if AniList is down."
     },
     "list": {
       "title": "My list (local)",
