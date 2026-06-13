@@ -701,6 +701,32 @@ export default function Watch({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessions?.user?.name, epiNumber, dub, info?.id]);
 
+  // ── List sync on episode finish ──────────────────────────────
+  // Hands the sync engine the full media context (total episodes, title,
+  // cover) so it can update the local list and — when AniList sync is on and
+  // connected — push progress/status upstream. Total episodes: prefer the
+  // AniList `episodes` count, fall back to the next-airing episode minus one
+  // for still-releasing shows (matches the list editor's logic). Called both
+  // by the player's natural `ended` (HLS) and on advancing to the next episode
+  // (covers iframe servers like Megaplay that have no <video> element).
+  const handleEpisodeComplete = useCallback(
+    ({ aniListId, episodeNumber }) => {
+      const total =
+        info?.episodes ??
+        (info?.nextAiringEpisode?.episode
+          ? info.nextAiringEpisode.episode - 1
+          : null);
+      onEpisodeFinished({
+        aniId: aniListId,
+        episode: episodeNumber,
+        total,
+        title: info?.title,
+        coverImage: info?.coverImage?.large || info?.coverImage?.extraLarge || null,
+      }).catch(() => {});
+    },
+    [info],
+  );
+
   // ── Mark the previous episode complete when advancing ────────
   // When the user moves on to the next episode (N → N+1), the one they just
   // left is, by definition, finished — so we pin its progress to the end. That
@@ -722,10 +748,15 @@ export default function Watch({
       ep === prev.ep + 1
     ) {
       markComplete(id, prev.ep);
+      // Advancing to the next episode = the previous one is watched. Drive the
+      // list sync from here (not just the player's `ended`) so it ALSO works
+      // for iframe servers like Megaplay, which have no <video> element to fire
+      // `ended`. handleEpisodeComplete updates the local list + optional push.
+      handleEpisodeComplete({ aniListId: id, episodeNumber: prev.ep });
     }
     if (id != null && Number.isFinite(ep)) prevEpiRef.current = { id, ep };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [epiNumber, info?.id]);
+  }, [epiNumber, info?.id, handleEpisodeComplete]);
 
   // ── Auto-next / auto-play + skip data ───────────────────────
   // autoplay/autoNext are now hydrated from localStorage by WatchPageProvider
@@ -1354,31 +1385,6 @@ export default function Watch({
 
   function handleOpen()  { setOpen(true);  document.body.style.overflow = "hidden"; }
   function handleClose() { setOpen(false); document.body.style.overflow = "auto";   }
-
-  // ── List sync on episode end ─────────────────────────────────
-  // The player fires onEpisodeComplete at the natural end of an episode; we
-  // hand the sync engine the full media context (total episodes, title, cover)
-  // so it can update the local list and — when AniList sync is enabled and the
-  // user is connected — push progress/status upstream. Total episodes: prefer
-  // the AniList `episodes` count, fall back to the next-airing episode minus
-  // one for still-releasing shows (matches the list editor's logic).
-  const handleEpisodeComplete = useCallback(
-    ({ aniListId, episodeNumber }) => {
-      const total =
-        info?.episodes ??
-        (info?.nextAiringEpisode?.episode
-          ? info.nextAiringEpisode.episode - 1
-          : null);
-      onEpisodeFinished({
-        aniId: aniListId,
-        episode: episodeNumber,
-        total,
-        title: info?.title,
-        coverImage: info?.coverImage?.large || info?.coverImage?.extraLarge || null,
-      }).catch(() => {});
-    },
-    [info],
-  );
 
   // ── Player ───────────────────────────────────────────────────
   // Memoized JSX — recomputes ONLY when player-relevant state changes.
