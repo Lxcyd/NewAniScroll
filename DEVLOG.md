@@ -7,6 +7,26 @@ Ordre anti-chronologique (le plus récent en haut). Une entrée = une session/su
 
 ---
 
+## 2026-06-14 — Lot features (9/9) : partage de carte « anime du moment »
+
+### Contexte
+Feature #8, dernière de la liste. Choix utilisateur : carte de **l'anime de la page courante**, génération **canvas → téléchargement PNG + Web Share natif**.
+
+### Décisions prises
+1. **`components/anime/v2/ShareCardButton.tsx`** : auto-contenu, zéro dépendance. `buildCard(info, accent)` dessine sur un `<canvas>` 1200×630 (ratio OG) : fond banner/cover flouté + gradient, poster arrondi avec ombre, tag « ANISCROLL » en couleur d'accent, titre wrap (3 lignes max, ellipsis), méta (année · format · ep), chips genres, badge score /10. `toBlob` → `File` PNG. Partage : `navigator.canShare({files})` → share sheet natif (mobile) ; sinon download + toast.
+2. **Placement** : bouton pleine largeur sous favori/partage dans `Hero.tsx` (desktop) et `MActions` de `InfoPageMobile.tsx` (mobile, prop `info`+`accent` ajoutés). Couleur d'accent live via `useAccent()`. Clés i18n `shareCard.*`.
+
+### Leçons / pièges
+- Canvas + `toBlob` exige des images **CORS-clean** : AniList (s4.anilist.co) envoie les en-têtes CORS, et `img.crossOrigin="anonymous"` → pas de taint. Chaque `loadImage` est en try/catch : une image qui échoue est simplement omise (pas de canvas taint).
+- La carte utilise la couleur d'accent custom (#10) → cohérence avec le thème choisi.
+
+### État déployé / à faire
+- Branche `dev`. `tsc` clean ; `next lint` clean sur les fichiers neufs (warnings `<img>` de InfoPageMobile préexistants).
+- ⏳ Tester : bouton « Partager une carte » sur une page anime → PNG (desktop) / share sheet (mobile).
+- ✅ **LISTE DE 12 FEATURES TERMINÉE.** (#2 volume, #11 subs, #12 historique étaient déjà présents ; tout le reste livré.)
+
+---
+
 ## 2026-06-14 — Lot features (8/n) : thème custom + #11/#12 déjà faits
 
 ### Contexte

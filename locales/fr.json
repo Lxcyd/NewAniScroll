@@ -311,6 +311,11 @@
     "button": "Surprends-moi",
     "empty": "Ajoutez d'abord des animes à votre file ou à vos « Prévu »."
   },
+  "shareCard": {
+    "button": "Partager une carte",
+    "downloaded": "Image de la carte téléchargée",
+    "failed": "Impossible de créer l'image de la carte."
+  },
   "queue": {
     "title": "À regarder ensuite",
     "add": "Ajouter à la file « à regarder ensuite »",

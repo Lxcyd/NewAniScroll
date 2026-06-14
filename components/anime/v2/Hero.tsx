@@ -22,6 +22,8 @@ import { genreLabel } from "@/lib/i18n/genreLabel";
 import { prefetchEpisodeList } from "@/lib/watch/episodePrefetch";
 import { useFanartSrc, fanartSrcNow, onFanartError } from "@/lib/images/fanartFallback";
 import QueueButton from "./QueueButton";
+import ShareCardButton from "./ShareCardButton";
+import { useAccent } from "@/lib/prefs/accentColor";
 
 type HeroProps = {
   info: AniListInfoTypes;
@@ -65,6 +67,7 @@ export default function Hero({
 }: HeroProps) {
   const titlePref = useTitlePref();
   const { t } = useTranslation();
+  const accent = useAccent();
   const router = useRouter();
   const title = pickTitle(info.title, titlePref);
   const seasonPill = prettySeason(info);
@@ -741,6 +744,36 @@ export default function Hero({
                   {t("anime.share")}
                 </button>
               </div>
+
+              <ShareCardButton
+                info={{
+                  id: info.id,
+                  title,
+                  coverImage: info.coverImage?.extraLarge || info.coverImage?.large || null,
+                  bannerImage: info.bannerImage || null,
+                  score: info.averageScore ?? null,
+                  year: info.seasonYear ?? info.startDate?.year ?? null,
+                  genres: info.genres || [],
+                  format: info.format || null,
+                  episodes: info.episodes ?? null,
+                }}
+                accent={accent}
+                style={{
+                  width: "100%",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 12,
+                  padding: "12px 20px",
+                  borderRadius: 11,
+                  background: "rgba(255,255,255,0.04)",
+                  border: "1px solid var(--line-2)",
+                  color: "var(--txt-0)",
+                  fontSize: 14,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              />
             </div>
           </div>
         </div>
