@@ -177,7 +177,22 @@
     "secs": "Sec",
     "removeFromHistory": "Retirer de l'historique",
     "deleteAllEpisodes": "Supprimer tous les épisodes",
-    "deleteJustThisEpisode": "Supprimer uniquement cet épisode"
+    "deleteJustThisEpisode": "Supprimer uniquement cet épisode",
+    "historySubtitle": "Reprenez là où vous vous êtes arrêté",
+    "statEpisodes": "Épisodes",
+    "statAnime": "Animes",
+    "statWatchTime": "Temps de visionnage",
+    "searchHistory": "Rechercher dans l'historique…",
+    "groupToday": "Aujourd'hui",
+    "groupYesterday": "Hier",
+    "groupThisWeek": "Plus tôt cette semaine",
+    "groupThisMonth": "Plus tôt ce mois-ci",
+    "groupOlder": "Plus ancien",
+    "resume": "Reprendre",
+    "completed": "Terminé",
+    "noSearchResults": "Aucun épisode ne correspond à votre recherche.",
+    "minutesShort": "{{count}} min",
+    "hoursShort": "{{count}} h"
   },
   "report": {
     "title": "Signaler",
@@ -306,15 +321,6 @@
     "previewText": "Portez ce vieux whisky au juge blond qui fume.",
     "sub": "VOSTFR",
     "dub": "VF"
-  },
-  "surprise": {
-    "button": "Surprends-moi",
-    "empty": "Ajoutez d'abord des animes à votre file ou à vos « Prévu »."
-  },
-  "shareCard": {
-    "button": "Partager une carte",
-    "downloaded": "Image de la carte téléchargée",
-    "failed": "Impossible de créer l'image de la carte."
   },
   "queue": {
     "title": "À regarder ensuite",

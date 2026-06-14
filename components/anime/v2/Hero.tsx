@@ -22,8 +22,6 @@ import { genreLabel } from "@/lib/i18n/genreLabel";
 import { prefetchEpisodeList } from "@/lib/watch/episodePrefetch";
 import { useFanartSrc, fanartSrcNow, onFanartError } from "@/lib/images/fanartFallback";
 import QueueButton from "./QueueButton";
-import ShareCardButton from "./ShareCardButton";
-import { useAccent } from "@/lib/prefs/accentColor";
 
 type HeroProps = {
   info: AniListInfoTypes;
@@ -67,7 +65,6 @@ export default function Hero({
 }: HeroProps) {
   const titlePref = useTitlePref();
   const { t } = useTranslation();
-  const accent = useAccent();
   const router = useRouter();
   const title = pickTitle(info.title, titlePref);
   const seasonPill = prettySeason(info);
@@ -744,36 +741,6 @@ export default function Hero({
                   {t("anime.share")}
                 </button>
               </div>
-
-              <ShareCardButton
-                info={{
-                  id: info.id,
-                  title,
-                  coverImage: info.coverImage?.extraLarge || info.coverImage?.large || null,
-                  bannerImage: info.bannerImage || null,
-                  score: info.averageScore ?? null,
-                  year: info.seasonYear ?? info.startDate?.year ?? null,
-                  genres: info.genres || [],
-                  format: info.format || null,
-                  episodes: info.episodes ?? null,
-                }}
-                accent={accent}
-                style={{
-                  width: "100%",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: 12,
-                  padding: "12px 20px",
-                  borderRadius: 11,
-                  background: "rgba(255,255,255,0.04)",
-                  border: "1px solid var(--line-2)",
-                  color: "var(--txt-0)",
-                  fontSize: 14,
-                  fontWeight: 600,
-                  cursor: "pointer",
-                }}
-              />
             </div>
           </div>
         </div>
@@ -877,11 +844,12 @@ const hStyles: Record<string, CSSProperties> = {
     alignItems: "center",
     gap: 12,
     padding: "15px 17px",
-    background: "linear-gradient(135deg, #ff3b5c 0%, #e8294b 100%)",
+    background:
+      "linear-gradient(135deg, var(--brand-primary, #ff3b5c) 0%, color-mix(in srgb, var(--brand-primary, #e8294b) 82%, #000) 100%)",
     borderRadius: 12,
     color: "white",
     boxShadow:
-      "0 12px 30px -10px rgba(255,59,92,0.7), inset 0 1px 0 rgba(255,255,255,0.2)",
+      "0 12px 30px -10px color-mix(in srgb, var(--brand-primary, #ff3b5c) 70%, transparent), inset 0 1px 0 rgba(255,255,255,0.2)",
     cursor: "pointer",
   },
   /* Coming-soon variant: cooler palette so it visually reads as
@@ -1020,10 +988,10 @@ const hStyles: Record<string, CSSProperties> = {
   },
   genreChip: {
     padding: "5px 11px",
-    background: "rgba(255,59,92,0.12)",
-    border: "1px solid rgba(255,59,92,0.35)",
+    background: "color-mix(in srgb, var(--brand-primary, #ff3b5c) 12%, transparent)",
+    border: "1px solid color-mix(in srgb, var(--brand-primary, #ff3b5c) 35%, transparent)",
     borderRadius: 999,
-    color: "#ff7a91",
+    color: "color-mix(in srgb, var(--brand-primary, #ff7a91) 75%, #fff)",
     fontSize: 12,
     fontWeight: 600,
   },

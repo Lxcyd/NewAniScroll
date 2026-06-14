@@ -7,6 +7,31 @@ Ordre anti-chronologique (le plus récent en haut). Une entrée = une session/su
 
 ---
 
+## 2026-06-14 — Thème live partout, fix /schedule, carte de partage en embed OG, historique refait, suppression « Surprends-moi »
+
+### Contexte
+Retours utilisateur post-lot : (1) la couleur de thème ne s'appliquait pas partout (badge tendance, ombre bouton watch, page info, barre de préchargement du player), (2) `/fr/schedule` affichait page blanche, (3) remplacer le bouton « partager une carte » par un **lien dont l'embed (OG) EST la carte** (avec cover à gauche), (4) historique de visionnage trop basique, (5) retirer « Surprends-moi » + code.
+
+### Décisions prises
+1. **Thème live** :
+   - Home hero (`pages/en/index.tsx`) : `bg-[#E94560]` codé en dur → tokens Tailwind `action` (badge tendance bg/bordure, ombre+hover du bouton watch, bordure hover des vignettes). `action` lit `var(--brand-primary)`.
+   - Page info (`Hero.tsx`) : bouton watch (gradient + glow) et chips genres passés en `color-mix(in srgb, var(--brand-primary) …)`. Cœur favori laissé rouge (sémantique « favori », pas accent).
+   - **Barre de préchargement du player** : la cause était que `applyAccent()` ne posait QUE `--brand-primary`. Vidstack lit `--brand-glow` pour la piste *buffered*. Fix dans `lib/prefs/accentColor.ts` : `applyAccent` pose maintenant aussi `--brand-glow` (`${hex}59` ≈ 35% alpha) et `--brand-secondary`. Ordre garanti dans `_app.tsx` (asCssVars défaut PUIS applyAccent override).
+2. **`/schedule` blanc — vraie cause** : sur échec transitoire AniList (429/timeout), la 1ʳᵉ page renvoie `null` → boucle cassée → `scheduleByDay = {}` → **et ce `{}` était caché dans Redis jusqu'à minuit Japon**. Chaque visite suivante lisait le cache vide. Fix `pages/en/schedule/index.tsx` : (a) ne cacher QUE si non-vide, (b) traiter un cache vide comme un miss (re-fetch), (c) `safeParse`, (d) rendu durci contre `media`/`coverImage`/`type` null.
+3. **Carte de partage → embed OG** :
+   - `pages/api/og.tsx` (Edge `@vercel/og`) réécrit : carte 1200×630 avec **cover à gauche**, banner flouté en fond, titre/méta/genres/score à droite, couleur d'accent en param. Params : `title, cover, banner, score, year, format, episodes, genres, accent` (alias `image` conservé pour rétro-compat).
+   - `pages/en/anime/[...id].tsx` : OG meta complets (`og:image/title/url/type` + `twitter:image`) pointant la route avec tous les params. **URL absolue** dérivée des headers SSR (`x-forwarded-proto/host`) → `baseUrl` en prop, ajouté aux DEUX returns de `getServerSideProps` (+ `initialUA` qui manquait au 2ᵉ). Les unfurlers lisent le HTML SSR sans JS → URL relative inutilisable, d'où l'absolue. `domainUrl` (state client) supprimé.
+   - Bouton « partager une carte » retiré (`Hero.tsx` desktop + `MActions` mobile). `ShareCardButton.tsx` supprimé. Le bouton « Partager » simple donne le lien (share natif / copie presse-papier) ⇒ l'embed affiche la carte. Clés `shareCard.*` supprimées.
+4. **Historique refait** (`pages/en/anime/recently-watched.js`) : logique fetch/remove/SSR **inchangée** (robuste). UI refaite : header héros avec wash d'accent + 3 stats (épisodes / animes uniques / temps de visionnage = somme des `timeWatched`), recherche, **groupement par récence** (Aujourd'hui / Hier / cette semaine / ce mois / plus ancien via `createdDate`), cartes 16:9 (badge terminé/temps restant, play au hover, barre de progression en accent, CTA Reprendre). Nouvelles clés i18n EN+FR sous `home.*`.
+5. **« Surprends-moi » retiré** : `SurpriseButton` retiré de `my-list.tsx` et `profile/[user].tsx`, composant `components/list/SurpriseButton.tsx` supprimé, clés `surprise.*` supprimées (EN+FR). `QueueSection` (file d'attente) conservée.
+
+### Leçons / pièges
+- **Cache empoisonné** : ne jamais cacher un résultat vide issu d'un fetch potentiellement en échec avec un long TTL — un seul 429 bloque la page pour la journée. Toujours : « cache seulement si données » + « cache vide = miss ».
+- **OG/unfurl** : les crawlers lisent le HTML SSR brut, jamais le JS client. Une `og:image` doit être une URL **absolue** présente dès le SSR — un state posé dans un `useEffect` arrive trop tard.
+- `--brand-primary` ne suffit pas pour reskinner tout Vidstack : la piste *buffered* lit `--brand-glow`. Garder les dérivés en phase dans `applyAccent`.
+
+---
+
 ## 2026-06-14 — Lot features (9/9) : partage de carte « anime du moment »
 
 ### Contexte

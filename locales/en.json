@@ -177,7 +177,22 @@
     "secs": "Secs",
     "removeFromHistory": "Remove from history",
     "deleteAllEpisodes": "Delete All Episodes",
-    "deleteJustThisEpisode": "Delete Just This Episode"
+    "deleteJustThisEpisode": "Delete Just This Episode",
+    "historySubtitle": "Pick up where you left off",
+    "statEpisodes": "Episodes",
+    "statAnime": "Anime",
+    "statWatchTime": "Watch time",
+    "searchHistory": "Search your history…",
+    "groupToday": "Today",
+    "groupYesterday": "Yesterday",
+    "groupThisWeek": "Earlier this week",
+    "groupThisMonth": "Earlier this month",
+    "groupOlder": "Older",
+    "resume": "Resume",
+    "completed": "Completed",
+    "noSearchResults": "No episodes match your search.",
+    "minutesShort": "{{count}} min",
+    "hoursShort": "{{count}} h"
   },
   "report": {
     "title": "Report",
@@ -306,15 +321,6 @@
     "previewText": "The quick brown fox jumps over the lazy dog.",
     "sub": "Sub",
     "dub": "Dub"
-  },
-  "surprise": {
-    "button": "Surprise me",
-    "empty": "Add some anime to your queue or Planning list first."
-  },
-  "shareCard": {
-    "button": "Share card",
-    "downloaded": "Card image downloaded",
-    "failed": "Couldn't create the card image."
   },
   "queue": {
     "title": "Watch next",

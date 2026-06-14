@@ -1,12 +1,12 @@
 import { ChevronLeftIcon, PlayIcon } from "@heroicons/react/24/solid";
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Skeleton from "react-loading-skeleton";
 import Footer from "@/components/shared/footer";
 import { getServerSession } from "next-auth";
 import { authOptions } from "../../api/auth/[...nextauth]";
-import { ChevronRightIcon } from "@heroicons/react/24/outline";
+import { ChevronRightIcon, MagnifyingGlassIcon } from "@heroicons/react/24/outline";
 import { useRouter } from "next/router";
 import HistoryOptions from "@/components/home/content/historyOptions";
 import Head from "next/head";
@@ -19,6 +19,7 @@ export default function PopularAnime({ sessions }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [remove, setRemoved] = useState();
+  const [query, setQuery] = useState("");
   const router = useRouter();
 
   useEffect(() => {
@@ -174,153 +175,353 @@ export default function PopularAnime({ sessions }) {
     }
   };
 
+  // ── Derived stats (episodes / unique anime / total watch time) ──────────
+  // Computed from the same rows we render so the header summarises exactly
+  // what's on screen. Watch time sums each row's `timeWatched` (seconds the
+  // user actually watched of that episode), which is the honest figure — far
+  // better than `episodes × duration` which over-counts skimmed episodes.
+  const stats = useMemo(() => {
+    const rows = data || [];
+    const uniqueAnime = new Set(rows.map((i) => i.aniId).filter(Boolean));
+    const totalSeconds = rows.reduce(
+      (acc, i) => acc + (Number(i.timeWatched) || 0),
+      0,
+    );
+    return {
+      episodes: rows.length,
+      anime: uniqueAnime.size,
+      seconds: totalSeconds,
+    };
+  }, [data]);
+
+  // ── Search filter ───────────────────────────────────────────────────────
+  const filtered = useMemo(() => {
+    const rows = data || [];
+    const q = query.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter((i) => {
+      const a = (i.aniTitle || "").toLowerCase();
+      const e = (i.title || i.anititle || "").toLowerCase();
+      return a.includes(q) || e.includes(q);
+    });
+  }, [data, query]);
+
+  // ── Group by recency bucket ─────────────────────────────────────────────
+  const groups = useMemo(() => groupByRecency(filtered, t), [filtered, t]);
+
+  const watchTimeLabel = formatWatchTime(stats.seconds, t);
+
   return (
     <>
       <Head>
-        <title>AniScroll • Beta</title>
+        <title>AniScroll • {t("home.recentlyWatched")}</title>
       </Head>
       <MobileNav sessions={sessions} />
-      <div className="flex flex-col gap-2 items-center min-h-screen w-screen px-2 relative pb-10">
-        <div className="z-50 bg-primary pt-5 pb-3 shadow-md shadow-primary w-full fixed left-0 px-3">
-          <Link href="/en" className="flex gap-2 items-center font-karla">
-            <ChevronLeftIcon className="w-5 h-5" />
-            <h1 className="text-xl">{t("home.recentlyWatched")}</h1>
-          </Link>
+
+      <div className="min-h-screen w-full relative pb-16">
+        {/* ── Hero header ───────────────────────────────────────────────── */}
+        <div className="relative overflow-hidden border-b border-white/10">
+          {/* Accent wash background */}
+          <div
+            className="absolute inset-0 -z-10"
+            style={{
+              background:
+                "radial-gradient(1200px 400px at 15% -20%, color-mix(in srgb, var(--brand-primary, #E94560) 22%, transparent), transparent 70%)",
+            }}
+          />
+          <div className="max-w-screen-2xl mx-auto px-4 md:px-8 pt-20 md:pt-24 pb-7">
+            <Link
+              href="/en"
+              className="inline-flex gap-1.5 items-center font-karla text-sm text-gray-400 hover:text-white transition-colors mb-5"
+            >
+              <ChevronLeftIcon className="w-4 h-4" />
+              {t("nav.home", { defaultValue: "Home" })}
+            </Link>
+
+            <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-6">
+              <div>
+                <h1 className="font-outfit font-extrabold text-white text-3xl md:text-5xl leading-tight">
+                  {t("home.recentlyWatched")}
+                </h1>
+                <p className="font-karla text-gray-400 mt-2 text-sm md:text-base">
+                  {t("home.historySubtitle")}
+                </p>
+              </div>
+
+              {/* Stat pills */}
+              <div className="flex gap-3 md:gap-4">
+                <StatPill value={stats.episodes} label={t("home.statEpisodes")} />
+                <StatPill value={stats.anime} label={t("home.statAnime")} />
+                <StatPill value={watchTimeLabel} label={t("home.statWatchTime")} />
+              </div>
+            </div>
+
+            {/* Search */}
+            {(data?.length || 0) > 0 && (
+              <div className="mt-7 relative max-w-md">
+                <MagnifyingGlassIcon className="w-5 h-5 absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
+                <input
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder={t("home.searchHistory")}
+                  className="w-full bg-white/5 border border-white/10 rounded-xl pl-11 pr-4 py-2.5 font-karla text-sm text-white placeholder:text-gray-500 outline-none focus:border-action/60 focus:bg-white/[0.07] transition-colors"
+                />
+              </div>
+            )}
+          </div>
         </div>
-        <div className="grid grid-cols-1 xs:grid-cols-2 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-4 gap-3 md:gap-7 pt-16">
-          {/* Rows are pre-filtered to displayable ones in fetchData. */}
-          {data?.map((i) => {
-              const time = i.timeWatched;
-              const duration = i.duration;
-              let prog = (time / duration) * 100;
-              if (prog > 90) prog = 100;
 
-              return (
-                <div
-                  /* Server (Prisma) rows are per-episode: several rows share
-                     the same watchId/aniId, so include the row id to keep
-                     React keys unique. */
-                  key={i.id || i.watchId || i.aniId}
-                  className="flex flex-col gap-2 shrink-0 cursor-pointer relative group/item"
-                >
-                  <div className="absolute flex flex-col gap-1 z-40 top-1 right-1 transition-all duration-200 ease-out opacity-0 group-hover/item:opacity-100 scale-90 group-hover/item:scale-100 group-hover/item:visible invisible">
-                    <HistoryOptions
-                      remove={removeItem}
-                      watchId={i.watchId}
-                      aniId={i.aniId}
-                    />
-                    {i?.nextId && (
-                      <button
-                        type="button"
-                        className="flex flex-col items-center group/next relative"
-                        onClick={() => {
-                          router.push(
-                            `/en/anime/watch/${i.aniId}/${
-                              i.provider
-                            }?id=${encodeURIComponent(i?.nextId)}&num=${
-                              i?.nextNumber
-                            }`
-                          );
-                        }}
-                      >
-                        <ChevronRightIcon className="w-6 h-6 shrink-0 bg-primary p-1 rounded-full hover:text-action scale-100 hover:scale-105 transition-all duration-200 ease-out" />
-                        <span className="absolute font-karla bg-secondary shadow-black shadow-2xl py-1 px-2 whitespace-nowrap text-white text-sm rounded-md right-7 -bottom-[2px] z-40 duration-300 transition-all ease-out group-hover/next:visible group-hover/next:scale-100 group-hover/next:translate-x-0 group-hover/next:opacity-100 opacity-0 translate-x-10 scale-50 invisible">
-                          {t("home.playNext")}
-                        </span>
-                      </button>
-                    )}
-                  </div>
-                  <Link
-                    className="relative md:w-[320px] aspect-video rounded-md overflow-hidden group"
-                    href={`/en/anime/watch/${i.aniId}/${
-                      i.provider
-                    }?id=${encodeURIComponent(i.watchId)}&num=${i.episode}`}
-                  >
-                    <div className="w-full h-full bg-gradient-to-t from-black/70 from-20% to-transparent group-hover:to-black/40 transition-all duration-300 ease-out absolute z-30" />
-                    <div className="absolute bottom-3 left-0 mx-2 text-white flex gap-2 items-center w-[80%] z-30">
-                      <PlayIcon className="w-5 h-5 shrink-0" />
-                      <h1
-                        className="font-semibold text-sm md:text-base font-karla line-clamp-1"
-                        title={i?.title || i.anititle}
-                      >
-                        {i?.title || i.anititle}
-                      </h1>
-                    </div>
-                    <span
-                      className={`absolute bottom-0 left-0 h-[2px] bg-red-600 z-30`}
-                      style={{
-                        width: `${prog}%`,
-                      }}
-                    />
-                    {(i?.image || i?.cover) && (
-                      <Image
-                        src={i?.image || i?.cover}
-                        width={320}
-                        height={180}
-                        alt="Episode Thumbnail"
-                        // absolute inset-0 + h-full so the image fills the whole
-                        // 16:9 card regardless of the source ratio (thumbnail OR
-                        // cover OR wide banner) — no black band below it.
-                        className="absolute inset-0 h-full w-full object-cover group-hover:scale-[1.02] duration-300 ease-out z-10"
-                      />
-                    )}
-                  </Link>
-                  <Link
-                    className="flex flex-col font-karla w-full"
-                    href={`/en/anime/watch/${i.aniId}/${
-                      i.provider
-                    }?id=${encodeURIComponent(i.watchId)}&num=${i.episode}`}
-                  >
-                    {/* <h1 className="font-semibold">{i.title}</h1> */}
-                    <p className="flex items-center gap-1 text-sm text-gray-400 md:w-[320px]">
-                      <span
-                        className="text-white max-w-[150px] md:max-w-[220px]"
-                        style={{
-                          display: "inline-block",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                        }}
-                        title={i.aniTitle}
-                      >
-                        {i.aniTitle}
-                      </span>{" "}
-                      | {t("common.episode")} {i.episode}
-                    </p>
-                  </Link>
-                </div>
-              );
-            })}
-
-          {/* Explicit empty state — a blank grid reads as a bug. */}
-          {!loading && (!data || data.length === 0) && (
-            <p className="col-span-full text-center text-gray-400 font-karla pt-10">
-              {t("home.noHistory")}
-            </p>
-          )}
-
-          {loading && (
-            <>
-              {[1, 2, 4, 5, 6, 7, 8].map((item) => (
-                <div
-                  key={item}
-                  className="flex flex-col gap-2 items-center md:w-[320px] rounded-md overflow-hidden"
-                >
-                  <div className="w-full">
-                    <Skeleton className="w-fit aspect-video rounded" />
-                  </div>
-                  <div className="w-full">
-                    <Skeleton width={80} height={20} />
-                  </div>
+        {/* ── Body ──────────────────────────────────────────────────────── */}
+        <div className="max-w-screen-2xl mx-auto px-4 md:px-8 pt-8">
+          {loading ? (
+            <div className="grid grid-cols-1 xs:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-4 md:gap-6">
+              {[1, 2, 3, 4, 5, 6, 7, 8].map((item) => (
+                <div key={item} className="flex flex-col gap-2 rounded-xl overflow-hidden">
+                  <Skeleton className="w-full aspect-video rounded-xl" />
+                  <Skeleton width={120} height={16} />
                 </div>
               ))}
-            </>
+            </div>
+          ) : !data || data.length === 0 ? (
+            <EmptyState text={t("home.noHistory")} cta={t("nav.animeBrowse")} />
+          ) : filtered.length === 0 ? (
+            <EmptyState text={t("home.noSearchResults")} />
+          ) : (
+            <div className="flex flex-col gap-10">
+              {groups.map((group) => (
+                <section key={group.key}>
+                  <h2 className="font-outfit font-bold text-white text-lg md:text-xl mb-4 flex items-center gap-3">
+                    {group.label}
+                    <span className="text-xs font-karla font-medium text-gray-500 bg-white/5 rounded-full px-2.5 py-0.5">
+                      {group.items.length}
+                    </span>
+                  </h2>
+                  <div className="grid grid-cols-1 xs:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-4 md:gap-6">
+                    {group.items.map((i) => (
+                      <HistoryCard
+                        key={i.id || i.watchId || i.aniId}
+                        i={i}
+                        t={t}
+                        router={router}
+                        removeItem={removeItem}
+                      />
+                    ))}
+                  </div>
+                </section>
+              ))}
+            </div>
           )}
         </div>
       </div>
       <Footer />
     </>
   );
+}
+
+/* ── Stat pill ─────────────────────────────────────────────────────────── */
+function StatPill({ value, label }) {
+  return (
+    <div className="flex flex-col items-center md:items-start bg-white/5 border border-white/10 rounded-xl px-4 md:px-5 py-2.5 min-w-[84px]">
+      <span className="font-outfit font-bold text-white text-xl md:text-2xl leading-none">
+        {value}
+      </span>
+      <span className="font-karla text-[11px] md:text-xs text-gray-400 mt-1 tracking-wide uppercase">
+        {label}
+      </span>
+    </div>
+  );
+}
+
+/* ── Empty state ───────────────────────────────────────────────────────── */
+function EmptyState({ text, cta }) {
+  return (
+    <div className="flex flex-col items-center justify-center text-center py-24 gap-4">
+      <div className="w-16 h-16 rounded-2xl bg-white/5 border border-white/10 grid place-items-center">
+        <PlayIcon className="w-7 h-7 text-gray-500" />
+      </div>
+      <p className="text-gray-400 font-karla max-w-sm">{text}</p>
+      {cta && (
+        <Link
+          href="/en"
+          className="mt-2 inline-flex items-center gap-2 rounded-full bg-action px-5 py-2.5 font-karla font-semibold text-white text-sm hover:scale-[1.03] transition-transform"
+        >
+          {cta}
+        </Link>
+      )}
+    </div>
+  );
+}
+
+/* ── History card ──────────────────────────────────────────────────────── */
+function HistoryCard({ i, t, router, removeItem }) {
+  const time = Number(i.timeWatched) || 0;
+  const duration = Number(i.duration) || 0;
+  let prog = duration > 0 ? (time / duration) * 100 : 0;
+  if (prog > 90) prog = 100;
+  const isDone = prog >= 100;
+  const remainingMin =
+    duration > 0 && !isDone ? Math.max(0, Math.round((duration - time) / 60)) : 0;
+
+  const watchHref = `/en/anime/watch/${i.aniId}/${i.provider}?id=${encodeURIComponent(
+    i.watchId,
+  )}&num=${i.episode}`;
+
+  return (
+    <div className="group/item flex flex-col gap-2.5">
+      <div className="relative aspect-video rounded-xl overflow-hidden">
+        {/* Hover actions */}
+        <div className="absolute z-40 top-2 right-2 flex flex-col gap-1.5 opacity-0 group-hover/item:opacity-100 scale-90 group-hover/item:scale-100 transition-all duration-200 ease-out">
+          <HistoryOptions remove={removeItem} watchId={i.watchId} aniId={i.aniId} />
+          {i?.nextId && (
+            <button
+              type="button"
+              className="group/next relative flex items-center justify-center"
+              onClick={() =>
+                router.push(
+                  `/en/anime/watch/${i.aniId}/${i.provider}?id=${encodeURIComponent(
+                    i?.nextId,
+                  )}&num=${i?.nextNumber}`,
+                )
+              }
+            >
+              <ChevronRightIcon className="w-7 h-7 shrink-0 bg-black/70 backdrop-blur-sm p-1.5 rounded-full text-white hover:text-action hover:scale-105 transition-all duration-200" />
+              <span className="absolute right-9 whitespace-nowrap font-karla bg-secondary shadow-2xl shadow-black py-1 px-2 text-white text-xs rounded-md opacity-0 translate-x-2 group-hover/next:opacity-100 group-hover/next:translate-x-0 transition-all duration-200">
+                {t("home.playNext")}
+              </span>
+            </button>
+          )}
+        </div>
+
+        <Link href={watchHref} className="block w-full h-full group/thumb">
+          {/* Gradient scrim */}
+          <div className="absolute inset-0 z-20 bg-gradient-to-t from-black/80 via-black/10 to-transparent group-hover/thumb:from-black/60 transition-all duration-300" />
+
+          {/* Status / remaining badge */}
+          <div className="absolute top-2 left-2 z-30">
+            {isDone ? (
+              <span className="inline-flex items-center gap-1 rounded-md bg-black/65 backdrop-blur-sm px-2 py-1 text-[11px] font-karla font-semibold text-emerald-400">
+                ✓ {t("home.completed")}
+              </span>
+            ) : remainingMin > 0 ? (
+              <span className="inline-flex items-center rounded-md bg-black/65 backdrop-blur-sm px-2 py-1 text-[11px] font-karla font-semibold text-white/90">
+                {t("home.minutesShort", { count: remainingMin })}
+              </span>
+            ) : null}
+          </div>
+
+          {/* Centered play-on-hover */}
+          <div className="absolute inset-0 z-30 grid place-items-center opacity-0 group-hover/thumb:opacity-100 transition-opacity duration-200">
+            <div className="w-12 h-12 rounded-full bg-action/90 grid place-items-center shadow-lg">
+              <PlayIcon className="w-6 h-6 text-white translate-x-0.5" />
+            </div>
+          </div>
+
+          {/* Episode title bottom-left */}
+          <div className="absolute bottom-2.5 left-3 right-3 z-30 flex items-center gap-2">
+            <h1
+              className="font-semibold text-sm font-karla text-white line-clamp-1"
+              title={i?.title || i.anititle}
+            >
+              {i?.title || i.anititle || `${t("common.episode")} ${i.episode}`}
+            </h1>
+          </div>
+
+          {/* Progress bar */}
+          <span
+            className="absolute bottom-0 left-0 h-[3px] z-30 rounded-r-full"
+            style={{ width: `${prog}%`, background: "var(--brand-primary, #E94560)" }}
+          />
+
+          {(i?.image || i?.cover) && (
+            <Image
+              src={i?.image || i?.cover}
+              width={320}
+              height={180}
+              alt={i?.aniTitle || "Episode thumbnail"}
+              className="absolute inset-0 h-full w-full object-cover z-10 group-hover/thumb:scale-[1.04] transition-transform duration-500"
+            />
+          )}
+        </Link>
+      </div>
+
+      {/* Meta row under the card */}
+      <div className="flex items-start justify-between gap-2">
+        <Link href={watchHref} className="min-w-0 flex-1 font-karla">
+          <p
+            className="text-white text-sm font-medium truncate"
+            title={i.aniTitle}
+          >
+            {i.aniTitle}
+          </p>
+          <p className="text-gray-400 text-xs mt-0.5">
+            {t("common.episode")} {i.episode}
+          </p>
+        </Link>
+        <Link
+          href={watchHref}
+          className="shrink-0 inline-flex items-center gap-1 rounded-lg bg-white/5 hover:bg-action/15 border border-white/10 hover:border-action/40 px-2.5 py-1.5 text-xs font-karla font-semibold text-gray-200 hover:text-action transition-colors"
+        >
+          <PlayIcon className="w-3.5 h-3.5" />
+          {t("home.resume")}
+        </Link>
+      </div>
+    </div>
+  );
+}
+
+/* ── Helpers ───────────────────────────────────────────────────────────── */
+
+// Sum of watched seconds → a compact "Xh Ym" / "Ym" label.
+function formatWatchTime(totalSeconds, t) {
+  const mins = Math.round(totalSeconds / 60);
+  if (mins < 60) return t("home.minutesShort", { count: mins });
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return m > 0
+    ? `${t("home.hoursShort", { count: h })} ${t("home.minutesShort", { count: m })}`
+    : t("home.hoursShort", { count: h });
+}
+
+// Bucket rows into Today / Yesterday / Earlier-this-week / month / older,
+// using each row's createdDate. Rows without a usable date land in "Older"
+// so they still show. Returns an ordered array of non-empty groups.
+function groupByRecency(rows, t) {
+  const now = new Date();
+  const startOfToday = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate(),
+  ).getTime();
+  const dayMs = 86400000;
+
+  const buckets = {
+    today: { key: "today", label: t("home.groupToday"), items: [] },
+    yesterday: { key: "yesterday", label: t("home.groupYesterday"), items: [] },
+    week: { key: "week", label: t("home.groupThisWeek"), items: [] },
+    month: { key: "month", label: t("home.groupThisMonth"), items: [] },
+    older: { key: "older", label: t("home.groupOlder"), items: [] },
+  };
+
+  for (const i of rows) {
+    const ts = new Date(i?.createdDate || i?.createdAt || 0).getTime();
+    if (!ts || Number.isNaN(ts)) {
+      buckets.older.items.push(i);
+      continue;
+    }
+    if (ts >= startOfToday) buckets.today.items.push(i);
+    else if (ts >= startOfToday - dayMs) buckets.yesterday.items.push(i);
+    else if (ts >= startOfToday - 7 * dayMs) buckets.week.items.push(i);
+    else if (ts >= startOfToday - 31 * dayMs) buckets.month.items.push(i);
+    else buckets.older.items.push(i);
+  }
+
+  return [
+    buckets.today,
+    buckets.yesterday,
+    buckets.week,
+    buckets.month,
+    buckets.older,
+  ].filter((b) => b.items.length > 0);
 }
 
 export async function getServerSideProps(context) {

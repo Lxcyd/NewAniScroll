@@ -53,6 +53,14 @@ const isAired = (timestamp: number | null) => {
   return timestamp <= currentTime;
 };
 
+const safeParse = (raw: string): any => {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+};
+
 export async function getServerSideProps(ctx: any) {
   // Public, identical for every visitor — the airing schedule only shifts
   // when AniList updates airing times (and the per-episode countdowns are
@@ -89,12 +97,14 @@ export async function getServerSideProps(ctx: any) {
     cachedData = await redis.get("new_schedule");
   }
 
-  if (cachedData) {
-    const scheduleByDay = JSON.parse(cachedData);
-
+  // Treat an empty cached object as a miss too — an older deploy may have
+  // cached `{}` after a transient AniList failure, and we don't want that
+  // stale-empty entry to keep the page blank until it expires.
+  const cachedParsed = cachedData ? safeParse(cachedData) : null;
+  if (cachedParsed && Object.keys(cachedParsed).length > 0) {
     return {
       props: {
-        schedule: scheduleByDay
+        schedule: cachedParsed
         // today: todaySchedule,
       }
     };
@@ -144,7 +154,14 @@ export async function getServerSideProps(ctx: any) {
       scheduleByDay[day].push(schedule);
     });
 
-    if (redis) {
+    // Only cache a non-empty result. A transient AniList failure (429 /
+    // timeout) makes the very first page return null, which breaks the loop
+    // immediately and leaves `scheduleByDay` empty. Caching that empty object
+    // for up to a full day (timeUntilMidnightJapan) used to poison the page:
+    // every later visit read the empty cache and rendered nothing. By skipping
+    // the write when empty we let the next request retry AniList instead.
+    const hasData = Object.keys(scheduleByDay).length > 0;
+    if (redis && hasData) {
       await redis.set(
         "new_schedule",
         JSON.stringify(scheduleByDay),
@@ -376,16 +393,22 @@ export default function Schedule({ schedule }: any) {
                       <div className="w-full grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5 md:gap-7 grid-flow-row relative">
                         {animeList.map((s, index) => {
                           const m = s.media;
+                          if (!m || !m.id) return null;
+                          const cover =
+                            m.coverImage?.extraLarge ||
+                            m.coverImage?.large ||
+                            "/logo.png";
+                          const mediaType = (m.type || "ANIME").toLowerCase();
                           return (
                             <>
                               <Link
                                 key={m.id}
                                 // id={`same_${m.id}`}
-                                href={`/en/${m.type.toLowerCase()}/${m.id}`}
+                                href={`/en/${mediaType}/${m.id}`}
                                 className={`flex bg-secondary rounded group cursor-pointer overflow-hidden ml-4`}
                               >
                                 <Image
-                                  src={m.coverImage.extraLarge}
+                                  src={cover}
                                   alt="image"
                                   width={300}
                                   height={300}
@@ -451,12 +474,17 @@ export default function Schedule({ schedule }: any) {
                   >
                     {schedules.map((s) => {
                       const m = s.media;
+                      if (!m || !m.id) return null;
+                      const cover =
+                        m.coverImage?.extraLarge ||
+                        m.coverImage?.large ||
+                        "/logo.png";
 
                       return (
                         <Link
                           key={m.id}
                           // id={`same_${m.id}`}
-                          href={`/en/${m.type?.toLowerCase()}/${m.id}`}
+                          href={`/en/${(m.type || "ANIME").toLowerCase()}/${m.id}`}
                           className={`flex bg-secondary rounded group cursor-pointer relative ${
                             s.id === nextAiringAnime
                               ? "ring-1 ring-sky-500"
@@ -491,7 +519,7 @@ export default function Schedule({ schedule }: any) {
                             </span>
                           </p>
                           <Image
-                            src={m.coverImage.extraLarge}
+                            src={cover}
                             alt="image"
                             width={200}
                             height={200}

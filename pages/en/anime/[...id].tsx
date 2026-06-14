@@ -55,6 +55,12 @@ type InfoTypes = {
   /** Useragent string sniffed at SSR so the very first render already
    *  picks the right mobile/desktop layout — no client-only flash. */
   initialUA: string | null;
+  /** Absolute site origin (e.g. https://aniscroll.com) derived from the
+   *  request headers at SSR. Used to build an ABSOLUTE og:image URL in the
+   *  HTML, so link-unfurlers (Discord/X/Slack) — which read the raw SSR
+   *  markup, never run our client JS — get a card instead of a broken
+   *  relative URL. */
+  baseUrl: string;
 };
 
 // Bump when the shape of `info` changes — or when a SSR-side computation
@@ -82,6 +88,7 @@ export default function Info({
   initialStatusLabel,
   initialProgress,
   initialUA,
+  baseUrl,
 }: InfoTypes) {
   const isMobile = useIsMobile(initialUA);
   const { data: session, status: sessionStatus }: any = useSession();
@@ -98,7 +105,6 @@ export default function Info({
   // "empty" to "filled" on hydration.
   const [progress, setProgress] = useState<number>(initialProgress);
   const [statusLabel, setStatusLabel] = useState<string | null>(initialStatusLabel);
-  const [domainUrl, setDomainUrl] = useState("");
   const [fav, setFav] = useState<boolean>(initialFav);
   // Whether the signed-in user's list status has finished resolving. The page
   // SSRs an identical (status=null) HTML for everyone so it can be edge-cached,
@@ -147,10 +153,9 @@ export default function Info({
     }
   }, [info?.id, info?.title]);
 
-  // Reset modal + capture domain on first mount.
+  // Reset modal on first mount.
   useEffect(() => {
     handleClose();
-    setDomainUrl(window.location.origin);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -438,6 +443,28 @@ export default function Info({
   }
 
   const title = info?.title?.english || info?.title?.romaji || "Anime";
+
+  // Absolute OG-card URL. Built from the SSR-derived origin so the meta tag is
+  // an absolute URL in the very first HTML — link-unfurlers (Discord/X/Slack)
+  // read that markup without running our JS, so a relative URL wouldn't work.
+  // The card route (pages/api/og.tsx) draws the cover on the left + title /
+  // meta / genres / score on the right. Sharing the page link embeds this card.
+  const ogImageUrl = (() => {
+    const params = new URLSearchParams();
+    params.set("title", title);
+    if (info?.coverImage?.extraLarge || info?.coverImage?.large)
+      params.set("cover", info.coverImage.extraLarge || info.coverImage.large);
+    if (info?.bannerImage) params.set("banner", info.bannerImage);
+    if (info?.averageScore) params.set("score", String(info.averageScore));
+    const year = info?.seasonYear || info?.startDate?.year;
+    if (year) params.set("year", String(year));
+    if (info?.format) params.set("format", info.format);
+    if (info?.episodes) params.set("episodes", String(info.episodes));
+    if (info?.genres?.length) params.set("genres", info.genres.slice(0, 3).join(","));
+    return `${baseUrl}/api/og?${params.toString()}`;
+  })();
+  const pageUrl = `${baseUrl}/en/anime/${info?.id ?? ""}`;
+
   // The second path segment is the human-readable anime slug (was "megaplay").
   // The watch route ignores it for routing (real provider falls back to the
   // first episode-list provider), so it's purely a readable/SEO URL — e.g.
@@ -462,18 +489,32 @@ export default function Info({
           data-title-native={info?.title?.native || ""}
         />
         <meta name="description" content={info?.description?.slice(0, 220) || ""} />
+
+        {/* Open Graph — drives the embed card shown when the page link is
+            shared (Discord, X, Slack, iMessage, …). og:image is the dynamic
+            card route with the cover on the left. */}
+        <meta property="og:type" content="video.tv_show" />
+        <meta property="og:site_name" content="AniScroll" />
+        <meta property="og:title" content={`${title} • AniScroll`} />
+        <meta
+          property="og:description"
+          content={
+            (info?.description?.replace(/<[^>]+>/g, "").slice(0, 180) || "") +
+            "…"
+          }
+        />
+        <meta property="og:url" content={pageUrl} />
+        <meta property="og:image" content={ogImageUrl} />
+        <meta property="og:image:width" content="1200" />
+        <meta property="og:image:height" content="630" />
+
         <meta name="twitter:card" content="summary_large_image" />
         <meta name="twitter:title" content={`AniScroll - ${title}`} />
         <meta
           name="twitter:description"
-          content={`${info?.description?.slice(0, 180) || ""}...`}
+          content={`${info?.description?.replace(/<[^>]+>/g, "").slice(0, 180) || ""}...`}
         />
-        <meta
-          name="twitter:image"
-          content={`${domainUrl}/api/og?title=${encodeURIComponent(title)}&image=${
-            info?.bannerImage || info?.coverImage?.extraLarge || ""
-          }`}
-        />
+        <meta name="twitter:image" content={ogImageUrl} />
         {/* Fonts used by the V2 design — Inter already loaded globally;
             Space Grotesk + JetBrains Mono are only needed on this page. */}
         <link
@@ -654,6 +695,18 @@ export async function getServerSideProps(ctx: any) {
   const { id, notfound } = ctx.query;
   const timer = makeTimer();
 
+  // Absolute origin for OG meta. Crawlers read the SSR HTML (no client JS), so
+  // a relative og:image won't unfurl — we need the scheme+host here. Prefer the
+  // forwarded headers Vercel sets, fall back to host, then to the prod domain.
+  const fwdProto = ctx.req?.headers?.["x-forwarded-proto"];
+  const fwdHost =
+    ctx.req?.headers?.["x-forwarded-host"] || ctx.req?.headers?.host;
+  const baseUrl = fwdHost
+    ? `${(Array.isArray(fwdProto) ? fwdProto[0] : fwdProto) || "https"}://${
+        Array.isArray(fwdHost) ? fwdHost[0] : fwdHost
+      }`
+    : "https://aniscroll.com";
+
   let API_URI;
   API_URI = process.env.API_URI || null;
   if (API_URI && API_URI.endsWith("/")) {
@@ -776,6 +829,7 @@ export async function getServerSideProps(ctx: any) {
         initialStatusLabel: null,
         initialProgress: 0,
         initialUA: ctx.req?.headers?.["user-agent"] || null,
+        baseUrl,
       },
     };
   }
@@ -873,6 +927,8 @@ export async function getServerSideProps(ctx: any) {
       initialFav: false,
       initialStatusLabel: null,
       initialProgress: 0,
+      initialUA: ctx.req?.headers?.["user-agent"] || null,
+      baseUrl,
     },
   };
 }

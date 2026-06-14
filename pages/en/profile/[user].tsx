@@ -11,7 +11,6 @@ import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { useTranslation } from "react-i18next";
 import { listLabel } from "@/components/anime/v2/helpers";
 import QueueSection from "@/components/list/QueueSection";
-import SurpriseButton from "@/components/list/SurpriseButton";
 
 type MyListProps = {
   media: CurrentMediaTypes[];
@@ -309,14 +308,8 @@ export default function MyList({
         </div>
 
         <div className="lg:w-[75%] grid gap-10 my-5 lg:my-12 lg:pt-16">
-          {/* Watch-next queue + surprise pick — only for the owner viewing their
-              own profile. Client-only (localStorage); queue renders nothing when
-              empty. */}
-          {isOwner && (
-            <div className="mb-2">
-              <SurpriseButton />
-            </div>
-          )}
+          {/* Watch-next queue — only for the owner viewing their own profile.
+              Client-only (localStorage); renders nothing when empty. */}
           {isOwner && <QueueSection />}
           {media.length !== 0 ? (
             filterMedia(listFilter).map((item, index) => {

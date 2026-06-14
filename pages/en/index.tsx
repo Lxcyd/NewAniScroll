@@ -423,7 +423,7 @@ function HeroBanner({
                       {t(statusInfo.labelKey)}
                     </span>
                   )}
-                  <span className="rounded-full bg-[#E94560]/20 px-3 py-1 text-xs font-karla font-semibold tracking-wider text-action border border-[#E94560]/40 backdrop-blur-sm">
+                  <span className="rounded-full bg-action/20 px-3 py-1 text-xs font-karla font-semibold tracking-wider text-action border border-action/40 backdrop-blur-sm">
                     {t("home.trending")} #{idx + 1}
                   </span>
                 </div>
@@ -443,7 +443,7 @@ function HeroBanner({
                   <div className="flex items-center gap-3">
                     <button
                       onClick={() => onPlay(active.id)}
-                      className="inline-flex items-center gap-2 rounded-full bg-action px-7 py-3 font-karla font-semibold text-white text-sm tracking-wider shadow-lg shadow-[#E94560]/40 outline-none focus:outline-none focus-visible:outline-none transition-all hover:bg-[#E94560]/90 hover:scale-[1.03]"
+                      className="inline-flex items-center gap-2 rounded-full bg-action px-7 py-3 font-karla font-semibold text-white text-sm tracking-wider shadow-lg shadow-action/40 outline-none focus:outline-none focus-visible:outline-none transition-all hover:bg-action/90 hover:scale-[1.03]"
                     >
                       <svg
                         viewBox="0 0 24 24"
@@ -556,7 +556,7 @@ function HeroBanner({
                       className={`group relative h-[180px] w-[126px] shrink-0 overflow-hidden rounded-xl shadow-xl outline-none focus:outline-none transition-all duration-300 hover:scale-[1.06] ${
                         isCurrent
                           ? "border-2 border-action"
-                          : "border border-white/10 hover:border-[#E94560]/60"
+                          : "border border-white/10 hover:border-action/60"
                       }`}
                     >
                       {e.coverImage?.extraLarge ? (

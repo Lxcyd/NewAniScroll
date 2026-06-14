@@ -11,7 +11,6 @@ import { listLabel, STATUS_TO_LIST, LIST_COLORS } from "@/components/anime/v2/he
 import { useLocalList, LocalEntry } from "@/lib/list/localList";
 import { useStreak } from "@/lib/stats/streak";
 import QueueSection from "@/components/list/QueueSection";
-import SurpriseButton from "@/components/list/SurpriseButton";
 
 /**
  * Local "My List" — the full list experience for users who aren't signed in to
@@ -92,12 +91,6 @@ export default function MyListLocal() {
           )}
         </div>
 
-        {/* Surprise me — random pick from the queue / Planning. */}
-        {entries.length > 0 && (
-          <div className="mb-6">
-            <SurpriseButton />
-          </div>
-        )}
 
         {/* Watch-next queue — manual, ordered, independent of list status. */}
         <QueueSection />

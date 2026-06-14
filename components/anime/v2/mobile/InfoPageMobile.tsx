@@ -44,8 +44,6 @@ import CharactersTab from "../CharactersTab";
 import Episodes from "../Episodes";
 import Artworks from "../Artworks";
 import QueueButton from "../QueueButton";
-import ShareCardButton from "../ShareCardButton";
-import { useAccent } from "@/lib/prefs/accentColor";
 import ScoresTab from "../ScoresTab";
 import Related from "../Related";
 
@@ -188,7 +186,6 @@ function MHero({
   onToggleFav: () => void;
 }) {
   const { t } = useTranslation();
-  const accent = useAccent();
   const banner = info.bannerImage || info.coverImage?.extraLarge;
   const cover =
     info.coverImage?.extraLarge || info.coverImage?.large;
@@ -484,7 +481,6 @@ function MHero({
               mediaTitle={info.title}
               mediaCover={info.coverImage?.large || info.coverImage?.extraLarge || null}
               info={info}
-              accent={accent}
             />
           </div>
         </div>
@@ -503,10 +499,8 @@ function MActions({
   mediaTitle,
   mediaCover,
   info,
-  accent,
 }: {
   info?: any;
-  accent?: string;
   statusLabel: string | null;
   statusResolved?: boolean;
   fav: boolean;
@@ -645,37 +639,6 @@ function MActions({
           {t("anime.share")}
         </button>
       </div>
-      {info && (
-        <ShareCardButton
-          info={{
-            id: info.id,
-            title: info.title?.english || info.title?.romaji || info.title?.userPreferred || "",
-            coverImage: info.coverImage?.extraLarge || info.coverImage?.large || null,
-            bannerImage: info.bannerImage || null,
-            score: info.averageScore ?? null,
-            year: info.seasonYear ?? info.startDate?.year ?? null,
-            genres: info.genres || [],
-            format: info.format || null,
-            episodes: info.episodes ?? null,
-          }}
-          accent={accent}
-          style={{
-            width: "100%",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: 10,
-            height: 44,
-            borderRadius: 11,
-            background: "rgba(255,255,255,0.04)",
-            border: "1px solid #2f3447",
-            color: "#f4f5f8",
-            fontSize: 13,
-            fontWeight: 600,
-            cursor: "pointer",
-          }}
-        />
-      )}
     </div>
   );
 }

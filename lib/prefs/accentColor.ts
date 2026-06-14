@@ -38,7 +38,14 @@ export function getAccent(): string {
 export function applyAccent(color: string): void {
   if (typeof document === "undefined") return;
   const c = HEX_RE.test(color) ? color : DEFAULT_ACCENT;
-  document.documentElement.style.setProperty("--brand-primary", c);
+  const root = document.documentElement.style;
+  root.setProperty("--brand-primary", c);
+  // Derived tints used by Vidstack chrome (the player's buffered/preload bar
+  // reads --brand-glow, the secondary accent feeds some gradients). Keeping
+  // them in lockstep with the primary means picking a theme colour recolours
+  // the player track too, not just the brand-primary surfaces.
+  root.setProperty("--brand-glow", `${c}59`); // ~35% alpha (0x59)
+  root.setProperty("--brand-secondary", c);
 }
 
 export function setAccent(color: string): void {
