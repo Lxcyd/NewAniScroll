@@ -76,6 +76,13 @@
       "rateOnCompleteDesc": "Affiche une fenêtre de notation quand vous terminez le dernier épisode d'un anime.",
       "note": "Ce réglage est enregistré sur cet appareil. La note est enregistrée dans votre liste locale (et poussée vers AniList si la synchronisation est active)."
     },
+    "dataSaver": {
+      "title": "Économie de données",
+      "desc": "Réduit la bande passante et l'usage GPU sur connexion lente ou appareil modeste.",
+      "toggle": "Activer l'économie de données",
+      "toggleDesc": "Désactive l'effet de lumière d'ambiance du lecteur.",
+      "note": "Enregistré sur cet appareil."
+    },
     "profile": {
       "title": "Profil",
       "desc": "Choisissez qui peut voir votre page de profil AniScroll.",

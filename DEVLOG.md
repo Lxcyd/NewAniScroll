@@ -7,6 +7,26 @@ Ordre anti-chronologique (le plus récent en haut). Une entrée = une session/su
 
 ---
 
+## 2026-06-14 — Lot features (7/n) : mode données réduites
+
+### Contexte
+Feature #9 : toggle « économie de données ».
+
+### Décisions prises
+1. **`lib/prefs/dataSaver.ts`** : store localStorage (`aniscroll:dataSaver`), event + hook `useDataSaver` (même pattern que les autres prefs).
+2. **Réglages** : nouvelle section « Économie de données » dans `settings.tsx` avec le toggle. Clés i18n `settings.dataSaver.*`.
+3. **Application** : `UniversalPlayer` lit `useDataSaver()` et **désactive l'ambient-light** (`ambientEnabled = … && !dataSaver`) — c'est le travail visuel le plus lourd (lecture canvas continue + blur). Description du toggle honnête (ne promet que l'ambient pour l'instant).
+
+### Leçons / pièges
+- La partie « images plus légères » touche beaucoup de composants (risqué) → livré le gain à fort impact / faible risque (ambient off) ; libellé adapté pour ne pas survendre.
+
+### État déployé / à faire
+- Branche `dev`. `tsc` + `next lint` + JSON clean.
+- ⏳ Tester : activer économie de données → plus d'effet de lumière d'ambiance dans le lecteur.
+- ⏭️ Suite : partage de carte, thème custom, taille subs mémorisée, historique. (Option future : étendre data-saver aux tailles d'images.)
+
+---
+
 ## 2026-06-14 — Lot features (6/n) : roulette « Surprends-moi »
 
 ### Contexte

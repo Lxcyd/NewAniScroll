@@ -13,6 +13,7 @@ import {
 import { getLang, setLang, Lang, LANG_EVENT } from "@/lib/i18n/languagePref";
 import { useSyncPrefs, setSyncPrefs } from "@/lib/prefs/syncPrefs";
 import { usePlayerPrefs, setPlayerPrefs } from "@/lib/prefs/playerPrefs";
+import { useDataSaver, setDataSaver } from "@/lib/prefs/dataSaver";
 import {
   downloadExportXml,
   importFromJson,
@@ -129,6 +130,7 @@ export default function Settings() {
   const { data: session }: any = useSession();
   const syncPrefs = useSyncPrefs();
   const playerPrefs = usePlayerPrefs();
+  const dataSaver = useDataSaver();
   const localList = useLocalList();
   const [titlePref, setTitlePrefState] = useState<TitlePref>("en");
   const [uiLang, setUiLangState] = useState<Lang>("en");
@@ -448,6 +450,21 @@ export default function Settings() {
               />
             </div>
             <p className="text-white/40 text-xs mt-3">{t("settings.player.note")}</p>
+          </section>
+
+          {/* ── Data saver ───────────────────────────────────────── */}
+          <section className="mb-10">
+            <h2 className="text-xl font-semibold mb-1">{t("settings.dataSaver.title")}</h2>
+            <p className="text-white/60 text-sm mb-4">{t("settings.dataSaver.desc")}</p>
+            <div className="rounded-xl bg-white/5 ring-1 ring-white/10 px-4 divide-y divide-white/5">
+              <Toggle
+                label={t("settings.dataSaver.toggle")}
+                desc={t("settings.dataSaver.toggleDesc")}
+                checked={dataSaver}
+                onChange={setDataSaver}
+              />
+            </div>
+            <p className="text-white/40 text-xs mt-3">{t("settings.dataSaver.note")}</p>
           </section>
 
           {/* ── AniList synchronisation ──────────────────────────── */}

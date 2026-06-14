@@ -76,6 +76,13 @@
       "rateOnCompleteDesc": "Shows a rating dialog when you finish the last episode of an anime.",
       "note": "This setting is saved on this device. The rating is stored in your local list (and pushed to AniList when sync is on)."
     },
+    "dataSaver": {
+      "title": "Data saver",
+      "desc": "Reduce bandwidth and GPU use on slower connections or weaker devices.",
+      "toggle": "Enable data saver",
+      "toggleDesc": "Turns off the player's live ambient-light effect.",
+      "note": "Saved on this device."
+    },
     "profile": {
       "title": "Profile",
       "desc": "Control who can see your AniScroll profile page.",

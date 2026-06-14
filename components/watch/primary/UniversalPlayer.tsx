@@ -27,6 +27,7 @@ import type { TFunction } from "i18next";
 import { VIDSTACK_FR } from "@/lib/i18n/vidstackFr";
 import { getResumeTime, saveProgress, markComplete } from "@/lib/watch/progress";
 import { recordWatchToday } from "@/lib/stats/streak";
+import { useDataSaver } from "@/lib/prefs/dataSaver";
 import { usePlayerPrefs, setPlayerPrefs } from "@/lib/prefs/playerPrefs";
 
 // Trace logger — off by default. Set NEXT_PUBLIC_DEBUG_SOURCE=1 to surface the
@@ -1379,7 +1380,11 @@ export default function UniversalPlayer({
       document.removeEventListener("webkitfullscreenchange", update);
     };
   }, []);
-  const ambientEnabled = ambient && ctxAmbient && !isFullscreen && !iosPseudoFs;
+  // Data Saver disables the live ambient-light sampling (a constant canvas read
+  // + blur, the heaviest visual work the player does).
+  const dataSaver = useDataSaver();
+  const ambientEnabled =
+    ambient && ctxAmbient && !dataSaver && !isFullscreen && !iosPseudoFs;
   const [castAvailable, setCastAvailable] = useState(false);
   const [castConnected, setCastConnected] = useState(false);
 
