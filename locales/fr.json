@@ -458,7 +458,9 @@
     "streakDays": "jour de suite",
     "streakDays_other": "jours de suite",
     "bestStreak": "Meilleure série : {{count}} jours",
-    "empty": "Votre liste est vide — terminez un épisode ou importez une liste pour commencer."
+    "empty": "Votre liste est vide — terminez un épisode ou importez une liste pour commencer.",
+    "clearList": "Vider la liste",
+    "clearConfirm": "Supprimer toute votre liste ? Cette action est irréversible."
   },
   "search": {
     "label": "Rechercher",

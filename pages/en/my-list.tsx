@@ -8,7 +8,7 @@ import Footer from "@/components/shared/footer";
 import { useTranslation } from "react-i18next";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { listLabel, STATUS_TO_LIST, LIST_COLORS } from "@/components/anime/v2/helpers";
-import { useLocalList, LocalEntry } from "@/lib/list/localList";
+import { useLocalList, LocalEntry, clearLocalList } from "@/lib/list/localList";
 import { useStreak } from "@/lib/stats/streak";
 import QueueSection from "@/components/list/QueueSection";
 
@@ -35,6 +35,16 @@ export default function MyListLocal() {
   const entries = useLocalList();
   const { current: streak, best: bestStreak } = useStreak();
   const [filter, setFilter] = useState<string>("all");
+
+  function handleClearList() {
+    if (
+      typeof window !== "undefined" &&
+      window.confirm(t("myList.clearConfirm"))
+    ) {
+      clearLocalList();
+      setFilter("all");
+    }
+  }
 
   // Group entries by status. Entries without a status land in a fallback bucket.
   const groups = useMemo(() => {
@@ -75,20 +85,30 @@ export default function MyListLocal() {
               </Link>
             </p>
           </div>
-          {streak > 0 && (
-            <div
-              className="shrink-0 flex items-center gap-2 rounded-xl bg-white/5 ring-1 ring-white/10 px-3 py-2"
-              title={t("myList.bestStreak", { count: bestStreak })}
-            >
-              <span className="text-xl leading-none">🔥</span>
-              <div className="leading-tight">
-                <div className="text-lg font-bold">{streak}</div>
-                <div className="text-[10px] uppercase tracking-wide text-white/50">
-                  {t("myList.streakDays", { count: streak })}
+          <div className="shrink-0 flex items-center gap-2">
+            {streak > 0 && (
+              <div
+                className="flex items-center gap-2 rounded-xl bg-white/5 ring-1 ring-white/10 px-3 py-2"
+                title={t("myList.bestStreak", { count: bestStreak })}
+              >
+                <span className="text-xl leading-none">🔥</span>
+                <div className="leading-tight">
+                  <div className="text-lg font-bold">{streak}</div>
+                  <div className="text-[10px] uppercase tracking-wide text-white/50">
+                    {t("myList.streakDays", { count: streak })}
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
+            )}
+            {entries.length > 0 && (
+              <button
+                onClick={handleClearList}
+                className="rounded-xl px-3 py-2 text-sm font-medium text-red-300 ring-1 ring-red-400/30 hover:bg-red-500/10 transition-colors"
+              >
+                {t("myList.clearList")}
+              </button>
+            )}
+          </div>
         </div>
 
 

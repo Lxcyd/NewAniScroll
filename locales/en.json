@@ -458,7 +458,9 @@
     "streakDays": "day streak",
     "streakDays_other": "day streak",
     "bestStreak": "Best streak: {{count}} days",
-    "empty": "Your list is empty — finish an episode or import a list to get started."
+    "empty": "Your list is empty — finish an episode or import a list to get started.",
+    "clearList": "Clear list",
+    "clearConfirm": "Delete your entire list? This can't be undone."
   },
   "search": {
     "label": "Search",
