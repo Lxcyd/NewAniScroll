@@ -307,7 +307,8 @@
     "empty": "You're all caught up.",
     "newEpisode": "Episode {{episode}} is out",
     "newEpisodes": "{{count}} new episodes (up to ep {{episode}})",
-    "resumeBody": "Paused for {{days}} days — pick it back up?"
+    "resumeBody": "Paused for {{days}} days — pick it back up?",
+    "nextSeasonBody": "A sequel is available — continue the story"
   },
   "rate": {
     "title": "How was it?",

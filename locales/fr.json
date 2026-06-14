@@ -307,7 +307,8 @@
     "empty": "Vous êtes à jour.",
     "newEpisode": "L'épisode {{episode}} est sorti",
     "newEpisodes": "{{count}} nouveaux épisodes (jusqu'à l'épisode {{episode}})",
-    "resumeBody": "En pause depuis {{days}} jours — on reprend ?"
+    "resumeBody": "En pause depuis {{days}} jours — on reprend ?",
+    "nextSeasonBody": "Une suite est disponible — continuez l'histoire"
   },
   "rate": {
     "title": "Alors, ce verdict ?",

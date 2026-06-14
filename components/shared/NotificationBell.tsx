@@ -47,6 +47,9 @@ export default function NotificationBell() {
         ? t("notifications.newEpisodes", { count: n.count, episode: n.episode })
         : t("notifications.newEpisode", { episode: n.episode });
     }
+    if (n.kind === "next-season") {
+      return t("notifications.nextSeasonBody");
+    }
     return t("notifications.resumeBody", { days: n.days });
   };
 

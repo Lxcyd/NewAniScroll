@@ -7,6 +7,27 @@ Ordre anti-chronologique (le plus récent en haut). Une entrée = une session/su
 
 ---
 
+## 2026-06-14 — Lot features (5/n) : détection saison suivante (notif)
+
+### Contexte
+Feature #6 : signaler qu'une suite existe pour un anime terminé.
+
+### Décisions prises
+1. **Intégré aux notifications** (`computeNotifications.ts`) plutôt qu'une nouvelle surface : nouveau kind `next-season`. Pour chaque entrée **COMPLETED** du local, `fetchSequels` (batch AniList `Page.media.relations.edges`, 1ère arête `SEQUEL` de format TV/TV_SHORT/ONA) ; on émet la notif **seulement si la suite n'est PAS déjà dans la liste** (`ownedIds`). La notif pointe directement vers la suite (`mediaId = seq.id`). Cache par id (`sequelCache`, durée session — les suites apparaissent rarement).
+2. **Rendu** (`NotificationBell.tsx`) : `bodyFor` gère `next-season` → `notifications.nextSeasonBody`. Clés i18n FR+EN.
+3. **Réutilisation** : on ne touche PAS au `resolveSeasonList` SSR/Redis lourd (walk de franchise) — overkill pour une notif ; un simple edge SEQUEL direct suffit.
+
+### Leçons / pièges
+- Filtrer le SEQUEL sur le format TV-like évite de notifier un film récap / OVA comme « saison suivante ».
+- Garde anti-bruit : ne notifier que si la suite n'est pas déjà possédée (sinon l'utilisateur le sait déjà).
+
+### État déployé / à faire
+- Branche `dev`. `tsc` + JSON + lint clean.
+- ⏳ Tester : avoir un anime COMPLETED dont la S2 n'est pas dans la liste → notif « suite disponible » qui linke la S2.
+- ⏭️ Suite : roulette, partage de carte, mode données réduites, thème custom, taille subs mémorisée, historique.
+
+---
+
 ## 2026-06-14 — Lot features (4/n) : file d'attente « à regarder ensuite »
 
 ### Contexte

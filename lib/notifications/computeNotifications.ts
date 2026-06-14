@@ -3,13 +3,13 @@
  * airing schedule. No service worker / web push: these surface in the NavBar
  * bell while the app is open and recompute on load.
  *
- * Two kinds:
- *  - "new-episode": a CURRENT anime has aired episodes beyond your progress.
- *  - "resume":      a CURRENT/PAUSED anime you haven't touched in a long while.
+ * Three kinds:
+ *  - "new-episode":  a CURRENT anime has aired episodes beyond your progress.
+ *  - "resume":       a CURRENT/PAUSED anime you haven't touched in a long while.
+ *  - "next-season":  a COMPLETED anime has a sequel you don't have in your list.
  *
- * The new-episode kind needs the latest aired episode per anime, which the
- * local list doesn't store — so we batch-query AniList for the CURRENT entries'
- * `nextAiringEpisode`. The resume kind is purely local (uses `activityAt`).
+ * The new-episode + next-season kinds need AniList data the local list doesn't
+ * store, so we batch-query for them. The resume kind is purely local.
  */
 
 import { getLocalList, LocalEntry } from "@/lib/list/localList";
@@ -17,7 +17,7 @@ import { pickTitle, type TitlePref } from "@/lib/prefs/titlePref";
 
 const ENDPOINT = "https://graphql.anilist.co/";
 
-export type NotificationKind = "new-episode" | "resume";
+export type NotificationKind = "new-episode" | "resume" | "next-season";
 
 export type AppNotification = {
   /** Stable id: kind + mediaId + the salient number, so "read" state sticks
@@ -33,6 +33,8 @@ export type AppNotification = {
   count?: number;
   /** Days since last activity (resume). */
   days?: number;
+  /** The sequel anime to point at (next-season). The notification links here. */
+  sequel?: { id: number; title: string; coverImage: string | null };
   /** Sort key — most relevant first. */
   sortAt: number;
 };
@@ -100,6 +102,70 @@ async function fetchAiring(ids: number[]): Promise<Map<number, AiringInfo>> {
   } catch {
     /* offline / AniList down — new-episode notifs just won't appear */
   }
+  return out;
+}
+
+// Sequel lookup for the next-season notification. Cached by id (sequels appear
+// rarely, so a long-lived per-id cache is fine for a session).
+type Sequel = { id: number; title: any; coverImage: string | null } | null;
+const sequelCache = new Map<number, Sequel>();
+
+async function fetchSequels(ids: number[]): Promise<Map<number, Sequel>> {
+  const out = new Map<number, Sequel>();
+  const missing = ids.filter((id) => !sequelCache.has(id));
+  if (missing.length > 0) {
+    try {
+      const res = await fetch(ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          query: `query ($ids: [Int]) {
+            Page(perPage: 50) {
+              media(id_in: $ids, type: ANIME) {
+                id
+                relations {
+                  edges {
+                    relationType
+                    node { id type format title { english romaji userPreferred } coverImage { large } }
+                  }
+                }
+              }
+            }
+          }`,
+          variables: { ids: missing.slice(0, 50) },
+        }),
+      });
+      if (res.ok) {
+        const json = await res.json();
+        const media = json?.data?.Page?.media || [];
+        for (const m of media) {
+          const id = Number(m?.id);
+          if (!Number.isFinite(id)) continue;
+          const edges = m?.relations?.edges || [];
+          // First TV-like SEQUEL (skip recap movies / OVAs as "next season").
+          const seq = edges.find(
+            (e: any) =>
+              e?.relationType === "SEQUEL" &&
+              e?.node?.type === "ANIME" &&
+              ["TV", "TV_SHORT", "ONA"].includes(e?.node?.format),
+          );
+          sequelCache.set(
+            id,
+            seq
+              ? {
+                  id: Number(seq.node.id),
+                  title: seq.node.title,
+                  coverImage: seq.node.coverImage?.large ?? null,
+                }
+              : null,
+          );
+        }
+      }
+    } catch {
+      /* offline — next-season notifs just won't appear */
+    }
+  }
+  ids.forEach((id) => out.set(id, sequelCache.get(id) ?? null));
   return out;
 }
 
@@ -235,6 +301,32 @@ export async function computeNotifications(
       count: behind,
       sortAt: now, // freshest concern — sort to the top
     });
+  }
+
+  // ── Next season (COMPLETED entries with an unowned sequel) ──────
+  // For everything you've finished, surface its sequel IF you don't already
+  // have that sequel in your list (you'd already know about it then).
+  const completed = list.filter((e) => e.status === "COMPLETED");
+  if (completed.length > 0) {
+    const ownedIds = new Set(list.map((e) => e.mediaId));
+    const sequels = await fetchSequels(completed.map((e) => e.mediaId));
+    for (const e of completed) {
+      const seq = sequels.get(e.mediaId);
+      if (!seq || ownedIds.has(seq.id)) continue;
+      notes.push({
+        id: `next-season:${e.mediaId}:${seq.id}`,
+        kind: "next-season",
+        mediaId: seq.id, // link straight to the sequel
+        title: pickTitle(seq.title ?? null, titlePref),
+        coverImage: seq.coverImage,
+        sequel: {
+          id: seq.id,
+          title: pickTitle(seq.title ?? null, titlePref),
+          coverImage: seq.coverImage,
+        },
+        sortAt: now - 1, // just below new-episode alerts
+      });
+    }
   }
 
   // ── Resume recommendation (paced, theme-matched) ────────────────
