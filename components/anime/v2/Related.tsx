@@ -2,6 +2,7 @@ import { CSSProperties } from "react";
 import Link from "next/link";
 import { Edge } from "types/info/AnilistInfoTypes";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
+import { animeHref, useClickTarget } from "@/lib/prefs/clickTarget";
 import type { SeasonEntry } from "@/lib/anilist/seasonChain";
 import styles from "./styles.module.css";
 import { useTranslation } from "react-i18next";
@@ -46,6 +47,7 @@ const FORMAT_LABEL: Record<string, string> = {
 export default function Related({ relations, currentId, seasonList }: Props) {
   const { t } = useTranslation();
   const titlePref = useTitlePref();
+  const clickTarget = useClickTarget();
   // Anime / manga / novels relations only. Drop character / summary noise.
   const KEEP = new Set([
     "PREQUEL",
@@ -162,10 +164,10 @@ export default function Related({ relations, currentId, seasonList }: Props) {
         const kind = t(`anime.fmt.${n.format}`, { defaultValue: kindRaw });
         const href =
           n.type === "ANIME"
-            ? `/en/anime/${n.id}`
+            ? animeHref(n.id, clickTarget)
             : n.type === "MANGA"
             ? `/en/manga/${n.id}`
-            : `/en/anime/${n.id}`;
+            : animeHref(n.id, clickTarget);
 
         const meta = [
           n.type === "ANIME"

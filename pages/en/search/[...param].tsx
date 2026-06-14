@@ -31,6 +31,7 @@ import SearchByImage, {
 import { PlayIcon } from "@heroicons/react/24/outline";
 import { StaticImport } from "next/dist/shared/lib/get-img-props";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
+import { animeHref, useClickTarget } from "@/lib/prefs/clickTarget";
 import { useTranslation } from "react-i18next";
 
 export async function getServerSideProps(context: any) {
@@ -137,6 +138,7 @@ export default function Card({
   const inputRef = useRef(null);
   const router = useRouter();
   const titlePref = useTitlePref();
+  const clickTarget = useClickTarget();
   const { t } = useTranslation();
 
   const [data, setData] = useState<any>();
@@ -508,7 +510,7 @@ export default function Card({
                           href={
                             anime.format === "MANGA" || anime.format === "NOVEL"
                               ? `/en/manga/${anime.id}`
-                              : `/en/anime/${anime.id}`
+                              : animeHref(anime.id, clickTarget)
                           }
                           title={pickTitle(anime.title, titlePref)}
                           className="block relative overflow-hidden bg-secondary hover:scale-[1.03] scale-100 transition-all cursor-pointer duration-200 ease-out rounded"
@@ -529,7 +531,7 @@ export default function Card({
                           href={
                             anime.format === "MANGA" || anime.format === "NOVEL"
                               ? `/en/manga/${anime.id}`
-                              : `/en/anime/${anime.id}`
+                              : animeHref(anime.id, clickTarget)
                           }
                           title={pickTitle(anime.title, titlePref)}
                         >
@@ -591,7 +593,7 @@ export default function Card({
                     >
                       <Link
                         className="relative aspect-video rounded-md overflow-hidden group"
-                        href={`/en/anime/${a.anilist.id}`}
+                        href={animeHref(a.anilist.id, clickTarget)}
                         onMouseEnter={() => {
                           handleVideoHover(true, a.filename);
                         }}
@@ -635,7 +637,7 @@ export default function Card({
 
                       <Link
                         className="flex flex-col font-karla w-full"
-                        href={`/en/anime/${a.anilist.id}`}
+                        href={animeHref(a.anilist.id, clickTarget)}
                       >
                         {/* <h1 className="font-semibold">{a.title}</h1> */}
                         <p className="flex items-center gap-1 text-sm text-gray-400 max-w-[320px]">

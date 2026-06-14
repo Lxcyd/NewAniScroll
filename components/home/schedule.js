@@ -6,10 +6,12 @@ import { BackwardIcon, ForwardIcon } from "@heroicons/react/24/solid";
 import Link from "next/link";
 import { useCountdown } from "../../lib/hooks/useCountdownSeconds";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
+import { animeHref, useClickTarget } from "@/lib/prefs/clickTarget";
 import { useTranslation } from "react-i18next";
 
 export default function Schedule({ data, scheduleData, anime, update }) {
   const titlePref = useTitlePref();
+  const clickTarget = useClickTarget();
   const { t } = useTranslation();
   let now = new Date();
   let currentDay =
@@ -62,14 +64,14 @@ export default function Schedule({ data, scheduleData, anime, update }) {
             </h1>
             <div className="w-1/2 lg:w-2/5 hidden lg:flex font-karla font-semibold line-clamp-2">
               <Link
-                href={`/en/anime/${data.id}`}
+                href={animeHref(data.id, clickTarget)}
                 className="hover:underline underline-offset-4 decoration-2 leading-8 line-clamp-2 lg:text-[1.5vw]"
               >
                 {pickTitle(data.title, titlePref)}
               </Link>
             </div>
             <Link
-              href={`/en/anime/${data.id}`}
+              href={animeHref(data.id, clickTarget)}
               className="w-1/2 lg:hidden font-medium font-karla leading-9 text-white line-clamp-1"
             >
               {pickTitle(data.title, titlePref)}
@@ -142,7 +144,7 @@ export default function Schedule({ data, scheduleData, anime, update }) {
                     return (
                       <Link
                         key={`${i.id}-${index}`}
-                        href={`/en/anime/${i.id}`}
+                        href={animeHref(i.id, clickTarget)}
                         className={`${
                           hasAired ? "opacity-40" : ""
                         } h-full w-full flex items-center p-2 flex-shrink-0 hover:bg-secondary cursor-pointer`}

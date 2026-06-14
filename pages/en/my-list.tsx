@@ -7,6 +7,7 @@ import { Navbar } from "@/components/shared/NavBar";
 import Footer from "@/components/shared/footer";
 import { useTranslation } from "react-i18next";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
+import { animeHref, useClickTarget } from "@/lib/prefs/clickTarget";
 import { listLabel, STATUS_TO_LIST, LIST_COLORS } from "@/components/anime/v2/helpers";
 import { useLocalList, LocalEntry } from "@/lib/list/localList";
 import { useStreak } from "@/lib/stats/streak";
@@ -33,6 +34,7 @@ export default function MyListLocal() {
   const { t } = useTranslation();
   const titlePref = useTitlePref();
   const entries = useLocalList();
+  const clickTarget = useClickTarget();
   const { current: streak, best: bestStreak } = useStreak();
   const [filter, setFilter] = useState<string>("all");
 
@@ -152,7 +154,7 @@ export default function MyListLocal() {
                       {g.entries.map((e) => (
                         <Link
                           key={e.mediaId}
-                          href={`/en/anime/${e.mediaId}`}
+                          href={animeHref(e.mediaId, clickTarget)}
                           className="flex items-center gap-3 px-3 py-2 hover:bg-action/10 transition-colors"
                         >
                           {e.coverImage ? (

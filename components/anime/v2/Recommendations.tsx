@@ -2,6 +2,7 @@ import { CSSProperties, useRef, useCallback, useEffect } from "react";
 import Link from "next/link";
 import { MediaRecommendation } from "types/info/AnilistInfoTypes";
 import { useTranslation } from "react-i18next";
+import { animeHref, useClickTarget } from "@/lib/prefs/clickTarget";
 
 type Props = {
   items: MediaRecommendation[];
@@ -12,6 +13,7 @@ const DRAG_THRESHOLD = 8;
 
 export default function Recommendations({ items, forTitle }: Props) {
   const { t } = useTranslation();
+  const clickTarget = useClickTarget();
   const ref = useRef<HTMLDivElement>(null);
   const dragMovedRef = useRef(false);
 
@@ -120,7 +122,7 @@ export default function Recommendations({ items, forTitle }: Props) {
         {uniqueItems.map((r) => (
           <Link
             key={r.id}
-            href={`/en/anime/${r.id}`}
+            href={animeHref(r.id, clickTarget)}
             draggable={false}
             style={{ ...rStyles.cardLink } as CSSProperties}
           >

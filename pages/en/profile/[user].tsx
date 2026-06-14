@@ -9,6 +9,7 @@ import Footer from "@/components/shared/footer";
 import pls from "@/utils/request";
 import { CurrentMediaTypes } from "..";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
+import { animeHref, useClickTarget } from "@/lib/prefs/clickTarget";
 import { useTranslation } from "react-i18next";
 import { listLabel, STATUS_TO_LIST, LIST_COLORS } from "@/components/anime/v2/helpers";
 import QueueSection from "@/components/list/QueueSection";
@@ -34,6 +35,7 @@ export default function MyList({
   viewedName,
 }: MyListProps) {
   const titlePref = useTitlePref();
+  const clickTarget = useClickTarget();
   const { t } = useTranslation();
   // Owner = the signed-in viewer looking at their own profile (drives the
   // client-only watch-next queue, which lives in this device's localStorage).
@@ -235,7 +237,7 @@ export default function MyList({
                       {g.entries.map((e: any) => (
                         <Link
                           key={e.mediaId || e.media?.id}
-                          href={`/en/anime/${e.media?.id || e.mediaId}`}
+                          href={animeHref(e.media?.id || e.mediaId, clickTarget)}
                           className="flex items-center gap-3 px-3 py-2 hover:bg-action/10 transition-colors"
                         >
                           {e.media?.coverImage?.large ? (
