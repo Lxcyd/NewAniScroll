@@ -329,10 +329,13 @@ export default function Settings() {
     // Re-run when the section set changes (login) or the list section appears.
   }, [isLoggedIn]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const runPull = async () => {
+  // `replace` = hard override (used when turning sync ON, after the user
+  // confirms it replaces their local list). "Resync now" leaves it false so
+  // local-only progress is reconciled, not wiped.
+  const runPull = async (replace = false) => {
     setSyncing(true);
     try {
-      const r = await fullSyncFromAniList();
+      const r = await fullSyncFromAniList({ replace });
       if (r.ok) {
         toast.success(t("settings.sync.synced", { count: r.count }));
         // Run the auto-pause sweep immediately on the freshly-pulled list so the
@@ -345,11 +348,12 @@ export default function Settings() {
     }
   };
 
-  // Confirmed enable: flip the toggle on, then pull AniList → local (overwrite).
+  // Confirmed enable: flip the toggle on, then HARD-OVERRIDE local with AniList
+  // (the consequence the confirm dialog spelled out).
   const enableSync = async () => {
     setConfirmSync(false);
     setSyncPrefs({ enabled: true });
-    await runPull();
+    await runPull(true);
   };
 
   const handleMasterToggle = (next: boolean) => {

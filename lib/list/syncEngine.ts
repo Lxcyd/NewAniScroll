@@ -52,10 +52,17 @@ const emptyFuzzy = (d?: FuzzyDate | null): FuzzyDate | null =>
     : { year: d.year ?? null, month: d.month ?? null, day: d.day ?? null };
 
 /**
- * Full pull: replace the entire local list with the signed-in user's AniList
- * list. This is the "AniList overwrites local" operation — run when the user
- * enables sync (after they confirm), on app load while sync is on, and from the
- * manual "Resync now" button.
+ * Full pull: bring the signed-in user's AniList list into the local list.
+ *
+ * Two modes (the `replace` flag):
+ *   - replace = false (default) — NON-DESTRUCTIVE reconcile. Used by the
+ *     background resync on app load and the manual "Resync now" button: AniList
+ *     is authoritative, but local-only entries and locally-ahead progress are
+ *     preserved so offline / cross-device watches aren't lost.
+ *   - replace = true — HARD OVERRIDE. Used when the user turns sync ON: the
+ *     AniList list fully replaces the local list (local-only entries and any
+ *     local-ahead progress are discarded). This is the explicit "make this
+ *     device match my AniList account" action they just confirmed.
  *
  * The local list stays the always-displayed, resilient mirror: if this fetch
  * fails (AniList down / offline) we DON'T clobber the existing local list —
@@ -64,7 +71,9 @@ const emptyFuzzy = (d?: FuzzyDate | null): FuzzyDate | null =>
  * Returns { ok, count }. ok=false means the pull failed and local was left
  * untouched.
  */
-export async function fullSyncFromAniList(): Promise<{ ok: boolean; count: number }> {
+export async function fullSyncFromAniList(
+  { replace = false }: { replace?: boolean } = {},
+): Promise<{ ok: boolean; count: number }> {
   const prefs = getSyncPrefs();
   const session = await getAniListSession(prefs);
   const token = session?.user?.token;
@@ -123,7 +132,15 @@ export async function fullSyncFromAniList(): Promise<{ ok: boolean; count: numbe
         });
       }
     }
-    // ── Conflict resolution (automatic) ────────────────────────────
+    // ── Hard override ──────────────────────────────────────────────
+    // When the user turns sync ON they asked to make this device match their
+    // AniList account: drop everything local and write AniList verbatim.
+    if (replace) {
+      const count = importEntries(Array.from(byId.values()), "replace");
+      return { ok: true, count };
+    }
+
+    // ── Conflict resolution (automatic, non-destructive) ───────────
     // AniList is authoritative, but we don't blindly drop local-only progress:
     // when the SAME anime exists in both and they DISAGREE on progress, keep
     // the more-advanced one (and its matching status) so a few episodes watched
