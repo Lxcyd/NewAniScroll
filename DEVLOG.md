@@ -7,6 +7,25 @@ Ordre anti-chronologique (le plus récent en haut). Une entrée = une session/su
 
 ---
 
+## 2026-06-14 — Lot features (6/n) : roulette « Surprends-moi »
+
+### Contexte
+Feature #7 : un bouton qui pioche un anime au hasard à regarder.
+
+### Décisions prises
+1. **`components/list/SurpriseButton.tsx`** : auto-contenu, client-only. Pool = ids de la **file d'attente** d'abord (choix délibérés) puis les **PLANNING** du local, dédupliqués. Pioche aléatoire → `router.push(/en/anime/<id>)`. Toast si pool vide.
+2. **Placement** : sur `/my-list` (si liste non vide) et sur la page profil **propriétaire** (`isOwner`), à côté de `QueueSection`. Clés i18n `surprise.*`.
+
+### Leçons / pièges
+- Pas de filtre durée/genre pour l'instant (file + Planning suffisent comme pool ciblé) — extensible plus tard si besoin.
+
+### État déployé / à faire
+- Branche `dev`. `tsc` + `next lint` + JSON clean.
+- ⏳ Tester : bouton « Surprends-moi » → ouvre un anime de la file/Planning au hasard ; pool vide → toast.
+- ⏭️ Suite : partage de carte, mode données réduites, thème custom, taille subs mémorisée, historique.
+
+---
+
 ## 2026-06-14 — Saison suivante : fraîche vs ancienne + file visible (profil)
 
 ### Contexte

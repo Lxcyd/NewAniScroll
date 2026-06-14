@@ -293,6 +293,10 @@
     "sub": "Sub",
     "dub": "Dub"
   },
+  "surprise": {
+    "button": "Surprise me",
+    "empty": "Add some anime to your queue or Planning list first."
+  },
   "queue": {
     "title": "Watch next",
     "add": "Add to watch-next queue",

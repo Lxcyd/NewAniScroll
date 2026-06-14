@@ -293,6 +293,10 @@
     "sub": "VOSTFR",
     "dub": "VF"
   },
+  "surprise": {
+    "button": "Surprends-moi",
+    "empty": "Ajoutez d'abord des animes à votre file ou à vos « Prévu »."
+  },
   "queue": {
     "title": "À regarder ensuite",
     "add": "Ajouter à la file « à regarder ensuite »",
