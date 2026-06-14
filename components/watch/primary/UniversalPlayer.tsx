@@ -26,6 +26,7 @@ import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { VIDSTACK_FR } from "@/lib/i18n/vidstackFr";
 import { getResumeTime, saveProgress, markComplete } from "@/lib/watch/progress";
+import { recordWatchToday } from "@/lib/stats/streak";
 import { usePlayerPrefs, setPlayerPrefs } from "@/lib/prefs/playerPrefs";
 
 // Trace logger — off by default. Set NEXT_PUBLIC_DEBUG_SOURCE=1 to surface the
@@ -2117,43 +2118,32 @@ export default function UniversalPlayer({
     } catch {}
   }, [volumeState, mutedState]);
 
-  // ── Restore playback speed (self-correcting) ──
-  // Setting player.playbackRate once on can-play wasn't reliable: Vidstack
-  // resets the rate to 1 when the media (re)loads AFTER can-play, so the value
-  // stuck on the <video> but the menu still showed "Normal". Instead we track a
-  // target rate (`savedRateRef`) and re-assert it whenever Vidstack reports a
-  // different one — which also keeps the Speed menu in sync. The target follows
-  // the user's own changes (the save effect updates it), so we're not fighting
-  // a deliberate choice; we only correct Vidstack's spurious resets.
-  // Target rate to keep applied. Seeded from storage, then kept in sync with the
-  // user's own changes by the save effect below. `rateSettleRef` re-opens a
-  // short correction window after each media (re)load so we can catch Vidstack's
-  // reset-to-1×, then closes so we never fight a deliberate user choice.
-  const savedRateRef = useRef<number | null>(null);
-  const rateSettleRef = useRef(false);
+  // ── Persist + restore playback speed (app-wide, self-correcting) ──
+  // Vidstack resets the rate to 1× whenever media (re)loads — on first mount AND
+  // every time you switch episode/anime — so a one-shot restore leaves the Speed
+  // menu showing "Normal". The robust model:
+  //   • `rateTargetRef` is the value we want applied (saved rate, then whatever
+  //     the user picks).
+  //   • We re-assert it ANY time Vidstack reports a different rate, regardless of
+  //     arm state. Because the target always equals the user's latest choice,
+  //     re-asserting can never revert a deliberate change — it only undoes
+  //     Vidstack's spurious reset-to-1×.
+  //   • Saving is gated on the existing `volArmedRef` (user interaction) so the
+  //     initial restore churn isn't written back, but that does NOT gate
+  //     restoring.
+  const rateTargetRef = useRef<number | null>(null);
+  // Seed the target from storage once.
   useEffect(() => {
     try {
       const r = localStorage.getItem("aniscroll:playbackRate");
       const v = r == null ? NaN : parseFloat(r);
-      savedRateRef.current = Number.isFinite(v)
-        ? Math.min(4, Math.max(0.25, v))
-        : null;
-    } catch {
-      savedRateRef.current = null;
-    }
-    // New media → allow corrections again (Vidstack will reset the rate to 1×).
-    rateSettleRef.current = true;
-    const t = setTimeout(() => {
-      rateSettleRef.current = false;
-    }, 4000);
-    return () => clearTimeout(t);
-  }, [streamData]);
+      if (Number.isFinite(v)) rateTargetRef.current = Math.min(4, Math.max(0.25, v));
+    } catch {}
+  }, []);
+  // Re-assert the target whenever Vidstack's reported rate drifts from it.
   useEffect(() => {
-    const want = savedRateRef.current;
-    // Only auto-correct before the user has touched the player (initial load /
-    // early episode change). Once armed, their choice wins and the save effect
-    // owns the value — prevents any revert flicker on a deliberate change.
-    if (want == null || volArmedRef.current || !rateSettleRef.current) return;
+    const want = rateTargetRef.current;
+    if (want == null) return;
     if (typeof playbackRateState !== "number") return;
     if (Math.abs(playbackRateState - want) < 0.001) return; // already correct
     const player = playerRef.current as any;
@@ -2162,18 +2152,20 @@ export default function UniversalPlayer({
         player.playbackRate = want;
       } catch {}
     }
-  }, [playbackRateState]);
-
-  // Persist playback speed once the user has interacted (same latch as volume),
-  // so a programmatic restore to the saved value doesn't re-save churn.
+  }, [playbackRateState, streamData]);
+  // Treat a rate change as user intent only once they've interacted with the
+  // player at all (same latch as volume), then update the target + persist.
   useEffect(() => {
     if (!volArmedRef.current) return;
     if (typeof playbackRateState !== "number" || playbackRateState <= 0) return;
     const clamped = Math.min(4, Math.max(0.25, playbackRateState));
-    // A real user change is the target now — align the in-memory target and
-    // close the correction window so we never bounce it back.
-    savedRateRef.current = clamped;
-    rateSettleRef.current = false;
+    // Ignore the echo of our own restore (state already equals the target).
+    if (
+      rateTargetRef.current != null &&
+      Math.abs(clamped - rateTargetRef.current) < 0.001
+    )
+      return;
+    rateTargetRef.current = clamped;
     try {
       localStorage.setItem("aniscroll:playbackRate", String(clamped));
     } catch {}
@@ -2213,6 +2205,9 @@ export default function UniversalPlayer({
       if (now - lastSavedAt < 3000) return; // throttle writes to ~every 3s
       lastSavedAt = now;
       saveProgress(aniListId, episodeNumber, video.currentTime, video.duration || 0);
+      // Count toward the watch streak once the user has genuinely watched a bit
+      // (≥2 min) — more reliable than waiting for a full finish. Idempotent/day.
+      if (video.currentTime >= 120) recordWatchToday();
     };
 
     const onEnded = () => {

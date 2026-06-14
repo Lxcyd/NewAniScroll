@@ -7,6 +7,25 @@ Ordre anti-chronologique (le plus récent en haut). Une entrée = une session/su
 
 ---
 
+## 2026-06-14 — Fixes 2 : vitesse entre animes + streak qui ne montait pas
+
+### Contexte
+Suite des deux fixes : (1) la vitesse repassait à « Normale » dans l'UI en **changeant d'anime** ; (2) le streak ne s'affichait toujours pas.
+
+### Décisions prises
+1. **Vitesse entre animes** (`UniversalPlayer.tsx`) : le bug venait du guard `!volArmedRef` sur la correction — entre deux animes, `volArmedRef` pouvait rester `true` (page pas totalement remontée) → la correction était bloquée et Vidstack laissait 1×. Refonte : **la restauration ne dépend plus du tout de l'arm latch**. `rateTargetRef` = valeur voulue (storage puis choix user) ; un effet ré-assert la cible dès que `playbackRateState` diffère (sur `[playbackRateState, streamData]`), **toujours**. Comme la cible = le dernier choix user (le save effect la met à jour), ré-assert ne peut jamais révoquer un choix délibéré — juste annuler le reset-1× de Vidstack. Le save reste gardé par `volArmedRef` (anti-churn) + ignore l'écho du restore.
+2. **Streak qui montait pas** : il ne se déclenchait qu'à la **fin** d'un épisode (`handleEpisodeComplete`) — donc 0 tant qu'on n'avait pas fini un ep. Ajout d'un déclencheur **plus fiable** : `recordWatchToday()` dans `onTimeUpdate` dès `currentTime >= 120s` (≥ 2 min vus = « regardé aujourd'hui »). Idempotent/jour, throttlé (~3 s). La puce NavBar se met à jour en live via `STREAK_EVENT`.
+
+### Leçons / pièges
+- Ne JAMAIS gater la *restauration* d'un réglage sur le latch d'interaction (qui sert au *save*) : entre deux médias le latch peut survivre et bloquer la restauration. Restaurer toujours, et rendre le save idempotent contre l'écho.
+- Le seuil 2 min rend le streak observable sans finir l'épisode, tout en évitant de compter un simple survol.
+
+### État déployé / à faire
+- Branche `dev`. `tsc` + `next lint` clean.
+- ⏳ Tester : changer d'anime en 1.5× → menu reste 1.5× ; regarder 2 min → 🔥 apparaît dans la NavBar.
+
+---
+
 ## 2026-06-14 — Fixes : UI vitesse désync + streak introuvable
 
 ### Contexte
