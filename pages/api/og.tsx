@@ -67,6 +67,8 @@ export default async function handler(request: any) {
     .filter(Boolean)
     .join("   ·   ");
 
+  // Render at 2× (2400×1260) so the card stays crisp after Discord/X downscale
+  // it for display on hi-DPI screens. Every dimension below is the 2× value.
   return new ImageResponse(
     (
       <div
@@ -85,16 +87,16 @@ export default async function handler(request: any) {
           <img
             src={banner}
             alt=""
-            width={1280}
-            height={710}
+            width={2560}
+            height={1420}
             style={{
               position: "absolute",
-              top: -40,
-              left: -40,
-              width: 1280,
-              height: 710,
+              top: -80,
+              left: -80,
+              width: 2560,
+              height: 1420,
               objectFit: "cover",
-              filter: "blur(12px) brightness(0.4)",
+              filter: "blur(16px) brightness(0.4)",
             }}
           />
         ) : null}
@@ -117,7 +119,7 @@ export default async function handler(request: any) {
             width: "100%",
             height: "100%",
             alignItems: "center",
-            padding: "56px",
+            padding: "112px",
           }}
         >
           {/* Cover (left) */}
@@ -126,14 +128,14 @@ export default async function handler(request: any) {
             <img
               src={cover}
               alt=""
-              width={300}
-              height={430}
+              width={600}
+              height={860}
               style={{
-                width: 300,
-                height: 430,
+                width: 600,
+                height: 860,
                 objectFit: "cover",
-                borderRadius: 18,
-                boxShadow: "0 24px 60px rgba(0,0,0,0.6)",
+                borderRadius: 36,
+                boxShadow: "0 48px 120px rgba(0,0,0,0.6)",
               }}
             />
           ) : null}
@@ -143,7 +145,7 @@ export default async function handler(request: any) {
             style={{
               display: "flex",
               flexDirection: "column",
-              marginLeft: cover ? 48 : 0,
+              marginLeft: cover ? 96 : 0,
               flex: 1,
               height: "100%",
               justifyContent: "center",
@@ -152,8 +154,8 @@ export default async function handler(request: any) {
             <div
               style={{
                 display: "flex",
-                fontSize: 30,
-                letterSpacing: 1,
+                fontSize: 60,
+                letterSpacing: 2,
                 fontFamily: "Outfit",
                 color: accent,
                 fontWeight: 700,
@@ -165,13 +167,13 @@ export default async function handler(request: any) {
             <div
               style={{
                 display: "flex",
-                fontSize: title.length > 38 ? 54 : 66,
+                fontSize: title.length > 38 ? 108 : 132,
                 lineHeight: 1.05,
                 color: "#ffffff",
                 fontFamily: "Outfit",
                 fontWeight: 700,
-                marginTop: 18,
-                maxWidth: 720,
+                marginTop: 36,
+                maxWidth: 1440,
               }}
             >
               {title}
@@ -181,9 +183,9 @@ export default async function handler(request: any) {
               <div
                 style={{
                   display: "flex",
-                  fontSize: 30,
+                  fontSize: 60,
                   color: "rgba(255,255,255,0.72)",
-                  marginTop: 22,
+                  marginTop: 44,
                 }}
               >
                 {meta}
@@ -191,19 +193,19 @@ export default async function handler(request: any) {
             ) : null}
 
             {genres.length ? (
-              <div style={{ display: "flex", marginTop: 26 }}>
+              <div style={{ display: "flex", marginTop: 52 }}>
                 {genres.map((g: string) => (
                   <div
                     key={g}
                     style={{
                       display: "flex",
-                      fontSize: 24,
+                      fontSize: 48,
                       color: "rgba(255,255,255,0.9)",
                       background: "rgba(255,255,255,0.1)",
-                      border: "1px solid rgba(255,255,255,0.16)",
+                      border: "2px solid rgba(255,255,255,0.16)",
                       borderRadius: 999,
-                      padding: "8px 20px",
-                      marginRight: 14,
+                      padding: "16px 40px",
+                      marginRight: 28,
                     }}
                   >
                     {g}
@@ -217,13 +219,13 @@ export default async function handler(request: any) {
                 style={{
                   display: "flex",
                   alignItems: "flex-end",
-                  marginTop: 34,
+                  marginTop: 68,
                 }}
               >
                 <div
                   style={{
                     display: "flex",
-                    fontSize: 64,
+                    fontSize: 128,
                     fontFamily: "Outfit",
                     fontWeight: 700,
                     color: accent,
@@ -235,10 +237,10 @@ export default async function handler(request: any) {
                 <div
                   style={{
                     display: "flex",
-                    fontSize: 26,
+                    fontSize: 52,
                     color: "rgba(255,255,255,0.55)",
-                    marginLeft: 8,
-                    marginBottom: 6,
+                    marginLeft: 16,
+                    marginBottom: 12,
                   }}
                 >
                   / 10
@@ -250,8 +252,8 @@ export default async function handler(request: any) {
       </div>
     ),
     {
-      width: 1200,
-      height: 630,
+      width: 2400,
+      height: 1260,
       fonts: [
         { name: "Karla", data: Karla, style: "normal" },
         { name: "Outfit", data: Outfit, style: "normal" },

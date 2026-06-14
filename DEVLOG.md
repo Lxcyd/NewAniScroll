@@ -7,6 +7,16 @@ Ordre anti-chronologique (le plus récent en haut). Une entrée = une session/su
 
 ---
 
+## 2026-06-14 (suite 2) — OG net (2×) + cache-bust, z-index bannière profil, « locked » → « indisponible »
+
+### Décisions prises
+1. **OG net** : `@vercel/og` rendait à 1200×630, downscalé par Discord/X sur écrans hi-DPI → perçu flou. Maintenant rendu à **2×** (2400×1260, toutes les dimensions doublées dans le JSX). La balise meta reste un ratio 1.9:1, les consommateurs downscalent un asset net.
+2. **Discord cachait l'ancienne image** (« ANISCROLL » majuscule) car il indexe l'OG par URL. Ajout d'un param **cache-buster** `v=3` dans l'URL OG (`pages/en/anime/[...id].tsx`) → nouvelle URL → refetch. À ré-incrémenter à chaque refonte de la carte.
+3. **Bannière profil par-dessus le contenu** : `next/image fill` est `position:absolute` et repeignait par-dessus le contenu remonté en marge négative. Fix : bannière `relative z-0`, bloc avatar/nom `relative z-10`.
+4. **« Locked » → « indisponible »** : les épisodes pas encore sortis étaient libellés « Verrouillé » + cadenas, ce qui suggère un blocage d'accès. Changé le texte (`anime.locked` = « Indisponible » / « Not available », + nouvelle clé `anime.notReleased`) et l'icône cadenas → **horloge** dans `Episodes.tsx` (détaillé + compact). La variable `locked` (logique) reste, seul le libellé/visuel change.
+
+---
+
 ## 2026-06-14 (suite) — Thème sur toute la page info, profil = my-list + bannière, OG « AniScroll » + moins flou
 
 ### Contexte

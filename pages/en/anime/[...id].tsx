@@ -461,6 +461,10 @@ export default function Info({
     if (info?.format) params.set("format", info.format);
     if (info?.episodes) params.set("episodes", String(info.episodes));
     if (info?.genres?.length) params.set("genres", info.genres.slice(0, 3).join(","));
+    // Cache-buster: link unfurlers (Discord/X/Slack) cache the OG image by URL
+    // forever. Bump this when the card design changes so they refetch instead
+    // of serving the stale render (e.g. the old all-caps "ANISCROLL").
+    params.set("v", "3");
     return `${baseUrl}/api/og?${params.toString()}`;
   })();
   const pageUrl = `${baseUrl}/en/anime/${info?.id ?? ""}`;

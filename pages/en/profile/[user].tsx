@@ -129,7 +129,7 @@ export default function MyList({
 
       {/* User banner + avatar header — the only thing that differs from
           /my-list. No description (AniList "about" is often empty/awkward). */}
-      <div className="relative w-full h-[200px] md:h-[240px]">
+      <div className="relative z-0 w-full h-[200px] md:h-[240px]">
         {user.bannerImage ? (
           <Image
             src={user.bannerImage}
@@ -149,8 +149,10 @@ export default function MyList({
         animate={{ opacity: 1 }}
         className="w-full max-w-screen-lg mx-auto px-4 pb-16"
       >
-        {/* Avatar + name, pulled up to overlap the banner */}
-        <div className="flex items-end gap-4 -mt-14 md:-mt-16 mb-8">
+        {/* Avatar + name, pulled up to overlap the banner. `relative z-10`
+            keeps it above the banner's absolutely-positioned <Image fill>,
+            which otherwise paints over the negative-margin content. */}
+        <div className="relative z-10 flex items-end gap-4 -mt-14 md:-mt-16 mb-8">
           <Image
             src={user.avatar.large}
             alt={user.name}
