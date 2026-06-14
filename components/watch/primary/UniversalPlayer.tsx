@@ -1255,6 +1255,9 @@ export default function UniversalPlayer({
   // Vidstack's $state (the actual values). Drive the persistence effect below.
   const volumeState = useMediaState("volume", playerRef);
   const mutedState = useMediaState("muted", playerRef);
+  // Reactive playback speed — drives the persistence effect below so the chosen
+  // rate (1.25×, 1.5×, …) carries across episodes, anime and sessions.
+  const playbackRateState = useMediaState("playbackRate", playerRef);
   const chaptersTrackUrl = useChaptersVtt(skipTimes, videoDuration);
   // No JS click-compensation anymore: the chapter pills now use a transparent
   // border (not a margin) for the inter-pill gap, so they keep their full
@@ -2060,6 +2063,14 @@ export default function UniversalPlayer({
       const m = localStorage.getItem("aniscroll:muted");
       savedMuted = m == null ? null : m === "1";
     } catch {}
+    // Playback speed: app-wide, restored onto every player. Clamp to Vidstack's
+    // usual range so a corrupt value can't make the video un-watchable.
+    let savedRate: number | null = null;
+    try {
+      const r = localStorage.getItem("aniscroll:playbackRate");
+      const v = r == null ? NaN : parseFloat(r);
+      savedRate = Number.isFinite(v) ? Math.min(4, Math.max(0.25, v)) : null;
+    } catch {}
 
     const apply = () => {
       if (!player) return;
@@ -2068,6 +2079,7 @@ export default function UniversalPlayer({
         // Only ever restore an intentional MUTE. Don't force unmute — autoplay
         // owns the muted-to-start behaviour and would fight us.
         if (savedMuted === true) player.muted = true;
+        if (savedRate != null) player.playbackRate = savedRate;
       } catch {}
     };
     const arm = () => {
@@ -2114,6 +2126,21 @@ export default function UniversalPlayer({
       localStorage.setItem("aniscroll:muted", mutedState ? "1" : "0");
     } catch {}
   }, [volumeState, mutedState]);
+
+  // Persist playback speed once the user has interacted (same latch as volume),
+  // so a programmatic restore to the saved value doesn't re-save churn. We skip
+  // the default 1× until they actually change it — but still persist an explicit
+  // return to 1× (that's a real choice once armed).
+  useEffect(() => {
+    if (!volArmedRef.current) return;
+    if (typeof playbackRateState !== "number" || playbackRateState <= 0) return;
+    try {
+      localStorage.setItem(
+        "aniscroll:playbackRate",
+        String(Math.min(4, Math.max(0.25, playbackRateState))),
+      );
+    } catch {}
+  }, [playbackRateState]);
 
   // ── Resume + auto-save playback progress (continue where you left off) ──
   // Progress is keyed on aniId+episode (NOT the server), so the position is

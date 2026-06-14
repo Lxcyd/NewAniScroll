@@ -7,6 +7,24 @@ Ordre anti-chronologique (le plus récent en haut). Une entrée = une session/su
 
 ---
 
+## 2026-06-14 — Nouveau lot features (1/n) : vitesse de lecture mémorisée
+
+### Contexte
+Nouvelle liste de features demandées (12). Livraison **une par une, commit par feature**, dans l'ordre donné. Note : le **volume était déjà persisté** app-wide (`aniscroll:volume`/`muted`) et la reprise de progression existe — donc « volume mémorisé » est déjà fait, sauté.
+
+### Décisions prises
+1. **Vitesse de lecture mémorisée** (`UniversalPlayer.tsx`) : même pattern que le volume. `playbackRateState = useMediaState("playbackRate")`. Restore dans l'effet volume existant (`apply()` pose `player.playbackRate = savedRate`, clampé 0.25–4) ; save dans un effet gardé par le **même latch `volArmedRef`** (n'enregistre qu'après une vraie interaction utilisateur, pour ne pas re-sauver la churn du restore). Clé `aniscroll:playbackRate`, app-wide (tous lecteurs/animes/sessions).
+
+### Leçons / pièges
+- Réutiliser `volArmedRef` (latch one-way sur 1re interaction) évite de re-implémenter la garde anti-churn ; le player se remonte plusieurs fois (fallback serveur) donc un latch en `useRef` est indispensable.
+
+### État déployé / à faire
+- Branche `dev`. `tsc` clean.
+- ⏳ Tester : mettre 1.5×, changer d'épisode/anime/recharger → reste à 1.5×.
+- ⏭️ Suite de la liste : mini-lecteur PiP, streak, file d'attente, détection saison suivante, roulette, partage de carte, mode données réduites, thème custom, taille subs mémorisée, historique.
+
+---
+
 ## 2026-06-14 — Affinage notifs : films 1-ep, new-ep RELEASING, reco resume théma
 
 ### Contexte
