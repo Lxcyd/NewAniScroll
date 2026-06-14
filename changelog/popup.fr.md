@@ -1,6 +1,10 @@
 ## v0.0.3
 
-⚙️ **Paramètres repensés** — un menu latéral clair, une section par thème. Et plein de nouveaux réglages :
+⚙️ **Paramètres repensés** — un menu latéral clair, une section par thème.
+
+🎨 **Thème personnalisable** (votre couleur partout), **page profil** repensée et **notation** à la fin d'un anime.
+
+**⬇️ Les nouveaux paramètres :**
 
 ▶️ **Fiche ou lecture directe** — choisissez ce qui s'ouvre quand vous cliquez sur un anime (la lecture reprend à votre épisode).
 
@@ -15,5 +19,3 @@
 🎬 **Qualité maximale forcée** et **démarrage en sourdine** côté lecteur.
 
 🧹 **Section Avancé** — effacer l'historique et réinitialiser les réglages.
-
-🎨 **Thème personnalisable** (votre couleur partout), **page profil** repensée et **notation** à la fin d'un anime.

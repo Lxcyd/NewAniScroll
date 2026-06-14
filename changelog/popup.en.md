@@ -1,6 +1,10 @@
 ## v0.0.3
 
-⚙️ **Settings, reimagined** — a clear side menu, one section per topic. And lots of new options:
+⚙️ **Settings, reimagined** — a clear side menu, one section per topic.
+
+🎨 **Custom theme** (your colour everywhere), a reworked **profile page** and **rating** when you finish an anime.
+
+**⬇️ The new settings:**
 
 ▶️ **Info page or direct playback** — choose what opens when you click an anime (playback resumes at your episode).
 
@@ -15,5 +19,3 @@
 🎬 **Force maximum quality** and **start muted** in the player.
 
 🧹 **Advanced section** — clear watch history and restore defaults.
-
-🎨 **Custom theme** (your colour everywhere), a reworked **profile page** and **rating** when you finish an anime.
