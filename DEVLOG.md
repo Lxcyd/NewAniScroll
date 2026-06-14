@@ -7,6 +7,27 @@ Ordre anti-chronologique (le plus récent en haut). Une entrée = une session/su
 
 ---
 
+## 2026-06-14 — Lot features (2/n) : mini-lecteur = PiP natif (mobile) + fix a11y
+
+### Contexte
+Feature #3 « mini-lecteur PiP maison ». Choix utilisateur : **PiP natif navigateur** (vignette système qui survit à la navigation/onglets), pas de mini-lecteur global custom (qui aurait exigé de remonter le lecteur dans `_app` — refonte lourde).
+
+### Décisions prises
+1. **Desktop : déjà là.** Vidstack `DefaultVideoLayout` rend déjà son bouton PiP natif (`.vds-pip-button`, d'ailleurs utilisé comme ancre de positionnement du controls-host). Donc rien à ajouter sur desktop — un bouton custom aurait fait **doublon** (une 1re version l'ajoutait dans `CustomControls`, retirée).
+2. **Mobile/small layout** : Vidstack ne surface pas PiP dans son layout mobile → ajout d'une `SettingsActionRow` « Image dans l'image » dans le menu réglages, gardée par `pipSupported` (`document.pictureInPictureEnabled`). Handler `togglePip` : `exitPictureInPicture` si déjà en PiP, sinon `video.requestPictureInPicture()` sur le `<video>` du player. Uniquement sur le chemin direct-stream (le chemin iframe `return` avant — pas de `<video>` joignable).
+3. **Fix a11y** (bonus, même fichier) : `SettingsToggleRow` passait `aria-checked` sur `role="menuitem"` (warning ESLint `jsx-a11y/role-supports-aria-props`) → `role="menuitemcheckbox"`. La classe `.vds-menu-button` porte le style, pas le rôle, donc chrome inchangé. `next lint` clean.
+
+### Leçons / pièges
+- PiP natif ne marche QUE sur un vrai `<video>` (HLS/MP4), pas les serveurs iframe — le bouton se cache pour ceux-là (le chemin iframe a son propre `return`).
+- Toujours vérifier ce que Vidstack rend déjà avant d'ajouter un bouton : `.vds-pip-button` existe (anchor du MutationObserver) ⇒ desktop couvert.
+
+### État déployé / à faire
+- Branche `dev`. `tsc` + `next lint` (fichier touché) clean, JSON validés.
+- ⏳ Tester : desktop → bouton PiP Vidstack ; mobile → menu réglages « Image dans l'image » sur stream direct ; iframe → pas de PiP.
+- ⏭️ Suite : streak, file d'attente, détection saison suivante, roulette, partage de carte, mode données réduites, thème custom, taille subs mémorisée, historique.
+
+---
+
 ## 2026-06-14 — Nouveau lot features (1/n) : vitesse de lecture mémorisée
 
 ### Contexte
