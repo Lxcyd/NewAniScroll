@@ -10,6 +10,7 @@ import Image from "next/image";
 import MobileNav from "@/components/shared/MobileNav";
 import { truncateImgUrl } from "@/utils/imageUtils";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
+import { animeHref, useClickTarget } from "@/lib/prefs/clickTarget";
 import { useTranslation } from "react-i18next";
 
 export async function getServerSideProps(context) {
@@ -24,6 +25,7 @@ export async function getServerSideProps(context) {
 
 export default function Recent({ sessions }) {
   const titlePref = useTitlePref();
+  const clickTarget = useClickTarget();
   const { t } = useTranslation();
   const [data, setData] = useState(null);
   const [page, setPage] = useState(1);
@@ -97,7 +99,7 @@ export default function Recent({ sessions }) {
               className="flex flex-col items-center w-[150px] lg:w-[180px]"
             >
               <Link
-                href={`/en/anime/${i.id}`}
+                href={animeHref(i.id, clickTarget)}
                 className=" relative hover:scale-105 scale-100 transition-all duration-200 ease-out"
                 title={pickTitle(i.title, titlePref)}
               >
@@ -126,7 +128,7 @@ export default function Recent({ sessions }) {
                 </p>
               </Link>
               <Link
-                href={`/en/anime/${i.id}`}
+                href={animeHref(i.id, clickTarget)}
                 className="w-full px-1 py-2"
                 title={pickTitle(i.title, titlePref)}
               >

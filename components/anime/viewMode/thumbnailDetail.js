@@ -1,6 +1,7 @@
 import { parseImageProxy } from "@/utils/imageUtils";
 import Image from "next/image";
 import Link from "next/link";
+import { useHideSpoilers } from "@/lib/prefs/spoilerPrefs";
 
 export default function ThumbnailDetail({
   index,
@@ -14,6 +15,7 @@ export default function ThumbnailDetail({
   progress,
   dub,
 }) {
+  const hideSpoilers = useHideSpoilers();
   const time = artStorage?.[epi?.id]?.timeWatched;
   const duration = artStorage?.[epi?.id]?.duration;
   let prog = (time / duration) * 100;
@@ -46,7 +48,9 @@ export default function ThumbnailDetail({
               alt={`Episode ${epi?.number} Thumbnail`}
               width={520}
               height={236}
-              className="object-cover z-30 rounded-lg h-[110px] lg:h-[160px] brightness-[65%]"
+              className={`object-cover z-30 rounded-lg h-[110px] lg:h-[160px] brightness-[65%] ${
+                hideSpoilers ? "blur-lg" : ""
+              }`}
             />
           )}
           <span
@@ -80,9 +84,11 @@ export default function ThumbnailDetail({
         className={`w-[70%] h-full select-none p-4 flex flex-col justify-center gap-3`}
       >
         <h1 className="font-karla font-bold text-base lg:text-lg xl:text-xl italic line-clamp-1">
-          {epi?.title || `Episode ${epi?.number || 0}`}
+          {hideSpoilers
+            ? `Episode ${epi?.number || 0}`
+            : epi?.title || `Episode ${epi?.number || 0}`}
         </h1>
-        {epi?.description && (
+        {!hideSpoilers && epi?.description && (
           <p className="line-clamp-2 text-xs lg:text-md xl:text-lg italic font-outfit font-extralight">
             {epi?.description}
           </p>

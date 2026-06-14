@@ -9,10 +9,12 @@ import { authOptions } from "../../api/auth/[...nextauth]";
 import Head from "next/head";
 import MobileNav from "@/components/shared/MobileNav";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
+import { animeHref, useClickTarget } from "@/lib/prefs/clickTarget";
 import { useTranslation } from "react-i18next";
 
 export default function PopularAnime({ sessions }) {
   const titlePref = useTitlePref();
+  const clickTarget = useClickTarget();
   const { t } = useTranslation();
   const [data, setData] = useState(null);
   const [page, setPage] = useState(1);
@@ -87,7 +89,7 @@ export default function PopularAnime({ sessions }) {
               className="flex flex-col items-center w-[150px] lg:w-[180px]"
             >
               <Link
-                href={`/en/anime/${i.id}`}
+                href={animeHref(i.id, clickTarget)}
                 className="p-2"
                 title={pickTitle(i.title, titlePref)}
               >
@@ -100,7 +102,7 @@ export default function PopularAnime({ sessions }) {
                 />
               </Link>
               <Link
-                href={`/en/anime/${i.id}`}
+                href={animeHref(i.id, clickTarget)}
                 className="w-full px-2"
                 title={pickTitle(i.title, titlePref)}
               >

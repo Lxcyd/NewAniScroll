@@ -69,6 +69,16 @@
     "interfaceLanguage": "Langue de l'interface",
     "interfaceLanguageDesc": "Langue utilisée pour les boutons, menus et libellés du site.",
     "interfaceLangNote": "Nous détectons automatiquement la langue de votre navigateur à la première visite ; votre choix ici reste prioritaire et est enregistré sur cet appareil.",
+    "browsing": {
+      "title": "Navigation",
+      "desc": "Comportement de l'app quand vous sélectionnez un anime.",
+      "openOn": "Page de visionnage ou d'info",
+      "openOnDesc": "Choisissez si sélectionner un anime ouvre sa page d'info ou lance directement le visionnage.",
+      "infoPage": "Page d'info",
+      "watchPage": "Page de visionnage",
+      "hideSpoilers": "Masquer les spoilers",
+      "hideSpoilersDesc": "Floute les vignettes d'épisodes et masque les titres et descriptions d'épisodes dans toute l'app pour éviter les spoilers."
+    },
     "player": {
       "title": "Lecteur vidéo",
       "desc": "Réglages liés au visionnage.",

@@ -6,6 +6,7 @@ import { useRouter } from "next/router";
 import { AniListInfoTypes } from "types/info/AnilistInfoTypes";
 import { Episode } from "types/api/Episode";
 import { useTranslation } from "react-i18next";
+import { useHideSpoilers } from "@/lib/prefs/spoilerPrefs";
 
 type EpisodeListsProps = {
   info: AniListInfoTypes;
@@ -29,6 +30,7 @@ export default function EpisodeLists({
   dub,
 }: EpisodeListsProps) {
   const progress = info.mediaListEntry?.progress;
+  const hideSpoilers = useHideSpoilers();
   const { t } = useTranslation();
 
   const router = useRouter();
@@ -124,7 +126,7 @@ export default function EpisodeLists({
                           item.id == watchId
                             ? "brightness-[30%]"
                             : "brightness-75"
-                        }`}
+                        } ${hideSpoilers && item.id != watchId ? "blur-lg" : ""}`}
                       />
                       {/* )} */}
                       <span
@@ -161,10 +163,14 @@ export default function EpisodeLists({
                     }`}
                   >
                     <h1 className="font-karla font-bold italic line-clamp-1">
-                      {mapData?.title || info?.title?.romaji}
+                      {hideSpoilers
+                        ? `${t("common.episode")} ${item?.number}`
+                        : mapData?.title || info?.title?.romaji}
                     </h1>
                     <p className="line-clamp-2 text-xs italic font-outfit font-extralight">
-                      {mapData?.description || `${t("common.episode")} ${item.number}`}
+                      {hideSpoilers
+                        ? `${t("common.episode")} ${item.number}`
+                        : mapData?.description || `${t("common.episode")} ${item.number}`}
                     </p>
                   </div>
                 </Link>

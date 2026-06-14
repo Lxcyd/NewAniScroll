@@ -15,6 +15,8 @@ import { useSyncPrefs, setSyncPrefs } from "@/lib/prefs/syncPrefs";
 import { usePlayerPrefs, setPlayerPrefs } from "@/lib/prefs/playerPrefs";
 import { useDataSaver, setDataSaver } from "@/lib/prefs/dataSaver";
 import { useNotifPrefs, setNotifPrefs } from "@/lib/prefs/notifPrefs";
+import { useClickTarget, setClickTarget, ClickTarget } from "@/lib/prefs/clickTarget";
+import { useHideSpoilers, setHideSpoilers } from "@/lib/prefs/spoilerPrefs";
 import { useAccent, setAccent, ACCENT_PRESETS, DEFAULT_ACCENT } from "@/lib/prefs/accentColor";
 import {
   downloadExportXml,
@@ -37,6 +39,7 @@ import {
   LockClosedIcon,
   ListBulletIcon,
   BellIcon,
+  CursorArrowRaysIcon,
 } from "@heroicons/react/24/outline";
 import { useSession, signIn, signOut } from "next-auth/react";
 import { useTranslation } from "react-i18next";
@@ -144,6 +147,7 @@ type SectionDef = {
 const SECTIONS: SectionDef[] = [
   { id: "title-language", labelKey: "settings.animeTitleLanguage", Icon: LanguageIcon },
   { id: "interface-language", labelKey: "settings.interfaceLanguage", Icon: GlobeAltIcon },
+  { id: "browsing", labelKey: "settings.browsing.title", Icon: CursorArrowRaysIcon },
   { id: "player", labelKey: "settings.player.title", Icon: PlayCircleIcon },
   { id: "data-saver", labelKey: "settings.dataSaver.title", Icon: BoltIcon },
   { id: "notifications", labelKey: "settings.notif.title", Icon: BellIcon },
@@ -210,6 +214,8 @@ export default function Settings() {
   const playerPrefs = usePlayerPrefs();
   const dataSaver = useDataSaver();
   const notifPrefs = useNotifPrefs();
+  const clickTarget = useClickTarget();
+  const hideSpoilers = useHideSpoilers();
   const accent = useAccent();
   const localList = useLocalList();
   const [titlePref, setTitlePrefState] = useState<TitlePref>("en");
@@ -593,6 +599,36 @@ export default function Settings() {
             <p className="text-white/40 text-xs mt-3">
               {t("settings.interfaceLangNote")}
             </p>
+          </section>
+
+          {/* ── Browsing (click target, spoilers) ────────────────── */}
+          <section id="browsing" className="py-10 scroll-mt-24">
+            <h2 className="text-xl font-semibold mb-1">{t("settings.browsing.title")}</h2>
+            <p className="text-white/60 text-sm mb-4">{t("settings.browsing.desc")}</p>
+
+            <div className="mb-2 text-sm font-medium">
+              {t("settings.browsing.openOn")}
+            </div>
+            <div className="text-white/50 text-xs mb-3">
+              {t("settings.browsing.openOnDesc")}
+            </div>
+            <SegmentedPicker<ClickTarget>
+              value={clickTarget}
+              onChange={setClickTarget}
+              options={[
+                { value: "info", label: t("settings.browsing.infoPage") },
+                { value: "watch", label: t("settings.browsing.watchPage") },
+              ]}
+            />
+
+            <div className="mt-4 rounded-xl bg-white/5 ring-1 ring-white/10 px-4 divide-y divide-white/5">
+              <Toggle
+                label={t("settings.browsing.hideSpoilers")}
+                desc={t("settings.browsing.hideSpoilersDesc")}
+                checked={hideSpoilers}
+                onChange={setHideSpoilers}
+              />
+            </div>
           </section>
 
           {/* ── Video player ─────────────────────────────────────── */}

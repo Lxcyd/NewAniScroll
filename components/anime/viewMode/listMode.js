@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { useHideSpoilers } from "@/lib/prefs/spoilerPrefs";
 
 export default function ListMode({
   info,
@@ -8,6 +9,7 @@ export default function ListMode({
   progress,
   dub,
 }) {
+  const hideSpoilers = useHideSpoilers();
   const time = artStorage?.[episode?.id]?.timeWatched;
   const duration = artStorage?.[episode?.id]?.duration;
   let prog = (time / duration) * 100;
@@ -36,7 +38,9 @@ export default function ListMode({
               : "text-white"
           }`}
         >
-          {episode?.title || `Episode ${episode.number}`}
+          {hideSpoilers
+            ? `Episode ${episode.number}`
+            : episode?.title || `Episode ${episode.number}`}
         </p>
         <p className="capitalize text-sm text-white/50 px-4">{providerId}</p>
       </div>

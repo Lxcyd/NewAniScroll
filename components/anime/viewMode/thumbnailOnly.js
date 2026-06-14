@@ -1,6 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { parseImageProxy } from "../../../utils/imageUtils";
+import { useHideSpoilers } from "@/lib/prefs/spoilerPrefs";
 
 export default function ThumbnailOnly({
   info,
@@ -11,6 +12,7 @@ export default function ThumbnailOnly({
   progress,
   dub,
 }) {
+  const hideSpoilers = useHideSpoilers();
   const time = artStorage?.[episode?.id]?.timeWatched;
   const duration = artStorage?.[episode?.id]?.duration;
   let prog = (time / duration) * 100;
@@ -55,7 +57,9 @@ export default function ThumbnailOnly({
           alt={`Episode ${episode?.number} Thumbnail`}
           width={500}
           height={500}
-          className="object-cover w-full h-[150px] sm:h-[100px] z-20 brightness-75"
+          className={`object-cover w-full h-[150px] sm:h-[100px] z-20 brightness-75 ${
+            hideSpoilers ? "blur-lg" : ""
+          }`}
         />
       )}
     </Link>
