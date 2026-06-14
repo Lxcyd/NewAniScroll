@@ -10,6 +10,7 @@ import { useAniList } from "@/lib/anilist/useAnilist";
 import { getFormat } from "@/utils/getFormat";
 import SearchByImage from "./search/searchByImage";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
+import { animeHref } from "@/lib/prefs/clickTarget";
 import { useTranslation } from "react-i18next";
 
 type SearchType = "ANIME" | "MANGA";
@@ -63,7 +64,12 @@ export default function SearchPalette() {
   }
 
   function handleChange(event: string): void {
-    router.push(`/en/${type.toLowerCase()}/${event}`);
+    // Honour the watch/info click-target pref for anime; manga always → info.
+    router.push(
+      type.toLowerCase() === "anime"
+        ? animeHref(event)
+        : `/en/${type.toLowerCase()}/${event}`,
+    );
   }
 
   async function advance(): Promise<void> {

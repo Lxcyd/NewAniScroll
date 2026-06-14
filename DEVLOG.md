@@ -25,8 +25,13 @@ Gros lot de réglages + refonte de la page settings. Demandes successives dans u
    - **Watch or Info Page** : `lib/prefs/clickTarget.ts` (`info` défaut | `watch`), helper `animeHref(id, target)`. `watch` → URL megaplay ep1 (`/en/anime/watch/{id}/megaplay?id=megaplay-{id}-1&num=1`). Branché partout où une card mène à un anime : `AnimeCard` (orphelin, inutilisé en fait), home `content.tsx`, trending/popular/recent, **page schedule** (`pages/en/schedule/index.tsx`, PAS le widget `components/home/schedule.js`), Related/Recommendations (page info), my-list + **QueueSection**, profil, search/saison. Liens manga inchangés.
    - **Hide Spoilers** : `lib/prefs/spoilerPrefs.ts`. Floute vignettes + remplace titres/descriptions d'épisodes par « Episode N ». Câblé dans les `viewMode/*` ET surtout **`components/anime/v2/Episodes.tsx`** (le vrai rendu de la page info : detailed/compact/grid) + `episodeLists.tsx` (lecteur).
 
+### Suivi (mêmes session) — extension du click-target + hook DEVLOG
+- **Watch/Info étendu** à tous les points d'entrée restants : page schedule (`pages/en/schedule/index.tsx`), barre de recherche / palette (`components/searchPalette.tsx`, `handleChange`), **notifications** (`NotificationBell.tsx` — toutes les notifs suivent la pref via `animeHref`), QueueSection. `animeHref(id)` sans 2ᵉ arg lit `getClickTarget()` à l'appel → OK dans les handlers d'événement (pas besoin du hook).
+- **Hook DEVLOG** ajouté dans `.claude/settings.json` (event `Stop`, commande `echo` d'un `systemMessage`) : rappel automatique en fin de tour de mettre à jour le DEVLOG. Indépendant de la mémoire → survit au `/clear`. Mémoire [[devlog-pointer]] durcie en plus (avertissement « miss récurrent » en tête).
+
 ### Leçons / pièges
 - **Pas de dossier `pages/fr/`** : `/fr/...` et `/en/...` rendent les **mêmes fichiers** `pages/en/*` (rewrite i18n). Un bug « sur /fr » se corrige dans le fichier `/en` correspondant.
+- **Barre de recherche = `components/searchPalette.tsx`** (Ctrl+K), distincte de la page `pages/en/search/[...param].tsx`. Le clic sur un résultat passe par `handleChange(id)` → `router.push`, pas un `<Link>`.
 - **Deux composants « schedule »** : `components/home/schedule.js` = widget d'accueil ; `pages/en/schedule/index.tsx` = la page `/schedule`. Modifier le bon.
 - **Page info = `Episodes.tsx` v2**, pas les `viewMode/*` (ceux-ci servent ailleurs). Toujours vérifier quel composant rend réellement avant de câbler une pref.
 - `fullSyncFromAniList` était **non-destructif par design** (garde progress local en avance + entrées local-only) ; l'override « vrai » nécessitait un flag explicite, ne pas confondre avec le resync.

@@ -10,7 +10,9 @@
       "Bash(git commit *)",
       "Bash(rm -f .git/COMMIT_EDITMSG_tmp)",
       "Bash(git push *)",
-      "Bash(cat > *)"
+      "Bash(cat > *)",
+      "Skill(update-config)",
+      "Skill(update-config:*)"
     ],
     "additionalDirectories": [
       "C:\\Users\\Luc\\Github\\NewAniScroll\\.git"

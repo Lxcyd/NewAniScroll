@@ -3,6 +3,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { useTranslation } from "react-i18next";
 import { useNotifications } from "@/lib/notifications/useNotifications";
+import { animeHref, useClickTarget } from "@/lib/prefs/clickTarget";
 
 /**
  * NavBar bell — in-app notifications (new episodes + resume reminders).
@@ -13,6 +14,7 @@ import { useNotifications } from "@/lib/notifications/useNotifications";
 export default function NotificationBell() {
   const { t } = useTranslation();
   const { notifications, unreadCount, markAllRead } = useNotifications();
+  const clickTarget = useClickTarget();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -88,7 +90,7 @@ export default function NotificationBell() {
               {notifications.map((n) => (
                 <li key={n.id}>
                   <Link
-                    href={`/en/anime/${n.mediaId}`}
+                    href={animeHref(n.mediaId, clickTarget)}
                     onClick={() => setOpen(false)}
                     className="flex gap-3 px-4 py-3 hover:bg-white/5 transition-colors"
                   >
