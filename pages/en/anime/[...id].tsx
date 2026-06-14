@@ -464,7 +464,7 @@ export default function Info({
     // Cache-buster: link unfurlers (Discord/X/Slack) cache the OG image by URL
     // forever. Bump this when the card design changes so they refetch instead
     // of serving the stale render (e.g. the old all-caps "ANISCROLL").
-    params.set("v", "3");
+    params.set("v", "4");
     return `${baseUrl}/api/og?${params.toString()}`;
   })();
   const pageUrl = `${baseUrl}/en/anime/${info?.id ?? ""}`;
@@ -509,8 +509,8 @@ export default function Info({
         />
         <meta property="og:url" content={pageUrl} />
         <meta property="og:image" content={ogImageUrl} />
-        <meta property="og:image:width" content="1200" />
-        <meta property="og:image:height" content="630" />
+        <meta property="og:image:width" content="1800" />
+        <meta property="og:image:height" content="945" />
 
         <meta name="twitter:card" content="summary_large_image" />
         <meta name="twitter:title" content={`AniScroll - ${title}`} />

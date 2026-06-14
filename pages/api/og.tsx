@@ -67,8 +67,11 @@ export default async function handler(request: any) {
     .filter(Boolean)
     .join("   ·   ");
 
-  // Render at 2× (2400×1260) so the card stays crisp after Discord/X downscale
-  // it for display on hi-DPI screens. Every dimension below is the 2× value.
+  // Render at 1.5× (1800×945) so the card stays crisp after Discord/X downscale
+  // on hi-DPI screens, while staying well within @vercel/og (Satori) limits —
+  // a heavier 2× render with a big blurred banner intermittently failed and
+  // made the embed vanish. NOTE: keep the og:image:width/height meta in sync
+  // with these on the page (1800×945, same 1.905:1 ratio).
   return new ImageResponse(
     (
       <div
@@ -87,16 +90,16 @@ export default async function handler(request: any) {
           <img
             src={banner}
             alt=""
-            width={2560}
-            height={1420}
+            width={1920}
+            height={1065}
             style={{
               position: "absolute",
-              top: -80,
-              left: -80,
-              width: 2560,
-              height: 1420,
+              top: -60,
+              left: -60,
+              width: 1920,
+              height: 1065,
               objectFit: "cover",
-              filter: "blur(16px) brightness(0.4)",
+              filter: "blur(12px) brightness(0.4)",
             }}
           />
         ) : null}
@@ -119,7 +122,7 @@ export default async function handler(request: any) {
             width: "100%",
             height: "100%",
             alignItems: "center",
-            padding: "112px",
+            padding: "84px",
           }}
         >
           {/* Cover (left) */}
@@ -128,14 +131,14 @@ export default async function handler(request: any) {
             <img
               src={cover}
               alt=""
-              width={600}
-              height={860}
+              width={450}
+              height={645}
               style={{
-                width: 600,
-                height: 860,
+                width: 450,
+                height: 645,
                 objectFit: "cover",
-                borderRadius: 36,
-                boxShadow: "0 48px 120px rgba(0,0,0,0.6)",
+                borderRadius: 27,
+                boxShadow: "0 36px 90px rgba(0,0,0,0.6)",
               }}
             />
           ) : null}
@@ -145,7 +148,7 @@ export default async function handler(request: any) {
             style={{
               display: "flex",
               flexDirection: "column",
-              marginLeft: cover ? 96 : 0,
+              marginLeft: cover ? 72 : 0,
               flex: 1,
               height: "100%",
               justifyContent: "center",
@@ -154,8 +157,8 @@ export default async function handler(request: any) {
             <div
               style={{
                 display: "flex",
-                fontSize: 60,
-                letterSpacing: 2,
+                fontSize: 45,
+                letterSpacing: 1.5,
                 fontFamily: "Outfit",
                 color: accent,
                 fontWeight: 700,
@@ -167,13 +170,13 @@ export default async function handler(request: any) {
             <div
               style={{
                 display: "flex",
-                fontSize: title.length > 38 ? 108 : 132,
+                fontSize: title.length > 38 ? 81 : 99,
                 lineHeight: 1.05,
                 color: "#ffffff",
                 fontFamily: "Outfit",
                 fontWeight: 700,
-                marginTop: 36,
-                maxWidth: 1440,
+                marginTop: 27,
+                maxWidth: 1080,
               }}
             >
               {title}
@@ -183,9 +186,9 @@ export default async function handler(request: any) {
               <div
                 style={{
                   display: "flex",
-                  fontSize: 60,
+                  fontSize: 45,
                   color: "rgba(255,255,255,0.72)",
-                  marginTop: 44,
+                  marginTop: 33,
                 }}
               >
                 {meta}
@@ -193,19 +196,19 @@ export default async function handler(request: any) {
             ) : null}
 
             {genres.length ? (
-              <div style={{ display: "flex", marginTop: 52 }}>
+              <div style={{ display: "flex", marginTop: 39 }}>
                 {genres.map((g: string) => (
                   <div
                     key={g}
                     style={{
                       display: "flex",
-                      fontSize: 48,
+                      fontSize: 36,
                       color: "rgba(255,255,255,0.9)",
                       background: "rgba(255,255,255,0.1)",
                       border: "2px solid rgba(255,255,255,0.16)",
                       borderRadius: 999,
-                      padding: "16px 40px",
-                      marginRight: 28,
+                      padding: "12px 30px",
+                      marginRight: 21,
                     }}
                   >
                     {g}
@@ -219,13 +222,13 @@ export default async function handler(request: any) {
                 style={{
                   display: "flex",
                   alignItems: "flex-end",
-                  marginTop: 68,
+                  marginTop: 51,
                 }}
               >
                 <div
                   style={{
                     display: "flex",
-                    fontSize: 128,
+                    fontSize: 96,
                     fontFamily: "Outfit",
                     fontWeight: 700,
                     color: accent,
@@ -237,10 +240,10 @@ export default async function handler(request: any) {
                 <div
                   style={{
                     display: "flex",
-                    fontSize: 52,
+                    fontSize: 39,
                     color: "rgba(255,255,255,0.55)",
-                    marginLeft: 16,
-                    marginBottom: 12,
+                    marginLeft: 12,
+                    marginBottom: 9,
                   }}
                 >
                   / 10
@@ -252,8 +255,8 @@ export default async function handler(request: any) {
       </div>
     ),
     {
-      width: 2400,
-      height: 1260,
+      width: 1800,
+      height: 945,
       fonts: [
         { name: "Karla", data: Karla, style: "normal" },
         { name: "Outfit", data: Outfit, style: "normal" },
