@@ -84,6 +84,9 @@
       "desc": "Réglages liés au visionnage.",
       "rateOnComplete": "Proposer une note à la fin d'un anime",
       "rateOnCompleteDesc": "Affiche une fenêtre de notation quand vous terminez le dernier épisode d'un anime.",
+      "defaultServer": "Serveur par défaut",
+      "defaultServerDesc": "Essaie ce serveur en priorité. Auto utilise le défaut du site et mémorise celui choisi dans le lecteur. Repli automatique si un anime ne l'a pas.",
+      "serverAuto": "Auto (défaut du site)",
       "note": "Ce réglage est enregistré sur cet appareil. La note est enregistrée dans votre liste locale (et poussée vers AniList si la synchronisation est active)."
     },
     "dataSaver": {

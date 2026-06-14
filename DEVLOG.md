@@ -29,8 +29,13 @@ Gros lot de réglages + refonte de la page settings. Demandes successives dans u
 - **Watch/Info étendu** à tous les points d'entrée restants : page schedule (`pages/en/schedule/index.tsx`), barre de recherche / palette (`components/searchPalette.tsx`, `handleChange`), **notifications** (`NotificationBell.tsx` — toutes les notifs suivent la pref via `animeHref`), QueueSection. `animeHref(id)` sans 2ᵉ arg lit `getClickTarget()` à l'appel → OK dans les handlers d'événement (pas besoin du hook).
 - **Hook DEVLOG** ajouté dans `.claude/settings.json` (event `Stop`, commande `echo` d'un `systemMessage`) : rappel automatique en fin de tour de mettre à jour le DEVLOG. Indépendant de la mémoire → survit au `/clear`. Mémoire [[devlog-pointer]] durcie en plus (avertissement « miss récurrent » en tête).
 
+### Suivi — Default Provider (serveur par défaut)
+- **Le « serveur préféré » existait déjà** : la page watch lit/écrit `localStorage["preferred_server"]` (clic serveur dans le player → mémorisé, réappliqué au montage si l'anime l'offre, sinon repli sur un serveur confirmé). Choix : **exposer ce réglage existant** plutôt que d'inventer un nouveau système (et **pas** de réglage langue séparé — chaque id de serveur encode déjà sa langue : `animesama-sibnet` = VF, `animesama-sibnet-vo` = VOSTFR).
+- `lib/prefs/serverPref.ts` enveloppe la **même clé** `preferred_server` (vide = Auto/megaplay). Select « Serveur par défaut » dans la section Lecteur (Auto + liste depuis `lib/servers.js`, label langue VF/VOSTFR/Multi). Aucun changement côté player nécessaire.
+
 ### Leçons / pièges
 - **Pas de dossier `pages/fr/`** : `/fr/...` et `/en/...` rendent les **mêmes fichiers** `pages/en/*` (rewrite i18n). Un bug « sur /fr » se corrige dans le fichier `/en` correspondant.
+- **Le serveur encode la langue** (suffixe `-vo`) — il n'y a pas d'état « dub » persistant indépendant (`dub` vient de la query string). Un « provider préféré » suffit à fixer la langue ; pas besoin d'un réglage Sub/Dub séparé.
 - **Barre de recherche = `components/searchPalette.tsx`** (Ctrl+K), distincte de la page `pages/en/search/[...param].tsx`. Le clic sur un résultat passe par `handleChange(id)` → `router.push`, pas un `<Link>`.
 - **Deux composants « schedule »** : `components/home/schedule.js` = widget d'accueil ; `pages/en/schedule/index.tsx` = la page `/schedule`. Modifier le bon.
 - **Page info = `Episodes.tsx` v2**, pas les `viewMode/*` (ceux-ci servent ailleurs). Toujours vérifier quel composant rend réellement avant de câbler une pref.

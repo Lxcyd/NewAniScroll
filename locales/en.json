@@ -84,6 +84,9 @@
       "desc": "Playback-related settings.",
       "rateOnComplete": "Ask for a rating when an anime is finished",
       "rateOnCompleteDesc": "Shows a rating dialog when you finish the last episode of an anime.",
+      "defaultServer": "Default server",
+      "defaultServerDesc": "Always try this server first. Auto uses the site default and remembers the one you pick in the player. Falls back when an anime doesn't have it.",
+      "serverAuto": "Auto (site default)",
       "note": "This setting is saved on this device. The rating is stored in your local list (and pushed to AniList when sync is on)."
     },
     "dataSaver": {

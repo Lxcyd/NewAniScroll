@@ -17,6 +17,8 @@ import { useDataSaver, setDataSaver } from "@/lib/prefs/dataSaver";
 import { useNotifPrefs, setNotifPrefs } from "@/lib/prefs/notifPrefs";
 import { useClickTarget, setClickTarget, ClickTarget } from "@/lib/prefs/clickTarget";
 import { useHideSpoilers, setHideSpoilers } from "@/lib/prefs/spoilerPrefs";
+import { useServerPref, setServerPref } from "@/lib/prefs/serverPref";
+import SERVERS from "@/lib/servers";
 import { useAccent, setAccent, ACCENT_PRESETS, DEFAULT_ACCENT } from "@/lib/prefs/accentColor";
 import {
   downloadExportXml,
@@ -216,6 +218,7 @@ export default function Settings() {
   const notifPrefs = useNotifPrefs();
   const clickTarget = useClickTarget();
   const hideSpoilers = useHideSpoilers();
+  const serverPref = useServerPref();
   const accent = useAccent();
   const localList = useLocalList();
   const [titlePref, setTitlePrefState] = useState<TitlePref>("en");
@@ -642,6 +645,30 @@ export default function Settings() {
                 checked={playerPrefs.rateOnComplete}
                 onChange={(v) => setPlayerPrefs({ rateOnComplete: v })}
               />
+              {/* Default server (preferred_server). Empty = Auto (site default,
+                  remembers whatever the user clicks in the player). */}
+              <div className="flex items-start justify-between gap-4 py-3">
+                <div className="min-w-0">
+                  <div className="text-sm font-medium">
+                    {t("settings.player.defaultServer")}
+                  </div>
+                  <div className="text-white/50 text-xs mt-0.5">
+                    {t("settings.player.defaultServerDesc")}
+                  </div>
+                </div>
+                <select
+                  value={serverPref}
+                  onChange={(e) => setServerPref(e.target.value)}
+                  className="shrink-0 max-w-[55%] bg-white/10 rounded-md px-2 py-1.5 text-sm ring-1 ring-white/10 focus:outline-none focus:ring-action"
+                >
+                  <option value="">{t("settings.player.serverAuto")}</option>
+                  {SERVERS.map((s: { id: string; name: string; lang: string }) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name} ({s.lang === "vf" ? "VF" : s.lang === "vo" ? "VOSTFR" : "Multi"})
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
             <p className="text-white/40 text-xs mt-3">{t("settings.player.note")}</p>
           </section>
