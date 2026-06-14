@@ -1256,9 +1256,30 @@ export default function UniversalPlayer({
   // Vidstack's $state (the actual values). Drive the persistence effect below.
   const volumeState = useMediaState("volume", playerRef);
   const mutedState = useMediaState("muted", playerRef);
-  // Reactive playback speed — drives the persistence effect below so the chosen
-  // rate (1.25×, 1.5×, …) carries across episodes, anime and sessions.
+  // Reactive playback speed — kept for any consumers; persistence is now driven
+  // by the controlled `rate` state + onRateChange below.
   const playbackRateState = useMediaState("playbackRate", playerRef);
+  // Controlled playback speed, seeded from the app-wide saved value. Passed to
+  // <MediaPlayer playbackRate={rate}> so it survives media reloads and keeps the
+  // Speed menu in sync; updated from onRateChange on real user changes.
+  const [rate, setRate] = useState<number>(() => {
+    if (typeof window === "undefined") return 1;
+    try {
+      const r = window.localStorage.getItem("aniscroll:playbackRate");
+      const v = r == null ? NaN : parseFloat(r);
+      return Number.isFinite(v) ? Math.min(4, Math.max(0.25, v)) : 1;
+    } catch {
+      return 1;
+    }
+  });
+  const onRateChange = (next: number) => {
+    if (typeof next !== "number" || next <= 0) return;
+    const clamped = Math.min(4, Math.max(0.25, next));
+    setRate(clamped);
+    try {
+      window.localStorage.setItem("aniscroll:playbackRate", String(clamped));
+    } catch {}
+  };
   const chaptersTrackUrl = useChaptersVtt(skipTimes, videoDuration);
   // No JS click-compensation anymore: the chapter pills now use a transparent
   // border (not a margin) for the inter-pill gap, so they keep their full
@@ -2118,59 +2139,16 @@ export default function UniversalPlayer({
     } catch {}
   }, [volumeState, mutedState]);
 
-  // ── Persist + restore playback speed (app-wide) ──
-  // Vidstack resets the rate to 1× whenever media (re)loads (first mount AND
-  // every episode/anime switch), so a single early restore leaves the Speed menu
-  // on "Normal". We apply the saved rate ONCE PER MEDIA LOAD, just after it
-  // settles — but only until the user changes it for this media (`rateUserSetRef`
-  // gates that), so we never fight a deliberate choice and there's no oscillation.
-  const savedRate = (): number | null => {
-    try {
-      const r = localStorage.getItem("aniscroll:playbackRate");
-      const v = r == null ? NaN : parseFloat(r);
-      return Number.isFinite(v) ? Math.min(4, Math.max(0.25, v)) : null;
-    } catch {
-      return null;
-    }
-  };
-  const rateUserSetRef = useRef(false);
-  // Apply the saved rate shortly after each media load (Vidstack has reset it by
-  // then). Re-runs per `streamData`; the timeout covers the post-load reset.
-  useEffect(() => {
-    rateUserSetRef.current = false; // new media → restore is allowed again
-    const want = savedRate();
-    if (want == null) return;
-    const apply = () => {
-      const player = playerRef.current as any;
-      if (player && !rateUserSetRef.current) {
-        try {
-          if (Math.abs((player.playbackRate ?? 1) - want) > 0.001) {
-            player.playbackRate = want;
-          }
-        } catch {}
-      }
-    };
-    apply();
-    // A couple of delayed re-applies catch Vidstack's reset-to-1× after load,
-    // then we stop (no continuous watcher → no oscillation).
-    const ids = [
-      window.setTimeout(apply, 400),
-      window.setTimeout(apply, 1200),
-    ];
-    return () => ids.forEach((id) => window.clearTimeout(id));
-  }, [streamData]);
-  // Persist the user's chosen rate. Gated on real interaction (volArmedRef) and
-  // flags `rateUserSetRef` so the restore above stops touching this media.
-  useEffect(() => {
-    if (!volArmedRef.current) return;
-    if (typeof playbackRateState !== "number" || playbackRateState <= 0) return;
-    const clamped = Math.min(4, Math.max(0.25, playbackRateState));
-    if (Math.abs(clamped - (savedRate() ?? 1)) < 0.001) return; // no real change
-    rateUserSetRef.current = true;
-    try {
-      localStorage.setItem("aniscroll:playbackRate", String(clamped));
-    } catch {}
-  }, [playbackRateState]);
+  // ── Playback speed: controlled prop (app-wide) ──
+  // We pass `playbackRate` as a CONTROLLED prop to <MediaPlayer> (unlike volume/
+  // muted, which we keep uncontrolled). Controlled is exactly right here: it
+  // keeps Vidstack's state — and therefore the Speed menu — in sync with our
+  // value, and survives every media (re)load (which otherwise resets the rate to
+  // 1×). `onRateChange` feeds genuine user changes back into the state and
+  // persists them. Single source of truth → no oscillation, menu always correct.
+  // (`playbackRateState` above is no longer needed for persistence but kept for
+  // any other consumers.)
+  void playbackRateState;
 
   // ── Resume + auto-save playback progress (continue where you left off) ──
   // Progress is keyed on aniId+episode (NOT the server), so the position is
@@ -2599,6 +2577,10 @@ export default function UniversalPlayer({
         poster={poster}
         load="eager"
         playsinline
+        // Controlled playback speed (app-wide). Keeps the Speed menu in sync and
+        // survives media reloads (which otherwise reset the rate to 1×).
+        playbackRate={rate}
+        onRateChange={(detail: number) => onRateChange(detail)}
         // We deliberately don't pass `autoplay` to Vidstack — its internal
         // autoplay implementation fires before our source is necessarily
         // ready and triggers Chrome's "Unmuting failed" mitigation, which

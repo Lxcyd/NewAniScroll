@@ -7,6 +7,24 @@ Ordre anti-chronologique (le plus récent en haut). Une entrée = une session/su
 
 ---
 
+## 2026-06-14 — Vitesse : prop contrôlé Vidstack (fix menu « Normale » définitif)
+
+### Contexte
+Les approches impératives (`player.playbackRate = x` sur can-play / timeouts / watcher) laissaient toujours le menu Vidstack sur « Normale » entre animes, ou oscillaient. Inspection des types Vidstack 1.9.8 : `playbackRate` est un **prop contrôlable** de `<MediaPlayer>` (`MediaPlayerProps`), et l'event React `onRateChange` (détail = `number`) remonte les changements.
+
+### Décisions prises
+1. **Vitesse = prop contrôlé** (`UniversalPlayer.tsx`) : state `rate` (seedé depuis `aniscroll:playbackRate`, clampé 0.25–4) passé en `<MediaPlayer playbackRate={rate} onRateChange={...}>`. Contrôlé ⇒ Vidstack garde son `$state` (donc le **menu Speed**) synchro avec notre valeur ET la ré-applique à chaque (re)chargement média (qui sinon reset à 1×). `onRateChange` persiste les vrais changements user. **Source de vérité unique → ni oscillation ni désync menu.** Supprime tout le bricolage impératif précédent (timeouts/refs/`volArmedRef` pour la rate). Volume/muted restent volontairement NON contrôlés (eux n'ont pas ce reset).
+
+### Leçons / pièges
+- Pour un réglage que Vidstack reset au load et qu'un menu interne reflète, le **prop contrôlé** est LA solution — les setters impératifs ne synchronisent pas toujours le `$state` que le menu lit, d'où le « Normale » fantôme. Vérifier les types du lib AVANT de bricoler aurait évité 3 itérations.
+- `onRateChange` (React) existe même s'il n'apparaît pas en recherche directe dans les `.d.ts` (généré depuis l'event DOM `rate-change`) ; `tsc` l'a validé.
+
+### État déployé / à faire
+- Branche `dev`. `tsc` + `next lint` clean.
+- ⏳ Tester : changer la vitesse (menu suit, pas d'oscillation) ; changer d'anime (vitesse + menu conservés).
+
+---
+
 ## 2026-06-14 — Fix oscillation vitesse + streak retirée de la NavBar
 
 ### Contexte
