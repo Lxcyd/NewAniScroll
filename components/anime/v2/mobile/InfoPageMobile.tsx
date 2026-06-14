@@ -43,6 +43,7 @@ import type { SeasonEntry } from "@/lib/anilist/seasonChain";
 import CharactersTab from "../CharactersTab";
 import Episodes from "../Episodes";
 import Artworks from "../Artworks";
+import QueueButton from "../QueueButton";
 import ScoresTab from "../ScoresTab";
 import Related from "../Related";
 
@@ -476,6 +477,9 @@ function MHero({
               fav={fav}
               onOpenListEditor={onOpenListEditor}
               onToggleFav={onToggleFav}
+              mediaId={info.id}
+              mediaTitle={info.title}
+              mediaCover={info.coverImage?.large || info.coverImage?.extraLarge || null}
             />
           </div>
         </div>
@@ -490,12 +494,18 @@ function MActions({
   fav,
   onOpenListEditor,
   onToggleFav,
+  mediaId,
+  mediaTitle,
+  mediaCover,
 }: {
   statusLabel: string | null;
   statusResolved?: boolean;
   fav: boolean;
   onOpenListEditor: () => void;
   onToggleFav: () => void;
+  mediaId: number;
+  mediaTitle?: any;
+  mediaCover?: string | null;
 }) {
   const { t } = useTranslation();
   // Keep the English label as the color key (LIST_COLORS), translate display.
@@ -590,6 +600,7 @@ function MActions({
             <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
           </svg>
         </button>
+        <QueueButton mediaId={mediaId} title={mediaTitle} coverImage={mediaCover} size={44} />
         <button
           onClick={() => {
             if (typeof navigator !== "undefined" && (navigator as any).share) {

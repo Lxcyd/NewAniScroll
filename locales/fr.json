@@ -293,6 +293,15 @@
     "sub": "VOSTFR",
     "dub": "VF"
   },
+  "queue": {
+    "title": "À regarder ensuite",
+    "add": "Ajouter à la file « à regarder ensuite »",
+    "remove": "Retirer de la file",
+    "added": "Ajouté à votre file « à regarder ensuite »",
+    "removed": "Retiré de votre file",
+    "moveUp": "Monter",
+    "moveDown": "Descendre"
+  },
   "notifications": {
     "title": "Notifications",
     "empty": "Vous êtes à jour.",

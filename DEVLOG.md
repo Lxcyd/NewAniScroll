@@ -7,6 +7,27 @@ Ordre anti-chronologique (le plus récent en haut). Une entrée = une session/su
 
 ---
 
+## 2026-06-14 — Lot features (4/n) : file d'attente « à regarder ensuite »
+
+### Contexte
+Feature #5 : une file ordonnée « à regarder ensuite », indépendante du statut de liste.
+
+### Décisions prises
+1. **`lib/list/queue.ts`** : store localStorage (`aniscroll:queue` = `QueueItem[]` ordonné), event + hooks `useQueue`/`useIsQueued`. API `addToQueue`/`removeFromQueue`/`toggleQueue`/`moveInQueue(dir)`. Items cachent title+cover pour rendu sans fetch.
+2. **`components/anime/v2/QueueButton.tsx`** : bouton toggle **auto-contenu** (lit/écrit le store directement → pas de plumbing à travers Hero/InfoPage). Prop `size` (56 desktop / 44 mobile). Posé à côté de favori/partage dans `Hero.tsx` (desktop) et `MActions` de `InfoPageMobile.tsx` (mobile, props `mediaId/mediaTitle/mediaCover` ajoutées + threadées depuis le caller qui a `info`).
+3. **Affichage** : section « À regarder ensuite » en tête de `/my-list` (numérotée, monter/descendre/retirer), au-dessus du streak/listes. Clés i18n `queue.*`.
+
+### Leçons / pièges
+- Bouton auto-contenu = zéro prop plumbing : il consomme `useIsQueued(mediaId)` et appelle `toggleQueue` lui-même ; seul le `mediaId/title/cover` doit venir du parent (déjà dans `info`).
+- Warnings `<img>` de `InfoPageMobile` préexistants (non liés), non bloquants.
+
+### État déployé / à faire
+- Branche `dev`. `tsc` + JSON clean ; lint OK sur les fichiers neufs.
+- ⏳ Tester : bouton file sur page anime (desktop+mobile) → toast ; `/my-list` montre la file, réordonner/retirer.
+- ⏭️ Suite : détection saison suivante, roulette, partage de carte, mode données réduites, thème custom, taille subs mémorisée, historique.
+
+---
+
 ## 2026-06-14 — Vitesse : restauration via `remote.changePlaybackRate` (menu enfin synchro)
 
 ### Contexte

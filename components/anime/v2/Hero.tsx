@@ -21,6 +21,7 @@ import { useTranslation } from "react-i18next";
 import { genreLabel } from "@/lib/i18n/genreLabel";
 import { prefetchEpisodeList } from "@/lib/watch/episodePrefetch";
 import { useFanartSrc, fanartSrcNow, onFanartError } from "@/lib/images/fanartFallback";
+import QueueButton from "./QueueButton";
 
 type HeroProps = {
   info: AniListInfoTypes;
@@ -691,6 +692,13 @@ export default function Hero({
                     <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
                   </svg>
                 </button>
+                <QueueButton
+                  mediaId={info.id}
+                  title={info.title}
+                  coverImage={
+                    info.coverImage?.large || info.coverImage?.extraLarge || null
+                  }
+                />
                 <button
                   onClick={() => {
                     if (typeof navigator !== "undefined" && navigator.share) {
