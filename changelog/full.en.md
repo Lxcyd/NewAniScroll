@@ -2,11 +2,16 @@
 
 All notable changes to AniScroll appear here. Most recent first.
 
-## [v0.0.3] — Settings, reimagined & new options (2026-06-14)
+## [v0.0.3] — Settings reimagined, themes & profile (2026-06-14)
 
 ### Added
 - **Reworked Settings page**: a side menu that stays in view, with one section
   per topic so everything is easy to find.
+- **Custom theme**: pick your accent colour, applied live across the whole app.
+- **Reworked profile page**: banner, avatar and stats, with your list grouped
+  by status like "My list".
+- **Rate on finish**: a dialog offers to rate an anime when you finish its last
+  episode (toggleable in settings).
 - **Open on watch or info page**: choose whether clicking an anime opens its
   info page or jumps straight into playback — and it resumes at the episode you
   were on.
@@ -18,6 +23,8 @@ All notable changes to AniScroll appear here. Most recent first.
   default).
 - **Default server**: pick the player tried first.
 - **Force maximum quality** and **start muted** in the player.
+- **Share card**: sharing an anime now shows a rich preview (cover, title,
+  score) on Discord and social.
 - **Clear watch history** and **restore default settings** in a new Advanced
   section.
 
@@ -25,12 +32,7 @@ All notable changes to AniScroll appear here. Most recent first.
 - Deleting your local list now lives in Settings, behind a confirmation.
 - Signing in and enabling sync now fully replaces the local list with your
   AniList list.
-- Anime-title and interface languages are grouped into a single section.
-
-### Fixed
-- The notification badge no longer wrongly reappears when switching tabs.
-- The rating dialog no longer pops too early on short episodes.
-- Auto-progress settings stay usable without an AniList account.
+- Reworked watch history: search, date grouping and one-click resume.
 
 ## [v0.0.2] — Episode scores & sturdier players (2026-06-10)
 

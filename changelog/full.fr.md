@@ -2,11 +2,17 @@
 
 Toutes les nouveautés d'AniScroll, les plus récentes en premier.
 
-## [v0.0.3] — Paramètres repensés & nouveaux réglages (2026-06-14)
+## [v0.0.3] — Paramètres repensés, thèmes & profil (2026-06-14)
 
 ### Ajouté
 - **Page Paramètres repensée** : un menu latéral qui reste visible, avec une
   section par thème pour s'y retrouver d'un coup d'œil.
+- **Thème personnalisable** : choisissez votre couleur d'accent, appliquée
+  partout dans l'app en direct.
+- **Page profil repensée** : bannière, avatar et statistiques, avec votre liste
+  groupée par statut comme sur « Ma liste ».
+- **Notation en fin d'anime** : une fenêtre vous propose de noter un anime quand
+  vous terminez son dernier épisode (activable dans les réglages).
 - **Ouvrir au visionnage ou à la fiche** : choisissez si cliquer sur un anime
   ouvre sa fiche d'info ou lance directement la lecture — et il reprend à
   l'épisode où vous vous êtes arrêté.
@@ -18,6 +24,8 @@ Toutes les nouveautés d'AniScroll, les plus récentes en premier.
   épisode il est compté comme vu (par défaut 80 %).
 - **Serveur par défaut** : choisissez le lecteur essayé en priorité.
 - **Forcer la qualité maximale** et **démarrer en sourdine** côté lecteur.
+- **Carte de partage** : partager un anime affiche un bel aperçu (cover, titre,
+  note) dans Discord et les réseaux.
 - **Effacer l'historique** et **réinitialiser les réglages** dans une nouvelle
   section Avancé.
 
@@ -26,12 +34,8 @@ Toutes les nouveautés d'AniScroll, les plus récentes en premier.
   avec une confirmation.
 - En se connectant et activant la synchronisation, la liste AniList remplace
   désormais entièrement la liste locale.
-- La langue des titres et de l'interface sont regroupées dans une seule section.
-
-### Corrigé
-- Le badge de notifications ne réapparaît plus à tort en changeant d'onglet.
-- La fenêtre de notation n'apparaît plus trop tôt sur les épisodes courts.
-- Les réglages de progression automatique restent utilisables sans compte AniList.
+- Historique de visionnage refait : recherche, regroupement par date et reprise
+  en un clic.
 
 ## [v0.0.2] — Notes par épisode & lecteurs plus fiables (2026-06-10)
 

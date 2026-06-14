@@ -2,6 +2,6 @@
 
 ⚙️ **Paramètres repensés** — un menu latéral clair et plein de nouveaux réglages.
 
-▶️ Choisissez d'ouvrir un anime sur sa **fiche** ou directement en **lecture** (qui reprend là où vous en étiez), masquez les **spoilers**, et réglez vos **notifications**.
+🎨 **Thème personnalisable** (votre couleur partout), **page profil** repensée et **notation** à la fin d'un anime.
 
-🎚️ Nouveau **seuil de synchronisation**, **serveur par défaut**, qualité max forcée, et une section **Avancé** (effacer l'historique, réinitialiser les réglages).
+▶️ Ouvrez un anime sur sa **fiche** ou directement en **lecture** (qui reprend là où vous en étiez), masquez les **spoilers**, réglez vos **notifications** et bien plus.
