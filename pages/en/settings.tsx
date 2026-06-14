@@ -359,7 +359,23 @@ export default function Settings() {
       { rootMargin: "-20% 0px -70% 0px", threshold: 0 },
     );
     els.forEach((el) => observer.observe(el));
-    return () => observer.disconnect();
+
+    // Bottom-of-page guard: the last (short) section can never reach the
+    // upper-third active zone, so the IO never marks it active. When the page
+    // is scrolled to the bottom, force-select the last section.
+    const onScroll = () => {
+      const atBottom =
+        window.innerHeight + window.scrollY >=
+        document.documentElement.scrollHeight - 2;
+      if (atBottom) setActiveSection(navSections[navSections.length - 1].id);
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    onScroll();
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("scroll", onScroll);
+    };
     // Re-run when the section set changes (login) or the list section appears.
   }, [isLoggedIn]); // eslint-disable-line react-hooks/exhaustive-deps
 
