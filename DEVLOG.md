@@ -7,6 +7,26 @@ Ordre anti-chronologique (le plus récent en haut). Une entrée = une session/su
 
 ---
 
+## 2026-06-14 — Saison suivante : fraîche vs ancienne + file visible (profil)
+
+### Contexte
+Retours : (1) la notif saison suivante doit distinguer **suite qui sort** (notif directe) vs **suite ancienne** (mention occasionnelle, paced, comme le rappel reprise) ; (2) la file d'attente n'apparaissait pas dans « My List » — parce que les connectés vont sur `/profile/<nom>`, pas `/my-list`.
+
+### Décisions prises
+1. **Next-season fraîche vs ancienne** (`computeNotifications.ts`) : `fetchSequels` récupère aussi `status` + `startDate`. `isFresh` = `RELEASING`/`NOT_YET_RELEASED` OU démarrée < 60 j. Les **fraîches** sont toujours affichées (comme new-episode). Les **anciennes** passent par un **gate paced** (`SEQUEL_GATE_KEY`, 3 j, pick persisté façon resume) → une seule mention « il existe une suite » à la fois, qui tourne. Flag `fresh` sur la notif → 2 textes (`nextSeasonFreshBody`/`nextSeasonOldBody`).
+2. **File visible pour les connectés** : la file (et le bug) venait du routage NavBar (connecté → `/profile/<nom>`). Extrait l'UI dans `components/list/QueueSection.tsx` (client-only, rien si vide) ; monté sur `/my-list` ET sur la page profil **pour le propriétaire** (`isOwner` = session.name == user.name, insensible casse). La file est en localStorage donc app-wide.
+
+### Leçons / pièges
+- Toujours vérifier le **routage** avant de conclure à un bug d'affichage : la file marchait, elle n'était juste pas sur la page où atterrissent les connectés.
+- `QueueSection` partagé évite la duplication entre my-list et profil.
+
+### État déployé / à faire
+- Branche `dev`. `tsc` + `next lint` + JSON clean.
+- ⏳ Tester : suite en cours de diffusion → notif directe ; suite ancienne non possédée → mention occasionnelle (1 à la fois, pas avant 3 j) ; file visible sur profil (connecté) et my-list (invité).
+- ⏭️ Suite : roulette, partage de carte, mode données réduites, thème custom, taille subs mémorisée, historique.
+
+---
+
 ## 2026-06-14 — Lot features (5/n) : détection saison suivante (notif)
 
 ### Contexte

@@ -35,6 +35,9 @@ export type AppNotification = {
   days?: number;
   /** The sequel anime to point at (next-season). The notification links here. */
   sequel?: { id: number; title: string; coverImage: string | null };
+  /** next-season: true when the sequel is newly/about to air (vs. an older one
+   *  we just mention occasionally). Drives the body copy. */
+  fresh?: boolean;
   /** Sort key — most relevant first. */
   sortAt: number;
 };
@@ -107,7 +110,15 @@ async function fetchAiring(ids: number[]): Promise<Map<number, AiringInfo>> {
 
 // Sequel lookup for the next-season notification. Cached by id (sequels appear
 // rarely, so a long-lived per-id cache is fine for a session).
-type Sequel = { id: number; title: any; coverImage: string | null } | null;
+type Sequel = {
+  id: number;
+  title: any;
+  coverImage: string | null;
+  status: string | null;
+  /** Whether the sequel only recently started / is about to air (drives whether
+   *  we notify immediately vs. mention it occasionally). */
+  startedAt: number | null; // epoch ms of the sequel's start date, when known
+} | null;
 const sequelCache = new Map<number, Sequel>();
 
 async function fetchSequels(ids: number[]): Promise<Map<number, Sequel>> {
@@ -126,7 +137,11 @@ async function fetchSequels(ids: number[]): Promise<Map<number, Sequel>> {
                 relations {
                   edges {
                     relationType
-                    node { id type format title { english romaji userPreferred } coverImage { large } }
+                    node {
+                      id type format status
+                      startDate { year month day }
+                      title { english romaji userPreferred } coverImage { large }
+                    }
                   }
                 }
               }
@@ -149,6 +164,11 @@ async function fetchSequels(ids: number[]): Promise<Map<number, Sequel>> {
               e?.node?.type === "ANIME" &&
               ["TV", "TV_SHORT", "ONA"].includes(e?.node?.format),
           );
+          const sd = seq?.node?.startDate;
+          const startedAt =
+            sd?.year && sd?.month && sd?.day
+              ? Date.UTC(sd.year, sd.month - 1, sd.day)
+              : null;
           sequelCache.set(
             id,
             seq
@@ -156,6 +176,8 @@ async function fetchSequels(ids: number[]): Promise<Map<number, Sequel>> {
                   id: Number(seq.node.id),
                   title: seq.node.title,
                   coverImage: seq.node.coverImage?.large ?? null,
+                  status: seq.node.status ?? null,
+                  startedAt,
                 }
               : null,
           );
@@ -262,6 +284,38 @@ function writeResumePick(pick: ResumePick): void {
   }
 }
 
+// Old-sequel mention pacing: like the resume reminder, surface at most one
+// "there's a season 2 of X" every few days, persisting the pick so it stays
+// visible for the window. Fresh sequels (just airing) bypass this and always
+// show. A sequel counts as "fresh" if it's still releasing / not yet aired, or
+// started within the last 60 days.
+const SEQUEL_GATE_KEY = "aniscroll:sequelMention";
+const SEQUEL_INTERVAL_MS = 3 * DAY_MS;
+const SEQUEL_FRESH_DAYS = 60;
+
+type SequelPick = { completedId: number; sequelId: number; at: number };
+
+function readSequelPick(): SequelPick | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(SEQUEL_GATE_KEY);
+    if (!raw) return null;
+    const p = JSON.parse(raw);
+    return Number.isFinite(p?.sequelId) && Number.isFinite(p?.at) ? p : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeSequelPick(pick: SequelPick): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(SEQUEL_GATE_KEY, JSON.stringify(pick));
+  } catch {
+    /* best-effort */
+  }
+}
+
 export type ComputeOpts = {
   titlePref: TitlePref;
 };
@@ -304,28 +358,73 @@ export async function computeNotifications(
   }
 
   // ── Next season (COMPLETED entries with an unowned sequel) ──────
-  // For everything you've finished, surface its sequel IF you don't already
-  // have that sequel in your list (you'd already know about it then).
+  // Two cases, mirroring the brief:
+  //   • FRESH sequel (releasing / not-yet-aired / started < 60 days ago) →
+  //     notify immediately, like a new episode.
+  //   • OLD sequel (already finished a while ago) → don't spam; mention ONE
+  //     every few days ("there's a season 2 of X"), paced like the resume tip.
   const completed = list.filter((e) => e.status === "COMPLETED");
   if (completed.length > 0) {
     const ownedIds = new Set(list.map((e) => e.mediaId));
     const sequels = await fetchSequels(completed.map((e) => e.mediaId));
+    const mkNote = (
+      e: LocalEntry,
+      seq: NonNullable<Sequel>,
+      fresh: boolean,
+    ): AppNotification => ({
+      id: `next-season:${e.mediaId}:${seq.id}`,
+      kind: "next-season",
+      mediaId: seq.id, // link straight to the sequel
+      title: pickTitle(seq.title ?? null, titlePref),
+      coverImage: seq.coverImage,
+      fresh,
+      sequel: {
+        id: seq.id,
+        title: pickTitle(seq.title ?? null, titlePref),
+        coverImage: seq.coverImage,
+      },
+      sortAt: fresh ? now - 1 : now - 2, // fresh just below new-episode; old after
+    });
+
+    const isFresh = (seq: NonNullable<Sequel>): boolean => {
+      if (seq.status === "RELEASING" || seq.status === "NOT_YET_RELEASED") return true;
+      return (
+        seq.startedAt != null && now - seq.startedAt <= SEQUEL_FRESH_DAYS * DAY_MS
+      );
+    };
+
+    const oldCandidates: Array<{ e: LocalEntry; seq: NonNullable<Sequel> }> = [];
     for (const e of completed) {
       const seq = sequels.get(e.mediaId);
       if (!seq || ownedIds.has(seq.id)) continue;
-      notes.push({
-        id: `next-season:${e.mediaId}:${seq.id}`,
-        kind: "next-season",
-        mediaId: seq.id, // link straight to the sequel
-        title: pickTitle(seq.title ?? null, titlePref),
-        coverImage: seq.coverImage,
-        sequel: {
-          id: seq.id,
-          title: pickTitle(seq.title ?? null, titlePref),
-          coverImage: seq.coverImage,
-        },
-        sortAt: now - 1, // just below new-episode alerts
-      });
+      if (isFresh(seq)) {
+        notes.push(mkNote(e, seq, true)); // always show fresh sequels
+      } else {
+        oldCandidates.push({ e, seq });
+      }
+    }
+
+    // Paced mention of ONE old sequel: keep the stored pick for its window, else
+    // rotate to another candidate (skip ones already shown as a fresh note).
+    if (oldCandidates.length > 0) {
+      const freshlyShown = new Set(
+        notes.filter((n) => n.kind === "next-season").map((n) => n.mediaId),
+      );
+      const pool = oldCandidates.filter(({ seq }) => !freshlyShown.has(seq.id));
+      if (pool.length > 0) {
+        const stored = readSequelPick();
+        const storedFresh = !!stored && now - stored.at < SEQUEL_INTERVAL_MS;
+        const storedHit = stored
+          ? pool.find(({ seq }) => seq.id === stored.sequelId)
+          : undefined;
+        if (storedFresh && storedHit) {
+          notes.push(mkNote(storedHit.e, storedHit.seq, false));
+        } else {
+          const pick = pool[0];
+          notes.push(mkNote(pick.e, pick.seq, false));
+          writeSequelPick({ completedId: pick.e.mediaId, sequelId: pick.seq.id, at: now });
+        }
+      }
     }
   }
 

@@ -308,7 +308,8 @@
     "newEpisode": "Episode {{episode}} is out",
     "newEpisodes": "{{count}} new episodes (up to ep {{episode}})",
     "resumeBody": "Paused for {{days}} days — pick it back up?",
-    "nextSeasonBody": "A sequel is available — continue the story"
+    "nextSeasonFreshBody": "A new sequel is airing — continue the story",
+    "nextSeasonOldBody": "There's a sequel you haven't watched yet"
   },
   "rate": {
     "title": "How was it?",

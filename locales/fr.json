@@ -308,7 +308,8 @@
     "newEpisode": "L'épisode {{episode}} est sorti",
     "newEpisodes": "{{count}} nouveaux épisodes (jusqu'à l'épisode {{episode}})",
     "resumeBody": "En pause depuis {{days}} jours — on reprend ?",
-    "nextSeasonBody": "Une suite est disponible — continuez l'histoire"
+    "nextSeasonFreshBody": "Une suite vient de sortir — continuez l'histoire",
+    "nextSeasonOldBody": "Il existe une suite que vous n'avez pas encore vue"
   },
   "rate": {
     "title": "Alors, ce verdict ?",

@@ -10,6 +10,7 @@ import { CurrentMediaTypes } from "..";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { useTranslation } from "react-i18next";
 import { listLabel } from "@/components/anime/v2/helpers";
+import QueueSection from "@/components/list/QueueSection";
 
 type MyListProps = {
   media: CurrentMediaTypes[];
@@ -33,6 +34,12 @@ export default function MyList({
 }: MyListProps) {
   const titlePref = useTitlePref();
   const { t } = useTranslation();
+  // Owner = the signed-in viewer looking at their own profile (drives the
+  // client-only watch-next queue, which lives in this device's localStorage).
+  const isOwner =
+    !!sessions?.user?.name &&
+    String(sessions.user.name).toLowerCase() ===
+      String(user?.name).toLowerCase();
   const [listFilter, setListFilter] = useState("all");
   const [visible, setVisible] = useState(false);
   const [useCustomList, setUseCustomList] = useState(true);
@@ -301,6 +308,9 @@ export default function MyList({
         </div>
 
         <div className="lg:w-[75%] grid gap-10 my-5 lg:my-12 lg:pt-16">
+          {/* Watch-next queue — only for the owner viewing their own profile.
+              Client-only (localStorage); renders nothing when empty. */}
+          {isOwner && <QueueSection />}
           {media.length !== 0 ? (
             filterMedia(listFilter).map((item, index) => {
               return (
