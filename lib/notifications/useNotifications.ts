@@ -18,6 +18,10 @@ import {
 } from "./computeNotifications";
 
 const READ_KEY = "aniscroll:notifReadIds";
+// Cap the stored read-id set so it can't grow forever as episodes advance.
+// Keeping the most recent N (insertion order) is enough — far more than the
+// handful of notifications ever live at once.
+const MAX_READ_IDS = 200;
 
 function getReadIds(): Set<string> {
   if (typeof window === "undefined") return new Set();
@@ -80,29 +84,23 @@ export function useNotifications(): UseNotifications {
     };
   }, [refresh]);
 
-  // Prune read ids that no longer correspond to a live notification, so the set
-  // doesn't grow forever as episodes advance.
-  useEffect(() => {
-    if (notifications.length === 0) return;
-    setReadIds((prev) => {
-      const live = new Set(notifications.map((n) => n.id));
-      let changed = false;
-      const next = new Set<string>();
-      prev.forEach((id) => {
-        if (live.has(id)) next.add(id);
-        else changed = true;
-      });
-      if (changed) writeReadIds(next);
-      return changed ? next : prev;
-    });
-  }, [notifications]);
+  // NOTE: we deliberately DON'T prune read ids by "no longer live". A refresh
+  // hits AniList, and a transient network failure makes computeNotifications
+  // return a partial/empty set — pruning then would drop the read state for
+  // notifications that merely failed to refetch, so when the fetch later
+  // succeeds they'd come back as UNREAD and the badge would reappear (the
+  // "badge reappears on tab switch" bug). Instead we just cap the set size.
 
   const isRead = useCallback((id: string) => readIds.has(id), [readIds]);
 
   const markAllRead = useCallback(() => {
     setReadIds((prev) => {
-      const next = new Set(prev);
-      notifications.forEach((n) => next.add(n.id));
+      // Keep the most recent ids (current prev order + the now-read ones),
+      // de-duped then capped so the set can't grow without bound.
+      const merged = Array.from(
+        new Set([...Array.from(prev), ...notifications.map((n) => n.id)]),
+      );
+      const next = new Set(merged.slice(-MAX_READ_IDS));
       writeReadIds(next);
       return next;
     });
