@@ -14,6 +14,7 @@
 
 import { getLocalList, LocalEntry } from "@/lib/list/localList";
 import { pickTitle, type TitlePref } from "@/lib/prefs/titlePref";
+import { getNotifPrefs } from "@/lib/prefs/notifPrefs";
 
 const ENDPOINT = "https://graphql.anilist.co/";
 
@@ -329,12 +330,13 @@ export async function computeNotifications(
   opts: ComputeOpts,
 ): Promise<AppNotification[]> {
   const { titlePref } = opts;
+  const prefs = getNotifPrefs();
   const list = Object.values(getLocalList());
   const now = Date.now();
   const notes: AppNotification[] = [];
 
   // ── New episodes (CURRENT entries) ──────────────────────────────
-  const current = list.filter((e) => e.status === "CURRENT");
+  const current = prefs.newEpisode ? list.filter((e) => e.status === "CURRENT") : [];
   const airing = await fetchAiring(current.map((e) => e.mediaId));
   for (const e of current) {
     const info = airing.get(e.mediaId);
@@ -363,7 +365,7 @@ export async function computeNotifications(
   //     notify immediately, like a new episode.
   //   • OLD sequel (already finished a while ago) → don't spam; mention ONE
   //     every few days ("there's a season 2 of X"), paced like the resume tip.
-  const completed = list.filter((e) => e.status === "COMPLETED");
+  const completed = prefs.nextSeason ? list.filter((e) => e.status === "COMPLETED") : [];
   if (completed.length > 0) {
     const ownedIds = new Set(list.map((e) => e.mediaId));
     const sequels = await fetchSequels(completed.map((e) => e.mediaId));
@@ -433,6 +435,7 @@ export async function computeNotifications(
   // ago — biased toward something thematically close to what they've watched
   // lately (genres weighted over tags). We pick a fresh one at most every 3
   // days, but keep showing the current pick for that whole window.
+  if (prefs.resume) {
   const lastActivity = (e: LocalEntry) => e.activityAt ?? e.updatedAt;
   const staleCutoff = now - RESUME_STALE_DAYS * DAY_MS;
   const byId = new Map(list.map((e) => [e.mediaId, e] as const));
@@ -509,6 +512,7 @@ export async function computeNotifications(
       }
     }
   }
+  } // end if (prefs.resume)
 
   return notes.sort((a, b) => b.sortAt - a.sortAt);
 }

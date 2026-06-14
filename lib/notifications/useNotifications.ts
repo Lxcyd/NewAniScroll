@@ -11,6 +11,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getTitlePref } from "@/lib/prefs/titlePref";
 import { LOCAL_LIST_EVENT } from "@/lib/list/localList";
+import { NOTIF_PREFS_EVENT } from "@/lib/prefs/notifPrefs";
 import {
   computeNotifications,
   type AppNotification,
@@ -69,9 +70,12 @@ export function useNotifications(): UseNotifications {
     // Recompute when the local list changes (status/progress edits, syncs).
     const onChange = () => refresh();
     window.addEventListener(LOCAL_LIST_EVENT, onChange);
+    // Recompute immediately when the user flips a notification toggle.
+    window.addEventListener(NOTIF_PREFS_EVENT, onChange);
     window.addEventListener("storage", onChange);
     return () => {
       window.removeEventListener(LOCAL_LIST_EVENT, onChange);
+      window.removeEventListener(NOTIF_PREFS_EVENT, onChange);
       window.removeEventListener("storage", onChange);
     };
   }, [refresh]);

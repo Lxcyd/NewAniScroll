@@ -83,6 +83,17 @@
       "toggleDesc": "Turns off the player's live ambient-light effect.",
       "note": "Saved on this device."
     },
+    "notif": {
+      "title": "Notifications",
+      "desc": "Choose which alerts show in the notification bell.",
+      "newEpisode": "New episodes",
+      "newEpisodeDesc": "When a show you're watching airs an episode you haven't seen.",
+      "nextSeason": "Sequels",
+      "nextSeasonDesc": "When an anime you completed gets a new season you don't have yet.",
+      "resume": "Resume reminders",
+      "resumeDesc": "An occasional nudge to pick back up something you stalled on.",
+      "note": "Saved on this device. Notifications appear in the bell while the app is open."
+    },
     "theme": {
       "title": "Theme",
       "desc": "Pick the accent colour used across the site.",

@@ -14,6 +14,7 @@ import { getLang, setLang, Lang, LANG_EVENT } from "@/lib/i18n/languagePref";
 import { useSyncPrefs, setSyncPrefs } from "@/lib/prefs/syncPrefs";
 import { usePlayerPrefs, setPlayerPrefs } from "@/lib/prefs/playerPrefs";
 import { useDataSaver, setDataSaver } from "@/lib/prefs/dataSaver";
+import { useNotifPrefs, setNotifPrefs } from "@/lib/prefs/notifPrefs";
 import { useAccent, setAccent, ACCENT_PRESETS, DEFAULT_ACCENT } from "@/lib/prefs/accentColor";
 import {
   downloadExportXml,
@@ -35,6 +36,7 @@ import {
   ArrowPathIcon,
   LockClosedIcon,
   ListBulletIcon,
+  BellIcon,
 } from "@heroicons/react/24/outline";
 import { useSession, signIn, signOut } from "next-auth/react";
 import { useTranslation } from "react-i18next";
@@ -144,6 +146,7 @@ const SECTIONS: SectionDef[] = [
   { id: "interface-language", labelKey: "settings.interfaceLanguage", Icon: GlobeAltIcon },
   { id: "player", labelKey: "settings.player.title", Icon: PlayCircleIcon },
   { id: "data-saver", labelKey: "settings.dataSaver.title", Icon: BoltIcon },
+  { id: "notifications", labelKey: "settings.notif.title", Icon: BellIcon },
   { id: "theme", labelKey: "settings.theme.title", Icon: SwatchIcon },
   { id: "sync", labelKey: "settings.sync.title", Icon: ArrowPathIcon },
   { id: "profile", labelKey: "settings.profile.title", Icon: LockClosedIcon, loggedInOnly: true },
@@ -206,6 +209,7 @@ export default function Settings() {
   const syncPrefs = useSyncPrefs();
   const playerPrefs = usePlayerPrefs();
   const dataSaver = useDataSaver();
+  const notifPrefs = useNotifPrefs();
   const accent = useAccent();
   const localList = useLocalList();
   const [titlePref, setTitlePrefState] = useState<TitlePref>("en");
@@ -619,6 +623,33 @@ export default function Settings() {
               />
             </div>
             <p className="text-white/40 text-xs mt-3">{t("settings.dataSaver.note")}</p>
+          </section>
+
+          {/* ── Notifications ────────────────────────────────────── */}
+          <section id="notifications" className="py-10 scroll-mt-24">
+            <h2 className="text-xl font-semibold mb-1">{t("settings.notif.title")}</h2>
+            <p className="text-white/60 text-sm mb-4">{t("settings.notif.desc")}</p>
+            <div className="rounded-xl bg-white/5 ring-1 ring-white/10 px-4 divide-y divide-white/5">
+              <Toggle
+                label={t("settings.notif.newEpisode")}
+                desc={t("settings.notif.newEpisodeDesc")}
+                checked={notifPrefs.newEpisode}
+                onChange={(v) => setNotifPrefs({ newEpisode: v })}
+              />
+              <Toggle
+                label={t("settings.notif.nextSeason")}
+                desc={t("settings.notif.nextSeasonDesc")}
+                checked={notifPrefs.nextSeason}
+                onChange={(v) => setNotifPrefs({ nextSeason: v })}
+              />
+              <Toggle
+                label={t("settings.notif.resume")}
+                desc={t("settings.notif.resumeDesc")}
+                checked={notifPrefs.resume}
+                onChange={(v) => setNotifPrefs({ resume: v })}
+              />
+            </div>
+            <p className="text-white/40 text-xs mt-3">{t("settings.notif.note")}</p>
           </section>
 
           {/* ── Theme (accent colour) ────────────────────────────── */}

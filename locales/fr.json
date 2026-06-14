@@ -83,6 +83,17 @@
       "toggleDesc": "Désactive l'effet de lumière d'ambiance du lecteur.",
       "note": "Enregistré sur cet appareil."
     },
+    "notif": {
+      "title": "Notifications",
+      "desc": "Choisissez quelles alertes apparaissent dans la cloche de notifications.",
+      "newEpisode": "Nouveaux épisodes",
+      "newEpisodeDesc": "Quand un anime que vous regardez diffuse un épisode non vu.",
+      "nextSeason": "Suites",
+      "nextSeasonDesc": "Quand un anime terminé reçoit une nouvelle saison absente de votre liste.",
+      "resume": "Rappels de reprise",
+      "resumeDesc": "Un petit rappel occasionnel pour reprendre un anime laissé de côté.",
+      "note": "Enregistré sur cet appareil. Les notifications s'affichent dans la cloche pendant que l'app est ouverte."
+    },
     "theme": {
       "title": "Thème",
       "desc": "Choisissez la couleur d'accent utilisée sur tout le site.",
