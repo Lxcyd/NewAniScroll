@@ -40,9 +40,11 @@ export default function QueueButton({
         display: "grid",
         placeItems: "center",
         borderRadius: 11,
-        background: queued ? "rgba(233,69,96,0.08)" : "rgba(255,255,255,0.04)",
+        background: queued
+          ? "color-mix(in srgb, var(--accent) 8%, transparent)"
+          : "rgba(255,255,255,0.04)",
         border: queued
-          ? "1px solid rgba(233,69,96,0.3)"
+          ? "1px solid color-mix(in srgb, var(--accent) 30%, transparent)"
           : "1px solid var(--line-2)",
         color: queued ? "var(--accent)" : "var(--txt-1)",
         cursor: "pointer",

@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 type Props = { info: AniListInfoTypes };
 
 const ROLE_COLOR: Record<string, string> = {
-  MAIN: "#ff7a91",
+  MAIN: "var(--accent)",
   SUPPORTING: "#5e6478",
   BACKGROUND: "#5e6478",
 };

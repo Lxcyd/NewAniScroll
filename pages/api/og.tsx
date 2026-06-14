@@ -94,7 +94,7 @@ export default async function handler(request: any) {
               width: 1280,
               height: 710,
               objectFit: "cover",
-              filter: "blur(18px) brightness(0.45)",
+              filter: "blur(12px) brightness(0.4)",
             }}
           />
         ) : null}
@@ -152,14 +152,14 @@ export default async function handler(request: any) {
             <div
               style={{
                 display: "flex",
-                fontSize: 28,
-                letterSpacing: 4,
+                fontSize: 30,
+                letterSpacing: 1,
                 fontFamily: "Outfit",
                 color: accent,
                 fontWeight: 700,
               }}
             >
-              ANISCROLL
+              AniScroll
             </div>
 
             <div

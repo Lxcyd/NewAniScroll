@@ -7,6 +7,22 @@ Ordre anti-chronologique (le plus récent en haut). Une entrée = une session/su
 
 ---
 
+## 2026-06-14 (suite) — Thème sur toute la page info, profil = my-list + bannière, OG « AniScroll » + moins flou
+
+### Contexte
+Retours sur les correctifs précédents : (1) la page info ignorait encore le thème à plein d'endroits (barre d'onglets/compteurs, tags, bouton play des recommandations, épisode « à suivre », panneau saisons, texte perso PRINCIPAL, bouton file d'attente), (2) la page profil devait être **identique à `/my-list`** (juste bannière + avatar en haut, sans description), (3) l'embed OG : remplacer « ANISCROLL » par « AniScroll » et réduire le flou.
+
+### Décisions prises
+1. **Cause racine du thème sur la page info** : `components/anime/v2/styles.module.css` définissait ses PROPRES tokens `--accent: #ff3b5c` / `--accent-2` / `--accent-soft` en dur, indépendants de `--brand-primary`. Toute la page V2 (`.root`) lit ces tokens. Fix : les 3 pointent maintenant sur `var(--brand-primary)` (+ `color-mix` pour soft/2). **Un seul changement reskinne onglets, tags, saisons, recommandations, perso, etc.** Restait quelques hex en dur hors tokens, corrigés : `Tabs` (compteur actif), `CharactersTab` (MAIN), `Episodes` (bordures/fond « à suivre » → `color-mix(var(--accent))`), `Overview` (tagFill gradient, official link, popularity, toggle spoilers, bigPlay), `QueueButton` (état actif). La palette catégorielle de `Related` (relations) est laissée telle quelle (légende, pas chrome de marque).
+2. **Profil = my-list** : `pages/en/profile/[user].tsx` réécrit pour reproduire la mise en page de `/my-list` (chips de filtre par statut + sections groupées avec lignes arrondies `bg-white/[0.03] ring-1`). Données : on **aplatit** `MediaListCollection.lists[].entries` puis on re-groupe par `entry.status` dans l'ordre canonique (`STATUS_ORDER`) avec dé-dup par mediaId (les custom lists répètent des entrées). **Header en plus** : bannière utilisateur (`fill`, gradient vers `primary`) + avatar arrondi qui chevauche + nom + ligne de stats (anime · ep · jours). **Pas de description** (about AniList). Garde-fou privé + `getServerSideProps` inchangés. Supprimé : table HTML, toggle custom-list, `UnixTimeConverter`, sidebar 30/70.
+3. **OG** : « ANISCROLL » → « AniScroll » (casse + `letterSpacing` réduit), blur de fond 18→12px. Le « flou » perçu vient surtout du downscale de Discord (l'image 1200×630 est nette en plein écran) — rien à corriger côté image elle-même.
+
+### Leçons / pièges
+- Un module CSS scopé qui **redéfinit** des tokens d'accent en dur shunte tout le système de thème global pour son sous-arbre. Toujours faire pointer les tokens locaux sur `--brand-primary` plutôt que de recopier l'hex.
+- `color-mix(in srgb, var(--accent) X%, transparent)` est le remplacement direct d'un `rgba(hex, a)` quand la couleur devient une variable — supporté partout (navigateurs 2023+).
+
+---
+
 ## 2026-06-14 — Thème live partout, fix /schedule, carte de partage en embed OG, historique refait, suppression « Surprends-moi »
 
 ### Contexte

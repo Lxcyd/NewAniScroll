@@ -17,9 +17,12 @@
   --txt-1: #c4c8d4;
   --txt-2: #8a8fa3;
   --txt-3: #5e6478;
-  --accent: #ff3b5c;
-  --accent-2: #ff5c78;
-  --accent-soft: rgba(255, 59, 92, 0.12);
+  /* Driven by the global theme colour so a custom accent recolours the whole
+     V2 info page (tabs, tags, season picker, character labels, etc.). Falls
+     back to the original rose when --brand-primary isn't set. */
+  --accent: var(--brand-primary, #ff3b5c);
+  --accent-2: color-mix(in srgb, var(--brand-primary, #ff5c78) 85%, #fff);
+  --accent-soft: color-mix(in srgb, var(--brand-primary, #ff3b5c) 12%, transparent);
   --gold: #f6c544;
   --blue: #4a8fff;
   --green: #2dd47a;

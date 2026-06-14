@@ -233,10 +233,10 @@ export default function Overview({ info, seasonList }: Props) {
                       padding: "4px 9px",
                       borderRadius: 6,
                       background: spoilers
-                        ? "rgba(255,59,92,0.12)"
+                        ? "var(--accent-soft)"
                         : "var(--bg-2)",
                       border: spoilers
-                        ? "1px solid rgba(255,59,92,0.4)"
+                        ? "1px solid color-mix(in srgb, var(--accent) 40%, transparent)"
                         : "1px solid var(--line)",
                       color: spoilers ? "var(--accent)" : "var(--txt-2)",
                       fontSize: 10,
@@ -716,7 +716,7 @@ function colorBySite(name: string): string {
   if (n.includes("hidive")) return "#00aeef";
   if (n.includes("hulu")) return "#1ce783";
   if (n.includes("youtube")) return "#ff0000";
-  if (n.includes("official")) return "#ff3b5c";
+  if (n.includes("official")) return "var(--accent)";
   return "#7ec8ff";
 }
 
@@ -732,7 +732,7 @@ function buildPopularity(
   const members = info.popularity;
   const na = t("status.na");
   return [
-    [t("anime.popularity"), popular ? `#${popular}` : na, "#ff7a91"],
+    [t("anime.popularity"), popular ? `#${popular}` : na, "var(--accent)"],
     [t("anime.rating"), rated ? `#${rated}` : na, "#f6c544"],
     [t("anime.seasonal"), seasonal ? `#${seasonal}` : na, "#2dd47a"],
     [
@@ -781,7 +781,7 @@ const tStyles: Record<string, CSSProperties> = {
   },
   tagFill: {
     height: "100%",
-    background: "linear-gradient(90deg, var(--accent), #ff7a91)",
+    background: "linear-gradient(90deg, var(--accent), var(--accent-2))",
     borderRadius: 3,
   },
   tagPct: {
@@ -838,10 +838,10 @@ const tStyles: Record<string, CSSProperties> = {
     width: 64,
     height: 64,
     borderRadius: 32,
-    background: "rgba(255,59,92,0.95)",
+    background: "color-mix(in srgb, var(--accent) 95%, transparent)",
     display: "grid",
     placeItems: "center",
-    boxShadow: "0 12px 30px rgba(255,59,92,0.4)",
+    boxShadow: "0 12px 30px color-mix(in srgb, var(--accent) 40%, transparent)",
   },
   playerInfo: {
     position: "absolute",

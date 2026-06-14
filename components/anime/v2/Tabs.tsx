@@ -144,7 +144,7 @@ export default function Tabs({ info, fanarts, progress, seasonList }: Props) {
                   style={{
                     ...tStyles.tabCount,
                     background: active ? "var(--accent-soft)" : "var(--bg-3)",
-                    color: active ? "#ff7a91" : "var(--txt-3)",
+                    color: active ? "var(--accent)" : "var(--txt-3)",
                   }}
                 >
                   {tb.count}

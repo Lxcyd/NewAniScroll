@@ -163,7 +163,7 @@ export default function Episodes({ info, progress, seasonList }: Props) {
               ...tStyles.smallBtn,
               background: isDub ? "var(--accent-soft)" : "var(--bg-2)",
               color: isDub ? "var(--accent)" : "var(--txt-1)",
-              borderColor: isDub ? "rgba(255,59,92,0.3)" : "var(--line)",
+              borderColor: isDub ? "color-mix(in srgb, var(--accent) 30%, transparent)" : "var(--line)",
             }}
             onClick={() => setIsDub((b) => !b)}
           >
@@ -636,9 +636,9 @@ function DetailedList({ eps, progress, info, isDub, activeAnimeId, otherSeason }
             style={{
               ...tStyles.epRow,
               opacity: locked ? 0.55 : 1,
-              borderColor: current ? "rgba(255,59,92,0.4)" : "var(--line)",
+              borderColor: current ? "color-mix(in srgb, var(--accent) 40%, transparent)" : "var(--line)",
               background: current
-                ? "linear-gradient(90deg, rgba(255,59,92,0.06), var(--bg-2))"
+                ? "linear-gradient(90deg, color-mix(in srgb, var(--accent) 6%, transparent), var(--bg-2))"
                 : "var(--bg-2)",
               textDecoration: "none",
               color: "inherit",
@@ -684,9 +684,9 @@ function CompactList({ eps, progress, info, isDub, activeAnimeId, otherSeason }:
             style={{
               ...tStyles.compactRow,
               opacity: locked ? 0.55 : 1,
-              borderColor: current ? "rgba(255,59,92,0.4)" : "var(--line)",
+              borderColor: current ? "color-mix(in srgb, var(--accent) 40%, transparent)" : "var(--line)",
               background: current
-                ? "linear-gradient(90deg, rgba(255,59,92,0.06), var(--bg-2))"
+                ? "linear-gradient(90deg, color-mix(in srgb, var(--accent) 6%, transparent), var(--bg-2))"
                 : "var(--bg-2)",
               pointerEvents: locked ? "none" : "auto",
             }}
@@ -995,7 +995,7 @@ const tStyles: Record<string, CSSProperties> = {
     width: 32,
     height: 32,
     borderRadius: 16,
-    background: "rgba(255,59,92,0.9)",
+    background: "color-mix(in srgb, var(--accent) 90%, transparent)",
     display: "grid",
     placeItems: "center",
     paddingLeft: 2,
