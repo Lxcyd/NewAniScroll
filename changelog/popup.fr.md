@@ -1,7 +1,19 @@
 ## v0.0.3
 
-⚙️ **Paramètres repensés** — un menu latéral clair, section par section, avec une foule de nouveaux réglages : choisissez votre **serveur par défaut**, masquez les **spoilers**, réglez vos **notifications** (nouveaux épisodes, suites, rappels), ajustez le **seuil de synchronisation**, **forcez la qualité max**, **démarrez en sourdine**, et retrouvez **Effacer l'historique** et **Réinitialiser les réglages** dans une nouvelle section Avancé.
+⚙️ **Paramètres repensés** — un menu latéral clair, une section par thème. Et plein de nouveaux réglages :
+
+▶️ **Fiche ou lecture directe** — choisissez ce qui s'ouvre quand vous cliquez sur un anime (la lecture reprend à votre épisode).
+
+🙈 **Masquer les spoilers** — floute les vignettes et masque les titres et descriptions d'épisodes.
+
+🔔 **Notifications au choix** — activez ou coupez les nouveaux épisodes, les suites et les rappels de reprise.
+
+🖥️ **Serveur par défaut** — le lecteur essayé en priorité.
+
+📊 **Seuil de synchronisation** — à partir de quel % un épisode compte comme vu.
+
+🎬 **Qualité maximale forcée** et **démarrage en sourdine** côté lecteur.
+
+🧹 **Section Avancé** — effacer l'historique et réinitialiser les réglages.
 
 🎨 **Thème personnalisable** (votre couleur partout), **page profil** repensée et **notation** à la fin d'un anime.
-
-▶️ Choisissez si cliquer sur un anime ouvre sa **fiche** ou lance directement la **lecture** (qui reprend à l'épisode où vous en étiez) — et bien plus.
