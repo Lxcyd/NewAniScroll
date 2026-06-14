@@ -314,6 +314,20 @@ export default function Settings() {
   const [confirmSync, setConfirmSync] = useState(false);
   const [syncing, setSyncing] = useState(false);
 
+  // ── Deferred auto-pause sweep ────────────────────────────────────
+  // Turning "pause inactive anime" ON shouldn't move entries to PAUSED on the
+  // spot — the user may still want to adjust the day threshold first. We mark
+  // the sweep as pending and run it once, when they leave this menu (unmount).
+  const pendingAutoPauseSweep = useRef(false);
+  useEffect(() => {
+    return () => {
+      if (pendingAutoPauseSweep.current) {
+        pendingAutoPauseSweep.current = false;
+        runAutoPauseSweep().catch(() => {});
+      }
+    };
+  }, []);
+
   // ── Delete-list confirmation ─────────────────────────────────────
   const [confirmClear, setConfirmClear] = useState(false);
   const handleClearList = () => {
@@ -1010,8 +1024,15 @@ export default function Settings() {
                 checked={syncPrefs.autoPause}
                 onChange={(v) => {
                   setSyncPrefs({ autoPause: v });
-                  // Apply right away when turning it on (don't wait for a reload).
-                  if (v) runAutoPauseSweep().catch(() => {});
+                  // Don't apply on the spot: the user may still want to tune the
+                  // day threshold. Defer the sweep until they leave this menu and
+                  // tell them so. Toggling back off cancels the pending sweep.
+                  if (v) {
+                    pendingAutoPauseSweep.current = true;
+                    toast(t("settings.sync.autoPausePending"), { icon: "⏳" });
+                  } else {
+                    pendingAutoPauseSweep.current = false;
+                  }
                 }}
               />
               {/* Always shown so the delay is discoverable; disabled only until
