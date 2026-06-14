@@ -783,12 +783,14 @@ export default function Settings() {
                 onChange={handleMasterToggle}
                 disabled={!isLoggedIn}
               />
+              {/* Auto-progress + auto-watching always apply to the LOCAL list,
+                  so they stay usable when signed out (only the AniList PUSH is
+                  gated by the master toggle / login — see syncEngine). */}
               <Toggle
                 label={t("settings.sync.autoProgress")}
                 desc={t("settings.sync.autoProgressDesc")}
                 checked={syncPrefs.autoProgress}
                 onChange={(v) => setSyncPrefs({ autoProgress: v })}
-                disabled={!isLoggedIn}
               />
               {/* Sync threshold — how far into an episode counts as "watched"
                   (progress +1 / AniList update). Sits right after the progress
@@ -827,7 +829,6 @@ export default function Settings() {
                 desc={t("settings.sync.autoWatchingDesc")}
                 checked={syncPrefs.autoWatching}
                 onChange={(v) => setSyncPrefs({ autoWatching: v })}
-                disabled={!isLoggedIn}
               />
               <Toggle
                 label={t("settings.sync.autoPause")}
@@ -838,14 +839,13 @@ export default function Settings() {
                   // Apply right away when turning it on (don't wait for a reload).
                   if (v) runAutoPauseSweep().catch(() => {});
                 }}
-                disabled={!isLoggedIn}
               />
-              {/* Always shown so the delay is discoverable; disabled until the
-                  auto-pause toggle is on (greyed, like the other gated rows) —
-                  also locked entirely when not connected. */}
+              {/* Always shown so the delay is discoverable; disabled only until
+                  the auto-pause toggle is on. The rule runs on the local list,
+                  so it isn't gated by login. */}
               <div
                 className={`flex items-center justify-between gap-4 py-3 ${
-                  isLoggedIn && syncPrefs.autoPause ? "" : "opacity-40"
+                  syncPrefs.autoPause ? "" : "opacity-40"
                 }`}
               >
                 <div className="text-sm">{t("settings.sync.autoPauseDays")}</div>
@@ -854,7 +854,7 @@ export default function Settings() {
                     type="number"
                     min={1}
                     max={3650}
-                    disabled={!isLoggedIn || !syncPrefs.autoPause}
+                    disabled={!syncPrefs.autoPause}
                     value={syncPrefs.autoPauseDays}
                     onChange={(e) => {
                       const v = parseInt(e.target.value, 10);

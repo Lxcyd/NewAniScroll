@@ -1,6 +1,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { StarIcon, TvIcon } from "@heroicons/react/24/solid";
+import { animeHref, useClickTarget } from "@/lib/prefs/clickTarget";
 
 type Anime = {
   id: number | string;
@@ -59,7 +60,11 @@ export default function AnimeCard({
       ? "as-dot-upcoming"
       : null;
 
-  const linkHref = href || `/en/anime/${anime.id}`;
+  // Honour the "open on click" preference (info vs. watch) when the caller
+  // didn't pin an explicit href. Read live so flipping it in Settings updates
+  // every card without a reload.
+  const clickTarget = useClickTarget();
+  const linkHref = href || animeHref(anime.id, clickTarget);
   const { w, h, titleSize } = SIZE[size];
 
   const cardInner = (
