@@ -27,6 +27,7 @@ import { getCachedAnime } from "@/lib/db/anime";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { onEpisodeFinished } from "@/lib/list/syncEngine";
 import { getPlayerPrefs } from "@/lib/prefs/playerPrefs";
+import { recordWatchToday } from "@/lib/stats/streak";
 import { useTranslation } from "react-i18next";
 import { FULL_MEDIA_FIELDS } from "@/lib/anilist/fullMediaQuery";
 import { getPrefetchedSource, sourceKey, setPrefetchedSource, clearPrefetchedSourcesFor } from "@/lib/watch/sourcePrefetch";
@@ -724,6 +725,8 @@ export default function Watch({
         title: info?.title,
         coverImage: info?.coverImage?.large || info?.coverImage?.extraLarge || null,
       }).catch(() => {});
+      // Count today toward the watch streak (idempotent within a day).
+      recordWatchToday();
     },
     [info],
   );

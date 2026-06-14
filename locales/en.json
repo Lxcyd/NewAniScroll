@@ -415,6 +415,9 @@
   "myList": {
     "localDesc": "Saved on this device, no account needed.",
     "manageInSettings": "Import / export in Settings",
+    "streakDays": "day streak",
+    "streakDays_other": "day streak",
+    "bestStreak": "Best streak: {{count}} days",
     "empty": "Your list is empty — finish an episode or import a list to get started."
   },
   "search": {

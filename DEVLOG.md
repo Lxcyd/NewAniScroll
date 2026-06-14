@@ -7,6 +7,27 @@ Ordre anti-chronologique (le plus récent en haut). Une entrée = une session/su
 
 ---
 
+## 2026-06-14 — Lot features (3/n) : streak de visionnage
+
+### Contexte
+Feature #4 « Objectifs / streak » : jours consécutifs avec au moins un épisode terminé.
+
+### Décisions prises
+1. **`lib/stats/streak.ts`** : store localStorage (`aniscroll:streak` = `{lastDay, current, best}`), event + hook `useStreak`. Jours = `YYYY-MM-DD` **locaux** (boundary timezone user, pas UTC). `recordWatchToday()` (idempotent dans la journée) : même jour → no-op ; +1 jour → continue ; gap → reset à 1. `liveStreak()` affiche 0 si le dernier visionnage date de > 1 jour (streak cassé sans réécriture).
+2. **Enregistrement** : `recordWatchToday()` appelé dans `handleEpisodeComplete` (`[...info].js`), à chaque fin d'épisode — couvre HLS (`ended`) ET avance d'épisode (iframe).
+3. **Affichage** : badge 🔥 en tête de `/my-list` (`useStreak`), montré seulement si streak > 0, avec `best` en tooltip. Clés i18n `myList.streakDays(_other)` + `myList.bestStreak`.
+
+### Leçons / pièges
+- Le streak « vivant » ≠ la valeur stockée : si l'utilisateur saute un jour, on n'a pas réécrit le store (pas d'event au repos) → `liveStreak` calcule le gap à l'affichage et renvoie 0 si cassé.
+- Pluriel i18next : clé `_other` fournie pour `streakDays`.
+
+### État déployé / à faire
+- Branche `dev`. `tsc` + `next lint` clean, JSON validés.
+- ⏳ Tester : finir un ep aujourd'hui → 🔥 1 ; un autre demain → 🔥 2 ; sauter un jour → repart à 1.
+- ⏭️ Suite : file d'attente, détection saison suivante, roulette, partage de carte, mode données réduites, thème custom, taille subs mémorisée, historique.
+
+---
+
 ## 2026-06-14 — Lot features (2/n) : mini-lecteur = PiP natif (mobile) + fix a11y
 
 ### Contexte

@@ -9,6 +9,7 @@ import { useTranslation } from "react-i18next";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { listLabel, STATUS_TO_LIST, LIST_COLORS } from "@/components/anime/v2/helpers";
 import { useLocalList, LocalEntry } from "@/lib/list/localList";
+import { useStreak } from "@/lib/stats/streak";
 
 /**
  * Local "My List" — the full list experience for users who aren't signed in to
@@ -31,6 +32,7 @@ export default function MyListLocal() {
   const { t } = useTranslation();
   const titlePref = useTitlePref();
   const entries = useLocalList();
+  const { current: streak, best: bestStreak } = useStreak();
   const [filter, setFilter] = useState<string>("all");
 
   // Group entries by status. Entries without a status land in a fallback bucket.
@@ -62,14 +64,30 @@ export default function MyListLocal() {
         animate={{ opacity: 1 }}
         className="min-h-screen w-full max-w-screen-lg mx-auto px-4 pt-28 pb-16"
       >
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold mb-1">{t("nav.myList")}</h1>
-          <p className="text-white/50 text-sm">
-            {t("myList.localDesc")}{" "}
-            <Link href="/en/settings" className="text-action hover:underline">
-              {t("myList.manageInSettings")}
-            </Link>
-          </p>
+        <div className="mb-8 flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-3xl font-bold mb-1">{t("nav.myList")}</h1>
+            <p className="text-white/50 text-sm">
+              {t("myList.localDesc")}{" "}
+              <Link href="/en/settings" className="text-action hover:underline">
+                {t("myList.manageInSettings")}
+              </Link>
+            </p>
+          </div>
+          {streak > 0 && (
+            <div
+              className="shrink-0 flex items-center gap-2 rounded-xl bg-white/5 ring-1 ring-white/10 px-3 py-2"
+              title={t("myList.bestStreak", { count: bestStreak })}
+            >
+              <span className="text-xl leading-none">🔥</span>
+              <div className="leading-tight">
+                <div className="text-lg font-bold">{streak}</div>
+                <div className="text-[10px] uppercase tracking-wide text-white/50">
+                  {t("myList.streakDays", { count: streak })}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {entries.length === 0 ? (
