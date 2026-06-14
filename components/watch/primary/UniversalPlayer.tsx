@@ -28,7 +28,7 @@ import { VIDSTACK_FR } from "@/lib/i18n/vidstackFr";
 import { getResumeTime, saveProgress, markComplete } from "@/lib/watch/progress";
 import { recordWatchToday } from "@/lib/stats/streak";
 import { useDataSaver } from "@/lib/prefs/dataSaver";
-import { usePlayerPrefs, setPlayerPrefs } from "@/lib/prefs/playerPrefs";
+import { usePlayerPrefs, setPlayerPrefs, getPlayerPrefs } from "@/lib/prefs/playerPrefs";
 import { getSyncPrefs } from "@/lib/prefs/syncPrefs";
 
 // Trace logger — off by default. Set NEXT_PUBLIC_DEBUG_SOURCE=1 to surface the
@@ -1127,7 +1127,27 @@ export default function UniversalPlayer({
   // Capture the hls.js instance once Vidstack has set the provider up.
   const onProviderSetup = (provider: any) => {
     if (isHLSProvider(provider)) {
-      hlsRef.current = provider.instance || null;
+      const hls = provider.instance || null;
+      hlsRef.current = hls;
+      // Force Maximum Quality: pin hls.js to the top level (setting
+      // currentLevel to a fixed index disables ABR auto-switching) once the
+      // manifest's levels are known. Read the pref at setup time. When off we
+      // leave hls.js on its default `currentLevel = -1` (auto).
+      if (hls && getPlayerPrefs().forceMaxQuality) {
+        const pin = () => {
+          try {
+            const top = (hls.levels?.length ?? 0) - 1;
+            if (top >= 0) hls.currentLevel = top;
+          } catch {}
+        };
+        try {
+          // Hls.Events.MANIFEST_PARSED / LEVELS_UPDATED — string literals avoid
+          // importing the enum; cast since the literal types aren't exported.
+          (hls as any).on("hlsManifestParsed", pin);
+          (hls as any).on("hlsLevelsUpdated", pin);
+        } catch {}
+        pin();
+      }
     }
   };
 
@@ -2122,8 +2142,10 @@ export default function UniversalPlayer({
       try {
         if (savedVol != null) player.volume = savedVol;
         // Only ever restore an intentional MUTE. Don't force unmute — autoplay
-        // owns the muted-to-start behaviour and would fight us.
-        if (savedMuted === true) player.muted = true;
+        // owns the muted-to-start behaviour and would fight us. The "Default
+        // muted" pref also forces a mute at start (the user can unmute via the
+        // controls; we never auto-unmute).
+        if (savedMuted === true || getPlayerPrefs().defaultMuted) player.muted = true;
       } catch {}
     };
     const arm = () => {

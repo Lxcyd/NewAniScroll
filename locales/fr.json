@@ -84,6 +84,10 @@
       "desc": "Réglages liés au visionnage.",
       "rateOnComplete": "Proposer une note à la fin d'un anime",
       "rateOnCompleteDesc": "Affiche une fenêtre de notation quand vous terminez le dernier épisode d'un anime.",
+      "forceMaxQuality": "Forcer la qualité maximale",
+      "forceMaxQualityDesc": "Garde le lecteur à la meilleure qualité au lieu de s'adapter au débit. Activez si vous avez des baisses de qualité soudaines.",
+      "defaultMuted": "Démarrer en sourdine",
+      "defaultMutedDesc": "Les vidéos démarrent muettes ; vous pouvez réactiver le son depuis les commandes du lecteur.",
       "defaultServer": "Serveur par défaut",
       "defaultServerDesc": "Essaie ce serveur en priorité. Auto utilise le défaut du site et mémorise celui choisi dans le lecteur. Repli automatique si un anime ne l'a pas.",
       "serverAuto": "Auto (défaut du site)",
@@ -174,6 +178,23 @@
       "clearConfirmBody": "Cette action supprime définitivement toute votre liste locale ({{count}} entrées) sur cet appareil. Elle est irréversible. Exportez-la d'abord si vous voulez une sauvegarde.",
       "clearConfirmButton": "Supprimer la liste",
       "clearCancel": "Annuler"
+    },
+    "advanced": {
+      "title": "Avancé",
+      "desc": "Actions de maintenance pour cet appareil.",
+      "clearHistory": "Effacer l'historique",
+      "clearHistoryDesc": "Supprime toute la progression de visionnage enregistrée localement. N'affecte pas votre compte AniList.",
+      "clearHistoryButton": "Effacer",
+      "clearHistoryConfirmTitle": "Effacer l'historique ?",
+      "clearHistoryConfirmBody": "Supprime toutes les positions de lecture enregistrées sur cet appareil. Irréversible, et sans effet sur votre compte AniList.",
+      "clearHistoryDone": "Historique effacé.",
+      "restore": "Réinitialiser les réglages",
+      "restoreDesc": "Remet tous les réglages à leurs valeurs par défaut. Votre liste locale est conservée.",
+      "restoreButton": "Réinitialiser",
+      "restoreConfirmTitle": "Réinitialiser les réglages ?",
+      "restoreConfirmBody": "Tous les réglages de cet appareil reviennent à leurs valeurs par défaut. Votre liste locale est conservée. La page va se recharger.",
+      "restoreDone": "Réglages réinitialisés.",
+      "note": "Ces actions n'affectent que cet appareil."
     }
   },
   "home": {

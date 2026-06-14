@@ -20,6 +20,10 @@ export type PlayerPrefs = {
   autoNextEpisode: boolean;
   /** Show the rate popup when an anime becomes COMPLETED (last episode). */
   rateOnComplete: boolean;
+  /** Force the HLS player to the highest level and disable auto-switching. */
+  forceMaxQuality: boolean;
+  /** Start every video muted (user can unmute from the player controls). */
+  defaultMuted: boolean;
 };
 
 export const DEFAULT_PLAYER_PREFS: PlayerPrefs = {
@@ -27,6 +31,8 @@ export const DEFAULT_PLAYER_PREFS: PlayerPrefs = {
   autoSkipOutro: false,
   autoNextEpisode: false,
   rateOnComplete: true,
+  forceMaxQuality: false,
+  defaultMuted: false,
 };
 
 const KEY = "aniscroll:playerPrefs";

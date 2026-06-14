@@ -33,8 +33,17 @@ Gros lot de réglages + refonte de la page settings. Demandes successives dans u
 - **Le « serveur préféré » existait déjà** : la page watch lit/écrit `localStorage["preferred_server"]` (clic serveur dans le player → mémorisé, réappliqué au montage si l'anime l'offre, sinon repli sur un serveur confirmé). Choix : **exposer ce réglage existant** plutôt que d'inventer un nouveau système (et **pas** de réglage langue séparé — chaque id de serveur encode déjà sa langue : `animesama-sibnet` = VF, `animesama-sibnet-vo` = VOSTFR).
 - `lib/prefs/serverPref.ts` enveloppe la **même clé** `preferred_server` (vide = Auto/megaplay). Select « Serveur par défaut » dans la section Lecteur (Auto + liste depuis `lib/servers.js`, label langue VF/VOSTFR/Multi). Aucun changement côté player nécessaire.
 
+### Suivi — paire 4/4 du tableau (lecteur + maintenance) + fix select
+- **Select serveur illisible** : `<select>` natif → dropdown au thème OS (fond blanc, options grisées). Fix : `bg-secondary text-white` + `[color-scheme:dark]` sur le select ET `bg-secondary text-white` sur chaque `<option>`.
+- **Force Maximum Quality** (`playerPrefs.forceMaxQuality`) : dans `onProviderSetup`, si on, on épingle `hls.currentLevel = levels.length-1` (fixer un index désactive l'ABR auto), re-appliqué sur `hlsManifestParsed`/`hlsLevelsUpdated` (events castés `any` — types littéraux non exportés).
+- **Default Muted** (`playerPrefs.defaultMuted`) : dans le bloc `apply()` du restore volume/muted, force `player.muted = true` au start (jamais d'auto-unmute). Distinct de `aniscroll:muted` (souvenir d'un mute intentionnel).
+- **Clear Watch History** : `clearAllProgress()` dans `lib/watch/progress.ts` → `removeItem("aniscroll:progress")`. Local only (l'historique serveur/Prisma des connectés n'est pas touché — la demande disait « locally »).
+- **Restore Default Settings** : `lib/prefs/resetSettings.ts` balaie toutes les clés `aniscroll:*` + clés legacy (`preferred_server`, `view`, `artplayer_settings`, volume/muted). **Garde `aniscroll:localList`** (KEEP set) — réinitialiser les réglages ne doit PAS effacer la liste (le bouton dédié « Supprimer la liste » possède cette action). Reload après pour refléter.
+- Nouvelle section **Avancé** (icône clé) avec les deux actions, chacune derrière une modale de confirmation (même style que la confirm sync/clear-list).
+
 ### Leçons / pièges
 - **Pas de dossier `pages/fr/`** : `/fr/...` et `/en/...` rendent les **mêmes fichiers** `pages/en/*` (rewrite i18n). Un bug « sur /fr » se corrige dans le fichier `/en` correspondant.
+- **`<select>` natif sombre** : forcer `[color-scheme:dark]` + bg/texte sur le select ET les options, sinon le dropdown hérite du thème clair de l'OS (illisible).
 - **Le serveur encode la langue** (suffixe `-vo`) — il n'y a pas d'état « dub » persistant indépendant (`dub` vient de la query string). Un « provider préféré » suffit à fixer la langue ; pas besoin d'un réglage Sub/Dub séparé.
 - **Barre de recherche = `components/searchPalette.tsx`** (Ctrl+K), distincte de la page `pages/en/search/[...param].tsx`. Le clic sur un résultat passe par `handleChange(id)` → `router.push`, pas un `<Link>`.
 - **Deux composants « schedule »** : `components/home/schedule.js` = widget d'accueil ; `pages/en/schedule/index.tsx` = la page `/schedule`. Modifier le bon.

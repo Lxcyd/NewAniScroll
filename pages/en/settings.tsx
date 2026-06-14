@@ -19,6 +19,8 @@ import { useClickTarget, setClickTarget, ClickTarget } from "@/lib/prefs/clickTa
 import { useHideSpoilers, setHideSpoilers } from "@/lib/prefs/spoilerPrefs";
 import { useServerPref, setServerPref } from "@/lib/prefs/serverPref";
 import SERVERS from "@/lib/servers";
+import { clearAllProgress } from "@/lib/watch/progress";
+import { restoreDefaultSettings } from "@/lib/prefs/resetSettings";
 import { useAccent, setAccent, ACCENT_PRESETS, DEFAULT_ACCENT } from "@/lib/prefs/accentColor";
 import {
   downloadExportXml,
@@ -42,6 +44,7 @@ import {
   ListBulletIcon,
   BellIcon,
   CursorArrowRaysIcon,
+  WrenchScrewdriverIcon,
 } from "@heroicons/react/24/outline";
 import { useSession, signIn, signOut } from "next-auth/react";
 import { useTranslation } from "react-i18next";
@@ -157,6 +160,7 @@ const SECTIONS: SectionDef[] = [
   { id: "sync", labelKey: "settings.sync.title", Icon: ArrowPathIcon },
   { id: "profile", labelKey: "settings.profile.title", Icon: LockClosedIcon, loggedInOnly: true },
   { id: "list", labelKey: "settings.list.title", Icon: ListBulletIcon },
+  { id: "advanced", labelKey: "settings.advanced.title", Icon: WrenchScrewdriverIcon },
 ];
 
 /* Fixed left-rail navigation (Jikan-docs style): pinned to the left edge for
@@ -320,6 +324,22 @@ export default function Settings() {
     clearLocalList();
     setConfirmClear(false);
     toast.success(t("settings.list.clearDone"));
+  };
+
+  // ── Advanced: clear history / restore defaults (confirmed) ───────
+  const [confirmClearHistory, setConfirmClearHistory] = useState(false);
+  const [confirmReset, setConfirmReset] = useState(false);
+  const handleClearHistory = () => {
+    clearAllProgress();
+    setConfirmClearHistory(false);
+    toast.success(t("settings.advanced.clearHistoryDone"));
+  };
+  const handleRestoreDefaults = () => {
+    restoreDefaultSettings();
+    setConfirmReset(false);
+    toast.success(t("settings.advanced.restoreDone"));
+    // Reflect the reset immediately without a manual reload.
+    setTimeout(() => window.location.reload(), 600);
   };
 
   // ── Left-nav scroll-spy ──────────────────────────────────────────
@@ -549,6 +569,78 @@ export default function Settings() {
         </div>
       )}
 
+      {/* Confirmation before clearing local watch history. */}
+      {confirmClearHistory && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 px-4"
+          onClick={() => setConfirmClearHistory(false)}
+        >
+          <div
+            className="w-full max-w-md rounded-xl bg-secondary ring-1 ring-white/10 p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-lg font-semibold mb-2">
+              {t("settings.advanced.clearHistoryConfirmTitle")}
+            </h3>
+            <p className="text-white/70 text-sm mb-6">
+              {t("settings.advanced.clearHistoryConfirmBody")}
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setConfirmClearHistory(false)}
+                className="px-4 py-2 rounded-lg bg-white/10 ring-1 ring-white/10 text-sm hover:bg-white/15"
+              >
+                {t("settings.list.clearCancel")}
+              </button>
+              <button
+                type="button"
+                onClick={handleClearHistory}
+                className="px-4 py-2 rounded-lg bg-red-500/90 text-white text-sm font-medium hover:bg-red-500"
+              >
+                {t("settings.advanced.clearHistoryButton")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation before restoring default settings. */}
+      {confirmReset && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 px-4"
+          onClick={() => setConfirmReset(false)}
+        >
+          <div
+            className="w-full max-w-md rounded-xl bg-secondary ring-1 ring-white/10 p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-lg font-semibold mb-2">
+              {t("settings.advanced.restoreConfirmTitle")}
+            </h3>
+            <p className="text-white/70 text-sm mb-6">
+              {t("settings.advanced.restoreConfirmBody")}
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setConfirmReset(false)}
+                className="px-4 py-2 rounded-lg bg-white/10 ring-1 ring-white/10 text-sm hover:bg-white/15"
+              >
+                {t("settings.list.clearCancel")}
+              </button>
+              <button
+                type="button"
+                onClick={handleRestoreDefaults}
+                className="px-4 py-2 rounded-lg bg-red-500/90 text-white text-sm font-medium hover:bg-red-500"
+              >
+                {t("settings.advanced.restoreButton")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Fixed full-height left rail (desktop). Out of normal flow, so the
           content below is pushed right by a matching margin. */}
       <SettingsNav sections={navSections} active={activeSection} />
@@ -645,6 +737,18 @@ export default function Settings() {
                 checked={playerPrefs.rateOnComplete}
                 onChange={(v) => setPlayerPrefs({ rateOnComplete: v })}
               />
+              <Toggle
+                label={t("settings.player.forceMaxQuality")}
+                desc={t("settings.player.forceMaxQualityDesc")}
+                checked={playerPrefs.forceMaxQuality}
+                onChange={(v) => setPlayerPrefs({ forceMaxQuality: v })}
+              />
+              <Toggle
+                label={t("settings.player.defaultMuted")}
+                desc={t("settings.player.defaultMutedDesc")}
+                checked={playerPrefs.defaultMuted}
+                onChange={(v) => setPlayerPrefs({ defaultMuted: v })}
+              />
               {/* Default server (preferred_server). Empty = Auto (site default,
                   remembers whatever the user clicks in the player). */}
               <div className="flex items-start justify-between gap-4 py-3">
@@ -659,11 +763,13 @@ export default function Settings() {
                 <select
                   value={serverPref}
                   onChange={(e) => setServerPref(e.target.value)}
-                  className="shrink-0 max-w-[55%] bg-white/10 rounded-md px-2 py-1.5 text-sm ring-1 ring-white/10 focus:outline-none focus:ring-action"
+                  className="shrink-0 max-w-[55%] bg-secondary text-white rounded-md px-2 py-1.5 text-sm ring-1 ring-white/15 focus:outline-none focus:ring-action [color-scheme:dark]"
                 >
-                  <option value="">{t("settings.player.serverAuto")}</option>
+                  <option value="" className="bg-secondary text-white">
+                    {t("settings.player.serverAuto")}
+                  </option>
                   {SERVERS.map((s: { id: string; name: string; lang: string }) => (
-                    <option key={s.id} value={s.id}>
+                    <option key={s.id} value={s.id} className="bg-secondary text-white">
                       {s.name} ({s.lang === "vf" ? "VF" : s.lang === "vo" ? "VOSTFR" : "Multi"})
                     </option>
                   ))}
@@ -1054,6 +1160,49 @@ export default function Settings() {
                 {t("settings.list.clear")}
               </button>
             </div>
+          </section>
+
+          {/* ── Advanced (maintenance) ────────────────────────────── */}
+          <section id="advanced" className="py-10 scroll-mt-24">
+            <h2 className="text-xl font-semibold mb-1">{t("settings.advanced.title")}</h2>
+            <p className="text-white/60 text-sm mb-4">{t("settings.advanced.desc")}</p>
+            <div className="rounded-xl bg-white/5 ring-1 ring-white/10 divide-y divide-white/5">
+              <div className="flex items-center justify-between gap-4 px-4 py-3">
+                <div className="min-w-0">
+                  <div className="text-sm font-medium">
+                    {t("settings.advanced.clearHistory")}
+                  </div>
+                  <div className="text-white/50 text-xs mt-0.5">
+                    {t("settings.advanced.clearHistoryDesc")}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setConfirmClearHistory(true)}
+                  className="shrink-0 px-4 py-2 rounded-lg text-sm font-medium text-red-300 ring-1 ring-red-400/30 hover:bg-red-500/10"
+                >
+                  {t("settings.advanced.clearHistoryButton")}
+                </button>
+              </div>
+              <div className="flex items-center justify-between gap-4 px-4 py-3">
+                <div className="min-w-0">
+                  <div className="text-sm font-medium">
+                    {t("settings.advanced.restore")}
+                  </div>
+                  <div className="text-white/50 text-xs mt-0.5">
+                    {t("settings.advanced.restoreDesc")}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setConfirmReset(true)}
+                  className="shrink-0 px-4 py-2 rounded-lg text-sm font-medium text-red-300 ring-1 ring-red-400/30 hover:bg-red-500/10"
+                >
+                  {t("settings.advanced.restoreButton")}
+                </button>
+              </div>
+            </div>
+            <p className="text-white/40 text-xs mt-3">{t("settings.advanced.note")}</p>
           </section>
           </div>
         </div>

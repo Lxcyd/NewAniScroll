@@ -149,3 +149,14 @@ export function clearProgress(
   delete map[progressKey(aniId, episode)];
   writeMap(map);
 }
+
+/** Wipe ALL local watch progress (every episode of every anime). Used by the
+ *  "Clear watch history" settings action. Doesn't touch any AniList data. */
+export function clearAllProgress(): void {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.removeItem(KEY);
+  } catch {
+    /* best-effort */
+  }
+}

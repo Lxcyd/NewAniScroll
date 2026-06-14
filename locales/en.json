@@ -84,6 +84,10 @@
       "desc": "Playback-related settings.",
       "rateOnComplete": "Ask for a rating when an anime is finished",
       "rateOnCompleteDesc": "Shows a rating dialog when you finish the last episode of an anime.",
+      "forceMaxQuality": "Force maximum quality",
+      "forceMaxQualityDesc": "Keep the player at the highest quality instead of adapting to bandwidth. Enable if you get sudden quality drops.",
+      "defaultMuted": "Start muted",
+      "defaultMutedDesc": "Videos start muted; you can unmute from the player controls.",
       "defaultServer": "Default server",
       "defaultServerDesc": "Always try this server first. Auto uses the site default and remembers the one you pick in the player. Falls back when an anime doesn't have it.",
       "serverAuto": "Auto (site default)",
@@ -174,6 +178,23 @@
       "clearConfirmBody": "This permanently deletes your entire local list ({{count}} entries) on this device. This can't be undone. Export it first if you want a backup.",
       "clearConfirmButton": "Delete list",
       "clearCancel": "Cancel"
+    },
+    "advanced": {
+      "title": "Advanced",
+      "desc": "Maintenance actions for this device.",
+      "clearHistory": "Clear watch history",
+      "clearHistoryDesc": "Remove all watch progress stored locally. This won't affect your AniList account.",
+      "clearHistoryButton": "Clear",
+      "clearHistoryConfirmTitle": "Clear watch history?",
+      "clearHistoryConfirmBody": "This removes every saved playback position on this device. It can't be undone and doesn't affect your AniList account.",
+      "clearHistoryDone": "Watch history cleared.",
+      "restore": "Restore default settings",
+      "restoreDesc": "Reset all settings to their default values. Your local list is kept.",
+      "restoreButton": "Restore",
+      "restoreConfirmTitle": "Restore default settings?",
+      "restoreConfirmBody": "All settings on this device return to their defaults. Your local list is kept. The page will reload.",
+      "restoreDone": "Settings restored to defaults.",
+      "note": "These actions only affect this device."
     }
   },
   "home": {
