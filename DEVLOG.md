@@ -7,6 +7,26 @@ Ordre anti-chronologique (le plus récent en haut). Une entrée = une session/su
 
 ---
 
+## 2026-06-14 — Lot features (8/n) : thème custom + #11/#12 déjà faits
+
+### Contexte
+Feature #10 (thème custom). Découvert que #11 (taille subs mémorisée) et #12 (historique) **existaient déjà**.
+
+### Décisions prises
+1. **Thème custom** (`lib/prefs/accentColor.ts`) : tout l'UI lit déjà `--brand-primary` (Tailwind `action`/`accent` + chrome Vidstack). Le thème = juste cette variable sur `:root`. Store localStorage (`aniscroll:accent`), `applyAccent` pose la var, hook `useAccent`. Appliqué au boot dans `_app.tsx` (après les vars par défaut). Réglages : section « Thème » avec **8 presets** (roue conique + presets ronds) + **color picker libre** (`<input type=color>`) + bouton reset. Clés i18n `settings.theme.*`.
+2. **#11 déjà fait** : `SubtitleSettings.tsx` persiste DÉJÀ taille/position/couleur/police dans `subtitle_settings_v2` (hydrate au mount, save à chaque changement) → rien à faire.
+3. **#12 déjà fait** : `pages/en/anime/recently-watched.js` est une vraie page d'historique (merge Prisma + localStorage `artplayer_settings`, vignettes, barre de progression, supprimer/lire-suivant, état vide), liée depuis l'accueil (section Recently Watched) → rien à faire.
+
+### Leçons / pièges
+- Vérifier l'existant AVANT de coder : 2 des features demandées étaient déjà là (subs persistés, historique). Le système `--brand-primary` rendait le thème trivial (une seule var).
+
+### État déployé / à faire
+- Branche `dev`. `tsc` + `next lint` + JSON clean.
+- ⏳ Tester : changer la couleur d'accent → tout le site + lecteur suit, persiste au reload.
+- ⏭️ Reste : #8 partage de carte « anime du moment » (le plus gros). #11/#12 clos (déjà présents).
+
+---
+
 ## 2026-06-14 — Lot features (7/n) : mode données réduites
 
 ### Contexte

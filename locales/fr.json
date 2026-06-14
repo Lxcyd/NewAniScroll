@@ -83,6 +83,13 @@
       "toggleDesc": "Désactive l'effet de lumière d'ambiance du lecteur.",
       "note": "Enregistré sur cet appareil."
     },
+    "theme": {
+      "title": "Thème",
+      "desc": "Choisissez la couleur d'accent utilisée sur tout le site.",
+      "custom": "Couleur personnalisée",
+      "reset": "Réinitialiser",
+      "note": "Enregistré sur cet appareil."
+    },
     "profile": {
       "title": "Profil",
       "desc": "Choisissez qui peut voir votre page de profil AniScroll.",

@@ -14,6 +14,7 @@ import { getLang, setLang, Lang, LANG_EVENT } from "@/lib/i18n/languagePref";
 import { useSyncPrefs, setSyncPrefs } from "@/lib/prefs/syncPrefs";
 import { usePlayerPrefs, setPlayerPrefs } from "@/lib/prefs/playerPrefs";
 import { useDataSaver, setDataSaver } from "@/lib/prefs/dataSaver";
+import { useAccent, setAccent, ACCENT_PRESETS, DEFAULT_ACCENT } from "@/lib/prefs/accentColor";
 import {
   downloadExportXml,
   importFromJson,
@@ -131,6 +132,7 @@ export default function Settings() {
   const syncPrefs = useSyncPrefs();
   const playerPrefs = usePlayerPrefs();
   const dataSaver = useDataSaver();
+  const accent = useAccent();
   const localList = useLocalList();
   const [titlePref, setTitlePrefState] = useState<TitlePref>("en");
   const [uiLang, setUiLangState] = useState<Lang>("en");
@@ -465,6 +467,57 @@ export default function Settings() {
               />
             </div>
             <p className="text-white/40 text-xs mt-3">{t("settings.dataSaver.note")}</p>
+          </section>
+
+          {/* ── Theme (accent colour) ────────────────────────────── */}
+          <section className="mb-10">
+            <h2 className="text-xl font-semibold mb-1">{t("settings.theme.title")}</h2>
+            <p className="text-white/60 text-sm mb-4">{t("settings.theme.desc")}</p>
+            <div className="rounded-xl bg-white/5 ring-1 ring-white/10 p-4">
+              <div className="flex flex-wrap items-center gap-3">
+                {ACCENT_PRESETS.map((c) => {
+                  const active = accent.toLowerCase() === c.toLowerCase();
+                  return (
+                    <button
+                      key={c}
+                      type="button"
+                      onClick={() => setAccent(c)}
+                      aria-label={c}
+                      className={`w-9 h-9 rounded-full transition-transform hover:scale-110 ${
+                        active ? "ring-2 ring-white ring-offset-2 ring-offset-secondary" : ""
+                      }`}
+                      style={{ background: c }}
+                    />
+                  );
+                })}
+                {/* Free colour picker */}
+                <label
+                  className="w-9 h-9 rounded-full grid place-items-center cursor-pointer ring-1 ring-white/20 relative overflow-hidden"
+                  title={t("settings.theme.custom")}
+                  style={{
+                    background:
+                      "conic-gradient(red, orange, yellow, lime, cyan, blue, magenta, red)",
+                  }}
+                >
+                  <input
+                    type="color"
+                    value={accent}
+                    onChange={(e) => setAccent(e.target.value)}
+                    className="absolute inset-0 opacity-0 cursor-pointer"
+                  />
+                </label>
+                {accent.toLowerCase() !== DEFAULT_ACCENT.toLowerCase() && (
+                  <button
+                    type="button"
+                    onClick={() => setAccent(DEFAULT_ACCENT)}
+                    className="ml-1 text-xs text-white/60 hover:text-white underline"
+                  >
+                    {t("settings.theme.reset")}
+                  </button>
+                )}
+              </div>
+            </div>
+            <p className="text-white/40 text-xs mt-3">{t("settings.theme.note")}</p>
           </section>
 
           {/* ── AniList synchronisation ──────────────────────────── */}

@@ -83,6 +83,13 @@
       "toggleDesc": "Turns off the player's live ambient-light effect.",
       "note": "Saved on this device."
     },
+    "theme": {
+      "title": "Theme",
+      "desc": "Pick the accent colour used across the site.",
+      "custom": "Custom colour",
+      "reset": "Reset to default",
+      "note": "Saved on this device."
+    },
     "profile": {
       "title": "Profile",
       "desc": "Control who can see your AniScroll profile page.",

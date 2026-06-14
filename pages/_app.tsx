@@ -13,6 +13,7 @@ import I18nProvider from "@/lib/i18n/I18nProvider";
 import { useEffect } from "react";
 import { unixTimestampToRelativeTime } from "@/utils/getTimes";
 import { asCssVars, BRAND } from "@/lib/theme";
+import { applyAccent, getAccent } from "@/lib/prefs/accentColor";
 // import SecretPage from "@/components/secret";
 import { Toaster, toast } from "sonner";
 import ChangeLogs from "../components/shared/changelogs";
@@ -68,6 +69,8 @@ export default function App({
     for (const [k, v] of Object.entries(vars)) {
       document.documentElement.style.setProperty(k, v);
     }
+    // User accent override (after the defaults so it wins).
+    applyAccent(getAccent());
   }, []);
 
   // GPU saver: when the tab isn't visible, freeze all CSS animations site-wide
