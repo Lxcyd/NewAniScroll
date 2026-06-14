@@ -7,6 +7,25 @@ Ordre anti-chronologique (le plus récent en haut). Une entrée = une session/su
 
 ---
 
+## 2026-06-14 — Vitesse : ignorer le reset Vidstack au changement de serveur
+
+### Contexte
+Le prop contrôlé corrigeait le changement d'anime, mais **changer de lecteur (serveur)** remettait le menu sur « Normale ». Cause : au reload, Vidstack émet `rate-change` à 1× (son reset), ce qui appelait `onRateChange(1)` → `setRate(1)` → persistait 1×.
+
+### Décisions prises
+1. **Filtrer sur `event.request`** (`UniversalPlayer.tsx`) : `MediaRateChangeEvent` porte un `request?` présent **uniquement** pour une vraie action utilisateur (menu/remote). Le reset auto de Vidstack n'en a pas. `onRateChange(detail, event)` ignore désormais tout event **sans `request`** → on ne persiste/maj `rate` que sur action user ; le reset silencieux est ignoré et le prop contrôlé `playbackRate={rate}` ré-impose notre valeur (menu correct).
+2. **Signature handler confirmée** : le code compilé `@vidstack/react` invoque les callbacks en `[event.detail, event]` quand l'event a un `detail` → le 2e arg EST l'event complet, donc `event.request` est lisible.
+
+### Leçons / pièges
+- Vidstack émet `rate-change` pour DEUX raisons (user vs reset interne) — toujours distinguer via `event.request` sinon le reset pollue l'état persistant.
+- Quand le 1er param d'un handler Vidstack-React est le `detail`, le 2e est l'event natif (`args = !isUndefined(detail) ? [detail, event] : [event]`).
+
+### État déployé / à faire
+- Branche `dev`. `tsc` + `next lint` clean.
+- ⏳ Tester : changer de SERVEUR en 1.5× → menu reste 1.5× ; changer d'anime idem ; changer la vitesse au menu → persiste.
+
+---
+
 ## 2026-06-14 — Vitesse : prop contrôlé Vidstack (fix menu « Normale » définitif)
 
 ### Contexte

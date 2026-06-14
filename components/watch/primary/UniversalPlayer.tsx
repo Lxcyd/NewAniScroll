@@ -1272,8 +1272,17 @@ export default function UniversalPlayer({
       return 1;
     }
   });
-  const onRateChange = (next: number) => {
+  // Vidstack fires `rate-change` BOTH for genuine user changes (via the Speed
+  // menu/remote — these carry a `request`) AND for its own reset-to-1× when the
+  // media (re)loads / the server changes (no `request`). We must only react to
+  // the former, otherwise switching servers persists 1× and the menu shows
+  // "Normal". `playbackRate={rate}` being controlled means React re-applies our
+  // value after Vidstack's silent reset, so ignoring the no-request events is
+  // safe — the rate (and menu) snap back to `rate`.
+  const onRateChange = (next: number, event?: any) => {
     if (typeof next !== "number" || next <= 0) return;
+    const isUserRequest = !!event?.request;
+    if (!isUserRequest) return; // Vidstack's auto reset — let the controlled prop win
     const clamped = Math.min(4, Math.max(0.25, next));
     setRate(clamped);
     try {
@@ -2580,7 +2589,7 @@ export default function UniversalPlayer({
         // Controlled playback speed (app-wide). Keeps the Speed menu in sync and
         // survives media reloads (which otherwise reset the rate to 1×).
         playbackRate={rate}
-        onRateChange={(detail: number) => onRateChange(detail)}
+        onRateChange={(detail: number, event?: any) => onRateChange(detail, event)}
         // We deliberately don't pass `autoplay` to Vidstack — its internal
         // autoplay implementation fires before our source is necessarily
         // ready and triggers Chrome's "Unmuting failed" mitigation, which
