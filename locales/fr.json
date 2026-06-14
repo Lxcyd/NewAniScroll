@@ -123,6 +123,8 @@
       "autoPauseDesc": "Passe un anime « En cours » en « En pause » s'il n'a pas été touché depuis un moment.",
       "autoPauseDays": "Inactivité avant la mise en pause",
       "days": "jours",
+      "threshold": "Seuil de synchronisation",
+      "thresholdDesc": "À partir de quel pourcentage un épisode est considéré comme vu (progression +1, et mise à jour AniList si connecté). Par défaut 80 %.",
       "resyncNow": "Resynchroniser maintenant",
       "syncing": "Synchronisation…",
       "synced": "{{count}} entrées synchronisées depuis AniList",

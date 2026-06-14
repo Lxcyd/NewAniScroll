@@ -20,16 +20,19 @@ const SEGMENT_LABEL_KEY: Record<string, string> = {
 };
 
 const NEXT_EP_TAIL_SECONDS = 30;
-// Rate-popup trigger on the final episode. We want it ~88% through a normal
-// ~24min episode (the last ~12% is almost always ED + next-ep preview), but a
-// flat fraction misfires on long runtimes: 88% of a 2h film is 14min early.
-// So we take the LATER of {88%, duration - RATE_PROMPT_MAX_LEAD} — capping how
-// far before the end it can ever appear. For a 24min ep both land ~88%; for a
-// film the cap wins (~3min before the end instead of 14).
-const RATE_PROMPT_FRACTION = 0.88;
-const RATE_PROMPT_MAX_LEAD_SECONDS = 180;
-// Single-episode works (films / OVAs): prompt only at the very end (95%).
-const RATE_PROMPT_SINGLE_FRACTION = 0.95;
+// Rate-popup trigger on the final episode. Driven by TIME REMAINING, not a
+// percentage: a flat fraction misfires on short runtimes (88% of a 15min ep
+// fires with ~108s left, which feels early) and on long ones (88% of a 2h film
+// is 14min early). Firing a fixed number of seconds before the end is uniform
+// across every runtime — ~90s left on a 15min ep, a 24min ep and a 2h film
+// alike. We also keep a small percentage floor so it never fires before the
+// episode is genuinely near its end on unusually short clips.
+const RATE_PROMPT_TAIL_SECONDS = 90;
+// Don't ever prompt before this fraction is reached (guards very short clips
+// where 90s would be a large chunk of the runtime).
+const RATE_PROMPT_MIN_FRACTION = 0.85;
+// Single-episode works (films / OVAs): prompt a touch later, at the very end.
+const RATE_PROMPT_SINGLE_TAIL_SECONDS = 45;
 // Preload the next episode's route a short lead BEFORE the Next button appears,
 // so the route + player chunk are already cached by the time the button shows
 // and the user clicks. Relative to the button's own appearance window
@@ -439,11 +442,11 @@ export default function SkipOverlay({
   }, [showNext, playerPrefs.autoNextEpisode, nextEpisodeHref]);
 
   /* ── Rate popup on the final episode ─────────────────────────────
-     Surface the rate popup once the viewer is ~88% through the last episode
-     — late enough that they've effectively finished the story (the tail is
-     almost always the ED + next-episode preview), early enough to still be
-     watching when it pops. A % threshold (not a fixed lead) adapts to both
-     ~24min TV episodes and longer specials/films. Fires once per episode. */
+     Surface the rate popup a fixed lead before the end of the last episode
+     (~90s for series, ~45s for films/OVAs) — late enough that they've
+     effectively finished the story, early enough to still be watching when it
+     pops. A fixed time-remaining lead (not a flat %) keeps the timing uniform
+     across short (~15min) episodes and long films alike. Fires once/episode. */
   const ratePromptedRef = useRef(false);
   useEffect(() => {
     ratePromptedRef.current = false;
@@ -452,15 +455,18 @@ export default function SkipOverlay({
     if (!isFinalEpisode || !onFinalEpisodeNearEnd) return;
     if (ratePromptedRef.current) return;
     if (duration <= 0) return;
-    // Single-episode works (films / OVAs) have no ED + next-ep tail to skip, so
-    // we wait until the very end (95%) to avoid prompting mid-climax. Series
-    // get the earlier-but-capped trigger: later of {88%, duration - 3min}.
-    const threshold = isSingleEpisode
-      ? duration * RATE_PROMPT_SINGLE_FRACTION
-      : Math.max(
-          duration * RATE_PROMPT_FRACTION,
-          duration - RATE_PROMPT_MAX_LEAD_SECONDS,
-        );
+    // Fire a fixed number of seconds before the end (≈90s for series, ≈45s for
+    // single-episode films/OVAs that have no ED tail) so the timing is uniform
+    // regardless of runtime — fixes "too early" on short (~15min) episodes,
+    // where a flat 88% left over a minute and a half. The percentage floor
+    // guards unusually short clips so we never prompt before they're near done.
+    const tail = isSingleEpisode
+      ? RATE_PROMPT_SINGLE_TAIL_SECONDS
+      : RATE_PROMPT_TAIL_SECONDS;
+    const threshold = Math.max(
+      duration - tail,
+      duration * RATE_PROMPT_MIN_FRACTION,
+    );
     if (currentTime >= threshold) {
       ratePromptedRef.current = true;
       onFinalEpisodeNearEnd();

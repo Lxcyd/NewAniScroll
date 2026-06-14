@@ -836,6 +836,35 @@ export default function Settings() {
                   </span>
                 </div>
               </div>
+              {/* Sync threshold — how far into an episode counts as "watched"
+                  (progress +1 / AniList update). Applies to the local list too,
+                  so it's available even when not connected. */}
+              <div className="py-3">
+                <div className="flex items-center justify-between gap-4 mb-1">
+                  <div className="text-sm font-medium">
+                    {t("settings.sync.threshold")}
+                  </div>
+                  <span className="text-sm tabular-nums text-white/80 w-12 text-right">
+                    {Math.round(syncPrefs.syncThreshold * 100)}%
+                  </span>
+                </div>
+                <div className="text-white/50 text-xs mb-2">
+                  {t("settings.sync.thresholdDesc")}
+                </div>
+                <input
+                  type="range"
+                  min={50}
+                  max={100}
+                  step={5}
+                  value={Math.round(syncPrefs.syncThreshold * 100)}
+                  onChange={(e) => {
+                    const pct = parseInt(e.target.value, 10);
+                    if (Number.isFinite(pct))
+                      setSyncPrefs({ syncThreshold: pct / 100 });
+                  }}
+                  className="w-full accent-action cursor-pointer"
+                />
+              </div>
             </div>
 
             {/* Resync now — pull AniList → local on demand (only useful when

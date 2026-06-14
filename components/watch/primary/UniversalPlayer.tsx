@@ -29,6 +29,7 @@ import { getResumeTime, saveProgress, markComplete } from "@/lib/watch/progress"
 import { recordWatchToday } from "@/lib/stats/streak";
 import { useDataSaver } from "@/lib/prefs/dataSaver";
 import { usePlayerPrefs, setPlayerPrefs } from "@/lib/prefs/playerPrefs";
+import { getSyncPrefs } from "@/lib/prefs/syncPrefs";
 
 // Trace logger — off by default. Set NEXT_PUBLIC_DEBUG_SOURCE=1 to surface the
 // vidmoly-fallback diagnostics. These are EXPECTED control-flow branches
@@ -2184,6 +2185,15 @@ export default function UniversalPlayer({
     let pollId = 0;
     let lastSavedAt = 0;
     let resumeApplied = false;
+    // Fire the "episode counts as watched" callback at most once per mount —
+    // either when playback crosses the Sync Threshold (e.g. 80%) or on the
+    // natural end, whichever comes first.
+    let completeFired = false;
+    const fireComplete = () => {
+      if (completeFired) return;
+      completeFired = true;
+      onEpisodeCompleteRef.current?.({ aniListId, episodeNumber });
+    };
 
     const resume = () => {
       if (resumeApplied || !video) return;
@@ -2207,6 +2217,13 @@ export default function UniversalPlayer({
       // Count toward the watch streak once the user has genuinely watched a bit
       // (≥2 min) — more reliable than waiting for a full finish. Idempotent/day.
       if (video.currentTime >= 120) recordWatchToday();
+      // Sync Threshold: count the episode as watched once playback passes the
+      // configured fraction (default 80%), without waiting for the very end.
+      const dur = video.duration || 0;
+      if (!completeFired && dur > 0) {
+        const threshold = getSyncPrefs().syncThreshold;
+        if (video.currentTime / dur >= threshold) fireComplete();
+      }
     };
 
     const onEnded = () => {
@@ -2214,7 +2231,7 @@ export default function UniversalPlayer({
       markComplete(aniListId, episodeNumber, video.duration || 0);
       // Notify the list sync engine (local list + optional AniList push). The
       // watch page owns the actual sync logic since it has `info` + session.
-      onEpisodeCompleteRef.current?.({ aniListId, episodeNumber });
+      fireComplete();
     };
 
     const bind = () => {

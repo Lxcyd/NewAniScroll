@@ -23,6 +23,9 @@ export type SyncPrefs = {
   autoPause: boolean;
   /** Inactivity window for auto-pause, in days. */
   autoPauseDays: number;
+  /** Minimum fraction of an episode that must be watched before it counts as
+   *  finished (progress +1 / AniList update). 0.5–1.0; default 0.8 (80%). */
+  syncThreshold: number;
 };
 
 export const DEFAULT_SYNC_PREFS: SyncPrefs = {
@@ -31,7 +34,15 @@ export const DEFAULT_SYNC_PREFS: SyncPrefs = {
   autoWatching: true,
   autoPause: false,
   autoPauseDays: 30,
+  syncThreshold: 0.8,
 };
+
+/** Clamp a stored/incoming threshold to the supported 50–100% range. */
+function clampThreshold(v: unknown): number {
+  return Number.isFinite(v as number)
+    ? Math.min(1, Math.max(0.5, v as number))
+    : DEFAULT_SYNC_PREFS.syncThreshold;
+}
 
 const KEY = "aniscroll:syncPrefs";
 export const SYNC_PREFS_EVENT = "aniscroll:syncPrefs:change";
@@ -50,6 +61,7 @@ export function getSyncPrefs(): SyncPrefs {
         Number.isFinite(parsed?.autoPauseDays) && parsed.autoPauseDays > 0
           ? Math.floor(parsed.autoPauseDays)
           : DEFAULT_SYNC_PREFS.autoPauseDays,
+      syncThreshold: clampThreshold(parsed?.syncThreshold),
     };
   } catch {
     return DEFAULT_SYNC_PREFS;
