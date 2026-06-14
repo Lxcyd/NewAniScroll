@@ -790,6 +790,38 @@ export default function Settings() {
                 onChange={(v) => setSyncPrefs({ autoProgress: v })}
                 disabled={!isLoggedIn}
               />
+              {/* Sync threshold — how far into an episode counts as "watched"
+                  (progress +1 / AniList update). Sits right after the progress
+                  toggle since it defines WHEN that progress is recorded; applies
+                  to the local list too, so it isn't gated by login. */}
+              <div className="flex items-start justify-between gap-4 py-3">
+                <div className="min-w-0">
+                  <div className="text-sm font-medium">
+                    {t("settings.sync.threshold")}
+                  </div>
+                  <div className="text-white/50 text-xs mt-0.5">
+                    {t("settings.sync.thresholdDesc")}
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 shrink-0">
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    step={5}
+                    value={Math.round(syncPrefs.syncThreshold * 100)}
+                    onChange={(e) => {
+                      const pct = parseInt(e.target.value, 10);
+                      if (Number.isFinite(pct))
+                        setSyncPrefs({ syncThreshold: pct / 100 });
+                    }}
+                    className="w-32 accent-action cursor-pointer"
+                  />
+                  <span className="text-sm tabular-nums text-white/80 w-10 text-right">
+                    {Math.round(syncPrefs.syncThreshold * 100)}%
+                  </span>
+                </div>
+              </div>
               <Toggle
                 label={t("settings.sync.autoWatching")}
                 desc={t("settings.sync.autoWatchingDesc")}
@@ -835,35 +867,6 @@ export default function Settings() {
                     {t("settings.sync.days")}
                   </span>
                 </div>
-              </div>
-              {/* Sync threshold — how far into an episode counts as "watched"
-                  (progress +1 / AniList update). Applies to the local list too,
-                  so it's available even when not connected. */}
-              <div className="py-3">
-                <div className="flex items-center justify-between gap-4 mb-1">
-                  <div className="text-sm font-medium">
-                    {t("settings.sync.threshold")}
-                  </div>
-                  <span className="text-sm tabular-nums text-white/80 w-12 text-right">
-                    {Math.round(syncPrefs.syncThreshold * 100)}%
-                  </span>
-                </div>
-                <div className="text-white/50 text-xs mb-2">
-                  {t("settings.sync.thresholdDesc")}
-                </div>
-                <input
-                  type="range"
-                  min={50}
-                  max={100}
-                  step={5}
-                  value={Math.round(syncPrefs.syncThreshold * 100)}
-                  onChange={(e) => {
-                    const pct = parseInt(e.target.value, 10);
-                    if (Number.isFinite(pct))
-                      setSyncPrefs({ syncThreshold: pct / 100 });
-                  }}
-                  className="w-full accent-action cursor-pointer"
-                />
               </div>
             </div>
 

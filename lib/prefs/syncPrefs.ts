@@ -24,7 +24,7 @@ export type SyncPrefs = {
   /** Inactivity window for auto-pause, in days. */
   autoPauseDays: number;
   /** Minimum fraction of an episode that must be watched before it counts as
-   *  finished (progress +1 / AniList update). 0.5–1.0; default 0.8 (80%). */
+   *  finished (progress +1 / AniList update). 0–1.0; default 0.8 (80%). */
   syncThreshold: number;
 };
 
@@ -37,10 +37,10 @@ export const DEFAULT_SYNC_PREFS: SyncPrefs = {
   syncThreshold: 0.8,
 };
 
-/** Clamp a stored/incoming threshold to the supported 50–100% range. */
+/** Clamp a stored/incoming threshold to the supported 0–100% range. */
 function clampThreshold(v: unknown): number {
   return Number.isFinite(v as number)
-    ? Math.min(1, Math.max(0.5, v as number))
+    ? Math.min(1, Math.max(0, v as number))
     : DEFAULT_SYNC_PREFS.syncThreshold;
 }
 

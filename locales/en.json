@@ -124,7 +124,7 @@
       "autoPauseDays": "Inactivity before pausing",
       "days": "days",
       "threshold": "Sync threshold",
-      "thresholdDesc": "How far into an episode counts as watched (progress +1, and an AniList update when connected). Default 80%.",
+      "thresholdDesc": "How far into an episode counts as watched (progress +1, and an AniList update when connected).",
       "resyncNow": "Resync now",
       "syncing": "Syncing…",
       "synced": "Synced {{count}} entries from AniList",
