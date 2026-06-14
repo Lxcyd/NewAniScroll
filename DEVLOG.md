@@ -7,6 +7,28 @@ Ordre anti-chronologique (le plus récent en haut). Une entrée = une session/su
 
 ---
 
+## 2026-06-14 — Vitesse : restauration via `remote.changePlaybackRate` (menu enfin synchro)
+
+### Contexte
+Le prop contrôlé `playbackRate={rate}` mettait bien la vitesse sur le `<video>` mais **le menu Speed restait sur « Normale »** : le prop met à jour le `<video>` (et React ne re-render pas quand `rate` est inchangé après un reset interne), mais PAS le `$state` que le menu radio lit. Idem pour `player.playbackRate =`.
+
+### Décisions prises
+1. **Restauration via le REMOTE** (`UniversalPlayer.tsx`) : `player.remote.changePlaybackRate(rate)` est le **seul canal qui met à jour le `$state`** (donc le label du menu) en plus du `<video>`. Nouveau modèle :
+   - `rateTargetRef` = vitesse voulue (storage puis choix user).
+   - `onRateChange(detail, event)` : si `event.request` (vrai changement user via menu) → adopte + persiste la cible ; sinon (reset auto Vidstack) → ignore.
+   - Effet sur `[playbackRateState, streamData]` : si `playbackRateState ≠ cible` → `remote.changePlaybackRate(cible)`. Ça resync menu + video + state, puis `playbackRateState === cible` → effet silencieux (pas d'oscillation). Les changements user ayant déjà bougé la cible, on ne les combat jamais.
+   - **Prop `playbackRate={rate}` retiré** (contrôlé ne synchronisait pas le menu) ; on garde juste `onRateChange`.
+
+### Leçons / pièges
+- 3 itérations ratées car j'attaquais le mauvais canal : `video.playbackRate` / prop contrôlé mettent la valeur mais PAS le `$state` du menu Vidstack. **`remote.changePlaybackRate` est le bon** — il passe par le pipeline de requête qui met à jour le store. Pour tout réglage reflété par un menu Vidstack, utiliser le `remote`.
+- `MediaRateChangeEvent.request` distingue user vs reset (déjà acquis) ; combiné au remote, ça donne une restauration stable.
+
+### État déployé / à faire
+- Branche `dev`. `tsc` + `next lint` clean.
+- ⏳ Tester (le test décisif) : 1.75× → changer de SERVEUR → **le menu affiche 1.75×** (pas Normale) ; changer d'anime idem ; changer au menu persiste.
+
+---
+
 ## 2026-06-14 — Vitesse : ignorer le reset Vidstack au changement de serveur
 
 ### Contexte

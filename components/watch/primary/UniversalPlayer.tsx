@@ -1256,39 +1256,56 @@ export default function UniversalPlayer({
   // Vidstack's $state (the actual values). Drive the persistence effect below.
   const volumeState = useMediaState("volume", playerRef);
   const mutedState = useMediaState("muted", playerRef);
-  // Reactive playback speed — kept for any consumers; persistence is now driven
-  // by the controlled `rate` state + onRateChange below.
+  // Reactive playback speed — drives the correction effect below (keeps the
+  // Speed MENU in sync, not just the <video>).
   const playbackRateState = useMediaState("playbackRate", playerRef);
-  // Controlled playback speed, seeded from the app-wide saved value. Passed to
-  // <MediaPlayer playbackRate={rate}> so it survives media reloads and keeps the
-  // Speed menu in sync; updated from onRateChange on real user changes.
-  const [rate, setRate] = useState<number>(() => {
-    if (typeof window === "undefined") return 1;
-    try {
-      const r = window.localStorage.getItem("aniscroll:playbackRate");
-      const v = r == null ? NaN : parseFloat(r);
-      return Number.isFinite(v) ? Math.min(4, Math.max(0.25, v)) : 1;
-    } catch {
-      return 1;
-    }
-  });
-  // Vidstack fires `rate-change` BOTH for genuine user changes (via the Speed
-  // menu/remote — these carry a `request`) AND for its own reset-to-1× when the
-  // media (re)loads / the server changes (no `request`). We must only react to
-  // the former, otherwise switching servers persists 1× and the menu shows
-  // "Normal". `playbackRate={rate}` being controlled means React re-applies our
-  // value after Vidstack's silent reset, so ignoring the no-request events is
-  // safe — the rate (and menu) snap back to `rate`.
+  // Target rate we want applied (app-wide saved value, then the user's picks).
+  const rateTargetRef = useRef<number>(
+    (() => {
+      if (typeof window === "undefined") return 1;
+      try {
+        const r = window.localStorage.getItem("aniscroll:playbackRate");
+        const v = r == null ? NaN : parseFloat(r);
+        return Number.isFinite(v) ? Math.min(4, Math.max(0.25, v)) : 1;
+      } catch {
+        return 1;
+      }
+    })(),
+  );
+  // Vidstack fires `rate-change` for TWO reasons:
+  //   • a genuine user change via the Speed menu/remote — carries a `request`;
+  //   • its own reset-to-1× on every media (re)load / server switch — no request.
+  // On a user change we adopt + persist the new target. The auto-reset is
+  // handled by the correction effect, which re-applies the target through the
+  // REMOTE control (the only path that updates Vidstack's $state, hence the menu
+  // label — plain `video.playbackRate` left the menu stuck on "Normal").
   const onRateChange = (next: number, event?: any) => {
     if (typeof next !== "number" || next <= 0) return;
-    const isUserRequest = !!event?.request;
-    if (!isUserRequest) return; // Vidstack's auto reset — let the controlled prop win
-    const clamped = Math.min(4, Math.max(0.25, next));
-    setRate(clamped);
+    if (!event?.request) return; // auto-reset → leave the target; effect re-applies
+    rateTargetRef.current = Math.min(4, Math.max(0.25, next));
     try {
-      window.localStorage.setItem("aniscroll:playbackRate", String(clamped));
+      window.localStorage.setItem(
+        "aniscroll:playbackRate",
+        String(rateTargetRef.current),
+      );
     } catch {}
   };
+  // Re-assert the target through the remote whenever Vidstack's reported rate
+  // drifts from it (i.e. after its silent reset). Calling changePlaybackRate
+  // updates $state → the Speed menu label, and settles to the target so this
+  // effect goes quiet (no oscillation). User changes already moved the target,
+  // so this never fights them.
+  useEffect(() => {
+    const want = rateTargetRef.current;
+    if (typeof playbackRateState !== "number") return;
+    if (Math.abs(playbackRateState - want) < 0.001) return; // already correct
+    const remote = (playerRef.current as any)?.remote;
+    if (remote?.changePlaybackRate) {
+      try {
+        remote.changePlaybackRate(want);
+      } catch {}
+    }
+  }, [playbackRateState, streamData]);
   const chaptersTrackUrl = useChaptersVtt(skipTimes, videoDuration);
   // No JS click-compensation anymore: the chapter pills now use a transparent
   // border (not a margin) for the inter-pill gap, so they keep their full
@@ -2148,17 +2165,6 @@ export default function UniversalPlayer({
     } catch {}
   }, [volumeState, mutedState]);
 
-  // ── Playback speed: controlled prop (app-wide) ──
-  // We pass `playbackRate` as a CONTROLLED prop to <MediaPlayer> (unlike volume/
-  // muted, which we keep uncontrolled). Controlled is exactly right here: it
-  // keeps Vidstack's state — and therefore the Speed menu — in sync with our
-  // value, and survives every media (re)load (which otherwise resets the rate to
-  // 1×). `onRateChange` feeds genuine user changes back into the state and
-  // persists them. Single source of truth → no oscillation, menu always correct.
-  // (`playbackRateState` above is no longer needed for persistence but kept for
-  // any other consumers.)
-  void playbackRateState;
-
   // ── Resume + auto-save playback progress (continue where you left off) ──
   // Progress is keyed on aniId+episode (NOT the server), so the position is
   // shared across every player: stop at 10 min on one server, switch servers,
@@ -2586,9 +2592,10 @@ export default function UniversalPlayer({
         poster={poster}
         load="eager"
         playsinline
-        // Controlled playback speed (app-wide). Keeps the Speed menu in sync and
-        // survives media reloads (which otherwise reset the rate to 1×).
-        playbackRate={rate}
+        // Playback speed is restored app-wide via the remote (see the rate
+        // correction effect). We only listen for changes here; we don't pass it
+        // as a controlled prop, since that updated <video> but not Vidstack's
+        // $state (the Speed menu stayed on "Normal").
         onRateChange={(detail: number, event?: any) => onRateChange(detail, event)}
         // We deliberately don't pass `autoplay` to Vidstack — its internal
         // autoplay implementation fires before our source is necessarily
