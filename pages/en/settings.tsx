@@ -150,9 +150,13 @@ const SECTIONS: SectionDef[] = [
   { id: "list", labelKey: "settings.list.title", Icon: ListBulletIcon },
 ];
 
-/* Sticky left-rail navigation. Highlights the section currently in view
-   (scroll-spy via IntersectionObserver) and smooth-scrolls to a section on
-   click. Hidden on small screens, where the sections just stack. */
+/* Fixed left-rail navigation (Jikan-docs style): pinned to the left edge for
+   the full viewport height and does NOT scroll with the page. Highlights the
+   section currently in view (scroll-spy via IntersectionObserver) and
+   smooth-scrolls to a section on click. Hidden on small screens, where the
+   sections just stack. */
+const SIDEBAR_WIDTH = 240; // px — kept in sync with the content's left margin
+
 function SettingsNav({
   sections,
   active,
@@ -165,7 +169,10 @@ function SettingsNav({
     document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
   return (
-    <nav className="hidden md:flex flex-col gap-1 sticky top-24 self-start max-h-[calc(100vh-7rem)] overflow-y-auto">
+    <nav
+      className="hidden md:flex flex-col gap-1 fixed left-0 top-0 bottom-0 z-30 pt-24 pb-6 px-4 overflow-y-auto border-r border-white/10 bg-secondary/60 backdrop-blur"
+      style={{ width: SIDEBAR_WIDTH }}
+    >
       {sections.map(({ id, labelKey, Icon }) => {
         const selected = active === id;
         return (
@@ -531,22 +538,23 @@ export default function Settings() {
         </div>
       )}
 
+      {/* Fixed full-height left rail (desktop). Out of normal flow, so the
+          content below is pushed right by a matching margin. */}
+      <SettingsNav sections={navSections} active={activeSection} />
+
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-        className="flex flex-col items-center min-h-screen md:py-0 py-16"
+        className="min-h-screen py-16 md:py-0 md:ml-[240px]"
       >
-        <div className="max-w-screen-lg w-full px-4 pt-28 pb-10">
+        <div className="max-w-screen-md w-full mx-auto px-4 pt-28 pb-10">
           <h1 className="text-4xl font-bold mb-2 text-center">{t("settings.title")}</h1>
           <p className="text-white/60 mb-12 text-center">
             {t("settings.storedLocally")}
           </p>
 
-          <div className="md:grid md:grid-cols-[200px_minmax(0,1fr)] md:gap-10">
-            <SettingsNav sections={navSections} active={activeSection} />
-
-            <div>
+          <div>
           {/* ── Anime title language ─────────────────────────────── */}
           <section id="title-language" className="mb-10 scroll-mt-24">
             <h2 className="text-xl font-semibold mb-1">{t("settings.animeTitleLanguage")}</h2>
@@ -923,7 +931,6 @@ export default function Settings() {
               </button>
             </div>
           </section>
-            </div>
           </div>
         </div>
       </motion.div>
