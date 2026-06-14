@@ -14,6 +14,7 @@
  */
 
 import { useEffect, useState } from "react";
+import { peekLocalEntry } from "@/lib/list/localList";
 
 export type ClickTarget = "info" | "watch";
 
@@ -42,11 +43,30 @@ export function setClickTarget(next: ClickTarget): void {
   window.dispatchEvent(new CustomEvent(CLICK_TARGET_EVENT));
 }
 
+/**
+ * Pick which episode a "watch" link should open. If the user has local
+ * progress on this anime we resume at the NEXT unwatched episode (progress + 1),
+ * capped to `total` when known; a fully-watched anime restarts at 1 (rewatch).
+ * No progress → episode 1.
+ */
+function resumeEpisode(id: number | string): number {
+  const n = Number(id);
+  if (!Number.isFinite(n)) return 1;
+  const entry = peekLocalEntry(n);
+  const progress = entry?.progress ?? 0;
+  if (progress <= 0) return 1;
+  const total = entry?.total ?? null;
+  // Finished (or beyond) → rewatch from the start.
+  if (total != null && progress >= total) return 1;
+  return progress + 1;
+}
+
 /** The href an anime card/poster should link to, honouring the preference. */
 export function animeHref(id: number | string, target?: ClickTarget): string {
   const t = target ?? getClickTarget();
   if (t === "watch") {
-    return `/en/anime/watch/${id}/megaplay?id=megaplay-${id}-1&num=1`;
+    const ep = resumeEpisode(id);
+    return `/en/anime/watch/${id}/megaplay?id=megaplay-${id}-${ep}&num=${ep}`;
   }
   return `/en/anime/${id}`;
 }
