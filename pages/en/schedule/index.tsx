@@ -18,6 +18,7 @@ import {
 import { scheduleQuery } from "@/lib/graphql/query";
 import MobileNav from "@/components/shared/MobileNav";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
+import { animeHref, useClickTarget } from "@/lib/prefs/clickTarget";
 import { useTranslation } from "react-i18next";
 
 /* Map an English weekday (the logical key used for sections / filtering)
@@ -182,6 +183,7 @@ export async function getServerSideProps(ctx: any) {
 
 export default function Schedule({ schedule }: any) {
   const titlePref = useTitlePref();
+  const clickTarget = useClickTarget();
   const { t, i18n } = useTranslation();
   const dayLabel = (d: string) => (DAY_KEY[d] ? t(DAY_KEY[d]) : d);
   const [filterDay, setFilterDay] = useState("All");
@@ -404,7 +406,11 @@ export default function Schedule({ schedule }: any) {
                               <Link
                                 key={m.id}
                                 // id={`same_${m.id}`}
-                                href={`/en/${mediaType}/${m.id}`}
+                                href={
+                                  mediaType === "anime"
+                                    ? animeHref(m.id, clickTarget)
+                                    : `/en/${mediaType}/${m.id}`
+                                }
                                 className={`flex bg-secondary rounded group cursor-pointer overflow-hidden ml-4`}
                               >
                                 <Image
@@ -484,7 +490,11 @@ export default function Schedule({ schedule }: any) {
                         <Link
                           key={m.id}
                           // id={`same_${m.id}`}
-                          href={`/en/${(m.type || "ANIME").toLowerCase()}/${m.id}`}
+                          href={
+                            (m.type || "ANIME").toLowerCase() === "anime"
+                              ? animeHref(m.id, clickTarget)
+                              : `/en/${(m.type || "ANIME").toLowerCase()}/${m.id}`
+                          }
                           className={`flex bg-secondary rounded group cursor-pointer relative ${
                             s.id === nextAiringAnime
                               ? "ring-1 ring-sky-500"

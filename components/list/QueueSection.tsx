@@ -2,6 +2,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { useTranslation } from "react-i18next";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
+import { animeHref, useClickTarget } from "@/lib/prefs/clickTarget";
 import { useQueue, moveInQueue, removeFromQueue } from "@/lib/list/queue";
 
 /**
@@ -12,6 +13,7 @@ import { useQueue, moveInQueue, removeFromQueue } from "@/lib/list/queue";
 export default function QueueSection() {
   const { t } = useTranslation();
   const titlePref = useTitlePref();
+  const clickTarget = useClickTarget();
   const queue = useQueue();
   if (queue.length === 0) return null;
 
@@ -33,7 +35,7 @@ export default function QueueSection() {
               {i + 1}
             </span>
             <Link
-              href={`/en/anime/${q.mediaId}`}
+              href={animeHref(q.mediaId, clickTarget)}
               className="flex items-center gap-3 flex-1 min-w-0"
             >
               {q.coverImage ? (
