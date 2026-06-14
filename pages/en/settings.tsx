@@ -170,7 +170,7 @@ function SettingsNav({
   };
   return (
     <nav
-      className="hidden md:flex flex-col fixed left-[max(1rem,calc((100vw-48rem)/2-19rem))] top-44 z-30 max-h-[calc(100vh-12rem)] overflow-y-auto divide-y divide-white/10"
+      className="hidden md:flex flex-col gap-1 fixed left-[max(1rem,calc((100vw-48rem)/2-19rem))] top-44 z-30 max-h-[calc(100vh-12rem)] overflow-y-auto"
       style={{ width: SIDEBAR_WIDTH }}
     >
       {sections.map(({ id, labelKey, Icon }) => {
@@ -180,8 +180,8 @@ function SettingsNav({
             key={id}
             type="button"
             onClick={() => go(id)}
-            className={`flex items-center gap-3 px-3 py-3 text-sm text-left transition-colors ${
-              selected ? "text-action" : "text-white/60 hover:text-white"
+            className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-left transition-colors ${
+              selected ? "text-action" : "text-white/60 hover:text-white hover:bg-white/5"
             }`}
           >
             <Icon className="w-5 h-5 shrink-0" />
@@ -552,9 +552,9 @@ export default function Settings() {
             {t("settings.storedLocally")}
           </p>
 
-          <div>
+          <div className="divide-y divide-white/10">
           {/* ── Anime title language ─────────────────────────────── */}
-          <section id="title-language" className="mb-10 scroll-mt-24">
+          <section id="title-language" className="pb-10 scroll-mt-24">
             <h2 className="text-xl font-semibold mb-1">{t("settings.animeTitleLanguage")}</h2>
             <p className="text-white/60 text-sm mb-4">
               {t("settings.animeTitleLanguageDesc")}
@@ -573,7 +573,7 @@ export default function Settings() {
           </section>
 
           {/* ── Interface language ───────────────────────────────── */}
-          <section id="interface-language" className="mb-10 scroll-mt-24">
+          <section id="interface-language" className="py-10 scroll-mt-24">
             <h2 className="text-xl font-semibold mb-1">{t("settings.interfaceLanguage")}</h2>
             <p className="text-white/60 text-sm mb-4">
               {t("settings.interfaceLanguageDesc")}
@@ -592,7 +592,7 @@ export default function Settings() {
           </section>
 
           {/* ── Video player ─────────────────────────────────────── */}
-          <section id="player" className="mb-10 scroll-mt-24">
+          <section id="player" className="py-10 scroll-mt-24">
             <h2 className="text-xl font-semibold mb-1">{t("settings.player.title")}</h2>
             <p className="text-white/60 text-sm mb-4">{t("settings.player.desc")}</p>
             <div className="rounded-xl bg-white/5 ring-1 ring-white/10 px-4 divide-y divide-white/5">
@@ -607,7 +607,7 @@ export default function Settings() {
           </section>
 
           {/* ── Data saver ───────────────────────────────────────── */}
-          <section id="data-saver" className="mb-10 scroll-mt-24">
+          <section id="data-saver" className="py-10 scroll-mt-24">
             <h2 className="text-xl font-semibold mb-1">{t("settings.dataSaver.title")}</h2>
             <p className="text-white/60 text-sm mb-4">{t("settings.dataSaver.desc")}</p>
             <div className="rounded-xl bg-white/5 ring-1 ring-white/10 px-4 divide-y divide-white/5">
@@ -622,7 +622,7 @@ export default function Settings() {
           </section>
 
           {/* ── Theme (accent colour) ────────────────────────────── */}
-          <section id="theme" className="mb-10 scroll-mt-24">
+          <section id="theme" className="py-10 scroll-mt-24">
             <h2 className="text-xl font-semibold mb-1">{t("settings.theme.title")}</h2>
             <p className="text-white/60 text-sm mb-4">{t("settings.theme.desc")}</p>
             <div className="rounded-xl bg-white/5 ring-1 ring-white/10 p-4">
@@ -673,7 +673,7 @@ export default function Settings() {
           </section>
 
           {/* ── AniList synchronisation ──────────────────────────── */}
-          <section id="sync" className="mb-10 scroll-mt-24">
+          <section id="sync" className="py-10 scroll-mt-24">
             <h2 className="text-xl font-semibold mb-1">{t("settings.sync.title")}</h2>
             <p className="text-white/60 text-sm mb-4">{t("settings.sync.desc")}</p>
 
@@ -824,7 +824,7 @@ export default function Settings() {
 
           {/* ── Profile visibility (logged-in only) ──────────────── */}
           {isLoggedIn && (
-            <section id="profile" className="mb-10 scroll-mt-24">
+            <section id="profile" className="py-10 scroll-mt-24">
               <h2 className="text-xl font-semibold mb-1">{t("settings.profile.title")}</h2>
               <p className="text-white/60 text-sm mb-4">{t("settings.profile.desc")}</p>
               <div className="rounded-xl bg-white/5 ring-1 ring-white/10 px-4 divide-y divide-white/5">
@@ -841,7 +841,7 @@ export default function Settings() {
           )}
 
           {/* ── My list (local) ──────────────────────────────────── */}
-          <section id="list" className="mb-10 scroll-mt-24">
+          <section id="list" className="py-10 scroll-mt-24">
             <h2 className="text-xl font-semibold mb-1">{t("settings.list.title")}</h2>
             <p className="text-white/60 text-sm mb-4">
               {t("settings.list.desc", { count: localList.length })}
