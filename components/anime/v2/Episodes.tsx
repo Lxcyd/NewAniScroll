@@ -4,8 +4,14 @@ import { AniListInfoTypes } from "types/info/AnilistInfoTypes";
 import styles from "./styles.module.css";
 import type { SeasonEntry } from "@/lib/anilist/seasonChain";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
+import { useHideSpoilers } from "@/lib/prefs/spoilerPrefs";
 import { slugifyTitle } from "./helpers";
 import { useTranslation } from "react-i18next";
+
+/** Episode title to display — a neutral "Episode N" when spoilers are hidden. */
+function epTitle(ep: { number: number; title: string }, hide: boolean): string {
+  return hide ? `Episode ${ep.number}` : ep.title;
+}
 
 type EpisodeRow = {
   number: number;
@@ -562,6 +568,7 @@ function EpisodeThumb({
 
   const [idx, setIdx] = useState(0);
   const src = sources[idx];
+  const hideSpoilers = useHideSpoilers();
 
   return (
     <div style={tStyles.epThumb}>
@@ -573,7 +580,11 @@ function EpisodeThumb({
           key={src}
           src={src}
           alt=""
-          style={{ ...tStyles.epThumbBg, objectFit: "cover" }}
+          style={{
+            ...tStyles.epThumbBg,
+            objectFit: "cover",
+            filter: hideSpoilers ? "blur(14px)" : undefined,
+          }}
           loading="lazy"
           decoding="async"
           onError={() => setIdx((i) => i + 1)}
@@ -625,6 +636,7 @@ function EpisodeThumb({
 /* DETAILED — original card-with-thumb-and-meta row. */
 function DetailedList({ eps, progress, info, isDub, activeAnimeId, otherSeason }: ListProps) {
   const { t } = useTranslation();
+  const hideSpoilers = useHideSpoilers();
   return (
     <div style={tStyles.epList}>
       {eps.map((ep) => {
@@ -654,7 +666,7 @@ function DetailedList({ eps, progress, info, isDub, activeAnimeId, otherSeason }
                 {watched && <span style={tStyles.watchedTag}>✓ {t("anime.watched")}</span>}
                 {current && <span style={tStyles.currentTag}>● {t("anime.upNext")}</span>}
               </div>
-              <div style={tStyles.epTitle}>{ep.title}</div>
+              <div style={tStyles.epTitle}>{epTitle(ep, hideSpoilers)}</div>
               <div style={tStyles.epMeta}>
                 {ep.duration && <span>{ep.duration} min</span>}
                 {ep.duration && <span style={tStyles.dotSep} />}
@@ -673,6 +685,7 @@ function DetailedList({ eps, progress, info, isDub, activeAnimeId, otherSeason }
 
 /* COMPACT — small single-line rows: [number] title  ✓/●  Play */
 function CompactList({ eps, progress, info, isDub, activeAnimeId, otherSeason }: ListProps) {
+  const hideSpoilers = useHideSpoilers();
   return (
     <div style={tStyles.compactList}>
       {eps.map((ep) => {
@@ -694,8 +707,8 @@ function CompactList({ eps, progress, info, isDub, activeAnimeId, otherSeason }:
             <span className="mono" style={tStyles.compactNum}>
               {String(ep.number).padStart(2, "0")}
             </span>
-            <span style={tStyles.compactTitle} title={ep.title}>
-              {ep.title}
+            <span style={tStyles.compactTitle} title={epTitle(ep, hideSpoilers)}>
+              {epTitle(ep, hideSpoilers)}
             </span>
             {watched && <span style={tStyles.compactBadge}>✓</span>}
             {current && (
@@ -726,6 +739,7 @@ function CompactList({ eps, progress, info, isDub, activeAnimeId, otherSeason }:
 
 /* GRID — number-only tiles, useful for One Piece-sized series. */
 function GridView({ eps, progress, info, isDub, activeAnimeId, otherSeason }: ListProps) {
+  const hideSpoilers = useHideSpoilers();
   return (
     <div style={tStyles.gridWrap}>
       {eps.map((ep) => {
@@ -754,7 +768,7 @@ function GridView({ eps, progress, info, isDub, activeAnimeId, otherSeason }: Li
                 : "var(--txt-0)",
               pointerEvents: locked ? "none" : "auto",
             }}
-            title={ep.title}
+            title={epTitle(ep, hideSpoilers)}
           >
             {ep.number}
           </Link>

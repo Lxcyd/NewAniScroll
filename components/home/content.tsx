@@ -14,6 +14,7 @@ import HistoryOptions from "./content/historyOptions";
 import { toast } from "sonner";
 import { truncateImgUrl } from "@/utils/imageUtils";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
+import { animeHref, useClickTarget } from "@/lib/prefs/clickTarget";
 import { useTranslation } from "react-i18next";
 import { sectionLabel } from "@/lib/i18n/sectionLabel";
 
@@ -86,6 +87,7 @@ export default function Content({
   type = "anime",
 }: ContentProps) {
   const titlePref = useTitlePref();
+  const clickTarget = useClickTarget();
   const { t } = useTranslation();
   const ref = useRef<HTMLDivElement>(null!);
 
@@ -454,6 +456,8 @@ export default function Content({
                                 anime?.slug?.replace('/', '')
                               )}&num=${anime.currentEpisode}`
                             : `/en/${type}/${anime.id}`
+                          : type.toLowerCase() === "anime"
+                          ? animeHref(anime.id, clickTarget)
                           : `/en/${type}/${anime.id}`
                       }
                       className="hover:scale-105 hover:shadow-lg duration-300 ease-out group relative"
@@ -533,6 +537,8 @@ export default function Content({
                         href={
                           ids === "listManga"
                             ? `/en/manga/${anime.id}`
+                            : type.toLowerCase() === "anime"
+                            ? animeHref(anime.id, clickTarget)
                             : `/en/${type.toLowerCase()}/${anime.id}`
                         }
                         className="w-[135px] lg:w-[185px] line-clamp-2"
