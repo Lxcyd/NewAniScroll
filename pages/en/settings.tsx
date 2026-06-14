@@ -170,7 +170,7 @@ function SettingsNav({
   };
   return (
     <nav
-      className="hidden md:flex flex-col gap-1 fixed left-0 top-0 bottom-0 z-30 pt-24 pb-6 px-4 overflow-y-auto border-r border-white/10 bg-secondary/60 backdrop-blur"
+      className="hidden md:flex flex-col gap-1 fixed left-[max(1rem,calc((100vw-48rem)/2-16rem))] top-44 z-30 max-h-[calc(100vh-12rem)] overflow-y-auto"
       style={{ width: SIDEBAR_WIDTH }}
     >
       {sections.map(({ id, labelKey, Icon }) => {
@@ -546,7 +546,7 @@ export default function Settings() {
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-        className="min-h-screen py-16 md:py-0 md:ml-[240px]"
+        className="min-h-screen py-16 md:py-0"
       >
         <div className="max-w-screen-md w-full mx-auto px-4 pt-28 pb-10">
           <h1 className="text-4xl font-bold mb-2 text-center">{t("settings.title")}</h1>
