@@ -7,6 +7,26 @@ Ordre anti-chronologique (le plus récent en haut). Une entrée = une session/su
 
 ---
 
+## 2026-06-14 — Fixes : UI vitesse désync + streak introuvable
+
+### Contexte
+Deux retours : (1) la vitesse était bien sauvée/appliquée mais le menu Vidstack affichait « Normale » alors qu'on était en 1.75× ; (2) le streak introuvable (badge seulement sur `/my-list`, masqué à 0).
+
+### Décisions prises
+1. **Fix UI vitesse** (`UniversalPlayer.tsx`) : `player.playbackRate = x` posé une fois sur `can-play` ne suffit pas — Vidstack **reset la rate à 1× quand le média (re)charge APRÈS `can-play`**, donc la valeur restait sur le `<video>` mais le menu montrait 1×. Remplacé par une boucle **auto-correctrice** : `savedRateRef` (cible) + `rateSettleRef` (fenêtre de correction de 4 s rouverte à chaque `streamData`). Un effet sur `playbackRateState` ré-assert la cible tant que `!volArmedRef` (avant interaction user) ET fenêtre ouverte — ce qui resynchronise le menu Vidstack. Dès que l'utilisateur change lui-même la vitesse, le save effect aligne `savedRateRef` + ferme la fenêtre → aucune lutte/flicker.
+2. **Streak global** : nouveau `components/shared/StreakChip.tsx` (puce 🔥+nombre, masquée à 0, best en tooltip) montée dans la **NavBar** avant la cloche → visible partout (pas seulement `/my-list`, que les connectés ne voient pas). Le badge `/my-list` reste.
+
+### Leçons / pièges
+- Vidstack reset `playbackRate` à 1× sur (re)chargement média → toute restauration de vitesse doit être **auto-correctrice** (watch de l'état réactif), pas un one-shot sur `can-play` (le pattern volume marchait par chance car le volume n'est pas reset).
+- Ordre des effets : restore déclaré avant save, tous deux sur `[playbackRateState]` → garder le restore gardé par `!volArmedRef` évite qu'il révoque un changement utilisateur avant que le save n'aligne la cible.
+- Le streak compte à la **fin** d'un épisode, pas au lancement — normal qu'il soit à 0 tant qu'on n'a pas fini un ep aujourd'hui.
+
+### État déployé / à faire
+- Branche `dev`. `tsc` + `next lint` clean.
+- ⏳ Tester : recharger en 1.75× → menu affiche 1.75× ; finir un ep → puce 🔥 dans la NavBar.
+
+---
+
 ## 2026-06-14 — Lot features (3/n) : streak de visionnage
 
 ### Contexte

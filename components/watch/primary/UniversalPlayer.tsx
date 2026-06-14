@@ -2063,15 +2063,6 @@ export default function UniversalPlayer({
       const m = localStorage.getItem("aniscroll:muted");
       savedMuted = m == null ? null : m === "1";
     } catch {}
-    // Playback speed: app-wide, restored onto every player. Clamp to Vidstack's
-    // usual range so a corrupt value can't make the video un-watchable.
-    let savedRate: number | null = null;
-    try {
-      const r = localStorage.getItem("aniscroll:playbackRate");
-      const v = r == null ? NaN : parseFloat(r);
-      savedRate = Number.isFinite(v) ? Math.min(4, Math.max(0.25, v)) : null;
-    } catch {}
-
     const apply = () => {
       if (!player) return;
       try {
@@ -2079,7 +2070,6 @@ export default function UniversalPlayer({
         // Only ever restore an intentional MUTE. Don't force unmute — autoplay
         // owns the muted-to-start behaviour and would fight us.
         if (savedMuted === true) player.muted = true;
-        if (savedRate != null) player.playbackRate = savedRate;
       } catch {}
     };
     const arm = () => {
@@ -2127,18 +2117,65 @@ export default function UniversalPlayer({
     } catch {}
   }, [volumeState, mutedState]);
 
+  // ── Restore playback speed (self-correcting) ──
+  // Setting player.playbackRate once on can-play wasn't reliable: Vidstack
+  // resets the rate to 1 when the media (re)loads AFTER can-play, so the value
+  // stuck on the <video> but the menu still showed "Normal". Instead we track a
+  // target rate (`savedRateRef`) and re-assert it whenever Vidstack reports a
+  // different one — which also keeps the Speed menu in sync. The target follows
+  // the user's own changes (the save effect updates it), so we're not fighting
+  // a deliberate choice; we only correct Vidstack's spurious resets.
+  // Target rate to keep applied. Seeded from storage, then kept in sync with the
+  // user's own changes by the save effect below. `rateSettleRef` re-opens a
+  // short correction window after each media (re)load so we can catch Vidstack's
+  // reset-to-1×, then closes so we never fight a deliberate user choice.
+  const savedRateRef = useRef<number | null>(null);
+  const rateSettleRef = useRef(false);
+  useEffect(() => {
+    try {
+      const r = localStorage.getItem("aniscroll:playbackRate");
+      const v = r == null ? NaN : parseFloat(r);
+      savedRateRef.current = Number.isFinite(v)
+        ? Math.min(4, Math.max(0.25, v))
+        : null;
+    } catch {
+      savedRateRef.current = null;
+    }
+    // New media → allow corrections again (Vidstack will reset the rate to 1×).
+    rateSettleRef.current = true;
+    const t = setTimeout(() => {
+      rateSettleRef.current = false;
+    }, 4000);
+    return () => clearTimeout(t);
+  }, [streamData]);
+  useEffect(() => {
+    const want = savedRateRef.current;
+    // Only auto-correct before the user has touched the player (initial load /
+    // early episode change). Once armed, their choice wins and the save effect
+    // owns the value — prevents any revert flicker on a deliberate change.
+    if (want == null || volArmedRef.current || !rateSettleRef.current) return;
+    if (typeof playbackRateState !== "number") return;
+    if (Math.abs(playbackRateState - want) < 0.001) return; // already correct
+    const player = playerRef.current as any;
+    if (player) {
+      try {
+        player.playbackRate = want;
+      } catch {}
+    }
+  }, [playbackRateState]);
+
   // Persist playback speed once the user has interacted (same latch as volume),
-  // so a programmatic restore to the saved value doesn't re-save churn. We skip
-  // the default 1× until they actually change it — but still persist an explicit
-  // return to 1× (that's a real choice once armed).
+  // so a programmatic restore to the saved value doesn't re-save churn.
   useEffect(() => {
     if (!volArmedRef.current) return;
     if (typeof playbackRateState !== "number" || playbackRateState <= 0) return;
+    const clamped = Math.min(4, Math.max(0.25, playbackRateState));
+    // A real user change is the target now — align the in-memory target and
+    // close the correction window so we never bounce it back.
+    savedRateRef.current = clamped;
+    rateSettleRef.current = false;
     try {
-      localStorage.setItem(
-        "aniscroll:playbackRate",
-        String(Math.min(4, Math.max(0.25, playbackRateState))),
-      );
+      localStorage.setItem("aniscroll:playbackRate", String(clamped));
     } catch {}
   }, [playbackRateState]);
 
