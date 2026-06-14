@@ -141,7 +141,13 @@
       "importError": "Échec de l'import — vérifiez le fichier ou le pseudo.",
       "userNotFound": "Utilisateur AniList introuvable ou liste privée.",
       "mapping": "Correspondance avec AniList… {{done}}/{{total}}",
-      "note": "L'export utilise le format XML MyAnimeList, qu'AniList peut importer. L'import XML MAL est mappé automatiquement vers les ids AniList (les entrées sans correspondance sont ignorées) ; le pseudo AniList importe une liste publique sans connexion."
+      "note": "L'export utilise le format XML MyAnimeList, qu'AniList peut importer. L'import XML MAL est mappé automatiquement vers les ids AniList (les entrées sans correspondance sont ignorées) ; le pseudo AniList importe une liste publique sans connexion.",
+      "clear": "Supprimer la liste",
+      "clearDone": "Votre liste locale a été supprimée.",
+      "clearConfirmTitle": "Supprimer votre liste ?",
+      "clearConfirmBody": "Cette action supprime définitivement toute votre liste locale ({{count}} entrées) sur cet appareil. Elle est irréversible. Exportez-la d'abord si vous voulez une sauvegarde.",
+      "clearConfirmButton": "Supprimer la liste",
+      "clearCancel": "Annuler"
     }
   },
   "home": {
@@ -458,9 +464,7 @@
     "streakDays": "jour de suite",
     "streakDays_other": "jours de suite",
     "bestStreak": "Meilleure série : {{count}} jours",
-    "empty": "Votre liste est vide — terminez un épisode ou importez une liste pour commencer.",
-    "clearList": "Vider la liste",
-    "clearConfirm": "Supprimer toute votre liste ? Cette action est irréversible."
+    "empty": "Votre liste est vide — terminez un épisode ou importez une liste pour commencer."
   },
   "search": {
     "label": "Rechercher",

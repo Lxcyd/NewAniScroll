@@ -141,7 +141,13 @@
       "importError": "Import failed — check the file or username.",
       "userNotFound": "AniList user not found or list is private.",
       "mapping": "Mapping with AniList… {{done}}/{{total}}",
-      "note": "Export uses the MyAnimeList XML format, which AniList can import. MAL XML import is mapped to AniList ids automatically (unmatched entries are skipped); AniList username imports a public list without signing in."
+      "note": "Export uses the MyAnimeList XML format, which AniList can import. MAL XML import is mapped to AniList ids automatically (unmatched entries are skipped); AniList username imports a public list without signing in.",
+      "clear": "Delete list",
+      "clearDone": "Your local list has been deleted.",
+      "clearConfirmTitle": "Delete your list?",
+      "clearConfirmBody": "This permanently deletes your entire local list ({{count}} entries) on this device. This can't be undone. Export it first if you want a backup.",
+      "clearConfirmButton": "Delete list",
+      "clearCancel": "Cancel"
     }
   },
   "home": {
@@ -458,9 +464,7 @@
     "streakDays": "day streak",
     "streakDays_other": "day streak",
     "bestStreak": "Best streak: {{count}} days",
-    "empty": "Your list is empty — finish an episode or import a list to get started.",
-    "clearList": "Clear list",
-    "clearConfirm": "Delete your entire list? This can't be undone."
+    "empty": "Your list is empty — finish an episode or import a list to get started."
   },
   "search": {
     "label": "Search",

@@ -23,9 +23,19 @@ import {
   readFileText,
   ImportResult,
 } from "@/lib/list/importExport";
-import { useLocalList } from "@/lib/list/localList";
+import { useLocalList, clearLocalList } from "@/lib/list/localList";
 import { fullSyncFromAniList, runAutoPauseSweep } from "@/lib/list/syncEngine";
 import { useEffect, useRef, useState } from "react";
+import {
+  LanguageIcon,
+  GlobeAltIcon,
+  PlayCircleIcon,
+  BoltIcon,
+  SwatchIcon,
+  ArrowPathIcon,
+  LockClosedIcon,
+  ListBulletIcon,
+} from "@heroicons/react/24/outline";
 import { useSession, signIn, signOut } from "next-auth/react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -116,6 +126,65 @@ function Toggle({
         />
       </button>
     </div>
+  );
+}
+
+/* The settings sections, in document order. Each has a stable id (used as the
+   scroll anchor + nav target) and an icon. `loggedInOnly` sections are hidden
+   from the nav when signed out, mirroring the page body. */
+type SectionDef = {
+  id: string;
+  labelKey: string;
+  Icon: typeof LanguageIcon;
+  loggedInOnly?: boolean;
+};
+
+const SECTIONS: SectionDef[] = [
+  { id: "title-language", labelKey: "settings.animeTitleLanguage", Icon: LanguageIcon },
+  { id: "interface-language", labelKey: "settings.interfaceLanguage", Icon: GlobeAltIcon },
+  { id: "player", labelKey: "settings.player.title", Icon: PlayCircleIcon },
+  { id: "data-saver", labelKey: "settings.dataSaver.title", Icon: BoltIcon },
+  { id: "theme", labelKey: "settings.theme.title", Icon: SwatchIcon },
+  { id: "sync", labelKey: "settings.sync.title", Icon: ArrowPathIcon },
+  { id: "profile", labelKey: "settings.profile.title", Icon: LockClosedIcon, loggedInOnly: true },
+  { id: "list", labelKey: "settings.list.title", Icon: ListBulletIcon },
+];
+
+/* Sticky left-rail navigation. Highlights the section currently in view
+   (scroll-spy via IntersectionObserver) and smooth-scrolls to a section on
+   click. Hidden on small screens, where the sections just stack. */
+function SettingsNav({
+  sections,
+  active,
+}: {
+  sections: SectionDef[];
+  active: string;
+}) {
+  const { t } = useTranslation();
+  const go = (id: string) => {
+    document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+  return (
+    <nav className="hidden md:flex flex-col gap-1 sticky top-24 self-start">
+      {sections.map(({ id, labelKey, Icon }) => {
+        const selected = active === id;
+        return (
+          <button
+            key={id}
+            type="button"
+            onClick={() => go(id)}
+            className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-left transition-colors ${
+              selected
+                ? "bg-action/15 text-white ring-1 ring-action/40"
+                : "text-white/60 hover:text-white hover:bg-white/5"
+            }`}
+          >
+            <Icon className={`w-5 h-5 shrink-0 ${selected ? "text-action" : ""}`} />
+            <span className="truncate">{t(labelKey)}</span>
+          </button>
+        );
+      })}
+    </nav>
   );
 }
 
@@ -226,6 +295,39 @@ export default function Settings() {
   // a confirmation dialog. Disabling needs no confirmation (local list stays).
   const [confirmSync, setConfirmSync] = useState(false);
   const [syncing, setSyncing] = useState(false);
+
+  // ── Delete-list confirmation ─────────────────────────────────────
+  const [confirmClear, setConfirmClear] = useState(false);
+  const handleClearList = () => {
+    clearLocalList();
+    setConfirmClear(false);
+    toast.success(t("settings.list.clearDone"));
+  };
+
+  // ── Left-nav scroll-spy ──────────────────────────────────────────
+  // Track which section is in view so the sticky nav can highlight it. The
+  // section list adapts to login state (profile section is logged-in only).
+  const navSections = SECTIONS.filter((s) => !s.loggedInOnly || isLoggedIn);
+  const [activeSection, setActiveSection] = useState<string>(SECTIONS[0].id);
+  useEffect(() => {
+    const els = navSections
+      .map((s) => document.getElementById(s.id))
+      .filter((el): el is HTMLElement => !!el);
+    if (els.length === 0) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visible = entries
+          .filter((e) => e.isIntersecting)
+          .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
+        if (visible[0]?.target?.id) setActiveSection(visible[0].target.id);
+      },
+      // Bias the active zone toward the upper third of the viewport.
+      { rootMargin: "-20% 0px -70% 0px", threshold: 0 },
+    );
+    els.forEach((el) => observer.observe(el));
+    return () => observer.disconnect();
+    // Re-run when the section set changes (login) or the list section appears.
+  }, [isLoggedIn]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const runPull = async () => {
     setSyncing(true);
@@ -389,20 +491,60 @@ export default function Settings() {
         </div>
       )}
 
+      {/* Confirmation before deleting the local list — irreversible. */}
+      {confirmClear && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 px-4"
+          onClick={() => setConfirmClear(false)}
+        >
+          <div
+            className="w-full max-w-md rounded-xl bg-secondary ring-1 ring-white/10 p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-lg font-semibold mb-2">
+              {t("settings.list.clearConfirmTitle")}
+            </h3>
+            <p className="text-white/70 text-sm mb-6">
+              {t("settings.list.clearConfirmBody", { count: localList.length })}
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setConfirmClear(false)}
+                className="px-4 py-2 rounded-lg bg-white/10 ring-1 ring-white/10 text-sm hover:bg-white/15"
+              >
+                {t("settings.list.clearCancel")}
+              </button>
+              <button
+                type="button"
+                onClick={handleClearList}
+                className="px-4 py-2 rounded-lg bg-red-500/90 text-white text-sm font-medium hover:bg-red-500"
+              >
+                {t("settings.list.clearConfirmButton")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-        className="flex flex-col justify-center items-center min-h-screen md:py-0 py-16"
+        className="flex flex-col items-center min-h-screen md:py-0 py-16"
       >
-        <div className="max-w-screen-md w-full px-4 py-10">
+        <div className="max-w-screen-lg w-full px-4 py-10">
           <h1 className="text-4xl font-bold mb-2">{t("settings.title")}</h1>
           <p className="text-white/60 mb-10">
             {t("settings.storedLocally")}
           </p>
 
+          <div className="md:grid md:grid-cols-[200px_minmax(0,1fr)] md:gap-10">
+            <SettingsNav sections={navSections} active={activeSection} />
+
+            <div>
           {/* ── Anime title language ─────────────────────────────── */}
-          <section className="mb-10">
+          <section id="title-language" className="mb-10 scroll-mt-24">
             <h2 className="text-xl font-semibold mb-1">{t("settings.animeTitleLanguage")}</h2>
             <p className="text-white/60 text-sm mb-4">
               {t("settings.animeTitleLanguageDesc")}
@@ -421,7 +563,7 @@ export default function Settings() {
           </section>
 
           {/* ── Interface language ───────────────────────────────── */}
-          <section className="mb-10">
+          <section id="interface-language" className="mb-10 scroll-mt-24">
             <h2 className="text-xl font-semibold mb-1">{t("settings.interfaceLanguage")}</h2>
             <p className="text-white/60 text-sm mb-4">
               {t("settings.interfaceLanguageDesc")}
@@ -440,7 +582,7 @@ export default function Settings() {
           </section>
 
           {/* ── Video player ─────────────────────────────────────── */}
-          <section className="mb-10">
+          <section id="player" className="mb-10 scroll-mt-24">
             <h2 className="text-xl font-semibold mb-1">{t("settings.player.title")}</h2>
             <p className="text-white/60 text-sm mb-4">{t("settings.player.desc")}</p>
             <div className="rounded-xl bg-white/5 ring-1 ring-white/10 px-4 divide-y divide-white/5">
@@ -455,7 +597,7 @@ export default function Settings() {
           </section>
 
           {/* ── Data saver ───────────────────────────────────────── */}
-          <section className="mb-10">
+          <section id="data-saver" className="mb-10 scroll-mt-24">
             <h2 className="text-xl font-semibold mb-1">{t("settings.dataSaver.title")}</h2>
             <p className="text-white/60 text-sm mb-4">{t("settings.dataSaver.desc")}</p>
             <div className="rounded-xl bg-white/5 ring-1 ring-white/10 px-4 divide-y divide-white/5">
@@ -470,7 +612,7 @@ export default function Settings() {
           </section>
 
           {/* ── Theme (accent colour) ────────────────────────────── */}
-          <section className="mb-10">
+          <section id="theme" className="mb-10 scroll-mt-24">
             <h2 className="text-xl font-semibold mb-1">{t("settings.theme.title")}</h2>
             <p className="text-white/60 text-sm mb-4">{t("settings.theme.desc")}</p>
             <div className="rounded-xl bg-white/5 ring-1 ring-white/10 p-4">
@@ -521,7 +663,7 @@ export default function Settings() {
           </section>
 
           {/* ── AniList synchronisation ──────────────────────────── */}
-          <section className="mb-10">
+          <section id="sync" className="mb-10 scroll-mt-24">
             <h2 className="text-xl font-semibold mb-1">{t("settings.sync.title")}</h2>
             <p className="text-white/60 text-sm mb-4">{t("settings.sync.desc")}</p>
 
@@ -672,7 +814,7 @@ export default function Settings() {
 
           {/* ── Profile visibility (logged-in only) ──────────────── */}
           {isLoggedIn && (
-            <section className="mb-10">
+            <section id="profile" className="mb-10 scroll-mt-24">
               <h2 className="text-xl font-semibold mb-1">{t("settings.profile.title")}</h2>
               <p className="text-white/60 text-sm mb-4">{t("settings.profile.desc")}</p>
               <div className="rounded-xl bg-white/5 ring-1 ring-white/10 px-4 divide-y divide-white/5">
@@ -689,7 +831,7 @@ export default function Settings() {
           )}
 
           {/* ── My list (local) ──────────────────────────────────── */}
-          <section className="mb-10">
+          <section id="list" className="mb-10 scroll-mt-24">
             <h2 className="text-xl font-semibold mb-1">{t("settings.list.title")}</h2>
             <p className="text-white/60 text-sm mb-4">
               {t("settings.list.desc", { count: localList.length })}
@@ -764,7 +906,21 @@ export default function Settings() {
               </p>
             )}
             <p className="text-white/40 text-xs mt-3">{t("settings.list.note")}</p>
+
+            {/* Danger zone — wipe the whole local list (gated by a confirm). */}
+            <div className="mt-6 pt-6 border-t border-white/10">
+              <button
+                type="button"
+                onClick={() => setConfirmClear(true)}
+                disabled={localList.length === 0}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-red-300 ring-1 ring-red-400/30 hover:bg-red-500/10 disabled:opacity-40 disabled:hover:bg-transparent"
+              >
+                {t("settings.list.clear")}
+              </button>
+            </div>
           </section>
+            </div>
+          </div>
         </div>
       </motion.div>
       <Footer />
