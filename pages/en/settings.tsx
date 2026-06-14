@@ -794,7 +794,7 @@ export default function Settings() {
                   (progress +1 / AniList update). Sits right after the progress
                   toggle since it defines WHEN that progress is recorded; applies
                   to the local list too, so it isn't gated by login. */}
-              <div className="flex items-start justify-between gap-4 py-3">
+              <div className="flex items-center justify-between gap-4 py-3">
                 <div className="min-w-0">
                   <div className="text-sm font-medium">
                     {t("settings.sync.threshold")}
