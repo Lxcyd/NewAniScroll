@@ -12,10 +12,8 @@
 
 🔔 **Notifications au choix** — activez ou coupez les nouveaux épisodes, les suites et les rappels de reprise.
 
-🖥️ **Serveur par défaut** — le lecteur essayé en priorité.
+🔄 **Synchronisation AniList** — à la connexion, votre liste AniList remplace la liste locale, et le **seuil** décide à partir de quel % un épisode compte comme vu.
 
-📊 **Seuil de synchronisation** — à partir de quel % un épisode compte comme vu.
-
-🎬 **Qualité maximale forcée** et **démarrage en sourdine** côté lecteur.
+🎬 **Lecteur** — serveur par défaut, qualité maximale forcée et démarrage en sourdine.
 
 🧹 **Section Avancé** — effacer l'historique et réinitialiser les réglages.

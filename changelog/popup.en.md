@@ -12,10 +12,8 @@
 
 🔔 **Notifications your way** — turn new episodes, sequels and resume reminders on or off.
 
-🖥️ **Default server** — the player tried first.
+🔄 **AniList sync** — on sign-in your AniList list replaces the local one, and the **threshold** sets how far into an episode counts as watched.
 
-📊 **Sync threshold** — how far into an episode counts as watched.
-
-🎬 **Force maximum quality** and **start muted** in the player.
+🎬 **Player** — default server, force maximum quality and start muted.
 
 🧹 **Advanced section** — clear watch history and restore defaults.
