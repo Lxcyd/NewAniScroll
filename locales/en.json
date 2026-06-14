@@ -61,6 +61,10 @@
   "settings": {
     "title": "Settings",
     "storedLocally": "Your preferences are stored locally on this device.",
+    "language": {
+      "title": "Language",
+      "desc": "Set the anime title and interface languages."
+    },
     "animeTitleLanguage": "Anime title language",
     "animeTitleLanguageDesc": "How anime titles are displayed everywhere on the site (search, hero, lists, schedule…).",
     "default": "Default",

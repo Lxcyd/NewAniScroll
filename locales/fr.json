@@ -61,6 +61,10 @@
   "settings": {
     "title": "Paramètres",
     "storedLocally": "Vos préférences sont enregistrées localement sur cet appareil.",
+    "language": {
+      "title": "Langue",
+      "desc": "Définissez la langue des titres d'anime et de l'interface."
+    },
     "animeTitleLanguage": "Langue des titres d'anime",
     "animeTitleLanguageDesc": "Comment les titres d'anime s'affichent partout sur le site (recherche, hero, listes, programme…).",
     "default": "Par défaut",

@@ -35,9 +35,7 @@ import { fullSyncFromAniList, runAutoPauseSweep } from "@/lib/list/syncEngine";
 import { useEffect, useRef, useState } from "react";
 import {
   LanguageIcon,
-  GlobeAltIcon,
   PlayCircleIcon,
-  BoltIcon,
   SwatchIcon,
   ArrowPathIcon,
   LockClosedIcon,
@@ -150,11 +148,9 @@ type SectionDef = {
 };
 
 const SECTIONS: SectionDef[] = [
-  { id: "title-language", labelKey: "settings.animeTitleLanguage", Icon: LanguageIcon },
-  { id: "interface-language", labelKey: "settings.interfaceLanguage", Icon: GlobeAltIcon },
+  { id: "language", labelKey: "settings.language.title", Icon: LanguageIcon },
   { id: "browsing", labelKey: "settings.browsing.title", Icon: CursorArrowRaysIcon },
   { id: "player", labelKey: "settings.player.title", Icon: PlayCircleIcon },
-  { id: "data-saver", labelKey: "settings.dataSaver.title", Icon: BoltIcon },
   { id: "notifications", labelKey: "settings.notif.title", Icon: BellIcon },
   { id: "theme", labelKey: "settings.theme.title", Icon: SwatchIcon },
   { id: "sync", labelKey: "settings.sync.title", Icon: ArrowPathIcon },
@@ -658,10 +654,13 @@ export default function Settings() {
           </p>
 
           <div className="divide-y divide-white/10">
-          {/* ── Anime title language ─────────────────────────────── */}
-          <section id="title-language" className="pb-10 scroll-mt-24">
-            <h2 className="text-xl font-semibold mb-1">{t("settings.animeTitleLanguage")}</h2>
-            <p className="text-white/60 text-sm mb-4">
+          {/* ── Language (anime titles + interface) ──────────────── */}
+          <section id="language" className="pb-10 scroll-mt-24">
+            <h2 className="text-xl font-semibold mb-1">{t("settings.language.title")}</h2>
+            <p className="text-white/60 text-sm mb-6">{t("settings.language.desc")}</p>
+
+            <div className="mb-1 text-sm font-medium">{t("settings.animeTitleLanguage")}</div>
+            <p className="text-white/60 text-xs mb-3">
               {t("settings.animeTitleLanguageDesc")}
             </p>
             <SegmentedPicker<TitlePref>
@@ -672,15 +671,12 @@ export default function Settings() {
                 { value: "romaji", label: "Romaji", sub: t("settings.romajiSub") },
               ]}
             />
-            <p className="text-white/40 text-xs mt-3">
+            <p className="text-white/40 text-xs mt-3 mb-7">
               {t("settings.titleLangNote")}
             </p>
-          </section>
 
-          {/* ── Interface language ───────────────────────────────── */}
-          <section id="interface-language" className="py-10 scroll-mt-24">
-            <h2 className="text-xl font-semibold mb-1">{t("settings.interfaceLanguage")}</h2>
-            <p className="text-white/60 text-sm mb-4">
+            <div className="mb-1 text-sm font-medium">{t("settings.interfaceLanguage")}</div>
+            <p className="text-white/60 text-xs mb-3">
               {t("settings.interfaceLanguageDesc")}
             </p>
             <SegmentedPicker<Lang>
@@ -775,15 +771,8 @@ export default function Settings() {
                   ))}
                 </select>
               </div>
-            </div>
-            <p className="text-white/40 text-xs mt-3">{t("settings.player.note")}</p>
-          </section>
-
-          {/* ── Data saver ───────────────────────────────────────── */}
-          <section id="data-saver" className="py-10 scroll-mt-24">
-            <h2 className="text-xl font-semibold mb-1">{t("settings.dataSaver.title")}</h2>
-            <p className="text-white/60 text-sm mb-4">{t("settings.dataSaver.desc")}</p>
-            <div className="rounded-xl bg-white/5 ring-1 ring-white/10 px-4 divide-y divide-white/5">
+              {/* Data saver folded into the player section (it's a playback
+                  bandwidth/GPU toggle). */}
               <Toggle
                 label={t("settings.dataSaver.toggle")}
                 desc={t("settings.dataSaver.toggleDesc")}
@@ -791,7 +780,7 @@ export default function Settings() {
                 onChange={setDataSaver}
               />
             </div>
-            <p className="text-white/40 text-xs mt-3">{t("settings.dataSaver.note")}</p>
+            <p className="text-white/40 text-xs mt-3">{t("settings.player.note")}</p>
           </section>
 
           {/* ── Notifications ────────────────────────────────────── */}

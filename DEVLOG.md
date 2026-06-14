@@ -41,7 +41,12 @@ Gros lot de réglages + refonte de la page settings. Demandes successives dans u
 - **Restore Default Settings** : `lib/prefs/resetSettings.ts` balaie toutes les clés `aniscroll:*` + clés legacy (`preferred_server`, `view`, `artplayer_settings`, volume/muted). **Garde `aniscroll:localList`** (KEEP set) — réinitialiser les réglages ne doit PAS effacer la liste (le bouton dédié « Supprimer la liste » possède cette action). Reload après pour refléter.
 - Nouvelle section **Avancé** (icône clé) avec les deux actions, chacune derrière une modale de confirmation (même style que la confirm sync/clear-list).
 
+### Suivi — fix clear-history (mauvaise clé) + fusion de sections
+- **Clear history n'effaçait rien** : l'historique « recently-watched » est stocké dans **`artplayer_settings`** (localStorage anonyme + miroir local) et en Prisma pour les connectés — PAS dans `aniscroll:progress` (qui ne contient que les positions de reprise). `clearAllProgress` vide maintenant **les deux** clés. Reste local (l'historique serveur des connectés revient au prochain fetch — conforme à « locally »).
+- **Trop de sections → fusion** : (1) « Langue des titres » + « Langue de l'interface » → une seule section **`#language`** (icône `LanguageIcon` gardée, deux sous-blocs). (2) « Économie de données » repliée dans la carte **Lecteur** (c'est un toggle de bande passante/GPU de lecture). 11 → 9 sections. Icônes `GlobeAltIcon`/`BoltIcon` retirées des imports.
+
 ### Leçons / pièges
+- **Historique de visionnage = `artplayer_settings`** (pas `aniscroll:progress`) : la page recently-watched lit cette clé (+ Prisma pour les connectés). Ne pas confondre avec les positions de reprise.
 - **Pas de dossier `pages/fr/`** : `/fr/...` et `/en/...` rendent les **mêmes fichiers** `pages/en/*` (rewrite i18n). Un bug « sur /fr » se corrige dans le fichier `/en` correspondant.
 - **`<select>` natif sombre** : forcer `[color-scheme:dark]` + bg/texte sur le select ET les options, sinon le dropdown hérite du thème clair de l'OS (illisible).
 - **Le serveur encode la langue** (suffixe `-vo`) — il n'y a pas d'état « dub » persistant indépendant (`dub` vient de la query string). Un « provider préféré » suffit à fixer la langue ; pas besoin d'un réglage Sub/Dub séparé.

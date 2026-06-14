@@ -150,12 +150,16 @@ export function clearProgress(
   writeMap(map);
 }
 
-/** Wipe ALL local watch progress (every episode of every anime). Used by the
- *  "Clear watch history" settings action. Doesn't touch any AniList data. */
+/** Wipe ALL local watch history. Used by the "Clear watch history" settings
+ *  action. Clears both the resume-position map (`aniscroll:progress`) AND the
+ *  watch-history store the "recently watched" page reads (`artplayer_settings`,
+ *  which holds the per-episode rows for anonymous users / the local mirror).
+ *  Local only — doesn't touch AniList or the signed-in user's server history. */
 export function clearAllProgress(): void {
   if (typeof window === "undefined") return;
   try {
     localStorage.removeItem(KEY);
+    localStorage.removeItem("artplayer_settings");
   } catch {
     /* best-effort */
   }
