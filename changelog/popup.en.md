@@ -1,7 +1,7 @@
-## v0.0.2
+## v0.0.3
 
-✨ New **Scores** tab — community ratings for every episode, season by season.
+⚙️ **Settings, reimagined** — a clear side menu and a bunch of new options.
 
-🎬 Fixed players: multi-season shows now play the right season, and many more titles have a working VF/VOSTFR source.
+▶️ Choose to open an anime on its **info page** or straight into **playback** (it resumes where you left off), hide **spoilers**, and tune your **notifications**.
 
-🔧 Watch progress is saved and restored across players and devices.
+🎚️ New **sync threshold**, **default server**, force-max-quality, and an **Advanced** section (clear history, restore defaults).

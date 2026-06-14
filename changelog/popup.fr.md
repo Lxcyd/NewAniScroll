@@ -1,7 +1,7 @@
-## v0.0.2
+## v0.0.3
 
-✨ Nouvel onglet **Notes** — les notes de la communauté pour chaque épisode, saison par saison.
+⚙️ **Paramètres repensés** — un menu latéral clair et plein de nouveaux réglages.
 
-🎬 Lecteurs corrigés : les animes à plusieurs saisons diffusent enfin la bonne saison, et bien plus de titres ont un lecteur VF/VOSTFR.
+▶️ Choisissez d'ouvrir un anime sur sa **fiche** ou directement en **lecture** (qui reprend là où vous en étiez), masquez les **spoilers**, et réglez vos **notifications**.
 
-🔧 La progression de lecture est sauvegardée et restaurée entre les lecteurs et les appareils.
+🎚️ Nouveau **seuil de synchronisation**, **serveur par défaut**, qualité max forcée, et une section **Avancé** (effacer l'historique, réinitialiser les réglages).

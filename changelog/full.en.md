@@ -2,6 +2,36 @@
 
 All notable changes to AniScroll appear here. Most recent first.
 
+## [v0.0.3] — Settings, reimagined & new options (2026-06-14)
+
+### Added
+- **Reworked Settings page**: a side menu that stays in view, with one section
+  per topic so everything is easy to find.
+- **Open on watch or info page**: choose whether clicking an anime opens its
+  info page or jumps straight into playback — and it resumes at the episode you
+  were on.
+- **Hide spoilers**: blur episode thumbnails and hide episode titles and
+  descriptions throughout the app.
+- **Notification settings**: turn each kind of alert on or off (new episodes,
+  sequels, resume reminders).
+- **Sync threshold**: set how far into an episode counts as watched (80% by
+  default).
+- **Default server**: pick the player tried first.
+- **Force maximum quality** and **start muted** in the player.
+- **Clear watch history** and **restore default settings** in a new Advanced
+  section.
+
+### Changed
+- Deleting your local list now lives in Settings, behind a confirmation.
+- Signing in and enabling sync now fully replaces the local list with your
+  AniList list.
+- Anime-title and interface languages are grouped into a single section.
+
+### Fixed
+- The notification badge no longer wrongly reappears when switching tabs.
+- The rating dialog no longer pops too early on short episodes.
+- Auto-progress settings stay usable without an AniList account.
+
 ## [v0.0.2] — Episode scores & sturdier players (2026-06-10)
 
 ### Added

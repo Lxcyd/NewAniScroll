@@ -2,6 +2,37 @@
 
 Toutes les nouveautés d'AniScroll, les plus récentes en premier.
 
+## [v0.0.3] — Paramètres repensés & nouveaux réglages (2026-06-14)
+
+### Ajouté
+- **Page Paramètres repensée** : un menu latéral qui reste visible, avec une
+  section par thème pour s'y retrouver d'un coup d'œil.
+- **Ouvrir au visionnage ou à la fiche** : choisissez si cliquer sur un anime
+  ouvre sa fiche d'info ou lance directement la lecture — et il reprend à
+  l'épisode où vous vous êtes arrêté.
+- **Masquer les spoilers** : floute les vignettes et masque les titres et
+  descriptions d'épisodes dans toute l'app.
+- **Réglages des notifications** : activez ou coupez chaque type d'alerte
+  (nouveaux épisodes, suites, rappels de reprise).
+- **Seuil de synchronisation** : réglez à partir de quel pourcentage d'un
+  épisode il est compté comme vu (par défaut 80 %).
+- **Serveur par défaut** : choisissez le lecteur essayé en priorité.
+- **Forcer la qualité maximale** et **démarrer en sourdine** côté lecteur.
+- **Effacer l'historique** et **réinitialiser les réglages** dans une nouvelle
+  section Avancé.
+
+### Modifié
+- La suppression de la liste locale se fait désormais depuis les Paramètres,
+  avec une confirmation.
+- En se connectant et activant la synchronisation, la liste AniList remplace
+  désormais entièrement la liste locale.
+- La langue des titres et de l'interface sont regroupées dans une seule section.
+
+### Corrigé
+- Le badge de notifications ne réapparaît plus à tort en changeant d'onglet.
+- La fenêtre de notation n'apparaît plus trop tôt sur les épisodes courts.
+- Les réglages de progression automatique restent utilisables sans compte AniList.
+
 ## [v0.0.2] — Notes par épisode & lecteurs plus fiables (2026-06-10)
 
 ### Ajouté
