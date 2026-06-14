@@ -7,6 +7,24 @@ Ordre anti-chronologique (le plus récent en haut). Une entrée = une session/su
 
 ---
 
+## 2026-06-14 — Fix oscillation vitesse + streak retirée de la NavBar
+
+### Contexte
+(1) Le watcher continu de vitesse créait une **oscillation** : changer la vitesse alternait en boucle ancienne↔nouvelle (restore effect ré-appliquait l'ancienne avant que le save n'aligne la cible — bagarre entre deux effets sur `[playbackRateState]`). (2) Retirer la puce streak de la NavBar.
+
+### Décisions prises
+1. **Vitesse — plus de watcher continu** (`UniversalPlayer.tsx`) : remplacé par un **apply one-shot par média**. À chaque `streamData` : `rateUserSetRef=false`, puis `apply()` immédiat + re-applies à 400 ms et 1200 ms (couvre le reset-1× post-load de Vidstack), gardés par `!rateUserSetRef`. Le save effect (sur interaction) pose `rateUserSetRef=true` → les timers restants se taisent. **Aucun watcher permanent → aucune oscillation**, et le menu reste correct car on applique après le reset.
+2. **Streak hors NavBar** : `StreakChip.tsx` supprimé + retiré de `NavBar.tsx`. L'enregistrement (`recordWatchToday` à ≥2 min dans `onTimeUpdate`) et le badge sur `/my-list` restent.
+
+### Leçons / pièges
+- Deux `useEffect` qui écoutent le même état réactif et s'écrivent mutuellement = oscillation garantie (l'ordre fixe fait gagner le premier déclaré). Pour un réglage « restaurer puis laisser libre », préférer un **apply borné dans le temps** (timeouts) plutôt qu'un watcher permanent.
+
+### État déployé / à faire
+- Branche `dev`. `tsc` + `next lint` clean.
+- ⏳ Tester : changer la vitesse → stable, pas d'oscillation ; changer d'anime → vitesse conservée dans le menu ; streak visible sur `/my-list` (pas dans la NavBar).
+
+---
+
 ## 2026-06-14 — Fixes 2 : vitesse entre animes + streak qui ne montait pas
 
 ### Contexte

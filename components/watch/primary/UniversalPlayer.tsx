@@ -2118,54 +2118,55 @@ export default function UniversalPlayer({
     } catch {}
   }, [volumeState, mutedState]);
 
-  // ── Persist + restore playback speed (app-wide, self-correcting) ──
-  // Vidstack resets the rate to 1× whenever media (re)loads — on first mount AND
-  // every time you switch episode/anime — so a one-shot restore leaves the Speed
-  // menu showing "Normal". The robust model:
-  //   • `rateTargetRef` is the value we want applied (saved rate, then whatever
-  //     the user picks).
-  //   • We re-assert it ANY time Vidstack reports a different rate, regardless of
-  //     arm state. Because the target always equals the user's latest choice,
-  //     re-asserting can never revert a deliberate change — it only undoes
-  //     Vidstack's spurious reset-to-1×.
-  //   • Saving is gated on the existing `volArmedRef` (user interaction) so the
-  //     initial restore churn isn't written back, but that does NOT gate
-  //     restoring.
-  const rateTargetRef = useRef<number | null>(null);
-  // Seed the target from storage once.
-  useEffect(() => {
+  // ── Persist + restore playback speed (app-wide) ──
+  // Vidstack resets the rate to 1× whenever media (re)loads (first mount AND
+  // every episode/anime switch), so a single early restore leaves the Speed menu
+  // on "Normal". We apply the saved rate ONCE PER MEDIA LOAD, just after it
+  // settles — but only until the user changes it for this media (`rateUserSetRef`
+  // gates that), so we never fight a deliberate choice and there's no oscillation.
+  const savedRate = (): number | null => {
     try {
       const r = localStorage.getItem("aniscroll:playbackRate");
       const v = r == null ? NaN : parseFloat(r);
-      if (Number.isFinite(v)) rateTargetRef.current = Math.min(4, Math.max(0.25, v));
-    } catch {}
-  }, []);
-  // Re-assert the target whenever Vidstack's reported rate drifts from it.
-  useEffect(() => {
-    const want = rateTargetRef.current;
-    if (want == null) return;
-    if (typeof playbackRateState !== "number") return;
-    if (Math.abs(playbackRateState - want) < 0.001) return; // already correct
-    const player = playerRef.current as any;
-    if (player) {
-      try {
-        player.playbackRate = want;
-      } catch {}
+      return Number.isFinite(v) ? Math.min(4, Math.max(0.25, v)) : null;
+    } catch {
+      return null;
     }
-  }, [playbackRateState, streamData]);
-  // Treat a rate change as user intent only once they've interacted with the
-  // player at all (same latch as volume), then update the target + persist.
+  };
+  const rateUserSetRef = useRef(false);
+  // Apply the saved rate shortly after each media load (Vidstack has reset it by
+  // then). Re-runs per `streamData`; the timeout covers the post-load reset.
+  useEffect(() => {
+    rateUserSetRef.current = false; // new media → restore is allowed again
+    const want = savedRate();
+    if (want == null) return;
+    const apply = () => {
+      const player = playerRef.current as any;
+      if (player && !rateUserSetRef.current) {
+        try {
+          if (Math.abs((player.playbackRate ?? 1) - want) > 0.001) {
+            player.playbackRate = want;
+          }
+        } catch {}
+      }
+    };
+    apply();
+    // A couple of delayed re-applies catch Vidstack's reset-to-1× after load,
+    // then we stop (no continuous watcher → no oscillation).
+    const ids = [
+      window.setTimeout(apply, 400),
+      window.setTimeout(apply, 1200),
+    ];
+    return () => ids.forEach((id) => window.clearTimeout(id));
+  }, [streamData]);
+  // Persist the user's chosen rate. Gated on real interaction (volArmedRef) and
+  // flags `rateUserSetRef` so the restore above stops touching this media.
   useEffect(() => {
     if (!volArmedRef.current) return;
     if (typeof playbackRateState !== "number" || playbackRateState <= 0) return;
     const clamped = Math.min(4, Math.max(0.25, playbackRateState));
-    // Ignore the echo of our own restore (state already equals the target).
-    if (
-      rateTargetRef.current != null &&
-      Math.abs(clamped - rateTargetRef.current) < 0.001
-    )
-      return;
-    rateTargetRef.current = clamped;
+    if (Math.abs(clamped - (savedRate() ?? 1)) < 0.001) return; // no real change
+    rateUserSetRef.current = true;
     try {
       localStorage.setItem("aniscroll:playbackRate", String(clamped));
     } catch {}
