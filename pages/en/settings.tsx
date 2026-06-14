@@ -170,7 +170,7 @@ function SettingsNav({
   };
   return (
     <nav
-      className="hidden md:flex flex-col gap-1 fixed left-[max(1rem,calc((100vw-48rem)/2-16rem))] top-44 z-30 max-h-[calc(100vh-12rem)] overflow-y-auto"
+      className="hidden md:flex flex-col fixed left-[max(1rem,calc((100vw-48rem)/2-19rem))] top-44 z-30 max-h-[calc(100vh-12rem)] overflow-y-auto divide-y divide-white/10"
       style={{ width: SIDEBAR_WIDTH }}
     >
       {sections.map(({ id, labelKey, Icon }) => {
@@ -180,13 +180,11 @@ function SettingsNav({
             key={id}
             type="button"
             onClick={() => go(id)}
-            className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-left transition-colors ${
-              selected
-                ? "bg-action/15 text-white ring-1 ring-action/40"
-                : "text-white/60 hover:text-white hover:bg-white/5"
+            className={`flex items-center gap-3 px-3 py-3 text-sm text-left transition-colors ${
+              selected ? "text-action" : "text-white/60 hover:text-white"
             }`}
           >
-            <Icon className={`w-5 h-5 shrink-0 ${selected ? "text-action" : ""}`} />
+            <Icon className="w-5 h-5 shrink-0" />
             <span className="truncate">{t(labelKey)}</span>
           </button>
         );
