@@ -7,6 +7,33 @@ Ordre anti-chronologique (le plus récent en haut). Une entrée = une session/su
 
 ---
 
+## 2026-06-14 (suite 3) — Refonte settings (rail fixe), suppression liste, toggles notifs, override liste à la connexion, Sync Threshold, fix popup rating, Browsing (watch/info + hide spoilers)
+
+### Contexte
+Gros lot de réglages + refonte de la page settings. Demandes successives dans une même session.
+
+### Décisions prises
+1. **Suppression de la liste locale** : déplacée de la page My List **vers les Paramètres** (section « Ma liste »), bouton rouge + **modale de confirmation** (même style que la confirm sync), appelle `clearLocalList()` existant. Pas de bouton sur My List.
+2. **Notifications de suites = COMPLETED uniquement** : c'était **déjà le cas** (`computeNotifications.ts` filtre `status === "COMPLETED"`). Aucun changement. L'utilisateur a confirmé « statut COMPLETED suffit » (pas besoin de progress = total).
+3. **Override de la liste locale à la connexion** : `fullSyncFromAniList({ replace })`. `replace:true` = **hard override** (jette tout le local, écrit AniList verbatim) utilisé quand on **active** le toggle sync (`enableSync`). `replace:false` (défaut) = réconciliation non-destructive (resync de fond dans `_app.tsx` + bouton « Resync now »). Déclencheur = activation du toggle, **pas** la simple connexion (choix user « seulement si sync activé »). `signOut` ne touche jamais `aniscroll:localList`.
+4. **Refonte UI settings** : rail latéral gauche **`position: fixed`** pleine hauteur (style doc Jikan), scroll-spy `IntersectionObserver` + smooth-scroll au clic. Itérations de style : pas de fond/bordure (discret), positionné `top-44` près du contenu centré (offset calculé `calc((100vw-48rem)/2 - …)`), texte actif en **rose** (`text-action`, sans ring/bg), label « Liste et Synchronisation AniList » en entier (rail élargi 260px + wrap). **Séparateurs entre les SECTIONS de contenu** (`divide-y` sur le wrapper, `py-10` par section), pas dans le rail. Titre centré, `pt-28`.
+5. **Toggles de notifications** : nouveau `lib/prefs/notifPrefs.ts` (newEpisode / nextSeason / resume, défaut on). `computeNotifications` gate chaque type sur son toggle (et évite les fetch réseau quand off) ; `useNotifications` recalcule sur `NOTIF_PREFS_EVENT`. Section « Notifications » (icône cloche).
+6. **Sync Threshold** : `syncPrefs.syncThreshold` (0–100%, défaut 80%, clampé). Slider compact à droite dans la section sync, placé juste sous « Mettre à jour la progression » (définit *quand* la progression compte). Dans `UniversalPlayer`, `onTimeUpdate` déclenche `onEpisodeComplete` (progress +1 / push AniList) dès que `currentTime/duration >= threshold`, **une seule fois** par montage (flag `completeFired` partagé avec `onEnded`).
+7. **Fix popup de rating trop tôt** (`SkipOverlay.tsx`) : passage d'un seuil **%** (88%/95%) à un **temps restant fixe** : ~90s (séries) / ~45s (films/OVA), avec plancher 85% pour les clips très courts. Uniforme quel que soit le runtime (15min / 24min / film 2h).
+8. **Toggles sync utilisables hors connexion** : auto-progress / auto-watching / auto-pause + délai ne sont **plus grisés** quand déconnecté (ils agissent sur la liste LOCALE ; seul le PUSH AniList est gated). Seul le master toggle « Activer la sync AniList » reste `disabled={!isLoggedIn}`.
+9. **Section Browsing** (du tableau de réglages fourni) :
+   - **Watch or Info Page** : `lib/prefs/clickTarget.ts` (`info` défaut | `watch`), helper `animeHref(id, target)`. `watch` → URL megaplay ep1 (`/en/anime/watch/{id}/megaplay?id=megaplay-{id}-1&num=1`). Branché partout où une card mène à un anime : `AnimeCard` (orphelin, inutilisé en fait), home `content.tsx`, trending/popular/recent, **page schedule** (`pages/en/schedule/index.tsx`, PAS le widget `components/home/schedule.js`), Related/Recommendations (page info), my-list + **QueueSection**, profil, search/saison. Liens manga inchangés.
+   - **Hide Spoilers** : `lib/prefs/spoilerPrefs.ts`. Floute vignettes + remplace titres/descriptions d'épisodes par « Episode N ». Câblé dans les `viewMode/*` ET surtout **`components/anime/v2/Episodes.tsx`** (le vrai rendu de la page info : detailed/compact/grid) + `episodeLists.tsx` (lecteur).
+
+### Leçons / pièges
+- **Pas de dossier `pages/fr/`** : `/fr/...` et `/en/...` rendent les **mêmes fichiers** `pages/en/*` (rewrite i18n). Un bug « sur /fr » se corrige dans le fichier `/en` correspondant.
+- **Deux composants « schedule »** : `components/home/schedule.js` = widget d'accueil ; `pages/en/schedule/index.tsx` = la page `/schedule`. Modifier le bon.
+- **Page info = `Episodes.tsx` v2**, pas les `viewMode/*` (ceux-ci servent ailleurs). Toujours vérifier quel composant rend réellement avant de câbler une pref.
+- `fullSyncFromAniList` était **non-destructif par design** (garde progress local en avance + entrées local-only) ; l'override « vrai » nécessitait un flag explicite, ne pas confondre avec le resync.
+- `AnimeCard.tsx` est un composant **orphelin** (grep : utilisé nulle part) — les cards réelles sont dans `content.tsx` etc.
+
+---
+
 ## 2026-06-14 (suite 2) — OG net (2×) + cache-bust, z-index bannière profil, « locked » → « indisponible »
 
 ### Décisions prises
