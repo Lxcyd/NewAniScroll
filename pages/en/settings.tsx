@@ -155,7 +155,7 @@ const SECTIONS: SectionDef[] = [
    section currently in view (scroll-spy via IntersectionObserver) and
    smooth-scrolls to a section on click. Hidden on small screens, where the
    sections just stack. */
-const SIDEBAR_WIDTH = 240; // px — kept in sync with the content's left margin
+const SIDEBAR_WIDTH = 260; // px — kept in sync with the content's left margin
 
 function SettingsNav({
   sections,
@@ -170,7 +170,7 @@ function SettingsNav({
   };
   return (
     <nav
-      className="hidden md:flex flex-col gap-1 fixed left-[max(1rem,calc((100vw-48rem)/2-19rem))] top-44 z-30 max-h-[calc(100vh-12rem)] overflow-y-auto"
+      className="hidden md:flex flex-col gap-1 fixed left-[max(1rem,calc((100vw-48rem)/2-20.25rem))] top-44 z-30 max-h-[calc(100vh-12rem)] overflow-y-auto"
       style={{ width: SIDEBAR_WIDTH }}
     >
       {sections.map(({ id, labelKey, Icon }) => {
@@ -180,12 +180,12 @@ function SettingsNav({
             key={id}
             type="button"
             onClick={() => go(id)}
-            className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-left transition-colors ${
+            className={`flex items-start gap-3 px-3 py-2 rounded-lg text-sm text-left transition-colors ${
               selected ? "text-action" : "text-white/60 hover:text-white hover:bg-white/5"
             }`}
           >
-            <Icon className="w-5 h-5 shrink-0" />
-            <span className="truncate">{t(labelKey)}</span>
+            <Icon className="w-5 h-5 shrink-0 mt-0.5" />
+            <span>{t(labelKey)}</span>
           </button>
         );
       })}
