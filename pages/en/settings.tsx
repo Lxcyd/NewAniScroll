@@ -165,7 +165,7 @@ function SettingsNav({
     document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
   return (
-    <nav className="hidden md:flex flex-col gap-1 sticky top-24 self-start">
+    <nav className="hidden md:flex flex-col gap-1 sticky top-24 self-start max-h-[calc(100vh-7rem)] overflow-y-auto">
       {sections.map(({ id, labelKey, Icon }) => {
         const selected = active === id;
         return (
@@ -537,9 +537,9 @@ export default function Settings() {
         exit={{ opacity: 0 }}
         className="flex flex-col items-center min-h-screen md:py-0 py-16"
       >
-        <div className="max-w-screen-lg w-full px-4 py-10">
-          <h1 className="text-4xl font-bold mb-2">{t("settings.title")}</h1>
-          <p className="text-white/60 mb-10">
+        <div className="max-w-screen-lg w-full px-4 pt-28 pb-10">
+          <h1 className="text-4xl font-bold mb-2 text-center">{t("settings.title")}</h1>
+          <p className="text-white/60 mb-12 text-center">
             {t("settings.storedLocally")}
           </p>
 
