@@ -7,6 +7,32 @@ Ordre anti-chronologique (le plus récent en haut). Une entrée = une session/su
 
 ---
 
+## 2026-06-15 — Fix surconsommation CPU Vercel (Fluid Active CPU 4h54/4h)
+
+### Contexte
+Dashboard Vercel : `aniscroll` = 98,3 % du quota Fluid Active CPU (4h49m / mois), dépassement. Courbe = baseline quotidien régulier (~10-16 min/j) + **pic isolé le 10 juin (~1h10 en une journée)**. Le « Fluid Active CPU » mesure le **temps CPU dans les fonctions serverless**, pas la bande passante.
+
+### Diagnostic (pas d'accès dashboard depuis la CLI — raisonné sur le code)
+- **Coupable = `/api/v2/source`** (1764+ lignes) : résolution de stream multi-providers + parsing **cheerio**, l'endpoint le plus CPU-lourd. Appelé en **fan-out de 15-30 POSTs par mount de page watch** (un par serveur, ×2 sur retry transitoire) — c.f. `pages/en/anime/watch/[...info].js` (`probe`/`runPool`). Sur cold cache → autant de scrapes cheerio. Le pic du 10 juin = vague de visiteurs sur un épisode fraîchement sorti (cold cache simultané) ou une vrille de retry.
+- **PAS la cause** (vérifié) : le proxy vidéo `m3u8` est porté par le **Worker Cloudflare** (`UniversalPlayer.tsx` PROXY_BASE hardcodé worker, pas le `/api/v2/proxy/m3u8` Vercel) ; `AnilistHealthBanner` déjà optimisé (poll 5 min + edge 300s) ; `bulk-refresh` borné 50 + admin-only ; dép `cron` orpheline (aucun `new CronJob`).
+- L'endpoint `source` avait DÉJÀ un cache Redis positif (300s) + négatif (sentinel `{"__nf":1}`, 120s) + le snapshot `/api/v2/availability` cross-visiteur. Mais **le client re-scrapait quand même** : `hydrateFromServer` ne faisait que colorier les chips (commentaire « do NOT add to cachedConfirmed ») → re-probe systématique de tout serveur connu-bon.
+
+### Décisions / fix (sur `dev`)
+1. **Faire confiance au snapshot availability** (`[...info].js`) : `hydrateFromServer` ajoute désormais les serveurs du snapshot à `cachedConfirmed` (donc exclus du fan-out) ET le pool est **awaité APRÈS** l'hydratation (`await hydrateFromServer()` avant de calculer `remaining`) — sinon le filtre ne voyait pas encore les confirmés (course). Résultat : un épisode populaire coûte **~0 scrape par visiteur après le 1er**. Compromis assumé : le prefetch source cache n'est plus seedé pour les serveurs trusted → cliquer un chip déclenche UN resolve à la demande (hit Redis positif si chaud, un scrape si froid) ; un snapshot périmé s'auto-corrige via `markFailed` à la sélection.
+2. **TTL cache négatif 120s → 600s** (`source/index.js` `SOURCE_NOTFOUND_TTL_S`) : un serveur sans source pour un épisode ne « revient » quasi jamais en quelques minutes ; 10 min écrasent la rafale de re-scrape cold-visit (le client ne persiste plus les échecs en sessionStorage, donc CE cache est le seul rempart).
+3. **`maxDuration: 15` sur `/api/v2/source`** : plafond dur qui tue une invocation en vrille (boucle de redirection, retries en cascade anti-bot) avant qu'elle brûle le budget Fluid — cause probable du pic du 10 juin. Les fetchs internes capent déjà à 3-5s, donc un resolve sain finit bien en-dessous.
+
+### Leçons / pièges
+- **Fluid Active CPU = temps CPU dans les fonctions**, pas le transfert. Un fan-out de scrapes cheerio le fait exploser ; le proxy vidéo (qui est sur Cloudflare) ne compte pas.
+- Un snapshot cross-visiteur qui ne fait que **peindre l'UI sans gater le travail** ne sert à rien côté coût : il faut qu'il **supprime** le re-scrape (`cachedConfirmed`), pas juste colorier.
+- Awaiter l'hydratation avant de calculer `remaining` est indispensable — sinon la course laisse passer tout le fan-out.
+
+### À vérifier en prod (dev → dev.aniscroll.com)
+- ⏳ Ouvrir un épisode déjà vu par quelqu'un → chips verts instantanés SANS rafale de POST `/api/v2/source` (DevTools Network) ; cliquer un chip trusted → un seul resolve.
+- ⏳ Surveiller la courbe Fluid sur quelques jours : le baseline quotidien doit chuter nettement.
+
+---
+
 ## 2026-06-14 (suite 3) — Refonte settings (rail fixe), suppression liste, toggles notifs, override liste à la connexion, Sync Threshold, fix popup rating, Browsing (watch/info + hide spoilers)
 
 ### Contexte
