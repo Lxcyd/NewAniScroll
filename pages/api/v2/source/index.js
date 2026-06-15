@@ -2508,17 +2508,6 @@ export default async function handler(req, res) {
   // consume() is a write and was needless quota burn during bulk runs.
   const isInternal = req.headers["x-warmer"] === "1";
 
-  if (redis && !isInternal) {
-    try {
-      const ipAddress = req.socket.remoteAddress;
-      await rateLimiterRedis.consume(ipAddress);
-    } catch (error) {
-      return res.status(429).json({
-        error: `Too Many Requests, retry after ${error.msBeforeNext / 1000}`,
-      });
-    }
-  }
-
   const { server, aniId, episode, sub = "sub", title, mediaMeta } = req.body;
 
   // The watch page's probe fan-out + active-source fetch send soft404:true —
@@ -2534,9 +2523,17 @@ export default async function handler(req, res) {
       ? res.status(204).end()
       : res.status(404).json({ error: msg || "Source not found" });
 
-  // Redis lookup — short-circuit identical (server, aniId, episode, sub)
-  // requests served within the last SOURCE_CACHE_TTL_S. The probe fan-out
-  // on the watch page sends 15-20 of these at once, every page load.
+  // Redis lookup FIRST — short-circuit identical (server, aniId, episode, sub)
+  // requests served within the last SOURCE_CACHE_TTL_S. The probe fan-out on
+  // the watch page sends a burst of these at once, every page load.
+  //
+  // ORDER MATTERS for Upstash command budget: the cache GET runs BEFORE the
+  // rate-limiter consume(). A cache hit is cheap and harmless, so it shouldn't
+  // pay the limiter's ~2-3 EVALSHA commands — on a popular episode (the Sunday
+  // traffic spike) the vast majority of probes hit the cache, so doing the
+  // limiter first multiplied our Redis command count 3-4× for nothing. The
+  // limiter only needs to gate the expensive scrape path (cache miss), so we
+  // consume() only after we know we're going to scrape.
   const cacheKey = sourceCacheKey({ server, aniId, episode, sub });
   const canCache = redis && server && aniId && episode != null;
   if (canCache) {
@@ -2559,6 +2556,21 @@ export default async function handler(req, res) {
       }
     } catch {
       /* non-fatal */
+    }
+  }
+
+  // Cache miss → we're about to do the expensive scrape. NOW gate it behind the
+  // per-IP rate limiter (consume() is a write: ~2-3 Redis commands). Cache hits
+  // above never reach this, so the limiter cost is only paid on the path that
+  // actually warrants protection.
+  if (redis && !isInternal) {
+    try {
+      const ipAddress = req.socket.remoteAddress;
+      await rateLimiterRedis.consume(ipAddress);
+    } catch (error) {
+      return res.status(429).json({
+        error: `Too Many Requests, retry after ${error.msBeforeNext / 1000}`,
+      });
     }
   }
 
