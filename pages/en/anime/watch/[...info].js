@@ -1183,9 +1183,22 @@ export default function Watch({
     // Server-side availability hydration: a cross-visitor snapshot of which
     // servers resolved for this (anime, episode, lang) last time anyone
     // watched it. Pre-marks the chips green at first paint even on a COLD
-    // visit (sessionStorage only helps within the same tab). The probes below
-    // still run to confirm/refresh — this just removes the blank-selector wait.
-    // A single Redis GET; failure is silently ignored.
+    // visit (sessionStorage only helps within the same tab). A single Redis
+    // GET; failure is silently ignored.
+    //
+    // CPU WIN: snapshot-confirmed servers are TRUSTED — we add them to
+    // cachedConfirmed so the probe fan-out below SKIPS them. /api/v2/source is
+    // by far the most CPU-expensive endpoint (multi-provider scrape + cheerio),
+    // and re-probing every known-good server on every visit was burning the
+    // bulk of our Vercel Fluid budget. The snapshot already tells us the server
+    // works; we don't re-scrape just to repaint a chip that's already green.
+    //
+    // Trade-off: the prefetch source cache isn't seeded for trusted servers, so
+    // clicking one fires a single /api/v2/source call (fast — Redis positive
+    // cache hit if warm, one scrape if cold). That single on-demand resolve is
+    // far cheaper than fan-out re-scraping every server up front. A stale
+    // snapshot self-corrects: the on-select fetch flips the chip via markFailed
+    // if the server is actually dead now.
     const hydrateFromServer = async () => {
       try {
         const r = await fetch(
@@ -1195,13 +1208,9 @@ export default function Watch({
         if (!r.ok) return;
         const { servers } = await r.json();
         if (cancelled || !Array.isArray(servers)) return;
-        // Only mark the chip green for instant feedback — do NOT add to
-        // cachedConfirmed, so the probe below still runs to CONFIRM the
-        // snapshot (it could be a few hours stale) and seed the stream-source
-        // prefetch cache (clicking the chip is then instant). A probe that
-        // comes back failed will flip the chip via markFailed, self-correcting
-        // a stale snapshot.
         for (const id of servers) {
+          // Trust the snapshot: paint the chip AND suppress the re-probe.
+          cachedConfirmed.add(id);
           if (typeof markConfirmed === "function") markConfirmed(id);
         }
       } catch {
@@ -1209,13 +1218,13 @@ export default function Watch({
       }
     };
 
-    // Kick the server-side hydration immediately, in parallel with the
-    // active-stream wait below — green chips appear as soon as the GET returns
-    // (~50ms) instead of after the probe pool. Not awaited: it only paints
-    // chips, it doesn't gate probing.
-    hydrateFromServer();
-
     (async () => {
+      // Await the snapshot BEFORE computing `remaining` so trusted servers are
+      // excluded from the scrape fan-out. The GET is a single fast Redis read
+      // (~50ms); gating the probe burst on it is what realises the CPU saving.
+      await hydrateFromServer();
+      if (cancelled) return;
+
       const remaining = toProbe.filter(
         (s) => !cachedConfirmed.has(s.id) && !cachedFailed.has(s.id),
       );

@@ -2476,13 +2476,17 @@ async function getConsumetStream(providerKey, title, episode, sub) {
 // positive entries — a hit is either parsed JSON we serve as 200, or the
 // sentinel we turn into 404.
 const SOURCE_CACHE_TTL_S = 300;
-// Negative cache: keep dead probes out of the scrape rotation for 2 min.
-// Going shorter quadruples the upstream rate to anti-bot hosts (sibnet
-// throttles harder when hit more often) without giving the user a better
-// experience — the watch page no longer persists failed probes to
-// sessionStorage, so a reload re-probes immediately on the client side
-// regardless of this TTL.
-const SOURCE_NOTFOUND_TTL_S = 120;
+// Negative cache: keep dead probes out of the scrape rotation for 10 min.
+// A server that has no source for an episode now (anti-bot reject, slug not
+// listed, episode not posted yet) almost never flips to available within a few
+// minutes, so a longer negative TTL collapses the cold-visit re-scrape storm —
+// the dominant CPU cost on a freshly-released popular episode where dozens of
+// visitors each fan out probes that all 404 the same dead servers. The client
+// no longer persists failed probes to sessionStorage, so the only thing
+// shielding the upstream from that storm is THIS cache; 2 min was too short to
+// cover the initial viewing wave. A genuinely transient miss self-heals after
+// the TTL with no user-visible difference (the chip just stays grey until then).
+const SOURCE_NOTFOUND_TTL_S = 600;
 const NOT_FOUND_SENTINEL = '{"__nf":1}';
 function sourceCacheKey({ server, aniId, episode, sub }) {
   // v10: Vidmoly now has a Fly-proxy tier 2 fallback. Worker-blocked
@@ -2660,3 +2664,14 @@ export default async function handler(req, res) {
 
   return res.status(400).json({ error: "Unknown server" });
 }
+
+// Hard ceiling on the most CPU-expensive endpoint in the API. The internal
+// fetches already cap at 3-5s each, so a healthy resolve finishes well under
+// this; the limit exists to KILL a runaway invocation (provider in a redirect
+// loop, cascading retries against a flapping anti-bot host) before it burns
+// the whole Fluid Active CPU budget — a single bad day of those is what spikes
+// the dashboard. 15s leaves room for the slowest legitimate multi-provider
+// resolve while still cutting the pathological ones short.
+export const config = {
+  maxDuration: 15,
+};
