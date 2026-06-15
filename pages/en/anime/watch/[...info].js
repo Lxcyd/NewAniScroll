@@ -1219,24 +1219,13 @@ export default function Watch({
     };
 
     (async () => {
-      // Await the snapshot BEFORE computing `remaining` so trusted servers are
-      // excluded from the scrape fan-out. The GET is a single fast Redis read
-      // (~50ms); gating the probe burst on it is what realises the CPU saving.
-      await hydrateFromServer();
-      if (cancelled) return;
+      // Kick the snapshot GET now but DON'T block on it yet — it overlaps the
+      // active-stream wait + start delay below (both run anyway), so the
+      // trusted-server set is ready by the time we compute `remaining` without
+      // adding any latency in front of the probe burst.
+      const hydrated = hydrateFromServer();
 
-      const remaining = toProbe.filter(
-        (s) => !cachedConfirmed.has(s.id) && !cachedFailed.has(s.id),
-      );
-
-      // 1) The active server's source is fetched by fetchStreamSource (its own
-      //    effect, priority:"high") — that lights its chip via markConfirmed.
-      //    We DON'T separately probe it here: that was a duplicate /api/v2/source
-      //    round-trip competing with the very request the player waits on.
-      const activeIdx = remaining.findIndex((s) => s.id === activeServer);
-      if (activeIdx >= 0) remaining.splice(activeIdx, 1);
-
-      // 2) Hold the background fan-out until the ACTIVE stream's source has
+      // 1) Hold the background fan-out until the ACTIVE stream's source has
       //    settled, so the player's own request owns the (small) connection
       //    pool first. Poll the ref with a hard ceiling so a hung active
       //    source never blocks the selector indefinitely.
@@ -1255,6 +1244,24 @@ export default function Watch({
       // head-start before the probe burst hits the pool.
       await new Promise((r) => setTimeout(r, PROBE_START_DELAY_MS));
       if (cancelled) return;
+
+      // Snapshot must be settled before computing `remaining` so trusted
+      // servers are excluded from the fan-out — it almost always finished
+      // during the waits above, so this await is effectively free.
+      await hydrated;
+      if (cancelled) return;
+
+      const remaining = toProbe.filter(
+        (s) => !cachedConfirmed.has(s.id) && !cachedFailed.has(s.id),
+      );
+
+      // 2) The active server's source is fetched by fetchStreamSource (its own
+      //    effect, priority:"high") — that lights its chip via markConfirmed.
+      //    We DON'T separately probe it here: that was a duplicate /api/v2/source
+      //    round-trip competing with the very request the player waits on.
+      const activeIdx = remaining.findIndex((s) => s.id === activeServer);
+      if (activeIdx >= 0) remaining.splice(activeIdx, 1);
+
       await runPool(remaining, MAX_CONCURRENT);
 
       // Publish the confirmed-server snapshot so the NEXT visitor's chips
