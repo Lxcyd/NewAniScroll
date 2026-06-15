@@ -1294,81 +1294,14 @@ export default function Watch({
   }, [info?.id, epiNumber, dub]);
 
   // ── Iframe-type validators ─────────────────────────────────
-  // Some iframe hosts (Megaplay, 4Animo) serve a 200 HTML error page when the
-  // requested episode doesn't exist — the iframe itself loads fine, so our
-  // load-timeout never triggers. They expose CORS wildcard though, so we can
-  // fetch their HTML client-side and detect known error markers.
-  useEffect(() => {
-    if (!info?.id || !epiNumber) return;
-    const SERVERS = require("@/lib/servers").default;
-    const dubFlag = !!dub;
-
-    // Iframe-type validators were used for Megaplay/4Animo but both servers
-    // are now removed (Megaplay is type:"api" with its own extractor; 4Animo
-    // was retired). Keeping the structure as an empty map in case a future
-    // iframe server needs the same kind of HTML-content sanity check.
-    const validators = {};
-
-    const controller = new AbortController();
-    let cancelled = false;
-
-    // Same retry semantics as the main probe: transient errors (5xx, network)
-    // get a 3s second chance; only a hard 404 or repeated failure marks the
-    // server unavailable.
-    const RETRY_DELAY_MS = 3000;
-
-    // Returns "ok" | "retry" | "fail-404" | "fail-content" | "abort"
-    const attempt = async (cfg) => {
-      try {
-        const res = await fetch(cfg.url, {
-          method: "GET",
-          mode: "cors",
-          signal: controller.signal,
-        });
-        if (res.status === 404) return "fail-404";
-        if (!res.ok) return "retry";
-        const html = await res.text();
-        if (cfg.badMarkers.some((m) => html.includes(m))) return "fail-content";
-        return "ok";
-      } catch (e) {
-        if (e?.name === "AbortError") return "abort";
-        return "retry";
-      }
-    };
-
-    const validate = async (serverId, cfg) => {
-      if (!SERVERS.find((s) => s.id === serverId)) return;
-
-      const first = await attempt(cfg);
-      if (first === "abort" || cancelled) return;
-      if (first === "ok") return markConfirmed(serverId);
-      if (first === "fail-404") return markFailed(serverId, "HTTP 404");
-      if (first === "fail-content") return markFailed(serverId, "Episode not available");
-
-      await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
-      if (cancelled || controller.signal.aborted) return;
-
-      const second = await attempt(cfg);
-      if (second === "abort" || cancelled) return;
-      if (second === "ok") return markConfirmed(serverId);
-      if (second === "fail-404") return markFailed(serverId, "HTTP 404");
-      if (second === "fail-content") return markFailed(serverId, "Episode not available");
-      // Two transient failures — let the iframe load attempt itself decide
-      // (CORS error specifically: leaving unconfirmed without marking failed
-      // means an iframe-typed server stays visible by default; if its load
-      // also times out the runtime markFailed will catch it).
-    };
-
-    Object.entries(validators).forEach(([id, cfg]) => {
-      if (!cancelled) validate(id, cfg);
-    });
-
-    return () => {
-      cancelled = true;
-      controller.abort();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [info?.id, epiNumber, dub]);
+  // Historically some iframe hosts (Megaplay, 4Animo) served a 200 HTML error
+  // page when the episode didn't exist — the iframe loaded fine so our timeout
+  // never fired, and a client-side HTML fetch + bad-marker check caught them.
+  // Both servers are gone now (Megaplay is type:"api" with its own extractor;
+  // 4Animo was retired), so there are no validators to run and the effect was
+  // a no-op (empty map). Removed. If a future iframe server needs the same
+  // HTML sanity check, reinstate the attempt/validate retry loop here (its
+  // semantics mirror the main probe above).
 
   // ── Server change handler ──────────────────────────────────
   const handleServerChange = useCallback((serverId) => {
