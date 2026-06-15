@@ -7,6 +7,28 @@ Ordre anti-chronologique (le plus récent en haut). Une entrée = une session/su
 
 ---
 
+## 2026-06-15 (suite) — Fix surconsommation Redis Upstash (aniscroll-cache)
+
+### Contexte
+Dashboard Upstash `aniscroll-cache` : « Daily Commands by Regions » (eu-west-1) plat jeu/ven/sam puis **pic dimanche ~600k commandes + lundi ~400k** (idem bandwidth). C'est le Redis, pas Vercel. Profil = **événement week-end** (épisode populaire sorti → vague de visiteurs), pas un usage de fond.
+
+### Diagnostic
+- Commandes Redis par mount de page watch : `/api/v2/availability` GET (1) + au POST final SET-NX guard (+GET/SET merge, mais collapse à ~1 write/10min) + **`/api/v2/source` × N probes**. Chaque probe = `rateLimiterRedis.consume()` (**~2-3 commandes EVALSHA**, c'est une écriture) + `redis.get(cacheKey)` (1).
+- **Bug d'ordre** : dans `source/index.js`, `consume()` tournait **AVANT** le check de cache. Donc même un **hit de cache** coûtait ~3 commandes. Sur un épisode populaire (la majorité des probes tapent le cache), le limiter multipliait le compte de commandes **3-4×** pour rien.
+- Les scripts de masse (`warm-cache.mjs` etc.) envoient `X-Warmer: 1` → rate-limiter + availability POST skippés → relativement propres, pas la cause. Le pic = **trafic réel**.
+
+### Décision / fix (`dev`)
+- **Inversé l'ordre dans `/api/v2/source`** : `redis.get(cacheKey)` D'ABORD ; `rateLimiterRedis.consume()` seulement sur **cache MISS** (le chemin qui déclenche le scrape coûteux et mérite la protection). Un hit de cache = **1 commande** au lieu de ~4. Combiné au skip des serveurs trusted (fix précédent), le pic week-end doit nettement baisser.
+
+### Leçons / pièges
+- **`rate-limiter-flexible` `.consume()` = écriture Redis (~2-3 commandes Lua), pas gratuit.** Ne jamais le mettre avant le cache : protéger le travail coûteux, pas les hits de cache. Sur une route à fan-out massif c'est un multiplicateur ×3-4 du compte de commandes Upstash.
+- Upstash facture/quota au **nombre de commandes** — réduire les commandes/requête sur le chemin chaud (cache-hit) prime sur tout.
+
+### À vérifier
+- ⏳ Surveiller « Daily Commands » Upstash après le prochain week-end : le pic doit être divisé (cache-hits passés de ~4 à 1 commande).
+
+---
+
 ## 2026-06-15 — Fix surconsommation CPU Vercel (Fluid Active CPU 4h54/4h)
 
 ### Contexte
