@@ -7,6 +7,32 @@ Ordre anti-chronologique (le plus récent en haut). Une entrée = une session/su
 
 ---
 
+## 2026-06-20 — CPU Fluid encore à 4h53/4h : single-flight + snapshot des absences
+
+### Contexte
+Dashboard Vercel toujours en dépassement (`aniscroll` 4h53 / 4h). La courbe = baseline quotidien OK + **un pic isolé le 9 juin (~1h6m)**. Or les fixes du 15 juin sont **postérieurs** au pic → le dépassement mensuel traîne surtout le résidu du 9 ; le vrai test = la courbe post-15. Mais deux fuites structurelles restaient sur le chemin chaud (`/api/v2/source`, l'endpoint le plus CPU-lourd : scrape multi-provider + cheerio).
+
+### Diagnostic
+- **Pas de single-flight.** Sur un épisode froid populaire, des dizaines de visiteurs probent le MÊME `(server, episode)` en parallèle. Le cache Redis n'est peuplé qu'APRÈS le 1er retour → chaque requête concurrente lançait son PROPRE scrape. N scrapes identiques pour 1 résultat = la forme exacte du « pic ».
+- **Les absences n'étaient pas mémorisées.** Le snapshot `/api/v2/availability` ne stockait que les serveurs CONFIRMÉS. Les serveurs sans source (~la moitié, par design) n'y figuraient jamais → re-probés par CHAQUE visiteur → un scrape `/api/v2/source` à chaque fois que le cache négatif (600s) avait expiré (typique d'un nouvel épisode). C'est le gros du CPU de fond restant.
+- **Écarté : filtrer le fan-out par langue.** Le sélecteur (`serverSelector.js`) affiche les 3 groupes (multi/VO/VF) simultanément ; couper le probe par langue masquerait des serveurs réellement proposés. Abandonné.
+
+### Décisions / fix (`dev`)
+1. **Single-flight Redis** (`source/index.js`) : sur cache MISS, `SET NX EX 20` sur `lock:<cacheKey>`. Le détenteur (leader) scrape ; les concurrents (followers) **poll le cache** (budget 6s, `LOCK_POLL_MS` 150ms) et servent le résultat du leader. Lock libéré **après** que l'écriture cache ait atterri (sinon un follower verrait le lock parti avant le résultat → scraperait). Fallback : si le leader timeout (upstream lent / crash → lock expire), le follower scrape lui-même → jamais de deadlock. Skippé si caching off.
+2. **Snapshot des absences** (`availability.js` + `[...info].js`) : le snapshot passe de `[...]` à `{ ok:[…], absent:[…] }` (rétrocompat lecture de l'ancien tableau, auto-retiré au prochain POST). Le client hydrate les `absent` dans `cachedFailed` → **probe SKIPPÉ** pour les serveurs connus-vides. Publié seulement à partir des **404 STABLES** (`confirmedAbsent`, set distinct de `cachedFailed` qui mélange transitoires) — un rejet anti-bot transitoire ne doit JAMAIS être publié comme absence permanente (sinon host masqué 6h). Merge serveur : verdict le plus récent gagne par id (un host qui revient quitte `absent`).
+
+### Leçons / pièges
+- **Le cache Redis ne fait PAS office de single-flight.** Il n'aide qu'après le 1er retour ; la rafale concurrente froide passe à travers. Il faut un verrou explicite pour collapser N→1.
+- **Ne jamais publier un échec TRANSITOIRE comme absence durable.** `cachedFailed` mélange 404-stable et anti-bot-flaky ; seuls les `fail-404` vont dans `confirmedAbsent`. Le double-fail transitoire reste local.
+- Libérer le lock **après** l'écriture cache (`write.finally(release)`), pas en fire-and-forget parallèle, sinon fenêtre de course où un follower re-scrape.
+
+### À vérifier en prod
+- ⏳ Courbe Fluid post-20 juin : le baseline doit chuter (absences plus re-scrapées) ET le pic week-end s'aplatir (single-flight).
+- ⏳ DevTools sur un épisode déjà vu : aucun POST `/api/v2/source` pour les serveurs vides (avant : ~la moitié partaient quand même).
+- `tsc` + `next lint` clean sur les 3 fichiers.
+
+---
+
 ## 2026-06-15 (suite) — Fix surconsommation Redis Upstash (aniscroll-cache)
 
 ### Contexte

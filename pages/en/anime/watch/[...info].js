@@ -1031,6 +1031,12 @@ export default function Watch({
     // reload. Failures we see DURING this mount still get tracked here so
     // episode navigation doesn't re-probe known-failed servers.
     const cachedFailed = new Set();
+    // STABLE absences only (server returned a hard 404/204 = no source for this
+    // episode). Kept apart from cachedFailed, which also holds TRANSIENT
+    // failures (anti-bot rejects that flip to OK next time). Only stable
+    // absences are published to the availability snapshot — persisting a
+    // transient one would wrongly hide a working host for 6h (the snapshot TTL).
+    const confirmedAbsent = new Set();
     // Save back to sessionStorage as confirmations come in. Failed probes
     // are intentionally not persisted (see comment above).
     const persistProbeCache = () => {
@@ -1135,6 +1141,7 @@ export default function Watch({
       }
       if (first.v === "fail-404") {
         cachedFailed.add(s.id);
+        confirmedAbsent.add(s.id);
         persistProbeCache();
         return markFailed(s.id, "Source not found");
       }
@@ -1154,10 +1161,13 @@ export default function Watch({
       }
       if (second.v === "fail-404") {
         cachedFailed.add(s.id);
+        confirmedAbsent.add(s.id);
         persistProbeCache();
         return markFailed(s.id, "Source not found");
       }
-      // Two transient failures in a row — call it broken.
+      // Two transient failures in a row — call it broken. NOT added to
+      // confirmedAbsent: transient anti-bot failures must not be published as a
+      // permanent absence (would hide a working host for the snapshot's TTL).
       cachedFailed.add(s.id);
       persistProbeCache();
       markFailed(s.id, "Source unavailable");
@@ -1206,12 +1216,21 @@ export default function Watch({
           { signal: controller.signal },
         );
         if (!r.ok) return;
-        const { servers } = await r.json();
-        if (cancelled || !Array.isArray(servers)) return;
-        for (const id of servers) {
-          // Trust the snapshot: paint the chip AND suppress the re-probe.
-          cachedConfirmed.add(id);
-          if (typeof markConfirmed === "function") markConfirmed(id);
+        const { servers, absent } = await r.json();
+        if (cancelled) return;
+        if (Array.isArray(servers)) {
+          for (const id of servers) {
+            // Trust the snapshot: paint the chip AND suppress the re-probe.
+            cachedConfirmed.add(id);
+            if (typeof markConfirmed === "function") markConfirmed(id);
+          }
+        }
+        if (Array.isArray(absent)) {
+          // Servers known to have NO source for this episode: skip the probe
+          // entirely instead of re-scraping to rediscover they're absent. We do
+          // NOT call markFailed — an absent server simply stays hidden in the
+          // selector (same as a never-confirmed one), which is its current UX.
+          for (const id of absent) cachedFailed.add(id);
         }
       } catch {
         /* offline / aborted — fall through to the normal probe fan-out */
@@ -1268,7 +1287,7 @@ export default function Watch({
       // light up instantly (server-side availability cache). Fire-and-forget,
       // never blocks anything; the endpoint collapses concurrent writes so a
       // popular episode costs ~1 Redis write regardless of viewer count.
-      if (!cancelled && cachedConfirmed.size > 0) {
+      if (!cancelled && (cachedConfirmed.size > 0 || confirmedAbsent.size > 0)) {
         try {
           fetch("/api/v2/availability", {
             method: "POST",
@@ -1278,6 +1297,9 @@ export default function Watch({
               episode: parseInt(epiNumber),
               sub,
               servers: Array.from(cachedConfirmed),
+              // Stable absences too → the next visitor skips probing these
+              // entirely instead of re-scraping to rediscover they're empty.
+              absent: Array.from(confirmedAbsent),
             }),
             keepalive: true,
             priority: "low",

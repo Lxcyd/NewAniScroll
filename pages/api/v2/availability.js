@@ -3,17 +3,24 @@ import { redis } from "@/lib/redis";
 /**
  * Per-episode player availability cache.
  *
- * The watch page lights its server-selector chips by fanning out ~15-20 probes
- * to /api/v2/source — every visitor, every episode. This endpoint remembers
- * WHICH servers resolved for an (aniId, episode, sub) so the next visitor sees
- * the green chips instantly, before any probe returns. It stores ONLY the list
- * of confirmed server ids — never the stream URLs (those carry IP/time-bound
- * CDN tokens that expire in 1-4h; re-serving a stale one would be a dead
- * player). The probes still run to refresh/extend the snapshot, but the user no
- * longer stares at a blank selector on a cold visit.
+ * The watch page lights its server-selector chips by fanning out probes to
+ * /api/v2/source — every visitor, every episode. This endpoint remembers the
+ * resolution VERDICT of each server for an (aniId, episode, sub) so the next
+ * visitor reuses it instead of re-scraping. It stores ONLY server ids + their
+ * verdict — never the stream URLs (those carry IP/time-bound CDN tokens that
+ * expire in 1-4h; re-serving a stale one would be a dead player).
  *
- *   GET  ?aniId=&episode=&sub=sub|dub        → { servers: [...], cached: bool }
- *   POST { aniId, episode, sub, servers:[…] } → merges the confirmed set
+ * Two verdict sets are kept:
+ *   - ok[]     : servers that resolved → chip painted green, probe SKIPPED.
+ *   - absent[] : servers that have NO source for this episode (the ~half that
+ *                404 by design). Previously these were NOT remembered, so every
+ *                visitor re-probed them → a /api/v2/source scrape each time the
+ *                negative cache had expired (e.g. a freshly-released episode).
+ *                Remembering them lets a returning visitor skip those probes
+ *                entirely — this is the bulk of the steady-state CPU saving.
+ *
+ *   GET  ?aniId=&episode=&sub=sub|dub        → { servers:[…], absent:[…], cached }
+ *   POST { aniId, episode, sub, servers:[…], absent:[…] } → merges both sets
  *
  * Quota discipline (Upstash command budget):
  *   - GET is a single Redis GET.
@@ -32,6 +39,35 @@ function key(aniId, episode, sub) {
   return `avail:v1:${aniId}:${episode}:${s}`;
 }
 
+// Parse a stored snapshot into { ok, absent }. Two on-disk shapes coexist:
+//   - legacy: a bare array of confirmed ids  → { ok: [...], absent: [] }
+//   - current: { ok:[…], absent:[…] }
+// Legacy entries age out within TTL_S (6h) and get rewritten in the new shape
+// on the next POST, so this compat path is self-retiring.
+function parseSnapshot(raw) {
+  if (!raw) return { ok: [], absent: [] };
+  try {
+    const v = JSON.parse(raw);
+    if (Array.isArray(v)) return { ok: v, absent: [] };
+    return {
+      ok: Array.isArray(v?.ok) ? v.ok : [],
+      absent: Array.isArray(v?.absent) ? v.absent : [],
+    };
+  } catch {
+    return { ok: [], absent: [] };
+  }
+}
+
+const SERVER_ID_RE = /^[a-z0-9-]{1,40}$/i;
+const cleanIds = (arr) =>
+  Array.isArray(arr)
+    ? [
+        ...new Set(
+          arr.filter((s) => typeof s === "string" && SERVER_ID_RE.test(s)),
+        ),
+      ].slice(0, 40)
+    : [];
+
 export default async function handler(req, res) {
   if (!redis) {
     // No cache layer configured — behave as a permanent miss so the client
@@ -49,32 +85,29 @@ export default async function handler(req, res) {
     }
     try {
       const raw = await redis.get(key(aniId, episode, sub));
-      const servers = raw ? JSON.parse(raw) : [];
+      const { ok, absent } = parseSnapshot(raw);
       // Short browser/edge cache: identical for everyone, and the client also
       // keeps re-probing, so a few minutes of staleness is harmless.
       res.setHeader("Cache-Control", "public, max-age=60, s-maxage=300");
-      return res.status(200).json({ servers, cached: !!raw });
+      // `servers` keeps the original field name (= confirmed/ok) for any older
+      // client; `absent` is additive so a stale client just ignores it.
+      return res.status(200).json({ servers: ok, absent, cached: !!raw });
     } catch {
-      return res.status(200).json({ servers: [], cached: false });
+      return res.status(200).json({ servers: [], absent: [], cached: false });
     }
   }
 
   if (req.method === "POST") {
     // Never let the warmer/crons write availability.
     if (req.headers["x-warmer"] === "1") return res.status(204).end();
-    const { aniId, episode, sub = "sub", servers } = req.body || {};
-    if (!aniId || episode == null || !Array.isArray(servers)) {
-      return res.status(400).json({ error: "aniId, episode, servers[] required" });
+    const { aniId, episode, sub = "sub", servers, absent } = req.body || {};
+    if (!aniId || episode == null || (!Array.isArray(servers) && !Array.isArray(absent))) {
+      return res.status(400).json({ error: "aniId, episode, and servers[] or absent[] required" });
     }
     // Sanitise: short, known-shaped server ids only (defensive — body is public).
-    const clean = [
-      ...new Set(
-        servers
-          .filter((s) => typeof s === "string" && /^[a-z0-9-]{1,40}$/i.test(s))
-          .slice(0, 40),
-      ),
-    ];
-    if (clean.length === 0) return res.status(204).end();
+    const cleanOk = cleanIds(servers);
+    const cleanAbsent = cleanIds(absent);
+    if (cleanOk.length === 0 && cleanAbsent.length === 0) return res.status(204).end();
 
     const k = key(aniId, episode, sub);
     try {
@@ -83,16 +116,23 @@ export default async function handler(req, res) {
       const guardKey = `${k}:w`;
       const claimed = await redis.set(guardKey, "1", "EX", WRITE_GUARD_S, "NX");
       if (!claimed) return res.status(204).end(); // someone wrote recently
-      // Merge with any existing snapshot so we accumulate confirmations across
+      // Merge with any existing snapshot so we accumulate verdicts across
       // visitors rather than clobbering (different visitors may confirm
-      // different hosts depending on transient anti-bot luck).
-      let merged = clean;
-      try {
-        const prev = await redis.get(k);
-        if (prev) merged = [...new Set([...JSON.parse(prev), ...clean])].slice(0, 40);
-      } catch {}
+      // different hosts depending on transient anti-bot luck). The NEWEST
+      // verdict per id wins: a server now confirmed leaves the absent set, and
+      // one now absent leaves the ok set — so a host coming back online (or
+      // going dead) self-corrects on the next write.
+      const prev = parseSnapshot(await redis.get(k).catch(() => null));
+      const okSet = new Set([...prev.ok, ...cleanOk]);
+      const absentSet = new Set([...prev.absent, ...cleanAbsent]);
+      for (const id of cleanOk) absentSet.delete(id);
+      for (const id of cleanAbsent) okSet.delete(id);
+      const merged = {
+        ok: [...okSet].slice(0, 40),
+        absent: [...absentSet].slice(0, 40),
+      };
       await redis.set(k, JSON.stringify(merged), "EX", TTL_S);
-      return res.status(200).json({ stored: merged.length });
+      return res.status(200).json({ stored: merged.ok.length + merged.absent.length });
     } catch {
       return res.status(204).end();
     }
