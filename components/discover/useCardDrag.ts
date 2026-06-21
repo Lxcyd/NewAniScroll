@@ -19,7 +19,10 @@ import { useEffect, useRef } from "react";
 
 const MOVE_THRESHOLD = 6;
 const AXIS_LOCK = 10;
-const HORIZ_THRESHOLD = 85;
+// Horizontal drag distance (px) required to commit the card to a list. Raised
+// above the reference's 85 so a small left/right wiggle that returns to centre
+// never lands the anime in a list — below this it just snaps back.
+const HORIZ_THRESHOLD = 160;
 
 type Axis = "none" | "horizontal" | "vertical";
 
@@ -188,15 +191,17 @@ export function useCardDrag({ containerRef, cardHeight, onDragEnd, enabled }: Pa
       const horizValid = axis === "horizontal" && Math.abs(s.curX) >= HORIZ_THRESHOLD;
       const isRight = s.curX > 0;
 
-      const fire = () =>
+      const fire = (axisOverride: Axis = axis) =>
         s.onDragEnd({
           xOffset: s.curX,
           yOffset: s.curY,
-          axis,
+          axis: axisOverride,
           moved: s.hasMoved,
         });
 
       // ── HORIZONTAL: snap back (below threshold) ──
+      // The drag didn't reach HORIZ_THRESHOLD: animate the poster back to
+      // centre and report axis "none" so the page does NOT add it to a list.
       if (axis === "horizontal" && !horizValid) {
         const card = activeCard();
         if (card) {
@@ -214,7 +219,7 @@ export function useCardDrag({ containerRef, cardHeight, onDragEnd, enabled }: Pa
             delete card.dataset.dragging;
           }
         }
-        fire();
+        fire("none");
         return;
       }
 

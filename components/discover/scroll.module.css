@@ -208,9 +208,13 @@
   justify-content: center;
   align-items: center;
   padding: 6px 0;
+  /* visible so the poster's drop-shadow isn't clipped; the *card* (overflow:
+     hidden) is the real clip boundary. z-index kept low (3) so this section
+     does NOT create a stacking context that escapes the card's clip — that was
+     letting the rotated poster paint over the neighbour card. */
   overflow: visible;
   position: relative;
-  z-index: 20;
+  z-index: 3;
 }
 
 /* ========== ANIME IMAGE (poster) ========== */
