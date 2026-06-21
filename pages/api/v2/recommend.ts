@@ -92,12 +92,43 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   const inListIds = new Set(list.map((e) => e.mediaId));
 
+  // ── Franchise-exclusion set (Discover mode) ──
+  // "Discover" must surface genuinely NEW stories — never something already in
+  // the list, nor a sequel / prequel / side-story / alt version of anything the
+  // user has watched. We build that set from the watched anime's relations.
+  // These relation types tie a candidate to a story the user already knows.
+  const FRANCHISE_RELATIONS = new Set([
+    "SEQUEL",
+    "PREQUEL",
+    "SIDE_STORY",
+    "PARENT",
+    "ALTERNATIVE",
+    "ALTERNATIVE_VERSION",
+    "SPIN_OFF",
+    "SUMMARY",
+    "FULL_STORY",
+  ]);
+  const excludedIds = new Set<number>(inListIds);
+  for (const e of list) {
+    const meta = watchedMeta.get(e.mediaId);
+    if (!meta) continue;
+    for (const rel of meta.relations || []) {
+      if (FRANCHISE_RELATIONS.has(rel.relationType)) excludedIds.add(rel.id);
+    }
+  }
+  const isDiscoverable = (m: MetaWithRelations) =>
+    !excludedIds.has(m.id) &&
+    // A standalone series, not a continuation: drop entries whose own relations
+    // point back to something the user has watched (catches sequels we didn't
+    // see in the watched anime's own relation list).
+    !(m.relations || []).some(
+      (r) => FRANCHISE_RELATIONS.has(r.relationType) && inListIds.has(r.id),
+    );
+
   // ── 2. Candidate generation ──
   let candidates = new Map<number, MetaWithRelations>();
   // community strength: how many loved anime recommend this candidate
   const communityHits = new Map<number, number>();
-  // sequel-of: candidate id → loved title it's a sequel of
-  const sequelOf = new Map<number, string>();
   // loved-similar: candidate id → titles of loved anime that led to it
   const lovedVia = new Map<number, string[]>();
 
@@ -108,44 +139,30 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       .map((e) => e.mediaId);
     candidates = await fetchMetaByIds(planningIds);
   } else {
-    // a) Collaborative: AniList recommendations from loved anime.
+    // a) Collaborative: AniList recommendations from loved anime (no sequels —
+    //    those are continuations, not discoveries).
     for (const { meta } of loved) {
       for (const recId of meta.recommendations) {
-        if (inListIds.has(recId)) continue;
+        if (excludedIds.has(recId)) continue;
         communityHits.set(recId, (communityHits.get(recId) ?? 0) + 1);
         if (!lovedVia.has(recId)) lovedVia.set(recId, []);
         const titles = lovedVia.get(recId)!;
         const tt = meta.title.english || meta.title.romaji || meta.title.userPreferred;
         if (tt && titles.length < 2 && !titles.includes(tt)) titles.push(tt);
       }
-      // b) Sequels of loved anime the user hasn't seen.
-      for (const rel of meta.relations || []) {
-        if (
-          (rel.relationType === "SEQUEL" || rel.relationType === "SIDE_STORY") &&
-          !inListIds.has(rel.id)
-        ) {
-          sequelOf.set(
-            rel.id,
-            meta.title.english || meta.title.romaji || meta.title.userPreferred || "",
-          );
-        }
-      }
     }
 
-    const collabIds = Array.from(
-      new Set([
-        ...Array.from(communityHits.keys()),
-        ...Array.from(sequelOf.keys()),
-      ]),
-    );
+    const collabIds = Array.from(communityHits.keys());
     const collabMeta = await fetchMetaByIds(collabIds);
-    collabMeta.forEach((m, id) => candidates.set(id, m));
+    collabMeta.forEach((m, id) => {
+      if (isDiscoverable(m)) candidates.set(id, m);
+    });
 
-    // c) Content-based: highly-rated anime in the user's top genres.
+    // b) Content-based: highly-rated anime in the user's top genres.
     const topGenres = topKeys(profile.genres, 4);
     const byGenre = await fetchCandidatesByGenres(topGenres);
     for (const m of byGenre) {
-      if (!inListIds.has(m.id)) candidates.set(m.id, m);
+      if (isDiscoverable(m)) candidates.set(m.id, m);
     }
   }
 
@@ -153,11 +170,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const maxCommunity = Math.max(1, ...Array.from(communityHits.values()));
   const scored: Recommendation[] = [];
   Array.from(candidates.entries()).forEach(([id, meta]) => {
-    if (mode === "all" && inListIds.has(id)) return;
+    // Discover mode: never score anything in the list or in a watched franchise.
+    if (mode === "all" && excludedIds.has(id)) return;
     const rec = scoreCandidate(profile, meta, {
       communityStrength: (communityHits.get(id) ?? 0) / maxCommunity,
       lovedSimilarTitles: lovedVia.get(id),
-      sequelOfTitle: sequelOf.get(id),
     });
     scored.push(rec);
   });
