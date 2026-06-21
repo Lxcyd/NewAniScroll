@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { createPortal } from "react-dom";
@@ -50,17 +50,28 @@ export default function ForYouPanel({ isVisible, onClose }: Props) {
   const [recs, setRecs] = useState<Recommendation[]>([]);
   const [idx, setIdx] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  // Regenerate state: every shown id (across batches) + the round counter, so
+  // each "regenerate" asks the API for 10 fresh ones it hasn't returned before.
+  const shownRef = useRef<number[]>([]);
+  const roundRef = useRef(0);
 
   useEffect(() => setMounted(true), []);
 
   const load = useCallback(
-    async (m: RecommendMode) => {
+    async (m: RecommendMode, regenerate = false) => {
       if (!session?.user?.name || !session?.user?.token) {
         setError("signin");
         return;
       }
       setLoading(true);
       setError(null);
+      if (!regenerate) {
+        // Fresh open / mode switch → reset the seen-history.
+        shownRef.current = [];
+        roundRef.current = 0;
+      } else {
+        roundRef.current += 1;
+      }
       try {
         const listMap = await getUserList(session.user.name, session.user.token);
         const list = toListEntries(listMap);
@@ -72,14 +83,25 @@ export default function ForYouPanel({ isVisible, onClose }: Props) {
         const res = await fetch("/api/v2/recommend", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ list, mode: m }),
+          body: JSON.stringify({
+            list,
+            mode: m,
+            exclude: shownRef.current,
+            round: roundRef.current,
+          }),
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const json = await res.json();
-        const list2: Recommendation[] = json?.recommendations || [];
-        setRecs(list2);
+        const batch: Recommendation[] = json?.recommendations || [];
+        if (batch.length === 0) {
+          // Nothing new left to show.
+          setError(regenerate ? "noMore" : "none");
+          if (!regenerate) setRecs([]);
+          return;
+        }
+        shownRef.current = [...shownRef.current, ...batch.map((r) => r.anime.id)];
+        setRecs(batch);
         setIdx(0);
-        if (list2.length === 0) setError("none");
       } catch (e) {
         console.error(e);
         setError("failed");
@@ -96,11 +118,13 @@ export default function ForYouPanel({ isVisible, onClose }: Props) {
   }, [isVisible, mode, load]);
 
   const reroll = () => {
-    setIdx((i) => {
-      const next = i + 1;
-      return next < recs.length ? next : 0;
-    });
+    setIdx((i) => Math.min(i + 1, recs.length - 1));
   };
+
+  const regenerate = () => load(mode, true);
+
+  // At the last card of the batch → offer regenerate instead of reroll.
+  const atEnd = idx >= recs.length - 1;
 
   if (!isVisible || !mounted) return null;
 
@@ -161,8 +185,25 @@ export default function ForYouPanel({ isVisible, onClose }: Props) {
                   ? t("recommend.emptyList")
                   : error === "none"
                   ? t("recommend.noResults")
+                  : error === "noMore"
+                  ? t("recommend.noMore")
                   : t("recommend.failed")}
               </p>
+              {error === "noMore" && (
+                <button
+                  type="button"
+                  className={styles.rerollBtn}
+                  onClick={() => {
+                    // Start over from a clean slate.
+                    shownRef.current = [];
+                    roundRef.current = 0;
+                    load(mode);
+                  }}
+                >
+                  <ArrowPathIcon className="h-4 w-4" />
+                  {t("recommend.startOver")}
+                </button>
+              )}
             </div>
           )}
 
@@ -177,10 +218,21 @@ export default function ForYouPanel({ isVisible, onClose }: Props) {
             <span className={styles.counter}>
               {idx + 1} / {recs.length}
             </span>
-            <button type="button" className={styles.rerollBtn} onClick={reroll}>
-              <ArrowPathIcon className="h-4 w-4" />
-              {t("recommend.another")}
-            </button>
+            {atEnd ? (
+              <button
+                type="button"
+                className={styles.regenBtn}
+                onClick={regenerate}
+              >
+                <ArrowPathIcon className="h-4 w-4" />
+                {t("recommend.regenerate")}
+              </button>
+            ) : (
+              <button type="button" className={styles.rerollBtn} onClick={reroll}>
+                <ArrowPathIcon className="h-4 w-4" />
+                {t("recommend.another")}
+              </button>
+            )}
           </div>
         )}
       </div>

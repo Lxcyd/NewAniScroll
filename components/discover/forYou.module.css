@@ -362,6 +362,32 @@
   transform: scale(0.95);
 }
 
+/* Regenerate (new batch of 10) — accent-coloured to stand out from reroll. */
+.regenBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 18px;
+  border-radius: 999px;
+  background: var(--brand-primary, #e94560);
+  border: 1px solid var(--brand-primary, #e94560);
+  color: #fff;
+  font-family: "Karla", sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 0 18px rgba(233, 69, 96, 0.35);
+  transition: transform 0.12s, filter 0.15s;
+}
+
+.regenBtn:hover {
+  filter: brightness(1.08);
+}
+
+.regenBtn:active {
+  transform: scale(0.95);
+}
+
 @media (min-width: 640px) {
   .overlay {
     align-items: center;

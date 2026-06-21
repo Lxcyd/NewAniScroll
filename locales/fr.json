@@ -581,9 +581,12 @@
     "modePlanning": "Dans mes prévus",
     "analyzing": "Analyse de tes goûts…",
     "another": "Une autre",
+    "regenerate": "Générer 10 de plus",
+    "startOver": "Recommencer",
     "signInHint": "Connecte-toi avec AniList pour des recommandations adaptées à ta liste.",
     "emptyList": "Ta liste est vide — note quelques animes d'abord pour qu'on apprenne tes goûts.",
     "noResults": "Aucune nouvelle recommandation pour le moment. Réessaie plus tard.",
+    "noMore": "C'est tout ce qu'on a trouvé pour l'instant. Recommence pour les revoir.",
     "failed": "Échec de la recommandation. Réessaie.",
     "reason": {
       "lovedSimilar": "Parce que tu as adoré {{titles}}",

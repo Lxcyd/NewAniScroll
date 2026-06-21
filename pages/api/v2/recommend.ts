@@ -29,7 +29,7 @@ import type { ListEntry, Recommendation, RecommendMode } from "@/lib/recommend/t
  */
 
 const RESULT_TTL_S = 15 * 60;
-const TOP_N = 12;
+const TOP_N = 10;
 
 function listSignature(list: ListEntry[]): string {
   // Only the fields that affect the result, sorted for stability.
@@ -48,6 +48,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   const list: ListEntry[] = Array.isArray(req.body?.list) ? req.body.list : [];
   const mode: RecommendMode = req.body?.mode === "planning" ? "planning" : "all";
+  // ids the client has already been shown — excluded so "regenerate" returns
+  // a fresh batch. `round` keys the cache so each regenerate is its own entry.
+  const alreadyShown: number[] = Array.isArray(req.body?.exclude)
+    ? req.body.exclude.filter((n: any) => Number.isFinite(n))
+    : [];
+  const round = Number.isFinite(req.body?.round) ? Number(req.body.round) : 0;
 
   if (list.length === 0) {
     return res.status(200).json({
@@ -57,7 +63,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     });
   }
 
-  const cacheKey = `recommend:v1:${mode}:${listSignature(list)}`;
+  const shownSet = new Set<number>(alreadyShown);
+  const cacheKey = `recommend:v1:${mode}:${listSignature(list)}:r${round}`;
   if (redis) {
     try {
       const cached = await redis.get(cacheKey);
@@ -109,6 +116,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     "FULL_STORY",
   ]);
   const excludedIds = new Set<number>(inListIds);
+  // Anything already shown in a previous batch is excluded too, so a
+  // "regenerate" call returns a genuinely fresh set.
+  shownSet.forEach((id) => excludedIds.add(id));
   for (const e of list) {
     const meta = watchedMeta.get(e.mediaId);
     if (!meta) continue;
@@ -172,6 +182,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   Array.from(candidates.entries()).forEach(([id, meta]) => {
     // Discover mode: never score anything in the list or in a watched franchise.
     if (mode === "all" && excludedIds.has(id)) return;
+    // Both modes: skip anything already shown in a previous batch (regenerate).
+    if (shownSet.has(id)) return;
     const rec = scoreCandidate(profile, meta, {
       communityStrength: (communityHits.get(id) ?? 0) / maxCommunity,
       lovedSimilarTitles: lovedVia.get(id),
