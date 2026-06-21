@@ -557,8 +557,10 @@
     "reload": "Reload",
     "swipeSettings": "Swipe Settings",
     "swipeSettingsHint": "Choose the AniList status applied when you swipe a card. Sign in with AniList to sync.",
-    "swipeRight": "Swipe right →",
-    "swipeLeft": "← Swipe left",
+    "swipeRight": "Swipe Right",
+    "swipeLeft": "Swipe Left",
+    "edit": "Edit",
+    "statusLists": "Status Lists",
     "status": {
       "watching": "Watching",
       "rewatching": "Rewatching",

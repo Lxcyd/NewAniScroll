@@ -214,20 +214,15 @@ export default function Discover() {
 
         {/* Overlay: counter + settings button */}
         {animes.length > 0 && (
-          <div className={styles.overlayControls}>
-            <div className={styles.counter}>
-              {currentIndex + 1} / {animes.length}
-            </div>
-            <button
-              type="button"
-              className={styles.swsetOpenBtn}
-              onClick={() => setShowSettings(true)}
-              title={t("discover.swipeSettings")}
-              aria-label={t("discover.swipeSettings")}
-            >
-              <Cog6ToothIcon className="h-4 w-4" />
-            </button>
-          </div>
+          <button
+            type="button"
+            className={styles.swsetOpenBtn}
+            onClick={() => setShowSettings(true)}
+            title={t("discover.swipeSettings")}
+            aria-label={t("discover.swipeSettings")}
+          >
+            <Cog6ToothIcon className="h-4 w-4" />
+          </button>
         )}
       </div>
 

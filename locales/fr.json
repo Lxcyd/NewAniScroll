@@ -557,8 +557,10 @@
     "reload": "Recharger",
     "swipeSettings": "Réglages de swipe",
     "swipeSettingsHint": "Choisissez le statut AniList appliqué quand vous swipez une carte. Connectez-vous avec AniList pour synchroniser.",
-    "swipeRight": "Swipe à droite →",
-    "swipeLeft": "← Swipe à gauche",
+    "swipeRight": "Swipe à droite",
+    "swipeLeft": "Swipe à gauche",
+    "edit": "Modifier",
+    "statusLists": "Listes de statut",
     "status": {
       "watching": "En cours",
       "rewatching": "Revisionnage",
