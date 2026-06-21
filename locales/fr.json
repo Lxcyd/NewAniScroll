@@ -36,7 +36,7 @@
     "search": "Rechercher",
     "season": "Saison",
     "animeBrowse": "Anime",
-    "discover": "Discovery",
+    "discover": "Découverte",
     "schedule": "Programme",
     "myList": "Ma liste",
     "trending": "Tendances",
@@ -564,6 +564,8 @@
     "undo": "Annuler",
     "removed": "Retiré",
     "undoStatus": "Annuler « {{status}} »",
+    "info": "Infos",
+    "watch": "Regarder",
     "status": {
       "watching": "En cours",
       "rewatching": "Revisionnage",

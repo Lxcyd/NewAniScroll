@@ -171,8 +171,12 @@ export function useCardDrag({ containerRef, cardHeight, onDragEnd, enabled }: Pa
         s.rafId = 0;
       }
 
+      // NOTE: we intentionally do NOT clear data-dragging here. The dragging
+      // card is lifted (z-index) and unclipped (overflow:visible) via that
+      // attribute; clearing it now would re-clip the poster mid fly-off and
+      // make it look like the card jumps behind its neighbour. Each branch
+      // below clears it at the right moment instead.
       const c = activeCard();
-      if (c) delete c.dataset.dragging;
 
       if (s.hasMoved) {
         s.suppressNextClick = true;
@@ -201,7 +205,12 @@ export function useCardDrag({ containerRef, cardHeight, onDragEnd, enabled }: Pa
             img.style.transition =
               "transform 0.28s cubic-bezier(0.25,0.46,0.45,0.94)";
             img.style.transform = "";
-            setTimeout(() => (img.style.transition = ""), 300);
+            setTimeout(() => {
+              img.style.transition = "";
+              if (card) delete card.dataset.dragging;
+            }, 300);
+          } else if (card) {
+            delete card.dataset.dragging;
           }
         }
         fire();
@@ -229,7 +238,11 @@ export function useCardDrag({ containerRef, cardHeight, onDragEnd, enabled }: Pa
               img.style.opacity = "";
               void img.offsetWidth;
               img.style.transition = "";
+              // Re-clip + drop the z-index lift only now that the fly-off is done.
+              if (card) delete card.dataset.dragging;
             }, 480);
+          } else if (card) {
+            delete card.dataset.dragging;
           }
           ["right", "left"].forEach((d) => {
             const f = card.querySelector<HTMLElement>(`[data-feather="${d}"]`);
@@ -255,6 +268,7 @@ export function useCardDrag({ containerRef, cardHeight, onDragEnd, enabled }: Pa
       for (const { el, baseY } of s.baseTransforms) {
         el.style.transform = `translateY(${baseY}px)`;
       }
+      if (c) delete c.dataset.dragging;
       fire();
     };
 

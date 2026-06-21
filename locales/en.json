@@ -564,6 +564,8 @@
     "undo": "Undo",
     "removed": "Removed",
     "undoStatus": "Undo {{status}}",
+    "info": "Info",
+    "watch": "Watch",
     "status": {
       "watching": "Watching",
       "rewatching": "Rewatching",

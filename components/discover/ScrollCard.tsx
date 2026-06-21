@@ -1,6 +1,8 @@
 import { useTranslation } from "react-i18next";
-import { ArrowUturnLeftIcon } from "@heroicons/react/24/solid";
+import { ArrowUturnLeftIcon, InformationCircleIcon, PlayIcon } from "@heroicons/react/24/solid";
+import Link from "next/link";
 import type { Status } from "@/lib/list/types";
+import { useTranslatedText } from "@/lib/i18n/useTranslatedText";
 import styles from "./scroll.module.css";
 import {
   SwipeSettings,
@@ -97,9 +99,12 @@ export default function ScrollCard({
       : anime.seasonYear
       ? String(anime.seasonYear)
       : "";
-  const description = anime.description
+  const rawDescription = anime.description
     ? anime.description.replace(/<[^>]+>/g, "")
     : "";
+  // Translate the AniList synopsis into the active UI language (cached + can be
+  // prefetched ahead of time by the page so there's no English flash).
+  const description = useTranslatedText(rawDescription);
 
   return (
     <div
@@ -206,6 +211,26 @@ export default function ScrollCard({
               <p className={styles.descriptionPreview}>{description}</p>
             </div>
           )}
+
+          {/* Action row: Info + Watch */}
+          <div className={styles.actions}>
+            <Link
+              href={`/en/anime/${anime.id}`}
+              className={styles.actionInfo}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <InformationCircleIcon style={{ width: 15, height: 15 }} />
+              {t("discover.info")}
+            </Link>
+            <Link
+              href={`/en/anime/watch/${anime.id}/megaplay?id=megaplay-${anime.id}-1&num=1&info=${anime.id}&info=megaplay`}
+              className={styles.actionWatch}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <PlayIcon style={{ width: 15, height: 15 }} />
+              {t("discover.watch")}
+            </Link>
+          </div>
         </div>
       </div>
     </div>

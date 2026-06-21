@@ -10,6 +10,7 @@ import ScrollCard, { ScrollAnime } from "@/components/discover/ScrollCard";
 import ScrollerSettingsPanel from "@/components/discover/ScrollerSettingsPanel";
 import { useCardDrag, DragEndInfo } from "@/components/discover/useCardDrag";
 import { saveMediaListEntry } from "@/lib/list/anilistPush";
+import { prefetchTranslations } from "@/lib/i18n/useTranslatedText";
 import {
   SwipeSettings,
   loadSwipeSettings,
@@ -27,7 +28,7 @@ const RENDER_WINDOW = 5;
 const PRELOAD_THRESHOLD = 6;
 
 export default function Discover() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const router = useRouter();
   const { data: session }: any = useSession();
 
@@ -73,6 +74,13 @@ export default function Discover() {
         const fresh = media.filter((m) => !seenIds.current.has(m.id));
         fresh.forEach((m) => seenIds.current.add(m.id));
         setAnimes((prev) => [...prev, ...fresh]);
+        // Warm the translation cache for these synopses so they render in the
+        // active language with no English flash by the time the user swipes to
+        // them (no-op when the UI language is English).
+        prefetchTranslations(
+          fresh.map((m) => m.description?.replace(/<[^>]+>/g, "")),
+          i18n.language || "en"
+        );
       } catch (e) {
         console.error(e);
         toast.error(t("discover.failedToLoad"));
@@ -80,7 +88,7 @@ export default function Discover() {
         setLoading(false);
       }
     },
-    [t]
+    [t, i18n.language]
   );
 
   useEffect(() => {
