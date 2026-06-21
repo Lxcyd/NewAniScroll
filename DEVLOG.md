@@ -7,6 +7,31 @@ Ordre anti-chronologique (le plus récent en haut). Une entrée = une session/su
 
 ---
 
+## 2026-06-21 (suite 3) — Reco « Pour toi » : perf réseau + meilleurs candidats
+
+### Contexte
+« Améliore l'algo et rends-le bcp plus rapide » — en gardant un œil sur l'usage Vercel/Turso/Upstash.
+
+### Décisions prises
+- **Le goulot est réseau, pas CPU.** Le moteur (`engine.ts`) tourne en µs ; tout le temps part dans les fetch AniList. Donc l'optimisation = moins de payload + parallélisme + cache, pas du tuning de boucle.
+- **Deux jeux de champs** ([lib/recommend/fetchMeta.ts](lib/recommend/fetchMeta.ts)) : `LIGHT_FIELDS` (profil + walk franchise sur **toute** la liste, ~300 ids — sans `description`/`bannerImage`/`recommendations`) et `FULL_FIELDS` (uniquement les ~10 candidats **affichés**, hydratés une fois à la fin). Divise par ~3 la bande passante AniList sur les grosses listes.
+- **Batches parallèles** : `fetchMetaByIds` fait ses pages de 50 en `Promise.all` au lieu d'un `for await` séquentiel → une liste de 300 = latence d'**1** aller-retour, pas 6. **Même nombre de requêtes** (donc pas de hausse d'usage), juste en parallèle.
+- **Cache « groundwork » séparé** ([pages/api/v2/recommend.ts](pages/api/v2/recommend.ts)) : le profil + le set d'exclusion franchise + la map collaborative ne dépendent **que de la liste**, pas du `round`. Mis en cache Redis sous `recommend:ground:v2:<sig>` (TTL 6 h). Un *regenerate* / changement de round skippe tout le pass liste → **moins** d'appels Upstash/AniList, pas plus.
+- **Meilleurs candidats** (le gros levier qualité) :
+  - Graine collaborative **élargie** : recos AniList de **tout** anime nettement au-dessus de la moyenne perso (ou rewatché), pas seulement score ≥ 8. Gratuit (les `recommendations` voyageaient déjà dans la passe liste).
+  - **Combos de genres ANDés** (`genreCombos`) : AniList `genre_in` fait un AND, donc `[Action, Comedy]` sort les anime qui sont **les deux** — bien plus ciblé que le top-4 en OR (qui ne renvoie que les blockbusters de chaque genre). Top-1 seul (filet large) + paires des genres forts (filets serrés), capé à 5 requêtes parallèles.
+- **Scoring affiné** : bonus **récence** (≤2 ans +0.2, ≤5 ans +0.1), anti-blockbuster **adaptatif** (pénalité log-scalée selon l'écart de popularité vs ce que l'user adore, plafonnée), micro-pénalité **synopsis absent** (tie-breaker, jamais zéro).
+
+### Leçons / pièges
+- **Paralléliser ≠ plus d'usage.** On garde le même nombre de requêtes AniList, on les lance juste ensemble. Le cache groundwork **réduit** l'usage sur les rerolls. Donc « plus rapide » et « moins cher » vont ensemble ici.
+- **Hydrater à la fin** est clé : scorer 200+ candidats avec les champs lourds gâcherait de la bande passante pour 190 qu'on n'affichera jamais. On score en LIGHT, on diversifie, **puis** on charge FULL les 10 survivants.
+- `for...of Object.entries` et `Math.max(...Array.from())` compilent (cible ≥ es2015 / downlevelIteration OK) — `tsc --noEmit` clean.
+
+### État déployé / à faire
+- `tsc` + `next lint` clean. À tester sur une vraie liste : vitesse ressentie (surtout 1er chargement froid + regenerate), et si les propositions « donnent plus envie » avec les combos de genres + graine collaborative élargie.
+
+---
+
 ## 2026-06-21 (suite 2) — Reco « Pour toi » : algo v2 + bug franchise transitif
 
 ### Le bug (révélateur)

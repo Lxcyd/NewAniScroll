@@ -5,12 +5,20 @@
  * scores, recommendations) in batched Page queries. Uses the shared anilistFetch
  * which already does Redis response-caching + rate-limiting, so popular anime
  * metadata is shared across all users and rarely re-fetched.
+ *
+ * Two field-sets keep AniList bandwidth (and our Upstash/Vercel egress) low:
+ *   • LIGHT — profile + franchise walk over the WHOLE list (can be 300+ ids).
+ *     No description / banner / recommendations: those are heavy and useless for
+ *     scoring. Just enough to build the taste vector and exclude franchises.
+ *   • FULL  — only the handful of candidates we actually display, hydrated once
+ *     at the end with description, banner and community recommendations.
  */
 
 import { anilistFetch } from "@/lib/anilist/anilistFetch";
 import type { AnimeMeta } from "./types";
 
-const META_FIELDS = `
+/** Heavy display fields — only fetched for the ~few candidates we show. */
+const FULL_FIELDS = `
   id
   title { romaji english native userPreferred }
   coverImage { extraLarge large color }
@@ -31,6 +39,26 @@ const META_FIELDS = `
   recommendations(sort: RATING_DESC, perPage: 8) {
     nodes { mediaRecommendation { id } }
   }
+`;
+
+/** Lightweight fields — enough to profile + franchise-exclude the whole list,
+ *  without the heavy description/banner/recommendations payload. */
+const LIGHT_FIELDS = `
+  id
+  title { romaji english native userPreferred }
+  coverImage { large color }
+  genres
+  tags { name rank category isMediaSpoiler }
+  studios(isMain: true) { nodes { name } }
+  format
+  episodes
+  duration
+  averageScore
+  popularity
+  seasonYear
+  season
+  status
+  relations { edges { relationType node { id type format } } }
 `;
 
 function parseMedia(m: any): AnimeMeta {
@@ -83,29 +111,42 @@ function parseWithRelations(m: any): MetaWithRelations {
   return base;
 }
 
-/** Fetch metadata for a set of media ids, in batches of 50 (AniList page cap). */
+const BATCH = 50; // AniList Page cap
+
+/** Fetch metadata for a set of media ids. Batches of 50 run in PARALLEL so a
+ *  300-anime list resolves in one round-trip's latency, not six in series.
+ *  `full=false` (default) uses the lightweight field-set to keep payloads small. */
 export async function fetchMetaByIds(
   ids: number[],
+  full = false,
 ): Promise<Map<number, MetaWithRelations>> {
   const out = new Map<number, MetaWithRelations>();
   const unique = Array.from(new Set(ids.filter((n) => Number.isFinite(n))));
-  const BATCH = 50;
+  if (!unique.length) return out;
 
+  const fields = full ? FULL_FIELDS : LIGHT_FIELDS;
+  const slices: number[][] = [];
   for (let i = 0; i < unique.length; i += BATCH) {
-    const slice = unique.slice(i, i + BATCH);
-    const query = `query ($ids: [Int]) {
-      Page(perPage: ${BATCH}) {
-        media(id_in: $ids, type: ANIME) { ${META_FIELDS} }
-      }
-    }`;
-    const json = await anilistFetch({
-      query,
-      variables: { ids: slice },
-      label: "recommend:meta",
-      cacheSeconds: 60 * 60, // anime metadata is stable; cache an hour
-    });
-    const media = json?.data?.Page?.media || [];
-    for (const m of media) {
+    slices.push(unique.slice(i, i + BATCH));
+  }
+
+  const results = await Promise.all(
+    slices.map((slice) =>
+      anilistFetch({
+        query: `query ($ids: [Int]) {
+          Page(perPage: ${BATCH}) {
+            media(id_in: $ids, type: ANIME) { ${fields} }
+          }
+        }`,
+        variables: { ids: slice },
+        label: full ? "recommend:meta:full" : "recommend:meta:light",
+        cacheSeconds: 60 * 60, // anime metadata is stable; cache an hour
+      }),
+    ),
+  );
+
+  for (const json of results) {
+    for (const m of json?.data?.Page?.media || []) {
       const parsed = parseWithRelations(m);
       out.set(parsed.id, parsed);
     }
@@ -113,26 +154,46 @@ export async function fetchMetaByIds(
   return out;
 }
 
-/** Fetch a page of highly-rated candidates filtered by genres (content-based
- *  candidate generation), excluding adult content. */
+/** Fetch highly-rated candidates filtered by genres (content-based candidate
+ *  generation), excluding adult content. Lightweight field-set; multiple genre
+ *  combinations run in parallel. `genreSets` is a list of genre arrays — each is
+ *  ANDed inside AniList, so passing tighter combos yields more on-taste results
+ *  than one broad OR over the top genres. */
 export async function fetchCandidatesByGenres(
-  genres: string[],
+  genreSets: string[][],
   page = 1,
 ): Promise<MetaWithRelations[]> {
-  if (!genres.length) return [];
-  const query = `query ($genres: [String], $page: Int) {
-    Page(page: $page, perPage: 50) {
-      media(
-        type: ANIME, genre_in: $genres, sort: [SCORE_DESC, POPULARITY_DESC],
-        isAdult: false, averageScore_greater: 65
-      ) { ${META_FIELDS} }
+  const sets = genreSets.filter((g) => g.length).slice(0, 5);
+  if (!sets.length) return [];
+
+  const pages = await Promise.all(
+    sets.map((genres) =>
+      anilistFetch({
+        query: `query ($genres: [String], $page: Int) {
+          Page(page: $page, perPage: 50) {
+            media(
+              type: ANIME, genre_in: $genres, sort: [SCORE_DESC, POPULARITY_DESC],
+              isAdult: false, averageScore_greater: 65
+            ) { ${LIGHT_FIELDS} }
+          }
+        }`,
+        variables: { genres: genres.slice(0, 3), page },
+        label: "recommend:candidates",
+        cacheSeconds: 30 * 60,
+      }),
+    ),
+  );
+
+  const out: MetaWithRelations[] = [];
+  const seen = new Set<number>();
+  for (const json of pages) {
+    for (const m of json?.data?.Page?.media || []) {
+      const parsed = parseWithRelations(m);
+      if (!seen.has(parsed.id)) {
+        seen.add(parsed.id);
+        out.push(parsed);
+      }
     }
-  }`;
-  const json = await anilistFetch({
-    query,
-    variables: { genres: genres.slice(0, 4), page },
-    label: "recommend:candidates",
-    cacheSeconds: 30 * 60,
-  });
-  return (json?.data?.Page?.media || []).map(parseWithRelations);
+  }
+  return out;
 }

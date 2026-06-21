@@ -41,6 +41,7 @@ const W = {
   // bonuses
   sequelBonus: 0.45,
   bingeBonus: 0.25,
+  recency: 0.2,
 } as const;
 
 /** Map a user score (0–10) to a signed affinity in roughly [-1.0, +1.2].
@@ -294,22 +295,44 @@ export function scoreCandidate(
     reasons.push({ kind: "highlyRated", score: meta.averageScore! });
   }
 
-  // ── Niche mismatch penalty: user leans niche but candidate is mega-popular ──
+  // ── Recency: lightly favour anime from the decade(s) the user actually
+  //    watches, and nudge very recent releases up (discovery skews fresh). ──
+  let recency = 0;
+  const year = meta.seasonYear ?? 0;
+  if (year) {
+    const age = new Date().getFullYear() - year;
+    if (age <= 2) recency = W.recency; // current-ish seasons
+    else if (age <= 5) recency = W.recency * 0.5;
+  }
+
+  // ── Niche mismatch penalty: user leans niche but candidate is mega-popular.
+  //    Adaptive: the further the candidate's popularity is above what the user
+  //    typically loves, the stronger the nudge down — so blockbusters don't
+  //    crowd out the on-taste picks for a niche viewer. ──
   let nichePenalty = 0;
   if (profile.nicheLean > 0 && meta.popularity) {
     const ratio = meta.popularity / Math.max(1, profile.nicheLean);
-    if (ratio > 3) nichePenalty = W.popularityMismatch * 0.15;
+    if (ratio > 2) {
+      // ratio 2→0, 4→~0.5, 8+→capped — log-scaled so it grows gracefully.
+      nichePenalty = Math.min(0.6, Math.log2(ratio / 2) * 0.25) * W.popularityMismatch;
+    }
   }
 
   // A candidate with NO content match AND no community backing is noise — floor
   // it low so genre-page filler can't outrank a real thematic match.
   const hasSignal = content > 0.05 || community > 0;
 
+  // Missing synopsis usually means a thin/obscure entry — small deprioritise so
+  // a fleshed-out title wins ties (never zero it; it's only a tie-breaker).
+  const thinPenalty = meta.description && meta.description.length > 40 ? 0 : 0.04;
+
   const score =
     (W.content * Math.max(0, content) +
       W.community * community +
-      W.quality * quality -
-      nichePenalty) *
+      W.quality * quality +
+      recency -
+      nichePenalty -
+      thinPenalty) *
     (hasSignal ? 1 : 0.15);
 
   return { anime: meta, score, reasons };
@@ -359,4 +382,28 @@ export function topKeys(map: Record<string, number>, n: number): string[] {
     .sort((a, b) => b[1] - a[1])
     .slice(0, n)
     .map(([k]) => k);
+}
+
+/**
+ * Targeted genre combinations for content-based candidate generation.
+ *
+ * AniList ANDs the genres in a single `genre_in` filter, so [Action, Comedy]
+ * surfaces anime that are BOTH — far more on-taste than a broad OR over the top
+ * genres (which just returns each genre's blockbusters). We emit the top genre
+ * alone (broad net) plus a few pairs of the user's strongest genres (tight net).
+ * Capped so we never fan out into too many AniList requests.
+ */
+export function genreCombos(
+  genres: Record<string, number>,
+  maxSets = 5,
+): string[][] {
+  const top = topKeys(genres, 4);
+  if (!top.length) return [];
+  const sets: string[][] = [[top[0]]]; // broad net on the single favourite
+  // Tight nets: pair the #1 genre with each of the next ones, then #2+#3.
+  for (let i = 1; i < top.length && sets.length < maxSets; i++) {
+    sets.push([top[0], top[i]]);
+  }
+  if (top.length >= 3 && sets.length < maxSets) sets.push([top[1], top[2]]);
+  return sets.slice(0, maxSets);
 }
