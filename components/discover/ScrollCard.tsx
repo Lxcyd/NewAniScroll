@@ -26,6 +26,7 @@ export type ScrollAnime = {
   season?: string | null;
   status?: string | null;
   format?: string | null;
+  nextAiringEpisode?: { episode?: number | null } | null;
 };
 
 type Props = {
@@ -100,6 +101,25 @@ function ScrollCard({
       : anime.seasonYear
       ? String(anime.seasonYear)
       : "";
+
+  // Episode label — same logic as the info page Hero: aired/total while airing
+  // ("7/12"), aired+ when total unknown ("1208+"), total otherwise ("12"),
+  // else "N/A". nextAiringEpisode.episode is the NEXT episode, so aired = -1.
+  const airedSoFar = anime.nextAiringEpisode?.episode
+    ? Math.max(0, anime.nextAiringEpisode.episode - 1)
+    : null;
+  const isAiring = anime.status === "RELEASING";
+  const epLabel = isAiring
+    ? airedSoFar != null && anime.episodes
+      ? `${airedSoFar}/${anime.episodes}`
+      : airedSoFar != null
+      ? `${airedSoFar}+`
+      : anime.episodes
+      ? `${anime.episodes}`
+      : "N/A"
+    : anime.episodes
+    ? `${anime.episodes}`
+    : "N/A";
   const rawDescription = anime.description
     ? anime.description.replace(/<[^>]+>/g, "")
     : "";
@@ -151,15 +171,18 @@ function ScrollCard({
         </button>
       )}
 
+      {/* Swipe hint pills — direct children of the card so they position
+          against its full width and sit near the screen edges (not the
+          centred image-section). */}
+      {isActive && (
+        <>
+          <Hint side="right" settings={settings} />
+          <Hint side="left" settings={settings} />
+        </>
+      )}
+
       <div className={styles.contentWrapper}>
         <div className={styles.imageSection}>
-          {isActive && (
-            <>
-              <Hint side="right" settings={settings} />
-              <Hint side="left" settings={settings} />
-            </>
-          )}
-
           <div
             data-poster
             className={styles.animeImage}
@@ -198,11 +221,9 @@ function ScrollCard({
                 ★ {anime.averageScore}
               </div>
             )}
-            {anime.episodes != null && (
-              <div className={`${styles.badge} ${styles.badgeEpisodes}`}>
-                {anime.episodes} EP
-              </div>
-            )}
+            <div className={`${styles.badge} ${styles.badgeEpisodes}`}>
+              {epLabel} EP
+            </div>
           </div>
 
           {description && (

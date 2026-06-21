@@ -11,6 +11,7 @@ import ScrollerSettingsPanel from "@/components/discover/ScrollerSettingsPanel";
 import { useCardDrag, DragEndInfo } from "@/components/discover/useCardDrag";
 import { saveMediaListEntry } from "@/lib/list/anilistPush";
 import { prefetchTranslations } from "@/lib/i18n/useTranslatedText";
+import { animeHref, useClickTarget } from "@/lib/prefs/clickTarget";
 import {
   SwipeSettings,
   loadSwipeSettings,
@@ -31,6 +32,7 @@ export default function Discover() {
   const { t, i18n } = useTranslation();
   const router = useRouter();
   const { data: session }: any = useSession();
+  const clickTarget = useClickTarget();
 
   const [animes, setAnimes] = useState<ScrollAnime[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -247,9 +249,11 @@ export default function Discover() {
     saveSwipeSettings(s);
   }, []);
 
+  // Honour the "click target" preference (Settings → Browsing): default opens
+  // the info page; "watchPage" jumps straight into the player.
   const openDetails = useCallback(
-    (anime: ScrollAnime) => router.push(`/en/anime/${anime.id}`),
-    [router]
+    (anime: ScrollAnime) => router.push(animeHref(anime.id, clickTarget)),
+    [router, clickTarget]
   );
 
   const initialLoading = loading && animes.length === 0;

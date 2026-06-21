@@ -26,6 +26,7 @@ const QUERY = `
         bannerImage
         description(asHtml: false)
         genres episodes averageScore seasonYear season status format duration
+        nextAiringEpisode { episode }
       }
     }
   }
