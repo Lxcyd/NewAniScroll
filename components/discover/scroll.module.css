@@ -31,6 +31,9 @@
   touch-action: none;
   will-change: transform;
   transform: translateZ(0);
+  /* Opaque base behind the semi-transparent blurred bg-image, so when the
+     poster rotates near the card edge the neighbour card never shows through. */
+  background: var(--surface-bg, #0e0e16);
 }
 
 .noTransition {
@@ -226,6 +229,12 @@
   flex-shrink: 0;
   will-change: transform;
   position: relative;
+  /* Keep the drag clean when it starts on the poster: no selection / native
+     drag, and let the pointer logic own the gesture. */
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-user-drag: none;
+  touch-action: none;
 }
 
 .animeImage::after {

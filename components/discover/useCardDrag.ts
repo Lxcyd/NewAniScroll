@@ -53,6 +53,7 @@ export function useCardDrag({ containerRef, cardHeight, onDragEnd, enabled }: Pa
     axis: "none" as Axis,
     hasMoved: false,
     rafId: 0,
+    pointerId: null as number | null,
     suppressNextClick: false,
     wheelCooldown: false,
     baseTransforms: [] as { el: HTMLElement; baseY: number }[],
@@ -280,6 +281,17 @@ export function useCardDrag({ containerRef, cardHeight, onDragEnd, enabled }: Pa
       if (!card) return;
       // Don't hijack interactive children.
       if (target.closest("button, a, input, textarea, select")) return;
+      // Capture the pointer on the container so every subsequent pointermove
+      // is delivered here — even once the poster transforms out from under the
+      // cursor. Without this, starting the drag ON the poster loses move events
+      // (the poster slides away) and the swipe stutters. Starting beside it
+      // worked only by accident because the static card stayed under the cursor.
+      try {
+        container.setPointerCapture(e.pointerId);
+        s.pointerId = e.pointerId;
+      } catch {
+        /* setPointerCapture can throw on stale ids — non-fatal */
+      }
       startDrag(e.clientX, e.clientY);
     };
 
@@ -290,6 +302,14 @@ export function useCardDrag({ containerRef, cardHeight, onDragEnd, enabled }: Pa
       }
     };
     const onPointerUp = () => {
+      if (s.pointerId != null) {
+        try {
+          container.releasePointerCapture(s.pointerId);
+        } catch {
+          /* already released — non-fatal */
+        }
+        s.pointerId = null;
+      }
       if (s.isDragging) onEnd();
     };
 
