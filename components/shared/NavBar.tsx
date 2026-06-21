@@ -194,10 +194,10 @@ export function Navbar({
                 </li>
                 <li>
                   <Link
-                    href="/en/search/anime"
+                    href="/en/discover"
                     className="hover:text-action/80 transition-all duration-150 ease-linear whitespace-nowrap"
                   >
-                    {t("nav.animeBrowse")}
+                    {t("nav.discover")}
                   </Link>
                 </li>
                 <li>
