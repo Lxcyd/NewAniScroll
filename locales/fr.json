@@ -549,10 +549,24 @@
     "pass": "Passer",
     "addToPlanning": "Ajouter à « Prévu »",
     "addedToPlanning": "Ajouté à « Prévu » : {{title}}",
+    "addedTo": "Ajouté à « {{status}} »",
     "savedLocally": "Enregistré localement. Connectez-vous avec AniList pour synchroniser.",
     "signInHint": "pour enregistrer automatiquement vos choix dans votre liste « Prévu ».",
     "swipeHint": "Glissez à gauche pour passer • à droite pour ajouter à « Prévu »",
-    "reload": "Recharger"
+    "loading": "Chargement d'animes géniaux…",
+    "reload": "Recharger",
+    "swipeSettings": "Réglages de swipe",
+    "swipeSettingsHint": "Choisissez le statut AniList appliqué quand vous swipez une carte. Connectez-vous avec AniList pour synchroniser.",
+    "swipeRight": "Swipe à droite →",
+    "swipeLeft": "← Swipe à gauche",
+    "status": {
+      "watching": "En cours",
+      "rewatching": "Revisionnage",
+      "completed": "Terminé",
+      "planning": "Prévu",
+      "paused": "En pause",
+      "dropped": "Abandonné"
+    }
   },
   "dmca": {
     "title": "DMCA & Avertissement",

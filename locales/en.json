@@ -549,10 +549,24 @@
     "pass": "Pass",
     "addToPlanning": "Add to Planning",
     "addedToPlanning": "Added to Planning: {{title}}",
+    "addedTo": "Added to {{status}}",
     "savedLocally": "Saved locally. Sign in with AniList to sync.",
     "signInHint": "to auto-save your swipes to your Planning list.",
     "swipeHint": "Swipe left to pass • Swipe right to add to Planning",
-    "reload": "Reload"
+    "loading": "Fetching awesome anime…",
+    "reload": "Reload",
+    "swipeSettings": "Swipe Settings",
+    "swipeSettingsHint": "Choose the AniList status applied when you swipe a card. Sign in with AniList to sync.",
+    "swipeRight": "Swipe right →",
+    "swipeLeft": "← Swipe left",
+    "status": {
+      "watching": "Watching",
+      "rewatching": "Rewatching",
+      "completed": "Completed",
+      "planning": "Planning",
+      "paused": "Paused",
+      "dropped": "Dropped"
+    }
   },
   "dmca": {
     "title": "DMCA & Disclaimer",
