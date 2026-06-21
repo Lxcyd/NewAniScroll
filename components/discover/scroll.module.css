@@ -678,6 +678,34 @@
   background: rgba(255, 255, 255, 0.14);
 }
 
+/* "For You" recommendation button — sits left of the settings gear. */
+.forYouBtn {
+  position: absolute;
+  top: calc(72px + env(safe-area-inset-top));
+  right: 56px;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: rgba(233, 69, 96, 0.18);
+  border: 1px solid rgba(233, 69, 96, 0.4);
+  color: var(--brand-primary, #e94560);
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+  transition: background 0.15s ease, transform 0.12s ease;
+}
+
+.forYouBtn:hover {
+  background: rgba(233, 69, 96, 0.3);
+}
+
+.forYouBtn:active {
+  transform: scale(0.88);
+}
+
 .swsetOpenBtn:active {
   transform: scale(0.88);
 }

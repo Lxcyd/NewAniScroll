@@ -575,6 +575,27 @@
       "dropped": "Abandonné"
     }
   },
+  "recommend": {
+    "title": "Pour toi",
+    "modeAll": "Découvrir",
+    "modePlanning": "Dans mes prévus",
+    "analyzing": "Analyse de tes goûts…",
+    "another": "Une autre",
+    "signInHint": "Connecte-toi avec AniList pour des recommandations adaptées à ta liste.",
+    "emptyList": "Ta liste est vide — note quelques animes d'abord pour qu'on apprenne tes goûts.",
+    "noResults": "Aucune nouvelle recommandation pour le moment. Réessaie plus tard.",
+    "failed": "Échec de la recommandation. Réessaie.",
+    "reason": {
+      "lovedSimilar": "Parce que tu as adoré {{titles}}",
+      "sequel": "Suite de {{title}}, que tu as apprécié",
+      "studio": "Même studio que tu adores : {{studio}}",
+      "genres": "Correspond à tes genres favoris : {{genres}}",
+      "tags": "Contient des thèmes que tu aimes : {{tags}}",
+      "community": "Très recommandé par les fans de tes favoris",
+      "highlyRated": "Acclamé par la critique ({{score}}%)",
+      "binge": "Du genre que tu enchaînes d'une traite"
+    }
+  },
   "dmca": {
     "title": "DMCA & Avertissement",
     "subtitle": "À lire avant d'envoyer une demande de retrait — cela nous fait gagner du temps à tous les deux.",

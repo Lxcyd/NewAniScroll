@@ -575,6 +575,27 @@
       "dropped": "Dropped"
     }
   },
+  "recommend": {
+    "title": "For You",
+    "modeAll": "Discover new",
+    "modePlanning": "From my Planning",
+    "analyzing": "Analyzing your taste…",
+    "another": "Another one",
+    "signInHint": "Sign in with AniList to get recommendations tailored to your list.",
+    "emptyList": "Your list is empty — rate some anime first so we can learn your taste.",
+    "noResults": "Couldn't find a fresh recommendation right now. Try again later.",
+    "failed": "Recommendation failed. Please try again.",
+    "reason": {
+      "lovedSimilar": "Because you loved {{titles}}",
+      "sequel": "Continues {{title}}, which you enjoyed",
+      "studio": "Same studio you love: {{studio}}",
+      "genres": "Matches your favourite genres: {{genres}}",
+      "tags": "Has themes you like: {{tags}}",
+      "community": "Highly recommended by fans of your favourites",
+      "highlyRated": "Critically acclaimed ({{score}}%)",
+      "binge": "Fits the kind of shows you binge"
+    }
+  },
   "dmca": {
     "title": "DMCA & Disclaimer",
     "subtitle": "Read this before sending a takedown notice — it saves both of us time.",

@@ -7,6 +7,33 @@ Ordre anti-chronologique (le plus récent en haut). Une entrée = une session/su
 
 ---
 
+## 2026-06-21 (suite) — Moteur de recommandation « Pour toi »
+
+### Contexte
+Bouton qui analyse toute la liste AniList (animes vus, notes, vitesse de visionnage, repeats, statut) pour proposer un nouvel anime. Deux entrées : sur `/discover` (bouton ✨ à gauche de l'engrenage) et sur le profil (owner only). Deux modes : **Tous** (hors liste, découverte) et **Depuis mes prévus** (re-classe les PLANNING par affinité).
+
+### Architecture
+- **Engine pur** ([lib/recommend/engine.ts](lib/recommend/engine.ts)) sans réseau, testable : `buildProfile` (vecteur de goût par genre/tag rank-pondéré/studio/format/décennie ; signaux = note→affinité signée, repeat, **vitesse de binge** via `completedAt-startedAt`/épisodes, DROPPED = négatif) → `scoreCandidate` (blend contenu 0.5 / communautaire 0.3 / qualité 0.2 + pénalités genres détestés + mismatch de niche + bonus suite/studio, **avec raisons structurées**) → `diversify` (MMR-like sur genres).
+- **Métadonnées** ([lib/recommend/fetchMeta.ts](lib/recommend/fetchMeta.ts)) : batch de 50 via `anilistFetch` (cache Redis partagé + rate-limit déjà gérés) ; `recommendations` AniList = signal collaboratif, `relations` = détection des suites.
+- **API** ([pages/api/v2/recommend.ts](pages/api/v2/recommend.ts)) : POST `{ list, mode }` (le client envoie sa liste cachée — pas de re-auth serveur). Candidats = reco AniList des animes adorés ∪ suites non vues ∪ top-genres highly-rated. Cache Redis par **hash de signature de liste** (15 min) → reroll instant.
+- **UI** ([ForYouPanel.tsx](components/discover/ForYouPanel.tsx) + [forYou.module.css](components/discover/forYou.module.css)) : modal portée à `<body>`, 1 carte + raisons en prose ([recReasons.ts](components/discover/recReasons.ts)) + toggle Tous/Prévus + bouton « Une autre ».
+
+### Décisions
+- **Serveur + Redis** (vs tout client) : l'analyse fetch beaucoup de métadonnées ; le cache par-liste + le cache partagé d'`anilistFetch` évitent le rate-limit AniList et rendent le reroll instantané.
+- **Le client POST sa liste** plutôt que re-fetch serveur avec le token : réutilise `getUserList` (déjà caché), pas de plomberie d'auth serveur.
+- **Pas de listes custom** dans le scoring (comme le swipe) — juste les statuts AniList.
+
+### Pièges
+- **TS target < es2015** : pas de spread sur `Map`/`Set` iterators → `Array.from(...).forEach`.
+- **CSS modules** : `ring:` est une utility Tailwind, PAS du CSS valide → `border:`.
+- `useTranslatedText` réutilisé pour traduire le synopsis de la reco (déjà préchauffé ailleurs).
+
+### À vérifier
+- `tsc` + `next lint` clean. Tester avec une vraie liste : pertinence des recos, raisons cohérentes, reroll, mode prévus.
+- Liste vide / non connecté → messages d'état gérés.
+
+---
+
 ## 2026-06-21 — Page Discovery : portage du feed swipe vertical (référentiel MAUI → React)
 
 ### Contexte

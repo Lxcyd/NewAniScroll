@@ -3,11 +3,12 @@ import Head from "next/head";
 import { useRouter } from "next/router";
 import { useSession } from "next-auth/react";
 import { toast } from "sonner";
-import { Cog6ToothIcon } from "@heroicons/react/24/solid";
+import { Cog6ToothIcon, SparklesIcon } from "@heroicons/react/24/solid";
 import { useTranslation } from "react-i18next";
 import { Navbar } from "@/components/shared/NavBar";
 import ScrollCard, { ScrollAnime } from "@/components/discover/ScrollCard";
 import ScrollerSettingsPanel from "@/components/discover/ScrollerSettingsPanel";
+import ForYouPanel from "@/components/discover/ForYouPanel";
 import { useCardDrag, DragEndInfo } from "@/components/discover/useCardDrag";
 import { saveMediaListEntry } from "@/lib/list/anilistPush";
 import { prefetchTranslations } from "@/lib/i18n/useTranslatedText";
@@ -41,6 +42,7 @@ export default function Discover() {
   const [transitioning, setTransitioning] = useState(false);
   const [cardHeight, setCardHeight] = useState(800);
   const [showSettings, setShowSettings] = useState(false);
+  const [showForYou, setShowForYou] = useState(false);
   const [settings, setSettings] = useState<SwipeSettings>(() => loadSwipeSettings());
   // anime id → status it was just swiped into, so a card scrolled back to can
   // show an "Undo" badge and we can revert the AniList entry.
@@ -301,17 +303,28 @@ export default function Discover() {
           )}
         </div>
 
-        {/* Overlay: counter + settings button */}
+        {/* Overlay: For You + settings buttons (top-right) */}
         {animes.length > 0 && (
-          <button
-            type="button"
-            className={styles.swsetOpenBtn}
-            onClick={() => setShowSettings(true)}
-            title={t("discover.swipeSettings")}
-            aria-label={t("discover.swipeSettings")}
-          >
-            <Cog6ToothIcon className="h-4 w-4" />
-          </button>
+          <>
+            <button
+              type="button"
+              className={styles.forYouBtn}
+              onClick={() => setShowForYou(true)}
+              title={t("recommend.title")}
+              aria-label={t("recommend.title")}
+            >
+              <SparklesIcon className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              className={styles.swsetOpenBtn}
+              onClick={() => setShowSettings(true)}
+              title={t("discover.swipeSettings")}
+              aria-label={t("discover.swipeSettings")}
+            >
+              <Cog6ToothIcon className="h-4 w-4" />
+            </button>
+          </>
         )}
       </div>
 
@@ -321,6 +334,8 @@ export default function Discover() {
         onChange={onSettingsChange}
         onClose={() => setShowSettings(false)}
       />
+
+      <ForYouPanel isVisible={showForYou} onClose={() => setShowForYou(false)} />
     </>
   );
 }
