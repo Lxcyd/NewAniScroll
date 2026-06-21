@@ -293,7 +293,7 @@ export default function Discover() {
 
           {initialLoading && (
             <div className={styles.loadingArea}>
-              <div>
+              <div className={styles.loadingBox}>
                 <div className={styles.spinner} />
                 <p className={styles.loadingSubtitle}>{t("discover.loading")}</p>
               </div>
