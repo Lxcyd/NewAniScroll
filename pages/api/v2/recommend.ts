@@ -11,6 +11,7 @@ import {
 import {
   fetchMetaByIds,
   fetchCandidatesByGenres,
+  rootSeasonOf,
   MetaWithRelations,
 } from "@/lib/recommend/fetchMeta";
 import type {
@@ -233,6 +234,33 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     for (const m of byGenre) {
       if (isDiscoverable(m, excludedIds)) candidates.set(m.id, m);
     }
+
+    // ── Normalise every candidate to the FIRST season of its franchise. ──
+    // Discover must present a never-seen anime by its entry point: if a source
+    // surfaced "Gintama Season 2" we show Gintama (S1) instead. We walk PREQUEL/
+    // PARENT to the root, carry the candidate's community signal onto the root,
+    // and drop it if the root is itself excluded (already watched / wrong-format).
+    const rootCache = new Map<number, MetaWithRelations>(candidates);
+    const normalised = new Map<number, MetaWithRelations>();
+    const entries = Array.from(candidates.entries());
+    for (const [id, meta] of entries) {
+      const rootId = await rootSeasonOf(id, rootCache);
+      if (rootId !== id) {
+        // Move the collaborative signal from the sequel onto the root season.
+        if (communityHits.has(id)) {
+          communityHits.set(rootId, (communityHits.get(rootId) ?? 0) + communityHits.get(id)!);
+          communityHits.delete(id);
+        }
+        if (lovedVia.has(id) && !lovedVia.has(rootId)) {
+          lovedVia.set(rootId, lovedVia.get(id)!);
+        }
+      }
+      if (excludedIds.has(rootId)) continue; // S1 already in list/franchise → skip
+      const rootMeta = rootCache.get(rootId) ?? meta;
+      if (!isDiscoverable(rootMeta, excludedIds)) continue;
+      normalised.set(rootId, rootMeta);
+    }
+    candidates = normalised;
   }
 
   // ── 3. Score every candidate ──

@@ -164,6 +164,8 @@
 .cardInner {
   position: relative;
   display: flex;
+  flex-direction: column;
+  align-items: center;
   gap: 14px;
   padding: 16px;
   background: linear-gradient(
@@ -173,22 +175,28 @@
   );
 }
 
+/* Mobile: poster on top, all the text below it, full-width and centred. */
 .poster {
   flex-shrink: 0;
-  width: 150px;
-  height: 214px;
+  width: 170px;
+  height: 242px;
   border-radius: 8px;
   overflow: hidden;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
 }
 
 .posterImg {
-  width: 150px;
-  height: 214px;
+  width: 170px;
+  height: 242px;
   object-fit: cover;
 }
 
+/* From tablet up: revert to the side-by-side layout (poster left, info right). */
 @media (min-width: 640px) {
+  .cardInner {
+    flex-direction: row;
+    align-items: stretch;
+  }
   .poster,
   .posterImg {
     width: 180px;
@@ -231,10 +239,25 @@
 
 .cardInfo {
   min-width: 0;
+  width: 100%;
   flex: 1;
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+/* Mobile (stacked) layout: text block sits under the poster, full width. The
+   chips/stats/reasons stay left-aligned for readability, the title centred. */
+@media (max-width: 639px) {
+  .cardTitle {
+    text-align: center;
+  }
+  .metaLine {
+    justify-content: center;
+  }
+  .cardStats {
+    justify-content: center;
+  }
 }
 
 .cardTitle {

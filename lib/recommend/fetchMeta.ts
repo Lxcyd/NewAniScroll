@@ -154,6 +154,70 @@ export async function fetchMetaByIds(
   return out;
 }
 
+/** Relation types that point BACK toward the start of a franchise — following
+ *  these walks us toward Season 1 / the original work. */
+const ROOT_RELATIONS = new Set(["PREQUEL", "PARENT", "FULL_STORY"]);
+
+/** Formats we treat as a real "season" the user would start from. We skip
+ *  movies/music/specials as roots — a recap movie isn't where you begin. */
+const SEASON_FORMATS = new Set(["TV", "TV_SHORT", "ONA", "OVA"]);
+
+function isSeasonStart(m: MetaWithRelations | undefined): boolean {
+  return !!m && (m.format == null || SEASON_FORMATS.has(m.format));
+}
+
+/**
+ * Walk a candidate back to the FIRST season of its franchise.
+ *
+ * Discover should always present a never-seen anime by its entry point — if the
+ * collaborative / genre sources surface "Attack on Titan S4" we want to show
+ * S1 instead. We follow PREQUEL/PARENT edges to the root, fetching only the
+ * relation chain ids we don't already have cached.
+ *
+ * `cache` is reused/extended across calls so a batch of candidates sharing a
+ * franchise only resolves the chain once. Returns the root id (which may equal
+ * the input id if it has no prequel).
+ */
+export async function rootSeasonOf(
+  startId: number,
+  cache: Map<number, MetaWithRelations>,
+): Promise<number> {
+  let cursor = startId;
+  const visited = new Set<number>([startId]);
+
+  for (let hop = 0; hop < 12; hop++) {
+    let meta = cache.get(cursor);
+    if (!meta) {
+      const fetched = await fetchMetaByIds([cursor], false);
+      meta = fetched.get(cursor);
+      if (meta) cache.set(cursor, meta);
+    }
+    if (!meta) break;
+
+    // Prefer a season-like prequel; bridge through OVA/SPECIAL prequels if
+    // that's all AniList records, but never step onto a movie/off-format root.
+    const prequels = (meta.relations || []).filter((r) =>
+      ROOT_RELATIONS.has(r.relationType),
+    );
+    if (!prequels.length) break;
+
+    // Make sure we have metadata for the prequel targets to inspect format.
+    const need = prequels.map((r) => r.id).filter((id) => !cache.has(id));
+    if (need.length) {
+      const fetched = await fetchMetaByIds(need, false);
+      fetched.forEach((m, id) => cache.set(id, m));
+    }
+
+    const seasonLike = prequels.find((r) => isSeasonStart(cache.get(r.id)));
+    const chosen = seasonLike ?? prequels[0];
+    if (!chosen || visited.has(chosen.id)) break;
+    visited.add(chosen.id);
+    cursor = chosen.id;
+  }
+
+  return cursor;
+}
+
 /** Fetch highly-rated candidates filtered by genres (content-based candidate
  *  generation), excluding adult content. Lightweight field-set; multiple genre
  *  combinations run in parallel. `genreSets` is a list of genre arrays — each is
