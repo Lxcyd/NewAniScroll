@@ -25,35 +25,46 @@ const W = {
   // candidate scoring blend
   content: 0.5,
   community: 0.3,
-  quality: 0.2,
-  // affinity-from-score curve anchors (score 0..10 → affinity)
-  // 10→+1.0, 8→+0.55, 7→+0.2, 5→0, ≤3→negative
-  // dimension contributions inside content similarity
-  genre: 1.0,
-  tag: 0.8,
-  studio: 1.2,
-  format: 0.4,
-  decade: 0.3,
+  quality: 0.18,
+  // Tags are AniList's most granular taste signal (e.g. "Time Loop",
+  // "Anti-Hero", "Found Family") — they carry the most "feel" of an anime, so
+  // they dominate the content similarity. Genres are broad; studios distinctive.
+  genre: 0.7,
+  tag: 1.5,
+  studio: 1.1,
+  format: 0.35,
+  decade: 0.25,
   // penalties
   dislikedGenre: 1.3,
-  dislikedTag: 1.0,
+  dislikedTag: 1.4,
   popularityMismatch: 0.5,
   // bonuses
   sequelBonus: 0.45,
   bingeBonus: 0.25,
 } as const;
 
-/** Map a user score (0–10) to a signed affinity in roughly [-0.8, +1.0]. */
-function scoreToAffinity(score: number): number {
+/** Map a user score (0–10) to a signed affinity in roughly [-1.0, +1.2].
+ *  Rewards favourites strongly (loving an anime is a much louder signal than
+ *  mild approval) and penalises low scores hard so disliked traits are avoided.
+ *  Mean-relative: a 7 from someone who averages 6 means more than from a harsh
+ *  rater who averages 8 — handled by passing `mean` so the curve recentres. */
+function scoreToAffinity(score: number, mean = 7): number {
   if (score <= 0) return 0; // unscored
-  if (score >= 9) return 1.0;
-  if (score >= 8) return 0.65;
-  if (score >= 7) return 0.35;
-  if (score >= 6) return 0.12;
-  if (score >= 5) return 0;
-  if (score >= 4) return -0.25;
-  if (score >= 3) return -0.5;
-  return -0.8;
+  // Recentre around the user's own mean: delta in [-x, +x] from their average.
+  const delta = score - mean;
+  // Sigmoid-ish: strong positive for clearly-above-mean, strong negative below.
+  let a: number;
+  if (delta >= 2) a = 1.2;
+  else if (delta >= 1) a = 0.8;
+  else if (delta >= 0.5) a = 0.45;
+  else if (delta >= -0.25) a = 0.15;
+  else if (delta >= -1) a = -0.2;
+  else if (delta >= -2) a = -0.6;
+  else a = -1.0;
+  // Absolute floor: a 9–10 is always a strong love regardless of mean.
+  if (score >= 9) a = Math.max(a, 1.1);
+  if (score <= 3) a = Math.min(a, -0.7);
+  return a;
 }
 
 function toDate(d: ListEntry["startedAt"]): number | null {
@@ -101,8 +112,20 @@ export function buildProfile(
   const formats: Record<string, number> = {};
   const decades: Record<string, number> = {};
 
+  const isWatched = (s: string | null) =>
+    s === "COMPLETED" || s === "CURRENT" || s === "REPEATING" || s === "DROPPED";
+
+  // ── Pre-pass: the user's own mean score, so affinity is mean-relative.
   let scoreSum = 0;
   let scoreCount = 0;
+  for (const e of list) {
+    if (e.score && e.score > 0 && isWatched(e.status)) {
+      scoreSum += e.score;
+      scoreCount++;
+    }
+  }
+  const meanScore = scoreCount ? scoreSum / scoreCount : 7;
+
   let lovedPopSum = 0;
   let lovedPopCount = 0;
   let sampleSize = 0;
@@ -110,29 +133,25 @@ export function buildProfile(
   for (const entry of list) {
     const meta = metaById.get(entry.mediaId);
     if (!meta) continue;
-    const watched =
-      entry.status === "COMPLETED" ||
-      entry.status === "CURRENT" ||
-      entry.status === "REPEATING" ||
-      entry.status === "DROPPED";
-    if (!watched) continue;
+    if (!isWatched(entry.status)) continue;
 
-    let affinity = scoreToAffinity(entry.score ?? 0);
+    let affinity = scoreToAffinity(entry.score ?? 0, meanScore);
 
-    // DROPPED with no/low score = explicit dislike even if unscored.
-    if (entry.status === "DROPPED" && affinity >= 0) affinity = -0.35;
-    // Rewatched = strong favourite signal.
-    if (entry.repeat > 0) affinity += Math.min(0.4, entry.repeat * 0.2);
-    // Fast binge bonus.
-    affinity += bingeBonus(entry, meta.episodes);
+    // DROPPED = explicit dislike; never let it read as positive.
+    if (entry.status === "DROPPED") affinity = Math.min(affinity, -0.4);
+    // Rewatched = strong favourite signal (multiplicative so it amplifies love).
+    if (entry.repeat > 0) affinity += Math.min(0.5, entry.repeat * 0.25);
+    // Fast binge bonus (only meaningful for liked anime).
+    if (affinity > 0) affinity += bingeBonus(entry, meta.episodes);
+    // A barely-started CURRENT anime is weak evidence — damp it.
+    if (entry.status === "CURRENT" && meta.episodes && meta.episodes > 1) {
+      const frac = Math.min(1, entry.progress / meta.episodes);
+      affinity *= 0.4 + 0.6 * frac; // 0.4× at ep1 → 1× when caught up
+    }
 
     if (affinity === 0) continue;
     sampleSize++;
 
-    if (entry.score && entry.score > 0) {
-      scoreSum += entry.score;
-      scoreCount++;
-    }
     if (affinity > 0.5 && meta.popularity) {
       lovedPopSum += meta.popularity;
       lovedPopCount++;
@@ -141,7 +160,8 @@ export function buildProfile(
     for (const g of meta.genres) bump(genres, g, affinity * W.genre);
     for (const tg of meta.tags) {
       if (tg.isMediaSpoiler) continue;
-      // rank 0..100 → weight 0..1
+      // rank 0..100 → weight 0..1; only count meaningfully-ranked tags.
+      if (tg.rank < 25) continue;
       bump(tags, tg.name, affinity * W.tag * (tg.rank / 100));
     }
     for (const st of meta.studios) bump(studios, st, affinity * W.studio);
@@ -155,7 +175,7 @@ export function buildProfile(
     studios,
     formats,
     decades,
-    meanScore: scoreCount ? scoreSum / scoreCount : 7,
+    meanScore,
     nicheLean: lovedPopCount ? lovedPopSum / lovedPopCount : 0,
     sampleSize,
   };
@@ -222,17 +242,27 @@ export function scoreCandidate(
   const fmt = meta.format ? profile.formats[meta.format] ?? 0 : 0;
   const dec = profile.decades[`${Math.floor((meta.seasonYear ?? 0) / 10) * 10}s`] ?? 0;
 
+  // Tag overlap density: how many of the candidate's strong tags the user
+  // actively likes — a dense thematic match is the best "you'll love this" cue.
+  const strongTags = meta.tags.filter((x) => !x.isMediaSpoiler && x.rank >= 50);
+  const likedTagHits = strongTags.filter((x) => (profile.tags[x.name] ?? 0) > 0).length;
+  const tagDensity = strongTags.length ? likedTagHits / strongTags.length : 0;
+
   let content =
     (g.score / gMag) * W.genre +
-    (t.score / tMag) * W.tag +
+    (t.score / tMag) * W.tag * (0.6 + 0.4 * tagDensity) + // reward dense matches
     (s.score / sMag) * W.studio +
     Math.sign(fmt) * Math.min(0.4, Math.abs(fmt)) * W.format +
     Math.sign(dec) * Math.min(0.3, Math.abs(dec)) * W.decade;
 
-  // ── Penalties for disliked dimensions ──
+  // ── Penalties for disliked dimensions (avoid what you don't like) ──
   for (const gg of meta.genres) {
     const w = profile.genres[gg];
-    if (w && w < -0.3) content -= W.dislikedGenre * Math.abs(w) * 0.2;
+    if (w && w < -0.25) content -= W.dislikedGenre * Math.abs(w) * 0.25;
+  }
+  for (const tg of strongTags) {
+    const w = profile.tags[tg.name];
+    if (w && w < -0.2) content -= W.dislikedTag * Math.abs(w) * (tg.rank / 100) * 0.3;
   }
 
   // ── Reasons from matched dimensions ──
@@ -246,16 +276,17 @@ export function scoreCandidate(
   if (s.matched.length) {
     reasons.push({ kind: "studio", studio: s.matched[0] });
   }
+  if (t.matched.length) {
+    // Tags first — they're the most specific, most compelling reason.
+    reasons.push({ kind: "tags", tags: t.matched.slice(0, 3) });
+  }
   if (g.matched.length) {
     reasons.push({ kind: "genres", genres: g.matched.slice(0, 3) });
   }
-  if (t.matched.length) {
-    reasons.push({ kind: "tags", tags: t.matched.slice(0, 3) });
-  }
 
-  // ── Community signal (AniList "if you liked X" overlap) ──
+  // ── Community signal (AniList "if you liked X" overlap) — strongest signal. ──
   const community = opts.communityStrength ?? 0;
-  if (community > 0.3) reasons.push({ kind: "community" });
+  if (community > 0.25) reasons.push({ kind: "community" });
 
   // ── Quality ──
   const quality = (meta.averageScore ?? 0) / 100;
@@ -270,11 +301,16 @@ export function scoreCandidate(
     if (ratio > 3) nichePenalty = W.popularityMismatch * 0.15;
   }
 
+  // A candidate with NO content match AND no community backing is noise — floor
+  // it low so genre-page filler can't outrank a real thematic match.
+  const hasSignal = content > 0.05 || community > 0;
+
   const score =
-    W.content * Math.max(0, content) +
-    W.community * community +
-    W.quality * quality -
-    nichePenalty;
+    (W.content * Math.max(0, content) +
+      W.community * community +
+      W.quality * quality -
+      nichePenalty) *
+    (hasSignal ? 1 : 0.15);
 
   return { anime: meta, score, reasons };
 }

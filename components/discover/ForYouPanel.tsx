@@ -15,7 +15,7 @@ import {
 } from "@heroicons/react/24/solid";
 import { getUserList } from "@/lib/anilist/userListCache";
 import { animeHref, useClickTarget } from "@/lib/prefs/clickTarget";
-import { useTranslatedText } from "@/lib/i18n/useTranslatedText";
+import { useTranslatedText, prefetchTranslations } from "@/lib/i18n/useTranslatedText";
 import type { Recommendation, RecommendMode } from "@/lib/recommend/types";
 import type { ListEntry } from "@/lib/recommend/types";
 import { reasonsToProse } from "./recReasons";
@@ -40,7 +40,7 @@ function toListEntries(map: Map<number, any>): ListEntry[] {
 }
 
 export default function ForYouPanel({ isVisible, onClose }: Props) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { data: session }: any = useSession();
   const clickTarget = useClickTarget();
 
@@ -100,6 +100,12 @@ export default function ForYouPanel({ isVisible, onClose }: Props) {
           return;
         }
         shownRef.current = [...shownRef.current, ...batch.map((r) => r.anime.id)];
+        // Warm the translation cache for every synopsis in the batch so each
+        // card renders translated instantly (no English flash on reroll).
+        prefetchTranslations(
+          batch.map((r) => r.anime.description?.replace(/<[^>]+>/g, "")),
+          i18n.language || "en",
+        );
         setRecs(batch);
         setIdx(0);
       } catch (e) {
@@ -109,7 +115,7 @@ export default function ForYouPanel({ isVisible, onClose }: Props) {
         setLoading(false);
       }
     },
-    [session],
+    [session, i18n.language],
   );
 
   // Load on open (and when the mode toggles).
@@ -261,6 +267,20 @@ function RecCard({
     a.description ? a.description.replace(/<[^>]+>/g, "") : "",
   );
 
+  const fmtLabel = a.format
+    ? a.format.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
+    : null;
+  const seasonLabel =
+    a.season && a.seasonYear
+      ? `${a.season.charAt(0)}${a.season.slice(1).toLowerCase()} ${a.seasonYear}`
+      : a.seasonYear
+      ? String(a.seasonYear)
+      : null;
+  const metaBits = [fmtLabel, seasonLabel, a.studios?.[0]].filter(Boolean) as string[];
+  const topTags = (a.tags || [])
+    .filter((x) => !x.isMediaSpoiler && x.rank >= 60)
+    .slice(0, 5);
+
   return (
     <div className={styles.card}>
       {banner && (
@@ -272,11 +292,23 @@ function RecCard({
       <div className={styles.cardInner}>
         {cover && (
           <div className={styles.poster}>
-            <Image src={cover} alt={title} width={120} height={170} className={styles.posterImg} />
+            <Image src={cover} alt={title} width={180} height={256} className={styles.posterImg} />
           </div>
         )}
         <div className={styles.cardInfo}>
           <h3 className={styles.cardTitle}>{title}</h3>
+
+          {metaBits.length > 0 && (
+            <div className={styles.metaLine}>
+              {metaBits.map((b, i) => (
+                <span key={b} className="inline-flex items-center gap-1.5">
+                  {i > 0 && <span className={styles.metaDot}>•</span>}
+                  {b}
+                </span>
+              ))}
+            </div>
+          )}
+
           <div className={styles.cardStats}>
             {a.averageScore != null && (
               <span className={styles.statScore}>
@@ -288,23 +320,33 @@ function RecCard({
                 <TvIcon className="h-3.5 w-3.5" /> {a.episodes} EP
               </span>
             )}
-            {a.genres?.slice(0, 2).map((g) => (
+            {a.genres?.slice(0, 3).map((g) => (
               <span key={g} className={styles.statGenre}>
                 {g}
               </span>
             ))}
           </div>
 
-          {/* Why this rec */}
+          {/* Why this rec — the heart of the panel */}
           {reasons.length > 0 && (
             <ul className={styles.reasons}>
-              {reasons.slice(0, 3).map((r, i) => (
+              {reasons.slice(0, 4).map((r, i) => (
                 <li key={i} className={styles.reason}>
                   <SparklesIcon className="h-3 w-3 shrink-0 text-as-accent" />
                   <span>{r}</span>
                 </li>
               ))}
             </ul>
+          )}
+
+          {topTags.length > 0 && (
+            <div className={styles.tagRow}>
+              {topTags.map((tg) => (
+                <span key={tg.name} className={styles.tagChip}>
+                  {tg.name}
+                </span>
+              ))}
+            </div>
           )}
 
           {desc && <p className={styles.cardDesc}>{desc}</p>}

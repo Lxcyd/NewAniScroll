@@ -77,18 +77,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
   }
 
-  // ── 1. Metadata for the user's watched anime → taste profile ──
-  const watchedIds = list
-    .filter(
-      (e) =>
-        e.status === "COMPLETED" ||
-        e.status === "CURRENT" ||
-        e.status === "REPEATING" ||
-        e.status === "DROPPED",
-    )
-    .map((e) => e.mediaId);
-
-  const watchedMeta = await fetchMetaByIds(watchedIds);
+  // ── 1. Metadata for the ENTIRE list → taste profile + franchise exclusion ──
+  // We fetch metadata for every list entry (not just watched ones) so that the
+  // relations of anything the user has any relationship with are known — that's
+  // what lets us exclude a whole franchise (e.g. you have Mob Psycho S1, so S2
+  // and S3 must never be recommended, even if you paused or only planned S1).
+  const listIdsAll = list.map((e) => e.mediaId);
+  const watchedMeta = await fetchMetaByIds(listIdsAll);
   const profile = buildProfile(list, watchedMeta);
 
   // Loved anime (high affinity) drive candidate generation + "because you loved"
@@ -119,20 +114,41 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   // Anything already shown in a previous batch is excluded too, so a
   // "regenerate" call returns a genuinely fresh set.
   shownSet.forEach((id) => excludedIds.add(id));
-  for (const e of list) {
-    const meta = watchedMeta.get(e.mediaId);
-    if (!meta) continue;
-    for (const rel of meta.relations || []) {
-      if (FRANCHISE_RELATIONS.has(rel.relationType)) excludedIds.add(rel.id);
+
+  // ── Transitive franchise walk (BFS) ──
+  // AniList only links adjacent seasons (S1↔S2, S2↔S3), so a single hop from S1
+  // wouldn't catch S3. We walk the franchise graph to closure: start from every
+  // list id, follow franchise relations, fetch the newly-found ids' relations,
+  // and repeat. Capped at a few rounds so a giant franchise can't blow up.
+  const relCache = new Map<number, MetaWithRelations>(watchedMeta);
+  let frontier = Array.from(inListIds);
+  for (let depth = 0; depth < 4 && frontier.length; depth++) {
+    const next: number[] = [];
+    // Fetch relations for any frontier id we don't have metadata for yet.
+    const missing = frontier.filter((id) => !relCache.has(id));
+    if (missing.length) {
+      const fetched = await fetchMetaByIds(missing);
+      fetched.forEach((m, id) => relCache.set(id, m));
     }
+    for (const id of frontier) {
+      const meta = relCache.get(id);
+      if (!meta) continue;
+      for (const rel of meta.relations || []) {
+        if (!FRANCHISE_RELATIONS.has(rel.relationType)) continue;
+        if (excludedIds.has(rel.id)) continue;
+        excludedIds.add(rel.id);
+        next.push(rel.id);
+      }
+    }
+    frontier = next;
   }
+
   const isDiscoverable = (m: MetaWithRelations) =>
     !excludedIds.has(m.id) &&
-    // A standalone series, not a continuation: drop entries whose own relations
-    // point back to something the user has watched (catches sequels we didn't
-    // see in the watched anime's own relation list).
+    // Belt-and-braces: drop entries whose own relations point back to anything
+    // already excluded (catches links AniList only records on one side).
     !(m.relations || []).some(
-      (r) => FRANCHISE_RELATIONS.has(r.relationType) && inListIds.has(r.id),
+      (r) => FRANCHISE_RELATIONS.has(r.relationType) && excludedIds.has(r.id),
     );
 
   // ── 2. Candidate generation ──

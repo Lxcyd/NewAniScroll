@@ -7,6 +7,30 @@ Ordre anti-chronologique (le plus récent en haut). Une entrée = une session/su
 
 ---
 
+## 2026-06-21 (suite 2) — Reco « Pour toi » : algo v2 + bug franchise transitif
+
+### Le bug (révélateur)
+On proposait **Mob Psycho S3 alors que S1 est dans la liste** (et pas finie). Deux causes :
+1. `watchedMeta` ne fetchait que COMPLETED/CURRENT/REPEATING/DROPPED → une S1 **PAUSED/PLANNING** ne chargeait jamais ses `relations` → sa franchise n'était pas exclue. **Fix** : fetch metadata de **toute** la liste.
+2. AniList ne lie que les saisons **adjacentes** (S1↔S2, S2↔S3). Mon exclusion faisait **1 seul hop** → S3 (2 hops) passait. **Fix** : **walk transitif (BFS, depth 4)** sur les relations de franchise jusqu'à clôture du composant connexe ; `isDiscoverable` vérifie aussi les relations du candidat vers tout id exclu.
+
+### Algo v2 (les propos ne donnaient pas envie)
+- **Affinité relative à la moyenne** de l'utilisateur (`scoreToAffinity(score, mean)`) : un 7 chez quelqu'un qui note 6 ≠ chez qui note 8. Pré-passe pour la moyenne.
+- **Tags dominants** (W.tag 0.8→1.5) : ce sont le signal de « feel » le plus granulaire d'AniList. Bonus de **densité de tags** (combien des tags forts du candidat l'user aime). Genres réduits (broad).
+- **Pénalités de tags détestés** (pas que genres).
+- **CURRENT amorti par la progression** (ep1 = preuve faible × 0.4).
+- **Floor de signal** : un candidat sans match contenu NI communauté est ramené à ×0.15 (le filler de page-genre ne peut plus dépasser un vrai match thématique).
+- Raisons réordonnées : tags d'abord (plus spécifiques).
+
+### Autres
+- **Traduction préchargée** : `prefetchTranslations` sur les 10 synopsis dès l'arrivée du lot (plus de flash anglais au reroll).
+- **Fenêtre agrandie** : 760px (sm) / 880px (lg), poster 180×256, + meta line (format · saison · studio), chips de tags, description 5 lignes.
+
+### À vérifier
+- Plus aucune suite d'un anime en liste (tester Mob Psycho). Pertinence accrue (tags). `tsc`+`lint` clean.
+
+---
+
 ## 2026-06-21 (suite) — Moteur de recommandation « Pour toi »
 
 ### Contexte
