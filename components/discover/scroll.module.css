@@ -324,7 +324,7 @@
 .title {
   font-family: "Outfit", sans-serif;
   font-weight: 800;
-  font-size: 28px;
+  font-size: 34px;
   line-height: 1.15;
   margin: 0;
   cursor: pointer;
@@ -335,19 +335,19 @@
 }
 
 .titleLong {
-  font-size: 24px;
+  font-size: 29px;
 }
 
 .titleVeryLong {
-  font-size: 20px;
+  font-size: 24px;
 }
 
 .seasonInfo {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
   font-family: "Karla", sans-serif;
-  font-size: 12px;
+  font-size: 13px;
   letter-spacing: 1px;
   text-transform: uppercase;
   color: rgba(255, 255, 255, 0.6);
@@ -396,7 +396,7 @@
 
 .genres {
   font-family: "Karla", sans-serif;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--brand-primary, #e94560);
   margin: 0;
@@ -404,15 +404,15 @@
 
 .stats {
   display: flex;
-  gap: 8px;
+  gap: 9px;
   align-items: center;
 }
 
 .badge {
   font-family: "Karla", sans-serif;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 700;
-  padding: 4px 10px;
+  padding: 5px 12px;
   border-radius: 5px;
 }
 
@@ -432,8 +432,8 @@
 
 .descriptionPreview {
   font-family: "Karla", sans-serif;
-  font-size: 13px;
-  line-height: 1.5;
+  font-size: 14px;
+  line-height: 1.55;
   color: rgba(255, 255, 255, 0.72);
   margin: 0;
   display: -webkit-box;
