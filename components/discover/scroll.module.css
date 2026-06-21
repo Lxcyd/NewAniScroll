@@ -184,7 +184,7 @@
   display: flex;
   flex-direction: column;
   height: 100%;
-  padding: 72px 20px 48px;
+  padding: 72px 36px 48px;
   box-sizing: border-box;
   /* visible — the *card* (full width, overflow:hidden) is the clip boundary.
      If this narrower centred wrapper clipped, a dragged poster would be cut at
@@ -195,16 +195,16 @@
 
 @media (min-width: 768px) {
   .contentWrapper {
-    max-width: 600px;
+    max-width: 540px;
     margin: 0 auto;
-    padding: 84px 30px 56px; /* clears the fixed site navbar */
+    padding: 84px 56px 56px; /* clears the fixed site navbar */
   }
 }
 
 @media (min-width: 1025px) {
   .contentWrapper {
-    max-width: 680px;
-    padding: 92px 40px 64px;
+    max-width: 600px;
+    padding: 92px 72px 64px;
   }
 }
 
