@@ -7,6 +7,36 @@ Ordre anti-chronologique (le plus récent en haut). Une entrée = une session/su
 
 ---
 
+## 2026-06-21 — Page Discovery : portage du feed swipe vertical (référentiel MAUI → React)
+
+### Contexte
+Remplacement du bouton navbar « Anime » par « Discovery » (→ `/en/discover`) et réécriture de la page pour matcher le feed swipe du repo `S00295653/AniScroll` (mon ancien projet **.NET MAUI / Blazor**, pas React). Le code C#/Razor ne se copie pas → **portage** du comportement + look, pas du code. La page avait déjà un stack Tinder ; remplacé par le feed plein écran à défilement **vertical** (style TikTok) où le swipe **horizontal** assigne un statut AniList configurable.
+
+### Décisions / architecture (`dev`)
+- **Feed vertical** ([pages/en/discover.tsx](pages/en/discover.tsx)) : `currentIndex` sur liste virtualisée (fenêtre ±5), `translateY((i-currentIndex)*vh)`. API existante `/api/v2/discover/[page]` (Redis) réutilisée + préchargement.
+- **Hook drag** ([useCardDrag.ts](components/discover/useCardDrag.ts)) : port de `scroll-helpers.js` — pointer/touch/molette, lock d'axe, paint RAF-throttlé, fly-off Tinder, snap-back.
+- **Carte plein écran** ([ScrollCard.tsx](components/discover/ScrollCard.tsx)) + [scroll.module.css](components/discover/scroll.module.css) : port de `Index.razor` + `card.css`. `memo()` (voir pièges).
+- **Swipe Settings** ([ScrollerSettingsPanel.tsx](components/discover/ScrollerSettingsPanel.tsx)) : layout preview (zones gauche/droite + squelette) + bottom-sheet picker. **Statuts seuls** (pas de listes custom — pas de backend équivalent ici). Statuts écrits via `saveMediaListEntry`, persistance localStorage ([swipeSettings.ts](lib/discover/swipeSettings.ts)).
+- **Undo** : bouton sur le toast (sonner) + badge sur la carte au scroll-back ; revert via `DeleteMediaListEntry`.
+- **Réutilisations clés** : `useTranslatedText` + `prefetchTranslations` pour traduire/précharger les synopsis ; `animeHref(id, clickTarget)` + `useClickTarget()` pour respecter le réglage *Navigation → Page de visionnage/info* sur le clic titre/poster.
+
+### Leçons / pièges (debug swipe, le gros du temps)
+- **Snap-back ajoutait quand même en liste.** Le hook signalait `axis:"horizontal"` pour TOUT relâchement ; la page appliquait l'action sans vérifier le seuil. Fix : sous le seuil → le hook renvoie `axis:"none"` (no-op page). Seuil monté 85→120px.
+- **« Image passe derrière sur les bords ».** 3 causes empilées : (1) `overflow:visible` que j'avais mis sur la carte la laissait déborder sur la voisine → retiré, la **carte** (`overflow:hidden`) est la limite de clip ; (2) `.imageSection { z-index:20 }` créait un contexte d'empilement qui échappait au clip → baissé à 3 ; (3) le `.contentWrapper` centré/étroit avec `overflow:hidden` rognait le poster au bord du wrapper (bande) → repassé `visible`. Fond de carte **opaque** pour que rien ne transparaisse.
+- **Swipe saccadé en partant SUR l'image.** Le poster se transforme et glisse **sous le curseur** → les `pointermove` partaient à l'élément maintenant sous le curseur. Fix : **`setPointerCapture`** sur le container. (En partant à côté ça marchait par accident.)
+- **Régression de fluidité = re-render.** `useTranslatedText` met à jour l'état quand la trad arrive → **toutes les cartes** se re-rendaient en plein swipe et entraient en conflit avec les écritures DOM du hook. Fix : `memo(ScrollCard)`.
+- **Garder `data-dragging` jusqu'à la fin du fly-off** (pas le retirer au début de `onEnd`), sinon la carte est re-clippée/re-descendue en z-index en plein vol.
+- **`skPulse3s` du référentiel n'est jamais défini** (keyframe absente) → le squelette ne shimmer pas en boucle dans l'original, juste une entrée `skIn`. J'avais inventé un shimmer trop rapide → retiré.
+- **EP label** : repris la logique exacte du Hero info (`7/12` / `1208+` / `12` / `N/A`), nécessite `nextAiringEpisode` dans la requête.
+- **status-dot** : couleur exacte du référentiel `rgb(0,230,0)` + glow + `pulse-green` (mon `#10b981` était trop terne) ; `upcoming` = rouge.
+- **Bug indépendant** : dropdown notifications (`w-80` ancré `right-0`) débordait hors écran en mobile → `fixed left-2 right-2` sous `sm`, panneau d'origine au-dessus.
+
+### À vérifier
+- `tsc --noEmit` + `next lint` clean à chaque commit.
+- Reste très visuel : tester le swipe (fluidité en partant sur l'image, pas de débordement), l'undo (toast + badge), et le réglage click-target.
+
+---
+
 ## 2026-06-20 — CPU Fluid encore à 4h53/4h : single-flight + snapshot des absences
 
 ### Contexte
