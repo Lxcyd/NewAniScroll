@@ -132,17 +132,23 @@ export default function ScrollerSettingsPanel({
                 <div className={styles.swsetSkPoster} />
               </div>
               <div className={styles.swsetSkInfo}>
-                <div className={`${styles.swsetSkLine} ${styles.swsetSkTitle}`} style={{ width: "72%" }} />
-                <div className={`${styles.swsetSkLine} ${styles.swsetSkSeason}`} style={{ width: "34%" }} />
-                <div className={styles.swsetSkGenres}>
+                <div className={`${styles.swsetSkLine} ${styles.swsetSkTitle}`} style={{ width: "72%", animationDelay: ".05s" }} />
+                <div className={`${styles.swsetSkLine} ${styles.swsetSkSeason}`} style={{ width: "34%", animationDelay: ".09s" }} />
+                <div className={styles.swsetSkGenres} style={{ animationDelay: ".13s" }}>
                   <div className={styles.swsetSkGenre} style={{ width: 46 }} />
                   <div className={styles.swsetSkGenre} style={{ width: 38 }} />
                   <div className={styles.swsetSkGenre} style={{ width: 52 }} />
                 </div>
-                <div className={styles.swsetSkStats}>
+                <div className={styles.swsetSkStats} style={{ animationDelay: ".17s" }}>
                   <div className={styles.swsetSkBadge} style={{ width: 44 }} />
                   <div className={styles.swsetSkBadge} style={{ width: 52 }} />
                 </div>
+                <div className={styles.swsetSkDescWrap}>
+                  <div className={`${styles.swsetSkLine} ${styles.swsetSkDesc}`} style={{ width: "100%", animationDelay: ".21s" }} />
+                  <div className={`${styles.swsetSkLine} ${styles.swsetSkDesc}`} style={{ width: "92%", animationDelay: ".24s" }} />
+                  <div className={`${styles.swsetSkLine} ${styles.swsetSkDesc}`} style={{ width: "80%", animationDelay: ".27s" }} />
+                </div>
+                <div className={styles.swsetSkReadmore} style={{ animationDelay: ".31s" }} />
               </div>
             </div>
 

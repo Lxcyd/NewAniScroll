@@ -723,12 +723,15 @@
   }
 }
 
-@keyframes skShimmer {
-  0% {
-    background-position: 150% 0;
+@keyframes skIn {
+  from {
+    opacity: 0;
+    transform: scaleX(0.7);
+    transform-origin: left;
   }
-  100% {
-    background-position: -150% 0;
+  to {
+    opacity: 1;
+    transform: scaleX(1);
   }
 }
 
@@ -865,20 +868,19 @@
 }
 
 .swsetSkPoster {
-  width: 120px;
-  height: 180px;
+  width: 130px;
+  height: 200px;
   border: 1px solid rgba(255, 255, 255, 0.09);
   border-radius: 7px;
   margin-top: 40px;
   background: linear-gradient(
       105deg,
       rgba(255, 255, 255, 0) 38%,
-      rgba(255, 255, 255, 0.06) 50%,
+      rgba(255, 255, 255, 0.04) 50%,
       rgba(255, 255, 255, 0) 62%
     ),
     rgba(255, 255, 255, 0.07);
-  background-size: 300% 100%, 100% 100%;
-  animation: skShimmer 1.6s ease-in-out infinite;
+  background-size: 350% 100%, 100% 100%;
 }
 
 .swsetSkInfo {
@@ -887,7 +889,6 @@
   padding: 12px 18px 8px;
   display: flex;
   flex-direction: column;
-  align-items: center;
   overflow: hidden;
   background: #14141f;
 }
@@ -903,8 +904,8 @@
       rgba(255, 255, 255, 0) 62%
     ),
     rgba(255, 255, 255, 0.09);
-  background-size: 300% 100%, 100% 100%;
-  animation: skShimmer 1.6s ease-in-out infinite;
+  background-size: 350% 100%, 100% 100%;
+  animation: skIn 0.24s ease-out both;
 }
 
 .swsetSkTitle {
@@ -924,24 +925,74 @@
   display: flex;
   gap: 5px;
   margin-bottom: 8px;
+  flex-shrink: 0;
+  animation: skIn 0.24s ease-out both;
 }
 
 .swsetSkGenre {
   height: 6px;
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.08);
+  flex-shrink: 0;
+  background: linear-gradient(
+      105deg,
+      rgba(255, 255, 255, 0) 38%,
+      rgba(255, 255, 255, 0.05) 50%,
+      rgba(255, 255, 255, 0) 62%
+    ),
+    rgba(255, 255, 255, 0.08);
+  background-size: 350% 100%, 100% 100%;
 }
 
 .swsetSkStats {
   display: flex;
   gap: 6px;
   margin-bottom: 9px;
+  flex-shrink: 0;
+  animation: skIn 0.24s ease-out both;
 }
 
 .swsetSkBadge {
   height: 18px;
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.07);
+  background: linear-gradient(
+      105deg,
+      rgba(255, 255, 255, 0) 38%,
+      rgba(255, 255, 255, 0.05) 50%,
+      rgba(255, 255, 255, 0) 62%
+    ),
+    rgba(255, 255, 255, 0.07);
+  background-size: 350% 100%, 100% 100%;
+}
+
+.swsetSkDescWrap {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-bottom: 9px;
+  flex-shrink: 0;
+}
+
+.swsetSkDesc {
+  height: 5px;
+  border-radius: 3px;
+  opacity: 0.28;
+}
+
+.swsetSkReadmore {
+  width: 60px;
+  height: 8px;
+  border-radius: 4px;
+  background: linear-gradient(
+      105deg,
+      rgba(255, 255, 255, 0) 38%,
+      rgba(255, 255, 255, 0.06) 50%,
+      rgba(255, 255, 255, 0) 62%
+    ),
+    rgba(255, 255, 255, 0.09);
+  background-size: 350% 100%, 100% 100%;
+  align-self: center;
+  flex-shrink: 0;
+  animation: skIn 0.24s ease-out both;
 }
 
 /* Bottom-sheet status picker */
