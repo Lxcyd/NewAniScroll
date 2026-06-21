@@ -1,4 +1,6 @@
 import { useTranslation } from "react-i18next";
+import { ArrowUturnLeftIcon } from "@heroicons/react/24/solid";
+import type { Status } from "@/lib/list/types";
 import styles from "./scroll.module.css";
 import {
   SwipeSettings,
@@ -32,6 +34,9 @@ type Props = {
   /** Adds/removes the CSS transition (off while dragging / on neighbour-enter). */
   transition: boolean;
   settings: SwipeSettings;
+  /** Set when this anime was already swiped — shows an Undo badge. */
+  swipedStatus?: Status;
+  onUndo?: (anime: ScrollAnime) => void;
   onOpenDetails: (anime: ScrollAnime) => void;
 };
 
@@ -77,8 +82,11 @@ export default function ScrollCard({
   isActive,
   transition,
   settings,
+  swipedStatus,
+  onUndo,
   onOpenDetails,
 }: Props) {
+  const { t } = useTranslation();
   const title =
     anime.title?.english || anime.title?.romaji || anime.title?.native || "Anime";
   const cover = anime.coverImage?.extraLarge || anime.coverImage?.large || "";
@@ -119,6 +127,24 @@ export default function ScrollCard({
             style={{ background: featherGradient(STATUS_COLOR[settings.leftStatus], false) }}
           />
         </>
+      )}
+
+      {/* Undo badge — shown when scrolling back to an already-swiped card */}
+      {swipedStatus && onUndo && (
+        <button
+          type="button"
+          className={styles.undoBadge}
+          onClick={() => onUndo(anime)}
+          style={{
+            color: STATUS_COLOR[swipedStatus],
+            borderColor: `${STATUS_COLOR[swipedStatus]}80`,
+          }}
+        >
+          <ArrowUturnLeftIcon style={{ width: 13, height: 13 }} />
+          {t("discover.undoStatus", {
+            status: t(`discover.status.${STATUS_LABEL_KEY[swipedStatus]}`),
+          })}
+        </button>
       )}
 
       <div className={styles.contentWrapper}>

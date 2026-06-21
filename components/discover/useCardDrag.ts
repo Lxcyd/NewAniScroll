@@ -220,6 +220,16 @@ export function useCardDrag({ containerRef, cardHeight, onDragEnd, enabled }: Pa
               "transform 0.44s cubic-bezier(0.4,0,0.8,0.6), opacity 0.36s ease-in 0.06s";
             img.style.transform = `translateX(${flyX}px) translateY(-90px) rotate(${rot}deg)`;
             img.style.opacity = "0";
+            // After the fly-off completes, reset the poster inline styles so the
+            // card is clean if the user scrolls back to it later (no stale
+            // translateX/opacity that would make it "teleport" back in).
+            window.setTimeout(() => {
+              img.style.transition = "none";
+              img.style.transform = "";
+              img.style.opacity = "";
+              void img.offsetWidth;
+              img.style.transition = "";
+            }, 480);
           }
           ["right", "left"].forEach((d) => {
             const f = card.querySelector<HTMLElement>(`[data-feather="${d}"]`);
@@ -239,6 +249,12 @@ export function useCardDrag({ containerRef, cardHeight, onDragEnd, enabled }: Pa
       }
 
       // ── VERTICAL + fallback ──
+      // Clear the inline translateY the paint() applied to every card during
+      // the drag, so React's own translateY (with the CSS transition class)
+      // takes over cleanly instead of the card jumping from its dragged spot.
+      for (const { el, baseY } of s.baseTransforms) {
+        el.style.transform = `translateY(${baseY}px)`;
+      }
       fire();
     };
 

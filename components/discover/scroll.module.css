@@ -47,6 +47,12 @@
   touch-action: none;
 }
 
+/* While dragging, lift the active card above its neighbours so the poster
+   never slides behind the next/previous card when swiped far. */
+.card[data-dragging="true"] {
+  z-index: 30;
+}
+
 /* ========== BACKGROUND IMAGE ========== */
 .bgImage {
   position: absolute;
@@ -262,13 +268,14 @@
 }
 
 /* ========== INFO SECTION ========== */
+/* Left-aligned, matching the reference (no centering). */
 .infoSection {
   flex: 0 1 auto;
   min-height: 0;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  text-align: center;
+  align-items: flex-start;
+  text-align: left;
   gap: 8px;
   color: #fff;
   padding-top: 12px;
@@ -488,6 +495,39 @@
   }
 }
 
+/* ========== UNDO BADGE (already-swiped card) ========== */
+.undoBadge {
+  position: absolute;
+  top: calc(64px + env(safe-area-inset-top));
+  left: 16px;
+  z-index: 35;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 13px;
+  border-radius: 999px;
+  border: 1.5px solid;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  font-family: "Karla", sans-serif;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: transform 0.12s ease, background 0.15s ease;
+  animation: zoneInL 0.25s ease-out both;
+}
+
+.undoBadge:hover {
+  background: rgba(0, 0, 0, 0.72);
+}
+
+.undoBadge:active {
+  transform: scale(0.92);
+}
+
 /* Drop expensive GPU effects during the drag */
 .dragging .animeImage {
   box-shadow: none;
@@ -647,6 +687,49 @@
 .swsetSectionBlock {
   height: 360px;
   flex-shrink: 0;
+  animation: swsetUp 0.22s ease-out 0.05s both;
+}
+
+@keyframes swsetUp {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes zoneInL {
+  from {
+    opacity: 0;
+    transform: translateX(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes zoneInR {
+  from {
+    opacity: 0;
+    transform: translateX(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes skShimmer {
+  0% {
+    background-position: 150% 0;
+  }
+  100% {
+    background-position: -150% 0;
+  }
 }
 
 .swsetRow {
@@ -717,6 +800,7 @@
   white-space: nowrap;
   max-width: 155px;
   font-family: "Karla", sans-serif;
+  animation: zoneInL 0.28s ease-out 0.1s both;
 }
 
 .swsetZoneHint span {
@@ -728,6 +812,7 @@
 
 .swsetZoneHintR {
   flex-direction: row-reverse;
+  animation-name: zoneInR;
 }
 
 .swsetZoneEdit {
@@ -746,6 +831,11 @@
   white-space: nowrap;
   backdrop-filter: blur(4px);
   transition: background 0.14s, transform 0.11s;
+  animation: zoneInL 0.28s ease-out 0.18s both;
+}
+
+.swsetZoneContentR .swsetZoneEdit {
+  animation-name: zoneInR;
 }
 
 .swsetZoneEdit:active {
@@ -780,7 +870,15 @@
   border: 1px solid rgba(255, 255, 255, 0.09);
   border-radius: 7px;
   margin-top: 40px;
-  background: rgba(255, 255, 255, 0.07);
+  background: linear-gradient(
+      105deg,
+      rgba(255, 255, 255, 0) 38%,
+      rgba(255, 255, 255, 0.06) 50%,
+      rgba(255, 255, 255, 0) 62%
+    ),
+    rgba(255, 255, 255, 0.07);
+  background-size: 300% 100%, 100% 100%;
+  animation: skShimmer 1.6s ease-in-out infinite;
 }
 
 .swsetSkInfo {
@@ -798,7 +896,15 @@
   display: block;
   border-radius: 4px;
   flex-shrink: 0;
-  background: rgba(255, 255, 255, 0.09);
+  background: linear-gradient(
+      105deg,
+      rgba(255, 255, 255, 0) 38%,
+      rgba(255, 255, 255, 0.06) 50%,
+      rgba(255, 255, 255, 0) 62%
+    ),
+    rgba(255, 255, 255, 0.09);
+  background-size: 300% 100%, 100% 100%;
+  animation: skShimmer 1.6s ease-in-out infinite;
 }
 
 .swsetSkTitle {

@@ -39,8 +39,13 @@ export default function Discover() {
   const [cardHeight, setCardHeight] = useState(800);
   const [showSettings, setShowSettings] = useState(false);
   const [settings, setSettings] = useState<SwipeSettings>(() => loadSwipeSettings());
+  // anime id → status it was just swiped into, so a card scrolled back to can
+  // show an "Undo" badge and we can revert the AniList entry.
+  const [swiped, setSwiped] = useState<Record<number, import("@/lib/list/types").Status>>({});
 
   const seenIds = useRef<Set<number>>(new Set());
+  // anime id → AniList mediaListEntry id, needed to DeleteMediaListEntry on undo.
+  const entryIds = useRef<Record<number, number>>({});
   const containerRef = useRef<HTMLDivElement>(null);
   // Keep a live ref of state the drag callback reads without re-subscribing.
   const idxRef = useRef(currentIndex);
@@ -94,6 +99,53 @@ export default function Discover() {
     }
   }, [currentIndex, animes.length, loading, loadPage]);
 
+  // ── Undo a swipe: delete the AniList entry (or drop the local record) ──
+  const undoSwipe = useCallback(
+    async (anime: ScrollAnime) => {
+      // Clear the badge optimistically.
+      setSwiped((prev) => {
+        const next = { ...prev };
+        delete next[anime.id];
+        return next;
+      });
+
+      if (session?.user?.token) {
+        const entryId = entryIds.current[anime.id];
+        if (entryId) {
+          try {
+            await fetch("https://graphql.anilist.co/", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${session.user.token}`,
+              },
+              body: JSON.stringify({
+                query: `mutation ($id: Int) { DeleteMediaListEntry(id: $id) { deleted } }`,
+                variables: { id: entryId },
+              }),
+            });
+          } catch {
+            /* non-fatal */
+          }
+          delete entryIds.current[anime.id];
+        }
+      } else {
+        try {
+          const key = "discover_swipes";
+          const cur = JSON.parse(localStorage.getItem(key) || "[]");
+          localStorage.setItem(
+            key,
+            JSON.stringify(cur.filter((e: any) => e.id !== anime.id))
+          );
+        } catch {
+          /* non-fatal */
+        }
+      }
+      toast(t("discover.removed"));
+    },
+    [session, t]
+  );
+
   // ── List action on horizontal swipe ──
   const applyListAction = useCallback(
     async (anime: ScrollAnime, isRight: boolean) => {
@@ -102,13 +154,32 @@ export default function Discover() {
         : settingsRef.current.leftStatus;
       const label = t(`discover.status.${STATUS_LABEL_KEY[status]}`);
 
+      // Record the swipe so a card scrolled back to shows an Undo badge.
+      setSwiped((prev) => ({ ...prev, [anime.id]: status }));
+
+      const undoAction = {
+        label: t("discover.undo"),
+        onClick: () => undoSwipe(anime),
+      };
+
       if (session?.user?.token) {
         const saved = await saveMediaListEntry(session.user.token, {
           mediaId: anime.id,
           status,
         });
-        if (saved) toast.success(t("discover.addedTo", { status: label }));
-        else toast.error(t("discover.couldntSave"));
+        if (saved) {
+          entryIds.current[anime.id] = saved.id;
+          toast.success(t("discover.addedTo", { status: label }), {
+            action: undoAction,
+          });
+        } else {
+          toast.error(t("discover.couldntSave"));
+          setSwiped((prev) => {
+            const next = { ...prev };
+            delete next[anime.id];
+            return next;
+          });
+        }
       } else {
         // Signed out — remember the choice locally so it isn't lost.
         try {
@@ -119,10 +190,10 @@ export default function Discover() {
         } catch {
           /* non-fatal */
         }
-        toast(t("discover.savedLocally"));
+        toast(t("discover.savedLocally"), { action: undoAction });
       }
     },
-    [session, t]
+    [session, t, undoSwipe]
   );
 
   // ── Resolve a drag/wheel gesture (ported from Index.razor) ──
@@ -197,6 +268,8 @@ export default function Discover() {
                 isActive={index === currentIndex}
                 transition={transitioning}
                 settings={settings}
+                swipedStatus={swiped[anime.id]}
+                onUndo={undoSwipe}
                 onOpenDetails={openDetails}
               />
             );

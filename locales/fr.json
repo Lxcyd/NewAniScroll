@@ -561,6 +561,9 @@
     "swipeLeft": "Swipe à gauche",
     "edit": "Modifier",
     "statusLists": "Listes de statut",
+    "undo": "Annuler",
+    "removed": "Retiré",
+    "undoStatus": "Annuler « {{status}} »",
     "status": {
       "watching": "En cours",
       "rewatching": "Revisionnage",

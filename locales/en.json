@@ -561,6 +561,9 @@
     "swipeLeft": "Swipe Left",
     "edit": "Edit",
     "statusLists": "Status Lists",
+    "undo": "Undo",
+    "removed": "Removed",
+    "undoStatus": "Undo {{status}}",
     "status": {
       "watching": "Watching",
       "rewatching": "Rewatching",
