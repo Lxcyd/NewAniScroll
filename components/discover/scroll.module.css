@@ -47,12 +47,12 @@
   touch-action: none;
 }
 
-/* While dragging, lift the active card above every neighbour AND stop clipping
-   it, so the rotated poster can slide/fly past the card edge instead of being
-   cut off (which made it look like the card went "behind" the next one). */
+/* While dragging, lift the active card above every neighbour so nothing peeks
+   through behind the moving poster. The card keeps overflow:hidden (like the
+   reference) — the poster slides toward the edge within the card and the
+   fly-off animates it out; it must NOT escape into the neighbour's area. */
 .card[data-dragging="true"] {
   z-index: 50;
-  overflow: visible;
 }
 
 /* ========== BACKGROUND IMAGE ========== */
@@ -404,23 +404,25 @@
   overflow: hidden;
 }
 
-/* ========== ACTION ROW (Info + Watch) ========== */
+/* ========== ACTION ROW (Info + Watch) — centred ========== */
 .actions {
   display: flex;
-  gap: 8px;
-  margin-top: 4px;
+  gap: 12px;
+  margin-top: 10px;
   flex-shrink: 0;
+  align-self: center;
+  justify-content: center;
 }
 
 .actionInfo,
 .actionWatch {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 8px 16px;
+  gap: 7px;
+  padding: 11px 24px;
   border-radius: 999px;
   font-family: "Karla", sans-serif;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   cursor: pointer;
   transition: transform 0.12s ease, background 0.15s ease;
@@ -546,15 +548,17 @@
 }
 
 /* ========== UNDO BADGE (already-swiped card) ========== */
+/* Sits immediately left of the settings gear (gear: 32px wide at right:16px). */
 .undoBadge {
   position: absolute;
-  top: calc(76px + env(safe-area-inset-top));
-  right: 16px;
-  z-index: 35;
+  top: calc(72px + env(safe-area-inset-top));
+  right: 58px;
+  z-index: 40;
+  height: 32px;
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 7px 13px;
+  padding: 0 13px;
   border-radius: 999px;
   border: 1.5px solid;
   background: rgba(0, 0, 0, 0.6);
@@ -566,6 +570,7 @@
   text-transform: uppercase;
   letter-spacing: 0.04em;
   cursor: pointer;
+  white-space: nowrap;
   transition: transform 0.12s ease, background 0.15s ease;
   animation: undoBadgeIn 0.25s ease-out both;
 }

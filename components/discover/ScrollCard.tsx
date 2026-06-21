@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { useTranslation } from "react-i18next";
 import { ArrowUturnLeftIcon, InformationCircleIcon, PlayIcon } from "@heroicons/react/24/solid";
 import Link from "next/link";
@@ -77,7 +78,7 @@ function Hint({
   );
 }
 
-export default function ScrollCard({
+function ScrollCard({
   anime,
   translateY,
   cardHeight,
@@ -146,9 +147,7 @@ export default function ScrollCard({
           }}
         >
           <ArrowUturnLeftIcon style={{ width: 13, height: 13 }} />
-          {t("discover.undoStatus", {
-            status: t(`discover.status.${STATUS_LABEL_KEY[swipedStatus]}`),
-          })}
+          {t("discover.undo")}
         </button>
       )}
 
@@ -219,7 +218,7 @@ export default function ScrollCard({
               className={styles.actionInfo}
               onClick={(e) => e.stopPropagation()}
             >
-              <InformationCircleIcon style={{ width: 15, height: 15 }} />
+              <InformationCircleIcon style={{ width: 17, height: 17 }} />
               {t("discover.info")}
             </Link>
             <Link
@@ -227,7 +226,7 @@ export default function ScrollCard({
               className={styles.actionWatch}
               onClick={(e) => e.stopPropagation()}
             >
-              <PlayIcon style={{ width: 15, height: 15 }} />
+              <PlayIcon style={{ width: 17, height: 17 }} />
               {t("discover.watch")}
             </Link>
           </div>
@@ -236,3 +235,8 @@ export default function ScrollCard({
     </div>
   );
 }
+
+/* Memoised so a parent re-render (e.g. another card's translation resolving)
+   doesn't re-render every card mid-swipe and fight the drag hook's inline
+   DOM writes — that was making the swipe stutter. */
+export default memo(ScrollCard);
