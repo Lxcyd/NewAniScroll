@@ -291,14 +291,14 @@
 }
 
 /* ========== INFO SECTION ========== */
-/* Text reads left-aligned, but the whole block is centred under the poster
-   (same max-width as the poster + margin auto) so its left edge lines up with
-   the poster's left edge instead of the wider content-wrapper's. */
+/* Text reads left-aligned. The block is wider than the poster (and centred via
+   margin auto) so the title/description get longer lines and the whole block
+   fills more space instead of wrapping tightly under the narrow poster. */
 .infoSection {
   flex: 0 1 auto;
   min-height: 0;
   width: 100%;
-  max-width: min(64vw, 250px);
+  max-width: 100%;
   margin: 0 auto;
   display: flex;
   flex-direction: column;
@@ -311,13 +311,13 @@
 
 @media (min-width: 768px) {
   .infoSection {
-    max-width: min(54vw, 300px);
+    max-width: 440px;
   }
 }
 
 @media (min-width: 1025px) {
   .infoSection {
-    max-width: min(48vw, 340px);
+    max-width: 480px;
   }
 }
 
