@@ -19,10 +19,10 @@ import { useEffect, useRef } from "react";
 
 const MOVE_THRESHOLD = 6;
 const AXIS_LOCK = 10;
-// Horizontal drag distance (px) required to commit the card to a list. Raised
+// Horizontal drag distance (px) required to commit the card to a list. A bit
 // above the reference's 85 so a small left/right wiggle that returns to centre
 // never lands the anime in a list — below this it just snaps back.
-const HORIZ_THRESHOLD = 160;
+const HORIZ_THRESHOLD = 120;
 
 type Axis = "none" | "horizontal" | "vertical";
 

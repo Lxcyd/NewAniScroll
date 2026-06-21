@@ -182,7 +182,11 @@
   height: 100%;
   padding: 72px 20px 48px;
   box-sizing: border-box;
-  overflow: hidden;
+  /* visible — the *card* (full width, overflow:hidden) is the clip boundary.
+     If this narrower centred wrapper clipped, a dragged poster would be cut at
+     the wrapper edge and the card's blurred bg would show beside it (looked
+     like the card slid "under" a band). */
+  overflow: visible;
 }
 
 @media (min-width: 768px) {
