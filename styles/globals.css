@@ -1196,3 +1196,23 @@ input[type="number"] {
     transform: scaleX(1);
   }
 }
+
+/* Discover swipe toasts: restyle sonner's default white "Undo" action button
+   into a dark, subtle pill that reads as part of the toast. */
+.discover-toast [data-button] {
+  background: rgba(255, 255, 255, 0.12) !important;
+  color: #fff !important;
+  border: 1px solid rgba(255, 255, 255, 0.22) !important;
+  border-radius: 8px !important;
+  font-weight: 700 !important;
+  padding: 4px 12px !important;
+  transition: background 0.15s ease, transform 0.1s ease;
+}
+
+.discover-toast [data-button]:hover {
+  background: rgba(255, 255, 255, 0.2) !important;
+}
+
+.discover-toast [data-button]:active {
+  transform: scale(0.94);
+}

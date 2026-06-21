@@ -171,6 +171,7 @@ export default function Discover() {
           entryIds.current[anime.id] = saved.id;
           toast.success(t("discover.addedTo", { status: label }), {
             action: undoAction,
+            className: "discover-toast",
           });
         } else {
           toast.error(t("discover.couldntSave"));
@@ -190,7 +191,10 @@ export default function Discover() {
         } catch {
           /* non-fatal */
         }
-        toast(t("discover.savedLocally"), { action: undoAction });
+        toast(t("discover.savedLocally"), {
+          action: undoAction,
+          className: "discover-toast",
+        });
       }
     },
     [session, t, undoSwipe]

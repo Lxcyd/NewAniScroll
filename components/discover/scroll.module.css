@@ -498,16 +498,17 @@
 /* ========== UNDO BADGE (already-swiped card) ========== */
 .undoBadge {
   position: absolute;
-  top: calc(64px + env(safe-area-inset-top));
-  left: 16px;
+  top: calc(76px + env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
   z-index: 35;
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 7px 13px;
+  padding: 8px 16px;
   border-radius: 999px;
   border: 1.5px solid;
-  background: rgba(0, 0, 0, 0.55);
+  background: rgba(0, 0, 0, 0.6);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
   font-family: "Karla", sans-serif;
@@ -517,15 +518,26 @@
   letter-spacing: 0.04em;
   cursor: pointer;
   transition: transform 0.12s ease, background 0.15s ease;
-  animation: zoneInL 0.25s ease-out both;
+  animation: undoBadgeIn 0.25s ease-out both;
+}
+
+@keyframes undoBadgeIn {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -8px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
 }
 
 .undoBadge:hover {
-  background: rgba(0, 0, 0, 0.72);
+  background: rgba(0, 0, 0, 0.78);
 }
 
 .undoBadge:active {
-  transform: scale(0.92);
+  transform: translate(-50%, 0) scale(0.94);
 }
 
 /* Drop expensive GPU effects during the drag */
@@ -769,7 +781,8 @@
   justify-content: center;
   overflow: visible;
   background: #14141f;
-  z-index: 4;
+  /* No z-index: the gray zone stacks below the gradient overlay (z-index:3)
+     so the status colour tints it; the badge/Edit content sits above at z:4. */
 }
 
 .swsetZoneContent {
