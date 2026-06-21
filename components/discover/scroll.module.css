@@ -228,8 +228,8 @@
 /* ========== ANIME IMAGE (poster) ========== */
 .animeImage {
   height: 100%;
-  max-height: min(46vh, 380px);
-  max-width: min(70vw, 270px);
+  max-height: min(40vh, 340px);
+  max-width: min(64vw, 250px);
   min-height: 90px;
   aspect-ratio: 2 / 3;
   border-radius: 8px;
@@ -272,8 +272,8 @@
 
 @media (min-width: 768px) {
   .animeImage {
-    max-height: min(50vh, 440px);
-    max-width: min(60vw, 320px);
+    max-height: min(44vh, 400px);
+    max-width: min(54vw, 300px);
     min-height: 120px;
   }
   .animeImage:hover {
@@ -284,8 +284,8 @@
 
 @media (min-width: 1025px) {
   .animeImage {
-    max-height: min(54vh, 500px);
-    max-width: min(52vw, 360px);
+    max-height: min(48vh, 460px);
+    max-width: min(48vw, 340px);
     min-height: 140px;
   }
 }
@@ -298,7 +298,7 @@
   flex: 0 1 auto;
   min-height: 0;
   width: 100%;
-  max-width: min(70vw, 270px);
+  max-width: min(64vw, 250px);
   margin: 0 auto;
   display: flex;
   flex-direction: column;
@@ -311,13 +311,13 @@
 
 @media (min-width: 768px) {
   .infoSection {
-    max-width: min(60vw, 320px);
+    max-width: min(54vw, 300px);
   }
 }
 
 @media (min-width: 1025px) {
   .infoSection {
-    max-width: min(52vw, 360px);
+    max-width: min(48vw, 340px);
   }
 }
 
@@ -432,12 +432,12 @@
 
 .descriptionPreview {
   font-family: "Karla", sans-serif;
-  font-size: 12px;
-  line-height: 1.45;
-  color: rgba(255, 255, 255, 0.7);
+  font-size: 13px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.72);
   margin: 0;
   display: -webkit-box;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 4;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
@@ -446,10 +446,11 @@
 .actions {
   display: flex;
   gap: 12px;
-  margin-top: 10px;
+  margin-top: 12px;
   flex-shrink: 0;
-  align-self: center;
+  width: 100%;
   justify-content: center;
+  flex-wrap: wrap;
 }
 
 .actionInfo,
