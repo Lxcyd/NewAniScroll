@@ -365,29 +365,37 @@ function ActiveRoom({ party, onClose }: { party: PartyContext; onClose?: () => v
             <MdVolumeOff size={14} /> {t("party.mutedBanner")}
           </div>
         )}
-        <form
-          onSubmit={submit}
-          className="flex items-center gap-1 p-3"
-          onClickCapture={amMuted ? () => toast.error(t("party.mutedBanner")) : undefined}
-        >
-          <EmojiButton onPick={insertEmoji} />
-          <input
-            ref={inputRef}
-            value={text}
-            onChange={(e) => setText(replaceShortcodes(e.target.value))}
-            maxLength={500}
-            disabled={amMuted}
-            placeholder={amMuted ? t("party.muted") : t("party.message")}
-            className="flex-1 rounded-md bg-white/10 px-3 py-2 text-sm outline-none placeholder:text-white/40 focus:bg-white/15 disabled:cursor-not-allowed disabled:opacity-60"
-          />
-          <button
-            type="submit"
-            disabled={amMuted || !text.trim()}
-            className="flex h-9 w-9 items-center justify-center rounded-md bg-action text-white disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            <IoSend size={16} />
-          </button>
-        </form>
+        <div className="relative">
+          <form onSubmit={submit} className="flex items-center gap-1 p-3">
+            <EmojiButton onPick={insertEmoji} />
+            <input
+              ref={inputRef}
+              value={text}
+              onChange={(e) => setText(replaceShortcodes(e.target.value))}
+              maxLength={500}
+              disabled={amMuted}
+              placeholder={amMuted ? t("party.muted") : t("party.message")}
+              className="flex-1 rounded-md bg-white/10 px-3 py-2 text-sm outline-none placeholder:text-white/40 focus:bg-white/15 disabled:cursor-not-allowed disabled:opacity-60"
+            />
+            <button
+              type="submit"
+              disabled={amMuted || !text.trim()}
+              className="flex h-9 w-9 items-center justify-center rounded-md bg-action text-white disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <IoSend size={16} />
+            </button>
+          </form>
+          {/* When muted, a transparent overlay swallows clicks (disabled inputs
+              don't fire events) and shows the "you are muted" toast. */}
+          {amMuted && (
+            <button
+              type="button"
+              aria-label={t("party.mutedBanner")}
+              onClick={() => toast.error(t("party.mutedBanner"))}
+              className="absolute inset-0 z-10 cursor-not-allowed bg-transparent"
+            />
+          )}
+        </div>
       </div>
     </>
   );
