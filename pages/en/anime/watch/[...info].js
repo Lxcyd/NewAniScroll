@@ -48,6 +48,9 @@ import Head from "next/head";
 import { useRouter } from "next/router";
 import { Spinner } from "@vidstack/react";
 import RateModal from "@/components/shared/RateModal";
+import { useWatchParty } from "@/lib/watch2gether/useWatchParty";
+import WatchPartyPanel from "@/components/watch/party/WatchPartyPanel";
+import CreatePartyButton from "@/components/watch/party/CreatePartyButton";
 
 // ─────────────────────────────────────────────────────────────
 // SSR
@@ -446,6 +449,70 @@ export default function Watch({
   }, [confirmedServers, failedServers, activeServer]);
 
   const router = useRouter();
+
+  // ── Watch 2gether ──
+  // A room is active when the URL carries ?party={roomId}. The hook is a no-op
+  // (returns null) when absent, so the page behaves identically without one.
+  const partyRoomId = router.query.party ? String(router.query.party) : null;
+  const myUserId = sessions?.user?.id ? String(sessions.user.id) : null;
+  const party = useWatchParty(
+    partyRoomId,
+    { aniId: aniId, epiNumber: epiNumber, dub: !!dub, server: activeServer },
+    myUserId
+  );
+
+  // Episode sync: when WE change episode while in a party, tell everyone. When
+  // a peer changes episode, navigate to it (preserving ?party). We track the
+  // last episode we broadcast/applied to avoid feedback loops.
+  const lastBroadcastEpRef = useRef(null);
+  const applyingRemoteEpRef = useRef(false);
+
+  // Broadcast our episode whenever it changes (and we didn't just apply a remote one).
+  useEffect(() => {
+    if (!party || epiNumber == null) return;
+    const key = `${epiNumber}-${dub ? "dub" : "sub"}`;
+    if (lastBroadcastEpRef.current === key) return;
+    lastBroadcastEpRef.current = key;
+    if (applyingRemoteEpRef.current) {
+      applyingRemoteEpRef.current = false;
+      return; // this change came FROM a peer — don't echo it back
+    }
+    party.broadcast("episode", {
+      aniId: aniId,
+      epiNumber: epiNumber,
+      dub: !!dub,
+      server: activeServer,
+      position: 0,
+    });
+  }, [party, epiNumber, dub, aniId, activeServer]);
+
+  // Apply remote episode changes by navigating, keeping ?party intact.
+  useEffect(() => {
+    if (!party) return;
+    const unsub = party.onRemote((e) => {
+      if (e.type !== "episode" || !e.payload) return;
+      const targetEp = String(e.payload.epiNumber);
+      const targetDub = !!e.payload.dub;
+      const sameEp = String(epiNumber) === targetEp && !!dub === targetDub;
+      if (sameEp) return;
+      applyingRemoteEpRef.current = true;
+      const id = info?.id || aniId;
+      router.push(
+        {
+          pathname: `/en/anime/watch/${id}`,
+          query: {
+            id: `${activeServer}-${targetEp}`,
+            num: targetEp,
+            ...(targetDub ? { dub: true } : {}),
+            party: party.roomId,
+          },
+        },
+        undefined,
+        { shallow: false }
+      );
+    });
+    return unsub;
+  }, [party, epiNumber, dub, info?.id, aniId, activeServer, router]);
 
   // Canonicalize the URL to /en/anime/watch/{aniId}/{slug}. Strips any
   // legacy /{server} segment (old links shared before we removed the
@@ -1455,6 +1522,7 @@ export default function Watch({
             isFinalEpisode={isFinalEpisode}
             isSingleEpisode={isSingleEpisode}
             onFinalEpisodeNearEnd={handleFinalEpisodeNearEnd}
+            party={party}
             downloadName={`${(info?.title?.romaji || info?.title?.english || "anime").replace(/\s+/g, "_")}_E${epiNumber}${dub ? "_DUB" : ""}`}
             onError={(reason) =>
               markFailed(
@@ -1489,11 +1557,12 @@ export default function Watch({
           isFinalEpisode={isFinalEpisode}
           isSingleEpisode={isSingleEpisode}
           onFinalEpisodeNearEnd={handleFinalEpisodeNearEnd}
+          party={party}
           onError={(reason) => markFailed(server.id, reason || "Iframe load timeout")}
         />
       </PlayerErrorBoundary>
     );
-  }, [activeServer, episodeNavigation, hlsLoading, hlsData, info, epiNumber, dub, markFailed, handleServerChange, autoplay, handleEpisodeComplete, isFinalEpisode, isSingleEpisode, handleFinalEpisodeNearEnd]);
+  }, [activeServer, episodeNavigation, hlsLoading, hlsData, info, epiNumber, dub, markFailed, handleServerChange, autoplay, handleEpisodeComplete, isFinalEpisode, isSingleEpisode, handleFinalEpisodeNearEnd, party]);
 
   // ── Render ───────────────────────────────────────────────────
   return (
@@ -1656,6 +1725,14 @@ export default function Watch({
                   </div>
 
                   <div className="flex gap-2 text-sm">
+                    {!party && info?.id && (
+                      <CreatePartyButton
+                        aniId={info.id}
+                        epiNumber={epiNumber}
+                        dub={dub}
+                        server={activeServer}
+                      />
+                    )}
                     <button
                       type="button"
                       onClick={handleShareClick}
@@ -1693,6 +1770,11 @@ export default function Watch({
               id="secondary"
               className={`relative ${theaterMode ? "pt-5" : "pt-4 lg:pt-0"}`}
             >
+              {party && (
+                <div className="mb-4 h-[420px] px-3 lg:px-0">
+                  <WatchPartyPanel party={party} />
+                </div>
+              )}
               <EpisodeLists
                 info={info}
                 session={sessions}

@@ -118,6 +118,10 @@ type Props = {
   /** Fired once when the final episode is nearly over (a few seconds before the
    *  end). The watch page opens the rate popup from here. */
   onFinalEpisodeNearEnd?: () => void;
+  /** Watch 2gether context (from useWatchParty). When present, the player
+   *  broadcasts local play/pause/seek/rate and applies remote ones. Optional —
+   *  the player works identically when null/undefined. */
+  party?: import("@/lib/watch2gether/useWatchParty").PartyContext | null;
 };
 
 // Proxy base — defaults to the Cloudflare Worker (unmetered + edge cache).
@@ -1086,6 +1090,7 @@ export default function UniversalPlayer({
   isFinalEpisode = false,
   isSingleEpisode = false,
   onFinalEpisodeNearEnd,
+  party,
 }: Props) {
   const { t, i18n } = useTranslation();
   const playerRef = useRef<MediaPlayerInstance>(null);
@@ -2290,6 +2295,137 @@ export default function UniversalPlayer({
     // resume seek runs on the freshly-loaded source.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [aniListId, episodeNumber, streamData]);
+
+  // ── Watch 2gether sync ──
+  // When a `party` is present, mirror play/pause/seek/rate across participants.
+  // Everyone can control, so we guard against feedback loops two ways:
+  //  • applyingRemoteRef — set while we apply a remote action, to skip the
+  //    local listener's re-broadcast of the change we just made.
+  //  • a seek tolerance window — ignore remote seeks within ~0.75s of where we
+  //    already are (avoids timeupdate jitter triggering seek-wars).
+  useEffect(() => {
+    if (!party) return;
+
+    const SEEK_TOLERANCE = 0.75;
+    let el: HTMLElement | null = null;
+    let video: HTMLVideoElement | null = null;
+    let pollId = 0;
+    const applying = party.applyingRemoteRef;
+
+    const withGuard = (fn: () => void) => {
+      applying.current = true;
+      try {
+        fn();
+      } catch {}
+      // Release after the resulting media events have fired.
+      window.setTimeout(() => {
+        applying.current = false;
+      }, 120);
+    };
+
+    // Local player → broadcast (skip when we're applying a remote action).
+    const onPlay = () => {
+      if (applying.current || !video) return;
+      party.broadcast("play", { position: video.currentTime });
+    };
+    const onPause = () => {
+      if (applying.current || !video) return;
+      party.broadcast("pause", { position: video.currentTime });
+    };
+    const onSeeked = () => {
+      if (applying.current || !video) return;
+      party.broadcast("seek", { position: video.currentTime });
+    };
+    const onRate = () => {
+      if (applying.current || !video) return;
+      party.broadcast("rate", { rate: video.playbackRate, position: video.currentTime });
+    };
+
+    // Remote events → drive the player.
+    const applyRemote = (e: {
+      type: string;
+      payload?: any;
+    }) => {
+      if (!video) return;
+      const pos = Number(e.payload?.position);
+      const player = playerRef.current;
+
+      const seekTo = (t: number) => {
+        if (!Number.isFinite(t)) return;
+        if (Math.abs(video!.currentTime - t) <= SEEK_TOLERANCE) return;
+        video!.currentTime = t;
+      };
+
+      switch (e.type) {
+        case "snapshot": {
+          const s = e.payload?.snapshot;
+          if (!s) return;
+          withGuard(() => {
+            seekTo(Number(s.position));
+            if (typeof s.rate === "number") video!.playbackRate = s.rate;
+            if (s.paused) player?.pause?.();
+            else player?.play?.()?.catch?.(() => {});
+          });
+          return;
+        }
+        case "play":
+          withGuard(() => {
+            seekTo(pos);
+            player?.play?.()?.catch?.(() => {});
+          });
+          return;
+        case "pause":
+          withGuard(() => {
+            seekTo(pos);
+            player?.pause?.();
+          });
+          return;
+        case "seek":
+          withGuard(() => seekTo(pos));
+          return;
+        case "rate":
+          withGuard(() => {
+            if (typeof e.payload?.rate === "number") video!.playbackRate = e.payload.rate;
+          });
+          return;
+        // "episode" is handled by the watch page (navigation), not here.
+        default:
+          return;
+      }
+    };
+
+    const unsub = party.onRemote(applyRemote);
+
+    const bind = () => {
+      const player = playerRef.current;
+      el = (player?.el as HTMLElement) || null;
+      video = el?.querySelector<HTMLVideoElement>("video") || null;
+      if (!video) return false;
+      video.addEventListener("play", onPlay);
+      video.addEventListener("pause", onPause);
+      video.addEventListener("seeked", onSeeked);
+      video.addEventListener("ratechange", onRate);
+      return true;
+    };
+
+    if (!bind()) {
+      let tries = 0;
+      pollId = window.setInterval(() => {
+        if (bind() || ++tries > 40) window.clearInterval(pollId);
+      }, 250);
+    }
+
+    return () => {
+      window.clearInterval(pollId);
+      unsub();
+      video?.removeEventListener("play", onPlay);
+      video?.removeEventListener("pause", onPause);
+      video?.removeEventListener("seeked", onSeeked);
+      video?.removeEventListener("ratechange", onRate);
+    };
+    // Re-bind on stream change (new <video>) and when the party identity changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [party, streamData]);
 
   // ── Autoplay ──
   // Chrome rejects unmuted autoplay without a user gesture, period. The
