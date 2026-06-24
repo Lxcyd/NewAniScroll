@@ -51,7 +51,6 @@ import RateModal from "@/components/shared/RateModal";
 import { toast } from "sonner";
 import { useWatchParty } from "@/lib/watch2gether/useWatchParty";
 import WatchPartyPanel from "@/components/watch/party/WatchPartyPanel";
-import PartyMenuButton from "@/components/watch/party/PartyMenuButton";
 
 // ─────────────────────────────────────────────────────────────
 // SSR
@@ -478,8 +477,14 @@ export default function Watch({
   // Panel is closable; a floating pill restores it. Reset to visible whenever a
   // new party is entered.
   const [partyPanelHidden, setPartyPanelHidden] = useState(false);
+  // The right-hand panel is shown when in a party OR when the user opened the
+  // lobby (Create / Join) via the "Watch together" button.
+  const [partyUIOpen, setPartyUIOpen] = useState(false);
   useEffect(() => {
-    if (partyRoomId) setPartyPanelHidden(false);
+    if (partyRoomId) {
+      setPartyPanelHidden(false);
+      setPartyUIOpen(true);
+    }
   }, [partyRoomId]);
 
   // Track the player's pixel height so (on large screens) the party panel can
@@ -554,6 +559,32 @@ export default function Watch({
     });
     return unsub;
   }, [party, epiNumber, dub, info?.id, aniId, activeServer, router]);
+
+  // Robust redirect: whenever the room snapshot says we're on the wrong anime
+  // or episode (e.g. joined by code from a different page), navigate there.
+  // State-driven (not event-driven) so it can't miss the transient snapshot.
+  useEffect(() => {
+    const s = party?.snapshot;
+    if (!s || !s.aniId) return;
+    const sameAnime = String(info?.id || aniId) === String(s.aniId);
+    const sameEp =
+      sameAnime && String(epiNumber) === String(s.epiNumber) && !!dub === !!s.dub;
+    if (sameEp) return;
+    applyingRemoteEpRef.current = true;
+    router.push(
+      {
+        pathname: `/en/anime/watch/${s.aniId}`,
+        query: {
+          id: `${s.server || activeServer}-${s.epiNumber}`,
+          num: String(s.epiNumber),
+          ...(s.dub ? { dub: true } : {}),
+          party: party.roomId,
+        },
+      },
+      undefined,
+      { shallow: false }
+    );
+  }, [party?.snapshot, party?.roomId, epiNumber, dub, info?.id, aniId, activeServer, router]);
 
   // Canonicalize the URL to /en/anime/watch/{aniId}/{slug}. Strips any
   // legacy /{server} segment (old links shared before we removed the
@@ -1623,7 +1654,11 @@ export default function Watch({
         />
       </PlayerErrorBoundary>
     );
-  }, [activeServer, episodeNavigation, hlsLoading, hlsData, info, epiNumber, dub, markFailed, handleServerChange, autoplay, handleEpisodeComplete, isFinalEpisode, isSingleEpisode, handleFinalEpisodeNearEnd, party]);
+    // Depend on the party's STABLE callbacks, not the whole `party` object
+    // (which changes on every chat/presence update) — otherwise the player
+    // rebuilds on each message, restarting playback and breaking sync.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeServer, episodeNavigation, hlsLoading, hlsData, info, epiNumber, dub, markFailed, handleServerChange, autoplay, handleEpisodeComplete, isFinalEpisode, isSingleEpisode, handleFinalEpisodeNearEnd, party?.onRemote, party?.broadcast]);
 
   // ── Render ───────────────────────────────────────────────────
   return (
@@ -1787,13 +1822,18 @@ export default function Watch({
                   </div>
 
                   <div className="flex gap-2 text-sm">
-                    {!party && info?.id && (
-                      <PartyMenuButton
-                        aniId={info.id}
-                        epiNumber={epiNumber}
-                        dub={dub}
-                        server={activeServer}
-                      />
+                    {!partyUIOpen && info?.id && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPartyUIOpen(true);
+                          setPartyPanelHidden(false);
+                        }}
+                        className="flex items-center gap-2 rounded-md bg-action/20 px-3 py-2 text-sm font-medium text-action transition hover:bg-action/30"
+                      >
+                        <UsersIcon className="h-5 w-5" />
+                        <span className="hidden lg:block">Watch together</span>
+                      </button>
                     )}
                     <button
                       type="button"
@@ -1832,7 +1872,7 @@ export default function Watch({
               id="secondary"
               className={`relative ${theaterMode ? "pt-5" : "pt-4 lg:pt-0"} lg:pl-4`}
             >
-              {party && !partyPanelHidden && (
+              {(party || partyUIOpen) && !partyPanelHidden && (
                 <div
                   className="mb-4 px-3 lg:px-0"
                   style={
@@ -1841,11 +1881,18 @@ export default function Watch({
                   }
                 >
                   <div className="h-[60vh] max-h-[520px] lg:h-full lg:max-h-none">
-                    <WatchPartyPanel party={party} onClose={() => setPartyPanelHidden(true)} />
+                    <WatchPartyPanel
+                      party={party}
+                      lobby={{ aniId: info?.id, epiNumber, dub, server: activeServer }}
+                      onClose={() => {
+                        setPartyPanelHidden(true);
+                        if (!party) setPartyUIOpen(false);
+                      }}
+                    />
                   </div>
                 </div>
               )}
-              {party && partyPanelHidden && (
+              {(party || partyUIOpen) && partyPanelHidden && (
                 <button
                   onClick={() => setPartyPanelHidden(false)}
                   className="mb-4 ml-3 flex items-center gap-2 rounded-full bg-action/20 px-3 py-2 text-sm font-medium text-action hover:bg-action/30 lg:ml-0"

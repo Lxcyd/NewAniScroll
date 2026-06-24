@@ -2443,9 +2443,12 @@ export default function UniversalPlayer({
       video?.removeEventListener("seeked", onSeeked);
       video?.removeEventListener("ratechange", onRate);
     };
-    // Re-bind on stream change (new <video>) and when the party identity changes.
+    // Depend only on the STABLE party callbacks (not the whole `party` object,
+    // which changes on every chat/presence update) so we don't thrash the
+    // play/pause/seek listeners and drop live sync events. Re-bind on a new
+    // <video> (stream change) and when joining/leaving a party.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [party, streamData]);
+  }, [party?.broadcast, party?.onRemote, party?.applyingRemoteRef, streamData]);
 
   // ── Autoplay ──
   // Chrome rejects unmuted autoplay without a user gesture, period. The
@@ -3011,7 +3014,13 @@ export default function UniversalPlayer({
       {/* Watch-party chat overlay — phone-style bubbles + composer, only while
           fullscreen, portalled into the player so it stays visible. */}
       {party && (
-        <FullscreenChat party={party} playerEl={playerElState} active={isFullscreen} />
+        <FullscreenChat
+          onRemote={party.onRemote}
+          sendChat={party.sendChat}
+          myId={party.myId}
+          playerEl={playerElState}
+          active={isFullscreen}
+        />
       )}
 
       {/* Subtitle picker. Mounted globally (not inside the player) so it can

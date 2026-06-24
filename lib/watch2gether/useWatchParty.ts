@@ -5,7 +5,7 @@
 // echo-suppression (drop own events) and an `applyingRemote` guard owned by
 // the player integration.
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getGuestIdentity } from "./guest";
 import type {
   ChatMessage,
@@ -305,18 +305,38 @@ export function useWatchParty(
     };
   }, [roomId, effectiveUserId, post]);
 
-  if (!roomId) return null;
-
   const inviteUrl =
-    typeof window !== "undefined"
+    typeof window !== "undefined" && roomId
       ? `${window.location.origin}${window.location.pathname}?${withParty(window.location.search, roomId)}`
       : "";
 
-  return {
+  // Memoize the context so its identity only changes when something it carries
+  // actually changes. Without this, a new object each render churns the player's
+  // useMemo / sync effects (deps include `party`) and breaks live sync.
+  const ctx = useMemo<PartyContext | null>(() => {
+    if (!roomId) return null;
+    return {
+      roomId,
+      myId: effectiveUserId,
+      hostId,
+      isHost: !!effectiveUserId && effectiveUserId === hostId,
+      isConnected,
+      members,
+      chat,
+      snapshot,
+      applyingRemoteRef,
+      onRemote,
+      broadcast,
+      sendChat,
+      leave,
+      kick,
+      ban,
+      inviteUrl,
+    };
+  }, [
     roomId,
-    myId: effectiveUserId,
+    effectiveUserId,
     hostId,
-    isHost: !!effectiveUserId && effectiveUserId === hostId,
     isConnected,
     members,
     chat,
@@ -329,7 +349,9 @@ export function useWatchParty(
     kick,
     ban,
     inviteUrl,
-  };
+  ]);
+
+  return ctx;
 }
 
 // Merge ?party into an existing query string without clobbering other params.

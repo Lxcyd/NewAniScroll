@@ -1,16 +1,16 @@
-// Curated custom "anime" emojis for the Watch 2gether chat.
+// Custom emojis for the Watch 2gether chat.
 //
-// These are passed to PicMo's `custom` option and used to render `:shortcode:`
-// tokens in chat messages. Images are referenced by REMOTE URL — nothing is
-// imported/bundled, so you can freely add/remove entries here without touching
-// any build step. Just keep each `emoji` shortcode unique.
+// Referenced by REMOTE URL (nothing bundled) and rendered as inline <img> for
+// `:shortcode:` tokens. The images below use Twemoji via jsDelivr — a stable,
+// CORS-friendly CDN (verified reachable) so they ALWAYS load. They're colorful
+// reaction emojis to get the feature working reliably.
 //
-// NOTE on sources: use stable, CORS-friendly image hosts (PNG/GIF/WEBP, ideally
-// square ~64–128px). If a URL 404s the emoji simply won't render — non-fatal.
-// Swap these for your own preferred art any time.
+// 👉 To use real ANIME-CHARACTER art instead, just swap an entry's `url` for any
+//    stable image URL (PNG/GIF/WEBP). Keep each `emoji` shortcode unique. If a
+//    URL ever 404s, that emoji simply won't render — nothing else breaks.
 
 export interface AnimeEmoji {
-  /** Shortcode used in chat text, e.g. ":kannapog:" */
+  /** Shortcode used in chat text, e.g. ":pog:" */
   emoji: string;
   /** Human label shown in the picker tooltip / search. */
   label: string;
@@ -20,18 +20,27 @@ export interface AnimeEmoji {
   tags?: string[];
 }
 
-// A small starter set. Replace/extend with your own curated art.
+// Twemoji 72px assets on jsDelivr (jdecked fork = actively maintained).
+const TW = (code: string) =>
+  `https://cdn.jsdelivr.net/gh/jdecked/twemoji@latest/assets/72x72/${code}.png`;
+
 export const ANIME_EMOJIS: AnimeEmoji[] = [
-  { emoji: ":pikapog:", label: "Pikachu POG", url: "https://cdn3.emoji.gg/emojis/8434-pikachu-pog.png", tags: ["pokemon", "pog"] },
-  { emoji: ":narutorun:", label: "Naruto run", url: "https://cdn3.emoji.gg/emojis/4920_naruto.png", tags: ["naruto", "run"] },
-  { emoji: ":zorohap:", label: "Zoro happy", url: "https://cdn3.emoji.gg/emojis/3219-zoro.png", tags: ["onepiece", "zoro"] },
-  { emoji: ":luffygear:", label: "Luffy gear", url: "https://cdn3.emoji.gg/emojis/9921-luffy.png", tags: ["onepiece", "luffy"] },
-  { emoji: ":gojo:", label: "Gojo", url: "https://cdn3.emoji.gg/emojis/3081-gojo.png", tags: ["jjk", "gojo"] },
-  { emoji: ":animecry:", label: "Anime cry", url: "https://cdn3.emoji.gg/emojis/5183-anime-cry.png", tags: ["sad", "cry"] },
-  { emoji: ":uwu:", label: "UwU", url: "https://cdn3.emoji.gg/emojis/9020-uwu.png", tags: ["uwu", "cute"] },
-  { emoji: ":nani:", label: "NANI?!", url: "https://cdn3.emoji.gg/emojis/2056-nani.png", tags: ["shock", "nani"] },
-  { emoji: ":animelaugh:", label: "Anime laugh", url: "https://cdn3.emoji.gg/emojis/6739-anime-laugh.png", tags: ["laugh", "funny"] },
-  { emoji: ":blushanime:", label: "Anime blush", url: "https://cdn3.emoji.gg/emojis/1652-blush.png", tags: ["blush", "cute"] },
+  { emoji: ":pog:", label: "POG", url: TW("1f632"), tags: ["wow", "shock", "pog"] },
+  { emoji: ":lul:", label: "Laughing", url: TW("1f602"), tags: ["laugh", "lol"] },
+  { emoji: ":love:", label: "Love it", url: TW("1f60d"), tags: ["love", "heart eyes"] },
+  { emoji: ":cry:", label: "Crying", url: TW("1f62d"), tags: ["cry", "sad"] },
+  { emoji: ":fire:", label: "Fire", url: TW("1f525"), tags: ["fire", "lit"] },
+  { emoji: ":clap:", label: "Clap", url: TW("1f44f"), tags: ["clap", "applause"] },
+  { emoji: ":heart:", label: "Heart", url: TW("2764"), tags: ["heart", "love"] },
+  { emoji: ":cool:", label: "Cool", url: TW("1f60e"), tags: ["cool", "sunglasses"] },
+  { emoji: ":scream:", label: "Scream", url: TW("1f631"), tags: ["scream", "shock"] },
+  { emoji: ":sparkle:", label: "Sparkles", url: TW("2728"), tags: ["sparkle", "shiny"] },
+  { emoji: ":gg:", label: "GG", url: TW("1f3c6"), tags: ["trophy", "win", "gg"] },
+  { emoji: ":sleep:", label: "Sleepy", url: TW("1f634"), tags: ["sleep", "boring"] },
+  { emoji: ":think:", label: "Thinking", url: TW("1f914"), tags: ["think", "hmm"] },
+  { emoji: ":party:", label: "Party", url: TW("1f389"), tags: ["party", "celebrate"] },
+  { emoji: ":eyes:", label: "Eyes", url: TW("1f440"), tags: ["eyes", "look"] },
+  { emoji: ":skull:", label: "Skull", url: TW("1f480"), tags: ["skull", "dead", "lmao"] },
 ];
 
 /** Lookup map for fast `:shortcode:` → url resolution when rendering chat. */

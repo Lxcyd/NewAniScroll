@@ -1,26 +1,168 @@
 import React, { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/router";
 import { toast } from "sonner";
-import { IoSend, IoCopyOutline, IoPeople, IoClose, IoExitOutline } from "react-icons/io5";
+import { IoSend, IoCopyOutline, IoPeople, IoClose, IoExitOutline, IoAdd, IoEnterOutline } from "react-icons/io5";
 import { FaCrown } from "react-icons/fa";
 import { MdPersonRemove, MdBlock } from "react-icons/md";
 import type { PartyContext } from "@/lib/watch2gether/useWatchParty";
+import { getGuestIdentity } from "@/lib/watch2gether/guest";
 import MemberAvatar from "./MemberAvatar";
 import ChatText from "./ChatText";
 import EmojiButton from "./EmojiButton";
 
+interface LobbyMeta {
+  aniId?: string | number;
+  epiNumber?: string | number;
+  dub?: boolean;
+  server?: string;
+}
+
 interface Props {
-  party: PartyContext;
+  /** Active room context, or null when showing the lobby (Create / Join). */
+  party: PartyContext | null;
+  /** Metadata used to seed a newly-created room (lobby mode). */
+  lobby?: LobbyMeta;
   onClose?: () => void;
 }
 
-export default function WatchPartyPanel({ party, onClose }: Props) {
+export default function WatchPartyPanel({ party, lobby, onClose }: Props) {
+  return (
+    <div className="flex h-full w-full flex-col overflow-hidden rounded-lg bg-secondary/40 text-white">
+      {party ? (
+        <ActiveRoom party={party} onClose={onClose} />
+      ) : (
+        <Lobby lobby={lobby} onClose={onClose} />
+      )}
+    </div>
+  );
+}
+
+// ── Lobby (not yet in a room): create or join by code ───────────────────────
+function Lobby({ lobby, onClose }: { lobby?: LobbyMeta; onClose?: () => void }) {
+  const router = useRouter();
+  const [loading, setLoading] = useState(false);
+  const [code, setCode] = useState("");
+
+  const enterRoom = (roomId: string) =>
+    router.replace(
+      { pathname: router.pathname, query: { ...router.query, party: roomId } },
+      undefined,
+      { shallow: true },
+    );
+
+  const create = async () => {
+    if (!lobby?.aniId || !lobby?.epiNumber) {
+      toast.error("Episode not ready yet");
+      return;
+    }
+    setLoading(true);
+    try {
+      const guest = getGuestIdentity();
+      const res = await fetch("/api/v2/watch2gether/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          aniId: String(lobby.aniId),
+          epiNumber: String(lobby.epiNumber),
+          dub: !!lobby.dub,
+          server: lobby.server || "",
+          guestId: guest.guestId,
+          guestName: guest.guestName,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.roomId) {
+        toast.error(data?.error || "Couldn't create party");
+        return;
+      }
+      const params = new URLSearchParams(window.location.search);
+      params.set("party", data.roomId);
+      const url = `${window.location.origin}${window.location.pathname}?${params.toString()}`;
+      try {
+        await navigator.clipboard.writeText(url);
+        toast.success(`Party ${data.roomId} created — invite link copied!`);
+      } catch {
+        toast.success(`Party created! Code: ${data.roomId}`);
+      }
+      enterRoom(data.roomId);
+    } catch {
+      toast.error("Couldn't create party");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const join = (e: React.FormEvent) => {
+    e.preventDefault();
+    const roomId = code.trim();
+    if (!/^\d{4}$/.test(roomId)) {
+      toast.error("Enter the 4-digit room code");
+      return;
+    }
+    enterRoom(roomId);
+  };
+
+  return (
+    <>
+      <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
+        <div className="flex items-center gap-2">
+          <IoPeople className="text-action" size={18} />
+          <span className="text-sm font-semibold">Watch Party</span>
+        </div>
+        {onClose && (
+          <button onClick={onClose} className="text-white/60 hover:text-white" title="Close">
+            <IoClose size={18} />
+          </button>
+        )}
+      </div>
+
+      <div className="flex flex-1 flex-col justify-center gap-4 px-5">
+        <p className="text-center text-sm text-white/60">
+          Watch this episode in sync with friends — chat, react and control playback together.
+        </p>
+
+        <button
+          onClick={create}
+          disabled={loading}
+          className="flex items-center justify-center gap-2 rounded-md bg-action px-4 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:opacity-50"
+        >
+          <IoAdd size={18} />
+          {loading ? "Creating…" : "Create a party"}
+        </button>
+
+        <div className="flex items-center gap-2 text-xs text-white/40">
+          <span className="h-px flex-1 bg-white/10" /> or join with a code{" "}
+          <span className="h-px flex-1 bg-white/10" />
+        </div>
+
+        <form onSubmit={join} className="flex items-center gap-2">
+          <input
+            value={code}
+            onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 4))}
+            inputMode="numeric"
+            placeholder="1234"
+            className="w-full rounded-md bg-white/10 px-3 py-3 text-center text-lg tracking-[0.4em] outline-none placeholder:text-white/30 focus:bg-white/15"
+          />
+          <button
+            type="submit"
+            className="flex shrink-0 items-center gap-1 rounded-md bg-white/10 px-4 py-3 text-sm font-medium hover:bg-white/20"
+          >
+            <IoEnterOutline size={16} /> Join
+          </button>
+        </form>
+      </div>
+    </>
+  );
+}
+
+// ── Active room: members + chat ─────────────────────────────────────────────
+function ActiveRoom({ party, onClose }: { party: PartyContext; onClose?: () => void }) {
   const { members, chat, sendChat, isConnected, inviteUrl, myId, roomId, isHost, leave, kick, ban } =
     party;
   const [text, setText] = useState("");
   const inputRef = useRef<HTMLInputElement | null>(null);
   const logRef = useRef<HTMLDivElement | null>(null);
 
-  // Auto-scroll chat to the bottom on new messages.
   useEffect(() => {
     const el = logRef.current;
     if (el) el.scrollTop = el.scrollHeight;
@@ -39,33 +181,24 @@ export default function WatchPartyPanel({ party, onClose }: Props) {
     inputRef.current?.focus();
   };
 
-  const copyInvite = async () => {
+  const copy = async (value: string, label: string) => {
     try {
-      await navigator.clipboard.writeText(inviteUrl);
-      toast.success("Invite link copied!");
+      await navigator.clipboard.writeText(value);
+      toast.success(`${label} copied!`);
     } catch {
-      toast.error("Couldn't copy link");
-    }
-  };
-
-  const copyCode = async () => {
-    try {
-      await navigator.clipboard.writeText(roomId);
-      toast.success(`Code ${roomId} copied!`);
-    } catch {
-      toast.error("Couldn't copy code");
+      toast.error("Couldn't copy");
     }
   };
 
   return (
-    <div className="flex h-full w-full flex-col overflow-hidden rounded-lg bg-secondary/40 text-white">
+    <>
       {/* Header */}
       <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
         <div className="flex items-center gap-2">
           <IoPeople className="text-action" size={18} />
           <span className="text-sm font-semibold">Watch Party</span>
           <button
-            onClick={copyCode}
+            onClick={() => copy(roomId, `Code ${roomId}`)}
             title="Copy room code"
             className="rounded bg-white/10 px-1.5 py-0.5 font-mono text-xs tracking-widest text-white/90 hover:bg-white/20"
           >
@@ -80,7 +213,7 @@ export default function WatchPartyPanel({ party, onClose }: Props) {
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={copyInvite}
+            onClick={() => copy(inviteUrl, "Invite link")}
             className="flex items-center gap-1 rounded-md bg-action/20 px-2 py-1 text-xs font-medium text-action hover:bg-action/30"
             title="Copy invite link"
           >
@@ -102,7 +235,7 @@ export default function WatchPartyPanel({ party, onClose }: Props) {
       </div>
 
       {/* Members */}
-      <div className="flex flex-wrap items-center gap-2 border-b border-white/10 px-4 py-3">
+      <div className="flex flex-wrap items-start gap-3 border-b border-white/10 px-4 py-3">
         {members.length === 0 && (
           <span className="text-xs text-white/50">Waiting for participants…</span>
         )}
@@ -110,23 +243,19 @@ export default function WatchPartyPanel({ party, onClose }: Props) {
           const canModerate = isHost && m.userId !== myId;
           return (
             <div key={m.userId} className="group relative flex flex-col items-center">
-              <div className="relative">
-                <MemberAvatar
-                  name={m.name}
-                  image={m.image}
-                  size={28}
-                  highlight={m.userId === myId}
-                />
+              {/* Fixed-size avatar box so the crown never shifts alignment. */}
+              <div className="relative h-7 w-7">
+                <MemberAvatar name={m.name} image={m.image} size={28} highlight={m.userId === myId} />
                 {m.isHost && (
                   <FaCrown
-                    className="absolute -right-1 -top-1.5 text-yellow-400"
-                    size={12}
+                    className="absolute left-1/2 -top-2 -translate-x-1/2 text-yellow-400 drop-shadow"
+                    size={11}
                     title="Host"
                   />
                 )}
               </div>
               {canModerate && (
-                <div className="pointer-events-none absolute -bottom-1 left-1/2 z-20 flex -translate-x-1/2 translate-y-full gap-1 rounded-md bg-black/90 p-1 opacity-0 shadow-lg transition group-hover:pointer-events-auto group-hover:opacity-100">
+                <div className="absolute -bottom-7 left-1/2 z-30 hidden -translate-x-1/2 gap-1 rounded-md bg-black/90 p-1 shadow-lg group-hover:flex">
                   <button
                     onClick={() => kick(m.userId)}
                     title={`Kick ${m.name}`}
@@ -149,7 +278,7 @@ export default function WatchPartyPanel({ party, onClose }: Props) {
       </div>
 
       {/* Chat log */}
-      <div ref={logRef} className="flex-1 space-y-2 overflow-y-auto px-4 py-3 scrollbar-hide">
+      <div ref={logRef} className="min-h-0 flex-1 space-y-2 overflow-y-auto px-4 py-3 scrollbar-hide">
         {chat.length === 0 && (
           <p className="text-center text-xs text-white/40">No messages yet. Say hi 👋</p>
         )}
@@ -191,6 +320,6 @@ export default function WatchPartyPanel({ party, onClose }: Props) {
           <IoSend size={16} />
         </button>
       </form>
-    </div>
+    </>
   );
 }
