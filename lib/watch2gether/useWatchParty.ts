@@ -211,6 +211,10 @@ export function useWatchParty(
     if (ev.type === "chat") {
       // Append even our own (server is the ordering authority).
       if (ev.payload) setChat((prev) => [...prev.slice(-99), ev.payload as ChatMessage]);
+      // Also forward to remote handlers so the FULLSCREEN chat overlay (which
+      // keeps its own message list via onRemote, not the panel's `chat` state)
+      // actually receives messages — otherwise bubbles never appear in FS.
+      remoteHandlers.current.forEach((h) => h(ev));
       return;
     }
     if (ev.type === "snapshot") {

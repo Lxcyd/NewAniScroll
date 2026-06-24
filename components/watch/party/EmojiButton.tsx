@@ -1,7 +1,7 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { BsEmojiSmile } from "react-icons/bs";
-import { ANIME_EMOJIS } from "@/lib/watch2gether/animeEmojis";
+import { ANIME_EMOJIS, ANIME_EMOJI_MAP } from "@/lib/watch2gether/animeEmojis";
 import { EMOJI_CATEGORIES, ALL_EMOJIS } from "@/lib/watch2gether/unicodeEmojis";
 
 interface Props {
@@ -16,17 +16,43 @@ interface Props {
 const PANEL_W = 300;
 const PANEL_H = 340;
 
+const RECENTS_KEY = "w2g.emoji.recents";
+const RECENTS_MAX = 32;
+
+// Read / persist the most-recently-used emojis (unicode chars or :shortcodes:).
+function loadRecents(): string[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(RECENTS_KEY);
+    const arr = raw ? JSON.parse(raw) : [];
+    return Array.isArray(arr) ? arr.slice(0, RECENTS_MAX) : [];
+  } catch {
+    return [];
+  }
+}
+function pushRecent(insert: string): string[] {
+  const next = [insert, ...loadRecents().filter((e) => e !== insert)].slice(0, RECENTS_MAX);
+  try {
+    localStorage.setItem(RECENTS_KEY, JSON.stringify(next));
+  } catch {
+    /* localStorage may be unavailable */
+  }
+  return next;
+}
+
 // Lightweight, instant emoji picker styled to the app — no heavy third-party
-// lib (PicMo was laggy + invisible in fullscreen). Shows our custom anime
-// emojis first, then the FULL unicode set grouped by category with a search box.
+// lib (PicMo was laggy + invisible in fullscreen). First tab is "Recents",
+// then our custom anime set, then the FULL unicode set grouped by category
+// (incl. Flags) with a search box.
 export default function EmojiButton({ onPick, fullscreen, className = "" }: Props) {
   const btnRef = useRef<HTMLButtonElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
   const [query, setQuery] = useState("");
-  // Active category for the tab bar; "anime" is our custom set.
-  const [cat, setCat] = useState<string>("anime");
+  const [recents, setRecents] = useState<string[]>([]);
+  // Active tab: "recents" (MRU), "anime" (our custom set), or a category name.
+  const [cat, setCat] = useState<string>("recents");
 
   // Position the panel above the trigger.
   useLayoutEffect(() => {
@@ -56,15 +82,21 @@ export default function EmojiButton({ onPick, fullscreen, className = "" }: Prop
     };
   }, [open]);
 
-  // Reset search/category each time the picker opens.
+  // Reset search each time the picker opens, refresh recents, and land on the
+  // Recents tab unless it's empty (then default to Anime so the panel isn't bare).
   useEffect(() => {
     if (open) {
       setQuery("");
-      setCat("anime");
+      const r = loadRecents();
+      setRecents(r);
+      setCat(r.length ? "recents" : "anime");
     }
   }, [open]);
 
-  const pick = (insert: string) => onPick(insert);
+  const pick = (insert: string) => {
+    setRecents(pushRecent(insert));
+    onPick(insert);
+  };
 
   // When searching, match anime shortcodes/labels/tags AND scan all unicode
   // emojis (we can't keyword unicode without a huge map, so a non-empty query
@@ -94,9 +126,9 @@ export default function EmojiButton({ onPick, fullscreen, className = "" }: Prop
     <div style={{ display: "grid", gridTemplateColumns: "repeat(8, 1fr)", gap: 2 }}>{children}</div>
   );
 
-  const unicodeBtn = (u: string) => (
+  const unicodeBtn = (u: string, key?: string) => (
     <button
-      key={u}
+      key={key || u}
       type="button"
       onClick={() => pick(u)}
       style={{
@@ -114,6 +146,38 @@ export default function EmojiButton({ onPick, fullscreen, className = "" }: Prop
       {u}
     </button>
   );
+
+  const animeBtn = (shortcode: string, label: string, url: string, key?: string) => (
+    <button
+      key={key || shortcode}
+      type="button"
+      title={label}
+      onClick={() => pick(shortcode)}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 4,
+        borderRadius: 6,
+        background: "transparent",
+        border: "none",
+        cursor: "pointer",
+      }}
+      onMouseEnter={(ev) => (ev.currentTarget.style.background = "rgba(255,255,255,0.1)")}
+      onMouseLeave={(ev) => (ev.currentTarget.style.background = "transparent")}
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={url} alt={label} style={{ width: 22, height: 22 }} loading="lazy" />
+    </button>
+  );
+
+  // A recent entry is either a `:shortcode:` (anime custom) or a unicode char.
+  const recentBtn = (entry: string, i: number) => {
+    const custom = ANIME_EMOJI_MAP[entry];
+    return custom
+      ? animeBtn(custom.emoji, custom.label, custom.url, `r-${i}`)
+      : unicodeBtn(entry, `r-${i}`);
+  };
 
   // Body: either the active category grid, or — when searching — anime matches
   // followed by the full unicode set (so "all the emojis" stay reachable).
@@ -174,6 +238,16 @@ export default function EmojiButton({ onPick, fullscreen, className = "" }: Prop
                   flexShrink: 0,
                 }}
               >
+                {recents.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setCat("recents")}
+                    title="Recents"
+                    style={tabStyle(cat === "recents")}
+                  >
+                    🕘
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => setCat("anime")}
@@ -198,35 +272,19 @@ export default function EmojiButton({ onPick, fullscreen, className = "" }: Prop
 
             {/* Scrollable body */}
             <div className="scrollbar-hide" style={{ overflowY: "auto", padding: "0 10px 10px", flex: 1 }}>
+              {/* Recently used (mix of anime shortcodes + unicode). */}
+              {!q && cat === "recents" && recents.length > 0 && (
+                <>
+                  <div style={labelStyle}>Recents</div>
+                  {grid(recents.map((entry, i) => recentBtn(entry, i)))}
+                </>
+              )}
+
               {/* Anime custom emojis: shown on the Anime tab or as search matches. */}
               {(q || cat === "anime") && animeMatches.length > 0 && (
                 <>
                   <div style={labelStyle}>Anime</div>
-                  {grid(
-                    animeMatches.map((e) => (
-                      <button
-                        key={e.emoji}
-                        type="button"
-                        title={e.label}
-                        onClick={() => pick(e.emoji)}
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          padding: 4,
-                          borderRadius: 6,
-                          background: "transparent",
-                          border: "none",
-                          cursor: "pointer",
-                        }}
-                        onMouseEnter={(ev) => (ev.currentTarget.style.background = "rgba(255,255,255,0.1)")}
-                        onMouseLeave={(ev) => (ev.currentTarget.style.background = "transparent")}
-                      >
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={e.url} alt={e.label} style={{ width: 22, height: 22 }} loading="lazy" />
-                      </button>
-                    )),
-                  )}
+                  {grid(animeMatches.map((e) => animeBtn(e.emoji, e.label, e.url)))}
                 </>
               )}
 
@@ -234,7 +292,7 @@ export default function EmojiButton({ onPick, fullscreen, className = "" }: Prop
               {unicodeToShow.length > 0 && (
                 <>
                   <div style={labelStyle}>{q ? "Emoji" : activeCategory?.name}</div>
-                  {grid(unicodeToShow.map(unicodeBtn))}
+                  {grid(unicodeToShow.map((u, i) => unicodeBtn(u, `u-${i}`)))}
                 </>
               )}
 

@@ -499,6 +499,12 @@ export default function Watch({
   // last episode we broadcast/applied to avoid feedback loops.
   const lastBroadcastEpRef = useRef(null);
   const applyingRemoteEpRef = useRef(false);
+  // Guard against redirect loops: remember the last target we navigated to
+  // (aniId-ep-dub). The snapshot keeps arriving on every (re)connect, so without
+  // this the state-driven redirect could fire again before `info` finishes
+  // hydrating to the new anime and push the same route in a tight loop ("on
+  // charge en boucle"). We only ever push a given target once.
+  const lastNavTargetRef = useRef(null);
   // A joiner must FOLLOW the host, never drag the room to its own page. Until we
   // have aligned with the room snapshot at least once, suppress broadcasting our
   // episode — otherwise a member who joins by code instantly broadcasts the page
@@ -536,9 +542,12 @@ export default function Watch({
   useEffect(() => {
     if (!party) return;
     const navTo = (targetAniId, targetEp, targetDub) => {
-      const sameAnime = String(info?.id || aniId) === String(targetAniId);
+      const sameAnime = String(aniId) === String(targetAniId);
       const sameEp = sameAnime && String(epiNumber) === String(targetEp) && !!dub === !!targetDub;
       if (sameEp) return;
+      const target = `${targetAniId}-${targetEp}-${targetDub ? "dub" : "sub"}`;
+      if (lastNavTargetRef.current === target) return; // already navigating there
+      lastNavTargetRef.current = target;
       applyingRemoteEpRef.current = true;
       router.push(
         {
@@ -577,7 +586,10 @@ export default function Watch({
   useEffect(() => {
     const s = party?.snapshot;
     if (!s || !s.aniId) return;
-    const sameAnime = String(info?.id || aniId) === String(s.aniId);
+    // Compare against the page's OWN SSR prop (`aniId`), not `info?.id` which
+    // hydrates asynchronously: while it lags the new anime, sameAnime reads
+    // false and we'd push the same route over and over (the load loop).
+    const sameAnime = String(aniId) === String(s.aniId);
     const sameEp =
       sameAnime && String(epiNumber) === String(s.epiNumber) && !!dub === !!s.dub;
     if (sameEp) {
@@ -586,6 +598,9 @@ export default function Watch({
       syncedToRoomRef.current = true;
       return;
     }
+    const target = `${s.aniId}-${s.epiNumber}-${s.dub ? "dub" : "sub"}`;
+    if (lastNavTargetRef.current === target) return; // already navigating there
+    lastNavTargetRef.current = target;
     applyingRemoteEpRef.current = true;
     router.push(
       {
@@ -600,7 +615,7 @@ export default function Watch({
       undefined,
       { shallow: false }
     );
-  }, [party?.snapshot, party?.roomId, epiNumber, dub, info?.id, aniId, activeServer, router]);
+  }, [party?.snapshot, party?.roomId, epiNumber, dub, aniId, activeServer, router]);
 
   // Canonicalize the URL to /en/anime/watch/{aniId}/{slug}. Strips any
   // legacy /{server} segment (old links shared before we removed the

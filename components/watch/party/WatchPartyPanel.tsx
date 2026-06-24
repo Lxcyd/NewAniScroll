@@ -157,15 +157,7 @@ function Lobby({ lobby, onClose }: { lobby?: LobbyMeta; onClose?: () => void }) 
 
 // ── Active room: members + chat ─────────────────────────────────────────────
 function ActiveRoom({ party, onClose }: { party: PartyContext; onClose?: () => void }) {
-  const { members, chat, sendChat, connectionState, inviteUrl, myId, roomId, isHost, leave, kick, ban } =
-    party;
-
-  // Connection-quality dot: green = connected, yellow = reconnecting, red = poor.
-  const conn = {
-    connected: { color: "#22c55e", label: "Connected" },
-    reconnecting: { color: "#eab308", label: "Reconnecting…" },
-    poor: { color: "#ef4444", label: "Connection lost — retrying" },
-  }[connectionState];
+  const { members, chat, sendChat, inviteUrl, myId, roomId, isHost, leave, kick, ban } = party;
   const [text, setText] = useState("");
   const inputRef = useRef<HTMLInputElement | null>(null);
   const logRef = useRef<HTMLDivElement | null>(null);
@@ -244,22 +236,14 @@ function ActiveRoom({ party, onClose }: { party: PartyContext; onClose?: () => v
           const canModerate = isHost && m.userId !== myId;
           return (
             <div key={m.userId} className="group relative flex flex-col items-center">
-              {/* Fixed-size avatar box so the badges never shift alignment. */}
+              {/* Fixed-size avatar box so the crown never shifts alignment. */}
               <div className="relative h-7 w-7">
                 <MemberAvatar name={m.name} image={m.image} size={28} highlight={m.userId === myId} />
                 {m.isHost && (
                   <FaCrown
-                    className="absolute -bottom-1 -left-1.5 rotate-[15deg] text-yellow-400 drop-shadow"
+                    className="absolute -bottom-1 -right-1.5 rotate-[15deg] text-yellow-400 drop-shadow"
                     size={11}
                     title="Host"
-                  />
-                )}
-                {/* My own connection-quality dot: bottom-right of my avatar. */}
-                {m.userId === myId && (
-                  <span
-                    className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full ring-2 ring-[#212127]"
-                    style={{ background: conn.color, boxShadow: `0 0 5px ${conn.color}` }}
-                    title={conn.label}
                   />
                 )}
               </div>
