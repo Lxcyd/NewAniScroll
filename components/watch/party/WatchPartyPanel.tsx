@@ -157,8 +157,15 @@ function Lobby({ lobby, onClose }: { lobby?: LobbyMeta; onClose?: () => void }) 
 
 // ── Active room: members + chat ─────────────────────────────────────────────
 function ActiveRoom({ party, onClose }: { party: PartyContext; onClose?: () => void }) {
-  const { members, chat, sendChat, isConnected, inviteUrl, myId, roomId, isHost, leave, kick, ban } =
+  const { members, chat, sendChat, connectionState, inviteUrl, myId, roomId, isHost, leave, kick, ban } =
     party;
+
+  // Connection-quality dot: green = connected, yellow = reconnecting, red = poor.
+  const conn = {
+    connected: { color: "#22c55e", label: "Connected" },
+    reconnecting: { color: "#eab308", label: "Reconnecting…" },
+    poor: { color: "#ef4444", label: "Connection lost — retrying" },
+  }[connectionState];
   const [text, setText] = useState("");
   const inputRef = useRef<HTMLInputElement | null>(null);
   const logRef = useRef<HTMLDivElement | null>(null);
@@ -204,12 +211,6 @@ function ActiveRoom({ party, onClose }: { party: PartyContext; onClose?: () => v
           >
             {roomId}
           </button>
-          <span
-            className={`ml-1 inline-block h-2 w-2 rounded-full ${
-              isConnected ? "bg-green-500" : "bg-yellow-500"
-            }`}
-            title={isConnected ? "Connected" : "Reconnecting…"}
-          />
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -248,7 +249,7 @@ function ActiveRoom({ party, onClose }: { party: PartyContext; onClose?: () => v
                 <MemberAvatar name={m.name} image={m.image} size={28} highlight={m.userId === myId} />
                 {m.isHost && (
                   <FaCrown
-                    className="absolute left-1/2 -top-2 -translate-x-1/2 text-yellow-400 drop-shadow"
+                    className="absolute -left-1.5 -top-1.5 -rotate-[25deg] text-yellow-400 drop-shadow"
                     size={11}
                     title="Host"
                   />
@@ -302,7 +303,7 @@ function ActiveRoom({ party, onClose }: { party: PartyContext; onClose?: () => v
       </div>
 
       {/* Composer */}
-      <form onSubmit={submit} className="flex items-center gap-1 border-t border-white/10 p-3">
+      <form onSubmit={submit} className="relative flex items-center gap-1 border-t border-white/10 p-3">
         <EmojiButton onPick={insertEmoji} />
         <input
           ref={inputRef}
@@ -319,6 +320,15 @@ function ActiveRoom({ party, onClose }: { party: PartyContext; onClose?: () => v
         >
           <IoSend size={16} />
         </button>
+        {/* Connection-quality dot, bottom-right. */}
+        <span
+          className="pointer-events-none absolute bottom-1 right-1 h-2 w-2 rounded-full ring-2 ring-secondary/40"
+          style={{
+            background: conn.color,
+            boxShadow: `0 0 6px ${conn.color}`,
+          }}
+          title={conn.label}
+        />
       </form>
     </>
   );

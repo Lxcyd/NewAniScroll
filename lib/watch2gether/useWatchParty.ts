@@ -17,12 +17,19 @@ import type {
 
 const PRESENCE_INTERVAL_MS = 15_000;
 
+/** Live connection quality, surfaced as a coloured dot in the panel.
+ *  - "connected"    → green   (SSE open)
+ *  - "reconnecting" → yellow  (briefly dropped, EventSource is retrying)
+ *  - "poor"         → red     (still down after several retries) */
+export type ConnectionState = "connected" | "reconnecting" | "poor";
+
 export interface PartyContext {
   roomId: string;
   myId: string | null;
   hostId: string | null;
   isHost: boolean;
   isConnected: boolean;
+  connectionState: ConnectionState;
   members: Member[];
   chat: ChatMessage[];
   snapshot: RoomSnapshot | null;
@@ -61,6 +68,10 @@ export function useWatchParty(
   opts?: PartyOpts,
 ): PartyContext | null {
   const [isConnected, setIsConnected] = useState(false);
+  const [connectionState, setConnectionState] = useState<ConnectionState>("reconnecting");
+  // Consecutive failed (re)connects since the last successful open. Drives the
+  // escalation from "reconnecting" (yellow) to "poor" (red).
+  const retryCountRef = useRef(0);
   const [members, setMembers] = useState<Member[]>([]);
   const [chat, setChat] = useState<ChatMessage[]>([]);
   const [snapshot, setSnapshot] = useState<RoomSnapshot | null>(null);
@@ -141,6 +152,7 @@ export function useWatchParty(
     esRef.current?.close();
     esRef.current = null;
     setIsConnected(false);
+    setConnectionState("reconnecting");
   }, []);
 
   const leave = useCallback(() => {
@@ -250,7 +262,9 @@ export function useWatchParty(
       esRef.current = es;
 
       es.onopen = () => {
+        retryCountRef.current = 0;
         setIsConnected(true);
+        setConnectionState("connected");
         join(); // (re)sync authoritative state on every (re)connect
       };
       es.onmessage = (msg) => {
@@ -262,7 +276,11 @@ export function useWatchParty(
       };
       es.onerror = () => {
         // EventSource auto-reconnects, but if it hard-closed we recreate it.
+        // Escalate the quality signal: a brief drop is "reconnecting" (yellow),
+        // but after a few failed attempts in a row we call it "poor" (red).
         setIsConnected(false);
+        retryCountRef.current += 1;
+        setConnectionState(retryCountRef.current >= 3 ? "poor" : "reconnecting");
         if (es.readyState === EventSource.CLOSED && !cancelled && !removedRef.current) {
           es.close();
           esRef.current = null;
@@ -321,6 +339,7 @@ export function useWatchParty(
       hostId,
       isHost: !!effectiveUserId && effectiveUserId === hostId,
       isConnected,
+      connectionState,
       members,
       chat,
       snapshot,
@@ -338,6 +357,7 @@ export function useWatchParty(
     effectiveUserId,
     hostId,
     isConnected,
+    connectionState,
     members,
     chat,
     snapshot,

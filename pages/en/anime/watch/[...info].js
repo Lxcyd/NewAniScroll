@@ -499,10 +499,19 @@ export default function Watch({
   // last episode we broadcast/applied to avoid feedback loops.
   const lastBroadcastEpRef = useRef(null);
   const applyingRemoteEpRef = useRef(false);
+  // A joiner must FOLLOW the host, never drag the room to its own page. Until we
+  // have aligned with the room snapshot at least once, suppress broadcasting our
+  // episode — otherwise a member who joins by code instantly broadcasts the page
+  // they happened to be on and teleports the HOST to it (the inverted redirect).
+  // The host (room creator) is synced from the start; everyone else syncs once
+  // the snapshot lands (see the snapshot redirect effect below).
+  const syncedToRoomRef = useRef(false);
 
   // Broadcast our episode whenever it changes (and we didn't just apply a remote one).
   useEffect(() => {
     if (!party || epiNumber == null) return;
+    // The room creator is authoritative immediately; joiners wait until synced.
+    if (party.isHost) syncedToRoomRef.current = true;
     const key = `${epiNumber}-${dub ? "dub" : "sub"}`;
     if (lastBroadcastEpRef.current === key) return;
     lastBroadcastEpRef.current = key;
@@ -510,6 +519,8 @@ export default function Watch({
       applyingRemoteEpRef.current = false;
       return; // this change came FROM a peer — don't echo it back
     }
+    // Not yet aligned with the room → don't broadcast our incidental page.
+    if (!syncedToRoomRef.current) return;
     party.broadcast("episode", {
       aniId: aniId,
       epiNumber: epiNumber,
@@ -569,7 +580,12 @@ export default function Watch({
     const sameAnime = String(info?.id || aniId) === String(s.aniId);
     const sameEp =
       sameAnime && String(epiNumber) === String(s.epiNumber) && !!dub === !!s.dub;
-    if (sameEp) return;
+    if (sameEp) {
+      // We're on the room's episode — we're aligned. From now on our own
+      // deliberate episode changes may broadcast to the room.
+      syncedToRoomRef.current = true;
+      return;
+    }
     applyingRemoteEpRef.current = true;
     router.push(
       {
@@ -679,14 +695,19 @@ export default function Watch({
 
   // Observe the player box height so the party panel can match it on desktop.
   // Declared here (not earlier) because it depends on `theaterMode` above.
+  // We measure the ACTUAL player element (the wrapper's first child), not the
+  // `flex-center` wrapper: the wrapper can be taller than the video it centers
+  // (ambient-glow padding / letterbox), which made the panel overshoot the
+  // player's real bottom edge. The inner player box is exactly the 16:9 video.
   useEffect(() => {
-    const el = playerBoxRef.current;
-    if (!el || typeof ResizeObserver === "undefined") return;
+    const wrapper = playerBoxRef.current;
+    if (!wrapper || typeof ResizeObserver === "undefined") return;
+    const target = wrapper.firstElementChild || wrapper;
     const ro = new ResizeObserver((entries) => {
       const h = entries[0]?.contentRect?.height || 0;
       if (h) setPlayerBoxH(Math.round(h));
     });
-    ro.observe(el);
+    ro.observe(target);
     return () => ro.disconnect();
   }, [theaterMode]);
 
