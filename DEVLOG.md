@@ -7,6 +7,25 @@ Ordre anti-chronologique (le plus récent en haut). Une entrée = une session/su
 
 ---
 
+## 2026-06-24 (suite 4) — Watch 2gether : lockout lecture fort, FS chat, départs/host
+
+### Décisions prises
+- **Blocage de lecture « fort »** : 4 couches qui se complètent — (1) `keyDisabled` Vidstack (clavier : espace/flèches), (2) classe CSS `.w2g-playback-blocked` qui met `pointer-events:none` sur `.vds-time-slider` (barre + chapitres) et `.vds-play-button`, (3) le garde sur l'élément `<video>` qui *revert* tout changement d'état sur le snapshot autoritaire, (4) refus du changement de serveur (lecteur) côté page (`handleServerChange` early-return + toast). Le changement de serveur est une action de lecture → traité comme telle.
+- **FS chat** : ré-ajout du bouton bulle flottant + une **croix** qui masque le chat définitivement (persisté en localStorage `w2g.fsChat.hidden`) ; le bouton bulle le ramène. Strings traduites (`party.fsNoMessages/fsHide/fsShow` + placeholder/`party.message`).
+- **Départs plus rapides** : `PRESENCE_TTL` 30s→**12s**, heartbeat client 15s→**5s** (≥2 refresh par fenêtre TTL). Un onglet fermé (beacon `pagehide` pas garanti) disparaît en ~12s au lieu de 30s.
+- **Prune+broadcast throttlé** : `/presence` recompute et **rediffuse** la liste des membres au plus une fois / ~6s par room (`acquireThrottle` = `SET NX EX`), pour que les partis disparaissent **pour tout le monde** sans attendre une action (join/moderate). Le bouton Quitter reste instantané (publie direct).
+- **Promotion host nettoie les sanctions** : `setHost` `srem` le mute + le playback-block du nouvel hôte (succession au départ OU transfert explicite), côté serveur, plus un miroir optimiste dans `transferHost`.
+
+### Leçons / pièges
+- **Espace n'était pas rattrapé par le garde `<video>`** : Vidstack a son propre keyboard handler → il fallait `keyDisabled`, le garde sur les events `<video>` ne suffit pas pour le clavier.
+- **`pointer-events:none` sur le slider** suffit pour neutraliser barre **et** chapitres (les `vds-slider-chapter` sont enfants du `vds-time-slider`).
+- **Le throttle Redis** (`SET key 1 EX n NX`) est le moyen le plus simple d'avoir « une action par fenêtre, peu importe combien de clients tapent » sans état applicatif.
+
+### État déployé
+- Commit `dev` : `c1cd2fa`. Typecheck OK, ESLint OK.
+
+---
+
 ## 2026-06-24 (suite 3) — Watch 2gether : audit sécurité + revue
 
 ### Contexte
