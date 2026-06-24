@@ -471,7 +471,11 @@ export default function Watch({
   // A room is active when the URL carries ?party={roomId}. The hook is a no-op
   // (returns null) when absent, so the page behaves identically without one.
   const partyRoomId = router.query.party ? String(router.query.party) : null;
-  const myUserId = sessions?.user?.id ? String(sessions.user.id) : null;
+  // AniList session: the user id lives in `id` (from profile()) OR `sub` (from
+  // the userinfo request) depending on the auth path — fall back across both so
+  // a signed-in user is never mistaken for a guest.
+  const sessionUserId = sessions?.user?.id ?? sessions?.user?.sub;
+  const myUserId = sessionUserId != null ? String(sessionUserId) : null;
 
   // Panel is closable; a floating pill restores it. Reset to visible whenever a
   // new party is entered.

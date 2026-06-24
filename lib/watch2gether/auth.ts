@@ -12,16 +12,21 @@ export async function getPartyUser(
   req: NextApiRequest,
   res: NextApiResponse,
 ): Promise<Member | null> {
-  // 1) Prefer the authenticated AniList session.
+  // 1) Prefer the authenticated AniList session. The AniList user id is on
+  //    `id` (set by profile()) or `sub` (set by the userinfo request) depending
+  //    on the path — accept either so a signed-in user is identified server-side
+  //    with the SAME id the client computes (otherwise they'd be treated as a
+  //    guest and never match as host/self).
   const session = await getServerSession(req, res, authOptions);
   const user: any = session?.user;
-  if (user?.id) {
+  const sessionUserId = user?.id ?? user?.sub;
+  if (sessionUserId != null) {
     // AniList avatar object is { large, medium }; fall back gracefully.
     const image =
       typeof user.image === "string"
         ? user.image
         : user.image?.medium || user.image?.large || "";
-    return { userId: String(user.id), name: String(user.name || "User"), image };
+    return { userId: String(sessionUserId), name: String(user.name || "User"), image };
   }
 
   // 2) Fall back to a guest identity supplied by the client.
