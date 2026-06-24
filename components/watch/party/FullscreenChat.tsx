@@ -1,9 +1,15 @@
 import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { IoSend, IoChatbubbleEllipses } from "react-icons/io5";
+import { IoSend } from "react-icons/io5";
 import type { PartyEvent, ChatMessage } from "@/lib/watch2gether/types";
 import ChatText from "./ChatText";
 import EmojiButton from "./EmojiButton";
+import { ANIME_EMOJI_MAP, SHORTCODE_RE } from "@/lib/watch2gether/animeEmojis";
+
+/** True when the draft has a known `:shortcode:` that renders as an emoji image. */
+function hasRenderableShortcode(text: string): boolean {
+  return text.split(SHORTCODE_RE).some((part) => ANIME_EMOJI_MAP[part]);
+}
 
 interface Props {
   /** Stable subscribe fn — FullscreenChat keeps its OWN message list from this
@@ -17,8 +23,8 @@ interface Props {
   active: boolean;
 }
 
-const BUBBLE_TTL_MS = 7000; // each ephemeral bubble fades after ~7s
-const IDLE_HIDE_MS = 7000; // hide the (idle) UI after this with no activity
+const BUBBLE_TTL_MS = 4000; // each ephemeral bubble fades after ~4s
+const IDLE_HIDE_MS = 3000; // hide the (idle) UI after this with no activity
 const RECENT_MAX = 30; // history kept for the hover panel
 
 export default function FullscreenChat({ onRemote, sendChat, myId, playerEl, active }: Props) {
@@ -194,7 +200,21 @@ export default function FullscreenChat({ onRemote, sendChat, myId, playerEl, act
           </div>
         )}
 
-        {showComposer ? (
+        {showComposer && hasRenderableShortcode(text) && (
+          <div
+            style={{
+              background: "rgba(0,0,0,0.5)",
+              backdropFilter: "blur(4px)",
+              borderRadius: 10,
+              padding: "6px 12px",
+              color: "white",
+              fontSize: 14,
+            }}
+          >
+            <ChatText text={text} size={16} />
+          </div>
+        )}
+        {showComposer && (
           <form onSubmit={submit} style={{ display: "flex", alignItems: "center", gap: 4 }}>
             <EmojiButton onPick={(ins) => { setText((p) => p + ins); setHasText(true); inputRef.current?.focus(); }} fullscreen />
             <input
@@ -237,28 +257,6 @@ export default function FullscreenChat({ onRemote, sendChat, myId, playerEl, act
               <IoSend size={16} />
             </button>
           </form>
-        ) : (
-          <button
-            onClick={() => {
-              bumpActivity();
-              setTimeout(() => inputRef.current?.focus(), 50);
-            }}
-            style={{
-              alignSelf: "flex-end",
-              display: "flex",
-              alignItems: "center",
-              gap: 6,
-              borderRadius: 999,
-              background: "rgba(0,0,0,0.6)",
-              color: "white",
-              padding: "8px 14px",
-              fontSize: 13,
-              border: "none",
-              cursor: "pointer",
-            }}
-          >
-            <IoChatbubbleEllipses size={16} /> Chat
-          </button>
         )}
       </div>
     </div>

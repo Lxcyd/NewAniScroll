@@ -1,14 +1,22 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/router";
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { IoSend, IoCopyOutline, IoPeople, IoClose, IoExitOutline, IoAdd, IoEnterOutline } from "react-icons/io5";
 import { FaCrown } from "react-icons/fa";
-import { MdPersonRemove, MdBlock, MdVolumeOff, MdVolumeUp, MdLock, MdLockOpen } from "react-icons/md";
+import { MdPersonRemove, MdBlock, MdVolumeOff, MdVolumeUp, MdLock, MdLockOpen, MdPlayDisabled, MdPlayArrow } from "react-icons/md";
 import type { PartyContext } from "@/lib/watch2gether/useWatchParty";
 import { getGuestIdentity } from "@/lib/watch2gether/guest";
 import MemberAvatar from "./MemberAvatar";
 import ChatText from "./ChatText";
 import EmojiButton from "./EmojiButton";
+import { ANIME_EMOJI_MAP, SHORTCODE_RE } from "@/lib/watch2gether/animeEmojis";
+
+/** True when the draft contains at least one KNOWN `:shortcode:` that will be
+ *  rendered as an inline emoji image — used to surface a live preview. */
+function hasRenderableShortcode(text: string): boolean {
+  return text.split(SHORTCODE_RE).some((part) => ANIME_EMOJI_MAP[part]);
+}
 
 interface LobbyMeta {
   aniId?: string | number;
@@ -40,6 +48,7 @@ export default function WatchPartyPanel({ party, lobby, onClose }: Props) {
 // ── Lobby (not yet in a room): create or join by code ───────────────────────
 function Lobby({ lobby, onClose }: { lobby?: LobbyMeta; onClose?: () => void }) {
   const router = useRouter();
+  const { t } = useTranslation();
   const [loading, setLoading] = useState(false);
   const [code, setCode] = useState("");
 
@@ -52,7 +61,7 @@ function Lobby({ lobby, onClose }: { lobby?: LobbyMeta; onClose?: () => void }) 
 
   const create = async () => {
     if (!lobby?.aniId || !lobby?.epiNumber) {
-      toast.error("Episode not ready yet");
+      toast.error(t("party.episodeNotReady"));
       return;
     }
     setLoading(true);
@@ -72,7 +81,7 @@ function Lobby({ lobby, onClose }: { lobby?: LobbyMeta; onClose?: () => void }) 
       });
       const data = await res.json();
       if (!res.ok || !data?.roomId) {
-        toast.error(data?.error || "Couldn't create party");
+        toast.error(data?.error || t("party.cantCreate"));
         return;
       }
       const params = new URLSearchParams(window.location.search);
@@ -80,13 +89,13 @@ function Lobby({ lobby, onClose }: { lobby?: LobbyMeta; onClose?: () => void }) 
       const url = `${window.location.origin}${window.location.pathname}?${params.toString()}`;
       try {
         await navigator.clipboard.writeText(url);
-        toast.success(`Party ${data.roomId} created — invite link copied!`);
+        toast.success(t("party.createdCopied", { code: data.roomId }));
       } catch {
-        toast.success(`Party created! Code: ${data.roomId}`);
+        toast.success(t("party.created", { code: data.roomId }));
       }
       enterRoom(data.roomId);
     } catch {
-      toast.error("Couldn't create party");
+      toast.error(t("party.cantCreate"));
     } finally {
       setLoading(false);
     }
@@ -96,7 +105,7 @@ function Lobby({ lobby, onClose }: { lobby?: LobbyMeta; onClose?: () => void }) 
     e.preventDefault();
     const roomId = code.trim();
     if (!/^\d{4}$/.test(roomId)) {
-      toast.error("Enter the 4-digit room code");
+      toast.error(t("party.enterCode"));
       return;
     }
     enterRoom(roomId);
@@ -107,19 +116,17 @@ function Lobby({ lobby, onClose }: { lobby?: LobbyMeta; onClose?: () => void }) 
       <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
         <div className="flex items-center gap-2">
           <IoPeople className="text-action" size={18} />
-          <span className="text-sm font-semibold">Watch Party</span>
+          <span className="text-sm font-semibold">{t("party.title")}</span>
         </div>
         {onClose && (
-          <button onClick={onClose} className="text-white/60 hover:text-white" title="Close">
+          <button onClick={onClose} className="text-white/60 hover:text-white" title={t("common.close")}>
             <IoClose size={18} />
           </button>
         )}
       </div>
 
       <div className="flex flex-1 flex-col justify-center gap-4 px-5">
-        <p className="text-center text-sm text-white/60">
-          Watch this episode in sync with friends — chat, react and control playback together.
-        </p>
+        <p className="text-center text-sm text-white/60">{t("party.subtitle")}</p>
 
         <button
           onClick={create}
@@ -127,11 +134,11 @@ function Lobby({ lobby, onClose }: { lobby?: LobbyMeta; onClose?: () => void }) 
           className="flex items-center justify-center gap-2 rounded-md bg-action px-4 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:opacity-50"
         >
           <IoAdd size={18} />
-          {loading ? "Creating…" : "Create a party"}
+          {loading ? t("party.creating") : t("party.create")}
         </button>
 
         <div className="flex items-center gap-2 text-xs text-white/40">
-          <span className="h-px flex-1 bg-white/10" /> or join with a code{" "}
+          <span className="h-px flex-1 bg-white/10" /> {t("party.orJoin")}{" "}
           <span className="h-px flex-1 bg-white/10" />
         </div>
 
@@ -147,7 +154,7 @@ function Lobby({ lobby, onClose }: { lobby?: LobbyMeta; onClose?: () => void }) 
             type="submit"
             className="flex shrink-0 items-center gap-1 rounded-md bg-white/10 px-4 py-3 text-sm font-medium hover:bg-white/20"
           >
-            <IoEnterOutline size={16} /> Join
+            <IoEnterOutline size={16} /> {t("party.join")}
           </button>
         </form>
       </div>
@@ -157,6 +164,7 @@ function Lobby({ lobby, onClose }: { lobby?: LobbyMeta; onClose?: () => void }) 
 
 // ── Active room: members + chat ─────────────────────────────────────────────
 function ActiveRoom({ party, onClose }: { party: PartyContext; onClose?: () => void }) {
+  const { t } = useTranslation();
   const {
     members,
     chat,
@@ -169,6 +177,7 @@ function ActiveRoom({ party, onClose }: { party: PartyContext; onClose?: () => v
     kick,
     ban,
     mute,
+    blockPlayback,
     transferHost,
     setFlags,
     snapshot,
@@ -199,9 +208,9 @@ function ActiveRoom({ party, onClose }: { party: PartyContext; onClose?: () => v
   const copy = async (value: string, label: string) => {
     try {
       await navigator.clipboard.writeText(value);
-      toast.success(`${label} copied!`);
+      toast.success(t("party.copied", { label }));
     } catch {
-      toast.error("Couldn't copy");
+      toast.error(t("party.cantCopy"));
     }
   };
 
@@ -211,95 +220,126 @@ function ActiveRoom({ party, onClose }: { party: PartyContext; onClose?: () => v
       <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
         <div className="flex items-center gap-2">
           <IoPeople className="text-action" size={18} />
-          <span className="text-sm font-semibold">Watch Party</span>
+          <span className="text-sm font-semibold">{t("party.title")}</span>
           <button
-            onClick={() => copy(roomId, `Code ${roomId}`)}
-            title="Copy room code"
+            onClick={() => copy(roomId, roomId)}
+            title={t("party.copyRoomCode")}
             className="rounded bg-white/10 px-1.5 py-0.5 font-mono text-xs tracking-widest text-white/90 hover:bg-white/20"
           >
             {roomId}
           </button>
         </div>
         <div className="flex items-center gap-2">
+          {/* Host: lock the room to new joiners — sits left of the invite button. */}
+          {isHost && (
+            <button
+              onClick={() => setFlags({ locked: !snapshot?.locked })}
+              title={snapshot?.locked ? t("party.roomLockedHint") : t("party.roomOpenHint")}
+              className={`flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium ${
+                snapshot?.locked
+                  ? "bg-action/20 text-action hover:bg-action/30"
+                  : "bg-white/10 text-white/70 hover:bg-white/15"
+              }`}
+            >
+              {snapshot?.locked ? <MdLock size={14} /> : <MdLockOpen size={14} />}
+              {snapshot?.locked ? t("party.roomLocked") : t("party.roomOpen")}
+            </button>
+          )}
           <button
-            onClick={() => copy(inviteUrl, "Invite link")}
+            onClick={() => copy(inviteUrl, t("party.inviteLink"))}
             className="flex items-center gap-1 rounded-md bg-action/20 px-2 py-1 text-xs font-medium text-action hover:bg-action/30"
-            title="Copy invite link"
+            title={t("party.inviteLink")}
           >
-            <IoCopyOutline size={14} /> Invite
+            <IoCopyOutline size={14} /> {t("party.invite")}
           </button>
           <button
             onClick={leave}
             className="flex items-center gap-1 rounded-md bg-red-500/15 px-2 py-1 text-xs font-medium text-red-300 hover:bg-red-500/25"
-            title="Leave party"
+            title={t("party.leaveParty")}
           >
-            <IoExitOutline size={14} /> Leave
+            <IoExitOutline size={14} /> {t("party.leave")}
           </button>
           {onClose && (
-            <button onClick={onClose} className="text-white/60 hover:text-white" title="Hide panel">
+            <button onClick={onClose} className="text-white/60 hover:text-white" title={t("party.hidePanel")}>
               <IoClose size={18} />
             </button>
           )}
         </div>
       </div>
 
-      {/* Members */}
+      {/* Members — rendered in join order (oldest first / leftmost). */}
       <div className="flex flex-wrap items-start gap-3 border-b border-white/10 px-4 py-3">
         {members.length === 0 && (
-          <span className="text-xs text-white/50">Waiting for participants…</span>
+          <span className="text-xs text-white/50">{t("party.waiting")}</span>
         )}
         {members.map((m) => {
           const canModerate = isHost && m.userId !== myId;
           return (
             <div key={m.userId} className="group relative flex flex-col items-center">
-              {/* Fixed-size avatar box so the crown never shifts alignment. */}
+              {/* Fixed-size avatar box so badges never shift alignment. */}
               <div className="relative h-7 w-7">
                 <MemberAvatar name={m.name} image={m.image} size={28} highlight={m.userId === myId} />
+                {/* Crown bottom-right; mute / playback badges stack on the left. */}
                 {m.isHost && (
                   <FaCrown
                     className="absolute -bottom-1 -right-1.5 text-yellow-400 drop-shadow"
                     size={11}
-                    title="Host"
+                    title={t("party.host")}
                   />
                 )}
                 {m.muted && (
                   <MdVolumeOff
                     className="absolute -bottom-1 -left-1.5 rounded-full bg-black/70 text-red-300"
                     size={12}
-                    title="Muted"
+                    title={t("party.mute")}
+                  />
+                )}
+                {m.playbackBlocked && (
+                  <MdPlayDisabled
+                    className="absolute -top-1 -left-1.5 rounded-full bg-black/70 text-orange-300"
+                    size={12}
+                    title={t("party.blockPlayback")}
                   />
                 )}
               </div>
               {canModerate && (
-                <div className="absolute -bottom-9 left-1/2 z-30 hidden -translate-x-1/2 flex-col gap-0.5 rounded-md bg-black/90 p-1 shadow-lg group-hover:flex">
+                <div className="absolute top-9 left-1/2 z-30 hidden w-max min-w-[150px] -translate-x-1/2 flex-col gap-0.5 rounded-md bg-black/90 p-1 shadow-lg group-hover:flex">
                   <button
                     onClick={() => transferHost(m.userId)}
-                    title={`Make ${m.name} host`}
-                    className="flex items-center gap-1 rounded px-1.5 py-1 text-[11px] font-medium text-yellow-300 hover:bg-yellow-400/15"
+                    title={t("party.makeHost")}
+                    className="flex items-center gap-2 whitespace-nowrap rounded px-2 py-1 text-[11px] font-medium text-yellow-300 hover:bg-yellow-400/15"
                   >
-                    <FaCrown size={12} /> Make host
+                    <FaCrown size={12} /> {t("party.makeHost")}
                   </button>
                   <button
                     onClick={() => mute(m.userId, !m.muted)}
-                    title={m.muted ? `Unmute ${m.name}` : `Mute ${m.name}`}
-                    className="flex items-center gap-1 rounded px-1.5 py-1 text-[11px] font-medium text-white/80 hover:bg-white/10 hover:text-white"
+                    title={m.muted ? t("party.unmute") : t("party.mute")}
+                    className="flex items-center gap-2 whitespace-nowrap rounded px-2 py-1 text-[11px] font-medium text-white/80 hover:bg-white/10 hover:text-white"
                   >
                     {m.muted ? <MdVolumeUp size={14} /> : <MdVolumeOff size={14} />}
-                    {m.muted ? "Unmute" : "Mute"}
+                    {m.muted ? t("party.unmute") : t("party.mute")}
+                  </button>
+                  <button
+                    onClick={() => blockPlayback(m.userId, !m.playbackBlocked)}
+                    title={m.playbackBlocked ? t("party.unblockPlayback") : t("party.blockPlayback")}
+                    className="flex items-center gap-2 whitespace-nowrap rounded px-2 py-1 text-[11px] font-medium text-white/80 hover:bg-white/10 hover:text-white"
+                  >
+                    {m.playbackBlocked ? <MdPlayArrow size={14} /> : <MdPlayDisabled size={14} />}
+                    {m.playbackBlocked ? t("party.unblockPlayback") : t("party.blockPlayback")}
                   </button>
                   <button
                     onClick={() => kick(m.userId)}
-                    title={`Kick ${m.name}`}
-                    className="flex items-center gap-1 rounded px-1.5 py-1 text-[11px] font-medium text-white/80 hover:bg-white/10 hover:text-white"
+                    title={t("party.kick")}
+                    className="flex items-center gap-2 whitespace-nowrap rounded px-2 py-1 text-[11px] font-medium text-white/80 hover:bg-white/10 hover:text-white"
                   >
-                    <MdPersonRemove size={14} /> Kick
+                    <MdPersonRemove size={14} /> {t("party.kick")}
                   </button>
                   <button
                     onClick={() => ban(m.userId)}
-                    title={`Ban ${m.name}`}
-                    className="flex items-center gap-1 rounded px-1.5 py-1 text-[11px] font-medium text-red-300 hover:bg-red-500/20 hover:text-red-200"
+                    title={t("party.ban")}
+                    className="flex items-center gap-2 whitespace-nowrap rounded px-2 py-1 text-[11px] font-medium text-red-300 hover:bg-red-500/20 hover:text-red-200"
                   >
-                    <MdBlock size={14} /> Ban
+                    <MdBlock size={14} /> {t("party.ban")}
                   </button>
                 </div>
               )}
@@ -308,40 +348,10 @@ function ActiveRoom({ party, onClose }: { party: PartyContext; onClose?: () => v
         })}
       </div>
 
-      {/* Host settings: lock playback to host-only, lock the room to new joiners. */}
-      {isHost && (
-        <div className="flex items-center gap-2 border-b border-white/10 px-4 py-2">
-          <button
-            onClick={() => setFlags({ playbackLocked: !snapshot?.playbackLocked })}
-            title={snapshot?.playbackLocked ? "Anyone can control playback" : "Only you control playback"}
-            className={`flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium ${
-              snapshot?.playbackLocked
-                ? "bg-action/20 text-action"
-                : "bg-white/10 text-white/70 hover:bg-white/15"
-            }`}
-          >
-            {snapshot?.playbackLocked ? <MdLock size={13} /> : <MdLockOpen size={13} />}
-            Playback {snapshot?.playbackLocked ? "locked" : "open"}
-          </button>
-          <button
-            onClick={() => setFlags({ locked: !snapshot?.locked })}
-            title={snapshot?.locked ? "Allow new people to join" : "Block new people from joining"}
-            className={`flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium ${
-              snapshot?.locked
-                ? "bg-action/20 text-action"
-                : "bg-white/10 text-white/70 hover:bg-white/15"
-            }`}
-          >
-            {snapshot?.locked ? <MdLock size={13} /> : <MdLockOpen size={13} />}
-            Room {snapshot?.locked ? "locked" : "open"}
-          </button>
-        </div>
-      )}
-
       {/* Chat log */}
       <div ref={logRef} className="min-h-0 flex-1 space-y-2 overflow-y-auto px-4 py-3 scrollbar-hide">
         {chat.length === 0 && (
-          <p className="text-center text-xs text-white/40">No messages yet. Say hi 👋</p>
+          <p className="text-center text-xs text-white/40">{t("party.noMessages")}</p>
         )}
         {chat.map((msg) => (
           <div key={msg.id} className="flex items-start gap-2">
@@ -363,25 +373,33 @@ function ActiveRoom({ party, onClose }: { party: PartyContext; onClose?: () => v
       </div>
 
       {/* Composer (disabled while muted by the host) */}
-      <form onSubmit={submit} className="flex items-center gap-1 border-t border-white/10 p-3">
-        <EmojiButton onPick={insertEmoji} />
-        <input
-          ref={inputRef}
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          maxLength={500}
-          disabled={amMuted}
-          placeholder={amMuted ? "You are muted" : "Message…"}
-          className="flex-1 rounded-md bg-white/10 px-3 py-2 text-sm outline-none placeholder:text-white/40 focus:bg-white/15 disabled:opacity-60"
-        />
-        <button
-          type="submit"
-          disabled={amMuted || !text.trim()}
-          className="flex h-9 w-9 items-center justify-center rounded-md bg-action text-white disabled:opacity-40"
-        >
-          <IoSend size={16} />
-        </button>
-      </form>
+      <div className="border-t border-white/10">
+        {/* Live preview: shows `:pog:` etc. as the actual emoji before sending. */}
+        {hasRenderableShortcode(text) && (
+          <div className="flex items-center gap-1 px-3 pt-2 text-sm text-white/90">
+            <ChatText text={text} />
+          </div>
+        )}
+        <form onSubmit={submit} className="flex items-center gap-1 p-3">
+          <EmojiButton onPick={insertEmoji} />
+          <input
+            ref={inputRef}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            maxLength={500}
+            disabled={amMuted}
+            placeholder={amMuted ? t("party.muted") : t("party.message")}
+            className="flex-1 rounded-md bg-white/10 px-3 py-2 text-sm outline-none placeholder:text-white/40 focus:bg-white/15 disabled:opacity-60"
+          />
+          <button
+            type="submit"
+            disabled={amMuted || !text.trim()}
+            className="flex h-9 w-9 items-center justify-center rounded-md bg-action text-white disabled:opacity-40"
+          >
+            <IoSend size={16} />
+          </button>
+        </form>
+      </div>
     </>
   );
 }

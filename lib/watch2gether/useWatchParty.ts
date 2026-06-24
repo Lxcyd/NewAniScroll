@@ -47,16 +47,18 @@ export interface PartyContext {
   ban: (userId: string) => void;
   /** Host-only: mute / unmute a member's chat. */
   mute: (userId: string, muted: boolean) => void;
+  /** Host-only: block / unblock a member from controlling playback. */
+  blockPlayback: (userId: string, blocked: boolean) => void;
   /** Host-only: hand the host role to another member. */
   transferHost: (userId: string) => void;
-  /** Host-only: toggle room flags (playbackLocked / locked). */
-  setFlags: (flags: { playbackLocked?: boolean; locked?: boolean }) => void;
-  /** True when the host has locked playback to host-only and we're not the host. */
-  playbackLocked: boolean;
+  /** Host-only: toggle room flags (locked). */
+  setFlags: (flags: { locked?: boolean }) => void;
   /** True when the room is locked to new joiners. */
   locked: boolean;
   /** True when WE are muted in chat. */
   amMuted: boolean;
+  /** True when the host has blocked US from controlling playback. */
+  amPlaybackBlocked: boolean;
   inviteUrl: string;
 }
 
@@ -197,6 +199,18 @@ export function useWatchParty(
     [roomId, post],
   );
 
+  const blockPlayback = useCallback(
+    (userId: string, blocked: boolean) => {
+      if (!roomId) return;
+      post("moderate", {
+        roomId,
+        action: blocked ? "block-playback" : "unblock-playback",
+        targetUserId: userId,
+      });
+    },
+    [roomId, post],
+  );
+
   const transferHost = useCallback(
     (userId: string) => {
       if (!roomId) return;
@@ -206,7 +220,7 @@ export function useWatchParty(
   );
 
   const setFlags = useCallback(
-    (flags: { playbackLocked?: boolean; locked?: boolean }) => {
+    (flags: { locked?: boolean }) => {
       if (!roomId) return;
       post("moderate", { roomId, action: "set-flags", flags });
     },
@@ -267,7 +281,7 @@ export function useWatchParty(
       return;
     }
     if (ev.type === "settings") {
-      // Room flags changed (playbackLocked / locked) — adopt the fresh snapshot.
+      // Room flags changed (locked) — adopt the fresh snapshot when present.
       if (ev.payload?.snapshot) {
         setSnapshot(ev.payload.snapshot);
         if (ev.payload.snapshot.hostId) setHostId(ev.payload.snapshot.hostId);
@@ -393,7 +407,10 @@ export function useWatchParty(
   const isHost = !!effectiveUserId && effectiveUserId === hostId;
   const amMuted =
     !!effectiveUserId && members.some((m) => m.userId === effectiveUserId && m.muted);
-  const playbackLocked = !!snapshot?.playbackLocked && !isHost;
+  const amPlaybackBlocked =
+    !!effectiveUserId &&
+    !isHost &&
+    members.some((m) => m.userId === effectiveUserId && m.playbackBlocked);
   const locked = !!snapshot?.locked;
 
   const ctx = useMemo<PartyContext | null>(() => {
@@ -416,11 +433,12 @@ export function useWatchParty(
       kick,
       ban,
       mute,
+      blockPlayback,
       transferHost,
       setFlags,
-      playbackLocked,
       locked,
       amMuted,
+      amPlaybackBlocked,
       inviteUrl,
     };
   }, [
@@ -441,11 +459,12 @@ export function useWatchParty(
     kick,
     ban,
     mute,
+    blockPlayback,
     transferHost,
     setFlags,
-    playbackLocked,
     locked,
     amMuted,
+    amPlaybackBlocked,
     inviteUrl,
   ]);
 

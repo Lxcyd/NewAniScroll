@@ -27,6 +27,7 @@ const membersKey = (id: string) => `w2g:room:${id}:members`;
 const orderKey = (id: string) => `w2g:room:${id}:order`;
 const bansKey = (id: string) => `w2g:room:${id}:bans`;
 const mutesKey = (id: string) => `w2g:room:${id}:mutes`;
+const pbBlockKey = (id: string) => `w2g:room:${id}:pbblock`;
 const presenceKey = (id: string, uid: string) => `w2g:presence:${id}:${uid}`;
 const chatKey = (id: string) => `w2g:chat:${id}`;
 export const channelKey = (id: string) => `w2g:channel:${id}`;
@@ -70,7 +71,6 @@ export async function createRoom(
     rate: Number(init.rate || 1),
     hostId: String(init.hostId),
     updatedAt: Date.now(),
-    playbackLocked: false,
     locked: false,
   };
   await redis.hset(roomKey(roomId), serialize(snapshot));
@@ -101,7 +101,6 @@ export async function getSnapshot(roomId: string): Promise<RoomSnapshot | null> 
     rate: Number(h.rate) || 1,
     hostId: h.hostId,
     updatedAt: Number(h.updatedAt) || 0,
-    playbackLocked: h.playbackLocked === "true",
     locked: h.locked === "true",
   };
 }
@@ -206,14 +205,40 @@ export async function getMutes(roomId: string): Promise<Set<string>> {
   return new Set(await redis.smembers(mutesKey(roomId)));
 }
 
+// ── Per-member playback block ──
+// A blocked member stays in the room but the event route rejects their playback
+// events (play/pause/seek/episode/server). Tied to the room TTL like mutes.
+export async function setPlaybackBlock(
+  roomId: string,
+  userId: string,
+  blocked: boolean,
+): Promise<void> {
+  assertRedis();
+  if (blocked) {
+    await redis.sadd(pbBlockKey(roomId), userId);
+    await redis.expire(pbBlockKey(roomId), ROOM_TTL);
+  } else {
+    await redis.srem(pbBlockKey(roomId), userId);
+  }
+}
+
+export async function isPlaybackBlocked(roomId: string, userId: string): Promise<boolean> {
+  assertRedis();
+  return (await redis.sismember(pbBlockKey(roomId), userId)) === 1;
+}
+
+export async function getPlaybackBlocks(roomId: string): Promise<Set<string>> {
+  assertRedis();
+  return new Set(await redis.smembers(pbBlockKey(roomId)));
+}
+
 // ── Room settings (host-only flags stored in the room hash) ──
 export async function setRoomFlags(
   roomId: string,
-  flags: Partial<Pick<RoomSnapshot, "playbackLocked" | "locked">>,
+  flags: Partial<Pick<RoomSnapshot, "locked">>,
 ): Promise<void> {
   assertRedis();
   const out: Record<string, string> = { updatedAt: String(Date.now()) };
-  if (typeof flags.playbackLocked === "boolean") out.playbackLocked = String(flags.playbackLocked);
   if (typeof flags.locked === "boolean") out.locked = String(flags.locked);
   await redis.hset(roomKey(roomId), out);
   await redis.expire(roomKey(roomId), ROOM_TTL);
@@ -236,10 +261,21 @@ export async function touchPresence(roomId: string, member: Member): Promise<voi
  *  flagging the host. */
 export async function listMembers(roomId: string): Promise<Member[]> {
   assertRedis();
-  const ids = await redis.smembers(membersKey(roomId));
-  if (!ids.length) return [];
+  // Iterate in join order (oldest first) so the UI renders members left→right by
+  // arrival. The order zset is the source of truth; any member set entry missing
+  // from it (shouldn't happen) is appended at the end.
+  const ordered = await redis.zrange(orderKey(roomId), 0, -1);
+  const present = await redis.smembers(membersKey(roomId));
+  if (!present.length) return [];
+  const presentSet = new Set(present);
+  const orderedSet = new Set(ordered);
+  const ids = [
+    ...ordered.filter((id) => presentSet.has(id)),
+    ...present.filter((id) => !orderedSet.has(id)),
+  ];
   const hostId = await getHostId(roomId);
   const mutes = await getMutes(roomId);
+  const pbBlocks = await getPlaybackBlocks(roomId);
   const members: Member[] = [];
   const stale: string[] = [];
   for (const userId of ids) {
@@ -256,6 +292,7 @@ export async function listMembers(roomId: string): Promise<Member[]> {
         image: p.image,
         isHost: userId === hostId,
         muted: mutes.has(userId),
+        playbackBlocked: pbBlocks.has(userId),
       });
     } catch {
       stale.push(userId);

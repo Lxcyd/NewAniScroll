@@ -10,17 +10,36 @@ import {
   roomExists,
   setHost,
   setMute,
+  setPlaybackBlock,
   setRoomFlags,
 } from "@/lib/watch2gether/redisRoom";
 
-type Action = "kick" | "ban" | "mute" | "unmute" | "transfer-host" | "set-flags";
-const ACTIONS: Action[] = ["kick", "ban", "mute", "unmute", "transfer-host", "set-flags"];
+type Action =
+  | "kick"
+  | "ban"
+  | "mute"
+  | "unmute"
+  | "block-playback"
+  | "unblock-playback"
+  | "transfer-host"
+  | "set-flags";
+const ACTIONS: Action[] = [
+  "kick",
+  "ban",
+  "mute",
+  "unmute",
+  "block-playback",
+  "unblock-playback",
+  "transfer-host",
+  "set-flags",
+];
 
 // Host-only moderation:
-//   kick / ban       — remove a member (ban also blocks rejoin until disband)
-//   mute / unmute    — toggle a member's chat
-//   transfer-host    — hand the crown to another member
-//   set-flags        — toggle room-level flags (playbackLocked / locked)
+//   kick / ban                       — remove a member (ban blocks rejoin)
+//   mute / unmute                    — toggle a member's chat
+//   block-playback / unblock-playback — toggle a member's playback control
+//   transfer-host                    — hand the crown to another member
+//   set-flags                        — toggle room-level flags (locked)
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
@@ -71,6 +90,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         await publishEvent(roomId, { type: action, senderId: sender, ts, payload: { targetUserId } });
         break;
       }
+      case "block-playback":
+      case "unblock-playback": {
+        await setPlaybackBlock(roomId, targetUserId, action === "block-playback");
+        // Reuse the settings event so clients know to refresh (the fresh presence
+        // list below carries the per-member playbackBlocked flag).
+        await publishEvent(roomId, { type: "settings", senderId: sender, ts, payload: {} });
+        break;
+      }
       case "transfer-host": {
         await setHost(roomId, targetUserId);
         await publishEvent(roomId, {
@@ -82,8 +109,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         break;
       }
       case "set-flags": {
-        const next: { playbackLocked?: boolean; locked?: boolean } = {};
-        if (typeof flags?.playbackLocked === "boolean") next.playbackLocked = flags.playbackLocked;
+        const next: { locked?: boolean } = {};
         if (typeof flags?.locked === "boolean") next.locked = flags.locked;
         if (Object.keys(next).length === 0) {
           return res.status(400).json({ error: "no valid flags provided" });
