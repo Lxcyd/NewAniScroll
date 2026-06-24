@@ -29,6 +29,13 @@ Retours : modération + chat « réagissent ~1s après », blocage de lecture no
 ### État déployé
 - Commit `dev` : `fc54960`. Typecheck `tsc --noEmit` OK, ESLint OK. Build Vercel sur `dev`.
 
+### Raffinements suivants (`cefa55c`)
+- **Toggle Public/Privé qui « flappe » au spam** : double cause = (1) optimistic local + (2) events `settings`/`snapshot` en vol qui reflètent encore l'ancien état. Fix combiné : **cooldown 700ms** sur le bouton + **`pendingLockRef`** (valeur voulue mémorisée 4s) ; `reconcileSnapshot()` force la valeur voulue tant que le serveur n'a pas confirmé, puis se nettoie. Tout snapshot adopté (join/snapshot/settings) passe par ce reconcile.
+- **Emoji du picker affiché en texte** : le picker insère un `:shortcode:` via `insertEmoji` (setText direct, hors `onChange`) → `replaceShortcodes` ne tournait pas dessus. Fix : `insertEmoji` applique aussi `replaceShortcodes`.
+- **Chat « grisé puis normal »** : on a retiré le dimming `pending` (le message optimiste s'affiche déjà instantanément ; l'écho serveur le remplace en silence). Plus d'effet visuel.
+- **Ring rose absent pour soi (invité)** : `effectiveUserId` (guest) se résout en `useEffect`, donc `myId` est `null` au premier rendu. Fix : on capture l'**id confirmé par le serveur** (`join` renvoie `me.userId`) dans `confirmedId`, et `myId = effectiveUserId || confirmedId`. Sert aussi à `isHost`/`amMuted`/`amPlaybackBlocked`.
+- **Message « tu es muté » au chat** : l'input n'est plus `disabled` quand muté → `submit` montre un toast (sinon une box désactivée ne déclenche aucun feedback au clic).
+
 ---
 
 ## 2026-06-24 (suite) — Watch 2gether : modération avancée, i18n, polish UI/UX
