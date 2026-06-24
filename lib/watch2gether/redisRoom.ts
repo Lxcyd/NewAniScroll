@@ -26,6 +26,7 @@ const roomKey = (id: string) => `w2g:room:${id}`;
 const membersKey = (id: string) => `w2g:room:${id}:members`;
 const orderKey = (id: string) => `w2g:room:${id}:order`;
 const bansKey = (id: string) => `w2g:room:${id}:bans`;
+const mutesKey = (id: string) => `w2g:room:${id}:mutes`;
 const presenceKey = (id: string, uid: string) => `w2g:presence:${id}:${uid}`;
 const chatKey = (id: string) => `w2g:chat:${id}`;
 export const channelKey = (id: string) => `w2g:channel:${id}`;
@@ -69,6 +70,8 @@ export async function createRoom(
     rate: Number(init.rate || 1),
     hostId: String(init.hostId),
     updatedAt: Date.now(),
+    playbackLocked: false,
+    locked: false,
   };
   await redis.hset(roomKey(roomId), serialize(snapshot));
   await redis.expire(roomKey(roomId), ROOM_TTL);
@@ -77,6 +80,11 @@ export async function createRoom(
 export async function roomExists(roomId: string): Promise<boolean> {
   assertRedis();
   return (await redis.exists(roomKey(roomId))) === 1;
+}
+
+export async function isMember(roomId: string, userId: string): Promise<boolean> {
+  assertRedis();
+  return (await redis.sismember(membersKey(roomId), userId)) === 1;
 }
 
 export async function getSnapshot(roomId: string): Promise<RoomSnapshot | null> {
@@ -93,6 +101,8 @@ export async function getSnapshot(roomId: string): Promise<RoomSnapshot | null> 
     rate: Number(h.rate) || 1,
     hostId: h.hostId,
     updatedAt: Number(h.updatedAt) || 0,
+    playbackLocked: h.playbackLocked === "true",
+    locked: h.locked === "true",
   };
 }
 
@@ -173,6 +183,42 @@ export async function isBanned(roomId: string, userId: string): Promise<boolean>
   return (await redis.sismember(bansKey(roomId), userId)) === 1;
 }
 
+// ── Mutes ──
+// A muted member stays in the room but the event route rejects their chat. The
+// mute set is tied to the room TTL like bans.
+export async function setMute(roomId: string, userId: string, muted: boolean): Promise<void> {
+  assertRedis();
+  if (muted) {
+    await redis.sadd(mutesKey(roomId), userId);
+    await redis.expire(mutesKey(roomId), ROOM_TTL);
+  } else {
+    await redis.srem(mutesKey(roomId), userId);
+  }
+}
+
+export async function isMuted(roomId: string, userId: string): Promise<boolean> {
+  assertRedis();
+  return (await redis.sismember(mutesKey(roomId), userId)) === 1;
+}
+
+export async function getMutes(roomId: string): Promise<Set<string>> {
+  assertRedis();
+  return new Set(await redis.smembers(mutesKey(roomId)));
+}
+
+// ── Room settings (host-only flags stored in the room hash) ──
+export async function setRoomFlags(
+  roomId: string,
+  flags: Partial<Pick<RoomSnapshot, "playbackLocked" | "locked">>,
+): Promise<void> {
+  assertRedis();
+  const out: Record<string, string> = { updatedAt: String(Date.now()) };
+  if (typeof flags.playbackLocked === "boolean") out.playbackLocked = String(flags.playbackLocked);
+  if (typeof flags.locked === "boolean") out.locked = String(flags.locked);
+  await redis.hset(roomKey(roomId), out);
+  await redis.expire(roomKey(roomId), ROOM_TTL);
+}
+
 /** Refresh a member's presence key TTL (heartbeat). */
 export async function touchPresence(roomId: string, member: Member): Promise<void> {
   assertRedis();
@@ -193,6 +239,7 @@ export async function listMembers(roomId: string): Promise<Member[]> {
   const ids = await redis.smembers(membersKey(roomId));
   if (!ids.length) return [];
   const hostId = await getHostId(roomId);
+  const mutes = await getMutes(roomId);
   const members: Member[] = [];
   const stale: string[] = [];
   for (const userId of ids) {
@@ -203,7 +250,13 @@ export async function listMembers(roomId: string): Promise<Member[]> {
     }
     try {
       const p = JSON.parse(raw);
-      members.push({ userId, name: p.name, image: p.image, isHost: userId === hostId });
+      members.push({
+        userId,
+        name: p.name,
+        image: p.image,
+        isHost: userId === hostId,
+        muted: mutes.has(userId),
+      });
     } catch {
       stale.push(userId);
     }

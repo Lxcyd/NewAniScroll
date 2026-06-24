@@ -5,6 +5,7 @@ import {
   getChat,
   getSnapshot,
   isBanned,
+  isMember,
   listMembers,
   publishEvent,
   roomExists,
@@ -25,6 +26,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
     if (await isBanned(roomId, user.userId)) {
       return res.status(403).json({ error: "You are banned from this room" });
+    }
+    // When the room is locked, only existing members may (re)connect; new
+    // arrivals are turned away. A reconnect of someone already in the room
+    // (e.g. the SSE 55s recycle) must still succeed.
+    const snap = await getSnapshot(roomId);
+    if (snap?.locked && !(await isMember(roomId, user.userId))) {
+      return res.status(403).json({ error: "This room is locked" });
     }
     await addMember(roomId, user);
 

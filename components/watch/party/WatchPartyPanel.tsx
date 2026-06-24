@@ -3,7 +3,7 @@ import { useRouter } from "next/router";
 import { toast } from "sonner";
 import { IoSend, IoCopyOutline, IoPeople, IoClose, IoExitOutline, IoAdd, IoEnterOutline } from "react-icons/io5";
 import { FaCrown } from "react-icons/fa";
-import { MdPersonRemove, MdBlock } from "react-icons/md";
+import { MdPersonRemove, MdBlock, MdVolumeOff, MdVolumeUp, MdLock, MdLockOpen } from "react-icons/md";
 import type { PartyContext } from "@/lib/watch2gether/useWatchParty";
 import { getGuestIdentity } from "@/lib/watch2gether/guest";
 import MemberAvatar from "./MemberAvatar";
@@ -157,7 +157,23 @@ function Lobby({ lobby, onClose }: { lobby?: LobbyMeta; onClose?: () => void }) 
 
 // ── Active room: members + chat ─────────────────────────────────────────────
 function ActiveRoom({ party, onClose }: { party: PartyContext; onClose?: () => void }) {
-  const { members, chat, sendChat, inviteUrl, myId, roomId, isHost, leave, kick, ban } = party;
+  const {
+    members,
+    chat,
+    sendChat,
+    inviteUrl,
+    myId,
+    roomId,
+    isHost,
+    leave,
+    kick,
+    ban,
+    mute,
+    transferHost,
+    setFlags,
+    snapshot,
+    amMuted,
+  } = party;
   const [text, setText] = useState("");
   const inputRef = useRef<HTMLInputElement | null>(null);
   const logRef = useRef<HTMLDivElement | null>(null);
@@ -246,9 +262,31 @@ function ActiveRoom({ party, onClose }: { party: PartyContext; onClose?: () => v
                     title="Host"
                   />
                 )}
+                {m.muted && (
+                  <MdVolumeOff
+                    className="absolute -bottom-1 -left-1.5 rounded-full bg-black/70 text-red-300"
+                    size={12}
+                    title="Muted"
+                  />
+                )}
               </div>
               {canModerate && (
-                <div className="absolute -bottom-9 left-1/2 z-30 hidden -translate-x-1/2 gap-1 rounded-md bg-black/90 p-1 shadow-lg group-hover:flex">
+                <div className="absolute -bottom-9 left-1/2 z-30 hidden -translate-x-1/2 flex-col gap-0.5 rounded-md bg-black/90 p-1 shadow-lg group-hover:flex">
+                  <button
+                    onClick={() => transferHost(m.userId)}
+                    title={`Make ${m.name} host`}
+                    className="flex items-center gap-1 rounded px-1.5 py-1 text-[11px] font-medium text-yellow-300 hover:bg-yellow-400/15"
+                  >
+                    <FaCrown size={12} /> Make host
+                  </button>
+                  <button
+                    onClick={() => mute(m.userId, !m.muted)}
+                    title={m.muted ? `Unmute ${m.name}` : `Mute ${m.name}`}
+                    className="flex items-center gap-1 rounded px-1.5 py-1 text-[11px] font-medium text-white/80 hover:bg-white/10 hover:text-white"
+                  >
+                    {m.muted ? <MdVolumeUp size={14} /> : <MdVolumeOff size={14} />}
+                    {m.muted ? "Unmute" : "Mute"}
+                  </button>
                   <button
                     onClick={() => kick(m.userId)}
                     title={`Kick ${m.name}`}
@@ -269,6 +307,36 @@ function ActiveRoom({ party, onClose }: { party: PartyContext; onClose?: () => v
           );
         })}
       </div>
+
+      {/* Host settings: lock playback to host-only, lock the room to new joiners. */}
+      {isHost && (
+        <div className="flex items-center gap-2 border-b border-white/10 px-4 py-2">
+          <button
+            onClick={() => setFlags({ playbackLocked: !snapshot?.playbackLocked })}
+            title={snapshot?.playbackLocked ? "Anyone can control playback" : "Only you control playback"}
+            className={`flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium ${
+              snapshot?.playbackLocked
+                ? "bg-action/20 text-action"
+                : "bg-white/10 text-white/70 hover:bg-white/15"
+            }`}
+          >
+            {snapshot?.playbackLocked ? <MdLock size={13} /> : <MdLockOpen size={13} />}
+            Playback {snapshot?.playbackLocked ? "locked" : "open"}
+          </button>
+          <button
+            onClick={() => setFlags({ locked: !snapshot?.locked })}
+            title={snapshot?.locked ? "Allow new people to join" : "Block new people from joining"}
+            className={`flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium ${
+              snapshot?.locked
+                ? "bg-action/20 text-action"
+                : "bg-white/10 text-white/70 hover:bg-white/15"
+            }`}
+          >
+            {snapshot?.locked ? <MdLock size={13} /> : <MdLockOpen size={13} />}
+            Room {snapshot?.locked ? "locked" : "open"}
+          </button>
+        </div>
+      )}
 
       {/* Chat log */}
       <div ref={logRef} className="min-h-0 flex-1 space-y-2 overflow-y-auto px-4 py-3 scrollbar-hide">
@@ -294,7 +362,7 @@ function ActiveRoom({ party, onClose }: { party: PartyContext; onClose?: () => v
         ))}
       </div>
 
-      {/* Composer */}
+      {/* Composer (disabled while muted by the host) */}
       <form onSubmit={submit} className="flex items-center gap-1 border-t border-white/10 p-3">
         <EmojiButton onPick={insertEmoji} />
         <input
@@ -302,12 +370,13 @@ function ActiveRoom({ party, onClose }: { party: PartyContext; onClose?: () => v
           value={text}
           onChange={(e) => setText(e.target.value)}
           maxLength={500}
-          placeholder="Message…"
-          className="flex-1 rounded-md bg-white/10 px-3 py-2 text-sm outline-none placeholder:text-white/40 focus:bg-white/15"
+          disabled={amMuted}
+          placeholder={amMuted ? "You are muted" : "Message…"}
+          className="flex-1 rounded-md bg-white/10 px-3 py-2 text-sm outline-none placeholder:text-white/40 focus:bg-white/15 disabled:opacity-60"
         />
         <button
           type="submit"
-          disabled={!text.trim()}
+          disabled={amMuted || !text.trim()}
           className="flex h-9 w-9 items-center justify-center rounded-md bg-action text-white disabled:opacity-40"
         >
           <IoSend size={16} />

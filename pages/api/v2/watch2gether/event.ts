@@ -2,6 +2,9 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import { getPartyUser } from "@/lib/watch2gether/auth";
 import { rateLimiterRedis } from "@/lib/redis";
 import {
+  getHostId,
+  getSnapshot,
+  isMuted,
   publishEvent,
   pushChat,
   roomExists,
@@ -37,6 +40,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const ts = Date.now();
 
     if (PLAYBACK_TYPES.includes(type)) {
+      // When playback is locked, only the host may drive it.
+      const snap = await getSnapshot(roomId);
+      if (snap?.playbackLocked && snap.hostId !== user.userId) {
+        return res.status(403).json({ error: "Playback is locked by the host" });
+      }
       // Persist the relevant bits into the snapshot so late joiners are correct.
       const fields: Record<string, any> = {};
       if (type === "play") fields.paused = false;
@@ -61,6 +69,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     if (type === "chat") {
+      // Muted members can't post.
+      if (await isMuted(roomId, user.userId)) {
+        return res.status(403).json({ error: "You are muted" });
+      }
       const text = String(payload?.text || "").trim().slice(0, CHAT_MAX_LEN);
       if (!text) return res.status(400).json({ error: "Empty message" });
       const msg: ChatMessage = {

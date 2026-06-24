@@ -15,7 +15,10 @@ export type PartyEventType =
   | "snapshot"
   | "host"
   | "kick"
-  | "ban";
+  | "ban"
+  | "mute"
+  | "unmute"
+  | "settings"; // room-level flags changed (playbackLocked / locked)
 
 export interface PartyEvent {
   type: PartyEventType;
@@ -34,6 +37,10 @@ export interface RoomSnapshot {
   rate: number;
   hostId: string;
   updatedAt: number;
+  /** Host-only: only the host may control playback / change episode-server. */
+  playbackLocked?: boolean;
+  /** Host-only: no new members may join (existing ones stay). */
+  locked?: boolean;
 }
 
 export interface ChatMessage {
@@ -51,4 +58,6 @@ export interface Member {
   image?: string;
   /** True for the room host (computed in listMembers). */
   isHost?: boolean;
+  /** True when the host has muted this member in chat. */
+  muted?: boolean;
 }

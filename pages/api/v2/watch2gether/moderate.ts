@@ -3,26 +3,41 @@ import { getPartyUser } from "@/lib/watch2gether/auth";
 import {
   banMember,
   getHostId,
+  getSnapshot,
   listMembers,
   publishEvent,
   removeMember,
   roomExists,
+  setHost,
+  setMute,
+  setRoomFlags,
 } from "@/lib/watch2gether/redisRoom";
 
-// Host-only moderation: kick (removable, can rejoin) or ban (cannot rejoin until
-// the room is disbanded — bans expire with the room key).
+type Action = "kick" | "ban" | "mute" | "unmute" | "transfer-host" | "set-flags";
+const ACTIONS: Action[] = ["kick", "ban", "mute", "unmute", "transfer-host", "set-flags"];
+
+// Host-only moderation:
+//   kick / ban       — remove a member (ban also blocks rejoin until disband)
+//   mute / unmute    — toggle a member's chat
+//   transfer-host    — hand the crown to another member
+//   set-flags        — toggle room-level flags (playbackLocked / locked)
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
   const user = await getPartyUser(req, res);
   if (!user) return res.status(401).json({ error: "Unauthorized" });
 
-  const { roomId, action, targetUserId } = req.body || {};
-  if (!roomId || !action || !targetUserId) {
-    return res.status(400).json({ error: "roomId, action and targetUserId are required" });
+  const { roomId, action, targetUserId, flags } = req.body || {};
+  if (!roomId || !action) {
+    return res.status(400).json({ error: "roomId and action are required" });
   }
-  if (action !== "kick" && action !== "ban") {
-    return res.status(400).json({ error: "action must be 'kick' or 'ban'" });
+  if (!ACTIONS.includes(action)) {
+    return res.status(400).json({ error: `action must be one of ${ACTIONS.join(", ")}` });
+  }
+  // Member-targeted actions require a target.
+  const needsTarget = action !== "set-flags";
+  if (needsTarget && !targetUserId) {
+    return res.status(400).json({ error: "targetUserId is required" });
   }
 
   try {
@@ -35,28 +50,54 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (hostId !== user.userId) {
       return res.status(403).json({ error: "Only the host can moderate" });
     }
-    if (targetUserId === user.userId) {
+    if (needsTarget && targetUserId === user.userId) {
       return res.status(400).json({ error: "You can't moderate yourself" });
     }
 
     const ts = Date.now();
-    if (action === "ban") await banMember(roomId, targetUserId);
-    await removeMember(roomId, targetUserId);
+    const sender = user.userId;
 
-    // Tell the target to leave; everyone else just refreshes presence.
-    await publishEvent(roomId, {
-      type: action, // "kick" | "ban"
-      senderId: user.userId,
-      ts,
-      payload: { targetUserId },
-    });
+    switch (action as Action) {
+      case "kick":
+      case "ban": {
+        if (action === "ban") await banMember(roomId, targetUserId);
+        await removeMember(roomId, targetUserId);
+        await publishEvent(roomId, { type: action, senderId: sender, ts, payload: { targetUserId } });
+        break;
+      }
+      case "mute":
+      case "unmute": {
+        await setMute(roomId, targetUserId, action === "mute");
+        await publishEvent(roomId, { type: action, senderId: sender, ts, payload: { targetUserId } });
+        break;
+      }
+      case "transfer-host": {
+        await setHost(roomId, targetUserId);
+        await publishEvent(roomId, {
+          type: "host",
+          senderId: sender,
+          ts,
+          payload: { hostId: targetUserId },
+        });
+        break;
+      }
+      case "set-flags": {
+        const next: { playbackLocked?: boolean; locked?: boolean } = {};
+        if (typeof flags?.playbackLocked === "boolean") next.playbackLocked = flags.playbackLocked;
+        if (typeof flags?.locked === "boolean") next.locked = flags.locked;
+        if (Object.keys(next).length === 0) {
+          return res.status(400).json({ error: "no valid flags provided" });
+        }
+        await setRoomFlags(roomId, next);
+        const snapshot = await getSnapshot(roomId);
+        await publishEvent(roomId, { type: "settings", senderId: sender, ts, payload: { snapshot } });
+        break;
+      }
+    }
+
+    // Everyone refreshes the participant list (host/mute badges, removals).
     const members = await listMembers(roomId);
-    await publishEvent(roomId, {
-      type: "presence",
-      senderId: user.userId,
-      ts,
-      payload: { members },
-    });
+    await publishEvent(roomId, { type: "presence", senderId: sender, ts, payload: { members } });
 
     return res.status(200).json({ ok: true });
   } catch (e: any) {

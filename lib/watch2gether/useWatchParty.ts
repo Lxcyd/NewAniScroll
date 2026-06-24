@@ -45,6 +45,18 @@ export interface PartyContext {
   kick: (userId: string) => void;
   /** Host-only: ban a member (cannot rejoin until the room disbands). */
   ban: (userId: string) => void;
+  /** Host-only: mute / unmute a member's chat. */
+  mute: (userId: string, muted: boolean) => void;
+  /** Host-only: hand the host role to another member. */
+  transferHost: (userId: string) => void;
+  /** Host-only: toggle room flags (playbackLocked / locked). */
+  setFlags: (flags: { playbackLocked?: boolean; locked?: boolean }) => void;
+  /** True when the host has locked playback to host-only and we're not the host. */
+  playbackLocked: boolean;
+  /** True when the room is locked to new joiners. */
+  locked: boolean;
+  /** True when WE are muted in chat. */
+  amMuted: boolean;
   inviteUrl: string;
 }
 
@@ -177,6 +189,30 @@ export function useWatchParty(
     [roomId, post],
   );
 
+  const mute = useCallback(
+    (userId: string, muted: boolean) => {
+      if (!roomId) return;
+      post("moderate", { roomId, action: muted ? "mute" : "unmute", targetUserId: userId });
+    },
+    [roomId, post],
+  );
+
+  const transferHost = useCallback(
+    (userId: string) => {
+      if (!roomId) return;
+      post("moderate", { roomId, action: "transfer-host", targetUserId: userId });
+    },
+    [roomId, post],
+  );
+
+  const setFlags = useCallback(
+    (flags: { playbackLocked?: boolean; locked?: boolean }) => {
+      if (!roomId) return;
+      post("moderate", { roomId, action: "set-flags", flags });
+    },
+    [roomId, post],
+  );
+
   // Join (and re-join on reconnect): pulls authoritative snapshot + history.
   const join = useCallback(async () => {
     if (!roomId) return;
@@ -228,6 +264,19 @@ export function useWatchParty(
     }
     if (ev.type === "host") {
       if (ev.payload?.hostId) setHostId(ev.payload.hostId);
+      return;
+    }
+    if (ev.type === "settings") {
+      // Room flags changed (playbackLocked / locked) — adopt the fresh snapshot.
+      if (ev.payload?.snapshot) {
+        setSnapshot(ev.payload.snapshot);
+        if (ev.payload.snapshot.hostId) setHostId(ev.payload.snapshot.hostId);
+      }
+      return;
+    }
+    if (ev.type === "mute" || ev.type === "unmute") {
+      // The server also broadcasts a fresh presence list (with muted flags), so
+      // the UI updates from that. Nothing else to do here.
       return;
     }
     if (ev.type === "kick" || ev.type === "ban") {
@@ -341,13 +390,19 @@ export function useWatchParty(
   // Memoize the context so its identity only changes when something it carries
   // actually changes. Without this, a new object each render churns the player's
   // useMemo / sync effects (deps include `party`) and breaks live sync.
+  const isHost = !!effectiveUserId && effectiveUserId === hostId;
+  const amMuted =
+    !!effectiveUserId && members.some((m) => m.userId === effectiveUserId && m.muted);
+  const playbackLocked = !!snapshot?.playbackLocked && !isHost;
+  const locked = !!snapshot?.locked;
+
   const ctx = useMemo<PartyContext | null>(() => {
     if (!roomId) return null;
     return {
       roomId,
       myId: effectiveUserId,
       hostId,
-      isHost: !!effectiveUserId && effectiveUserId === hostId,
+      isHost,
       isConnected,
       connectionState,
       members,
@@ -360,12 +415,19 @@ export function useWatchParty(
       leave,
       kick,
       ban,
+      mute,
+      transferHost,
+      setFlags,
+      playbackLocked,
+      locked,
+      amMuted,
       inviteUrl,
     };
   }, [
     roomId,
     effectiveUserId,
     hostId,
+    isHost,
     isConnected,
     connectionState,
     members,
@@ -378,6 +440,12 @@ export function useWatchParty(
     leave,
     kick,
     ban,
+    mute,
+    transferHost,
+    setFlags,
+    playbackLocked,
+    locked,
+    amMuted,
     inviteUrl,
   ]);
 
