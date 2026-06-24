@@ -14,8 +14,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (!roomId) return res.status(400).json({ error: "roomId is required" });
 
   try {
-    await removeMember(roomId, user.userId);
+    // removeMember transfers host to the oldest remaining member if needed and
+    // returns the (possibly new) hostId.
+    const newHost = await removeMember(roomId, user.userId);
     const members = await listMembers(roomId);
+    if (newHost) {
+      await publishEvent(roomId, {
+        type: "host",
+        senderId: user.userId,
+        ts: Date.now(),
+        payload: { hostId: newHost },
+      });
+    }
     await publishEvent(roomId, {
       type: "presence",
       senderId: user.userId,

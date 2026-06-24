@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from "react";
-import { FlagIcon, ShareIcon } from "@heroicons/react/24/solid";
+import { FlagIcon, ShareIcon, UsersIcon } from "@heroicons/react/24/solid";
 import Details from "@/components/watch/primary/details";
 import EpisodeLists from "@/components/watch/secondary/episodeLists";
 import ServerSelector from "@/components/watch/primary/serverSelector";
@@ -48,9 +48,10 @@ import Head from "next/head";
 import { useRouter } from "next/router";
 import { Spinner } from "@vidstack/react";
 import RateModal from "@/components/shared/RateModal";
+import { toast } from "sonner";
 import { useWatchParty } from "@/lib/watch2gether/useWatchParty";
 import WatchPartyPanel from "@/components/watch/party/WatchPartyPanel";
-import CreatePartyButton from "@/components/watch/party/CreatePartyButton";
+import PartyMenuButton from "@/components/watch/party/PartyMenuButton";
 
 // ─────────────────────────────────────────────────────────────
 // SSR
@@ -455,11 +456,46 @@ export default function Watch({
   // (returns null) when absent, so the page behaves identically without one.
   const partyRoomId = router.query.party ? String(router.query.party) : null;
   const myUserId = sessions?.user?.id ? String(sessions.user.id) : null;
+
+  // When we leave or are removed, strip ?party from the URL (and toast why).
+  const handleSelfRemoved = useCallback(
+    (reason) => {
+      if (reason === "kick") toast.error("You were removed from the party");
+      else if (reason === "ban") toast.error("You were banned from the party");
+      const { party: _omit, ...rest } = router.query;
+      router.replace({ pathname: router.pathname, query: rest }, undefined, { shallow: true });
+    },
+    [router]
+  );
+
   const party = useWatchParty(
     partyRoomId,
     { aniId: aniId, epiNumber: epiNumber, dub: !!dub, server: activeServer },
-    myUserId
+    myUserId,
+    { onSelfRemoved: handleSelfRemoved }
   );
+
+  // Panel is closable; a floating pill restores it. Reset to visible whenever a
+  // new party is entered.
+  const [partyPanelHidden, setPartyPanelHidden] = useState(false);
+  useEffect(() => {
+    if (partyRoomId) setPartyPanelHidden(false);
+  }, [partyRoomId]);
+
+  // Track the player's pixel height so (on large screens) the party panel can
+  // match it exactly. Falls back to a max-height via CSS when unset.
+  const playerBoxRef = useRef(null);
+  const [playerBoxH, setPlayerBoxH] = useState(0);
+  useEffect(() => {
+    const el = playerBoxRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver((entries) => {
+      const h = entries[0]?.contentRect?.height || 0;
+      if (h) setPlayerBoxH(Math.round(h));
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [theaterMode]);
 
   // Episode sync: when WE change episode while in a party, tell everyone. When
   // a peer changes episode, navigate to it (preserving ?party). We track the
@@ -513,9 +549,15 @@ export default function Watch({
     const unsub = party.onRemote((e) => {
       if (e.type === "episode" && e.payload) {
         navTo(e.payload.aniId || info?.id || aniId, e.payload.epiNumber, e.payload.dub);
+      } else if (e.type === "server" && e.payload?.server) {
+        // Apply the server directly (not via handleServerChange) so it doesn't
+        // re-broadcast back to the room.
+        if (e.payload.server !== activeServer) setActiveServer(e.payload.server);
       } else if (e.type === "snapshot" && e.payload?.snapshot) {
         const s = e.payload.snapshot;
         navTo(s.aniId, s.epiNumber, s.dub);
+        // Align the server for late joiners (also without re-broadcasting).
+        if (s.server && s.server !== activeServer) setActiveServer(s.server);
       }
     });
     return unsub;
@@ -1400,13 +1442,20 @@ export default function Watch({
   // semantics mirror the main probe above).
 
   // ── Server change handler ──────────────────────────────────
-  const handleServerChange = useCallback((serverId) => {
-    setActiveServer(serverId);
-    localStorage.setItem("preferred_server", serverId);
-    // The URL no longer encodes the server — preference lives entirely
-    // in localStorage, so shares/bookmarks don't pin a stale server id
-    // and switching players doesn't dirty the browser history.
-  }, []);
+  const handleServerChange = useCallback(
+    (serverId) => {
+      setActiveServer(serverId);
+      localStorage.setItem("preferred_server", serverId);
+      // The URL no longer encodes the server — preference lives entirely
+      // in localStorage, so shares/bookmarks don't pin a stale server id
+      // and switching players doesn't dirty the browser history.
+      // Sync the server across the party. Remote-applied changes bypass this
+      // handler (they call setActiveServer directly), so reaching here always
+      // means a genuine local action worth broadcasting.
+      if (party) party.broadcast("server", { server: serverId });
+    },
+    [party]
+  );
 
   // ── Media Session (OS-level now playing) ────────────────────
   useEffect(() => {
@@ -1690,6 +1739,7 @@ export default function Watch({
               {/* Default (non-theater) player — no parent bg/overflow so ambient glow can extend outside */}
               {!theaterMode && (
                 <div
+                  ref={playerBoxRef}
                   className={`w-full flex-center ${
                     aspectRatio === "4/3" ? "aspect-video" : ""
                   }`}
@@ -1733,7 +1783,7 @@ export default function Watch({
 
                   <div className="flex gap-2 text-sm">
                     {!party && info?.id && (
-                      <CreatePartyButton
+                      <PartyMenuButton
                         aniId={info.id}
                         epiNumber={epiNumber}
                         dub={dub}
@@ -1775,12 +1825,28 @@ export default function Watch({
             {/* ── Secondary column (episode list) ── */}
             <div
               id="secondary"
-              className={`relative ${theaterMode ? "pt-5" : "pt-4 lg:pt-0"}`}
+              className={`relative ${theaterMode ? "pt-5" : "pt-4 lg:pt-0"} lg:pl-4`}
             >
-              {party && (
-                <div className="mb-4 h-[420px] px-3 lg:px-0">
-                  <WatchPartyPanel party={party} />
+              {party && !partyPanelHidden && (
+                <div
+                  className="mb-4 px-3 lg:px-0"
+                  style={
+                    // Match the player height on large screens; sane fallback otherwise.
+                    playerBoxH ? { height: playerBoxH } : undefined
+                  }
+                >
+                  <div className="h-[60vh] max-h-[520px] lg:h-full lg:max-h-none">
+                    <WatchPartyPanel party={party} onClose={() => setPartyPanelHidden(true)} />
+                  </div>
                 </div>
+              )}
+              {party && partyPanelHidden && (
+                <button
+                  onClick={() => setPartyPanelHidden(false)}
+                  className="mb-4 ml-3 flex items-center gap-2 rounded-full bg-action/20 px-3 py-2 text-sm font-medium text-action hover:bg-action/30 lg:ml-0"
+                >
+                  <UsersIcon className="h-4 w-4" /> Open party chat
+                </button>
               )}
               <EpisodeLists
                 info={info}

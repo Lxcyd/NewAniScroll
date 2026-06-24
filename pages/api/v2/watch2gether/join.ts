@@ -4,6 +4,7 @@ import {
   addMember,
   getChat,
   getSnapshot,
+  isBanned,
   listMembers,
   publishEvent,
   roomExists,
@@ -21,6 +22,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   try {
     if (!(await roomExists(roomId))) {
       return res.status(404).json({ error: "Room not found or expired" });
+    }
+    if (await isBanned(roomId, user.userId)) {
+      return res.status(403).json({ error: "You are banned from this room" });
     }
     await addMember(roomId, user);
 

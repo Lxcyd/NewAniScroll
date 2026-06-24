@@ -20,6 +20,7 @@ import {
 import HoverPreview from "./HoverPreview";
 import SubtitleSettings from "./SubtitleSettings";
 import SkipOverlay from "./SkipOverlay";
+import FullscreenChat from "@/components/watch/party/FullscreenChat";
 // @ts-ignore — context module is plain JS, no types
 import { useWatchProvider } from "@/lib/context/watchPageProvider";
 import { useTranslation } from "react-i18next";
@@ -1406,6 +1407,25 @@ export default function UniversalPlayer({
       document.removeEventListener("webkitfullscreenchange", update);
     };
   }, []);
+
+  // Reactive handle to the player root, so portalled overlays (e.g. the
+  // fullscreen party chat) mount as soon as the element exists.
+  const [playerElState, setPlayerElState] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    let raf = 0;
+    const find = () => {
+      const el = (playerRef.current?.el as HTMLElement | undefined) || null;
+      if (el) {
+        setPlayerElState(el);
+        return;
+      }
+      raf = requestAnimationFrame(find);
+    };
+    find();
+    return () => {
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, [streamData]);
   // Data Saver disables the live ambient-light sampling (a constant canvas read
   // + blur, the heaviest visual work the player does).
   const dataSaver = useDataSaver();
@@ -2987,6 +3007,12 @@ export default function UniversalPlayer({
         isSingleEpisode={isSingleEpisode}
         onFinalEpisodeNearEnd={onFinalEpisodeNearEnd}
       />
+
+      {/* Watch-party chat overlay — phone-style bubbles + composer, only while
+          fullscreen, portalled into the player so it stays visible. */}
+      {party && (
+        <FullscreenChat party={party} playerEl={playerElState} active={isFullscreen} />
+      )}
 
       {/* Subtitle picker. Mounted globally (not inside the player) so it can
           float above the controls without being clipped by the player's

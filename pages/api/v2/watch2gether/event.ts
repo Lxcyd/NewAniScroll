@@ -10,7 +10,7 @@ import {
   type PartyEventType,
 } from "@/lib/watch2gether/redisRoom";
 
-const PLAYBACK_TYPES: PartyEventType[] = ["play", "pause", "seek", "rate", "position", "episode"];
+const PLAYBACK_TYPES: PartyEventType[] = ["play", "pause", "seek", "rate", "position", "episode", "server"];
 const CHAT_MAX_LEN = 500;
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -50,6 +50,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         if (payload?.aniId != null) fields.aniId = String(payload.aniId);
         fields.position = Number(payload?.position) || 0;
         fields.paused = true;
+      }
+      if (type === "server" && payload?.server != null) {
+        fields.server = String(payload.server);
       }
       if (Object.keys(fields).length) await setSnapshotPartial(roomId, fields);
 

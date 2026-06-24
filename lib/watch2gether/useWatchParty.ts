@@ -20,6 +20,8 @@ const PRESENCE_INTERVAL_MS = 15_000;
 export interface PartyContext {
   roomId: string;
   myId: string | null;
+  hostId: string | null;
+  isHost: boolean;
   isConnected: boolean;
   members: Member[];
   chat: ChatMessage[];
@@ -30,6 +32,12 @@ export interface PartyContext {
   onRemote: (handler: (e: PartyEvent) => void) => () => void;
   broadcast: (type: PartyEventType, payload?: any) => void;
   sendChat: (text: string) => void;
+  /** Leave the party (host transfers automatically server-side). */
+  leave: () => void;
+  /** Host-only: remove a member (they can rejoin). */
+  kick: (userId: string) => void;
+  /** Host-only: ban a member (cannot rejoin until the room disbands). */
+  ban: (userId: string) => void;
   inviteUrl: string;
 }
 
@@ -40,15 +48,26 @@ interface InitMeta {
   server?: string;
 }
 
+interface PartyOpts {
+  /** Called when WE are removed (kick/ban) or leave — the page should strip
+   *  `?party` from the URL. Receives a reason for an optional toast. */
+  onSelfRemoved?: (reason: "kick" | "ban" | "leave") => void;
+}
+
 export function useWatchParty(
   roomId: string | null,
   meta: InitMeta,
   myUserId: string | null,
+  opts?: PartyOpts,
 ): PartyContext | null {
   const [isConnected, setIsConnected] = useState(false);
   const [members, setMembers] = useState<Member[]>([]);
   const [chat, setChat] = useState<ChatMessage[]>([]);
   const [snapshot, setSnapshot] = useState<RoomSnapshot | null>(null);
+  const [hostId, setHostId] = useState<string | null>(null);
+
+  const onSelfRemovedRef = useRef(opts?.onSelfRemoved);
+  onSelfRemovedRef.current = opts?.onSelfRemoved;
 
   // Anonymous identity for guests (stable per browser). Signed-in users ignore
   // it. Resolved client-side in an effect (it reads localStorage) to avoid any
@@ -71,6 +90,9 @@ export function useWatchParty(
   myIdRef.current = effectiveUserId;
   const guestRef = useRef(guest);
   guestRef.current = guest;
+  // Flips to true after we leave / are removed, so the connection effect won't
+  // immediately reconnect.
+  const removedRef = useRef(false);
 
   const onRemote = useCallback((handler: (e: PartyEvent) => void) => {
     remoteHandlers.current.add(handler);
@@ -113,12 +135,45 @@ export function useWatchParty(
     [roomId, broadcast],
   );
 
+  // Tear down the live connection (used on leave and when we're removed).
+  const teardown = useCallback(() => {
+    removedRef.current = true;
+    esRef.current?.close();
+    esRef.current = null;
+    setIsConnected(false);
+  }, []);
+
+  const leave = useCallback(() => {
+    if (roomId) post("leave", { roomId });
+    teardown();
+    onSelfRemovedRef.current?.("leave");
+  }, [roomId, post, teardown]);
+
+  const kick = useCallback(
+    (userId: string) => {
+      if (!roomId) return;
+      post("moderate", { roomId, action: "kick", targetUserId: userId });
+    },
+    [roomId, post],
+  );
+
+  const ban = useCallback(
+    (userId: string) => {
+      if (!roomId) return;
+      post("moderate", { roomId, action: "ban", targetUserId: userId });
+    },
+    [roomId, post],
+  );
+
   // Join (and re-join on reconnect): pulls authoritative snapshot + history.
   const join = useCallback(async () => {
     if (!roomId) return;
     const data = await post("join", { roomId });
     if (!data) return;
-    if (data.snapshot) setSnapshot(data.snapshot);
+    if (data.snapshot) {
+      setSnapshot(data.snapshot);
+      if (data.snapshot.hostId) setHostId(data.snapshot.hostId);
+    }
     if (Array.isArray(data.chat)) setChat(data.chat);
     if (Array.isArray(data.members)) setMembers(data.members);
     // Replay the snapshot to player handlers so it syncs after a (re)connect.
@@ -147,26 +202,43 @@ export function useWatchParty(
       return;
     }
     if (ev.type === "snapshot") {
-      if (ev.payload?.snapshot) setSnapshot(ev.payload.snapshot);
+      if (ev.payload?.snapshot) {
+        setSnapshot(ev.payload.snapshot);
+        if (ev.payload.snapshot.hostId) setHostId(ev.payload.snapshot.hostId);
+      }
       if (Array.isArray(ev.payload?.members)) setMembers(ev.payload.members);
       remoteHandlers.current.forEach((h) => h(ev));
       return;
     }
+    if (ev.type === "host") {
+      if (ev.payload?.hostId) setHostId(ev.payload.hostId);
+      return;
+    }
+    if (ev.type === "kick" || ev.type === "ban") {
+      // If we're the target, tear down and let the page strip ?party.
+      if (myId && ev.payload?.targetUserId === myId) {
+        teardown();
+        onSelfRemovedRef.current?.(ev.type);
+      }
+      return;
+    }
 
-    // Playback / episode events: drop our own echoes.
+    // Playback / episode / server events: drop our own echoes.
     if (myId && ev.senderId === myId) return;
     remoteHandlers.current.forEach((h) => h(ev));
-  }, []);
+  }, [teardown]);
 
   // SSE connection lifecycle. Wait until we have an identity (a guest's resolves
   // asynchronously) so the very first connection authenticates correctly.
   useEffect(() => {
     if (!roomId || !effectiveUserId) return;
+    // A new room/identity means a fresh session — clear any prior removal flag.
+    removedRef.current = false;
 
     let cancelled = false;
 
     const connect = () => {
-      if (cancelled) return;
+      if (cancelled || removedRef.current) return;
       // Guests pass their identity in the query (SSE can't send a body).
       const g = guestRef.current;
       const params = new URLSearchParams({ roomId });
@@ -191,7 +263,7 @@ export function useWatchParty(
       es.onerror = () => {
         // EventSource auto-reconnects, but if it hard-closed we recreate it.
         setIsConnected(false);
-        if (es.readyState === EventSource.CLOSED && !cancelled) {
+        if (es.readyState === EventSource.CLOSED && !cancelled && !removedRef.current) {
           es.close();
           esRef.current = null;
           setTimeout(connect, 1500);
@@ -243,6 +315,8 @@ export function useWatchParty(
   return {
     roomId,
     myId: effectiveUserId,
+    hostId,
+    isHost: !!effectiveUserId && effectiveUserId === hostId,
     isConnected,
     members,
     chat,
@@ -251,6 +325,9 @@ export function useWatchParty(
     onRemote,
     broadcast,
     sendChat,
+    leave,
+    kick,
+    ban,
     inviteUrl,
   };
 }

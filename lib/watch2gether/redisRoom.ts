@@ -23,9 +23,13 @@ export type PartyEventType =
   | "rate"
   | "position"
   | "episode"
+  | "server"
   | "chat"
   | "presence"
-  | "snapshot";
+  | "snapshot"
+  | "host"
+  | "kick"
+  | "ban";
 
 export interface PartyEvent {
   type: PartyEventType;
@@ -59,10 +63,14 @@ export interface Member {
   userId: string;
   name: string;
   image?: string;
+  /** True for the room host (computed in listMembers). */
+  isHost?: boolean;
 }
 
 const roomKey = (id: string) => `w2g:room:${id}`;
 const membersKey = (id: string) => `w2g:room:${id}:members`;
+const orderKey = (id: string) => `w2g:room:${id}:order`;
+const bansKey = (id: string) => `w2g:room:${id}:bans`;
 const presenceKey = (id: string, uid: string) => `w2g:presence:${id}:${uid}`;
 const chatKey = (id: string) => `w2g:chat:${id}`;
 export const channelKey = (id: string) => `w2g:channel:${id}`;
@@ -148,13 +156,66 @@ export async function addMember(roomId: string, member: Member): Promise<void> {
   assertRedis();
   await redis.sadd(membersKey(roomId), member.userId);
   await redis.expire(membersKey(roomId), ROOM_TTL);
+  // Track join order (NX = keep the first join time) for host transfer.
+  await redis.zadd(orderKey(roomId), "NX", Date.now(), member.userId);
+  await redis.expire(orderKey(roomId), ROOM_TTL);
   await touchPresence(roomId, member);
 }
 
-export async function removeMember(roomId: string, userId: string): Promise<void> {
+/** Remove a member. If they were the host, transfer host to the oldest remaining
+ *  member. Returns the (possibly new) hostId, or null if the room is now empty. */
+export async function removeMember(
+  roomId: string,
+  userId: string,
+): Promise<string | null> {
   assertRedis();
   await redis.srem(membersKey(roomId), userId);
+  await redis.zrem(orderKey(roomId), userId);
   await redis.del(presenceKey(roomId, userId));
+
+  const currentHost = await getHostId(roomId);
+  if (currentHost && currentHost === userId) {
+    const next = await oldestMember(roomId);
+    if (next) {
+      await setHost(roomId, next);
+      return next;
+    }
+    return null; // room emptied — host stays recorded but nobody's present
+  }
+  return currentHost;
+}
+
+/** The earliest-joined member still in the order set, or null. */
+export async function oldestMember(roomId: string): Promise<string | null> {
+  assertRedis();
+  const res = await redis.zrange(orderKey(roomId), 0, 0);
+  return res[0] || null;
+}
+
+export async function getHostId(roomId: string): Promise<string | null> {
+  assertRedis();
+  return (await redis.hget(roomKey(roomId), "hostId")) || null;
+}
+
+export async function setHost(roomId: string, userId: string): Promise<void> {
+  assertRedis();
+  await redis.hset(roomKey(roomId), { hostId: userId, updatedAt: String(Date.now()) });
+  await redis.expire(roomKey(roomId), ROOM_TTL);
+}
+
+// ── Bans ──
+// Bans live in a Set tied to the room's lifetime: when the room key/TTL lapses
+// (everyone left, room disbanded), the ban set expires too — so a freshly
+// created room with the same code starts with a clean slate.
+export async function banMember(roomId: string, userId: string): Promise<void> {
+  assertRedis();
+  await redis.sadd(bansKey(roomId), userId);
+  await redis.expire(bansKey(roomId), ROOM_TTL);
+}
+
+export async function isBanned(roomId: string, userId: string): Promise<boolean> {
+  assertRedis();
+  return (await redis.sismember(bansKey(roomId), userId)) === 1;
 }
 
 /** Refresh a member's presence key TTL (heartbeat). */
@@ -170,11 +231,13 @@ export async function touchPresence(roomId: string, member: Member): Promise<voi
   await redis.expire(membersKey(roomId), ROOM_TTL);
 }
 
-/** Build the live member list, pruning any whose presence key has expired. */
+/** Build the live member list, pruning any whose presence key has expired, and
+ *  flagging the host. */
 export async function listMembers(roomId: string): Promise<Member[]> {
   assertRedis();
   const ids = await redis.smembers(membersKey(roomId));
   if (!ids.length) return [];
+  const hostId = await getHostId(roomId);
   const members: Member[] = [];
   const stale: string[] = [];
   for (const userId of ids) {
@@ -185,12 +248,15 @@ export async function listMembers(roomId: string): Promise<Member[]> {
     }
     try {
       const p = JSON.parse(raw);
-      members.push({ userId, name: p.name, image: p.image });
+      members.push({ userId, name: p.name, image: p.image, isHost: userId === hostId });
     } catch {
       stale.push(userId);
     }
   }
-  if (stale.length) await redis.srem(membersKey(roomId), ...stale);
+  if (stale.length) {
+    await redis.srem(membersKey(roomId), ...stale);
+    await redis.zrem(orderKey(roomId), ...stale);
+  }
   return members;
 }
 
