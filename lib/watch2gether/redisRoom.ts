@@ -82,9 +82,12 @@ export async function roomExists(roomId: string): Promise<boolean> {
   return (await redis.exists(roomKey(roomId))) === 1;
 }
 
+/** True only if the user is ACTIVELY present (has a live presence key), not
+ *  merely lingering in the members set. Used for the locked-room gate so a stale
+ *  set entry (e.g. a reused 4-digit room code) can't let a non-member back in. */
 export async function isMember(roomId: string, userId: string): Promise<boolean> {
   assertRedis();
-  return (await redis.sismember(membersKey(roomId), userId)) === 1;
+  return (await redis.exists(presenceKey(roomId, userId))) === 1;
 }
 
 export async function getSnapshot(roomId: string): Promise<RoomSnapshot | null> {

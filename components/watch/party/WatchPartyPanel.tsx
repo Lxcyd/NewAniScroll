@@ -32,11 +32,39 @@ export default function WatchPartyPanel({ party, lobby, onClose }: Props) {
   return (
     <div className="flex h-full w-full flex-col rounded-lg bg-secondary/40 text-white">
       {party ? (
-        <ActiveRoom party={party} onClose={onClose} />
+        // While the first join is resolving, show a spinner rather than the
+        // (empty) room — so a banned / private rejection never flashes the room.
+        party.joinPending ? (
+          <JoinLoading onClose={onClose} />
+        ) : (
+          <ActiveRoom party={party} onClose={onClose} />
+        )
       ) : (
         <Lobby lobby={lobby} onClose={onClose} />
       )}
     </div>
+  );
+}
+
+function JoinLoading({ onClose }: { onClose?: () => void }) {
+  const { t } = useTranslation();
+  return (
+    <>
+      <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
+        <div className="flex items-center gap-2">
+          <IoPeople className="text-action" size={18} />
+          <span className="text-sm font-semibold">{t("party.title")}</span>
+        </div>
+        {onClose && (
+          <button onClick={onClose} className="text-white/60 hover:text-white" title={t("common.close")}>
+            <IoClose size={18} />
+          </button>
+        )}
+      </div>
+      <div className="flex flex-1 items-center justify-center">
+        <div className="h-6 w-6 animate-spin rounded-full border-2 border-white/20 border-t-action" />
+      </div>
+    </>
   );
 }
 
@@ -137,7 +165,8 @@ function Lobby({ lobby, onClose }: { lobby?: LobbyMeta; onClose?: () => void }) 
           <span className="h-px flex-1 bg-white/10" />
         </div>
 
-        <form onSubmit={join} className="flex items-center gap-2">
+        {/* items-stretch so the Join button matches the input's full height. */}
+        <form onSubmit={join} className="flex items-stretch gap-2">
           <input
             value={code}
             onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 4))}
@@ -147,7 +176,7 @@ function Lobby({ lobby, onClose }: { lobby?: LobbyMeta; onClose?: () => void }) 
           />
           <button
             type="submit"
-            className="flex shrink-0 items-center gap-1 rounded-md bg-white/10 px-4 py-3 text-sm font-medium hover:bg-white/20"
+            className="flex shrink-0 items-center gap-1 rounded-md bg-white/10 px-4 text-sm font-medium hover:bg-white/20"
           >
             <IoEnterOutline size={16} /> {t("party.join")}
           </button>
@@ -343,8 +372,8 @@ function ActiveRoom({ party, onClose }: { party: PartyContext; onClose?: () => v
             <p className="text-center text-sm text-white/40">{t("party.noMessages")}</p>
           )}
           {chat.map((msg) => (
-            <div key={msg.id} className="flex items-start gap-2">
-              <MemberAvatar name={msg.name} image={msg.image} size={28} className="mt-0.5" />
+            <div key={msg.id} className="flex items-center gap-2">
+              <MemberAvatar name={msg.name} image={msg.image} size={28} className="shrink-0" />
               <div className="min-w-0">
                 <span className="mr-1.5 text-sm font-semibold text-action">{msg.name}</span>
                 <span className="break-words text-sm text-white/90">

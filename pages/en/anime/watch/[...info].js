@@ -485,11 +485,11 @@ export default function Watch({
   const [partyUIOpen, setPartyUIOpen] = useState(false);
 
   // When we leave or are removed, strip ?party from the URL (and toast why).
-  // On a kick/ban we also fully CLOSE the panel — the removed person shouldn't
-  // be left staring at the (now lobby) party UI.
+  // We KEEP the panel open so it falls back to the lobby (create / join a room)
+  // — the removed person should be able to start or rejoin another party.
   const stripParty = useCallback(() => {
-    setPartyUIOpen(false);
-    setPartyPanelHidden(true);
+    setPartyUIOpen(true);
+    setPartyPanelHidden(false);
     const { party: _omit, ...rest } = router.query;
     router.replace({ pathname: router.pathname, query: rest }, undefined, { shallow: true });
   }, [router]);

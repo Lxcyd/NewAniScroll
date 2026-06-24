@@ -2352,19 +2352,25 @@ export default function UniversalPlayer({
 
     // When the host has blocked our playback, revert any local play/pause/seek
     // to the authoritative snapshot instead of broadcasting, and tell the user.
+    // Acts DIRECTLY on the <video> element (synchronous + reliable) rather than
+    // the async player facade, so a blocked user truly can't start playback.
     const enforceBlocked = (): boolean => {
       if (!partyRef.current?.amPlaybackBlocked || !video) return false;
       const snap = partyRef.current.snapshot;
       withGuard(() => {
+        const v = video!;
         if (snap) {
           const pos = Number(snap.position);
-          if (Number.isFinite(pos) && Math.abs(video!.currentTime - pos) > SEEK_TOLERANCE) {
-            video!.currentTime = pos;
+          if (Number.isFinite(pos) && Math.abs(v.currentTime - pos) > SEEK_TOLERANCE) {
+            v.currentTime = pos;
           }
-          if (snap.paused) playerRef.current?.pause?.();
-          else playerRef.current?.play?.()?.catch?.(() => {});
+          // The room is the authority: if it's paused, force-pause us even if we
+          // just hit play; if it's playing, keep playing.
+          if (snap.paused) v.pause();
+          else void v.play()?.catch?.(() => {});
         } else {
-          playerRef.current?.pause?.();
+          // No snapshot yet → safest default is to keep us paused.
+          v.pause();
         }
       });
       const now = Date.now();

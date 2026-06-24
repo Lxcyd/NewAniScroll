@@ -59,6 +59,10 @@ export interface PartyContext {
   amMuted: boolean;
   /** True when the host has blocked US from controlling playback. */
   amPlaybackBlocked: boolean;
+  /** True until the FIRST join attempt resolves — the page shows a loading
+   *  state instead of the (empty) room so a rejected/banned join never flashes
+   *  the room contents. */
+  joinPending: boolean;
   inviteUrl: string;
 }
 
@@ -96,6 +100,8 @@ export function useWatchParty(
   // The server-confirmed identity from join() — authoritative for "is this me?"
   // regardless of how the guest id resolved client-side.
   const [confirmedId, setConfirmedId] = useState<string | null>(null);
+  // True until the first join attempt for the current room resolves.
+  const [joinPending, setJoinPending] = useState(true);
 
   const onSelfRemovedRef = useRef(opts?.onSelfRemoved);
   onSelfRemovedRef.current = opts?.onSelfRemoved;
@@ -320,6 +326,7 @@ export function useWatchParty(
               ? "locked"
               : "notfound";
           teardown();
+          setJoinPending(false);
           onJoinRejectedRef.current?.(reason);
         }
         return;
@@ -329,6 +336,7 @@ export function useWatchParty(
       return;
     }
     if (!data) return;
+    setJoinPending(false);
     if (data.me?.userId) setConfirmedId(String(data.me.userId));
     if (data.snapshot) {
       setSnapshot(reconcileSnapshot(data.snapshot));
@@ -423,6 +431,11 @@ export function useWatchParty(
 
   // SSE connection lifecycle. Wait until we have an identity (a guest's resolves
   // asynchronously) so the very first connection authenticates correctly.
+  // Reset the join-pending gate whenever we enter a (different) room.
+  useEffect(() => {
+    setJoinPending(true);
+  }, [roomId]);
+
   useEffect(() => {
     if (!roomId || !effectiveUserId) return;
     // A new room/identity means a fresh session — clear any prior removal flag.
@@ -558,6 +571,7 @@ export function useWatchParty(
       locked,
       amMuted,
       amPlaybackBlocked,
+      joinPending,
       inviteUrl,
     };
   }, [
@@ -584,6 +598,7 @@ export function useWatchParty(
     locked,
     amMuted,
     amPlaybackBlocked,
+    joinPending,
     inviteUrl,
   ]);
 
