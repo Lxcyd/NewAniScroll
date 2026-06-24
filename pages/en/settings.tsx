@@ -179,7 +179,6 @@ function SettingsNav({
   };
 
   const navRef = useRef<HTMLElement | null>(null);
-  const [offset, setOffset] = useState(0);
 
   useEffect(() => {
     const NATURAL_TOP = 176; // top-44 — resting position
@@ -187,10 +186,11 @@ function SettingsNav({
     let raf = 0;
     const measure = () => {
       raf = 0;
+      const nav = navRef.current;
+      if (!nav) return;
       const footer = document.querySelector("footer");
-      const navHeight = navRef.current?.offsetHeight ?? 0;
       if (!footer) {
-        setOffset(0);
+        nav.style.transform = "translateY(0px)";
         return;
       }
       const footerTop = footer.getBoundingClientRect().top;
@@ -198,11 +198,11 @@ function SettingsNav({
       // navHeight. Once the footer rises into that zone, shift the whole
       // panel up by exactly the overlap so its bottom tracks the footer
       // 1:1 — perfectly glued to the page as it scrolls.
-      const overlap = NATURAL_TOP + navHeight - (footerTop - MARGIN);
-      setOffset(Math.max(0, overlap));
+      const overlap = NATURAL_TOP + nav.offsetHeight - (footerTop - MARGIN);
+      nav.style.transform = `translateY(-${Math.max(0, overlap)}px)`;
     };
-    // Coalesce scroll bursts into one measurement per frame so the panel
-    // moves in lockstep with the page without thrashing layout.
+    // Write the transform straight onto the node every animation frame so the
+    // panel moves in lockstep with the page — no React re-render in the loop.
     const update = () => {
       if (!raf) raf = requestAnimationFrame(measure);
     };
@@ -223,7 +223,6 @@ function SettingsNav({
       style={{
         width: SIDEBAR_WIDTH,
         maxHeight: "calc(100vh - 12rem)",
-        transform: `translateY(-${offset}px)`,
       }}
     >
       {sections.map(({ id, labelKey, Icon }) => {
