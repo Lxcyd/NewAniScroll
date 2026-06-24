@@ -179,7 +179,7 @@ function SettingsNav({
   };
   return (
     <nav
-      className="hidden md:flex flex-col gap-1 fixed left-[max(1rem,calc((100vw-48rem)/2-20.25rem))] top-44 z-30 max-h-[calc(100vh-12rem)] overflow-y-auto"
+      className="hidden md:flex flex-col gap-1 fixed left-[max(1rem,calc((100vw-48rem)/2-20.25rem))] top-20 z-30 max-h-[calc(100vh-6rem)] overflow-y-auto"
       style={{ width: SIDEBAR_WIDTH }}
     >
       {sections.map(({ id, labelKey, Icon }) => {
