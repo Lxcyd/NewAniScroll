@@ -1064,6 +1064,21 @@ input[type="number"] {
   -moz-appearance: textfield;
 }
 
+/* ── Watch 2gether: playback-blocked lockout ─────────────────────
+   When the host has blocked our playback we keep volume / subtitles /
+   fullscreen usable, but make the seek bar, chapters and the play
+   button non-interactive (keyboard is handled via Vidstack keyDisabled,
+   and the <video> guard reverts any state change). pointer-events:none
+   on the time slider means clicks/drag on the progress bar do nothing. */
+.w2g-playback-blocked .vds-time-slider,
+.w2g-playback-blocked [data-media-time-slider],
+.w2g-playback-blocked .vds-play-button,
+.w2g-playback-blocked [data-media-play-button] {
+  pointer-events: none !important;
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 /* ── Vidstack seek-bar chrome ────────────────────────────────────
    Match the Miruro reference: every chapter is its own rounded pill
    with a visible gap between segments. Vidstack's chapter system

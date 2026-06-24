@@ -827,6 +827,9 @@
     "toastLocked": "This room is private",
     "toastNotFound": "Room not found or expired",
     "mutedBanner": "You are muted by the host",
-    "blockedBanner": "The host blocked your playback"
+    "blockedBanner": "The host blocked your playback",
+    "fsNoMessages": "No messages yet",
+    "fsHide": "Hide chat",
+    "fsShow": "Show chat"
   }
 }

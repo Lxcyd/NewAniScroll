@@ -19,7 +19,9 @@ import type { ChatMessage, Member, PartyEvent, RoomSnapshot } from "./types";
 export type { ChatMessage, Member, PartyEvent, PartyEventType, RoomSnapshot } from "./types";
 
 export const ROOM_TTL = 6 * 60 * 60; // 6h
-export const PRESENCE_TTL = 30; // seconds — refreshed by client heartbeat
+// Presence TTL kept tight so a member who closes the tab (sendBeacon may not
+// fire) vanishes quickly. Heartbeat (client) must be < TTL with margin.
+export const PRESENCE_TTL = 12; // seconds — refreshed by client heartbeat
 export const CHAT_MAX = 100;
 
 const roomKey = (id: string) => `w2g:room:${id}`;
@@ -184,6 +186,10 @@ export async function setHost(roomId: string, userId: string): Promise<void> {
   assertRedis();
   await redis.hset(roomKey(roomId), { hostId: userId, updatedAt: String(Date.now()) });
   await redis.expire(roomKey(roomId), ROOM_TTL);
+  // A host can't be muted or playback-blocked — clear any such flag on promotion
+  // (whether via explicit transfer or automatic succession when the host leaves).
+  await redis.srem(mutesKey(roomId), userId);
+  await redis.srem(pbBlockKey(roomId), userId);
 }
 
 // ── Bans ──
@@ -261,6 +267,17 @@ export async function setRoomFlags(
   if (typeof flags.locked === "boolean") out.locked = String(flags.locked);
   await redis.hset(roomKey(roomId), out);
   await redis.expire(roomKey(roomId), ROOM_TTL);
+}
+
+/** Acquire a short-lived per-room throttle lock. Returns true to the FIRST
+ *  caller within the window, false to the rest. Used so that only one heartbeat
+ *  per window triggers the (relatively heavy) prune+broadcast of the member
+ *  list — keeping departed members from lingering without spamming the channel
+ *  on every client's heartbeat. */
+export async function acquireThrottle(roomId: string, key: string, seconds: number): Promise<boolean> {
+  assertRedis();
+  const res = await redis.set(`w2g:throttle:${roomId}:${key}`, "1", "EX", seconds, "NX");
+  return res === "OK";
 }
 
 /** Refresh a member's presence key TTL (heartbeat). */

@@ -1539,6 +1539,12 @@ export default function Watch({
   // ── Server change handler ──────────────────────────────────
   const handleServerChange = useCallback(
     (serverId) => {
+      // When the host has blocked our playback, changing the server (lecteur)
+      // is also a playback action — refuse it and explain why.
+      if (party?.amPlaybackBlocked) {
+        toast.error(t("party.blockedBanner"));
+        return;
+      }
       setActiveServer(serverId);
       localStorage.setItem("preferred_server", serverId);
       // The URL no longer encodes the server — preference lives entirely
@@ -1549,7 +1555,7 @@ export default function Watch({
       // means a genuine local action worth broadcasting.
       if (party) party.broadcast("server", { server: serverId });
     },
-    [party]
+    [party, t]
   );
 
   // ── Media Session (OS-level now playing) ────────────────────

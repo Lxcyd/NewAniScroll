@@ -15,7 +15,9 @@ import type {
   RoomSnapshot,
 } from "./types";
 
-const PRESENCE_INTERVAL_MS = 15_000;
+// Must stay safely below PRESENCE_TTL (12s) so a live member is never pruned
+// between heartbeats — 5s gives 2+ refreshes per TTL window.
+const PRESENCE_INTERVAL_MS = 5_000;
 
 /** Live connection quality, surfaced as a coloured dot in the panel.
  *  - "connected"    → green   (SSE open)
@@ -293,7 +295,15 @@ export function useWatchParty(
     (userId: string) => {
       if (!roomId) return;
       setHostId(userId);
-      setMembers((prev) => prev.map((m) => ({ ...m, isHost: m.userId === userId })));
+      // The new host becomes host and has any mute / playback-block cleared
+      // (mirrors the server). Optimistic so it reflects instantly.
+      setMembers((prev) =>
+        prev.map((m) =>
+          m.userId === userId
+            ? { ...m, isHost: true, muted: false, playbackBlocked: false }
+            : { ...m, isHost: false },
+        ),
+      );
       post("moderate", { roomId, action: "transfer-host", targetUserId: userId });
     },
     [roomId, post],
@@ -525,8 +535,8 @@ export function useWatchParty(
       // being navigated to the host's anime). Leaving on unmount raced with the
       // re-join on the new page and dropped the member from the room ("pas dans
       // le groupe"). Genuine departure (tab close, navigate away) is covered by
-      // the `pagehide` beacon above; abandoning the party without it simply lets
-      // our presence key lapse via its 30s TTL.
+      // the `pagehide` beacon above; if the beacon is missed, the presence key
+      // lapses via its short TTL (12s) so the member still vanishes quickly.
     };
   }, [roomId, effectiveUserId, post]);
 

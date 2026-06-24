@@ -2816,7 +2816,9 @@ export default function UniversalPlayer({
     // the ambient's transform:scale() overflow. With isolate, z-index:-1
     // is clamped to "behind this component but not behind its siblings".
     <div
-      className={`relative h-full w-full${iosPseudoFs ? " moopa-ios-fs" : ""}`}
+      className={`relative h-full w-full${iosPseudoFs ? " moopa-ios-fs" : ""}${
+        party?.amPlaybackBlocked ? " w2g-playback-blocked" : ""
+      }`}
       style={{ isolation: "isolate" }}
     >
       {ambientEnabled && <LiveAmbient playerRef={playerRef} />}

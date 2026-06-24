@@ -1,10 +1,13 @@
 import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { IoSend } from "react-icons/io5";
+import { useTranslation } from "react-i18next";
+import { IoSend, IoChatbubbleEllipses, IoClose } from "react-icons/io5";
 import type { PartyEvent, ChatMessage } from "@/lib/watch2gether/types";
 import ChatText from "./ChatText";
 import EmojiButton from "./EmojiButton";
 import { replaceShortcodes } from "@/lib/watch2gether/animeEmojis";
+
+const HIDDEN_KEY = "w2g.fsChat.hidden";
 
 interface Props {
   /** Stable subscribe fn — FullscreenChat keeps its OWN message list from this
@@ -23,11 +26,30 @@ const IDLE_HIDE_MS = 3000; // hide the (idle) UI after this with no activity
 const RECENT_MAX = 30; // history kept for the hover panel
 
 export default function FullscreenChat({ onRemote, sendChat, myId, playerEl, active }: Props) {
+  const { t } = useTranslation();
   const [recent, setRecent] = useState<ChatMessage[]>([]);
   const [bubbles, setBubbles] = useState<ChatMessage[]>([]);
   const [shown, setShown] = useState(false); // expanded (hover) view
   const [text, setText] = useState("");
   const [hasText, setHasText] = useState(false);
+  // Definitively hidden (via the cross) — persisted so it stays hidden across
+  // fullscreen toggles. A floating chat button brings it back.
+  const [hidden, setHidden] = useState(false);
+  useEffect(() => {
+    try {
+      setHidden(localStorage.getItem(HIDDEN_KEY) === "1");
+    } catch {
+      /* ignore */
+    }
+  }, []);
+  const setHiddenPersist = (v: boolean) => {
+    setHidden(v);
+    try {
+      localStorage.setItem(HIDDEN_KEY, v ? "1" : "0");
+    } catch {
+      /* ignore */
+    }
+  };
   const inputRef = useRef<HTMLInputElement | null>(null);
   const idleTimer = useRef<number | null>(null);
   const hoveringRef = useRef(false);
@@ -91,6 +113,40 @@ export default function FullscreenChat({ onRemote, sendChat, myId, playerEl, act
   // disappears out from under you while a conversation is active.
   const showComposer = shown || bubbles.length > 0 || hasText;
 
+  // When the user has hidden the chat, show only a small floating button to
+  // bring it back — nothing else renders over the video.
+  if (hidden) {
+    return createPortal(
+      <div style={{ position: "absolute", inset: 0, zIndex: 40, pointerEvents: "none" }}>
+        <button
+          onClick={() => setHiddenPersist(false)}
+          title={t("party.fsShow")}
+          aria-label={t("party.fsShow")}
+          style={{
+            position: "absolute",
+            right: 16,
+            bottom: 88,
+            display: "flex",
+            height: 40,
+            width: 40,
+            alignItems: "center",
+            justifyContent: "center",
+            borderRadius: 999,
+            background: "rgba(0,0,0,0.6)",
+            backdropFilter: "blur(4px)",
+            color: "white",
+            border: "none",
+            cursor: "pointer",
+            pointerEvents: "auto",
+          }}
+        >
+          <IoChatbubbleEllipses size={20} />
+        </button>
+      </div>,
+      playerEl,
+    );
+  }
+
   const overlay = (
     <div style={{ position: "absolute", inset: 0, zIndex: 40, pointerEvents: "none" }}>
       {/* Right-edge hover zone to reveal the full panel. */}
@@ -127,6 +183,31 @@ export default function FullscreenChat({ onRemote, sendChat, myId, playerEl, act
           pointerEvents: "auto",
         }}
       >
+        {/* Hide-for-good cross (only while the panel is revealed). */}
+        {shown && (
+          <button
+            onClick={() => setHiddenPersist(true)}
+            title={t("party.fsHide")}
+            aria-label={t("party.fsHide")}
+            style={{
+              alignSelf: "flex-end",
+              display: "flex",
+              height: 28,
+              width: 28,
+              alignItems: "center",
+              justifyContent: "center",
+              borderRadius: 999,
+              background: "rgba(0,0,0,0.6)",
+              backdropFilter: "blur(4px)",
+              color: "white",
+              border: "none",
+              cursor: "pointer",
+            }}
+          >
+            <IoClose size={18} />
+          </button>
+        )}
+
         {/* Expanded history (on hover/activity) vs ephemeral bubbles. */}
         {shown ? (
           <div
@@ -146,7 +227,7 @@ export default function FullscreenChat({ onRemote, sendChat, myId, playerEl, act
           >
             {recent.length === 0 && (
               <span style={{ color: "rgba(255,255,255,0.5)", fontSize: 13, textAlign: "center" }}>
-                No messages yet
+                {t("party.fsNoMessages")}
               </span>
             )}
             {recent.map((m) => (
@@ -209,7 +290,7 @@ export default function FullscreenChat({ onRemote, sendChat, myId, playerEl, act
               }}
               onFocus={bumpActivity}
               maxLength={500}
-              placeholder="Message…"
+              placeholder={t("party.message")}
               style={{
                 flex: 1,
                 borderRadius: 10,

@@ -1,10 +1,13 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { getPartyUser } from "@/lib/watch2gether/auth";
 import {
+  acquireThrottle,
   getSnapshot,
   isBanned,
   isMember,
   isValidRoomId,
+  listMembers,
+  publishEvent,
   roomExists,
   touchPresence,
 } from "@/lib/watch2gether/redisRoom";
@@ -31,6 +34,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(403).json({ error: "This room is locked" });
     }
     await touchPresence(roomId, user);
+
+    // Throttled prune + broadcast: once every ~6s (per room), recompute the
+    // member list (which prunes anyone whose presence key lapsed — e.g. a tab
+    // closed without the leave beacon) and push it so departed members vanish
+    // for everyone promptly, instead of only on the next join/moderate action.
+    if (await acquireThrottle(roomId, "presence-broadcast", 6)) {
+      const members = await listMembers(roomId);
+      await publishEvent(roomId, {
+        type: "presence",
+        senderId: "server",
+        ts: Date.now(),
+        payload: { members },
+      });
+    }
     return res.status(200).json({ ok: true });
   } catch (e: any) {
     console.error("[w2g/presence]", e?.message || e);

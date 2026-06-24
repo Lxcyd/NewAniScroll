@@ -827,6 +827,9 @@
     "toastLocked": "Ce groupe est privé",
     "toastNotFound": "Groupe introuvable ou expiré",
     "mutedBanner": "Tu es réduit au silence par l'hôte",
-    "blockedBanner": "L'hôte a bloqué ta lecture"
+    "blockedBanner": "L'hôte a bloqué ta lecture",
+    "fsNoMessages": "Aucun message",
+    "fsHide": "Masquer le chat",
+    "fsShow": "Afficher le chat"
   }
 }
