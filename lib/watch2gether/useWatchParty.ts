@@ -319,7 +319,13 @@ export function useWatchParty(
     return () => {
       clearInterval(iv);
       window.removeEventListener("pagehide", leave);
-      leave();
+      // NOTE: we deliberately do NOT call leave() here. This cleanup also runs
+      // on an in-app redirect that KEEPS us in the same party (e.g. a joiner
+      // being navigated to the host's anime). Leaving on unmount raced with the
+      // re-join on the new page and dropped the member from the room ("pas dans
+      // le groupe"). Genuine departure (tab close, navigate away) is covered by
+      // the `pagehide` beacon above; abandoning the party without it simply lets
+      // our presence key lapse via its 30s TTL.
     };
   }, [roomId, effectiveUserId, post]);
 

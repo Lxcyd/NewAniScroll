@@ -244,14 +244,22 @@ function ActiveRoom({ party, onClose }: { party: PartyContext; onClose?: () => v
           const canModerate = isHost && m.userId !== myId;
           return (
             <div key={m.userId} className="group relative flex flex-col items-center">
-              {/* Fixed-size avatar box so the crown never shifts alignment. */}
+              {/* Fixed-size avatar box so the badges never shift alignment. */}
               <div className="relative h-7 w-7">
                 <MemberAvatar name={m.name} image={m.image} size={28} highlight={m.userId === myId} />
                 {m.isHost && (
                   <FaCrown
-                    className="absolute -left-1.5 -top-1.5 -rotate-[25deg] text-yellow-400 drop-shadow"
+                    className="absolute -bottom-1 -left-1.5 rotate-[15deg] text-yellow-400 drop-shadow"
                     size={11}
                     title="Host"
+                  />
+                )}
+                {/* My own connection-quality dot: bottom-right of my avatar. */}
+                {m.userId === myId && (
+                  <span
+                    className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full ring-2 ring-[#212127]"
+                    style={{ background: conn.color, boxShadow: `0 0 5px ${conn.color}` }}
+                    title={conn.label}
                   />
                 )}
               </div>
@@ -303,7 +311,7 @@ function ActiveRoom({ party, onClose }: { party: PartyContext; onClose?: () => v
       </div>
 
       {/* Composer */}
-      <form onSubmit={submit} className="relative flex items-center gap-1 border-t border-white/10 p-3">
+      <form onSubmit={submit} className="flex items-center gap-1 border-t border-white/10 p-3">
         <EmojiButton onPick={insertEmoji} />
         <input
           ref={inputRef}
@@ -320,15 +328,6 @@ function ActiveRoom({ party, onClose }: { party: PartyContext; onClose?: () => v
         >
           <IoSend size={16} />
         </button>
-        {/* Connection-quality dot, bottom-right. */}
-        <span
-          className="pointer-events-none absolute bottom-1 right-1 h-2 w-2 rounded-full ring-2 ring-secondary/40"
-          style={{
-            background: conn.color,
-            boxShadow: `0 0 6px ${conn.color}`,
-          }}
-          title={conn.label}
-        />
       </form>
     </>
   );
