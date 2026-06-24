@@ -31,6 +31,7 @@ export default function Artworks({
     TYPE_LABEL[type] ? t(`anime.artType.${type}`) : type;
   const arts = collectArtworks(fanarts);
   const [lightbox, setLightbox] = useState<string | null>(null);
+  const [selectedType, setSelectedType] = useState<string>("all");
   // false on SSR + first client render (markup matches), true after mount
   // when the CF transformation quota is flagged exhausted.
   const proxyDown = useFanartProxyDown();
@@ -65,6 +66,25 @@ export default function Artworks({
             : []),
         ]
       : arts;
+
+  // Distinct artwork types present, in a stable order (first-seen).
+  const availableTypes = augmented.reduce<string[]>((acc, a) => {
+    if (!acc.includes(a.type)) acc.push(a.type);
+    return acc;
+  }, []);
+
+  // Reset the active filter if the current selection vanishes (e.g. the
+  // title changed and no longer has that type).
+  useEffect(() => {
+    if (selectedType !== "all" && !availableTypes.includes(selectedType)) {
+      setSelectedType("all");
+    }
+  }, [selectedType, availableTypes]);
+
+  const visible =
+    selectedType === "all"
+      ? augmented
+      : augmented.filter((a) => a.type === selectedType);
 
   // Close lightbox on Escape + lock page scroll while it's open.
   // We can't just set body.overflow=hidden because the site already sets
@@ -133,6 +153,34 @@ export default function Artworks({
 
   return (
     <>
+      {/* Type filter — only shown when there's more than one type to
+          choose from. "All" is always first, then each present type. */}
+      {availableTypes.length > 1 && (
+        <div style={aStyles.filterBar}>
+          <button
+            onClick={() => setSelectedType("all")}
+            style={{
+              ...aStyles.filterChip,
+              ...(selectedType === "all" ? aStyles.filterChipActive : null),
+            }}
+          >
+            {t("anime.artFilterAll")}
+          </button>
+          {availableTypes.map((type) => (
+            <button
+              key={type}
+              onClick={() => setSelectedType(type)}
+              style={{
+                ...aStyles.filterChip,
+                ...(selectedType === type ? aStyles.filterChipActive : null),
+              }}
+            >
+              {typeLabel(type)}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* CSS column masonry: each image keeps its natural aspect ratio
           (width:100%; height:auto), and the browser packs them into
           balanced columns top-to-bottom, then left-to-right.
@@ -140,7 +188,7 @@ export default function Artworks({
           square poster takes ~1; a tall key visual takes ~1.5. No JS
           measurement, no row-span heuristics, no cropping. */}
       <div className={styles.artworkCols}>
-        {augmented.map((a, i) => (
+        {visible.map((a, i) => (
           <button
             key={`${a.type}-${a.url}-${i}`}
             onClick={() => setLightbox(a.url)}
@@ -216,6 +264,28 @@ export default function Artworks({
 }
 
 const aStyles: Record<string, CSSProperties> = {
+  filterBar: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: 8,
+    marginBottom: 16,
+  },
+  filterChip: {
+    padding: "5px 12px",
+    borderRadius: 999,
+    border: "1px solid var(--line)",
+    background: "var(--bg-2)",
+    color: "var(--txt-3)",
+    fontSize: 12,
+    fontWeight: 600,
+    cursor: "pointer",
+    transition: "all 0.15s ease",
+  },
+  filterChipActive: {
+    background: "var(--txt-1)",
+    color: "var(--bg-1)",
+    borderColor: "var(--txt-1)",
+  },
   card: {
     /* `break-inside: avoid` keeps a card from being split across
        columns. `display: inline-block` is required for column flow
