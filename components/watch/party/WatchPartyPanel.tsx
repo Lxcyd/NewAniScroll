@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { IoSend, IoCopyOutline, IoPeople, IoClose, IoExitOutline, IoAdd, IoEnterOutline } from "react-icons/io5";
 import { FaCrown } from "react-icons/fa";
-import { MdVolumeOff, MdLock, MdPlayDisabled, MdPublic } from "react-icons/md";
+import { MdVolumeOff, MdLock, MdPublic } from "react-icons/md";
 import type { PartyContext } from "@/lib/watch2gether/useWatchParty";
 import { getGuestIdentity } from "@/lib/watch2gether/guest";
 import MemberAvatar from "./MemberAvatar";
@@ -295,22 +295,18 @@ function ActiveRoom({ party, onClose }: { party: PartyContext; onClose?: () => v
                   current user's avatar gets a thin pink ring. */}
               <div className="relative h-7 w-7">
                 <MemberAvatar name={m.name} image={m.image} size={28} highlight={isMe} noTitle />
-                {/* Crown bottom-right; mute / playback badges stack on the left. */}
+                {/* Crown bottom-right; mute badge also bottom-right (a muted
+                    member is never the host, so they never collide). No badge
+                    for playback-block (kept invisible by request). */}
                 {m.isHost && (
                   <FaCrown
                     className="absolute -bottom-1 -right-1.5 text-yellow-400 drop-shadow"
                     size={11}
                   />
                 )}
-                {m.muted && (
+                {m.muted && !m.isHost && (
                   <MdVolumeOff
-                    className="absolute -bottom-1 -left-1.5 rounded-full bg-black/70 text-red-300"
-                    size={12}
-                  />
-                )}
-                {m.playbackBlocked && (
-                  <MdPlayDisabled
-                    className="absolute -top-1 -left-1.5 rounded-full bg-black/70 text-orange-300"
+                    className="absolute -bottom-1 -right-1.5 rounded-full bg-black/70 text-red-300"
                     size={12}
                   />
                 )}
@@ -330,7 +326,10 @@ function ActiveRoom({ party, onClose }: { party: PartyContext; onClose?: () => v
             <p className="text-center text-sm text-white/40">{t("party.noMessages")}</p>
           )}
           {chat.map((msg) => (
-            <div key={msg.id} className="flex items-start gap-2">
+            <div
+              key={msg.id}
+              className={`flex items-start gap-2 ${(msg as any).pending ? "opacity-50" : ""}`}
+            >
               <MemberAvatar name={msg.name} image={msg.image} size={28} className="mt-0.5" />
               <div className="min-w-0">
                 <span className="mr-1.5 text-sm font-semibold text-action">{msg.name}</span>
@@ -346,6 +345,11 @@ function ActiveRoom({ party, onClose }: { party: PartyContext; onClose?: () => v
       {/* Composer (disabled while muted by the host). Typed `:pog:` shortcodes
           are converted to the actual emoji inline on change. */}
       <div className="border-t border-white/10">
+        {amMuted && (
+          <div className="flex items-center gap-1.5 px-3 pt-2 text-xs font-medium text-red-300">
+            <MdVolumeOff size={14} /> {t("party.mutedBanner")}
+          </div>
+        )}
         <form onSubmit={submit} className="flex items-center gap-1 p-3">
           <EmojiButton onPick={insertEmoji} />
           <input

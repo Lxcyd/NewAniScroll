@@ -24,6 +24,7 @@ import FullscreenChat from "@/components/watch/party/FullscreenChat";
 // @ts-ignore — context module is plain JS, no types
 import { useWatchProvider } from "@/lib/context/watchPageProvider";
 import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
 import type { TFunction } from "i18next";
 import { VIDSTACK_FR } from "@/lib/i18n/vidstackFr";
 import { getResumeTime, saveProgress, markComplete } from "@/lib/watch/progress";
@@ -1095,6 +1096,12 @@ export default function UniversalPlayer({
 }: Props) {
   const { t, i18n } = useTranslation();
   const playerRef = useRef<MediaPlayerInstance>(null);
+  // Latest party object in a ref so the (stable-dep) sync effect can read the
+  // live `amPlaybackBlocked` flag without re-binding listeners each render.
+  const partyRef = useRef(party);
+  partyRef.current = party;
+  // Throttle the "you're blocked" toast so reverting playback doesn't spam it.
+  const blockedToastAtRef = useRef(0);
   // Live hls.js instance — captured on provider setup so the seek handler can
   // abort in-flight segment loads and re-anchor on the new position.
   const hlsRef = useRef<any>(null);
@@ -2343,21 +2350,50 @@ export default function UniversalPlayer({
       }, 120);
     };
 
+    // When the host has blocked our playback, revert any local play/pause/seek
+    // to the authoritative snapshot instead of broadcasting, and tell the user.
+    const enforceBlocked = (): boolean => {
+      if (!partyRef.current?.amPlaybackBlocked || !video) return false;
+      const snap = partyRef.current.snapshot;
+      withGuard(() => {
+        if (snap) {
+          const pos = Number(snap.position);
+          if (Number.isFinite(pos) && Math.abs(video!.currentTime - pos) > SEEK_TOLERANCE) {
+            video!.currentTime = pos;
+          }
+          if (snap.paused) playerRef.current?.pause?.();
+          else playerRef.current?.play?.()?.catch?.(() => {});
+        } else {
+          playerRef.current?.pause?.();
+        }
+      });
+      const now = Date.now();
+      if (now - blockedToastAtRef.current > 2500) {
+        blockedToastAtRef.current = now;
+        toast.error(t("party.blockedBanner"));
+      }
+      return true;
+    };
+
     // Local player → broadcast (skip when we're applying a remote action).
     const onPlay = () => {
       if (applying.current || !video) return;
+      if (enforceBlocked()) return;
       party.broadcast("play", { position: video.currentTime });
     };
     const onPause = () => {
       if (applying.current || !video) return;
+      if (enforceBlocked()) return;
       party.broadcast("pause", { position: video.currentTime });
     };
     const onSeeked = () => {
       if (applying.current || !video) return;
+      if (enforceBlocked()) return;
       party.broadcast("seek", { position: video.currentTime });
     };
     const onRate = () => {
       if (applying.current || !video) return;
+      if (enforceBlocked()) return;
       party.broadcast("rate", { rate: video.playbackRate, position: video.currentTime });
     };
 

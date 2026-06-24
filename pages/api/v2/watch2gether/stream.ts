@@ -1,6 +1,13 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { getPartyUser } from "@/lib/watch2gether/auth";
-import { channelKey, getSnapshot, listMembers, roomExists } from "@/lib/watch2gether/redisRoom";
+import {
+  channelKey,
+  getSnapshot,
+  isBanned,
+  isMember,
+  listMembers,
+  roomExists,
+} from "@/lib/watch2gether/redisRoom";
 import { createSubscriber } from "@/lib/watch2gether/subscriber";
 
 // Long-lived SSE response. Vercel caps function duration, so we self-close a
@@ -23,6 +30,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (!roomId) return res.status(400).end();
 
   if (!(await roomExists(roomId))) return res.status(404).end();
+
+  // Banned users never get a stream (otherwise the initial snapshot would flash
+  // the room before join() rejects). Locked rooms only stream to existing
+  // members; new arrivals are turned away here too.
+  if (await isBanned(roomId, user.userId)) return res.status(403).end();
+  const snap0 = await getSnapshot(roomId);
+  if (snap0?.locked && !(await isMember(roomId, user.userId))) return res.status(403).end();
 
   res.writeHead(200, {
     "Content-Type": "text/event-stream; charset=utf-8",

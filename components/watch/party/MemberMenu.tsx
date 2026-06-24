@@ -25,7 +25,7 @@ export default function MemberMenu({ member, transferHost, mute, blockPlayback, 
     <div className="flex flex-col gap-0.5 rounded-md border border-white/10 bg-black/95 p-1 shadow-xl">
       <button
         onClick={() => transferHost(member.userId)}
-        className={`${itemCls} text-yellow-300 hover:bg-white/10`}
+        className={`${itemCls} text-yellow-300 hover:bg-yellow-400/20 hover:text-yellow-200`}
       >
         <FaCrown size={13} /> {t("party.makeHost")}
       </button>

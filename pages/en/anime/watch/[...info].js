@@ -483,25 +483,37 @@ export default function Watch({
   // When we leave or are removed, strip ?party from the URL (and toast why).
   // On a kick/ban we also fully CLOSE the panel — the removed person shouldn't
   // be left staring at the (now lobby) party UI.
+  const stripParty = useCallback(() => {
+    setPartyUIOpen(false);
+    setPartyPanelHidden(true);
+    const { party: _omit, ...rest } = router.query;
+    router.replace({ pathname: router.pathname, query: rest }, undefined, { shallow: true });
+  }, [router]);
+
   const handleSelfRemoved = useCallback(
     (reason) => {
-      if (reason === "kick") toast.error("You were removed from the party");
-      else if (reason === "ban") toast.error("You were banned from the party");
-      if (reason === "kick" || reason === "ban") {
-        setPartyUIOpen(false);
-        setPartyPanelHidden(true);
-      }
-      const { party: _omit, ...rest } = router.query;
-      router.replace({ pathname: router.pathname, query: rest }, undefined, { shallow: true });
+      if (reason === "kick") toast.error(t("party.toastKicked"));
+      else if (reason === "ban") toast.error(t("party.toastBanned"));
+      stripParty();
     },
-    [router]
+    [stripParty, t]
+  );
+
+  const handleJoinRejected = useCallback(
+    (reason) => {
+      if (reason === "banned") toast.error(t("party.toastBanned"));
+      else if (reason === "locked") toast.error(t("party.toastLocked"));
+      else toast.error(t("party.toastNotFound"));
+      stripParty();
+    },
+    [stripParty, t]
   );
 
   const party = useWatchParty(
     partyRoomId,
     { aniId: aniId, epiNumber: epiNumber, dub: !!dub, server: activeServer },
     myUserId,
-    { onSelfRemoved: handleSelfRemoved }
+    { onSelfRemoved: handleSelfRemoved, onJoinRejected: handleJoinRejected }
   );
   useEffect(() => {
     if (partyRoomId) {

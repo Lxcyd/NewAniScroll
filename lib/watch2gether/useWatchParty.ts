@@ -73,6 +73,9 @@ interface PartyOpts {
   /** Called when WE are removed (kick/ban) or leave — the page should strip
    *  `?party` from the URL. Receives a reason for an optional toast. */
   onSelfRemoved?: (reason: "kick" | "ban" | "leave") => void;
+  /** Called when a join attempt is rejected (banned / locked room). The page
+   *  should strip `?party` and surface the reason. */
+  onJoinRejected?: (reason: "banned" | "locked" | "notfound") => void;
 }
 
 export function useWatchParty(
@@ -93,6 +96,8 @@ export function useWatchParty(
 
   const onSelfRemovedRef = useRef(opts?.onSelfRemoved);
   onSelfRemovedRef.current = opts?.onSelfRemoved;
+  const onJoinRejectedRef = useRef(opts?.onJoinRejected);
+  onJoinRejectedRef.current = opts?.onJoinRejected;
 
   // Anonymous identity for guests (stable per browser). Signed-in users ignore
   // it. Resolved client-side in an effect (it reads localStorage) to avoid any
@@ -115,6 +120,10 @@ export function useWatchParty(
   myIdRef.current = effectiveUserId;
   const guestRef = useRef(guest);
   guestRef.current = guest;
+  // Snapshot of the live member list for stale-free lookups inside callbacks
+  // (e.g. resolving our own display name for optimistic chat).
+  const membersRef = useRef<Member[]>([]);
+  membersRef.current = members;
   // Flips to true after we leave / are removed, so the connection effect won't
   // immediately reconnect.
   const removedRef = useRef(false);
@@ -155,6 +164,27 @@ export function useWatchParty(
     (text: string) => {
       const t = text.trim();
       if (!t || !roomId) return;
+      // Optimistic: show the message instantly with a temp id, tagged `pending`.
+      // When the server echoes it back (real id), dispatch() replaces this one.
+      const myId = myIdRef.current;
+      if (myId) {
+        const mine = membersRef.current.find((m) => m.userId === myId);
+        const optimistic: ChatMessage & { pending?: boolean } = {
+          id: `tmp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          userId: myId,
+          name: mine?.name || (guestRef.current?.guestName ?? "…"),
+          image: mine?.image,
+          text: t,
+          ts: Date.now(),
+          pending: true,
+        };
+        setChat((prev) => [...prev.slice(-99), optimistic]);
+        // If the server never echoes it back (e.g. we were muted), drop the
+        // placeholder after a short grace period so it doesn't linger.
+        setTimeout(() => {
+          setChat((prev) => prev.filter((m) => m.id !== optimistic.id));
+        }, 5000);
+      }
       broadcast("chat", { text: t });
     },
     [roomId, broadcast],
@@ -175,9 +205,14 @@ export function useWatchParty(
     onSelfRemovedRef.current?.("leave");
   }, [roomId, post, teardown]);
 
+  // Host moderation actions. All apply an OPTIMISTIC local update first so the
+  // host sees instant feedback; the authoritative SSE event that follows simply
+  // confirms it (the round-trip Redis→SSE can take ~1s, especially on Hobby).
+
   const kick = useCallback(
     (userId: string) => {
       if (!roomId) return;
+      setMembers((prev) => prev.filter((m) => m.userId !== userId));
       post("moderate", { roomId, action: "kick", targetUserId: userId });
     },
     [roomId, post],
@@ -186,6 +221,7 @@ export function useWatchParty(
   const ban = useCallback(
     (userId: string) => {
       if (!roomId) return;
+      setMembers((prev) => prev.filter((m) => m.userId !== userId));
       post("moderate", { roomId, action: "ban", targetUserId: userId });
     },
     [roomId, post],
@@ -194,6 +230,7 @@ export function useWatchParty(
   const mute = useCallback(
     (userId: string, muted: boolean) => {
       if (!roomId) return;
+      setMembers((prev) => prev.map((m) => (m.userId === userId ? { ...m, muted } : m)));
       post("moderate", { roomId, action: muted ? "mute" : "unmute", targetUserId: userId });
     },
     [roomId, post],
@@ -202,6 +239,9 @@ export function useWatchParty(
   const blockPlayback = useCallback(
     (userId: string, blocked: boolean) => {
       if (!roomId) return;
+      setMembers((prev) =>
+        prev.map((m) => (m.userId === userId ? { ...m, playbackBlocked: blocked } : m)),
+      );
       post("moderate", {
         roomId,
         action: blocked ? "block-playback" : "unblock-playback",
@@ -214,6 +254,8 @@ export function useWatchParty(
   const transferHost = useCallback(
     (userId: string) => {
       if (!roomId) return;
+      setHostId(userId);
+      setMembers((prev) => prev.map((m) => ({ ...m, isHost: m.userId === userId })));
       post("moderate", { roomId, action: "transfer-host", targetUserId: userId });
     },
     [roomId, post],
@@ -222,15 +264,44 @@ export function useWatchParty(
   const setFlags = useCallback(
     (flags: { locked?: boolean }) => {
       if (!roomId) return;
+      setSnapshot((prev) => (prev ? { ...prev, ...flags } : prev));
       post("moderate", { roomId, action: "set-flags", flags });
     },
     [roomId, post],
   );
 
   // Join (and re-join on reconnect): pulls authoritative snapshot + history.
+  // Handles rejections (banned / locked / not found) explicitly so the page can
+  // strip ?party and tell the user why, instead of showing an empty room.
   const join = useCallback(async () => {
     if (!roomId) return;
-    const data = await post("join", { roomId });
+    let data: any = null;
+    try {
+      const g = guestRef.current;
+      const merged = g ? { roomId, guestId: g.guestId, guestName: g.guestName } : { roomId };
+      const res = await fetch(`/api/v2/watch2gether/join`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(merged),
+      });
+      if (!res.ok) {
+        if (res.status === 403 || res.status === 404) {
+          const err = await res.json().catch(() => ({}));
+          const msg = String(err?.error || "");
+          const reason = /ban/i.test(msg)
+            ? "banned"
+            : /lock/i.test(msg)
+              ? "locked"
+              : "notfound";
+          teardown();
+          onJoinRejectedRef.current?.(reason);
+        }
+        return;
+      }
+      data = await res.json();
+    } catch {
+      return;
+    }
     if (!data) return;
     if (data.snapshot) {
       setSnapshot(data.snapshot);
@@ -248,7 +319,7 @@ export function useWatchParty(
       };
       remoteHandlers.current.forEach((h) => h(ev));
     }
-  }, [roomId, post]);
+  }, [roomId, teardown]);
 
   // Dispatch inbound SSE events.
   const dispatch = useCallback((ev: PartyEvent) => {
@@ -259,8 +330,24 @@ export function useWatchParty(
       return;
     }
     if (ev.type === "chat") {
-      // Append even our own (server is the ordering authority).
-      if (ev.payload) setChat((prev) => [...prev.slice(-99), ev.payload as ChatMessage]);
+      const msg = ev.payload as ChatMessage;
+      if (msg) {
+        setChat((prev) => {
+          // If this is the server echo of OUR optimistic message, replace the
+          // matching pending placeholder instead of appending a duplicate.
+          if (msg.userId === myId) {
+            const idx = prev.findIndex(
+              (m) => (m as any).pending && m.userId === myId && m.text === msg.text,
+            );
+            if (idx !== -1) {
+              const next = prev.slice();
+              next[idx] = msg;
+              return next;
+            }
+          }
+          return [...prev.slice(-99), msg];
+        });
+      }
       // Also forward to remote handlers so the FULLSCREEN chat overlay (which
       // keeps its own message list via onRemote, not the panel's `chat` state)
       // actually receives messages — otherwise bubbles never appear in FS.
@@ -315,6 +402,10 @@ export function useWatchParty(
     removedRef.current = false;
 
     let cancelled = false;
+
+    // Eager join: catches ban / locked-room rejection immediately (the SSE
+    // stream 403s for those and never fires onopen, so we can't rely on it).
+    join();
 
     const connect = () => {
       if (cancelled || removedRef.current) return;

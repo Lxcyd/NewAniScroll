@@ -821,6 +821,12 @@
     "emojiUnicode": "Emoji",
     "emojiNoMatch": "No anime emoji match",
     "roomPublic": "Public",
-    "roomPrivate": "Private"
+    "roomPrivate": "Private",
+    "toastKicked": "You were removed from the party",
+    "toastBanned": "You were banned from this party",
+    "toastLocked": "This room is private",
+    "toastNotFound": "Room not found or expired",
+    "mutedBanner": "You are muted by the host",
+    "blockedBanner": "The host blocked your playback"
   }
 }
