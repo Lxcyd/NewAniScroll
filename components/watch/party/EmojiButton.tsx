@@ -13,8 +13,8 @@ interface Props {
   className?: string;
 }
 
-const PANEL_W = 300;
-const PANEL_H = 340;
+const PANEL_W = 360;
+const PANEL_H = 420;
 
 const RECENTS_KEY = "w2g.emoji.recents";
 const RECENTS_MAX = 32;
@@ -41,9 +41,10 @@ function pushRecent(insert: string): string[] {
 }
 
 // Lightweight, instant emoji picker styled to the app — no heavy third-party
-// lib (PicMo was laggy + invisible in fullscreen). First tab is "Recents",
-// then our custom anime set, then the FULL unicode set grouped by category
-// (incl. Flags) with a search box.
+// lib (PicMo was laggy + invisible in fullscreen). First tab is "Popular"
+// (recently-used MRU + our custom anime set), then the FULL unicode set grouped
+// by category (incl. Flags) with a search box. Wide enough that every category
+// tab — Flags included — is visible without horizontal scrolling.
 export default function EmojiButton({ onPick, fullscreen, className = "" }: Props) {
   const btnRef = useRef<HTMLButtonElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
@@ -51,8 +52,8 @@ export default function EmojiButton({ onPick, fullscreen, className = "" }: Prop
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
   const [query, setQuery] = useState("");
   const [recents, setRecents] = useState<string[]>([]);
-  // Active tab: "recents" (MRU), "anime" (our custom set), or a category name.
-  const [cat, setCat] = useState<string>("recents");
+  // Active tab: "popular" (recents + anime customs combined), or a category name.
+  const [cat, setCat] = useState<string>("popular");
 
   // Position the panel above the trigger.
   useLayoutEffect(() => {
@@ -83,13 +84,12 @@ export default function EmojiButton({ onPick, fullscreen, className = "" }: Prop
   }, [open]);
 
   // Reset search each time the picker opens, refresh recents, and land on the
-  // Recents tab unless it's empty (then default to Anime so the panel isn't bare).
+  // combined "Popular" tab (recents + anime customs).
   useEffect(() => {
     if (open) {
       setQuery("");
-      const r = loadRecents();
-      setRecents(r);
-      setCat(r.length ? "recents" : "anime");
+      setRecents(loadRecents());
+      setCat("popular");
     }
   }, [open]);
 
@@ -238,21 +238,11 @@ export default function EmojiButton({ onPick, fullscreen, className = "" }: Prop
                   flexShrink: 0,
                 }}
               >
-                {recents.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => setCat("recents")}
-                    title="Recents"
-                    style={tabStyle(cat === "recents")}
-                  >
-                    🕘
-                  </button>
-                )}
                 <button
                   type="button"
-                  onClick={() => setCat("anime")}
-                  title="Anime"
-                  style={tabStyle(cat === "anime")}
+                  onClick={() => setCat("popular")}
+                  title="Popular"
+                  style={tabStyle(cat === "popular")}
                 >
                   ⭐
                 </button>
@@ -272,16 +262,15 @@ export default function EmojiButton({ onPick, fullscreen, className = "" }: Prop
 
             {/* Scrollable body */}
             <div className="scrollbar-hide" style={{ overflowY: "auto", padding: "0 10px 10px", flex: 1 }}>
-              {/* Recently used (mix of anime shortcodes + unicode). */}
-              {!q && cat === "recents" && recents.length > 0 && (
+              {/* Popular = recently used (mix of anime + unicode) then the anime
+                  custom set. Also where search shows its anime matches. */}
+              {!q && cat === "popular" && recents.length > 0 && (
                 <>
                   <div style={labelStyle}>Recents</div>
                   {grid(recents.map((entry, i) => recentBtn(entry, i)))}
                 </>
               )}
-
-              {/* Anime custom emojis: shown on the Anime tab or as search matches. */}
-              {(q || cat === "anime") && animeMatches.length > 0 && (
+              {(q || cat === "popular") && animeMatches.length > 0 && (
                 <>
                   <div style={labelStyle}>Anime</div>
                   {grid(animeMatches.map((e) => animeBtn(e.emoji, e.label, e.url)))}

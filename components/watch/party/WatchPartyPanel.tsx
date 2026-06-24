@@ -241,7 +241,7 @@ function ActiveRoom({ party, onClose }: { party: PartyContext; onClose?: () => v
                 <MemberAvatar name={m.name} image={m.image} size={28} highlight={m.userId === myId} />
                 {m.isHost && (
                   <FaCrown
-                    className="absolute -bottom-1 -right-1.5 rotate-[15deg] text-yellow-400 drop-shadow"
+                    className="absolute -bottom-1 -right-1.5 text-yellow-400 drop-shadow"
                     size={11}
                     title="Host"
                   />

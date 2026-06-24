@@ -549,19 +549,9 @@ export default function Watch({
       if (lastNavTargetRef.current === target) return; // already navigating there
       lastNavTargetRef.current = target;
       applyingRemoteEpRef.current = true;
-      router.push(
-        {
-          pathname: `/en/anime/watch/${targetAniId}`,
-          query: {
-            id: `${activeServer}-${targetEp}`,
-            num: String(targetEp),
-            ...(targetDub ? { dub: true } : {}),
-            party: party.roomId,
-          },
-        },
-        undefined,
-        { shallow: false }
-      );
+      router.push(buildWatchUrl(targetAniId, targetEp, targetDub, activeServer, party.roomId), undefined, {
+        shallow: false,
+      });
     };
     const unsub = party.onRemote((e) => {
       if (e.type === "episode" && e.payload) {
@@ -603,15 +593,7 @@ export default function Watch({
     lastNavTargetRef.current = target;
     applyingRemoteEpRef.current = true;
     router.push(
-      {
-        pathname: `/en/anime/watch/${s.aniId}`,
-        query: {
-          id: `${s.server || activeServer}-${s.epiNumber}`,
-          num: String(s.epiNumber),
-          ...(s.dub ? { dub: true } : {}),
-          party: party.roomId,
-        },
-      },
+      buildWatchUrl(s.aniId, s.epiNumber, s.dub, s.server || activeServer, party.roomId),
       undefined,
       { shallow: false }
     );
@@ -710,20 +692,34 @@ export default function Watch({
 
   // Observe the player box height so the party panel can match it on desktop.
   // Declared here (not earlier) because it depends on `theaterMode` above.
-  // We measure the ACTUAL player element (the wrapper's first child), not the
-  // `flex-center` wrapper: the wrapper can be taller than the video it centers
-  // (ambient-glow padding / letterbox), which made the panel overshoot the
-  // player's real bottom edge. The inner player box is exactly the 16:9 video.
+  //
+  // We OBSERVE the stable wrapper (never replaced) but MEASURE the inner player
+  // box (its first child) on every callback. The player loads via a dynamic
+  // import, so its element is swapped in after mount — observing that child
+  // directly meant we kept watching a detached node and the height sometimes
+  // never updated ("parfois le panel ne se met pas en grand"). Re-querying the
+  // child each tick fixes that, and using the child (not the glow-padded
+  // wrapper) keeps the panel from overshooting the real 16:9 video.
   useEffect(() => {
     const wrapper = playerBoxRef.current;
     if (!wrapper || typeof ResizeObserver === "undefined") return;
-    const target = wrapper.firstElementChild || wrapper;
-    const ro = new ResizeObserver((entries) => {
-      const h = entries[0]?.contentRect?.height || 0;
+    const measure = () => {
+      const child = wrapper.firstElementChild;
+      const h = (child || wrapper).getBoundingClientRect().height || 0;
       if (h) setPlayerBoxH(Math.round(h));
-    });
-    ro.observe(target);
-    return () => ro.disconnect();
+    };
+    const ro = new ResizeObserver(measure);
+    ro.observe(wrapper);
+    // Initial + a couple of delayed reads to catch the async player mount even
+    // if it lands without triggering a wrapper resize.
+    measure();
+    const t1 = setTimeout(measure, 300);
+    const t2 = setTimeout(measure, 1200);
+    return () => {
+      ro.disconnect();
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
   }, [theaterMode]);
 
   // ── Persist into local Recently Watched immediately ──────────
@@ -1958,6 +1954,22 @@ export default function Watch({
 // ─────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────
+
+// Build a watch URL with the TWO path segments the [...info] route needs
+// (`/{aniId}/{provider}`). Pushing a single-segment pathname made Next update
+// the URL bar without re-running getServerSideProps, so a party redirect changed
+// the address but not the page ("redirigé mais la page ne se met pas à jour").
+// Mirrors the form used everywhere else in the app, with ?party preserved.
+function buildWatchUrl(aniId, ep, dub, server, roomId) {
+  const provider = server || "megaplay";
+  const params = new URLSearchParams({
+    id: `${provider}-${ep}`,
+    num: String(ep),
+  });
+  if (dub) params.set("dub", "true");
+  if (roomId) params.set("party", String(roomId));
+  return `/en/anime/watch/${aniId}/${provider}?${params.toString()}`;
+}
 
 function SpinLoader() {
   return (
