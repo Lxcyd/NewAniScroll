@@ -6,7 +6,6 @@ import { IoSend, IoCopyOutline, IoPeople, IoClose, IoExitOutline, IoAdd, IoEnter
 import { FaCrown } from "react-icons/fa";
 import { MdVolumeOff, MdLock, MdPlayDisabled, MdPublic } from "react-icons/md";
 import type { PartyContext } from "@/lib/watch2gether/useWatchParty";
-import type { Member } from "@/lib/watch2gether/types";
 import { getGuestIdentity } from "@/lib/watch2gether/guest";
 import MemberAvatar from "./MemberAvatar";
 import MemberMenu from "./MemberMenu";
@@ -31,7 +30,7 @@ interface Props {
 
 export default function WatchPartyPanel({ party, lobby, onClose }: Props) {
   return (
-    <div className="flex h-full w-full flex-col overflow-hidden rounded-lg bg-secondary/40 text-white">
+    <div className="flex h-full w-full flex-col rounded-lg bg-secondary/40 text-white">
       {party ? (
         <ActiveRoom party={party} onClose={onClose} />
       ) : (
@@ -180,13 +179,8 @@ function ActiveRoom({ party, onClose }: { party: PartyContext; onClose?: () => v
     amMuted,
   } = party;
   const [text, setText] = useState("");
-  const [menuFor, setMenuFor] = useState<{ member: Member; anchor: HTMLElement } | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const logRef = useRef<HTMLDivElement | null>(null);
-
-  // Keep the open menu's member in sync with live presence updates (mute /
-  // block toggles re-render labels without reopening).
-  const liveMenuMember = menuFor && members.find((m) => m.userId === menuFor.member.userId);
 
   useEffect(() => {
     const el = logRef.current;
@@ -237,10 +231,10 @@ function ActiveRoom({ party, onClose }: { party: PartyContext; onClose?: () => v
             <button
               onClick={() => setFlags({ locked: !snapshot?.locked })}
               title={snapshot?.locked ? t("party.roomLockedHint") : t("party.roomOpenHint")}
-              className={`flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium ${
+              className={`flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition-colors ${
                 snapshot?.locked
                   ? "bg-action/20 text-action hover:bg-action/30"
-                  : "bg-white/10 text-white/70 hover:bg-white/15"
+                  : "text-white/70 hover:bg-white/10"
               }`}
             >
               {snapshot?.locked ? <MdLock size={14} /> : <MdPublic size={14} />}
@@ -277,26 +271,29 @@ function ActiveRoom({ party, onClose }: { party: PartyContext; onClose?: () => v
         {members.map((m) => {
           const canModerate = isHost && m.userId !== myId;
           const isMe = m.userId === myId;
-          const label = isMe ? `${m.name} (${t("party.you")})` : m.name;
           return (
             <div key={m.userId} className="group relative flex flex-col items-center">
-              {/* Custom tooltip ABOVE the avatar (native title shows below). */}
-              <span className="pointer-events-none absolute -top-7 left-1/2 z-40 hidden -translate-x-1/2 whitespace-nowrap rounded bg-black/90 px-2 py-1 text-[10px] font-medium text-white shadow-lg group-hover:block">
-                {label}
+              {/* Custom tooltip ABOVE the avatar (native title shows below). High
+                  z so it sits over every other panel element. */}
+              <span className="pointer-events-none absolute -top-7 left-1/2 z-[100] hidden -translate-x-1/2 whitespace-nowrap rounded bg-black/90 px-2 py-1 text-[10px] font-medium text-white shadow-lg group-hover:block">
+                {m.name}
               </span>
-              {/* Fixed-size avatar box so badges never shift alignment. The whole
-                  box is a button (host only) that opens the moderation menu. */}
-              <div
-                role={canModerate ? "button" : undefined}
-                onClick={
-                  canModerate
-                    ? (e) => setMenuFor({ member: m, anchor: e.currentTarget as HTMLElement })
-                    : undefined
-                }
-                className={`relative h-7 w-7 ${canModerate ? "cursor-pointer" : ""} ${
-                  isMe ? "rounded-full ring-2 ring-action ring-offset-1 ring-offset-secondary" : ""
-                }`}
-              >
+              {/* Host moderation menu — appears on HOVER, directly under the avatar. */}
+              {canModerate && (
+                <div className="absolute left-1/2 top-7 z-[90] hidden w-max min-w-[150px] -translate-x-1/2 pt-1 group-hover:block">
+                  <MemberMenu
+                    member={m}
+                    transferHost={transferHost}
+                    mute={mute}
+                    blockPlayback={blockPlayback}
+                    kick={kick}
+                    ban={ban}
+                  />
+                </div>
+              )}
+              {/* Fixed-size avatar box so badges never shift alignment. The
+                  current user's avatar gets a thin pink ring. */}
+              <div className="relative h-7 w-7">
                 <MemberAvatar name={m.name} image={m.image} size={28} highlight={isMe} noTitle />
                 {/* Crown bottom-right; mute / playback badges stack on the left. */}
                 {m.isHost && (
@@ -323,42 +320,27 @@ function ActiveRoom({ party, onClose }: { party: PartyContext; onClose?: () => v
         })}
       </div>
 
-      {/* Host moderation menu (portal — escapes the panel's overflow clip). */}
-      {menuFor && liveMenuMember && (
-        <MemberMenu
-          member={liveMenuMember}
-          anchor={menuFor.anchor}
-          onClose={() => setMenuFor(null)}
-          transferHost={transferHost}
-          mute={mute}
-          blockPlayback={blockPlayback}
-          kick={kick}
-          ban={ban}
-        />
-      )}
-
-      {/* Chat log */}
-      <div ref={logRef} className="min-h-0 flex-1 space-y-2 overflow-y-auto px-4 py-3 scrollbar-hide">
-        {chat.length === 0 && (
-          <p className="text-center text-xs text-white/40">{t("party.noMessages")}</p>
-        )}
-        {chat.map((msg) => (
-          <div key={msg.id} className="flex items-start gap-2">
-            <MemberAvatar name={msg.name} image={msg.image} size={20} className="mt-0.5" />
-            <div className="min-w-0">
-              <span
-                className={`mr-1 text-xs font-semibold ${
-                  msg.userId === myId ? "text-action" : "text-white/80"
-                }`}
-              >
-                {msg.name}
-              </span>
-              <span className="break-words text-xs text-white/90">
-                <ChatText text={msg.text} />
-              </span>
+      {/* Chat log — messages flow bottom→top; a scrollbar appears when full. */}
+      <div
+        ref={logRef}
+        className="min-h-0 flex-1 overflow-y-auto px-4 py-3 scrollbar-thin scrollbar-thumb-white/15 scrollbar-thumb-rounded"
+      >
+        <div className="flex min-h-full flex-col justify-end space-y-2">
+          {chat.length === 0 && (
+            <p className="text-center text-sm text-white/40">{t("party.noMessages")}</p>
+          )}
+          {chat.map((msg) => (
+            <div key={msg.id} className="flex items-start gap-2">
+              <MemberAvatar name={msg.name} image={msg.image} size={28} className="mt-0.5" />
+              <div className="min-w-0">
+                <span className="mr-1.5 text-sm font-semibold text-action">{msg.name}</span>
+                <span className="break-words text-sm text-white/90">
+                  <ChatText text={msg.text} size={20} />
+                </span>
+              </div>
             </div>
-          </div>
-        ))}
+          ))}
+        </div>
       </div>
 
       {/* Composer (disabled while muted by the host). Typed `:pog:` shortcodes

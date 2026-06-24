@@ -28,7 +28,22 @@ export function getGuestIdentity(): GuestIdentity {
     const raw = localStorage.getItem(KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as GuestIdentity;
-      if (parsed?.guestId) return parsed;
+      if (parsed?.guestId) {
+        // Migrate the localized prefix if the UI language changed since the
+        // identity was first stored (e.g. old "Guest 4821" → "Invité 4821").
+        const label = guestLabel();
+        const migrated = parsed.guestName.replace(/^(Guest|Invité)\b/, label);
+        if (migrated !== parsed.guestName) {
+          const next = { ...parsed, guestName: migrated };
+          try {
+            localStorage.setItem(KEY, JSON.stringify(next));
+          } catch {
+            /* non-fatal */
+          }
+          return next;
+        }
+        return parsed;
+      }
     }
   } catch {
     /* fall through to regenerate */
