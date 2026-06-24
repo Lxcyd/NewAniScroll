@@ -7,6 +7,31 @@ Ordre anti-chronologique (le plus récent en haut). Une entrée = une session/su
 
 ---
 
+## 2026-06-24 (suite) — Watch 2gether : modération avancée, i18n, polish UI/UX
+
+### Contexte
+Plusieurs passes de raffinement sur le panel de groupe et le chat, suite à des retours visuels (screenshots). Sujets : modération hôte étendue, internationalisation (FR/EN), picker emoji, chat, et pas mal de détails CSS.
+
+### Décisions prises
+- **Modération par membre, pas par room.** L'ancien flag global `playbackLocked` (room) a été **remplacé** par un **blocage de lecture par personne** (set Redis `w2g:room:{id}:pbblock`, comme les mutes/bans). L'hôte bloque un membre précis ; [event.ts](pages/api/v2/watch2gether/event.ts) rejette ses events playback en 403. Actions modération désormais : `kick/ban/mute/unmute/block-playback/unblock-playback/transfer-host/set-flags` ([moderate.ts](pages/api/v2/watch2gether/moderate.ts)). Seul `locked` (room privée) reste un flag room.
+- **i18n complet** : nouveau namespace `party` dans [locales/en.json](locales/en.json)/[locales/fr.json](locales/fr.json), panel câblé à `useTranslation` (react-i18next, instance unique [lib/i18n/config.ts](lib/i18n/config.ts)). Picker emoji traduit **sauf les noms d'emoji**. Toggle room = **Public / Privé** (icônes planète/cadenas).
+- **Nom invité localisé** ([guest.ts](lib/watch2gether/guest.ts)) : `i18n.t("party.guest")` → « Invité » en FR. **Migration** de l'identité déjà stockée (`Guest 1234` → `Invité 1234`) à la lecture, car le nom est persisté en localStorage et diffusé aux autres.
+- **`:pog:` → emoji inline** : `replaceShortcodes` (dérive le char unicode depuis le codepoint Twemoji) appliqué dans `onChange` des deux composers → le shortcode se convertit dès que le `:` final est tapé. (Le picker, lui, garde les images custom anime.) Le champ `<input>` ne peut pas héberger d'images, donc seuls les 16 customs ↔ unicode sont convertis au typing.
+- **Ordre des membres = ordre d'arrivée** (zset `order`), plus vieux à gauche. `listMembers` itère le zset.
+
+### Leçons / pièges
+- **Bug d'ordre des membres** (icône qui « saute en premier » après un message) : `touchPresence` (heartbeat) ré-`sadd`ait le membre au Set mais **pas** au zset d'ordre. Après un stale-prune (`zrem`), le membre revenait sans timestamp d'ordre → ré-inséré avec un **nouveau** temps (donc plus « ancien » → à gauche). **Fix** : `touchPresence` fait aussi `zadd NX` sur le zset d'ordre. Toujours garder les deux structures en phase.
+- **Menu de modération + `overflow-hidden`** : un menu inline au survol sous l'avatar est **clippé** par le `overflow-hidden` du panel root. Une version portail (anti-clip) résout le clip mais réintroduit le **gap de survol** (le curseur traverse un vide → le menu disparaît). Compromis retenu : menu **inline au survol** + **retrait de `overflow-hidden`** sur le root (les coins arrondis tiennent car les enfants sont transparents ; seul le scroll du chat clippe, via son propre `overflow-y-auto`).
+- **Tooltip natif `title`** s'affiche **sous** le curseur, non repositionnable → tooltip custom (`group-hover`, `z-[100]`) au-dessus de l'avatar, et `noTitle` sur `MemberAvatar` pour couper le natif.
+- **Ring « c'est moi »** : le faire venir **uniquement** de `MemberAvatar` (`highlight`), pas d'un ring sur la box parente en plus — le double-ring trompait (semblait absent pour les joiners). Même chemin de rendu pour hôte et joiners.
+- **Chat bas→haut** : `flex flex-col justify-end` dans un conteneur scrollable `min-h-full` ; le `ref` d'auto-scroll doit être sur le **conteneur scrollable**, pas sur le flex interne.
+- **Spread de `Set` (`[...set]`)** casse le typecheck (target < es2015) : utiliser `Array.from`/un `for…of`/`.has()`, pas le spread.
+
+### État déployé
+- Commits `dev` : modération v1 `9168a46`, fixes+modération étendue `945fb3f`, portail→inline + emoji inline `d5ef57c`, polish (tooltip/rings/chat/i18n) `94d29da`. Typecheck local **OK** (`tsc --noEmit`, `node_modules` présent désormais). Build Vercel sur `dev` (dev.aniscroll.com).
+
+---
+
 ## 2026-06-24 — Watch 2gether (visionnage synchronisé) : MVP → v2
 
 ### Contexte
