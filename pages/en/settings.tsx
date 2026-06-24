@@ -178,18 +178,24 @@ function SettingsNav({
     document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
-  const [maxHeight, setMaxHeight] = useState("calc(100vh - 12rem)");
+  const navRef = useRef<HTMLElement | null>(null);
+  const [top, setTop] = useState(176); // top-44 default
 
   useEffect(() => {
-    const TOP_PX = 176; // top-44
-    const MARGIN = 16;
+    const NATURAL_TOP = 176; // top-44 — resting position
+    const MARGIN = 16; // breathing room above the footer
     const update = () => {
       const footer = document.querySelector("footer");
-      if (!footer) return;
+      const navHeight = navRef.current?.offsetHeight ?? 0;
+      if (!footer) {
+        setTop(NATURAL_TOP);
+        return;
+      }
       const footerTop = footer.getBoundingClientRect().top;
-      const natural = window.innerHeight - TOP_PX - MARGIN;
-      const constrained = footerTop - TOP_PX - MARGIN;
-      setMaxHeight(`${Math.max(0, Math.min(natural, constrained))}px`);
+      // Highest the nav's bottom may reach = footerTop - MARGIN.
+      // So the most its top can be is that minus the nav's own height.
+      const maxTop = footerTop - MARGIN - navHeight;
+      setTop(Math.min(NATURAL_TOP, maxTop));
     };
     window.addEventListener("scroll", update, { passive: true });
     window.addEventListener("resize", update);
@@ -202,8 +208,9 @@ function SettingsNav({
 
   return (
     <nav
-      className="hidden md:flex flex-col gap-1 fixed left-[max(1rem,calc((100vw-48rem)/2-20.25rem))] top-44 z-30 overflow-y-auto"
-      style={{ width: SIDEBAR_WIDTH, maxHeight }}
+      ref={navRef}
+      className="hidden md:flex flex-col gap-1 fixed left-[max(1rem,calc((100vw-48rem)/2-20.25rem))] z-30 overflow-y-auto"
+      style={{ width: SIDEBAR_WIDTH, top, maxHeight: "calc(100vh - 12rem)" }}
     >
       {sections.map(({ id, labelKey, Icon }) => {
         const selected = active === id;
