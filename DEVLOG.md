@@ -7,6 +7,44 @@ Ordre anti-chronologique (le plus récent en haut). Une entrée = une session/su
 
 ---
 
+## 2026-06-24 — Watch 2gether (visionnage synchronisé) : MVP → v2
+
+### Contexte
+Feature « Watch 2gether » : créer/rejoindre une room et regarder un épisode en sync (play/pause/seek mirrorés), avec chat, présence, sync d'épisode/serveur, modération, et chat en plein écran. Contrainte forte : **pas de Vercel KV/DB** — tout sur le **Redis existant** (`REDIS_URL`, [lib/redis.ts](lib/redis.ts)). Vercel = serverless, donc **pas de serveur WebSocket** persistant.
+
+### Décisions prises (transport)
+- **Redis Pub/Sub + SSE** (serveur→client) + **POST HTTP** (client→serveur). Pas de WS.
+- **SSE = connexion ioredis dédiée par flux** ([lib/watch2gether/subscriber.ts](lib/watch2gether/subscriber.ts)) : une fois en mode `subscribe`, une connexion ne peut plus faire de commandes → **ne jamais** appeler `.subscribe()` sur le client `redis` partagé.
+- **`maxDuration: 60` sur [stream.ts](pages/api/v2/watch2gether/stream.ts)** + auto-close à 55s : Vercel coupe les fonctions longues, donc on ferme proprement avant et le client `EventSource` se reconnecte (re-`join` = re-sync). Sur Hobby (~10s) ça reconnecte plus souvent, mais ça marche.
+- **État room dans Redis** (préfixe `w2g:`) : Hash snapshot (source de vérité pour les late joiners), Set membres, présence par clé à TTL court (heartbeat 15s, TTL 30s), List chat plafonnée, channel Pub/Sub. Voir [lib/watch2gether/redisRoom.ts](lib/watch2gether/redisRoom.ts).
+
+### Décisions produit
+- **Tout le monde contrôle** la lecture. Anti seek-war : echo-suppression par `senderId`, garde `applyingRemote` autour de l'application d'un event distant, tolérance de seek ~0.75s.
+- **Ouvert aux non-connectés** : identité invité stable en localStorage ([lib/watch2gether/guest.ts](lib/watch2gether/guest.ts)), id serveur préfixé `g:`. La session AniList prime toujours ([lib/watch2gether/auth.ts](lib/watch2gether/auth.ts)).
+- **Room id = code à 4 chiffres** (`allocateRoomId`, anti-collision) : sert à la fois d'URL `?party=` et de code à taper. Création → **copie auto** du lien d'invite.
+- **Rôles** : hôte = créateur ; **kick** (rejoinable) / **ban** (jusqu'à dissolution de la room). Le ban vit dans un Set lié au TTL de la room → une room recréée avec le même code repart propre. **Transfert d'hôte au membre le plus ancien** (zset d'ordre de join) quand l'hôte part.
+- **Emojis** : PicMo en **import dynamique** (client-only, sinon crash SSR) + emojis anime customs via **URLs distantes** ([lib/watch2gether/animeEmojis.ts](lib/watch2gether/animeEmojis.ts), rien à bundler). `:shortcode:` rendus en `<img>` par [ChatText.tsx](components/watch/party/ChatText.tsx).
+- **Chat plein écran** : bulles éphémères à droite (fade ~6s), cachées après inactivité, re-révélées au survol du bord droit, composer intégré. Monté via `createPortal` **dans l'élément du player** (pas `document.body`) pour rester visible en fullscreen ([FullscreenChat.tsx](components/watch/party/FullscreenChat.tsx)).
+
+### Architecture / points d'intégration
+- Hook orchestrateur [useWatchParty.ts](lib/watch2gether/useWatchParty.ts) : EventSource + reconnexion, heartbeat présence, `sendBeacon` au départ, `broadcast`/`onRemote`, `leave`/`kick`/`ban`, `hostId`/`isHost`, `onSelfRemoved` (kick/ban/leave → la page retire `?party`).
+- Player [UniversalPlayer.tsx](components/watch/primary/UniversalPlayer.tsx) : prop `party` optionnelle + effet de sync **isolé** (la logique progress/resume existante est intacte). Monte `FullscreenChat`.
+- Page [watch/[...info].js](pages/en/anime/watch/%5B...info%5D.js) : hook activé par `?party`, sync épisode **et serveur** (events `episode`/`server` + snapshot), redirection cross-anime via snapshot (One Piece → JJK ep5), panel avec gap + hauteur calée sur le player (ResizeObserver) + fermable (pastille de réouverture).
+- Events : `play/pause/seek/rate/position/episode/server/chat/presence/snapshot/host/kick/ban`, tous via `publishEvent` → SSE → `dispatch`/`onRemote`.
+
+### Leçons / pièges
+- **Imports `@/pages/*` ne résolvent pas** : le `tsconfig` ne mappe que `@/components|utils|lib|prisma`. Les routes API doivent importer `authOptions` en **relatif** (`../../pages/api/auth/[...nextauth]`).
+- **Identité invité résolue en `useEffect`** (lecture localStorage), pas en `useMemo`, sinon mismatch SSR/CSR. La connexion SSE/présence attend que l'identité soit prête avant d'authentifier.
+- **Remote bypass** : un changement de serveur reçu applique `setActiveServer` **directement** (pas `handleServerChange`) pour ne pas re-broadcaster en boucle.
+- **PicMo** : popup ancré au `body` → en plein écran l'**emoji picker** peut ne pas s'afficher (la saisie texte marche). Limitation connue, acceptable.
+
+### État déployé / à faire
+- **Pas typecheck en local** (pas de `node_modules`/node dans l'env de dev) — `next build` typecheck sur Vercel. **`npm install` requis** : ajout de `@picmo/popup-picker`.
+- Les URLs d'emojis anime (emoji.gg) sont un jeu de départ ; si 404 → l'emoji ne s'affiche juste pas, à remplacer par des images perso.
+- Commits sur `dev` : MVP `26b7c25`, invités+codes `f505979`, v2 (menu/rôles/fullscreen/emojis/serveur) `67eb6fb`.
+
+---
+
 ## 2026-06-21 (suite 3) — Reco « Pour toi » : perf réseau + meilleurs candidats
 
 ### Contexte
