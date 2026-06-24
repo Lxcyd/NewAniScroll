@@ -7,6 +7,30 @@ Ordre anti-chronologique (le plus récent en haut). Une entrée = une session/su
 
 ---
 
+## 2026-06-24 (suite 2) — Watch 2gether : latence (optimistic UI), enforcement, gating ban/privé
+
+### Contexte
+Retours : modération + chat « réagissent ~1s après », blocage de lecture non appliqué côté bloqué, exclu/banni pas vraiment expulsés, room privée invisible aux non-membres.
+
+### Décisions prises
+- **Optimistic UI partout** ([useWatchParty.ts](lib/watch2gether/useWatchParty.ts)) : la latence vient du round-trip **client POST → Redis publish → Pub/Sub → SSE → client** (~1s, pire sur Hobby). On applique donc l'effet **localement d'abord**, l'event SSE qui suit ne fait que confirmer.
+  - Modération : `kick/ban` retirent le membre localement ; `mute/blockPlayback` patchent le flag ; `transferHost` réassigne la couronne ; `setFlags` patche le snapshot.
+  - **Chat** : message affiché tout de suite avec id temp `tmp-…` + `pending:true` (rendu en `opacity-50`). `dispatch` remplace le placeholder par l'écho serveur (match `pending && userId && text`). **Timer de grâce 5s** qui drop le placeholder si jamais confirmé (cas muté → 403 silencieux). Le nom d'affichage est résolu via `membersRef` (pas besoin de le passer en prop).
+- **Enforcement du blocage de lecture côté bloqué** ([UniversalPlayer.tsx](components/watch/primary/UniversalPlayer.tsx)) : avant, le serveur rejetait juste le broadcast → l'utilisateur lisait quand même *chez lui*. Maintenant `onPlay/onPause/onSeeked/onRate` appellent `enforceBlocked()` qui **revert** sur le snapshot autoritaire (re-seek + play/pause) et toast throttlé. Lecture de `amPlaybackBlocked` via `partyRef` (le `party` change à chaque chat → l'effet de sync ne dépend que des callbacks stables, donc ref obligatoire).
+- **Gating ban / room privée** : `stream.ts` **403** désormais pour un banni (sinon le snapshot initial *flashait* la room) et pour un non-membre d'une room `locked`. Mais EventSource n'expose pas le status HTTP sur erreur → on ne peut pas distinguer un 403 d'une coupure transitoire. Donc **`join()` eager au mount** (fetch maison qui lit le status) : 403/404 → `onJoinRejected("banned"|"locked"|"notfound")` → la page strippe `?party` + toast. Idem si on retape le code d'une room où on est banni.
+
+### Leçons / pièges
+- **Pub/Sub = fire-and-forget, pas de replay.** Si le client SSE est en reconnexion au moment d'un event `kick`, il le **rate** définitivement. Le `ban` est robuste (flag persistant vérifié au `join`/`stream`) ; le `kick` est « soft » (rejoinable) → si l'event est manqué, l'exclu reste. Acceptable par design du kick, mais à garder en tête : **tout état qui doit survivre à une reconnexion doit être un flag Redis vérifié au join, pas seulement un event.**
+- **EventSource ne donne pas le code HTTP** sur `onerror` (juste « erreur »). Pour détecter un refus (403 ban/privé) il faut un **POST `join` séparé** qui lit le status ; ne pas compter sur le flux SSE pour ça.
+- **Effet de sync player à deps stables** : il ne dépend que de `party.broadcast/onRemote/applyingRemoteRef` (sinon il se re-bind à chaque chat et drop des events). Donc tout flag dynamique lu dedans (`amPlaybackBlocked`) passe par une **ref** mise à jour à chaque render, jamais par la closure.
+- **`UniversalPlayer` n'avait pas `toast`** : import `sonner` ajouté pour le message de blocage.
+- **Badge mute en bas-à-droite** : OK car un membre muté n'est jamais hôte → pas de collision avec la couronne (même coin).
+
+### État déployé
+- Commit `dev` : `fc54960`. Typecheck `tsc --noEmit` OK, ESLint OK. Build Vercel sur `dev`.
+
+---
+
 ## 2026-06-24 (suite) — Watch 2gether : modération avancée, i18n, polish UI/UX
 
 ### Contexte
