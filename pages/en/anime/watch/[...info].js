@@ -484,18 +484,10 @@ export default function Watch({
 
   // Track the player's pixel height so (on large screens) the party panel can
   // match it exactly. Falls back to a max-height via CSS when unset.
+  // NOTE: the ResizeObserver effect lives lower (after `theaterMode` is read
+  // from context) to avoid a TDZ on its dependency.
   const playerBoxRef = useRef(null);
   const [playerBoxH, setPlayerBoxH] = useState(0);
-  useEffect(() => {
-    const el = playerBoxRef.current;
-    if (!el || typeof ResizeObserver === "undefined") return;
-    const ro = new ResizeObserver((entries) => {
-      const h = entries[0]?.contentRect?.height || 0;
-      if (h) setPlayerBoxH(Math.round(h));
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [theaterMode]);
 
   // Episode sync: when WE change episode while in a party, tell everyone. When
   // a peer changes episode, navigate to it (preserving ?party). We track the
@@ -653,6 +645,19 @@ export default function Watch({
     ratingModalState,
     setRatingModalState,
   } = useWatchProvider();
+
+  // Observe the player box height so the party panel can match it on desktop.
+  // Declared here (not earlier) because it depends on `theaterMode` above.
+  useEffect(() => {
+    const el = playerBoxRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver((entries) => {
+      const h = entries[0]?.contentRect?.height || 0;
+      if (h) setPlayerBoxH(Math.round(h));
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [theaterMode]);
 
   // ── Persist into local Recently Watched immediately ──────────
   // Runs as soon as we know which anime + episode the user opened. We
