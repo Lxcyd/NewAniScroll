@@ -266,25 +266,27 @@ export default function Artworks({
 const aStyles: Record<string, CSSProperties> = {
   filterBar: {
     display: "flex",
+    gap: 6,
+    alignItems: "center",
     flexWrap: "wrap",
-    gap: 8,
     marginBottom: 16,
   },
   filterChip: {
-    padding: "5px 12px",
-    borderRadius: 999,
-    border: "1px solid var(--line)",
-    background: "var(--bg-2)",
-    color: "var(--txt-3)",
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    padding: "8px 12px",
     fontSize: 12,
-    fontWeight: 600,
+    color: "var(--txt-1)",
+    background: "var(--bg-2)",
+    border: "1px solid var(--line)",
+    borderRadius: 8,
     cursor: "pointer",
-    transition: "all 0.15s ease",
   },
   filterChipActive: {
-    background: "var(--txt-1)",
-    color: "var(--bg-1)",
-    borderColor: "var(--txt-1)",
+    background: "var(--accent-soft)",
+    color: "var(--accent)",
+    borderColor: "color-mix(in srgb, var(--accent) 30%, transparent)",
   },
   card: {
     /* `break-inside: avoid` keeps a card from being split across
