@@ -208,16 +208,6 @@ export function Navbar({
                     {t("nav.schedule")}
                   </Link>
                 </li>
-                {!session && (
-                  <li>
-                    <button
-                      onClick={() => signIn("AniListProvider")}
-                      className="hover:text-action/80 transition-all duration-150 ease-linear whitespace-nowrap"
-                    >
-                      {t("nav.signIn")}
-                    </button>
-                  </li>
-                )}
                 {/* My List: AniList profile when signed in, local list page
                     otherwise (guests get a full local list too). */}
                 <li>
