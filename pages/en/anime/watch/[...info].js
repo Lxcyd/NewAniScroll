@@ -486,23 +486,22 @@ export default function Watch({
     });
   }, [party, epiNumber, dub, aniId, activeServer]);
 
-  // Apply remote episode changes by navigating, keeping ?party intact.
+  // Apply remote episode changes by navigating, keeping ?party intact. Also
+  // handles the initial snapshot so a peer who joined by CODE on a different
+  // page (or different anime) is taken to whatever the room is watching.
   useEffect(() => {
     if (!party) return;
-    const unsub = party.onRemote((e) => {
-      if (e.type !== "episode" || !e.payload) return;
-      const targetEp = String(e.payload.epiNumber);
-      const targetDub = !!e.payload.dub;
-      const sameEp = String(epiNumber) === targetEp && !!dub === targetDub;
+    const navTo = (targetAniId, targetEp, targetDub) => {
+      const sameAnime = String(info?.id || aniId) === String(targetAniId);
+      const sameEp = sameAnime && String(epiNumber) === String(targetEp) && !!dub === !!targetDub;
       if (sameEp) return;
       applyingRemoteEpRef.current = true;
-      const id = info?.id || aniId;
       router.push(
         {
-          pathname: `/en/anime/watch/${id}`,
+          pathname: `/en/anime/watch/${targetAniId}`,
           query: {
             id: `${activeServer}-${targetEp}`,
-            num: targetEp,
+            num: String(targetEp),
             ...(targetDub ? { dub: true } : {}),
             party: party.roomId,
           },
@@ -510,6 +509,14 @@ export default function Watch({
         undefined,
         { shallow: false }
       );
+    };
+    const unsub = party.onRemote((e) => {
+      if (e.type === "episode" && e.payload) {
+        navTo(e.payload.aniId || info?.id || aniId, e.payload.epiNumber, e.payload.dub);
+      } else if (e.type === "snapshot" && e.payload?.snapshot) {
+        const s = e.payload.snapshot;
+        navTo(s.aniId, s.epiNumber, s.dub);
+      }
     });
     return unsub;
   }, [party, epiNumber, dub, info?.id, aniId, activeServer, router]);

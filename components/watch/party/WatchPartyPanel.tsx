@@ -9,7 +9,7 @@ interface Props {
 }
 
 export default function WatchPartyPanel({ party, onClose }: Props) {
-  const { members, chat, sendChat, isConnected, inviteUrl, myId } = party;
+  const { members, chat, sendChat, isConnected, inviteUrl, myId, roomId } = party;
   const [text, setText] = useState("");
   const logRef = useRef<HTMLDivElement | null>(null);
 
@@ -36,6 +36,15 @@ export default function WatchPartyPanel({ party, onClose }: Props) {
     }
   };
 
+  const copyCode = async () => {
+    try {
+      await navigator.clipboard.writeText(roomId);
+      toast.success(`Code ${roomId} copied!`);
+    } catch {
+      toast.error("Couldn't copy code");
+    }
+  };
+
   return (
     <div className="flex h-full w-full flex-col rounded-lg bg-secondary/40 text-white">
       {/* Header */}
@@ -43,6 +52,13 @@ export default function WatchPartyPanel({ party, onClose }: Props) {
         <div className="flex items-center gap-2">
           <IoPeople className="text-action" size={18} />
           <span className="text-sm font-semibold">Watch Party</span>
+          <button
+            onClick={copyCode}
+            title="Copy room code"
+            className="rounded bg-white/10 px-1.5 py-0.5 font-mono text-xs tracking-widest text-white/90 hover:bg-white/20"
+          >
+            {roomId}
+          </button>
           <span
             className={`ml-1 inline-block h-2 w-2 rounded-full ${
               isConnected ? "bg-green-500" : "bg-yellow-500"

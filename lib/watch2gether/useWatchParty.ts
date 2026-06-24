@@ -6,6 +6,7 @@
 // the player integration.
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { getGuestIdentity } from "./guest";
 import type {
   ChatMessage,
   Member,
@@ -49,11 +50,27 @@ export function useWatchParty(
   const [chat, setChat] = useState<ChatMessage[]>([]);
   const [snapshot, setSnapshot] = useState<RoomSnapshot | null>(null);
 
+  // Anonymous identity for guests (stable per browser). Signed-in users ignore
+  // it. Resolved client-side in an effect (it reads localStorage) to avoid any
+  // SSR/CSR mismatch. On the server the guest userId becomes `g:{guestId}`, so
+  // mirror that here for correct echo-suppression.
+  const [guest, setGuest] = useState<{ guestId: string; guestName: string } | null>(null);
+  useEffect(() => {
+    if (myUserId) {
+      setGuest(null);
+      return;
+    }
+    setGuest(getGuestIdentity());
+  }, [myUserId]);
+  const effectiveUserId = myUserId || (guest ? `g:${guest.guestId}` : null);
+
   const applyingRemoteRef = useRef(false);
   const remoteHandlers = useRef<Set<(e: PartyEvent) => void>>(new Set());
   const esRef = useRef<EventSource | null>(null);
-  const myIdRef = useRef<string | null>(myUserId);
-  myIdRef.current = myUserId;
+  const myIdRef = useRef<string | null>(effectiveUserId);
+  myIdRef.current = effectiveUserId;
+  const guestRef = useRef(guest);
+  guestRef.current = guest;
 
   const onRemote = useCallback((handler: (e: PartyEvent) => void) => {
     remoteHandlers.current.add(handler);
@@ -64,10 +81,14 @@ export function useWatchParty(
 
   const post = useCallback(async (path: string, body: any) => {
     try {
+      // Attach guest identity for anonymous users; the server ignores it when a
+      // session is present.
+      const g = guestRef.current;
+      const merged = g ? { ...body, guestId: g.guestId, guestName: g.guestName } : body;
       const res = await fetch(`/api/v2/watch2gether/${path}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify(merged),
       });
       return res.ok ? await res.json() : null;
     } catch {
@@ -137,15 +158,23 @@ export function useWatchParty(
     remoteHandlers.current.forEach((h) => h(ev));
   }, []);
 
-  // SSE connection lifecycle.
+  // SSE connection lifecycle. Wait until we have an identity (a guest's resolves
+  // asynchronously) so the very first connection authenticates correctly.
   useEffect(() => {
-    if (!roomId) return;
+    if (!roomId || !effectiveUserId) return;
 
     let cancelled = false;
 
     const connect = () => {
       if (cancelled) return;
-      const es = new EventSource(`/api/v2/watch2gether/stream?roomId=${encodeURIComponent(roomId)}`);
+      // Guests pass their identity in the query (SSE can't send a body).
+      const g = guestRef.current;
+      const params = new URLSearchParams({ roomId });
+      if (g) {
+        params.set("guestId", g.guestId);
+        params.set("guestName", g.guestName);
+      }
+      const es = new EventSource(`/api/v2/watch2gether/stream?${params.toString()}`);
       esRef.current = es;
 
       es.onopen = () => {
@@ -177,17 +206,19 @@ export function useWatchParty(
       esRef.current?.close();
       esRef.current = null;
     };
-  }, [roomId, join, dispatch]);
+  }, [roomId, effectiveUserId, join, dispatch]);
 
   // Presence heartbeat + leave-on-unload.
   useEffect(() => {
-    if (!roomId) return;
+    if (!roomId || !effectiveUserId) return;
     post("presence", { roomId });
     const iv = setInterval(() => post("presence", { roomId }), PRESENCE_INTERVAL_MS);
 
     const leave = () => {
       try {
-        const blob = new Blob([JSON.stringify({ roomId })], { type: "application/json" });
+        const g = guestRef.current;
+        const body = g ? { roomId, guestId: g.guestId, guestName: g.guestName } : { roomId };
+        const blob = new Blob([JSON.stringify(body)], { type: "application/json" });
         navigator.sendBeacon?.("/api/v2/watch2gether/leave", blob);
       } catch {
         /* noop */
@@ -200,7 +231,7 @@ export function useWatchParty(
       window.removeEventListener("pagehide", leave);
       leave();
     };
-  }, [roomId, post]);
+  }, [roomId, effectiveUserId, post]);
 
   if (!roomId) return null;
 
@@ -211,7 +242,7 @@ export function useWatchParty(
 
   return {
     roomId,
-    myId: myUserId,
+    myId: effectiveUserId,
     isConnected,
     members,
     chat,

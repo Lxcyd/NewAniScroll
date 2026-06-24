@@ -1,6 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { getPartyUser } from "@/lib/watch2gether/auth";
-import { createRoom, generateRoomId } from "@/lib/watch2gether/redisRoom";
+import { allocateRoomId, createRoom } from "@/lib/watch2gether/redisRoom";
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
@@ -14,7 +14,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
-    const roomId = generateRoomId();
+    const roomId = await allocateRoomId();
     await createRoom(roomId, {
       aniId: String(aniId),
       epiNumber: String(epiNumber),

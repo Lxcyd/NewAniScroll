@@ -71,13 +71,23 @@ function assertRedis() {
   if (!redis) throw new Error("REDIS_URL is not configured — Watch2gether is unavailable");
 }
 
-/** Short, URL-safe room id without adding a dependency. */
-export function generateRoomId(): string {
-  const alphabet = "abcdefghijklmnopqrstuvwxyz0123456789";
-  const bytes = require("crypto").randomBytes(8) as Buffer;
-  let out = "";
-  for (let i = 0; i < bytes.length; i++) out += alphabet[bytes[i] % alphabet.length];
-  return out;
+/** Random 4-digit room code (0000–9999), usable both as the URL id and as the
+ *  manual join code. */
+function random4(): string {
+  const n = require("crypto").randomInt(0, 10000) as number;
+  return String(n).padStart(4, "0");
+}
+
+/** Allocate an unused 4-digit room code. Retries on collision; falls back to a
+ *  longer code in the (very unlikely) event the 4-digit space is saturated. */
+export async function allocateRoomId(): Promise<string> {
+  assertRedis();
+  for (let i = 0; i < 12; i++) {
+    const code = random4();
+    if ((await redis.exists(roomKey(code))) === 0) return code;
+  }
+  // Extremely unlikely: extend the space rather than fail.
+  return `${random4()}${require("crypto").randomInt(0, 10)}`;
 }
 
 export async function createRoom(
