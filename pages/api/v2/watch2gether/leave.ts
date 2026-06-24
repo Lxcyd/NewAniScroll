@@ -1,6 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { getPartyUser } from "@/lib/watch2gether/auth";
-import { listMembers, publishEvent, removeMember } from "@/lib/watch2gether/redisRoom";
+import { isValidRoomId, listMembers, publishEvent, removeMember } from "@/lib/watch2gether/redisRoom";
 
 // Best-effort: called via navigator.sendBeacon on pagehide. Presence TTL also
 // reaps members automatically, so a missed beacon is not fatal.
@@ -11,7 +11,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (!user) return res.status(401).json({ error: "Unauthorized" });
 
   const { roomId } = req.body || {};
-  if (!roomId) return res.status(400).json({ error: "roomId is required" });
+  if (!isValidRoomId(roomId)) return res.status(400).json({ error: "valid roomId is required" });
 
   try {
     // removeMember transfers host to the oldest remaining member if needed and

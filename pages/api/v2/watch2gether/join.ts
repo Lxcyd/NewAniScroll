@@ -6,6 +6,7 @@ import {
   getSnapshot,
   isBanned,
   isMember,
+  isValidRoomId,
   listMembers,
   publishEvent,
   roomExists,
@@ -18,7 +19,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (!user) return res.status(401).json({ error: "Unauthorized" });
 
   const { roomId } = req.body || {};
-  if (!roomId) return res.status(400).json({ error: "roomId is required" });
+  if (!isValidRoomId(roomId)) return res.status(400).json({ error: "valid roomId is required" });
 
   try {
     if (!(await roomExists(roomId))) {

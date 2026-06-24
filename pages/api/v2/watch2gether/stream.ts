@@ -5,6 +5,7 @@ import {
   getSnapshot,
   isBanned,
   isMember,
+  isValidRoomId,
   listMembers,
   roomExists,
 } from "@/lib/watch2gether/redisRoom";
@@ -27,7 +28,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (!user) return res.status(401).end();
 
   const roomId = String(req.query.roomId || "");
-  if (!roomId) return res.status(400).end();
+  if (!isValidRoomId(roomId)) return res.status(400).end();
 
   if (!(await roomExists(roomId))) return res.status(404).end();
 

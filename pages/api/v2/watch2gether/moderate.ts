@@ -4,6 +4,7 @@ import {
   banMember,
   getHostId,
   getSnapshot,
+  isValidRoomId,
   listMembers,
   publishEvent,
   removeMember,
@@ -47,8 +48,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (!user) return res.status(401).json({ error: "Unauthorized" });
 
   const { roomId, action, targetUserId, flags } = req.body || {};
-  if (!roomId || !action) {
-    return res.status(400).json({ error: "roomId and action are required" });
+  if (!isValidRoomId(roomId) || !action) {
+    return res.status(400).json({ error: "valid roomId and action are required" });
   }
   if (!ACTIONS.includes(action)) {
     return res.status(400).json({ error: `action must be one of ${ACTIONS.join(", ")}` });

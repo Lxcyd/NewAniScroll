@@ -1,6 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { getPartyUser } from "@/lib/watch2gether/auth";
-import { allocateRoomId, createRoom } from "@/lib/watch2gether/redisRoom";
+import { addMember, allocateRoomId, createRoom } from "@/lib/watch2gether/redisRoom";
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
@@ -24,6 +24,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       position: Number(position) || 0,
       paused: true,
     });
+    // Register the creator as the first member so they can emit events before
+    // their SSE join() round-trip completes (the event route gates on this).
+    await addMember(roomId, user);
     return res.status(201).json({ roomId });
   } catch (e: any) {
     console.error("[w2g/create]", e?.message || e);

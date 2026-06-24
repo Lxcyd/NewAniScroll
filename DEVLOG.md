@@ -7,6 +7,28 @@ Ordre anti-chronologique (le plus récent en haut). Une entrée = une session/su
 
 ---
 
+## 2026-06-24 (suite 3) — Watch 2gether : audit sécurité + revue
+
+### Contexte
+Passe de revue : nettoyer les logs de debug, chercher bugs/exploits, fixer. Tout sur le Redis `w2g:` ; les routes API sont la surface d'attaque.
+
+### Exploits / bugs trouvés et corrigés
+- **Émission d'events sans avoir rejoint** (le plus sérieux) : `event.ts` ne vérifiait que `roomExists`. Comme le code de room fait **4 chiffres** (brute-forçable, 10 000 valeurs), n'importe qui pouvait spammer le chat ou piloter la lecture d'une room sans la rejoindre. Fix : gate `canEmit(roomId, userId)` (présent dans le member set **ou** présence active — tolérant aux trous de heartbeat d'un vrai membre, mais bloque un non-membre) + rejet des bannis. Le créateur est désormais `addMember` dès `create.ts` pour pouvoir émettre avant le round-trip `join`.
+- **Contournement du ban/lock via `/presence`** : `touchPresence` ajoute au member set, donc un POST direct sur `/presence` permettait à un banni / exclu d'une room privée de se réinscrire en contournant les gardes de `join`. Fix : `presence.ts` applique les mêmes gardes (ban + locked-non-member).
+- **XSS stocké (défense en profondeur)** : `guestName` était juste tronqué, pas sanitisé, et il est diffusé/persisté. Fix : `sanitizeName()` strippe les caractères de contrôle ASCII (`\x00-\x1f`, `\x7f`) et `< >` avant le cap à 24 (React échappe déjà au rendu, mais ceinture+bretelles).
+- **Valeurs numériques non bornées** : `position`/`rate` acceptés tels quels → un client pouvait écrire `position: 1e9`/`NaN` dans le hash. Fix : `clampNum()` (position 0–24h, rate 0.25–4) + cap des strings (`epiNumber`/`server`/`aniId`).
+- **`roomId` non validé** : utilisé direct dans les clés Redis sans borne de taille/format. Fix : `isValidRoomId()` (`^\d{4,5}$`) appliqué dans toutes les routes client (`event/join/presence/leave/moderate/stream`) → un id géant/malformé est rejeté en 400 avant de toucher Redis.
+
+### Leçons / pièges
+- **`isMember` = présence active vs member set** : pour le **lock** (qui doit interdire le retour après départ) on veut la **présence active** ; pour le **droit d'émettre** on veut le **member set** (tolérant aux blips de heartbeat, sinon on droppe des events légitimes). Deux besoins distincts → deux fonctions (`isMember` présence, `canEmit` set∪présence).
+- **Caractère de contrôle littéral dans une regex** : l'éditeur affichait `/[\x00-\x1f\x7f<>]/` comme `/[ -<>]/` (le `\x00` rendu en espace) → fausse alerte de « range dangereuse ». Vérifié au niveau octets (`python repr`) que la classe est bien `\x00-\x1f\x7f<>`, pas une plage `space..<`.
+- **Le créateur n'était pas membre** tant que son `join` SSE n'avait pas tourné → avec le nouveau gate `canEmit`, ses premiers events auraient été droppés. D'où l'`addMember` dans `create.ts`.
+
+### État déployé
+- Logs de debug temporaires : tous retirés (vérifié, ne restent que des `console.error` de catch). Typecheck `tsc --noEmit` OK, ESLint OK.
+
+---
+
 ## 2026-06-24 (suite 2) — Watch 2gether : latence (optimistic UI), enforcement, gating ban/privé
 
 ### Contexte

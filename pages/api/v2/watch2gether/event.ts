@@ -2,8 +2,11 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import { getPartyUser } from "@/lib/watch2gether/auth";
 import { rateLimiterRedis } from "@/lib/redis";
 import {
+  canEmit,
+  isBanned,
   isMuted,
   isPlaybackBlocked,
+  isValidRoomId,
   publishEvent,
   pushChat,
   roomExists,
@@ -11,6 +14,14 @@ import {
   type ChatMessage,
   type PartyEventType,
 } from "@/lib/watch2gether/redisRoom";
+
+// Clamp a numeric payload field to a sane finite range (defends against NaN /
+// Infinity / absurd values from a malicious or buggy client).
+function clampNum(v: unknown, min: number, max: number): number | undefined {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return undefined;
+  return Math.min(max, Math.max(min, n));
+}
 
 const PLAYBACK_TYPES: PartyEventType[] = ["play", "pause", "seek", "rate", "position", "episode", "server"];
 const CHAT_MAX_LEN = 500;
@@ -29,11 +40,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   const { roomId, type, payload } = req.body || {};
-  if (!roomId || !type) return res.status(400).json({ error: "roomId and type are required" });
+  if (!isValidRoomId(roomId) || !type) {
+    return res.status(400).json({ error: "valid roomId and type are required" });
+  }
 
   try {
     if (!(await roomExists(roomId))) {
       return res.status(404).json({ error: "Room not found or expired" });
+    }
+
+    // Only ACTIVE members of the room may emit events. Without this, anyone who
+    // guesses the 4-digit room code (brute-forceable) could spam chat or hijack
+    // playback without ever joining. A banned user is rejected outright.
+    if (await isBanned(roomId, user.userId)) {
+      return res.status(403).json({ error: "You are banned from this room" });
+    }
+    if (!(await canEmit(roomId, user.userId))) {
+      return res.status(403).json({ error: "Join the room before sending events" });
     }
 
     const ts = Date.now();
@@ -44,21 +67,27 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         return res.status(403).json({ error: "The host blocked you from controlling playback" });
       }
       // Persist the relevant bits into the snapshot so late joiners are correct.
+      // All numbers are clamped and strings are length-capped to keep the Redis
+      // hash bounded regardless of what a client sends.
       const fields: Record<string, any> = {};
       if (type === "play") fields.paused = false;
       if (type === "pause") fields.paused = true;
-      if (typeof payload?.position === "number") fields.position = payload.position;
-      if (type === "rate" && typeof payload?.rate === "number") fields.rate = payload.rate;
+      const pos = clampNum(payload?.position, 0, 24 * 60 * 60); // ≤ 24h
+      if (pos !== undefined) fields.position = pos;
+      if (type === "rate") {
+        const rate = clampNum(payload?.rate, 0.25, 4);
+        if (rate !== undefined) fields.rate = rate;
+      }
       if (type === "episode") {
-        if (payload?.epiNumber != null) fields.epiNumber = String(payload.epiNumber);
+        if (payload?.epiNumber != null) fields.epiNumber = String(payload.epiNumber).slice(0, 16);
         if (payload?.dub != null) fields.dub = !!payload.dub;
-        if (payload?.server != null) fields.server = String(payload.server);
-        if (payload?.aniId != null) fields.aniId = String(payload.aniId);
-        fields.position = Number(payload?.position) || 0;
+        if (payload?.server != null) fields.server = String(payload.server).slice(0, 64);
+        if (payload?.aniId != null) fields.aniId = String(payload.aniId).slice(0, 16);
+        fields.position = clampNum(payload?.position, 0, 24 * 60 * 60) ?? 0;
         fields.paused = true;
       }
       if (type === "server" && payload?.server != null) {
-        fields.server = String(payload.server);
+        fields.server = String(payload.server).slice(0, 64);
       }
       if (Object.keys(fields).length) await setSnapshotPartial(roomId, fields);
 

@@ -36,6 +36,12 @@ function assertRedis() {
   if (!redis) throw new Error("REDIS_URL is not configured — Watch2gether is unavailable");
 }
 
+/** A room id is a 4-5 digit code (allocateRoomId may extend to 5 on collision).
+ *  Validating it in routes keeps malicious/oversized ids out of Redis keys. */
+export function isValidRoomId(id: unknown): id is string {
+  return typeof id === "string" && /^\d{4,5}$/.test(id);
+}
+
 /** Random 4-digit room code (0000–9999), usable both as the URL id and as the
  *  manual join code. */
 function random4(): string {
@@ -87,6 +93,16 @@ export async function roomExists(roomId: string): Promise<boolean> {
  *  set entry (e.g. a reused 4-digit room code) can't let a non-member back in. */
 export async function isMember(roomId: string, userId: string): Promise<boolean> {
   assertRedis();
+  return (await redis.exists(presenceKey(roomId, userId))) === 1;
+}
+
+/** True if the user is in the room's member set OR actively present. Used to
+ *  gate event emission (chat/playback): tolerant of brief presence-key gaps for
+ *  a legitimate member, while still rejecting someone who never joined (e.g. a
+ *  room-code brute-forcer). */
+export async function canEmit(roomId: string, userId: string): Promise<boolean> {
+  assertRedis();
+  if ((await redis.sismember(membersKey(roomId), userId)) === 1) return true;
   return (await redis.exists(presenceKey(roomId, userId))) === 1;
 }
 
