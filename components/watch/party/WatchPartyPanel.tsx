@@ -248,20 +248,20 @@ function ActiveRoom({ party, onClose }: { party: PartyContext; onClose?: () => v
                 )}
               </div>
               {canModerate && (
-                <div className="absolute -bottom-7 left-1/2 z-30 hidden -translate-x-1/2 gap-1 rounded-md bg-black/90 p-1 shadow-lg group-hover:flex">
+                <div className="absolute -bottom-9 left-1/2 z-30 hidden -translate-x-1/2 gap-1 rounded-md bg-black/90 p-1 shadow-lg group-hover:flex">
                   <button
                     onClick={() => kick(m.userId)}
                     title={`Kick ${m.name}`}
-                    className="flex items-center rounded p-1 text-white/80 hover:bg-white/10 hover:text-white"
+                    className="flex items-center gap-1 rounded px-1.5 py-1 text-[11px] font-medium text-white/80 hover:bg-white/10 hover:text-white"
                   >
-                    <MdPersonRemove size={14} />
+                    <MdPersonRemove size={14} /> Kick
                   </button>
                   <button
                     onClick={() => ban(m.userId)}
                     title={`Ban ${m.name}`}
-                    className="flex items-center rounded p-1 text-red-300 hover:bg-red-500/20 hover:text-red-200"
+                    className="flex items-center gap-1 rounded px-1.5 py-1 text-[11px] font-medium text-red-300 hover:bg-red-500/20 hover:text-red-200"
                   >
-                    <MdBlock size={14} />
+                    <MdBlock size={14} /> Ban
                   </button>
                 </div>
               )}

@@ -223,6 +223,23 @@ export default function Watch({
   // hydration matches. The client cache / API fill in afterwards in an effect.
   const [info, setInfo] = useState(ssrInfo || null);
 
+  // On an in-app navigation to a DIFFERENT anime (e.g. a Watch-Party redirect),
+  // Next reuses this page component, so the `info` useState above does NOT
+  // re-initialise — it kept the previous anime and the player showed stale
+  // content until a manual reload. Re-sync `info` whenever the SSR prop's id (or
+  // the resolved aniId) changes so the new anime renders immediately.
+  const lastSsrIdRef = useRef(ssrInfo?.id ?? (aniId ? Number(aniId) : null));
+  useEffect(() => {
+    const incoming = ssrInfo?.id ?? (aniId ? Number(aniId) : null);
+    if (incoming == null) return;
+    if (incoming === lastSsrIdRef.current && info?.id === incoming) return;
+    lastSsrIdRef.current = incoming;
+    // Adopt the fresh SSR metadata when present; otherwise null it so the
+    // resolve effect below refetches for the new id (and the player doesn't
+    // keep rendering the previous anime's stream).
+    setInfo(ssrInfo && ssrInfo.id === incoming ? ssrInfo : null);
+  }, [ssrInfo, aniId, info?.id]);
+
   // Resolve metadata client-side when the SSR didn't supply it (cold/direct
   // hit with a memory miss). Prefer the prefetch cache (primed by the info
   // page during SPA navigation), then the warm API. Runs post-hydration so it
@@ -456,11 +473,24 @@ export default function Watch({
   const partyRoomId = router.query.party ? String(router.query.party) : null;
   const myUserId = sessions?.user?.id ? String(sessions.user.id) : null;
 
+  // Panel is closable; a floating pill restores it. Reset to visible whenever a
+  // new party is entered.
+  const [partyPanelHidden, setPartyPanelHidden] = useState(false);
+  // The right-hand panel is shown when in a party OR when the user opened the
+  // lobby (Create / Join) via the "Watch together" button.
+  const [partyUIOpen, setPartyUIOpen] = useState(false);
+
   // When we leave or are removed, strip ?party from the URL (and toast why).
+  // On a kick/ban we also fully CLOSE the panel — the removed person shouldn't
+  // be left staring at the (now lobby) party UI.
   const handleSelfRemoved = useCallback(
     (reason) => {
       if (reason === "kick") toast.error("You were removed from the party");
       else if (reason === "ban") toast.error("You were banned from the party");
+      if (reason === "kick" || reason === "ban") {
+        setPartyUIOpen(false);
+        setPartyPanelHidden(true);
+      }
       const { party: _omit, ...rest } = router.query;
       router.replace({ pathname: router.pathname, query: rest }, undefined, { shallow: true });
     },
@@ -473,13 +503,6 @@ export default function Watch({
     myUserId,
     { onSelfRemoved: handleSelfRemoved }
   );
-
-  // Panel is closable; a floating pill restores it. Reset to visible whenever a
-  // new party is entered.
-  const [partyPanelHidden, setPartyPanelHidden] = useState(false);
-  // The right-hand panel is shown when in a party OR when the user opened the
-  // lobby (Create / Join) via the "Watch together" button.
-  const [partyUIOpen, setPartyUIOpen] = useState(false);
   useEffect(() => {
     if (partyRoomId) {
       setPartyPanelHidden(false);
@@ -690,36 +713,24 @@ export default function Watch({
     setRatingModalState,
   } = useWatchProvider();
 
-  // Observe the player box height so the party panel can match it on desktop.
-  // Declared here (not earlier) because it depends on `theaterMode` above.
-  //
-  // We OBSERVE the stable wrapper (never replaced) but MEASURE the inner player
-  // box (its first child) on every callback. The player loads via a dynamic
-  // import, so its element is swapped in after mount — observing that child
-  // directly meant we kept watching a detached node and the height sometimes
-  // never updated ("parfois le panel ne se met pas en grand"). Re-querying the
-  // child each tick fixes that, and using the child (not the glow-padded
-  // wrapper) keeps the panel from overshooting the real 16:9 video.
+  // Match the party panel's height to the player on desktop. We derive it from
+  // the player wrapper's WIDTH (× 9/16), not by measuring the player's own
+  // height: the player renders an ambient-glow layer that extends past the 16:9
+  // video, so a height measurement overshot and the panel grew too tall. The
+  // visible video is always 16:9 in non-theater, so width × 9/16 is exact and
+  // immune to the glow. Observing width also dodges the dynamic-import remount
+  // (the wrapper itself is stable and never swapped).
   useEffect(() => {
     const wrapper = playerBoxRef.current;
     if (!wrapper || typeof ResizeObserver === "undefined") return;
     const measure = () => {
-      const child = wrapper.firstElementChild;
-      const h = (child || wrapper).getBoundingClientRect().height || 0;
-      if (h) setPlayerBoxH(Math.round(h));
+      const w = wrapper.getBoundingClientRect().width || 0;
+      if (w) setPlayerBoxH(Math.round((w * 9) / 16));
     };
     const ro = new ResizeObserver(measure);
     ro.observe(wrapper);
-    // Initial + a couple of delayed reads to catch the async player mount even
-    // if it lands without triggering a wrapper resize.
     measure();
-    const t1 = setTimeout(measure, 300);
-    const t2 = setTimeout(measure, 1200);
-    return () => {
-      ro.disconnect();
-      clearTimeout(t1);
-      clearTimeout(t2);
-    };
+    return () => ro.disconnect();
   }, [theaterMode]);
 
   // ── Persist into local Recently Watched immediately ──────────

@@ -262,18 +262,18 @@ export default function EmojiButton({ onPick, fullscreen, className = "" }: Prop
 
             {/* Scrollable body */}
             <div className="scrollbar-hide" style={{ overflowY: "auto", padding: "0 10px 10px", flex: 1 }}>
-              {/* Popular = recently used (mix of anime + unicode) then the anime
-                  custom set. Also where search shows its anime matches. */}
+              {/* Popular = the anime custom set FIRST, then recently used (mix of
+                  anime + unicode). Also where search shows its anime matches. */}
+              {(q || cat === "popular") && animeMatches.length > 0 && (
+                <>
+                  <div style={labelStyle}>Popular</div>
+                  {grid(animeMatches.map((e) => animeBtn(e.emoji, e.label, e.url)))}
+                </>
+              )}
               {!q && cat === "popular" && recents.length > 0 && (
                 <>
                   <div style={labelStyle}>Recents</div>
                   {grid(recents.map((entry, i) => recentBtn(entry, i)))}
-                </>
-              )}
-              {(q || cat === "popular") && animeMatches.length > 0 && (
-                <>
-                  <div style={labelStyle}>Anime</div>
-                  {grid(animeMatches.map((e) => animeBtn(e.emoji, e.label, e.url)))}
                 </>
               )}
 
