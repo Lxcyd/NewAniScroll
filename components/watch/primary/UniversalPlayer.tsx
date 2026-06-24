@@ -2863,6 +2863,10 @@ export default function UniversalPlayer({
         // StaticGlow on these sources.
         {...(bestStream!.noCors ? {} : { crossorigin: "anonymous" })}
         aspectRatio="16/9"
+        // When the host has blocked our playback, disable Vidstack's keyboard
+        // shortcuts (Space/k = play, arrows = seek, etc.) so they can't drive
+        // playback past the <video> guard below.
+        keyDisabled={!!party?.amPlaybackBlocked}
         onError={() => onError?.("Playback error")}
       >
         <MediaProvider>

@@ -100,8 +100,11 @@ export function useWatchParty(
   // The server-confirmed identity from join() — authoritative for "is this me?"
   // regardless of how the guest id resolved client-side.
   const [confirmedId, setConfirmedId] = useState<string | null>(null);
-  // True until the first join attempt for the current room resolves.
-  const [joinPending, setJoinPending] = useState(true);
+  // The roomId whose join() has SUCCEEDED. We derive `joinPending` by comparing
+  // it to the current roomId, so the gate flips to "pending" SYNCHRONOUSLY the
+  // instant we navigate to a new room — no effect lag that would briefly render
+  // the previous room's data (which flashed the room on a banned re-join).
+  const [joinedRoomId, setJoinedRoomId] = useState<string | null>(null);
 
   const onSelfRemovedRef = useRef(opts?.onSelfRemoved);
   onSelfRemovedRef.current = opts?.onSelfRemoved;
@@ -226,6 +229,12 @@ export function useWatchParty(
     esRef.current = null;
     setIsConnected(false);
     setConnectionState("reconnecting");
+    // Forget the joined room so a later re-join (e.g. same code) re-gates with
+    // the spinner instead of flashing this session's stale members/snapshot.
+    setJoinedRoomId(null);
+    setMembers([]);
+    setSnapshot(null);
+    setChat([]);
   }, []);
 
   const leave = useCallback(() => {
@@ -326,7 +335,6 @@ export function useWatchParty(
               ? "locked"
               : "notfound";
           teardown();
-          setJoinPending(false);
           onJoinRejectedRef.current?.(reason);
         }
         return;
@@ -336,7 +344,7 @@ export function useWatchParty(
       return;
     }
     if (!data) return;
-    setJoinPending(false);
+    setJoinedRoomId(roomId);
     if (data.me?.userId) setConfirmedId(String(data.me.userId));
     if (data.snapshot) {
       setSnapshot(reconcileSnapshot(data.snapshot));
@@ -431,11 +439,6 @@ export function useWatchParty(
 
   // SSE connection lifecycle. Wait until we have an identity (a guest's resolves
   // asynchronously) so the very first connection authenticates correctly.
-  // Reset the join-pending gate whenever we enter a (different) room.
-  useEffect(() => {
-    setJoinPending(true);
-  }, [roomId]);
-
   useEffect(() => {
     if (!roomId || !effectiveUserId) return;
     // A new room/identity means a fresh session — clear any prior removal flag.
@@ -543,6 +546,10 @@ export function useWatchParty(
   const amPlaybackBlocked =
     !!myId && !isHost && members.some((m) => m.userId === myId && m.playbackBlocked);
   const locked = !!snapshot?.locked;
+  // Derived (synchronous): pending until THIS room's join has succeeded. Because
+  // it compares to the navigated roomId, it's true on the very first render of a
+  // new room — no stale frame of the previous room.
+  const joinPending = joinedRoomId !== roomId;
 
 
   const ctx = useMemo<PartyContext | null>(() => {
