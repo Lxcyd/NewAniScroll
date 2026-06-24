@@ -310,6 +310,9 @@ export function useWatchParty(
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(merged),
       });
+      // TEMP DEBUG (#join). Remove after diagnosis.
+      // eslint-disable-next-line no-console
+      console.log("[w2g:join] status", res.status, "guest?", !!g, merged);
       if (!res.ok) {
         if (res.status === 403 || res.status === 404) {
           const err = await res.json().catch(() => ({}));
@@ -328,6 +331,9 @@ export function useWatchParty(
     } catch {
       return;
     }
+    // TEMP DEBUG (#join). Remove after diagnosis.
+    // eslint-disable-next-line no-console
+    console.log("[w2g:join] data", { me: data?.me, hostId: data?.snapshot?.hostId, memberCount: data?.members?.length });
     if (!data) return;
     if (data.me?.userId) setConfirmedId(String(data.me.userId));
     if (data.snapshot) {
