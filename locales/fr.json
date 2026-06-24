@@ -812,6 +812,15 @@
     "created": "Groupe créé ! Code : {{code}}",
     "cantCreate": "Impossible de créer le groupe",
     "copied": "{{label}} copié !",
-    "cantCopy": "Copie impossible"
+    "cantCopy": "Copie impossible",
+    "guest": "Invité",
+    "you": "toi",
+    "emojiSearch": "Rechercher un emoji…",
+    "emojiPopular": "Populaire",
+    "emojiRecents": "Récents",
+    "emojiUnicode": "Emoji",
+    "emojiNoMatch": "Aucun emoji anime correspondant",
+    "roomPublic": "Public",
+    "roomPrivate": "Privé"
   }
 }

@@ -1,5 +1,6 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useTranslation } from "react-i18next";
 import { BsEmojiSmile } from "react-icons/bs";
 import { ANIME_EMOJIS, ANIME_EMOJI_MAP } from "@/lib/watch2gether/animeEmojis";
 import { EMOJI_CATEGORIES, ALL_EMOJIS } from "@/lib/watch2gether/unicodeEmojis";
@@ -46,6 +47,7 @@ function pushRecent(insert: string): string[] {
 // by category (incl. Flags) with a search box. Wide enough that every category
 // tab — Flags included — is visible without horizontal scrolling.
 export default function EmojiButton({ onPick, fullscreen, className = "" }: Props) {
+  const { t } = useTranslation();
   const btnRef = useRef<HTMLButtonElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
   const [open, setOpen] = useState(false);
@@ -212,7 +214,7 @@ export default function EmojiButton({ onPick, fullscreen, className = "" }: Prop
                 autoFocus
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search emoji…"
+                placeholder={t("party.emojiSearch")}
                 style={{
                   width: "100%",
                   fontSize: 13,
@@ -241,7 +243,7 @@ export default function EmojiButton({ onPick, fullscreen, className = "" }: Prop
                 <button
                   type="button"
                   onClick={() => setCat("popular")}
-                  title="Popular"
+                  title={t("party.emojiPopular")}
                   style={tabStyle(cat === "popular")}
                 >
                   ⭐
@@ -266,13 +268,13 @@ export default function EmojiButton({ onPick, fullscreen, className = "" }: Prop
                   anime + unicode). Also where search shows its anime matches. */}
               {(q || cat === "popular") && animeMatches.length > 0 && (
                 <>
-                  <div style={labelStyle}>Popular</div>
+                  <div style={labelStyle}>{t("party.emojiPopular")}</div>
                   {grid(animeMatches.map((e) => animeBtn(e.emoji, e.label, e.url)))}
                 </>
               )}
               {!q && cat === "popular" && recents.length > 0 && (
                 <>
-                  <div style={labelStyle}>Recents</div>
+                  <div style={labelStyle}>{t("party.emojiRecents")}</div>
                   {grid(recents.map((entry, i) => recentBtn(entry, i)))}
                 </>
               )}
@@ -280,13 +282,13 @@ export default function EmojiButton({ onPick, fullscreen, className = "" }: Prop
               {/* Unicode emojis. */}
               {unicodeToShow.length > 0 && (
                 <>
-                  <div style={labelStyle}>{q ? "Emoji" : activeCategory?.name}</div>
+                  <div style={labelStyle}>{q ? t("party.emojiUnicode") : activeCategory?.name}</div>
                   {grid(unicodeToShow.map((u, i) => unicodeBtn(u, `u-${i}`)))}
                 </>
               )}
 
               {q && animeMatches.length === 0 && (
-                <div style={{ ...labelStyle, marginTop: 12 }}>No anime emoji match</div>
+                <div style={{ ...labelStyle, marginTop: 12 }}>{t("party.emojiNoMatch")}</div>
               )}
             </div>
           </div>,

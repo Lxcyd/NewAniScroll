@@ -4,19 +4,15 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { IoSend, IoCopyOutline, IoPeople, IoClose, IoExitOutline, IoAdd, IoEnterOutline } from "react-icons/io5";
 import { FaCrown } from "react-icons/fa";
-import { MdPersonRemove, MdBlock, MdVolumeOff, MdVolumeUp, MdLock, MdLockOpen, MdPlayDisabled, MdPlayArrow } from "react-icons/md";
+import { MdVolumeOff, MdLock, MdPlayDisabled, MdPublic } from "react-icons/md";
 import type { PartyContext } from "@/lib/watch2gether/useWatchParty";
+import type { Member } from "@/lib/watch2gether/types";
 import { getGuestIdentity } from "@/lib/watch2gether/guest";
 import MemberAvatar from "./MemberAvatar";
+import MemberMenu from "./MemberMenu";
 import ChatText from "./ChatText";
 import EmojiButton from "./EmojiButton";
-import { ANIME_EMOJI_MAP, SHORTCODE_RE } from "@/lib/watch2gether/animeEmojis";
-
-/** True when the draft contains at least one KNOWN `:shortcode:` that will be
- *  rendered as an inline emoji image — used to surface a live preview. */
-function hasRenderableShortcode(text: string): boolean {
-  return text.split(SHORTCODE_RE).some((part) => ANIME_EMOJI_MAP[part]);
-}
+import { replaceShortcodes } from "@/lib/watch2gether/animeEmojis";
 
 interface LobbyMeta {
   aniId?: string | number;
@@ -184,8 +180,13 @@ function ActiveRoom({ party, onClose }: { party: PartyContext; onClose?: () => v
     amMuted,
   } = party;
   const [text, setText] = useState("");
+  const [menuFor, setMenuFor] = useState<{ member: Member; anchor: HTMLElement } | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const logRef = useRef<HTMLDivElement | null>(null);
+
+  // Keep the open menu's member in sync with live presence updates (mute /
+  // block toggles re-render labels without reopening).
+  const liveMenuMember = menuFor && members.find((m) => m.userId === menuFor.member.userId);
 
   useEffect(() => {
     const el = logRef.current;
@@ -230,7 +231,8 @@ function ActiveRoom({ party, onClose }: { party: PartyContext; onClose?: () => v
           </button>
         </div>
         <div className="flex items-center gap-2">
-          {/* Host: lock the room to new joiners — sits left of the invite button. */}
+          {/* Host: Public (anyone can join) vs Private (locked). Sits left of
+              the invite button. */}
           {isHost && (
             <button
               onClick={() => setFlags({ locked: !snapshot?.locked })}
@@ -241,8 +243,8 @@ function ActiveRoom({ party, onClose }: { party: PartyContext; onClose?: () => v
                   : "bg-white/10 text-white/70 hover:bg-white/15"
               }`}
             >
-              {snapshot?.locked ? <MdLock size={14} /> : <MdLockOpen size={14} />}
-              {snapshot?.locked ? t("party.roomLocked") : t("party.roomOpen")}
+              {snapshot?.locked ? <MdLock size={14} /> : <MdPublic size={14} />}
+              {snapshot?.locked ? t("party.roomPrivate") : t("party.roomPublic")}
             </button>
           )}
           <button
@@ -274,79 +276,66 @@ function ActiveRoom({ party, onClose }: { party: PartyContext; onClose?: () => v
         )}
         {members.map((m) => {
           const canModerate = isHost && m.userId !== myId;
+          const isMe = m.userId === myId;
+          const label = isMe ? `${m.name} (${t("party.you")})` : m.name;
           return (
             <div key={m.userId} className="group relative flex flex-col items-center">
-              {/* Fixed-size avatar box so badges never shift alignment. */}
-              <div className="relative h-7 w-7">
-                <MemberAvatar name={m.name} image={m.image} size={28} highlight={m.userId === myId} />
+              {/* Custom tooltip ABOVE the avatar (native title shows below). */}
+              <span className="pointer-events-none absolute -top-7 left-1/2 z-40 hidden -translate-x-1/2 whitespace-nowrap rounded bg-black/90 px-2 py-1 text-[10px] font-medium text-white shadow-lg group-hover:block">
+                {label}
+              </span>
+              {/* Fixed-size avatar box so badges never shift alignment. The whole
+                  box is a button (host only) that opens the moderation menu. */}
+              <div
+                role={canModerate ? "button" : undefined}
+                onClick={
+                  canModerate
+                    ? (e) => setMenuFor({ member: m, anchor: e.currentTarget as HTMLElement })
+                    : undefined
+                }
+                className={`relative h-7 w-7 ${canModerate ? "cursor-pointer" : ""} ${
+                  isMe ? "rounded-full ring-2 ring-action ring-offset-1 ring-offset-secondary" : ""
+                }`}
+              >
+                <MemberAvatar name={m.name} image={m.image} size={28} highlight={isMe} noTitle />
                 {/* Crown bottom-right; mute / playback badges stack on the left. */}
                 {m.isHost && (
                   <FaCrown
                     className="absolute -bottom-1 -right-1.5 text-yellow-400 drop-shadow"
                     size={11}
-                    title={t("party.host")}
                   />
                 )}
                 {m.muted && (
                   <MdVolumeOff
                     className="absolute -bottom-1 -left-1.5 rounded-full bg-black/70 text-red-300"
                     size={12}
-                    title={t("party.mute")}
                   />
                 )}
                 {m.playbackBlocked && (
                   <MdPlayDisabled
                     className="absolute -top-1 -left-1.5 rounded-full bg-black/70 text-orange-300"
                     size={12}
-                    title={t("party.blockPlayback")}
                   />
                 )}
               </div>
-              {canModerate && (
-                <div className="absolute top-9 left-1/2 z-30 hidden w-max min-w-[150px] -translate-x-1/2 flex-col gap-0.5 rounded-md bg-black/90 p-1 shadow-lg group-hover:flex">
-                  <button
-                    onClick={() => transferHost(m.userId)}
-                    title={t("party.makeHost")}
-                    className="flex items-center gap-2 whitespace-nowrap rounded px-2 py-1 text-[11px] font-medium text-yellow-300 hover:bg-yellow-400/15"
-                  >
-                    <FaCrown size={12} /> {t("party.makeHost")}
-                  </button>
-                  <button
-                    onClick={() => mute(m.userId, !m.muted)}
-                    title={m.muted ? t("party.unmute") : t("party.mute")}
-                    className="flex items-center gap-2 whitespace-nowrap rounded px-2 py-1 text-[11px] font-medium text-white/80 hover:bg-white/10 hover:text-white"
-                  >
-                    {m.muted ? <MdVolumeUp size={14} /> : <MdVolumeOff size={14} />}
-                    {m.muted ? t("party.unmute") : t("party.mute")}
-                  </button>
-                  <button
-                    onClick={() => blockPlayback(m.userId, !m.playbackBlocked)}
-                    title={m.playbackBlocked ? t("party.unblockPlayback") : t("party.blockPlayback")}
-                    className="flex items-center gap-2 whitespace-nowrap rounded px-2 py-1 text-[11px] font-medium text-white/80 hover:bg-white/10 hover:text-white"
-                  >
-                    {m.playbackBlocked ? <MdPlayArrow size={14} /> : <MdPlayDisabled size={14} />}
-                    {m.playbackBlocked ? t("party.unblockPlayback") : t("party.blockPlayback")}
-                  </button>
-                  <button
-                    onClick={() => kick(m.userId)}
-                    title={t("party.kick")}
-                    className="flex items-center gap-2 whitespace-nowrap rounded px-2 py-1 text-[11px] font-medium text-white/80 hover:bg-white/10 hover:text-white"
-                  >
-                    <MdPersonRemove size={14} /> {t("party.kick")}
-                  </button>
-                  <button
-                    onClick={() => ban(m.userId)}
-                    title={t("party.ban")}
-                    className="flex items-center gap-2 whitespace-nowrap rounded px-2 py-1 text-[11px] font-medium text-red-300 hover:bg-red-500/20 hover:text-red-200"
-                  >
-                    <MdBlock size={14} /> {t("party.ban")}
-                  </button>
-                </div>
-              )}
             </div>
           );
         })}
       </div>
+
+      {/* Host moderation menu (portal — escapes the panel's overflow clip). */}
+      {menuFor && liveMenuMember && (
+        <MemberMenu
+          member={liveMenuMember}
+          anchor={menuFor.anchor}
+          onClose={() => setMenuFor(null)}
+          transferHost={transferHost}
+          mute={mute}
+          blockPlayback={blockPlayback}
+          kick={kick}
+          ban={ban}
+        />
+      )}
 
       {/* Chat log */}
       <div ref={logRef} className="min-h-0 flex-1 space-y-2 overflow-y-auto px-4 py-3 scrollbar-hide">
@@ -372,20 +361,15 @@ function ActiveRoom({ party, onClose }: { party: PartyContext; onClose?: () => v
         ))}
       </div>
 
-      {/* Composer (disabled while muted by the host) */}
+      {/* Composer (disabled while muted by the host). Typed `:pog:` shortcodes
+          are converted to the actual emoji inline on change. */}
       <div className="border-t border-white/10">
-        {/* Live preview: shows `:pog:` etc. as the actual emoji before sending. */}
-        {hasRenderableShortcode(text) && (
-          <div className="flex items-center gap-1 px-3 pt-2 text-sm text-white/90">
-            <ChatText text={text} />
-          </div>
-        )}
         <form onSubmit={submit} className="flex items-center gap-1 p-3">
           <EmojiButton onPick={insertEmoji} />
           <input
             ref={inputRef}
             value={text}
-            onChange={(e) => setText(e.target.value)}
+            onChange={(e) => setText(replaceShortcodes(e.target.value))}
             maxLength={500}
             disabled={amMuted}
             placeholder={amMuted ? t("party.muted") : t("party.message")}

@@ -812,6 +812,15 @@
     "created": "Party created! Code: {{code}}",
     "cantCreate": "Couldn't create party",
     "copied": "{{label}} copied!",
-    "cantCopy": "Couldn't copy"
+    "cantCopy": "Couldn't copy",
+    "guest": "Guest",
+    "you": "you",
+    "emojiSearch": "Search emoji…",
+    "emojiPopular": "Popular",
+    "emojiRecents": "Recents",
+    "emojiUnicode": "Emoji",
+    "emojiNoMatch": "No anime emoji match",
+    "roomPublic": "Public",
+    "roomPrivate": "Private"
   }
 }

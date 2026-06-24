@@ -8,12 +8,14 @@ interface Props {
   size?: number;
   /** Highlight ring (e.g. for the current user). */
   highlight?: boolean;
+  /** Suppress the native `title` tooltip (when a custom tooltip is used). */
+  noTitle?: boolean;
   className?: string;
 }
 
 // Shared avatar. Falls back to the same default user icon the navbar uses for
 // signed-out visitors (Heroicons UserIcon on a translucent circle).
-export default function MemberAvatar({ name, image, size = 24, highlight, className = "" }: Props) {
+export default function MemberAvatar({ name, image, size = 24, highlight, noTitle, className = "" }: Props) {
   const ring = highlight ? "ring-action" : "ring-white/20";
   if (image) {
     return (
@@ -21,7 +23,7 @@ export default function MemberAvatar({ name, image, size = 24, highlight, classN
       <img
         src={image}
         alt={name}
-        title={name}
+        title={noTitle ? undefined : name}
         className={`rounded-full object-cover ring-1 ${ring} ${className}`}
         style={{ width: size, height: size }}
       />
@@ -29,7 +31,7 @@ export default function MemberAvatar({ name, image, size = 24, highlight, classN
   }
   return (
     <span
-      title={name}
+      title={noTitle ? undefined : name}
       className={`inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-white/30 ring-1 ${ring} ${className}`}
       style={{ width: size, height: size }}
     >

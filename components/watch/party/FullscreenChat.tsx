@@ -4,12 +4,7 @@ import { IoSend } from "react-icons/io5";
 import type { PartyEvent, ChatMessage } from "@/lib/watch2gether/types";
 import ChatText from "./ChatText";
 import EmojiButton from "./EmojiButton";
-import { ANIME_EMOJI_MAP, SHORTCODE_RE } from "@/lib/watch2gether/animeEmojis";
-
-/** True when the draft has a known `:shortcode:` that renders as an emoji image. */
-function hasRenderableShortcode(text: string): boolean {
-  return text.split(SHORTCODE_RE).some((part) => ANIME_EMOJI_MAP[part]);
-}
+import { replaceShortcodes } from "@/lib/watch2gether/animeEmojis";
 
 interface Props {
   /** Stable subscribe fn — FullscreenChat keeps its OWN message list from this
@@ -200,20 +195,6 @@ export default function FullscreenChat({ onRemote, sendChat, myId, playerEl, act
           </div>
         )}
 
-        {showComposer && hasRenderableShortcode(text) && (
-          <div
-            style={{
-              background: "rgba(0,0,0,0.5)",
-              backdropFilter: "blur(4px)",
-              borderRadius: 10,
-              padding: "6px 12px",
-              color: "white",
-              fontSize: 14,
-            }}
-          >
-            <ChatText text={text} size={16} />
-          </div>
-        )}
         {showComposer && (
           <form onSubmit={submit} style={{ display: "flex", alignItems: "center", gap: 4 }}>
             <EmojiButton onPick={(ins) => { setText((p) => p + ins); setHasText(true); inputRef.current?.focus(); }} fullscreen />
@@ -221,8 +202,9 @@ export default function FullscreenChat({ onRemote, sendChat, myId, playerEl, act
               ref={inputRef}
               value={text}
               onChange={(e) => {
-                setText(e.target.value);
-                setHasText(!!e.target.value);
+                const v = replaceShortcodes(e.target.value);
+                setText(v);
+                setHasText(!!v);
                 bumpActivity();
               }}
               onFocus={bumpActivity}

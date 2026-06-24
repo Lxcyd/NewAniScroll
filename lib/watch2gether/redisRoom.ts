@@ -255,6 +255,11 @@ export async function touchPresence(roomId: string, member: Member): Promise<voi
   );
   await redis.sadd(membersKey(roomId), member.userId);
   await redis.expire(membersKey(roomId), ROOM_TTL);
+  // Keep this member in the join-order zset (NX = preserve their first-seen
+  // time). Without this, a heartbeat that lands after a stale-prune re-adds the
+  // member to the set but not the order set, scrambling the rendered order.
+  await redis.zadd(orderKey(roomId), "NX", Date.now(), member.userId);
+  await redis.expire(orderKey(roomId), ROOM_TTL);
 }
 
 /** Build the live member list, pruning any whose presence key has expired, and
