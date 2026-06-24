@@ -356,28 +356,34 @@ function ActiveRoom({ party, onClose }: { party: PartyContext; onClose?: () => v
         </div>
       </div>
 
-      {/* Composer (disabled while muted by the host). Typed `:pog:` shortcodes
-          are converted to the actual emoji inline on change. */}
+      {/* Composer. When muted by the host: input + send are disabled, a banner
+          explains why, and clicking the area shows a toast. Typed `:pog:`
+          shortcodes are converted to the actual emoji inline on change. */}
       <div className="border-t border-white/10">
         {amMuted && (
           <div className="flex items-center gap-1.5 px-3 pt-2 text-xs font-medium text-red-300">
             <MdVolumeOff size={14} /> {t("party.mutedBanner")}
           </div>
         )}
-        <form onSubmit={submit} className="flex items-center gap-1 p-3">
+        <form
+          onSubmit={submit}
+          className="flex items-center gap-1 p-3"
+          onClickCapture={amMuted ? () => toast.error(t("party.mutedBanner")) : undefined}
+        >
           <EmojiButton onPick={insertEmoji} />
           <input
             ref={inputRef}
             value={text}
             onChange={(e) => setText(replaceShortcodes(e.target.value))}
             maxLength={500}
+            disabled={amMuted}
             placeholder={amMuted ? t("party.muted") : t("party.message")}
-            className="flex-1 rounded-md bg-white/10 px-3 py-2 text-sm outline-none placeholder:text-white/40 focus:bg-white/15"
+            className="flex-1 rounded-md bg-white/10 px-3 py-2 text-sm outline-none placeholder:text-white/40 focus:bg-white/15 disabled:cursor-not-allowed disabled:opacity-60"
           />
           <button
             type="submit"
-            disabled={!text.trim()}
-            className="flex h-9 w-9 items-center justify-center rounded-md bg-action text-white disabled:opacity-40"
+            disabled={amMuted || !text.trim()}
+            className="flex h-9 w-9 items-center justify-center rounded-md bg-action text-white disabled:cursor-not-allowed disabled:opacity-40"
           >
             <IoSend size={16} />
           </button>

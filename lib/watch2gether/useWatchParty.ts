@@ -531,6 +531,31 @@ export function useWatchParty(
     !!myId && !isHost && members.some((m) => m.userId === myId && m.playbackBlocked);
   const locked = !!snapshot?.locked;
 
+  // TEMP DEBUG (#1 ring / #2 playback-block identity). Remove after diagnosis.
+  // Logs how our id compares to the server's member ids so we can see why
+  // `isMe` / `amPlaybackBlocked` may never match.
+  useEffect(() => {
+    if (!roomId) return;
+    // eslint-disable-next-line no-console
+    console.log("[w2g:id]", {
+      myUserId,
+      effectiveUserId,
+      confirmedId,
+      myId,
+      hostId,
+      isHost,
+      amPlaybackBlocked,
+      members: members.map((m) => ({
+        userId: m.userId,
+        name: m.name,
+        isHost: m.isHost,
+        muted: m.muted,
+        playbackBlocked: m.playbackBlocked,
+        matchesMe: m.userId === myId,
+      })),
+    });
+  }, [roomId, myUserId, effectiveUserId, confirmedId, myId, hostId, isHost, amPlaybackBlocked, members]);
+
   const ctx = useMemo<PartyContext | null>(() => {
     if (!roomId) return null;
     return {

@@ -2353,6 +2353,13 @@ export default function UniversalPlayer({
     // When the host has blocked our playback, revert any local play/pause/seek
     // to the authoritative snapshot instead of broadcasting, and tell the user.
     const enforceBlocked = (): boolean => {
+      // TEMP DEBUG (#2). Remove after diagnosis.
+      // eslint-disable-next-line no-console
+      console.log("[w2g:block] enforce check", {
+        hasParty: !!partyRef.current,
+        amPlaybackBlocked: partyRef.current?.amPlaybackBlocked,
+        hasVideo: !!video,
+      });
       if (!partyRef.current?.amPlaybackBlocked || !video) return false;
       const snap = partyRef.current.snapshot;
       withGuard(() => {
