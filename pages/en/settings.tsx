@@ -179,38 +179,52 @@ function SettingsNav({
   };
 
   const navRef = useRef<HTMLElement | null>(null);
-  const [top, setTop] = useState(176); // top-44 default
+  const [offset, setOffset] = useState(0);
 
   useEffect(() => {
     const NATURAL_TOP = 176; // top-44 — resting position
     const MARGIN = 16; // breathing room above the footer
-    const update = () => {
+    let raf = 0;
+    const measure = () => {
+      raf = 0;
       const footer = document.querySelector("footer");
       const navHeight = navRef.current?.offsetHeight ?? 0;
       if (!footer) {
-        setTop(NATURAL_TOP);
+        setOffset(0);
         return;
       }
       const footerTop = footer.getBoundingClientRect().top;
-      // Highest the nav's bottom may reach = footerTop - MARGIN.
-      // So the most its top can be is that minus the nav's own height.
-      const maxTop = footerTop - MARGIN - navHeight;
-      setTop(Math.min(NATURAL_TOP, maxTop));
+      // The panel rests at NATURAL_TOP; its bottom sits at NATURAL_TOP +
+      // navHeight. Once the footer rises into that zone, shift the whole
+      // panel up by exactly the overlap so its bottom tracks the footer
+      // 1:1 — perfectly glued to the page as it scrolls.
+      const overlap = NATURAL_TOP + navHeight - (footerTop - MARGIN);
+      setOffset(Math.max(0, overlap));
+    };
+    // Coalesce scroll bursts into one measurement per frame so the panel
+    // moves in lockstep with the page without thrashing layout.
+    const update = () => {
+      if (!raf) raf = requestAnimationFrame(measure);
     };
     window.addEventListener("scroll", update, { passive: true });
     window.addEventListener("resize", update);
-    update();
+    measure();
     return () => {
       window.removeEventListener("scroll", update);
       window.removeEventListener("resize", update);
+      if (raf) cancelAnimationFrame(raf);
     };
   }, []);
 
   return (
     <nav
       ref={navRef}
-      className="hidden md:flex flex-col gap-1 fixed left-[max(1rem,calc((100vw-48rem)/2-20.25rem))] z-30 overflow-y-auto"
-      style={{ width: SIDEBAR_WIDTH, top, maxHeight: "calc(100vh - 12rem)" }}
+      className="hidden md:flex flex-col gap-1 fixed left-[max(1rem,calc((100vw-48rem)/2-20.25rem))] top-44 z-30 overflow-y-auto"
+      style={{
+        width: SIDEBAR_WIDTH,
+        maxHeight: "calc(100vh - 12rem)",
+        transform: `translateY(-${offset}px)`,
+      }}
     >
       {sections.map(({ id, labelKey, Icon }) => {
         const selected = active === id;
