@@ -93,6 +93,9 @@ export function useWatchParty(
   const [chat, setChat] = useState<ChatMessage[]>([]);
   const [snapshot, setSnapshot] = useState<RoomSnapshot | null>(null);
   const [hostId, setHostId] = useState<string | null>(null);
+  // The server-confirmed identity from join() — authoritative for "is this me?"
+  // regardless of how the guest id resolved client-side.
+  const [confirmedId, setConfirmedId] = useState<string | null>(null);
 
   const onSelfRemovedRef = useRef(opts?.onSelfRemoved);
   onSelfRemovedRef.current = opts?.onSelfRemoved;
@@ -124,9 +127,29 @@ export function useWatchParty(
   // (e.g. resolving our own display name for optimistic chat).
   const membersRef = useRef<Member[]>([]);
   membersRef.current = members;
+  // After WE toggle the room lock, remember the intended value for a short
+  // window so a stale snapshot/settings event (in flight before the server
+  // applied our change) can't flap the UI back. Cleared once it matches.
+  const pendingLockRef = useRef<{ value: boolean; until: number } | null>(null);
   // Flips to true after we leave / are removed, so the connection effect won't
   // immediately reconnect.
   const removedRef = useRef(false);
+
+  // Reconcile an incoming authoritative snapshot with a just-set lock value:
+  // if we toggled the lock <4s ago and the server snapshot still reflects the
+  // OLD value (event was in flight), keep our intended value to avoid flapping.
+  // Once the server agrees, clear the pending marker.
+  const reconcileSnapshot = useCallback((snap: RoomSnapshot | null): RoomSnapshot | null => {
+    if (!snap) return snap;
+    const p = pendingLockRef.current;
+    if (p && Date.now() < p.until) {
+      if (snap.locked === p.value) pendingLockRef.current = null;
+      else return { ...snap, locked: p.value };
+    } else if (p) {
+      pendingLockRef.current = null;
+    }
+    return snap;
+  }, []);
 
   const onRemote = useCallback((handler: (e: PartyEvent) => void) => {
     remoteHandlers.current.add(handler);
@@ -264,6 +287,9 @@ export function useWatchParty(
   const setFlags = useCallback(
     (flags: { locked?: boolean }) => {
       if (!roomId) return;
+      if (typeof flags.locked === "boolean") {
+        pendingLockRef.current = { value: flags.locked, until: Date.now() + 4000 };
+      }
       setSnapshot((prev) => (prev ? { ...prev, ...flags } : prev));
       post("moderate", { roomId, action: "set-flags", flags });
     },
@@ -303,8 +329,9 @@ export function useWatchParty(
       return;
     }
     if (!data) return;
+    if (data.me?.userId) setConfirmedId(String(data.me.userId));
     if (data.snapshot) {
-      setSnapshot(data.snapshot);
+      setSnapshot(reconcileSnapshot(data.snapshot));
       if (data.snapshot.hostId) setHostId(data.snapshot.hostId);
     }
     if (Array.isArray(data.chat)) setChat(data.chat);
@@ -319,7 +346,7 @@ export function useWatchParty(
       };
       remoteHandlers.current.forEach((h) => h(ev));
     }
-  }, [roomId, teardown]);
+  }, [roomId, teardown, reconcileSnapshot]);
 
   // Dispatch inbound SSE events.
   const dispatch = useCallback((ev: PartyEvent) => {
@@ -356,7 +383,7 @@ export function useWatchParty(
     }
     if (ev.type === "snapshot") {
       if (ev.payload?.snapshot) {
-        setSnapshot(ev.payload.snapshot);
+        setSnapshot(reconcileSnapshot(ev.payload.snapshot));
         if (ev.payload.snapshot.hostId) setHostId(ev.payload.snapshot.hostId);
       }
       if (Array.isArray(ev.payload?.members)) setMembers(ev.payload.members);
@@ -370,7 +397,7 @@ export function useWatchParty(
     if (ev.type === "settings") {
       // Room flags changed (locked) — adopt the fresh snapshot when present.
       if (ev.payload?.snapshot) {
-        setSnapshot(ev.payload.snapshot);
+        setSnapshot(reconcileSnapshot(ev.payload.snapshot));
         if (ev.payload.snapshot.hostId) setHostId(ev.payload.snapshot.hostId);
       }
       return;
@@ -495,20 +522,20 @@ export function useWatchParty(
   // Memoize the context so its identity only changes when something it carries
   // actually changes. Without this, a new object each render churns the player's
   // useMemo / sync effects (deps include `party`) and breaks live sync.
-  const isHost = !!effectiveUserId && effectiveUserId === hostId;
-  const amMuted =
-    !!effectiveUserId && members.some((m) => m.userId === effectiveUserId && m.muted);
+  // Effective id may briefly be null while a guest identity resolves; fall back
+  // to the server-confirmed id so "this is me" (ring, mute/block flags) is right.
+  const myId = effectiveUserId || confirmedId;
+  const isHost = !!myId && myId === hostId;
+  const amMuted = !!myId && members.some((m) => m.userId === myId && m.muted);
   const amPlaybackBlocked =
-    !!effectiveUserId &&
-    !isHost &&
-    members.some((m) => m.userId === effectiveUserId && m.playbackBlocked);
+    !!myId && !isHost && members.some((m) => m.userId === myId && m.playbackBlocked);
   const locked = !!snapshot?.locked;
 
   const ctx = useMemo<PartyContext | null>(() => {
     if (!roomId) return null;
     return {
       roomId,
-      myId: effectiveUserId,
+      myId,
       hostId,
       isHost,
       isConnected,
@@ -534,7 +561,7 @@ export function useWatchParty(
     };
   }, [
     roomId,
-    effectiveUserId,
+    myId,
     hostId,
     isHost,
     isConnected,

@@ -179,8 +179,18 @@ function ActiveRoom({ party, onClose }: { party: PartyContext; onClose?: () => v
     amMuted,
   } = party;
   const [text, setText] = useState("");
+  // Cooldown after toggling the room lock so spamming the button can't outpace
+  // the round-trip and leave local/server state flapping between Public/Private.
+  const [lockBusy, setLockBusy] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const logRef = useRef<HTMLDivElement | null>(null);
+
+  const toggleLock = () => {
+    if (lockBusy) return;
+    setLockBusy(true);
+    setFlags({ locked: !snapshot?.locked });
+    window.setTimeout(() => setLockBusy(false), 700);
+  };
 
   useEffect(() => {
     const el = logRef.current;
@@ -189,14 +199,20 @@ function ActiveRoom({ party, onClose }: { party: PartyContext; onClose?: () => v
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
-    const t = text.trim();
-    if (!t) return;
-    sendChat(t);
+    const val = text.trim();
+    if (!val) return;
+    if (amMuted) {
+      toast.error(t("party.mutedBanner"));
+      return;
+    }
+    sendChat(val);
     setText("");
   };
 
   const insertEmoji = (insert: string) => {
-    setText((prev) => prev + insert);
+    // Anime customs insert a `:shortcode:`; convert it to the real emoji char so
+    // the composer shows the emoji, not the text (same as typing it).
+    setText((prev) => replaceShortcodes(prev + insert));
     inputRef.current?.focus();
   };
 
@@ -229,12 +245,13 @@ function ActiveRoom({ party, onClose }: { party: PartyContext; onClose?: () => v
               the invite button. */}
           {isHost && (
             <button
-              onClick={() => setFlags({ locked: !snapshot?.locked })}
+              onClick={toggleLock}
+              disabled={lockBusy}
               title={snapshot?.locked ? t("party.roomLockedHint") : t("party.roomOpenHint")}
-              className={`flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition-colors ${
+              className={`flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition-colors disabled:opacity-60 ${
                 snapshot?.locked
-                  ? "bg-action/20 text-action hover:bg-action/30"
-                  : "text-white/70 hover:bg-white/10"
+                  ? "bg-action/20 text-action hover:bg-action/40"
+                  : "bg-white/5 text-white/70 hover:bg-white/15"
               }`}
             >
               {snapshot?.locked ? <MdLock size={14} /> : <MdPublic size={14} />}
@@ -326,10 +343,7 @@ function ActiveRoom({ party, onClose }: { party: PartyContext; onClose?: () => v
             <p className="text-center text-sm text-white/40">{t("party.noMessages")}</p>
           )}
           {chat.map((msg) => (
-            <div
-              key={msg.id}
-              className={`flex items-start gap-2 ${(msg as any).pending ? "opacity-50" : ""}`}
-            >
+            <div key={msg.id} className="flex items-start gap-2">
               <MemberAvatar name={msg.name} image={msg.image} size={28} className="mt-0.5" />
               <div className="min-w-0">
                 <span className="mr-1.5 text-sm font-semibold text-action">{msg.name}</span>
@@ -357,13 +371,12 @@ function ActiveRoom({ party, onClose }: { party: PartyContext; onClose?: () => v
             value={text}
             onChange={(e) => setText(replaceShortcodes(e.target.value))}
             maxLength={500}
-            disabled={amMuted}
             placeholder={amMuted ? t("party.muted") : t("party.message")}
-            className="flex-1 rounded-md bg-white/10 px-3 py-2 text-sm outline-none placeholder:text-white/40 focus:bg-white/15 disabled:opacity-60"
+            className="flex-1 rounded-md bg-white/10 px-3 py-2 text-sm outline-none placeholder:text-white/40 focus:bg-white/15"
           />
           <button
             type="submit"
-            disabled={amMuted || !text.trim()}
+            disabled={!text.trim()}
             className="flex h-9 w-9 items-center justify-center rounded-md bg-action text-white disabled:opacity-40"
           >
             <IoSend size={16} />

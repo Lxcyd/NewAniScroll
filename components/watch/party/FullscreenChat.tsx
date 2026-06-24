@@ -197,7 +197,7 @@ export default function FullscreenChat({ onRemote, sendChat, myId, playerEl, act
 
         {showComposer && (
           <form onSubmit={submit} style={{ display: "flex", alignItems: "center", gap: 4 }}>
-            <EmojiButton onPick={(ins) => { setText((p) => p + ins); setHasText(true); inputRef.current?.focus(); }} fullscreen />
+            <EmojiButton onPick={(ins) => { setText((p) => replaceShortcodes(p + ins)); setHasText(true); inputRef.current?.focus(); }} fullscreen />
             <input
               ref={inputRef}
               value={text}
