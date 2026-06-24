@@ -177,10 +177,33 @@ function SettingsNav({
   const go = (id: string) => {
     document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
+
+  const [maxHeight, setMaxHeight] = useState("calc(100vh - 12rem)");
+
+  useEffect(() => {
+    const TOP_PX = 176; // top-44
+    const MARGIN = 16;
+    const update = () => {
+      const footer = document.querySelector("footer");
+      if (!footer) return;
+      const footerTop = footer.getBoundingClientRect().top;
+      const natural = window.innerHeight - TOP_PX - MARGIN;
+      const constrained = footerTop - TOP_PX - MARGIN;
+      setMaxHeight(`${Math.max(0, Math.min(natural, constrained))}px`);
+    };
+    window.addEventListener("scroll", update, { passive: true });
+    window.addEventListener("resize", update);
+    update();
+    return () => {
+      window.removeEventListener("scroll", update);
+      window.removeEventListener("resize", update);
+    };
+  }, []);
+
   return (
     <nav
-      className="hidden md:flex flex-col gap-1 fixed left-[max(1rem,calc((100vw-48rem)/2-20.25rem))] top-20 z-30 max-h-[calc(100vh-6rem)] overflow-y-auto"
-      style={{ width: SIDEBAR_WIDTH }}
+      className="hidden md:flex flex-col gap-1 fixed left-[max(1rem,calc((100vw-48rem)/2-20.25rem))] top-44 z-30 overflow-y-auto"
+      style={{ width: SIDEBAR_WIDTH, maxHeight }}
     >
       {sections.map(({ id, labelKey, Icon }) => {
         const selected = active === id;
