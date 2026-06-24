@@ -13,7 +13,7 @@ import type {
   PartyEvent,
   PartyEventType,
   RoomSnapshot,
-} from "./redisRoom";
+} from "./types";
 
 const PRESENCE_INTERVAL_MS = 15_000;
 

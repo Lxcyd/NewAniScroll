@@ -11,61 +11,16 @@
 //   w2g:channel:{id}         Pub/Sub channel for live event fan-out
 
 import { redis } from "@/lib/redis";
+import type { ChatMessage, Member, PartyEvent, RoomSnapshot } from "./types";
+
+// Re-export the shared types so existing `from "@/lib/watch2gether/redisRoom"`
+// type imports (API routes) keep working. The canonical home is ./types, which
+// is dependency-free so client code never reaches `ioredis` through it.
+export type { ChatMessage, Member, PartyEvent, PartyEventType, RoomSnapshot } from "./types";
 
 export const ROOM_TTL = 6 * 60 * 60; // 6h
 export const PRESENCE_TTL = 30; // seconds — refreshed by client heartbeat
 export const CHAT_MAX = 100;
-
-export type PartyEventType =
-  | "play"
-  | "pause"
-  | "seek"
-  | "rate"
-  | "position"
-  | "episode"
-  | "server"
-  | "chat"
-  | "presence"
-  | "snapshot"
-  | "host"
-  | "kick"
-  | "ban";
-
-export interface PartyEvent {
-  type: PartyEventType;
-  senderId: string;
-  ts: number;
-  payload?: any;
-}
-
-export interface RoomSnapshot {
-  aniId: string;
-  epiNumber: string;
-  dub: boolean;
-  server: string;
-  position: number;
-  paused: boolean;
-  rate: number;
-  hostId: string;
-  updatedAt: number;
-}
-
-export interface ChatMessage {
-  id: string;
-  userId: string;
-  name: string;
-  image?: string;
-  text: string;
-  ts: number;
-}
-
-export interface Member {
-  userId: string;
-  name: string;
-  image?: string;
-  /** True for the room host (computed in listMembers). */
-  isHost?: boolean;
-}
 
 const roomKey = (id: string) => `w2g:room:${id}`;
 const membersKey = (id: string) => `w2g:room:${id}:members`;

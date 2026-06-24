@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { IoSend, IoChatbubbleEllipses } from "react-icons/io5";
 import type { PartyContext } from "@/lib/watch2gether/useWatchParty";
-import type { ChatMessage } from "@/lib/watch2gether/redisRoom";
+import type { ChatMessage } from "@/lib/watch2gether/types";
 import ChatText from "./ChatText";
 import EmojiButton from "./EmojiButton";
 
