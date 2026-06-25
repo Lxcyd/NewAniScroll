@@ -7,6 +7,32 @@ Ordre anti-chronologique (le plus récent en haut). Une entrée = une session/su
 
 ---
 
+## 2026-06-25 (suite 3) — Watch 2gether : kick inactivité (vrai fix), hover Public/Privé
+
+### Décisions / fixes
+- **Kick inactivité ne marchait pas (timing)** : le flag `:inactive` n'était posé que par `listMembers` (lors d'un reap). Mais dans une room **solo / silencieuse**, rien ne déclenche `listMembers` pendant que le tel dort → flag jamais posé → au réveil `consumeInactive` renvoie false → reconnexion silencieuse. Fix : nouvelle fonction **`reapInactiveMembers(roomId)`** (prune + flag, + transfert d'host si l'host a timeout) appelée **au tout début** de `join` (avant le `consumeInactive`) ET de `stream`. `listMembers` l'appelle aussi en tête (DRY). Donc le reap+flag est garanti AVANT la décision de rejet → 403 « Removed for inactivity » + toast `party.toastInactive`. One-shot conservé (rejoin manuel ok).
+- **Hover Public/Privé** (spec user) : fond **transparent** par défaut ; au hover, un **rectangle de la couleur du texte, atténué** apparaît derrière (Privé = `hover:bg-action/20` rose, Public = `hover:bg-white/15` blanc), animé via `transition-colors`. Avant : fond toujours visible.
+
+### Leçons / pièges
+- **Un flag posé en effet de bord d'une lecture (`listMembers`) n'est pas fiable** s'il faut qu'il soit prêt à un autre moment : il faut une fonction de reap **explicite** appelée sur le chemin critique (join/stream), pas compter sur un appel incident.
+- **Reap = aussi gérer la succession d'host** : sinon une room peut rester sans host actif si l'host est celui qui a timeout.
+
+---
+
+## 2026-06-25 (suite 2) — Watch 2gether : chapitres grisé+fermé (FR), hint v2, zone hover = taille du chat
+
+### Décisions / fixes
+- **Bouton chapitres pas grisé en FR** : la CSS ne matchait que `aria-label*="Chapters"` (anglais) ; en FR le bouton est « Chapitres » (via `VIDSTACK_FR`) → jamais grisé. Fix : CSS couvre maintenant **Chapters + Chapitres** + la classe `.vds-chapters-menu-button` + une **classe marqueur `.w2g-chapters-btn`** qu'un effet JS pose à l'exécution (trouve le bouton par aria-label EN/FR, poll ~10s) → grisage garanti quelle que soit la langue / les renommages de classe Vidstack.
+- **Menu chapitres ne se fermait pas au blocage** : nouvel effet sur le front montant de `amPlaybackBlocked` → si le menu chapitres est ouvert (`aria-expanded='true'`), on le ferme via **Escape** (dispatch sur le bouton + le menu ouvert + document). PAS un `click` synthétique : le veto capture l'avalerait. + `blur()` en fallback. (`keyDisabled` ne gêne pas : les menus Vidstack ont leur propre handler Escape.)
+- **Hint FS « première fois » manquant** : compteur `w2g.fsChat.hintSeen` probablement épuisé (≥3) en test → nouvelle clé **`.v2`** (reset pour tout le monde) + durée 3,6s→**4,5s** pour qu'il soit bien vu au moins une fois.
+- **Zone de hover = taille du chat** (spec user) : avant une fine bande de 64px pleine hauteur ; maintenant la zone fait la **footprint du panneau** (`min(364px, 42vw)` × `58vh`, ancrée bas-droite) → survoler là où le chat apparaît l'ouvre. Compromis assumé : cette zone `pointer-events:auto` peut intercepter un clic vidéo en bas-droite, mais c'est exactement la zone d'interaction chat.
+
+### Leçons / pièges
+- **aria-label Vidstack est localisé** : tout sélecteur CSS/JS basé dessus doit couvrir EN **et** FR (« Chapters »/« Chapitres »). Le plus robuste : poser sa propre classe marqueur via JS et styler dessus.
+- **Fermer un menu Vidstack quand les clics sont vetoés** : utiliser **Escape** (clavier, non vetoé), pas un click synthétique (avalé par le veto capture).
+
+---
+
 ## 2026-06-25 (suite) — Watch 2gether : blocage anti-poison, menu chapitres verrouillé, hint sans gap, i18n
 
 ### Décisions / fixes

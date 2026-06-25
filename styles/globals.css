@@ -1081,15 +1081,17 @@ input[type="number"] {
 
 /* The chapters MENU (button + popup) lets a blocked user jump the playhead by
    clicking a chapter title, which is just a disguised seek — so it must be
-   locked out too. Covers the chapters menu button and the live chapter title
-   shown next to it. The thumbnail/chapter title that opens on hover is inert
-   because the time-slider above is already pointer-events:none. */
+   locked out too. Covers the chapters menu button (EN "Chapters" + FR
+   "Chapitres" aria-labels, plus the class), the live chapter title, and — via
+   the marker class our JS adds — any chapters menu button found at runtime. */
 .w2g-playback-blocked .vds-chapters-menu-button,
 .w2g-playback-blocked [data-media-menu-button][aria-label*="Chapters" i],
-.w2g-playback-blocked .vds-chapter-title {
+.w2g-playback-blocked [data-media-menu-button][aria-label*="Chapitres" i],
+.w2g-playback-blocked .vds-chapter-title,
+.w2g-playback-blocked .w2g-chapters-btn {
   pointer-events: none !important;
-  opacity: 0.5;
-  cursor: not-allowed;
+  opacity: 0.5 !important;
+  cursor: not-allowed !important;
 }
 
 /* ── Vidstack seek-bar chrome ────────────────────────────────────

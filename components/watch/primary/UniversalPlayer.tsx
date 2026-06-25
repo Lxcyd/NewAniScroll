@@ -2636,6 +2636,67 @@ export default function UniversalPlayer({
     return () => timers.forEach((id) => window.clearTimeout(id));
   }, [party?.amPlaybackBlocked]);
 
+  // ── Chapters button: tag for greying + close the menu when blocked ──
+  // The CSS lockout greys the chapters button, but its aria-label is localized
+  // (EN "Chapters" / FR "Chapitres") and Vidstack class names can drift, so we
+  // ALSO find the button at runtime and stamp a stable marker class
+  // (`.w2g-chapters-btn`) the CSS keys off — guaranteeing it's greyed in any
+  // language. And if the chapters menu is already OPEN when the block lands, we
+  // close it (Escape) so a blocked user can't keep using a menu they had open.
+  useEffect(() => {
+    const playerEl = playerRef.current?.el as HTMLElement | undefined;
+    if (!playerEl) return;
+
+    const findChaptersBtn = (): HTMLElement | null =>
+      playerEl.querySelector<HTMLElement>(
+        ".vds-chapters-menu-button, " +
+          "[data-media-menu-button][aria-label*='hapter'], " +
+          "[data-media-menu-button][aria-label*='hapitre']",
+      );
+
+    // Stamp the marker class once the button exists (it's built a few frames
+    // after mount). Poll briefly, then stop.
+    let tries = 0;
+    const tagId = window.setInterval(() => {
+      const btn = findChaptersBtn();
+      if (btn) {
+        btn.classList.add("w2g-chapters-btn");
+        window.clearInterval(tagId);
+      } else if (++tries > 40) {
+        window.clearInterval(tagId);
+      }
+    }, 250);
+
+    return () => window.clearInterval(tagId);
+  }, [streamData]);
+
+  // Close the chapters menu the instant we become blocked (covers a menu left
+  // open from before the block). Separate from the tagging effect so it fires on
+  // the block transition, not just on stream change.
+  useEffect(() => {
+    if (!party?.amPlaybackBlocked) return;
+    const playerEl = playerRef.current?.el as HTMLElement | undefined;
+    if (!playerEl) return;
+    const btn = playerEl.querySelector<HTMLElement>(
+      ".vds-chapters-menu-button[aria-expanded='true'], " +
+        "[data-media-menu-button][aria-label*='hapter'][aria-expanded='true'], " +
+        "[data-media-menu-button][aria-label*='hapitre'][aria-expanded='true']",
+    );
+    if (!btn) return;
+    // Close via Escape — NOT a synthetic click: our capture-phase veto would
+    // swallow the click (it blocks the chapters button when blocked), so the
+    // menu would stay open. Escape isn't vetoed and Vidstack closes menus on it.
+    // Dispatch on the button, the open menu element, and document to cover
+    // wherever Vidstack's menu keydown listener lives.
+    const esc = () => new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true });
+    btn.dispatchEvent(esc());
+    const openMenu = document.querySelector<HTMLElement>("[role='menu'][aria-hidden='false'], .vds-menu-items[aria-hidden='false']");
+    openMenu?.dispatchEvent(esc());
+    document.dispatchEvent(esc());
+    // Final fallback: blur the button so the menu loses focus and auto-dismisses.
+    setTimeout(() => btn.blur(), 0);
+  }, [party?.amPlaybackBlocked]);
+
   // ── Blocked: veto playback-control clicks at capture phase ──
   // The CSS lockout (`.w2g-playback-blocked`) dims + disables the seek bar / play
   // button / chapters affordance, but a couple of things slip through it: the

@@ -8,6 +8,7 @@ import {
   isMember,
   isValidRoomId,
   listMembers,
+  reapInactiveMembers,
   roomExists,
 } from "@/lib/watch2gether/redisRoom";
 import { createSubscriber } from "@/lib/watch2gether/subscriber";
@@ -46,9 +47,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   // the room before join() rejects). Locked rooms only stream to existing
   // members; new arrivals are turned away here too.
   if (await isBanned(roomId, user.userId)) return res.status(403).end();
-  // Reaped for inactivity → no stream until they (re)join via the join route,
-  // which reports the reason + consumes the flag. We only PEEK here (the join
-  // route owns the consume) so the SSE doesn't silently re-open the room.
+  // Reap timed-out members first (so a waking phone whose SSE reconnects gets
+  // flagged even in a quiet room), then PEEK the flag — the join route owns the
+  // consume, so the SSE doesn't silently re-open the room.
+  await reapInactiveMembers(roomId);
   if (!(await isMember(roomId, user.userId)) && (await isInactive(roomId, user.userId))) {
     return res.status(403).end();
   }

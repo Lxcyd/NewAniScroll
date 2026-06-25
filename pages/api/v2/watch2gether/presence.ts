@@ -4,10 +4,12 @@ import {
   acquireThrottle,
   getSnapshot,
   isBanned,
+  isInactive,
   isMember,
   isValidRoomId,
   listMembers,
   publishEvent,
+  reapInactiveMembers,
   roomExists,
   touchPresence,
 } from "@/lib/watch2gether/redisRoom";
@@ -28,6 +30,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // /presence directly to sneak back in.
     if (await isBanned(roomId, user.userId)) {
       return res.status(403).json({ error: "You are banned from this room" });
+    }
+    // Reap timed-out members, then reject a heartbeat from someone reaped for
+    // inactivity — otherwise touchPresence below would silently re-admit them
+    // before the client's join() rejection strips the room.
+    await reapInactiveMembers(roomId);
+    if (!(await isMember(roomId, user.userId)) && (await isInactive(roomId, user.userId))) {
+      return res.status(403).json({ error: "Removed for inactivity" });
     }
     const snap = await getSnapshot(roomId);
     if (snap?.locked && !(await isMember(roomId, user.userId))) {

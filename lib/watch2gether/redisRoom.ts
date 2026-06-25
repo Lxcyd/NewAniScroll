@@ -359,6 +359,60 @@ export async function touchPresence(roomId: string, member: Member): Promise<voi
   await redis.expire(seenKey(roomId), ROOM_TTL);
 }
 
+/** Reap members who've been offline past MEMBER_TTL (a missed departure beacon /
+ *  a phone asleep too long) and flag the genuinely-inactive ones so their next
+ *  reconnect gets the "removed for inactivity" notice. Returns the userIds newly
+ *  flagged as inactive.
+ *
+ *  This MUST run at the start of join/stream/presence: otherwise a solo or quiet
+ *  room never triggers `listMembers` while a phone sleeps, so the flag is never
+ *  set, and the waking client rejoins silently (the bug this fixes). */
+export async function reapInactiveMembers(roomId: string): Promise<string[]> {
+  assertRedis();
+  const ordered = await redis.zrange(orderKey(roomId), 0, -1);
+  if (!ordered.length) return [];
+  const now = Date.now();
+  const seenFlat = await redis.zrange(seenKey(roomId), 0, -1, "WITHSCORES");
+  const lastSeen = new Map<string, number>();
+  for (let i = 0; i < seenFlat.length; i += 2) {
+    lastSeen.set(seenFlat[i], Number(seenFlat[i + 1]) || 0);
+  }
+  const profiles = await redis.hgetall(profilesKey(roomId));
+
+  const ghosts: string[] = [];
+  const inactiveGhosts: string[] = [];
+  for (const userId of ordered) {
+    const online = (await redis.exists(presenceKey(roomId, userId))) === 1;
+    if (online) continue;
+    const seen = lastSeen.get(userId);
+    const hasProfile = !!profiles?.[userId];
+    const stale = seen !== undefined && now - seen > MEMBER_TTL_MS;
+    const unknown = seen === undefined && !hasProfile;
+    if (stale || unknown) {
+      ghosts.push(userId);
+      if (stale) inactiveGhosts.push(userId); // genuine inactivity (not migration junk)
+    }
+  }
+  if (ghosts.length) {
+    await redis.srem(membersKey(roomId), ...ghosts);
+    await redis.zrem(orderKey(roomId), ...ghosts);
+    await redis.zrem(seenKey(roomId), ...ghosts);
+    await redis.hdel(profilesKey(roomId), ...ghosts);
+    if (inactiveGhosts.length) {
+      await redis.sadd(inactiveKey(roomId), ...inactiveGhosts);
+      await redis.expire(inactiveKey(roomId), ROOM_TTL);
+    }
+    // If the host timed out, hand the crown to the oldest remaining member so the
+    // room isn't left hostless (mirrors removeMember's succession).
+    const host = await getHostId(roomId);
+    if (host && ghosts.includes(host)) {
+      const next = await oldestMember(roomId);
+      if (next) await setHost(roomId, next);
+    }
+  }
+  return inactiveGhosts;
+}
+
 /** Build the member list. Membership is DURABLE: a member stays (avatar shown,
  *  slot kept) while offline — through sleep / a backgrounded tab — and is only
  *  dropped on explicit leave/kick/ban OR when no heartbeat has arrived for
@@ -366,19 +420,14 @@ export async function touchPresence(roomId: string, member: Member): Promise<voi
  *  whether the short presence key is still live, so the UI can dim sleepers. */
 export async function listMembers(roomId: string): Promise<Member[]> {
   assertRedis();
+  // First prune + flag anyone who's timed out, so the list below only contains
+  // live (online or recently-seen) members and the inactivity flags are current.
+  await reapInactiveMembers(roomId);
+
   // Iterate in join order (oldest first) — this is the stable render order, and
   // it survives offline/online because the order zset is never re-stamped.
   const ordered = await redis.zrange(orderKey(roomId), 0, -1);
   if (!ordered.length) return [];
-
-  const now = Date.now();
-  // Last-seen per member (for the MEMBER_TTL prune). zrange WITHSCORES → flat
-  // [member, score, member, score, …].
-  const seenFlat = await redis.zrange(seenKey(roomId), 0, -1, "WITHSCORES");
-  const lastSeen = new Map<string, number>();
-  for (let i = 0; i < seenFlat.length; i += 2) {
-    lastSeen.set(seenFlat[i], Number(seenFlat[i + 1]) || 0);
-  }
 
   const profiles = await redis.hgetall(profilesKey(roomId));
   const hostId = await getHostId(roomId);
@@ -386,26 +435,8 @@ export async function listMembers(roomId: string): Promise<Member[]> {
   const pbBlocks = await getPlaybackBlocks(roomId);
 
   const members: Member[] = [];
-  const ghosts: string[] = [];
-  // Subset of ghosts removed specifically for INACTIVITY (a real member who went
-  // quiet past MEMBER_TTL) — flagged so their next reconnect gets a "kicked for
-  // inactivity" notice instead of silently rejoining.
-  const inactiveGhosts: string[] = [];
   for (const userId of ordered) {
     const online = (await redis.exists(presenceKey(roomId, userId))) === 1;
-    const seen = lastSeen.get(userId);
-    // Reap only a member who is offline AND last seen beyond the safety window
-    // (a missed departure beacon / crash). A member with no `seen` record yet
-    // (e.g. mid-migration, or one that just joined) is kept as long as they're
-    // online OR have a durable profile — the next heartbeat writes their score.
-    const hasProfile = !!profiles?.[userId];
-    const stale = seen !== undefined && now - seen > MEMBER_TTL_MS;
-    const unknown = seen === undefined && !online && !hasProfile;
-    if (!online && (stale || unknown)) {
-      ghosts.push(userId);
-      if (stale) inactiveGhosts.push(userId); // genuine inactivity, not migration junk
-      continue;
-    }
     // Durable profile (survives presence expiry); fall back to the online key.
     let raw = profiles?.[userId];
     if (!raw) raw = (await redis.get(presenceKey(roomId, userId))) || "";
@@ -427,16 +458,6 @@ export async function listMembers(roomId: string): Promise<Member[]> {
       playbackBlocked: pbBlocks.has(userId),
       online,
     });
-  }
-  if (ghosts.length) {
-    await redis.srem(membersKey(roomId), ...ghosts);
-    await redis.zrem(orderKey(roomId), ...ghosts);
-    await redis.zrem(seenKey(roomId), ...ghosts);
-    await redis.hdel(profilesKey(roomId), ...ghosts);
-    if (inactiveGhosts.length) {
-      await redis.sadd(inactiveKey(roomId), ...inactiveGhosts);
-      await redis.expire(inactiveKey(roomId), ROOM_TTL);
-    }
   }
   return members;
 }

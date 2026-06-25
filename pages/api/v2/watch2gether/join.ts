@@ -10,6 +10,7 @@ import {
   isValidRoomId,
   listMembers,
   publishEvent,
+  reapInactiveMembers,
   roomExists,
 } from "@/lib/watch2gether/redisRoom";
 
@@ -29,6 +30,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (await isBanned(roomId, user.userId)) {
       return res.status(403).json({ error: "You are banned from this room" });
     }
+    // Reap timed-out members FIRST so the inactivity flag is set even when the
+    // room was quiet/solo while this user's phone slept (otherwise nothing would
+    // have triggered the reap, and they'd rejoin silently — the reported bug).
+    await reapInactiveMembers(roomId);
     // Reaped for inactivity? Reject this (auto-)reconnect with a notice. One-shot:
     // consuming the flag means a deliberate manual rejoin right after succeeds.
     // (Skip if they're somehow still a member — only ex-members get the notice.)

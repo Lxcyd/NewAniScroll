@@ -8,9 +8,11 @@ import EmojiButton from "./EmojiButton";
 import { replaceShortcodes } from "@/lib/watch2gether/animeEmojis";
 
 // Show the "hover the right edge" hint only the first few times the user enters
-// fullscreen with a party — once they've learned it, stop nagging.
-const HINT_SEEN_KEY = "w2g.fsChat.hintSeen";
+// fullscreen with a party — once they've learned it, stop nagging. (v2 key:
+// resets the counter for everyone so the redesigned hint is seen at least once.)
+const HINT_SEEN_KEY = "w2g.fsChat.hintSeen.v2";
 const HINT_MAX_SHOWS = 3;
+const HINT_DURATION_MS = 4500;
 
 interface Props {
   /** Stable subscribe fn — FullscreenChat keeps its OWN message list from this
@@ -66,7 +68,7 @@ export default function FullscreenChat({ onRemote, sendChat, playerEl, active }:
     } catch {
       /* ignore */
     }
-    const id = window.setTimeout(() => setHint(false), 3600);
+    const id = window.setTimeout(() => setHint(false), HINT_DURATION_MS);
     return () => window.clearTimeout(id);
   }, [active]);
 
@@ -136,21 +138,26 @@ export default function FullscreenChat({ onRemote, sendChat, playerEl, active }:
   // on PiP / fullscreen / etc.
   const BOTTOM = 96;
   const PANEL_W = 340; // px, matched by the min() below
+  // The hover trigger zone matches the CHAT's own footprint (width + height) so
+  // the area that opens it is as big as the panel itself, not a thin edge strip.
+  const ZONE_W = `min(${PANEL_W + 24}px, 42vw)`;
+  const ZONE_H = "58vh";
 
   const overlay = (
     <div style={{ position: "absolute", inset: 0, zIndex: 40, pointerEvents: "none" }}>
-      {/* Right-edge hover zone — entering it opens the chat; leaving it (or the
-          panel) closes it instantly. Stops above the control bar so PiP /
-          fullscreen stay clickable. */}
+      {/* Hover trigger zone — sized to the chat panel's footprint (bottom-right,
+          above the control bar). Entering it opens the chat; leaving it (or the
+          panel) closes it instantly. Sits above the controls so PiP / fullscreen
+          stay clickable. */}
       <div
         onMouseEnter={openNow}
         onMouseLeave={requestClose}
         style={{
           position: "absolute",
-          top: 0,
           right: 0,
-          width: 64,
-          height: `calc(100% - ${BOTTOM + 8}px)`,
+          bottom: BOTTOM,
+          width: ZONE_W,
+          height: ZONE_H,
           pointerEvents: "auto",
         }}
       />

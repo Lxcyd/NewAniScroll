@@ -277,10 +277,10 @@ function ActiveRoom({ party, onClose }: { party: PartyContext; onClose?: () => v
               onClick={toggleLock}
               disabled={lockBusy}
               title={snapshot?.locked ? t("party.roomLockedHint") : t("party.roomOpenHint")}
-              className={`flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition-colors disabled:opacity-60 ${
+              className={`flex items-center gap-1 rounded-md bg-transparent px-2 py-1 text-xs font-medium transition-colors disabled:opacity-60 ${
                 snapshot?.locked
-                  ? "bg-action/20 text-action hover:bg-action/40"
-                  : "bg-white/5 text-white/70 hover:bg-white/15"
+                  ? "text-action hover:bg-action/20"
+                  : "text-white/70 hover:bg-white/15"
               }`}
             >
               {snapshot?.locked ? <MdLock size={14} /> : <MdPublic size={14} />}
