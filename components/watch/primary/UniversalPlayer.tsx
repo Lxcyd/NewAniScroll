@@ -1102,6 +1102,10 @@ export default function UniversalPlayer({
   partyRef.current = party;
   // Throttle the "you're blocked" toast so reverting playback doesn't spam it.
   const blockedToastAtRef = useRef(0);
+  // Set by the sync effect to its `enforceBlocked` fn so the block-transition
+  // effect below can fire it the instant we become blocked (covering the race
+  // where the user clicked play right as the block landed).
+  const enforceBlockedRef = useRef<((showToast?: boolean) => boolean) | null>(null);
   // Live hls.js instance — captured on provider setup so the seek handler can
   // abort in-flight segment loads and re-anchor on the new position.
   const hlsRef = useRef<any>(null);
@@ -2428,6 +2432,9 @@ export default function UniversalPlayer({
       }
       return true;
     };
+    // Expose to the block-transition effect so it can enforce the instant we
+    // become blocked (before the periodic loop's first tick).
+    enforceBlockedRef.current = enforceBlocked;
 
     // Local player → broadcast. Bail when applying a remote action OR when our
     // playback is blocked (enforceBlocked reverts and never lets us broadcast).
@@ -2562,16 +2569,21 @@ export default function UniversalPlayer({
     //     slip through the event race (server 403s the broadcast, but the local
     //     <video> keeps playing) — they end up desynced with no way back.
     //  2. Even unblocked, clients drift slowly (decode timing, a missed event).
-    // A 1s tick closes both: blocked users are hard-snapped to the authoritative
-    // target every tick (so they can NEVER stay out of sync), and everyone else
-    // gets a gentle nudge when they've drifted past DRIFT_TOLERANCE while playing.
+    // A 500ms tick closes both: blocked users are hard-snapped to the
+    // authoritative target every tick (so they can NEVER stay out of sync), and
+    // everyone else gets a gentle nudge when they've drifted past
+    // DRIFT_TOLERANCE while playing. 500ms is reactive enough for the block case
+    // while staying client-side (zero server Active-CPU cost).
     reconcileId = window.setInterval(() => {
-      if (!video || applying.current) return;
+      if (!video) return;
       if (partyRef.current?.amPlaybackBlocked) {
-        // Re-assert the target without re-toasting every second.
+        // Re-assert the target without re-toasting every tick. Note: we do NOT
+        // bail on `applying.current` here — a blocked user must be corrected
+        // even mid-guard, otherwise a stuck guard could leave them playing.
         enforceBlocked(false);
         return;
       }
+      if (applying.current) return;
       if (!target.known || target.paused) return;
       if (video.paused) return; // a local pause is the user's intent — leave it
       const want = projectedTarget();
@@ -2582,11 +2594,12 @@ export default function UniversalPlayer({
           video!.currentTime = want;
         });
       }
-    }, 1000);
+    }, 500);
 
     return () => {
       window.clearInterval(pollId);
       window.clearInterval(reconcileId);
+      enforceBlockedRef.current = null;
       unsub();
       video?.removeEventListener("play", onPlay);
       video?.removeEventListener("pause", onPause);
@@ -2599,6 +2612,22 @@ export default function UniversalPlayer({
     // <video> (stream change) and when joining/leaving a party.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [party?.broadcast, party?.onRemote, party?.applyingRemoteRef, streamData]);
+
+  // ── Block transition: enforce immediately on the rising edge ──
+  // The periodic loop above catches a blocked user within 500ms, but the user
+  // asked that the correct play/pause state be enforced the *instant* the block
+  // lands — both BEFORE and AFTER the lockout UI applies — so a play click made
+  // in that exact window can't slip through. When `amPlaybackBlocked` flips to
+  // true we fire enforceBlocked right away and a short burst over ~1.2s to cover
+  // any media event (seeked/play) that resolves a few frames later.
+  useEffect(() => {
+    if (!party?.amPlaybackBlocked) return;
+    const run = () => enforceBlockedRef.current?.(false);
+    run(); // immediate
+    // Burst: re-assert a few times to swallow the late async play/seeked events.
+    const timers = [80, 250, 600, 1200].map((d) => window.setTimeout(run, d));
+    return () => timers.forEach((id) => window.clearTimeout(id));
+  }, [party?.amPlaybackBlocked]);
 
   // ── Autoplay ──
   // Chrome rejects unmuted autoplay without a user gesture, period. The

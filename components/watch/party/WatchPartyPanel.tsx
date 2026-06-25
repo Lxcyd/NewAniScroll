@@ -338,8 +338,15 @@ function ActiveRoom({ party, onClose }: { party: PartyContext; onClose?: () => v
                 </div>
               )}
               {/* Fixed-size avatar box so badges never shift alignment. The
-                  current user's avatar gets a thin pink ring. */}
-              <div className="relative h-7 w-7">
+                  current user's avatar gets a thin pink ring. An offline member
+                  (phone asleep / tab backgrounded) is kept but dimmed — they
+                  stay in the room until they leave/are removed. */}
+              <div
+                className={`relative h-7 w-7 transition-opacity ${
+                  m.online === false ? "opacity-40" : ""
+                }`}
+                title={m.online === false ? t("party.offline") : undefined}
+              >
                 <MemberAvatar name={m.name} image={m.image} size={28} highlight={isMe} noTitle />
                 {/* Crown bottom-right; mute badge also bottom-right (a muted
                     member is never the host, so they never collide). No badge

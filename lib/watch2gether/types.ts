@@ -60,4 +60,8 @@ export interface Member {
   muted?: boolean;
   /** True when the host has blocked this member from controlling playback. */
   playbackBlocked?: boolean;
+  /** True while the member's short presence (heartbeat) key is live. False when
+   *  they're offline but still a member (phone asleep, tab backgrounded) — the
+   *  avatar stays, just dimmed. Absent (undefined) is treated as online. */
+  online?: boolean;
 }

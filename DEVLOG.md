@@ -7,22 +7,27 @@ Ordre anti-chronologique (le plus récent en haut). Une entrée = une session/su
 
 ---
 
-## 2026-06-25 — Watch 2gether : réconciliation continue, latence, FS chat hover, CPU
+## 2026-06-25 — Watch 2gether : présence persistante (veille), blocage robuste, latence, FS chat, i18n, CPU
 
 ### Décisions / fixes
-- **Bloqué qui met play à l'instant du blocage** (bug user) : l'enforcement n'était que **piloté par events** → race possible (le serveur 403 le broadcast, mais le `<video>` local continue de jouer → désync sans retour). Ajout d'une **boucle de réconciliation 1s** dans l'effet de sync : tant que `amPlaybackBlocked`, on **re-snap** dur sur la cible autoritaire chaque tick (`enforceBlocked(false)` sans re-toast), donc un bloqué **ne peut jamais rester désync**. `enforceBlocked` gère maintenant aussi l'état (pause si la cible est en pause, play sinon) + le rate, pas que la position.
-- **Compensation de latence** : la `position` d'un event remote est échantillonnée à `e.ts` chez l'émetteur ; à l'application, le temps de transit s'est écoulé → un pair *en lecture* a avancé. On projette la position de `min(5s, max(0, now-ts)) * rate` (clamp pour ignorer une horloge faussée) sur `play`/`seek`/`snapshot`. Moins de décalage à chaque action.
-- **Cible locale + anti-dérive** : un `target {position, paused, rate, at, known}` suivi par tous les events ET nos propres broadcasts ; `projectedTarget()` = position + temps écoulé si en lecture. La boucle 1s **nudge** doucement quiconque a dérivé > 1.25s en lecture (guard suppression → pas de re-broadcast). N'agit jamais contre une pause locale (intention user).
-- **FS chat refonte (spec user)** : suppression de l'icône bulle persistante + croix. Désormais **hover du bord droit → ouvre** (slide+fade), **mouse-leave → ferme instantanément** (même transition inversée, 160ms). Petite grâce de 400ms seulement si l'input est non-vide (pour atteindre l'emoji picker). Au **passage en fullscreen**, un **hint discret** (pilule pulsante sur le bord droit, `party.fsHint`) apprend où est le chat — plafonné à 3 affichages (`w2g.fsChat.hintSeen`), disparaît dès qu'on ouvre. Les bulles éphémères restent affichées panneau fermé.
-- **Active CPU** (option « réglages sûrs » choisie) : SSE `stream` self-close 55s→**58s** (au plus près du cap Hobby 60s → on reconnecte le moins souvent possible) + heartbeat 15s→**25s** (moins de réveils timer/connexion). `maxDuration` **reste à 60** : Hobby tue la fonction au-delà → pire. Presence inchangé (5s) : le baisser réduirait peu (heartbeat léger) et casserait la détection de départ rapide à 12s.
+- **Présence persistante pendant la veille** (bug user) : un téléphone en veille → heartbeat stoppé → clé présence (TTL 12s) expirée → membre **prune** (avatar disparu) + réordonné en tête au réveil. Refonte du modèle : l'**appartenance est durable** (retrait seulement sur leave/kick/ban, ou filet **MEMBER_TTL = 5 min** sans heartbeat pour un beacon raté/crash). Nouveau stockage Redis : `:profiles` (hash userId→{name,image}, survit à l'expiration présence) + `:seen` (zset last-seen pour le filet 5 min). `listMembers` itère l'**order zset** (jamais re-stampé → ordre stable par ancienneté) et **ne prune plus** sur expiration présence ; il renvoie un flag `online`. `touchPresence` écrit présence (online court) + profile + seen. `isMember` passe de la **clé présence** au **member set** (sinon une room verrouillée 403 le membre endormi à la reconnexion). `oldestMember` (succession host) préfère le plus ancien **en ligne**.
+- **Avatar veille grisé** : `m.online === false` → avatar `opacity-40` + title `party.offline` ; redevient plein au réveil. Reste à sa place (ordre inchangé).
+- **Bloqué qui met play à l'instant du blocage** (bug user, encore) : en plus de la boucle périodique (now **500ms**), un **effet sur le front montant** de `amPlaybackBlocked` applique l'état correct **immédiatement** + une **rafale** (80/250/600/1200ms) pour avaler les events média async — « avant ET après que le blocage UI ait été appliqué » (demande user). La boucle bloqué **ne bail PAS** sur `applying.current` (sinon un guard coincé laisserait jouer). Host en pause → bloqué repassé en pause sous ~0,5s.
+- **Menu chapitres verrouillé pour un bloqué** : un clic sur un titre de chapitre = un seek déguisé. Ajout au lockout CSS `.w2g-playback-blocked` : `.vds-chapters-menu-button`, `[data-media-menu-button][aria-label*="Chapters"]`, `.vds-chapter-title` (`pointer-events:none`).
+- **Compensation de latence** : `position` d'un event est échantillonnée à `e.ts` chez l'émetteur → on projette `min(5s, max(0, now-ts)) * rate` (clamp horloge) sur `play`/`seek`/`snapshot`. Cible locale `target{position,paused,rate,at,known}` + `projectedTarget()` ; boucle nudge si dérive > 1.25s en lecture (jamais contre une pause locale).
+- **FS chat** : plus d'icône bulle persistante + croix. **Hover bord droit → ouvre** (slide+fade), **mouse-leave → ferme instantanément** (transition inversée 160ms ; grâce 400ms seulement si on tape). **Hint discret** repositionné **en bas-droite, au niveau de la zone de reveal** (avant : centré verticalement) — pilule + chevron gauche + petit nudge horizontal `w2gFsHintNudge` ; plafonné à 3 affichages (`w2g.fsChat.hintSeen`). Bulles éphémères affichées seulement panneau fermé.
+- **i18n bouton « Watch together »** : était en dur dans la page watch → `party.watchTogether` (en/fr).
+- **Active CPU** (« réglages sûrs ») : SSE self-close 55s→**58s**, heartbeat 15s→**25s**, `maxDuration` reste **60** (Hobby tue au-delà). Presence inchangé (5s).
 
 ### Leçons / pièges
-- **Sync event-only ne suffit pas** : il faut une réconciliation périodique pour rattraper la course du blocage ET la dérive lente. Côté **client** → zéro impact sur l'Active CPU serveur.
-- **`maxDuration > plan cap` = fonction tuée**, pas étendue. Sur Hobby (banner « Upgrade to Pro » visible), rester ≤ 60s ; le gain CPU vient du *contenu* de la connexion (heartbeat espacé), pas de sa durée.
-- **Compensation de latence = projeter `position` par `now - e.ts`**, clampé, pour absorber les horloges décalées entre pairs.
+- **Présence ≠ appartenance** : une clé à TTL court ne doit PAS porter l'appartenance, sinon toute suspension JS (veille, onglet en fond) « fait quitter » le membre. Séparer : présence = flag online court ; appartenance = set durable + filet last-seen.
+- **`isMember` doit lire le member set durable** (pas la présence) pour le gate des rooms verrouillées, sinon un membre endormi est 403 chez lui au réveil.
+- **`order zset` jamais re-stampé** = ordre d'affichage stable à travers offline/online ; c'est le `zadd NX` qui le garantit (un `zadd` sans NX au heartbeat réordonnait au réveil).
+- **Sync event-only insuffisant** : réconciliation périodique (client, 0 CPU serveur) + **enforce sur le front montant** du blocage pour la course play-à-l'instant-du-blocage.
+- **`maxDuration > plan cap` = fonction tuée**, pas étendue.
 
 ### État
-- Branche `dev`. Typecheck non lancé localement (TS pas installé dans l'env) — à vérifier au build.
+- Branche `dev`. ⚠️ Nouveau schéma Redis (`:profiles`, `:seen`) : rétro-compatible (membres sans `seen` gardés tant qu'online/profil présent). Typecheck non lancé localement (TS absent de l'env) — à vérifier au build.
 
 ---
 

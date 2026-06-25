@@ -778,6 +778,7 @@
     "notYetReleased": "Not yet released"
   },
   "party": {
+    "watchTogether": "Watch together",
     "title": "Watch Party",
     "subtitle": "Watch this episode in sync with friends — chat, react and control playback together.",
     "create": "Create a party",
@@ -791,6 +792,7 @@
     "leaveParty": "Leave party",
     "hidePanel": "Hide panel",
     "waiting": "Waiting for participants…",
+    "offline": "Away (asleep)",
     "noMessages": "No messages yet. Say hi 👋",
     "message": "Message…",
     "muted": "You are muted",

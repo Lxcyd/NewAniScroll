@@ -19,9 +19,16 @@ import type { ChatMessage, Member, PartyEvent, RoomSnapshot } from "./types";
 export type { ChatMessage, Member, PartyEvent, PartyEventType, RoomSnapshot } from "./types";
 
 export const ROOM_TTL = 6 * 60 * 60; // 6h
-// Presence TTL kept tight so a member who closes the tab (sendBeacon may not
-// fire) vanishes quickly. Heartbeat (client) must be < TTL with margin.
+// Presence (ONLINE) TTL — short, refreshed by the client heartbeat. Its
+// expiry no longer REMOVES a member; it only flips them to "offline" (e.g. a
+// phone that went to sleep). Membership itself is durable (see MEMBER_TTL).
 export const PRESENCE_TTL = 12; // seconds — refreshed by client heartbeat
+// Membership safety net. A member stays in the room (avatar shown, slot kept)
+// even while offline — through phone sleep, a backgrounded tab, etc. They're
+// only removed on an explicit leave / kick / ban, OR if no heartbeat has
+// arrived for MEMBER_TTL (a missed `pagehide` beacon from a real departure /
+// crash). 5 min comfortably covers a sleeping phone while still reaping ghosts.
+export const MEMBER_TTL_MS = 5 * 60 * 1000; // 5 min
 export const CHAT_MAX = 100;
 
 const roomKey = (id: string) => `w2g:room:${id}`;
@@ -31,6 +38,12 @@ const bansKey = (id: string) => `w2g:room:${id}:bans`;
 const mutesKey = (id: string) => `w2g:room:${id}:mutes`;
 const pbBlockKey = (id: string) => `w2g:room:${id}:pbblock`;
 const presenceKey = (id: string, uid: string) => `w2g:presence:${id}:${uid}`;
+// Durable per-member profile (name/image) that survives presence-key expiry, so
+// a sleeping member's avatar/name still render. Hash: userId -> JSON.
+const profilesKey = (id: string) => `w2g:room:${id}:profiles`;
+// Last-seen wall-clock (ms) per member, for the MEMBER_TTL safety prune. Zset:
+// userId -> lastSeenMs. Distinct from `order` (first-seen, never bumped).
+const seenKey = (id: string) => `w2g:room:${id}:seen`;
 const chatKey = (id: string) => `w2g:chat:${id}`;
 export const channelKey = (id: string) => `w2g:channel:${id}`;
 
@@ -93,9 +106,13 @@ export async function roomExists(roomId: string): Promise<boolean> {
 /** True only if the user is ACTIVELY present (has a live presence key), not
  *  merely lingering in the members set. Used for the locked-room gate so a stale
  *  set entry (e.g. a reused 4-digit room code) can't let a non-member back in. */
+/** True if the user belongs to the room — based on the DURABLE member set, not
+ *  the short online presence key. A member whose phone is asleep (presence
+ *  expired) is still a member, so a locked-room gate must not 403 them out when
+ *  their device wakes and reconnects. */
 export async function isMember(roomId: string, userId: string): Promise<boolean> {
   assertRedis();
-  return (await redis.exists(presenceKey(roomId, userId))) === 1;
+  return (await redis.sismember(membersKey(roomId), userId)) === 1;
 }
 
 /** True if the user is in the room's member set OR actively present. Used to
@@ -141,7 +158,9 @@ export async function addMember(roomId: string, member: Member): Promise<void> {
   assertRedis();
   await redis.sadd(membersKey(roomId), member.userId);
   await redis.expire(membersKey(roomId), ROOM_TTL);
-  // Track join order (NX = keep the first join time) for host transfer.
+  // Track join order (NX = keep the first join time) for host transfer + render
+  // order. This timestamp is NEVER bumped afterwards, so a member who goes
+  // offline and comes back keeps their original slot.
   await redis.zadd(orderKey(roomId), "NX", Date.now(), member.userId);
   await redis.expire(orderKey(roomId), ROOM_TTL);
   await touchPresence(roomId, member);
@@ -156,6 +175,8 @@ export async function removeMember(
   assertRedis();
   await redis.srem(membersKey(roomId), userId);
   await redis.zrem(orderKey(roomId), userId);
+  await redis.zrem(seenKey(roomId), userId);
+  await redis.hdel(profilesKey(roomId), userId);
   await redis.del(presenceKey(roomId, userId));
 
   const currentHost = await getHostId(roomId);
@@ -170,11 +191,18 @@ export async function removeMember(
   return currentHost;
 }
 
-/** The earliest-joined member still in the order set, or null. */
+/** The earliest-joined member to inherit the host role. Prefers the oldest
+ *  member who is ONLINE (a sleeping member shouldn't silently become host and
+ *  freeze playback control); falls back to the oldest overall if nobody is
+ *  currently online. Null when the room is empty. */
 export async function oldestMember(roomId: string): Promise<string | null> {
   assertRedis();
-  const res = await redis.zrange(orderKey(roomId), 0, 0);
-  return res[0] || null;
+  const ordered = await redis.zrange(orderKey(roomId), 0, -1);
+  if (!ordered.length) return null;
+  for (const id of ordered) {
+    if ((await redis.exists(presenceKey(roomId, id))) === 1) return id;
+  }
+  return ordered[0];
 }
 
 export async function getHostId(roomId: string): Promise<string | null> {
@@ -280,68 +308,97 @@ export async function acquireThrottle(roomId: string, key: string, seconds: numb
   return res === "OK";
 }
 
-/** Refresh a member's presence key TTL (heartbeat). */
+/** Refresh a member's presence (online flag), durable profile and last-seen
+ *  timestamp (heartbeat). */
 export async function touchPresence(roomId: string, member: Member): Promise<void> {
   assertRedis();
-  await redis.set(
-    presenceKey(roomId, member.userId),
-    JSON.stringify({ name: member.name, image: member.image || "" }),
-    "EX",
-    PRESENCE_TTL,
-  );
+  const now = Date.now();
+  const profile = JSON.stringify({ name: member.name, image: member.image || "" });
+  // ONLINE flag — short TTL; its expiry only flips the member to offline.
+  await redis.set(presenceKey(roomId, member.userId), profile, "EX", PRESENCE_TTL);
+  // DURABLE profile — survives the online flag so a sleeping member still renders.
+  await redis.hset(profilesKey(roomId), member.userId, profile);
+  await redis.expire(profilesKey(roomId), ROOM_TTL);
   await redis.sadd(membersKey(roomId), member.userId);
   await redis.expire(membersKey(roomId), ROOM_TTL);
   // Keep this member in the join-order zset (NX = preserve their first-seen
-  // time). Without this, a heartbeat that lands after a stale-prune re-adds the
-  // member to the set but not the order set, scrambling the rendered order.
-  await redis.zadd(orderKey(roomId), "NX", Date.now(), member.userId);
+  // time so render order is stable across offline/online transitions).
+  await redis.zadd(orderKey(roomId), "NX", now, member.userId);
   await redis.expire(orderKey(roomId), ROOM_TTL);
+  // Bump last-seen (NOT NX — this one DOES advance) for the MEMBER_TTL prune.
+  await redis.zadd(seenKey(roomId), now, member.userId);
+  await redis.expire(seenKey(roomId), ROOM_TTL);
 }
 
-/** Build the live member list, pruning any whose presence key has expired, and
- *  flagging the host. */
+/** Build the member list. Membership is DURABLE: a member stays (avatar shown,
+ *  slot kept) while offline — through sleep / a backgrounded tab — and is only
+ *  dropped on explicit leave/kick/ban OR when no heartbeat has arrived for
+ *  MEMBER_TTL_MS (a missed departure beacon / crash). The `online` flag tracks
+ *  whether the short presence key is still live, so the UI can dim sleepers. */
 export async function listMembers(roomId: string): Promise<Member[]> {
   assertRedis();
-  // Iterate in join order (oldest first) so the UI renders members left→right by
-  // arrival. The order zset is the source of truth; any member set entry missing
-  // from it (shouldn't happen) is appended at the end.
+  // Iterate in join order (oldest first) — this is the stable render order, and
+  // it survives offline/online because the order zset is never re-stamped.
   const ordered = await redis.zrange(orderKey(roomId), 0, -1);
-  const present = await redis.smembers(membersKey(roomId));
-  if (!present.length) return [];
-  const presentSet = new Set(present);
-  const orderedSet = new Set(ordered);
-  const ids = [
-    ...ordered.filter((id) => presentSet.has(id)),
-    ...present.filter((id) => !orderedSet.has(id)),
-  ];
+  if (!ordered.length) return [];
+
+  const now = Date.now();
+  // Last-seen per member (for the MEMBER_TTL prune). zrange WITHSCORES → flat
+  // [member, score, member, score, …].
+  const seenFlat = await redis.zrange(seenKey(roomId), 0, -1, "WITHSCORES");
+  const lastSeen = new Map<string, number>();
+  for (let i = 0; i < seenFlat.length; i += 2) {
+    lastSeen.set(seenFlat[i], Number(seenFlat[i + 1]) || 0);
+  }
+
+  const profiles = await redis.hgetall(profilesKey(roomId));
   const hostId = await getHostId(roomId);
   const mutes = await getMutes(roomId);
   const pbBlocks = await getPlaybackBlocks(roomId);
+
   const members: Member[] = [];
-  const stale: string[] = [];
-  for (const userId of ids) {
-    const raw = await redis.get(presenceKey(roomId, userId));
-    if (!raw) {
-      stale.push(userId);
+  const ghosts: string[] = [];
+  for (const userId of ordered) {
+    const online = (await redis.exists(presenceKey(roomId, userId))) === 1;
+    const seen = lastSeen.get(userId);
+    // Reap only a member who is offline AND last seen beyond the safety window
+    // (a missed departure beacon / crash). A member with no `seen` record yet
+    // (e.g. mid-migration, or one that just joined) is kept as long as they're
+    // online OR have a durable profile — the next heartbeat writes their score.
+    const hasProfile = !!profiles?.[userId];
+    const stale = seen !== undefined && now - seen > MEMBER_TTL_MS;
+    const unknown = seen === undefined && !online && !hasProfile;
+    if (!online && (stale || unknown)) {
+      ghosts.push(userId);
       continue;
     }
+    // Durable profile (survives presence expiry); fall back to the online key.
+    let raw = profiles?.[userId];
+    if (!raw) raw = (await redis.get(presenceKey(roomId, userId))) || "";
+    let name = "";
+    let image = "";
     try {
       const p = JSON.parse(raw);
-      members.push({
-        userId,
-        name: p.name,
-        image: p.image,
-        isHost: userId === hostId,
-        muted: mutes.has(userId),
-        playbackBlocked: pbBlocks.has(userId),
-      });
+      name = p.name;
+      image = p.image;
     } catch {
-      stale.push(userId);
+      /* missing profile — keep the member but with empty name/image */
     }
+    members.push({
+      userId,
+      name,
+      image,
+      isHost: userId === hostId,
+      muted: mutes.has(userId),
+      playbackBlocked: pbBlocks.has(userId),
+      online,
+    });
   }
-  if (stale.length) {
-    await redis.srem(membersKey(roomId), ...stale);
-    await redis.zrem(orderKey(roomId), ...stale);
+  if (ghosts.length) {
+    await redis.srem(membersKey(roomId), ...ghosts);
+    await redis.zrem(orderKey(roomId), ...ghosts);
+    await redis.zrem(seenKey(roomId), ...ghosts);
+    await redis.hdel(profilesKey(roomId), ...ghosts);
   }
   return members;
 }

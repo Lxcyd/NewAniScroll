@@ -155,33 +155,48 @@ export default function FullscreenChat({ onRemote, sendChat, playerEl, active }:
         }}
       />
 
-      {/* Discreet intro hint: a soft pill on the right edge that gently pulses,
-          telling the user to move the cursor there. Fades on its own. */}
+      {/* Discreet intro hint — anchored to the RIGHT EDGE at the same height the
+          chat opens (bottom-right, above the controls), so it points exactly to
+          the reveal zone. A chat-bubble pill tucked against the edge with a small
+          back-and-forth nudge + a chevron, reading "the chat lives here, slide
+          over". Fades + slides away on its own (or the moment the user opens it). */}
       <div
         aria-hidden
         style={{
           position: "absolute",
           right: 0,
-          top: "50%",
-          transform: `translateY(-50%) translateX(${hint ? "0" : "16px"})`,
+          bottom: BOTTOM + 4,
+          transform: hint ? "translateX(0)" : "translateX(110%)",
           opacity: hint ? 1 : 0,
-          transition: "opacity 360ms ease, transform 360ms ease",
+          transition: "opacity 320ms ease, transform 320ms cubic-bezier(.22,1,.36,1)",
           pointerEvents: "none",
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          background: "rgba(0,0,0,0.6)",
-          backdropFilter: "blur(6px)",
-          color: "white",
-          padding: "8px 12px 8px 14px",
-          borderTopLeftRadius: 999,
-          borderBottomLeftRadius: 999,
-          fontSize: 13,
-          animation: hint ? "w2gFsHintPulse 1.6s ease-in-out infinite" : "none",
         }}
       >
-        <IoChatbubbleEllipses size={16} />
-        <span>{t("party.fsHint")}</span>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            background: "rgba(0,0,0,0.62)",
+            backdropFilter: "blur(6px)",
+            color: "white",
+            padding: "9px 13px 9px 14px",
+            borderTopLeftRadius: 999,
+            borderBottomLeftRadius: 999,
+            fontSize: 13,
+            boxShadow: "0 4px 16px rgba(0,0,0,0.35)",
+            // The nudge animates only the inner pill so the outer slide-in/out
+            // transition above is never overridden.
+            animation: hint ? "w2gFsHintNudge 1.5s ease-in-out infinite" : "none",
+          }}
+        >
+          {/* left-pointing chevron — points toward the edge the cursor reaches */}
+          <svg viewBox="0 0 24 24" width={14} height={14} fill="currentColor" style={{ opacity: 0.8 }}>
+            <path d="M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12z" />
+          </svg>
+          <IoChatbubbleEllipses size={16} />
+          <span>{t("party.fsHint")}</span>
+        </div>
       </div>
 
       {/* The panel itself. Slides in from the right + fades; closing is the same
@@ -333,9 +348,9 @@ export default function FullscreenChat({ onRemote, sendChat, playerEl, active }:
       )}
 
       <style>{`
-        @keyframes w2gFsHintPulse {
-          0%, 100% { transform: translateY(-50%) translateX(0); }
-          50% { transform: translateY(-50%) translateX(-5px); }
+        @keyframes w2gFsHintNudge {
+          0%, 100% { transform: translateX(0); }
+          50% { transform: translateX(-6px); }
         }
       `}</style>
     </div>

@@ -1079,6 +1079,19 @@ input[type="number"] {
   cursor: not-allowed;
 }
 
+/* The chapters MENU (button + popup) lets a blocked user jump the playhead by
+   clicking a chapter title, which is just a disguised seek — so it must be
+   locked out too. Covers the chapters menu button and the live chapter title
+   shown next to it. The thumbnail/chapter title that opens on hover is inert
+   because the time-slider above is already pointer-events:none. */
+.w2g-playback-blocked .vds-chapters-menu-button,
+.w2g-playback-blocked [data-media-menu-button][aria-label*="Chapters" i],
+.w2g-playback-blocked .vds-chapter-title {
+  pointer-events: none !important;
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 /* ── Vidstack seek-bar chrome ────────────────────────────────────
    Match the Miruro reference: every chapter is its own rounded pill
    with a visible gap between segments. Vidstack's chapter system

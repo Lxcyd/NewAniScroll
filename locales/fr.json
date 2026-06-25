@@ -778,6 +778,7 @@
     "notYetReleased": "Pas encore sortie"
   },
   "party": {
+    "watchTogether": "Regarder ensemble",
     "title": "Regarder ensemble",
     "subtitle": "Regardez cet épisode synchronisé avec vos amis — discutez, réagissez et contrôlez la lecture ensemble.",
     "create": "Créer un groupe",
@@ -791,6 +792,7 @@
     "leaveParty": "Quitter le groupe",
     "hidePanel": "Masquer le panneau",
     "waiting": "En attente de participants…",
+    "offline": "Absent (en veille)",
     "noMessages": "Aucun message. Dis bonjour 👋",
     "message": "Message…",
     "muted": "Tu es réduit au silence",

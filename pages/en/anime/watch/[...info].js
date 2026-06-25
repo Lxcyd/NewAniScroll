@@ -1897,7 +1897,7 @@ export default function Watch({
                         className="flex items-center gap-2 rounded-md bg-action/20 px-3 py-2 text-sm font-medium text-action transition hover:bg-action/30"
                       >
                         <UsersIcon className="h-5 w-5" />
-                        <span className="hidden lg:block">Watch together</span>
+                        <span className="hidden lg:block">{t("party.watchTogether")}</span>
                       </button>
                     )}
                     <button
