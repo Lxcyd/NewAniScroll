@@ -22,7 +22,9 @@ Ordre anti-chronologique (le plus récent en haut). Une entrée = une session/su
 
 ### Perf du picker (lag à la frappe ET au changement de catégorie)
 - Frappe : **debounce 120 ms** (`query` affiché vs `debouncedQuery` filtré) + **cap `MAX_RESULTS=200`**.
-- **Changement de catégorie (le gros lag)** : cause = chaque catégorie (People=385, Flags=269, Objects=262…) re-montait des centaines de `<button>` avec **2 handlers JS `onMouseEnter/Leave` + un objet style inline par bouton**. Fix : hover déplacé en **CSS** (`.w2g-emoji-btn:hover`), handlers JS supprimés. Classes `.w2g-emoji-btn` / `.w2g-emoji-btn-img` dans globals.css.
+- **Changement de catégorie (le gros lag)** : 2 causes.
+  1. Chaque catégorie (People=385, Flags=269, Objects=262…) re-montait des centaines de `<button>` avec **2 handlers JS `onMouseEnter/Leave` + un objet style inline par bouton** → hover déplacé en **CSS** (`.w2g-emoji-btn:hover`), handlers JS supprimés. Classes `.w2g-emoji-btn` / `.w2g-emoji-btn-img` dans globals.css.
+  2. Même nus, monter ~400 nœuds DOM d'un coup bloque la frame → **rendu incrémental** : `renderLimit` part à `INITIAL_BATCH=64` à chaque changement (`[cat, q, open]`), puis grossit par paliers `GROW_STEP=120` via `requestAnimationFrame` jusqu'à `MAX_VISIBLE=600`. Le clic d'onglet peint instantanément le 1er lot, le reste se remplit sur les frames suivantes sans jank. `unicodeToShow`/`stickerMatches` `.slice(0, renderLimit)`.
 
 ### Bouton envoyer (chat hors fullscreen)
 - Maintenant **toujours cliquable ET pleine opacité** (plus de `opacity-40` quand vide). `send()` ignore le texte vide → clic à vide = no-op. État `hasText` supprimé (devenu inutile).

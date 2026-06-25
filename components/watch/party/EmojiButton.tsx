@@ -17,6 +17,15 @@ function fold(s: string): string {
 // snappy while still surfacing everything relevant for a real search.
 const MAX_RESULTS = 200;
 
+// How many emoji buttons to mount on the very first paint after a tab/search
+// change (≈ a few rows, enough to fill the visible grid). The rest are mounted
+// in chunks over the following frames so switching categories stays instant.
+const INITIAL_BATCH = 64;
+// How many more to mount per animation frame after the first batch.
+const GROW_STEP = 120;
+// Upper bound — the largest category (People) is ~385, so this covers all.
+const MAX_VISIBLE = 600;
+
 interface Props {
   /** Called with the text to insert (unicode emoji or `:shortcode:`). */
   onPick: (insert: string) => void;
@@ -74,6 +83,12 @@ export default function EmojiButton({ onPick, fullscreen, className = "" }: Prop
   const [recents, setRecents] = useState<string[]>([]);
   // Active tab: "popular" (recents + anime customs combined), or a category name.
   const [cat, setCat] = useState<string>("popular");
+  // Incremental render budget. Switching to a big category (People=385, …) and
+  // mounting all its buttons synchronously blocks the frame → the tab feels
+  // laggy. We mount a small first batch instantly, then grow to the full count
+  // on the next animation frame (after the switch has painted), so the click is
+  // responsive and the rest fills in imperceptibly.
+  const [renderLimit, setRenderLimit] = useState(INITIAL_BATCH);
 
   // Position the panel above the trigger.
   useLayoutEffect(() => {
@@ -127,9 +142,27 @@ export default function EmojiButton({ onPick, fullscreen, className = "" }: Prop
   };
 
   // When searching: match anime shortcodes/labels/tags, AND match unicode
-  // emojis by their EN+FR CLDR keywords (so "pomme"/"apple" → 🍎). The search
-  // term is accent-folded so language and accents don't matter.
+  // emojis by their CLDR keywords in the site's language (so "pomme" → 🍎 in FR,
+  // "apple" → 🍎 in EN). The search term is accent-folded so accents don't matter.
   const q = fold(debouncedQuery.trim());
+
+  // Whenever the visible set changes (tab switch, search, or open), mount a
+  // small first batch, then grow in chunks across animation frames. The heavy
+  // mounting happens AFTER the switch has painted and is spread over several
+  // frames, so the tab responds instantly and nothing janks.
+  useEffect(() => {
+    setRenderLimit(INITIAL_BATCH);
+    let id = 0;
+    let current = INITIAL_BATCH;
+    const step = () => {
+      current += GROW_STEP;
+      setRenderLimit(current);
+      if (current < MAX_VISIBLE) id = requestAnimationFrame(step);
+    };
+    id = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(id);
+  }, [cat, q, open]);
+
   const animeMatches = useMemo(() => {
     if (!q) return ANIME_EMOJIS;
     return ANIME_EMOJIS.filter(
@@ -331,7 +364,7 @@ export default function EmojiButton({ onPick, fullscreen, className = "" }: Prop
               {(q || cat === "anime") && stickerMatches.length > 0 && (
                 <>
                   <div style={labelStyle}>{t("party.emojiAnime")}</div>
-                  {grid(stickerMatches.map((s) => stickerBtn(s.shortcode, s.label, s.src)))}
+                  {grid(stickerMatches.slice(0, renderLimit).map((s) => stickerBtn(s.shortcode, s.label, s.src)))}
                 </>
               )}
 
@@ -354,7 +387,7 @@ export default function EmojiButton({ onPick, fullscreen, className = "" }: Prop
               {unicodeToShow.length > 0 && (
                 <>
                   <div style={labelStyle}>{q ? t("party.emojiUnicode") : activeCategory?.name}</div>
-                  {grid(unicodeToShow.map((u, i) => unicodeBtn(u, `u-${i}`)))}
+                  {grid(unicodeToShow.slice(0, renderLimit).map((u, i) => unicodeBtn(u, `u-${i}`)))}
                 </>
               )}
 
