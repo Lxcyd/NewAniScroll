@@ -2348,31 +2348,38 @@ export default function UniversalPlayer({
     let reconcileId = 0;
     const applying = party.applyingRemoteRef;
 
-    // Last authoritative playback target we know about — updated by every remote
-    // event (play/pause/seek/rate/snapshot) AND by our own broadcasts. The
-    // reconciliation loop (and block enforcement) steer the local <video> toward
-    // this, projecting `position` forward by elapsed wall-time when playing so
-    // network latency doesn't bake in a permanent offset.
-    const target = {
-      position: 0,
-      paused: true,
-      rate: 1,
-      // Wall-clock (ms) the position was sampled at, for latency projection.
-      at: Date.now(),
-      known: false,
+    type Target = { position: number; paused: boolean; rate: number; at: number; known: boolean };
+    const mkTarget = (): Target => ({ position: 0, paused: true, rate: 1, at: Date.now(), known: false });
+
+    // `target` — drift reference for EVERYONE. Updated by remote events AND our
+    // own broadcasts, so the drift-nudge loop knows where the group should be.
+    const target = mkTarget();
+    // `remoteTarget` — the AUTHORITATIVE group state, updated ONLY by remote
+    // events (never by our own local actions). Block enforcement uses this so a
+    // blocked user's own play/seek (which can sneak in during the block race)
+    // can NEVER poison what they're forced back to. This is the core fix for
+    // "blocked user hit play and stayed desynced / couldn't stop it".
+    const remoteTarget = mkTarget();
+
+    const writeTarget = (tg: Target, pos: number, paused: boolean, rate?: number) => {
+      if (Number.isFinite(pos)) tg.position = pos;
+      tg.paused = paused;
+      if (typeof rate === "number" && rate > 0) tg.rate = rate;
+      tg.at = Date.now();
+      tg.known = true;
     };
-    const setTarget = (pos: number, paused: boolean, rate?: number) => {
-      if (Number.isFinite(pos)) target.position = pos;
-      target.paused = paused;
-      if (typeof rate === "number" && rate > 0) target.rate = rate;
-      target.at = Date.now();
-      target.known = true;
+    // Local (our own) action → only the shared drift target.
+    const setTarget = (pos: number, paused: boolean, rate?: number) =>
+      writeTarget(target, pos, paused, rate);
+    // Remote (authoritative) event → both targets.
+    const setRemoteTarget = (pos: number, paused: boolean, rate?: number) => {
+      writeTarget(target, pos, paused, rate);
+      writeTarget(remoteTarget, pos, paused, rate);
     };
-    // Where the target playhead should be *now* (position + elapsed if playing).
-    const projectedTarget = (): number => {
-      if (target.paused) return target.position;
-      return target.position + ((Date.now() - target.at) / 1000) * target.rate;
-    };
+    // Where a target's playhead should be *now* (position + elapsed if playing).
+    const project = (tg: Target): number =>
+      tg.paused ? tg.position : tg.position + ((Date.now() - tg.at) / 1000) * tg.rate;
+    const projectedTarget = (): number => project(target);
 
     const withGuard = (fn: () => void) => {
       applying.current = true;
@@ -2394,18 +2401,18 @@ export default function UniversalPlayer({
     // handler bails up-front when blocked so nothing ever goes out.
     const enforceBlocked = (showToast = true): boolean => {
       if (!partyRef.current?.amPlaybackBlocked || !video) return false;
-      // Prefer the live target (tracks peers' play/pause/seek as they happen);
-      // fall back to the authoritative snapshot for the very first frames before
-      // any event has arrived.
+      // Use ONLY the remote-authoritative target (never our own local actions,
+      // which is what made a blocked user stick on "playing"). Fall back to the
+      // server snapshot for the first frames before any remote event has arrived.
       const snap = partyRef.current.snapshot;
-      const haveTarget = target.known;
-      const wantPaused = haveTarget ? target.paused : snap ? !!snap.paused : true;
+      const haveTarget = remoteTarget.known;
+      const wantPaused = haveTarget ? remoteTarget.paused : snap ? !!snap.paused : true;
       const wantPos = haveTarget
-        ? projectedTarget()
+        ? project(remoteTarget)
         : snap
           ? Number(snap.position)
           : NaN;
-      const wantRate = haveTarget ? target.rate : snap ? Number(snap.rate) : 1;
+      const wantRate = haveTarget ? remoteTarget.rate : snap ? Number(snap.rate) : 1;
       applying.current = true;
       try {
         const v = video!;
@@ -2481,7 +2488,7 @@ export default function UniversalPlayer({
       const latency =
         typeof e.ts === "number" ? Math.min(5, Math.max(0, (Date.now() - e.ts) / 1000)) : 0;
       const compensate = (p: number, playing: boolean) =>
-        playing ? p + latency * target.rate : p;
+        playing ? p + latency * remoteTarget.rate : p;
 
       const seekTo = (t: number) => {
         if (!Number.isFinite(t)) return;
@@ -2493,9 +2500,9 @@ export default function UniversalPlayer({
         case "snapshot": {
           const s = e.payload?.snapshot;
           if (!s) return;
-          const rate = typeof s.rate === "number" ? s.rate : target.rate;
+          const rate = typeof s.rate === "number" ? s.rate : remoteTarget.rate;
           const p = compensate(Number(s.position), !s.paused);
-          setTarget(p, !!s.paused, rate);
+          setRemoteTarget(p, !!s.paused, rate);
           withGuard(() => {
             seekTo(p);
             video!.playbackRate = rate;
@@ -2506,7 +2513,7 @@ export default function UniversalPlayer({
         }
         case "play": {
           const p = compensate(pos, true);
-          setTarget(p, false);
+          setRemoteTarget(p, false);
           withGuard(() => {
             seekTo(p);
             player?.play?.()?.catch?.(() => {});
@@ -2514,7 +2521,7 @@ export default function UniversalPlayer({
           return;
         }
         case "pause":
-          setTarget(pos, true);
+          setRemoteTarget(pos, true);
           withGuard(() => {
             seekTo(pos);
             player?.pause?.();
@@ -2523,8 +2530,8 @@ export default function UniversalPlayer({
         case "seek": {
           // A seek lands the playhead somewhere; if the peer is still playing
           // they've drifted past it during transit, so compensate too.
-          const p = compensate(pos, !target.paused);
-          setTarget(p, target.paused);
+          const p = compensate(pos, !remoteTarget.paused);
+          setRemoteTarget(p, remoteTarget.paused);
           withGuard(() => seekTo(p));
           return;
         }
@@ -2532,7 +2539,7 @@ export default function UniversalPlayer({
           withGuard(() => {
             if (typeof e.payload?.rate === "number") {
               video!.playbackRate = e.payload.rate;
-              setTarget(video!.currentTime, target.paused, e.payload.rate);
+              setRemoteTarget(video!.currentTime, remoteTarget.paused, e.payload.rate);
             }
           });
           return;
@@ -2628,6 +2635,77 @@ export default function UniversalPlayer({
     const timers = [80, 250, 600, 1200].map((d) => window.setTimeout(run, d));
     return () => timers.forEach((id) => window.clearTimeout(id));
   }, [party?.amPlaybackBlocked]);
+
+  // ── Blocked: veto playback-control clicks at capture phase ──
+  // The CSS lockout (`.w2g-playback-blocked`) dims + disables the seek bar / play
+  // button / chapters affordance, but a couple of things slip through it: the
+  // chapters MENU popup can portal outside the player root (so the class doesn't
+  // reach it), and class names can drift between Vidstack versions. Catching the
+  // event in the CAPTURE phase — before Vidstack's own handlers run — is the
+  // robust fix: a blocked user simply can't open the chapters menu, scrub, or
+  // toggle play through the UI. (Keyboard is already handled via `keyDisabled`,
+  // and the <video> guard reverts anything that still gets through.)
+  useEffect(() => {
+    // An element is a "playback control" if it (or an ancestor) is the seek bar,
+    // the play button, or the chapters menu button / chapter title. Matched by
+    // several stable selectors so a class rename doesn't silently re-open a hole.
+    const isBlockedTarget = (el: HTMLElement | null): boolean => {
+      if (!el) return false;
+      return !!el.closest(
+        [
+          ".vds-time-slider",
+          "[data-media-time-slider]",
+          ".vds-play-button",
+          "[data-media-play-button]",
+          ".vds-chapters-menu-button",
+          ".vds-chapter-title",
+          "[data-media-menu-button][aria-label*='hapter']",
+          "[data-media-menu-button][aria-label*='hapitre']",
+        ].join(","),
+      );
+    };
+
+    // The chapters menu popup may portal outside the player root, so we also
+    // listen on document (capture) and veto clicks anywhere inside an open
+    // chapters menu container (its items jump the playhead = a disguised seek).
+    const isChapterListItem = (el: HTMLElement | null): boolean => {
+      if (!el) return false;
+      return !!el.closest(
+        ".vds-chapters-menu-items, .vds-chapters-radio-group, [data-media-chapters-radio-group], [role='menu'][aria-label*='hapter'], [role='menu'][aria-label*='hapitre']",
+      );
+    };
+
+    const veto = (e: Event) => {
+      if (!partyRef.current?.amPlaybackBlocked) return;
+      const target = e.target as HTMLElement | null;
+      if (isBlockedTarget(target) || isChapterListItem(target)) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        const now = Date.now();
+        if (now - blockedToastAtRef.current > 2500) {
+          blockedToastAtRef.current = now;
+          toast.error(t("party.blockedBanner"));
+        }
+      }
+    };
+
+    // Capture phase, on document, across the events Vidstack acts on
+    // (pointerdown opens menus on some builds; click on others). Document-level
+    // covers the player AND any menu popup portaled to <body>; it works even
+    // before the player element exists and reads the live block flag from
+    // partyRef, so nothing slips through during stream load.
+    const opts = { capture: true } as AddEventListenerOptions;
+    for (const type of ["pointerdown", "click"] as const) {
+      document.addEventListener(type, veto, opts);
+    }
+    return () => {
+      for (const type of ["pointerdown", "click"] as const) {
+        document.removeEventListener(type, veto, opts);
+      }
+    };
+    // Bound once; reads the live block flag + translation via refs/closure.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── Autoplay ──
   // Chrome rejects unmuted autoplay without a user gesture, period. The

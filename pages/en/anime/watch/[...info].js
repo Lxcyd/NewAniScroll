@@ -506,6 +506,7 @@ export default function Watch({
   const handleJoinRejected = useCallback(
     (reason) => {
       if (reason === "banned") toast.error(t("party.toastBanned"));
+      else if (reason === "inactive") toast.error(t("party.toastInactive"));
       else if (reason === "locked") toast.error(t("party.toastLocked"));
       else toast.error(t("party.toastNotFound"));
       stripParty();
@@ -1962,7 +1963,7 @@ export default function Watch({
                   onClick={() => setPartyPanelHidden(false)}
                   className="mb-4 ml-3 flex items-center gap-2 rounded-full bg-action/20 px-3 py-2 text-sm font-medium text-action hover:bg-action/30 lg:ml-0"
                 >
-                  <UsersIcon className="h-4 w-4" /> Open party chat
+                  <UsersIcon className="h-4 w-4" /> {t("party.openChat")}
                 </button>
               )}
               <EpisodeLists

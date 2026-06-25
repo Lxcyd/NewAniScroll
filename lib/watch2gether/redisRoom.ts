@@ -44,6 +44,10 @@ const profilesKey = (id: string) => `w2g:room:${id}:profiles`;
 // Last-seen wall-clock (ms) per member, for the MEMBER_TTL safety prune. Zset:
 // userId -> lastSeenMs. Distinct from `order` (first-seen, never bumped).
 const seenKey = (id: string) => `w2g:room:${id}:seen`;
+// Members reaped for inactivity (no heartbeat for MEMBER_TTL). One-shot: the
+// next (re)connect is rejected with an "inactive" notice and the flag is
+// consumed, so a deliberate manual rejoin afterwards succeeds. Set, room TTL.
+const inactiveKey = (id: string) => `w2g:room:${id}:inactive`;
 const chatKey = (id: string) => `w2g:chat:${id}`;
 export const channelKey = (id: string) => `w2g:channel:${id}`;
 
@@ -163,6 +167,9 @@ export async function addMember(roomId: string, member: Member): Promise<void> {
   // offline and comes back keeps their original slot.
   await redis.zadd(orderKey(roomId), "NX", Date.now(), member.userId);
   await redis.expire(orderKey(roomId), ROOM_TTL);
+  // A successful (re)join clears any lingering inactivity flag so they're not
+  // wrongly told "removed for inactivity" on a later reconnect.
+  await redis.srem(inactiveKey(roomId), member.userId);
   await touchPresence(roomId, member);
 }
 
@@ -178,6 +185,9 @@ export async function removeMember(
   await redis.zrem(seenKey(roomId), userId);
   await redis.hdel(profilesKey(roomId), userId);
   await redis.del(presenceKey(roomId, userId));
+  // Explicit removal (leave/kick/ban) isn't an inactivity reap — drop any
+  // inactive flag so a rejoin reports the right reason (or just succeeds).
+  await redis.srem(inactiveKey(roomId), userId);
 
   const currentHost = await getHostId(roomId);
   if (currentHost && currentHost === userId) {
@@ -208,6 +218,25 @@ export async function oldestMember(roomId: string): Promise<string | null> {
 export async function getHostId(roomId: string): Promise<string | null> {
   assertRedis();
   return (await redis.hget(roomKey(roomId), "hostId")) || null;
+}
+
+// ── Inactivity reap marker ──
+// The flag itself is written inline by listMembers when it reaps a stale member
+// (see `inactiveGhosts`). These two helpers read it back from the join / stream
+// gates.
+/** Consume the inactivity flag: returns true if the user was reaped for
+ *  inactivity (and clears it, so a deliberate manual rejoin afterwards works). */
+export async function consumeInactive(roomId: string, userId: string): Promise<boolean> {
+  assertRedis();
+  const removed = await redis.srem(inactiveKey(roomId), userId);
+  return removed === 1;
+}
+
+/** Peek the inactivity flag WITHOUT consuming it (for the SSE stream gate, which
+ *  must not race-consume the flag the join route needs to report the reason). */
+export async function isInactive(roomId: string, userId: string): Promise<boolean> {
+  assertRedis();
+  return (await redis.sismember(inactiveKey(roomId), userId)) === 1;
 }
 
 export async function setHost(roomId: string, userId: string): Promise<void> {
@@ -358,6 +387,10 @@ export async function listMembers(roomId: string): Promise<Member[]> {
 
   const members: Member[] = [];
   const ghosts: string[] = [];
+  // Subset of ghosts removed specifically for INACTIVITY (a real member who went
+  // quiet past MEMBER_TTL) — flagged so their next reconnect gets a "kicked for
+  // inactivity" notice instead of silently rejoining.
+  const inactiveGhosts: string[] = [];
   for (const userId of ordered) {
     const online = (await redis.exists(presenceKey(roomId, userId))) === 1;
     const seen = lastSeen.get(userId);
@@ -370,6 +403,7 @@ export async function listMembers(roomId: string): Promise<Member[]> {
     const unknown = seen === undefined && !online && !hasProfile;
     if (!online && (stale || unknown)) {
       ghosts.push(userId);
+      if (stale) inactiveGhosts.push(userId); // genuine inactivity, not migration junk
       continue;
     }
     // Durable profile (survives presence expiry); fall back to the online key.
@@ -399,6 +433,10 @@ export async function listMembers(roomId: string): Promise<Member[]> {
     await redis.zrem(orderKey(roomId), ...ghosts);
     await redis.zrem(seenKey(roomId), ...ghosts);
     await redis.hdel(profilesKey(roomId), ...ghosts);
+    if (inactiveGhosts.length) {
+      await redis.sadd(inactiveKey(roomId), ...inactiveGhosts);
+      await redis.expire(inactiveKey(roomId), ROOM_TTL);
+    }
   }
   return members;
 }

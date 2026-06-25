@@ -2,6 +2,7 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import { getPartyUser } from "@/lib/watch2gether/auth";
 import {
   addMember,
+  consumeInactive,
   getChat,
   getSnapshot,
   isBanned,
@@ -27,6 +28,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
     if (await isBanned(roomId, user.userId)) {
       return res.status(403).json({ error: "You are banned from this room" });
+    }
+    // Reaped for inactivity? Reject this (auto-)reconnect with a notice. One-shot:
+    // consuming the flag means a deliberate manual rejoin right after succeeds.
+    // (Skip if they're somehow still a member — only ex-members get the notice.)
+    if (!(await isMember(roomId, user.userId)) && (await consumeInactive(roomId, user.userId))) {
+      return res.status(403).json({ error: "Removed for inactivity" });
     }
     // When the room is locked, only existing members may (re)connect; new
     // arrivals are turned away. A reconnect of someone already in the room

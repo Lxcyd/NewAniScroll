@@ -157,9 +157,10 @@ export default function FullscreenChat({ onRemote, sendChat, playerEl, active }:
 
       {/* Discreet intro hint — anchored to the RIGHT EDGE at the same height the
           chat opens (bottom-right, above the controls), so it points exactly to
-          the reveal zone. A chat-bubble pill tucked against the edge with a small
-          back-and-forth nudge + a chevron, reading "the chat lives here, slide
-          over". Fades + slides away on its own (or the moment the user opens it). */}
+          the reveal zone. Translucent pill flush against the edge; only the inner
+          CONTENT nudges left (the background band stays pinned to the edge, so the
+          leftward motion never leaves a gap on the right). Fades + slides away on
+          its own, or the moment the user opens the chat. */}
       <div
         aria-hidden
         style={{
@@ -170,6 +171,19 @@ export default function FullscreenChat({ onRemote, sendChat, playerEl, active }:
           opacity: hint ? 1 : 0,
           transition: "opacity 320ms ease, transform 320ms cubic-bezier(.22,1,.36,1)",
           pointerEvents: "none",
+          // Translucent band, pinned to the right edge. Extra right padding keeps
+          // the bg covering the edge even as the content nudges left inside it.
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          background: "rgba(0,0,0,0.4)",
+          backdropFilter: "blur(5px)",
+          color: "rgba(255,255,255,0.92)",
+          padding: "9px 16px 9px 14px",
+          borderTopLeftRadius: 999,
+          borderBottomLeftRadius: 999,
+          fontSize: 13,
+          boxShadow: "0 4px 16px rgba(0,0,0,0.25)",
         }}
       >
         <div
@@ -177,21 +191,12 @@ export default function FullscreenChat({ onRemote, sendChat, playerEl, active }:
             display: "flex",
             alignItems: "center",
             gap: 8,
-            background: "rgba(0,0,0,0.62)",
-            backdropFilter: "blur(6px)",
-            color: "white",
-            padding: "9px 13px 9px 14px",
-            borderTopLeftRadius: 999,
-            borderBottomLeftRadius: 999,
-            fontSize: 13,
-            boxShadow: "0 4px 16px rgba(0,0,0,0.35)",
-            // The nudge animates only the inner pill so the outer slide-in/out
-            // transition above is never overridden.
+            // Only the content nudges — the band above stays flush to the edge.
             animation: hint ? "w2gFsHintNudge 1.5s ease-in-out infinite" : "none",
           }}
         >
           {/* left-pointing chevron — points toward the edge the cursor reaches */}
-          <svg viewBox="0 0 24 24" width={14} height={14} fill="currentColor" style={{ opacity: 0.8 }}>
+          <svg viewBox="0 0 24 24" width={14} height={14} fill="currentColor" style={{ opacity: 0.75 }}>
             <path d="M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12z" />
           </svg>
           <IoChatbubbleEllipses size={16} />

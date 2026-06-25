@@ -82,9 +82,9 @@ interface PartyOpts {
   /** Called when WE are removed (kick/ban) or leave — the page should strip
    *  `?party` from the URL. Receives a reason for an optional toast. */
   onSelfRemoved?: (reason: "kick" | "ban" | "leave") => void;
-  /** Called when a join attempt is rejected (banned / locked room). The page
-   *  should strip `?party` and surface the reason. */
-  onJoinRejected?: (reason: "banned" | "locked" | "notfound") => void;
+  /** Called when a join attempt is rejected (banned / locked room / reaped for
+   *  inactivity). The page should strip `?party` and surface the reason. */
+  onJoinRejected?: (reason: "banned" | "locked" | "notfound" | "inactive") => void;
 }
 
 export function useWatchParty(
@@ -344,9 +344,11 @@ export function useWatchParty(
           const msg = String(err?.error || "");
           const reason = /ban/i.test(msg)
             ? "banned"
-            : /lock/i.test(msg)
-              ? "locked"
-              : "notfound";
+            : /inactiv/i.test(msg)
+              ? "inactive"
+              : /lock/i.test(msg)
+                ? "locked"
+                : "notfound";
           teardown();
           onJoinRejectedRef.current?.(reason);
         }

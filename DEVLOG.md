@@ -7,6 +7,24 @@ Ordre anti-chronologique (le plus récent en haut). Une entrée = une session/su
 
 ---
 
+## 2026-06-25 (suite) — Watch 2gether : blocage anti-poison, menu chapitres verrouillé, hint sans gap, i18n
+
+### Décisions / fixes
+- **Blocage : cible « remote-only » (cause racine du desync)** : le bug « le bloqué met play et reste désync / ne peut plus l'arrêter » venait d'une **course** — quand le flag `amPlaybackBlocked` n'est pas encore arrivé, le `onPlay` local appelait `setTarget(..., paused:false)`, **empoisonnant** la cible ; ensuite `enforceBlocked` lisait `target.paused === false` et le **laissait jouer**. Fix : deux cibles séparées — `target` (dérive, alimentée par events remote **et** nos actions) et **`remoteTarget`** (autoritaire, alimentée **uniquement** par les events remote). `enforceBlocked` n'utilise QUE `remoteTarget` (fallback snapshot) → une action locale d'un bloqué ne peut plus jamais influencer ce vers quoi on le force. Couplé à l'enforce sur front montant + rafale (80/250/600/1200 ms) + boucle 500 ms.
+- **Menu chapitres verrouillé pour un bloqué (au niveau event, robuste)** : la CSS `.w2g-playback-blocked` ne suffisait pas (le popup chapitres peut se portaler hors du root, et les classes Vidstack bougent). Ajout d'un **veto en phase capture** (sur le player ET document, `pointerdown`+`click`) qui annule tout clic sur seek bar / play / bouton chapitres / titre de chapitre / items du menu chapitres quand bloqué — avant les handlers Vidstack. Même pattern que l'interception fullscreen iOS. + toast throttlé.
+- **Hint FS chat sans « trou » à droite** : le nudge déplaçait toute la pilule vers la gauche → la bande noire décollait du bord droit. Fix : le **fond reste épinglé au bord** (padding droit +), seul le **contenu** (chevron+icône+texte) fait le nudge. Pilule rendue **plus transparente** (`rgba(0,0,0,0.4)`, blur 5px) comme demandé.
+- **i18n « Open party chat »** : était en dur → `party.openChat` (en/fr). (`watchTogether` déjà fait à la session précédente.)
+- **Kick pour inactivité (au réveil > 5 min)** : avant, un membre reapé par `MEMBER_TTL` revenait silencieusement au réveil. Désormais le reap **stale** (vraie inactivité, pas le cas migration `unknown`) ajoute l'userId au set `:inactive`. `join` : si non-membre et `consumeInactive` (one-shot) → 403 « Removed for inactivity » → page strip `?party` + toast `party.toastInactive`. `stream` : **peek** `isInactive` (sans consommer, le join possède le consume) → 403. Reason `inactive` ajouté à `onJoinRejected`. One-shot : un rejoin **manuel** juste après marche (le flag a été consommé).
+
+### Leçons / pièges
+- **Une cible de sync ne doit pas mélanger « ce que je veux » et « ce que le groupe fait »** quand il y a un blocage : l'autorité (remote) doit être isolée, sinon l'action de l'utilisateur bloqué se réinjecte dans la cible et casse l'enforcement.
+- **Reap inactivité ≠ reap migration** : ne flagger « inactive » que le cas `stale` (membre réel qui s'est tu), pas le `unknown` (pas de `seen` + offline + pas de profil = junk de migration), sinon on notifierait à tort.
+- **Peek vs consume sur un flag one-shot** partagé par 2 routes (join + stream) : une seule route doit consommer (join), l'autre peek (stream), sinon course → le flag disparaît avant d'être rapporté.
+- **Verrouiller un contrôle Vidstack = phase capture sur document**, pas (seulement) CSS sur le root : les popups se portalent, les classes ne sont pas garanties.
+- **Nudge d'animation collé à un bord** : n'animer que le contenu, garder le fond épinglé, sinon gap visible.
+
+---
+
 ## 2026-06-25 — Watch 2gether : présence persistante (veille), blocage robuste, latence, FS chat, i18n, CPU
 
 ### Décisions / fixes

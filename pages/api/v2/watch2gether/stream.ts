@@ -4,6 +4,7 @@ import {
   channelKey,
   getSnapshot,
   isBanned,
+  isInactive,
   isMember,
   isValidRoomId,
   listMembers,
@@ -45,6 +46,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   // the room before join() rejects). Locked rooms only stream to existing
   // members; new arrivals are turned away here too.
   if (await isBanned(roomId, user.userId)) return res.status(403).end();
+  // Reaped for inactivity → no stream until they (re)join via the join route,
+  // which reports the reason + consumes the flag. We only PEEK here (the join
+  // route owns the consume) so the SSE doesn't silently re-open the room.
+  if (!(await isMember(roomId, user.userId)) && (await isInactive(roomId, user.userId))) {
+    return res.status(403).end();
+  }
   const snap0 = await getSnapshot(roomId);
   if (snap0?.locked && !(await isMember(roomId, user.userId))) return res.status(403).end();
 

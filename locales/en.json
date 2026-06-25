@@ -779,6 +779,7 @@
   },
   "party": {
     "watchTogether": "Watch together",
+    "openChat": "Open party chat",
     "title": "Watch Party",
     "subtitle": "Watch this episode in sync with friends — chat, react and control playback together.",
     "create": "Create a party",
@@ -828,6 +829,7 @@
     "toastBanned": "You were banned from this party",
     "toastLocked": "This room is private",
     "toastNotFound": "Room not found or expired",
+    "toastInactive": "You were removed for inactivity",
     "mutedBanner": "You are muted by the host",
     "blockedBanner": "The host blocked your playback",
     "fsNoMessages": "No messages yet",

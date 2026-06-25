@@ -779,6 +779,7 @@
   },
   "party": {
     "watchTogether": "Regarder ensemble",
+    "openChat": "Ouvrir le chat du groupe",
     "title": "Regarder ensemble",
     "subtitle": "Regardez cet épisode synchronisé avec vos amis — discutez, réagissez et contrôlez la lecture ensemble.",
     "create": "Créer un groupe",
@@ -828,6 +829,7 @@
     "toastBanned": "Tu as été banni de ce groupe",
     "toastLocked": "Ce groupe est privé",
     "toastNotFound": "Groupe introuvable ou expiré",
+    "toastInactive": "Tu as été retiré pour inactivité",
     "mutedBanner": "Tu es réduit au silence par l'hôte",
     "blockedBanner": "L'hôte a bloqué ta lecture",
     "fsNoMessages": "Aucun message",
