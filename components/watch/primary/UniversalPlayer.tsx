@@ -2663,9 +2663,12 @@ export default function UniversalPlayer({
     };
 
     const tagChaptersBtn = () => {
-      // Candidate buttons: every menu button / button inside the controls.
+      // Candidate buttons: anything with a label, INCLUDING Vidstack's custom
+      // element <media-menu-button> (the chapters button is one of these — it's
+      // not a <button>, which is why earlier selectors missed it). We match on
+      // [aria-label]/[title] presence, then filter by chapter text.
       const candidates = playerEl.querySelectorAll<HTMLElement>(
-        "button, [role='button'], [data-media-menu-button]",
+        "button, [role='button'], [data-media-menu-button], media-menu-button, [aria-label], [title]",
       );
       let found = false;
       candidates.forEach((el) => {
@@ -2701,18 +2704,33 @@ export default function UniversalPlayer({
     const esc = (t: EventTarget) =>
       t.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true }));
 
-    // The tagged chapters button, if expanded → close its menu.
-    const btn = playerEl.querySelector<HTMLElement>(".w2g-chapters-btn[aria-expanded='true']");
-    // Any visibly-open menu (chapters popups can portal anywhere).
-    const openMenus = document.querySelectorAll<HTMLElement>(
-      "[role='menu'][aria-hidden='false'], .vds-menu-items[aria-hidden='false']",
-    );
-    if (btn) {
-      esc(btn);
-      setTimeout(() => btn.blur(), 0);
-    }
-    openMenus.forEach(esc);
-    esc(document);
+    const closeChapters = () => {
+      // The tagged chapters button, if expanded → close its menu.
+      const btn = playerEl.querySelector<HTMLElement>(".w2g-chapters-btn[aria-expanded='true']");
+      // Any visibly-open menu (chapters popups can portal anywhere).
+      const openMenus = document.querySelectorAll<HTMLElement>(
+        "[role='menu'][aria-hidden='false'], .vds-menu-items[aria-hidden='false']",
+      );
+      if (btn) {
+        esc(btn);
+        // Some Vidstack builds expose imperative close on the menu element.
+        const menuEl = btn.closest<any>("media-menu") || (btn as any);
+        try { menuEl?.close?.(); } catch {}
+        setTimeout(() => btn.blur(), 0);
+      }
+      openMenus.forEach(esc);
+      esc(document);
+      // Outside-pointer close: Vidstack dismisses an open menu on a pointerdown
+      // outside it. Our veto only blocks chapters targets, so a player-root
+      // pointerdown passes through and triggers the dismiss.
+      playerEl.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    };
+
+    // Run now and a couple of follow-ups (the menu may finish opening a frame
+    // after the block lands).
+    closeChapters();
+    const timers = [60, 200].map((d) => window.setTimeout(closeChapters, d));
+    return () => timers.forEach((id) => window.clearTimeout(id));
   }, [party?.amPlaybackBlocked]);
 
   // ── Blocked: veto playback-control clicks at capture phase ──
@@ -2744,17 +2762,24 @@ export default function UniversalPlayer({
       );
     };
 
-    // Text-based fallback: any button whose label mentions chapters, in case the
-    // tag hasn't been applied yet (very first frames) — checked directly here.
+    // Tag-agnostic fallback: walk UP from the target and match ANY ancestor
+    // whose aria-label / title mentions chapters — regardless of element type.
+    // Vidstack's chapters button is a custom <media-menu-button> element (no
+    // role=button, no data-media-menu-button), so a `closest("button,...")`
+    // missed it entirely — that's why the menu still opened. Walking ancestors
+    // by attribute catches it whatever the tag is.
     const looksLikeChaptersBtn = (el: HTMLElement | null): boolean => {
-      const btn = el?.closest<HTMLElement>("button, [role='button'], [data-media-menu-button]");
-      if (!btn) return false;
-      const hay = (
-        (btn.getAttribute("aria-label") || "") +
-        " " +
-        (btn.getAttribute("title") || "")
-      ).toLowerCase();
-      return hay.includes("chapter") || hay.includes("chapitre");
+      let node: HTMLElement | null = el;
+      for (let i = 0; node && i < 8; i++) {
+        const hay = (
+          (node.getAttribute?.("aria-label") || "") +
+          " " +
+          (node.getAttribute?.("title") || "")
+        ).toLowerCase();
+        if (hay.includes("chapter") || hay.includes("chapitre")) return true;
+        node = node.parentElement;
+      }
+      return false;
     };
 
     // The chapters menu popup may portal outside the player root, so we also
@@ -2786,12 +2811,16 @@ export default function UniversalPlayer({
     // covers the player AND any menu popup portaled to <body>; it works even
     // before the player element exists and reads the live block flag from
     // partyRef, so nothing slips through during stream load.
+    // Cover pointerup too: Vidstack opens menus on different events across
+    // builds/devices (touch fires pointerup; mouse may use click). Vetoing all
+    // three in capture guarantees the menu never opens for a blocked user.
     const opts = { capture: true } as AddEventListenerOptions;
-    for (const type of ["pointerdown", "click"] as const) {
+    const types = ["pointerdown", "pointerup", "click"] as const;
+    for (const type of types) {
       document.addEventListener(type, veto, opts);
     }
     return () => {
-      for (const type of ["pointerdown", "click"] as const) {
+      for (const type of types) {
         document.removeEventListener(type, veto, opts);
       }
     };

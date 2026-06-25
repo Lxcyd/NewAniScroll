@@ -7,6 +7,29 @@ Ordre anti-chronologique (le plus récent en haut). Une entrée = une session/su
 
 ---
 
+## 2026-06-25 (suite 7) — Watch 2gether : toast inactivité affiché 2× → garde idempotente
+
+### Décisions / fixes
+- **« You were removed for inactivity » 2 fois** : au réveil, le re-join SSE ET le beat presence 403 en parallèle ; le garde `!removedRef.current` **racait** (chacun teste AVANT son `await res.json()`, puis `teardown()` pose le flag trop tard → les deux passent). Fix : flag dédié **`rejectedRef`** + helper **`rejectOnce(reason)`** qui pose `rejectedRef.current = true` **synchronement, avant tout await**, puis teardown + `onJoinRejected` une seule fois. Les deux chemins (join + beat) passent par `rejectOnce` → idempotent. `rejectedRef` reset au démarrage d'une session (comme `removedRef`).
+
+### Leçons / pièges
+- **Un garde contre la double-exécution doit être posé AVANT le premier `await`**, pas via un effet de bord ultérieur (teardown) — sinon deux callers concurrents franchissent le check pendant la fenêtre async. Un seul helper idempotent (`rejectOnce`) centralise la garde.
+
+---
+
+## 2026-06-25 (suite 6) — Watch 2gether : chapitres = custom element (vrai blocage), hover Privé (bug Tailwind var)
+
+### Décisions / fixes
+- **Bouton chapitres TOUJOURS cliquable** : cause trouvée — le bouton chapitres Vidstack est un **custom element `<media-menu-button>`** (pas un `<button>`, pas de `role=button` ni `data-media-menu-button`). Mon `closest("button,[role=button],...")` ne le trouvait donc JAMAIS → ni grisé ni vetoé. Fixes : (1) le scan de tagging inclut maintenant `media-menu-button` + `[aria-label]`/`[title]` ; (2) le veto remonte les **ancêtres par attribut** (aria-label/title contenant chapter/chapitre) **quel que soit le tag** ; (3) veto aussi sur **`pointerup`** (pas que pointerdown/click) ; (4) fermeture du menu au blocage renforcée : Escape + `media-menu.close()` + **pointerdown hors-menu** sur le root (Vidstack ferme au clic extérieur) + passes différées.
+- **Rectangle rose manquant au hover Privé** : bug **Tailwind** — `bg-action/25` ne marche PAS car `action = var(--brand-primary, #E94560)` (une CSS var) : Tailwind ne peut pas injecter l'alpha sur une variable → règle ignorée. Fix : `hover:bg-[#E94560]/25` (hex littéral → l'alpha s'applique). Le blanc marchait déjà (`white` est une vraie couleur).
+- **Apparition instantanée** : retrait de `transition-colors duration-200` → le rectangle de fond apparaît immédiatement au hover (Public et Privé).
+
+### Leçons / pièges
+- **Vidstack rend des custom elements** (`media-menu-button`, etc.) : un `closest("button")` les rate. Pour cibler de façon robuste → remonter les ancêtres par **attribut** (aria-label), pas par type d'élément.
+- **`bg-<couleur>/<alpha>` ne marche pas si la couleur est une `var()` CSS** dans Tailwind : l'alpha ne peut s'injecter que sur hex/rgb littéraux. Utiliser `bg-[#hex]/alpha` ou définir la couleur en triplet RGB.
+
+---
+
 ## 2026-06-25 (suite 5) — Watch 2gether : kick inactivité côté MOI (au réveil) — panel fermé + toast
 
 ### Décisions / fixes

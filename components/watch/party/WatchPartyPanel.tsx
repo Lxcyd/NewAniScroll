@@ -277,9 +277,9 @@ function ActiveRoom({ party, onClose }: { party: PartyContext; onClose?: () => v
               onClick={toggleLock}
               disabled={lockBusy}
               title={snapshot?.locked ? t("party.roomLockedHint") : t("party.roomOpenHint")}
-              className={`flex items-center gap-1 rounded-md bg-transparent px-2 py-1 text-xs font-medium transition-colors duration-200 disabled:opacity-60 ${
+              className={`flex items-center gap-1 rounded-md bg-transparent px-2 py-1 text-xs font-medium disabled:opacity-60 ${
                 snapshot?.locked
-                  ? "text-action hover:bg-action/25"
+                  ? "text-action hover:bg-[#E94560]/25"
                   : "text-white/70 hover:bg-white/20"
               }`}
             >

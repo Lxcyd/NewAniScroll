@@ -148,6 +148,11 @@ export function useWatchParty(
   // Flips to true after we leave / are removed, so the connection effect won't
   // immediately reconnect.
   const removedRef = useRef(false);
+  // Guards against a DOUBLE rejection toast: on wake, both the SSE re-join and
+  // the presence heartbeat can 403 in parallel. `removedRef` alone races (each
+  // path checks it before its own await, then teardown sets it later), so we use
+  // a dedicated flag set SYNCHRONOUSLY the instant either path decides to reject.
+  const rejectedRef = useRef(false);
 
   // Reconcile an incoming authoritative snapshot with a just-set lock value:
   // if we toggled the lock <4s ago and the server snapshot still reflects the
@@ -241,6 +246,19 @@ export function useWatchParty(
     setSnapshot(null);
     setChat([]);
   }, []);
+
+  // Reject the join/connection exactly once, no matter how many code paths
+  // detect it concurrently (SSE re-join + presence beat on wake). The flag is
+  // set synchronously BEFORE any await, so a second caller bails immediately.
+  const rejectOnce = useCallback(
+    (reason: "banned" | "locked" | "notfound" | "inactive") => {
+      if (rejectedRef.current) return;
+      rejectedRef.current = true;
+      teardown();
+      onJoinRejectedRef.current?.(reason);
+    },
+    [teardown],
+  );
 
   const leave = useCallback(() => {
     if (roomId) post("leave", { roomId });
@@ -339,7 +357,7 @@ export function useWatchParty(
         body: JSON.stringify(merged),
       });
       if (!res.ok) {
-        if ((res.status === 403 || res.status === 404) && !removedRef.current) {
+        if ((res.status === 403 || res.status === 404) && !rejectedRef.current) {
           const err = await res.json().catch(() => ({}));
           const msg = String(err?.error || "");
           const reason = /ban/i.test(msg)
@@ -349,8 +367,7 @@ export function useWatchParty(
               : /lock/i.test(msg)
                 ? "locked"
                 : "notfound";
-          teardown(); // sets removedRef → a concurrent presence/join reject won't double-toast
-          onJoinRejectedRef.current?.(reason);
+          rejectOnce(reason); // idempotent — concurrent presence/join reject won't double-toast
         }
         return;
       }
@@ -377,7 +394,7 @@ export function useWatchParty(
       };
       remoteHandlers.current.forEach((h) => h(ev));
     }
-  }, [roomId, teardown, reconcileSnapshot]);
+  }, [roomId, reconcileSnapshot, rejectOnce]);
 
   // Dispatch inbound SSE events.
   const dispatch = useCallback((ev: PartyEvent) => {
@@ -456,8 +473,9 @@ export function useWatchParty(
   // asynchronously) so the very first connection authenticates correctly.
   useEffect(() => {
     if (!roomId || !effectiveUserId) return;
-    // A new room/identity means a fresh session — clear any prior removal flag.
+    // A new room/identity means a fresh session — clear any prior removal flags.
     removedRef.current = false;
+    rejectedRef.current = false;
 
     let cancelled = false;
 
@@ -533,11 +551,10 @@ export function useWatchParty(
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
         });
-        if (res.status === 403 && !removedRef.current) {
+        if (res.status === 403 && !rejectedRef.current) {
           const err = await res.json().catch(() => ({}));
           if (/inactiv/i.test(String(err?.error || ""))) {
-            teardown(); // sets removedRef → guards against a double reject below
-            onJoinRejectedRef.current?.("inactive");
+            rejectOnce("inactive"); // idempotent — won't double-toast vs join()
           }
         }
       } catch {
@@ -578,7 +595,7 @@ export function useWatchParty(
       // the `pagehide` beacon above; if the beacon is missed, the presence key
       // lapses via its short TTL (12s) so the member still vanishes quickly.
     };
-  }, [roomId, effectiveUserId, teardown]);
+  }, [roomId, effectiveUserId, rejectOnce]);
 
   const inviteUrl =
     typeof window !== "undefined" && roomId
