@@ -7,6 +7,29 @@ Ordre anti-chronologique (le plus récent en haut). Une entrée = une session/su
 
 ---
 
+## 2026-06-25 (suite 12) — Watch 2gether : dédup réelle des stickers + recherche emoji FR/EN + perf picker + bouton envoyer
+
+### Dédup des stickers (par CONTENU, pas par nom)
+- La suite 11 dédupliquait par **nom de fichier** → des images identiques avec des noms différents passaient.
+- Dédup par **hash md5** : 14 groupes de doublons trouvés (13 paires `xxx`/`xxx_2` + `9037_laffers` = `6768_laffeydrink`). Supprimés. **252 fichiers uniques**, 0 doublon de contenu, et 252 entrées dans `animeStickers.ts` (cross-check refs↔fichiers : 0 manquant / 0 orphelin).
+- **Leçon** : toujours dédupliquer par hash de contenu, jamais par nom.
+
+### Recherche emoji unicode en FR + EN
+- Avant : les emojis unicode étaient des chars nus sans mots-clés → chercher "pomme"/"apple" ne renvoyait rien.
+- Nouveau `lib/watch2gether/emojiKeywords.ts` (GÉNÉRÉ) : map `char → "mots-clés EN+FR"` issue des **annotations Unicode CLDR** (en + fr), accent-folded + lowercase. **1555 emojis** indexés (les ~320 séquences ZWJ sans annotation CLDR sont omises, sans impact sur les emojis courants).
+- `EmojiButton` filtre les unicode via `EMOJI_KEYWORDS[char].includes(q)`. `fold()` (NFD + strip accents + lowercase) appliqué partout → "pomme", "Pomme", "pommé", "apple" trouvent tous 🍎.
+- Régénérer : télécharger `cldr-annotations-full/.../en|fr/annotations.json`, extraire les chars présents dans `unicodeEmojis.ts`, merger `default`+`tts` des 2 langues (voir script scratchpad).
+
+### Perf du picker (lent surtout la barre de recherche)
+- Cause : chaque frappe re-filtrait ~1900 emojis ET re-rendait ~1900 boutons inline-styled.
+- Fix : (1) **debounce 120 ms** — `query` (affichage instantané) vs `debouncedQuery` (filtrage) ; (2) **cap `MAX_RESULTS=200`** sur les résultats unicode + stickers rendus.
+
+### Bouton envoyer (chat hors fullscreen)
+- Avant : `disabled={amMuted || !hasText}` → curseur "interdit" + non cliquable quand vide.
+- Maintenant : **toujours cliquable**, juste atténué (`opacity-40`) quand vide/muet ; `send()` ignore déjà le texte vide → clic = no-op. (Le bouton fullscreen `.w2g-fs-send` était déjà sans `disabled`.)
+
+---
+
 ## 2026-06-25 (suite 11) — Watch 2gether : 266 stickers anime importés + composer contentEditable (étape 2)
 
 ### Emojis anime — données

@@ -416,11 +416,15 @@ function ActiveRoom({ party, onClose }: { party: PartyContext; onClose?: () => v
                 amMuted ? "pointer-events-none opacity-60" : ""
               }`}
             />
+            {/* Always clickable: when empty it simply no-ops (send() ignores
+                blank text). We only dim it visually when there's nothing to
+                send — no `disabled` so the cursor stays normal, not "blocked". */}
             <button
               type="button"
               onClick={() => send(composerRef.current?.getText() || "")}
-              disabled={amMuted || !hasText}
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-action text-white disabled:cursor-not-allowed disabled:opacity-40"
+              className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-action text-white transition-opacity ${
+                hasText && !amMuted ? "" : "opacity-40"
+              }`}
             >
               <IoSend size={16} />
             </button>

@@ -5,6 +5,17 @@ import { BsEmojiSmile } from "react-icons/bs";
 import { ANIME_EMOJIS, ANIME_EMOJI_MAP } from "@/lib/watch2gether/animeEmojis";
 import { ANIME_STICKERS, ANIME_STICKER_MAP } from "@/lib/watch2gether/animeStickers";
 import { EMOJI_CATEGORIES, ALL_EMOJIS } from "@/lib/watch2gether/unicodeEmojis";
+import { EMOJI_KEYWORDS } from "@/lib/watch2gether/emojiKeywords";
+
+// Strip accents + lowercase so "pomme" matches "pommé" and casing is ignored.
+function fold(s: string): string {
+  return s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+}
+
+// Cap how many results we render at once. Rendering ~1900 emoji buttons on every
+// keystroke is what made the picker feel sluggish; a generous cap keeps it
+// snappy while still surfacing everything relevant for a real search.
+const MAX_RESULTS = 200;
 
 interface Props {
   /** Called with the text to insert (unicode emoji or `:shortcode:`). */
@@ -53,7 +64,11 @@ export default function EmojiButton({ onPick, fullscreen, className = "" }: Prop
   const panelRef = useRef<HTMLDivElement | null>(null);
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  // `query` is what the input shows (updates instantly so typing feels native);
+  // `debouncedQuery` is what actually drives filtering, lagged a frame or two so
+  // we don't re-filter the whole emoji set on every single keystroke.
   const [query, setQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
   const [recents, setRecents] = useState<string[]>([]);
   // Active tab: "popular" (recents + anime customs combined), or a category name.
   const [cat, setCat] = useState<string>("popular");
@@ -91,27 +106,35 @@ export default function EmojiButton({ onPick, fullscreen, className = "" }: Prop
   useEffect(() => {
     if (open) {
       setQuery("");
+      setDebouncedQuery("");
       setRecents(loadRecents());
       setCat("popular");
     }
   }, [open]);
+
+  // Debounce the search input → filtering. 120ms keeps typing fluid even with
+  // ~1900 emojis to scan.
+  useEffect(() => {
+    const id = window.setTimeout(() => setDebouncedQuery(query), 120);
+    return () => window.clearTimeout(id);
+  }, [query]);
 
   const pick = (insert: string) => {
     setRecents(pushRecent(insert));
     onPick(insert);
   };
 
-  // When searching, match anime shortcodes/labels/tags AND scan all unicode
-  // emojis (we can't keyword unicode without a huge map, so a non-empty query
-  // simply collapses to the anime matches + the full unicode grid).
-  const q = query.trim().toLowerCase();
+  // When searching: match anime shortcodes/labels/tags, AND match unicode
+  // emojis by their EN+FR CLDR keywords (so "pomme"/"apple" → 🍎). The search
+  // term is accent-folded so language and accents don't matter.
+  const q = fold(debouncedQuery.trim());
   const animeMatches = useMemo(() => {
     if (!q) return ANIME_EMOJIS;
     return ANIME_EMOJIS.filter(
       (e) =>
-        e.emoji.toLowerCase().includes(q) ||
-        e.label.toLowerCase().includes(q) ||
-        e.tags?.some((t) => t.includes(q)),
+        fold(e.emoji).includes(q) ||
+        fold(e.label).includes(q) ||
+        e.tags?.some((t) => fold(t).includes(q)),
     );
   }, [q]);
 
@@ -120,10 +143,24 @@ export default function EmojiButton({ onPick, fullscreen, className = "" }: Prop
     if (!q) return ANIME_STICKERS;
     return ANIME_STICKERS.filter(
       (s) =>
-        s.shortcode.toLowerCase().includes(q) ||
-        s.label.toLowerCase().includes(q) ||
-        s.tags?.some((t) => t.includes(q)),
-    );
+        fold(s.shortcode).includes(q) ||
+        fold(s.label).includes(q) ||
+        s.tags?.some((t) => fold(t).includes(q)),
+    ).slice(0, MAX_RESULTS);
+  }, [q]);
+
+  // Unicode emojis matched by CLDR keywords (EN+FR). Capped for snappiness.
+  const unicodeMatches = useMemo(() => {
+    if (!q) return [] as string[];
+    const res: string[] = [];
+    for (const u of ALL_EMOJIS) {
+      const kw = EMOJI_KEYWORDS[u];
+      if (kw && kw.includes(q)) {
+        res.push(u);
+        if (res.length >= MAX_RESULTS) break;
+      }
+    }
+    return res;
   }, [q]);
 
   // Portal target: the fullscreen element (so it shows over the video) or body.
@@ -224,7 +261,7 @@ export default function EmojiButton({ onPick, fullscreen, className = "" }: Prop
   // Body: either the active category grid, or — when searching — anime matches
   // followed by the full unicode set (so "all the emojis" stay reachable).
   const activeCategory = EMOJI_CATEGORIES.find((c) => c.name === cat);
-  const unicodeToShow = q ? ALL_EMOJIS : activeCategory?.emojis || [];
+  const unicodeToShow = q ? unicodeMatches : activeCategory?.emojis || [];
 
   const panel =
     open && pos && portalTarget
