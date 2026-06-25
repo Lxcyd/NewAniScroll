@@ -2351,28 +2351,34 @@ export default function UniversalPlayer({
     };
 
     // When the host has blocked our playback, revert any local play/pause/seek
-    // to the authoritative snapshot instead of broadcasting, and tell the user.
-    // Acts DIRECTLY on the <video> element (synchronous + reliable) rather than
-    // the async player facade, so a blocked user truly can't start playback.
+    // to the authoritative snapshot WITHOUT ever broadcasting. We must NOT use
+    // the 120ms withGuard window: the revert's `currentTime=` fires a `seeked`
+    // event asynchronously, which could land after the guard expired and get
+    // re-broadcast — that desynced the host ("inversé avec l'hôte"). Instead a
+    // dedicated, longer suppression window covers the whole revert, and every
+    // handler bails up-front when blocked so nothing ever goes out.
     const enforceBlocked = (): boolean => {
       if (!partyRef.current?.amPlaybackBlocked || !video) return false;
       const snap = partyRef.current.snapshot;
-      withGuard(() => {
+      applying.current = true;
+      try {
         const v = video!;
         if (snap) {
           const pos = Number(snap.position);
           if (Number.isFinite(pos) && Math.abs(v.currentTime - pos) > SEEK_TOLERANCE) {
             v.currentTime = pos;
           }
-          // The room is the authority: if it's paused, force-pause us even if we
-          // just hit play; if it's playing, keep playing.
           if (snap.paused) v.pause();
           else void v.play()?.catch?.(() => {});
         } else {
-          // No snapshot yet → safest default is to keep us paused.
           v.pause();
         }
-      });
+      } catch {}
+      // Hold the suppression long enough to swallow the async media events the
+      // revert above triggers (seeked/play/pause), so none re-broadcast.
+      window.setTimeout(() => {
+        applying.current = false;
+      }, 500);
       const now = Date.now();
       if (now - blockedToastAtRef.current > 2500) {
         blockedToastAtRef.current = now;
@@ -2381,25 +2387,26 @@ export default function UniversalPlayer({
       return true;
     };
 
-    // Local player → broadcast (skip when we're applying a remote action).
+    // Local player → broadcast. Bail when applying a remote action OR when our
+    // playback is blocked (enforceBlocked reverts and never lets us broadcast).
     const onPlay = () => {
       if (applying.current || !video) return;
-      if (enforceBlocked()) return;
+      if (partyRef.current?.amPlaybackBlocked) return void enforceBlocked();
       party.broadcast("play", { position: video.currentTime });
     };
     const onPause = () => {
       if (applying.current || !video) return;
-      if (enforceBlocked()) return;
+      if (partyRef.current?.amPlaybackBlocked) return void enforceBlocked();
       party.broadcast("pause", { position: video.currentTime });
     };
     const onSeeked = () => {
       if (applying.current || !video) return;
-      if (enforceBlocked()) return;
+      if (partyRef.current?.amPlaybackBlocked) return void enforceBlocked();
       party.broadcast("seek", { position: video.currentTime });
     };
     const onRate = () => {
       if (applying.current || !video) return;
-      if (enforceBlocked()) return;
+      if (partyRef.current?.amPlaybackBlocked) return void enforceBlocked();
       party.broadcast("rate", { rate: video.playbackRate, position: video.currentTime });
     };
 

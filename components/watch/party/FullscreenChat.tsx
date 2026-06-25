@@ -25,7 +25,7 @@ const BUBBLE_TTL_MS = 4000; // each ephemeral bubble fades after ~4s
 const IDLE_HIDE_MS = 3000; // hide the (idle) UI after this with no activity
 const RECENT_MAX = 30; // history kept for the hover panel
 
-export default function FullscreenChat({ onRemote, sendChat, myId, playerEl, active }: Props) {
+export default function FullscreenChat({ onRemote, sendChat, playerEl, active }: Props) {
   const { t } = useTranslation();
   const [recent, setRecent] = useState<ChatMessage[]>([]);
   const [bubbles, setBubbles] = useState<ChatMessage[]>([]);
@@ -113,55 +113,33 @@ export default function FullscreenChat({ onRemote, sendChat, myId, playerEl, act
   // disappears out from under you while a conversation is active.
   const showComposer = shown || bubbles.length > 0 || hasText;
 
-  // When the user has hidden the chat, show only a small floating button to
-  // bring it back — nothing else renders over the video.
-  if (hidden) {
-    return createPortal(
-      <div style={{ position: "absolute", inset: 0, zIndex: 40, pointerEvents: "none" }}>
-        <button
-          onClick={() => setHiddenPersist(false)}
-          title={t("party.fsShow")}
-          aria-label={t("party.fsShow")}
-          style={{
-            position: "absolute",
-            right: 16,
-            bottom: 88,
-            display: "flex",
-            height: 40,
-            width: 40,
-            alignItems: "center",
-            justifyContent: "center",
-            borderRadius: 999,
-            background: "rgba(0,0,0,0.6)",
-            backdropFilter: "blur(4px)",
-            color: "white",
-            border: "none",
-            cursor: "pointer",
-            pointerEvents: "auto",
-          }}
-        >
-          <IoChatbubbleEllipses size={20} />
-        </button>
-      </div>,
-      playerEl,
-    );
-  }
+  // Common bottom offset: keep EVERYTHING above the player's control bar so we
+  // never intercept clicks on PiP / fullscreen / etc. (the old full-height hover
+  // zone swallowed those).
+  const BOTTOM = 96;
 
+  // When hidden (cross clicked), nothing renders by default. The chat reappears
+  // only when the mouse enters the right-edge zone (which stops above the
+  // controls). A small "shown=false" state keeps just the icon.
   const overlay = (
     <div style={{ position: "absolute", inset: 0, zIndex: 40, pointerEvents: "none" }}>
-      {/* Right-edge hover zone to reveal the full panel. */}
+      {/* Right-edge hover zone — reveals the panel. Stops above the control bar
+          so PiP/fullscreen stay clickable. */}
       <div
         onMouseEnter={() => {
           hoveringRef.current = true;
+          if (hidden) setHiddenPersist(false);
           bumpActivity();
         }}
         onMouseLeave={() => {
           hoveringRef.current = false;
           bumpActivity();
         }}
-        style={{ position: "absolute", top: 0, right: 0, width: 96, height: "100%", pointerEvents: "auto" }}
+        style={{ position: "absolute", top: 0, right: 0, width: 96, height: `calc(100% - ${BOTTOM + 8}px)`, pointerEvents: "auto" }}
       />
 
+      {/* When hidden, render nothing else (only the hover zone above is live). */}
+      {hidden ? null : (
       <div
         onMouseEnter={() => {
           hoveringRef.current = true;
@@ -174,7 +152,7 @@ export default function FullscreenChat({ onRemote, sendChat, myId, playerEl, act
         style={{
           position: "absolute",
           right: 16,
-          bottom: 88,
+          bottom: BOTTOM,
           display: "flex",
           flexDirection: "column",
           alignItems: "stretch",
@@ -183,29 +161,59 @@ export default function FullscreenChat({ onRemote, sendChat, myId, playerEl, act
           pointerEvents: "auto",
         }}
       >
-        {/* Hide-for-good cross (only while the panel is revealed). */}
-        {shown && (
-          <button
-            onClick={() => setHiddenPersist(true)}
-            title={t("party.fsHide")}
-            aria-label={t("party.fsHide")}
-            style={{
-              alignSelf: "flex-end",
-              display: "flex",
-              height: 28,
-              width: 28,
-              alignItems: "center",
-              justifyContent: "center",
-              borderRadius: 999,
-              background: "rgba(0,0,0,0.6)",
-              backdropFilter: "blur(4px)",
-              color: "white",
-              border: "none",
-              cursor: "pointer",
-            }}
-          >
-            <IoClose size={18} />
-          </button>
+        {/* Collapsed: a chat icon with a cross at its bottom-left. Hovering the
+            icon reveals the chat; the cross hides it for good (until the user
+            hovers the right edge again). */}
+        {!shown && (
+          <div style={{ alignSelf: "flex-end", position: "relative" }}>
+            <button
+              onMouseEnter={bumpActivity}
+              onClick={() => {
+                bumpActivity();
+                setTimeout(() => inputRef.current?.focus(), 50);
+              }}
+              title={t("party.fsShow")}
+              aria-label={t("party.fsShow")}
+              style={{
+                display: "flex",
+                height: 40,
+                width: 40,
+                alignItems: "center",
+                justifyContent: "center",
+                borderRadius: 999,
+                background: "rgba(0,0,0,0.6)",
+                backdropFilter: "blur(4px)",
+                color: "white",
+                border: "none",
+                cursor: "pointer",
+              }}
+            >
+              <IoChatbubbleEllipses size={20} />
+            </button>
+            <button
+              onClick={() => setHiddenPersist(true)}
+              title={t("party.fsHide")}
+              aria-label={t("party.fsHide")}
+              style={{
+                position: "absolute",
+                bottom: -4,
+                left: -4,
+                display: "flex",
+                height: 18,
+                width: 18,
+                alignItems: "center",
+                justifyContent: "center",
+                borderRadius: 999,
+                background: "rgba(0,0,0,0.85)",
+                color: "white",
+                border: "1px solid rgba(255,255,255,0.2)",
+                cursor: "pointer",
+                padding: 0,
+              }}
+            >
+              <IoClose size={12} />
+            </button>
+          </div>
         )}
 
         {/* Expanded history (on hover/activity) vs ephemeral bubbles. */}
@@ -236,7 +244,7 @@ export default function FullscreenChat({ onRemote, sendChat, myId, playerEl, act
                   style={{
                     fontWeight: 600,
                     marginRight: 6,
-                    color: m.userId === myId ? "var(--brand-primary, #E94560)" : "rgba(255,255,255,0.85)",
+                    color: "var(--brand-primary, #E94560)",
                   }}
                 >
                   {m.name}
@@ -265,7 +273,7 @@ export default function FullscreenChat({ onRemote, sendChat, myId, playerEl, act
                   style={{
                     fontWeight: 600,
                     marginRight: 6,
-                    color: m.userId === myId ? "var(--brand-primary, #E94560)" : "rgba(255,255,255,0.85)",
+                    color: "var(--brand-primary, #E94560)",
                   }}
                 >
                   {m.name}
@@ -322,6 +330,7 @@ export default function FullscreenChat({ onRemote, sendChat, myId, playerEl, act
           </form>
         )}
       </div>
+      )}
     </div>
   );
 
