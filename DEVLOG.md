@@ -7,6 +7,20 @@ Ordre anti-chronologique (le plus récent en haut). Une entrée = une session/su
 
 ---
 
+## 2026-06-25 (suite 13) — Watch 2gether : passe `/simplify` (cleanup post-feature)
+
+Revue par 4 agents (reuse / simplification / efficiency / altitude) sur le diff des suites 12-13. Corrigés :
+- **Perf recherche emoji** : `fold()` n'est plus appelé en boucle sur chaque sticker/tag à chaque frappe. Haystacks pré-foldés au chargement du module (`ANIME_EMOJI_HAYSTACK`, `ANIME_STICKER_HAYSTACK`) → filtre = `.includes(q)`.
+- **Bundle** : les 2 maps de mots-clés (~150KB chacune) ne sont plus importées en dur. `emojiKeywords.ts` expose `loadEmojiKeywords(lang)` (dynamic `import()`), chargée **lazy** à la 1ʳᵉ ouverture du picker, langue active seulement. État `emojiKeywords` (défaut `{}` → la recherche unicode rend vide tant que ça charge, anime/stickers marchent quand même).
+- **Rendu incrémental** : la boucle rAF s'arrête maintenant à `visibleMax` (max des grilles affichées) au lieu d'un `MAX_VISIBLE=600` magique → plus de re-renders inutiles sur les petits résultats. Constante `MAX_VISIBLE` supprimée. Si `visibleMax ≤ INITIAL_BATCH`, pas de boucle du tout.
+- **Micro** : style des boutons unicode hoisté en const module (`UNICODE_BTN_STYLE`) au lieu d'un objet alloué par bouton/render.
+- **ChatComposer** : `serialize()` n'est plus appelé 2-3× par frappe (1 fois sur le chemin normal ; le trim maxLen ne tourne que sur le rare dépassement, et coupe en 1 passe). `insertNode` réutilise une seule `getSelection()`.
+- **Repro des données générées** : ajout de `scripts/gen-emoji-keywords.mjs` (refetch CLDR en+fr → `emojiKeywords.{en,fr}.ts`) et `scripts/gen-anime-stickers.mjs` (scanne `public/emojis/anime/` → `animeStickers.ts`, préserve labels/tags existants). Avant, la regen vivait dans le scratchpad (perdue). **Note** : `gen-anime-stickers` produit une forme allégée (sans les gros JSDoc actuels) — à ne lancer que si besoin. Node absent de l'env ici → scripts non exécutés/vérifiés sur place.
+
+**Skippés** (hors scope / refacto trop large) : extraire un helper accent-fold partagé (3 copies dans le repo, aucune exportée) ; fusionner le *footer* composer (EmojiButton+ChatComposer+send) dupliqué entre `WatchPartyPanel` et `FullscreenChat` (chrome réellement différent : mute, hint FS) ; virtualisation complète de la grille (pas de lib `react-window`, le batching rAF reste une dette assumée).
+
+---
+
 ## 2026-06-25 (suite 12) — Watch 2gether : dédup réelle des stickers + recherche emoji FR/EN + perf picker + bouton envoyer
 
 ### Dédup des stickers (par CONTENU, pas par nom)

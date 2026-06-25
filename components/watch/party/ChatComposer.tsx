@@ -71,23 +71,23 @@ const ChatComposer = React.forwardRef<ChatComposerHandle, Props>(function ChatCo
     if (!box) return;
     box.focus();
     const sel = window.getSelection();
+    if (!sel) return;
     // Ensure the caret is inside the box; if not, move it to the end.
-    if (!sel || sel.rangeCount === 0 || !box.contains(sel.anchorNode)) {
+    if (sel.rangeCount === 0 || !box.contains(sel.anchorNode)) {
       const r = document.createRange();
       r.selectNodeContents(box);
       r.collapse(false);
-      sel?.removeAllRanges();
-      sel?.addRange(r);
+      sel.removeAllRanges();
+      sel.addRange(r);
     }
-    const range = window.getSelection()!.getRangeAt(0);
+    const range = sel.getRangeAt(0);
     range.deleteContents();
     range.insertNode(node);
     // Move caret right after the inserted node.
     range.setStartAfter(node);
     range.collapse(true);
-    const s = window.getSelection()!;
-    s.removeAllRanges();
-    s.addRange(range);
+    sel.removeAllRanges();
+    sel.addRange(range);
     emitChange();
   };
 
@@ -139,20 +139,23 @@ const ChatComposer = React.forwardRef<ChatComposerHandle, Props>(function ChatCo
       data-placeholder={placeholder}
       className={`w2g-composer ${className || ""}`}
       onInput={() => {
-        // Enforce a rough max length on the serialized text.
-        if (maxLen && boxRef.current && serialize(boxRef.current).length > maxLen) {
-          // Trim trailing text node content back under the cap (cheap guard).
-          const box = boxRef.current;
-          while (serialize(box).length > maxLen && box.lastChild) {
+        const box = boxRef.current;
+        if (!box) return;
+        let text = serialize(box);
+        // Rough max-length guard (only trims on the rare over-cap path, e.g. a
+        // big paste): drop whole trailing nodes until back under the cap.
+        if (maxLen && text.length > maxLen) {
+          while (text.length > maxLen && box.lastChild) {
             const last = box.lastChild;
             if (last.nodeType === Node.TEXT_NODE && (last.textContent?.length || 0) > 1) {
-              last.textContent = last.textContent!.slice(0, -1);
+              last.textContent = last.textContent!.slice(0, maxLen - text.length);
             } else {
               box.removeChild(last);
             }
+            text = serialize(box);
           }
         }
-        emitChange();
+        onChange?.(text);
       }}
       onFocus={onFocus}
       onKeyDown={(e) => {

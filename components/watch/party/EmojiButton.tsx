@@ -5,12 +5,21 @@ import { BsEmojiSmile } from "react-icons/bs";
 import { ANIME_EMOJIS, ANIME_EMOJI_MAP } from "@/lib/watch2gether/animeEmojis";
 import { ANIME_STICKERS, ANIME_STICKER_MAP } from "@/lib/watch2gether/animeStickers";
 import { EMOJI_CATEGORIES, ALL_EMOJIS } from "@/lib/watch2gether/unicodeEmojis";
-import { emojiKeywordsFor } from "@/lib/watch2gether/emojiKeywords";
+import { loadEmojiKeywords } from "@/lib/watch2gether/emojiKeywords";
 
 // Strip accents + lowercase so "pomme" matches "pommé" and casing is ignored.
 function fold(s: string): string {
   return s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
 }
+
+// Pre-folded search haystacks, built ONCE at module load (the source data is
+// static). Re-folding every sticker/emoji on each keystroke was needless work.
+const ANIME_EMOJI_HAYSTACK = ANIME_EMOJIS.map(
+  (e) => fold(`${e.emoji} ${e.label} ${(e.tags || []).join(" ")}`),
+);
+const ANIME_STICKER_HAYSTACK = ANIME_STICKERS.map(
+  (s) => fold(`${s.shortcode} ${s.label} ${(s.tags || []).join(" ")}`),
+);
 
 // Cap how many results we render at once. Rendering ~1900 emoji buttons on every
 // keystroke is what made the picker feel sluggish; a generous cap keeps it
@@ -23,8 +32,10 @@ const MAX_RESULTS = 200;
 const INITIAL_BATCH = 64;
 // How many more to mount per animation frame after the first batch.
 const GROW_STEP = 120;
-// Upper bound — the largest category (People) is ~385, so this covers all.
-const MAX_VISIBLE = 600;
+
+// Hoisted so each of the (hundreds of) unicode buttons shares one style object
+// instead of allocating a fresh one per render.
+const UNICODE_BTN_STYLE: React.CSSProperties = { fontSize: 20, lineHeight: "28px" };
 
 interface Props {
   /** Called with the text to insert (unicode emoji or `:shortcode:`). */
@@ -69,8 +80,10 @@ function pushRecent(insert: string): string[] {
 // tab — Flags included — is visible without horizontal scrolling.
 export default function EmojiButton({ onPick, fullscreen, className = "" }: Props) {
   const { t, i18n } = useTranslation();
-  // Search the keywords in the site's current language (en ↔ fr).
-  const emojiKeywords = useMemo(() => emojiKeywordsFor(i18n.language), [i18n.language]);
+  // Keyword map for the site's current language (en ↔ fr), loaded lazily so the
+  // two ~150KB maps stay out of the initial bundle — only the active one is
+  // fetched, and only once the picker is first opened.
+  const [emojiKeywords, setEmojiKeywords] = useState<Record<string, string>>({});
   const btnRef = useRef<HTMLButtonElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
   const [open, setOpen] = useState(false);
@@ -129,6 +142,20 @@ export default function EmojiButton({ onPick, fullscreen, className = "" }: Prop
     }
   }, [open]);
 
+  // Lazily load the keyword map for the active language on first open (and if
+  // the language changes while open). Until it resolves, unicode keyword search
+  // simply yields nothing — anime/sticker search still works.
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    loadEmojiKeywords(i18n.language).then((map) => {
+      if (!cancelled) setEmojiKeywords(map);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, i18n.language]);
+
   // Debounce the search input → filtering. 120ms keeps typing fluid even with
   // ~1900 emojis to scan.
   useEffect(() => {
@@ -146,42 +173,18 @@ export default function EmojiButton({ onPick, fullscreen, className = "" }: Prop
   // "apple" → 🍎 in EN). The search term is accent-folded so accents don't matter.
   const q = fold(debouncedQuery.trim());
 
-  // Whenever the visible set changes (tab switch, search, or open), mount a
-  // small first batch, then grow in chunks across animation frames. The heavy
-  // mounting happens AFTER the switch has painted and is spread over several
-  // frames, so the tab responds instantly and nothing janks.
-  useEffect(() => {
-    setRenderLimit(INITIAL_BATCH);
-    let id = 0;
-    let current = INITIAL_BATCH;
-    const step = () => {
-      current += GROW_STEP;
-      setRenderLimit(current);
-      if (current < MAX_VISIBLE) id = requestAnimationFrame(step);
-    };
-    id = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(id);
-  }, [cat, q, open]);
-
   const animeMatches = useMemo(() => {
     if (!q) return ANIME_EMOJIS;
-    return ANIME_EMOJIS.filter(
-      (e) =>
-        fold(e.emoji).includes(q) ||
-        fold(e.label).includes(q) ||
-        e.tags?.some((t) => fold(t).includes(q)),
-    );
+    return ANIME_EMOJIS.filter((_, i) => ANIME_EMOJI_HAYSTACK[i].includes(q));
   }, [q]);
 
   // Real anime stickers (image-only, from /public). Same search behaviour.
   const stickerMatches = useMemo(() => {
     if (!q) return ANIME_STICKERS;
-    return ANIME_STICKERS.filter(
-      (s) =>
-        fold(s.shortcode).includes(q) ||
-        fold(s.label).includes(q) ||
-        s.tags?.some((t) => fold(t).includes(q)),
-    ).slice(0, MAX_RESULTS);
+    return ANIME_STICKERS.filter((_, i) => ANIME_STICKER_HAYSTACK[i].includes(q)).slice(
+      0,
+      MAX_RESULTS,
+    );
   }, [q]);
 
   // Unicode emojis matched by CLDR keywords (EN+FR). Capped for snappiness.
@@ -221,7 +224,7 @@ export default function EmojiButton({ onPick, fullscreen, className = "" }: Prop
       type="button"
       onClick={() => pick(u)}
       className="w2g-emoji-btn"
-      style={{ fontSize: 20, lineHeight: "28px" }}
+      style={UNICODE_BTN_STYLE}
     >
       {u}
     </button>
@@ -269,6 +272,33 @@ export default function EmojiButton({ onPick, fullscreen, className = "" }: Prop
   // followed by the full unicode set (so "all the emojis" stay reachable).
   const activeCategory = EMOJI_CATEGORIES.find((c) => c.name === cat);
   const unicodeToShow = q ? unicodeMatches : activeCategory?.emojis || [];
+
+  // Largest grid currently shown — the only one big enough to need batching.
+  const visibleMax = Math.max(unicodeToShow.length, stickerMatches.length);
+
+  // Whenever the visible set changes (tab switch, search, or open), mount a
+  // small first batch, then grow in chunks across animation frames — so the
+  // heavy mounting happens AFTER the switch has painted and is spread over
+  // several frames (the tab responds instantly, nothing janks). We stop as soon
+  // as the budget covers everything actually shown, so small result sets don't
+  // schedule pointless re-renders.
+  useEffect(() => {
+    if (visibleMax <= INITIAL_BATCH) {
+      setRenderLimit(INITIAL_BATCH);
+      return;
+    }
+    setRenderLimit(INITIAL_BATCH);
+    let id = 0;
+    let current = INITIAL_BATCH;
+    const step = () => {
+      current += GROW_STEP;
+      setRenderLimit(current);
+      if (current < visibleMax) id = requestAnimationFrame(step);
+    };
+    id = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cat, q, open]);
 
   const panel =
     open && pos && portalTarget
