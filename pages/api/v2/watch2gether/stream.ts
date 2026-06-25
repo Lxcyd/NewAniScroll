@@ -11,15 +11,24 @@ import {
 } from "@/lib/watch2gether/redisRoom";
 import { createSubscriber } from "@/lib/watch2gether/subscriber";
 
-// Long-lived SSE response. Vercel caps function duration, so we self-close a
-// little before the limit and the client's EventSource auto-reconnects.
+// Long-lived SSE response. Vercel caps function duration (60s on the current
+// Hobby plan), so we self-close a little before the limit and the client's
+// EventSource auto-reconnects.
+//
+// Active-CPU note: we keep maxDuration at 60 (Hobby's hard cap — going higher
+// gets the function KILLED mid-stream, which is worse). The win comes from
+// burning less CPU *within* each connection: the self-close moves as close to
+// the cap as is safe (58s) so we reconnect as rarely as the platform allows,
+// and the heartbeat is relaxed (15s → 25s) since it only needs to keep proxies
+// from dropping an idle connection, not to carry data — fewer timer wakeups per
+// connection.
 export const config = {
   api: { bodyParser: false, responseLimit: false },
   maxDuration: 60,
 };
 
-const SELF_CLOSE_MS = 55_000; // close before Vercel's 60s hard cap
-const HEARTBEAT_MS = 15_000;
+const SELF_CLOSE_MS = 58_000; // close just before Vercel's 60s hard cap
+const HEARTBEAT_MS = 25_000;
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "GET") return res.status(405).end();

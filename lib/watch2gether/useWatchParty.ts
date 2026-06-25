@@ -15,8 +15,11 @@ import type {
   RoomSnapshot,
 } from "./types";
 
-// Must stay safely below PRESENCE_TTL (12s) so a live member is never pruned
-// between heartbeats — 5s gives 2+ refreshes per TTL window.
+// Must stay safely below PRESENCE_TTL (12s, see redisRoom) so a live member is
+// never pruned between heartbeats. 5s gives ~2.4 refreshes per TTL window — the
+// margin a single slow request needs. (The Active-CPU win comes from the SSE
+// stream living longer, not from thinning this cheap heartbeat — slowing it
+// would also undo the deliberately-fast 12s departure detection.)
 const PRESENCE_INTERVAL_MS = 5_000;
 
 /** Live connection quality, surfaced as a coloured dot in the panel.

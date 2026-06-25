@@ -830,6 +830,7 @@
     "blockedBanner": "L'hôte a bloqué ta lecture",
     "fsNoMessages": "Aucun message",
     "fsHide": "Masquer le chat",
-    "fsShow": "Afficher le chat"
+    "fsShow": "Afficher le chat",
+    "fsHint": "Le chat est ici"
   }
 }

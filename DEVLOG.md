@@ -7,6 +7,25 @@ Ordre anti-chronologique (le plus récent en haut). Une entrée = une session/su
 
 ---
 
+## 2026-06-25 — Watch 2gether : réconciliation continue, latence, FS chat hover, CPU
+
+### Décisions / fixes
+- **Bloqué qui met play à l'instant du blocage** (bug user) : l'enforcement n'était que **piloté par events** → race possible (le serveur 403 le broadcast, mais le `<video>` local continue de jouer → désync sans retour). Ajout d'une **boucle de réconciliation 1s** dans l'effet de sync : tant que `amPlaybackBlocked`, on **re-snap** dur sur la cible autoritaire chaque tick (`enforceBlocked(false)` sans re-toast), donc un bloqué **ne peut jamais rester désync**. `enforceBlocked` gère maintenant aussi l'état (pause si la cible est en pause, play sinon) + le rate, pas que la position.
+- **Compensation de latence** : la `position` d'un event remote est échantillonnée à `e.ts` chez l'émetteur ; à l'application, le temps de transit s'est écoulé → un pair *en lecture* a avancé. On projette la position de `min(5s, max(0, now-ts)) * rate` (clamp pour ignorer une horloge faussée) sur `play`/`seek`/`snapshot`. Moins de décalage à chaque action.
+- **Cible locale + anti-dérive** : un `target {position, paused, rate, at, known}` suivi par tous les events ET nos propres broadcasts ; `projectedTarget()` = position + temps écoulé si en lecture. La boucle 1s **nudge** doucement quiconque a dérivé > 1.25s en lecture (guard suppression → pas de re-broadcast). N'agit jamais contre une pause locale (intention user).
+- **FS chat refonte (spec user)** : suppression de l'icône bulle persistante + croix. Désormais **hover du bord droit → ouvre** (slide+fade), **mouse-leave → ferme instantanément** (même transition inversée, 160ms). Petite grâce de 400ms seulement si l'input est non-vide (pour atteindre l'emoji picker). Au **passage en fullscreen**, un **hint discret** (pilule pulsante sur le bord droit, `party.fsHint`) apprend où est le chat — plafonné à 3 affichages (`w2g.fsChat.hintSeen`), disparaît dès qu'on ouvre. Les bulles éphémères restent affichées panneau fermé.
+- **Active CPU** (option « réglages sûrs » choisie) : SSE `stream` self-close 55s→**58s** (au plus près du cap Hobby 60s → on reconnecte le moins souvent possible) + heartbeat 15s→**25s** (moins de réveils timer/connexion). `maxDuration` **reste à 60** : Hobby tue la fonction au-delà → pire. Presence inchangé (5s) : le baisser réduirait peu (heartbeat léger) et casserait la détection de départ rapide à 12s.
+
+### Leçons / pièges
+- **Sync event-only ne suffit pas** : il faut une réconciliation périodique pour rattraper la course du blocage ET la dérive lente. Côté **client** → zéro impact sur l'Active CPU serveur.
+- **`maxDuration > plan cap` = fonction tuée**, pas étendue. Sur Hobby (banner « Upgrade to Pro » visible), rester ≤ 60s ; le gain CPU vient du *contenu* de la connexion (heartbeat espacé), pas de sa durée.
+- **Compensation de latence = projeter `position` par `now - e.ts`**, clampé, pour absorber les horloges décalées entre pairs.
+
+### État
+- Branche `dev`. Typecheck non lancé localement (TS pas installé dans l'env) — à vérifier au build.
+
+---
+
 ## 2026-06-24 (suite 5) — Watch 2gether : désync blocage, FS chat refonte, contrôles
 
 ### Décisions / fixes

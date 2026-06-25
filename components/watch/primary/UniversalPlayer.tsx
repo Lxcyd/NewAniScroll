@@ -2333,11 +2333,42 @@ export default function UniversalPlayer({
   useEffect(() => {
     if (!party) return;
 
+    // Tolerance for accepting a remote position as "already here" (avoids
+    // seek-wars from timeupdate jitter). Drift beyond DRIFT_TOLERANCE while
+    // playing is silently nudged by the reconciliation loop below.
     const SEEK_TOLERANCE = 0.75;
+    const DRIFT_TOLERANCE = 1.25;
     let el: HTMLElement | null = null;
     let video: HTMLVideoElement | null = null;
     let pollId = 0;
+    let reconcileId = 0;
     const applying = party.applyingRemoteRef;
+
+    // Last authoritative playback target we know about — updated by every remote
+    // event (play/pause/seek/rate/snapshot) AND by our own broadcasts. The
+    // reconciliation loop (and block enforcement) steer the local <video> toward
+    // this, projecting `position` forward by elapsed wall-time when playing so
+    // network latency doesn't bake in a permanent offset.
+    const target = {
+      position: 0,
+      paused: true,
+      rate: 1,
+      // Wall-clock (ms) the position was sampled at, for latency projection.
+      at: Date.now(),
+      known: false,
+    };
+    const setTarget = (pos: number, paused: boolean, rate?: number) => {
+      if (Number.isFinite(pos)) target.position = pos;
+      target.paused = paused;
+      if (typeof rate === "number" && rate > 0) target.rate = rate;
+      target.at = Date.now();
+      target.known = true;
+    };
+    // Where the target playhead should be *now* (position + elapsed if playing).
+    const projectedTarget = (): number => {
+      if (target.paused) return target.position;
+      return target.position + ((Date.now() - target.at) / 1000) * target.rate;
+    };
 
     const withGuard = (fn: () => void) => {
       applying.current = true;
@@ -2357,32 +2388,43 @@ export default function UniversalPlayer({
     // re-broadcast — that desynced the host ("inversé avec l'hôte"). Instead a
     // dedicated, longer suppression window covers the whole revert, and every
     // handler bails up-front when blocked so nothing ever goes out.
-    const enforceBlocked = (): boolean => {
+    const enforceBlocked = (showToast = true): boolean => {
       if (!partyRef.current?.amPlaybackBlocked || !video) return false;
+      // Prefer the live target (tracks peers' play/pause/seek as they happen);
+      // fall back to the authoritative snapshot for the very first frames before
+      // any event has arrived.
       const snap = partyRef.current.snapshot;
+      const haveTarget = target.known;
+      const wantPaused = haveTarget ? target.paused : snap ? !!snap.paused : true;
+      const wantPos = haveTarget
+        ? projectedTarget()
+        : snap
+          ? Number(snap.position)
+          : NaN;
+      const wantRate = haveTarget ? target.rate : snap ? Number(snap.rate) : 1;
       applying.current = true;
       try {
         const v = video!;
-        if (snap) {
-          const pos = Number(snap.position);
-          if (Number.isFinite(pos) && Math.abs(v.currentTime - pos) > SEEK_TOLERANCE) {
-            v.currentTime = pos;
-          }
-          if (snap.paused) v.pause();
-          else void v.play()?.catch?.(() => {});
-        } else {
-          v.pause();
+        if (Number.isFinite(wantPos) && Math.abs(v.currentTime - wantPos) > SEEK_TOLERANCE) {
+          v.currentTime = wantPos;
         }
+        if (typeof wantRate === "number" && wantRate > 0 && v.playbackRate !== wantRate) {
+          v.playbackRate = wantRate;
+        }
+        if (wantPaused) v.pause();
+        else void v.play()?.catch?.(() => {});
       } catch {}
       // Hold the suppression long enough to swallow the async media events the
       // revert above triggers (seeked/play/pause), so none re-broadcast.
       window.setTimeout(() => {
         applying.current = false;
       }, 500);
-      const now = Date.now();
-      if (now - blockedToastAtRef.current > 2500) {
-        blockedToastAtRef.current = now;
-        toast.error(t("party.blockedBanner"));
+      if (showToast) {
+        const now = Date.now();
+        if (now - blockedToastAtRef.current > 2500) {
+          blockedToastAtRef.current = now;
+          toast.error(t("party.blockedBanner"));
+        }
       }
       return true;
     };
@@ -2392,32 +2434,47 @@ export default function UniversalPlayer({
     const onPlay = () => {
       if (applying.current || !video) return;
       if (partyRef.current?.amPlaybackBlocked) return void enforceBlocked();
+      setTarget(video.currentTime, false, video.playbackRate);
       party.broadcast("play", { position: video.currentTime });
     };
     const onPause = () => {
       if (applying.current || !video) return;
       if (partyRef.current?.amPlaybackBlocked) return void enforceBlocked();
+      setTarget(video.currentTime, true, video.playbackRate);
       party.broadcast("pause", { position: video.currentTime });
     };
     const onSeeked = () => {
       if (applying.current || !video) return;
       if (partyRef.current?.amPlaybackBlocked) return void enforceBlocked();
+      setTarget(video.currentTime, video.paused, video.playbackRate);
       party.broadcast("seek", { position: video.currentTime });
     };
     const onRate = () => {
       if (applying.current || !video) return;
       if (partyRef.current?.amPlaybackBlocked) return void enforceBlocked();
+      setTarget(video.currentTime, video.paused, video.playbackRate);
       party.broadcast("rate", { rate: video.playbackRate, position: video.currentTime });
     };
 
     // Remote events → drive the player.
     const applyRemote = (e: {
       type: string;
+      ts?: number;
       payload?: any;
     }) => {
       if (!video) return;
       const pos = Number(e.payload?.position);
       const player = playerRef.current;
+
+      // Latency compensation: the position in a remote event was sampled when the
+      // sender broadcast it (e.ts). By the time we apply it, that much wall-time
+      // has passed, so a *playing* peer has advanced. Project the position
+      // forward by the transit delay (clamped to 5s to ignore a bad clock) so we
+      // land where they ACTUALLY are, not where they were when they clicked.
+      const latency =
+        typeof e.ts === "number" ? Math.min(5, Math.max(0, (Date.now() - e.ts) / 1000)) : 0;
+      const compensate = (p: number, playing: boolean) =>
+        playing ? p + latency * target.rate : p;
 
       const seekTo = (t: number) => {
         if (!Number.isFinite(t)) return;
@@ -2429,32 +2486,47 @@ export default function UniversalPlayer({
         case "snapshot": {
           const s = e.payload?.snapshot;
           if (!s) return;
+          const rate = typeof s.rate === "number" ? s.rate : target.rate;
+          const p = compensate(Number(s.position), !s.paused);
+          setTarget(p, !!s.paused, rate);
           withGuard(() => {
-            seekTo(Number(s.position));
-            if (typeof s.rate === "number") video!.playbackRate = s.rate;
+            seekTo(p);
+            video!.playbackRate = rate;
             if (s.paused) player?.pause?.();
             else player?.play?.()?.catch?.(() => {});
           });
           return;
         }
-        case "play":
+        case "play": {
+          const p = compensate(pos, true);
+          setTarget(p, false);
           withGuard(() => {
-            seekTo(pos);
+            seekTo(p);
             player?.play?.()?.catch?.(() => {});
           });
           return;
+        }
         case "pause":
+          setTarget(pos, true);
           withGuard(() => {
             seekTo(pos);
             player?.pause?.();
           });
           return;
-        case "seek":
-          withGuard(() => seekTo(pos));
+        case "seek": {
+          // A seek lands the playhead somewhere; if the peer is still playing
+          // they've drifted past it during transit, so compensate too.
+          const p = compensate(pos, !target.paused);
+          setTarget(p, target.paused);
+          withGuard(() => seekTo(p));
           return;
+        }
         case "rate":
           withGuard(() => {
-            if (typeof e.payload?.rate === "number") video!.playbackRate = e.payload.rate;
+            if (typeof e.payload?.rate === "number") {
+              video!.playbackRate = e.payload.rate;
+              setTarget(video!.currentTime, target.paused, e.payload.rate);
+            }
           });
           return;
         // "episode" is handled by the watch page (navigation), not here.
@@ -2484,8 +2556,37 @@ export default function UniversalPlayer({
       }, 250);
     }
 
+    // ── Continuous reconciliation ──
+    // Event-only sync leaves two holes:
+    //  1. A blocked user who hits play at the exact moment they're blocked can
+    //     slip through the event race (server 403s the broadcast, but the local
+    //     <video> keeps playing) — they end up desynced with no way back.
+    //  2. Even unblocked, clients drift slowly (decode timing, a missed event).
+    // A 1s tick closes both: blocked users are hard-snapped to the authoritative
+    // target every tick (so they can NEVER stay out of sync), and everyone else
+    // gets a gentle nudge when they've drifted past DRIFT_TOLERANCE while playing.
+    reconcileId = window.setInterval(() => {
+      if (!video || applying.current) return;
+      if (partyRef.current?.amPlaybackBlocked) {
+        // Re-assert the target without re-toasting every second.
+        enforceBlocked(false);
+        return;
+      }
+      if (!target.known || target.paused) return;
+      if (video.paused) return; // a local pause is the user's intent — leave it
+      const want = projectedTarget();
+      if (Number.isFinite(want) && Math.abs(video.currentTime - want) > DRIFT_TOLERANCE) {
+        // Snap quietly; the guard suppresses the resulting `seeked` broadcast so
+        // this correction never echoes back out as a user seek.
+        withGuard(() => {
+          video!.currentTime = want;
+        });
+      }
+    }, 1000);
+
     return () => {
       window.clearInterval(pollId);
+      window.clearInterval(reconcileId);
       unsub();
       video?.removeEventListener("play", onPlay);
       video?.removeEventListener("pause", onPause);

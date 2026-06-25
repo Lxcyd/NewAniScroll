@@ -830,6 +830,7 @@
     "blockedBanner": "The host blocked your playback",
     "fsNoMessages": "No messages yet",
     "fsHide": "Hide chat",
-    "fsShow": "Show chat"
+    "fsShow": "Show chat",
+    "fsHint": "Chat is here"
   }
 }
