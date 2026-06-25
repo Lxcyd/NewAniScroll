@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { BsEmojiSmile } from "react-icons/bs";
 import { ANIME_EMOJIS, ANIME_EMOJI_MAP } from "@/lib/watch2gether/animeEmojis";
+import { ANIME_STICKERS, ANIME_STICKER_MAP } from "@/lib/watch2gether/animeStickers";
 import { EMOJI_CATEGORIES, ALL_EMOJIS } from "@/lib/watch2gether/unicodeEmojis";
 
 interface Props {
@@ -114,6 +115,17 @@ export default function EmojiButton({ onPick, fullscreen, className = "" }: Prop
     );
   }, [q]);
 
+  // Real anime stickers (image-only, from /public). Same search behaviour.
+  const stickerMatches = useMemo(() => {
+    if (!q) return ANIME_STICKERS;
+    return ANIME_STICKERS.filter(
+      (s) =>
+        s.shortcode.toLowerCase().includes(q) ||
+        s.label.toLowerCase().includes(q) ||
+        s.tags?.some((t) => t.includes(q)),
+    );
+  }, [q]);
+
   // Portal target: the fullscreen element (so it shows over the video) or body.
   const portalTarget =
     typeof document === "undefined"
@@ -173,8 +185,36 @@ export default function EmojiButton({ onPick, fullscreen, className = "" }: Prop
     </button>
   );
 
-  // A recent entry is either a `:shortcode:` (anime custom) or a unicode char.
+  // Image-only anime sticker (served from /public). Slightly larger than emoji.
+  const stickerBtn = (shortcode: string, label: string, src: string, key?: string) => (
+    <button
+      key={key || shortcode}
+      type="button"
+      title={label}
+      onClick={() => pick(shortcode)}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 3,
+        borderRadius: 6,
+        background: "transparent",
+        border: "none",
+        cursor: "pointer",
+      }}
+      onMouseEnter={(ev) => (ev.currentTarget.style.background = "rgba(255,255,255,0.1)")}
+      onMouseLeave={(ev) => (ev.currentTarget.style.background = "transparent")}
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={src} alt={label} style={{ width: 28, height: 28 }} loading="lazy" />
+    </button>
+  );
+
+  // A recent entry is a sticker `:shortcode:`, an anime-custom `:shortcode:`, or
+  // a unicode char.
   const recentBtn = (entry: string, i: number) => {
+    const sticker = ANIME_STICKER_MAP[entry];
+    if (sticker) return stickerBtn(sticker.shortcode, sticker.label, sticker.src, `r-${i}`);
     const custom = ANIME_EMOJI_MAP[entry];
     return custom
       ? animeBtn(custom.emoji, custom.label, custom.url, `r-${i}`)
@@ -248,6 +288,18 @@ export default function EmojiButton({ onPick, fullscreen, className = "" }: Prop
                 >
                   ⭐
                 </button>
+                {/* Anime stickers tab — only shown when at least one sticker is
+                    configured (avoids an empty tab while the art is being added). */}
+                {ANIME_STICKERS.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setCat("anime")}
+                    title={t("party.emojiAnime")}
+                    style={tabStyle(cat === "anime")}
+                  >
+                    🎌
+                  </button>
+                )}
                 {EMOJI_CATEGORIES.map((c) => (
                   <button
                     key={c.name}
@@ -264,6 +316,14 @@ export default function EmojiButton({ onPick, fullscreen, className = "" }: Prop
 
             {/* Scrollable body */}
             <div className="scrollbar-hide" style={{ overflowY: "auto", padding: "0 10px 10px", flex: 1 }}>
+              {/* Anime stickers: their own tab, and surfaced FIRST in search. */}
+              {(q || cat === "anime") && stickerMatches.length > 0 && (
+                <>
+                  <div style={labelStyle}>{t("party.emojiAnime")}</div>
+                  {grid(stickerMatches.map((s) => stickerBtn(s.shortcode, s.label, s.src)))}
+                </>
+              )}
+
               {/* Popular = the anime custom set FIRST, then recently used (mix of
                   anime + unicode). Also where search shows its anime matches. */}
               {(q || cat === "popular") && animeMatches.length > 0 && (
@@ -287,7 +347,7 @@ export default function EmojiButton({ onPick, fullscreen, className = "" }: Prop
                 </>
               )}
 
-              {q && animeMatches.length === 0 && (
+              {q && animeMatches.length === 0 && stickerMatches.length === 0 && unicodeToShow.length === 0 && (
                 <div style={{ ...labelStyle, marginTop: 12 }}>{t("party.emojiNoMatch")}</div>
               )}
             </div>

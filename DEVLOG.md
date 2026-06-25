@@ -7,6 +7,45 @@ Ordre anti-chronologique (le plus récent en haut). Une entrée = une session/su
 
 ---
 
+## 2026-06-25 (suite 11) — Watch 2gether : 266 stickers anime importés + composer contentEditable (étape 2)
+
+### Emojis anime — données
+- Extrait les **13 packs emojigg** les plus récents de Téléchargements (PNG+GIF) → **266 images** copiées dans `public/emojis/anime/` (renommées en `snake_case`, filename = shortcode pour zéro ambiguïté).
+- `animeStickers.ts` rempli : **266 entrées** `{shortcode,label,src,tags}` générées. Labels nettoyés (id numérique parasite retiré). **Zéro doublon** (266 filenames + 266 shortcodes uniques, vérifié).
+- **Collisions résolues** : 3 shortcodes (`:cry: :sleep: :think:`) existaient déjà dans `ANIME_EMOJIS` (Twemoji→unicode), ce qui les aurait fait convertir en unicode par `replaceShortcodes`. Renommés `:cry_anim: :sleep_anim: :think_anim:` (+ fichiers). Plus aucune collision.
+- Contrainte respectée : shortcodes en `[a-z0-9_]` only (pas de `-`, le `SHORTCODE_RE` les rejette).
+
+### Composer contentEditable (étape 2)
+- Nouveau **`ChatComposer.tsx`** (forwardRef : `insert`/`focus`/`getText`/`clear`) : `<div contentEditable>` qui affiche les stickers **en image inline dans la barre** (un `<input>` ne peut pas). Sérialise à l'envoi : `<img data-shortcode>` → `:shortcode:`, `<br>`/blocs → `\n`. Entrée=envoyer (Shift+Entrée=ligne), paste en texte brut, garde de longueur, placeholder via `:empty::before`.
+- Branché dans **FullscreenChat** et **WatchPartyPanel** (remplace les 2 `<input>`). EmojiButton `onPick` : sticker → `insert(:shortcode:)` (image), emoji unicode → `insert(replaceShortcodes(...))` (char). `ChatText` rend déjà les stickers (~1.4× la taille emoji).
+- CSS `.w2g-composer` (placeholder, scroll vertical max 96px, caret iOS).
+
+### Fixes (rappel suite 10, inclus)
+- Hint FS **1×/session** (ref `hintShownRef`). Icône Envoyer **visible au hover** (exclu `.w2g-fs-send` de la règle `.vds-player button:hover→rose`).
+
+### À tester / pièges
+- contentEditable : vérifier caret après insert, envoi, mute (overlay panel), iOS. Les GIF s'animent dans la barre + le chat.
+- Si un sticker ne s'affiche pas → fichier manquant dans `public/emojis/anime/` (le `<img>` ne rend rien, rien d'autre ne casse).
+
+### Fixes
+- **Hint FS « le chat est ici » : 1 seule fois par session w2g** (avant : à chaque entrée FS). Garde via `useRef` (`hintShownRef`) qui vit le temps du composant = toute la session party. Se montre au 1er passage FS, auto-dismiss 4,5s ou dès qu'on ouvre le chat.
+- **Icône Envoyer invisible au hover (FS chat)** : la règle globale `.vds-player button:hover { color: pink }` teintait l'icône blanche en rose sur fond rose → invisible. Fix : exclu `.w2g-fs-send` de cette règle + `.w2g-fs-send:hover { color:#fff; filter:brightness(.92) }`.
+
+### Onglet emoji anime — ÉTAPE 1 (data + onglet, input classique)
+- Choix user : images **locales** dans `public/emojis/anime/`, et à terme l'image visible **dans la barre de saisie** (→ contentEditable, ÉTAPE 2). Fait par étapes.
+- `public/emojis/anime/` créé. Nouveau `lib/watch2gether/animeStickers.ts` : `ANIME_STICKERS` (`{shortcode,label,src,tags}`) + `ANIME_STICKER_MAP` + `isAnimeSticker`. Liste vide pour l'instant (l'utilisateur dépose les images + ajoute les entrées).
+- **Séparé** des `ANIME_EMOJIS` (Twemoji→unicode) : les stickers sont image-only, **exclus de `replaceShortcodes`** (ils restent `:shortcode:` jusqu'au rendu `<img>`). Naturellement exclus car `SHORTCODE_TO_CHAR` ne les contient pas.
+- `ChatText` rend les stickers (`ANIME_STICKER_MAP`, ~1.4× la taille emoji).
+- `EmojiButton` : 2e onglet « Anime » (🎌, affiché seulement si ≥1 sticker), grille d'images, recherche étendue aux stickers (surfacés en 1er). i18n `party.emojiAnime` (en/fr).
+
+### ÉTAPE 2 (à venir) — composer contentEditable
+- Remplacer les `<input>` (panel + FS) par `<div contentEditable>` pour afficher l'`<img>` du sticker inline dans la barre. Sérialiser à l'envoi (`<img data-shortcode>` → `:shortcode:`). Gérer placeholder, Entrée=envoyer, caret, paste texte.
+
+### État
+- Branche `dev`. JSON OK. ÉTAPE 1 testable (l'onglet anime apparaît dès qu'on ajoute des stickers + images).
+
+---
+
 ## 2026-06-25 (suite 9) — Watch 2gether : revue sécu (rate-limit IP + anti-impersonation invité), hint FS à chaque FS
 
 ### Sécurité

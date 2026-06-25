@@ -10,8 +10,10 @@ import { getGuestIdentity } from "@/lib/watch2gether/guest";
 import MemberAvatar from "./MemberAvatar";
 import MemberMenu from "./MemberMenu";
 import ChatText from "./ChatText";
+import ChatComposer, { type ChatComposerHandle } from "./ChatComposer";
 import EmojiButton from "./EmojiButton";
 import { replaceShortcodes } from "@/lib/watch2gether/animeEmojis";
+import { isAnimeSticker } from "@/lib/watch2gether/animeStickers";
 
 interface LobbyMeta {
   aniId?: string | number;
@@ -207,11 +209,11 @@ function ActiveRoom({ party, onClose }: { party: PartyContext; onClose?: () => v
     snapshot,
     amMuted,
   } = party;
-  const [text, setText] = useState("");
   // Cooldown after toggling the room lock so spamming the button can't outpace
   // the round-trip and leave local/server state flapping between Public/Private.
   const [lockBusy, setLockBusy] = useState(false);
-  const inputRef = useRef<HTMLInputElement | null>(null);
+  const composerRef = useRef<ChatComposerHandle | null>(null);
+  const [hasText, setHasText] = useState(false);
   const logRef = useRef<HTMLDivElement | null>(null);
 
   const toggleLock = () => {
@@ -226,23 +228,24 @@ function ActiveRoom({ party, onClose }: { party: PartyContext; onClose?: () => v
     if (el) el.scrollTop = el.scrollHeight;
   }, [chat]);
 
-  const submit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const val = text.trim();
+  const send = (raw: string) => {
+    const val = raw.trim();
     if (!val) return;
     if (amMuted) {
       toast.error(t("party.mutedBanner"));
       return;
     }
     sendChat(val);
-    setText("");
+    composerRef.current?.clear();
+    setHasText(false);
   };
 
-  const insertEmoji = (insert: string) => {
-    // Anime customs insert a `:shortcode:`; convert it to the real emoji char so
-    // the composer shows the emoji, not the text (same as typing it).
-    setText((prev) => replaceShortcodes(prev + insert));
-    inputRef.current?.focus();
+  const insertEmoji = (token: string) => {
+    // Stickers stay as :shortcode: (composer renders the image inline); unicode-
+    // backed emoji are converted to their char first.
+    composerRef.current?.insert(isAnimeSticker(token) ? token : replaceShortcodes(token));
+    setHasText(true);
+    composerRef.current?.focus();
   };
 
   const copy = async (value: string, label: string) => {
@@ -402,25 +405,26 @@ function ActiveRoom({ party, onClose }: { party: PartyContext; onClose?: () => v
           </div>
         )}
         <div className="relative">
-          <form onSubmit={submit} className="flex items-center gap-1 p-3">
+          <div className="flex items-center gap-1 p-3">
             <EmojiButton onPick={insertEmoji} />
-            <input
-              ref={inputRef}
-              value={text}
-              onChange={(e) => setText(replaceShortcodes(e.target.value))}
-              maxLength={500}
-              disabled={amMuted}
+            <ChatComposer
+              ref={composerRef}
               placeholder={amMuted ? t("party.muted") : t("party.message")}
-              className="flex-1 rounded-md bg-white/10 px-3 py-2 text-sm outline-none placeholder:text-white/40 focus:bg-white/15 disabled:cursor-not-allowed disabled:opacity-60"
+              onSubmit={send}
+              onChange={(v) => setHasText(!!v)}
+              className={`flex-1 rounded-md bg-white/10 px-3 py-2 text-sm focus:bg-white/15 ${
+                amMuted ? "pointer-events-none opacity-60" : ""
+              }`}
             />
             <button
-              type="submit"
-              disabled={amMuted || !text.trim()}
-              className="flex h-9 w-9 items-center justify-center rounded-md bg-action text-white disabled:cursor-not-allowed disabled:opacity-40"
+              type="button"
+              onClick={() => send(composerRef.current?.getText() || "")}
+              disabled={amMuted || !hasText}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-action text-white disabled:cursor-not-allowed disabled:opacity-40"
             >
               <IoSend size={16} />
             </button>
-          </form>
+          </div>
           {/* When muted, a transparent overlay swallows clicks (disabled inputs
               don't fire events) and shows the "you are muted" toast. */}
           {amMuted && (

@@ -4,13 +4,15 @@ import { useTranslation } from "react-i18next";
 import { IoSend, IoChatbubbleEllipses } from "react-icons/io5";
 import type { PartyEvent, ChatMessage } from "@/lib/watch2gether/types";
 import ChatText from "./ChatText";
+import ChatComposer, { type ChatComposerHandle } from "./ChatComposer";
 import EmojiButton from "./EmojiButton";
 import { replaceShortcodes } from "@/lib/watch2gether/animeEmojis";
+import { isAnimeSticker } from "@/lib/watch2gether/animeStickers";
 
-// The "hover the right edge" hint shows EACH TIME the user enters fullscreen
-// with a party — it's discreet, auto-dismisses, and vanishes the instant they
-// open the chat, so it's never in the way. (A lifetime cap made it silently
-// disappear after a few sessions, which read as a bug.)
+// The "hover the right edge" hint shows ONCE per Watch-party session: the first
+// time the user enters fullscreen. It's discreet, auto-dismisses, and vanishes
+// the instant they open the chat. (Once-per-session = a `useRef` that lives as
+// long as this component, which is mounted for the whole party session.)
 const HINT_DURATION_MS = 4500;
 
 interface Props {
@@ -38,23 +40,29 @@ export default function FullscreenChat({ onRemote, sendChat, playerEl, active }:
   const [bubbles, setBubbles] = useState<ChatMessage[]>([]);
   // open === mouse is over the chat zone (or briefly after, while typing).
   const [open, setOpen] = useState(false);
-  const [text, setText] = useState("");
   // The discreet onboarding hint pulsing on the right edge right after entering
   // fullscreen. Auto-dismisses; never shown once the user has opened the chat.
   const [hint, setHint] = useState(false);
-  const inputRef = useRef<HTMLInputElement | null>(null);
+  const composerRef = useRef<ChatComposerHandle | null>(null);
+  // Whether the composer currently has content (drives the typing-grace on close).
+  const hasTextRef = useRef(false);
   const logRef = useRef<HTMLDivElement | null>(null);
   const closeTimer = useRef<number | null>(null);
+  // Once-per-session guard: persists for the component's lifetime (the whole
+  // party), so the hint shows only on the FIRST fullscreen entry of the session.
+  const hintShownRef = useRef(false);
 
   // ── Intro hint ──
-  // Each time we enter fullscreen, pulse the right-edge affordance so the user
-  // knows the chat lives there. Auto-dismisses after a few seconds (and the
-  // moment they open the chat — see openNow).
+  // On the FIRST fullscreen entry of the session, pulse the right-edge
+  // affordance so the user knows the chat lives there. Auto-dismisses after a
+  // few seconds (and the moment they open the chat — see openNow).
   useEffect(() => {
     if (!active) {
       setHint(false);
       return;
     }
+    if (hintShownRef.current) return; // already shown once this session
+    hintShownRef.current = true;
     setHint(true);
     const id = window.setTimeout(() => setHint(false), HINT_DURATION_MS);
     return () => window.clearTimeout(id);
@@ -77,7 +85,7 @@ export default function FullscreenChat({ onRemote, sendChat, playerEl, active }:
   // hop to the emoji picker / send button doesn't dismiss it).
   const requestClose = () => {
     cancelClose();
-    if (inputRef.current?.value) {
+    if (hasTextRef.current) {
       closeTimer.current = window.setTimeout(() => setOpen(false), TYPING_GRACE_MS);
     } else {
       setOpen(false);
@@ -112,14 +120,24 @@ export default function FullscreenChat({ onRemote, sendChat, playerEl, active }:
 
   if (!active || !playerEl) return null;
 
-  const submit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const tx = text.trim();
-    if (!tx) return;
-    sendChat(tx);
-    setText("");
+  // Send the composer's serialized text (sticker <img> → :shortcode:).
+  const send = (tx: string) => {
+    const trimmed = tx.trim();
+    if (!trimmed) return;
+    sendChat(trimmed);
+    composerRef.current?.clear();
+    hasTextRef.current = false;
     cancelClose();
-    inputRef.current?.focus();
+    composerRef.current?.focus();
+  };
+
+  // Emoji/sticker pick: stickers stay as :shortcode: (composer renders the
+  // image inline); unicode-backed emoji are converted to their char first.
+  const onPick = (token: string) => {
+    composerRef.current?.insert(isAnimeSticker(token) ? token : replaceShortcodes(token));
+    hasTextRef.current = true;
+    cancelClose();
+    composerRef.current?.focus();
   };
 
   // Keep EVERYTHING above the player's control bar so we never intercept clicks
@@ -255,22 +273,17 @@ export default function FullscreenChat({ onRemote, sendChat, playerEl, active }:
           ))}
         </div>
 
-        <form onSubmit={submit} style={{ display: "flex", alignItems: "center", gap: 4 }}>
-          <EmojiButton
-            onPick={(ins) => {
-              setText((p) => replaceShortcodes(p + ins));
-              cancelClose();
-              inputRef.current?.focus();
-            }}
-            fullscreen
-          />
-          <input
-            ref={inputRef}
-            value={text}
-            onChange={(e) => setText(replaceShortcodes(e.target.value))}
-            onFocus={openNow}
-            maxLength={500}
+        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          <EmojiButton onPick={onPick} fullscreen />
+          <ChatComposer
+            ref={composerRef}
             placeholder={t("party.message")}
+            onSubmit={send}
+            onChange={(v) => {
+              hasTextRef.current = !!v;
+              openNow();
+            }}
+            onFocus={openNow}
             style={{
               flex: 1,
               borderRadius: 10,
@@ -278,12 +291,12 @@ export default function FullscreenChat({ onRemote, sendChat, playerEl, active }:
               color: "white",
               padding: "8px 12px",
               fontSize: 14,
-              outline: "none",
-              border: "none",
             }}
           />
           <button
-            type="submit"
+            type="button"
+            onClick={() => send(composerRef.current?.getText() || "")}
+            className="w2g-fs-send"
             style={{
               display: "flex",
               height: 36,
@@ -299,7 +312,7 @@ export default function FullscreenChat({ onRemote, sendChat, playerEl, active }:
           >
             <IoSend size={16} />
           </button>
-        </form>
+        </div>
       </div>
 
       {/* Ephemeral incoming-message bubbles — shown only while the panel is

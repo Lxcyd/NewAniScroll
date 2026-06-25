@@ -185,10 +185,18 @@ a {
   color: var(--brand-primary, #E94560) !important;
 }
 .vds-player
-  button:not(.aniscroll-skip-btn):not(.aniscroll-next-btn):hover,
+  button:not(.aniscroll-skip-btn):not(.aniscroll-next-btn):not(.w2g-fs-send):hover,
 .vds-player [role="menuitem"]:hover,
 .vds-player a[aria-label]:hover {
   color: var(--brand-primary, #E94560) !important;
+}
+
+/* Fullscreen party-chat Send button: its background IS the brand pink, so the
+   generic ".vds-player button:hover → pink color" rule above would tint the
+   white icon pink → invisible. Keep it white on hover (slight darken instead). */
+.vds-player .w2g-fs-send:hover {
+  color: #fff !important;
+  filter: brightness(0.92);
 }
 
 /* Floating Skip Intro / Skip Outro button (dark pill on left of
@@ -1092,6 +1100,27 @@ input[type="number"] {
   pointer-events: none !important;
   opacity: 0.5 !important;
   cursor: not-allowed !important;
+}
+
+/* ── Watch 2gether: contentEditable chat composer ────────────────
+   Shows emoji/sticker images inline in the input (a plain <input> can't).
+   Single-line feel with vertical scroll once it grows. */
+.w2g-composer {
+  outline: none;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  overflow-y: auto;
+  max-height: 96px;
+  -webkit-user-modify: read-write; /* iOS Safari: enable caret in CE */
+}
+/* Placeholder via data-attr, shown only when empty (no text + no inline img). */
+.w2g-composer:empty::before {
+  content: attr(data-placeholder);
+  opacity: 0.45;
+  pointer-events: none;
+}
+.w2g-composer img {
+  user-select: none;
 }
 
 /* ── Vidstack seek-bar chrome ────────────────────────────────────
