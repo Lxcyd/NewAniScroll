@@ -339,7 +339,7 @@ export function useWatchParty(
         body: JSON.stringify(merged),
       });
       if (!res.ok) {
-        if (res.status === 403 || res.status === 404) {
+        if ((res.status === 403 || res.status === 404) && !removedRef.current) {
           const err = await res.json().catch(() => ({}));
           const msg = String(err?.error || "");
           const reason = /ban/i.test(msg)
@@ -349,7 +349,7 @@ export function useWatchParty(
               : /lock/i.test(msg)
                 ? "locked"
                 : "notfound";
-          teardown();
+          teardown(); // sets removedRef → a concurrent presence/join reject won't double-toast
           onJoinRejectedRef.current?.(reason);
         }
         return;
@@ -517,8 +517,42 @@ export function useWatchParty(
   // Presence heartbeat + leave-on-unload.
   useEffect(() => {
     if (!roomId || !effectiveUserId) return;
-    post("presence", { roomId });
-    const iv = setInterval(() => post("presence", { roomId }), PRESENCE_INTERVAL_MS);
+
+    // A heartbeat that ALSO inspects the response: when we wake from sleep after
+    // being reaped for inactivity, the SSE may not reliably re-fire onopen (so
+    // join() isn't re-called), but the presence interval resumes and the server
+    // 403s it with "Removed for inactivity". That's our reliable wake signal —
+    // detect it here and run the same rejection flow as join() (close the panel
+    // + toast), so the kicked user doesn't keep a stale room open.
+    const beat = async () => {
+      try {
+        const g = guestRef.current;
+        const body = g ? { roomId, guestId: g.guestId, guestName: g.guestName } : { roomId };
+        const res = await fetch(`/api/v2/watch2gether/presence`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        if (res.status === 403 && !removedRef.current) {
+          const err = await res.json().catch(() => ({}));
+          if (/inactiv/i.test(String(err?.error || ""))) {
+            teardown(); // sets removedRef → guards against a double reject below
+            onJoinRejectedRef.current?.("inactive");
+          }
+        }
+      } catch {
+        /* network blip — next beat retries */
+      }
+    };
+
+    beat();
+    const iv = setInterval(beat, PRESENCE_INTERVAL_MS);
+    // Fire an immediate beat the moment the tab/phone wakes, so the inactivity
+    // kick surfaces right away instead of waiting up to a full interval.
+    const onVisible = () => {
+      if (document.visibilityState === "visible") beat();
+    };
+    document.addEventListener("visibilitychange", onVisible);
 
     const leave = () => {
       try {
@@ -535,6 +569,7 @@ export function useWatchParty(
     return () => {
       clearInterval(iv);
       window.removeEventListener("pagehide", leave);
+      document.removeEventListener("visibilitychange", onVisible);
       // NOTE: we deliberately do NOT call leave() here. This cleanup also runs
       // on an in-app redirect that KEEPS us in the same party (e.g. a joiner
       // being navigated to the host's anime). Leaving on unmount raced with the
@@ -543,7 +578,7 @@ export function useWatchParty(
       // the `pagehide` beacon above; if the beacon is missed, the presence key
       // lapses via its short TTL (12s) so the member still vanishes quickly.
     };
-  }, [roomId, effectiveUserId, post]);
+  }, [roomId, effectiveUserId, teardown]);
 
   const inviteUrl =
     typeof window !== "undefined" && roomId

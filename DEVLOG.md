@@ -7,6 +7,29 @@ Ordre anti-chronologique (le plus récent en haut). Une entrée = une session/su
 
 ---
 
+## 2026-06-25 (suite 5) — Watch 2gether : kick inactivité côté MOI (au réveil) — panel fermé + toast
+
+### Décisions / fixes
+- **Reapé pour les autres mais panel resté ouvert chez moi** : au réveil, la SSE ne re-fire pas toujours `onopen` → `join()` pas rappelé → le rejet « inactivité » n'arrivait jamais côté UI. Et le heartbeat `presence` avalait silencieusement le 403 (`post` renvoie null si !ok). Fix : le **heartbeat presence inspecte la réponse** — un 403 « Removed for inactivity » déclenche le **même flux que join** : `teardown()` + `onJoinRejected("inactive")` → `stripParty()` (ferme le panel room → repasse au lobby) + toast `party.toastInactive`. Plus un beat **immédiat sur `visibilitychange`** (réveil tab/tel) pour que le kick remonte tout de suite, pas après un intervalle.
+- **Anti double-toast** : `join()` ET le presence-beat peuvent rejeter en parallèle au réveil → garde `!removedRef.current` avant de rejeter (teardown pose le flag).
+
+### Leçons / pièges
+- **La SSE n'est pas un signal de réveil fiable** (l'EventSource peut rester « open » fantôme après une veille). Le **heartbeat presence + `visibilitychange`** est le signal fiable pour détecter un kick au retour.
+- **Un `post` qui jette les non-2xx masque les rejets serveur** : pour un endpoint qui peut légitimement 403 (kick), il faut inspecter le status, pas juste `res.ok ? json : null`.
+
+---
+
+## 2026-06-25 (suite 4) — Watch 2gether : chapitres lockout robuste (scan DOM), hover Public/Privé +visible
+
+### Décisions / fixes
+- **Bouton chapitres toujours cliquable/non grisé** : mes sélecteurs devinaient le DOM Vidstack (`.vds-chapters-menu-button`, `aria-label="Chapters"`) — faux en FR (« Chapitres ») et fragiles. Nouvelle approche **agnostique du DOM** : un effet **scanne tous les `button/[role=button]/[data-media-menu-button]`** du player et identifie celui des chapitres par **n'importe quel texte identifiant** (aria-label / title / data-tooltip / tooltip enfant) contenant `chapter`/`chapitre` (insensible casse) → pose la classe `.w2g-chapters-btn`. Re-scan via **MutationObserver** (la barre se reconstruit au resize/fullscreen) + passes différées. La CSS grise+désactive `.w2g-playback-blocked .w2g-chapters-btn`. Le **veto capture** utilise aussi cette classe + un fallback texte. Fermeture du menu au blocage via Escape sur le bouton taggé/menus ouverts.
+- **Hover Public/Privé pas assez visible** : opacités montées (`hover:bg-action/25` privé, `hover:bg-white/20` public) + `duration-200`, fond transparent par défaut → rectangle de la couleur du texte (rose/blanc) atténué qui apparaît au survol.
+
+### Leçons / pièges
+- **Ne pas deviner le DOM d'une lib tierce** (Vidstack) ni se fier à un aria-label anglais (localisé) : scanner par texte multi-source + MutationObserver pour survivre aux reconstructions, et poser sa propre classe marqueur.
+
+---
+
 ## 2026-06-25 (suite 3) — Watch 2gether : kick inactivité (vrai fix), hover Public/Privé
 
 ### Décisions / fixes

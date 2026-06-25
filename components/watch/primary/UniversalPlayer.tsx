@@ -2636,65 +2636,83 @@ export default function UniversalPlayer({
     return () => timers.forEach((id) => window.clearTimeout(id));
   }, [party?.amPlaybackBlocked]);
 
-  // ── Chapters button: tag for greying + close the menu when blocked ──
-  // The CSS lockout greys the chapters button, but its aria-label is localized
-  // (EN "Chapters" / FR "Chapitres") and Vidstack class names can drift, so we
-  // ALSO find the button at runtime and stamp a stable marker class
-  // (`.w2g-chapters-btn`) the CSS keys off — guaranteeing it's greyed in any
-  // language. And if the chapters menu is already OPEN when the block lands, we
-  // close it (Escape) so a blocked user can't keep using a menu they had open.
+  // ── Chapters button: find it robustly, then grey + disable when blocked ──
+  // We can't rely on a single Vidstack class name (they drift between versions)
+  // or an English aria-label (it's localized: "Chapters" / "Chapitres"). So we
+  // SCAN every control button and identify the chapters one by ANY identifying
+  // text on it or its tooltip — aria-label, title, data-tooltip, or descendant
+  // tooltip text — matching chapter/chapitre case-insensitively. The match is
+  // re-run via a MutationObserver because Vidstack rebuilds the controls bar
+  // (resize / fullscreen), which would otherwise drop our marker. We tag it with
+  // `.w2g-chapters-btn`; the CSS greys + disables it under `.w2g-playback-blocked`.
   useEffect(() => {
     const playerEl = playerRef.current?.el as HTMLElement | undefined;
     if (!playerEl) return;
 
-    const findChaptersBtn = (): HTMLElement | null =>
-      playerEl.querySelector<HTMLElement>(
-        ".vds-chapters-menu-button, " +
-          "[data-media-menu-button][aria-label*='hapter'], " +
-          "[data-media-menu-button][aria-label*='hapitre']",
+    const looksLikeChapters = (el: HTMLElement): boolean => {
+      const hay = [
+        el.getAttribute("aria-label") || "",
+        el.getAttribute("title") || "",
+        el.getAttribute("data-tooltip") || "",
+        // Vidstack often puts the label in a child <media-tooltip>/tooltip span.
+        el.querySelector<HTMLElement>("[role='tooltip'], .vds-tooltip-content")?.textContent || "",
+      ]
+        .join(" ")
+        .toLowerCase();
+      return hay.includes("chapter") || hay.includes("chapitre");
+    };
+
+    const tagChaptersBtn = () => {
+      // Candidate buttons: every menu button / button inside the controls.
+      const candidates = playerEl.querySelectorAll<HTMLElement>(
+        "button, [role='button'], [data-media-menu-button]",
       );
+      let found = false;
+      candidates.forEach((el) => {
+        if (looksLikeChapters(el)) {
+          el.classList.add("w2g-chapters-btn");
+          found = true;
+        }
+      });
+      return found;
+    };
 
-    // Stamp the marker class once the button exists (it's built a few frames
-    // after mount). Poll briefly, then stop.
-    let tries = 0;
-    const tagId = window.setInterval(() => {
-      const btn = findChaptersBtn();
-      if (btn) {
-        btn.classList.add("w2g-chapters-btn");
-        window.clearInterval(tagId);
-      } else if (++tries > 40) {
-        window.clearInterval(tagId);
-      }
-    }, 250);
-
-    return () => window.clearInterval(tagId);
+    tagChaptersBtn();
+    // Re-tag whenever the controls DOM changes (bar rebuild, menu open/close).
+    const obs = new MutationObserver(() => tagChaptersBtn());
+    obs.observe(playerEl, { childList: true, subtree: true, attributes: true, attributeFilter: ["aria-label", "title"] });
+    // Belt-and-suspenders: a few delayed passes for the initial async build.
+    const timers = [250, 600, 1500].map((d) => window.setTimeout(tagChaptersBtn, d));
+    return () => {
+      obs.disconnect();
+      timers.forEach((id) => window.clearTimeout(id));
+    };
   }, [streamData]);
 
   // Close the chapters menu the instant we become blocked (covers a menu left
-  // open from before the block). Separate from the tagging effect so it fires on
-  // the block transition, not just on stream change.
+  // open from before the block). Robust close: find any OPEN menu whose button
+  // or content mentions chapters, and dispatch Escape (not a click — the capture
+  // veto would swallow that). Several targets cover where the listener lives.
   useEffect(() => {
     if (!party?.amPlaybackBlocked) return;
     const playerEl = playerRef.current?.el as HTMLElement | undefined;
     if (!playerEl) return;
-    const btn = playerEl.querySelector<HTMLElement>(
-      ".vds-chapters-menu-button[aria-expanded='true'], " +
-        "[data-media-menu-button][aria-label*='hapter'][aria-expanded='true'], " +
-        "[data-media-menu-button][aria-label*='hapitre'][aria-expanded='true']",
+
+    const esc = (t: EventTarget) =>
+      t.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true }));
+
+    // The tagged chapters button, if expanded → close its menu.
+    const btn = playerEl.querySelector<HTMLElement>(".w2g-chapters-btn[aria-expanded='true']");
+    // Any visibly-open menu (chapters popups can portal anywhere).
+    const openMenus = document.querySelectorAll<HTMLElement>(
+      "[role='menu'][aria-hidden='false'], .vds-menu-items[aria-hidden='false']",
     );
-    if (!btn) return;
-    // Close via Escape — NOT a synthetic click: our capture-phase veto would
-    // swallow the click (it blocks the chapters button when blocked), so the
-    // menu would stay open. Escape isn't vetoed and Vidstack closes menus on it.
-    // Dispatch on the button, the open menu element, and document to cover
-    // wherever Vidstack's menu keydown listener lives.
-    const esc = () => new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true });
-    btn.dispatchEvent(esc());
-    const openMenu = document.querySelector<HTMLElement>("[role='menu'][aria-hidden='false'], .vds-menu-items[aria-hidden='false']");
-    openMenu?.dispatchEvent(esc());
-    document.dispatchEvent(esc());
-    // Final fallback: blur the button so the menu loses focus and auto-dismisses.
-    setTimeout(() => btn.blur(), 0);
+    if (btn) {
+      esc(btn);
+      setTimeout(() => btn.blur(), 0);
+    }
+    openMenus.forEach(esc);
+    esc(document);
   }, [party?.amPlaybackBlocked]);
 
   // ── Blocked: veto playback-control clicks at capture phase ──
@@ -2718,12 +2736,25 @@ export default function UniversalPlayer({
           "[data-media-time-slider]",
           ".vds-play-button",
           "[data-media-play-button]",
-          ".vds-chapters-menu-button",
           ".vds-chapter-title",
-          "[data-media-menu-button][aria-label*='hapter']",
-          "[data-media-menu-button][aria-label*='hapitre']",
+          // Our runtime-tagged chapters button — the reliable signal (covers any
+          // language / Vidstack class drift). The tagging effect above sets it.
+          ".w2g-chapters-btn",
         ].join(","),
       );
+    };
+
+    // Text-based fallback: any button whose label mentions chapters, in case the
+    // tag hasn't been applied yet (very first frames) — checked directly here.
+    const looksLikeChaptersBtn = (el: HTMLElement | null): boolean => {
+      const btn = el?.closest<HTMLElement>("button, [role='button'], [data-media-menu-button]");
+      if (!btn) return false;
+      const hay = (
+        (btn.getAttribute("aria-label") || "") +
+        " " +
+        (btn.getAttribute("title") || "")
+      ).toLowerCase();
+      return hay.includes("chapter") || hay.includes("chapitre");
     };
 
     // The chapters menu popup may portal outside the player root, so we also
@@ -2739,7 +2770,7 @@ export default function UniversalPlayer({
     const veto = (e: Event) => {
       if (!partyRef.current?.amPlaybackBlocked) return;
       const target = e.target as HTMLElement | null;
-      if (isBlockedTarget(target) || isChapterListItem(target)) {
+      if (isBlockedTarget(target) || looksLikeChaptersBtn(target) || isChapterListItem(target)) {
         e.preventDefault();
         e.stopImmediatePropagation();
         const now = Date.now();
