@@ -2649,32 +2649,46 @@ export default function UniversalPlayer({
     const playerEl = playerRef.current?.el as HTMLElement | undefined;
     if (!playerEl) return;
 
-    const looksLikeChapters = (el: HTMLElement): boolean => {
-      const hay = [
-        el.getAttribute("aria-label") || "",
-        el.getAttribute("title") || "",
-        el.getAttribute("data-tooltip") || "",
-        // Vidstack often puts the label in a child <media-tooltip>/tooltip span.
-        el.querySelector<HTMLElement>("[role='tooltip'], .vds-tooltip-content")?.textContent || "",
-      ]
-        .join(" ")
-        .toLowerCase();
+    // True only for the actual button element (has its OWN chapter aria-label /
+    // title), not an ancestor that merely CONTAINS the tooltip text — so we dim
+    // the button itself, not a big wrapper.
+    const isChaptersButton = (el: HTMLElement): boolean => {
+      const hay = (
+        (el.getAttribute("aria-label") || "") +
+        " " +
+        (el.getAttribute("title") || "") +
+        " " +
+        (el.getAttribute("data-tooltip") || "")
+      ).toLowerCase();
       return hay.includes("chapter") || hay.includes("chapitre");
     };
+
+    const blocked = () => !!partyRef.current?.amPlaybackBlocked;
 
     const tagChaptersBtn = () => {
       // Candidate buttons: anything with a label, INCLUDING Vidstack's custom
       // element <media-menu-button> (the chapters button is one of these — it's
-      // not a <button>, which is why earlier selectors missed it). We match on
-      // [aria-label]/[title] presence, then filter by chapter text.
+      // not a <button>, which is why earlier selectors missed it).
       const candidates = playerEl.querySelectorAll<HTMLElement>(
         "button, [role='button'], [data-media-menu-button], media-menu-button, [aria-label], [title]",
       );
       let found = false;
       candidates.forEach((el) => {
-        if (looksLikeChapters(el)) {
-          el.classList.add("w2g-chapters-btn");
-          found = true;
+        if (!isChaptersButton(el)) return;
+        found = true;
+        el.classList.add("w2g-chapters-btn");
+        // Dim it inline (independent of CSS cascade / Vidstack's own styles), to
+        // visually match the greyed-out play button. Cleared when unblocked.
+        if (blocked()) {
+          el.style.opacity = "0.5";
+          el.style.filter = "grayscale(1)";
+          el.style.cursor = "not-allowed";
+          el.style.pointerEvents = "none";
+        } else {
+          el.style.opacity = "";
+          el.style.filter = "";
+          el.style.cursor = "";
+          el.style.pointerEvents = "";
         }
       });
       return found;
@@ -2690,7 +2704,9 @@ export default function UniversalPlayer({
       obs.disconnect();
       timers.forEach((id) => window.clearTimeout(id));
     };
-  }, [streamData]);
+    // Re-run on block toggle too, so the inline dim is applied/cleared (a React
+    // state change doesn't trip the MutationObserver).
+  }, [streamData, party?.amPlaybackBlocked]);
 
   // Close the chapters menu the instant we become blocked (covers a menu left
   // open from before the block). Robust close: find any OPEN menu whose button

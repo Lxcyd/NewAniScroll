@@ -289,7 +289,7 @@ function ActiveRoom({ party, onClose }: { party: PartyContext; onClose?: () => v
           )}
           <button
             onClick={() => copy(inviteUrl, t("party.inviteLink"))}
-            className="flex items-center gap-1 rounded-md bg-action/20 px-2 py-1 text-xs font-medium text-action hover:bg-action/30"
+            className="flex items-center gap-1 rounded-md bg-transparent px-2 py-1 text-xs font-medium text-action hover:bg-[#E94560]/25"
             title={t("party.inviteLink")}
           >
             <IoCopyOutline size={14} /> {t("party.invite")}

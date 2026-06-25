@@ -7,6 +7,17 @@ Ordre anti-chronologique (le plus récent en haut). Une entrée = une session/su
 
 ---
 
+## 2026-06-25 (suite 8) — Watch 2gether : icône chapitres grisée (dim inline), hover Inviter
+
+### Décisions / fixes
+- **Icône chapitres pas grisée** (alors que le clic était bien bloqué) : le grisage reposait sur la CSS `opacity` via la classe marqueur, peu fiable selon où elle tombait + le rendu de l'icône. Fix : le tagging applique désormais le dim **inline directement sur le bouton** (`opacity:.5; filter:grayscale(1); cursor:not-allowed; pointer-events:none`) quand bloqué, et le **nettoie** quand débloqué — indépendant du cascade CSS. La détection cible le **bouton lui-même** (aria-label/title propres, plus l'ancêtre qui contient juste le tooltip). Effet re-exécuté sur toggle `amPlaybackBlocked` (un changement de state React ne déclenche pas le MutationObserver). `pointer-events:none` neutralise aussi l'ouverture du menu en bonus.
+- **Bouton Inviter hover** : utilisait `bg-action/20`+`hover:bg-action/30` → silencieusement ignoré (alpha sur `var()` CSS, cf. suite 6). Fix : `bg-transparent` + `hover:bg-[#E94560]/25` (hex littéral) → rectangle rose au survol, comme Privé.
+
+### Leçons / pièges
+- **Pour griser un élément de lib tierce de façon fiable** : poser le style **inline** sur l'élément (gagne sur tout) plutôt que compter sur une règle CSS + classe, surtout quand on n'est pas sûr de la structure DOM.
+
+---
+
 ## 2026-06-25 (suite 7) — Watch 2gether : toast inactivité affiché 2× → garde idempotente
 
 ### Décisions / fixes
