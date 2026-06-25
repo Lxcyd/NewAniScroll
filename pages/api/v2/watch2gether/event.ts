@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { getPartyUser } from "@/lib/watch2gether/auth";
 import { rateLimiterRedis } from "@/lib/redis";
+import { allowByIp } from "@/lib/watch2gether/rateLimit";
 import {
   canEmit,
   isBanned,
@@ -32,10 +33,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const user = await getPartyUser(req, res);
   if (!user) return res.status(401).json({ error: "Unauthorized" });
 
-  // Reuse the project's general rate limiter (50 pts/sec) keyed per user.
+  // Two limiters: per-user (50/s, smooths a single client's bursts) AND per-IP
+  // (a guest's userId is client-supplied, so the user-key alone is bypassable by
+  // rotating guestId — the IP key is the real abuse guard).
   try {
     if (rateLimiterRedis) await rateLimiterRedis.consume(`w2g:${user.userId}`);
   } catch {
+    return res.status(429).json({ error: "Too many requests" });
+  }
+  if (!(await allowByIp(req, "event", "normal"))) {
     return res.status(429).json({ error: "Too many requests" });
   }
 

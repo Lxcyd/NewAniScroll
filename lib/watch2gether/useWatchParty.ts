@@ -118,8 +118,10 @@ export function useWatchParty(
 
   // Anonymous identity for guests (stable per browser). Signed-in users ignore
   // it. Resolved client-side in an effect (it reads localStorage) to avoid any
-  // SSR/CSR mismatch. On the server the guest userId becomes `g:{guestId}`, so
-  // mirror that here for correct echo-suppression.
+  // SSR/CSR mismatch. The guestId is the guest's SECRET — the server hashes it
+  // into the PUBLIC id it broadcasts, so we can NO LONGER compute our own public
+  // id locally. For "is this me?" matching we rely on `confirmedId` (the public
+  // id the server returns from join()). The secret only gates the connection.
   const [guest, setGuest] = useState<{ guestId: string; guestName: string } | null>(null);
   useEffect(() => {
     if (myUserId) {
@@ -128,13 +130,18 @@ export function useWatchParty(
     }
     setGuest(getGuestIdentity());
   }, [myUserId]);
-  const effectiveUserId = myUserId || (guest ? `g:${guest.guestId}` : null);
+  // Gate for opening the connection: signed-in id, or "we have the guest secret".
+  // NOT used for matching (a guest's public id is server-issued, see `myId`).
+  const connectGate = myUserId || (guest ? "guest-ready" : null);
+  // The authoritative "this is me" id: signed-in id directly (public + session-
+  // verified), or the server-confirmed public id for a guest.
+  const selfId = myUserId || confirmedId;
 
   const applyingRemoteRef = useRef(false);
   const remoteHandlers = useRef<Set<(e: PartyEvent) => void>>(new Set());
   const esRef = useRef<EventSource | null>(null);
-  const myIdRef = useRef<string | null>(effectiveUserId);
-  myIdRef.current = effectiveUserId;
+  const myIdRef = useRef<string | null>(selfId);
+  myIdRef.current = selfId;
   const guestRef = useRef(guest);
   guestRef.current = guest;
   // Snapshot of the live member list for stale-free lookups inside callbacks
@@ -472,7 +479,7 @@ export function useWatchParty(
   // SSE connection lifecycle. Wait until we have an identity (a guest's resolves
   // asynchronously) so the very first connection authenticates correctly.
   useEffect(() => {
-    if (!roomId || !effectiveUserId) return;
+    if (!roomId || !connectGate) return;
     // A new room/identity means a fresh session — clear any prior removal flags.
     removedRef.current = false;
     rejectedRef.current = false;
@@ -530,11 +537,11 @@ export function useWatchParty(
       esRef.current?.close();
       esRef.current = null;
     };
-  }, [roomId, effectiveUserId, join, dispatch]);
+  }, [roomId, connectGate, join, dispatch]);
 
   // Presence heartbeat + leave-on-unload.
   useEffect(() => {
-    if (!roomId || !effectiveUserId) return;
+    if (!roomId || !connectGate) return;
 
     // A heartbeat that ALSO inspects the response: when we wake from sleep after
     // being reaped for inactivity, the SSE may not reliably re-fire onopen (so
@@ -595,7 +602,7 @@ export function useWatchParty(
       // the `pagehide` beacon above; if the beacon is missed, the presence key
       // lapses via its short TTL (12s) so the member still vanishes quickly.
     };
-  }, [roomId, effectiveUserId, rejectOnce]);
+  }, [roomId, connectGate, rejectOnce]);
 
   const inviteUrl =
     typeof window !== "undefined" && roomId
@@ -607,7 +614,7 @@ export function useWatchParty(
   // useMemo / sync effects (deps include `party`) and breaks live sync.
   // Effective id may briefly be null while a guest identity resolves; fall back
   // to the server-confirmed id so "this is me" (ring, mute/block flags) is right.
-  const myId = effectiveUserId || confirmedId;
+  const myId = selfId;
   const isHost = !!myId && myId === hostId;
   const amMuted = !!myId && members.some((m) => m.userId === myId && m.muted);
   const amPlaybackBlocked =

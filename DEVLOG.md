@@ -7,6 +7,22 @@ Ordre anti-chronologique (le plus récent en haut). Une entrée = une session/su
 
 ---
 
+## 2026-06-25 (suite 9) — Watch 2gether : revue sécu (rate-limit IP + anti-impersonation invité), hint FS à chaque FS
+
+### Sécurité
+- **Brute-force du code à 4 chiffres + spam** : aucun endpoint sauf `event` n'était rate-limité, et `event` keyait sur `user.userId` (un guestId client-fourni → contournable). Ajout de `lib/watch2gether/rateLimit.ts` (`allowByIp`, par IP via X-Forwarded-For, fail-open). Appliqué : `join` (anti-énumération, strict 20/s/IP), `create` (anti room-spam, strict), `stream` (anti-DoS subscribers Redis, strict), `presence`+`event` (backstop, 50/s/IP), `moderate` (strict).
+- **Impersonation d'invité / prise de contrôle host** (faille sérieuse) : le `guestId` (secret + seule créance d'un invité) était diffusé en clair dans `senderId` de chaque chat/action ET dans la liste des membres → n'importe quel participant pouvait voler l'identité d'un invité, et si l'host est invité, le kicker/ban/transférer. Fix : `auth.ts` dérive un **id PUBLIC = `g:` + HMAC-SHA256(guestId, secret serveur)** (one-way), utilisé partout (membership, senderId, members). Le secret guestId ne quitte jamais le canal client→serveur. Côté client : on ne calcule plus `g:{guestId}` localement ; le matching « c'est moi » utilise l'**id confirmé par le serveur** (`confirmedId` de join). Nouveau découpage `connectGate` (ouvre la connexion) vs `selfId` (matching). Comptes AniList non concernés (session vérifiée serveur). Secret via `W2G_GUEST_SECRET` (fallback `NEXTAUTH_SECRET`). Migration : transparente (rooms éphémères 6h ; les anciens membres plaintext deviennent des ghosts reapés).
+- **`sanitizeName`** : la regex strip bien les contrôles 0x00–0x1F + `<>` (le « space » affiché est un NUL littéral en source — fonctionnellement correct, garde lettres/chiffres/espaces).
+
+### Fixes
+- **Hint FS « le chat est à droite »** : montrait via un compteur localStorage plafonné à 3 → épuisé en test → « il manque ». Retiré le cap : le hint s'affiche **à chaque passage en fullscreen** (discret, auto-dismiss 4,5s, disparaît dès qu'on ouvre le chat).
+
+### Leçons / pièges
+- **Le secret d'un invité ne doit JAMAIS être diffusé** : tout id broadcast (senderId, members) doit être un dérivé one-way. Le client matche sur l'id confirmé par le serveur, pas sur un id recalculé localement.
+- **Rate-limit par IP, pas par id applicatif** quand l'id est client-fourni (guest).
+
+---
+
 ## 2026-06-25 (suite 8) — Watch 2gether : icône chapitres grisée (dim inline), hover Inviter
 
 ### Décisions / fixes

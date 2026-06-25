@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { getPartyUser } from "@/lib/watch2gether/auth";
+import { allowByIp } from "@/lib/watch2gether/rateLimit";
 import {
   banMember,
   getHostId,
@@ -46,6 +47,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   const user = await getPartyUser(req, res);
   if (!user) return res.status(401).json({ error: "Unauthorized" });
+
+  if (!(await allowByIp(req, "moderate", "strict"))) {
+    return res.status(429).json({ error: "Too many requests" });
+  }
 
   const { roomId, action, targetUserId, flags } = req.body || {};
   if (!isValidRoomId(roomId) || !action) {

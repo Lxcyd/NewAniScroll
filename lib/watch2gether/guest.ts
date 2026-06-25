@@ -55,11 +55,12 @@ export function getGuestIdentity(): GuestIdentity {
   }
   // 4-digit suffix keeps the auto name short and friendly ("Invité 4821").
   const n = Math.floor(1000 + Math.random() * 9000);
-  // IMPORTANT: keep this normalization IDENTICAL to the server's in
-  // lib/watch2gether/auth.ts (sanitize + slice(0,32)). The server derives the
-  // member id as `g:${guestId}` after the same transform; if the client stored
-  // a longer raw id, the two would differ and we'd never match ourselves (no
-  // self ring, duplicate chat, playback-block never applies).
+  // This guestId is the guest's SECRET: it's sent to the server, which HMAC-
+  // hashes it into the public id used in broadcasts (see auth.ts). We never
+  // derive the public id client-side anymore — "is this me?" matching uses the
+  // server-confirmed id from join(). The sanitize/slice just keeps the secret a
+  // tidy token; its exact length doesn't need to match the server (the server
+  // hashes whatever it receives, capped at 64 chars).
   const guestId =
     (typeof crypto !== "undefined" && "randomUUID" in crypto
       ? crypto.randomUUID()

@@ -11,6 +11,7 @@ import {
   reapInactiveMembers,
   roomExists,
 } from "@/lib/watch2gether/redisRoom";
+import { allowByIp } from "@/lib/watch2gether/rateLimit";
 import { createSubscriber } from "@/lib/watch2gether/subscriber";
 
 // Long-lived SSE response. Vercel caps function duration (60s on the current
@@ -40,6 +41,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   const roomId = String(req.query.roomId || "");
   if (!isValidRoomId(roomId)) return res.status(400).end();
+
+  // Per-IP throttle: each stream holds a dedicated Redis subscriber for ~58s, so
+  // opening many connections is a real DoS vector. Legit reconnects are ~1/min.
+  if (!(await allowByIp(req, "stream", "strict"))) return res.status(429).end();
 
   if (!(await roomExists(roomId))) return res.status(404).end();
 

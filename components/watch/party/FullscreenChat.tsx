@@ -7,11 +7,10 @@ import ChatText from "./ChatText";
 import EmojiButton from "./EmojiButton";
 import { replaceShortcodes } from "@/lib/watch2gether/animeEmojis";
 
-// Show the "hover the right edge" hint only the first few times the user enters
-// fullscreen with a party — once they've learned it, stop nagging. (v2 key:
-// resets the counter for everyone so the redesigned hint is seen at least once.)
-const HINT_SEEN_KEY = "w2g.fsChat.hintSeen.v2";
-const HINT_MAX_SHOWS = 3;
+// The "hover the right edge" hint shows EACH TIME the user enters fullscreen
+// with a party — it's discreet, auto-dismisses, and vanishes the instant they
+// open the chat, so it's never in the way. (A lifetime cap made it silently
+// disappear after a few sessions, which read as a bug.)
 const HINT_DURATION_MS = 4500;
 
 interface Props {
@@ -48,26 +47,15 @@ export default function FullscreenChat({ onRemote, sendChat, playerEl, active }:
   const closeTimer = useRef<number | null>(null);
 
   // ── Intro hint ──
-  // When we (re)enter fullscreen, briefly pulse the right-edge affordance so the
-  // user learns the chat lives there. Capped to HINT_MAX_SHOWS lifetime.
+  // Each time we enter fullscreen, pulse the right-edge affordance so the user
+  // knows the chat lives there. Auto-dismisses after a few seconds (and the
+  // moment they open the chat — see openNow).
   useEffect(() => {
     if (!active) {
       setHint(false);
       return;
     }
-    let shows = 0;
-    try {
-      shows = parseInt(localStorage.getItem(HINT_SEEN_KEY) || "0", 10) || 0;
-    } catch {
-      /* ignore */
-    }
-    if (shows >= HINT_MAX_SHOWS) return;
     setHint(true);
-    try {
-      localStorage.setItem(HINT_SEEN_KEY, String(shows + 1));
-    } catch {
-      /* ignore */
-    }
     const id = window.setTimeout(() => setHint(false), HINT_DURATION_MS);
     return () => window.clearTimeout(id);
   }, [active]);

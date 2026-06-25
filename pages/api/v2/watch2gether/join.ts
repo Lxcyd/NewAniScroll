@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { getPartyUser } from "@/lib/watch2gether/auth";
+import { allowByIp } from "@/lib/watch2gether/rateLimit";
 import {
   addMember,
   consumeInactive,
@@ -19,6 +20,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   const user = await getPartyUser(req, res);
   if (!user) return res.status(401).json({ error: "Unauthorized" });
+
+  // Per-IP throttle: the room code space is only 4 digits (10k), so /join is the
+  // prime brute-force / enumeration vector. Keyed on IP (a guest's id is
+  // client-supplied, so a user-key is bypassable). Legit reconnects stay well
+  // under 20/s.
+  if (!(await allowByIp(req, "join", "strict"))) {
+    return res.status(429).json({ error: "Too many requests" });
+  }
 
   const { roomId } = req.body || {};
   if (!isValidRoomId(roomId)) return res.status(400).json({ error: "valid roomId is required" });

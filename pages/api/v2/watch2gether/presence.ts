@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { getPartyUser } from "@/lib/watch2gether/auth";
+import { allowByIp } from "@/lib/watch2gether/rateLimit";
 import {
   acquireThrottle,
   getSnapshot,
@@ -22,6 +23,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   const { roomId } = req.body || {};
   if (!isValidRoomId(roomId)) return res.status(400).json({ error: "valid roomId is required" });
+
+  // Per-IP backstop (a guest userId is client-supplied). Legit heartbeat is
+  // 1 / 5s per client; 50/s/IP only trips on scripted abuse.
+  if (!(await allowByIp(req, "presence", "normal"))) {
+    return res.status(429).json({ error: "Too many requests" });
+  }
 
   try {
     if (!(await roomExists(roomId))) return res.status(404).json({ error: "Room not found" });
