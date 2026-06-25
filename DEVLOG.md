@@ -7,6 +7,23 @@ Ordre anti-chronologique (le plus récent en haut). Une entrée = une session/su
 
 ---
 
+## 2026-06-24 (suite 5) — Watch 2gether : désync blocage, FS chat refonte, contrôles
+
+### Décisions / fixes
+- **Inversion host ↔ bloqué** : le revert de `enforceBlocked` utilisait `withGuard` (120ms). Mais `video.currentTime = pos` déclenche un `seeked` **asynchrone** qui tombait *après* l'expiration du guard → re-broadcast → l'hôte se prenait la position/état du bloqué (« inversé »). Fix : suppression dédiée de **500ms** qui couvre tout le revert + chaque handler `on*` bail **en amont** si `amPlaybackBlocked` (plus aucun broadcast possible en état bloqué).
+- **PiP / sortie fullscreen non cliquables** : la **zone de hover droite** du FS chat (`height:100%`) recouvrait la barre de contrôle en bas à droite (PiP/fullscreen) et avalait les clics. Fix : la zone s'arrête au-dessus de la barre (`calc(100% - 104px)`), et tout le panel FS est ancré `bottom:96`. (La corrélation « avec le blocage » était fortuite — le bug existait dès que le FS chat était actif.)
+- **FS chat refonte** (spec user) : icône chat avec une **croix en bas-à-gauche**. Hover sur l'icône → chat + composer. Clic sur la croix → masqué « pour de bon » (persisté `w2g.fsChat.hidden`), réapparaît **uniquement** au survol du bord droit.
+- **Noms toujours roses** en FS chat (avant : rose seulement pour soi).
+
+### Leçons / pièges
+- **Un overlay plein écran `pointer-events:auto` mange les contrôles du player**. Toute UI superposée au player en fullscreen doit laisser une bande libre en bas (≥ hauteur de la barre Vidstack) sinon PiP/fullscreen/volume deviennent incliquables.
+- **`currentTime=` → `seeked` est async** : un guard de suppression doit durer plus longtemps (~500ms) que la fenêtre d'application synchrone, sinon l'event de revert fuit et se re-broadcast.
+
+### État déployé
+- Commit `dev` : `e0eeb81`. Typecheck OK, ESLint OK.
+
+---
+
 ## 2026-06-24 (suite 4) — Watch 2gether : lockout lecture fort, FS chat, départs/host
 
 ### Décisions prises
