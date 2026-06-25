@@ -1123,6 +1123,26 @@ input[type="number"] {
   user-select: none;
 }
 
+/* Emoji-picker buttons. Hover handled here in CSS (not per-button JS) so a
+   category with several hundred emojis doesn't pay two event handlers + an
+   inline style object per cell — that was the lag on tab switch. */
+.w2g-emoji-btn {
+  padding: 2px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+}
+.w2g-emoji-btn-img {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px;
+}
+.w2g-emoji-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
 /* ── Vidstack seek-bar chrome ────────────────────────────────────
    Match the Miruro reference: every chapter is its own rounded pill
    with a visible gap between segments. Vidstack's chapter system

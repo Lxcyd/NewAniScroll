@@ -5,7 +5,7 @@ import { BsEmojiSmile } from "react-icons/bs";
 import { ANIME_EMOJIS, ANIME_EMOJI_MAP } from "@/lib/watch2gether/animeEmojis";
 import { ANIME_STICKERS, ANIME_STICKER_MAP } from "@/lib/watch2gether/animeStickers";
 import { EMOJI_CATEGORIES, ALL_EMOJIS } from "@/lib/watch2gether/unicodeEmojis";
-import { EMOJI_KEYWORDS } from "@/lib/watch2gether/emojiKeywords";
+import { emojiKeywordsFor } from "@/lib/watch2gether/emojiKeywords";
 
 // Strip accents + lowercase so "pomme" matches "pommé" and casing is ignored.
 function fold(s: string): string {
@@ -59,7 +59,9 @@ function pushRecent(insert: string): string[] {
 // by category (incl. Flags) with a search box. Wide enough that every category
 // tab — Flags included — is visible without horizontal scrolling.
 export default function EmojiButton({ onPick, fullscreen, className = "" }: Props) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  // Search the keywords in the site's current language (en ↔ fr).
+  const emojiKeywords = useMemo(() => emojiKeywordsFor(i18n.language), [i18n.language]);
   const btnRef = useRef<HTMLButtonElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
   const [open, setOpen] = useState(false);
@@ -154,14 +156,14 @@ export default function EmojiButton({ onPick, fullscreen, className = "" }: Prop
     if (!q) return [] as string[];
     const res: string[] = [];
     for (const u of ALL_EMOJIS) {
-      const kw = EMOJI_KEYWORDS[u];
+      const kw = emojiKeywords[u];
       if (kw && kw.includes(q)) {
         res.push(u);
         if (res.length >= MAX_RESULTS) break;
       }
     }
     return res;
-  }, [q]);
+  }, [q, emojiKeywords]);
 
   // Portal target: the fullscreen element (so it shows over the video) or body.
   const portalTarget =
@@ -177,22 +179,16 @@ export default function EmojiButton({ onPick, fullscreen, className = "" }: Prop
     <div style={{ display: "grid", gridTemplateColumns: "repeat(8, 1fr)", gap: 2 }}>{children}</div>
   );
 
+  // Hover is handled in CSS (.w2g-emoji-btn:hover) — NOT per-button JS handlers.
+  // With several hundred emojis per category, two inline onMouse* handlers + an
+  // inline style object per button is what made tab-switching janky.
   const unicodeBtn = (u: string, key?: string) => (
     <button
       key={key || u}
       type="button"
       onClick={() => pick(u)}
-      style={{
-        fontSize: 20,
-        lineHeight: "28px",
-        padding: 2,
-        borderRadius: 6,
-        background: "transparent",
-        border: "none",
-        cursor: "pointer",
-      }}
-      onMouseEnter={(ev) => (ev.currentTarget.style.background = "rgba(255,255,255,0.1)")}
-      onMouseLeave={(ev) => (ev.currentTarget.style.background = "transparent")}
+      className="w2g-emoji-btn"
+      style={{ fontSize: 20, lineHeight: "28px" }}
     >
       {u}
     </button>
@@ -204,18 +200,7 @@ export default function EmojiButton({ onPick, fullscreen, className = "" }: Prop
       type="button"
       title={label}
       onClick={() => pick(shortcode)}
-      style={{
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: 4,
-        borderRadius: 6,
-        background: "transparent",
-        border: "none",
-        cursor: "pointer",
-      }}
-      onMouseEnter={(ev) => (ev.currentTarget.style.background = "rgba(255,255,255,0.1)")}
-      onMouseLeave={(ev) => (ev.currentTarget.style.background = "transparent")}
+      className="w2g-emoji-btn w2g-emoji-btn-img"
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src={url} alt={label} style={{ width: 22, height: 22 }} loading="lazy" />
@@ -229,18 +214,7 @@ export default function EmojiButton({ onPick, fullscreen, className = "" }: Prop
       type="button"
       title={label}
       onClick={() => pick(shortcode)}
-      style={{
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: 3,
-        borderRadius: 6,
-        background: "transparent",
-        border: "none",
-        cursor: "pointer",
-      }}
-      onMouseEnter={(ev) => (ev.currentTarget.style.background = "rgba(255,255,255,0.1)")}
-      onMouseLeave={(ev) => (ev.currentTarget.style.background = "transparent")}
+      className="w2g-emoji-btn w2g-emoji-btn-img"
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src={src} alt={label} style={{ width: 28, height: 28 }} loading="lazy" />

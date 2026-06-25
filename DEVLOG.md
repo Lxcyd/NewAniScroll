@@ -14,19 +14,18 @@ Ordre anti-chronologique (le plus récent en haut). Une entrée = une session/su
 - Dédup par **hash md5** : 14 groupes de doublons trouvés (13 paires `xxx`/`xxx_2` + `9037_laffers` = `6768_laffeydrink`). Supprimés. **252 fichiers uniques**, 0 doublon de contenu, et 252 entrées dans `animeStickers.ts` (cross-check refs↔fichiers : 0 manquant / 0 orphelin).
 - **Leçon** : toujours dédupliquer par hash de contenu, jamais par nom.
 
-### Recherche emoji unicode en FR + EN
+### Recherche emoji unicode PAR LANGUE du site (FR ou EN)
 - Avant : les emojis unicode étaient des chars nus sans mots-clés → chercher "pomme"/"apple" ne renvoyait rien.
-- Nouveau `lib/watch2gether/emojiKeywords.ts` (GÉNÉRÉ) : map `char → "mots-clés EN+FR"` issue des **annotations Unicode CLDR** (en + fr), accent-folded + lowercase. **1555 emojis** indexés (les ~320 séquences ZWJ sans annotation CLDR sont omises, sans impact sur les emojis courants).
-- `EmojiButton` filtre les unicode via `EMOJI_KEYWORDS[char].includes(q)`. `fold()` (NFD + strip accents + lowercase) appliqué partout → "pomme", "Pomme", "pommé", "apple" trouvent tous 🍎.
-- Régénérer : télécharger `cldr-annotations-full/.../en|fr/annotations.json`, extraire les chars présents dans `unicodeEmojis.ts`, merger `default`+`tts` des 2 langues (voir script scratchpad).
+- 1ère version : une seule map EN+FR combinée → mais en anglais la recherche renvoyait aussi des matchs FR (pas propre). **Corrigé** : **deux maps séparées** `emojiKeywords.en.ts` + `emojiKeywords.fr.ts` (GÉNÉRÉES depuis les **annotations Unicode CLDR**, accent-folded + lowercase, 1555 emojis chacune). `emojiKeywords.ts` exporte `emojiKeywordsFor(lang)` qui choisit FR si `lang` commence par "fr", sinon EN.
+- `EmojiButton` : `emojiKeywordsFor(i18n.language)` → la recherche suit la langue du site. `fold()` (NFD + strip accents + lowercase) partout → "pomme"/"Pomme"/"pommé" (FR) et "apple" (EN) trouvent 🍎 selon la langue active.
+- Régénérer : `cldr-annotations-full/.../en|fr/annotations.json`, extraire les chars de `unicodeEmojis.ts`, merger `default`+`tts` PAR langue (script scratchpad).
 
-### Perf du picker (lent surtout la barre de recherche)
-- Cause : chaque frappe re-filtrait ~1900 emojis ET re-rendait ~1900 boutons inline-styled.
-- Fix : (1) **debounce 120 ms** — `query` (affichage instantané) vs `debouncedQuery` (filtrage) ; (2) **cap `MAX_RESULTS=200`** sur les résultats unicode + stickers rendus.
+### Perf du picker (lag à la frappe ET au changement de catégorie)
+- Frappe : **debounce 120 ms** (`query` affiché vs `debouncedQuery` filtré) + **cap `MAX_RESULTS=200`**.
+- **Changement de catégorie (le gros lag)** : cause = chaque catégorie (People=385, Flags=269, Objects=262…) re-montait des centaines de `<button>` avec **2 handlers JS `onMouseEnter/Leave` + un objet style inline par bouton**. Fix : hover déplacé en **CSS** (`.w2g-emoji-btn:hover`), handlers JS supprimés. Classes `.w2g-emoji-btn` / `.w2g-emoji-btn-img` dans globals.css.
 
 ### Bouton envoyer (chat hors fullscreen)
-- Avant : `disabled={amMuted || !hasText}` → curseur "interdit" + non cliquable quand vide.
-- Maintenant : **toujours cliquable**, juste atténué (`opacity-40`) quand vide/muet ; `send()` ignore déjà le texte vide → clic = no-op. (Le bouton fullscreen `.w2g-fs-send` était déjà sans `disabled`.)
+- Maintenant **toujours cliquable ET pleine opacité** (plus de `opacity-40` quand vide). `send()` ignore le texte vide → clic à vide = no-op. État `hasText` supprimé (devenu inutile).
 
 ---
 

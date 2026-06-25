@@ -213,7 +213,6 @@ function ActiveRoom({ party, onClose }: { party: PartyContext; onClose?: () => v
   // the round-trip and leave local/server state flapping between Public/Private.
   const [lockBusy, setLockBusy] = useState(false);
   const composerRef = useRef<ChatComposerHandle | null>(null);
-  const [hasText, setHasText] = useState(false);
   const logRef = useRef<HTMLDivElement | null>(null);
 
   const toggleLock = () => {
@@ -237,14 +236,12 @@ function ActiveRoom({ party, onClose }: { party: PartyContext; onClose?: () => v
     }
     sendChat(val);
     composerRef.current?.clear();
-    setHasText(false);
   };
 
   const insertEmoji = (token: string) => {
     // Stickers stay as :shortcode: (composer renders the image inline); unicode-
     // backed emoji are converted to their char first.
     composerRef.current?.insert(isAnimeSticker(token) ? token : replaceShortcodes(token));
-    setHasText(true);
     composerRef.current?.focus();
   };
 
@@ -411,20 +408,17 @@ function ActiveRoom({ party, onClose }: { party: PartyContext; onClose?: () => v
               ref={composerRef}
               placeholder={amMuted ? t("party.muted") : t("party.message")}
               onSubmit={send}
-              onChange={(v) => setHasText(!!v)}
               className={`flex-1 rounded-md bg-white/10 px-3 py-2 text-sm focus:bg-white/15 ${
                 amMuted ? "pointer-events-none opacity-60" : ""
               }`}
             />
-            {/* Always clickable: when empty it simply no-ops (send() ignores
-                blank text). We only dim it visually when there's nothing to
-                send — no `disabled` so the cursor stays normal, not "blocked". */}
+            {/* Always clickable and always at full opacity: when empty it
+                simply no-ops (send() ignores blank text). No `disabled` so the
+                cursor stays normal, not "blocked". */}
             <button
               type="button"
               onClick={() => send(composerRef.current?.getText() || "")}
-              className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-action text-white transition-opacity ${
-                hasText && !amMuted ? "" : "opacity-40"
-              }`}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-action text-white"
             >
               <IoSend size={16} />
             </button>
