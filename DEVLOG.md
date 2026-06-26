@@ -7,6 +7,17 @@ Ordre anti-chronologique (le plus récent en haut). Une entrée = une session/su
 
 ---
 
+## 2026-06-26 — Watch 2gether : fix UI mobile (panel qui déborde + placement)
+
+Sur mobile le panel de la party était **superposé à la liste d'épisodes**, et placé trop bas (tout en bas de la colonne primaire, juste au-dessus des épisodes). Dans [pages/en/anime/watch/[...info].js](pages/en/anime/watch/[...info].js) :
+
+- **Overlap corrigé** : le wrapper recevait `style={{ height: playerBoxH }}`, or `playerBoxH` = hauteur du lecteur en **pleine largeur** (largeur × 9/16). Sur mobile le lecteur prend tout le viewport → cette hauteur dépassait largement le `h-[60vh]` interne du panel, qui débordait sur les épisodes. La hauteur est désormais exposée en **variable CSS `--player-h`** et consommée uniquement en `lg:` (`lg:h-[var(--player-h)]`). Sur mobile c'est le `h-[60vh] max-h-[520px]` interne qui pilote.
+- **Remonté sous le lecteur** : le panel vivait dans la colonne `#secondary` (qui s'empile **après** toute la colonne primaire sur mobile). Extrait dans une const `partyPanelBlock` rendue à **deux endroits** : mobile (`lg:hidden`, dans `#primary` juste sous le lecteur, au-dessus du sélecteur de serveur) et desktop (`hidden lg:block`, inchangé à côté des épisodes). Bouton « ouvrir le chat » et logique d'affichage partagés.
+- **Piège** : réutiliser le même élément JSX `partyPanelBlock` aux 2 emplacements monte **2 instances** de `WatchPartyPanel` (l'une masquée en `display:none` selon le breakpoint). Sans incidence visuelle (mêmes données du hook parent `useWatchParty`), mais c'est une dette assumée — n'en monter qu'une seule demanderait un flag de breakpoint JS (pas souhaité pour éviter les soucis d'hydratation SSR).
+- Node absent de l'env → lint/build non vérifiés sur place. Commit `w2g ui mobile` poussé sur `origin/dev`.
+
+---
+
 ## 2026-06-25 (suite 13) — Watch 2gether : passe `/simplify` (cleanup post-feature)
 
 Revue par 4 agents (reuse / simplification / efficiency / altitude) sur le diff des suites 12-13. Corrigés :
