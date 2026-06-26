@@ -2,23 +2,19 @@
 
 All notable changes to AniScroll appear here. Most recent first.
 
-## [v0.0.4] — Watch 2gether (2026-06-26)
+## [v0.0.4] — Watch together (2026-06-26)
 
 ### Added
-- **Watch 2gether**: watch an episode in sync with friends. Create a party,
+- **Watch together**: watch an episode in sync with friends. Create a room,
   share a 4-digit code or invite link, and everyone's playback stays in step.
-- **Party chat**: live chat next to the player, with a full emoji picker and a
+- **Room chat**: live chat next to the player, with a full emoji picker and a
   set of anime stickers — searchable in English and French.
 - **Host moderation**: the host can transfer host, mute a member, block a
   member's playback, lock the room (private), and kick or ban.
 - **Episode sync**: changing episode, server or sub/dub follows everyone in the
-  party automatically.
+  room automatically.
 - **Fullscreen chat**: a toggleable chat overlay so you can keep talking while
   watching fullscreen.
-
-### Changed
-- The mobile party panel now sits right under the player (no longer overlapping
-  the episode list).
 
 ## [v0.0.3] — Settings reimagined, themes & profile (2026-06-14)
 

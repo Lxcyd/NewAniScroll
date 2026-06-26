@@ -2,25 +2,21 @@
 
 Toutes les nouveautés d'AniScroll, les plus récentes en premier.
 
-## [v0.0.4] — Watch 2gether (2026-06-26)
+## [v0.0.4] — Regarder ensemble (2026-06-26)
 
 ### Ajouté
-- **Watch 2gether** : regardez un épisode en synchro avec vos amis. Créez une
-  party, partagez un code à 4 chiffres ou un lien d'invitation, et la lecture
+- **Regarder ensemble** : regardez un épisode en synchro avec vos amis. Créez un
+  salon, partagez un code à 4 chiffres ou un lien d'invitation, et la lecture
   reste synchronisée pour tout le monde.
-- **Chat de party** : un chat en direct à côté du lecteur, avec un sélecteur
+- **Chat du salon** : un chat en direct à côté du lecteur, avec un sélecteur
   d'emojis complet et une collection de stickers anime — recherche en français
   et en anglais.
 - **Modération par l'hôte** : l'hôte peut transférer l'hôte, rendre muet un
   membre, bloquer sa lecture, verrouiller le salon (privé), expulser ou bannir.
 - **Synchronisation des épisodes** : changer d'épisode, de serveur ou de
-  sub/dub suit automatiquement toute la party.
+  sub/dub suit automatiquement tout le salon.
 - **Chat plein écran** : un chat superposable pour continuer à discuter en
   plein écran.
-
-### Modifié
-- Le panneau de party sur mobile se trouve désormais juste sous le lecteur (il
-  ne chevauche plus la liste des épisodes).
 
 ## [v0.0.3] — Paramètres repensés, thèmes & profil (2026-06-14)
 
