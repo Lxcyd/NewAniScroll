@@ -1727,6 +1727,45 @@ export default function Watch({
   }, [activeServer, episodeNavigation, hlsLoading, hlsData, info, epiNumber, dub, markFailed, handleServerChange, autoplay, handleEpisodeComplete, isFinalEpisode, isSingleEpisode, handleFinalEpisodeNearEnd, party?.onRemote, party?.broadcast]);
 
   // ── Render ───────────────────────────────────────────────────
+  // The Watch-Party panel. Rendered in two places: on mobile it sits in the
+  // primary column directly under the player (`lg:hidden`), on desktop it lives
+  // in the secondary column beside the episode list (`hidden lg:block`). Built
+  // once here so both placements stay in sync.
+  const partyPanelBlock = (party || partyUIOpen) && (
+    partyPanelHidden ? (
+      <button
+        onClick={() => setPartyPanelHidden(false)}
+        className="mb-4 flex items-center gap-2 rounded-full bg-action/20 px-3 py-2 text-sm font-medium text-action hover:bg-action/30"
+      >
+        <UsersIcon className="h-4 w-4" /> {t("party.openChat")}
+      </button>
+    ) : (
+      <div
+        className="mb-4 lg:h-[var(--player-h)]"
+        style={
+          // Match the player height on large screens only. The pixel value is
+          // the FULL-WIDTH player height; on a phone (player spans the
+          // viewport) that is far taller than the panel's mobile `h-[60vh]`, so
+          // applying it as a plain inline height left the panel overlapping the
+          // episode list. We expose it as a CSS var and only consume it at
+          // `lg:`; on mobile the inner `h-[60vh]` drives the height instead.
+          playerBoxH ? { "--player-h": `${playerBoxH}px` } : undefined
+        }
+      >
+        <div className="h-[60vh] max-h-[520px] lg:h-full lg:max-h-none">
+          <WatchPartyPanel
+            party={party}
+            lobby={{ aniId: info?.id, epiNumber, dub, server: activeServer }}
+            onClose={() => {
+              setPartyPanelHidden(true);
+              if (!party) setPartyUIOpen(false);
+            }}
+          />
+        </div>
+      </div>
+    )
+  );
+
   return (
     <>
       <Head>
@@ -1854,6 +1893,13 @@ export default function Watch({
                 </div>
               )}
 
+              {/* Watch-Party panel (mobile) — sits directly under the player,
+                  above the server picker. Desktop renders it beside the episode
+                  list instead (`hidden lg:block` there, `lg:hidden` here). */}
+              {partyPanelBlock && (
+                <div className="px-3 pt-4 lg:hidden">{partyPanelBlock}</div>
+              )}
+
               {/* Server selector */}
 
               <div className="px-3 lg:px-0">
@@ -1938,33 +1984,10 @@ export default function Watch({
               id="secondary"
               className={`relative ${theaterMode ? "pt-5" : "pt-4 lg:pt-0"} lg:pl-4`}
             >
-              {(party || partyUIOpen) && !partyPanelHidden && (
-                <div
-                  className="mb-4 px-3 lg:px-0"
-                  style={
-                    // Match the player height on large screens; sane fallback otherwise.
-                    playerBoxH ? { height: playerBoxH } : undefined
-                  }
-                >
-                  <div className="h-[60vh] max-h-[520px] lg:h-full lg:max-h-none">
-                    <WatchPartyPanel
-                      party={party}
-                      lobby={{ aniId: info?.id, epiNumber, dub, server: activeServer }}
-                      onClose={() => {
-                        setPartyPanelHidden(true);
-                        if (!party) setPartyUIOpen(false);
-                      }}
-                    />
-                  </div>
-                </div>
-              )}
-              {(party || partyUIOpen) && partyPanelHidden && (
-                <button
-                  onClick={() => setPartyPanelHidden(false)}
-                  className="mb-4 ml-3 flex items-center gap-2 rounded-full bg-action/20 px-3 py-2 text-sm font-medium text-action hover:bg-action/30 lg:ml-0"
-                >
-                  <UsersIcon className="h-4 w-4" /> {t("party.openChat")}
-                </button>
+              {/* Desktop placement — beside the episode list. On mobile the
+                  panel renders in the primary column under the player instead. */}
+              {partyPanelBlock && (
+                <div className="hidden px-3 lg:block lg:px-0">{partyPanelBlock}</div>
               )}
               <EpisodeLists
                 info={info}
