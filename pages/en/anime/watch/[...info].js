@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from "react";
-import { FlagIcon, ShareIcon } from "@heroicons/react/24/solid";
+import { FlagIcon, ShareIcon, UsersIcon } from "@heroicons/react/24/solid";
 import Details from "@/components/watch/primary/details";
 import EpisodeLists from "@/components/watch/secondary/episodeLists";
 import ServerSelector from "@/components/watch/primary/serverSelector";
@@ -48,6 +48,9 @@ import Head from "next/head";
 import { useRouter } from "next/router";
 import { Spinner } from "@vidstack/react";
 import RateModal from "@/components/shared/RateModal";
+import { toast } from "sonner";
+import { useWatchParty } from "@/lib/watch2gether/useWatchParty";
+import WatchPartyPanel from "@/components/watch/party/WatchPartyPanel";
 
 // ─────────────────────────────────────────────────────────────
 // SSR
@@ -219,6 +222,23 @@ export default function Watch({
   // Initialise from the SSR prop on BOTH server and the first client render so
   // hydration matches. The client cache / API fill in afterwards in an effect.
   const [info, setInfo] = useState(ssrInfo || null);
+
+  // On an in-app navigation to a DIFFERENT anime (e.g. a Watch-Party redirect),
+  // Next reuses this page component, so the `info` useState above does NOT
+  // re-initialise — it kept the previous anime and the player showed stale
+  // content until a manual reload. Re-sync `info` whenever the SSR prop's id (or
+  // the resolved aniId) changes so the new anime renders immediately.
+  const lastSsrIdRef = useRef(ssrInfo?.id ?? (aniId ? Number(aniId) : null));
+  useEffect(() => {
+    const incoming = ssrInfo?.id ?? (aniId ? Number(aniId) : null);
+    if (incoming == null) return;
+    if (incoming === lastSsrIdRef.current && info?.id === incoming) return;
+    lastSsrIdRef.current = incoming;
+    // Adopt the fresh SSR metadata when present; otherwise null it so the
+    // resolve effect below refetches for the new id (and the player doesn't
+    // keep rendering the previous anime's stream).
+    setInfo(ssrInfo && ssrInfo.id === incoming ? ssrInfo : null);
+  }, [ssrInfo, aniId, info?.id]);
 
   // Resolve metadata client-side when the SSR didn't supply it (cold/direct
   // hit with a memory miss). Prefer the prefetch cache (primed by the info
@@ -447,6 +467,178 @@ export default function Watch({
 
   const router = useRouter();
 
+  // ── Watch 2gether ──
+  // A room is active when the URL carries ?party={roomId}. The hook is a no-op
+  // (returns null) when absent, so the page behaves identically without one.
+  const partyRoomId = router.query.party ? String(router.query.party) : null;
+  // AniList session: the user id lives in `id` (from profile()) OR `sub` (from
+  // the userinfo request) depending on the auth path — fall back across both so
+  // a signed-in user is never mistaken for a guest.
+  const sessionUserId = sessions?.user?.id ?? sessions?.user?.sub;
+  const myUserId = sessionUserId != null ? String(sessionUserId) : null;
+
+  // Panel is closable; a floating pill restores it. Reset to visible whenever a
+  // new party is entered.
+  const [partyPanelHidden, setPartyPanelHidden] = useState(false);
+  // The right-hand panel is shown when in a party OR when the user opened the
+  // lobby (Create / Join) via the "Watch together" button.
+  const [partyUIOpen, setPartyUIOpen] = useState(false);
+
+  // When we leave or are removed, strip ?party from the URL (and toast why).
+  // We KEEP the panel open so it falls back to the lobby (create / join a room)
+  // — the removed person should be able to start or rejoin another party.
+  const stripParty = useCallback(() => {
+    setPartyUIOpen(true);
+    setPartyPanelHidden(false);
+    const { party: _omit, ...rest } = router.query;
+    router.replace({ pathname: router.pathname, query: rest }, undefined, { shallow: true });
+  }, [router]);
+
+  const handleSelfRemoved = useCallback(
+    (reason) => {
+      if (reason === "kick") toast.error(t("party.toastKicked"));
+      else if (reason === "ban") toast.error(t("party.toastBanned"));
+      stripParty();
+    },
+    [stripParty, t]
+  );
+
+  const handleJoinRejected = useCallback(
+    (reason) => {
+      if (reason === "banned") toast.error(t("party.toastBanned"));
+      else if (reason === "inactive") toast.error(t("party.toastInactive"));
+      else if (reason === "locked") toast.error(t("party.toastLocked"));
+      else toast.error(t("party.toastNotFound"));
+      stripParty();
+    },
+    [stripParty, t]
+  );
+
+  const party = useWatchParty(
+    partyRoomId,
+    { aniId: aniId, epiNumber: epiNumber, dub: !!dub, server: activeServer },
+    myUserId,
+    { onSelfRemoved: handleSelfRemoved, onJoinRejected: handleJoinRejected }
+  );
+  useEffect(() => {
+    if (partyRoomId) {
+      setPartyPanelHidden(false);
+      setPartyUIOpen(true);
+    }
+  }, [partyRoomId]);
+
+  // Track the player's pixel height so (on large screens) the party panel can
+  // match it exactly. Falls back to a max-height via CSS when unset.
+  // NOTE: the ResizeObserver effect lives lower (after `theaterMode` is read
+  // from context) to avoid a TDZ on its dependency.
+  const playerBoxRef = useRef(null);
+  const [playerBoxH, setPlayerBoxH] = useState(0);
+
+  // Episode sync: when WE change episode while in a party, tell everyone. When
+  // a peer changes episode, navigate to it (preserving ?party). We track the
+  // last episode we broadcast/applied to avoid feedback loops.
+  const lastBroadcastEpRef = useRef(null);
+  const applyingRemoteEpRef = useRef(false);
+  // Guard against redirect loops: remember the last target we navigated to
+  // (aniId-ep-dub). The snapshot keeps arriving on every (re)connect, so without
+  // this the state-driven redirect could fire again before `info` finishes
+  // hydrating to the new anime and push the same route in a tight loop ("on
+  // charge en boucle"). We only ever push a given target once.
+  const lastNavTargetRef = useRef(null);
+  // A joiner must FOLLOW the host, never drag the room to its own page. Until we
+  // have aligned with the room snapshot at least once, suppress broadcasting our
+  // episode — otherwise a member who joins by code instantly broadcasts the page
+  // they happened to be on and teleports the HOST to it (the inverted redirect).
+  // The host (room creator) is synced from the start; everyone else syncs once
+  // the snapshot lands (see the snapshot redirect effect below).
+  const syncedToRoomRef = useRef(false);
+
+  // Broadcast our episode whenever it changes (and we didn't just apply a remote one).
+  useEffect(() => {
+    if (!party || epiNumber == null) return;
+    // The room creator is authoritative immediately; joiners wait until synced.
+    if (party.isHost) syncedToRoomRef.current = true;
+    const key = `${epiNumber}-${dub ? "dub" : "sub"}`;
+    if (lastBroadcastEpRef.current === key) return;
+    lastBroadcastEpRef.current = key;
+    if (applyingRemoteEpRef.current) {
+      applyingRemoteEpRef.current = false;
+      return; // this change came FROM a peer — don't echo it back
+    }
+    // Not yet aligned with the room → don't broadcast our incidental page.
+    if (!syncedToRoomRef.current) return;
+    party.broadcast("episode", {
+      aniId: aniId,
+      epiNumber: epiNumber,
+      dub: !!dub,
+      server: activeServer,
+      position: 0,
+    });
+  }, [party, epiNumber, dub, aniId, activeServer]);
+
+  // Apply remote episode changes by navigating, keeping ?party intact. Also
+  // handles the initial snapshot so a peer who joined by CODE on a different
+  // page (or different anime) is taken to whatever the room is watching.
+  useEffect(() => {
+    if (!party) return;
+    const navTo = (targetAniId, targetEp, targetDub) => {
+      const sameAnime = String(aniId) === String(targetAniId);
+      const sameEp = sameAnime && String(epiNumber) === String(targetEp) && !!dub === !!targetDub;
+      if (sameEp) return;
+      const target = `${targetAniId}-${targetEp}-${targetDub ? "dub" : "sub"}`;
+      if (lastNavTargetRef.current === target) return; // already navigating there
+      lastNavTargetRef.current = target;
+      applyingRemoteEpRef.current = true;
+      router.push(buildWatchUrl(targetAniId, targetEp, targetDub, activeServer, party.roomId), undefined, {
+        shallow: false,
+      });
+    };
+    const unsub = party.onRemote((e) => {
+      if (e.type === "episode" && e.payload) {
+        navTo(e.payload.aniId || info?.id || aniId, e.payload.epiNumber, e.payload.dub);
+      } else if (e.type === "server" && e.payload?.server) {
+        // Apply the server directly (not via handleServerChange) so it doesn't
+        // re-broadcast back to the room.
+        if (e.payload.server !== activeServer) setActiveServer(e.payload.server);
+      } else if (e.type === "snapshot" && e.payload?.snapshot) {
+        const s = e.payload.snapshot;
+        navTo(s.aniId, s.epiNumber, s.dub);
+        // Align the server for late joiners (also without re-broadcasting).
+        if (s.server && s.server !== activeServer) setActiveServer(s.server);
+      }
+    });
+    return unsub;
+  }, [party, epiNumber, dub, info?.id, aniId, activeServer, router]);
+
+  // Robust redirect: whenever the room snapshot says we're on the wrong anime
+  // or episode (e.g. joined by code from a different page), navigate there.
+  // State-driven (not event-driven) so it can't miss the transient snapshot.
+  useEffect(() => {
+    const s = party?.snapshot;
+    if (!s || !s.aniId) return;
+    // Compare against the page's OWN SSR prop (`aniId`), not `info?.id` which
+    // hydrates asynchronously: while it lags the new anime, sameAnime reads
+    // false and we'd push the same route over and over (the load loop).
+    const sameAnime = String(aniId) === String(s.aniId);
+    const sameEp =
+      sameAnime && String(epiNumber) === String(s.epiNumber) && !!dub === !!s.dub;
+    if (sameEp) {
+      // We're on the room's episode — we're aligned. From now on our own
+      // deliberate episode changes may broadcast to the room.
+      syncedToRoomRef.current = true;
+      return;
+    }
+    const target = `${s.aniId}-${s.epiNumber}-${s.dub ? "dub" : "sub"}`;
+    if (lastNavTargetRef.current === target) return; // already navigating there
+    lastNavTargetRef.current = target;
+    applyingRemoteEpRef.current = true;
+    router.push(
+      buildWatchUrl(s.aniId, s.epiNumber, s.dub, s.server || activeServer, party.roomId),
+      undefined,
+      { shallow: false }
+    );
+  }, [party?.snapshot, party?.roomId, epiNumber, dub, aniId, activeServer, router]);
+
   // Canonicalize the URL to /en/anime/watch/{aniId}/{slug}. Strips any
   // legacy /{server} segment (old links shared before we removed the
   // server from the URL) and writes the human-readable slug. The [...info]
@@ -537,6 +729,26 @@ export default function Watch({
     ratingModalState,
     setRatingModalState,
   } = useWatchProvider();
+
+  // Match the party panel's height to the player on desktop. We derive it from
+  // the player wrapper's WIDTH (× 9/16), not by measuring the player's own
+  // height: the player renders an ambient-glow layer that extends past the 16:9
+  // video, so a height measurement overshot and the panel grew too tall. The
+  // visible video is always 16:9 in non-theater, so width × 9/16 is exact and
+  // immune to the glow. Observing width also dodges the dynamic-import remount
+  // (the wrapper itself is stable and never swapped).
+  useEffect(() => {
+    const wrapper = playerBoxRef.current;
+    if (!wrapper || typeof ResizeObserver === "undefined") return;
+    const measure = () => {
+      const w = wrapper.getBoundingClientRect().width || 0;
+      if (w) setPlayerBoxH(Math.round((w * 9) / 16));
+    };
+    const ro = new ResizeObserver(measure);
+    ro.observe(wrapper);
+    measure();
+    return () => ro.disconnect();
+  }, [theaterMode]);
 
   // ── Persist into local Recently Watched immediately ──────────
   // Runs as soon as we know which anime + episode the user opened. We
@@ -1031,6 +1243,12 @@ export default function Watch({
     // reload. Failures we see DURING this mount still get tracked here so
     // episode navigation doesn't re-probe known-failed servers.
     const cachedFailed = new Set();
+    // STABLE absences only (server returned a hard 404/204 = no source for this
+    // episode). Kept apart from cachedFailed, which also holds TRANSIENT
+    // failures (anti-bot rejects that flip to OK next time). Only stable
+    // absences are published to the availability snapshot — persisting a
+    // transient one would wrongly hide a working host for 6h (the snapshot TTL).
+    const confirmedAbsent = new Set();
     // Save back to sessionStorage as confirmations come in. Failed probes
     // are intentionally not persisted (see comment above).
     const persistProbeCache = () => {
@@ -1135,6 +1353,7 @@ export default function Watch({
       }
       if (first.v === "fail-404") {
         cachedFailed.add(s.id);
+        confirmedAbsent.add(s.id);
         persistProbeCache();
         return markFailed(s.id, "Source not found");
       }
@@ -1154,10 +1373,13 @@ export default function Watch({
       }
       if (second.v === "fail-404") {
         cachedFailed.add(s.id);
+        confirmedAbsent.add(s.id);
         persistProbeCache();
         return markFailed(s.id, "Source not found");
       }
-      // Two transient failures in a row — call it broken.
+      // Two transient failures in a row — call it broken. NOT added to
+      // confirmedAbsent: transient anti-bot failures must not be published as a
+      // permanent absence (would hide a working host for the snapshot's TTL).
       cachedFailed.add(s.id);
       persistProbeCache();
       markFailed(s.id, "Source unavailable");
@@ -1206,12 +1428,21 @@ export default function Watch({
           { signal: controller.signal },
         );
         if (!r.ok) return;
-        const { servers } = await r.json();
-        if (cancelled || !Array.isArray(servers)) return;
-        for (const id of servers) {
-          // Trust the snapshot: paint the chip AND suppress the re-probe.
-          cachedConfirmed.add(id);
-          if (typeof markConfirmed === "function") markConfirmed(id);
+        const { servers, absent } = await r.json();
+        if (cancelled) return;
+        if (Array.isArray(servers)) {
+          for (const id of servers) {
+            // Trust the snapshot: paint the chip AND suppress the re-probe.
+            cachedConfirmed.add(id);
+            if (typeof markConfirmed === "function") markConfirmed(id);
+          }
+        }
+        if (Array.isArray(absent)) {
+          // Servers known to have NO source for this episode: skip the probe
+          // entirely instead of re-scraping to rediscover they're absent. We do
+          // NOT call markFailed — an absent server simply stays hidden in the
+          // selector (same as a never-confirmed one), which is its current UX.
+          for (const id of absent) cachedFailed.add(id);
         }
       } catch {
         /* offline / aborted — fall through to the normal probe fan-out */
@@ -1219,24 +1450,13 @@ export default function Watch({
     };
 
     (async () => {
-      // Await the snapshot BEFORE computing `remaining` so trusted servers are
-      // excluded from the scrape fan-out. The GET is a single fast Redis read
-      // (~50ms); gating the probe burst on it is what realises the CPU saving.
-      await hydrateFromServer();
-      if (cancelled) return;
+      // Kick the snapshot GET now but DON'T block on it yet — it overlaps the
+      // active-stream wait + start delay below (both run anyway), so the
+      // trusted-server set is ready by the time we compute `remaining` without
+      // adding any latency in front of the probe burst.
+      const hydrated = hydrateFromServer();
 
-      const remaining = toProbe.filter(
-        (s) => !cachedConfirmed.has(s.id) && !cachedFailed.has(s.id),
-      );
-
-      // 1) The active server's source is fetched by fetchStreamSource (its own
-      //    effect, priority:"high") — that lights its chip via markConfirmed.
-      //    We DON'T separately probe it here: that was a duplicate /api/v2/source
-      //    round-trip competing with the very request the player waits on.
-      const activeIdx = remaining.findIndex((s) => s.id === activeServer);
-      if (activeIdx >= 0) remaining.splice(activeIdx, 1);
-
-      // 2) Hold the background fan-out until the ACTIVE stream's source has
+      // 1) Hold the background fan-out until the ACTIVE stream's source has
       //    settled, so the player's own request owns the (small) connection
       //    pool first. Poll the ref with a hard ceiling so a hung active
       //    source never blocks the selector indefinitely.
@@ -1255,13 +1475,31 @@ export default function Watch({
       // head-start before the probe burst hits the pool.
       await new Promise((r) => setTimeout(r, PROBE_START_DELAY_MS));
       if (cancelled) return;
+
+      // Snapshot must be settled before computing `remaining` so trusted
+      // servers are excluded from the fan-out — it almost always finished
+      // during the waits above, so this await is effectively free.
+      await hydrated;
+      if (cancelled) return;
+
+      const remaining = toProbe.filter(
+        (s) => !cachedConfirmed.has(s.id) && !cachedFailed.has(s.id),
+      );
+
+      // 2) The active server's source is fetched by fetchStreamSource (its own
+      //    effect, priority:"high") — that lights its chip via markConfirmed.
+      //    We DON'T separately probe it here: that was a duplicate /api/v2/source
+      //    round-trip competing with the very request the player waits on.
+      const activeIdx = remaining.findIndex((s) => s.id === activeServer);
+      if (activeIdx >= 0) remaining.splice(activeIdx, 1);
+
       await runPool(remaining, MAX_CONCURRENT);
 
       // Publish the confirmed-server snapshot so the NEXT visitor's chips
       // light up instantly (server-side availability cache). Fire-and-forget,
       // never blocks anything; the endpoint collapses concurrent writes so a
       // popular episode costs ~1 Redis write regardless of viewer count.
-      if (!cancelled && cachedConfirmed.size > 0) {
+      if (!cancelled && (cachedConfirmed.size > 0 || confirmedAbsent.size > 0)) {
         try {
           fetch("/api/v2/availability", {
             method: "POST",
@@ -1271,6 +1509,9 @@ export default function Watch({
               episode: parseInt(epiNumber),
               sub,
               servers: Array.from(cachedConfirmed),
+              // Stable absences too → the next visitor skips probing these
+              // entirely instead of re-scraping to rediscover they're empty.
+              absent: Array.from(confirmedAbsent),
             }),
             keepalive: true,
             priority: "low",
@@ -1287,90 +1528,36 @@ export default function Watch({
   }, [info?.id, epiNumber, dub]);
 
   // ── Iframe-type validators ─────────────────────────────────
-  // Some iframe hosts (Megaplay, 4Animo) serve a 200 HTML error page when the
-  // requested episode doesn't exist — the iframe itself loads fine, so our
-  // load-timeout never triggers. They expose CORS wildcard though, so we can
-  // fetch their HTML client-side and detect known error markers.
-  useEffect(() => {
-    if (!info?.id || !epiNumber) return;
-    const SERVERS = require("@/lib/servers").default;
-    const dubFlag = !!dub;
-
-    // Iframe-type validators were used for Megaplay/4Animo but both servers
-    // are now removed (Megaplay is type:"api" with its own extractor; 4Animo
-    // was retired). Keeping the structure as an empty map in case a future
-    // iframe server needs the same kind of HTML-content sanity check.
-    const validators = {};
-
-    const controller = new AbortController();
-    let cancelled = false;
-
-    // Same retry semantics as the main probe: transient errors (5xx, network)
-    // get a 3s second chance; only a hard 404 or repeated failure marks the
-    // server unavailable.
-    const RETRY_DELAY_MS = 3000;
-
-    // Returns "ok" | "retry" | "fail-404" | "fail-content" | "abort"
-    const attempt = async (cfg) => {
-      try {
-        const res = await fetch(cfg.url, {
-          method: "GET",
-          mode: "cors",
-          signal: controller.signal,
-        });
-        if (res.status === 404) return "fail-404";
-        if (!res.ok) return "retry";
-        const html = await res.text();
-        if (cfg.badMarkers.some((m) => html.includes(m))) return "fail-content";
-        return "ok";
-      } catch (e) {
-        if (e?.name === "AbortError") return "abort";
-        return "retry";
-      }
-    };
-
-    const validate = async (serverId, cfg) => {
-      if (!SERVERS.find((s) => s.id === serverId)) return;
-
-      const first = await attempt(cfg);
-      if (first === "abort" || cancelled) return;
-      if (first === "ok") return markConfirmed(serverId);
-      if (first === "fail-404") return markFailed(serverId, "HTTP 404");
-      if (first === "fail-content") return markFailed(serverId, "Episode not available");
-
-      await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
-      if (cancelled || controller.signal.aborted) return;
-
-      const second = await attempt(cfg);
-      if (second === "abort" || cancelled) return;
-      if (second === "ok") return markConfirmed(serverId);
-      if (second === "fail-404") return markFailed(serverId, "HTTP 404");
-      if (second === "fail-content") return markFailed(serverId, "Episode not available");
-      // Two transient failures — let the iframe load attempt itself decide
-      // (CORS error specifically: leaving unconfirmed without marking failed
-      // means an iframe-typed server stays visible by default; if its load
-      // also times out the runtime markFailed will catch it).
-    };
-
-    Object.entries(validators).forEach(([id, cfg]) => {
-      if (!cancelled) validate(id, cfg);
-    });
-
-    return () => {
-      cancelled = true;
-      controller.abort();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [info?.id, epiNumber, dub]);
+  // Historically some iframe hosts (Megaplay, 4Animo) served a 200 HTML error
+  // page when the episode didn't exist — the iframe loaded fine so our timeout
+  // never fired, and a client-side HTML fetch + bad-marker check caught them.
+  // Both servers are gone now (Megaplay is type:"api" with its own extractor;
+  // 4Animo was retired), so there are no validators to run and the effect was
+  // a no-op (empty map). Removed. If a future iframe server needs the same
+  // HTML sanity check, reinstate the attempt/validate retry loop here (its
+  // semantics mirror the main probe above).
 
   // ── Server change handler ──────────────────────────────────
-  const handleServerChange = useCallback((serverId) => {
-    setActiveServer(serverId);
-    localStorage.setItem("preferred_server", serverId);
-    // The URL no longer encodes the server — preference lives entirely
-    // in localStorage, so shares/bookmarks don't pin a stale server id
-    // and switching players doesn't dirty the browser history.
-  }, []);
+  const handleServerChange = useCallback(
+    (serverId) => {
+      // When the host has blocked our playback, changing the server (lecteur)
+      // is also a playback action — refuse it and explain why.
+      if (party?.amPlaybackBlocked) {
+        toast.error(t("party.blockedBanner"));
+        return;
+      }
+      setActiveServer(serverId);
+      localStorage.setItem("preferred_server", serverId);
+      // The URL no longer encodes the server — preference lives entirely
+      // in localStorage, so shares/bookmarks don't pin a stale server id
+      // and switching players doesn't dirty the browser history.
+      // Sync the server across the party. Remote-applied changes bypass this
+      // handler (they call setActiveServer directly), so reaching here always
+      // means a genuine local action worth broadcasting.
+      if (party) party.broadcast("server", { server: serverId });
+    },
+    [party, t]
+  );
 
   // ── Media Session (OS-level now playing) ────────────────────
   useEffect(() => {
@@ -1493,6 +1680,7 @@ export default function Watch({
             isFinalEpisode={isFinalEpisode}
             isSingleEpisode={isSingleEpisode}
             onFinalEpisodeNearEnd={handleFinalEpisodeNearEnd}
+            party={party}
             downloadName={`${(info?.title?.romaji || info?.title?.english || "anime").replace(/\s+/g, "_")}_E${epiNumber}${dub ? "_DUB" : ""}`}
             onError={(reason) =>
               markFailed(
@@ -1527,13 +1715,57 @@ export default function Watch({
           isFinalEpisode={isFinalEpisode}
           isSingleEpisode={isSingleEpisode}
           onFinalEpisodeNearEnd={handleFinalEpisodeNearEnd}
+          party={party}
           onError={(reason) => markFailed(server.id, reason || "Iframe load timeout")}
         />
       </PlayerErrorBoundary>
     );
-  }, [activeServer, episodeNavigation, hlsLoading, hlsData, info, epiNumber, dub, markFailed, handleServerChange, autoplay, handleEpisodeComplete, isFinalEpisode, isSingleEpisode, handleFinalEpisodeNearEnd]);
+    // Depend on the party's STABLE callbacks, not the whole `party` object
+    // (which changes on every chat/presence update) — otherwise the player
+    // rebuilds on each message, restarting playback and breaking sync.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeServer, episodeNavigation, hlsLoading, hlsData, info, epiNumber, dub, markFailed, handleServerChange, autoplay, handleEpisodeComplete, isFinalEpisode, isSingleEpisode, handleFinalEpisodeNearEnd, party?.onRemote, party?.broadcast]);
 
   // ── Render ───────────────────────────────────────────────────
+  // The Watch-Party panel. Rendered in two places: on mobile it sits in the
+  // primary column directly under the player (`lg:hidden`), on desktop it lives
+  // in the secondary column beside the episode list (`hidden lg:block`). Built
+  // once here so both placements stay in sync.
+  const partyPanelBlock = (party || partyUIOpen) && (
+    partyPanelHidden ? (
+      <button
+        onClick={() => setPartyPanelHidden(false)}
+        className="mb-4 flex items-center gap-2 rounded-full bg-action/20 px-3 py-2 text-sm font-medium text-action hover:bg-action/30"
+      >
+        <UsersIcon className="h-4 w-4" /> {t("party.openChat")}
+      </button>
+    ) : (
+      <div
+        className="mb-4 lg:h-[var(--player-h)]"
+        style={
+          // Match the player height on large screens only. The pixel value is
+          // the FULL-WIDTH player height; on a phone (player spans the
+          // viewport) that is far taller than the panel's mobile `h-[60vh]`, so
+          // applying it as a plain inline height left the panel overlapping the
+          // episode list. We expose it as a CSS var and only consume it at
+          // `lg:`; on mobile the inner `h-[60vh]` drives the height instead.
+          playerBoxH ? { "--player-h": `${playerBoxH}px` } : undefined
+        }
+      >
+        <div className="h-[60vh] max-h-[520px] lg:h-full lg:max-h-none">
+          <WatchPartyPanel
+            party={party}
+            lobby={{ aniId: info?.id, epiNumber, dub, server: activeServer }}
+            onClose={() => {
+              setPartyPanelHidden(true);
+              if (!party) setPartyUIOpen(false);
+            }}
+          />
+        </div>
+      </div>
+    )
+  );
+
   return (
     <>
       <Head>
@@ -1652,12 +1884,20 @@ export default function Watch({
               {/* Default (non-theater) player — no parent bg/overflow so ambient glow can extend outside */}
               {!theaterMode && (
                 <div
+                  ref={playerBoxRef}
                   className={`w-full flex-center ${
                     aspectRatio === "4/3" ? "aspect-video" : ""
                   }`}
                 >
                   {playerNode}
                 </div>
+              )}
+
+              {/* Watch-Party panel (mobile) — sits directly under the player,
+                  above the server picker. Desktop renders it beside the episode
+                  list instead (`hidden lg:block` there, `lg:hidden` here). */}
+              {partyPanelBlock && (
+                <div className="px-3 pt-4 lg:hidden">{partyPanelBlock}</div>
               )}
 
               {/* Server selector */}
@@ -1694,6 +1934,19 @@ export default function Watch({
                   </div>
 
                   <div className="flex gap-2 text-sm">
+                    {!partyUIOpen && info?.id && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPartyUIOpen(true);
+                          setPartyPanelHidden(false);
+                        }}
+                        className="flex items-center gap-2 rounded-md bg-action/20 px-3 py-2 text-sm font-medium text-action transition hover:bg-action/30"
+                      >
+                        <UsersIcon className="h-5 w-5" />
+                        <span className="hidden lg:block">{t("party.watchTogether")}</span>
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={handleShareClick}
@@ -1729,8 +1982,13 @@ export default function Watch({
             {/* ── Secondary column (episode list) ── */}
             <div
               id="secondary"
-              className={`relative ${theaterMode ? "pt-5" : "pt-4 lg:pt-0"}`}
+              className={`relative ${theaterMode ? "pt-5" : "pt-4 lg:pt-0"} lg:pl-4`}
             >
+              {/* Desktop placement — beside the episode list. On mobile the
+                  panel renders in the primary column under the player instead. */}
+              {partyPanelBlock && (
+                <div className="hidden px-3 lg:block lg:px-0">{partyPanelBlock}</div>
+              )}
               <EpisodeLists
                 info={info}
                 session={sessions}
@@ -1753,6 +2011,22 @@ export default function Watch({
 // ─────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────
+
+// Build a watch URL with the TWO path segments the [...info] route needs
+// (`/{aniId}/{provider}`). Pushing a single-segment pathname made Next update
+// the URL bar without re-running getServerSideProps, so a party redirect changed
+// the address but not the page ("redirigé mais la page ne se met pas à jour").
+// Mirrors the form used everywhere else in the app, with ?party preserved.
+function buildWatchUrl(aniId, ep, dub, server, roomId) {
+  const provider = server || "megaplay";
+  const params = new URLSearchParams({
+    id: `${provider}-${ep}`,
+    num: String(ep),
+  });
+  if (dub) params.set("dub", "true");
+  if (roomId) params.set("party", String(roomId));
+  return `/en/anime/watch/${aniId}/${provider}?${params.toString()}`;
+}
 
 function SpinLoader() {
   return (

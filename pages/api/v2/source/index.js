@@ -2488,6 +2488,63 @@ const SOURCE_CACHE_TTL_S = 300;
 // the TTL with no user-visible difference (the chip just stays grey until then).
 const SOURCE_NOTFOUND_TTL_S = 600;
 const NOT_FOUND_SENTINEL = '{"__nf":1}';
+
+// ── Single-flight lock ──────────────────────────────────────────────────
+// On a freshly-released popular episode the cache is cold and dozens of
+// visitors fan out probes for the SAME (server, episode) at the same instant.
+// The Redis cache is only populated AFTER the first scrape returns, so without
+// coordination every concurrent request runs its OWN cheerio scrape — N
+// identical scrapes burning N× the Fluid CPU for one result. This is the exact
+// shape of the CPU spikes (one bad day = a viewing wave on a hot episode).
+//
+// Fix: the first request to miss the cache acquires a short Redis lock and
+// becomes the LEADER that actually scrapes. Concurrent requests (followers)
+// poll the cache for the leader's result instead of scraping. If the leader
+// hasn't published within the wait budget (slow upstream, or it crashed and
+// the lock expired) the follower falls through and scrapes itself — so a dead
+// leader never deadlocks the rest.
+const LOCK_TTL_S = 20; // > maxDuration won't happen; covers a slow-but-alive scrape
+const LOCK_WAIT_MS = 6000; // follower waits at most this long for the leader
+const LOCK_POLL_MS = 150;
+const lockKey = (cacheKey) => `lock:${cacheKey}`;
+
+// Try to become the leader. Returns true if WE hold the lock (must scrape),
+// false if someone else holds it (we're a follower → poll the cache).
+async function acquireScrapeLock(cacheKey) {
+  try {
+    const ok = await redis.set(lockKey(cacheKey), "1", "EX", LOCK_TTL_S, "NX");
+    return ok === "OK";
+  } catch {
+    // Redis hiccup → don't block the user; behave as leader (scrape).
+    return true;
+  }
+}
+
+async function releaseScrapeLock(cacheKey) {
+  try {
+    await redis.del(lockKey(cacheKey));
+  } catch {
+    /* lock self-expires via TTL — non-fatal */
+  }
+}
+
+// Follower path: poll the cache until the leader publishes a result (positive
+// payload or the NOT_FOUND sentinel) or we exhaust LOCK_WAIT_MS. Returns the
+// raw cached string, or null on timeout (caller then scrapes as a fallback).
+async function waitForLeaderResult(cacheKey) {
+  const deadline = Date.now() + LOCK_WAIT_MS;
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, LOCK_POLL_MS));
+    try {
+      const cached = await redis.get(cacheKey);
+      if (cached) return cached;
+    } catch {
+      /* transient — keep polling until the deadline */
+    }
+  }
+  return null;
+}
+
 function sourceCacheKey({ server, aniId, episode, sub }) {
   // v10: Vidmoly now has a Fly-proxy tier 2 fallback. Worker-blocked
   // embeds (vidmoly.biz 410 from CF IPs) get extracted via Fly and the
@@ -2574,12 +2631,41 @@ export default async function handler(req, res) {
     }
   }
 
+  // Single-flight: collapse the concurrent cold-cache scrape storm. Only the
+  // leader (lock holder) scrapes; followers wait for its published result and
+  // serve that — turning N identical scrapes into 1. Skipped when caching is
+  // off (no Redis / missing key params) since there's nothing to coordinate on.
+  let isLeader = true;
+  if (canCache) {
+    isLeader = await acquireScrapeLock(cacheKey);
+    if (!isLeader) {
+      const leaderResult = await waitForLeaderResult(cacheKey);
+      if (leaderResult) {
+        if (leaderResult === NOT_FOUND_SENTINEL) {
+          res.setHeader("Cache-Control", "public, max-age=30");
+          return notFoundStatus("Source not found");
+        }
+        res.setHeader(
+          "Cache-Control",
+          "public, s-maxage=60, stale-while-revalidate=120",
+        );
+        return res.status(200).json(JSON.parse(leaderResult));
+      }
+      // Leader timed out (slow upstream or it crashed and its lock expired).
+      // Fall through and scrape ourselves so a dead leader never wedges us.
+      isLeader = true;
+    }
+  }
+
   const sendOk = (payload) => {
     if (canCache) {
-      // Fire-and-forget — never let cache writes block the response.
-      redis
+      // Fire-and-forget — never let cache writes block the response. Release
+      // the lock only AFTER the cache write lands, so a follower never finds
+      // the lock gone before the result is visible (which would let it scrape).
+      const write = redis
         .set(cacheKey, JSON.stringify(payload), "EX", SOURCE_CACHE_TTL_S)
         .catch(() => {});
+      if (isLeader) write.finally(() => releaseScrapeLock(cacheKey));
     }
     // Edge cache matches the 5 min Redis TTL — most CDN tokens we proxy
     // last 60-240 min, so 5 min between refresh is well within the safe
@@ -2595,9 +2681,10 @@ export default async function handler(req, res) {
 
   const sendNotFound = (msg) => {
     if (canCache) {
-      redis
+      const write = redis
         .set(cacheKey, NOT_FOUND_SENTINEL, "EX", SOURCE_NOTFOUND_TTL_S)
         .catch(() => {});
+      if (isLeader) write.finally(() => releaseScrapeLock(cacheKey));
     }
     res.setHeader("Cache-Control", "public, max-age=30");
     return notFoundStatus(msg);

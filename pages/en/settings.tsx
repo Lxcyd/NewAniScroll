@@ -177,10 +177,53 @@ function SettingsNav({
   const go = (id: string) => {
     document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
+
+  const navRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    const NATURAL_TOP = 176; // top-44 — resting position
+    const MARGIN = 16; // breathing room above the footer
+    let raf = 0;
+    const measure = () => {
+      raf = 0;
+      const nav = navRef.current;
+      if (!nav) return;
+      const footer = document.querySelector("footer");
+      if (!footer) {
+        nav.style.transform = "translateY(0px)";
+        return;
+      }
+      const footerTop = footer.getBoundingClientRect().top;
+      // The panel rests at NATURAL_TOP; its bottom sits at NATURAL_TOP +
+      // navHeight. Once the footer rises into that zone, shift the whole
+      // panel up by exactly the overlap so its bottom tracks the footer
+      // 1:1 — perfectly glued to the page as it scrolls.
+      const overlap = NATURAL_TOP + nav.offsetHeight - (footerTop - MARGIN);
+      nav.style.transform = `translateY(-${Math.max(0, overlap)}px)`;
+    };
+    // Write the transform straight onto the node every animation frame so the
+    // panel moves in lockstep with the page — no React re-render in the loop.
+    const update = () => {
+      if (!raf) raf = requestAnimationFrame(measure);
+    };
+    window.addEventListener("scroll", update, { passive: true });
+    window.addEventListener("resize", update);
+    measure();
+    return () => {
+      window.removeEventListener("scroll", update);
+      window.removeEventListener("resize", update);
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, []);
+
   return (
     <nav
-      className="hidden md:flex flex-col gap-1 fixed left-[max(1rem,calc((100vw-48rem)/2-20.25rem))] top-44 z-30 max-h-[calc(100vh-12rem)] overflow-y-auto"
-      style={{ width: SIDEBAR_WIDTH }}
+      ref={navRef}
+      className="hidden md:flex flex-col gap-1 fixed left-[max(1rem,calc((100vw-48rem)/2-20.25rem))] top-44 z-30 overflow-y-auto"
+      style={{
+        width: SIDEBAR_WIDTH,
+        maxHeight: "calc(100vh - 12rem)",
+      }}
     >
       {sections.map(({ id, labelKey, Icon }) => {
         const selected = active === id;

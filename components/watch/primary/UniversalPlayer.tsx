@@ -20,9 +20,11 @@ import {
 import HoverPreview from "./HoverPreview";
 import SubtitleSettings from "./SubtitleSettings";
 import SkipOverlay from "./SkipOverlay";
+import FullscreenChat from "@/components/watch/party/FullscreenChat";
 // @ts-ignore — context module is plain JS, no types
 import { useWatchProvider } from "@/lib/context/watchPageProvider";
 import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
 import type { TFunction } from "i18next";
 import { VIDSTACK_FR } from "@/lib/i18n/vidstackFr";
 import { getResumeTime, saveProgress, markComplete } from "@/lib/watch/progress";
@@ -118,6 +120,10 @@ type Props = {
   /** Fired once when the final episode is nearly over (a few seconds before the
    *  end). The watch page opens the rate popup from here. */
   onFinalEpisodeNearEnd?: () => void;
+  /** Watch 2gether context (from useWatchParty). When present, the player
+   *  broadcasts local play/pause/seek/rate and applies remote ones. Optional —
+   *  the player works identically when null/undefined. */
+  party?: import("@/lib/watch2gether/useWatchParty").PartyContext | null;
 };
 
 // Proxy base — defaults to the Cloudflare Worker (unmetered + edge cache).
@@ -1086,9 +1092,20 @@ export default function UniversalPlayer({
   isFinalEpisode = false,
   isSingleEpisode = false,
   onFinalEpisodeNearEnd,
+  party,
 }: Props) {
   const { t, i18n } = useTranslation();
   const playerRef = useRef<MediaPlayerInstance>(null);
+  // Latest party object in a ref so the (stable-dep) sync effect can read the
+  // live `amPlaybackBlocked` flag without re-binding listeners each render.
+  const partyRef = useRef(party);
+  partyRef.current = party;
+  // Throttle the "you're blocked" toast so reverting playback doesn't spam it.
+  const blockedToastAtRef = useRef(0);
+  // Set by the sync effect to its `enforceBlocked` fn so the block-transition
+  // effect below can fire it the instant we become blocked (covering the race
+  // where the user clicked play right as the block landed).
+  const enforceBlockedRef = useRef<((showToast?: boolean) => boolean) | null>(null);
   // Live hls.js instance — captured on provider setup so the seek handler can
   // abort in-flight segment loads and re-anchor on the new position.
   const hlsRef = useRef<any>(null);
@@ -1401,6 +1418,25 @@ export default function UniversalPlayer({
       document.removeEventListener("webkitfullscreenchange", update);
     };
   }, []);
+
+  // Reactive handle to the player root, so portalled overlays (e.g. the
+  // fullscreen party chat) mount as soon as the element exists.
+  const [playerElState, setPlayerElState] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    let raf = 0;
+    const find = () => {
+      const el = (playerRef.current?.el as HTMLElement | undefined) || null;
+      if (el) {
+        setPlayerElState(el);
+        return;
+      }
+      raf = requestAnimationFrame(find);
+    };
+    find();
+    return () => {
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, [streamData]);
   // Data Saver disables the live ambient-light sampling (a constant canvas read
   // + blur, the heaviest visual work the player does).
   const dataSaver = useDataSaver();
@@ -2291,6 +2327,523 @@ export default function UniversalPlayer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [aniListId, episodeNumber, streamData]);
 
+  // ── Watch 2gether sync ──
+  // When a `party` is present, mirror play/pause/seek/rate across participants.
+  // Everyone can control, so we guard against feedback loops two ways:
+  //  • applyingRemoteRef — set while we apply a remote action, to skip the
+  //    local listener's re-broadcast of the change we just made.
+  //  • a seek tolerance window — ignore remote seeks within ~0.75s of where we
+  //    already are (avoids timeupdate jitter triggering seek-wars).
+  useEffect(() => {
+    if (!party) return;
+
+    // Tolerance for accepting a remote position as "already here" (avoids
+    // seek-wars from timeupdate jitter). Drift beyond DRIFT_TOLERANCE while
+    // playing is silently nudged by the reconciliation loop below.
+    const SEEK_TOLERANCE = 0.75;
+    const DRIFT_TOLERANCE = 1.25;
+    let el: HTMLElement | null = null;
+    let video: HTMLVideoElement | null = null;
+    let pollId = 0;
+    let reconcileId = 0;
+    const applying = party.applyingRemoteRef;
+
+    type Target = { position: number; paused: boolean; rate: number; at: number; known: boolean };
+    const mkTarget = (): Target => ({ position: 0, paused: true, rate: 1, at: Date.now(), known: false });
+
+    // `target` — drift reference for EVERYONE. Updated by remote events AND our
+    // own broadcasts, so the drift-nudge loop knows where the group should be.
+    const target = mkTarget();
+    // `remoteTarget` — the AUTHORITATIVE group state, updated ONLY by remote
+    // events (never by our own local actions). Block enforcement uses this so a
+    // blocked user's own play/seek (which can sneak in during the block race)
+    // can NEVER poison what they're forced back to. This is the core fix for
+    // "blocked user hit play and stayed desynced / couldn't stop it".
+    const remoteTarget = mkTarget();
+
+    const writeTarget = (tg: Target, pos: number, paused: boolean, rate?: number) => {
+      if (Number.isFinite(pos)) tg.position = pos;
+      tg.paused = paused;
+      if (typeof rate === "number" && rate > 0) tg.rate = rate;
+      tg.at = Date.now();
+      tg.known = true;
+    };
+    // Local (our own) action → only the shared drift target.
+    const setTarget = (pos: number, paused: boolean, rate?: number) =>
+      writeTarget(target, pos, paused, rate);
+    // Remote (authoritative) event → both targets.
+    const setRemoteTarget = (pos: number, paused: boolean, rate?: number) => {
+      writeTarget(target, pos, paused, rate);
+      writeTarget(remoteTarget, pos, paused, rate);
+    };
+    // Where a target's playhead should be *now* (position + elapsed if playing).
+    const project = (tg: Target): number =>
+      tg.paused ? tg.position : tg.position + ((Date.now() - tg.at) / 1000) * tg.rate;
+    const projectedTarget = (): number => project(target);
+
+    const withGuard = (fn: () => void) => {
+      applying.current = true;
+      try {
+        fn();
+      } catch {}
+      // Release after the resulting media events have fired.
+      window.setTimeout(() => {
+        applying.current = false;
+      }, 120);
+    };
+
+    // When the host has blocked our playback, revert any local play/pause/seek
+    // to the authoritative snapshot WITHOUT ever broadcasting. We must NOT use
+    // the 120ms withGuard window: the revert's `currentTime=` fires a `seeked`
+    // event asynchronously, which could land after the guard expired and get
+    // re-broadcast — that desynced the host ("inversé avec l'hôte"). Instead a
+    // dedicated, longer suppression window covers the whole revert, and every
+    // handler bails up-front when blocked so nothing ever goes out.
+    const enforceBlocked = (showToast = true): boolean => {
+      if (!partyRef.current?.amPlaybackBlocked || !video) return false;
+      // Use ONLY the remote-authoritative target (never our own local actions,
+      // which is what made a blocked user stick on "playing"). Fall back to the
+      // server snapshot for the first frames before any remote event has arrived.
+      const snap = partyRef.current.snapshot;
+      const haveTarget = remoteTarget.known;
+      const wantPaused = haveTarget ? remoteTarget.paused : snap ? !!snap.paused : true;
+      const wantPos = haveTarget
+        ? project(remoteTarget)
+        : snap
+          ? Number(snap.position)
+          : NaN;
+      const wantRate = haveTarget ? remoteTarget.rate : snap ? Number(snap.rate) : 1;
+      applying.current = true;
+      try {
+        const v = video!;
+        if (Number.isFinite(wantPos) && Math.abs(v.currentTime - wantPos) > SEEK_TOLERANCE) {
+          v.currentTime = wantPos;
+        }
+        if (typeof wantRate === "number" && wantRate > 0 && v.playbackRate !== wantRate) {
+          v.playbackRate = wantRate;
+        }
+        if (wantPaused) v.pause();
+        else void v.play()?.catch?.(() => {});
+      } catch {}
+      // Hold the suppression long enough to swallow the async media events the
+      // revert above triggers (seeked/play/pause), so none re-broadcast.
+      window.setTimeout(() => {
+        applying.current = false;
+      }, 500);
+      if (showToast) {
+        const now = Date.now();
+        if (now - blockedToastAtRef.current > 2500) {
+          blockedToastAtRef.current = now;
+          toast.error(t("party.blockedBanner"));
+        }
+      }
+      return true;
+    };
+    // Expose to the block-transition effect so it can enforce the instant we
+    // become blocked (before the periodic loop's first tick).
+    enforceBlockedRef.current = enforceBlocked;
+
+    // Local player → broadcast. Bail when applying a remote action OR when our
+    // playback is blocked (enforceBlocked reverts and never lets us broadcast).
+    const onPlay = () => {
+      if (applying.current || !video) return;
+      if (partyRef.current?.amPlaybackBlocked) return void enforceBlocked();
+      setTarget(video.currentTime, false, video.playbackRate);
+      party.broadcast("play", { position: video.currentTime });
+    };
+    const onPause = () => {
+      if (applying.current || !video) return;
+      if (partyRef.current?.amPlaybackBlocked) return void enforceBlocked();
+      setTarget(video.currentTime, true, video.playbackRate);
+      party.broadcast("pause", { position: video.currentTime });
+    };
+    const onSeeked = () => {
+      if (applying.current || !video) return;
+      if (partyRef.current?.amPlaybackBlocked) return void enforceBlocked();
+      setTarget(video.currentTime, video.paused, video.playbackRate);
+      party.broadcast("seek", { position: video.currentTime });
+    };
+    const onRate = () => {
+      if (applying.current || !video) return;
+      if (partyRef.current?.amPlaybackBlocked) return void enforceBlocked();
+      setTarget(video.currentTime, video.paused, video.playbackRate);
+      party.broadcast("rate", { rate: video.playbackRate, position: video.currentTime });
+    };
+
+    // Remote events → drive the player.
+    const applyRemote = (e: {
+      type: string;
+      ts?: number;
+      payload?: any;
+    }) => {
+      if (!video) return;
+      const pos = Number(e.payload?.position);
+      const player = playerRef.current;
+
+      // Latency compensation: the position in a remote event was sampled when the
+      // sender broadcast it (e.ts). By the time we apply it, that much wall-time
+      // has passed, so a *playing* peer has advanced. Project the position
+      // forward by the transit delay (clamped to 5s to ignore a bad clock) so we
+      // land where they ACTUALLY are, not where they were when they clicked.
+      const latency =
+        typeof e.ts === "number" ? Math.min(5, Math.max(0, (Date.now() - e.ts) / 1000)) : 0;
+      const compensate = (p: number, playing: boolean) =>
+        playing ? p + latency * remoteTarget.rate : p;
+
+      const seekTo = (t: number) => {
+        if (!Number.isFinite(t)) return;
+        if (Math.abs(video!.currentTime - t) <= SEEK_TOLERANCE) return;
+        video!.currentTime = t;
+      };
+
+      switch (e.type) {
+        case "snapshot": {
+          const s = e.payload?.snapshot;
+          if (!s) return;
+          const rate = typeof s.rate === "number" ? s.rate : remoteTarget.rate;
+          const p = compensate(Number(s.position), !s.paused);
+          setRemoteTarget(p, !!s.paused, rate);
+          withGuard(() => {
+            seekTo(p);
+            video!.playbackRate = rate;
+            if (s.paused) player?.pause?.();
+            else player?.play?.()?.catch?.(() => {});
+          });
+          return;
+        }
+        case "play": {
+          const p = compensate(pos, true);
+          setRemoteTarget(p, false);
+          withGuard(() => {
+            seekTo(p);
+            player?.play?.()?.catch?.(() => {});
+          });
+          return;
+        }
+        case "pause":
+          setRemoteTarget(pos, true);
+          withGuard(() => {
+            seekTo(pos);
+            player?.pause?.();
+          });
+          return;
+        case "seek": {
+          // A seek lands the playhead somewhere; if the peer is still playing
+          // they've drifted past it during transit, so compensate too.
+          const p = compensate(pos, !remoteTarget.paused);
+          setRemoteTarget(p, remoteTarget.paused);
+          withGuard(() => seekTo(p));
+          return;
+        }
+        case "rate":
+          withGuard(() => {
+            if (typeof e.payload?.rate === "number") {
+              video!.playbackRate = e.payload.rate;
+              setRemoteTarget(video!.currentTime, remoteTarget.paused, e.payload.rate);
+            }
+          });
+          return;
+        // "episode" is handled by the watch page (navigation), not here.
+        default:
+          return;
+      }
+    };
+
+    const unsub = party.onRemote(applyRemote);
+
+    const bind = () => {
+      const player = playerRef.current;
+      el = (player?.el as HTMLElement) || null;
+      video = el?.querySelector<HTMLVideoElement>("video") || null;
+      if (!video) return false;
+      video.addEventListener("play", onPlay);
+      video.addEventListener("pause", onPause);
+      video.addEventListener("seeked", onSeeked);
+      video.addEventListener("ratechange", onRate);
+      return true;
+    };
+
+    if (!bind()) {
+      let tries = 0;
+      pollId = window.setInterval(() => {
+        if (bind() || ++tries > 40) window.clearInterval(pollId);
+      }, 250);
+    }
+
+    // ── Continuous reconciliation ──
+    // Event-only sync leaves two holes:
+    //  1. A blocked user who hits play at the exact moment they're blocked can
+    //     slip through the event race (server 403s the broadcast, but the local
+    //     <video> keeps playing) — they end up desynced with no way back.
+    //  2. Even unblocked, clients drift slowly (decode timing, a missed event).
+    // A 500ms tick closes both: blocked users are hard-snapped to the
+    // authoritative target every tick (so they can NEVER stay out of sync), and
+    // everyone else gets a gentle nudge when they've drifted past
+    // DRIFT_TOLERANCE while playing. 500ms is reactive enough for the block case
+    // while staying client-side (zero server Active-CPU cost).
+    reconcileId = window.setInterval(() => {
+      if (!video) return;
+      if (partyRef.current?.amPlaybackBlocked) {
+        // Re-assert the target without re-toasting every tick. Note: we do NOT
+        // bail on `applying.current` here — a blocked user must be corrected
+        // even mid-guard, otherwise a stuck guard could leave them playing.
+        enforceBlocked(false);
+        return;
+      }
+      if (applying.current) return;
+      if (!target.known || target.paused) return;
+      if (video.paused) return; // a local pause is the user's intent — leave it
+      const want = projectedTarget();
+      if (Number.isFinite(want) && Math.abs(video.currentTime - want) > DRIFT_TOLERANCE) {
+        // Snap quietly; the guard suppresses the resulting `seeked` broadcast so
+        // this correction never echoes back out as a user seek.
+        withGuard(() => {
+          video!.currentTime = want;
+        });
+      }
+    }, 500);
+
+    return () => {
+      window.clearInterval(pollId);
+      window.clearInterval(reconcileId);
+      enforceBlockedRef.current = null;
+      unsub();
+      video?.removeEventListener("play", onPlay);
+      video?.removeEventListener("pause", onPause);
+      video?.removeEventListener("seeked", onSeeked);
+      video?.removeEventListener("ratechange", onRate);
+    };
+    // Depend only on the STABLE party callbacks (not the whole `party` object,
+    // which changes on every chat/presence update) so we don't thrash the
+    // play/pause/seek listeners and drop live sync events. Re-bind on a new
+    // <video> (stream change) and when joining/leaving a party.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [party?.broadcast, party?.onRemote, party?.applyingRemoteRef, streamData]);
+
+  // ── Block transition: enforce immediately on the rising edge ──
+  // The periodic loop above catches a blocked user within 500ms, but the user
+  // asked that the correct play/pause state be enforced the *instant* the block
+  // lands — both BEFORE and AFTER the lockout UI applies — so a play click made
+  // in that exact window can't slip through. When `amPlaybackBlocked` flips to
+  // true we fire enforceBlocked right away and a short burst over ~1.2s to cover
+  // any media event (seeked/play) that resolves a few frames later.
+  useEffect(() => {
+    if (!party?.amPlaybackBlocked) return;
+    const run = () => enforceBlockedRef.current?.(false);
+    run(); // immediate
+    // Burst: re-assert a few times to swallow the late async play/seeked events.
+    const timers = [80, 250, 600, 1200].map((d) => window.setTimeout(run, d));
+    return () => timers.forEach((id) => window.clearTimeout(id));
+  }, [party?.amPlaybackBlocked]);
+
+  // ── Chapters button: find it robustly, then grey + disable when blocked ──
+  // We can't rely on a single Vidstack class name (they drift between versions)
+  // or an English aria-label (it's localized: "Chapters" / "Chapitres"). So we
+  // SCAN every control button and identify the chapters one by ANY identifying
+  // text on it or its tooltip — aria-label, title, data-tooltip, or descendant
+  // tooltip text — matching chapter/chapitre case-insensitively. The match is
+  // re-run via a MutationObserver because Vidstack rebuilds the controls bar
+  // (resize / fullscreen), which would otherwise drop our marker. We tag it with
+  // `.w2g-chapters-btn`; the CSS greys + disables it under `.w2g-playback-blocked`.
+  useEffect(() => {
+    const playerEl = playerRef.current?.el as HTMLElement | undefined;
+    if (!playerEl) return;
+
+    // True only for the actual button element (has its OWN chapter aria-label /
+    // title), not an ancestor that merely CONTAINS the tooltip text — so we dim
+    // the button itself, not a big wrapper.
+    const isChaptersButton = (el: HTMLElement): boolean => {
+      const hay = (
+        (el.getAttribute("aria-label") || "") +
+        " " +
+        (el.getAttribute("title") || "") +
+        " " +
+        (el.getAttribute("data-tooltip") || "")
+      ).toLowerCase();
+      return hay.includes("chapter") || hay.includes("chapitre");
+    };
+
+    const blocked = () => !!partyRef.current?.amPlaybackBlocked;
+
+    const tagChaptersBtn = () => {
+      // Candidate buttons: anything with a label, INCLUDING Vidstack's custom
+      // element <media-menu-button> (the chapters button is one of these — it's
+      // not a <button>, which is why earlier selectors missed it).
+      const candidates = playerEl.querySelectorAll<HTMLElement>(
+        "button, [role='button'], [data-media-menu-button], media-menu-button, [aria-label], [title]",
+      );
+      let found = false;
+      candidates.forEach((el) => {
+        if (!isChaptersButton(el)) return;
+        found = true;
+        el.classList.add("w2g-chapters-btn");
+        // Dim it inline (independent of CSS cascade / Vidstack's own styles), to
+        // visually match the greyed-out play button. Cleared when unblocked.
+        if (blocked()) {
+          el.style.opacity = "0.5";
+          el.style.filter = "grayscale(1)";
+          el.style.cursor = "not-allowed";
+          el.style.pointerEvents = "none";
+        } else {
+          el.style.opacity = "";
+          el.style.filter = "";
+          el.style.cursor = "";
+          el.style.pointerEvents = "";
+        }
+      });
+      return found;
+    };
+
+    tagChaptersBtn();
+    // Re-tag whenever the controls DOM changes (bar rebuild, menu open/close).
+    const obs = new MutationObserver(() => tagChaptersBtn());
+    obs.observe(playerEl, { childList: true, subtree: true, attributes: true, attributeFilter: ["aria-label", "title"] });
+    // Belt-and-suspenders: a few delayed passes for the initial async build.
+    const timers = [250, 600, 1500].map((d) => window.setTimeout(tagChaptersBtn, d));
+    return () => {
+      obs.disconnect();
+      timers.forEach((id) => window.clearTimeout(id));
+    };
+    // Re-run on block toggle too, so the inline dim is applied/cleared (a React
+    // state change doesn't trip the MutationObserver).
+  }, [streamData, party?.amPlaybackBlocked]);
+
+  // Close the chapters menu the instant we become blocked (covers a menu left
+  // open from before the block). Robust close: find any OPEN menu whose button
+  // or content mentions chapters, and dispatch Escape (not a click — the capture
+  // veto would swallow that). Several targets cover where the listener lives.
+  useEffect(() => {
+    if (!party?.amPlaybackBlocked) return;
+    const playerEl = playerRef.current?.el as HTMLElement | undefined;
+    if (!playerEl) return;
+
+    const esc = (t: EventTarget) =>
+      t.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true }));
+
+    const closeChapters = () => {
+      // The tagged chapters button, if expanded → close its menu.
+      const btn = playerEl.querySelector<HTMLElement>(".w2g-chapters-btn[aria-expanded='true']");
+      // Any visibly-open menu (chapters popups can portal anywhere).
+      const openMenus = document.querySelectorAll<HTMLElement>(
+        "[role='menu'][aria-hidden='false'], .vds-menu-items[aria-hidden='false']",
+      );
+      if (btn) {
+        esc(btn);
+        // Some Vidstack builds expose imperative close on the menu element.
+        const menuEl = btn.closest<any>("media-menu") || (btn as any);
+        try { menuEl?.close?.(); } catch {}
+        setTimeout(() => btn.blur(), 0);
+      }
+      openMenus.forEach(esc);
+      esc(document);
+      // Outside-pointer close: Vidstack dismisses an open menu on a pointerdown
+      // outside it. Our veto only blocks chapters targets, so a player-root
+      // pointerdown passes through and triggers the dismiss.
+      playerEl.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    };
+
+    // Run now and a couple of follow-ups (the menu may finish opening a frame
+    // after the block lands).
+    closeChapters();
+    const timers = [60, 200].map((d) => window.setTimeout(closeChapters, d));
+    return () => timers.forEach((id) => window.clearTimeout(id));
+  }, [party?.amPlaybackBlocked]);
+
+  // ── Blocked: veto playback-control clicks at capture phase ──
+  // The CSS lockout (`.w2g-playback-blocked`) dims + disables the seek bar / play
+  // button / chapters affordance, but a couple of things slip through it: the
+  // chapters MENU popup can portal outside the player root (so the class doesn't
+  // reach it), and class names can drift between Vidstack versions. Catching the
+  // event in the CAPTURE phase — before Vidstack's own handlers run — is the
+  // robust fix: a blocked user simply can't open the chapters menu, scrub, or
+  // toggle play through the UI. (Keyboard is already handled via `keyDisabled`,
+  // and the <video> guard reverts anything that still gets through.)
+  useEffect(() => {
+    // An element is a "playback control" if it (or an ancestor) is the seek bar,
+    // the play button, or the chapters menu button / chapter title. Matched by
+    // several stable selectors so a class rename doesn't silently re-open a hole.
+    const isBlockedTarget = (el: HTMLElement | null): boolean => {
+      if (!el) return false;
+      return !!el.closest(
+        [
+          ".vds-time-slider",
+          "[data-media-time-slider]",
+          ".vds-play-button",
+          "[data-media-play-button]",
+          ".vds-chapter-title",
+          // Our runtime-tagged chapters button — the reliable signal (covers any
+          // language / Vidstack class drift). The tagging effect above sets it.
+          ".w2g-chapters-btn",
+        ].join(","),
+      );
+    };
+
+    // Tag-agnostic fallback: walk UP from the target and match ANY ancestor
+    // whose aria-label / title mentions chapters — regardless of element type.
+    // Vidstack's chapters button is a custom <media-menu-button> element (no
+    // role=button, no data-media-menu-button), so a `closest("button,...")`
+    // missed it entirely — that's why the menu still opened. Walking ancestors
+    // by attribute catches it whatever the tag is.
+    const looksLikeChaptersBtn = (el: HTMLElement | null): boolean => {
+      let node: HTMLElement | null = el;
+      for (let i = 0; node && i < 8; i++) {
+        const hay = (
+          (node.getAttribute?.("aria-label") || "") +
+          " " +
+          (node.getAttribute?.("title") || "")
+        ).toLowerCase();
+        if (hay.includes("chapter") || hay.includes("chapitre")) return true;
+        node = node.parentElement;
+      }
+      return false;
+    };
+
+    // The chapters menu popup may portal outside the player root, so we also
+    // listen on document (capture) and veto clicks anywhere inside an open
+    // chapters menu container (its items jump the playhead = a disguised seek).
+    const isChapterListItem = (el: HTMLElement | null): boolean => {
+      if (!el) return false;
+      return !!el.closest(
+        ".vds-chapters-menu-items, .vds-chapters-radio-group, [data-media-chapters-radio-group], [role='menu'][aria-label*='hapter'], [role='menu'][aria-label*='hapitre']",
+      );
+    };
+
+    const veto = (e: Event) => {
+      if (!partyRef.current?.amPlaybackBlocked) return;
+      const target = e.target as HTMLElement | null;
+      if (isBlockedTarget(target) || looksLikeChaptersBtn(target) || isChapterListItem(target)) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        const now = Date.now();
+        if (now - blockedToastAtRef.current > 2500) {
+          blockedToastAtRef.current = now;
+          toast.error(t("party.blockedBanner"));
+        }
+      }
+    };
+
+    // Capture phase, on document, across the events Vidstack acts on
+    // (pointerdown opens menus on some builds; click on others). Document-level
+    // covers the player AND any menu popup portaled to <body>; it works even
+    // before the player element exists and reads the live block flag from
+    // partyRef, so nothing slips through during stream load.
+    // Cover pointerup too: Vidstack opens menus on different events across
+    // builds/devices (touch fires pointerup; mouse may use click). Vetoing all
+    // three in capture guarantees the menu never opens for a blocked user.
+    const opts = { capture: true } as AddEventListenerOptions;
+    const types = ["pointerdown", "pointerup", "click"] as const;
+    for (const type of types) {
+      document.addEventListener(type, veto, opts);
+    }
+    return () => {
+      for (const type of types) {
+        document.removeEventListener(type, veto, opts);
+      }
+    };
+    // Bound once; reads the live block flag + translation via refs/closure.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // ── Autoplay ──
   // Chrome rejects unmuted autoplay without a user gesture, period. The
   // only path that always works is muted-then-let-Chrome's-MEI-decide:
@@ -2615,7 +3168,9 @@ export default function UniversalPlayer({
     // the ambient's transform:scale() overflow. With isolate, z-index:-1
     // is clamped to "behind this component but not behind its siblings".
     <div
-      className={`relative h-full w-full${iosPseudoFs ? " moopa-ios-fs" : ""}`}
+      className={`relative h-full w-full${iosPseudoFs ? " moopa-ios-fs" : ""}${
+        party?.amPlaybackBlocked ? " w2g-playback-blocked" : ""
+      }`}
       style={{ isolation: "isolate" }}
     >
       {ambientEnabled && <LiveAmbient playerRef={playerRef} />}
@@ -2662,6 +3217,10 @@ export default function UniversalPlayer({
         // StaticGlow on these sources.
         {...(bestStream!.noCors ? {} : { crossorigin: "anonymous" })}
         aspectRatio="16/9"
+        // When the host has blocked our playback, disable Vidstack's keyboard
+        // shortcuts (Space/k = play, arrows = seek, etc.) so they can't drive
+        // playback past the <video> guard below.
+        keyDisabled={!!party?.amPlaybackBlocked}
         onError={() => onError?.("Playback error")}
       >
         <MediaProvider>
@@ -2851,6 +3410,18 @@ export default function UniversalPlayer({
         isSingleEpisode={isSingleEpisode}
         onFinalEpisodeNearEnd={onFinalEpisodeNearEnd}
       />
+
+      {/* Watch-party chat overlay — phone-style bubbles + composer, only while
+          fullscreen, portalled into the player so it stays visible. */}
+      {party && (
+        <FullscreenChat
+          onRemote={party.onRemote}
+          sendChat={party.sendChat}
+          myId={party.myId}
+          playerEl={playerElState}
+          active={isFullscreen}
+        />
+      )}
 
       {/* Subtitle picker. Mounted globally (not inside the player) so it can
           float above the controls without being clipped by the player's

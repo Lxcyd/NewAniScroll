@@ -185,10 +185,18 @@ a {
   color: var(--brand-primary, #E94560) !important;
 }
 .vds-player
-  button:not(.aniscroll-skip-btn):not(.aniscroll-next-btn):hover,
+  button:not(.aniscroll-skip-btn):not(.aniscroll-next-btn):not(.w2g-fs-send):hover,
 .vds-player [role="menuitem"]:hover,
 .vds-player a[aria-label]:hover {
   color: var(--brand-primary, #E94560) !important;
+}
+
+/* Fullscreen party-chat Send button: its background IS the brand pink, so the
+   generic ".vds-player button:hover → pink color" rule above would tint the
+   white icon pink → invisible. Keep it white on hover (slight darken instead). */
+.vds-player .w2g-fs-send:hover {
+  color: #fff !important;
+  filter: brightness(0.92);
 }
 
 /* Floating Skip Intro / Skip Outro button (dark pill on left of
@@ -1062,6 +1070,77 @@ input::-webkit-inner-spin-button {
 /* Firefox */
 input[type="number"] {
   -moz-appearance: textfield;
+}
+
+/* ── Watch 2gether: playback-blocked lockout ─────────────────────
+   When the host has blocked our playback we keep volume / subtitles /
+   fullscreen usable, but make the seek bar, chapters and the play
+   button non-interactive (keyboard is handled via Vidstack keyDisabled,
+   and the <video> guard reverts any state change). pointer-events:none
+   on the time slider means clicks/drag on the progress bar do nothing. */
+.w2g-playback-blocked .vds-time-slider,
+.w2g-playback-blocked [data-media-time-slider],
+.w2g-playback-blocked .vds-play-button,
+.w2g-playback-blocked [data-media-play-button] {
+  pointer-events: none !important;
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* The chapters MENU (button + popup) lets a blocked user jump the playhead by
+   clicking a chapter title, which is just a disguised seek — so it must be
+   locked out too. Covers the chapters menu button (EN "Chapters" + FR
+   "Chapitres" aria-labels, plus the class), the live chapter title, and — via
+   the marker class our JS adds — any chapters menu button found at runtime. */
+.w2g-playback-blocked .vds-chapters-menu-button,
+.w2g-playback-blocked [data-media-menu-button][aria-label*="Chapters" i],
+.w2g-playback-blocked [data-media-menu-button][aria-label*="Chapitres" i],
+.w2g-playback-blocked .vds-chapter-title,
+.w2g-playback-blocked .w2g-chapters-btn {
+  pointer-events: none !important;
+  opacity: 0.5 !important;
+  cursor: not-allowed !important;
+}
+
+/* ── Watch 2gether: contentEditable chat composer ────────────────
+   Shows emoji/sticker images inline in the input (a plain <input> can't).
+   Single-line feel with vertical scroll once it grows. */
+.w2g-composer {
+  outline: none;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  overflow-y: auto;
+  max-height: 96px;
+  -webkit-user-modify: read-write; /* iOS Safari: enable caret in CE */
+}
+/* Placeholder via data-attr, shown only when empty (no text + no inline img). */
+.w2g-composer:empty::before {
+  content: attr(data-placeholder);
+  opacity: 0.45;
+  pointer-events: none;
+}
+.w2g-composer img {
+  user-select: none;
+}
+
+/* Emoji-picker buttons. Hover handled here in CSS (not per-button JS) so a
+   category with several hundred emojis doesn't pay two event handlers + an
+   inline style object per cell — that was the lag on tab switch. */
+.w2g-emoji-btn {
+  padding: 2px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+}
+.w2g-emoji-btn-img {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px;
+}
+.w2g-emoji-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
 }
 
 /* ── Vidstack seek-bar chrome ────────────────────────────────────
