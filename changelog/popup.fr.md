@@ -1,19 +1,11 @@
-## v0.0.3
+## v0.0.4
 
-⚙️ **Paramètres repensés** — un menu latéral clair, une section par thème.
+🎉 **Regarder ensemble** — regardez un épisode en synchro parfaite avec vos amis.
 
-🎨 **Thème personnalisable** (votre couleur partout), **page profil** repensée et **notation** à la fin d'un anime.
+**Lancez un salon** — créez un salon, partagez un code à 4 chiffres ou un lien d'invitation, et la lecture reste synchronisée pour tout le monde.
 
-**Les nouveaux paramètres :**
+**Chat du salon** — discutez en direct à côté du lecteur, avec un sélecteur d'emojis complet et des stickers anime cherchables.
 
-**Fiche ou lecture directe** — choisissez ce qui s'ouvre quand vous cliquez sur un anime (la lecture reprend à votre épisode).
+**Vous êtes l'hôte** — rendez muet, bloquez la lecture, verrouillez le salon (privé), expulsez ou bannissez, ou cédez l'hôte à quelqu'un d'autre.
 
-**Masquer les spoilers** — floute les vignettes et masque les titres et descriptions d'épisodes.
-
-**Notifications au choix** — activez ou coupez les nouveaux épisodes, les suites et les rappels de reprise.
-
-**Synchronisation AniList** — à la connexion, votre liste AniList remplace la liste locale, et le **seuil** décide à partir de quel % un épisode compte comme vu.
-
-**Lecteur** — serveur par défaut, qualité maximale forcée et démarrage en sourdine.
-
-**Section Avancé** — effacer l'historique et réinitialiser les réglages.
+**Toujours synchro** — changer d'épisode, de serveur ou de sub/dub suit automatiquement tout le salon.

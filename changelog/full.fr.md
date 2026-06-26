@@ -2,6 +2,22 @@
 
 Toutes les nouveautés d'AniScroll, les plus récentes en premier.
 
+## [v0.0.4] — Regarder ensemble (2026-06-26)
+
+### Ajouté
+- **Regarder ensemble** : regardez un épisode en synchro avec vos amis. Créez un
+  salon, partagez un code à 4 chiffres ou un lien d'invitation, et la lecture
+  reste synchronisée pour tout le monde.
+- **Chat du salon** : un chat en direct à côté du lecteur, avec un sélecteur
+  d'emojis complet et une collection de stickers anime — recherche en français
+  et en anglais.
+- **Modération par l'hôte** : l'hôte peut transférer l'hôte, rendre muet un
+  membre, bloquer sa lecture, verrouiller le salon (privé), expulser ou bannir.
+- **Synchronisation des épisodes** : changer d'épisode, de serveur ou de
+  sub/dub suit automatiquement tout le salon.
+- **Chat plein écran** : un chat superposable pour continuer à discuter en
+  plein écran.
+
 ## [v0.0.3] — Paramètres repensés, thèmes & profil (2026-06-14)
 
 ### Ajouté
