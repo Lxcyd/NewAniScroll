@@ -1,19 +1,11 @@
-## v0.0.3
+## v0.0.4
 
-⚙️ **Settings, reimagined** — a clear side menu, one section per topic.
+🎉 **Watch 2gether** — watch an episode in perfect sync with friends.
 
-🎨 **Custom theme** (your colour everywhere), a reworked **profile page** and **rating** when you finish an anime.
+**Start a party** — create a room, share a 4-digit code or invite link, and everyone's playback stays in step.
 
-**The new settings:**
+**Party chat** — chat live next to the player, with a full emoji picker and a set of searchable anime stickers.
 
-**Info page or direct playback** — choose what opens when you click an anime (playback resumes at your episode).
+**You're the host** — mute, block playback, lock the room (private), kick or ban, or hand host to someone else.
 
-**Hide spoilers** — blur thumbnails and hide episode titles and descriptions.
-
-**Notifications your way** — turn new episodes, sequels and resume reminders on or off.
-
-**AniList sync** — on sign-in your AniList list replaces the local one, and the **threshold** sets how far into an episode counts as watched.
-
-**Player** — default server, force maximum quality and start muted.
-
-**Advanced section** — clear watch history and restore defaults.
+**Stays in sync** — changing episode, server or sub/dub follows the whole party automatically.
