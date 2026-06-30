@@ -22,6 +22,15 @@ import { Analytics } from "@vercel/analytics/react";
 import { runAutoPauseSweep, fullSyncFromAniList } from "@/lib/list/syncEngine";
 import type { AppProps } from "next/app";
 
+// Cloudflare Worker base. The same Worker that proxies HLS also serves a few
+// endpoints offloaded from Vercel to cut Fluid Active CPU: /w/track (analytics),
+// /w/broadcast and /w/health (polled banners). Mirrors the default used by the
+// player (UniversalPlayer / lib/extractors). When the env var is unset we fall
+// back to the Vercel routes so nothing breaks in local dev.
+const WORKER_BASE =
+  (process.env.NEXT_PUBLIC_PROXY_BASE as string | undefined) ||
+  "https://aniscroll-proxy.luc-deldem.workers.dev";
+
 /**
  * Replaces every {{date:VALUE}} placeholder in `text` with a date string
  * formatted in the visitor's local timezone. VALUE can be either:
@@ -120,7 +129,14 @@ export default function App({
       if (norm === lastPath) return;
       lastPath = norm;
       try {
-        fetch("/api/v2/track", {
+        // Offloaded to the Cloudflare Worker (/w/track) so a per-navigation ping
+        // no longer invokes a Vercel function. The Worker writes to the same
+        // Turso analytics table. Falls back to the Vercel route when no Worker
+        // base is configured (local dev).
+        const trackUrl = WORKER_BASE.startsWith("http")
+          ? `${WORKER_BASE.replace(/\/+$/, "")}/w/track`
+          : "/api/v2/track";
+        fetch(trackUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ visitorId, path: norm }),
@@ -144,16 +160,27 @@ export default function App({
     async function getBroadcast() {
       if (cancelled) return;
       try {
-        const res = await fetch("/api/v2/admin/broadcast", {
+        // Offloaded to the Cloudflare Worker (/w/broadcast), which serves the
+        // value from KV at the edge — so polling no longer invokes a Vercel
+        // function. Falls back to the Vercel route in local dev (no Worker base).
+        // The X-Broadcast-Key header is only needed by the Vercel route's soft
+        // guard; the Worker ignores it.
+        const useWorker = WORKER_BASE.startsWith("http");
+        const url = useWorker
+          ? `${WORKER_BASE.replace(/\/+$/, "")}/w/broadcast`
+          : "/api/v2/admin/broadcast";
+        const res = await fetch(url, {
           method: "GET",
           // Let the browser honour the server's Cache-Control header
           // (s-maxage=60). Setting "no-store" here was forcing a network
           // round-trip on every page load even when the response was
           // identical to one we'd just received.
-          headers: {
-            "Content-Type": "application/json",
-            "X-Broadcast-Key": "get-broadcast",
-          },
+          headers: useWorker
+            ? { "Content-Type": "application/json" }
+            : {
+                "Content-Type": "application/json",
+                "X-Broadcast-Key": "get-broadcast",
+              },
         });
         const data = await res.json();
         if (!data?.show) return;
@@ -209,14 +236,40 @@ export default function App({
     }
     getBroadcast();
     // Poll for freshly-published broadcasts. 5 min (not 30 s) is plenty for
-    // an admin announcement banner and cuts this endpoint's edge-requests /
-    // invocations ~10x per open tab (it was the busiest client poll). The
-    // toast carries a fixed id so repeated polls update in place instead of
-    // stacking, and any active broadcast still shows immediately on load.
-    const interval = setInterval(getBroadcast, 300_000);
+    // an admin announcement banner. The toast carries a fixed id so repeated
+    // polls update in place instead of stacking, and any active broadcast still
+    // shows immediately on load.
+    //
+    // On-focus gating: the interval only runs while the tab is VISIBLE. A
+    // backgrounded tab that nobody is looking at doesn't need to keep polling;
+    // we stop the timer when hidden and poll once on return so a broadcast
+    // published while away still appears promptly.
+    let interval: ReturnType<typeof setInterval> | null = null;
+    const startPolling = () => {
+      if (interval == null) interval = setInterval(getBroadcast, 300_000);
+    };
+    const stopPolling = () => {
+      if (interval != null) {
+        clearInterval(interval);
+        interval = null;
+      }
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") {
+        getBroadcast();
+        startPolling();
+      } else {
+        stopPolling();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    if (typeof document === "undefined" || document.visibilityState === "visible") {
+      startPolling();
+    }
     return () => {
       cancelled = true;
-      clearInterval(interval);
+      stopPolling();
+      document.removeEventListener("visibilitychange", onVisibility);
     };
   }, []);
 

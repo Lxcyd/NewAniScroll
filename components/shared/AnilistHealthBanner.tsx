@@ -24,6 +24,13 @@ import { useTranslation } from "react-i18next";
 const POLL_MS = 5 * 60_000;
 const TOAST_ID = "anilist-down";
 
+// Stays on the Vercel route (NOT offloaded to the Worker): AniList 403s requests
+// from Cloudflare Worker egress IPs, so the probe must run from Vercel's IP. The
+// cost is negligible — the route is Redis-cached (60s) and this poll is gated to
+// the visible tab below, so it's only a few seconds of CPU per day. The
+// per-connection SSE drain (the real CPU problem) was the thing worth moving.
+const HEALTH_URL = "/api/v2/anilist-health";
+
 export default function AnilistHealthBanner() {
   const { t } = useTranslation();
   // Track which kind of toast (if any) is currently shown so we can swap
@@ -77,7 +84,7 @@ export default function AnilistHealthBanner() {
       const timeoutId = setTimeout(() => ctrl.abort(), 6000);
       let res: Response;
       try {
-        res = await fetch("/api/v2/anilist-health", {
+        res = await fetch(HEALTH_URL, {
           // Keep this exempt from the SW cache so we never see stale
           // "up" status for minutes after recovery.
           cache: "no-store",
@@ -116,22 +123,50 @@ export default function AnilistHealthBanner() {
       }
     }
 
+    // On-focus gating: only poll while the tab is VISIBLE. A backgrounded tab
+    // doesn't need to keep checking AniList health — we stop the timer when
+    // hidden and re-check on return so a recovery/outage surfaces promptly.
+    let id: ReturnType<typeof setInterval> | null = null;
+    const startPolling = () => {
+      if (id == null) id = setInterval(check, POLL_MS);
+    };
+    const stopPolling = () => {
+      if (id != null) {
+        clearInterval(id);
+        id = null;
+      }
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") {
+        check();
+        startPolling();
+      } else {
+        stopPolling();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+
     check();
-    const id = setInterval(check, POLL_MS);
+    if (typeof document === "undefined" || document.visibilityState === "visible") {
+      startPolling();
+    }
 
     // Re-check immediately when the browser tells us we're back online —
-    // the next scheduled poll could be up to 60 s away, which feels broken
+    // the next scheduled poll could be up to 5 min away, which feels broken
     // when the user just fixed their wifi.
     const onOnline = () => check();
-    window.addEventListener("online", onOnline);
-    window.addEventListener("offline", () => {
+    const onOffline = () => {
       if (!cancelled) showNetworkIssue();
-    });
+    };
+    window.addEventListener("online", onOnline);
+    window.addEventListener("offline", onOffline);
 
     return () => {
       cancelled = true;
-      clearInterval(id);
+      stopPolling();
+      document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("online", onOnline);
+      window.removeEventListener("offline", onOffline);
     };
   }, [t]);
 

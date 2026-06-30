@@ -754,14 +754,19 @@ export async function getServerSideProps(ctx: any) {
   // Headers:
   //  - `Cache-Control` → BROWSER cache (60s, so a hard refresh sees fresh
   //    metadata, no "stuck on yesterday's status").
-  //  - `CDN-Cache-Control` → Vercel's edge cache (1h + 24h stale-while-
+  //  - `CDN-Cache-Control` → Vercel's edge cache (6h + 24h stale-while-
   //    revalidate). AniList metadata shifts slowly (episode count on an
   //    airing, status on a finale), so worst case a viewer sees a count
-  //    off by one for an hour while the next visitor refreshes it.
+  //    off by a bit for a few hours while the next visitor refreshes it —
+  //    and the nightly refresh-cache cron re-primes RELEASING anime anyway.
+  //    Widened from 1h → 6h to cut Fluid Active CPU: most views on this, the
+  //    busiest page, now hit the edge cache instead of re-invoking SSR. The
+  //    24h stale-while-revalidate is unchanged, so there's no added staleness
+  //    risk beyond serving a slightly older edge copy for longer.
   ctx.res.setHeader("Cache-Control", "public, max-age=60");
   ctx.res.setHeader(
     "CDN-Cache-Control",
-    "public, s-maxage=3600, stale-while-revalidate=86400",
+    "public, s-maxage=21600, stale-while-revalidate=86400",
   );
 
   // A corrupt / partial cached value must not crash the function — treat a

@@ -16,7 +16,12 @@
  *   To make the cookie available to the Worker without a shared store, the
  *   extractor embeds it as `vcookie=` in the playback URL handed to the client.
  *   The Worker reads it back here and forwards it as the `Cookie` header.
+ *
+ * This Worker also serves a few endpoints offloaded from Vercel to cut Fluid
+ * Active CPU — see ./edge-endpoints.js (/w/health, /w/broadcast, /w/track).
  */
+
+import { handleEdgeEndpoint } from "./edge-endpoints.js";
 
 // CDNs that genuinely need single-flight requests per IP. Keep this list short
 // — every entry slows down playback for that host. Only VOE's
@@ -483,6 +488,10 @@ async function handle(request, env, ctx) {
 export default {
   async fetch(request, env, ctx) {
     try {
+      // Offloaded-from-Vercel endpoints (/w/health, /w/broadcast, /w/track) are
+      // routed first; everything else is the HLS/scrape proxy.
+      const edge = await handleEdgeEndpoint(request, env, ctx);
+      if (edge) return edge;
       return await handle(request, env, ctx);
     } catch (err) {
       return new Response(
