@@ -576,13 +576,20 @@ function SeasonPicker({
           {seasonList.map((s) => {
             const films = s.variants ?? [];
             const grouped = films.length > 0;
+            const isSequelFilm = s.kind === "sequelFilm";
 
-            const seasonSub =
-              s.status === "NOT_YET_RELEASED"
-                ? t("anime.notYetReleased")
-                : [s.year, s.episodes ? `${s.episodes} EP` : null]
-                    .filter(Boolean)
-                    .join(" · ") || (s.format ?? "");
+            const seasonSub = isSequelFilm
+              ? [
+                  t("anime.sequelFilm", { defaultValue: "Sequel · Film" }),
+                  s.year,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")
+              : s.status === "NOT_YET_RELEASED"
+              ? t("anime.notYetReleased")
+              : [s.year, s.episodes ? `${s.episodes} EP` : null]
+                  .filter(Boolean)
+                  .join(" · ") || (s.format ?? "");
 
             // Simple case — no films: one flat row per season.
             if (!grouped) {
@@ -631,21 +638,16 @@ function SeasonPicker({
             const filmYears = films
               .map((v) => v.year)
               .filter(Boolean) as number[];
-            const filmSub =
-              (filmYears.length
-                ? filmYears.length > 1
-                  ? `${Math.min(...filmYears)}–${Math.max(...filmYears)}`
-                  : String(filmYears[0])
-                : "") +
-              (films.length
-                ? ` · ${t("anime.filmCount", {
-                    count: films.length,
-                    defaultValue:
-                      films.length > 1
-                        ? `${films.length} films`
-                        : "1 film",
-                  })}`
-                : "");
+            const yearPart = filmYears.length
+              ? filmYears.length > 1
+                ? `${Math.min(...filmYears)}–${Math.max(...filmYears)}`
+                : String(filmYears[0])
+              : "";
+            const countPart = t("anime.filmCount", {
+              count: films.length,
+              defaultValue: films.length > 1 ? `${films.length} films` : "1 film",
+            });
+            const filmSub = [yearPart, countPart].filter(Boolean).join(" · ");
 
             const epsActive =
               activeKind === "episodes" && s.id === activeSeasonId;

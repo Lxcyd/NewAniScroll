@@ -40,8 +40,7 @@ const REDIS_KEY_CHAIN = (id: number) => `seasonChain:v3:${id}`;
 //     TMDB-restricted (a remake no longer bleeds the original's timeline in),
 //     plus deduped + numbered film variants.
 // v8: meta-franchise guard (Gundam &co: 8+ tmdb.tv fiches → present the entry
-//     standalone, no misleading "Season 1..N"); film variants now also match
-//     SEQUEL/PREQUEL MOVIE nodes (Chainsaw Man: Reze-hen film continuation).
+//     standalone, no misleading "Season 1..N").
 const REDIS_KEY_LIST = (id: number) => `seasonList:v8:${id}`;
 const TTL_SECONDS = 7 * 24 * 60 * 60;
 
@@ -251,6 +250,10 @@ export type SeasonEntry = {
      *  has more than one compilation film; undefined for a lone film. */
     index?: number | null;
   }> | null;
+  /** Entry kind. "season" (default) = a real TV season. "sequelFilm" = new
+   *  content released only as a film (Chainsaw Man: Reze-hen) — the picker
+   *  renders it as its own "Sequel · Film" row, not a season or format variant. */
+  kind?: "season" | "sequelFilm";
 };
 
 /* Same walk as resolveSeasonChain but returns the ordered list of every

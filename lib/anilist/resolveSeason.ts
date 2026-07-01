@@ -304,10 +304,12 @@ export async function resolveSeasonNumber(
 
 // ── Franchise season LIST (feeds the Episodes selector + relations map) ───────
 
-/** MOVIE nodes AniList links to a season as a compilation/alternate version, OR
- *  as a direct film continuation (a "season" that shipped only as a film —
- *  Chainsaw Man: Reze-hen is a SEQUEL of format MOVIE). Deduped by id and
- *  numbered (1-based) when a season has >1 film → "Film 1" / "Film 2" in the UI.
+/** MOVIE nodes AniList links to a season as a COMPILATION / alternate version
+ *  of the SAME content (the arc re-released as a film — Demon Slayer's Mugen
+ *  Train). This is the only "dual-format" case: same story, two formats. A
+ *  SEQUEL/PREQUEL film is NEW content (Chainsaw Man: Reze-hen) — it is NOT a
+ *  format variant of this season and is deliberately excluded. Deduped by id
+ *  and numbered (1-based) when a season has >1 film → "Film 1" / "Film 2".
  *  Returns null when none (undefined breaks SSR serialization). Kept here (not
  *  seasonChain.ts) to avoid an import cycle. */
 export function findFilmVariants(media: any): FilmVariant[] | null {
@@ -318,9 +320,7 @@ export function findFilmVariants(media: any): FilmVariant[] | null {
       (e: any) =>
         (e.relationType === "COMPILATION" ||
           e.relationType === "ALTERNATIVE" ||
-          e.relationType === "PARENT" ||
-          e.relationType === "SEQUEL" ||
-          e.relationType === "PREQUEL") &&
+          e.relationType === "PARENT") &&
         e.node?.type === "ANIME" &&
         e.node?.format === "MOVIE" &&
         sharesFranchise(media?.title, e.node?.title)
@@ -370,6 +370,10 @@ export interface FranchiseSeasonEntry {
   title: any;
   coverImage: any;
   variants: FilmVariant[] | null;
+  /** "season" = a real TV season. "sequelFilm" = new content that shipped only
+   *  as a film (Chainsaw Man: Reze-hen) — shown as a distinct "Sequel · Film"
+   *  row, not as a format variant of a season. Absent means "season". */
+  kind?: "season" | "sequelFilm";
 }
 
 /** Video formats that count toward "is this one continuous show?". Manga /
@@ -450,8 +454,27 @@ export async function resolveFranchiseSeasons(
     .sort((a, b) => (yearOf(a) ?? Infinity) - (yearOf(b) ?? Infinity));
   if (seasonLike.length === 0) return [];
 
+  // Sequel FILMS — new content released only as a movie (Chainsaw Man:
+  // Reze-hen). Chained in via SEQUEL/PREQUEL as a MOVIE, but NOT a compilation
+  // of an existing season (those are format variants, see findFilmVariants).
+  // They get their own "Sequel · Film" row at their chronological position,
+  // and never bump the season counter. Dedup against season nodes + variants.
+  const seasonIds = new Set(seasonLike.map((m: any) => Number(m.id)));
+  const variantIds = new Set<number>();
+  for (const m of seasonLike) {
+    for (const v of findFilmVariants(m) ?? []) variantIds.add(v.id);
+  }
+  const sequelFilms = ordered.filter(
+    (m: any) =>
+      m?.type === "ANIME" &&
+      m?.format === "MOVIE" &&
+      !isRecapTitle(m) &&
+      !seasonIds.has(Number(m.id)) &&
+      !variantIds.has(Number(m.id))
+  );
+
   let running = 0;
-  return seasonLike.map((m: any) => {
+  const seasons: FranchiseSeasonEntry[] = seasonLike.map((m: any) => {
     const fromTitle = extractSeasonFromTitle(m.title);
     if (fromTitle != null) running = fromTitle;
     else if (isSeasonContinuation(m.title)) running = Math.max(1, running);
@@ -460,8 +483,24 @@ export async function resolveFranchiseSeasons(
       /\b(?:Part|Cour)\s+(\d+|[IVX]+)\b/i
     );
     const part = partMatch ? ` Part ${partMatch[1].toUpperCase()}` : "";
-    return toSeasonEntry(m, running, `Season ${running}${part}`);
+    const e = toSeasonEntry(m, running, `Season ${running}${part}`);
+    e.kind = "season";
+    return e;
   });
+
+  if (sequelFilms.length === 0) return seasons;
+
+  // Merge sequel films into the list, keeping overall chronological order. Their
+  // `number` carries the season count they follow (for sorting only); the label
+  // is the film's own title, flagged as a sequel film for the UI.
+  const filmEntries: FranchiseSeasonEntry[] = sequelFilms.map((m: any) => {
+    const e = toSeasonEntry(m, running);
+    e.kind = "sequelFilm";
+    return e;
+  });
+  return [...seasons, ...filmEntries].sort(
+    (a, b) => (a.year ?? Infinity) - (b.year ?? Infinity)
+  );
 }
 
 /** Build one SeasonEntry from a media node. `label` defaults to "Season N";
