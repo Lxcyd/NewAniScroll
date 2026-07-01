@@ -26,7 +26,9 @@ import {
 // v2: numbering now goes through the multi-signal resolver (Fribb + air-year
 //     arbitration + hardened walk) instead of the pure PREQUEL/SEQUEL count,
 //     which mis-ordered remakes (Gundam Origin 2019 vs 1979).
-const REDIS_KEY_CHAIN = (id: number) => `seasonChain:v2:${id}`;
+// v3: meta-franchise guard — Gundam &co report {number:1,total:1} so the Hero
+//     drops the "· S<n>" badge (was numbering unrelated works in one universe).
+const REDIS_KEY_CHAIN = (id: number) => `seasonChain:v3:${id}`;
 // v3: SeasonEntry gained `idMal` (feeds Jikan per-episode score lookups).
 // v4: numbering now uses a running counter so split-cours + unnumbered
 //     "Final Season" entries get the right S<n> (AoT Final Season = S4, not S5).
@@ -37,7 +39,10 @@ const REDIS_KEY_CHAIN = (id: number) => `seasonChain:v2:${id}`;
 //     — canonical (rebased on franchise root, same list from any page) and
 //     TMDB-restricted (a remake no longer bleeds the original's timeline in),
 //     plus deduped + numbered film variants.
-const REDIS_KEY_LIST = (id: number) => `seasonList:v7:${id}`;
+// v8: meta-franchise guard (Gundam &co: 8+ tmdb.tv fiches → present the entry
+//     standalone, no misleading "Season 1..N"); film variants now also match
+//     SEQUEL/PREQUEL MOVIE nodes (Chainsaw Man: Reze-hen film continuation).
+const REDIS_KEY_LIST = (id: number) => `seasonList:v8:${id}`;
 const TTL_SECONDS = 7 * 24 * 60 * 60;
 
 async function redisGetJson<T>(key: string): Promise<T | null> {

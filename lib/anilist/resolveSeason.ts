@@ -236,6 +236,13 @@ export async function resolveSeasonNumber(
   const { ordered, fribbGroup } = await buildFranchise(startId, fribbSelf, load);
   const tmdbId = fribbSelf?.tmdbTvId ?? null;
 
+  // Meta-franchise (Gundam &co) — not a season chain. Report a standalone entry
+  // so the Hero label drops the misleading "· S3" badge (total <= 1), matching
+  // the standalone season LIST returned by resolveFranchiseSeasons.
+  if (await isMetaFranchise(ordered)) {
+    return { number: 1, total: 1, tmdbId, source: "chain", confidence: "low" };
+  }
+
   // Chronological numbering is the backbone — compute it once; it also feeds
   // the hard year-order guard and the confidence vote.
   const chrono = numberByChronology(ordered, startId);
@@ -297,10 +304,12 @@ export async function resolveSeasonNumber(
 
 // ── Franchise season LIST (feeds the Episodes selector + relations map) ───────
 
-/** MOVIE nodes AniList links to a season as a compilation/alternate version.
- *  Deduped by id and numbered (1-based) when a season has >1 film → "Film 1" /
- *  "Film 2" in the UI. Returns null when none (undefined breaks SSR
- *  serialization). Kept here (not seasonChain.ts) to avoid an import cycle. */
+/** MOVIE nodes AniList links to a season as a compilation/alternate version, OR
+ *  as a direct film continuation (a "season" that shipped only as a film —
+ *  Chainsaw Man: Reze-hen is a SEQUEL of format MOVIE). Deduped by id and
+ *  numbered (1-based) when a season has >1 film → "Film 1" / "Film 2" in the UI.
+ *  Returns null when none (undefined breaks SSR serialization). Kept here (not
+ *  seasonChain.ts) to avoid an import cycle. */
 export function findFilmVariants(media: any): FilmVariant[] | null {
   const edges = media?.relations?.edges || [];
   const seen = new Set<number>();
@@ -309,7 +318,9 @@ export function findFilmVariants(media: any): FilmVariant[] | null {
       (e: any) =>
         (e.relationType === "COMPILATION" ||
           e.relationType === "ALTERNATIVE" ||
-          e.relationType === "PARENT") &&
+          e.relationType === "PARENT" ||
+          e.relationType === "SEQUEL" ||
+          e.relationType === "PREQUEL") &&
         e.node?.type === "ANIME" &&
         e.node?.format === "MOVIE" &&
         sharesFranchise(media?.title, e.node?.title)
@@ -361,6 +372,41 @@ export interface FranchiseSeasonEntry {
   variants: FilmVariant[] | null;
 }
 
+/** Video formats that count toward "is this one continuous show?". Manga /
+ *  novels / one-shots are ignored — a franchise can spawn dozens of them
+ *  without being multi-season. */
+const VIDEO_FORMATS = new Set(["TV", "TV_SHORT", "ONA", "OVA", "MOVIE", "SPECIAL"]);
+
+/**
+ * Is this a META-FRANCHISE (many independent works in one universe: Gundam,
+ * Fate, Precure) rather than a single show with sequential seasons (SNK,
+ * Demon Slayer, Chainsaw Man)?
+ *
+ * Measured on real data: SNK / Demon Slayer / Chainsaw Man each map their whole
+ * TV chain to ONE tmdb.tv fiche; Gundam spreads across 8–9 distinct tmdb.tv
+ * fiches. So: count the DISTINCT tmdb.tv fiches among the franchise's video
+ * nodes. ≥2 → not a season chain. When Fribb is unavailable we can't decide,
+ * so we default to false (behave as a normal season chain).
+ */
+async function isMetaFranchise(nodes: SeasonNode[]): Promise<boolean> {
+  const videoIds = nodes
+    .filter((m) => VIDEO_FORMATS.has(String(m.format)))
+    .map((m) => Number(m.id));
+  if (videoIds.length <= 1) return false;
+  const tvFiches = new Set<number>();
+  let sawFribb = false;
+  for (const id of videoIds) {
+    const fe = await getFribbEntry(id);
+    if (fe?.tmdbTvId != null) {
+      sawFribb = true;
+      tvFiches.add(fe.tmdbTvId);
+    }
+  }
+  // Only trust the verdict when Fribb actually covered the franchise.
+  if (!sawFribb) return false;
+  return tvFiches.size >= 2;
+}
+
 /**
  * Canonical, franchise-restricted season LIST for the Episodes selector and the
  * relations map. Uses the SAME buildFranchise() as the number resolver — so the
@@ -370,6 +416,11 @@ export interface FranchiseSeasonEntry {
  * Numbering mirrors the legacy running-counter rule (explicit title number
  * anchors; "Part 2"/continuation inherits; otherwise +1), applied over the
  * chronologically-ordered season-like nodes.
+ *
+ * META-FRANCHISE guard: if the franchise is really many independent works in a
+ * shared universe (Gundam — 8+ tmdb.tv fiches), we DON'T present it as seasons.
+ * We return just the current entry (autonomous, like a standalone anime) with
+ * its own films attached — the other works stay reachable via the relations map.
  */
 export async function resolveFranchiseSeasons(
   startId: number
@@ -388,6 +439,12 @@ export async function resolveFranchiseSeasons(
   const fribbSelf = await getFribbEntry(startId);
   const { ordered } = await buildFranchise(startId, fribbSelf, load);
 
+  // Meta-franchise (Gundam &co): present the current entry on its own, with its
+  // films attached — no misleading "Season 1..N" over unrelated works.
+  if (await isMetaFranchise(ordered)) {
+    return [toSeasonEntry(start, 1)];
+  }
+
   const seasonLike = ordered
     .filter((m) => isSeasonLike(m) && !isRecapTitle(m))
     .sort((a, b) => (yearOf(a) ?? Infinity) - (yearOf(b) ?? Infinity));
@@ -403,19 +460,30 @@ export async function resolveFranchiseSeasons(
       /\b(?:Part|Cour)\s+(\d+|[IVX]+)\b/i
     );
     const part = partMatch ? ` Part ${partMatch[1].toUpperCase()}` : "";
-    return {
-      id: Number(m.id),
-      idMal: m.idMal ?? null,
-      number: running,
-      label: `Season ${running}${part}`,
-      year: m.seasonYear ?? m.startDate?.year ?? null,
-      episodes: m.episodes ?? null,
-      averageScore: m.averageScore ?? null,
-      format: m.format ?? null,
-      status: m.status ?? null,
-      title: m.title || null,
-      coverImage: m.coverImage || null,
-      variants: findFilmVariants(m),
-    };
+    return toSeasonEntry(m, running, `Season ${running}${part}`);
   });
+}
+
+/** Build one SeasonEntry from a media node. `label` defaults to "Season N";
+ *  callers pass the anime's own title for a standalone/meta-franchise entry. */
+function toSeasonEntry(
+  m: any,
+  number: number,
+  label?: string
+): FranchiseSeasonEntry {
+  return {
+    id: Number(m.id),
+    idMal: m.idMal ?? null,
+    number,
+    label:
+      label ?? m.title?.english ?? m.title?.romaji ?? `Season ${number}`,
+    year: m.seasonYear ?? m.startDate?.year ?? null,
+    episodes: m.episodes ?? null,
+    averageScore: m.averageScore ?? null,
+    format: m.format ?? null,
+    status: m.status ?? null,
+    title: m.title || null,
+    coverImage: m.coverImage || null,
+    variants: findFilmVariants(m),
+  };
 }
