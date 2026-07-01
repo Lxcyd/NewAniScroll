@@ -3,6 +3,7 @@ import Link from "next/link";
 import { AniListInfoTypes } from "types/info/AnilistInfoTypes";
 import styles from "./styles.module.css";
 import type { SeasonEntry } from "@/lib/anilist/seasonChain";
+import type { FilmVariant } from "@/lib/anilist/resolveSeason";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { useHideSpoilers } from "@/lib/prefs/spoilerPrefs";
 import { slugifyTitle } from "./helpers";
@@ -34,6 +35,9 @@ type Props = {
   progress: number;
   /** Other seasons of the same franchise (current included). */
   seasonList?: SeasonEntry[];
+  /** Franchise bonus films (SIDE_STORY movies — HxH: Phantom Rouge). Rendered
+   *  in a SEPARATE "Films" dropdown; empty/absent hides it. */
+  bonusFilms?: FilmVariant[];
 };
 
 /* Scroll budget: show roughly N rows in each mode before the box
@@ -50,7 +54,7 @@ const ROW_HEIGHT = {
   compact: 44,
 };
 
-export default function Episodes({ info, progress, seasonList }: Props) {
+export default function Episodes({ info, progress, seasonList, bonusFilms }: Props) {
   const titlePref = useTitlePref();
   const { t } = useTranslation();
   const [eps, setEps] = useState<EpisodeRow[] | null>(null);
@@ -206,6 +210,17 @@ export default function Episodes({ info, progress, seasonList }: Props) {
           activeKind={source.kind}
           onPickSource={setSource}
         />
+
+        {/* Separate "Films" dropdown — only for franchises with bonus SIDE_STORY
+            films (HxH: Phantom Rouge, The Last Mission). Hidden otherwise. */}
+        {bonusFilms && bonusFilms.length > 0 && (
+          <FilmsPicker
+            films={bonusFilms}
+            activeKind={source.kind}
+            activeId={activeSeasonId}
+            onPickSource={setSource}
+          />
+        )}
 
         {/* Right side: search + sub/dub + view modes */}
         <div style={tStyles.epActions}>
@@ -719,6 +734,169 @@ function SeasonPicker({
                   )}
                 </div>
               </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* Films picker — a SECOND dropdown, shown next to the season picker only for
+   franchises that carry bonus SIDE_STORY films (HxH: Phantom Rouge, The Last
+   Mission). Distinct from the per-season dual-format "Watch in: Episodes/Films"
+   radio: these films aren't a re-cut of any season, they're standalone bonus
+   content. Picking a film switches the episode panel to that film via the
+   existing `films` source mode. */
+function FilmsPicker({
+  films,
+  activeKind,
+  activeId,
+  onPickSource,
+}: {
+  films: FilmVariant[];
+  activeKind: ActiveSource["kind"];
+  activeId: number;
+  onPickSource: (s: ActiveSource) => void;
+}) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    const onClick = () => setOpen(false);
+    window.addEventListener("keydown", onKey);
+    setTimeout(() => window.addEventListener("click", onClick), 0);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("click", onClick);
+    };
+  }, [open]);
+
+  const filmsActive = activeKind === "films";
+  // The film currently playing (if we're in films mode on a single-film pick).
+  const activeFilm = filmsActive
+    ? films.find((f) => f.id === activeId)
+    : null;
+  const filmLabel = (f: FilmVariant, i: number) =>
+    f.label ||
+    (f.index
+      ? t("anime.formatFilmNumbered", { n: f.index, defaultValue: `Film ${f.index}` })
+      : t("anime.formatFilm", { defaultValue: "Film" }));
+
+  const headerLabel = activeFilm
+    ? filmLabel(activeFilm, films.indexOf(activeFilm))
+    : t("anime.formatFilmsPlural", {
+        count: films.length,
+        defaultValue: films.length > 1 ? "Films" : "Film",
+      });
+
+  return (
+    <div style={{ ...tStyles.seasonTabs, position: "relative" }}>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen((o) => !o);
+        }}
+        style={{
+          ...tStyles.seasonTab,
+          background: filmsActive ? "var(--accent-soft)" : "var(--bg-3)",
+          borderColor: open
+            ? "var(--accent)"
+            : filmsActive
+              ? "var(--accent)"
+              : "var(--line-2)",
+          cursor: "pointer",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "flex-start",
+            gap: 1,
+            minWidth: 0,
+          }}
+        >
+          <span
+            style={{
+              fontSize: 13,
+              fontWeight: 600,
+              color: filmsActive ? "var(--accent)" : "var(--txt-0)",
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              maxWidth: 200,
+            }}
+          >
+            {headerLabel}
+          </span>
+          <span style={{ fontSize: 10.5, color: "var(--txt-3)" }}>
+            {t("anime.filmCount", {
+              count: films.length,
+              defaultValue: films.length > 1 ? `${films.length} films` : "1 film",
+            })}
+          </span>
+        </div>
+        <svg
+          width="12"
+          height="12"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={2}
+          style={{
+            color: "var(--txt-3)",
+            transform: open ? "rotate(180deg)" : "none",
+            transition: "transform 0.15s",
+          }}
+        >
+          <polyline points="6 9 12 15 18 9" />
+        </svg>
+      </button>
+
+      {open && (
+        <div onClick={(e) => e.stopPropagation()} style={tStyles.seasonMenu}>
+          {films.map((f, i) => {
+            const rowActive = filmsActive && f.id === activeId;
+            return (
+              <button
+                key={String(f.id)}
+                type="button"
+                onClick={() => {
+                  onPickSource({
+                    kind: "films",
+                    ids: [f.id],
+                    labels: [filmLabel(f, i)],
+                  });
+                  setOpen(false);
+                }}
+                style={{
+                  ...tStyles.seasonMenuItem,
+                  background: rowActive ? "var(--accent-soft)" : "transparent",
+                  color: rowActive ? "var(--accent)" : "var(--txt-0)",
+                }}
+              >
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start" }}>
+                  <span style={{ fontSize: 12.5, fontWeight: 600 }}>
+                    {filmLabel(f, i)}
+                  </span>
+                  <span style={{ fontSize: 10.5, color: "var(--txt-3)" }}>
+                    {[f.year, f.episodes ? `${f.episodes} EP` : null]
+                      .filter(Boolean)
+                      .join(" · ") || "MOVIE"}
+                  </span>
+                </div>
+                {rowActive && (
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} style={{ marginLeft: "auto" }}>
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                )}
+              </button>
             );
           })}
         </div>

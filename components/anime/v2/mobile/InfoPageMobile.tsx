@@ -40,6 +40,7 @@ import { translateTag } from "@/lib/i18n/animeTags";
 import { hexToCssFilter } from "@/lib/color/hexToCssFilter";
 import { useFanartSrc, onFanartError } from "@/lib/images/fanartFallback";
 import type { SeasonEntry } from "@/lib/anilist/seasonChain";
+import type { FilmVariant } from "@/lib/anilist/resolveSeason";
 import CharactersTab from "../CharactersTab";
 import Episodes from "../Episodes";
 import Artworks from "../Artworks";
@@ -54,6 +55,7 @@ type Props = {
   initialTitleImage: TitleImage | null;
   seasonInfo: SeasonInfo;
   seasonList: SeasonEntry[];
+  bonusFilms?: FilmVariant[];
   statusLabel: string | null;
   statusResolved?: boolean;
   fav: boolean;
@@ -71,6 +73,7 @@ export default function InfoPageMobile({
   initialTitleImage,
   seasonInfo,
   seasonList,
+  bonusFilms,
   statusLabel,
   statusResolved = true,
   fav,
@@ -127,6 +130,7 @@ export default function InfoPageMobile({
               info={info}
               progress={progress}
               seasonList={seasonList}
+              bonusFilms={bonusFilms}
             />
           </div>
         )}

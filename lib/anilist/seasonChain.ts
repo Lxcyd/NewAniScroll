@@ -1,5 +1,11 @@
 import { getMediaMeta } from "./getMediaMeta";
-import { resolveSeasonNumber, resolveFranchiseSeasons, findFilmVariants } from "./resolveSeason";
+import {
+  resolveSeasonNumber,
+  resolveFranchiseSeasons,
+  resolveFranchiseBonusFilms,
+  findFilmVariants,
+  type FilmVariant,
+} from "./resolveSeason";
 import { redis } from "@/lib/redis";
 import {
   computeSeasonInfo,
@@ -276,6 +282,25 @@ export async function resolveSeasonList(
   // Cache even empty arrays — an anime with no season siblings is a
   // stable fact; recomputing it every page render wastes the walk.
   await redisSetJson(REDIS_KEY_LIST(startId), result);
+  return result;
+}
+
+/* Franchise BONUS films (HxH: Phantom Rouge, The Last Mission) for the separate
+   "Films" dropdown. Shares buildFranchise() with the season resolver, so it's
+   cheap on top of the season list (same getMediaMeta cache). Cached alongside
+   the list — an empty array (no bonus films: Demon Slayer, Chainsaw Man) is a
+   stable fact and hides the second dropdown. */
+const REDIS_KEY_FILMS = (id: number) => `bonusFilms:v1:${id}`;
+export async function resolveBonusFilms(startId: number): Promise<FilmVariant[]> {
+  const cached = await redisGetJson<FilmVariant[]>(REDIS_KEY_FILMS(startId));
+  if (cached) return cached;
+  let result: FilmVariant[];
+  try {
+    result = await resolveFranchiseBonusFilms(startId);
+  } catch {
+    result = [];
+  }
+  await redisSetJson(REDIS_KEY_FILMS(startId), result);
   return result;
 }
 

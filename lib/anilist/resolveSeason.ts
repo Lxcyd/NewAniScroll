@@ -109,15 +109,19 @@ function numberByChronology(
   ordered: SeasonNode[],
   startId: number
 ): { number: number | null; total: number | null } {
-  const compilationFilmIds = new Set<number>();
+  // Exclude the same films the season LIST excludes so the season NUMBER badge
+  // can't disagree with it: compilation variants (Mugen Train) AND bonus/
+  // SIDE_STORY films (HxH: Phantom Rouge). Must mirror resolveFranchiseSeasons.
+  const excludedFilmIds = new Set<number>();
   for (const m of ordered) {
-    for (const v of findFilmVariants(m) ?? []) compilationFilmIds.add(v.id);
+    for (const v of findFilmVariants(m) ?? []) excludedFilmIds.add(v.id);
   }
+  for (const f of findBonusFilms(ordered)) excludedFilmIds.add(f.id);
   const seasons = ordered
     .filter(
       (m) =>
         !isRecapTitle(m) &&
-        !compilationFilmIds.has(Number(m.id)) &&
+        !excludedFilmIds.has(Number(m.id)) &&
         (isSeasonLike(m) || (m as any)?.format === "MOVIE") &&
         (!(m as any)?.type || (m as any).type === "ANIME")
     )
@@ -368,6 +372,51 @@ export interface FilmVariant {
   index?: number | null;
 }
 
+/** Franchise-level BONUS films — original side films that are NOT a season and
+ *  NOT a re-cut of one (so not a dual-format variant either). AniList links them
+ *  to the main series as SIDE_STORY MOVIE edges (Hunter × Hunter: Phantom Rouge,
+ *  The Last Mission). We collect them across every franchise node, dedupe, and
+ *  order chronologically so the UI can offer a SEPARATE "Films" dropdown.
+ *
+ *  Deliberately NOT SEQUEL (a sequel film is new canonical content = its own
+ *  season, e.g. Chainsaw Man: Reze-hen) and NOT COMPILATION/ALTERNATIVE/PARENT
+ *  (those are dual-format re-cuts, handled by findFilmVariants). Returns [] when
+ *  none — callers spread it, so an empty array is the natural "no films" signal. */
+export function findBonusFilms(nodes: any[]): FilmVariant[] {
+  const seen = new Set<number>();
+  const films: any[] = [];
+  for (const m of nodes) {
+    const franchiseTitle = m?.title;
+    for (const e of m?.relations?.edges || []) {
+      if (
+        e.relationType === "SIDE_STORY" &&
+        e.node?.type === "ANIME" &&
+        e.node?.format === "MOVIE" &&
+        sharesFranchise(franchiseTitle, e.node?.title)
+      ) {
+        const id = Number(e.node.id);
+        if (seen.has(id)) continue;
+        seen.add(id);
+        films.push(e.node);
+      }
+    }
+  }
+  films.sort(
+    (a, b) =>
+      (a.seasonYear ?? a.startDate?.year ?? Infinity) -
+      (b.seasonYear ?? b.startDate?.year ?? Infinity)
+  );
+  const multiple = films.length > 1;
+  return films.map((n, i) => ({
+    id: Number(n.id),
+    format: "MOVIE",
+    label: n.title?.english || n.title?.romaji || null,
+    year: n.seasonYear ?? n.startDate?.year ?? null,
+    episodes: n.episodes ?? null,
+    index: multiple ? i + 1 : null,
+  }));
+}
+
 export interface FranchiseSeasonEntry {
   id: number;
   idMal: number | null;
@@ -458,20 +507,26 @@ export async function resolveFranchiseSeasons(
 
   // A chained sequel FILM (Chainsaw Man: Reze-hen) is new content that follows
   // a TV season — treat it as a full SEASON of its own (S2), numbered in the
-  // chronology. Neither AniList nor Fribb distinguishes it from a compilation
-  // film reliably, so we don't try: the only films we DON'T count as seasons
-  // are compilation variants (same content re-cut, matched via findFilmVariants
-  // = COMPILATION/ALTERNATIVE/PARENT), which stay attached as format variants.
-  const compilationFilmIds = new Set<number>();
+  // chronology. The films we DON'T count as seasons are:
+  //   • compilation variants (same content re-cut — Demon Slayer's Mugen Train,
+  //     matched via findFilmVariants = COMPILATION/ALTERNATIVE/PARENT), which
+  //     stay attached to their season as a dual-format option; and
+  //   • BONUS / SIDE_STORY films (HxH: Phantom Rouge, The Last Mission — an
+  //     original side film, not a season), which are surfaced in a SEPARATE
+  //     "Films" dropdown instead. The distinguishing signal is the relationType:
+  //     SEQUEL → real season; SIDE_STORY → bonus film. Reze is a SEQUEL so it
+  //     stays S2; Phantom Rouge is a SIDE_STORY so it drops out of the count.
+  const excludedFilmIds = new Set<number>();
   for (const m of ordered) {
-    for (const v of findFilmVariants(m) ?? []) compilationFilmIds.add(v.id);
+    for (const v of findFilmVariants(m) ?? []) excludedFilmIds.add(v.id);
   }
+  for (const f of findBonusFilms(ordered)) excludedFilmIds.add(f.id);
 
   const seasonLike = ordered
     .filter(
       (m) =>
         !isRecapTitle(m) &&
-        !compilationFilmIds.has(Number(m.id)) &&
+        !excludedFilmIds.has(Number(m.id)) &&
         (isSeasonLike(m) || m?.format === "MOVIE") &&
         (!m?.type || m.type === "ANIME")
     )
@@ -490,6 +545,34 @@ export async function resolveFranchiseSeasons(
     const part = partMatch ? ` Part ${partMatch[1].toUpperCase()}` : "";
     return toSeasonEntry(m, running, `Season ${running}${part}`);
   });
+}
+
+/**
+ * Franchise BONUS films for the separate "Films" dropdown (Hunter × Hunter:
+ * Phantom Rouge + The Last Mission). Uses the SAME buildFranchise() as the
+ * season resolver so the film list is canonical and franchise-restricted (a
+ * remake's side films don't bleed in). Returns [] when the franchise has no
+ * bonus films — the UI hides the second dropdown in that case (Demon Slayer,
+ * Chainsaw Man). These are the SIDE_STORY movies excluded from season numbering.
+ */
+export async function resolveFranchiseBonusFilms(
+  startId: number
+): Promise<FilmVariant[]> {
+  const cache = new Map<number, any>();
+  const load = async (id: number): Promise<any | null> => {
+    if (cache.has(id)) return cache.get(id);
+    const m = await getMediaMeta(id);
+    if (m) cache.set(id, m);
+    return m;
+  };
+  const start = await load(startId);
+  if (!start) return [];
+  const fribbSelf = await getFribbEntry(startId);
+  const { ordered } = await buildFranchise(startId, fribbSelf, load);
+  // Meta-franchise: the "season list" collapses to the lone entry, but its own
+  // side films are still worth surfacing.
+  const nodes = (await isMetaFranchise(ordered)) ? [start] : ordered;
+  return findBonusFilms(nodes);
 }
 
 /** Build one SeasonEntry from a media node. `label` defaults to "Season N";
