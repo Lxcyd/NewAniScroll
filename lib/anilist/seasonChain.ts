@@ -56,7 +56,10 @@ const REDIS_KEY_CHAIN = (id: number) => `seasonChain:v5:${id}`;
 // v10: SIDE_STORY bonus films (HxH: Phantom Rouge, The Last Mission) are pulled
 //      out of the season list into the separate Films dropdown. Bumped to evict
 //      pre-fix cached lists that still numbered them as seasons.
-const REDIS_KEY_LIST = (id: number) => `seasonList:v10:${id}`;
+// v11: SUMMARY recap films now attach as dual-format variants of their season
+//      (Attack on Titan: The Roar of Awakening → S2); multi-season digests
+//      (~Chronicle~) route to the bonus-films dropdown. Changes season variants.
+const REDIS_KEY_LIST = (id: number) => `seasonList:v11:${id}`;
 const TTL_SECONDS = 7 * 24 * 60 * 60;
 
 async function redisGetJson<T>(key: string): Promise<T | null> {
@@ -298,7 +301,9 @@ export async function resolveSeasonList(
    stable fact and hides the second dropdown. */
 // v2: FilmVariant enriched with duration / averageScore / coverImage for the
 //     richer Films dropdown rows (cover + runtime).
-const REDIS_KEY_FILMS = (id: number) => `bonusFilms:v2:${id}`;
+// v3: multi-season SUMMARY digests (Attack on Titan ~Chronicle~) now join the
+//     bonus-films list alongside SIDE_STORY films.
+const REDIS_KEY_FILMS = (id: number) => `bonusFilms:v3:${id}`;
 export async function resolveBonusFilms(startId: number): Promise<FilmVariant[]> {
   const cached = await redisGetJson<FilmVariant[]>(REDIS_KEY_FILMS(startId));
   if (cached) return cached;

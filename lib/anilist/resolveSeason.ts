@@ -327,15 +327,26 @@ export async function resolveSeasonNumber(
  *  and numbered (1-based) when a season has >1 film → "Film 1" / "Film 2".
  *  Returns null when none (undefined breaks SSR serialization). Kept here (not
  *  seasonChain.ts) to avoid an import cycle. */
-export function findFilmVariants(media: any): FilmVariant[] | null {
+export function findFilmVariants(
+  media: any,
+  excludeIds?: Set<number>
+): FilmVariant[] | null {
   const edges = media?.relations?.edges || [];
   const seen = new Set<number>();
   const films = edges
     .filter(
       (e: any) =>
+        !(excludeIds && excludeIds.has(Number(e.node?.id))) &&
+        // SUMMARY = an AniList recap-film edge (Attack on Titan: The Roar of
+        // Awakening recaps S2). It's the same content as the season re-cut into a
+        // film — exactly a dual-format variant — but was previously matched by no
+        // helper, so recap films silently vanished. A whole-franchise digest
+        // (~Chronicle~, SUMMARY of 4 seasons) is filtered out downstream by the
+        // multi-season guard in resolveFranchiseSeasons and shown as a bonus film.
         (e.relationType === "COMPILATION" ||
           e.relationType === "ALTERNATIVE" ||
-          e.relationType === "PARENT") &&
+          e.relationType === "PARENT" ||
+          e.relationType === "SUMMARY") &&
         e.node?.type === "ANIME" &&
         e.node?.format === "MOVIE" &&
         sharesFranchise(media?.title, e.node?.title)
@@ -424,6 +435,59 @@ export function findBonusFilms(nodes: any[]): FilmVariant[] {
     // coverImage rides along on the relation node (fullMediaQuery selects it);
     // duration/year/score are NOT on the edge — resolveFranchiseBonusFilms
     // enriches those from each film's own meta.
+    coverImage: n.coverImage
+      ? { extraLarge: n.coverImage.extraLarge ?? null, large: n.coverImage.large ?? null }
+      : null,
+  }));
+}
+
+/** Whole-franchise digest films: a recap MOVIE that AniList links (SUMMARY /
+ *  COMPILATION) to MORE THAN ONE season of the franchise (Attack on Titan
+ *  ~Chronicle~ recaps S1..S3P2). Attaching it to every season would clutter each
+ *  season's Films toggle, so it belongs in the separate bonus-films dropdown.
+ *  We count, across all franchise nodes, how many DISTINCT season nodes reference
+ *  each recap film; those referenced by ≥2 are digests. */
+export function findMultiSeasonDigestFilms(nodes: any[]): FilmVariant[] {
+  const refCount = new Map<number, number>();
+  const nodeById = new Map<number, any>();
+  const RECAP_TYPES = new Set(["SUMMARY", "COMPILATION"]);
+  for (const m of nodes) {
+    // Only genuine TV seasons count as "referencing" nodes (not the films
+    // themselves), so a film's own back-edges don't inflate the count.
+    if (!isSeasonLike(m)) continue;
+    const franchiseTitle = m?.title;
+    const seenHere = new Set<number>();
+    for (const e of m?.relations?.edges || []) {
+      if (
+        RECAP_TYPES.has(e.relationType) &&
+        e.node?.type === "ANIME" &&
+        e.node?.format === "MOVIE" &&
+        sharesFranchise(franchiseTitle, e.node?.title)
+      ) {
+        const id = Number(e.node.id);
+        if (seenHere.has(id)) continue;
+        seenHere.add(id);
+        refCount.set(id, (refCount.get(id) ?? 0) + 1);
+        nodeById.set(id, e.node);
+      }
+    }
+  }
+  const digests = Array.from(refCount.entries())
+    .filter(([, n]) => n >= 2)
+    .map(([id]) => nodeById.get(id))
+    .sort(
+      (a, b) =>
+        (a.seasonYear ?? a.startDate?.year ?? Infinity) -
+        (b.seasonYear ?? b.startDate?.year ?? Infinity)
+    );
+  const multiple = digests.length > 1;
+  return digests.map((n, i) => ({
+    id: Number(n.id),
+    format: "MOVIE",
+    label: n.title?.english || n.title?.romaji || null,
+    year: n.seasonYear ?? n.startDate?.year ?? null,
+    episodes: n.episodes ?? null,
+    index: multiple ? i + 1 : null,
     coverImage: n.coverImage
       ? { extraLarge: n.coverImage.extraLarge ?? null, large: n.coverImage.large ?? null }
       : null,
@@ -546,6 +610,22 @@ export async function resolveFranchiseSeasons(
     .sort((a, b) => (yearOf(a) ?? Infinity) - (yearOf(b) ?? Infinity));
   if (seasonLike.length === 0) return [];
 
+  // A recap film that variants MULTIPLE seasons (Attack on Titan ~Chronicle~ is
+  // a SUMMARY of S1..S3P2) is a whole-franchise digest, not a variant of one
+  // season — attaching it to every season would clutter each dropdown. Detect
+  // those (appear as a variant on ≥2 seasons) and drop them from the per-season
+  // variants; they surface in the bonus-films dropdown instead.
+  const variantSeasonCount = new Map<number, number>();
+  for (const m of seasonLike) {
+    for (const v of findFilmVariants(m) ?? []) {
+      variantSeasonCount.set(v.id, (variantSeasonCount.get(v.id) ?? 0) + 1);
+    }
+  }
+  const multiSeasonFilmIds = new Set<number>();
+  variantSeasonCount.forEach((n, id) => {
+    if (n >= 2) multiSeasonFilmIds.add(id);
+  });
+
   let running = 0;
   return seasonLike.map((m: any) => {
     const fromTitle = extractSeasonFromTitle(m.title);
@@ -556,7 +636,7 @@ export async function resolveFranchiseSeasons(
       /\b(?:Part|Cour)\s+(\d+|[IVX]+)\b/i
     );
     const part = partMatch ? ` Part ${partMatch[1].toUpperCase()}` : "";
-    return toSeasonEntry(m, running, `Season ${running}${part}`);
+    return toSeasonEntry(m, running, `Season ${running}${part}`, multiSeasonFilmIds);
   });
 }
 
@@ -585,7 +665,12 @@ export async function resolveFranchiseBonusFilms(
   // Meta-franchise: the "season list" collapses to the lone entry, but its own
   // side films are still worth surfacing.
   const nodes = (await isMetaFranchise(ordered)) ? [start] : ordered;
-  const films = findBonusFilms(nodes);
+  const merged = findBonusFilms(nodes).concat(findMultiSeasonDigestFilms(nodes));
+  const byId = new Map<number, FilmVariant>();
+  for (const f of merged) if (!byId.has(f.id)) byId.set(f.id, f);
+  const films = Array.from(byId.values()).sort(
+    (a, b) => (a.year ?? Infinity) - (b.year ?? Infinity)
+  );
 
   // Enrich each film with the fields the relation edge doesn't carry (duration,
   // air year, score) so the dropdown can show a rich row. Films are few (1-3)
@@ -616,7 +701,8 @@ export async function resolveFranchiseBonusFilms(
 function toSeasonEntry(
   m: any,
   number: number,
-  label?: string
+  label?: string,
+  excludeFilmIds?: Set<number>
 ): FranchiseSeasonEntry {
   return {
     id: Number(m.id),
@@ -631,6 +717,6 @@ function toSeasonEntry(
     status: m.status ?? null,
     title: m.title || null,
     coverImage: m.coverImage || null,
-    variants: findFilmVariants(m),
+    variants: findFilmVariants(m, excludeFilmIds),
   };
 }
