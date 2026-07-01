@@ -35,7 +35,10 @@ import {
 // v3: meta-franchise guard — Gundam &co report {number:1,total:1} so the Hero
 //     drops the "· S<n>" badge (was numbering unrelated works in one universe).
 // v4: chained sequel films count as seasons (mirrors seasonList v9).
-const REDIS_KEY_CHAIN = (id: number) => `seasonChain:v4:${id}`;
+// v5: SIDE_STORY bonus films (HxH: Phantom Rouge) are excluded from season
+//     numbering, so the "· S<n>" badge no longer over-counts them. Bumped to
+//     drop pre-fix cached numbers (Phantom Rouge was cached as S2).
+const REDIS_KEY_CHAIN = (id: number) => `seasonChain:v5:${id}`;
 // v3: SeasonEntry gained `idMal` (feeds Jikan per-episode score lookups).
 // v4: numbering now uses a running counter so split-cours + unnumbered
 //     "Final Season" entries get the right S<n> (AoT Final Season = S4, not S5).
@@ -50,7 +53,10 @@ const REDIS_KEY_CHAIN = (id: number) => `seasonChain:v4:${id}`;
 //     standalone, no misleading "Season 1..N").
 // v9: a chained sequel FILM now counts as a season (Chainsaw Man Reze = S2);
 //     only compilation-film variants stay attached as format variants.
-const REDIS_KEY_LIST = (id: number) => `seasonList:v9:${id}`;
+// v10: SIDE_STORY bonus films (HxH: Phantom Rouge, The Last Mission) are pulled
+//      out of the season list into the separate Films dropdown. Bumped to evict
+//      pre-fix cached lists that still numbered them as seasons.
+const REDIS_KEY_LIST = (id: number) => `seasonList:v10:${id}`;
 const TTL_SECONDS = 7 * 24 * 60 * 60;
 
 async function redisGetJson<T>(key: string): Promise<T | null> {
