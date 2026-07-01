@@ -534,16 +534,19 @@ export function useWatchParty(
         authParams.guestName = g.guestName;
       }
 
-      client = new AblyRealtime({
+      // Local non-null handles for use in this scope; the outer `client` /
+      // `channel` (nullable, captured by the cleanup closure) mirror them.
+      const rt: Realtime = new AblyRealtime({
         authUrl: "/api/v2/watch2gether/ably-token",
         authMethod: "GET",
         authParams,
         // We drive (re)sync via join() on connect; Ably handles reconnection.
         closeOnUnload: true,
       });
-      ablyRef.current = client;
+      client = rt;
+      ablyRef.current = rt;
 
-      client.connection.on("connected", () => {
+      rt.connection.on("connected", () => {
         retryCountRef.current = 0;
         setIsConnected(true);
         setConnectionState("connected");
@@ -556,12 +559,13 @@ export function useWatchParty(
         retryCountRef.current += 1;
         setConnectionState(retryCountRef.current >= 3 ? "poor" : "reconnecting");
       };
-      client.connection.on("disconnected", onDrop);
-      client.connection.on("suspended", onDrop);
+      rt.connection.on("disconnected", onDrop);
+      rt.connection.on("suspended", onDrop);
 
-      channel = client.channels.get(`w2g:channel:${roomId}`);
-      channelRef.current = channel;
-      channel.subscribe("event", (msg) => {
+      const ch: RealtimeChannel = rt.channels.get(`w2g:channel:${roomId}`);
+      channel = ch;
+      channelRef.current = ch;
+      ch.subscribe("event", (msg) => {
         try {
           dispatch(
             (typeof msg.data === "string" ? JSON.parse(msg.data) : msg.data) as PartyEvent,
