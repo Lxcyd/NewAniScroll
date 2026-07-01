@@ -1,0 +1,54 @@
+# Refresh the Fribb/anime-lists mapping into the `fribb_map` Turso table.
+#
+# Runs scripts/refresh-fribb.mjs which downloads Fribb's anime-list-mini.json
+# and upserts the AniList↔MAL↔TMDB↔TVDB mapping (incl. season.tmdb) used by the
+# season resolver to separate remakes/originals by TMDB fiche. The script stores
+# the upstream ETag in scrape_state and short-circuits on 304, so a frequent
+# schedule is cheap.
+#
+# Schedule: weekly (Fribb pushes near-daily but season NUMBERS rarely change).
+# Also workflow_dispatch so we can trigger it manually right after deploying the
+# season-mapping fix to populate the table immediately.
+#
+# Secrets required (Repository → Settings → Secrets and variables → Actions):
+#   TURSO_DATABASE_URL   → the aniscroll-cache database
+#   TURSO_AUTH_TOKEN
+
+name: refresh-fribb
+
+on:
+  schedule:
+    - cron: "0 4 * * 1" # 04:00 UTC every Monday
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Ignore the stored ETag and always re-ingest"
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install only what the script needs
+        # Same minimal install as refresh-cache.yml: the script only uses
+        # @libsql/client (prod dep) and dotenv (dev-only, for local .env.local).
+        run: npm install --no-save @libsql/client@^0.17 dotenv@^17
+
+      - name: Run refresh
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN:   ${{ secrets.TURSO_AUTH_TOKEN }}
+        run: |
+          node scripts/refresh-fribb.mjs \
+            ${{ inputs.force == true && '--force' || '' }}
