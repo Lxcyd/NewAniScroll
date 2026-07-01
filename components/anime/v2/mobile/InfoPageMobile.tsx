@@ -232,11 +232,11 @@ function MHero({
           style={{
             position: "absolute",
             inset: 0,
-            // Strong, tall banner-to-page fade (matches the desktop Hero): the
-            // image darkens from the top and melts fully into the page
-            // background in the lower half rather than being clipped by a band.
+            // Long, soft banner-to-page fade (matches the desktop Hero): no
+            // hard edge — the image dissolves smoothly all the way into the page
+            // background, resolving to bg at the very bottom.
             background:
-              "linear-gradient(180deg, rgba(10,11,16,0.25) 0%, rgba(10,11,16,0.4) 25%, rgba(10,11,16,0.6) 45%, rgba(10,11,16,0.8) 62%, rgba(10,11,16,0.94) 78%, #0a0b10 92%, #0a0b10 100%)",
+              "linear-gradient(180deg, rgba(10,11,16,0) 0%, rgba(10,11,16,0.06) 22%, rgba(10,11,16,0.16) 40%, rgba(10,11,16,0.34) 56%, rgba(10,11,16,0.58) 70%, rgba(10,11,16,0.82) 84%, #0a0b10 100%)",
           }}
         />
         <div

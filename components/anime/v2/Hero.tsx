@@ -772,7 +772,8 @@ const hStyles: Record<string, CSSProperties> = {
     width: "calc(100% + 2px)",
     marginLeft: -1,
     marginRight: -1,
-    borderBottom: "1px solid var(--line)",
+    // No border-bottom: the banner fade already resolves to var(--bg-0), so a
+    // 1px line here just reintroduces the hard seam we're trying to avoid.
   },
   banner: {
     position: "relative",
@@ -791,14 +792,12 @@ const hStyles: Record<string, CSSProperties> = {
   bannerFade: {
     position: "absolute",
     inset: 0,
-    /* Banner-to-page fade — a strong, tall dissolve into the page background
-       (matches the offanime reference: the image is already noticeably darkened
-       by mid-height and reaches full black in the lower half). We start the
-       darkening right at the top and ramp up steadily so the picture melts into
-       bg-0 rather than getting clipped by a thin band. Many stops keep the curve
-       smooth (no banding). */
+    /* Banner-to-page fade — long and soft, NO hard edge. The image may stay
+       fairly clear up top; the point is that it dissolves smoothly all the way
+       into the page background with no visible seam. Steady ramp, many stops to
+       avoid banding, resolving to exactly bg-0 at the very bottom. */
     background:
-      "linear-gradient(180deg, rgba(12,13,16,0.25) 0%, rgba(12,13,16,0.4) 25%, rgba(12,13,16,0.6) 45%, rgba(12,13,16,0.8) 62%, rgba(12,13,16,0.94) 78%, var(--bg-0) 92%, var(--bg-0) 100%)",
+      "linear-gradient(180deg, rgba(12,13,16,0) 0%, rgba(12,13,16,0.06) 22%, rgba(12,13,16,0.16) 40%, rgba(12,13,16,0.34) 56%, rgba(12,13,16,0.58) 70%, rgba(12,13,16,0.82) 84%, var(--bg-0) 100%)",
   },
   seasonPill: {
     position: "absolute",
