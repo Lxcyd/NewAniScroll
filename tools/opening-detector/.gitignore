@@ -1,0 +1,17 @@
+# Fingerprint + audio caches — derived data, never commit.
+cache/
+*.fp.npz
+*.wav
+
+# Downloaded/extracted audio (real-episode adapter).
+media/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# PoC outputs
+out/
+*.json.tmp
