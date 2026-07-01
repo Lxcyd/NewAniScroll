@@ -100,17 +100,5 @@
     "additionalDirectories": [
       "c:\\Users\\lucde\\Documents\\CoorenLabs"
     ]
-  },
-  "hooks": {
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "echo '{\"systemMessage\":\"\\u26a0\\ufe0f DEVLOG: si tu as fait un changement de code notable cette session, mets a jour DEVLOG.md (decisions + pieges) et pousse-le sur dev avant de conclure.\"}'"
-          }
-        ]
-      }
-    ]
   }
 }

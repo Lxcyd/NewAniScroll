@@ -44,12 +44,27 @@ export interface PlayerMapRow {
   confidence: number | null;    // slugTitleConfidence at write time (0..1)
   failCount: number;            // consecutive failures / user reports
   note: string | null;          // classifier verdict or demotion reason
+  algoVersion: number;          // season-resolution algo version at write time
   checkedAt: number;            // epoch seconds
   expiresAt: number;            // re-verification deadline (epoch seconds)
 }
 
 const HOUR = 3600;
 const DAY = 86400;
+
+/**
+ * Season-resolution algorithm version. Bumped when the season-numbering /
+ * panel-selection logic changes in a way that could invalidate previously
+ * written HEURISTIC mappings (which encode a season→slug guess). A heuristic
+ * row written under an older version is ignored on read (forcing a fresh
+ * resolution) rather than trusted. `verified` rows — checked by
+ * scripts/verify-player-map.mjs — are always honoured regardless of version.
+ *
+ * v2: multi-signal season resolver (Fribb + air-year guards) replaced the pure
+ *     PREQUEL/SEQUEL walk, which mis-picked panels for remakes / mislabeled
+ *     franchises (SNK "wrong episode" class).
+ */
+export const SEASON_ALGO_VERSION = 2;
 
 /**
  * Re-verification TTL. RELEASING anime gain episodes/seasons, so their rows go
@@ -105,6 +120,7 @@ function rowFromDb(r: any): PlayerMapRow {
     confidence: r.confidence == null ? null : Number(r.confidence),
     failCount: Number(r.fail_count ?? 0),
     note: r.note ?? null,
+    algoVersion: Number(r.algo_version ?? 0),
     checkedAt: Number(r.checked_at),
     expiresAt: Number(r.expires_at),
   };
@@ -116,6 +132,26 @@ function rowFromDb(r: any): PlayerMapRow {
 const memo = new Map<string, { t: number; rows: PlayerMapRow[] }>();
 const MEMO_TTL_MS = 5 * 60 * 1000;
 const memoKey = (aniId: number) => String(aniId);
+
+/* Defensive migration: `algo_version` was added after the table shipped, so an
+   existing deployment's player_map won't have the column and the upsert (which
+   references it) would fail. Add it once per process; ignore the "duplicate
+   column" error when it already exists. Reads tolerate its absence via
+   rowFromDb's `?? 0` default. */
+let algoColEnsured = false;
+async function ensureAlgoVersionColumn(): Promise<void> {
+  if (algoColEnsured) return;
+  const db = getTursoClient();
+  if (!db) return;
+  try {
+    await db.execute(
+      "ALTER TABLE player_map ADD COLUMN algo_version INTEGER NOT NULL DEFAULT 0"
+    );
+  } catch {
+    /* already exists (or table missing) — either way, nothing to do */
+  }
+  algoColEnsured = true;
+}
 
 /** All map rows for one anime (covers both sources × both langs in one read). */
 export async function getPlayerMap(aniId: number): Promise<PlayerMapRow[]> {
@@ -146,7 +182,16 @@ export async function getPlayerMapEntry(
   lang: PlayerLang,
 ): Promise<PlayerMapRow | null> {
   const rows = await getPlayerMap(aniId);
-  return rows.find((r) => r.source === source && r.lang === lang) ?? null;
+  const row = rows.find((r) => r.source === source && r.lang === lang) ?? null;
+  if (!row) return null;
+  // Ignore a HEURISTIC row written under an older season-resolution algorithm:
+  // its season→slug guess may be wrong under the new numbering. Returning null
+  // forces the resolver to recompute (and rewrite it at the current version).
+  // verified/broken/absent are human/verifier-owned states — always honoured.
+  if (row.status === "heuristic" && row.algoVersion < SEASON_ALGO_VERSION) {
+    return null;
+  }
+  return row;
 }
 
 export interface UpsertPlayerMapInput {
@@ -168,14 +213,16 @@ export interface UpsertPlayerMapInput {
 export async function upsertPlayerMap(input: UpsertPlayerMapInput): Promise<void> {
   const db = getTursoClient();
   if (!db) return;
+  await ensureAlgoVersionColumn();
   const now = Math.floor(Date.now() / 1000);
   const expiresAt = now + playerMapTtl(input.status, input.animeStatus);
   try {
     await db.execute({
       sql: `INSERT INTO player_map
               (ani_id, source, lang, status, slug, season_dir, ep_offset,
-               episode_count, confidence, fail_count, note, checked_at, expires_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               episode_count, confidence, fail_count, note, algo_version,
+               checked_at, expires_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(ani_id, source, lang) DO UPDATE SET
               status        = excluded.status,
               slug          = excluded.slug,
@@ -185,6 +232,7 @@ export async function upsertPlayerMap(input: UpsertPlayerMapInput): Promise<void
               confidence    = excluded.confidence,
               fail_count    = excluded.fail_count,
               note          = excluded.note,
+              algo_version  = excluded.algo_version,
               checked_at    = excluded.checked_at,
               expires_at    = excluded.expires_at`,
       args: [
@@ -199,6 +247,7 @@ export async function upsertPlayerMap(input: UpsertPlayerMapInput): Promise<void
         input.confidence ?? null,
         input.failCount ?? 0,
         input.note ?? null,
+        SEASON_ALGO_VERSION,
         now,
         expiresAt,
       ],

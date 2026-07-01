@@ -67,4 +67,4 @@ Invoke-Wrangler @("deploy")
 Write-Host ""
 Write-Host "Terminé. Note l'id KV ci-dessous pour les variables Vercel (partie 3) :" -ForegroundColor Green
 Write-Host "    CF_KV_NAMESPACE_ID = $kvId"
-Write-Host "    (CF_ACCOUNT_ID = visible dans le dashboard Cloudflare ; CF_KV_API_TOKEN = à générer, voir DEPLOY_CPU_OFFLOAD.md partie 3)"
+Write-Host "    (CF_ACCOUNT_ID = visible dans le dashboard Cloudflare ; CF_KV_API_TOKEN = à générer dans le dashboard Cloudflare > My Profile > API Tokens)"

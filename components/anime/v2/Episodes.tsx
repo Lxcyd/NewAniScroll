@@ -392,7 +392,13 @@ function SeasonPicker({
   const seasonTitlePref = useTitlePref();
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
-  const hasMany = seasonList.length > 1;
+  // Show the picker when there are multiple seasons OR any season also offers a
+  // film variant (dual-format: even a single season becomes two menu rows).
+  const filmVariantCount = seasonList.reduce(
+    (n, s) => n + (s.variants?.length ?? 0),
+    0
+  );
+  const hasMany = seasonList.length + filmVariantCount > 1;
   const active =
     seasonList.find((s) => s.id === activeSeasonId) || null;
 
@@ -489,9 +495,10 @@ function SeasonPicker({
           onClick={(e) => e.stopPropagation()}
           style={tStyles.seasonMenu}
         >
-          {seasonList.map((s) => {
+          {seasonList.flatMap((s) => {
             const isActive = s.id === activeSeasonId;
-            return (
+            const hasFilm = (s.variants?.length ?? 0) > 0;
+            const rows = [
               <button
                 key={s.id}
                 type="button"
@@ -506,7 +513,17 @@ function SeasonPicker({
                 }}
               >
                 <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start" }}>
-                  <span style={{ fontSize: 12.5, fontWeight: 600 }}>{s.label}</span>
+                  <span style={{ fontSize: 12.5, fontWeight: 600 }}>
+                    {/* When a film variant exists, disambiguate the TV entry as
+                        "· Episodes" so the two formats read clearly side by side. */}
+                    {s.label}
+                    {hasFilm && (
+                      <span style={{ color: "var(--txt-3)", fontWeight: 500 }}>
+                        {" · "}
+                        {t("anime.formatEpisodes", { defaultValue: "Episodes" })}
+                      </span>
+                    )}
+                  </span>
                   <span style={{ fontSize: 10.5, color: "var(--txt-3)" }}>
                     {s.status === "NOT_YET_RELEASED"
                       ? t("anime.notYetReleased")
@@ -528,8 +545,56 @@ function SeasonPicker({
                     <polyline points="20 6 9 17 4 12" />
                   </svg>
                 )}
-              </button>
-            );
+              </button>,
+            ];
+            // Dual-format: one extra menu row per film variant. Picking it loads
+            // the film's own AniList id, which the source resolver already
+            // handles as a MOVIE (isMovie/filmSeason path).
+            for (const v of s.variants ?? []) {
+              const vActive = v.id === activeSeasonId;
+              rows.push(
+                <button
+                  key={`${s.id}-film-${v.id}`}
+                  type="button"
+                  onClick={() => {
+                    onPick(v.id);
+                    setOpen(false);
+                  }}
+                  style={{
+                    ...tStyles.seasonMenuItem,
+                    background: vActive ? "var(--accent-soft)" : "transparent",
+                    color: vActive ? "var(--accent)" : "var(--txt-0)",
+                  }}
+                >
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start" }}>
+                    <span style={{ fontSize: 12.5, fontWeight: 600 }}>
+                      {s.label}
+                      <span style={{ color: "var(--txt-3)", fontWeight: 500 }}>
+                        {" · "}
+                        {t("anime.formatFilm", { defaultValue: "Film" })}
+                      </span>
+                    </span>
+                    <span style={{ fontSize: 10.5, color: "var(--txt-3)" }}>
+                      {[v.year, "MOVIE"].filter(Boolean).join(" · ")}
+                    </span>
+                  </div>
+                  {vActive && (
+                    <svg
+                      width="13"
+                      height="13"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth={2.5}
+                      style={{ marginLeft: "auto" }}
+                    >
+                      <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                  )}
+                </button>
+              );
+            }
+            return rows;
           })}
         </div>
       )}

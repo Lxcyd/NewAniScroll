@@ -46,6 +46,7 @@ import Artworks from "../Artworks";
 import QueueButton from "../QueueButton";
 import ScoresTab from "../ScoresTab";
 import Related from "../Related";
+import RelationsGraph from "../RelationsGraph";
 
 type Props = {
   info: AniListInfoTypes;
@@ -732,6 +733,7 @@ function MOverview({
 }) {
   const { t, i18n } = useTranslation();
   const [exp, setExp] = useState(false);
+  const [graphOpen, setGraphOpen] = useState(false);
   const description = useTranslatedText(stripHtml(info.description || ""));
   const aired = formatAiredRange(info);
   const premiered = prettySeason(info);
@@ -845,8 +847,35 @@ function MOverview({
       {(Array.isArray(info.relations?.edges) && info.relations.edges.length > 0) ||
       (seasonList && seasonList.length > 1) ? (
         <section style={{ marginLeft: -16, marginRight: -16 }}>
-          <div style={{ ...S.kicker, paddingLeft: 16, paddingRight: 16 }}>
-            RELATIONS
+          <div
+            style={{
+              ...S.kicker,
+              paddingLeft: 16,
+              paddingRight: 16,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+            }}
+          >
+            <span>RELATIONS</span>
+            <button
+              type="button"
+              onClick={() => setGraphOpen(true)}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 5,
+                padding: "4px 9px",
+                fontSize: 11,
+                fontWeight: 600,
+                color: "var(--txt-2)",
+                background: "var(--bg-2)",
+                border: "1px solid var(--line)",
+                borderRadius: 8,
+              }}
+            >
+              {t("anime.relationsMap", { defaultValue: "View timeline" })}
+            </button>
           </div>
           <div style={{ paddingLeft: 16, paddingRight: 16 }}>
             <Related
@@ -855,6 +884,13 @@ function MOverview({
               currentId={info.id}
             />
           </div>
+          <RelationsGraph
+            open={graphOpen}
+            onClose={() => setGraphOpen(false)}
+            relations={info.relations?.edges || []}
+            seasonList={seasonList}
+            currentId={info.id}
+          />
         </section>
       ) : null}
 

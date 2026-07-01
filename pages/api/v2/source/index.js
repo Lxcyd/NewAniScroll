@@ -3,6 +3,8 @@ import * as cheerio from "cheerio";
 import { getExtractor, extractMegaplay } from "@/lib/extractors";
 import { getMediaMeta, primeMediaCache } from "@/lib/anilist/getMediaMeta";
 import { getPlayerMapEntry, upsertPlayerMap, flagPlayerMap } from "@/lib/db/playerMap";
+import { resolveSeasonNumber } from "@/lib/anilist/resolveSeason";
+import { isRecapTitle } from "@/lib/anilist/seasonDetection";
 
 /* Per-provider trace logger. Off by default â€” set DEBUG_SOURCE=1 in
    .env.local to see the chatty `[anime-sama]` / `[voiranime]` /
@@ -1105,6 +1107,22 @@ async function detectSeasonNumber(aniId, mediaOpts = {}) {
   const cacheKey = String(aniId);
   if (seasonCache.has(cacheKey)) return seasonCache.get(cacheKey);
 
+  // PRIMARY — the multi-signal resolver (Fribb + air-year arbitration +
+  // hardened walk). It's the same source of truth the info page uses, so the
+  // panel picker can't disagree with the displayed season number anymore
+  // (the SNK "wrong episode" class). Only trust a confident answer here; a
+  // `low`/`null` result falls through to the legacy title+walk heuristics
+  // below, which are tuned for anime-sama's panel naming.
+  try {
+    const r = await resolveSeasonNumber(Number(aniId));
+    if (r && r.number != null && r.confidence !== "low") {
+      seasonCache.set(cacheKey, r.number);
+      return r.number;
+    }
+  } catch {
+    /* resolver unavailable → fall back to the local heuristics */
+  }
+
   let currentId = Number(aniId);
   const visited = new Set();
   const titlesOf = (m) =>
@@ -1211,6 +1229,15 @@ async function computeSeasonSizes(aniId, mediaOpts = {}) {
     if (!prequel || !looksLikePreviousSeason(titlesOf(media), titlesOf(prequel.node))) {
       break;
     }
+    // Skip recap/digest prequels from the offset arithmetic: they inflate the
+    // prequel episode sum without occupying slots in the merged panel, which
+    // pushes the computed offset past the real S(n) start and serves the wrong
+    // episode. We still walk THROUGH them (continue the chain) but don't count
+    // their episodes.
+    if (isRecapTitle(prequel.node)) {
+      currentId = prequel.node.id;
+      continue;
+    }
     // Prefer the edge node's count (already fetched); fall back to a full meta
     // lookup if the edge omitted it.
     let prevEps = Number(prequel.node?.episodes);
@@ -1264,8 +1291,16 @@ async function resolveMergedOffset(aniId, episodeIndex, panelLen, ownEps, mediaO
 
   const fullChain = sizes.reduce((a, b) => a + b, 0);
   if (!(fullChain > 0)) return 0;
-  // CERTAINTY TEST: panel == whole franchise from S1 (±1 recap/ONA).
-  if (Math.abs(fullChain + ownEps - panelLen) > 1) return 0;
+  // CERTAINTY TEST: the panel is the franchise concatenated from S1. Exact
+  // match is fullChain + ownEps == panelLen. We tolerate a few EXTRA panel
+  // entries (recaps/ONA specials interleaved on the site that AniList doesn't
+  // count) by accepting a small positive slack — but never a panel SHORTER
+  // than the chain, which would mean the offset runs past the end.
+  //   fullChain <= panelLen              (chain fits before this season)
+  //   panelLen  <= fullChain + ownEps + RECAP_SLACK
+  const RECAP_SLACK = 3;
+  if (fullChain > panelLen) return 0;
+  if (panelLen > fullChain + ownEps + RECAP_SLACK) return 0;
   if (episodeIndex + fullChain >= panelLen) return 0; // would fall off the end
   return fullChain;
 }
