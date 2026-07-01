@@ -1291,16 +1291,30 @@ async function resolveMergedOffset(aniId, episodeIndex, panelLen, ownEps, mediaO
 
   const fullChain = sizes.reduce((a, b) => a + b, 0);
   if (!(fullChain > 0)) return 0;
-  // CERTAINTY TEST: the panel is the franchise concatenated from S1. Exact
-  // match is fullChain + ownEps == panelLen. We tolerate a few EXTRA panel
-  // entries (recaps/ONA specials interleaved on the site that AniList doesn't
-  // count) by accepting a small positive slack — but never a panel SHORTER
-  // than the chain, which would mean the offset runs past the end.
-  //   fullChain <= panelLen              (chain fits before this season)
-  //   panelLen  <= fullChain + ownEps + RECAP_SLACK
+  // ANCHOR TEST: `fullChain` (the summed prequel seasons) is where THIS season
+  // starts *iff* the panel is the franchise concatenated from S1. We accept the
+  // anchor when the panel provably starts at S1 and this season's full window
+  // fits inside it — WITHOUT requiring the panel to END at this season.
+  //
+  // Two shapes both mean "franchise merged from S1", and both are safe:
+  //   • panel ENDS at this season   → panelLen ≈ fullChain + ownEps (the old
+  //     exact test; Fairy Tail-style where AniList sums to the panel).
+  //   • panel CONTINUES past this season → panelLen > fullChain + ownEps, because
+  //     later seasons are concatenated after (Gintama: S1=201 in a 365-ep panel
+  //     that also holds S2'/S3/S4). The old code rejected this as "too long" and
+  //     collapsed S2 onto ep 1 — the bug this fixes.
+  //
+  // Safety, unchanged in spirit — we still refuse any offset we can't anchor:
+  //   1. fullChain > panelLen           → chain doesn't fit before this season
+  //                                        (tokyo-ghoul-re: chain 37 > panel 24).
+  //   2. fullChain + ownEps > panelLen+S → this season's window runs off the end
+  //                                        → the panel isn't the full franchise.
+  //   3. panel barely longer than ownEps → not actually a merged panel (the
+  //                                        prequels aren't in it) → don't offset.
   const RECAP_SLACK = 3;
-  if (fullChain > panelLen) return 0;
-  if (panelLen > fullChain + ownEps + RECAP_SLACK) return 0;
+  if (fullChain > panelLen) return 0;                                   // (1)
+  if (fullChain + ownEps > panelLen + RECAP_SLACK) return 0;            // (2)
+  if (panelLen < fullChain + Math.min(ownEps, 2)) return 0;            // (3)
   if (episodeIndex + fullChain >= panelLen) return 0; // would fall off the end
   return fullChain;
 }
