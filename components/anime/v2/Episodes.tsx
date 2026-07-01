@@ -576,20 +576,13 @@ function SeasonPicker({
           {seasonList.map((s) => {
             const films = s.variants ?? [];
             const grouped = films.length > 0;
-            const isSequelFilm = s.kind === "sequelFilm";
 
-            const seasonSub = isSequelFilm
-              ? [
-                  t("anime.sequelFilm", { defaultValue: "Sequel · Film" }),
-                  s.year,
-                ]
-                  .filter(Boolean)
-                  .join(" · ")
-              : s.status === "NOT_YET_RELEASED"
-              ? t("anime.notYetReleased")
-              : [s.year, s.episodes ? `${s.episodes} EP` : null]
-                  .filter(Boolean)
-                  .join(" · ") || (s.format ?? "");
+            const seasonSub =
+              s.status === "NOT_YET_RELEASED"
+                ? t("anime.notYetReleased")
+                : [s.year, s.episodes ? `${s.episodes} EP` : null]
+                    .filter(Boolean)
+                    .join(" · ") || (s.format ?? "");
 
             // Simple case — no films: one flat row per season.
             if (!grouped) {

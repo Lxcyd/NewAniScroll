@@ -28,7 +28,8 @@ import {
 //     which mis-ordered remakes (Gundam Origin 2019 vs 1979).
 // v3: meta-franchise guard — Gundam &co report {number:1,total:1} so the Hero
 //     drops the "· S<n>" badge (was numbering unrelated works in one universe).
-const REDIS_KEY_CHAIN = (id: number) => `seasonChain:v3:${id}`;
+// v4: chained sequel films count as seasons (mirrors seasonList v9).
+const REDIS_KEY_CHAIN = (id: number) => `seasonChain:v4:${id}`;
 // v3: SeasonEntry gained `idMal` (feeds Jikan per-episode score lookups).
 // v4: numbering now uses a running counter so split-cours + unnumbered
 //     "Final Season" entries get the right S<n> (AoT Final Season = S4, not S5).
@@ -41,7 +42,9 @@ const REDIS_KEY_CHAIN = (id: number) => `seasonChain:v3:${id}`;
 //     plus deduped + numbered film variants.
 // v8: meta-franchise guard (Gundam &co: 8+ tmdb.tv fiches → present the entry
 //     standalone, no misleading "Season 1..N").
-const REDIS_KEY_LIST = (id: number) => `seasonList:v8:${id}`;
+// v9: a chained sequel FILM now counts as a season (Chainsaw Man Reze = S2);
+//     only compilation-film variants stay attached as format variants.
+const REDIS_KEY_LIST = (id: number) => `seasonList:v9:${id}`;
 const TTL_SECONDS = 7 * 24 * 60 * 60;
 
 async function redisGetJson<T>(key: string): Promise<T | null> {
@@ -250,10 +253,6 @@ export type SeasonEntry = {
      *  has more than one compilation film; undefined for a lone film. */
     index?: number | null;
   }> | null;
-  /** Entry kind. "season" (default) = a real TV season. "sequelFilm" = new
-   *  content released only as a film (Chainsaw Man: Reze-hen) — the picker
-   *  renders it as its own "Sequel · Film" row, not a season or format variant. */
-  kind?: "season" | "sequelFilm";
 };
 
 /* Same walk as resolveSeasonChain but returns the ordered list of every
