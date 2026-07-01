@@ -23,6 +23,12 @@ type EpisodeRow = {
 
 type ViewMode = "detailed" | "compact" | "grid";
 
+/* Which source the episode panel is showing. "episodes" = one season id.
+   "films" = one or more MOVIE ids, concatenated into a single numbered list. */
+type ActiveSource =
+  | { kind: "episodes"; id: number }
+  | { kind: "films"; ids: number[]; labels: string[] };
+
 type Props = {
   info: AniListInfoTypes;
   progress: number;
@@ -54,27 +60,97 @@ export default function Episodes({ info, progress, seasonList }: Props) {
   const [view, setView] = useState<ViewMode>("detailed");
   const [filter, setFilter] = useState("");
 
-  /* Active season — defaults to the current anime. Switching just
-     swaps which AniList id we fetch episodes for; the episode list
-     re-renders below. Each entry's `id` IS an AniList anime id, so
-     /api/v2/episode/<id> works without changes. */
-  const [activeSeasonId, setActiveSeasonId] = useState<number>(info.id);
+  /* Active source — defaults to the current anime's episodes. Switching just
+     swaps which AniList id(s) we fetch episodes for; the list re-renders below.
+     Each entry's `id` IS an AniList anime id, so /api/v2/episode/<id> works
+     without changes.
+
+     Dual-format: a season may be watched as EPISODES (one id) or as FILMS
+     (one or more MOVIE ids). In "films" mode we fetch every film id and
+     concatenate the results into one panel — "Film 1", "Film 2", … — so the
+     two movies read as a single continuous watch order. `activeSeasonId` stays
+     the primary id (the first film in films mode) for the child views. */
+  const [source, setSource] = useState<ActiveSource>({
+    kind: "episodes",
+    id: info.id,
+  });
+  const activeSeasonId =
+    source.kind === "episodes" ? source.id : source.ids[0];
 
   useEffect(() => {
-    setActiveSeasonId(info.id);
+    setSource({ kind: "episodes", id: info.id });
   }, [info.id]);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    fetch(
-      `/api/v2/episode/${activeSeasonId}?releasing=${
-        info.status === "RELEASING" && activeSeasonId === info.id
-          ? "true"
-          : "false"
-      }${isDub ? "&dub=true" : ""}`
-    )
+
+    const mapProvider = (payload: any): EpisodeRow[] => {
+      if (!Array.isArray(payload)) return [];
+      const provider =
+        payload.find((p: any) => p?.providerId === "megaplay") || payload[0];
+      return (provider?.episodes || []).map((e: any) => ({
+        number: e.number,
+        id: e.id,
+        title: e.title || `${t("common.episode")} ${e.number}`,
+        duration: info.duration ?? null,
+        img: e.img || null,
+      }));
+    };
+
+    const epUrl = (id: number, releasing: boolean) =>
+      `/api/v2/episode/${id}?releasing=${releasing ? "true" : "false"}${
+        isDub ? "&dub=true" : ""
+      }`;
+
+    if (source.kind === "films") {
+      // Fetch each film, then flatten into one numbered "Film N" list. Every
+      // returned entry of a film keeps its film's label; multi-part films still
+      // group under the same "Film N" heading.
+      Promise.all(
+        source.ids.map((id) =>
+          fetch(epUrl(id, false))
+            .then((r) => r.json())
+            .then(mapProvider)
+            .catch(() => [] as EpisodeRow[])
+        )
+      )
+        .then((perFilm) => {
+          if (cancelled) return;
+          const flat: EpisodeRow[] = [];
+          perFilm.forEach((rows, fi) => {
+            const filmLabel =
+              source.labels[fi] ||
+              t("anime.formatFilmNumbered", {
+                n: fi + 1,
+                defaultValue: `Film ${fi + 1}`,
+              });
+            const multiPart = rows.length > 1;
+            rows.forEach((r, ri) => {
+              flat.push({
+                ...r,
+                number: flat.length + 1,
+                title: multiPart ? `${filmLabel} · ${r.title}` : filmLabel,
+              });
+            });
+          });
+          setEps(flat);
+          setLoading(false);
+        })
+        .catch((e) => {
+          if (cancelled) return;
+          setError(e?.message || "Failed to load films");
+          setLoading(false);
+        });
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const releasing =
+      info.status === "RELEASING" && source.id === info.id;
+    fetch(epUrl(source.id, releasing))
       .then((r) => r.json())
       .then((payload: any) => {
         if (cancelled) return;
@@ -84,16 +160,7 @@ export default function Episodes({ info, progress, seasonList }: Props) {
           setLoading(false);
           return;
         }
-        const provider =
-          payload.find((p) => p?.providerId === "megaplay") || payload[0];
-        const list: EpisodeRow[] = (provider?.episodes || []).map((e: any) => ({
-          number: e.number,
-          id: e.id,
-          title: e.title || `${t("common.episode")} ${e.number}`,
-          duration: info.duration ?? null,
-          img: e.img || null,
-        }));
-        setEps(list);
+        setEps(mapProvider(payload));
         setLoading(false);
       })
       .catch((e) => {
@@ -104,7 +171,7 @@ export default function Episodes({ info, progress, seasonList }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [activeSeasonId, info.id, info.status, info.duration, isDub]);
+  }, [source, info.id, info.status, info.duration, isDub, t]);
 
   const filtered = useMemo(() => {
     if (!eps) return [];
@@ -136,7 +203,8 @@ export default function Episodes({ info, progress, seasonList }: Props) {
           eps={eps}
           seasonList={seasonList || []}
           activeSeasonId={activeSeasonId}
-          onPick={(id) => setActiveSeasonId(id)}
+          activeKind={source.kind}
+          onPickSource={setSource}
         />
 
         {/* Right side: search + sub/dub + view modes */}
@@ -381,13 +449,15 @@ function SeasonPicker({
   eps,
   seasonList,
   activeSeasonId,
-  onPick,
+  activeKind,
+  onPickSource,
 }: {
   info: AniListInfoTypes;
   eps: EpisodeRow[] | null;
   seasonList: SeasonEntry[];
   activeSeasonId: number;
-  onPick: (id: number) => void;
+  activeKind: ActiveSource["kind"];
+  onPickSource: (s: ActiveSource) => void;
 }) {
   const seasonTitlePref = useTitlePref();
   const { t } = useTranslation();
@@ -507,36 +577,34 @@ function SeasonPicker({
             const films = s.variants ?? [];
             const grouped = films.length > 0;
 
-            // A leaf menu row (episodes or a single film). `indent` renders the
-            // grouped sub-rows slightly inset under their season header.
-            const row = (
-              key: string,
-              id: number,
-              title: ReactNode,
-              sub: string,
-              indent: boolean
-            ) => {
-              const rowActive = id === activeSeasonId;
+            const seasonSub =
+              s.status === "NOT_YET_RELEASED"
+                ? t("anime.notYetReleased")
+                : [s.year, s.episodes ? `${s.episodes} EP` : null]
+                    .filter(Boolean)
+                    .join(" · ") || (s.format ?? "");
+
+            // Simple case — no films: one flat row per season.
+            if (!grouped) {
+              const rowActive =
+                activeKind === "episodes" && s.id === activeSeasonId;
               return (
                 <button
-                  key={key}
+                  key={String(s.id)}
                   type="button"
                   onClick={() => {
-                    onPick(id);
+                    onPickSource({ kind: "episodes", id: s.id });
                     setOpen(false);
                   }}
                   style={{
                     ...tStyles.seasonMenuItem,
-                    paddingLeft: indent ? 26 : undefined,
                     background: rowActive ? "var(--accent-soft)" : "transparent",
                     color: rowActive ? "var(--accent)" : "var(--txt-0)",
                   }}
                 >
                   <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start" }}>
-                    <span style={{ fontSize: indent ? 12 : 12.5, fontWeight: indent ? 500 : 600 }}>
-                      {title}
-                    </span>
-                    <span style={{ fontSize: 10.5, color: "var(--txt-3)" }}>{sub}</span>
+                    <span style={{ fontSize: 12.5, fontWeight: 600 }}>{s.label}</span>
+                    <span style={{ fontSize: 10.5, color: "var(--txt-3)" }}>{seasonSub}</span>
                   </div>
                   {rowActive && (
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} style={{ marginLeft: "auto" }}>
@@ -545,47 +613,116 @@ function SeasonPicker({
                   )}
                 </button>
               );
-            };
-
-            const seasonSub =
-              s.status === "NOT_YET_RELEASED"
-                ? t("anime.notYetReleased")
-                : [s.year, s.episodes ? `${s.episodes} EP` : null]
-                    .filter(Boolean)
-                    .join(" · ") || (s.format ?? "");
-
-            // Simple case — no films: one flat row per season (unchanged).
-            if (!grouped) {
-              return row(String(s.id), s.id, s.label, seasonSub, false);
             }
 
-            // Grouped case — the season has one or more films. Render a
-            // non-repeating season header, then indented "Episodes" + "Film N"
-            // sub-rows so all of that season's content reads as one block.
+            // Dual-format — the season can be watched as EPISODES or as FILMS.
+            // Render a season header, then a "Watch in:" block with two radio
+            // options tied by an accent bar. Picking "Films" hands ALL film ids
+            // to the panel, which concatenates them into "Film 1", "Film 2", …
+            const filmIds = films.map((v) => v.id);
+            const filmLabels = films.map((v) =>
+              v.index
+                ? t("anime.formatFilmNumbered", {
+                    n: v.index,
+                    defaultValue: `Film ${v.index}`,
+                  })
+                : t("anime.formatFilm", { defaultValue: "Film" })
+            );
+            const filmYears = films
+              .map((v) => v.year)
+              .filter(Boolean) as number[];
+            const filmSub =
+              (filmYears.length
+                ? filmYears.length > 1
+                  ? `${Math.min(...filmYears)}–${Math.max(...filmYears)}`
+                  : String(filmYears[0])
+                : "") +
+              (films.length
+                ? ` · ${t("anime.filmCount", {
+                    count: films.length,
+                    defaultValue:
+                      films.length > 1
+                        ? `${films.length} films`
+                        : "1 film",
+                  })}`
+                : "");
+
+            const epsActive =
+              activeKind === "episodes" && s.id === activeSeasonId;
+            const filmsActive = activeKind === "films";
+
+            const radioRow = (
+              key: string,
+              on: boolean,
+              label: ReactNode,
+              sub: string,
+              onClick: () => void
+            ) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => {
+                  onClick();
+                  setOpen(false);
+                }}
+                style={{
+                  ...tStyles.formatItem,
+                  background: on ? "var(--accent-soft)" : "transparent",
+                }}
+              >
+                <span
+                  style={{
+                    ...tStyles.formatDot,
+                    borderColor: on ? "var(--accent)" : "var(--txt-3)",
+                    background: on ? "var(--accent)" : "transparent",
+                    boxShadow: on ? "0 0 0 2px var(--accent-soft)" : "none",
+                  }}
+                />
+                <span
+                  style={{
+                    fontSize: 12,
+                    fontWeight: on ? 600 : 500,
+                    color: on ? "var(--accent)" : "var(--txt-0)",
+                  }}
+                >
+                  {label}
+                </span>
+                <span style={{ fontSize: 10, color: "var(--txt-3)", marginLeft: "auto" }}>
+                  {sub}
+                </span>
+              </button>
+            );
+
             return (
               <div key={`grp-${s.id}`} style={tStyles.seasonGroup}>
-                <div style={tStyles.seasonGroupHeader}>{s.label}</div>
-                {row(
-                  `${s.id}-eps`,
-                  s.id,
-                  t("anime.formatEpisodes", { defaultValue: "Episodes" }),
-                  seasonSub,
-                  true
-                )}
-                {films.map((v) =>
-                  row(
-                    `${s.id}-film-${v.id}`,
-                    v.id,
-                    v.index
-                      ? t("anime.formatFilmNumbered", {
-                          n: v.index,
-                          defaultValue: `Film ${v.index}`,
-                        })
-                      : t("anime.formatFilm", { defaultValue: "Film" }),
-                    [v.year, "MOVIE"].filter(Boolean).join(" · "),
-                    true
-                  )
-                )}
+                <div style={tStyles.formatSeasonHeader}>{s.label}</div>
+                <div style={tStyles.formatWrap}>
+                  <div style={tStyles.formatLabel}>
+                    {t("anime.watchIn", { defaultValue: "Watch in" })}
+                  </div>
+                  {radioRow(
+                    `${s.id}-eps`,
+                    epsActive,
+                    t("anime.formatEpisodes", { defaultValue: "Episodes" }),
+                    seasonSub,
+                    () => onPickSource({ kind: "episodes", id: s.id })
+                  )}
+                  {radioRow(
+                    `${s.id}-films`,
+                    filmsActive,
+                    t("anime.formatFilmsPlural", {
+                      count: films.length,
+                      defaultValue: films.length > 1 ? "Films" : "Film",
+                    }),
+                    filmSub,
+                    () =>
+                      onPickSource({
+                        kind: "films",
+                        ids: filmIds,
+                        labels: filmLabels,
+                      })
+                  )}
+                </div>
               </div>
             );
           })}
@@ -963,20 +1100,53 @@ const tStyles: Record<string, CSSProperties> = {
     width: "100%",
     background: "transparent",
   },
-  // Dual-format: a season that also has films groups its "Episodes" + "Film N"
-  // sub-rows under one non-repeating season header.
+  // Dual-format: a season watchable as Episodes OR Films. The two format
+  // options sit under a "Watch in" label, tied to the season by an accent bar,
+  // so they read as one mutually-exclusive choice (not additive content).
   seasonGroup: {
     display: "flex",
     flexDirection: "column",
     borderRadius: 7,
   },
-  seasonGroupHeader: {
+  formatSeasonHeader: {
+    fontSize: 12.5,
+    fontWeight: 600,
+    color: "var(--txt-0)",
+    padding: "9px 10px 2px",
+  },
+  formatWrap: {
+    display: "flex",
+    flexDirection: "column",
+    borderLeft: "2px solid var(--accent)",
+    margin: "0 10px 4px 16px",
+    paddingLeft: 2,
+  },
+  formatLabel: {
     fontSize: 10,
-    fontWeight: 700,
-    letterSpacing: "0.06em",
     textTransform: "uppercase",
+    letterSpacing: "0.06em",
     color: "var(--txt-3)",
-    padding: "8px 10px 2px",
+    padding: "4px 8px 2px",
+  },
+  formatItem: {
+    display: "flex",
+    alignItems: "center",
+    gap: 9,
+    padding: "7px 8px",
+    border: "none",
+    borderRadius: 6,
+    textAlign: "left",
+    cursor: "pointer",
+    fontFamily: "inherit",
+    width: "100%",
+    background: "transparent",
+  },
+  formatDot: {
+    width: 9,
+    height: 9,
+    borderRadius: "50%",
+    border: "1.5px solid var(--txt-3)",
+    flex: "none",
   },
   epActions: { display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" },
   searchWrap: {
