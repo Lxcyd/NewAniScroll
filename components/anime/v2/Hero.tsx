@@ -777,7 +777,7 @@ const hStyles: Record<string, CSSProperties> = {
   banner: {
     position: "relative",
     width: "100%",
-    height: 280,
+    height: 360,
     overflow: "hidden",
   },
   bannerImg: {
@@ -791,15 +791,14 @@ const hStyles: Record<string, CSSProperties> = {
   bannerFade: {
     position: "absolute",
     inset: 0,
-    /* Banner-to-page fade. Three stops:
-         0%   → almost transparent (let the artwork breathe at the top)
-         55%  → half-opacity (the area where the title art sits)
-         90%  → fully bg-0
-         100% → bg-0 + 1px overshoot so the bottom-most pixel row
-                matches the page background to the byte (no visible
-                seam between banner and the rest of the page). */
+    /* Banner-to-page fade — long, gradual dissolve into the page background.
+       The banner stays mostly clear up top, then eases into bg-0 over a wide
+       band so there's no chunky edge (matches the soft reference gradient).
+       Extra intermediate stops smooth the curve; full bg-0 only at the very
+       bottom, +1px overshoot so the last pixel row matches the page to the
+       byte (no visible seam). */
     background:
-      "linear-gradient(180deg, rgba(12,13,16,0.15) 0%, rgba(12,13,16,0.5) 55%, var(--bg-0) 90%, var(--bg-0) 100%)",
+      "linear-gradient(180deg, rgba(12,13,16,0) 0%, rgba(12,13,16,0.08) 30%, rgba(12,13,16,0.25) 50%, rgba(12,13,16,0.5) 68%, rgba(12,13,16,0.8) 84%, var(--bg-0) 100%)",
   },
   seasonPill: {
     position: "absolute",
@@ -823,7 +822,10 @@ const hStyles: Record<string, CSSProperties> = {
     maxWidth: 1380,
     margin: "0 auto",
     padding: "0 28px 36px",
-    marginTop: -160,
+    // Overlaps the banner. Kept in step with the banner height (360) + fade so
+    // the poster/title sit at the same visual spot: when the banner grew from
+    // 280→360 (+80) this moved -160→-240 to hold that position.
+    marginTop: -240,
     position: "relative",
     zIndex: 2,
   },

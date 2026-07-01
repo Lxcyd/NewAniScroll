@@ -232,8 +232,11 @@ function MHero({
           style={{
             position: "absolute",
             inset: 0,
+            // Long, gradual banner-to-page fade (matches the desktop Hero): the
+            // banner stays mostly clear at the top and eases into the page
+            // background over a wide band, reaching full bg only at the bottom.
             background:
-              "linear-gradient(180deg, rgba(10,11,16,0.15) 0%, rgba(10,11,16,0.45) 45%, rgba(10,11,16,0.85) 80%, #0a0b10 100%)",
+              "linear-gradient(180deg, rgba(10,11,16,0) 0%, rgba(10,11,16,0.08) 30%, rgba(10,11,16,0.25) 50%, rgba(10,11,16,0.5) 68%, rgba(10,11,16,0.82) 84%, #0a0b10 100%)",
           }}
         />
         <div
