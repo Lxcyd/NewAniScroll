@@ -7,6 +7,57 @@ Ordre anti-chronologique (le plus récent en haut). Une entrée = une session/su
 
 ---
 
+## 2026-07-01 (suite 2) — Diag résolution vidéo + fix panels fusionnés + films bonus SIDE_STORY
+
+Question de départ : « faut-il une API anime-sama externe (type TMCooper/AnimeSamaApi) pour
+fixer les mauvaises vidéos/saisons ? » → **Non.** On a déjà mieux (scraping via CF Worker,
+extraction m3u8, `player_map` vérifié). Une API externe se prend un 403 Cloudflare et fait
+perdre l'infra. Les erreurs sont dans le **mapping** (ID AniList → slug/saison/offset), pas
+dans le scraping.
+
+### Diagnostic (audit borné)
+- `scripts/audit-players.mjs --min-popularity=20000 --rate=40` sur dev (2395 titres).
+  **Le mapping marche bien** : ~1% de `wrong-season` réels sur animesama. Le gros des
+  « flagged » = `missing-player` (absence, pas mauvais contenu) — **voiranime quasi mort**
+  (~5-10% résolus), animesama VF a bcp de trous.
+- **Piège** : `flagged=98%` trompeur ; c'est le breakdown par TYPE qui compte
+  (`wrong-season` vs `missing-player`), pas le compteur brut.
+
+### Fix 1 — panels fusionnés (Gintama & co) [commit 0074778]
+- Cause : `resolveMergedOffset` ([pages/api/v2/source/index.js](pages/api/v2/source/index.js))
+  n'offsettait QUE si `somme(prequels)+ownEps == panelLen` (panel se **terminant** à la saison).
+  Les long-runners (Gintama 365ep = S1..S4 concaténés) ont un panel **plus long** → test échoue
+  → S2 servait l'ep 1 de S1.
+- Fix : ancrer sur `fullChain`, accepter que le panel **continue** au-delà de la saison tant que
+  `fullChain+ownEps <= panelLen`. Gardes conservées (tokyo-ghoul-re reste refusé).
+  **Ne corrige PAS DBZ Kai** (chaîne PREQUEL AniList cassée : seul prequel = SPECIAL 1ép) →
+  override nécessaire.
+
+### Fix 2 — films bonus SIDE_STORY vs saisons [commit fababa4]
+- Cause : tout MOVIE de franchise comptait comme saison sauf compilation re-cut. Un film
+  side-story (HxH: Phantom Rouge) passait en « Saison 2 ».
+- **Signal directeur = `relationType`** : `SEQUEL`→vraie saison (Reze S2, inchangé) ·
+  `SIDE_STORY`→film bonus (Phantom Rouge, exclu) · `COMPILATION/ALTERNATIVE/PARENT`→dual-format
+  re-cut (Mugen Train, inchangé).
+- `findBonusFilms()` collecte les SIDE_STORY→MOVIE ; ids exclus de `resolveFranchiseSeasons`
+  **et** `numberByChronology` (badge « ·S2 » ne peut plus diverger). `resolveBonusFilms()`
+  (cache Redis `bonusFilms:v1:`) → SSR → InfoPage/Mobile → Tabs → Episodes → nouveau
+  **`FilmsPicker`** (2e dropdown, caché si pas de film bonus).
+- **Piège évité** : Reze n'est JAMAIS SIDE_STORY (vérifié) → pas de faux-exclu. Pire cas
+  résiduel = film-suite rare dans le dropdown Films au lieu d'une saison (dégradation douce).
+
+### Restant
+- DBZ Kai (chaîne cassée) → `season_override` manuel.
+- Mauvais slugs (Tokyo Ghoul √A → tokyo-24-ku) → bug `findAnimeSamaSlug`.
+- voiranime quasi mort → à creuser.
+
+### Env / piège
+- **Redis/Upstash injoignable en DNS localement** (`ENOTFOUND ...upstash.io`) → walk AniList
+  non-caché → endpoint inspect **inutilisable en dev local** (timeout). Validé par simulation +
+  push sur dev, pas end-to-end local.
+
+---
+
 ## 2026-07-01 (suite) — Saisons : unification liste/label, franchise canonique, films numérotés, anime « sans saison »
 
 Suite aux captures : 3 régressions post-livraison corrigées + gestion des animes sans vraie saison.
