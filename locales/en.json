@@ -719,6 +719,7 @@
     "graphHint": "Drag to pan · scroll to zoom",
     "formatEpisodes": "Episodes",
     "formatFilm": "Film",
+    "formatFilmNumbered": "Film {{n}}",
     "sectionTags": "TAGS",
     "sectionExternalSites": "EXTERNAL SITES",
     "sectionTrailer": "TRAILER",

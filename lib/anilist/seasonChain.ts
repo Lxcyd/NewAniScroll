@@ -1,5 +1,5 @@
 import { getMediaMeta } from "./getMediaMeta";
-import { resolveSeasonNumber } from "./resolveSeason";
+import { resolveSeasonNumber, resolveFranchiseSeasons, findFilmVariants } from "./resolveSeason";
 import { redis } from "@/lib/redis";
 import {
   computeSeasonInfo,
@@ -33,7 +33,11 @@ const REDIS_KEY_CHAIN = (id: number) => `seasonChain:v2:${id}`;
 // v5: SeasonEntry gained `status` (flags not-yet-released seasons in the UI).
 // v6: chain walk now applies the air-year monotonicity + relation-type guards
 //     (drops ALTERNATIVE remakes) and sorts chronologically before numbering.
-const REDIS_KEY_LIST = (id: number) => `seasonList:v6:${id}`;
+// v7: season list now comes from the unified resolver (resolveFranchiseSeasons)
+//     — canonical (rebased on franchise root, same list from any page) and
+//     TMDB-restricted (a remake no longer bleeds the original's timeline in),
+//     plus deduped + numbered film variants.
+const REDIS_KEY_LIST = (id: number) => `seasonList:v7:${id}`;
 const TTL_SECONDS = 7 * 24 * 60 * 60;
 
 async function redisGetJson<T>(key: string): Promise<T | null> {
@@ -238,6 +242,9 @@ export type SeasonEntry = {
     label?: string | null;
     year?: number | null;
     episodes?: number | null;
+    /** 1-based film number within this season (Film 1 / Film 2) when the season
+     *  has more than one compilation film; undefined for a lone film. */
+    index?: number | null;
   }> | null;
 };
 
@@ -250,7 +257,15 @@ export async function resolveSeasonList(
 ): Promise<SeasonEntry[]> {
   const cached = await redisGetJson<SeasonEntry[]>(REDIS_KEY_LIST(startId));
   if (cached) return cached;
-  const result = await resolveSeasonListUncached(startId);
+  // Unified path: the season list now comes from the same franchise builder as
+  // the season-number resolver (canonical + Fribb TMDB-restricted). Falls back
+  // to the legacy walk only if the resolver throws.
+  let result: SeasonEntry[];
+  try {
+    result = (await resolveFranchiseSeasons(startId)) as SeasonEntry[];
+  } catch {
+    result = await resolveSeasonListUncached(startId);
+  }
   // Cache even empty arrays — an anime with no season siblings is a
   // stable fact; recomputing it every page render wastes the walk.
   await redisSetJson(REDIS_KEY_LIST(startId), result);
@@ -374,28 +389,3 @@ async function resolveSeasonListUncached(
   });
 }
 
-/** MOVIE nodes AniList links to `media` as a compilation/alternate version —
- *  i.e. a film that re-tells this same season. Returns null when none (NOT
- *  undefined: getServerSideProps can't serialize undefined props). */
-function findFilmVariants(media: any): SeasonEntry["variants"] | null {
-  const edges = media?.relations?.edges || [];
-  const films = edges.filter(
-    (e: any) =>
-      (e.relationType === "COMPILATION" ||
-        e.relationType === "ALTERNATIVE" ||
-        e.relationType === "PARENT") &&
-      e.node?.type === "ANIME" &&
-      e.node?.format === "MOVIE" &&
-      // Same franchise — avoid attaching an unrelated movie that happens to be
-      // tagged ALTERNATIVE.
-      sharesFranchise(media?.title, e.node?.title)
-  );
-  if (films.length === 0) return null;
-  return films.map((e: any) => ({
-    id: Number(e.node.id),
-    format: "MOVIE",
-    label: e.node.title?.english || e.node.title?.romaji || null,
-    year: e.node.seasonYear ?? e.node.startDate?.year ?? null,
-    episodes: e.node.episodes ?? null,
-  }));
-}

@@ -1,4 +1,4 @@
-import { CSSProperties, useEffect, useMemo, useState } from "react";
+import { CSSProperties, ReactNode, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { AniListInfoTypes } from "types/info/AnilistInfoTypes";
 import styles from "./styles.module.css";
@@ -419,7 +419,15 @@ function SeasonPicker({
     };
   }, [open]);
 
-  const headerLabel = active?.label || pickTitle(info.title, seasonTitlePref);
+  // "Season N" is only meaningful when the franchise actually has multiple
+  // seasons. For a single-entry franchise (a standalone anime, or a remake we
+  // pulled out of its original's timeline like Gundam Origin), show the anime's
+  // TITLE instead of a misleading "Season 1".
+  const isMultiSeason = seasonList.length > 1;
+  const headerLabel =
+    isMultiSeason && active?.label
+      ? active.label
+      : pickTitle(info.title, seasonTitlePref);
   const headerSub = active
     ? `${active.year ?? ""}${active.episodes ? ` · ${active.episodes} EP` : ""}`.trim()
     : `${info.status === "RELEASING" ? t("status.airing") : t("list.completed")}${
@@ -495,106 +503,91 @@ function SeasonPicker({
           onClick={(e) => e.stopPropagation()}
           style={tStyles.seasonMenu}
         >
-          {seasonList.flatMap((s) => {
-            const isActive = s.id === activeSeasonId;
-            const hasFilm = (s.variants?.length ?? 0) > 0;
-            const rows = [
-              <button
-                key={s.id}
-                type="button"
-                onClick={() => {
-                  onPick(s.id);
-                  setOpen(false);
-                }}
-                style={{
-                  ...tStyles.seasonMenuItem,
-                  background: isActive ? "var(--accent-soft)" : "transparent",
-                  color: isActive ? "var(--accent)" : "var(--txt-0)",
-                }}
-              >
-                <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start" }}>
-                  <span style={{ fontSize: 12.5, fontWeight: 600 }}>
-                    {/* When a film variant exists, disambiguate the TV entry as
-                        "· Episodes" so the two formats read clearly side by side. */}
-                    {s.label}
-                    {hasFilm && (
-                      <span style={{ color: "var(--txt-3)", fontWeight: 500 }}>
-                        {" · "}
-                        {t("anime.formatEpisodes", { defaultValue: "Episodes" })}
-                      </span>
-                    )}
-                  </span>
-                  <span style={{ fontSize: 10.5, color: "var(--txt-3)" }}>
-                    {s.status === "NOT_YET_RELEASED"
-                      ? t("anime.notYetReleased")
-                      : [s.year, s.episodes ? `${s.episodes} EP` : null]
-                          .filter(Boolean)
-                          .join(" · ") || s.format}
-                  </span>
-                </div>
-                {isActive && (
-                  <svg
-                    width="13"
-                    height="13"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth={2.5}
-                    style={{ marginLeft: "auto" }}
-                  >
-                    <polyline points="20 6 9 17 4 12" />
-                  </svg>
-                )}
-              </button>,
-            ];
-            // Dual-format: one extra menu row per film variant. Picking it loads
-            // the film's own AniList id, which the source resolver already
-            // handles as a MOVIE (isMovie/filmSeason path).
-            for (const v of s.variants ?? []) {
-              const vActive = v.id === activeSeasonId;
-              rows.push(
+          {seasonList.map((s) => {
+            const films = s.variants ?? [];
+            const grouped = films.length > 0;
+
+            // A leaf menu row (episodes or a single film). `indent` renders the
+            // grouped sub-rows slightly inset under their season header.
+            const row = (
+              key: string,
+              id: number,
+              title: ReactNode,
+              sub: string,
+              indent: boolean
+            ) => {
+              const rowActive = id === activeSeasonId;
+              return (
                 <button
-                  key={`${s.id}-film-${v.id}`}
+                  key={key}
                   type="button"
                   onClick={() => {
-                    onPick(v.id);
+                    onPick(id);
                     setOpen(false);
                   }}
                   style={{
                     ...tStyles.seasonMenuItem,
-                    background: vActive ? "var(--accent-soft)" : "transparent",
-                    color: vActive ? "var(--accent)" : "var(--txt-0)",
+                    paddingLeft: indent ? 26 : undefined,
+                    background: rowActive ? "var(--accent-soft)" : "transparent",
+                    color: rowActive ? "var(--accent)" : "var(--txt-0)",
                   }}
                 >
                   <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start" }}>
-                    <span style={{ fontSize: 12.5, fontWeight: 600 }}>
-                      {s.label}
-                      <span style={{ color: "var(--txt-3)", fontWeight: 500 }}>
-                        {" · "}
-                        {t("anime.formatFilm", { defaultValue: "Film" })}
-                      </span>
+                    <span style={{ fontSize: indent ? 12 : 12.5, fontWeight: indent ? 500 : 600 }}>
+                      {title}
                     </span>
-                    <span style={{ fontSize: 10.5, color: "var(--txt-3)" }}>
-                      {[v.year, "MOVIE"].filter(Boolean).join(" · ")}
-                    </span>
+                    <span style={{ fontSize: 10.5, color: "var(--txt-3)" }}>{sub}</span>
                   </div>
-                  {vActive && (
-                    <svg
-                      width="13"
-                      height="13"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth={2.5}
-                      style={{ marginLeft: "auto" }}
-                    >
+                  {rowActive && (
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} style={{ marginLeft: "auto" }}>
                       <polyline points="20 6 9 17 4 12" />
                     </svg>
                   )}
                 </button>
               );
+            };
+
+            const seasonSub =
+              s.status === "NOT_YET_RELEASED"
+                ? t("anime.notYetReleased")
+                : [s.year, s.episodes ? `${s.episodes} EP` : null]
+                    .filter(Boolean)
+                    .join(" · ") || (s.format ?? "");
+
+            // Simple case — no films: one flat row per season (unchanged).
+            if (!grouped) {
+              return row(String(s.id), s.id, s.label, seasonSub, false);
             }
-            return rows;
+
+            // Grouped case — the season has one or more films. Render a
+            // non-repeating season header, then indented "Episodes" + "Film N"
+            // sub-rows so all of that season's content reads as one block.
+            return (
+              <div key={`grp-${s.id}`} style={tStyles.seasonGroup}>
+                <div style={tStyles.seasonGroupHeader}>{s.label}</div>
+                {row(
+                  `${s.id}-eps`,
+                  s.id,
+                  t("anime.formatEpisodes", { defaultValue: "Episodes" }),
+                  seasonSub,
+                  true
+                )}
+                {films.map((v) =>
+                  row(
+                    `${s.id}-film-${v.id}`,
+                    v.id,
+                    v.index
+                      ? t("anime.formatFilmNumbered", {
+                          n: v.index,
+                          defaultValue: `Film ${v.index}`,
+                        })
+                      : t("anime.formatFilm", { defaultValue: "Film" }),
+                    [v.year, "MOVIE"].filter(Boolean).join(" · "),
+                    true
+                  )
+                )}
+              </div>
+            );
           })}
         </div>
       )}
@@ -967,6 +960,23 @@ const tStyles: Record<string, CSSProperties> = {
     textAlign: "left",
     cursor: "pointer",
     fontFamily: "inherit",
+    width: "100%",
+    background: "transparent",
+  },
+  // Dual-format: a season that also has films groups its "Episodes" + "Film N"
+  // sub-rows under one non-repeating season header.
+  seasonGroup: {
+    display: "flex",
+    flexDirection: "column",
+    borderRadius: 7,
+  },
+  seasonGroupHeader: {
+    fontSize: 10,
+    fontWeight: 700,
+    letterSpacing: "0.06em",
+    textTransform: "uppercase",
+    color: "var(--txt-3)",
+    padding: "8px 10px 2px",
   },
   epActions: { display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" },
   searchWrap: {

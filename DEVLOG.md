@@ -7,6 +7,47 @@ Ordre anti-chronologique (le plus récent en haut). Une entrée = une session/su
 
 ---
 
+## 2026-07-01 (suite) — Saisons : unification liste/label, franchise canonique, films numérotés, anime « sans saison »
+
+Suite aux captures : 3 régressions post-livraison corrigées + gestion des animes sans vraie saison.
+
+### Décisions
+- **Cause racine** : deux constructions de franchise divergentes — le moteur `resolveSeason.ts`
+  (`buildFranchise` + Fribb, alimentait `seasonInfo`/le label) et le walk legacy
+  `resolveSeasonListUncached` (sans Fribb, alimentait le **sélecteur** et la **carte**). D'où
+  label vs sélecteur incohérents. **Fix = unifier le sélecteur sur le moteur.**
+- **Nouvelle fonction** `resolveFranchiseSeasons(startId)` ([lib/anilist/resolveSeason.ts](lib/anilist/resolveSeason.ts))
+  produit la liste `SeasonEntry[]` canonique. `resolveSeasonList` la consomme (fallback legacy
+  si exception). Bump `seasonList:v6→v7`.
+- **Canonicité (P3, contenu manquant)** : `buildFranchise` **rebase sur la racine** (remonte tous
+  les PREQUEL puis descend en SEQUEL). Résultat : la liste est identique quelle que soit la page.
+  Vérifié : SNK depuis S1 (16498) et S3 (99147) → **même liste de 6 entrées**.
+- **Restriction TMDB (P2, remakes)** : quand Fribb est cohérent, `buildFranchise` retire les
+  nœuds du walk dont `tmdb.tv` diffère du start → un remake sort de la timeline de l'original.
+  ⚠️ Fribb inactif en local (pas de Turso) — mais le **rebasage canonique corrige déjà** le cas
+  transverse : page film Zeta 1967 montre désormais la vraie timeline UC (1979→1985→1986→…) SANS
+  Origin 2019 (avant : [1979 S1, Origin 2019 S2], inversion). Fribb en prod affinera la séparation.
+- **Films numérotés (P1)** : `findFilmVariants` (déplacé dans resolveSeason.ts pour éviter un cycle
+  d'import) dédoublonne par id + numérote (`index` 1-based, trié par année) → « Film 1/2/3 ».
+  Vérifié : Zeta a bien Film 1/2/3 (A New Translation I/II/III).
+- **UX sous-section groupée** ([components/anime/v2/Episodes.tsx](components/anime/v2/Episodes.tsx))
+  : une saison avec films rend un en-tête de saison non répété + sous-lignes indentées « Épisodes »
+  / « Film N ». i18n `formatFilmNumbered` (« Film {{n}} »).
+- **Anime « sans saison »** (Gundam Origin, films/OVA isolés) : détecté par `seasonList.length <= 1`.
+  Label du sélecteur = **titre de l'anime** (pas « Season 1 » trompeur) ; badge « · S1 » du bouton
+  REGARDER supprimé quand `seasonInfo.total <= 1` ([components/anime/v2/Hero.tsx](components/anime/v2/Hero.tsx)).
+
+### Leçons / pièges
+- **Ne PAS conclure trop vite d'une capture** : « Gundam cassé (S6) » = en réalité du **cache Redis
+  prod obsolète**. Vérifié en local (sans cache) : Origin=1 entrée, 1979=S1→S2→S3, tous corrects.
+  Le seul vrai bug était sur les pages transverses (film 1967). ⇒ purger `seasonChain:*`/`seasonList:*`
+  en prod après déploiement.
+- **Le garde-fou d'année seul ne suffit pas pour les remakes** : 1979→Origin(2019) en SEQUEL passe
+  (une suite peut être plus récente). C'est la **canonicité + Fribb** qui règle ça, pas le seuil d'année.
+- Cycle d'import évité : `findFilmVariants` vit dans resolveSeason.ts, seasonChain l'importe (pas l'inverse).
+- **À déployer en prod** : purger le cache Redis saisons + peupler Fribb (`node scripts/refresh-fribb.mjs`
+  avec Turso) pour activer la restriction TMDB fine.
+
 ## 2026-07-01 — Mapping des saisons : moteur multi-signaux + carte des relations + dual-format
 
 Refonte de la numérotation des saisons pour corriger l'ordre faux (Gundam : le remake *The Origin* 2019 s'affichait comme S1 en chaînant l'original 1979 en S2 ; SNK S1 diffusait des épisodes de la S2), + ajout d'une carte des relations et du dual-format épisodes/film.

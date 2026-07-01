@@ -360,8 +360,14 @@ export default function Hero({
   // Append " · S<n>[ Part N]" to the episode pill when we know this anime
   // is part of a multi-season series — but only for series formats, never
   // for movies/specials that happen to be tied to a parent franchise.
+  //
+  // Suppress "· S1" for a SINGLE-season franchise: a standalone anime, or a
+  // remake we've correctly isolated from its original's timeline (Gundam
+  // Origin), has no real "season" — showing "S1" there is misleading. We only
+  // badge a season when the franchise actually has more than one (total > 1).
+  const isMultiSeasonFranchise = (seasonInfo?.total ?? 0) > 1;
   const seasonSuffix =
-    !isSingleEpisode && seasonNumber != null && seasonNumber > 0
+    !isSingleEpisode && isMultiSeasonFranchise && seasonNumber != null && seasonNumber > 0
       ? ` · S${seasonNumber}${partSuffix}`
       : !isSingleEpisode && partSuffix
       ? ` ·${partSuffix}`

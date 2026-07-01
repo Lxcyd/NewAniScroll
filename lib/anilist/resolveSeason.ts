@@ -125,8 +125,31 @@ function numberByChronology(
   return { number: startNumber, total: running };
 }
 
+/** Walk PREQUEL as far back as possible from `startId` and return the id of the
+ *  oldest ancestor reached (the franchise "root"). Makes the franchise build
+ *  CANONICAL: whatever entry (S1, S2, a movie…) the user lands on, we rebase to
+ *  the same root so the resulting season list is identical across pages. */
+async function findRoot(
+  startId: number,
+  franchiseTitle: any,
+  load: (id: number) => Promise<any | null>
+): Promise<number> {
+  const back = await walk(startId, "PREQUEL", franchiseTitle, load);
+  if (back.length === 0) return startId;
+  return Number(back[back.length - 1].id);
+}
+
 /** Build the franchise node list: union of the Fribb tmdb.tv group and the
- *  AniList PREQUEL/SEQUEL walk, ordered chronologically. */
+ *  AniList PREQUEL/SEQUEL walk, ordered chronologically.
+ *
+ *  Two robustness passes on top of the raw walk:
+ *   • CANONICAL — rebase to the franchise root (oldest ancestor) then walk
+ *     forward, so the list doesn't depend on which page you started from.
+ *   • TMDB-RESTRICTED — when Fribb is available and the group is consistent,
+ *     drop any walked node that lives on a DIFFERENT tmdb.tv fiche. This is
+ *     what pulls a remake out of the original's timeline (Gundam Origin, tmdb
+ *     88865, no longer chains into the UC timeline tmdb 21731). Nodes with no
+ *     Fribb entry are KEPT (we only drop nodes proven to be another fiche). */
 async function buildFranchise(
   startId: number,
   fribbSelf: FribbEntry | null,
@@ -135,12 +158,18 @@ async function buildFranchise(
   const start = await load(startId);
   const franchiseTitle = start?.title;
 
-  const back = await walk(startId, "PREQUEL", franchiseTitle, load);
-  const fwd = await walk(startId, "SEQUEL", franchiseTitle, load);
+  // Rebase on the franchise root, then walk the whole thing forward from there.
+  const rootId = await findRoot(startId, franchiseTitle, load);
+  const rootMedia = (await load(rootId)) || start;
+  const rootTitle = rootMedia?.title ?? franchiseTitle;
+  const fwd = await walk(rootId, "SEQUEL", rootTitle, load);
 
   const byId = new Map<number, SeasonNode>();
-  if (start) byId.set(startId, start);
-  for (const n of [...back, ...fwd]) byId.set(Number(n.id), n);
+  if (rootMedia) byId.set(rootId, rootMedia);
+  for (const n of fwd) byId.set(Number(n.id), n);
+  // Always keep the entry the user is actually on, even if the canonical walk
+  // didn't reach it (e.g. a side movie hanging off the chain).
+  if (start && !byId.has(startId)) byId.set(startId, start);
 
   // Pull in any Fribb-group members the AniList walk missed (a member on a
   // divergent TMDB fiche still belongs to the franchise chronologically).
@@ -152,6 +181,20 @@ async function buildFranchise(
         const m = await load(e.anilistId);
         if (m) byId.set(e.anilistId, m);
       }
+    }
+  }
+
+  // TMDB-RESTRICTED pass: drop walked nodes proven to sit on ANOTHER tmdb.tv
+  // fiche than the start entry (remakes / alternate franchises). Only when
+  // Fribb is trustworthy for this group.
+  if (fribbSelf?.tmdbTvId && isFribbGroupConsistent(fribbGroup)) {
+    const keepTv = fribbSelf.tmdbTvId;
+    const entries = await Promise.all(
+      Array.from(byId.keys()).map(async (id) => [id, await getFribbEntry(id)] as const)
+    );
+    for (const [id, fe] of entries) {
+      if (id === startId) continue; // never drop the current entry
+      if (fe?.tmdbTvId != null && fe.tmdbTvId !== keepTv) byId.delete(id);
     }
   }
 
@@ -250,4 +293,129 @@ export async function resolveSeasonNumber(
 
   // 5) Nothing — never assume S1.
   return { number: null, total: null, tmdbId, source: "none", confidence: "low" };
+}
+
+// ── Franchise season LIST (feeds the Episodes selector + relations map) ───────
+
+/** MOVIE nodes AniList links to a season as a compilation/alternate version.
+ *  Deduped by id and numbered (1-based) when a season has >1 film → "Film 1" /
+ *  "Film 2" in the UI. Returns null when none (undefined breaks SSR
+ *  serialization). Kept here (not seasonChain.ts) to avoid an import cycle. */
+export function findFilmVariants(media: any): FilmVariant[] | null {
+  const edges = media?.relations?.edges || [];
+  const seen = new Set<number>();
+  const films = edges
+    .filter(
+      (e: any) =>
+        (e.relationType === "COMPILATION" ||
+          e.relationType === "ALTERNATIVE" ||
+          e.relationType === "PARENT") &&
+        e.node?.type === "ANIME" &&
+        e.node?.format === "MOVIE" &&
+        sharesFranchise(media?.title, e.node?.title)
+    )
+    .filter((e: any) => {
+      const id = Number(e.node.id);
+      if (seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    })
+    .sort(
+      (a: any, b: any) =>
+        (a.node.seasonYear ?? a.node.startDate?.year ?? Infinity) -
+        (b.node.seasonYear ?? b.node.startDate?.year ?? Infinity)
+    );
+  if (films.length === 0) return null;
+  const multiple = films.length > 1;
+  return films.map((e: any, i: number) => ({
+    id: Number(e.node.id),
+    format: "MOVIE",
+    label: e.node.title?.english || e.node.title?.romaji || null,
+    year: e.node.seasonYear ?? e.node.startDate?.year ?? null,
+    episodes: e.node.episodes ?? null,
+    index: multiple ? i + 1 : null,
+  }));
+}
+
+export interface FilmVariant {
+  id: number;
+  format: string;
+  label?: string | null;
+  year?: number | null;
+  episodes?: number | null;
+  index?: number | null;
+}
+
+export interface FranchiseSeasonEntry {
+  id: number;
+  idMal: number | null;
+  number: number;
+  label: string;
+  year: number | null;
+  episodes: number | null;
+  averageScore: number | null;
+  format: string | null;
+  status: string | null;
+  title: any;
+  coverImage: any;
+  variants: FilmVariant[] | null;
+}
+
+/**
+ * Canonical, franchise-restricted season LIST for the Episodes selector and the
+ * relations map. Uses the SAME buildFranchise() as the number resolver — so the
+ * selector can't disagree with the info-page label, and a remake (Gundam
+ * Origin) no longer bleeds the original's timeline into the dropdown.
+ *
+ * Numbering mirrors the legacy running-counter rule (explicit title number
+ * anchors; "Part 2"/continuation inherits; otherwise +1), applied over the
+ * chronologically-ordered season-like nodes.
+ */
+export async function resolveFranchiseSeasons(
+  startId: number
+): Promise<FranchiseSeasonEntry[]> {
+  const cache = new Map<number, any>();
+  const load = async (id: number): Promise<any | null> => {
+    if (cache.has(id)) return cache.get(id);
+    const m = await getMediaMeta(id);
+    if (m) cache.set(id, m);
+    return m;
+  };
+
+  const start = await load(startId);
+  if (!start) return [];
+
+  const fribbSelf = await getFribbEntry(startId);
+  const { ordered } = await buildFranchise(startId, fribbSelf, load);
+
+  const seasonLike = ordered
+    .filter((m) => isSeasonLike(m) && !isRecapTitle(m))
+    .sort((a, b) => (yearOf(a) ?? Infinity) - (yearOf(b) ?? Infinity));
+  if (seasonLike.length === 0) return [];
+
+  let running = 0;
+  return seasonLike.map((m: any) => {
+    const fromTitle = extractSeasonFromTitle(m.title);
+    if (fromTitle != null) running = fromTitle;
+    else if (isSeasonContinuation(m.title)) running = Math.max(1, running);
+    else running = running + 1;
+    const partMatch = String(m.title?.english || m.title?.romaji || "").match(
+      /\b(?:Part|Cour)\s+(\d+|[IVX]+)\b/i
+    );
+    const part = partMatch ? ` Part ${partMatch[1].toUpperCase()}` : "";
+    return {
+      id: Number(m.id),
+      idMal: m.idMal ?? null,
+      number: running,
+      label: `Season ${running}${part}`,
+      year: m.seasonYear ?? m.startDate?.year ?? null,
+      episodes: m.episodes ?? null,
+      averageScore: m.averageScore ?? null,
+      format: m.format ?? null,
+      status: m.status ?? null,
+      title: m.title || null,
+      coverImage: m.coverImage || null,
+      variants: findFilmVariants(m),
+    };
+  });
 }

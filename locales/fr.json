@@ -719,6 +719,7 @@
     "graphHint": "Glisser pour déplacer · molette pour zoomer",
     "formatEpisodes": "Épisodes",
     "formatFilm": "Film",
+    "formatFilmNumbered": "Film {{n}}",
     "sectionTags": "TAGS",
     "sectionExternalSites": "SITES EXTERNES",
     "sectionTrailer": "BANDE-ANNONCE",
