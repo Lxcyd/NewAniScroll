@@ -791,14 +791,14 @@ const hStyles: Record<string, CSSProperties> = {
   bannerFade: {
     position: "absolute",
     inset: 0,
-    /* Banner-to-page fade — long, gradual dissolve into the page background.
-       The banner stays mostly clear up top, then eases into bg-0 over a wide
-       band so there's no chunky edge (matches the soft reference gradient).
-       Extra intermediate stops smooth the curve; full bg-0 only at the very
-       bottom, +1px overshoot so the last pixel row matches the page to the
-       byte (no visible seam). */
+    /* Banner-to-page fade — a strong, tall dissolve into the page background
+       (matches the offanime reference: the image is already noticeably darkened
+       by mid-height and reaches full black in the lower half). We start the
+       darkening right at the top and ramp up steadily so the picture melts into
+       bg-0 rather than getting clipped by a thin band. Many stops keep the curve
+       smooth (no banding). */
     background:
-      "linear-gradient(180deg, rgba(12,13,16,0) 0%, rgba(12,13,16,0.08) 30%, rgba(12,13,16,0.25) 50%, rgba(12,13,16,0.5) 68%, rgba(12,13,16,0.8) 84%, var(--bg-0) 100%)",
+      "linear-gradient(180deg, rgba(12,13,16,0.25) 0%, rgba(12,13,16,0.4) 25%, rgba(12,13,16,0.6) 45%, rgba(12,13,16,0.8) 62%, rgba(12,13,16,0.94) 78%, var(--bg-0) 92%, var(--bg-0) 100%)",
   },
   seasonPill: {
     position: "absolute",
