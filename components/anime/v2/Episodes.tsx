@@ -1,5 +1,6 @@
 import { CSSProperties, ReactNode, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/router";
 import { AniListInfoTypes } from "types/info/AnilistInfoTypes";
 import styles from "./styles.module.css";
 import type { SeasonEntry } from "@/lib/anilist/seasonChain";
@@ -12,6 +13,15 @@ import { useTranslation } from "react-i18next";
 /** Episode title to display — a neutral "Episode N" when spoilers are hidden. */
 function epTitle(ep: { number: number; title: string }, hide: boolean): string {
   return hide ? `Episode ${ep.number}` : ep.title;
+}
+
+/** Locale-aware info-page href for an anime id, landing on its Episodes tab.
+ *  The page canonicalises `/…/anime/<id>` to add the slug itself, so id alone
+ *  is enough. Used when a dropdown holds a single entry — clicking it navigates
+ *  to that anime instead of opening a one-item menu. */
+function infoHref(id: number, locale: string): string {
+  const lang = locale === "fr" ? "fr" : "en";
+  return `/${lang}/anime/${id}#episodes`;
 }
 
 type EpisodeRow = {
@@ -202,25 +212,41 @@ export default function Episodes({ info, progress, seasonList, bonusFilms }: Pro
     <div>
       {/* Header row */}
       <div style={tStyles.seasonRow}>
-        <SeasonPicker
-          info={info}
-          eps={eps}
-          seasonList={seasonList || []}
-          activeSeasonId={activeSeasonId}
-          activeKind={source.kind}
-          onPickSource={setSource}
-        />
-
-        {/* Separate "Films" dropdown — only for franchises with bonus SIDE_STORY
-            films (HxH: Phantom Rouge, The Last Mission). Hidden otherwise. */}
-        {bonusFilms && bonusFilms.length > 0 && (
-          <FilmsPicker
-            films={bonusFilms}
-            activeKind={source.kind}
-            activeId={activeSeasonId}
-            onPickSource={setSource}
-          />
-        )}
+        {/* Season + Films dropdowns, glued together on the left. When the
+            CURRENT entry is itself a bonus film (e.g. viewing Phantom Rouge's
+            page), the Films dropdown leads and the TV series dropdown follows —
+            you're watching a film, so films are primary. Otherwise the season
+            dropdown leads and films follow. */}
+        <div style={tStyles.pickerGroup}>
+          {(() => {
+            const hasFilms = !!(bonusFilms && bonusFilms.length > 0);
+            const currentIsBonusFilm =
+              hasFilms && bonusFilms!.some((f) => f.id === info.id);
+            const seasonPicker = (
+              <SeasonPicker
+                key="season"
+                info={info}
+                eps={eps}
+                seasonList={seasonList || []}
+                activeSeasonId={activeSeasonId}
+                activeKind={source.kind}
+                onPickSource={setSource}
+              />
+            );
+            const filmsPicker = hasFilms ? (
+              <FilmsPicker
+                key="films"
+                films={bonusFilms!}
+                activeKind={source.kind}
+                activeId={activeSeasonId}
+                onPickSource={setSource}
+              />
+            ) : null;
+            return currentIsBonusFilm
+              ? [filmsPicker, seasonPicker]
+              : [seasonPicker, filmsPicker];
+          })()}
+        </div>
 
         {/* Right side: search + sub/dub + view modes */}
         <div style={tStyles.epActions}>
@@ -475,7 +501,7 @@ function SeasonPicker({
   onPickSource: (s: ActiveSource) => void;
 }) {
   const seasonTitlePref = useTitlePref();
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [open, setOpen] = useState(false);
   // Show the picker when there are multiple seasons OR any season also offers a
   // film variant (dual-format: even a single season becomes two menu rows).
@@ -486,6 +512,18 @@ function SeasonPicker({
   const hasMany = seasonList.length + filmVariantCount > 1;
   const active =
     seasonList.find((s) => s.id === activeSeasonId) || null;
+
+  // Redirect case: the list holds exactly ONE season and it's a DIFFERENT anime
+  // than the one being viewed (e.g. on Phantom Rouge's film page, the only
+  // "season" is the TV series). Clicking then navigates to that anime's page
+  // instead of opening a pointless one-item menu. Not when the lone entry IS the
+  // current anime (a standalone) — there's nowhere to go.
+  const loneRedirectId =
+    seasonList.length === 1 &&
+    filmVariantCount === 0 &&
+    seasonList[0].id !== info.id
+      ? seasonList[0].id
+      : null;
 
   // Close on outside click / Escape.
   useEffect(() => {
@@ -519,69 +557,88 @@ function SeasonPicker({
         info.seasonYear ? ` · ${info.seasonYear}` : ""
       }`;
 
-  return (
-    <div style={{ ...tStyles.seasonTabs, position: "relative" }}>
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          if (hasMany) setOpen((o) => !o);
-        }}
+  const triggerInner = (
+    <>
+      <div
         style={{
-          ...tStyles.seasonTab,
-          background: "var(--bg-3)",
-          borderColor: open ? "var(--accent)" : "var(--line-2)",
-          cursor: hasMany ? "pointer" : "default",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "flex-start",
+          gap: 1,
+          minWidth: 0,
         }}
       >
-        <div
+        <span
           style={{
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "flex-start",
-            gap: 1,
-            minWidth: 0,
+            fontSize: 13,
+            fontWeight: 600,
+            color: "var(--txt-0)",
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            maxWidth: 240,
           }}
         >
-          <span
-            style={{
-              fontSize: 13,
-              fontWeight: 600,
-              color: "var(--txt-0)",
-              whiteSpace: "nowrap",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              maxWidth: 240,
-            }}
-          >
-            {headerLabel}
-          </span>
-          <span style={{ fontSize: 10.5, color: "var(--txt-3)" }}>
-            {headerSub}
-          </span>
-        </div>
-        <span className="mono" style={tStyles.seasonCount}>
-          {eps ? `${eps.length} EP` : "— EP"}
-          {info.duration ? ` · ${info.duration}min` : ""}
+          {headerLabel}
         </span>
-        {hasMany && (
-          <svg
-            width="12"
-            height="12"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={2}
-            style={{
-              color: "var(--txt-3)",
-              transform: open ? "rotate(180deg)" : "none",
-              transition: "transform 0.15s",
-            }}
-          >
+        <span style={{ fontSize: 10.5, color: "var(--txt-3)" }}>
+          {headerSub}
+        </span>
+      </div>
+      <span className="mono" style={tStyles.seasonCount}>
+        {eps ? `${eps.length} EP` : "— EP"}
+        {info.duration ? ` · ${info.duration}min` : ""}
+      </span>
+      {(hasMany || loneRedirectId) && (
+        <svg
+          width="12"
+          height="12"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={2}
+          style={{
+            color: "var(--txt-3)",
+            transform: !loneRedirectId && open ? "rotate(180deg)" : "none",
+            transition: "transform 0.15s",
+          }}
+        >
+          {loneRedirectId ? (
+            <polyline points="9 18 15 12 9 6" />
+          ) : (
             <polyline points="6 9 12 15 18 9" />
-          </svg>
-        )}
-      </button>
+          )}
+        </svg>
+      )}
+    </>
+  );
+
+  const triggerStyle: CSSProperties = {
+    ...tStyles.seasonTab,
+    background: "var(--bg-3)",
+    borderColor: open ? "var(--accent)" : "var(--line-2)",
+    cursor: hasMany || loneRedirectId ? "pointer" : "default",
+    textDecoration: "none",
+  };
+
+  return (
+    <div style={{ ...tStyles.seasonTabs, position: "relative" }}>
+      {loneRedirectId ? (
+        <Link href={infoHref(loneRedirectId, i18n.language)} style={triggerStyle}>
+          {triggerInner}
+        </Link>
+      ) : (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            if (hasMany) setOpen((o) => !o);
+          }}
+          style={triggerStyle}
+        >
+          {triggerInner}
+        </button>
+      )}
 
       {open && hasMany && (
         <div
@@ -759,7 +816,8 @@ function FilmsPicker({
   activeId: number;
   onPickSource: (s: ActiveSource) => void;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const router = useRouter();
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
@@ -777,7 +835,6 @@ function FilmsPicker({
   }, [open]);
 
   const filmsActive = activeKind === "films";
-  // The film currently playing (if we're in films mode on a single-film pick).
   const activeFilm = filmsActive
     ? films.find((f) => f.id === activeId)
     : null;
@@ -787,82 +844,124 @@ function FilmsPicker({
       ? t("anime.formatFilmNumbered", { n: f.index, defaultValue: `Film ${f.index}` })
       : t("anime.formatFilm", { defaultValue: "Film" }));
 
+  // Meta line: duration · year · score. Falls back gracefully when a field is
+  // missing (season dual-format variants don't carry duration/score).
+  const filmMeta = (f: FilmVariant) =>
+    [
+      f.duration ? `${f.duration}min` : f.episodes ? `${f.episodes} EP` : null,
+      f.year ?? null,
+      f.averageScore ? `★ ${(f.averageScore / 10).toFixed(1)}` : null,
+    ]
+      .filter(Boolean)
+      .join(" · ") || "MOVIE";
+
+  // Single film → the trigger IS a link to that film's info page (no one-item
+  // menu). Multi-film → dropdown.
+  const single = films.length === 1;
   const headerLabel = activeFilm
     ? filmLabel(activeFilm, films.indexOf(activeFilm))
-    : t("anime.formatFilmsPlural", {
-        count: films.length,
-        defaultValue: films.length > 1 ? "Films" : "Film",
-      });
+    : single
+      ? filmLabel(films[0], 0)
+      : t("anime.formatFilmsPlural", {
+          count: films.length,
+          defaultValue: films.length > 1 ? "Films" : "Film",
+        });
+
+  const triggerInner = (
+    <>
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "flex-start",
+          gap: 1,
+          minWidth: 0,
+        }}
+      >
+        <span
+          style={{
+            fontSize: 13,
+            fontWeight: 600,
+            color: filmsActive ? "var(--accent)" : "var(--txt-0)",
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            maxWidth: 200,
+          }}
+        >
+          {headerLabel}
+        </span>
+        <span style={{ fontSize: 10.5, color: "var(--txt-3)" }}>
+          {single
+            ? filmMeta(films[0])
+            : t("anime.filmCount", {
+                count: films.length,
+                defaultValue: films.length > 1 ? `${films.length} films` : "1 film",
+              })}
+        </span>
+      </div>
+      <svg
+        width="12"
+        height="12"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={2}
+        style={{
+          color: "var(--txt-3)",
+          transform: open ? "rotate(180deg)" : "none",
+          transition: "transform 0.15s",
+        }}
+      >
+        {single ? (
+          // Arrow → : "go to this film's page".
+          <polyline points="9 18 15 12 9 6" />
+        ) : (
+          <polyline points="6 9 12 15 18 9" />
+        )}
+      </svg>
+    </>
+  );
+
+  const triggerStyle: CSSProperties = {
+    ...tStyles.seasonTab,
+    background: filmsActive ? "var(--accent-soft)" : "var(--bg-3)",
+    borderColor: open
+      ? "var(--accent)"
+      : filmsActive
+        ? "var(--accent)"
+        : "var(--line-2)",
+    cursor: "pointer",
+    textDecoration: "none",
+  };
 
   return (
     <div style={{ ...tStyles.seasonTabs, position: "relative" }}>
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          setOpen((o) => !o);
-        }}
-        style={{
-          ...tStyles.seasonTab,
-          background: filmsActive ? "var(--accent-soft)" : "var(--bg-3)",
-          borderColor: open
-            ? "var(--accent)"
-            : filmsActive
-              ? "var(--accent)"
-              : "var(--line-2)",
-          cursor: "pointer",
-        }}
-      >
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "flex-start",
-            gap: 1,
-            minWidth: 0,
-          }}
+      {single ? (
+        <Link
+          href={infoHref(films[0].id, i18n.language)}
+          style={triggerStyle}
         >
-          <span
-            style={{
-              fontSize: 13,
-              fontWeight: 600,
-              color: filmsActive ? "var(--accent)" : "var(--txt-0)",
-              whiteSpace: "nowrap",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              maxWidth: 200,
-            }}
-          >
-            {headerLabel}
-          </span>
-          <span style={{ fontSize: 10.5, color: "var(--txt-3)" }}>
-            {t("anime.filmCount", {
-              count: films.length,
-              defaultValue: films.length > 1 ? `${films.length} films` : "1 film",
-            })}
-          </span>
-        </div>
-        <svg
-          width="12"
-          height="12"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth={2}
-          style={{
-            color: "var(--txt-3)",
-            transform: open ? "rotate(180deg)" : "none",
-            transition: "transform 0.15s",
+          {triggerInner}
+        </Link>
+      ) : (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            setOpen((o) => !o);
           }}
+          style={triggerStyle}
         >
-          <polyline points="6 9 12 15 18 9" />
-        </svg>
-      </button>
+          {triggerInner}
+        </button>
+      )}
 
-      {open && (
+      {!single && open && (
         <div onClick={(e) => e.stopPropagation()} style={tStyles.seasonMenu}>
           {films.map((f, i) => {
             const rowActive = filmsActive && f.id === activeId;
+            const cover = f.coverImage?.large || f.coverImage?.extraLarge || null;
             return (
               <button
                 key={String(f.id)}
@@ -877,22 +976,41 @@ function FilmsPicker({
                 }}
                 style={{
                   ...tStyles.seasonMenuItem,
+                  gap: 10,
                   background: rowActive ? "var(--accent-soft)" : "transparent",
                   color: rowActive ? "var(--accent)" : "var(--txt-0)",
                 }}
               >
-                <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start" }}>
-                  <span style={{ fontSize: 12.5, fontWeight: 600 }}>
+                {/* Cover thumbnail */}
+                <div style={tStyles.filmCover}>
+                  {cover ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={cover}
+                      alt=""
+                      style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                    />
+                  ) : null}
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", minWidth: 0 }}>
+                  <span
+                    style={{
+                      fontSize: 12.5,
+                      fontWeight: 600,
+                      whiteSpace: "nowrap",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      maxWidth: 190,
+                    }}
+                  >
                     {filmLabel(f, i)}
                   </span>
                   <span style={{ fontSize: 10.5, color: "var(--txt-3)" }}>
-                    {[f.year, f.episodes ? `${f.episodes} EP` : null]
-                      .filter(Boolean)
-                      .join(" · ") || "MOVIE"}
+                    {filmMeta(f)}
                   </span>
                 </div>
                 {rowActive && (
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} style={{ marginLeft: "auto" }}>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} style={{ marginLeft: "auto", flexShrink: 0 }}>
                     <polyline points="20 6 9 17 4 12" />
                   </svg>
                 )}
@@ -1217,6 +1335,23 @@ const tStyles: Record<string, CSSProperties> = {
     gap: 12,
     marginBottom: 14,
     flexWrap: "wrap",
+  },
+  /* Season + Films dropdowns stay glued together on the left; space-between on
+     the row then pushes only the action cluster to the far right. */
+  pickerGroup: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    flexWrap: "wrap",
+  },
+  /* Cover thumbnail in a Films dropdown row. */
+  filmCover: {
+    width: 34,
+    height: 48,
+    borderRadius: 4,
+    overflow: "hidden",
+    background: "var(--bg-2)",
+    flexShrink: 0,
   },
   seasonTabs: {
     display: "flex",

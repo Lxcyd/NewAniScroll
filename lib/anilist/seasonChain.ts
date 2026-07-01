@@ -296,7 +296,9 @@ export async function resolveSeasonList(
    cheap on top of the season list (same getMediaMeta cache). Cached alongside
    the list — an empty array (no bonus films: Demon Slayer, Chainsaw Man) is a
    stable fact and hides the second dropdown. */
-const REDIS_KEY_FILMS = (id: number) => `bonusFilms:v1:${id}`;
+// v2: FilmVariant enriched with duration / averageScore / coverImage for the
+//     richer Films dropdown rows (cover + runtime).
+const REDIS_KEY_FILMS = (id: number) => `bonusFilms:v2:${id}`;
 export async function resolveBonusFilms(startId: number): Promise<FilmVariant[]> {
   const cached = await redisGetJson<FilmVariant[]>(REDIS_KEY_FILMS(startId));
   if (cached) return cached;

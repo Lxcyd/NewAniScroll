@@ -370,6 +370,13 @@ export interface FilmVariant {
   year?: number | null;
   episodes?: number | null;
   index?: number | null;
+  /** Runtime (minutes) — shown in the Films dropdown. Enriched for bonus films
+   *  (resolveFranchiseBonusFilms); absent for season dual-format variants. */
+  duration?: number | null;
+  /** AniList averageScore (0-100), for the film row. */
+  averageScore?: number | null;
+  /** Cover art URLs for the film row thumbnail. */
+  coverImage?: { extraLarge?: string | null; large?: string | null } | null;
 }
 
 /** Franchise-level BONUS films — original side films that are NOT a season and
@@ -414,6 +421,12 @@ export function findBonusFilms(nodes: any[]): FilmVariant[] {
     year: n.seasonYear ?? n.startDate?.year ?? null,
     episodes: n.episodes ?? null,
     index: multiple ? i + 1 : null,
+    // coverImage rides along on the relation node (fullMediaQuery selects it);
+    // duration/year/score are NOT on the edge — resolveFranchiseBonusFilms
+    // enriches those from each film's own meta.
+    coverImage: n.coverImage
+      ? { extraLarge: n.coverImage.extraLarge ?? null, large: n.coverImage.large ?? null }
+      : null,
   }));
 }
 
@@ -572,7 +585,30 @@ export async function resolveFranchiseBonusFilms(
   // Meta-franchise: the "season list" collapses to the lone entry, but its own
   // side films are still worth surfacing.
   const nodes = (await isMetaFranchise(ordered)) ? [start] : ordered;
-  return findBonusFilms(nodes);
+  const films = findBonusFilms(nodes);
+
+  // Enrich each film with the fields the relation edge doesn't carry (duration,
+  // air year, score) so the dropdown can show a rich row. Films are few (1-3)
+  // and getMediaMeta is cached, so this is cheap. coverImage already came from
+  // the edge; we only backfill missing pieces.
+  return Promise.all(
+    films.map(async (f) => {
+      const m = await load(f.id);
+      if (!m) return f;
+      return {
+        ...f,
+        year: f.year ?? m.seasonYear ?? m.startDate?.year ?? null,
+        episodes: f.episodes ?? m.episodes ?? null,
+        duration: m.duration ?? null,
+        averageScore: m.averageScore ?? null,
+        coverImage:
+          f.coverImage ||
+          (m.coverImage
+            ? { extraLarge: m.coverImage.extraLarge ?? null, large: m.coverImage.large ?? null }
+            : null),
+      };
+    })
+  );
 }
 
 /** Build one SeasonEntry from a media node. `label` defaults to "Season N";
