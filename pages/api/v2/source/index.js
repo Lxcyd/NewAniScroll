@@ -2600,7 +2600,15 @@ function sourceCacheKey({ server, aniId, episode, sub }) {
   // m3u8 wrapped through Fly too, so playback lands in the Universal
   // Player instead of the iframe fallback. Bump so the v9 degraded
   // iframe entries flush and the next probe re-runs the tier chain.
-  return `src:v10:${server}:${aniId}:${episode}:${sub || "sub"}`;
+  // v11: EVICT wrong-season stream URLs cached during the season-cache
+  // Redis-poisoning window. A poisoned player_map served season 2's embed
+  // for a season-1 episode, and that wrong URL got cached here under the
+  // player's `sub` key — surviving the player_map purge because THIS cache
+  // is keyed independently and kept hot (rewritten within its 300s TTL on
+  // every hit). Bumping the version orphans every v10 entry so the next
+  // probe re-resolves from the (now-correct) resolver. See the season-cache
+  // Redis->Turso migration + player_map purge for the upstream fix.
+  return `src:v11:${server}:${aniId}:${episode}:${sub || "sub"}`;
 }
 
 // ── Handler ─────────────────────────────────────────────────────────────
