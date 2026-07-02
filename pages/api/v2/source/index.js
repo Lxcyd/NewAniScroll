@@ -2672,34 +2672,6 @@ function sourceCacheKey({ server, aniId, episode, sub }) {
   return `src:v11:${server}:${aniId}:${episode}:${sub || "sub"}`;
 }
 
-// TEMPORARY debug export — returns detectSeasonNumber both from a cold cache
-// (forces the real resolver + legacy fallback) and reports whether the
-// in-memory seasonCache already held a (possibly poisoned) value.
-export async function __debugDetectSeasonNumber(aniId) {
-  const key = String(aniId);
-  const hadCached = seasonCache.has(key);
-  const cachedVal = hadCached ? seasonCache.get(key) : null;
-  seasonCache.delete(key); // force fresh compute
-  const fresh = await detectSeasonNumber(aniId);
-  return { hadCachedValue: hadCached, cachedValue: cachedVal, freshComputed: fresh };
-}
-
-// TEMPORARY — run the REAL findVoiranimeSlug the writer path uses, for a given
-// season, bypassing the slug cache, to see if it (wrongly) returns the "-2" slug.
-export async function __debugFindVoiranimeSlug(aniId, title, isVF, seasonNum) {
-  voirSlugCache.clear();
-  const slug = await findVoiranimeSlug(title, aniId, isVF, seasonNum);
-  return { seasonNum, slug };
-}
-
-// TEMPORARY — run the REAL getVoiranimeIframe with a trace object to see the
-// exact path (mapRow served, coherence guard, resolved slug, final embed).
-export async function __debugVoiranimeTrace(aniId, title) {
-  const trace = {};
-  const data = await getVoiranimeIframe("voiranime-vidmoly-vo", title, 1, aniId, trace);
-  return { trace, iframe: data?.iframe || data?.clientExtract?.embedUrl || null };
-}
-
 // ── Handler ─────────────────────────────────────────────────────────────
 export default async function handler(req, res) {
   if (req.method !== "POST") {
