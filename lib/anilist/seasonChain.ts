@@ -6,7 +6,7 @@ import {
   findFilmVariants,
   type FilmVariant,
 } from "./resolveSeason";
-import { redis } from "@/lib/redis";
+import { seasonCacheGet, seasonCacheSet } from "@/lib/db/seasonCache";
 import {
   computeSeasonInfo,
   extractSeasonFromTitle,
@@ -22,13 +22,17 @@ import {
   yearOf,
 } from "./seasonDetection";
 
-/* Redis cache for the walker results. Each SSR of an info page used to
-   trigger 10-30 getCachedAnime() calls (one per node in the relation
-   chain × 2 for chain+list), which is the dominant Turso read source.
-   Caching the resolved output sidesteps the walk entirely on warm
-   reads. 7-day TTL: the only thing that invalidates a season chain is
-   AniList publishing a brand-new sequel, which is rare and tolerates
-   a week of staleness. */
+/* Persistent (Turso) cache for the walker results. Each SSR of an info page
+   used to trigger 10-30 getCachedAnime() calls (one per node in the relation
+   chain × 2 for chain+list); caching the resolved output sidesteps the walk
+   entirely on warm reads. 7-day TTL (enforced in lib/db/seasonCache.ts): the
+   only thing that invalidates a season chain is AniList publishing a brand-new
+   sequel, which is rare and tolerates a week of staleness.
+
+   Was Redis — moved to Turso because a slow/unreachable Redis blocked the
+   resolver ~90 s per request AND its stale values served the WRONG season. On
+   Turso a miss/error just recomputes from AniList; it can never serve a wrong
+   season. The cache_key strings keep their version tags (below) unchanged. */
 // v2: numbering now goes through the multi-signal resolver (Fribb + air-year
 //     arbitration + hardened walk) instead of the pure PREQUEL/SEQUEL count,
 //     which mis-ordered remakes (Gundam Origin 2019 vs 1979).
@@ -60,25 +64,18 @@ const REDIS_KEY_CHAIN = (id: number) => `seasonChain:v5:${id}`;
 //      (Attack on Titan: The Roar of Awakening → S2); multi-season digests
 //      (~Chronicle~) route to the bonus-films dropdown. Changes season variants.
 const REDIS_KEY_LIST = (id: number) => `seasonList:v11:${id}`;
-const TTL_SECONDS = 7 * 24 * 60 * 60;
 
-async function redisGetJson<T>(key: string): Promise<T | null> {
-  if (!redis) return null;
-  try {
-    const raw = await redis.get(key);
-    return raw ? (JSON.parse(raw) as T) : null;
-  } catch {
-    return null;
-  }
+// Cache accessors now hit Turso (see lib/db/seasonCache.ts) instead of Redis.
+// The cache_key strings keep their version tag, so a version bump still evicts
+// stale rows. A miss or DB error returns null → the caller recomputes from
+// AniList, so a slow/unreachable store can never serve the WRONG season (the
+// bug we're fixing) and never blocks the request for the Redis connect timeout.
+async function cacheGetJson<T>(key: string): Promise<T | null> {
+  return seasonCacheGet<T>(key);
 }
 
-async function redisSetJson(key: string, value: unknown): Promise<void> {
-  if (!redis) return;
-  try {
-    await redis.set(key, JSON.stringify(value), "EX", TTL_SECONDS);
-  } catch {
-    /* non-fatal */
-  }
+async function cacheSetJson(key: string, value: unknown): Promise<void> {
+  await seasonCacheSet(key, value);
 }
 
 /* Walk PREQUEL / SEQUEL edges starting from `startId` and resolve every
@@ -147,7 +144,7 @@ function pickEdge(
 }
 
 export async function resolveSeasonChain(startId: number): Promise<SeasonInfo> {
-  const cached = await redisGetJson<SeasonInfo>(REDIS_KEY_CHAIN(startId));
+  const cached = await cacheGetJson<SeasonInfo>(REDIS_KEY_CHAIN(startId));
   if (cached) return cached;
   // Route through the multi-signal resolver (Fribb + air-year arbitration +
   // hardened walk). It returns richer data; we project it to SeasonInfo here.
@@ -162,7 +159,7 @@ export async function resolveSeasonChain(startId: number): Promise<SeasonInfo> {
   }
   // Only cache positive resolutions to avoid pinning a "no info" answer
   // for 7 days when the underlying issue was a transient AniList blip.
-  if (result.number != null) await redisSetJson(REDIS_KEY_CHAIN(startId), result);
+  if (result.number != null) await cacheSetJson(REDIS_KEY_CHAIN(startId), result);
   return result;
 }
 
@@ -277,7 +274,7 @@ export type SeasonEntry = {
 export async function resolveSeasonList(
   startId: number
 ): Promise<SeasonEntry[]> {
-  const cached = await redisGetJson<SeasonEntry[]>(REDIS_KEY_LIST(startId));
+  const cached = await cacheGetJson<SeasonEntry[]>(REDIS_KEY_LIST(startId));
   if (cached) return cached;
   // Unified path: the season list now comes from the same franchise builder as
   // the season-number resolver (canonical + Fribb TMDB-restricted). Falls back
@@ -290,7 +287,7 @@ export async function resolveSeasonList(
   }
   // Cache even empty arrays — an anime with no season siblings is a
   // stable fact; recomputing it every page render wastes the walk.
-  await redisSetJson(REDIS_KEY_LIST(startId), result);
+  await cacheSetJson(REDIS_KEY_LIST(startId), result);
   return result;
 }
 
@@ -305,7 +302,7 @@ export async function resolveSeasonList(
 //     bonus-films list alongside SIDE_STORY films.
 const REDIS_KEY_FILMS = (id: number) => `bonusFilms:v3:${id}`;
 export async function resolveBonusFilms(startId: number): Promise<FilmVariant[]> {
-  const cached = await redisGetJson<FilmVariant[]>(REDIS_KEY_FILMS(startId));
+  const cached = await cacheGetJson<FilmVariant[]>(REDIS_KEY_FILMS(startId));
   if (cached) return cached;
   let result: FilmVariant[];
   try {
@@ -313,7 +310,7 @@ export async function resolveBonusFilms(startId: number): Promise<FilmVariant[]>
   } catch {
     result = [];
   }
-  await redisSetJson(REDIS_KEY_FILMS(startId), result);
+  await cacheSetJson(REDIS_KEY_FILMS(startId), result);
   return result;
 }
 

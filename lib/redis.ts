@@ -9,7 +9,21 @@ let rateLimitStrict: RateLimiterRedis;
 let rateSuperStrict: RateLimiterRedis;
 
 if (REDIS_URL) {
-  redis = new Redis(REDIS_URL);
+  // Fail-fast options. Defaults let a slow/unreachable Redis (Upstash) hang a
+  // request for the OS connect timeout (~90 s) — every cache read stalled the
+  // whole handler. With these, a dead Redis errors in ~2 s and callers fall
+  // through to their non-Redis path instead of blocking:
+  //   • connectTimeout: cap the TCP/TLS connect attempt.
+  //   • maxRetriesPerRequest: don't retry a command forever when offline.
+  //   • enableOfflineQueue:false — reject commands immediately while
+  //     disconnected rather than queueing them until a (maybe-never) reconnect.
+  //   • retryStrategy: bounded backoff so we still recover when Redis returns.
+  redis = new Redis(REDIS_URL, {
+    connectTimeout: 2000,
+    maxRetriesPerRequest: 1,
+    enableOfflineQueue: false,
+    retryStrategy: (times: number) => Math.min(times * 200, 2000),
+  });
   redis.on("error", (err: Error) => {
     console.error("Redis error: ", err);
   });
