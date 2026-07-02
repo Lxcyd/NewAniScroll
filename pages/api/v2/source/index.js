@@ -2743,9 +2743,17 @@ export default async function handler(req, res) {
       const ipAddress = req.socket.remoteAddress;
       await rateLimiterRedis.consume(ipAddress);
     } catch (error) {
-      return res.status(429).json({
-        error: `Too Many Requests, retry after ${error.msBeforeNext / 1000}`,
-      });
+      // rate-limiter-flexible rejects with a RateLimiterRes (has msBeforeNext)
+      // on a genuine quota hit, but with a plain Error when its Redis store is
+      // unreachable. FAIL OPEN on the latter: a broken limiter store must not
+      // 429 every request (that's what spammed the console when the native
+      // Redis port was blocked). Only enforce the limit on a real quota breach.
+      if (error && typeof error.msBeforeNext === "number") {
+        return res.status(429).json({
+          error: `Too Many Requests, retry after ${error.msBeforeNext / 1000}`,
+        });
+      }
+      // limiter store error → don't gate; proceed to the scrape.
     }
   }
 
