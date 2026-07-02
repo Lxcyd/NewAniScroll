@@ -616,7 +616,28 @@ async function getAnimeSamaIframe(serverKey, title, episode, aniId) {
 
     let iframeUrl = null;
     let resolvedViaMap = false;
+
+    // COHERENCE GUARD — drop a mapped panel whose season contradicts the
+    // resolver. anime-sama encodes the season in the panel dir (saison2 = S2,
+    // saison1/null = S1). A season-1 entry mapped to seasonDir=saison2 (written
+    // back while season resolution was on a poisoned Redis) would serve S2's
+    // episode 1 forever, since this fast-path is taken before any re-resolution.
+    // Cross-check against detectSeasonNumber and demote the row on mismatch so
+    // the heuristic path re-derives the correct panel. Films/OAV dirs (non
+    // "saisonN") are exempt — their "season" isn't a number.
+    let mapPanelCoherent = true;
+    if (mapRow?.seasonDir && /^saison/i.test(mapRow.seasonDir)) {
+      const dirSeason = Number((mapRow.seasonDir.match(/saison\s*(\d+)/i) || [])[1] || 1);
+      const expectedSeason = await detectSeasonNumber(aniId);
+      if (dirSeason !== expectedSeason) {
+        dlog(`[anime-sama] player_map ${mapRow.seasonDir} implies S${dirSeason} but resolver says S${expectedSeason} — ignoring poisoned row`);
+        flagPlayerMap(aniId, "animesama", langPath, `season mismatch: ${mapRow.seasonDir} vs resolver S${expectedSeason}`).catch(() => {});
+        mapPanelCoherent = false;
+      }
+    }
+
     if (
+      mapPanelCoherent &&
       mapRow?.slug &&
       mapRow?.seasonDir &&
       (mapRow.status === "verified" || mapRow.status === "heuristic")
@@ -1683,10 +1704,31 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId) {
       dlog(`[voiranime] player_map says ${mapRow.status} for ${aniId}/${lang} — skipping`);
       return null;
     }
-    const mappedSlug =
+    let mappedSlug =
       mapRow?.slug && (mapRow.status === "verified" || mapRow.status === "heuristic")
         ? mapRow.slug
         : null;
+
+    // COHERENCE GUARD — reject a mapped slug whose season number contradicts the
+    // resolver. A voir-anime slug encodes its season as a suffix
+    // (shingeki-no-kyojin-2 = S2, shingeki-no-kyojin = S1). During the season-
+    // cache Redis-poisoning window a season-1 entry got a "-2" slug written back,
+    // and because player_map is read FIRST, every later request served S2's
+    // episode 1 forever — the poison was self-perpetuating (re-served, never
+    // re-resolved). Here we cross-check the mapped slug's suffix-season against
+    // detectSeasonNumber; on mismatch we drop the row and re-resolve, which
+    // breaks the loop for SNK and any other anime poisoned the same way.
+    if (mappedSlug) {
+      const expectedSeason = await detectSeasonNumber(aniId);
+      const base = mappedSlug.replace(/-vf$/i, "");
+      const suffix = base.match(/-(?:s|saison-|season-)?(\d+)$/);
+      const slugSeason = suffix ? Number(suffix[1]) : 1;
+      if (slugSeason !== expectedSeason) {
+        dlog(`[voiranime] player_map slug ${mappedSlug} implies S${slugSeason} but resolver says S${expectedSeason} — ignoring poisoned row`);
+        flagPlayerMap(aniId, "voiranime", lang, `season mismatch: slug S${slugSeason} vs resolver S${expectedSeason}`).catch(() => {});
+        mappedSlug = null;
+      }
+    }
 
     let slug = mappedSlug;
     if (!slug) {
