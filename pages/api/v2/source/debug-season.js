@@ -8,6 +8,7 @@
 
 import { getMediaMeta } from "@/lib/anilist/getMediaMeta";
 import { resolveSeasonNumber } from "@/lib/anilist/resolveSeason";
+import { redis } from "@/lib/redis";
 import { inspectVoiranime, __debugDetectSeasonNumber, __debugFindVoiranimeSlug, __debugVoiranimeTrace } from "./index";
 
 export default async function handler(req, res) {
@@ -15,6 +16,25 @@ export default async function handler(req, res) {
   if (!aniId) return res.status(400).json({ error: "aniId required" });
 
   const out = { aniId };
+
+  // ?purgeCache=1 — delete every cached source/lock entry for this aniId across
+  // all versions/servers/subs/langs, so the next probe re-resolves fresh.
+  if (req.query.purgeCache === "1" && redis) {
+    try {
+      const patterns = [`src:*:*:${aniId}:*`, `lock:src:*:*:${aniId}:*`];
+      let deleted = 0;
+      const keys = new Set();
+      for (const p of patterns) {
+        // scanStream is safer than KEYS on big DBs; small here so KEYS is fine.
+        const found = await redis.keys(p);
+        found.forEach((k) => keys.add(k));
+      }
+      if (keys.size) deleted = await redis.del(...keys);
+      out.purgeCache = { matched: keys.size, deleted, keys: [...keys].slice(0, 40) };
+    } catch (e) {
+      out.purgeCache_error = String(e?.message || e);
+    }
+  }
 
   // -1. The ACTUAL detectSeasonNumber the player path uses (no RO). This is the
   //     number the coherence guard compares against. If this is 2, the guard
