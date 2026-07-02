@@ -1,8 +1,5 @@
-import { Redis } from "ioredis";
-import { RateLimiterRedis } from "rate-limiter-flexible";
+import { RateLimiterMemory } from "rate-limiter-flexible";
 import { createRestRedis, type IoRedisish } from "./redisRest";
-
-const REDIS_URL: string | undefined = process.env.REDIS_URL;
 
 // CACHING CLIENT — Upstash REST over HTTPS (port 443). The native Redis
 // protocol (port 6379) is blocked outbound from our network and the Vercel
@@ -16,48 +13,32 @@ const REDIS_URL: string | undefined = process.env.REDIS_URL;
 // guards on it at runtime. The cast preserves that historical contract.
 let redis = createRestRedis() as IoRedisish;
 
-let rateLimiterRedis: RateLimiterRedis;
-let rateLimitStrict: RateLimiterRedis;
-let rateSuperStrict: RateLimiterRedis;
-
-if (REDIS_URL) {
-  // RATE-LIMITER — rate-limiter-flexible needs a NATIVE ioredis storeClient
-  // (it issues Lua/EVALSHA the REST client can't run), so it keeps its own
-  // ioredis connection. Fail-fast options so a blocked 6379 errors in ~2 s
-  // instead of hanging ~90 s. When this store is unreachable, callers now FAIL
-  // OPEN (see pages/api/v2/source: only 429 on a real quota hit, not on a
-  // limiter-store error) rather than 429-ing every request.
-  const limiterClient = new Redis(REDIS_URL, {
-    connectTimeout: 2000,
-    maxRetriesPerRequest: 1,
-    enableOfflineQueue: false,
-    retryStrategy: (times: number) => Math.min(times * 200, 2000),
-  });
-  limiterClient.on("error", (err: Error) => {
-    console.error("Redis (rate-limiter) error: ", err);
-  });
-
-  rateLimiterRedis = new RateLimiterRedis({
-    storeClient: limiterClient,
-    keyPrefix: "rateLimit",
-    points: 50,
-    duration: 1,
-  });
-  rateLimitStrict = new RateLimiterRedis({
-    storeClient: limiterClient,
-    keyPrefix: "rateLimitStrict",
-    points: 20,
-    duration: 1,
-  });
-  rateSuperStrict = new RateLimiterRedis({
-    storeClient: limiterClient,
-    keyPrefix: "rateLimitSuperStrict",
-    points: 3,
-    duration: 10 * 60,
-    blockDuration: 10 * 60,
-  });
-} else {
-  console.warn("REDIS_URL is not defined. Redis caching will be disabled.");
-}
+// RATE-LIMITERS — IN-PROCESS. These were RateLimiterRedis on a dedicated
+// ioredis client, but with port 6379 blocked that client could NEVER connect:
+// every consume() burned a 2 s connect timeout, then rejected with a plain
+// Error that endpoints treated as "over quota" → blanket 429s on /episode,
+// /etc/recent, w2g… (and an ETIMEDOUT log storm). rate-limiter-flexible can't
+// run its Lua/EVALSHA over the REST shim, so the fleet-shared store is not an
+// option — memory limiters are: instantaneous, always available, and they only
+// reject with a genuine RateLimiterRes when a caller is actually over quota.
+// The budget below is per-lambda rather than fleet-wide, which is acceptable:
+// the limiters exist to stop a single client hammering, and keying by IP within
+// one warm lambda still does that.
+const rateLimiterRedis = new RateLimiterMemory({
+  keyPrefix: "rateLimit",
+  points: 50,
+  duration: 1,
+});
+const rateLimitStrict = new RateLimiterMemory({
+  keyPrefix: "rateLimitStrict",
+  points: 20,
+  duration: 1,
+});
+const rateSuperStrict = new RateLimiterMemory({
+  keyPrefix: "rateLimitSuperStrict",
+  points: 3,
+  duration: 10 * 60,
+  blockDuration: 10 * 60,
+});
 
 export { redis, rateLimiterRedis, rateLimitStrict, rateSuperStrict };
