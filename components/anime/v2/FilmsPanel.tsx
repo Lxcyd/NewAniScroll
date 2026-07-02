@@ -92,13 +92,17 @@ function FilmRow({
 
   return (
     <Link href={infoHref(film.id, locale)} style={styles.row}>
+      {/* Portrait poster shown WHOLE (object-fit: contain) — a film's cover is a
+          key-art poster, cropping it to a 16:9 strip lost the title/character
+          framing. The box is 2:3 (poster ratio) so a normal cover fills it, and
+          contain guarantees nothing is cut for odd ratios. */}
       <div style={styles.thumb}>
         {cover ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={cover}
             alt=""
-            style={{ width: "100%", height: "100%", objectFit: "cover" }}
+            style={{ width: "100%", height: "100%", objectFit: "contain" }}
             loading="lazy"
             decoding="async"
           />
@@ -111,7 +115,6 @@ function FilmRow({
             }}
           />
         )}
-        <div style={styles.thumbScrim} />
       </div>
       <div style={styles.info}>
         <div style={styles.rowHead}>
@@ -177,18 +180,14 @@ const styles: Record<string, CSSProperties> = {
   },
   thumb: {
     position: "relative",
-    width: 88,
-    height: 70,
+    width: 62,
+    height: 88,
     borderRadius: 7,
     overflow: "hidden",
     flexShrink: 0,
     background: "var(--bg-3)",
-  },
-  thumbScrim: {
-    position: "absolute",
-    inset: 0,
-    background: "linear-gradient(180deg, rgba(0,0,0,0) 55%, rgba(0,0,0,0.35) 100%)",
-    pointerEvents: "none",
+    display: "grid",
+    placeItems: "center",
   },
   info: { flex: 1, display: "flex", flexDirection: "column", gap: 4, minWidth: 0 },
   rowHead: { display: "flex", alignItems: "center", gap: 8 },

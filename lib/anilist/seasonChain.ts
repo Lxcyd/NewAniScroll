@@ -63,7 +63,10 @@ const REDIS_KEY_CHAIN = (id: number) => `seasonChain:v5:${id}`;
 // v11: SUMMARY recap films now attach as dual-format variants of their season
 //      (Attack on Titan: The Roar of Awakening → S2); multi-season digests
 //      (~Chronicle~) route to the bonus-films dropdown. Changes season variants.
-const REDIS_KEY_LIST = (id: number) => `seasonList:v11:${id}`;
+// v12: SINGLE-season anime (One Piece) no longer attach arc-recap films as
+//      per-season dual-format variants (no season split to host them) — those
+//      recaps move to the Films panel's Compilations section. Changes variants.
+const REDIS_KEY_LIST = (id: number) => `seasonList:v12:${id}`;
 
 // Cache accessors now hit Turso (see lib/db/seasonCache.ts) instead of Redis.
 // The cache_key strings keep their version tag, so a version bump still evicts
@@ -303,7 +306,14 @@ export async function resolveSeasonList(
 // v4: FilmVariant tagged with `kind` ("movie" | "compilation") and arc recap
 //     films (SUMMARY/COMPILATION) now included so the UI can split them into a
 //     "Compilations" section. Bump to drop pre-tag cached lists.
-const REDIS_KEY_FILMS = (id: number) => `bonusFilms:v4:${id}`;
+// v5: single-season recaps (Roar of Awakening → S2, One Piece Alabasta/Chopper)
+//     are EXCLUDED from the panel — they belong to the season dropdown only, so
+//     the Compilations section holds multi-season digests (~Chronicle~) alone.
+//     Bump to evict v4 lists that double-listed single-season recaps.
+// v6: SINGLE-season anime (One Piece) DO include their arc recaps here as
+//     "compilation" (there's no season dropdown for them); multi-season keep the
+//     season-dropdown-only rule. Bump to recompute with the season-count split.
+const REDIS_KEY_FILMS = (id: number) => `bonusFilms:v6:${id}`;
 export async function resolveBonusFilms(startId: number): Promise<FilmVariant[]> {
   const cached = await cacheGetJson<FilmVariant[]>(REDIS_KEY_FILMS(startId));
   if (cached) return cached;

@@ -450,17 +450,14 @@ export function findBonusFilms(nodes: any[]): FilmVariant[] {
   }));
 }
 
-/** Franchise-level COMPILATION films: recap MOVIEs that condense an arc / part of
- *  the series (AniList SUMMARY or COMPILATION edges), e.g. One Piece's
- *  "…Alabasta" / "Episode of Chopper" arc digests. Distinct from a genuine
- *  standalone film (findBonusFilms / SIDE_STORY): these are re-cuts of episodes
- *  the viewer has already seen, so the UI groups them in a separate
- *  "Compilations" section. Unlike findMultiSeasonDigestFilms (whole-franchise
- *  digests referenced by ≥2 seasons, routed to the films dropdown as digests),
- *  this collects ANY franchise recap movie so single-arc compilations aren't
- *  lost — we dedupe against the exclusion set the caller passes for the ones
- *  already surfaced as per-season dual-format variants. */
-export function findCompilationFilms(
+/** Arc-recap films: MOVIEs that condense part of the series (AniList SUMMARY or
+ *  COMPILATION edges), e.g. One Piece's "…Alabasta" / "Episode of Chopper" arc
+ *  digests. Only used for SINGLE-season anime (One Piece), where there's no
+ *  per-season dropdown for them to live in — so they surface in the Films panel's
+ *  "Compilations" section. Multi-season franchises route their single-season
+ *  recaps to the season dropdown instead (see resolveFranchiseBonusFilms).
+ *  `excludeIds` drops any film already classified as a standalone / digest. */
+export function findRecapFilms(
   nodes: any[],
   excludeIds?: Set<number>
 ): FilmVariant[] {
@@ -689,6 +686,20 @@ export async function resolveFranchiseSeasons(
     if (n >= 2) multiSeasonFilmIds.add(id);
   });
 
+  // A SINGLE-season anime (One Piece — one continuous TV node) isn't "split into
+  // seasons", so a per-season "Watch in: Episodes / Films" dropdown makes no
+  // sense: its arc-recap films belong in the Films panel's Compilations section
+  // instead (see resolveFranchiseBonusFilms). Suppress the dual-format variants
+  // here so the same recap isn't offered in two places. Multi-season franchises
+  // keep their per-season recap (Roar of Awakening on SnK S2) as before.
+  const singleSeason = seasonLike.length === 1;
+  const excludeVariantIds = singleSeason
+    ? new Set<number>([
+        ...multiSeasonFilmIds,
+        ...(findFilmVariants(seasonLike[0]) ?? []).map((v) => v.id),
+      ])
+    : multiSeasonFilmIds;
+
   let running = 0;
   return seasonLike.map((m: any) => {
     const fromTitle = extractSeasonFromTitle(m.title);
@@ -699,7 +710,7 @@ export async function resolveFranchiseSeasons(
       /\b(?:Part|Cour)\s+(\d+|[IVX]+)\b/i
     );
     const part = partMatch ? ` Part ${partMatch[1].toUpperCase()}` : "";
-    return toSeasonEntry(m, running, `Season ${running}${part}`, multiSeasonFilmIds);
+    return toSeasonEntry(m, running, `Season ${running}${part}`, excludeVariantIds);
   });
 }
 
@@ -728,13 +739,34 @@ export async function resolveFranchiseBonusFilms(
   // Meta-franchise: the "season list" collapses to the lone entry, but its own
   // side films are still worth surfacing.
   const nodes = (await isMetaFranchise(ordered)) ? [start] : ordered;
-  // Genuine standalone films (SIDE_STORY) + whole-franchise digests, then arc
-  // compilations (SUMMARY/COMPILATION). Order matters for the dedup below:
-  // findBonusFilms/digests win an id over a compilation entry so a film's
-  // primary classification stands.
+
+  // How many REAL seasons does this franchise have? A single-continuous-anime
+  // (One Piece — one long TV node) has 1; SnK / Demon Slayer have several. This
+  // decides where arc-recap films belong (see below).
+  const realSeasonCount = nodes.filter(
+    (m) => !isRecapTitle(m) && isSeasonLike(m) && (!m?.type || m.type === "ANIME"),
+  ).length;
+  const multiSeason = realSeasonCount > 1;
+
+  // Films panel content:
+  //   • genuine standalone films — SIDE_STORY (findBonusFilms), kind "movie";
+  //   • whole-franchise digests — a SUMMARY/COMPILATION recapping ≥2 seasons
+  //     (Attack on Titan ~Chronicle~), kind "compilation".
   const movieish = findBonusFilms(nodes).concat(findMultiSeasonDigestFilms(nodes));
-  const alreadyIds = new Set(movieish.map((f) => f.id));
-  const compilations = findCompilationFilms(nodes, alreadyIds);
+
+  // Arc-recap films (SUMMARY/COMPILATION of one season) are handled by season
+  // count:
+  //   • MULTI-season anime (SnK): a single-season recap (Roar of Awakening → S2)
+  //     already appears as that season's dual-format variant in the season
+  //     dropdown, so we KEEP it out of the panel to avoid duplicating it.
+  //   • SINGLE-season anime (One Piece — not split into seasons): there is no
+  //     per-season dropdown for it to live in, so its arc digests (Alabasta,
+  //     Chopper) belong right here, in the "Compilations" section.
+  let compilations: FilmVariant[] = [];
+  if (!multiSeason) {
+    const already = new Set(movieish.map((f) => f.id));
+    compilations = findRecapFilms(nodes, already);
+  }
   const merged = movieish.concat(compilations);
   const byId = new Map<number, FilmVariant>();
   for (const f of merged) if (!byId.has(f.id)) byId.set(f.id, f);

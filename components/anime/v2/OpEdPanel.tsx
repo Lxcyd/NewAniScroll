@@ -137,6 +137,11 @@ export default function OpEdPanel({
               <ThemeRow
                 key={`${g.season.id}-${th.slug}`}
                 theme={th}
+                cover={
+                  g.season.coverImage?.large ||
+                  g.season.coverImage?.extraLarge ||
+                  null
+                }
                 onPlay={() => setPlaying({ theme: th, seasonLabel: g.season.label })}
               />
             ))}
@@ -155,7 +160,17 @@ export default function OpEdPanel({
   );
 }
 
-function ThemeRow({ theme, onPlay }: { theme: Theme; onPlay: () => void }) {
+function ThemeRow({
+  theme,
+  cover,
+  onPlay,
+}: {
+  theme: Theme;
+  /** Season cover — AnimeThemes doesn't expose a per-theme still, so we use the
+   *  season's poster as the row's artwork (kept small, with the OP/ED badge). */
+  cover: string | null;
+  onPlay: () => void;
+}) {
   const { t } = useTranslation();
   const isOp = theme.kind === "op";
   const kindLabel = theme.slug || (isOp ? "OP" : "ED");
@@ -164,15 +179,27 @@ function ThemeRow({ theme, onPlay }: { theme: Theme; onPlay: () => void }) {
 
   return (
     <button type="button" onClick={onPlay} style={styles.row}>
-      <span
-        style={{
-          ...styles.kindBadge,
-          background: isOp ? "var(--accent-soft)" : "rgba(120,140,255,0.12)",
-          color: isOp ? "var(--accent)" : "#8a9bff",
-        }}
-      >
-        {kindLabel}
-      </span>
+      <div style={styles.thumb}>
+        {cover ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={cover}
+            alt=""
+            style={{ width: "100%", height: "100%", objectFit: "cover" }}
+            loading="lazy"
+            decoding="async"
+          />
+        ) : null}
+        <span
+          style={{
+            ...styles.kindBadge,
+            background: isOp ? "var(--accent-soft)" : "rgba(120,140,255,0.12)",
+            color: isOp ? "var(--accent)" : "#8a9bff",
+          }}
+        >
+          {kindLabel}
+        </span>
+      </div>
       <div style={styles.info}>
         <div style={styles.title}>{theme.song || kindLabel}</div>
         <div style={styles.meta}>
@@ -293,15 +320,30 @@ const styles: Record<string, CSSProperties> = {
     width: "100%",
     transition: "all 0.15s",
   },
+  thumb: {
+    position: "relative",
+    width: 78,
+    height: 56,
+    borderRadius: 7,
+    overflow: "hidden",
+    flexShrink: 0,
+    background: "var(--bg-3)",
+    display: "flex",
+    alignItems: "flex-end",
+    justifyContent: "flex-start",
+  },
   kindBadge: {
-    fontSize: 12,
+    position: "absolute",
+    left: 5,
+    bottom: 5,
+    fontSize: 10.5,
     fontWeight: 700,
     letterSpacing: "0.03em",
-    padding: "10px 12px",
-    borderRadius: 7,
-    flexShrink: 0,
-    minWidth: 54,
+    padding: "3px 7px",
+    borderRadius: 5,
     textAlign: "center",
+    backdropFilter: "blur(4px)",
+    WebkitBackdropFilter: "blur(4px)",
   },
   info: { flex: 1, display: "flex", flexDirection: "column", gap: 4, minWidth: 0 },
   title: {
