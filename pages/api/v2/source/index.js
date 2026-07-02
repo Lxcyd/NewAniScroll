@@ -2668,6 +2668,18 @@ function sourceCacheKey({ server, aniId, episode, sub }) {
   return `src:v11:${server}:${aniId}:${episode}:${sub || "sub"}`;
 }
 
+// TEMPORARY debug export — returns detectSeasonNumber both from a cold cache
+// (forces the real resolver + legacy fallback) and reports whether the
+// in-memory seasonCache already held a (possibly poisoned) value.
+export async function __debugDetectSeasonNumber(aniId) {
+  const key = String(aniId);
+  const hadCached = seasonCache.has(key);
+  const cachedVal = hadCached ? seasonCache.get(key) : null;
+  seasonCache.delete(key); // force fresh compute
+  const fresh = await detectSeasonNumber(aniId);
+  return { hadCachedValue: hadCached, cachedValue: cachedVal, freshComputed: fresh };
+}
+
 // ── Handler ─────────────────────────────────────────────────────────────
 export default async function handler(req, res) {
   if (req.method !== "POST") {

@@ -8,13 +8,22 @@
 
 import { getMediaMeta } from "@/lib/anilist/getMediaMeta";
 import { resolveSeasonNumber } from "@/lib/anilist/resolveSeason";
-import { inspectVoiranime } from "./index";
+import { inspectVoiranime, __debugDetectSeasonNumber } from "./index";
 
 export default async function handler(req, res) {
   const aniId = Number(req.query.aniId);
   if (!aniId) return res.status(400).json({ error: "aniId required" });
 
   const out = { aniId };
+
+  // -1. The ACTUAL detectSeasonNumber the player path uses (no RO). This is the
+  //     number the coherence guard compares against. If this is 2, the guard
+  //     thinks "-2" is coherent and lets the poisoned row through.
+  try {
+    out.detectSeasonNumber_raw = await __debugDetectSeasonNumber(aniId);
+  } catch (e) {
+    out.detectSeasonNumber_error = String(e?.message || e);
+  }
 
   // 0. What the REAL player path computes: inspectVoiranime runs the same
   //    detectSeasonNumber + findVoiranimeSlug the resolver uses. Its seasonNum
