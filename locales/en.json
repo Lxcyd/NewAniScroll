@@ -677,6 +677,7 @@
     "filterEpisodes": "Filter episodes…",
     "filterFilms": "Filter films…",
     "filterThemes": "Filter openings & endings…",
+    "gridView": "Grid view",
     "noFilmMatch": "No film matches your search.",
     "noThemeMatch": "No opening or ending matches your search.",
     "detailedView": "Detailed view (thumbnails + description)",

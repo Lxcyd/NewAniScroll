@@ -352,8 +352,8 @@ export default function Episodes({ info, progress, seasonList, bonusFilms }: Pro
             />
           </div>
 
+          {/* Sub/Dub only matters for the episode player. */}
           {panel === "episodes" && (
-          <>
           <button
             style={{
               ...tStyles.smallBtn,
@@ -365,8 +365,10 @@ export default function Episodes({ info, progress, seasonList, bonusFilms }: Pro
           >
             {isDub ? "Dub" : "Sub"}
           </button>
+          )}
 
-          {/* View-mode segmented control */}
+          {/* View-mode segmented control — applies to every panel (episodes,
+              films, OP-ED): detailed cards / compact list / cover grid. */}
           <div style={tStyles.viewSwitch}>
             <ViewBtn
               active={view === "detailed"}
@@ -395,7 +397,11 @@ export default function Episodes({ info, progress, seasonList, bonusFilms }: Pro
             <ViewBtn
               active={view === "grid"}
               onClick={() => setView("grid")}
-              title={t("anime.gridOfNumbers")}
+              title={
+                panel === "episodes"
+                  ? t("anime.gridOfNumbers")
+                  : t("anime.gridView", { defaultValue: "Grid view" })
+              }
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
                 <rect x="3" y="3" width="7" height="7" rx="1.5" />
@@ -405,19 +411,17 @@ export default function Episodes({ info, progress, seasonList, bonusFilms }: Pro
               </svg>
             </ViewBtn>
           </div>
-          </>
-          )}
         </div>
       </div>
 
       {/* Films panel — replaces the episode list. Movies + Compilations sections. */}
       {panel === "films" && hasBonusFilms && (
-        <FilmsPanel films={bonusFilms!} filter={filter} />
+        <FilmsPanel films={bonusFilms!} filter={filter} view={view} />
       )}
 
       {/* OP/ED panel — replaces the episode list. Grouped by season, plays clips. */}
       {panel === "oped" && (
-        <OpEdPanel data={opedData} loading={opedLoading} filter={filter} />
+        <OpEdPanel data={opedData} loading={opedLoading} filter={filter} view={view} />
       )}
 
       {/* Episode list */}

@@ -64,6 +64,15 @@ Retours SS user (6 points). Tous vérifiés sur données AniList live avant/apr�
   fiable). Le chip OP/ED reste à côté du titre (pas sur l'image). Leçon : pas de still par thème sur
   l'API AnimeThemes ; le frame-vidéo comme vignette coûte trop cher en fiabilité.
 
+### 8 — Vues (détaillé / compact / grille) pour Films & Opening-Ending
+- Le sélecteur de vue était épisodes-only → sorti du gate (sub/dub reste épisodes-only). `view`
+  passé à `FilmsPanel`/`OpEdPanel`. Tooltip grille générique (`gridView`) hors épisodes (« Grille de
+  numéros » n'a de sens que pour les épisodes).
+- `FilmsPanel` : `FilmRow` gagne `compact` (ligne dense num·titre·meta·chevron) ; nouveau `FilmTile`
+  (grille de posters 2:3, tag RÉSUMÉ en overlay). Helpers `useFilmText`/`coverEl` partagés.
+- `OpEdPanel` : `ThemeRow` gagne `compact` ; nouveau `ThemeTile` (grille 16:9 cover + chip + play
+  overlay + song/artiste dessous). `chipStyle()` partagé.
+
 ---
 
 ## 2026-07-02 (suite) — Films/OP-ED en onglets (remplacent la liste) + section Compilations
