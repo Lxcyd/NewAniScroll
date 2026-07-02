@@ -8,7 +8,7 @@
 
 import { getMediaMeta } from "@/lib/anilist/getMediaMeta";
 import { resolveSeasonNumber } from "@/lib/anilist/resolveSeason";
-import { inspectVoiranime, __debugDetectSeasonNumber, __debugFindVoiranimeSlug } from "./index";
+import { inspectVoiranime, __debugDetectSeasonNumber, __debugFindVoiranimeSlug, __debugVoiranimeTrace } from "./index";
 
 export default async function handler(req, res) {
   const aniId = Number(req.query.aniId);
@@ -42,6 +42,13 @@ export default async function handler(req, res) {
     out.findVoiranimeSlug_S1 = await __debugFindVoiranimeSlug(aniId, "Shingeki no Kyojin", false, 1);
   } catch (e) {
     out.findVoiranimeSlug_error = String(e?.message || e);
+  }
+
+  // The FULL real path with a trace — shows mapRow served, guard result, slug.
+  try {
+    out.voiranimeTrace = await __debugVoiranimeTrace(aniId, "Shingeki no Kyojin");
+  } catch (e) {
+    out.voiranimeTrace_error = String(e?.message || e);
   }
 
   // 1. Raw multi-signal resolver (what inspect uses, indirectly).

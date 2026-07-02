@@ -1699,7 +1699,7 @@ const VOIRANIME_SERVERS = {
   "voiranime-vidmoly-vo": { name: "Vidmoly", host: ["vidmoly.to", "vidmoly.biz", "vidmoly.net"], lang: "vostfr" },
 };
 
-async function getVoiranimeIframe(serverKey, title, episode, aniId) {
+async function getVoiranimeIframe(serverKey, title, episode, aniId, trace = null) {
   try {
     const serverDef = VOIRANIME_SERVERS[serverKey];
     if (!serverDef) return null;
@@ -1711,6 +1711,7 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId) {
     // slug), so a verified row skips findVoiranimeSlug's ~10 worker probes.
     const nowS = Math.floor(Date.now() / 1000);
     const mapRow = await getPlayerMapEntry(aniId, "voiranime", lang);
+    if (trace) trace.mapRow = mapRow ? { status: mapRow.status, slug: mapRow.slug, algoVersion: mapRow.algoVersion } : null;
     if (
       mapRow &&
       (mapRow.status === "absent" || mapRow.status === "broken") &&
@@ -1738,6 +1739,7 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId) {
       const base = mappedSlug.replace(/-vf$/i, "");
       const suffix = base.match(/-(?:s|saison-|season-)?(\d+)$/);
       const slugSeason = suffix ? Number(suffix[1]) : 1;
+      if (trace) trace.guard = { slugSeason, expectedSeason, mismatch: slugSeason !== expectedSeason };
       if (slugSeason !== expectedSeason) {
         dlog(`[voiranime] player_map slug ${mappedSlug} implies S${slugSeason} but resolver says S${expectedSeason} — ignoring poisoned row`);
         flagPlayerMap(aniId, "voiranime", lang, `season mismatch: slug S${slugSeason} vs resolver S${expectedSeason}`).catch(() => {});
@@ -1749,11 +1751,13 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId) {
     if (!slug) {
       const seasonNum = await detectSeasonNumber(aniId);
       slug = await findVoiranimeSlug(title, aniId, isVF, seasonNum);
+      if (trace) trace.resolvedSlug = { seasonNum, slug };
       if (!slug) {
         dlog(`[voiranime] No slug found for ${title} (${lang}, S${seasonNum})`);
         return null;
       }
     }
+    if (trace) trace.finalSlug = slug;
     dlog(`[voiranime] Slug: ${slug} (${lang}${mappedSlug ? ", via player_map" : ""})`);
 
     // Fetch the anime detail page to get the full episode list.
@@ -2686,6 +2690,14 @@ export async function __debugFindVoiranimeSlug(aniId, title, isVF, seasonNum) {
   voirSlugCache.clear();
   const slug = await findVoiranimeSlug(title, aniId, isVF, seasonNum);
   return { seasonNum, slug };
+}
+
+// TEMPORARY — run the REAL getVoiranimeIframe with a trace object to see the
+// exact path (mapRow served, coherence guard, resolved slug, final embed).
+export async function __debugVoiranimeTrace(aniId, title) {
+  const trace = {};
+  const data = await getVoiranimeIframe("voiranime-vidmoly-vo", title, 1, aniId, trace);
+  return { trace, iframe: data?.iframe || data?.clientExtract?.embedUrl || null };
 }
 
 // ── Handler ─────────────────────────────────────────────────────────────
