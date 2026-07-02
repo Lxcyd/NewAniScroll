@@ -2680,6 +2680,14 @@ export async function __debugDetectSeasonNumber(aniId) {
   return { hadCachedValue: hadCached, cachedValue: cachedVal, freshComputed: fresh };
 }
 
+// TEMPORARY — run the REAL findVoiranimeSlug the writer path uses, for a given
+// season, bypassing the slug cache, to see if it (wrongly) returns the "-2" slug.
+export async function __debugFindVoiranimeSlug(aniId, title, isVF, seasonNum) {
+  voirSlugCache.clear();
+  const slug = await findVoiranimeSlug(title, aniId, isVF, seasonNum);
+  return { seasonNum, slug };
+}
+
 // ── Handler ─────────────────────────────────────────────────────────────
 export default async function handler(req, res) {
   if (req.method !== "POST") {

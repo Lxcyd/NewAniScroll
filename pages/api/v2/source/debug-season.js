@@ -8,7 +8,7 @@
 
 import { getMediaMeta } from "@/lib/anilist/getMediaMeta";
 import { resolveSeasonNumber } from "@/lib/anilist/resolveSeason";
-import { inspectVoiranime, __debugDetectSeasonNumber } from "./index";
+import { inspectVoiranime, __debugDetectSeasonNumber, __debugFindVoiranimeSlug } from "./index";
 
 export default async function handler(req, res) {
   const aniId = Number(req.query.aniId);
@@ -33,6 +33,15 @@ export default async function handler(req, res) {
     out.inspectVoiranime = { seasonNum: iv.seasonNum, slug: iv.slug, found: iv.found };
   } catch (e) {
     out.inspectVoiranime_error = String(e?.message || e);
+  }
+
+  // The WRITER path: what slug does findVoiranimeSlug return for S1 (vostfr)?
+  // If this returns shingeki-no-kyojin-2, the fallback search is generating the
+  // poison even though detectSeasonNumber is 1.
+  try {
+    out.findVoiranimeSlug_S1 = await __debugFindVoiranimeSlug(aniId, "Shingeki no Kyojin", false, 1);
+  } catch (e) {
+    out.findVoiranimeSlug_error = String(e?.message || e);
   }
 
   // 1. Raw multi-signal resolver (what inspect uses, indirectly).
