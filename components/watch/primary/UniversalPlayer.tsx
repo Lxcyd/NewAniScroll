@@ -1069,12 +1069,12 @@ function SettingsSubmenuHeader({ label, onBack }: { label: string; onBack: () =>
 }
 
 /**
- * Big centred play button. Shows whenever the video is paused and ready — the
- * primary "start watching WITH sound" affordance. It's what covers the gap when
- * the browser blocks unmuted autoplay (see the Autoplay effect): instead of
- * silently starting muted, we leave the video paused and let this button offer a
- * one-click unmuted start. Its click is a real user gesture, so play() is always
- * allowed and we unmute (unless the user has an intentional saved mute).
+ * Big centred play button. Shows whenever the video is paused and ready — a clear
+ * "start watching WITH sound" affordance (autoplay off, a manual pause, or a
+ * source that couldn't auto-start). Its click is a real user gesture, so play()
+ * is always allowed and we unmute (unless the user has an intentional saved
+ * mute). Autoplay itself no longer leaves the player paused — it falls back to
+ * muted playback and unmutes on first interaction — so this is the manual path.
  */
 function CenterPlayButton({
   playerRef,
@@ -1116,17 +1116,17 @@ function CenterPlayButton({
         aria-label={t("player.play", { defaultValue: "Play" })}
         className="pointer-events-auto grid place-items-center rounded-full transition-transform duration-150 hover:scale-105 active:scale-95"
         style={{
-          width: 80,
-          height: 80,
-          background: "rgba(0,0,0,0.55)",
-          backdropFilter: "blur(4px)",
-          WebkitBackdropFilter: "blur(4px)",
-          border: "1px solid rgba(255,255,255,0.18)",
-          boxShadow: "0 10px 34px rgba(0,0,0,0.45)",
+          width: 56,
+          height: 56,
+          // App accent (#E94560) fill with a soft accent glow — matches the
+          // "Regarder" / episode play buttons throughout the app.
+          background: "#E94560",
+          border: "none",
+          boxShadow: "0 6px 22px rgba(233,69,96,0.5)",
           cursor: "pointer",
         }}
       >
-        <svg viewBox="0 0 24 24" fill="#fff" style={{ width: 36, height: 36, marginLeft: 5 }}>
+        <svg viewBox="0 0 24 24" fill="#fff" style={{ width: 24, height: 24, marginLeft: 3 }}>
           <polygon points="6 4 20 12 6 20" />
         </svg>
       </button>
@@ -2911,61 +2911,102 @@ export default function UniversalPlayer({
   }, []);
 
   // ── Autoplay ──
-  // The user wants autoplay to start WITH sound, not muted. Browsers only allow
-  // unmuted autoplay when the origin's Media Engagement Index is high enough
-  // (built up after a few sessions of watching with sound) or after a user
-  // gesture — no client code can force it earlier. So we try UNMUTED first:
-  //   • allowed  → it plays with sound (the goal);
-  //   • blocked  → we DON'T fall back to muted playback (the "il play et mute"
-  //     the user dislikes). We leave the video paused; the big centre play
-  //     button is then visible and one click starts it clean with sound.
-  // An intentional saved mute / "default muted" pref is still honoured.
+  // Goal: the video must ALWAYS start on its own, and with sound whenever the
+  // browser permits. Browsers only allow UNMUTED autoplay when the origin's
+  // Media Engagement Index is high (built up after a few sessions of watching
+  // with sound) or right after a user gesture — no client code can force it.
+  // So:
+  //   1. Try UNMUTED play() first. High-MEI users get instant sound.
+  //   2. If blocked (NotAllowedError), fall back to MUTED play() — that's always
+  //      allowed, so the episode still auto-starts (never a dead paused player).
+  //   3. Having started muted, UNMUTE on the very first user interaction anywhere
+  //      (pointer / key / touch) — the gesture grants activation, so unmuting is
+  //      permitted and won't trip Chrome's "unmute → pause" mitigation.
+  // An intentional saved mute / "default muted" pref keeps it muted throughout.
   useEffect(() => {
     if (!autoplay) return;
     const playerEl = playerRef.current?.el as HTMLElement | undefined;
     if (!playerEl) return;
 
     let cancelled = false;
-    // Once the browser blocks unmuted autoplay (NotAllowedError), stop retrying
-    // on every re-buffer `can-play` — the centre play button owns the start now.
-    let blocked = false;
+    let started = false; // playback has begun (muted or unmuted) — stop retrying
+    let unmutePending = false; // started muted, still owe the user sound
+
+    const keepMuted = () => {
+      try {
+        return (
+          localStorage.getItem("aniscroll:muted") === "1" ||
+          getPlayerPrefs().defaultMuted
+        );
+      } catch {
+        return false;
+      }
+    };
+
     const tryPlay = async () => {
-      if (cancelled || blocked) return;
+      if (cancelled || started) return;
       const video = playerEl.querySelector<HTMLVideoElement>("video");
-      if (!video || !video.paused) return;
+      if (!video) return;
+      if (!video.paused) {
+        started = true;
+        return;
+      }
       // Only force autoplay at the very START. `can-play` / `loaded-data` fire
       // again every time hls.js re-buffers — including after a near-end stall or
       // an internal reset. Calling play() then would resume from wherever the
       // element sits, and play() on an *ended* element restarts it from 0, which
       // was a path into the "video jumps back to the start near the end" bug.
-      // Past the first second the user is already watching; a re-buffer must not
-      // trigger a fresh play() (and we never want to fight a user/end pause).
       if (video.ended || video.currentTime > 1) return;
 
-      let keepMuted = false;
-      try {
-        keepMuted =
-          localStorage.getItem("aniscroll:muted") === "1" ||
-          getPlayerPrefs().defaultMuted;
-      } catch {}
+      const wantMuted = keepMuted();
       video.setAttribute("playsinline", "");
-      video.muted = keepMuted; // unmuted unless the user chose otherwise
 
+      // 1) Try UNMUTED (muted only if the user asked for it).
+      video.muted = wantMuted;
       try {
         await video.play();
+        started = true;
+        return; // playing — with sound unless the user chose mute
       } catch (err: any) {
         if (cancelled) return;
-        // Autoplay policy blocked the unmuted start. Do NOT retry muted — surface
-        // the centre play button instead (leave it paused at 0).
-        if (err?.name === "NotAllowedError") {
-          blocked = true;
-          try {
-            video.pause();
-          } catch {}
-        }
-        // Any other (transient) error: allow a retry on the next can-play.
+        if (err?.name !== "NotAllowedError") return; // transient — retry later
+      }
+
+      // 2) Unmuted blocked → GUARANTEE playback by starting muted.
+      try {
+        video.muted = true;
+        await video.play();
+        started = true;
+        // 3) Owe the user sound (unless they wanted muted) — unmute on the first
+        //    real interaction below.
+        unmutePending = !wantMuted;
+      } catch {
+        // Even muted play failed (rare) — retry on the next can-play.
       }
     };
+
+    // Unmute on the first genuine user gesture anywhere on the page. Passive +
+    // capture so we never interfere with the click's own handling (Vidstack's
+    // play toggle still runs); we only flip mute.
+    const unmuteOnGesture = () => {
+      if (cancelled || !unmutePending) return;
+      unmutePending = false;
+      const video = playerEl.querySelector<HTMLVideoElement>("video");
+      try {
+        if (video) video.muted = false;
+      } catch {}
+      teardownGestures();
+    };
+    const GESTURES = ["pointerdown", "keydown", "touchstart"] as const;
+    const setupGestures = () => {
+      for (const e of GESTURES)
+        window.addEventListener(e, unmuteOnGesture, { capture: true, passive: true });
+    };
+    const teardownGestures = () => {
+      for (const e of GESTURES)
+        window.removeEventListener(e, unmuteOnGesture, { capture: true } as any);
+    };
+    setupGestures();
 
     tryPlay();
     const onReady = () => tryPlay();
@@ -2975,6 +3016,7 @@ export default function UniversalPlayer({
       cancelled = true;
       playerEl.removeEventListener("can-play", onReady);
       playerEl.removeEventListener("loaded-data", onReady);
+      teardownGestures();
     };
   }, [autoplay, streamData]);
 

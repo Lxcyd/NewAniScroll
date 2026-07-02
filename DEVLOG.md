@@ -7,22 +7,26 @@ Ordre anti-chronologique (le plus récent en haut). Une entrée = une session/su
 
 ---
 
-## 2026-07-02 (suite 3) — Player : gros bouton play central + autoplay non-muté
+## 2026-07-02 (suite 3) — Player : gros bouton play central + autoplay
 
-- **Gros bouton play au centre** (`CenterPlayButton` dans `UniversalPlayer.tsx`) : visible quand
-  `paused && canPlay`, rendu en sibling du `<MediaPlayer>` (comme `SkipOverlay`), z-index 15,
-  container pointer-events-none / bouton pointer-events-auto (les clics hors bouton passent au
-  gesture Vidstack). Le clic **démarre AVEC son** (unmute, sauf mute intentionnel sauvegardé).
-- **Autoplay non-muté** : l'ancien code forçait `muted=true` puis `play()` (toujours accepté →
-  « il play et mute »). Nouveau : on tente **unmuted d'abord** ; si le navigateur refuse
-  (`NotAllowedError`, politique autoplay / MEI trop bas) on **ne retombe PAS sur muted** — on
-  laisse en pause et le bouton central prend le relais (1 clic = son). Latch `blocked` pour ne pas
-  retenter à chaque re-buffer `can-play`. Un mute intentionnel (`aniscroll:muted` / `defaultMuted`)
-  reste respecté.
-- **Limite navigateur** (documentée dans le code) : l'autoplay unmuted au 1er chargement dépend du
-  Media Engagement Index de Chrome — aucun code client ne peut le forcer. Après quelques sessions
-  avec son, Chrome l'autorise et l'autoplay démarre unmuted seul ; en attendant, le bouton central
-  garantit un démarrage propre en 1 clic.
+- **Bouton play central** (`CenterPlayButton` dans `UniversalPlayer.tsx`) : visible quand
+  `paused && canPlay`, sibling du `<MediaPlayer>` (comme `SkipOverlay`), z-index 15, container
+  pointer-events-none / bouton pointer-events-auto. Clic = **démarre AVEC son** (unmute sauf mute
+  intentionnel). Style : 56px, fond accent `#E94560` + glow (comme les boutons play de l'app) —
+  1re version (80px, cercle noir translucide) jugée hors-style + trop grosse par le user.
+- **Autoplay — itérations** :
+  - v1 : `muted=true` puis `play()` → toujours OK mais « play et mute » (rejeté).
+  - v2 : unmuted-first, **pas de fallback muted** → sur navigateur qui bloque, la vidéo **ne
+    démarrait pas du tout** (rejeté : « ne lit pas la vidéo automatiquement »).
+  - **v3 (retenu)** : unmuted-first → si `NotAllowedError`, **fallback MUTED** (toujours autorisé,
+    la vidéo démarre) → **unmute au 1er geste** utilisateur (pointerdown/keydown/touchstart, capture
+    +passive, ne perturbe pas le toggle Vidstack). Mute intentionnel respecté. Latch `started` pour
+    ne pas relancer à chaque re-buffer.
+- **Pourquoi pas l'attribut HTML `autoplay` ?** (question user) : même politique navigateur (bloqué
+  ou muet sans geste/MEI, exactement comme `play()`), et il fire avant que hls.js n'ait attaché la
+  source → déclenche la mitigation « Unmuting failed » de Chrome qui laisse le player en pause (déjà
+  documenté ligne ~3199 : on ne passe PAS `autoplay` à Vidstack). L'approche JS fait strictement
+  mieux (muted-fallback + unmute-au-geste, impossible avec l'attribut seul).
 
 ---
 
