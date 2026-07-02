@@ -7,6 +7,49 @@ Ordre anti-chronologique (le plus récent en haut). Une entrée = une session/su
 
 ---
 
+## 2026-07-02 (suite 2) — Polish Films/OP-ED : miniatures clip, Chronicle, retour saison, perf
+
+Retours SS user (6 points). Tous vérifiés sur données AniList live avant/après.
+
+### 1 — Bouton "OP / ED" → **"Opening / Ending"** (+ trads)
+- `locales/{en,fr}.json` clé `anime.opEd` → "Opening / Ending", `defaultValue` maj dans `Episodes.tsx`.
+
+### 2 — `FilmsPanel` : **Compilations AVANT Films**
+- Ordre des sections inversé (le user veut les recaps d'abord). Un seul reorder JSX.
+
+### 3 — One Piece : **retour saison cassé** depuis Films/OP-ED
+- Bug : `SeasonPicker` n'ouvrait le dropdown QUE si `hasMany` et ne remettait jamais `panel="episodes"`.
+  Mono-saison (One Piece, variantes supprimées v12) → `hasMany` faux → clic mort, coincé dans Films.
+- Fix : nouvelle prop `onActivate` ; le clic sur la pilule fait `if (!highlight) onActivate()` (revient
+  aux épisodes) **puis** ouvre le menu si `hasMany`. Curseur pointer quand `!highlight`.
+
+### 4 — Miniatures OP/ED = **frame du clip lui-même** (plus le label sur l'image)
+- `ThemeThumb` : la cover saison peint dessous (placeholder instantané), puis un `<video muted
+  preload=metadata>` attaché **seulement à l'entrée dans le viewport** (IntersectionObserver,
+  rootMargin 300px) et seeké ~⅓ pour éviter le noir → fond over via opacity. Fallback = cover si
+  le clip ne charge pas. Badge OP/ED retiré de l'image → petit chip texte à côté du titre.
+- Lazy = une longue liste (One Piece 70+ thèmes) ne fetch pas 70 métadonnées d'un coup.
+
+### 5 — Perf OP/ED (« arrive après toute la page / charge pas parfois »)
+- Cause : 2 appels AnimeThemes séquentiels (resolveSlug → fetchThemes) à chaque cold start sans CDN.
+- Fix : **cache Turso** (réutilise `season_cache` via `seasonCacheGet/Set`, clé `themes:v1:…`) dans
+  `pages/api/v2/themes/[id].ts`. Warm reads instantanés, plus de round-trip upstream. On ne cache
+  PAS un échec upstream (récupère à la vue suivante) ; on cache une liste vide légitime.
+
+### 6 — Page **Chronicle** (digest multi-saisons) : dropdown saisons + panneau Films
+- Chronicle (119113) = MOVIE avec **4 edges PARENT** vers les saisons SnK, aucune chaîne
+  PREQUEL/SEQUEL → le walk s'effondrait sur lui-même (pas de dropdown, doublon).
+- Nouveau `franchiseAnchorId` : si le start est un MOVIE avec **≥2 PARENT** saisons de la même
+  franchise → ré-ancre sur la saison la plus ancienne (16498). Utilisé par `resolveFranchiseSeasons`
+  ET `resolveFranchiseBonusFilms`. Seuil ≥2 = cible les digests entiers, épargne les sequels-film
+  (1 PARENT) et les recaps mono-saison (Roar of Awakening → S2 seule).
+- `Episodes.tsx` : `selfIsBonusFilm` = info.id ∈ bonusFilms → `panel` démarre sur **"films"** (on
+  atterrit sur le digest qu'on est venu voir, pas sa liste 1-épisode).
+- Caches bumpés : `seasonList:v12→v13`, `bonusFilms:v6→v7`.
+- Vérif live : anchor(119113)=16498 ; SnK seasons S1..S4 ; digests=[Chronicle]. ✓
+
+---
+
 ## 2026-07-02 (suite) — Films/OP-ED en onglets (remplacent la liste) + section Compilations
 
 Retours user sur l'itération précédente (2 demandes).

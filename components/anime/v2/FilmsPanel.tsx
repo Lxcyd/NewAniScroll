@@ -51,16 +51,18 @@ export default function FilmsPanel({ films }: { films: FilmVariant[] }) {
 
   return (
     <div>
-      {section(
-        t("anime.formatFilmsPlural", { count: movies.length, defaultValue: "Films" }),
-        movies,
-      )}
+      {/* Compilations lead the panel (recap movies condensing an arc), then the
+          genuine standalone films — the user asked to surface recaps first. */}
       {section(
         t("anime.compilations", { defaultValue: "Compilations" }),
         compilations,
         t("anime.compilationsHint", {
           defaultValue: "Recap movies condensing an arc",
         }),
+      )}
+      {section(
+        t("anime.formatFilmsPlural", { count: movies.length, defaultValue: "Films" }),
+        movies,
       )}
     </div>
   );

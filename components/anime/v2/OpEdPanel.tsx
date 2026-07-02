@@ -160,14 +160,93 @@ export default function OpEdPanel({
   );
 }
 
+/* Thumbnail that shows a real frame FROM the OP/ED clip itself. The season cover
+   paints instantly underneath as a placeholder, then a muted <video> — attached
+   only once the row scrolls near the viewport and seeked a few seconds in to skip
+   the black lead-in — fades over it. Lazy attach keeps a long list (One Piece:
+   70+ themes) from fetching every clip's metadata at once. Falls back to the
+   cover if the clip can't load. */
+function ThemeThumb({
+  videoUrl,
+  cover,
+}: {
+  videoUrl: string | null;
+  cover: string | null;
+}) {
+  const boxRef = useRef<HTMLDivElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [visible, setVisible] = useState(false);
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    const el = boxRef.current;
+    if (!el || visible || !videoUrl) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          setVisible(true);
+          io.disconnect();
+        }
+      },
+      { rootMargin: "300px" },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [visible, videoUrl]);
+
+  const seekToFrame = () => {
+    const v = videoRef.current;
+    if (!v) return;
+    try {
+      // A representative frame ~a third in, capped so short clips still land
+      // inside their runtime.
+      v.currentTime = Math.min(6, (v.duration || 12) / 3);
+    } catch {
+      /* seeking not ready yet — onSeeked simply won't fire, cover stays */
+    }
+  };
+
+  return (
+    <div ref={boxRef} style={styles.thumb}>
+      {cover ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={cover}
+          alt=""
+          style={{ ...styles.thumbFill, objectFit: "cover", opacity: ready ? 0 : 1 }}
+          loading="lazy"
+          decoding="async"
+        />
+      ) : null}
+      {visible && videoUrl ? (
+        // eslint-disable-next-line jsx-a11y/media-has-caption
+        <video
+          ref={videoRef}
+          src={videoUrl}
+          muted
+          playsInline
+          preload="metadata"
+          onLoadedMetadata={seekToFrame}
+          onSeeked={() => setReady(true)}
+          style={{
+            ...styles.thumbFill,
+            objectFit: "cover",
+            opacity: ready ? 1 : 0,
+            transition: "opacity 0.25s",
+          }}
+        />
+      ) : null}
+    </div>
+  );
+}
+
 function ThemeRow({
   theme,
   cover,
   onPlay,
 }: {
   theme: Theme;
-  /** Season cover — AnimeThemes doesn't expose a per-theme still, so we use the
-   *  season's poster as the row's artwork (kept small, with the OP/ED badge). */
+  /** Season cover — used as the instant placeholder behind the clip frame. */
   cover: string | null;
   onPlay: () => void;
 }) {
@@ -179,29 +258,20 @@ function ThemeRow({
 
   return (
     <button type="button" onClick={onPlay} style={styles.row}>
-      <div style={styles.thumb}>
-        {cover ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={cover}
-            alt=""
-            style={{ width: "100%", height: "100%", objectFit: "cover" }}
-            loading="lazy"
-            decoding="async"
-          />
-        ) : null}
-        <span
-          style={{
-            ...styles.kindBadge,
-            background: isOp ? "var(--accent-soft)" : "rgba(120,140,255,0.12)",
-            color: isOp ? "var(--accent)" : "#8a9bff",
-          }}
-        >
-          {kindLabel}
-        </span>
-      </div>
+      <ThemeThumb videoUrl={theme.video?.url ?? null} cover={cover} />
       <div style={styles.info}>
-        <div style={styles.title}>{theme.song || kindLabel}</div>
+        <div style={styles.titleRow}>
+          <span
+            style={{
+              ...styles.kindChip,
+              background: isOp ? "var(--accent-soft)" : "rgba(120,140,255,0.12)",
+              color: isOp ? "var(--accent)" : "#8a9bff",
+            }}
+          >
+            {kindLabel}
+          </span>
+          <span style={styles.title}>{theme.song || kindLabel}</span>
+        </div>
         <div style={styles.meta}>
           {[
             artists || null,
@@ -322,30 +392,29 @@ const styles: Record<string, CSSProperties> = {
   },
   thumb: {
     position: "relative",
-    width: 78,
+    width: 100,
     height: 56,
     borderRadius: 7,
     overflow: "hidden",
     flexShrink: 0,
     background: "var(--bg-3)",
-    display: "flex",
-    alignItems: "flex-end",
-    justifyContent: "flex-start",
   },
-  kindBadge: {
+  thumbFill: {
     position: "absolute",
-    left: 5,
-    bottom: 5,
-    fontSize: 10.5,
-    fontWeight: 700,
-    letterSpacing: "0.03em",
-    padding: "3px 7px",
-    borderRadius: 5,
-    textAlign: "center",
-    backdropFilter: "blur(4px)",
-    WebkitBackdropFilter: "blur(4px)",
+    inset: 0,
+    width: "100%",
+    height: "100%",
   },
   info: { flex: 1, display: "flex", flexDirection: "column", gap: 4, minWidth: 0 },
+  titleRow: { display: "flex", alignItems: "center", gap: 8, minWidth: 0 },
+  kindChip: {
+    fontSize: 10,
+    fontWeight: 700,
+    letterSpacing: "0.03em",
+    padding: "2px 6px",
+    borderRadius: 4,
+    flexShrink: 0,
+  },
   title: {
     fontSize: 14,
     fontWeight: 600,

@@ -554,6 +554,38 @@ export function findMultiSeasonDigestFilms(nodes: any[]): FilmVariant[] {
   }));
 }
 
+/** When the page's start node is a WHOLE-FRANCHISE digest MOVIE viewed on its
+ *  own (Attack on Titan ~Chronicle~), it hangs off the franchise only via PARENT
+ *  season edges — it has no PREQUEL/SEQUEL chain, so a walk from the movie
+ *  collapses to just itself and the season dropdown vanishes. Re-anchor franchise
+ *  resolution to the OLDEST parent season so the season list + bonus films come
+ *  out against the real franchise (and the digest itself surfaces as a bonus
+ *  film). Requires ≥2 season PARENTs so a normal movie sequel (one PARENT) or a
+ *  single-season recap (Roar of Awakening → only S2) is left untouched. Returns
+ *  the original id when no re-anchor applies. */
+async function franchiseAnchorId(
+  startId: number,
+  load: (id: number) => Promise<any | null>,
+  startMedia?: any
+): Promise<number> {
+  const start = startMedia ?? (await load(startId));
+  if (!start || start.format !== "MOVIE") return startId;
+  const parents = (start.relations?.edges || [])
+    .filter(
+      (e: any) =>
+        e.relationType === "PARENT" &&
+        e.node?.type === "ANIME" &&
+        isSeasonLike(e.node) &&
+        sharesFranchise(start.title, e.node?.title)
+    )
+    .map((e: any) => e.node);
+  if (parents.length < 2) return startId;
+  parents.sort(
+    (a: any, b: any) => (yearOf(a) ?? Infinity) - (yearOf(b) ?? Infinity)
+  );
+  return Number(parents[0]?.id) || startId;
+}
+
 export interface FranchiseSeasonEntry {
   id: number;
   idMal: number | null;
@@ -630,11 +662,16 @@ export async function resolveFranchiseSeasons(
     return m;
   };
 
-  const start = await load(startId);
-  if (!start) return [];
+  const start0 = await load(startId);
+  if (!start0) return [];
 
-  const fribbSelf = await getFribbEntry(startId);
-  const { ordered } = await buildFranchise(startId, fribbSelf, load);
+  // Digest-movie pages (Chronicle) re-anchor to their franchise's oldest season
+  // so the season dropdown lists the real seasons instead of just the movie.
+  const anchorId = await franchiseAnchorId(startId, load, start0);
+  const start = anchorId === startId ? start0 : (await load(anchorId)) || start0;
+
+  const fribbSelf = await getFribbEntry(anchorId);
+  const { ordered } = await buildFranchise(anchorId, fribbSelf, load);
 
   // Meta-franchise (Gundam &co): present the current entry on its own, with its
   // films attached — no misleading "Season 1..N" over unrelated works.
@@ -733,10 +770,15 @@ export async function resolveFranchiseBonusFilms(
     if (m) cache.set(id, m);
     return m;
   };
-  const start = await load(startId);
-  if (!start) return [];
-  const fribbSelf = await getFribbEntry(startId);
-  const { ordered } = await buildFranchise(startId, fribbSelf, load);
+  const start0 = await load(startId);
+  if (!start0) return [];
+  // Re-anchor a whole-franchise digest movie (Chronicle) to its franchise so it
+  // resolves against the real seasons — findMultiSeasonDigestFilms then re-adds
+  // the digest itself as a bonus film (referenced by ≥2 seasons via SUMMARY).
+  const anchorId = await franchiseAnchorId(startId, load, start0);
+  const start = anchorId === startId ? start0 : (await load(anchorId)) || start0;
+  const fribbSelf = await getFribbEntry(anchorId);
+  const { ordered } = await buildFranchise(anchorId, fribbSelf, load);
   // Meta-franchise: the "season list" collapses to the lone entry, but its own
   // side films are still worth surfacing.
   const nodes = (await isMetaFranchise(ordered)) ? [start] : ordered;

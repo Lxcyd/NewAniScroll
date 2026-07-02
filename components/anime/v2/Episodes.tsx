@@ -92,15 +92,24 @@ export default function Episodes({ info, progress, seasonList, bonusFilms }: Pro
   const activeSeasonId =
     source.kind === "episodes" ? source.id : source.ids[0];
 
+  /* The page's own anime IS one of the franchise's bonus films — e.g. viewing
+     Attack on Titan ~Chronicle~ (a whole-franchise digest) on its own page. It
+     re-anchors to the franchise (season dropdown lists the real seasons), and we
+     open the Films panel by default so the digest the user came for is front and
+     centre instead of its lone 1-episode list. */
+  const selfIsBonusFilm = !!bonusFilms?.some((f) => f.id === info.id);
+
   /* Which panel the main list area shows. The season selector drives the
      "episodes" panel; the Films / OP-ED tab buttons swap the whole list out for
      their own content (mutually exclusive with episodes). */
-  const [panel, setPanel] = useState<"episodes" | "films" | "oped">("episodes");
+  const [panel, setPanel] = useState<"episodes" | "films" | "oped">(
+    selfIsBonusFilm ? "films" : "episodes",
+  );
 
   useEffect(() => {
     setSource({ kind: "episodes", id: info.id });
-    setPanel("episodes");
-  }, [info.id]);
+    setPanel(selfIsBonusFilm ? "films" : "episodes");
+  }, [info.id, selfIsBonusFilm]);
 
   // OP/ED themes for the whole franchise, fetched once here so the tab button
   // can show its count and the panel can render without refetching.
@@ -250,6 +259,7 @@ export default function Episodes({ info, progress, seasonList, bonusFilms }: Pro
               setSource(s);
               setPanel("episodes");
             }}
+            onActivate={() => setPanel("episodes")}
             highlight={panel === "episodes"}
           />
           {hasBonusFilms && (
@@ -275,7 +285,7 @@ export default function Episodes({ info, progress, seasonList, bonusFilms }: Pro
               onClick={() =>
                 setPanel((p) => (p === "oped" ? "episodes" : "oped"))
               }
-              label={t("anime.opEd", { defaultValue: "OP / ED" })}
+              label={t("anime.opEd", { defaultValue: "Opening / Ending" })}
               sub={[
                 opCount > 0
                   ? t("anime.opCount", { count: opCount, defaultValue: `${opCount} OP` })
@@ -548,6 +558,7 @@ function SeasonPicker({
   activeSeasonId,
   activeKind,
   onPickSource,
+  onActivate,
   highlight = true,
 }: {
   info: AniListInfoTypes;
@@ -556,6 +567,11 @@ function SeasonPicker({
   activeSeasonId: number;
   activeKind: ActiveSource["kind"];
   onPickSource: (s: ActiveSource) => void;
+  /** Re-select the episodes panel without changing the active season. Fired when
+   *  the season pill is clicked while a Films / OP-ED tab owns the list, so a
+   *  single-season anime (One Piece: no dropdown to pick from) can still return
+   *  to its episodes. */
+  onActivate: () => void;
   /** True when the season/episodes panel is the one currently displayed. When a
    *  Films / OP-ED tab is active instead we dim the season control so the active
    *  tab reads as selected. */
@@ -683,7 +699,9 @@ function SeasonPicker({
         ? "var(--accent)"
         : "var(--line-2)",
     opacity: highlight ? 1 : 0.7,
-    cursor: hasMany || loneRedirectId ? "pointer" : "default",
+    // Clickable when it opens a menu, redirects, OR can return from a Films /
+    // OP-ED panel back to its own episode list (single-season case).
+    cursor: hasMany || loneRedirectId || !highlight ? "pointer" : "default",
     textDecoration: "none",
   };
 
@@ -698,6 +716,12 @@ function SeasonPicker({
           type="button"
           onClick={(e) => {
             e.stopPropagation();
+            // A Films / OP-ED tab owns the list right now → clicking the season
+            // pill returns to the episode list (its own content). Multi-season
+            // anime ALSO open the dropdown so a season can be picked; a
+            // single-season anime (One Piece) has no dropdown but must still be
+            // able to come back here, which this handles.
+            if (!highlight) onActivate();
             if (hasMany) setOpen((o) => !o);
           }}
           style={triggerStyle}
