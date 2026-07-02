@@ -1181,7 +1181,22 @@ async function detectSeasonNumber(aniId, mediaOpts = {}) {
     const prequel = edges.find(
       (e) => e.relationType === "PREQUEL" && PREQUEL_FORMATS.has(e.node?.format)
     );
-    if (prequel && looksLikePreviousSeason(titlesOf(media), titlesOf(prequel.node))) {
+    // YEAR GUARD — a real previous season aired BEFORE the current node. AniList
+    // frequently mis-tags a later side-OVA as a PREQUEL (SnK S1 (2013) has a
+    // PREQUEL edge to "Kuinaki Sentaku" OVA (2014); Slime → Coleus OVA; …).
+    // Without this the walk crosses that OVA and over-counts, turning S1 into S2
+    // — which then poisons player_map with a season-2 slug/panel. resolveSeason's
+    // hardened walk already applies edgeYearMonotonic; the legacy fallback here
+    // did not, so a low-confidence/failing resolver dropped us into a wrong count.
+    const yr = (x) => x?.seasonYear || x?.startDate?.year || null;
+    const curYr = yr(media);
+    const preYr = yr(prequel?.node);
+    const yearOk = !(curYr && preYr && preYr > curYr); // reject a "prequel" that airs later
+    if (
+      prequel &&
+      yearOk &&
+      looksLikePreviousSeason(titlesOf(media), titlesOf(prequel.node))
+    ) {
       // Crossing INTO the prequel: the CURRENT node being a "Part 2" means it
       // shares the prequel's season, so this hop adds no new distinct season.
       if (!isSeasonContinuationTitle(media)) distinct++;
