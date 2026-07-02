@@ -1069,6 +1069,72 @@ function SettingsSubmenuHeader({ label, onBack }: { label: string; onBack: () =>
 }
 
 /**
+ * Big centred play button. Shows whenever the video is paused and ready — the
+ * primary "start watching WITH sound" affordance. It's what covers the gap when
+ * the browser blocks unmuted autoplay (see the Autoplay effect): instead of
+ * silently starting muted, we leave the video paused and let this button offer a
+ * one-click unmuted start. Its click is a real user gesture, so play() is always
+ * allowed and we unmute (unless the user has an intentional saved mute).
+ */
+function CenterPlayButton({
+  playerRef,
+}: {
+  playerRef: React.RefObject<MediaPlayerInstance>;
+}) {
+  const { t } = useTranslation();
+  const paused = useMediaState("paused", playerRef);
+  const canPlay = useMediaState("canPlay", playerRef);
+  // Hidden while playing, and while the media is still loading (Vidstack draws
+  // its buffering spinner then — we don't want to stack on it).
+  if (!paused || !canPlay) return null;
+
+  const start = () => {
+    const player = playerRef.current;
+    const video = (player?.el as HTMLElement | undefined)?.querySelector<HTMLVideoElement>("video");
+    // Respect an intentional saved mute / "default muted" pref; otherwise the
+    // gesture lets us start WITH sound (the whole point of this button).
+    let keepMuted = false;
+    try {
+      keepMuted =
+        localStorage.getItem("aniscroll:muted") === "1" ||
+        getPlayerPrefs().defaultMuted;
+    } catch {}
+    try {
+      if (video && !keepMuted) video.muted = false;
+    } catch {}
+    player?.play?.();
+  };
+
+  return (
+    <div
+      className="pointer-events-none absolute inset-0 grid place-items-center"
+      style={{ zIndex: 15 }}
+    >
+      <button
+        type="button"
+        onClick={start}
+        aria-label={t("player.play", { defaultValue: "Play" })}
+        className="pointer-events-auto grid place-items-center rounded-full transition-transform duration-150 hover:scale-105 active:scale-95"
+        style={{
+          width: 80,
+          height: 80,
+          background: "rgba(0,0,0,0.55)",
+          backdropFilter: "blur(4px)",
+          WebkitBackdropFilter: "blur(4px)",
+          border: "1px solid rgba(255,255,255,0.18)",
+          boxShadow: "0 10px 34px rgba(0,0,0,0.45)",
+          cursor: "pointer",
+        }}
+      >
+        <svg viewBox="0 0 24 24" fill="#fff" style={{ width: 36, height: 36, marginLeft: 5 }}>
+          <polygon points="6 4 20 12 6 20" />
+        </svg>
+      </button>
+    </div>
+  );
+}
+
+/**
  * Unified player:
  *  - Direct streams → Vidstack MediaPlayer with DefaultVideoLayout
  *    (speed / quality / captions / chromecast / PiP, pink #E94560 accent,
@@ -2845,21 +2911,26 @@ export default function UniversalPlayer({
   }, []);
 
   // ── Autoplay ──
-  // Chrome rejects unmuted autoplay without a user gesture, period. The
-  // only path that always works is muted-then-let-Chrome's-MEI-decide:
-  // after a few sessions of the user watching with sound, Chrome elevates
-  // the origin's autoplay policy to "allowed" and unmuted autoplay starts
-  // working at refresh on its own — no client code can shortcut this.
-  // So we just kick off muted playback (always accepted) and let MEI handle
-  // the unmute promotion organically.
+  // The user wants autoplay to start WITH sound, not muted. Browsers only allow
+  // unmuted autoplay when the origin's Media Engagement Index is high enough
+  // (built up after a few sessions of watching with sound) or after a user
+  // gesture — no client code can force it earlier. So we try UNMUTED first:
+  //   • allowed  → it plays with sound (the goal);
+  //   • blocked  → we DON'T fall back to muted playback (the "il play et mute"
+  //     the user dislikes). We leave the video paused; the big centre play
+  //     button is then visible and one click starts it clean with sound.
+  // An intentional saved mute / "default muted" pref is still honoured.
   useEffect(() => {
     if (!autoplay) return;
     const playerEl = playerRef.current?.el as HTMLElement | undefined;
     if (!playerEl) return;
 
     let cancelled = false;
+    // Once the browser blocks unmuted autoplay (NotAllowedError), stop retrying
+    // on every re-buffer `can-play` — the centre play button owns the start now.
+    let blocked = false;
     const tryPlay = async () => {
-      if (cancelled) return;
+      if (cancelled || blocked) return;
       const video = playerEl.querySelector<HTMLVideoElement>("video");
       if (!video || !video.paused) return;
       // Only force autoplay at the very START. `can-play` / `loaded-data` fire
@@ -2870,13 +2941,30 @@ export default function UniversalPlayer({
       // Past the first second the user is already watching; a re-buffer must not
       // trigger a fresh play() (and we never want to fight a user/end pause).
       if (video.ended || video.currentTime > 1) return;
+
+      let keepMuted = false;
       try {
-        video.setAttribute("muted", "");
-        video.defaultMuted = true;
-        video.muted = true;
-        video.setAttribute("playsinline", "");
-        await video.play();
+        keepMuted =
+          localStorage.getItem("aniscroll:muted") === "1" ||
+          getPlayerPrefs().defaultMuted;
       } catch {}
+      video.setAttribute("playsinline", "");
+      video.muted = keepMuted; // unmuted unless the user chose otherwise
+
+      try {
+        await video.play();
+      } catch (err: any) {
+        if (cancelled) return;
+        // Autoplay policy blocked the unmuted start. Do NOT retry muted — surface
+        // the centre play button instead (leave it paused at 0).
+        if (err?.name === "NotAllowedError") {
+          blocked = true;
+          try {
+            video.pause();
+          } catch {}
+        }
+        // Any other (transient) error: allow a retry on the next can-play.
+      }
     };
 
     tryPlay();
@@ -3394,6 +3482,11 @@ export default function UniversalPlayer({
       {!bestStream!.noCors && (
         <HoverPreview playerRef={playerRef} src={src} isM3U8={isM3U8} />
       )}
+
+      {/* Big centred play button — shows while paused, plays WITH sound on
+          click. Covers the case where the browser blocks unmuted autoplay: the
+          video stays paused (not muted-playing) and one click starts it clean. */}
+      <CenterPlayButton playerRef={playerRef} />
 
       {/* AniSkip segment overlay + Skip button. Renders null when no
           skip data exists for the current episode AND there's no next

@@ -7,6 +7,25 @@ Ordre anti-chronologique (le plus récent en haut). Une entrée = une session/su
 
 ---
 
+## 2026-07-02 (suite 3) — Player : gros bouton play central + autoplay non-muté
+
+- **Gros bouton play au centre** (`CenterPlayButton` dans `UniversalPlayer.tsx`) : visible quand
+  `paused && canPlay`, rendu en sibling du `<MediaPlayer>` (comme `SkipOverlay`), z-index 15,
+  container pointer-events-none / bouton pointer-events-auto (les clics hors bouton passent au
+  gesture Vidstack). Le clic **démarre AVEC son** (unmute, sauf mute intentionnel sauvegardé).
+- **Autoplay non-muté** : l'ancien code forçait `muted=true` puis `play()` (toujours accepté →
+  « il play et mute »). Nouveau : on tente **unmuted d'abord** ; si le navigateur refuse
+  (`NotAllowedError`, politique autoplay / MEI trop bas) on **ne retombe PAS sur muted** — on
+  laisse en pause et le bouton central prend le relais (1 clic = son). Latch `blocked` pour ne pas
+  retenter à chaque re-buffer `can-play`. Un mute intentionnel (`aniscroll:muted` / `defaultMuted`)
+  reste respecté.
+- **Limite navigateur** (documentée dans le code) : l'autoplay unmuted au 1er chargement dépend du
+  Media Engagement Index de Chrome — aucun code client ne peut le forcer. Après quelques sessions
+  avec son, Chrome l'autorise et l'autoplay démarre unmuted seul ; en attendant, le bouton central
+  garantit un démarrage propre en 1 clic.
+
+---
+
 ## 2026-07-02 (suite 2) — Polish Films/OP-ED : miniatures clip, Chronicle, retour saison, perf
 
 Retours SS user (6 points). Tous vérifiés sur données AniList live avant/après.

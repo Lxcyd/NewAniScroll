@@ -317,6 +317,7 @@
   "player": {
     "nextEpisode": "Next episode",
     "previousEpisode": "Previous episode",
+    "play": "Play",
     "autoplay": "Autoplay",
     "autoNext": "Auto next",
     "skipIntro": "Skip Intro",
