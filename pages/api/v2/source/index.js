@@ -1,9 +1,10 @@
 import { rateLimiterRedis, redis } from "@/lib/redis";
 import * as cheerio from "cheerio";
 import { getExtractor, extractMegaplay } from "@/lib/extractors";
-import { getMediaMeta, primeMediaCache } from "@/lib/anilist/getMediaMeta";
+import { getMediaMeta } from "@/lib/anilist/getMediaMeta";
 import { getPlayerMapEntry, upsertPlayerMap, flagPlayerMap } from "@/lib/db/playerMap";
 import { resolveSeasonNumber } from "@/lib/anilist/resolveSeason";
+import { resolveSeasonChain } from "@/lib/anilist/seasonChain";
 import { isRecapTitle } from "@/lib/anilist/seasonDetection";
 
 /* Per-provider trace logger. Off by default â€” set DEBUG_SOURCE=1 in
@@ -1128,12 +1129,27 @@ async function detectSeasonNumber(aniId, mediaOpts = {}) {
   const cacheKey = String(aniId);
   if (seasonCache.has(cacheKey)) return seasonCache.get(cacheKey);
 
-  // PRIMARY — the multi-signal resolver (Fribb + air-year arbitration +
-  // hardened walk). It's the same source of truth the info page uses, so the
-  // panel picker can't disagree with the displayed season number anymore
-  // (the SNK "wrong episode" class). Only trust a confident answer here; a
-  // `low`/`null` result falls through to the legacy title+walk heuristics
-  // below, which are tuned for anime-sama's panel naming.
+  // PRIMARY — the EXACT season number the UI displays. resolveSeasonChain
+  // reads the shared Turso cache (seasonChain:v5) first and only computes+
+  // caches on a miss, so the player and the page header are the same value BY
+  // CONSTRUCTION. This is the coherence that matters: whatever the header
+  // says, the video targets the same season. Calling resolveSeasonNumber
+  // directly here (as before) recomputed LIVE on every source request, and any
+  // transient metadata failure produced a different number than the UI —
+  // which the coherence guards then trusted, killing correct player_map rows.
+  try {
+    const chain = await resolveSeasonChain(Number(aniId));
+    if (chain && chain.number != null) {
+      seasonCache.set(cacheKey, chain.number);
+      return chain.number;
+    }
+  } catch {
+    /* chain resolver unavailable → try the live resolver below */
+  }
+
+  // SECONDARY — the multi-signal resolver, live (no shared cache). Only trust
+  // a confident answer; a `low`/`null` result falls through to the legacy
+  // title+walk heuristics below, which are tuned for anime-sama's naming.
   try {
     const r = await resolveSeasonNumber(Number(aniId));
     if (r && r.number != null && r.confidence !== "low") {
@@ -2816,9 +2832,16 @@ export default async function handler(req, res) {
     return notFoundStatus(msg);
   };
 
-  // If the client passed pre-fetched AniList metadata (from watch page SSR),
-  // prime the cache so no helper has to call AniList itself.
-  if (mediaMeta && aniId) primeMediaCache(aniId, mediaMeta);
+  // DO NOT prime getMediaMeta's caches from `mediaMeta` — it's a CLIENT-built
+  // slim payload (id/title/synonyms/relations, no seasonYear/startDate/format).
+  // Priming replaced the lambda's full cached Media with that truncated shape
+  // for 24 h (and merged it into the Turso anime row), which broke season
+  // detection fleet-wide: the year guard saw no years, the legacy walk crossed
+  // the mis-tagged "Kuinaki Sentaku" PREQUEL OVA, detectSeasonNumber said S2,
+  // the coherence guards then killed CORRECT player_map rows and re-poisoned
+  // them with season-2 panels (the recurring "SnK S1 plays S2"). It is also
+  // client-controlled data — nothing a client sends should overwrite server
+  // caches. mediaMeta is still read inline below for megaplay's idMal + title.
 
   // Megaplay â€” extract m3u8 + subtitles directly (no iframe).
   // Megaplay exposes two equivalent stream routes (both verified live):
