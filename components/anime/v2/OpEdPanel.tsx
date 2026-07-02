@@ -105,15 +105,35 @@ export function useOpEdThemes(
 export default function OpEdPanel({
   data,
   loading,
+  filter = "",
 }: {
   data: SeasonThemes[];
   loading: boolean;
+  /** Free-text query from the shared header search — matches song, artist, or
+   *  the OP1/ED2 slug across every season group. */
+  filter?: string;
 }) {
   const { t } = useTranslation();
   const [playing, setPlaying] = useState<{
     theme: Theme;
     seasonLabel: string;
   } | null>(null);
+
+  const q = filter.trim().toLowerCase();
+  const filtered = useMemo(() => {
+    if (!q) return data;
+    return data
+      .map((g) => ({
+        ...g,
+        themes: g.themes.filter(
+          (th) =>
+            (th.song ?? "").toLowerCase().includes(q) ||
+            th.artists.some((a) => a.toLowerCase().includes(q)) ||
+            th.slug.toLowerCase().includes(q),
+        ),
+      }))
+      .filter((g) => g.themes.length > 0);
+  }, [data, q]);
 
   if (loading) {
     return (
@@ -126,7 +146,7 @@ export default function OpEdPanel({
 
   return (
     <div>
-      {data.map((g) => (
+      {filtered.map((g) => (
         <div key={String(g.season.id)} style={styles.section}>
           <div style={styles.sectionHead}>
             <span style={styles.sectionTitle}>{g.season.label}</span>
@@ -149,6 +169,14 @@ export default function OpEdPanel({
         </div>
       ))}
 
+      {filtered.length === 0 && (
+        <div style={styles.empty}>
+          {t("anime.noThemeMatch", {
+            defaultValue: "No opening or ending matches your search.",
+          })}
+        </div>
+      )}
+
       {playing && (
         <ThemePlayerModal
           theme={playing.theme}
@@ -160,80 +188,23 @@ export default function OpEdPanel({
   );
 }
 
-/* Thumbnail that shows a real frame FROM the OP/ED clip itself. The season cover
-   paints instantly underneath as a placeholder, then a muted <video> — attached
-   only once the row scrolls near the viewport and seeked a few seconds in to skip
-   the black lead-in — fades over it. Lazy attach keeps a long list (One Piece:
-   70+ themes) from fetching every clip's metadata at once. Falls back to the
-   cover if the clip can't load. */
-function ThemeThumb({
-  videoUrl,
-  cover,
-}: {
-  videoUrl: string | null;
-  cover: string | null;
-}) {
-  const boxRef = useRef<HTMLDivElement>(null);
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const [visible, setVisible] = useState(false);
-  const [ready, setReady] = useState(false);
-
-  useEffect(() => {
-    const el = boxRef.current;
-    if (!el || visible || !videoUrl) return;
-    const io = new IntersectionObserver(
-      (entries) => {
-        if (entries.some((e) => e.isIntersecting)) {
-          setVisible(true);
-          io.disconnect();
-        }
-      },
-      { rootMargin: "300px" },
-    );
-    io.observe(el);
-    return () => io.disconnect();
-  }, [visible, videoUrl]);
-
-  const seekToFrame = () => {
-    const v = videoRef.current;
-    if (!v) return;
-    try {
-      // A representative frame ~a third in, capped so short clips still land
-      // inside their runtime.
-      v.currentTime = Math.min(6, (v.duration || 12) / 3);
-    } catch {
-      /* seeking not ready yet — onSeeked simply won't fire, cover stays */
-    }
-  };
-
+/* Row thumbnail. We tried grabbing a real frame from each OP/ED clip (a muted,
+   lazily-attached <video> seeked past the black lead-in), but seeking dozens of
+   webm clips over range requests was unreliable — frames often never resolved
+   and the extra concurrent loads made the actual clip playback flaky. So the
+   thumbnail is the season cover (static, instant, always loads); the OP/ED label
+   lives as a text chip beside the song, not on the image. */
+function ThemeThumb({ cover }: { cover: string | null }) {
   return (
-    <div ref={boxRef} style={styles.thumb}>
+    <div style={styles.thumb}>
       {cover ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
           src={cover}
           alt=""
-          style={{ ...styles.thumbFill, objectFit: "cover", opacity: ready ? 0 : 1 }}
+          style={{ ...styles.thumbFill, objectFit: "cover" }}
           loading="lazy"
           decoding="async"
-        />
-      ) : null}
-      {visible && videoUrl ? (
-        // eslint-disable-next-line jsx-a11y/media-has-caption
-        <video
-          ref={videoRef}
-          src={videoUrl}
-          muted
-          playsInline
-          preload="metadata"
-          onLoadedMetadata={seekToFrame}
-          onSeeked={() => setReady(true)}
-          style={{
-            ...styles.thumbFill,
-            objectFit: "cover",
-            opacity: ready ? 1 : 0,
-            transition: "opacity 0.25s",
-          }}
         />
       ) : null}
     </div>
@@ -246,7 +217,7 @@ function ThemeRow({
   onPlay,
 }: {
   theme: Theme;
-  /** Season cover — used as the instant placeholder behind the clip frame. */
+  /** Season cover — the row's static artwork. */
   cover: string | null;
   onPlay: () => void;
 }) {
@@ -258,7 +229,7 @@ function ThemeRow({
 
   return (
     <button type="button" onClick={onPlay} style={styles.row}>
-      <ThemeThumb videoUrl={theme.video?.url ?? null} cover={cover} />
+      <ThemeThumb cover={cover} />
       <div style={styles.info}>
         <div style={styles.titleRow}>
           <span

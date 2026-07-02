@@ -48,6 +48,22 @@ Retours SS user (6 points). Tous vérifiés sur données AniList live avant/apr�
 - Caches bumpés : `seasonList:v12→v13`, `bonusFilms:v6→v7`.
 - Vérif live : anchor(119113)=16498 ; SnK seasons S1..S4 ; digests=[Chronicle]. ✓
 
+### 7 — Retours suite (même session)
+- **Pilule Chronicle affichait le titre du film** au lieu de "Season 1" : la source active
+  restait `info.id` (119113, absent de la seasonList). Fix `Episodes.tsx` : `defaultEpisodeId` =
+  `seasonList[0].id` quand `selfIsBonusFilm` → la pilule lit "Season 1" et les liens épisodes
+  pointent une vraie saison. Suffixe durée `· {info.duration}min` masqué si `activeSeasonId !== info.id`
+  (évitait "25 EP · 120min", la durée du film sur une saison TV).
+- **Filtres manquants dans Films / Opening-Ending** : la barre recherche était gated
+  `panel === "episodes"`. Sortie du gate → visible partout ; sub/dub + vues restent épisodes-only.
+  Placeholder adapté par panneau. `FilmsPanel`/`OpEdPanel` prennent `filter` (match label/année ;
+  song/artiste/slug) + état "aucun résultat". Filtre **remis à zéro au changement de panneau**.
+- **Miniatures vidéo OP/ED peu fiables** ("marchent moins bien / se chargent pas") : le seek d'un
+  frame dans des dizaines de webm (range requests) échouait souvent ET les chargements concurrents
+  rendaient la lecture du clip elle-même instable. **Rollback → miniature = cover saison** (statique,
+  fiable). Le chip OP/ED reste à côté du titre (pas sur l'image). Leçon : pas de still par thème sur
+  l'API AnimeThemes ; le frame-vidéo comme vignette coûte trop cher en fiabilité.
+
 ---
 
 ## 2026-07-02 (suite) — Films/OP-ED en onglets (remplacent la liste) + section Compilations

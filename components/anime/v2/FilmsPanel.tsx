@@ -23,11 +23,23 @@ function infoHref(id: number, locale: string): string {
  * Each row navigates to that film's own page, where the existing movie path
  * resolves and plays it — no new watch plumbing needed.
  */
-export default function FilmsPanel({ films }: { films: FilmVariant[] }) {
+export default function FilmsPanel({
+  films,
+  filter = "",
+}: {
+  films: FilmVariant[];
+  /** Free-text query from the shared header search — matches a film's label. */
+  filter?: string;
+}) {
   const { t, i18n } = useTranslation();
 
-  const movies = films.filter((f) => f.kind !== "compilation");
-  const compilations = films.filter((f) => f.kind === "compilation");
+  const q = filter.trim().toLowerCase();
+  const matches = (f: FilmVariant) =>
+    !q ||
+    (f.label ?? "").toLowerCase().includes(q) ||
+    String(f.year ?? "").includes(q);
+  const movies = films.filter((f) => f.kind !== "compilation" && matches(f));
+  const compilations = films.filter((f) => f.kind === "compilation" && matches(f));
 
   const section = (
     heading: string,
@@ -49,6 +61,8 @@ export default function FilmsPanel({ films }: { films: FilmVariant[] }) {
       </div>
     );
 
+  const empty = movies.length === 0 && compilations.length === 0;
+
   return (
     <div>
       {/* Compilations lead the panel (recap movies condensing an arc), then the
@@ -63,6 +77,11 @@ export default function FilmsPanel({ films }: { films: FilmVariant[] }) {
       {section(
         t("anime.formatFilmsPlural", { count: movies.length, defaultValue: "Films" }),
         movies,
+      )}
+      {empty && (
+        <div style={styles.emptyMatch}>
+          {t("anime.noFilmMatch", { defaultValue: "No film matches your search." })}
+        </div>
       )}
     </div>
   );
@@ -140,6 +159,15 @@ function FilmRow({
 }
 
 const styles: Record<string, CSSProperties> = {
+  emptyMatch: {
+    padding: 16,
+    background: "var(--bg-2)",
+    border: "1px solid var(--line)",
+    borderRadius: 10,
+    color: "var(--txt-3)",
+    fontSize: 13,
+    textAlign: "center",
+  },
   section: { marginBottom: 16 },
   sectionHead: {
     display: "flex",
