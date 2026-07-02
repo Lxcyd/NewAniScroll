@@ -52,11 +52,12 @@ from pathlib import Path
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
-from oped.adapter_aniscroll import resolve_episodes
+from oped.adapter_aniscroll import resolve_episodes, resolve_episodes_multi
 from oped.animethemes import Theme, fetch_themes, resolve_slug, themes_for_episode
 from oped.audio import load_audio
 from oped.fingerprint import fingerprint
 from oped.manifest import Manifest, Record
+from oped.multi_host import HostStream, detect_op_ed_multi
 from oped.theme_bank import (
     ED_WINDOW,
     OP_WINDOW,
@@ -120,9 +121,17 @@ def process_anime(
     anime: dict,
     throttler: HostThrottler,
     sink: ResultSink,
+    *,
+    multi_host: bool = False,
 ) -> Record:
     """Resolve + detect one anime across all its seasons. Raises on transient
-    failure (so the caller can requeue); returns a Record on a clean outcome."""
+    failure (so the caller can requeue); returns a Record on a clean outcome.
+
+    `multi_host`: resolve each episode from every audio-capable host and
+    reconcile the OP/ED across them (see oped.multi_host). Robust to per-player
+    duration differences — the emitted rows then also carry `from_end` anchors
+    and a cross-host agreement count. Costs more network (N hosts per episode)
+    so it's opt-in."""
     mal_id = anime.get("mal_id")
     key = f"mal:{mal_id}" if mal_id else f"slug:{anime.get('slug')}"
 
@@ -140,6 +149,90 @@ def process_anime(
 
     written = 0
     for season in anime.get("seasons", []):
+        base_prefix = f"{anime['slug']}/{season['season_dir']}/{season['lang']}"
+
+        # Which OP/ED refs apply to an episode (with cour fallback for holes).
+        def refs_for(ep: int) -> tuple[list, list, bool, bool]:
+            picked = themes_for_episode(themes, ep)
+            op = refs_by_theme.get(picked["op"].slug, []) if picked["op"] else []
+            ed = refs_by_theme.get(picked["ed"].slug, []) if picked["ed"] else []
+            inf_op = inf_ed = False
+            if not op and op_pool:
+                op, inf_op = op_pool, True
+            if not ed and ed_pool:
+                ed, inf_ed = ed_pool, True
+            return op, ed, inf_op, inf_ed
+
+        if multi_host:
+            # Resolve every episode from all hosts up front, grouped by episode.
+            by_ep = resolve_episodes_multi(
+                anime["slug"], season["season_dir"], season["lang"],
+                season["ep_start"], season["ep_end"],
+            )
+            for ep in sorted(by_ep):
+                op_refs, ed_refs, inf_op, inf_ed = refs_for(ep)
+
+                # Probe each host's duration under its own throttle slot, then
+                # match. Different hosts = different encode lengths — exactly the
+                # per-player duration variance the reconciler absorbs.
+                streams: list[HostStream] = []
+                for e in by_ep[ep]:
+                    with throttler.slot(e["url"]) as slot:
+                        try:
+                            dur = _probe_duration(e["url"])
+                        except Exception as exc:
+                            if is_throttle_error(exc):
+                                slot.throttled()
+                            continue
+                    streams.append(
+                        HostStream(host=e.get("host", "?"), url=e["url"], duration=dur)
+                    )
+                if not streams:
+                    continue
+
+                def resolve_window_for(stream: HostStream, win):
+                    samples = load_audio(
+                        stream.url,
+                        cache_key=f"{base_prefix}/ep{ep}/{stream.host}",
+                        window=win,
+                    )
+                    return fingerprint(samples)
+
+                try:
+                    hits = detect_op_ed_multi(
+                        streams, resolve_window_for, op_refs, ed_refs,
+                        op_window=OP_WINDOW, ed_window=ED_WINDOW,
+                    )
+                except Exception as exc:
+                    if is_throttle_error(exc):
+                        # Charge the slowest/first host with the throttle signal.
+                        with throttler.slot(streams[0].url) as slot:
+                            slot.throttled()
+                    raise
+
+                row = {"mal_id": mal_id, "episode": ep, "op": None, "ed": None}
+                for h in hits:
+                    inferred = (h.kind == "op" and inf_op) or (h.kind == "ed" and inf_ed)
+                    row[h.kind] = {
+                        "start": h.start, "end": h.end,
+                        "theme": h.slug,
+                        "votes": h.votes, "inferred": inferred or h.inferred,
+                        # Cross-host robustness metadata: the duration the times
+                        # are expressed against, the host-independent from-end
+                        # anchor (for re-projection onto the player's real
+                        # duration), and how many hosts agreed.
+                        "canonical_duration": h.canonical_duration,
+                        "from_end_start": h.from_end_start,
+                        "from_end_end": h.from_end_end,
+                        "hosts_agree": h.n_hosts_agree,
+                        "hosts_total": h.n_hosts_total,
+                        "spread": h.spread_s,
+                    }
+                sink.write(row)
+                written += 1
+            continue
+
+        # ── single-host path (default) ──────────────────────────────────────
         eps = resolve_episodes(
             anime["slug"], season["season_dir"], season["lang"],
             season["ep_start"], season["ep_end"],
@@ -147,16 +240,9 @@ def process_anime(
         for e in eps:
             ep = e["ep"]
             url = e["url"]
-            base_key = f"{anime['slug']}/{season['season_dir']}/{season['lang']}/ep{ep}"
+            base_key = f"{base_prefix}/ep{ep}"
 
-            picked = themes_for_episode(themes, ep)
-            op_refs = refs_by_theme.get(picked["op"].slug, []) if picked["op"] else []
-            ed_refs = refs_by_theme.get(picked["ed"].slug, []) if picked["ed"] else []
-            inf_op = inf_ed = False
-            if not op_refs and op_pool:
-                op_refs, inf_op = op_pool, True      # cour fallback
-            if not ed_refs and ed_pool:
-                ed_refs, inf_ed = ed_pool, True
+            op_refs, ed_refs, inf_op, inf_ed = refs_for(ep)
 
             # 4. ADAPTIVE CONCURRENCY: the network-heavy work (probe + windowed
             #    fetches) runs under the host's AIMD slot.
@@ -203,6 +289,7 @@ def run(
     start_conc: int,
     max_per_host: int,
     resume: bool,
+    multi_host: bool = False,
 ) -> None:
     manifest = Manifest(manifest_path)
     sink = ResultSink(out_path)
@@ -220,7 +307,7 @@ def run(
     def worker(a: dict) -> tuple[str, str]:
         key = key_of(a)
         try:
-            rec = process_anime(a, throttler, sink)
+            rec = process_anime(a, throttler, sink, multi_host=multi_host)
         except Exception as exc:  # transient -> failed, requeued at end
             rec = Record(key, "failed", reason=f"{type(exc).__name__}: {exc}")
         manifest.record(rec)
@@ -265,6 +352,12 @@ def main() -> None:
     ap.add_argument("--start-conc", type=int, default=6, help="initial per-host concurrency")
     ap.add_argument("--max-per-host", type=int, default=24)
     ap.add_argument("--resume", action="store_true", help="skip anime already done")
+    ap.add_argument(
+        "--multi-host", action="store_true",
+        help="resolve each episode from every audio-capable host and reconcile "
+             "the OP/ED across them (robust to per-player duration differences; "
+             "emits from_end anchors + cross-host agreement). Costs more network.",
+    )
     args = ap.parse_args()
 
     anime_list = json.loads(Path(args.anime_list).read_text("utf-8"))
@@ -276,6 +369,7 @@ def main() -> None:
         start_conc=args.start_conc,
         max_per_host=args.max_per_host,
         resume=args.resume,
+        multi_host=args.multi_host,
     )
 
 

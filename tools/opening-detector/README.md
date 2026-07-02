@@ -70,6 +70,32 @@ JSONL of `{mal_id, episode, op, ed}` for a separate DB importer.
 python batch_detect.py --anime-list anime.json --out results.jsonl --resume
 ```
 
+### Multi-host — robust to per-player duration differences (`--multi-host`)
+The same episode from different players/hosts is a **different encode with a
+different total duration** (trimmed cold-opens, ad-cards, black padding). A skip
+time detected on one host is therefore wrong on another — worst on the **ED**,
+which is anchored from the end, so a duration delta shifts its absolute start by
+that whole delta.
+
+`--multi-host` resolves each episode from *every* audio-capable host
+(`oped/multi_host.py` + `resolve_episodes_multi`), detects the OP/ED against
+**each host's own duration**, then reconciles:
+- **OP** on absolute start (consensus rejects a host whose cold-open differs);
+- **ED** on **seconds-from-end** (`duration − start`), which is
+  duration-INDEPENDENT — hosts of 23:40 / 24:00 / 23:55 all agree on "90 s
+  before the end". Absolute times are re-projected onto the median (canonical)
+  duration; outliers past ±4 s of the consensus are dropped; votes weight it.
+
+Multi-host rows carry extra fields the importer should keep so the API/player
+stays correct on any encode:
+`canonical_duration`, `from_end_start`, `from_end_end` (ED re-projection anchor),
+`hosts_agree`/`hosts_total` and `spread` (confidence). At playback time the
+client (SkipOverlay already knows the `<video>` duration) re-derives the ED from
+`from_end_*` against the ACTIVE player's real length.
+```
+python batch_detect.py --anime-list anime.json --out results.jsonl --multi-host --resume
+```
+
 ### Robustness — when the theme isn't where AnimeThemes says
 - Episode with **no mapped theme** (holes in `episodes`, e.g. Kimetsu ep19):
   fall back to matching the cour's OP/ED refs anyway, flagged `inferred`.

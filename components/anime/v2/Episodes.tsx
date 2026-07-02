@@ -8,6 +8,7 @@ import type { FilmVariant } from "@/lib/anilist/resolveSeason";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { useHideSpoilers } from "@/lib/prefs/spoilerPrefs";
 import { slugifyTitle } from "./helpers";
+import OpEdPicker from "./OpEdPicker";
 import { useTranslation } from "react-i18next";
 
 /** Episode title to display — a neutral "Episode N" when spoilers are hidden. */
@@ -242,9 +243,20 @@ export default function Episodes({ info, progress, seasonList, bonusFilms }: Pro
                 onPickSource={setSource}
               />
             ) : null;
-            return currentIsBonusFilm
+            const ordered = currentIsBonusFilm
               ? [filmsPicker, seasonPicker]
               : [seasonPicker, filmsPicker];
+            // OP / ED dropdown — sits right after the season & films pickers.
+            // Self-hides while loading and when the anime has no themes, so it
+            // never leaves an empty control in the group.
+            return [
+              ...ordered,
+              <OpEdPicker
+                key="oped"
+                info={info}
+                seasonList={seasonList || []}
+              />,
+            ];
           })()}
         </div>
 
