@@ -693,12 +693,13 @@ export async function resolveFranchiseSeasons(
   // here so the same recap isn't offered in two places. Multi-season franchises
   // keep their per-season recap (Roar of Awakening on SnK S2) as before.
   const singleSeason = seasonLike.length === 1;
-  const excludeVariantIds = singleSeason
-    ? new Set<number>([
-        ...multiSeasonFilmIds,
-        ...(findFilmVariants(seasonLike[0]) ?? []).map((v) => v.id),
-      ])
-    : multiSeasonFilmIds;
+  let excludeVariantIds = multiSeasonFilmIds;
+  if (singleSeason) {
+    excludeVariantIds = new Set<number>(multiSeasonFilmIds);
+    for (const v of findFilmVariants(seasonLike[0]) ?? []) {
+      excludeVariantIds.add(v.id);
+    }
+  }
 
   let running = 0;
   return seasonLike.map((m: any) => {
