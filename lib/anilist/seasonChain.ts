@@ -300,7 +300,10 @@ export async function resolveSeasonList(
 //     richer Films dropdown rows (cover + runtime).
 // v3: multi-season SUMMARY digests (Attack on Titan ~Chronicle~) now join the
 //     bonus-films list alongside SIDE_STORY films.
-const REDIS_KEY_FILMS = (id: number) => `bonusFilms:v3:${id}`;
+// v4: FilmVariant tagged with `kind` ("movie" | "compilation") and arc recap
+//     films (SUMMARY/COMPILATION) now included so the UI can split them into a
+//     "Compilations" section. Bump to drop pre-tag cached lists.
+const REDIS_KEY_FILMS = (id: number) => `bonusFilms:v4:${id}`;
 export async function resolveBonusFilms(startId: number): Promise<FilmVariant[]> {
   const cached = await cacheGetJson<FilmVariant[]>(REDIS_KEY_FILMS(startId));
   if (cached) return cached;

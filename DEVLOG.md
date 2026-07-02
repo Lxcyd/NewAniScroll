@@ -7,6 +7,90 @@ Ordre anti-chronologique (le plus récent en haut). Une entrée = une session/su
 
 ---
 
+## 2026-07-02 (suite) — Films/OP-ED en onglets (remplacent la liste) + section Compilations
+
+Retours user sur l'itération précédente (2 demandes).
+
+### 1 — Films & OP/ED : dropdowns → **boutons-onglets** qui remplacent la liste
+- Décision (question au user) : cliquer bascule le **panneau principal** (à la place des
+  épisodes), onglets **mutuellement exclusifs** (pas d'accordéon). La saison reste un dropdown.
+- `Episodes.tsx` : nouvel état `panel: "episodes" | "films" | "oped"`. `SeasonPicker` gagne
+  `highlight` (dim quand un onglet Films/OP-ED est actif) et remet `panel="episodes"` au pick.
+  Nouveau `TabButton` (même pilule que la saison, toggle). Barre recherche/dub/vues cachée hors
+  panneau épisodes.
+- Supprimé : `FilmsPicker` (dead) + `OpEdPicker.tsx` (remplacé). Nouveaux panneaux inline :
+  [FilmsPanel.tsx](components/anime/v2/FilmsPanel.tsx), [OpEdPanel.tsx](components/anime/v2/OpEdPanel.tsx)
+  (hook `useOpEdThemes` extrait → le bouton affiche le compteur, le panneau rend sans refetch).
+  Rendu **façon épisodes** (rows cover/titre/meta ; OP-ED groupé par saison, clic = modal clip NC).
+
+### 2 — différencier vrais films vs **compilations d'arc** (section séparée)
+- **Signal vérifié sur données brutes AniList** (One Piece id 21) : `SIDE_STORY`=vrai film
+  standalone (15), `SUMMARY`/`COMPILATION`=recap d'un arc (2 : Alabasta 2007, Chopper 2008 —
+  pile les 2 du SS user). C'est **le `relationType`** qui tranche, rien d'autre.
+- `resolveSeason.ts` : `FilmVariant.kind` = `"movie" | "compilation"`. `findBonusFilms`→`movie`,
+  `findMultiSeasonDigestFilms`→`compilation`, nouveau **`findCompilationFilms`** (tout recap
+  MOVIE d'arc, dédup vs films déjà classés — attrape les recaps mono-arc que le digest multi-
+  saison ratait). `resolveFranchiseBonusFilms` concatène + trie films avant compils.
+- Cache **bumpé `bonusFilms:v3→v4`** (shape changée : `kind` + compils incluses) → évince l'ancien.
+- UX : `FilmsPanel` rend 2 sections **Films** / **Compilations** (intitulé gardé, tag `RÉSUMÉ`).
+  i18n en/fr (`anime.compilations`, `compilationsHint`, `compilationTag`).
+- **Piège évité** : les 2 SUMMARY apparaissent AUSSI en dual-format de la saison (dropdown saison
+  « Films ») ET dans Compilations — **volontaire** (mêmes films, 2 accès légitimes), pas un doublon-bug.
+- Type-check + ESLint propres (hors Prisma préexistant). Mobile OK (composant `Episodes` partagé).
+
+---
+
+## 2026-07-02 — Dropdown OP/ED (clips AnimeThemes) + fix détecteur multi-lecteur [commit ceeffe5]
+
+Deux chantiers **indépendants** demandés dans le même prompt.
+
+### Partie 1 — nouveau dropdown OP/ED sur la page info (joue les clips NC AnimeThemes)
+- Demande : à côté du dropdown Film, un 3e dropdown **au rendu identique** au dropdown Saison,
+  mais listant openings/endings — compteur OP/ED + liste, **groupé PAR SAISON** (« Saison → OP/ED,
+  Saison → OP/ED »). Clic = joue le clip.
+- **Source tranchée (question au user)** : clip **NC AnimeThemes** (`v.animethemes.moe/*.webm`),
+  PAS un saut intra-épisode via timecodes. C'est donc distinct du détecteur de skip (offline).
+- [lib/animethemes/themes.ts](lib/animethemes/themes.ts) : client **runtime** (jumeau JS du
+  client python offline `tools/opening-detector/oped/animethemes.py`). id→slug (`/resource`)→
+  themes (`/anime/{slug}`), garde la meilleure vidéo par thème (NC puis résolution).
+- [pages/api/v2/themes/[id].ts](pages/api/v2/themes/[id].ts) : `GET /api/v2/themes/{anilistId}?malId=` ,
+  cache long (métadonnée statique), **fail-soft** (jamais de 500 sur la page info).
+- [components/anime/v2/OpEdPicker.tsx](components/anime/v2/OpEdPicker.tsx) : le picker (chrome
+  copié 1:1 sur `SeasonPicker` de `Episodes.tsx`) + modal `<video>` NC. Fetch des thèmes **par
+  saison** (chaque `SeasonEntry` a `id`/`idMal`), s'auto-cache si loading ou 0 thème.
+- Câblé dans [Episodes.tsx](components/anime/v2/Episodes.tsx) après saison+films → couvre
+  **desktop ET mobile** (composant partagé, `InfoPageMobile` réutilise `Episodes`). i18n en/fr.
+- **Vérifié live** : MAL 16498 → slug `shingeki_no_kyojin` → OP1/OP2/ED1/ED2 + vidéos NC 1080p.
+
+### Partie 2 — détecteur de skip robuste aux durées vidéo différentes selon le lecteur
+- Demande : « faire l'opération sur plusieurs lecteurs car en fonction du lecteur la durée
+  vidéo n'est pas la même ». Tranché : **pipeline offline** `tools/opening-detector` (pas runtime).
+- **Le cœur du problème** : même épisode, hosts différents = encodes différents = **durée totale
+  différente** (cold-open trimmé, ad-cards, padding). Un timecode détecté sur host A est faux sur
+  host B — **pire pour l'ED** qui est ancré depuis la fin (`-sseof`) : un delta de durée décale
+  tout le start absolu.
+- **Décision clé** : réconcilier l'ED sur **secondes-depuis-la-fin** (`duration - start`),
+  quantité **indépendante de la durée**. L'OP se réconcilie sur le start absolu.
+  [oped/multi_host.py](tools/opening-detector/oped/multi_host.py) : détecte par host (durée
+  propre à chacun) puis consensus (médiane, drop outliers >±4s, pondéré par votes). Émet
+  `from_end_start/end`, `canonical_duration`, `hosts_agree/total`, `spread`.
+- `resolve_episodes_multi()` ([adapter_aniscroll.py](tools/opening-detector/oped/adapter_aniscroll.py))
+  résout l'épisode sur CHAQUE host (sibnet,embed4me,lpayer,sendvid,uqload), groupé par ep.
+- `batch_detect.py --multi-host` : branche **opt-in** (coûte N hosts/ep) émettant les champs robustes.
+  `probe_multihost.py` + section README.
+- **Testé unitairement (synthétique)** : 3 hosts 1420/1440/1435s → **ED from_end=90.0s spread=0.0**
+  (immunité durée prouvée) ; OP outlier +40s **correctement rejeté** (agree=3/4).
+
+### Piège / restant
+- **Piège here-string PowerShell** : `@'…'@` a collé un `@` parasite sur le sujet du commit (2×) →
+  amend via `git commit -F fichier` (heredoc bash) pour un sujet propre avant push.
+- **TODO couplé** : l'importeur JSONL→DB doit **propager** `from_end_*`/`canonical_duration` en mode
+  multi-host ; et `SkipOverlay` devra **re-dériver l'ED** depuis `from_end` vs la durée réelle du
+  `<video>` actif (elle la connaît déjà) pour boucler la robustesse au runtime.
+- Type-check + ESLint propres (hors erreurs Prisma préexistantes = `npx prisma generate`).
+
+---
+
 ## 2026-07-01 (suite 2) — Diag résolution vidéo + fix panels fusionnés + films bonus SIDE_STORY
 
 Question de départ : « faut-il une API anime-sama externe (type TMCooper/AnimeSamaApi) pour

@@ -377,6 +377,14 @@ export function findFilmVariants(
 export interface FilmVariant {
   id: number;
   format: string;
+  /** What KIND of film this is, so the UI can group them:
+   *  - "movie"       — a genuine standalone film (AniList SIDE_STORY): original
+   *                    story, not a re-cut of episodes.
+   *  - "compilation" — a recap MOVIE of an arc / season (AniList
+   *                    SUMMARY / COMPILATION): condenses existing episodes.
+   *  Absent on per-season dual-format variants (findFilmVariants), which are
+   *  already contextually "the film of THIS season". */
+  kind?: "movie" | "compilation";
   label?: string | null;
   year?: number | null;
   episodes?: number | null;
@@ -428,6 +436,7 @@ export function findBonusFilms(nodes: any[]): FilmVariant[] {
   return films.map((n, i) => ({
     id: Number(n.id),
     format: "MOVIE",
+    kind: "movie" as const, // SIDE_STORY = genuine standalone film
     label: n.title?.english || n.title?.romaji || null,
     year: n.seasonYear ?? n.startDate?.year ?? null,
     episodes: n.episodes ?? null,
@@ -435,6 +444,59 @@ export function findBonusFilms(nodes: any[]): FilmVariant[] {
     // coverImage rides along on the relation node (fullMediaQuery selects it);
     // duration/year/score are NOT on the edge — resolveFranchiseBonusFilms
     // enriches those from each film's own meta.
+    coverImage: n.coverImage
+      ? { extraLarge: n.coverImage.extraLarge ?? null, large: n.coverImage.large ?? null }
+      : null,
+  }));
+}
+
+/** Franchise-level COMPILATION films: recap MOVIEs that condense an arc / part of
+ *  the series (AniList SUMMARY or COMPILATION edges), e.g. One Piece's
+ *  "…Alabasta" / "Episode of Chopper" arc digests. Distinct from a genuine
+ *  standalone film (findBonusFilms / SIDE_STORY): these are re-cuts of episodes
+ *  the viewer has already seen, so the UI groups them in a separate
+ *  "Compilations" section. Unlike findMultiSeasonDigestFilms (whole-franchise
+ *  digests referenced by ≥2 seasons, routed to the films dropdown as digests),
+ *  this collects ANY franchise recap movie so single-arc compilations aren't
+ *  lost — we dedupe against the exclusion set the caller passes for the ones
+ *  already surfaced as per-season dual-format variants. */
+export function findCompilationFilms(
+  nodes: any[],
+  excludeIds?: Set<number>
+): FilmVariant[] {
+  const RECAP_TYPES = new Set(["SUMMARY", "COMPILATION"]);
+  const seen = new Set<number>();
+  const films: any[] = [];
+  for (const m of nodes) {
+    const franchiseTitle = m?.title;
+    for (const e of m?.relations?.edges || []) {
+      if (
+        RECAP_TYPES.has(e.relationType) &&
+        e.node?.type === "ANIME" &&
+        e.node?.format === "MOVIE" &&
+        sharesFranchise(franchiseTitle, e.node?.title)
+      ) {
+        const id = Number(e.node.id);
+        if (seen.has(id) || excludeIds?.has(id)) continue;
+        seen.add(id);
+        films.push(e.node);
+      }
+    }
+  }
+  films.sort(
+    (a, b) =>
+      (a.seasonYear ?? a.startDate?.year ?? Infinity) -
+      (b.seasonYear ?? b.startDate?.year ?? Infinity)
+  );
+  const multiple = films.length > 1;
+  return films.map((n, i) => ({
+    id: Number(n.id),
+    format: "MOVIE",
+    kind: "compilation" as const,
+    label: n.title?.english || n.title?.romaji || null,
+    year: n.seasonYear ?? n.startDate?.year ?? null,
+    episodes: n.episodes ?? null,
+    index: multiple ? i + 1 : null,
     coverImage: n.coverImage
       ? { extraLarge: n.coverImage.extraLarge ?? null, large: n.coverImage.large ?? null }
       : null,
@@ -484,6 +546,7 @@ export function findMultiSeasonDigestFilms(nodes: any[]): FilmVariant[] {
   return digests.map((n, i) => ({
     id: Number(n.id),
     format: "MOVIE",
+    kind: "compilation" as const, // whole-franchise recap = a compilation too
     label: n.title?.english || n.title?.romaji || null,
     year: n.seasonYear ?? n.startDate?.year ?? null,
     episodes: n.episodes ?? null,
@@ -665,12 +728,25 @@ export async function resolveFranchiseBonusFilms(
   // Meta-franchise: the "season list" collapses to the lone entry, but its own
   // side films are still worth surfacing.
   const nodes = (await isMetaFranchise(ordered)) ? [start] : ordered;
-  const merged = findBonusFilms(nodes).concat(findMultiSeasonDigestFilms(nodes));
+  // Genuine standalone films (SIDE_STORY) + whole-franchise digests, then arc
+  // compilations (SUMMARY/COMPILATION). Order matters for the dedup below:
+  // findBonusFilms/digests win an id over a compilation entry so a film's
+  // primary classification stands.
+  const movieish = findBonusFilms(nodes).concat(findMultiSeasonDigestFilms(nodes));
+  const alreadyIds = new Set(movieish.map((f) => f.id));
+  const compilations = findCompilationFilms(nodes, alreadyIds);
+  const merged = movieish.concat(compilations);
   const byId = new Map<number, FilmVariant>();
   for (const f of merged) if (!byId.has(f.id)) byId.set(f.id, f);
-  const films = Array.from(byId.values()).sort(
-    (a, b) => (a.year ?? Infinity) - (b.year ?? Infinity)
-  );
+  // Sort by year, but keep genuine films before compilations so the panel's
+  // primary content leads and recaps trail — the UI still renders them in two
+  // labelled sections, this just makes an unsectioned consumer sane too.
+  const films = Array.from(byId.values()).sort((a, b) => {
+    const ka = a.kind === "compilation" ? 1 : 0;
+    const kb = b.kind === "compilation" ? 1 : 0;
+    if (ka !== kb) return ka - kb;
+    return (a.year ?? Infinity) - (b.year ?? Infinity);
+  });
 
   // Enrich each film with the fields the relation edge doesn't carry (duration,
   // air year, score) so the dropdown can show a rich row. Films are few (1-3)
