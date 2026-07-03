@@ -771,7 +771,7 @@ function SeasonPicker({
         </span>
       </div>
       <span className="mono" style={tStyles.seasonCount}>
-        {eps ? `${eps.length} EP` : "— EP"}
+        {eps ? `${eps.length}` : "—"}
       </span>
       {(hasMany || loneRedirectId) && (
         <svg
