@@ -165,6 +165,66 @@ export async function fullSyncFromAniList(
 }
 
 /**
+ * Full PUSH: write this device's local list up to the signed-in AniList account.
+ *
+ * This is the INVERSE direction of fullSyncFromAniList({ replace: true }). The
+ * user picked "make my AniList match this device" — so every local entry is
+ * pushed via SaveMediaListEntry (which ADDS the anime to AniList when it isn't
+ * there yet, or updates it when it is). AniList is never "cleared": entries that
+ * exist only on AniList (not locally) are LEFT ALONE — we add/overwrite, we
+ * don't delete. That matches the intent: "add my site's anime to AniList".
+ *
+ * Runs sequentially (one mutation at a time) to stay well under AniList's rate
+ * limit (90 req/min). Best-effort per entry: one failing push doesn't abort the
+ * rest. The client list cache is patched as we go so the UI reflects the new
+ * AniList state without a refetch. Returns { ok, count } where count is how many
+ * entries were successfully pushed; ok=false only when there's no session at all.
+ */
+export async function fullSyncToAniList(): Promise<{ ok: boolean; count: number }> {
+  const prefs = getSyncPrefs();
+  const session = await getAniListSession(prefs);
+  const token = session?.user?.token;
+  const userName = session?.user?.name;
+  if (!token || !userName) return { ok: false, count: 0 };
+
+  const entries = Object.values(getLocalList());
+  let count = 0;
+  for (const e of entries) {
+    // Only send fields AniList can store; skip empty status+progress no-ops.
+    const payload: Parameters<typeof saveMediaListEntry>[1] = {
+      mediaId: e.mediaId,
+      status: e.status ?? undefined,
+      progress: e.progress || 0,
+    };
+    if (typeof e.score === "number" && e.score > 0) payload.score = e.score;
+    if (e.startedAt) payload.startedAt = e.startedAt;
+    if (e.completedAt) payload.completedAt = e.completedAt;
+
+    const saved = await saveMediaListEntry(token, payload);
+    if (!saved) continue;
+    count++;
+    // Keep the client AniList cache + local mirror consistent with what we
+    // just wrote upstream.
+    const existing = peekListEntry(userName, e.mediaId);
+    patchListEntry(userName, e.mediaId, {
+      id: saved.id,
+      mediaId: e.mediaId,
+      status: saved.status ?? existing?.status ?? null,
+      score: saved.score ?? existing?.score ?? null,
+      progress: saved.progress,
+      repeat: existing?.repeat ?? e.repeat ?? 0,
+      private: existing?.private ?? false,
+      hiddenFromStatusLists: existing?.hiddenFromStatusLists ?? false,
+      notes: existing?.notes ?? e.notes ?? null,
+      startedAt: existing?.startedAt ?? e.startedAt ?? null,
+      completedAt: existing?.completedAt ?? e.completedAt ?? null,
+      customLists: existing?.customLists ?? [],
+    });
+  }
+  return { ok: true, count };
+}
+
+/**
  * Merge one local entry with its AniList counterpart, keeping whichever side is
  * more advanced. AniList wins on ties and on every non-progress field (it's the
  * source of truth while sync is on) — we only defend local progress that's

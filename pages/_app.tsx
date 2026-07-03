@@ -4,13 +4,13 @@ import Script from "next/script";
 import { useRouter } from "next/router";
 import { motion as m } from "framer-motion";
 import NextNProgress from "nextjs-progressbar";
-import { SessionProvider } from "next-auth/react";
+import { SessionProvider, useSession } from "next-auth/react";
 import { SkeletonTheme } from "react-loading-skeleton";
 import SearchPalette from "@/components/searchPalette";
 import { SearchProvider } from "@/lib/context/isOpenState";
 import { WatchPageProvider } from "@/lib/context/watchPageProvider";
 import I18nProvider from "@/lib/i18n/I18nProvider";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { unixTimestampToRelativeTime } from "@/utils/getTimes";
 import { asCssVars, BRAND } from "@/lib/theme";
 import { applyAccent, getAccent } from "@/lib/prefs/accentColor";
@@ -19,7 +19,16 @@ import { Toaster, toast } from "sonner";
 import ChangeLogs from "../components/shared/changelogs";
 import AnilistHealthBanner from "../components/shared/AnilistHealthBanner";
 import { Analytics } from "@vercel/analytics/react";
-import { runAutoPauseSweep, fullSyncFromAniList } from "@/lib/list/syncEngine";
+import {
+  runAutoPauseSweep,
+  fullSyncFromAniList,
+  fullSyncToAniList,
+} from "@/lib/list/syncEngine";
+import { getSyncPrefs, setSyncPrefs } from "@/lib/prefs/syncPrefs";
+import SyncDirectionModal, {
+  type SyncDirection,
+} from "@/components/shared/SyncDirectionModal";
+import { useTranslation } from "react-i18next";
 import type { AppProps } from "next/app";
 
 // Cloudflare Worker base. The same Worker that proxies HLS also serves a few
@@ -30,6 +39,87 @@ import type { AppProps } from "next/app";
 const WORKER_BASE =
   (process.env.NEXT_PUBLIC_PROXY_BASE as string | undefined) ||
   "https://aniscroll-proxy.luc-deldem.workers.dev";
+
+/**
+ * First-login sync bootstrap. Lives INSIDE <SessionProvider> so it can read the
+ * live AniList session via useSession(). On the first authenticated load after
+ * connecting AniList it:
+ *   1. flips the sync master toggle ON (default behaviour),
+ *   2. shows a toast confirming sync is now active,
+ *   3. opens the one-time direction chooser (AniList → local, or local →
+ *      AniList), recording the answer in `directionChosen` so it never re-nags.
+ *
+ * The `directionChosen` flag is the single guard: once the user has answered
+ * (here or in Settings), this component does nothing on subsequent loads and
+ * the normal background resync in MyApp takes over.
+ */
+function SyncBootstrap() {
+  const { data: session, status } = useSession();
+  const { t } = useTranslation();
+  const [showDirection, setShowDirection] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const isConnected = !!(session as any)?.user?.token;
+
+  useEffect(() => {
+    if (status === "loading") return;
+    if (!isConnected) return;
+    const prefs = getSyncPrefs();
+    if (prefs.directionChosen) return; // already handled once — don't re-nag.
+
+    // Turn sync on by default the moment AniList is connected, and tell the
+    // user (same toast style as "list entry saved").
+    setSyncPrefs({ enabled: true });
+    toast.success(t("settings.sync.enabledToast"), {
+      description: t("settings.sync.enabledToastDesc"),
+    });
+    setShowDirection(true);
+  }, [isConnected, status, t]);
+
+  const choose = async (direction: SyncDirection) => {
+    setBusy(true);
+    try {
+      const r =
+        direction === "fromAniList"
+          ? await fullSyncFromAniList({ replace: true })
+          : await fullSyncToAniList();
+      if (r.ok) {
+        toast.success(
+          direction === "fromAniList"
+            ? t("settings.sync.synced", { count: r.count })
+            : t("settings.sync.pushed", { count: r.count }),
+        );
+        await runAutoPauseSweep().catch(() => {});
+      } else {
+        toast.error(t("settings.sync.syncFailed"));
+      }
+    } finally {
+      // Record the answer whatever the outcome so we don't re-prompt on every
+      // load after a transient AniList failure — the user can still use
+      // "Resync now" / the Settings toggle to retry.
+      setSyncPrefs({ directionChosen: true });
+      setBusy(false);
+      setShowDirection(false);
+    }
+  };
+
+  const cancel = () => {
+    // Cancelling the FIRST prompt still counts as answered (sync stays on, no
+    // reconcile ran) — otherwise it would reopen on every navigation. The user
+    // can pick a direction later from Settings.
+    setSyncPrefs({ directionChosen: true });
+    setShowDirection(false);
+  };
+
+  return (
+    <SyncDirectionModal
+      open={showDirection}
+      onChoose={choose}
+      onCancel={cancel}
+      busy={busy}
+    />
+  );
+}
 
 /**
  * Replaces every {{date:VALUE}} placeholder in `text` with a date string
@@ -278,8 +368,15 @@ export default function App({
   //      local mirror fresh (and recovers it after AniList was down). No-op /
   //      leaves local untouched on failure, so the list survives an outage.
   //   2. Auto-pause sweep on the (now fresh) local list.
+  //
+  // GATE: skip the auto pull until the user has answered the one-time
+  // direction prompt (SyncBootstrap). Before that choice we must NOT pull
+  // AniList → local, or a first-time user with a local list would silently lose
+  // it to a (non-destructive but overriding) reconcile before they got to pick
+  // "push my list up to AniList instead".
   useEffect(() => {
     const run = async () => {
+      if (!getSyncPrefs().directionChosen) return;
       await fullSyncFromAniList().catch(() => {});
       await runAutoPauseSweep().catch(() => {});
     };
@@ -328,6 +425,7 @@ export default function App({
                 /> */}
                 <ChangeLogs />
                 <AnilistHealthBanner />
+                <SyncBootstrap />
                 {/* Per-route fade-in only. We deliberately do NOT use
                     <AnimatePresence mode="wait"> here: on browser back/forward
                     (popstate) the exit animation could stall and leave the new
