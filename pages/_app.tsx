@@ -104,10 +104,13 @@ function SyncBootstrap() {
   };
 
   const cancel = () => {
-    // Cancelling the FIRST prompt still counts as answered (sync stays on, no
-    // reconcile ran) — otherwise it would reopen on every navigation. The user
-    // can pick a direction later from Settings.
-    setSyncPrefs({ directionChosen: true });
+    // Dismissing the prompt WITHOUT picking a direction = the user didn't opt
+    // into either reconcile, so we turn sync back OFF (it was auto-enabled on
+    // connect). `directionChosen` still records it as answered so the popup
+    // doesn't reopen on every navigation — the user can enable + pick a
+    // direction later from Settings.
+    setSyncPrefs({ enabled: false, directionChosen: true });
+    toast.message(t("settings.sync.dismissedToast"));
     setShowDirection(false);
   };
 
