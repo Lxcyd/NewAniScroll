@@ -1,4 +1,11 @@
-import { CSSProperties, ReactNode, useEffect, useMemo, useState } from "react";
+import {
+  CSSProperties,
+  ReactNode,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import Link from "next/link";
 import { AniListInfoTypes } from "types/info/AnilistInfoTypes";
 import styles from "./styles.module.css";
@@ -33,6 +40,37 @@ type EpisodeRow = {
   img: string | null;
 };
 
+/**
+ * Windowing hook: given the scroll container's live scrollTop, the row height,
+ * the viewport height and how many items sit per row, returns the slice of item
+ * indices to actually render (plus the top spacer height + total height).
+ *
+ * This is what makes One Piece's 1100+ episodes render instantly: mounting ~15
+ * DOM rows instead of 1100 kills the multi-hundred-ms jank when switching back
+ * to the episodes panel from Films / OP-ED. Row height / viewport height are
+ * fixed per view mode, so plain arithmetic windowing is enough — no measuring.
+ */
+function useWindowedSlice(
+  scrollTop: number,
+  count: number,
+  rowHeight: number,
+  maxHeight: number,
+  perRow = 1,
+  overscan = 4,
+): { start: number; end: number; padTop: number; totalHeight: number } {
+  const rows = Math.ceil(count / perRow);
+  const totalHeight = rows * rowHeight;
+  const firstRow = Math.max(0, Math.floor(scrollTop / rowHeight) - overscan);
+  const visibleRows = Math.ceil(maxHeight / rowHeight) + overscan * 2;
+  const lastRow = Math.min(rows, firstRow + visibleRows);
+  return {
+    start: firstRow * perRow,
+    end: Math.min(count, lastRow * perRow),
+    padTop: firstRow * rowHeight,
+    totalHeight,
+  };
+}
+
 type ViewMode = "detailed" | "compact" | "grid";
 
 /* Which source the episode panel is showing. "episodes" = one season id.
@@ -49,6 +87,11 @@ type Props = {
   /** Franchise bonus films (SIDE_STORY movies — HxH: Phantom Rouge). Rendered
    *  in a SEPARATE "Films" dropdown; empty/absent hides it. */
   bonusFilms?: FilmVariant[];
+  /** Reports the real loaded episode count up to the Tabs bar so the "Épisodes"
+   *  tab can show a badge (like Personnages / Illustrations). AniList's
+   *  info.episodes is null for long-running airing shows (One Piece), so the
+   *  actual fetched list length is the reliable count. */
+  onEpisodeCount?: (count: number) => void;
 };
 
 /* Scroll budget: show roughly N rows in each mode before the box
@@ -65,7 +108,7 @@ const ROW_HEIGHT = {
   compact: 44,
 };
 
-export default function Episodes({ info, progress, seasonList, bonusFilms }: Props) {
+export default function Episodes({ info, progress, seasonList, bonusFilms, onEpisodeCount }: Props) {
   const titlePref = useTitlePref();
   const { t } = useTranslation();
   const [eps, setEps] = useState<EpisodeRow[] | null>(null);
@@ -73,6 +116,10 @@ export default function Episodes({ info, progress, seasonList, bonusFilms }: Pro
   const [error, setError] = useState<string | null>(null);
   const [isDub, setIsDub] = useState(false);
   const [view, setView] = useState<ViewMode>("detailed");
+  // Live scroll offset of the episode list container, feeding the windowing
+  // (only the visible rows are rendered — see useWindowedSlice).
+  const scrollBoxRef = useRef<HTMLDivElement>(null);
+  const [scrollTop, setScrollTop] = useState(0);
   const [filter, setFilter] = useState("");
 
   /* The page's own anime IS one of the franchise's bonus films — e.g. viewing
@@ -229,6 +276,20 @@ export default function Episodes({ info, progress, seasonList, bonusFilms }: Pro
       cancelled = true;
     };
   }, [source, info.id, info.status, info.duration, isDub, t]);
+
+  // Reset the windowed scroll to the top when the shown set changes (mode,
+  // filter, season/source) so we don't stay scrolled into empty space.
+  useEffect(() => {
+    if (scrollBoxRef.current) scrollBoxRef.current.scrollTop = 0;
+    setScrollTop(0);
+  }, [view, filter, source, isDub, panel]);
+
+  // Report the main episode panel's real length to the Tabs bar (badge). Only
+  // when showing the episodes source — films/OP-ED reuse `eps` for their own
+  // lists and shouldn't overwrite the "Épisodes" tab count.
+  useEffect(() => {
+    if (source.kind === "episodes" && eps) onEpisodeCount?.(eps.length);
+  }, [eps, source.kind, onEpisodeCount]);
 
   const filtered = useMemo(() => {
     if (!eps) return [];
@@ -459,6 +520,8 @@ export default function Episodes({ info, progress, seasonList, bonusFilms }: Pro
 
       {!loading && !error && eps && eps.length > 0 && (
         <div
+          ref={scrollBoxRef}
+          onScroll={(e) => setScrollTop((e.target as HTMLDivElement).scrollTop)}
           className={styles.customScroll}
           style={{
             maxHeight,
@@ -494,6 +557,8 @@ export default function Episodes({ info, progress, seasonList, bonusFilms }: Pro
               isDub={isDub}
               activeAnimeId={activeSeasonId}
               otherSeason={activeSeasonId !== info.id}
+              scrollTop={scrollTop}
+              maxHeight={maxHeight}
             />
           ) : view === "compact" ? (
             <CompactList
@@ -503,6 +568,8 @@ export default function Episodes({ info, progress, seasonList, bonusFilms }: Pro
               isDub={isDub}
               activeAnimeId={activeSeasonId}
               otherSeason={activeSeasonId !== info.id}
+              scrollTop={scrollTop}
+              maxHeight={maxHeight}
             />
           ) : (
             <DetailedList
@@ -512,6 +579,8 @@ export default function Episodes({ info, progress, seasonList, bonusFilms }: Pro
               isDub={isDub}
               activeAnimeId={activeSeasonId}
               otherSeason={activeSeasonId !== info.id}
+              scrollTop={scrollTop}
+              maxHeight={maxHeight}
             />
           )}
         </div>
@@ -537,6 +606,10 @@ type ListProps = {
   /** True when the user picked a different season than the page's own
    *  in the season switcher. */
   otherSeason: boolean;
+  /** Live scroll offset of the shared scroll container + its viewport height —
+   *  the two inputs the windowing needs to pick which rows to render. */
+  scrollTop: number;
+  maxHeight: number;
 };
 
 function watchHref(
@@ -699,10 +772,6 @@ function SeasonPicker({
       </div>
       <span className="mono" style={tStyles.seasonCount}>
         {eps ? `${eps.length} EP` : "— EP"}
-        {/* Only the page's OWN anime's per-episode duration is meaningful here;
-            for another season (or a digest page anchored to Season 1) we don't
-            know its runtime, so we drop the misleading suffix. */}
-        {info.duration && activeSeasonId === info.id ? ` · ${info.duration}min` : ""}
       </span>
       {(hasMany || loneRedirectId) && (
         <svg
@@ -1024,62 +1093,101 @@ function EpisodeThumb({
   );
 }
 
-/* DETAILED — original card-with-thumb-and-meta row. */
-function DetailedList({ eps, progress, info, isDub, activeAnimeId, otherSeason }: ListProps) {
+/* DETAILED — original card-with-thumb-and-meta row. Windowed: only the visible
+   rows are rendered (thumb row ≈ 90px + 8px gap = 98px per row). */
+const DETAILED_ROW = 98;
+function DetailedList({
+  eps,
+  progress,
+  info,
+  isDub,
+  activeAnimeId,
+  otherSeason,
+  scrollTop,
+  maxHeight,
+}: ListProps) {
   const { t } = useTranslation();
   const hideSpoilers = useHideSpoilers();
+  const { start, end, padTop, totalHeight } = useWindowedSlice(
+    scrollTop,
+    eps.length,
+    DETAILED_ROW,
+    maxHeight,
+  );
   return (
-    <div style={tStyles.epList}>
-      {eps.map((ep) => {
-        const { watched, current, locked } = classifyEp(info, ep, progress, otherSeason);
-        return (
-          <Link
-            key={ep.number}
-            href={locked ? "#" : watchHref(info, ep, isDub, activeAnimeId)}
-            style={{
-              ...tStyles.epRow,
-              opacity: locked ? 0.55 : 1,
-              borderColor: current ? "color-mix(in srgb, var(--accent) 40%, transparent)" : "var(--line)",
-              background: current
-                ? "linear-gradient(90deg, color-mix(in srgb, var(--accent) 6%, transparent), var(--bg-2))"
-                : "var(--bg-2)",
-              textDecoration: "none",
-              color: "inherit",
-              pointerEvents: locked ? "none" : "auto",
-            }}
-          >
-            <EpisodeThumb ep={ep} info={info} current={current} locked={locked} />
-            <div style={tStyles.epInfo}>
-              <div style={tStyles.epHead}>
-                <span className="mono" style={tStyles.epNum}>
-                  EP {String(ep.number).padStart(2, "0")}
-                </span>
-                {watched && <span style={tStyles.watchedTag}>✓ {t("anime.watched")}</span>}
-                {current && <span style={tStyles.currentTag}>● {t("anime.upNext")}</span>}
+    <div style={{ height: totalHeight, position: "relative" }}>
+      <div style={{ ...tStyles.epList, position: "absolute", top: padTop, left: 0, right: 0 }}>
+        {eps.slice(start, end).map((ep) => {
+          const { watched, current, locked } = classifyEp(info, ep, progress, otherSeason);
+          return (
+            <Link
+              key={ep.number}
+              href={locked ? "#" : watchHref(info, ep, isDub, activeAnimeId)}
+              style={{
+                ...tStyles.epRow,
+                height: DETAILED_ROW - 8, // fixed so windowing math stays exact
+                boxSizing: "border-box",
+                opacity: locked ? 0.55 : 1,
+                borderColor: current ? "color-mix(in srgb, var(--accent) 40%, transparent)" : "var(--line)",
+                background: current
+                  ? "linear-gradient(90deg, color-mix(in srgb, var(--accent) 6%, transparent), var(--bg-2))"
+                  : "var(--bg-2)",
+                textDecoration: "none",
+                color: "inherit",
+                pointerEvents: locked ? "none" : "auto",
+              }}
+            >
+              <EpisodeThumb ep={ep} info={info} current={current} locked={locked} />
+              <div style={tStyles.epInfo}>
+                <div style={tStyles.epHead}>
+                  <span className="mono" style={tStyles.epNum}>
+                    EP {String(ep.number).padStart(2, "0")}
+                  </span>
+                  {watched && <span style={tStyles.watchedTag}>✓ {t("anime.watched")}</span>}
+                  {current && <span style={tStyles.currentTag}>● {t("anime.upNext")}</span>}
+                </div>
+                <div style={tStyles.epTitle}>{epTitle(ep, hideSpoilers)}</div>
+                <div style={tStyles.epMeta}>
+                  {ep.duration && <span>{ep.duration} min</span>}
+                  {ep.duration && <span style={tStyles.dotSep} />}
+                  <span>{isDub ? "Dub" : "Sub"}</span>
+                </div>
               </div>
-              <div style={tStyles.epTitle}>{epTitle(ep, hideSpoilers)}</div>
-              <div style={tStyles.epMeta}>
-                {ep.duration && <span>{ep.duration} min</span>}
-                {ep.duration && <span style={tStyles.dotSep} />}
-                <span>{isDub ? "Dub" : "Sub"}</span>
-              </div>
-            </div>
-            <span style={{ ...tStyles.epPlay, pointerEvents: "none" }}>
-              {locked ? t("anime.notReleased") : current ? t("anime.resume") : watched ? t("anime.replay") : t("anime.play")}
-            </span>
-          </Link>
-        );
-      })}
+              <span style={{ ...tStyles.epPlay, pointerEvents: "none" }}>
+                {locked ? t("anime.notReleased") : current ? t("anime.resume") : watched ? t("anime.replay") : t("anime.play")}
+              </span>
+            </Link>
+          );
+        })}
+      </div>
     </div>
   );
 }
 
-/* COMPACT — small single-line rows: [number] title  ✓/●  Play */
-function CompactList({ eps, progress, info, isDub, activeAnimeId, otherSeason }: ListProps) {
+/* COMPACT — small single-line rows: [number] title  ✓/●  Play. Windowed:
+   ~42px row + 4px gap = 46px per row. */
+const COMPACT_ROW = 46;
+function CompactList({
+  eps,
+  progress,
+  info,
+  isDub,
+  activeAnimeId,
+  otherSeason,
+  scrollTop,
+  maxHeight,
+}: ListProps) {
   const hideSpoilers = useHideSpoilers();
+  const { start, end, padTop, totalHeight } = useWindowedSlice(
+    scrollTop,
+    eps.length,
+    COMPACT_ROW,
+    maxHeight,
+  );
   return (
-    <div style={tStyles.compactList}>
-      {eps.map((ep) => {
+    <div style={{ height: totalHeight, position: "relative" }}>
+      <div style={{ ...tStyles.compactList, position: "absolute", top: padTop, left: 0, right: 0 }}>
+        {eps.slice(start, end).map((ep) => {
         const { watched, current, locked } = classifyEp(info, ep, progress, otherSeason);
         return (
           <Link
@@ -1087,6 +1195,9 @@ function CompactList({ eps, progress, info, isDub, activeAnimeId, otherSeason }:
             href={locked ? "#" : watchHref(info, ep, isDub, activeAnimeId)}
             style={{
               ...tStyles.compactRow,
+              height: COMPACT_ROW - 4,
+              minHeight: 0,
+              boxSizing: "border-box",
               opacity: locked ? 0.55 : 1,
               borderColor: current ? "color-mix(in srgb, var(--accent) 40%, transparent)" : "var(--line)",
               background: current
@@ -1124,16 +1235,53 @@ function CompactList({ eps, progress, info, isDub, activeAnimeId, otherSeason }:
           </Link>
         );
       })}
+      </div>
     </div>
   );
 }
 
-/* GRID — number-only tiles, useful for One Piece-sized series. */
-function GridView({ eps, progress, info, isDub, activeAnimeId, otherSeason }: ListProps) {
+/* GRID — number-only tiles, useful for One Piece-sized series. Windowed by
+   rows: tiles are ~56px min with 6px gap and auto-fill columns. We can't know
+   the column count without measuring, so we assume a conservative fixed tile
+   pitch and pack `GRID_PER_ROW` tiles per virtual row; overscan hides the small
+   inaccuracy. */
+const GRID_TILE = 56 + 6; // tile min-width + gap
+function GridView({
+  eps,
+  progress,
+  info,
+  isDub,
+  activeAnimeId,
+  otherSeason,
+  scrollTop,
+  maxHeight,
+}: ListProps) {
   const hideSpoilers = useHideSpoilers();
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const [perRow, setPerRow] = useState(8);
+  // Measure how many tiles fit per row from the actual container width so the
+  // windowing rows line up with the CSS grid's auto-fill columns.
+  useEffect(() => {
+    const measure = () => {
+      const w = wrapRef.current?.clientWidth ?? 0;
+      if (w > 0) setPerRow(Math.max(1, Math.floor(w / GRID_TILE)));
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, []);
+  const { start, end, padTop, totalHeight } = useWindowedSlice(
+    scrollTop,
+    eps.length,
+    GRID_TILE,
+    maxHeight,
+    perRow,
+    2,
+  );
   return (
-    <div style={tStyles.gridWrap}>
-      {eps.map((ep) => {
+    <div ref={wrapRef} style={{ height: totalHeight, position: "relative" }}>
+      <div style={{ ...tStyles.gridWrap, position: "absolute", top: padTop, left: 0, right: 0 }}>
+      {eps.slice(start, end).map((ep) => {
         const { watched, current, locked } = classifyEp(info, ep, progress, otherSeason);
         return (
           <Link
@@ -1165,6 +1313,7 @@ function GridView({ eps, progress, info, isDub, activeAnimeId, otherSeason }: Li
           </Link>
         );
       })}
+      </div>
     </div>
   );
 }

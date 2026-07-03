@@ -88,8 +88,13 @@ export default function InfoPageMobile({
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const charCount = (info.characters?.edges?.length as number | undefined) || 0;
+  // Real loaded count reported by <Episodes>; falls back to AniList metadata /
+  // aired-so-far before the tab has loaded.
+  const [loadedEpCount, setLoadedEpCount] = useState<number | null>(null);
+  useEffect(() => setLoadedEpCount(null), [info.id]);
   const epCount =
-    info.episodes ||
+    loadedEpCount ??
+    info.episodes ??
     (info.nextAiringEpisode?.episode ? info.nextAiringEpisode.episode - 1 : 0);
   const artCount = initialFanarts?.total || 0;
 
@@ -131,6 +136,7 @@ export default function InfoPageMobile({
               progress={progress}
               seasonList={seasonList}
               bonusFilms={bonusFilms}
+              onEpisodeCount={setLoadedEpCount}
             />
           </div>
         )}
