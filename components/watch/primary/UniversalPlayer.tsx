@@ -1069,21 +1069,27 @@ function SettingsSubmenuHeader({ label, onBack }: { label: string; onBack: () =>
 }
 
 /**
- * Big centred play button. Shows whenever the video is paused and ready — a clear
- * "start watching WITH sound" affordance (autoplay off, a manual pause, or a
- * source that couldn't auto-start). Its click is a real user gesture, so play()
+ * Big centred play button. Its whole purpose is the MANUAL start path — when
+ * the user has NOT enabled autoplay. Its click is a real user gesture, so play()
  * is always allowed and we unmute (unless the user has an intentional saved
- * mute). Autoplay itself no longer leaves the player paused — it falls back to
- * muted playback and unmutes on first interaction — so this is the manual path.
+ * mute). When autoplay IS enabled the video starts on its own (falling back to
+ * muted playback and unmuting on first interaction), so the button would be
+ * redundant — it's hidden entirely in that mode.
  */
 function CenterPlayButton({
   playerRef,
+  autoplay,
 }: {
   playerRef: React.RefObject<MediaPlayerInstance>;
+  autoplay: boolean;
 }) {
   const { t } = useTranslation();
   const paused = useMediaState("paused", playerRef);
   const canPlay = useMediaState("canPlay", playerRef);
+  // Only ever shown when autoplay is OFF (this is the manual "click to start"
+  // affordance). With autoplay ON the video launches itself, so the big button
+  // has no reason to appear.
+  if (autoplay) return null;
   // Hidden while playing, and while the media is still loading (Vidstack draws
   // its buffering spinner then — we don't want to stack on it).
   if (!paused || !canPlay) return null;
@@ -2932,13 +2938,22 @@ export default function UniversalPlayer({
   // where this effect runs before Vidstack has re-attached its element.
   useEffect(() => {
     if (!autoplay) return;
+    // Iframe/embed sources render an <iframe> instead of a <video> (see the
+    // early return in the render below). There is no media element we can drive
+    // — autoplay is entirely up to the cross-origin embed and its `allow` attr —
+    // so don't spin a poll that can never find a <video>.
+    if (streamData?.iframe) return;
 
     let cancelled = false;
     let started = false; // playback has begun (muted or unmuted) — stop retrying
     let unmutePending = false; // started muted, still owe the user sound
+    let inFlight = false; // a play() attempt is awaiting — don't overlap
+    let boundVideo: HTMLVideoElement | null = null; // element our events sit on
 
     const getPlayerEl = () =>
       (playerRef.current?.el as HTMLElement | undefined) || undefined;
+    const getVideo = () =>
+      getPlayerEl()?.querySelector<HTMLVideoElement>("video") || null;
 
     const keepMuted = () => {
       try {
@@ -2952,10 +2967,8 @@ export default function UniversalPlayer({
     };
 
     const tryPlay = async () => {
-      if (cancelled || started) return;
-      const playerEl = getPlayerEl();
-      if (!playerEl) return;
-      const video = playerEl.querySelector<HTMLVideoElement>("video");
+      if (cancelled || started || inFlight) return;
+      const video = getVideo();
       if (!video) return;
       if (!video.paused) {
         started = true;
@@ -2970,16 +2983,24 @@ export default function UniversalPlayer({
 
       const wantMuted = keepMuted();
       video.setAttribute("playsinline", "");
+      inFlight = true;
 
       // 1) Try UNMUTED (muted only if the user asked for it).
       video.muted = wantMuted;
       try {
         await video.play();
         started = true;
+        inFlight = false;
         return; // playing — with sound unless the user chose mute
       } catch (err: any) {
         if (cancelled) return;
-        if (err?.name !== "NotAllowedError") return; // transient — retry later
+        if (err?.name !== "NotAllowedError") {
+          // Transient (e.g. AbortError: play() interrupted by a new load when
+          // hls.js swaps the source). Leave `started` false — the poll/events
+          // below will retry.
+          inFlight = false;
+          return;
+        }
       }
 
       // 2) Unmuted blocked → GUARANTEE playback by starting muted.
@@ -2991,7 +3012,9 @@ export default function UniversalPlayer({
         //    real interaction below.
         unmutePending = !wantMuted;
       } catch {
-        // Even muted play failed (rare) — retry on the next can-play.
+        // Even muted play failed (rare) — retry on the next tick/can-play.
+      } finally {
+        inFlight = false;
       }
     };
 
@@ -3002,7 +3025,7 @@ export default function UniversalPlayer({
     const unmuteOnGesture = () => {
       if (cancelled || !unmutePending) return;
       unmutePending = false;
-      const video = getPlayerEl()?.querySelector<HTMLVideoElement>("video");
+      const video = getVideo();
       try {
         if (video) video.muted = false;
       } catch {}
@@ -3021,37 +3044,54 @@ export default function UniversalPlayer({
 
     const onReady = () => tryPlay();
 
-    // Bind the ready-events to the LIVE player element. On a source/server
-    // switch the effect can run before Vidstack has re-attached its element, so
-    // poll until it exists (bounded), then bind + kick an immediate tryPlay.
-    let boundEl: HTMLElement | null = null;
-    let pollId = 0;
-    const bind = () => {
-      if (cancelled) return true;
-      const el = getPlayerEl();
-      if (!el) return false;
-      boundEl = el;
-      el.addEventListener("can-play", onReady);
-      el.addEventListener("loaded-data", onReady);
-      el.addEventListener("loadstart", onReady);
-      tryPlay(); // element may already be past `can-play` on a fast switch
-      return true;
+    // A single self-healing poll drives everything until playback starts. It
+    // must NOT stop at "the player container exists" — Vidstack mounts its
+    // container first and swaps in the real <video> a beat later, and on a
+    // server switch it replaces the <video> node entirely. So each tick:
+    //   • (re)binds our ready-events to whatever the CURRENT <video> is, and
+    //   • calls tryPlay().
+    // This closes the race that killed autoplay on the 2nd+ source: if the
+    // <video> was recreated, or the can-play/loadstart events fired before we
+    // were listening, the poll still gets us there. It self-terminates the
+    // moment playback begins, and is bounded (~10s) so it can't run forever on
+    // a source that simply never yields a video.
+    const bindEvents = (video: HTMLVideoElement) => {
+      if (video === boundVideo) return;
+      if (boundVideo) {
+        boundVideo.removeEventListener("canplay", onReady);
+        boundVideo.removeEventListener("loadeddata", onReady);
+        boundVideo.removeEventListener("loadstart", onReady);
+      }
+      boundVideo = video;
+      video.addEventListener("canplay", onReady);
+      video.addEventListener("loadeddata", onReady);
+      video.addEventListener("loadstart", onReady);
     };
-    if (!bind()) {
-      let tries = 0;
-      pollId = window.setInterval(() => {
-        if (bind() || ++tries > 40) window.clearInterval(pollId);
-      }, 100);
-    }
+
+    let ticks = 0;
+    const tick = () => {
+      if (cancelled || started) {
+        window.clearInterval(pollId);
+        return;
+      }
+      const video = getVideo();
+      if (video) bindEvents(video);
+      void tryPlay();
+      // ~10s ceiling (100 ticks @ 100ms). By then either playback started, the
+      // source genuinely can't autoplay, or the user has taken over.
+      if (++ticks > 100) window.clearInterval(pollId);
+    };
+    const pollId = window.setInterval(tick, 100);
+    tick(); // run once immediately, don't wait 100ms
 
     return () => {
       cancelled = true;
       window.clearInterval(pollId);
       teardownGestures();
-      if (boundEl) {
-        boundEl.removeEventListener("can-play", onReady);
-        boundEl.removeEventListener("loaded-data", onReady);
-        boundEl.removeEventListener("loadstart", onReady);
+      if (boundVideo) {
+        boundVideo.removeEventListener("canplay", onReady);
+        boundVideo.removeEventListener("loadeddata", onReady);
+        boundVideo.removeEventListener("loadstart", onReady);
       }
     };
   }, [autoplay, streamData]);
@@ -3561,10 +3601,10 @@ export default function UniversalPlayer({
         <HoverPreview playerRef={playerRef} src={src} isM3U8={isM3U8} />
       )}
 
-      {/* Big centred play button — shows while paused, plays WITH sound on
-          click. Covers the case where the browser blocks unmuted autoplay: the
-          video stays paused (not muted-playing) and one click starts it clean. */}
-      <CenterPlayButton playerRef={playerRef} />
+      {/* Big centred play button — the MANUAL start affordance, shown only when
+          autoplay is OFF. One click plays WITH sound. With autoplay ON the video
+          starts itself, so the button is hidden (see CenterPlayButton). */}
+      <CenterPlayButton playerRef={playerRef} autoplay={autoplay} />
 
       {/* AniSkip segment overlay + Skip button. Renders null when no
           skip data exists for the current episode AND there's no next
