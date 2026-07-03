@@ -164,8 +164,8 @@
       "directionBody": "You just connected AniList. Choose which list should win the first sync — you can change automations later in settings.",
       "dirFromTitle": "Use my AniList list",
       "dirFromDesc": "Download your AniList list and replace the one on this device. Local-only entries not on AniList are removed.",
-      "dirToTitle": "Use my AniScroll list",
-      "dirToDesc": "Add the anime tracked here to your AniList account (updates existing entries, never deletes anything on AniList).",
+      "dirToTitle": "Merge — AniScroll wins",
+      "dirToDesc": "Combine both lists and push the result to AniList. On any conflict, this site takes priority. Nothing on AniList is deleted.",
       "dismissedToast": "Sync left off — enable it anytime in settings.",
       "dirOffTitle": "Don't sync",
       "dirOffDesc": "Keep both lists as they are. Sync stays off — you can enable it later in settings."
