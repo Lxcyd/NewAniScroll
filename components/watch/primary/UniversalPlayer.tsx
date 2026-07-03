@@ -2063,26 +2063,79 @@ export default function UniversalPlayer({
 
   // ── HLS error handler ──
   // hls.js fires `hls-error` on the player element for every load failure.
-  // Most are transient (single segment timeout, etc.) and HLS retries on its
-  // own. The ones we care about are FATAL errors with HTTP 401/403/404/410:
-  // these mean the stream is genuinely gone (token expired, file removed) and
-  // looping won't help. Bubbling those up to our `onError` lets the watch
-  // page mark the server failed and pick the next one.
+  // Most are transient (single segment timeout) and HLS retries on its own.
+  // We handle three tiers:
+  //   1. FATAL + a real "stream gone" HTTP status (401/403/404/410): token
+  //      expired or file removed — looping won't help, so bubble to onError and
+  //      let the watch page fall back to another server.
+  //   2. FATAL network/media WITHOUT such a status (the classic case: a direct
+  //      CDN like Vidmoly answering ERR_EMPTY_RESPONSE when hls.js hammers it
+  //      after a seek-spam — detail.response has no code). hls.js does NOT
+  //      auto-recover these and the player FREEZES forever. We actively recover:
+  //      startLoad() for network errors, recoverMediaError() for media/buffer
+  //      errors. A short cap on consecutive recoveries prevents an infinite
+  //      recover loop on a genuinely dead CDN → then we bubble to onError.
+  //   3. Non-fatal: ignore, hls.js handles it.
   useEffect(() => {
     const playerEl = playerRef.current?.el as HTMLElement | undefined;
     if (!playerEl) return;
+
+    let recoveries = 0;
+    let recoverWindowResetTimer = 0;
+    const MAX_RECOVERIES = 4; // within the rolling window before giving up
 
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail;
       if (!detail || !detail.fatal) return;
       const status = detail.response?.code || detail.response?.status;
+
+      // Tier 1 — genuine "stream gone": don't try to recover, fall back.
       if (status === 401 || status === 403 || status === 404 || status === 410) {
         onError?.(`Stream HTTP ${status}`);
+        return;
+      }
+
+      // Tier 2 — fatal but recoverable (no dead-stream status). This is the
+      // seek-spam freeze on direct CDNs. Try to unstick hls.js in place.
+      const hls = hlsRef.current;
+      if (!hls) {
+        // No hls handle (native playback) — nothing to recover; bubble so the
+        // page can fall back rather than sit frozen.
+        onError?.("Playback stalled");
+        return;
+      }
+      if (recoveries >= MAX_RECOVERIES) {
+        // Too many recoveries in the window → the CDN is genuinely refusing us.
+        onError?.("Playback stalled");
+        return;
+      }
+      recoveries += 1;
+      // Reset the recovery budget after a calm period so a later, unrelated
+      // hiccup gets its own fresh set of attempts.
+      window.clearTimeout(recoverWindowResetTimer);
+      recoverWindowResetTimer = window.setTimeout(() => {
+        recoveries = 0;
+      }, 12000);
+      const type = detail.type; // "networkError" | "mediaError" (hls.js enums)
+      try {
+        if (type === "mediaError") {
+          hls.recoverMediaError();
+        } else {
+          // networkError (ERR_EMPTY_RESPONSE, timeout, etc.): re-arm the loader
+          // at the current playhead so it stops waiting on the killed request.
+          const video = playerEl.querySelector<HTMLVideoElement>("video");
+          hls.startLoad(video ? video.currentTime : -1);
+        }
+      } catch {
+        onError?.("Playback stalled");
       }
     };
 
     playerEl.addEventListener("hls-error", handler as EventListener);
-    return () => playerEl.removeEventListener("hls-error", handler as EventListener);
+    return () => {
+      window.clearTimeout(recoverWindowResetTimer);
+      playerEl.removeEventListener("hls-error", handler as EventListener);
+    };
   }, [onError, streamData]);
 
   // NOTE: the earlier "end-reset guard" (watching for seek/reload to 0 near the
@@ -2116,6 +2169,14 @@ export default function UniversalPlayer({
     let seekCount = 0;
     let lastSeekAt = 0;
     let settleTimer = 0;
+    let hardResumeTimer = 0;
+
+    const resumeAtCurrent = () => {
+      window.clearTimeout(settleTimer);
+      window.clearTimeout(hardResumeTimer);
+      try { hlsRef.current?.startLoad(video!.currentTime); } catch {}
+      seekCount = 0;
+    };
 
     const onSeeking = () => {
       const hls = hlsRef.current;
@@ -2125,14 +2186,21 @@ export default function UniversalPlayer({
       lastSeekAt = now;
       if (seekCount < 2) return; // isolated seek → let hls.js handle it natively
 
-      // Spam: drop whatever fragment is mid-flight right now…
+      // Spam: drop whatever fragment is mid-flight right now so we stop hammering
+      // the CDN with fetches for spots the user is already flying past — this is
+      // what keeps a fragile direct CDN (Vidmoly) from cutting us off with
+      // ERR_EMPTY_RESPONSE and freezing playback.
       try { hls.stopLoad(); } catch {}
       window.clearTimeout(settleTimer);
       // …and resume loading only once the user settles, at the final spot.
-      settleTimer = window.setTimeout(() => {
-        try { hls.startLoad(video!.currentTime); } catch {}
-        seekCount = 0;
-      }, 180);
+      settleTimer = window.setTimeout(resumeAtCurrent, 180);
+      // Safety: under CONTINUOUS spamming the settle timer keeps getting pushed
+      // and startLoad would never fire, leaving the player stuck in stopLoad.
+      // A hard ceiling guarantees we re-arm the loader at least ~1.2s after the
+      // spam began, whatever happens next.
+      if (!hardResumeTimer) {
+        hardResumeTimer = window.setTimeout(resumeAtCurrent, 1200);
+      }
     };
 
     let pollId = 0;
@@ -2151,6 +2219,7 @@ export default function UniversalPlayer({
 
     return () => {
       window.clearTimeout(settleTimer);
+      window.clearTimeout(hardResumeTimer);
       window.clearInterval(pollId);
       video?.removeEventListener("seeking", onSeeking);
     };
