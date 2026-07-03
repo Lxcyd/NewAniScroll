@@ -732,15 +732,25 @@ function SeasonPicker({
   // pulled out of its original's timeline like Gundam Origin), show the anime's
   // TITLE instead of a misleading "Season 1".
   const isMultiSeason = seasonList.length > 1;
+  // Re-anchored film page (selfIsBonusFilm): the active season is a DIFFERENT
+  // anime than the page itself (the franchise SERIES, not this film). Show that
+  // series' real TITLE — e.g. on Phantom Rouge's page the pill must read
+  // "Hunter x Hunter (2011)", not the film's own title nor a bare "Season 1".
   const headerLabel =
-    isMultiSeason && active?.label
-      ? active.label
-      : pickTitle(info.title, seasonTitlePref);
+    active && active.id !== info.id
+      ? pickTitle(active.title ?? info.title, seasonTitlePref)
+      : isMultiSeason && active?.label
+        ? active.label
+        : pickTitle(info.title, seasonTitlePref);
   const headerSub = active
     ? `${active.year ?? ""}${active.episodes ? ` · ${active.episodes} EP` : ""}`.trim()
     : `${info.status === "RELEASING" ? t("status.airing") : t("list.completed")}${
         info.seasonYear ? ` · ${info.seasonYear}` : ""
       }`;
+
+  // Active = this pill's episode panel is the one currently shown (or its menu
+  // is open). Drives the same accent treatment the Films / OP-ED buttons use.
+  const isActive = highlight || open;
 
   const triggerInner = (
     <>
@@ -757,7 +767,7 @@ function SeasonPicker({
           style={{
             fontSize: 13,
             fontWeight: 600,
-            color: "var(--txt-0)",
+            color: isActive ? "var(--accent)" : "var(--txt-0)",
             whiteSpace: "nowrap",
             overflow: "hidden",
             textOverflow: "ellipsis",
@@ -797,15 +807,14 @@ function SeasonPicker({
     </>
   );
 
+  // Same visual treatment as the Films / OP-ED TabButtons so the three read as
+  // one set: accent tint + accent border when active, neutral bg-3 + line-2
+  // otherwise. (No more 0.7 opacity dimming — that made ONE PIECE look "off"
+  // next to the full-opacity Films / OP-ED buttons.)
   const triggerStyle: CSSProperties = {
     ...tStyles.seasonTab,
-    background: "var(--bg-3)",
-    borderColor: open
-      ? "var(--accent)"
-      : highlight
-        ? "var(--accent)"
-        : "var(--line-2)",
-    opacity: highlight ? 1 : 0.7,
+    background: isActive ? "var(--accent-soft)" : "var(--bg-3)",
+    borderColor: isActive ? "var(--accent)" : "var(--line-2)",
     // Clickable when it opens a menu, redirects, OR can return from a Films /
     // OP-ED panel back to its own episode list (single-season case).
     cursor: hasMany || loneRedirectId || !highlight ? "pointer" : "default",
@@ -913,7 +922,15 @@ function SeasonPicker({
 
             const epsActive =
               activeKind === "episodes" && s.id === activeSeasonId;
-            const filmsActive = activeKind === "films";
+            // Films-active must be PER SEASON, not global: `activeKind==="films"`
+            // alone lit up EVERY season's "Films" row (and the first-listed
+            // season's films looked selected even when the user picked another
+            // season's). In films mode `activeSeasonId` is the first film id of
+            // the chosen season, so a season owns the active films only when one
+            // of ITS film ids is that active id.
+            const filmsActive =
+              activeKind === "films" &&
+              films.some((v) => v.id === activeSeasonId);
 
             const radioRow = (
               key: string,
@@ -1464,21 +1481,21 @@ const tStyles: Record<string, CSSProperties> = {
     background: "var(--bg-2)",
     flexShrink: 0,
   },
+  /* Transparent layout wrapper — each pill carries its own bg + border (see
+     seasonTab), so the wrapper must NOT add a second frame around every button
+     (that "box-in-a-box" look was what made the three pills read as mismatched). */
   seasonTabs: {
     display: "flex",
-    gap: 6,
-    padding: 4,
-    background: "var(--bg-2)",
-    border: "1px solid var(--line)",
-    borderRadius: 10,
   },
   seasonTab: {
     display: "flex",
     alignItems: "center",
-    gap: 12,
+    gap: 10,
     padding: "8px 12px",
+    minHeight: 46,
+    boxSizing: "border-box",
     border: "1px solid",
-    borderRadius: 7,
+    borderRadius: 9,
     transition: "all 0.15s",
   },
   seasonCount: {
