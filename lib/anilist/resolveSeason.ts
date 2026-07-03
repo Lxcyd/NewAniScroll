@@ -842,8 +842,17 @@ export async function resolveFranchiseBonusFilms(
     films.map(async (f) => {
       const m = await load(f.id);
       if (!m) return f;
+      // Re-classify as a COMPILATION when the film's TITLE reveals it's a recap
+      // / re-edit of a season rather than original content. A recompilation
+      // movie (JUJUTSU KAISEN: … Tokubetsu Henshuu-ban … — a re-edit of S2's
+      // Shibuya arc) matches isRecapTitle; a genuine standalone film (JJK 0, HxH
+      // Phantom Rouge) does not. We can't rely on a PARENT-to-TV edge: EVERY
+      // franchise film has one (Phantom Rouge's PARENT is the HxH series too),
+      // so that over-classifies real films. The title marker is the clean signal.
+      const isCompilation = f.kind === "compilation" || isRecapTitle(m);
       return {
         ...f,
+        kind: isCompilation ? ("compilation" as const) : f.kind,
         year: f.year ?? m.seasonYear ?? m.startDate?.year ?? null,
         episodes: f.episodes ?? m.episodes ?? null,
         duration: m.duration ?? null,

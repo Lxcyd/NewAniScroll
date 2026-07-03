@@ -475,8 +475,13 @@ export function edgeYearMonotonic(
   return tgt <= cur + toleranceYears;
 }
 
+// Latin recap markers + Japanese ones:
+//   総集編 (soushuuhen) — "recap/digest"; also its romaji "soushuuhen".
+//   特別編集版 / 編集版 (…henshuu-ban) — a "specially re-edited edition", i.e. a
+//     recompilation movie (JUJUTSU KAISEN: … Tokubetsu Henshuu-ban …). The
+//     romaji "henshuu-ban" is the reliable signal these carry.
 const RECAP_TITLE_RE =
-  /\b(recap|digest|r[ée]sum[ée]|compilation|specials?)\b|総集編/i;
+  /\b(recap|digest|r[ée]sum[ée]|compilation|specials?)\b|総集編|特別編集版|編集版|soushuuhen|henshuu-?ban/i;
 
 /** Title reads like a recap / digest / specials compilation → never a real
  *  numbered season. */

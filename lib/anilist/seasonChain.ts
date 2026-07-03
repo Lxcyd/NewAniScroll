@@ -321,7 +321,9 @@ export async function resolveSeasonList(
 // v7: digest-movie pages (Chronicle) re-anchor to their franchise, so the digest
 //     now resolves as a bonus film on its OWN page (was empty). Changes those ids.
 // v8: PREQUEL movies (Jujutsu Kaisen 0) are now surfaced as bonus films.
-const REDIS_KEY_FILMS = (id: number) => `bonusFilms:v8:${id}`;
+// v9: recompilation movies with a PARENT-to-TV edge (JJK: Execution) are
+//     re-classified kind="compilation" so they land in the Compilations section.
+const REDIS_KEY_FILMS = (id: number) => `bonusFilms:v9:${id}`;
 export async function resolveBonusFilms(startId: number): Promise<FilmVariant[]> {
   const cached = await cacheGetJson<FilmVariant[]>(REDIS_KEY_FILMS(startId));
   if (cached) return cached;
