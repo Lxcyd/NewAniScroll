@@ -978,8 +978,9 @@ async function finalizeAnimeSamaIframe(serverKey, serverDef, iframeUrl) {
     // `degraded: true`. The chip stays visible (red in the selector) so
     // the user can still click to try the host's own player — better than
     // hiding it on a guess, even when the embed slug might be dead.
-    // EXCEPTION: Sibnet sends X-Frame-Options DENY on the embed page, so a
-    // sibnet iframe just produces "refused to connect". Keep hiding those.
+    // EXCEPTION: Sibnet AND Sendvid send X-Frame-Options DENY on the embed
+    // page, so an iframe fallback for them just produces "refused to connect".
+    // Keep hiding those (return null below instead of a degraded iframe).
     const lower = iframeUrl.toLowerCase();
 
     // Vidmoly bypasses server-side extraction entirely: the master.m3u8 token
@@ -1020,7 +1021,9 @@ async function finalizeAnimeSamaIframe(serverKey, serverDef, iframeUrl) {
         return result;
       }
       dlog(`[anime-sama] Extraction failed for ${serverKey}: ${result.error}`);
-      if (lower.includes("sibnet")) return null;
+      // Sibnet + Sendvid X-Frame-Options DENY → an iframe fallback is a dead
+      // "refused to connect" page, so hide the chip instead of degrading it.
+      if (lower.includes("sibnet") || lower.includes("sendvid")) return null;
     }
     return { iframe: iframeUrl, degraded: true, reason: "extraction failed" };
   } catch (e) {
