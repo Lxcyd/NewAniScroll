@@ -69,7 +69,9 @@ const REDIS_KEY_CHAIN = (id: number) => `seasonChain:v5:${id}`;
 // v13: whole-franchise digest MOVIE pages (Attack on Titan ~Chronicle~) re-anchor
 //      to their franchise's oldest season, so the season list now resolves to the
 //      real seasons instead of the lone movie. Changes the list for those ids.
-const REDIS_KEY_LIST = (id: number) => `seasonList:v13:${id}`;
+// v14: PREQUEL movies (Jujutsu Kaisen 0) no longer counted as a numbered season
+//      — they're bonus films now. Bump to evict lists that had them as "Season N".
+const REDIS_KEY_LIST = (id: number) => `seasonList:v14:${id}`;
 
 // Cache accessors now hit Turso (see lib/db/seasonCache.ts) instead of Redis.
 // The cache_key strings keep their version tag, so a version bump still evicts
@@ -318,7 +320,8 @@ export async function resolveSeasonList(
 //     season-dropdown-only rule. Bump to recompute with the season-count split.
 // v7: digest-movie pages (Chronicle) re-anchor to their franchise, so the digest
 //     now resolves as a bonus film on its OWN page (was empty). Changes those ids.
-const REDIS_KEY_FILMS = (id: number) => `bonusFilms:v7:${id}`;
+// v8: PREQUEL movies (Jujutsu Kaisen 0) are now surfaced as bonus films.
+const REDIS_KEY_FILMS = (id: number) => `bonusFilms:v8:${id}`;
 export async function resolveBonusFilms(startId: number): Promise<FilmVariant[]> {
   const cached = await cacheGetJson<FilmVariant[]>(REDIS_KEY_FILMS(startId));
   if (cached) return cached;

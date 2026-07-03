@@ -414,8 +414,19 @@ export function findBonusFilms(nodes: any[]): FilmVariant[] {
   for (const m of nodes) {
     const franchiseTitle = m?.title;
     for (const e of m?.relations?.edges || []) {
+      // A standalone franchise film that is NOT a chained SEQUEL season.
+      //   • SIDE_STORY — an original side film (HxH: Phantom Rouge).
+      //   • PREQUEL    — a prequel film (Jujutsu Kaisen 0): it precedes the
+      //     series chronologically but is a standalone MOVIE, so it must NOT be
+      //     numbered as a "Season 2". It belongs in the Films dropdown instead.
+      // A SEQUEL MOVIE (Chainsaw Man: Reze-hen = new content following a season)
+      // is deliberately NOT captured here — it stays a real season. Restricting
+      // to format === "MOVIE" means a PREQUEL edge to a real TV season is never
+      // pulled in by mistake.
+      const isBonusRelation =
+        e.relationType === "SIDE_STORY" || e.relationType === "PREQUEL";
       if (
-        e.relationType === "SIDE_STORY" &&
+        isBonusRelation &&
         e.node?.type === "ANIME" &&
         e.node?.format === "MOVIE" &&
         sharesFranchise(franchiseTitle, e.node?.title)
