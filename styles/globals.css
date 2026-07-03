@@ -309,6 +309,16 @@ a {
   font-size: var(--media-menu-font-size, 15px);
   line-height: 1.25;
   border-radius: 6px;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+/* Hover/focus background — matches the native Speed/Quality rows' highlight
+   rectangle (Vidstack draws it on its own items via internal styles that don't
+   reach ours). The accent text tint lives in the shared menu-hover rule above;
+   here we add the fill so the whole row lights up, not just the label. */
+.vds-player .as-menu-row:hover,
+.vds-player .as-menu-row:focus-visible {
+  background-color: rgba(255, 255, 255, 0.1);
+  outline: none;
 }
 @media (max-width: 576px) {
   .vds-player .as-menu-row {
