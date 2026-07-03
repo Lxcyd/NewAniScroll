@@ -788,6 +788,16 @@ export default function Watch({
     } catch {}
   }, [info?.id, epiNumber, dub, provider, watchId]);
 
+  // Close a lingering rate popup whenever the anime changes. The rating state
+  // lives in the app-wide WatchPageProvider (so it survives client-side nav), so
+  // an unanswered popup from anime A would otherwise stay open — and re-bind to
+  // anime B's dataMedia — the moment you open another anime. Reset it on id change.
+  useEffect(() => {
+    setRatingModalState((prev) =>
+      prev.isOpen ? { ...prev, isOpen: false } : prev,
+    );
+  }, [info?.id, setRatingModalState]);
+
   // ── Episode list + navigation ────────────────────────────────
   useEffect(() => {
     // Reset server-state for the new episode at the START of the effect, not in
