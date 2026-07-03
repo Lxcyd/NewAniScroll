@@ -5,9 +5,13 @@ compatibility_date = "2025-10-01"
 # Workers Free includes 100k requests/day and unmetered bandwidth — that's
 # what we're here for. Workers Paid ($5/mo) raises the daily cap to 333k.
 #
-# The default Workers.dev subdomain (https://aniscroll-proxy.<account>.workers.dev)
-# is what NEXT_PUBLIC_PROXY_BASE should point at on the Next.js side.
-# If you later attach a custom domain, update that env var.
+# Custom domain — REQUIRED for the edge cache. Cloudflare's Cache API
+# (caches.default) is a NO-OP on *.workers.dev; it only works when the Worker
+# runs on a custom domain attached to a zone. aniscroll.com is already on
+# Cloudflare, so `wrangler deploy` provisions proxy.aniscroll.com and its DNS
+# record automatically. The *.workers.dev URL stays live as a fallback.
+# NEXT_PUBLIC_PROXY_BASE (Vercel) must point at https://proxy.aniscroll.com.
+routes = [{ pattern = "proxy.aniscroll.com", custom_domain = true }]
 
 # Observability is on by default — opt out only if you want to save log volume.
 [observability]

@@ -135,7 +135,7 @@ type Props = {
 const PROXY_BASE =
   (typeof process !== "undefined" &&
     (process as any).env?.NEXT_PUBLIC_PROXY_BASE) ||
-  "https://aniscroll-proxy.luc-deldem.workers.dev";
+  "https://proxy.aniscroll.com";
 
 // hls.js tuning for snappy seeking. The defaults buffer only ~30s ahead and
 // keep almost no back-buffer, so every seek forces a fresh network round-trip —
@@ -3361,6 +3361,11 @@ export default function UniversalPlayer({
         bestStream!.referer || streamData?.referer,
         bestStream!.voeCookie,
       );
+  // Record whether the current source plays straight from the host CDN so
+  // onProviderSetup (which runs after this render and can't see bestStream in
+  // scope) knows to strip the Referer on the underlying <video>. Only direct
+  // streams need it — proxied ones carry their Referer via the Worker query.
+  directPlaybackRef.current = bestStream!.directUrl === true;
   const isM3U8 =
     bestStream!.isM3U8 === true ||
     (bestStream!.isM3U8 !== false && bestStream!.url.includes(".m3u8"));

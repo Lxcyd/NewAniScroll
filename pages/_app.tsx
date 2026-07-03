@@ -38,7 +38,7 @@ import type { AppProps } from "next/app";
 // back to the Vercel routes so nothing breaks in local dev.
 const WORKER_BASE =
   (process.env.NEXT_PUBLIC_PROXY_BASE as string | undefined) ||
-  "https://aniscroll-proxy.luc-deldem.workers.dev";
+  "https://proxy.aniscroll.com";
 
 /**
  * First-login sync bootstrap. Lives INSIDE <SessionProvider> so it can read the

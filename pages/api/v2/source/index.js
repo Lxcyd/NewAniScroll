@@ -58,7 +58,7 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 5000) {
 // UniversalPlayer for the full story.
 const PROXY_BASE =
   process.env.NEXT_PUBLIC_PROXY_BASE ||
-  "https://aniscroll-proxy.luc-deldem.workers.dev";
+  "https://proxy.aniscroll.com";
 
 async function fetchViaWorker(targetUrl, options = {}, timeoutMs = 5000) {
   // No worker configured → fall back to a direct fetch. Useful for local

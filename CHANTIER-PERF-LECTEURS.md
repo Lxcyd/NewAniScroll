@@ -21,17 +21,27 @@
 
 ## Avancement
 
-- [ ] **B1. Worker : header `x-aniscroll-cache: HIT|MISS`** (+ expose CORS) — EN COURS
-- [ ] **B2. Worker : clé de cache avec Range + stratégie MP4** (bytes=0- → fetch sans Range → 200 caché ; seek → cache.match(Range) → 206 edge ; miss → forward Range non caché)
-- [ ] **C1. Sendvid direct** : sonde no-referer côté serveur dans `extractSendvid` (`lib/extractors.js:300`) → `directUrl+noCors`
-- [ ] **C2. Player** : `referrerPolicy="no-referrer"` pour les streams `noCors` (`UniversalPlayer.tsx`)
-- [ ] **C3. Hôtes HLS** (movearnpre/smoothpre/dingtezuni) : check ACAO → `directUrl` si CORS OK
-- [ ] **D1. Preconnect inconditionnel** au PROXY_BASE résolu (`pages/en/anime/watch/[...info].js:1792`)
-- [ ] **A1. Migration domaine** vers Cloudflare (action manuelle Luc, guidée)
-- [ ] **A2. `wrangler.toml`** : `routes = [{ pattern = "proxy.<domaine>", custom_domain = true }]` + deploy
-- [ ] **A3. Bascule app** : env Vercel `NEXT_PUBLIC_PROXY_BASE` + fallbacks hardcodés (UniversalPlayer.tsx:135, source/index.js:59, extractors.js:20, _app.tsx:40)
-- [ ] **V. Vérification** : curl MISS→HIT, seek HLS/MP4, non-régression Sibnet/Vidmoly/VOE/downloads
+### Code — TERMINÉ (branche dev, à déployer)
+- [x] **B1. Worker : header `X-Aniscroll-Cache: HIT|MISS`** (+ expose CORS `worker/src/index.js:110-111`, HIT `:247`, MISS `:317`)
+- [x] **B2. Worker : clé de cache avec Range + stratégie MP4** (`worker/src/index.js:199-250, 310-324`) : `bytes=0-` upgradé en fetch full → 200 caché ; seek `bytes=N-` → `cache.match` avec Range → 206 tranché au edge ; 206 upstream jamais mis en cache (`cache.put` les rejette).
+- [x] **C1. Sendvid direct** : sonde Referer-agnostique (`Referer: example.com`, `Range: bytes=0-0`) dans `extractSendvid` (`lib/extractors.js:348-377`) → `directUrl+noCors` seulement si le CDN répond 200/206 sans notre Referer.
+- [x] **C2. Player** : `directPlaybackRef` (`UniversalPlayer.tsx:1201`) écrit au render (`:3364`), lu dans `onProviderSetup` (`:1242-1248`) → `videoEl.referrerPolicy = "no-referrer"` pour les streams directs. `crossorigin` retiré pour `noCors` (`:3514`).
+- [x] **C3. Hôtes HLS** : probe ACAO (`lib/extractors.js:586-612`) → `directUrl` (SANS noCors — hls.js exige CORS via `crossorigin="anonymous"`) si `Access-Control-Allow-Origin` = `*` ou notre origine (`:665`).
+- [x] **D1. Preconnect inconditionnel** : constante `PROXY_BASE` résolue en tête de fichier + `<link preconnect/dns-prefetch>` non gardés (`pages/en/anime/watch/[...info].js`).
+
+> ⚠️ Ces changements sont **inertes tant que le Worker tourne sur `workers.dev`** (cache = no-op). Le gain réel arrive avec la Phase A (domaine custom). C1/C2/C3/D1 apportent déjà un gain partiel (lecture directe CDN pour Sendvid/HLS-CORS, moins de hops proxy).
+
+### Infra
+- [x] **A1. Domaine sur Cloudflare** : ✅ DÉJÀ FAIT — `aniscroll.com` tourne déjà sur les nameservers Cloudflare (`bethany`/`kenneth.ns.cloudflare.com`). Aucune migration nameserver nécessaire. Enregistrements Vercel intacts (`www` + `dev` → vercel-dns).
+- [x] **A2. `wrangler.toml`** : `routes = [{ pattern = "proxy.aniscroll.com", custom_domain = true }]` ajouté. `wrangler deploy` provisionnera le DNS `proxy.aniscroll.com` automatiquement.
+- [x] **A3. Bascule app (code)** : les 4 fallbacks hardcodés + le watch page + `.env.example` pointent désormais sur `https://proxy.aniscroll.com` (`UniversalPlayer.tsx:138`, `source/index.js:61`, `extractors.js:21`, `_app.tsx:41`, `watch/[...info].js`).
+
+### RESTE À FAIRE (actions manuelles Luc)
+- [ ] **DEPLOY-1. `cd worker && wrangler deploy`** → crée `proxy.aniscroll.com` + DNS auto. Vérifier `wrangler whoami` d'abord.
+- [ ] **DEPLOY-2. Vercel** : ajouter env var `NEXT_PUBLIC_PROXY_BASE=https://proxy.aniscroll.com` (Prod + Preview/dev) puis redeploy. *(Optionnel : le fallback code pointe déjà dessus, mais l'env var explicite est plus sûr.)*
+- [ ] **V. Vérification** : `curl -sI 'https://proxy.aniscroll.com/?url=<segment>'` ×2 → `X-Aniscroll-Cache: MISS` puis `HIT` ; seek HLS/MP4 instant sur cache chaud ; non-régression Sibnet/Vidmoly/VOE/downloads.
 
 ## Notes en cours de route
 
-- (vide)
+- Typecheck : les erreurs `tsc` restantes sont pré-existantes (deps non installées dans ce checkout : `@upstash/redis`, `ably`) — aucune ne touche mes fichiers.
+- Le header debug est capitalisé `X-Aniscroll-Cache` (HTTP header-insensible ; le plan écrivait `x-aniscroll-cache`).

@@ -52,6 +52,13 @@ import { toast } from "sonner";
 import { useWatchParty } from "@/lib/watch2gether/useWatchParty";
 import WatchPartyPanel from "@/components/watch/party/WatchPartyPanel";
 
+// Resolved video-proxy Worker base — mirrors the fallback the player and the
+// source resolver hardcode when NEXT_PUBLIC_PROXY_BASE is unset. Used to warm
+// the connection (preconnect/dns-prefetch) unconditionally in <Head>.
+const PROXY_BASE =
+  process.env.NEXT_PUBLIC_PROXY_BASE ||
+  "https://proxy.aniscroll.com";
+
 // ─────────────────────────────────────────────────────────────
 // SSR
 // ─────────────────────────────────────────────────────────────
@@ -1789,12 +1796,12 @@ export default function Watch({
         <link rel="preconnect" href="https://video.sibnet.ru" crossOrigin="anonymous" />
         <link rel="preconnect" href="https://sendvid.com" crossOrigin="anonymous" />
         <link rel="preconnect" href="https://vidmoly.to" crossOrigin="anonymous" />
-        {process.env.NEXT_PUBLIC_PROXY_BASE && (
-          <>
-            <link rel="preconnect" href={process.env.NEXT_PUBLIC_PROXY_BASE} crossOrigin="anonymous" />
-            <link rel="dns-prefetch" href={process.env.NEXT_PUBLIC_PROXY_BASE} />
-          </>
-        )}
+        {/* Warm the video proxy Worker unconditionally: the env var is only a
+            build-time override, and when it's unset the player still hardcodes
+            the same Worker as its fallback — so preconnect must target the
+            resolved base, not gate on the env var being present. */}
+        <link rel="preconnect" href={PROXY_BASE} crossOrigin="anonymous" />
+        <link rel="dns-prefetch" href={PROXY_BASE} />
         <link rel="dns-prefetch" href="https://megaplay.buzz" />
         <link rel="dns-prefetch" href="https://video.sibnet.ru" />
         <link rel="dns-prefetch" href="https://sendvid.com" />
