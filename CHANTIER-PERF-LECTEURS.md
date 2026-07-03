@@ -36,10 +36,22 @@
 - [x] **A2. `wrangler.toml`** : `routes = [{ pattern = "proxy.aniscroll.com", custom_domain = true }]` ajouté. `wrangler deploy` provisionnera le DNS `proxy.aniscroll.com` automatiquement.
 - [x] **A3. Bascule app (code)** : les 4 fallbacks hardcodés + le watch page + `.env.example` pointent désormais sur `https://proxy.aniscroll.com` (`UniversalPlayer.tsx:138`, `source/index.js:61`, `extractors.js:21`, `_app.tsx:41`, `watch/[...info].js`).
 
-### RESTE À FAIRE (actions manuelles Luc)
-- [ ] **DEPLOY-1. `cd worker && wrangler deploy`** → crée `proxy.aniscroll.com` + DNS auto. Vérifier `wrangler whoami` d'abord.
-- [ ] **DEPLOY-2. Vercel** : ajouter env var `NEXT_PUBLIC_PROXY_BASE=https://proxy.aniscroll.com` (Prod + Preview/dev) puis redeploy. *(Optionnel : le fallback code pointe déjà dessus, mais l'env var explicite est plus sûr.)*
-- [ ] **V. Vérification** : `curl -sI 'https://proxy.aniscroll.com/?url=<segment>'` ×2 → `X-Aniscroll-Cache: MISS` puis `HIT` ; seek HLS/MP4 instant sur cache chaud ; non-régression Sibnet/Vidmoly/VOE/downloads.
+### DÉPLOIEMENT — FAIT
+- [x] **DEPLOY-1. `wrangler deploy`** → `proxy.aniscroll.com` provisionné (custom domain confirmé, Version `d26e9974`).
+- [x] **DEPLOY-2. Vercel** : env var `NEXT_PUBLIC_PROXY_BASE=https://proxy.aniscroll.com` posée (Prod + Preview/dev).
+- [x] **Code pushé sur `dev`** : commit `bfd233f`.
+
+### ✅ VÉRIFICATION — CACHE EDGE PROUVÉ (2026-07-03)
+Test `curl` ×3 sur un vrai segment MegaCloud (`seg-247`, 999 Ko) via `proxy.aniscroll.com` :
+- Passe 1 : `X-Aniscroll-Cache: HIT` — TTFB 194 ms, total 263 ms
+- Passe 2 : HIT — TTFB 76 ms
+- Passe 3 : HIT — TTFB **52 ms**, total 106 ms
+→ Avant : mêmes segments à **3.00 s** (jusqu'à 8.44 s) en Network. **~30-80× plus rapide** sur cache chaud. Cache partagé entre tous les visiteurs (HIT dès le 1er curl, rempli par la lecture navigateur).
+
+### RESTE
+- [ ] **Merge `dev` → `main`** pour propager les changements applicatifs (direct-CDN Sendvid, preconnect, referrerPolicy) en prod. Le Worker + cache edge servent DÉJÀ la prod (Worker commun aux 2 envs).
+- [ ] (Suivi) Vérifier le seek MP4 (Sendvid) et non-régression Sibnet/Vidmoly/VOE en usage réel.
+- [ ] (Suivi) Surveiller dashboard Workers (req/jour) ; > ~70k/jour récurrent → Workers Paid 5$/mois.
 
 ## Notes en cours de route
 
