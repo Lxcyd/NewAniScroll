@@ -431,10 +431,20 @@ async function handle(request, env, ctx) {
       // subrequest budget and never bursts alongside the player's real fetches
       // (the mistake an earlier version made by warming the opening N segments in
       // parallel, which starved I/O). Skipped entirely for master playlists.
+      // In a MEDIA playlist every non-#tag line IS a segment, whatever its
+      // extension — MegaCloud disguises segments as .jpg/.html/.js/.png/.txt to
+      // dodge filters, so matching a fixed extension list MISSED most of them
+      // (only ~1/3 got warmed). "Everything that isn't a child .m3u8" is the
+      // robust rule: resourceUrls here are already just the playlist's resource
+      // lines, and if there were child playlists we'd be in the master branch.
       const segments = playlists.length === 0
-        ? resourceUrls.filter((u) => /\.(ts|m4s|mp4|png|jpg|txt)(\?|$)/i.test(u))
+        ? resourceUrls.filter((u) => !/\.m3u8(\?|$)/i.test(u))
         : [];
-      const WARM_SEGMENT_SAMPLES = 10;
+      // 20 samples across the timeline. For a ~340-segment (24-min) episode
+      // that's a warm point every ~1 min of video, so a far seek lands within a
+      // few seconds of a hot segment. Still cheap: 20 sequential background
+      // fetches per media playlist, one variant deep.
+      const WARM_SEGMENT_SAMPLES = 20;
       const sampledSegments = [];
       if (segments.length > 0) {
         // Even stride across the timeline; always include the first so playback
