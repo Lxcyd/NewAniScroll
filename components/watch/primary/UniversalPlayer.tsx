@@ -1069,6 +1069,72 @@ function SettingsSubmenuHeader({ label, onBack }: { label: string; onBack: () =>
 }
 
 /**
+ * Big centred play button. Shows whenever the video is paused and ready — a clear
+ * "start watching WITH sound" affordance (autoplay off, a manual pause, or a
+ * source that couldn't auto-start). Its click is a real user gesture, so play()
+ * is always allowed and we unmute (unless the user has an intentional saved
+ * mute). Autoplay itself no longer leaves the player paused — it falls back to
+ * muted playback and unmutes on first interaction — so this is the manual path.
+ */
+function CenterPlayButton({
+  playerRef,
+}: {
+  playerRef: React.RefObject<MediaPlayerInstance>;
+}) {
+  const { t } = useTranslation();
+  const paused = useMediaState("paused", playerRef);
+  const canPlay = useMediaState("canPlay", playerRef);
+  // Hidden while playing, and while the media is still loading (Vidstack draws
+  // its buffering spinner then — we don't want to stack on it).
+  if (!paused || !canPlay) return null;
+
+  const start = () => {
+    const player = playerRef.current;
+    const video = (player?.el as HTMLElement | undefined)?.querySelector<HTMLVideoElement>("video");
+    // Respect an intentional saved mute / "default muted" pref; otherwise the
+    // gesture lets us start WITH sound (the whole point of this button).
+    let keepMuted = false;
+    try {
+      keepMuted =
+        localStorage.getItem("aniscroll:muted") === "1" ||
+        getPlayerPrefs().defaultMuted;
+    } catch {}
+    try {
+      if (video && !keepMuted) video.muted = false;
+    } catch {}
+    player?.play?.();
+  };
+
+  return (
+    <div
+      className="pointer-events-none absolute inset-0 grid place-items-center"
+      style={{ zIndex: 15 }}
+    >
+      <button
+        type="button"
+        onClick={start}
+        aria-label={t("player.play", { defaultValue: "Play" })}
+        className="pointer-events-auto grid place-items-center rounded-full transition-transform duration-150 hover:scale-105 active:scale-95"
+        style={{
+          width: 56,
+          height: 56,
+          // App accent (#E94560) fill with a soft accent glow — matches the
+          // "Regarder" / episode play buttons throughout the app.
+          background: "#E94560",
+          border: "none",
+          boxShadow: "0 6px 22px rgba(233,69,96,0.5)",
+          cursor: "pointer",
+        }}
+      >
+        <svg viewBox="0 0 24 24" fill="#fff" style={{ width: 24, height: 24, marginLeft: 3 }}>
+          <polygon points="6 4 20 12 6 20" />
+        </svg>
+      </button>
+    </div>
+  );
+}
+
+/**
  * Unified player:
  *  - Direct streams → Vidstack MediaPlayer with DefaultVideoLayout
  *    (speed / quality / captions / chromecast / PiP, pink #E94560 accent,
@@ -2151,12 +2217,6 @@ export default function UniversalPlayer({
   // by re-mounts, and it naturally excludes the autoplay-mute + restore churn
   // (those happen with no user input). useRef so it survives every re-mount.
   const volArmedRef = useRef(false);
-  // Set to true only when the autoplay effect had to mute the video as a
-  // FALLBACK because Chrome rejected unmuted playback (NotAllowedError). This
-  // is a *technical* mute, not a user choice — so the first real gesture is
-  // allowed to unmute it. An intentional user mute (saved `aniscroll:muted`
-  // or the `defaultMuted` pref) never sets this and is never auto-unmuted.
-  const mutedByAutoplayRef = useRef(false);
 
   // ── Restore saved volume/mute + arm persistence ──
   useEffect(() => {
@@ -2190,29 +2250,7 @@ export default function UniversalPlayer({
         if (savedMuted === true || getPlayerPrefs().defaultMuted) player.muted = true;
       } catch {}
     };
-    // First real user gesture. Two jobs, in this order:
-    //  1) Unmute the autoplay FALLBACK mute (if any) and restore the saved
-    //     volume — so the sound comes on at the very first click/scroll/touch.
-    //     Only fires for the technical mute; an intentional user mute is left
-    //     alone (guarded by mutedByAutoplayRef + the saved-mute check).
-    //  2) Open the volume-persistence latch (one-way, survives re-mounts).
-    // Unmute happens BEFORE arming so the muted state is never persisted as if
-    // the user had chosen it.
     const arm = () => {
-      try {
-        if (
-          mutedByAutoplayRef.current &&
-          player &&
-          player.muted &&
-          savedMuted !== true &&
-          !getPlayerPrefs().defaultMuted
-        ) {
-          player.muted = false;
-          if (savedVol != null) player.volume = savedVol;
-          else if (!(player.volume > 0)) player.volume = 1;
-          mutedByAutoplayRef.current = false;
-        }
-      } catch {}
       volArmedRef.current = true;
     };
 
@@ -2223,14 +2261,8 @@ export default function UniversalPlayer({
       apply();
       el.addEventListener("can-play", apply);
       // Capture phase so we latch before the click's own handlers run.
-      // Widened beyond pointer/keyboard: a scroll or touch is also a valid
-      // engagement gesture Chrome accepts for unmuting, so the sound comes on
-      // at the earliest possible contact with the page. `passive` for the
-      // scroll/touch ones (we never preventDefault here).
       el.addEventListener("pointerdown", arm, true);
       el.addEventListener("keydown", arm, true);
-      el.addEventListener("touchstart", arm, { capture: true, passive: true });
-      el.addEventListener("wheel", arm, { capture: true, passive: true });
       return true;
     };
     if (!bind()) {
@@ -2245,8 +2277,6 @@ export default function UniversalPlayer({
       el?.removeEventListener("can-play", apply);
       el?.removeEventListener("pointerdown", arm, true);
       el?.removeEventListener("keydown", arm, true);
-      el?.removeEventListener("touchstart", arm, true);
-      el?.removeEventListener("wheel", arm, true);
     };
   }, [streamData]);
 
@@ -2880,101 +2910,114 @@ export default function UniversalPlayer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ── Autoplay ── (sound-first, muted only as a fallback)
-  // The official Chrome pattern: try UNMUTED autoplay first, and only fall back
-  // to muted if the browser rejects it (NotAllowedError). This matters because
-  //  • on an origin Chrome has already promoted via the Media Engagement Index
-  //    (a few episodes watched >7s with sound), unmuted autoplay is allowed and
-  //    the sound starts directly at refresh — no mute, no gesture needed;
-  //  • forcing `muted` up front (the old behaviour) *sabotaged* that: a muted
-  //    play never counts toward the MEI and never lets the promoted policy fire.
-  // When we do fall back to muted, `mutedByAutoplayRef` marks it as a technical
-  // mute so the first user gesture unmutes it (see the volume effect above), and
-  // that first unmuted playthrough feeds the MEI so future visits go direct.
-  // We never override an intentional user mute (saved `aniscroll:muted` or the
-  // `defaultMuted` pref) — that stays muted by choice.
+  // ── Autoplay ──
+  // Goal: the video must ALWAYS start on its own, and with sound whenever the
+  // browser permits. Browsers only allow UNMUTED autoplay when the origin's
+  // Media Engagement Index is high (built up after a few sessions of watching
+  // with sound) or right after a user gesture — no client code can force it.
+  // So:
+  //   1. Try UNMUTED play() first. High-MEI users get instant sound.
+  //   2. If blocked (NotAllowedError), fall back to MUTED play() — that's always
+  //      allowed, so the episode still auto-starts (never a dead paused player).
+  //   3. Having started muted, UNMUTE on the very first user interaction anywhere
+  //      (pointer / key / touch) — the gesture grants activation, so unmuting is
+  //      permitted and won't trip Chrome's "unmute → pause" mitigation.
+  // An intentional saved mute / "default muted" pref keeps it muted throughout.
+  //
+  // The player element is resolved LIVE on every call, never captured once: when
+  // the user switches server/source/episode, streamData changes and Vidstack
+  // re-mounts its element. An element captured at effect-setup time would be the
+  // old detached node (or null if the ref hadn't re-attached yet), so autoplay
+  // silently died on the 2nd+ video. The attach-retry poll below covers the case
+  // where this effect runs before Vidstack has re-attached its element.
   useEffect(() => {
     if (!autoplay) return;
 
-    // Did the user intentionally choose to be muted? If so, honour it.
-    let userWantsMuted = false;
-    try {
-      userWantsMuted =
-        localStorage.getItem("aniscroll:muted") === "1" ||
-        !!getPlayerPrefs().defaultMuted;
-    } catch {}
-
     let cancelled = false;
-    let abortRetries = 0; // bounded retries for transient AbortError (hls reset)
+    let started = false; // playback has begun (muted or unmuted) — stop retrying
+    let unmutePending = false; // started muted, still owe the user sound
 
-    // Resolve the player element LIVE on every call, never captured once. When
-    // the user switches server/source/episode, streamData changes and Vidstack
-    // re-mounts its element: an element captured at effect-setup time would be
-    // the old detached node (or null if the ref hadn't re-attached yet), and
-    // autoplay silently died on the 2nd+ video. Reading playerRef.current.el
-    // each time — plus the attach-retry below — is what keeps it working across
-    // remounts. Mirrors the same pattern used elsewhere in this component.
     const getPlayerEl = () =>
       (playerRef.current?.el as HTMLElement | undefined) || undefined;
 
+    const keepMuted = () => {
+      try {
+        return (
+          localStorage.getItem("aniscroll:muted") === "1" ||
+          getPlayerPrefs().defaultMuted
+        );
+      } catch {
+        return false;
+      }
+    };
+
     const tryPlay = async () => {
-      if (cancelled) return;
+      if (cancelled || started) return;
       const playerEl = getPlayerEl();
       if (!playerEl) return;
       const video = playerEl.querySelector<HTMLVideoElement>("video");
-      if (!video || !video.paused) return;
+      if (!video) return;
+      if (!video.paused) {
+        started = true;
+        return;
+      }
       // Only force autoplay at the very START. `can-play` / `loaded-data` fire
       // again every time hls.js re-buffers — including after a near-end stall or
       // an internal reset. Calling play() then would resume from wherever the
       // element sits, and play() on an *ended* element restarts it from 0, which
       // was a path into the "video jumps back to the start near the end" bug.
-      // Past the first second the user is already watching; a re-buffer must not
-      // trigger a fresh play() (and we never want to fight a user/end pause).
       if (video.ended || video.currentTime > 1) return;
 
+      const wantMuted = keepMuted();
       video.setAttribute("playsinline", "");
 
-      // If the user chose muted, start muted (their choice, not a fallback).
-      if (userWantsMuted) {
-        video.setAttribute("muted", "");
-        video.defaultMuted = true;
-        video.muted = true;
-        try {
-          await video.play();
-        } catch {}
-        return;
-      }
-
-      // Otherwise: try WITH SOUND first.
+      // 1) Try UNMUTED (muted only if the user asked for it).
+      video.muted = wantMuted;
       try {
-        video.muted = false;
         await video.play();
-        // Sound-on autoplay succeeded (MEI-promoted origin). Nothing muted.
-        mutedByAutoplayRef.current = false;
+        started = true;
+        return; // playing — with sound unless the user chose mute
       } catch (err: any) {
         if (cancelled) return;
-        const name = err?.name;
-        if (name === "NotAllowedError") {
-          // Chrome refused sound without a gesture (cold origin). Fall back to
-          // muted — always accepted — and let the first gesture unmute it.
-          try {
-            video.setAttribute("muted", "");
-            video.defaultMuted = true;
-            video.muted = true;
-            await video.play();
-            mutedByAutoplayRef.current = true;
-          } catch {}
-        } else if (name === "AbortError" && abortRetries < 5) {
-          // "play() interrupted by a new load request" — hls.js swapped the
-          // source mid-play(). Retry shortly; bounded so we never spin.
-          abortRetries += 1;
-          requestAnimationFrame(() => {
-            if (!cancelled) void tryPlay();
-          });
-        }
-        // Any other error: leave it; the ready-event listeners will retry.
+        if (err?.name !== "NotAllowedError") return; // transient — retry later
+      }
+
+      // 2) Unmuted blocked → GUARANTEE playback by starting muted.
+      try {
+        video.muted = true;
+        await video.play();
+        started = true;
+        // 3) Owe the user sound (unless they wanted muted) — unmute on the first
+        //    real interaction below.
+        unmutePending = !wantMuted;
+      } catch {
+        // Even muted play failed (rare) — retry on the next can-play.
       }
     };
+
+    // Unmute on the first genuine user gesture anywhere on the page. Passive +
+    // capture so we never interfere with the click's own handling (Vidstack's
+    // play toggle still runs); we only flip mute. Reads the player element live
+    // so a source switch mid-wait can't leave us pointing at a detached node.
+    const unmuteOnGesture = () => {
+      if (cancelled || !unmutePending) return;
+      unmutePending = false;
+      const video = getPlayerEl()?.querySelector<HTMLVideoElement>("video");
+      try {
+        if (video) video.muted = false;
+      } catch {}
+      teardownGestures();
+    };
+    const GESTURES = ["pointerdown", "keydown", "touchstart"] as const;
+    const setupGestures = () => {
+      for (const e of GESTURES)
+        window.addEventListener(e, unmuteOnGesture, { capture: true, passive: true });
+    };
+    const teardownGestures = () => {
+      for (const e of GESTURES)
+        window.removeEventListener(e, unmuteOnGesture, { capture: true } as any);
+    };
+    setupGestures();
 
     const onReady = () => tryPlay();
 
@@ -3004,6 +3047,7 @@ export default function UniversalPlayer({
     return () => {
       cancelled = true;
       window.clearInterval(pollId);
+      teardownGestures();
       if (boundEl) {
         boundEl.removeEventListener("can-play", onReady);
         boundEl.removeEventListener("loaded-data", onReady);
@@ -3516,6 +3560,11 @@ export default function UniversalPlayer({
       {!bestStream!.noCors && (
         <HoverPreview playerRef={playerRef} src={src} isM3U8={isM3U8} />
       )}
+
+      {/* Big centred play button — shows while paused, plays WITH sound on
+          click. Covers the case where the browser blocks unmuted autoplay: the
+          video stays paused (not muted-playing) and one click starts it clean. */}
+      <CenterPlayButton playerRef={playerRef} />
 
       {/* AniSkip segment overlay + Skip button. Renders null when no
           skip data exists for the current episode AND there's no next

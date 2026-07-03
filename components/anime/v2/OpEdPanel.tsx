@@ -102,18 +102,43 @@ export function useOpEdThemes(
  * rendered as episode-style rows, grouped by season, and clicking one plays the
  * clean (NC) AnimeThemes clip in an overlay player.
  */
+type ViewMode = "detailed" | "compact" | "grid";
+
 export default function OpEdPanel({
   data,
   loading,
+  filter = "",
+  view = "detailed",
 }: {
   data: SeasonThemes[];
   loading: boolean;
+  /** Free-text query from the shared header search — matches song, artist, or
+   *  the OP1/ED2 slug across every season group. */
+  filter?: string;
+  /** Shared header view mode: detailed rows / compact list / cover grid. */
+  view?: ViewMode;
 }) {
   const { t } = useTranslation();
   const [playing, setPlaying] = useState<{
     theme: Theme;
     seasonLabel: string;
   } | null>(null);
+
+  const q = filter.trim().toLowerCase();
+  const filtered = useMemo(() => {
+    if (!q) return data;
+    return data
+      .map((g) => ({
+        ...g,
+        themes: g.themes.filter(
+          (th) =>
+            (th.song ?? "").toLowerCase().includes(q) ||
+            th.artists.some((a) => a.toLowerCase().includes(q)) ||
+            th.slug.toLowerCase().includes(q),
+        ),
+      }))
+      .filter((g) => g.themes.length > 0);
+  }, [data, q]);
 
   if (loading) {
     return (
@@ -126,28 +151,54 @@ export default function OpEdPanel({
 
   return (
     <div>
-      {data.map((g) => (
+      {filtered.map((g) => (
         <div key={String(g.season.id)} style={styles.section}>
           <div style={styles.sectionHead}>
             <span style={styles.sectionTitle}>{g.season.label}</span>
             <span style={styles.sectionCount}>{g.themes.length}</span>
           </div>
-          <div style={styles.list}>
-            {g.themes.map((th) => (
-              <ThemeRow
-                key={`${g.season.id}-${th.slug}`}
-                theme={th}
-                cover={
-                  g.season.coverImage?.large ||
-                  g.season.coverImage?.extraLarge ||
-                  null
-                }
-                onPlay={() => setPlaying({ theme: th, seasonLabel: g.season.label })}
-              />
-            ))}
-          </div>
+          {view === "grid" ? (
+            <div style={styles.grid}>
+              {g.themes.map((th) => (
+                <ThemeTile
+                  key={`${g.season.id}-${th.slug}`}
+                  theme={th}
+                  cover={
+                    g.season.coverImage?.large ||
+                    g.season.coverImage?.extraLarge ||
+                    null
+                  }
+                  onPlay={() => setPlaying({ theme: th, seasonLabel: g.season.label })}
+                />
+              ))}
+            </div>
+          ) : (
+            <div style={styles.list}>
+              {g.themes.map((th) => (
+                <ThemeRow
+                  key={`${g.season.id}-${th.slug}`}
+                  theme={th}
+                  cover={
+                    g.season.coverImage?.large ||
+                    g.season.coverImage?.extraLarge ||
+                    null
+                  }
+                  compact={view === "compact"}
+                  onPlay={() => setPlaying({ theme: th, seasonLabel: g.season.label })}
+                />
+              ))}
+            </div>
+          )}
         </div>
       ))}
+
+      {filtered.length === 0 && (
+        <div style={styles.empty}>
+          {t("anime.noThemeMatch", {
+            defaultValue: "No opening or ending matches your search.",
+          })}
+        </div>
+      )}
 
       {playing && (
         <ThemePlayerModal
@@ -160,56 +211,88 @@ export default function OpEdPanel({
   );
 }
 
+/* Row thumbnail. We tried grabbing a real frame from each OP/ED clip (a muted,
+   lazily-attached <video> seeked past the black lead-in), but seeking dozens of
+   webm clips over range requests was unreliable — frames often never resolved
+   and the extra concurrent loads made the actual clip playback flaky. So the
+   thumbnail is the season cover (static, instant, always loads); the OP/ED label
+   lives as a text chip beside the song, not on the image. */
+function ThemeThumb({ cover }: { cover: string | null }) {
+  return (
+    <div style={styles.thumb}>
+      {cover ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={cover}
+          alt=""
+          style={{ ...styles.thumbFill, objectFit: "cover" }}
+          loading="lazy"
+          decoding="async"
+        />
+      ) : null}
+    </div>
+  );
+}
+
+/** Kind chip colours, shared by every view mode. */
+function chipStyle(isOp: boolean): CSSProperties {
+  return {
+    ...styles.kindChip,
+    background: isOp ? "var(--accent-soft)" : "rgba(120,140,255,0.12)",
+    color: isOp ? "var(--accent)" : "#8a9bff",
+  };
+}
+
 function ThemeRow({
   theme,
   cover,
   onPlay,
+  compact = false,
 }: {
   theme: Theme;
-  /** Season cover — AnimeThemes doesn't expose a per-theme still, so we use the
-   *  season's poster as the row's artwork (kept small, with the OP/ED badge). */
+  /** Season cover — the row's static artwork. */
   cover: string | null;
   onPlay: () => void;
+  compact?: boolean;
 }) {
   const { t } = useTranslation();
   const isOp = theme.kind === "op";
   const kindLabel = theme.slug || (isOp ? "OP" : "ED");
   const artists = theme.artists.join(", ");
   const eps = theme.video?.episodes;
+  const metaText = [
+    artists || null,
+    eps ? t("anime.themeEpisodes", { eps, defaultValue: `Ep ${eps}` }) : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
 
+  // COMPACT — dense single-line row: chip · song · meta · play chevron.
+  if (compact) {
+    return (
+      <button type="button" onClick={onPlay} style={styles.compactRow}>
+        <span style={chipStyle(isOp)}>{kindLabel}</span>
+        <span style={styles.compactTitle} title={theme.song || kindLabel}>
+          {theme.song || kindLabel}
+        </span>
+        {metaText && <span style={styles.compactMeta}>{metaText}</span>}
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style={{ color: "var(--txt-3)", flexShrink: 0 }}>
+          <polygon points="8 5 19 12 8 19" />
+        </svg>
+      </button>
+    );
+  }
+
+  // DETAILED — cover + chip/song + play.
   return (
     <button type="button" onClick={onPlay} style={styles.row}>
-      <div style={styles.thumb}>
-        {cover ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={cover}
-            alt=""
-            style={{ width: "100%", height: "100%", objectFit: "cover" }}
-            loading="lazy"
-            decoding="async"
-          />
-        ) : null}
-        <span
-          style={{
-            ...styles.kindBadge,
-            background: isOp ? "var(--accent-soft)" : "rgba(120,140,255,0.12)",
-            color: isOp ? "var(--accent)" : "#8a9bff",
-          }}
-        >
-          {kindLabel}
-        </span>
-      </div>
+      <ThemeThumb cover={cover} />
       <div style={styles.info}>
-        <div style={styles.title}>{theme.song || kindLabel}</div>
-        <div style={styles.meta}>
-          {[
-            artists || null,
-            eps ? t("anime.themeEpisodes", { eps, defaultValue: `Ep ${eps}` }) : null,
-          ]
-            .filter(Boolean)
-            .join(" · ")}
+        <div style={styles.titleRow}>
+          <span style={chipStyle(isOp)}>{kindLabel}</span>
+          <span style={styles.title}>{theme.song || kindLabel}</span>
         </div>
+        <div style={styles.meta}>{metaText}</div>
       </div>
       <span style={styles.playIcon}>
         <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
@@ -217,6 +300,51 @@ function ThemeRow({
         </svg>
         {t("anime.playTheme", { defaultValue: "Play" })}
       </span>
+    </button>
+  );
+}
+
+/* GRID — cover tile with a play overlay + chip/song beneath. */
+function ThemeTile({
+  theme,
+  cover,
+  onPlay,
+}: {
+  theme: Theme;
+  cover: string | null;
+  onPlay: () => void;
+}) {
+  const isOp = theme.kind === "op";
+  const kindLabel = theme.slug || (isOp ? "OP" : "ED");
+  const artists = theme.artists.join(", ");
+  return (
+    <button type="button" onClick={onPlay} style={styles.tile}>
+      <div style={styles.tilePoster}>
+        {cover ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={cover}
+            alt=""
+            style={{ ...styles.thumbFill, objectFit: "cover" }}
+            loading="lazy"
+            decoding="async"
+          />
+        ) : null}
+        <span style={{ ...chipStyle(isOp), ...styles.tileChip }}>{kindLabel}</span>
+        <span style={styles.tilePlay}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="#fff">
+            <polygon points="6 4 20 12 6 20" />
+          </svg>
+        </span>
+      </div>
+      <div style={styles.tileTitle} title={theme.song || kindLabel}>
+        {theme.song || kindLabel}
+      </div>
+      {artists && (
+        <div style={styles.tileMeta} title={artists}>
+          {artists}
+        </div>
+      )}
     </button>
   );
 }
@@ -322,30 +450,127 @@ const styles: Record<string, CSSProperties> = {
   },
   thumb: {
     position: "relative",
-    width: 78,
+    width: 100,
     height: 56,
     borderRadius: 7,
     overflow: "hidden",
     flexShrink: 0,
     background: "var(--bg-3)",
-    display: "flex",
-    alignItems: "flex-end",
-    justifyContent: "flex-start",
   },
-  kindBadge: {
+  thumbFill: {
     position: "absolute",
-    left: 5,
-    bottom: 5,
-    fontSize: 10.5,
-    fontWeight: 700,
-    letterSpacing: "0.03em",
-    padding: "3px 7px",
-    borderRadius: 5,
-    textAlign: "center",
+    inset: 0,
+    width: "100%",
+    height: "100%",
+  },
+
+  /* Compact single-line row */
+  compactRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    padding: "9px 12px",
+    border: "1px solid var(--line)",
+    borderRadius: 8,
+    background: "var(--bg-2)",
+    textAlign: "left",
+    fontFamily: "inherit",
+    cursor: "pointer",
+    width: "100%",
+    minHeight: 40,
+    transition: "background 0.12s",
+  },
+  compactTitle: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: 500,
+    color: "var(--txt-0)",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    minWidth: 0,
+  },
+  compactMeta: {
+    fontSize: 11,
+    color: "var(--txt-3)",
+    flexShrink: 0,
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    maxWidth: 220,
+  },
+
+  /* Cover grid */
+  grid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))",
+    gap: 12,
+  },
+  tile: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 5,
+    background: "transparent",
+    border: "none",
+    padding: 0,
+    textAlign: "left",
+    fontFamily: "inherit",
+    cursor: "pointer",
+  },
+  tilePoster: {
+    position: "relative",
+    width: "100%",
+    aspectRatio: "16 / 9",
+    borderRadius: 8,
+    overflow: "hidden",
+    background: "var(--bg-3)",
+    border: "1px solid var(--line)",
+  },
+  tileChip: {
+    position: "absolute",
+    top: 6,
+    left: 6,
     backdropFilter: "blur(4px)",
     WebkitBackdropFilter: "blur(4px)",
   },
+  tilePlay: {
+    position: "absolute",
+    right: 6,
+    bottom: 6,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    display: "grid",
+    placeItems: "center",
+    paddingLeft: 2,
+    background: "color-mix(in srgb, var(--accent) 85%, transparent)",
+  },
+  tileTitle: {
+    fontSize: 12.5,
+    fontWeight: 600,
+    color: "var(--txt-0)",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+  tileMeta: {
+    fontSize: 10.5,
+    color: "var(--txt-3)",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+
   info: { flex: 1, display: "flex", flexDirection: "column", gap: 4, minWidth: 0 },
+  titleRow: { display: "flex", alignItems: "center", gap: 8, minWidth: 0 },
+  kindChip: {
+    fontSize: 10,
+    fontWeight: 700,
+    letterSpacing: "0.03em",
+    padding: "2px 6px",
+    borderRadius: 4,
+    flexShrink: 0,
+  },
   title: {
     fontSize: 14,
     fontWeight: 600,

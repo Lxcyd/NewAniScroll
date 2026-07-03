@@ -12,7 +12,8 @@
       "Bash(git push *)",
       "Bash(cat > *)",
       "Skill(update-config)",
-      "Skill(update-config:*)"
+      "Skill(update-config:*)",
+      "Bash(python run_snk.py)"
     ],
     "additionalDirectories": [
       "C:\\Users\\Luc\\Github\\NewAniScroll\\.git"

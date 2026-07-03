@@ -75,6 +75,23 @@ export default function Episodes({ info, progress, seasonList, bonusFilms }: Pro
   const [view, setView] = useState<ViewMode>("detailed");
   const [filter, setFilter] = useState("");
 
+  /* The page's own anime IS one of the franchise's bonus films — e.g. viewing
+     Attack on Titan ~Chronicle~ (a whole-franchise digest) on its own page. It
+     re-anchors to the franchise (season dropdown lists the real seasons), and we
+     open the Films panel by default so the digest the user came for is front and
+     centre instead of its lone 1-episode list. */
+  const selfIsBonusFilm = !!bonusFilms?.some((f) => f.id === info.id);
+
+  /* Which episode id the season control starts on. Normally the page's own
+     anime, BUT for a digest-movie page (selfIsBonusFilm) the movie isn't in the
+     season list — so we anchor to the FIRST real season instead. That makes the
+     season pill read "Season 1" (not the movie title) and its episodes/watch
+     links point at a real season rather than the recap's lone entry. */
+  const defaultEpisodeId =
+    selfIsBonusFilm && seasonList && seasonList.length > 0
+      ? seasonList[0].id
+      : info.id;
+
   /* Active source — defaults to the current anime's episodes. Switching just
      swaps which AniList id(s) we fetch episodes for; the list re-renders below.
      Each entry's `id` IS an AniList anime id, so /api/v2/episode/<id> works
@@ -87,7 +104,7 @@ export default function Episodes({ info, progress, seasonList, bonusFilms }: Pro
      the primary id (the first film in films mode) for the child views. */
   const [source, setSource] = useState<ActiveSource>({
     kind: "episodes",
-    id: info.id,
+    id: defaultEpisodeId,
   });
   const activeSeasonId =
     source.kind === "episodes" ? source.id : source.ids[0];
@@ -95,12 +112,20 @@ export default function Episodes({ info, progress, seasonList, bonusFilms }: Pro
   /* Which panel the main list area shows. The season selector drives the
      "episodes" panel; the Films / OP-ED tab buttons swap the whole list out for
      their own content (mutually exclusive with episodes). */
-  const [panel, setPanel] = useState<"episodes" | "films" | "oped">("episodes");
+  const [panel, setPanel] = useState<"episodes" | "films" | "oped">(
+    selfIsBonusFilm ? "films" : "episodes",
+  );
 
   useEffect(() => {
-    setSource({ kind: "episodes", id: info.id });
-    setPanel("episodes");
-  }, [info.id]);
+    setSource({ kind: "episodes", id: defaultEpisodeId });
+    setPanel(selfIsBonusFilm ? "films" : "episodes");
+  }, [info.id, selfIsBonusFilm, defaultEpisodeId]);
+
+  // Clear the search when swapping panels — an episode query shouldn't linger
+  // and silently filter the Films / OP-ED list (each panel searches its own).
+  useEffect(() => {
+    setFilter("");
+  }, [panel]);
 
   // OP/ED themes for the whole franchise, fetched once here so the tab button
   // can show its count and the panel can render without refetching.
@@ -250,6 +275,7 @@ export default function Episodes({ info, progress, seasonList, bonusFilms }: Pro
               setSource(s);
               setPanel("episodes");
             }}
+            onActivate={() => setPanel("episodes")}
             highlight={panel === "episodes"}
           />
           {hasBonusFilms && (
@@ -275,7 +301,7 @@ export default function Episodes({ info, progress, seasonList, bonusFilms }: Pro
               onClick={() =>
                 setPanel((p) => (p === "oped" ? "episodes" : "oped"))
               }
-              label={t("anime.opEd", { defaultValue: "OP / ED" })}
+              label={t("anime.opEd", { defaultValue: "Opening / Ending" })}
               sub={[
                 opCount > 0
                   ? t("anime.opCount", { count: opCount, defaultValue: `${opCount} OP` })
@@ -291,9 +317,9 @@ export default function Episodes({ info, progress, seasonList, bonusFilms }: Pro
           )}
         </div>
 
-        {/* Right side: search + sub/dub + view modes — only meaningful for the
-            episode list, so hidden while a Films / OP-ED panel is showing. */}
-        {panel === "episodes" && (
+        {/* Right side: search + sub/dub + view modes. The SEARCH works for every
+            panel (episodes, films, OP-ED) — each filters its own list; the
+            sub/dub toggle and view modes only make sense for the episode list. */}
         <div style={tStyles.epActions}>
           {/* Search */}
           <div style={tStyles.searchWrap}>
@@ -313,11 +339,21 @@ export default function Episodes({ info, progress, seasonList, bonusFilms }: Pro
               type="text"
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
-              placeholder={t("anime.filterEpisodes")}
+              placeholder={
+                panel === "films"
+                  ? t("anime.filterFilms", { defaultValue: "Filter films…" })
+                  : panel === "oped"
+                    ? t("anime.filterThemes", {
+                        defaultValue: "Filter openings & endings…",
+                      })
+                    : t("anime.filterEpisodes")
+              }
               style={tStyles.searchInput}
             />
           </div>
 
+          {/* Sub/Dub only matters for the episode player. */}
+          {panel === "episodes" && (
           <button
             style={{
               ...tStyles.smallBtn,
@@ -329,8 +365,10 @@ export default function Episodes({ info, progress, seasonList, bonusFilms }: Pro
           >
             {isDub ? "Dub" : "Sub"}
           </button>
+          )}
 
-          {/* View-mode segmented control */}
+          {/* View-mode segmented control — applies to every panel (episodes,
+              films, OP-ED): detailed cards / compact list / cover grid. */}
           <div style={tStyles.viewSwitch}>
             <ViewBtn
               active={view === "detailed"}
@@ -359,7 +397,11 @@ export default function Episodes({ info, progress, seasonList, bonusFilms }: Pro
             <ViewBtn
               active={view === "grid"}
               onClick={() => setView("grid")}
-              title={t("anime.gridOfNumbers")}
+              title={
+                panel === "episodes"
+                  ? t("anime.gridOfNumbers")
+                  : t("anime.gridView", { defaultValue: "Grid view" })
+              }
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
                 <rect x="3" y="3" width="7" height="7" rx="1.5" />
@@ -370,14 +412,17 @@ export default function Episodes({ info, progress, seasonList, bonusFilms }: Pro
             </ViewBtn>
           </div>
         </div>
-        )}
       </div>
 
       {/* Films panel — replaces the episode list. Movies + Compilations sections. */}
-      {panel === "films" && hasBonusFilms && <FilmsPanel films={bonusFilms!} />}
+      {panel === "films" && hasBonusFilms && (
+        <FilmsPanel films={bonusFilms!} filter={filter} view={view} />
+      )}
 
       {/* OP/ED panel — replaces the episode list. Grouped by season, plays clips. */}
-      {panel === "oped" && <OpEdPanel data={opedData} loading={opedLoading} />}
+      {panel === "oped" && (
+        <OpEdPanel data={opedData} loading={opedLoading} filter={filter} view={view} />
+      )}
 
       {/* Episode list */}
       {panel === "episodes" && (
@@ -548,6 +593,7 @@ function SeasonPicker({
   activeSeasonId,
   activeKind,
   onPickSource,
+  onActivate,
   highlight = true,
 }: {
   info: AniListInfoTypes;
@@ -556,6 +602,11 @@ function SeasonPicker({
   activeSeasonId: number;
   activeKind: ActiveSource["kind"];
   onPickSource: (s: ActiveSource) => void;
+  /** Re-select the episodes panel without changing the active season. Fired when
+   *  the season pill is clicked while a Films / OP-ED tab owns the list, so a
+   *  single-season anime (One Piece: no dropdown to pick from) can still return
+   *  to its episodes. */
+  onActivate: () => void;
   /** True when the season/episodes panel is the one currently displayed. When a
    *  Films / OP-ED tab is active instead we dim the season control so the active
    *  tab reads as selected. */
@@ -648,7 +699,10 @@ function SeasonPicker({
       </div>
       <span className="mono" style={tStyles.seasonCount}>
         {eps ? `${eps.length} EP` : "— EP"}
-        {info.duration ? ` · ${info.duration}min` : ""}
+        {/* Only the page's OWN anime's per-episode duration is meaningful here;
+            for another season (or a digest page anchored to Season 1) we don't
+            know its runtime, so we drop the misleading suffix. */}
+        {info.duration && activeSeasonId === info.id ? ` · ${info.duration}min` : ""}
       </span>
       {(hasMany || loneRedirectId) && (
         <svg
@@ -683,7 +737,9 @@ function SeasonPicker({
         ? "var(--accent)"
         : "var(--line-2)",
     opacity: highlight ? 1 : 0.7,
-    cursor: hasMany || loneRedirectId ? "pointer" : "default",
+    // Clickable when it opens a menu, redirects, OR can return from a Films /
+    // OP-ED panel back to its own episode list (single-season case).
+    cursor: hasMany || loneRedirectId || !highlight ? "pointer" : "default",
     textDecoration: "none",
   };
 
@@ -698,6 +754,12 @@ function SeasonPicker({
           type="button"
           onClick={(e) => {
             e.stopPropagation();
+            // A Films / OP-ED tab owns the list right now → clicking the season
+            // pill returns to the episode list (its own content). Multi-season
+            // anime ALSO open the dropdown so a season can be picked; a
+            // single-season anime (One Piece) has no dropdown but must still be
+            // able to come back here, which this handles.
+            if (!highlight) onActivate();
             if (hasMany) setOpen((o) => !o);
           }}
           style={triggerStyle}

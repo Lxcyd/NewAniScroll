@@ -7,6 +7,97 @@ Ordre anti-chronologique (le plus récent en haut). Une entrée = une session/su
 
 ---
 
+## 2026-07-02 (suite 3) — Player : gros bouton play central + autoplay
+
+- **Bouton play central** (`CenterPlayButton` dans `UniversalPlayer.tsx`) : visible quand
+  `paused && canPlay`, sibling du `<MediaPlayer>` (comme `SkipOverlay`), z-index 15, container
+  pointer-events-none / bouton pointer-events-auto. Clic = **démarre AVEC son** (unmute sauf mute
+  intentionnel). Style : 56px, fond accent `#E94560` + glow (comme les boutons play de l'app) —
+  1re version (80px, cercle noir translucide) jugée hors-style + trop grosse par le user.
+- **Autoplay — itérations** :
+  - v1 : `muted=true` puis `play()` → toujours OK mais « play et mute » (rejeté).
+  - v2 : unmuted-first, **pas de fallback muted** → sur navigateur qui bloque, la vidéo **ne
+    démarrait pas du tout** (rejeté : « ne lit pas la vidéo automatiquement »).
+  - **v3 (retenu)** : unmuted-first → si `NotAllowedError`, **fallback MUTED** (toujours autorisé,
+    la vidéo démarre) → **unmute au 1er geste** utilisateur (pointerdown/keydown/touchstart, capture
+    +passive, ne perturbe pas le toggle Vidstack). Mute intentionnel respecté. Latch `started` pour
+    ne pas relancer à chaque re-buffer.
+- **Pourquoi pas l'attribut HTML `autoplay` ?** (question user) : même politique navigateur (bloqué
+  ou muet sans geste/MEI, exactement comme `play()`), et il fire avant que hls.js n'ait attaché la
+  source → déclenche la mitigation « Unmuting failed » de Chrome qui laisse le player en pause (déjà
+  documenté ligne ~3199 : on ne passe PAS `autoplay` à Vidstack). L'approche JS fait strictement
+  mieux (muted-fallback + unmute-au-geste, impossible avec l'attribut seul).
+
+---
+
+## 2026-07-02 (suite 2) — Polish Films/OP-ED : miniatures clip, Chronicle, retour saison, perf
+
+Retours SS user (6 points). Tous vérifiés sur données AniList live avant/après.
+
+### 1 — Bouton "OP / ED" → **"Opening / Ending"** (+ trads)
+- `locales/{en,fr}.json` clé `anime.opEd` → "Opening / Ending", `defaultValue` maj dans `Episodes.tsx`.
+
+### 2 — `FilmsPanel` : **Compilations AVANT Films**
+- Ordre des sections inversé (le user veut les recaps d'abord). Un seul reorder JSX.
+
+### 3 — One Piece : **retour saison cassé** depuis Films/OP-ED
+- Bug : `SeasonPicker` n'ouvrait le dropdown QUE si `hasMany` et ne remettait jamais `panel="episodes"`.
+  Mono-saison (One Piece, variantes supprimées v12) → `hasMany` faux → clic mort, coincé dans Films.
+- Fix : nouvelle prop `onActivate` ; le clic sur la pilule fait `if (!highlight) onActivate()` (revient
+  aux épisodes) **puis** ouvre le menu si `hasMany`. Curseur pointer quand `!highlight`.
+
+### 4 — Miniatures OP/ED = **frame du clip lui-même** (plus le label sur l'image)
+- `ThemeThumb` : la cover saison peint dessous (placeholder instantané), puis un `<video muted
+  preload=metadata>` attaché **seulement à l'entrée dans le viewport** (IntersectionObserver,
+  rootMargin 300px) et seeké ~⅓ pour éviter le noir → fond over via opacity. Fallback = cover si
+  le clip ne charge pas. Badge OP/ED retiré de l'image → petit chip texte à côté du titre.
+- Lazy = une longue liste (One Piece 70+ thèmes) ne fetch pas 70 métadonnées d'un coup.
+
+### 5 — Perf OP/ED (« arrive après toute la page / charge pas parfois »)
+- Cause : 2 appels AnimeThemes séquentiels (resolveSlug → fetchThemes) à chaque cold start sans CDN.
+- Fix : **cache Turso** (réutilise `season_cache` via `seasonCacheGet/Set`, clé `themes:v1:…`) dans
+  `pages/api/v2/themes/[id].ts`. Warm reads instantanés, plus de round-trip upstream. On ne cache
+  PAS un échec upstream (récupère à la vue suivante) ; on cache une liste vide légitime.
+
+### 6 — Page **Chronicle** (digest multi-saisons) : dropdown saisons + panneau Films
+- Chronicle (119113) = MOVIE avec **4 edges PARENT** vers les saisons SnK, aucune chaîne
+  PREQUEL/SEQUEL → le walk s'effondrait sur lui-même (pas de dropdown, doublon).
+- Nouveau `franchiseAnchorId` : si le start est un MOVIE avec **≥2 PARENT** saisons de la même
+  franchise → ré-ancre sur la saison la plus ancienne (16498). Utilisé par `resolveFranchiseSeasons`
+  ET `resolveFranchiseBonusFilms`. Seuil ≥2 = cible les digests entiers, épargne les sequels-film
+  (1 PARENT) et les recaps mono-saison (Roar of Awakening → S2 seule).
+- `Episodes.tsx` : `selfIsBonusFilm` = info.id ∈ bonusFilms → `panel` démarre sur **"films"** (on
+  atterrit sur le digest qu'on est venu voir, pas sa liste 1-épisode).
+- Caches bumpés : `seasonList:v12→v13`, `bonusFilms:v6→v7`.
+- Vérif live : anchor(119113)=16498 ; SnK seasons S1..S4 ; digests=[Chronicle]. ✓
+
+### 7 — Retours suite (même session)
+- **Pilule Chronicle affichait le titre du film** au lieu de "Season 1" : la source active
+  restait `info.id` (119113, absent de la seasonList). Fix `Episodes.tsx` : `defaultEpisodeId` =
+  `seasonList[0].id` quand `selfIsBonusFilm` → la pilule lit "Season 1" et les liens épisodes
+  pointent une vraie saison. Suffixe durée `· {info.duration}min` masqué si `activeSeasonId !== info.id`
+  (évitait "25 EP · 120min", la durée du film sur une saison TV).
+- **Filtres manquants dans Films / Opening-Ending** : la barre recherche était gated
+  `panel === "episodes"`. Sortie du gate → visible partout ; sub/dub + vues restent épisodes-only.
+  Placeholder adapté par panneau. `FilmsPanel`/`OpEdPanel` prennent `filter` (match label/année ;
+  song/artiste/slug) + état "aucun résultat". Filtre **remis à zéro au changement de panneau**.
+- **Miniatures vidéo OP/ED peu fiables** ("marchent moins bien / se chargent pas") : le seek d'un
+  frame dans des dizaines de webm (range requests) échouait souvent ET les chargements concurrents
+  rendaient la lecture du clip elle-même instable. **Rollback → miniature = cover saison** (statique,
+  fiable). Le chip OP/ED reste à côté du titre (pas sur l'image). Leçon : pas de still par thème sur
+  l'API AnimeThemes ; le frame-vidéo comme vignette coûte trop cher en fiabilité.
+
+### 8 — Vues (détaillé / compact / grille) pour Films & Opening-Ending
+- Le sélecteur de vue était épisodes-only → sorti du gate (sub/dub reste épisodes-only). `view`
+  passé à `FilmsPanel`/`OpEdPanel`. Tooltip grille générique (`gridView`) hors épisodes (« Grille de
+  numéros » n'a de sens que pour les épisodes).
+- `FilmsPanel` : `FilmRow` gagne `compact` (ligne dense num·titre·meta·chevron) ; nouveau `FilmTile`
+  (grille de posters 2:3, tag RÉSUMÉ en overlay). Helpers `useFilmText`/`coverEl` partagés.
+- `OpEdPanel` : `ThemeRow` gagne `compact` ; nouveau `ThemeTile` (grille 16:9 cover + chip + play
+  overlay + song/artiste dessous). `chipStyle()` partagé.
+
+---
+
 ## 2026-07-02 (suite) — Films/OP-ED en onglets (remplacent la liste) + section Compilations
 
 Retours user sur l'itération précédente (2 demandes).

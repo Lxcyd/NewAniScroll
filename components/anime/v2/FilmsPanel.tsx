@@ -23,11 +23,28 @@ function infoHref(id: number, locale: string): string {
  * Each row navigates to that film's own page, where the existing movie path
  * resolves and plays it — no new watch plumbing needed.
  */
-export default function FilmsPanel({ films }: { films: FilmVariant[] }) {
+type ViewMode = "detailed" | "compact" | "grid";
+
+export default function FilmsPanel({
+  films,
+  filter = "",
+  view = "detailed",
+}: {
+  films: FilmVariant[];
+  /** Free-text query from the shared header search — matches a film's label. */
+  filter?: string;
+  /** Shared header view mode: detailed cards / compact list / cover grid. */
+  view?: ViewMode;
+}) {
   const { t, i18n } = useTranslation();
 
-  const movies = films.filter((f) => f.kind !== "compilation");
-  const compilations = films.filter((f) => f.kind === "compilation");
+  const q = filter.trim().toLowerCase();
+  const matches = (f: FilmVariant) =>
+    !q ||
+    (f.label ?? "").toLowerCase().includes(q) ||
+    String(f.year ?? "").includes(q);
+  const movies = films.filter((f) => f.kind !== "compilation" && matches(f));
+  const compilations = films.filter((f) => f.kind === "compilation" && matches(f));
 
   const section = (
     heading: string,
@@ -41,20 +58,34 @@ export default function FilmsPanel({ films }: { films: FilmVariant[] }) {
           <span style={styles.sectionCount}>{list.length}</span>
           {subtitle && <span style={styles.sectionSub}>{subtitle}</span>}
         </div>
-        <div style={styles.list}>
-          {list.map((f, i) => (
-            <FilmRow key={String(f.id)} film={f} n={i + 1} locale={i18n.language} />
-          ))}
-        </div>
+        {view === "grid" ? (
+          <div style={styles.grid}>
+            {list.map((f, i) => (
+              <FilmTile key={String(f.id)} film={f} n={i + 1} locale={i18n.language} />
+            ))}
+          </div>
+        ) : (
+          <div style={styles.list}>
+            {list.map((f, i) => (
+              <FilmRow
+                key={String(f.id)}
+                film={f}
+                n={i + 1}
+                locale={i18n.language}
+                compact={view === "compact"}
+              />
+            ))}
+          </div>
+        )}
       </div>
     );
 
+  const empty = movies.length === 0 && compilations.length === 0;
+
   return (
     <div>
-      {section(
-        t("anime.formatFilmsPlural", { count: movies.length, defaultValue: "Films" }),
-        movies,
-      )}
+      {/* Compilations lead the panel (recap movies condensing an arc), then the
+          genuine standalone films — the user asked to surface recaps first. */}
       {section(
         t("anime.compilations", { defaultValue: "Compilations" }),
         compilations,
@@ -62,21 +93,22 @@ export default function FilmsPanel({ films }: { films: FilmVariant[] }) {
           defaultValue: "Recap movies condensing an arc",
         }),
       )}
+      {section(
+        t("anime.formatFilmsPlural", { count: movies.length, defaultValue: "Films" }),
+        movies,
+      )}
+      {empty && (
+        <div style={styles.emptyMatch}>
+          {t("anime.noFilmMatch", { defaultValue: "No film matches your search." })}
+        </div>
+      )}
     </div>
   );
 }
 
-function FilmRow({
-  film,
-  n,
-  locale,
-}: {
-  film: FilmVariant;
-  n: number;
-  locale: string;
-}) {
+/** Label + meta shared by all three view modes. */
+function useFilmText(film: FilmVariant) {
   const { t } = useTranslation();
-  const cover = film.coverImage?.large || film.coverImage?.extraLarge || null;
   const label =
     film.label ||
     (film.index
@@ -89,33 +121,72 @@ function FilmRow({
   ]
     .filter(Boolean)
     .join(" · ");
+  return { label, meta };
+}
 
+/* Poster shown WHOLE (object-fit: contain) — a film's cover is a key-art poster;
+   cropping it to a strip lost the title/character framing. Box is 2:3. */
+function coverEl(cover: string | null, n: number, fit: "contain" | "cover") {
+  return cover ? (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={cover}
+      alt=""
+      style={{ width: "100%", height: "100%", objectFit: fit }}
+      loading="lazy"
+      decoding="async"
+    />
+  ) : (
+    <div
+      style={{
+        width: "100%",
+        height: "100%",
+        background: `linear-gradient(135deg, hsl(${(n * 40) % 360},30%,18%), hsl(${(n * 40 + 40) % 360},40%,28%))`,
+      }}
+    />
+  );
+}
+
+function FilmRow({
+  film,
+  n,
+  locale,
+  compact = false,
+}: {
+  film: FilmVariant;
+  n: number;
+  locale: string;
+  compact?: boolean;
+}) {
+  const { t } = useTranslation();
+  const cover = film.coverImage?.large || film.coverImage?.extraLarge || null;
+  const { label, meta } = useFilmText(film);
+
+  // COMPACT — dense single-line row: number · title · meta · chevron.
+  if (compact) {
+    return (
+      <Link href={infoHref(film.id, locale)} style={styles.compactRow}>
+        <span className="mono" style={styles.compactNum}>
+          {String(n).padStart(2, "0")}
+        </span>
+        {film.kind === "compilation" && (
+          <span style={styles.recapTagSm}>
+            {t("anime.compilationTag", { defaultValue: "RECAP" })}
+          </span>
+        )}
+        <span style={styles.compactTitle} title={label}>{label}</span>
+        {meta && <span style={styles.compactMeta}>{meta}</span>}
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style={{ color: "var(--txt-3)", flexShrink: 0 }}>
+          <polygon points="8 5 19 12 8 19" />
+        </svg>
+      </Link>
+    );
+  }
+
+  // DETAILED — card with poster + info + play.
   return (
     <Link href={infoHref(film.id, locale)} style={styles.row}>
-      {/* Portrait poster shown WHOLE (object-fit: contain) — a film's cover is a
-          key-art poster, cropping it to a 16:9 strip lost the title/character
-          framing. The box is 2:3 (poster ratio) so a normal cover fills it, and
-          contain guarantees nothing is cut for odd ratios. */}
-      <div style={styles.thumb}>
-        {cover ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={cover}
-            alt=""
-            style={{ width: "100%", height: "100%", objectFit: "contain" }}
-            loading="lazy"
-            decoding="async"
-          />
-        ) : (
-          <div
-            style={{
-              width: "100%",
-              height: "100%",
-              background: `linear-gradient(135deg, hsl(${(n * 40) % 360},30%,18%), hsl(${(n * 40 + 40) % 360},40%,28%))`,
-            }}
-          />
-        )}
-      </div>
+      <div style={styles.thumb}>{coverEl(cover, n, "contain")}</div>
       <div style={styles.info}>
         <div style={styles.rowHead}>
           <span className="mono" style={styles.num}>
@@ -137,7 +208,45 @@ function FilmRow({
   );
 }
 
+/* GRID — poster tile with the title + meta beneath (recap tag overlaid). */
+function FilmTile({
+  film,
+  n,
+  locale,
+}: {
+  film: FilmVariant;
+  n: number;
+  locale: string;
+}) {
+  const { t } = useTranslation();
+  const cover = film.coverImage?.large || film.coverImage?.extraLarge || null;
+  const { label, meta } = useFilmText(film);
+  return (
+    <Link href={infoHref(film.id, locale)} style={styles.tile}>
+      <div style={styles.tilePoster}>
+        {coverEl(cover, n, "cover")}
+        {film.kind === "compilation" && (
+          <span style={styles.tileRecapTag}>
+            {t("anime.compilationTag", { defaultValue: "RECAP" })}
+          </span>
+        )}
+      </div>
+      <div style={styles.tileTitle} title={label}>{label}</div>
+      {meta && <div style={styles.tileMeta}>{meta}</div>}
+    </Link>
+  );
+}
+
 const styles: Record<string, CSSProperties> = {
+  emptyMatch: {
+    padding: 16,
+    background: "var(--bg-2)",
+    border: "1px solid var(--line)",
+    borderRadius: 10,
+    color: "var(--txt-3)",
+    fontSize: 13,
+    textAlign: "center",
+  },
   section: { marginBottom: 16 },
   sectionHead: {
     display: "flex",
@@ -177,6 +286,105 @@ const styles: Record<string, CSSProperties> = {
     textDecoration: "none",
     color: "inherit",
     transition: "all 0.15s",
+  },
+
+  /* Compact single-line row */
+  compactRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    padding: "9px 12px",
+    border: "1px solid var(--line)",
+    borderRadius: 8,
+    background: "var(--bg-2)",
+    textDecoration: "none",
+    color: "inherit",
+    minHeight: 40,
+    transition: "background 0.12s",
+  },
+  compactNum: {
+    fontSize: 11,
+    color: "var(--txt-3)",
+    letterSpacing: "0.08em",
+    width: 22,
+    flexShrink: 0,
+    textAlign: "right",
+  },
+  compactTitle: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: 500,
+    color: "var(--txt-0)",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    minWidth: 0,
+  },
+  compactMeta: {
+    fontSize: 11,
+    color: "var(--txt-3)",
+    flexShrink: 0,
+    whiteSpace: "nowrap",
+  },
+  recapTagSm: {
+    fontSize: 8.5,
+    fontWeight: 700,
+    color: "#c9a227",
+    padding: "1px 5px",
+    background: "rgba(201,162,39,0.12)",
+    borderRadius: 3,
+    letterSpacing: "0.05em",
+    flexShrink: 0,
+  },
+
+  /* Cover grid */
+  grid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fill, minmax(104px, 1fr))",
+    gap: 12,
+  },
+  tile: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 5,
+    textDecoration: "none",
+    color: "inherit",
+  },
+  tilePoster: {
+    position: "relative",
+    width: "100%",
+    aspectRatio: "2 / 3",
+    borderRadius: 8,
+    overflow: "hidden",
+    background: "var(--bg-3)",
+    border: "1px solid var(--line)",
+  },
+  tileRecapTag: {
+    position: "absolute",
+    top: 5,
+    left: 5,
+    fontSize: 8.5,
+    fontWeight: 700,
+    color: "#fff",
+    padding: "2px 5px",
+    background: "rgba(201,162,39,0.9)",
+    borderRadius: 3,
+    letterSpacing: "0.05em",
+  },
+  tileTitle: {
+    fontSize: 12,
+    fontWeight: 600,
+    color: "var(--txt-0)",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+  tileMeta: {
+    fontSize: 10.5,
+    color: "var(--txt-3)",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
   },
   thumb: {
     position: "relative",

@@ -66,7 +66,10 @@ const REDIS_KEY_CHAIN = (id: number) => `seasonChain:v5:${id}`;
 // v12: SINGLE-season anime (One Piece) no longer attach arc-recap films as
 //      per-season dual-format variants (no season split to host them) — those
 //      recaps move to the Films panel's Compilations section. Changes variants.
-const REDIS_KEY_LIST = (id: number) => `seasonList:v12:${id}`;
+// v13: whole-franchise digest MOVIE pages (Attack on Titan ~Chronicle~) re-anchor
+//      to their franchise's oldest season, so the season list now resolves to the
+//      real seasons instead of the lone movie. Changes the list for those ids.
+const REDIS_KEY_LIST = (id: number) => `seasonList:v13:${id}`;
 
 // Cache accessors now hit Turso (see lib/db/seasonCache.ts) instead of Redis.
 // The cache_key strings keep their version tag, so a version bump still evicts
@@ -313,7 +316,9 @@ export async function resolveSeasonList(
 // v6: SINGLE-season anime (One Piece) DO include their arc recaps here as
 //     "compilation" (there's no season dropdown for them); multi-season keep the
 //     season-dropdown-only rule. Bump to recompute with the season-count split.
-const REDIS_KEY_FILMS = (id: number) => `bonusFilms:v6:${id}`;
+// v7: digest-movie pages (Chronicle) re-anchor to their franchise, so the digest
+//     now resolves as a bonus film on its OWN page (was empty). Changes those ids.
+const REDIS_KEY_FILMS = (id: number) => `bonusFilms:v7:${id}`;
 export async function resolveBonusFilms(startId: number): Promise<FilmVariant[]> {
   const cached = await cacheGetJson<FilmVariant[]>(REDIS_KEY_FILMS(startId));
   if (cached) return cached;
