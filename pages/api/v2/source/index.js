@@ -2835,6 +2835,19 @@ export default async function handler(req, res) {
     return notFoundStatus(msg);
   };
 
+  // A TRANSIENT resolve failure (upstream down/slow, anti-bot, timeout) — as
+  // opposed to a genuine "no source for this episode". Critically it does NOT
+  // write the negative-cache sentinel and answers 503, so the client's probe
+  // treats it as `retry` (not `fail-404`) and NEVER publishes the server into
+  // the 6h availability `absent` snapshot. Otherwise a single flaky scrape hides
+  // a working chip (e.g. Megaplay) for everyone until the TTL expires. We still
+  // release the scrape lock so followers aren't wedged; they just re-scrape.
+  const sendRetryable = (msg) => {
+    if (canCache && isLeader) releaseScrapeLock(cacheKey).catch(() => {});
+    res.setHeader("Cache-Control", "no-store");
+    return res.status(503).json({ error: msg || "Source temporarily unavailable" });
+  };
+
   // DO NOT prime getMediaMeta's caches from `mediaMeta` — it's a CLIENT-built
   // slim payload (id/title/synonyms/relations, no seasonYear/startDate/format).
   // Priming replaced the lambda's full cached Media with that truncated shape
@@ -2870,12 +2883,20 @@ export default async function handler(req, res) {
       return sendNotFound("megaplay: no MAL or AniList id for this anime");
     }
     let lastError = "Source not found";
+    let allAbsent = true; // every route so far returned a genuine "file not found"
     for (const url of routes) {
       const result = await extractMegaplay(url);
       if (!result.error && result.streams?.length) return sendOk(result);
       lastError = result.error || lastError;
+      // A route that failed for any reason OTHER than a confirmed absence marks
+      // the whole resolve as transient — don't let a timeout on one route get
+      // negative-cached just because the other route legitimately 404s.
+      if (!result.absent) allAbsent = false;
     }
-    return sendNotFound(lastError);
+    // Only negative-cache + hide the chip when BOTH routes genuinely have no
+    // file. A timeout / anti-bot / upstream error is transient → 503 retry so
+    // the chip isn't buried in the availability snapshot for 6h.
+    return allAbsent ? sendNotFound(lastError) : sendRetryable(lastError);
   }
 
 
