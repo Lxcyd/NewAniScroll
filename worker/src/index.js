@@ -108,7 +108,7 @@ function corsHeaders(extra = {}) {
     "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
     "Access-Control-Allow-Headers": "Range, Content-Type",
     "Access-Control-Expose-Headers":
-      "Content-Length, Content-Range, Accept-Ranges, Content-Type",
+      "Content-Length, Content-Range, Accept-Ranges, Content-Type, X-Aniscroll-Cache",
     ...extra,
   };
 }
@@ -196,8 +196,16 @@ async function handle(request, env, ctx) {
   ) {
     headers.Origin = finalOrigin;
   }
+  // Range handling. Browsers open <video> MP4s with `Range: bytes=0-`; if we
+  // forwarded that, upstream would answer 206 — and cache.put REJECTS 206
+  // partials, so MP4s would never be cacheable. A 200 is a valid answer to
+  // `bytes=0-`, so we upgrade that opening request to a full fetch (200 →
+  // cacheable). Real mid-file ranges (seeks) are forwarded as-is and served
+  // uncached on miss; once the full 200 is stored, cache.match slices 206s
+  // out of it directly at the edge (see lookup below).
   const rangeHeader = request.headers.get("range");
-  if (rangeHeader) headers.Range = rangeHeader;
+  const isOpeningRange = !rangeHeader || /^bytes=0-$/i.test(rangeHeader.trim());
+  if (rangeHeader && !isOpeningRange) headers.Range = rangeHeader;
   if (vcookie) {
     try {
       headers.Cookie = decodeURIComponent(vcookie);
@@ -221,10 +229,24 @@ async function handle(request, env, ctx) {
   cacheKeyUrl.searchParams.delete("filename");
   cacheKeyUrl.searchParams.delete("warm");
   const cacheKey = new Request(cacheKeyUrl.toString(), { method: "GET" });
+  // The LOOKUP carries the client's Range header: cache.match slices a stored
+  // full 200 into the requested 206 directly at the edge (documented Cache API
+  // behaviour) — that's what makes MP4 seeks instant on a warm cache.
+  const cacheLookup = rangeHeader && !isOpeningRange
+    ? new Request(cacheKeyUrl.toString(), {
+        method: "GET",
+        headers: { Range: rangeHeader },
+      })
+    : cacheKey;
   // Only use cache for GET. (HEAD doesn't have a body to cache.)
   if (request.method === "GET" && !isDownload) {
-    const cached = await cache.match(cacheKey);
-    if (cached) return cached;
+    const cached = await cache.match(cacheLookup);
+    if (cached) {
+      // Rebuild so headers are mutable (cache.match responses are immutable).
+      const hit = new Response(cached.body, cached);
+      hit.headers.set("X-Aniscroll-Cache", "HIT");
+      return hit;
+    }
   }
 
   let response;
@@ -287,15 +309,16 @@ async function handle(request, env, ctx) {
 
   // Helper that stores the final response under the normalised cache key
   // before returning it. Skip caching for downloads (Content-Disposition
-  // varies per filename) and for error / partial responses (don't pin a
-  // 4xx upstream blip in cache for 24h).
+  // varies per filename), error responses (don't pin a 4xx upstream blip in
+  // cache for 24h) and 206 partials (cache.put rejects them by design — the
+  // full-200 path populates the cache instead). The put is fire-and-forget:
+  // oversized bodies (Cache API caps objects at ~512 MB) just fail silently.
   const respondAndCache = (res) => {
+    res.headers.set("X-Aniscroll-Cache", "MISS");
     const okToCache =
-      !isDownload &&
-      request.method === "GET" &&
-      (res.status === 200 || res.status === 206);
+      !isDownload && request.method === "GET" && res.status === 200;
     if (okToCache && ctx) {
-      ctx.waitUntil(cache.put(cacheKey, res.clone()));
+      ctx.waitUntil(cache.put(cacheKey, res.clone()).catch(() => {}));
     }
     return res;
   };

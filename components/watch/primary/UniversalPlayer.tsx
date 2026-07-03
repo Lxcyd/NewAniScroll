@@ -1195,6 +1195,10 @@ export default function UniversalPlayer({
   // Live hls.js instance — captured on provider setup so the seek handler can
   // abort in-flight segment loads and re-anchor on the new position.
   const hlsRef = useRef<any>(null);
+  // Whether the CURRENT source plays straight from the host CDN (no proxy).
+  // Read inside onProviderSetup (which can't see `bestStream` in scope) to set
+  // the <video> referrerPolicy for direct streams.
+  const directPlaybackRef = useRef<boolean>(false);
 
   // Keep the latest onEpisodeComplete in a ref so the (episode-scoped) ended
   // listener always calls the current handler without re-binding on every
@@ -1229,6 +1233,19 @@ export default function UniversalPlayer({
 
   // Capture the hls.js instance once Vidstack has set the provider up.
   const onProviderSetup = (provider: any) => {
+    // Direct-CDN streams (sibnet cvn, sendvid MP4, CORS-open HLS CDNs) are
+    // validated server-side to play with an arbitrary Referer. Strip the
+    // Referer at the <video>/hls loader level so a CDN that DOES gate on
+    // Referer never sees our origin (a mismatched Referer would 403). Proxied
+    // streams don't reach here on the direct path — their Referer is carried
+    // by the Worker's query param — so this only affects direct playback.
+    if (directPlaybackRef.current) {
+      const videoEl: HTMLVideoElement | undefined =
+        provider?.video || provider?.media || undefined;
+      if (videoEl && "referrerPolicy" in videoEl) {
+        videoEl.referrerPolicy = "no-referrer";
+      }
+    }
     if (isHLSProvider(provider)) {
       const hls = provider.instance || null;
       hlsRef.current = hls;
