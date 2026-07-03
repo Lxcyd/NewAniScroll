@@ -187,6 +187,7 @@ a {
 .vds-player
   button:not(.aniscroll-skip-btn):not(.aniscroll-next-btn):not(.w2g-fs-send):hover,
 .vds-player [role="menuitem"]:hover,
+.vds-player [role="menuitemcheckbox"]:hover,
 .vds-player a[aria-label]:hover {
   color: var(--brand-primary, #E94560) !important;
 }
