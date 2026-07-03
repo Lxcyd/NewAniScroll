@@ -143,7 +143,12 @@ async function handle(request, env, ctx) {
   // spike (the part that visibly delayed Play/seek) at near-zero cost; the deep
   // hls.js buffer covers the segments themselves.
   const warmDepth = Math.max(0, parseInt(reqUrl.searchParams.get("warm") || "0", 10) || 0);
-  const WARM_MAX_DEPTH = 1;
+  // Depth 2 so a MASTER → VARIANT → SEGMENTS chain warms all the way to the
+  // segments: master (depth 0) warms the variant (depth 1), which in turn warms
+  // its sampled segments (depth 2). A media playlist served directly (no master)
+  // warms its segments at depth 1. Kept from exploding by warming only ONE
+  // variant (see below), so the worst case is 1 variant + 10 sampled segments.
+  const WARM_MAX_DEPTH = 2;
 
   if (!url) {
     return new Response(JSON.stringify({ error: "Missing url parameter" }), {
@@ -400,27 +405,52 @@ async function handle(request, env, ctx) {
       return rewrite(abs);
     });
 
-    // Pre-warm the first N resources through this same Worker URL so they get
-    // stored under the normal cache key (respondAndCache path) — the player's
-    // subsequent request then matches the edge cache. Fire-and-forget via
-    // waitUntil so it never delays the manifest response. Cap at 3 to keep the
-    // warm-up cheap (one extra subrequest budget item each) and avoid hammering
-    // the CDN; the deep hls.js buffer covers everything past the opening few.
+    // Pre-warm resources through this same Worker URL so they land under the
+    // normal cache key (respondAndCache path) — the player's subsequent request
+    // then matches the edge cache. Fire-and-forget via waitUntil so it never
+    // delays the manifest response.
     if (ctx && warmDepth < WARM_MAX_DEPTH && resourceUrls.length > 0) {
       const childDepth = warmDepth + 1;
-      // Only warm child PLAYLISTS, never segments — keep the warm to small text
-      // fetches so it can't compete for I/O with the player's real segment
-      // requests. A master playlist's children are variant .m3u8s; a media
-      // playlist's children are .ts/.m4s segments (skipped). Cap at 4 variants.
-      const playlists = resourceUrls
-        .filter((u) => /\.m3u8(\?|$)/i.test(u))
-        .slice(0, 4);
-      if (playlists.length > 0) {
+      // MASTER playlist → children are variant .m3u8s. Warm only ONE (a cheap
+      // text fetch) — that variant then warms its own sampled segments one depth
+      // down. Warming every variant would multiply the segment warm by 4 and
+      // blow the subrequest budget; hls.js plays one variant at a time anyway.
+      // Pick the LAST variant: HLS masters list variants low→high bitrate, and
+      // the player defaults to forceMaxQuality (top level), so the last is the
+      // one most likely actually played — warming it makes its segments the hot
+      // ones. (If ABR is on and picks a lower rung, only the sparse segment warm
+      // is "wasted"; the manifest warm still helps.)
+      const allPlaylists = resourceUrls.filter((u) => /\.m3u8(\?|$)/i.test(u));
+      const playlists = allPlaylists.length > 0 ? [allPlaylists[allPlaylists.length - 1]] : [];
+      // MEDIA playlist → children are the actual .ts/.m4s segments. THIS is what
+      // makes a far seek instant: without it, clicking anywhere past the opening
+      // hls.js buffer hits a cold segment (~3 s origin fetch). We warm a SPARSE
+      // sample spread across the whole timeline — one segment every Nth — so any
+      // point on the scrubber lands on (or right next to) an already-cached
+      // segment. Sparse + sequential + capped keeps this within the Worker's
+      // subrequest budget and never bursts alongside the player's real fetches
+      // (the mistake an earlier version made by warming the opening N segments in
+      // parallel, which starved I/O). Skipped entirely for master playlists.
+      const segments = playlists.length === 0
+        ? resourceUrls.filter((u) => /\.(ts|m4s|mp4|png|jpg|txt)(\?|$)/i.test(u))
+        : [];
+      const WARM_SEGMENT_SAMPLES = 10;
+      const sampledSegments = [];
+      if (segments.length > 0) {
+        // Even stride across the timeline; always include the first so playback
+        // start is warm too. De-dupe when the list is shorter than the sample.
+        const stride = Math.max(1, Math.ceil(segments.length / WARM_SEGMENT_SAMPLES));
+        for (let i = 0; i < segments.length; i += stride) sampledSegments.push(segments[i]);
+      }
+      const toWarm = [...playlists, ...sampledSegments];
+      if (toWarm.length > 0) {
         const warm = async () => {
           // Sequential, not parallel: a warm fetch must never burst alongside
           // the player's foreground requests. Carry warm=<childDepth> so the
           // cache key (which strips `warm`) matches the player's plain lookup.
-          for (const abs of playlists) {
+          // Segments are leaves (warmDepth reaches WARM_MAX_DEPTH), so warming
+          // them issues no further recursion.
+          for (const abs of toWarm) {
             await fetch(`${rewrite(abs)}&warm=${childDepth}`).catch(() => {});
           }
         };
