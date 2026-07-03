@@ -111,18 +111,33 @@ export default async function handler(req, res) {
 
     const k = key(aniId, episode, sub);
     try {
-      // Write-storm guard: first writer in the window claims the slot. NX = only
-      // set if absent; if it already exists, a write happened recently → skip.
-      const guardKey = `${k}:w`;
-      const claimed = await redis.set(guardKey, "1", "EX", WRITE_GUARD_S, "NX");
-      if (!claimed) return res.status(204).end(); // someone wrote recently
-      // Merge with any existing snapshot so we accumulate verdicts across
-      // visitors rather than clobbering (different visitors may confirm
-      // different hosts depending on transient anti-bot luck). The NEWEST
-      // verdict per id wins: a server now confirmed leaves the absent set, and
-      // one now absent leaves the ok set — so a host coming back online (or
-      // going dead) self-corrects on the next write.
+      // Read the existing snapshot FIRST so we can tell whether this POST
+      // actually adds anything new.
       const prev = parseSnapshot(await redis.get(k).catch(() => null));
+      const prevOk = new Set(prev.ok);
+      const prevAbsent = new Set(prev.absent);
+
+      // Does this POST carry a verdict the snapshot doesn't already reflect?
+      //  - a NEW ok id (not already ok), OR one flipping absent→ok
+      //  - a NEW absent id (not already absent), OR one flipping ok→absent
+      // A "new information" write must bypass the storm guard: otherwise the
+      // first writer in the 10-min window (who may have missed a slow server
+      // like megaplay) permanently locks that server out of the snapshot until
+      // the whole entry's 6h TTL expires — the "megaplay chip never appears" bug.
+      const addsInfo =
+        cleanOk.some((id) => !prevOk.has(id)) ||
+        cleanAbsent.some((id) => !prevAbsent.has(id));
+
+      // Write-storm guard only gates REDUNDANT writes (nothing new to add). NX =
+      // only claim if free; if a write happened recently AND we add nothing, skip.
+      if (!addsInfo) {
+        const guardKey = `${k}:w`;
+        const claimed = await redis.set(guardKey, "1", "EX", WRITE_GUARD_S, "NX");
+        if (!claimed) return res.status(204).end(); // recent write, no new info
+      }
+
+      // Merge: newest verdict per id wins (confirm leaves absent, absent leaves
+      // ok), so a host coming back online or going dead self-corrects.
       const okSet = new Set([...prev.ok, ...cleanOk]);
       const absentSet = new Set([...prev.absent, ...cleanAbsent]);
       for (const id of cleanOk) absentSet.delete(id);
