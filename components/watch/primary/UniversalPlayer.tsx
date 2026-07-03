@@ -2225,6 +2225,110 @@ export default function UniversalPlayer({
     };
   }, [streamData]);
 
+  // ── Hover pre-warm ──
+  // The server pre-warms only a SPARSE sample of segments, so a first-time seek
+  // to a cold spot still pays the ~3 s origin fetch. This closes that gap: while
+  // the user hovers the scrubber (before they even click), we find the HLS
+  // fragment under the cursor and fire a fire-and-forget fetch of its URL — that
+  // URL is already proxied (hls.js loaded the rewritten manifest), so the fetch
+  // lands in the Worker and warms the edge cache. By the time the user clicks,
+  // the target segment is HIT. Non-interfering: it's a plain fetch, it never
+  // touches hls.js's loader or the playing <video>. HLS only (native MP4 has no
+  // fragment list); throttled + deduped so a slow drag can't spam the CDN.
+  useEffect(() => {
+    const playerEl = playerRef.current?.el as HTMLElement | undefined;
+    if (!playerEl) return;
+    const hls = hlsRef.current;
+    if (!hls) return; // native MP4 / not ready — nothing to map time→segment
+
+    let slider: HTMLElement | null = null;
+    let hoverTimer = 0;
+    const warmed = new Set<string>(); // dedupe by fragment URL this session
+    let lastFireAt = 0;
+
+    // Map a timestamp to the fragment covering it, using the level hls.js is
+    // actually playing (its details hold the fragment list once parsed).
+    const fragmentAt = (timeSec: number): string | null => {
+      try {
+        const lvls = hls.levels || [];
+        const li = hls.currentLevel >= 0 ? hls.currentLevel : hls.loadLevel;
+        const frags = lvls[li]?.details?.fragments;
+        if (!frags || !frags.length) return null;
+        // Linear scan is fine (a few hundred frags); binary search not worth it.
+        for (const f of frags) {
+          if (timeSec >= f.start && timeSec < f.start + f.duration) {
+            return f.url || null;
+          }
+        }
+      } catch {}
+      return null;
+    };
+
+    const warmAt = (timeSec: number) => {
+      const url = fragmentAt(timeSec);
+      if (!url || warmed.has(url)) return;
+      // If it's already buffered we don't need to warm it.
+      try {
+        const v = playerEl.querySelector<HTMLVideoElement>("video");
+        const buffered = v?.buffered;
+        if (buffered) {
+          for (let i = 0; i < buffered.length; i++) {
+            if (timeSec >= buffered.start(i) && timeSec <= buffered.end(i)) return;
+          }
+        }
+      } catch {}
+      warmed.add(url);
+      // Low-priority, credentials-free, body-discarded warm. The Worker stores
+      // it under the same cache key the player's real fetch will look up.
+      // `priority` isn't in the RequestInit type yet — cast to pass it through.
+      try {
+        fetch(url, { credentials: "omit", priority: "low" } as RequestInit)
+          .then((r) => r.body?.cancel?.())
+          .catch(() => {});
+      } catch {}
+    };
+
+    const onMove = (e: PointerEvent) => {
+      const v = playerEl.querySelector<HTMLVideoElement>("video");
+      const dur = v?.duration || 0;
+      if (!dur || !isFinite(dur) || !slider) return;
+      const rect = slider.getBoundingClientRect();
+      const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+      const t = ratio * dur;
+      // Debounce: only warm after the cursor rests ~120ms on a spot, and never
+      // more than ~5 warms/sec, so dragging across the bar doesn't fire hundreds.
+      window.clearTimeout(hoverTimer);
+      hoverTimer = window.setTimeout(() => {
+        const now = performance.now();
+        if (now - lastFireAt < 180) return;
+        lastFireAt = now;
+        warmAt(t);
+      }, 120);
+    };
+
+    let pollId = 0;
+    const bind = () => {
+      slider = playerEl.querySelector<HTMLElement>(
+        'media-time-slider, [data-media-time-slider], .vds-time-slider',
+      );
+      if (!slider) return false;
+      slider.addEventListener("pointermove", onMove as EventListener);
+      return true;
+    };
+    if (!bind()) {
+      let tries = 0;
+      pollId = window.setInterval(() => {
+        if (bind() || ++tries > 40) window.clearInterval(pollId);
+      }, 250);
+    }
+
+    return () => {
+      window.clearTimeout(hoverTimer);
+      window.clearInterval(pollId);
+      slider?.removeEventListener("pointermove", onMove as EventListener);
+    };
+  }, [streamData]);
+
   // ── Client-side extraction runner ──
   // Vidmoly's master.m3u8 token is bound to whichever IP fetched the embed
   // page. Doing that fetch from the browser (instead of any server-side
