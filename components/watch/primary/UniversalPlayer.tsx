@@ -909,11 +909,16 @@ function SettingsToggleRow({
   enabled,
   onToggle,
   iconPath,
+  iconNode,
 }: {
   label: string;
   enabled: boolean;
   onToggle: (next: boolean) => void;
-  iconPath: string;
+  // Provide EITHER a single-path icon (`iconPath`) or a full SVG body
+  // (`iconNode`, for icons that need <rect>/<text>/multiple elements, e.g. the
+  // OP/ED badges). `iconNode` wins when both are set.
+  iconPath?: string;
+  iconNode?: React.ReactNode;
 }) {
   return (
     <div
@@ -950,7 +955,7 @@ function SettingsToggleRow({
         fill="currentColor"
         style={{ width: 22, height: 22, marginRight: 6, flexShrink: 0 }}
       >
-        <path d={iconPath} />
+        {iconNode ?? <path d={iconPath} />}
       </svg>
       <span style={{ flex: 1 }}>{label}</span>
       {/* Pill-style toggle */}
@@ -1086,12 +1091,21 @@ function CenterPlayButton({
   const { t } = useTranslation();
   const paused = useMediaState("paused", playerRef);
   const canPlay = useMediaState("canPlay", playerRef);
+  // One-shot: this is purely the INITIAL "start the anime" affordance. Once
+  // playback has begun even once, it's gone for good — later manual pauses use
+  // the small play/pause control in the bottom-left bar, not this big overlay.
+  const [everStarted, setEverStarted] = useState(false);
+  useEffect(() => {
+    if (!paused) setEverStarted(true);
+  }, [paused]);
+
   // Only ever shown when autoplay is OFF (this is the manual "click to start"
   // affordance). With autoplay ON the video launches itself, so the big button
   // has no reason to appear.
   if (autoplay) return null;
-  // Hidden while playing, and while the media is still loading (Vidstack draws
-  // its buffering spinner then — we don't want to stack on it).
+  // Gone once playback has ever started; hidden while the media is still
+  // loading (Vidstack draws its buffering spinner then).
+  if (everStarted) return null;
   if (!paused || !canPlay) return null;
 
   const start = () => {
@@ -2941,8 +2955,14 @@ export default function UniversalPlayer({
     // Iframe/embed sources render an <iframe> instead of a <video> (see the
     // early return in the render below). There is no media element we can drive
     // — autoplay is entirely up to the cross-origin embed and its `allow` attr —
-    // so don't spin a poll that can never find a <video>.
-    if (streamData?.iframe) return;
+    // so don't spin a poll that can never find a <video>. Mirror the SAME
+    // condition the render uses to decide iframe-vs-video: a vidmoly
+    // clientExtract source becomes a real <video> once extraction succeeds, so
+    // it must NOT be treated as a pure iframe here.
+    const wantsClientExtractAP =
+      streamData?.clientExtract?.type === "vidmoly" && clientStatus !== "failed";
+    const isIframeSource = !wantsClientExtractAP && !!streamData?.iframe;
+    if (isIframeSource) return;
 
     let cancelled = false;
     let started = false; // playback has begun (muted or unmuted) — stop retrying
@@ -2970,49 +2990,102 @@ export default function UniversalPlayer({
       if (cancelled || started || inFlight) return;
       const video = getVideo();
       if (!video) return;
-      if (!video.paused) {
+      // Consider playback truly started ONLY if the element is unpaused AND
+      // actually advancing. A play() that's still in flight on a not-yet-ready
+      // element (readyState 0) also reports paused=false for a moment — marking
+      // `started` there was the Sibnet bug: the effect re-ran mid-load, saw
+      // paused=false, latched started=true, then the original play() aborted and
+      // nothing ever retried. Require readyState >= 2 (has current frame) so a
+      // pending/aborting load can't fake "already playing".
+      if (!video.paused && video.readyState >= 2) {
         started = true;
         return;
       }
-      // Only force autoplay at the very START. `can-play` / `loaded-data` fire
-      // again every time hls.js re-buffers — including after a near-end stall or
-      // an internal reset. Calling play() then would resume from wherever the
-      // element sits, and play() on an *ended* element restarts it from 0, which
-      // was a path into the "video jumps back to the start near the end" bug.
-      if (video.ended || video.currentTime > 1) return;
+      if (video.ended) return;
+      // The `currentTime > 1` guard exists to avoid hijacking a video the user
+      // is ALREADY WATCHING (re-buffer events, near-end resets — the "jump to
+      // start" bug). But it must NOT block the legitimate case where the user
+      // just enabled autoplay on a PAUSED video sitting past 1s: there we DO
+      // want to start it. So only skip on ct>1 when the video is actually
+      // playing (or mid-load) — a paused video past 1s is a start request.
+      if (video.currentTime > 1 && !video.paused) return;
 
       const wantMuted = keepMuted();
       video.setAttribute("playsinline", "");
       inFlight = true;
 
-      // 1) Try UNMUTED (muted only if the user asked for it).
-      video.muted = wantMuted;
-      try {
-        await video.play();
-        started = true;
-        inFlight = false;
-        return; // playing — with sound unless the user chose mute
-      } catch (err: any) {
-        if (cancelled) return;
-        if (err?.name !== "NotAllowedError") {
-          // Transient (e.g. AbortError: play() interrupted by a new load when
-          // hls.js swaps the source). Leave `started` false — the poll/events
-          // below will retry.
-          inFlight = false;
-          return;
-        }
-      }
-
-      // 2) Unmuted blocked → GUARANTEE playback by starting muted.
+      // CRITICAL ordering: start MUTED first, then opportunistically unmute.
+      //
+      // The naive "unmuted first, catch NotAllowedError, fall back to muted"
+      // does NOT work reliably: when the page has no user activation, Chrome's
+      // "unmuting mitigation" doesn't reject play() — it lets play() RESOLVE and
+      // then silently PAUSES the element ("Unmuting failed and the element was
+      // paused because the user didn't interact with the document before").
+      // Because play() resolved, our catch never fires, so we'd think we were
+      // playing while the video sat paused. That's exactly the Sibnet-fallback
+      // "autoplay didn't start on its own" bug.
+      //
+      // Muted play() is ALWAYS allowed and never triggers the mitigation, so we
+      // do that first — playback is guaranteed. Then, if the user didn't ask for
+      // muted, we TRY to unmute in place; if that trips the mitigation and pauses
+      // us, we revert to muted, resume, and defer sound to the first gesture.
       try {
         video.muted = true;
         await video.play();
-        started = true;
-        // 3) Owe the user sound (unless they wanted muted) — unmute on the first
-        //    real interaction below.
-        unmutePending = !wantMuted;
+      } catch (err: any) {
+        // Muted play rejected. AbortError = "play() interrupted by a new load"
+        // (hls.js swapped the source, e.g. the Sibnet→fallback path). This is
+        // transient: DON'T latch anything — just let the poll's next tick and
+        // the canplay/loadstart events retry against the new source. `started`
+        // stays false, `inFlight` clears, so a retry is guaranteed.
+        inFlight = false;
+        return;
+      }
+      if (cancelled) {
+        inFlight = false;
+        return;
+      }
+      // A muted play() that resolved but left us paused (rare fallback state) is
+      // NOT a real start — clear inFlight and let the poll retry.
+      if (video.paused) {
+        inFlight = false;
+        return;
+      }
+      started = true;
+
+      if (wantMuted) {
+        // User wants muted — done, nothing owed.
+        inFlight = false;
+        return;
+      }
+
+      // Opportunistically go for sound. On an MEI-promoted origin this sticks;
+      // on a cold origin Chrome pauses us, so detect that and recover.
+      try {
+        video.muted = false;
+        // Chrome applies the "unmuting mitigation" (pause) ASYNCHRONOUSLY, not
+        // synchronously after setting .muted — so give it a couple of frames to
+        // land before checking whether we got paused.
+        await new Promise<void>((r) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => r())),
+        );
+        if (cancelled) {
+          inFlight = false;
+          return;
+        }
+        // If unmuting paused us (the mitigation), a muted resume + deferred
+        // unmute-on-gesture is the correct recovery.
+        if (video.paused) {
+          video.muted = true;
+          await video.play().catch(() => {});
+          unmutePending = true; // owe the user sound on first interaction
+        }
       } catch {
-        // Even muted play failed (rare) — retry on the next tick/can-play.
+        // Anything unexpected: stay muted-but-playing, unmute on first gesture.
+        try {
+          video.muted = true;
+        } catch {}
+        unmutePending = true;
       } finally {
         inFlight = false;
       }
@@ -3094,7 +3167,7 @@ export default function UniversalPlayer({
         boundVideo.removeEventListener("loadstart", onReady);
       }
     };
-  }, [autoplay, streamData]);
+  }, [autoplay, streamData, clientStatus]);
 
   // ── Chromecast (Chrome / Edge / Opera) ──
   // Lazy-load the Cast SDK once, then expose the button as soon as the
@@ -3509,15 +3582,65 @@ export default function UniversalPlayer({
               label={t("player.autoSkipIntro")}
               enabled={playerPrefs.autoSkipIntro}
               onToggle={(v) => setPlayerPrefs({ autoSkipIntro: v })}
-              // Material "fast_forward" icon.
-              iconPath="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z"
+              // "OP" badge — rounded outline frame with the opening monogram.
+              iconNode={
+                <>
+                  <rect
+                    x="2.5"
+                    y="6"
+                    width="19"
+                    height="12"
+                    rx="3.2"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.7"
+                  />
+                  <text
+                    x="12"
+                    y="15.4"
+                    textAnchor="middle"
+                    fontFamily="Space Grotesk, system-ui, sans-serif"
+                    fontSize="8.2"
+                    fontWeight="700"
+                    letterSpacing="0.3"
+                    fill="currentColor"
+                  >
+                    OP
+                  </text>
+                </>
+              }
             />
             <SettingsToggleRow
               label={t("player.autoSkipOutro")}
               enabled={playerPrefs.autoSkipOutro}
               onToggle={(v) => setPlayerPrefs({ autoSkipOutro: v })}
-              // Material "fast_forward" icon (shared with intro — same action).
-              iconPath="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z"
+              // "ED" badge — same frame with the ending monogram.
+              iconNode={
+                <>
+                  <rect
+                    x="2.5"
+                    y="6"
+                    width="19"
+                    height="12"
+                    rx="3.2"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.7"
+                  />
+                  <text
+                    x="12"
+                    y="15.4"
+                    textAnchor="middle"
+                    fontFamily="Space Grotesk, system-ui, sans-serif"
+                    fontSize="8.2"
+                    fontWeight="700"
+                    letterSpacing="0.3"
+                    fill="currentColor"
+                  >
+                    ED
+                  </text>
+                </>
+              }
             />
             <SettingsToggleRow
               label={t("player.autoNextEpisode")}
