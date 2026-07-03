@@ -1230,6 +1230,14 @@ input[type="number"] {
   position: relative;
   box-sizing: border-box;
   background-color: rgba(255, 255, 255, 0.22);
+  /* Contain each pill's paint to its own box. Without this, the forced
+     height:100% inner layers + the rounded clip-path caps of two adjacent
+     chapters overlap vertically at their shared seam, painting a few extra
+     pixels of height right at each chapter junction — which reads as the bar
+     being "thicker at two spots" (the intro/outro AniSkip boundaries). Clipping
+     to the box removes the seam bleed. Paint-only, so the X% width / click
+     mapping is untouched. */
+  overflow: hidden;
   /* Each chapter is its own rounded capsule with a gap to the next one. We do
      it with clip-path instead of border-radius+margin because:
        • border-radius alone on edge-to-edge pills makes adjacent rounded ends
