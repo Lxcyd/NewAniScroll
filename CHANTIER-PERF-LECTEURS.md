@@ -48,10 +48,34 @@ Test `curl` ×3 sur un vrai segment MegaCloud (`seg-247`, 999 Ko) via `proxy.ani
 - Passe 3 : HIT — TTFB **52 ms**, total 106 ms
 → Avant : mêmes segments à **3.00 s** (jusqu'à 8.44 s) en Network. **~30-80× plus rapide** sur cache chaud. Cache partagé entre tous les visiteurs (HIT dès le 1er curl, rempli par la lecture navigateur).
 
+### Session 2 (2026-07-04) — bugs découverts en test réel + optimisation seek
+
+**Bug chip Megaplay/VOE qui disparaît — 3 causes empilées, TOUTES corrigées :**
+- [x] `d58603f` — extractMegaplay : échec transitoire (timeout/anti-bot/5xx) était traité comme absence définitive → negative-cache + 204 → publié `absent` 6h. Fix : `absent:true` seulement sur le vrai "file not found" ; les autres → `sendRetryable` (503, pas de negative-cache).
+- [x] `6823f3a` — l'activeServer (megaplay par défaut / serveur préféré) est résolu HORS du pool de probe → son verdict n'entrait jamais dans `cachedConfirmed` (le Set qui construit le snapshot) → jamais publié. Fix : `activeVerdictRef` + union à la publication.
+- [x] `93f3def` — **le vrai déblocage** : le write-guard de 10 min faisait que le 1er publisher claimait le slot ; un serveur lent (megaplay arrive après les vidmoly dans le pool) restait EXCLU 6h. Fix : un POST qui apporte un id NOUVEAU bypasse le guard.
+- [x] **Réparation manuelle** des snapshots pollués JJK (113415) + AoT (16498) ep 1-12 sub (megaplay vérifié 200 puis POST). Les autres animes s'auto-réparent au 1er visionnage grâce à `93f3def`.
+
+**Bug freeze infini au seek-spam :**
+- [x] `e0f1a1b` — sur CDN direct fragile (Vidmoly `vmwesa.online`), le spam fait couper le CDN (`net::ERR_EMPTY_RESPONSE`) → erreur fatale SANS status HTTP → le handler l'ignorait (ne gérait que 401/403/404/410) → gel éternel. Fix : récupération hls.js active (startLoad/recoverMediaError, max 4/12s puis fallback) + hard-resume 1.2s dans le coalescing seek-spam.
+
+**Cosmétique :**
+- [x] `f9ae1db` — barre de progression plus épaisse aux jonctions de chapitres AniSkip → `overflow:hidden` sur les pilules.
+
+**Optimisation seek froid (le vrai sujet perf) :**
+- [x] `227bc0a` — worker : le warm ratait ~2/3 des segments (MegaCloud déguise en .html/.js, pas seulement .ts/.jpg). Fix : "tout ce qui n'est pas .m3u8 enfant" = segment. Samples 10→20.
+- [x] `cd620a7` — **hover pre-warm client** : survoler la barre → fetch fire-and-forget du fragment HLS sous le curseur → warme le edge AVANT le clic → seek quasi-instant au 1er visionnage. Non-interférent, throttlé, dédup, skip si bufferisé. ⚠️ À TESTER.
+
+**Sendvid preview manquante** : NON un bug — `HoverPreview` est volontairement désactivé pour les streams `noCors` (canvas tainté sans CORS, impossible de capturer les frames). Comme Sibnet. Options si on veut la preview : repasser Sendvid par le proxy (perd le direct-CDN).
+
+**RÉPONSE à "pourquoi les autres sites sont instantanés et pas nous"** : eux jouent le CDN en DIRECT (1 saut). Nous DEVONS proxifier MegaCloud (le CDN 403 sans Referer megaplay.buzz, que seul un proxy serveur peut injecter) → 2 sauts sur un MISS. Le cache edge annule le 2e saut sur HIT (52ms, aussi rapide/plus rapide qu'eux). Le seul point lent = cache FROID (1er visionnage, seek vers un trou) → attaqué par warm serveur + hover-prefetch. Piste non explorée : jouer MegaCloud en direct SI son CDN accepte le CORS (comme Vidmoly) — à tester si le hover-prefetch ne suffit pas.
+
 ### RESTE
-- [ ] **Merge `dev` → `main`** pour propager les changements applicatifs (direct-CDN Sendvid, preconnect, referrerPolicy) en prod. Le Worker + cache edge servent DÉJÀ la prod (Worker commun aux 2 envs).
-- [ ] (Suivi) Vérifier le seek MP4 (Sendvid) et non-régression Sibnet/Vidmoly/VOE en usage réel.
-- [ ] (Suivi) Surveiller dashboard Workers (req/jour) ; > ~70k/jour récurrent → Workers Paid 5$/mois.
+- [ ] **TESTER hover-prefetch** (`cd620a7`) : survoler la barre loin puis cliquer → doit être quasi-instant au 1er visionnage.
+- [ ] **Merge `dev` → `main`** une fois tout validé sur dev.
+- [ ] (Optionnel) Explorer le direct MegaCloud (CORS) si le hover-prefetch ne suffit pas.
+- [ ] (Optionnel) Améliorer Vidmoly (config hls.js dédiée, moins agressif) — demandé mais mis en pause pour prioriser le seek.
+- [ ] (Suivi) Surveiller dashboard Workers (req/jour) ; > ~70k/jour → Workers Paid 5$/mois.
 
 ## Notes en cours de route
 
