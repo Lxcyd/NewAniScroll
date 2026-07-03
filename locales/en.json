@@ -166,7 +166,9 @@
       "dirFromDesc": "Download your AniList list and replace the one on this device. Local-only entries not on AniList are removed.",
       "dirToTitle": "Use my AniScroll list",
       "dirToDesc": "Add the anime tracked here to your AniList account (updates existing entries, never deletes anything on AniList).",
-      "dismissedToast": "Sync left off — enable it anytime in settings."
+      "dismissedToast": "Sync left off — enable it anytime in settings.",
+      "dirOffTitle": "Don't sync",
+      "dirOffDesc": "Keep both lists as they are. Sync stays off — you can enable it later in settings."
     },
     "list": {
       "title": "My list (local)",

@@ -63,21 +63,41 @@ function SyncBootstrap() {
 
   useEffect(() => {
     if (status === "loading") return;
-    if (!isConnected) return;
+    // Disconnected: turn sync off (a logged-out user has no AniList account to
+    // sync with) and clear `directionChosen` so a future reconnect re-asks the
+    // direction question fresh. Only write when something actually changes, to
+    // avoid a redundant storage event on every render.
+    if (!isConnected) {
+      const p = getSyncPrefs();
+      if (p.enabled || p.directionChosen) {
+        setSyncPrefs({ enabled: false, directionChosen: false });
+      }
+      return;
+    }
     const prefs = getSyncPrefs();
-    if (prefs.directionChosen) return; // already handled once — don't re-nag.
+    if (prefs.directionChosen) return; // already answered once — don't re-nag.
 
-    // Turn sync on by default the moment AniList is connected, and tell the
-    // user (same toast style as "list entry saved").
+    // First connect → ask whether (and how) to sync. We DON'T pre-enable here:
+    // the popup itself is the enable action, and "Don't sync" must leave it off.
+    setShowDirection(true);
+  }, [isConnected, status]);
+
+  const choose = async (direction: SyncDirection) => {
+    // "Don't sync" — leave both lists untouched, sync stays off.
+    if (direction === "off") {
+      setSyncPrefs({ enabled: false, directionChosen: true });
+      toast.message(t("settings.sync.dismissedToast"));
+      setShowDirection(false);
+      return;
+    }
+
+    setBusy(true);
+    // Picking a direction enables sync (+ confirmation toast, same style as the
+    // "list entry saved" toast).
     setSyncPrefs({ enabled: true });
     toast.success(t("settings.sync.enabledToast"), {
       description: t("settings.sync.enabledToastDesc"),
     });
-    setShowDirection(true);
-  }, [isConnected, status, t]);
-
-  const choose = async (direction: SyncDirection) => {
-    setBusy(true);
     try {
       const r =
         direction === "fromAniList"
@@ -104,13 +124,9 @@ function SyncBootstrap() {
   };
 
   const cancel = () => {
-    // Dismissing the prompt WITHOUT picking a direction = the user didn't opt
-    // into either reconcile, so we turn sync back OFF (it was auto-enabled on
-    // connect). `directionChosen` still records it as answered so the popup
-    // doesn't reopen on every navigation — the user can enable + pick a
-    // direction later from Settings.
+    // Dismissing the prompt (backdrop / no pick) = same as "Don't sync": leave
+    // sync off, mark it answered so it doesn't reopen on every navigation.
     setSyncPrefs({ enabled: false, directionChosen: true });
-    toast.message(t("settings.sync.dismissedToast"));
     setShowDirection(false);
   };
 

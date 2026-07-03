@@ -464,8 +464,14 @@ export default function Settings() {
 
   // Direction chosen from the modal: flip sync on, then reconcile in the picked
   // direction. "fromAniList" hard-overrides local with AniList; "toAniList"
-  // pushes the local list up to AniList (adds/updates, never deletes).
+  // pushes the local list up to AniList (adds/updates, never deletes); "off"
+  // leaves sync disabled (the master toggle snaps back off).
   const chooseDirection = async (direction: SyncDirection) => {
+    if (direction === "off") {
+      setSyncPrefs({ enabled: false, directionChosen: true });
+      setConfirmSync(false);
+      return;
+    }
     setSyncPrefs({ enabled: true, directionChosen: true });
     setSyncing(true);
     try {

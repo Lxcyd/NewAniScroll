@@ -33,10 +33,12 @@ export type SyncPrefs = {
 };
 
 export const DEFAULT_SYNC_PREFS: SyncPrefs = {
-  // Sync defaults ON: the moment a user connects AniList we mirror their list.
-  // The one-time direction popup (see _app.tsx) still asks which side wins the
-  // FIRST reconcile; `directionChosen` records that it's been answered.
-  enabled: true,
+  // Sync defaults OFF and is turned ON by the user's choice in the first-login
+  // direction popup (see _app.tsx SyncBootstrap). Keeping it off by default
+  // means a guest / not-yet-decided user never has it silently enabled, and
+  // "Don't sync" is a real, sticky choice. `directionChosen` records whether
+  // that one-time question has been answered.
+  enabled: false,
   autoProgress: true,
   autoWatching: true,
   autoPause: false,

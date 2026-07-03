@@ -140,23 +140,25 @@ export async function fullSyncFromAniList(
       return { ok: true, count };
     }
 
-    // ── Conflict resolution (automatic, non-destructive) ───────────
-    // AniList is authoritative, but we don't blindly drop local-only progress:
-    // when the SAME anime exists in both and they DISAGREE on progress, keep
-    // the more-advanced one (and its matching status) so a few episodes watched
-    // offline / on another device aren't lost. Entries only in local (not on
-    // AniList yet) are preserved too. This makes resync non-destructive.
+    // ── Strict mirror of AniList ───────────────────────────────────
+    // While sync is on, AniList is the SINGLE source of truth and the local
+    // list must show EXACTLY what AniList holds — nothing more. An anime with
+    // no status on AniList must not appear anywhere on this device, so entries
+    // that exist ONLY locally are DROPPED here (this is what fixes the ghost
+    // "Rewatching" pill on an anime AniList considers "not in list": a stale
+    // local-only entry that a non-destructive resync used to keep alive).
+    //
+    // We still defend genuinely-ahead LOCAL progress, but only for anime that
+    // ALSO exist on AniList (reconcileEntry) — a few episodes watched offline
+    // since the last push aren't lost. There's no such thing as "offline
+    // progress" for an anime that was never on AniList in the first place.
     const localNow = getLocalList();
     const resolved: LocalEntry[] = [];
     for (const remote of Array.from(byId.values())) {
       const local = localNow[remote.mediaId];
       resolved.push(local ? reconcileEntry(local, remote) : remote);
     }
-    // Carry over entries that exist ONLY locally (absent from AniList).
-    for (const local of Object.values(localNow)) {
-      if (!byId.has(local.mediaId)) resolved.push(local);
-    }
-    // We've already merged, so a straight replace writes the resolved set.
+    // NOTE: local-only entries are intentionally NOT carried over — see above.
     const count = importEntries(resolved, "replace");
     return { ok: true, count };
   } catch {

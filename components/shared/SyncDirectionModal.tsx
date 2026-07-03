@@ -19,7 +19,7 @@
 
 import { useTranslation } from "react-i18next";
 
-export type SyncDirection = "fromAniList" | "toAniList";
+export type SyncDirection = "fromAniList" | "toAniList" | "off";
 
 type Props = {
   open: boolean;
@@ -82,6 +82,21 @@ export default function SyncDirectionModal({
             </div>
             <div className="text-white/60 text-xs">
               {t("settings.sync.dirToDesc")}
+            </div>
+          </button>
+
+          {/* Don't sync — leave both lists as they are, sync stays off. */}
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => onChoose("off")}
+            className="text-left rounded-lg bg-white/5 ring-1 ring-white/10 p-4 hover:bg-white/10 hover:ring-white/20 transition disabled:opacity-50"
+          >
+            <div className="font-medium text-sm mb-0.5">
+              {t("settings.sync.dirOffTitle")}
+            </div>
+            <div className="text-white/60 text-xs">
+              {t("settings.sync.dirOffDesc")}
             </div>
           </button>
         </div>

@@ -166,7 +166,9 @@
       "dirFromDesc": "Télécharge votre liste AniList et remplace celle de cet appareil. Les entrées présentes uniquement en local (absentes d'AniList) seront supprimées.",
       "dirToTitle": "Utiliser ma liste AniScroll",
       "dirToDesc": "Ajoute les anime suivis ici à votre compte AniList (met à jour les entrées existantes, ne supprime jamais rien sur AniList).",
-      "dismissedToast": "Synchronisation laissée désactivée — activez-la quand vous voulez dans les réglages."
+      "dismissedToast": "Synchronisation laissée désactivée — activez-la quand vous voulez dans les réglages.",
+      "dirOffTitle": "Ne pas synchroniser",
+      "dirOffDesc": "Laisse les deux listes telles quelles. La synchronisation reste désactivée — vous pourrez l'activer plus tard dans les réglages."
     },
     "list": {
       "title": "Ma liste (locale)",
