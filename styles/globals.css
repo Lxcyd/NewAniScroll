@@ -295,6 +295,26 @@ a {
   }
 }
 
+/* Injected settings rows (Autoplay, Ambient lights, Automation, OP/ED skip…).
+   These are OUR elements carrying Vidstack's `.vds-menu-button` class, but the
+   custom inline flex layout meant they didn't inherit the native item's height,
+   padding and font-size — so they rendered smaller and more cramped than the
+   real Speed/Quality rows next to them. Pin the same box metrics Vidstack uses
+   so injected rows are visually indistinguishable from native ones. */
+.vds-player .as-menu-row {
+  width: 100%;
+  min-height: var(--media-menu-item-height, 40px);
+  padding: 0 12px;
+  font-size: var(--media-menu-font-size, 15px);
+  line-height: 1.25;
+  border-radius: 6px;
+}
+@media (max-width: 576px) {
+  .vds-player .as-menu-row {
+    min-height: 44px;
+  }
+}
+
 /* Bottom toolbar (download + subtitle-settings) — visually integrated with
    Vidstack's bottom control bar. Buttons use the same size / hover behavior
    as Vidstack's native controls so they look like part of the row. */
