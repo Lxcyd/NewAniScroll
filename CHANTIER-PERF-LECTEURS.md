@@ -70,12 +70,25 @@ Test `curl` ×3 sur un vrai segment MegaCloud (`seg-247`, 999 Ko) via `proxy.ani
 
 **RÉPONSE à "pourquoi les autres sites sont instantanés et pas nous"** : eux jouent le CDN en DIRECT (1 saut). Nous DEVONS proxifier MegaCloud (le CDN 403 sans Referer megaplay.buzz, que seul un proxy serveur peut injecter) → 2 sauts sur un MISS. Le cache edge annule le 2e saut sur HIT (52ms, aussi rapide/plus rapide qu'eux). Le seul point lent = cache FROID (1er visionnage, seek vers un trou) → attaqué par warm serveur + hover-prefetch. Piste non explorée : jouer MegaCloud en direct SI son CDN accepte le CORS (comme Vidmoly) — à tester si le hover-prefetch ne suffit pas.
 
+### VALIDÉ PAR LUC (2026-07-04)
+- [x] Chip Megaplay/VOE réapparaît et reste ✅
+- [x] Freeze infini Vidmoly au seek-spam → corrigé ✅
+- [x] Hover-prefetch → seek Megaplay 1er visionnage plus rapide ✅
+- [x] Sendvid preview revient ✅
+
+### Sendvid — diagnostic final (fa5c33d)
+Sendvid a DEUX tares structurelles IMPOSÉES par l'hébergeur, incontournables :
+1. **Débit bridé `rate=250k`** dans l'URL — verrouillé dans le hash signé (le modifier/retirer → 403). Sendvid impose 250 kb/s.
+2. **Lien IP-bound** (`ip=<Worker>`) — ne marche QUE via le proxy (l'IP du Worker matche). En direct = 403 pour tous.
+→ Le direct-CDN était cassé (403). Repassé en proxy = réparé + preview + cachable, MAIS reste lent (250k = faute de Sendvid, pas du code). Laisser en dernier recours. Pour la vitesse → Megaplay.
+
+### Nouveaux serveurs (AnimePahe/VidLink/Animu) — reverse fait, écartés
+Voir mémoire `candidate-servers.md`. Résumé : aucun exploitable sans reverse lourd ; celui qui marche (hianime via new.vidnest.fun) = doublon MegaCloud/Megaplay. AnimePahe = 502 (down) → retester plus tard.
+
 ### RESTE
-- [ ] **TESTER hover-prefetch** (`cd620a7`) : survoler la barre loin puis cliquer → doit être quasi-instant au 1er visionnage.
-- [ ] **Merge `dev` → `main`** une fois tout validé sur dev.
-- [ ] (Optionnel) Explorer le direct MegaCloud (CORS) si le hover-prefetch ne suffit pas.
-- [ ] (Optionnel) Améliorer Vidmoly (config hls.js dédiée, moins agressif) — demandé mais mis en pause pour prioriser le seek.
+- [ ] **Merge `dev` → `main`** (tout validé) — EN COURS.
 - [ ] (Suivi) Surveiller dashboard Workers (req/jour) ; > ~70k/jour → Workers Paid 5$/mois.
+- [ ] (Futur) Retester AnimePahe quand `new.vidnest.fun/animepahe/` ne renvoie plus 502.
 
 ## Notes en cours de route
 
