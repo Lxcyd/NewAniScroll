@@ -2886,7 +2886,27 @@ export default async function handler(req, res) {
     let allAbsent = true; // every route so far returned a genuine "file not found"
     for (const url of routes) {
       const result = await extractMegaplay(url);
-      if (!result.error && result.streams?.length) return sendOk(result);
+      if (!result.error && result.streams?.length) {
+        // Pre-warm the edge cache NOW, at resolve time — before the player even
+        // loads the manifest. Megaplay is proxy-only (the CDN 403s any Referer
+        // but megaplay.buzz, which a browser can't forge), so its cold start
+        // pays a double hop. Firing the master through the Worker here (with the
+        // megaplay Referer) triggers the Worker's existing warm chain (variant +
+        // sampled segments), so by the time the user hits Play the opening is a
+        // cache HIT. Fire-and-forget: never delays the resolve response.
+        const m3u8 = result.streams[0]?.url;
+        if (m3u8 && /\.m3u8/i.test(m3u8)) {
+          const warmUrl =
+            `${PROXY_BASE}?url=${encodeURIComponent(m3u8)}` +
+            `&referer=${encodeURIComponent("https://megaplay.buzz/")}`;
+          // x-warmer so the Worker/endpoints treat it as internal (no double
+          // availability writes etc.). Swallow all errors.
+          fetchWithTimeout(warmUrl, { headers: { "x-warmer": "1" } }, 4000).catch(
+            () => {},
+          );
+        }
+        return sendOk(result);
+      }
       lastError = result.error || lastError;
       // A route that failed for any reason OTHER than a confirmed absence marks
       // the whole resolve as transient — don't let a timeout on one route get
