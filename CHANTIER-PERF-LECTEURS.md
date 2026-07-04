@@ -85,10 +85,30 @@ Sendvid a DEUX tares structurelles IMPOSÉES par l'hébergeur, incontournables :
 ### Nouveaux serveurs (AnimePahe/VidLink/Animu) — reverse fait, écartés
 Voir mémoire `candidate-servers.md`. Résumé : aucun exploitable sans reverse lourd ; celui qui marche (hianime via new.vidnest.fun) = doublon MegaCloud/Megaplay. AnimePahe = 502 (down) → retester plus tard.
 
+### Preview Sendvid — TRANCHÉ : impossible, laissé sans preview (f18231d)
+Preuve définitive : un Range mid-fichier sur le MP4 Sendvid via proxy → **206 mais 0 octet, timeout 15s**. Sendvid bride à 250k ET ne sert pas les seeks au milieu via proxy. Donc preview par capture de frame impossible (direct=canvas taint, proxy=seek stalle). Sendvid reste DIRECT + RAPIDE sans preview (comme Sibnet). Le mode `lazy` de HoverPreview reste dans le composant (inutilisé) pour un futur stream noCors non-bridé. Seule solution pour une vraie preview Sendvid = vignettes générées côté serveur (gros chantier, non fait).
+
+### Matrice finale serveurs
+| Serveur | Flux | Vitesse | Preview |
+|---|---|---|---|
+| Megaplay | HLS proxifié (cache edge) | rapide | ✅ |
+| Sendvid | direct MP4 | ⚡ excellent | ❌ (impossible) |
+| Sibnet | direct | rapide | ❌ |
+| Vidmoly | direct (CORS-open) | rapide | ✅ |
+
 ### RESTE
-- [ ] **Merge `dev` → `main`** (tout validé) — EN COURS.
+- [ ] **Test final complet sur dev** avant merge (checklist ci-dessous).
+- [ ] **Merge `dev` → `main`** une fois le test final OK.
 - [ ] (Suivi) Surveiller dashboard Workers (req/jour) ; > ~70k/jour → Workers Paid 5$/mois.
 - [ ] (Futur) Retester AnimePahe quand `new.vidnest.fun/animepahe/` ne renvoie plus 502.
+
+### Checklist test final (hard refresh Ctrl+Shift+R à chaque fois)
+- [ ] Megaplay : chip présent + reste au reload ; seek rapide (survole loin + attends 1s + clique)
+- [ ] Sendvid : lecture rapide/excellente (pas de preview = normal)
+- [ ] Vidmoly : seek-spam ne gèle plus à l'infini ; preview OK
+- [ ] Sibnet : joue normalement
+- [ ] Barre de progression : plus épaisse aux jonctions de chapitres ? (doit être uniforme)
+- [ ] Non-régression : downloads, watch-party, sous-titres, skip intro/outro
 
 ## Notes en cours de route
 
