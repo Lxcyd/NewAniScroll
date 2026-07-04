@@ -3928,10 +3928,6 @@ export default function UniversalPlayer({
           tainted. Playback stays direct/fast; only the preview pays the proxy
           hop (and only for the sparse thumbnail seeks, never the main stream).
           For already-CORS streams (megaplay HLS, …) we pass src as-is. */}
-      {/* DIAGNOSTIC (2026-07-04): HoverPreview temporarily DISABLED to measure
-          whether its background thumbnail pre-cache walk was slowing Megaplay /
-          Vidmoly playback. If those are noticeably faster with this off, the
-          pre-cache is the culprit and we make it lazy / opt-in before re-enabling.
       <HoverPreview
         playerRef={playerRef}
         src={
@@ -3940,7 +3936,12 @@ export default function UniversalPlayer({
             : src
         }
         isM3U8={isM3U8}
-      /> */}
+        // Streams whose CDN throttles the proxied pull (sendvid = rate=250k) can't
+        // afford the eager full-episode pre-cache walk — it captures one frame then
+        // stalls (the "same image" bug) and wastes bandwidth. Tell HoverPreview to
+        // work LAZILY for these: capture only around the hovered point, on demand.
+        lazy={!!bestStream!.noCors}
+      />
 
       {/* Big centred play button — the MANUAL start affordance, shown only when
           autoplay is OFF. One click plays WITH sound. With autoplay ON the video

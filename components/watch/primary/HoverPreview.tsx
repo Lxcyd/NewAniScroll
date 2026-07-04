@@ -16,10 +16,15 @@ export default function HoverPreview({
   playerRef,
   src,
   isM3U8,
+  lazy = false,
 }: {
   playerRef: React.RefObject<MediaPlayerInstance>;
   src: string;
   isM3U8: boolean;
+  /** When true, DON'T eagerly walk the whole episode capturing thumbnails
+   *  (that stalls + wastes bandwidth on throttled CDNs like sendvid's 250k).
+   *  Instead capture the frame at the hovered position on demand. */
+  lazy?: boolean;
 }) {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -101,6 +106,9 @@ export default function HoverPreview({
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
+    // Lazy mode: skip the eager full-episode walk entirely. Thumbnails are
+    // captured on demand from the hover handler (see captureAt below).
+    if (lazy) return;
 
     const start = async () => {
       if (cachingActiveRef.current) return;
@@ -140,7 +148,7 @@ export default function HoverPreview({
       video.removeEventListener("loadedmetadata", onLoaded);
       cachingActiveRef.current = false;
     };
-  }, [src]);
+  }, [src, lazy]);
 
   // Track scrubber hover. We poll for the slider since Vidstack mounts it
   // asynchronously inside the DefaultVideoLayout.
@@ -221,12 +229,54 @@ export default function HoverPreview({
       drawPlaceholder();
     };
 
+    // LAZY capture: in lazy mode there's no background walk, so capture the
+    // frame at the hovered bucket ON DEMAND. Debounced (only after the cursor
+    // rests) and single-flight (one seek at a time) so a drag across the bar
+    // doesn't queue dozens of seeks on the throttled CDN. Once captured, the
+    // thumbnail is cached like any other and drawn.
+    let lazyTimer = 0;
+    let lazyBusy = false;
+    const captureAt = (timeSec: number) => {
+      const video = videoRef.current;
+      if (!video) return;
+      const bucket = Math.round(timeSec / THUMB_INTERVAL_S) * THUMB_INTERVAL_S;
+      if (thumbCacheRef.current.has(bucket) || lazyBusy) return;
+      lazyBusy = true;
+      seekAndWait(video, bucket)
+        .then(() => {
+          if (video.videoWidth > 0) {
+            const c = document.createElement("canvas");
+            c.width = THUMB_W;
+            c.height = THUMB_H;
+            const cx = c.getContext("2d");
+            if (cx) {
+              cx.imageSmoothingEnabled = true;
+              cx.imageSmoothingQuality = "high";
+              cx.drawImage(video, 0, 0, c.width, c.height);
+              thumbCacheRef.current.set(bucket, c);
+              // Redraw immediately if the cursor is still near this bucket.
+              drawCachedAt(bucket);
+            }
+          }
+        })
+        .catch(() => {})
+        .finally(() => {
+          lazyBusy = false;
+        });
+    };
+
     const handleMove = (e: PointerEvent) => {
       if (!duration || duration === 0) return;
       const rect = (slider as HTMLElement).getBoundingClientRect();
       const x = e.clientX - rect.left;
       const ratio = Math.max(0, Math.min(1, x / rect.width));
       const time = ratio * duration;
+
+      // In lazy mode, kick a debounced on-demand capture for this spot.
+      if (lazy) {
+        window.clearTimeout(lazyTimer);
+        lazyTimer = window.setTimeout(() => captureAt(time), 140);
+      }
 
       // Position tooltip above the slider, follow the cursor
       const playerRect = playerEl.getBoundingClientRect();
@@ -255,6 +305,7 @@ export default function HoverPreview({
       return () => {
         slider.removeEventListener("pointermove", handleMove as EventListener);
         slider.removeEventListener("pointerleave", handleLeave as EventListener);
+        window.clearTimeout(lazyTimer);
         cancelAnimationFrame(seekRafRef.current);
       };
     }
@@ -264,7 +315,7 @@ export default function HoverPreview({
       cancelled = true;
       cleanup();
     };
-  }, [duration, playerRef]);
+  }, [duration, playerRef, lazy]);
 
   // Cache the player root so we can portal the tooltip inside it — keeps
   // the preview visible when the player goes fullscreen (where any element
