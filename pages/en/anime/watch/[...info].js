@@ -365,10 +365,8 @@ export default function Watch({
     "hianime-tcloud",
     "animesama-sibnet",
     "animesama-oneupload",
-    "voiranime-voe",
     "voiranime-streamtape",
     "animesama-sibnet-vo",
-    "voiranime-voe-vo",
     "voiranime-streamtape-vo",
   ];
 
