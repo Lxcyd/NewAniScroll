@@ -3919,15 +3919,24 @@ export default function UniversalPlayer({
           fullscreen button is always visible and a single tap exits. */}
 
       {/* Hover preview — actual video frame at the cursor position on the
-          scrubber. Skipped for noCors streams (sibnet's cvn CDN, …): the
-          preview's hidden <video> MUST run in CORS mode (its frames are
-          drawn to a canvas, which a no-cors source would security-taint),
-          but these CDNs send no Access-Control-Allow-Origin — every fetch
-          would be blocked, spamming the console with CORS errors and never
-          producing a single thumbnail. */}
-      {!bestStream!.noCors && (
-        <HoverPreview playerRef={playerRef} src={src} isM3U8={isM3U8} />
-      )}
+          scrubber. The preview's hidden <video> MUST run in CORS mode (frames
+          are drawn to a canvas, which a no-cors source would security-taint).
+          For DIRECT noCors streams (sendvid, sibnet cvn) the MAIN <video> plays
+          straight from the CDN (fast, no proxy), but the CDN sends no CORS
+          headers — so we feed the PREVIEW a PROXIED URL instead: same bytes,
+          but the Worker adds Access-Control-Allow-Origin so the canvas isn't
+          tainted. Playback stays direct/fast; only the preview pays the proxy
+          hop (and only for the sparse thumbnail seeks, never the main stream).
+          For already-CORS streams (megaplay HLS, …) we pass src as-is. */}
+      <HoverPreview
+        playerRef={playerRef}
+        src={
+          bestStream!.noCors
+            ? proxied(bestStream!.url, bestStream!.referer || streamData?.referer)
+            : src
+        }
+        isM3U8={isM3U8}
+      />
 
       {/* Big centred play button — the MANUAL start affordance, shown only when
           autoplay is OFF. One click plays WITH sound. With autoplay ON the video
