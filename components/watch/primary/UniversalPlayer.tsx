@@ -150,6 +150,10 @@ const PROXY_BASE =
 // the chapters-VTT blob being rebuilt on a sub-second durationchange, since
 // fixed by quantizing the duration — so the buffer cuts were unnecessary and
 // just made seeking slow. Restored here.)
+// Default HLS tuning — optimised for PROXIED, edge-cached sources (megaplay).
+// The Worker cache absorbs repeated segment fetches, so we can buffer deep and
+// aggressively: forward seeks land in already-fetched data, and re-fetches on a
+// warm cache are ~free (52 ms edge HIT).
 const HLS_CONFIG = {
   lowLatencyMode: false,
   // Buffer well ahead so forward seeks land in already-fetched data. The byte
@@ -164,14 +168,45 @@ const HLS_CONFIG = {
   // working ahead of the playhead — the biggest win for "click far ahead and it
   // loads fast". Safe now that the end-reset cause is fixed.
   startFragPrefetch: true,
-  // Tolerate slow CDN segments a bit longer before giving up, but still fail
-  // fast enough that a genuinely dead segment doesn't hang the seek.
+  // Start at max quality immediately (skip the ABR ramp-up) — the edge cache
+  // makes even top-rung segments cheap, so there's no reason to start low.
+  startLevel: -1,
+  // Load the manifest + first frags fast; the edge cache means low retry cost.
   fragLoadingMaxRetry: 6,
   fragLoadingRetryDelay: 500,
   fragLoadingMaxRetryTimeout: 10000,
+  // Fetch the next fragment while the current one is still being appended —
+  // keeps the buffer ahead of the playhead on a fast (cached) source.
+  progressive: false,
   // Don't stall on tiny gaps between segments (some megaplay encodes have a few
   // ms of PTS drift at boundaries); jump them instead of buffering forever.
   maxBufferHole: 0.5,
+};
+
+// HLS tuning for DIRECT, fragile CDNs (vidmoly). These are NOT cached and the
+// CDN cuts connections (ERR_EMPTY_RESPONSE) when hammered — so we buffer more
+// GENTLY: a smaller working set, fewer/slower retries so a hiccup doesn't burst
+// a retry storm, and a bigger nudge tolerance so playback rides over a briefly
+// missing segment instead of stalling. The goal is resilience, not depth.
+const HLS_CONFIG_DIRECT = {
+  lowLatencyMode: false,
+  // Moderate look-ahead: enough for smooth playback, not so much that we pull a
+  // huge burst that trips the CDN's rate cutoff.
+  maxBufferLength: 30,
+  maxMaxBufferLength: 90,
+  maxBufferSize: 60 * 1000 * 1000, // 60 MB
+  backBufferLength: 30,
+  startFragPrefetch: true,
+  startLevel: -1,
+  // Patient, spaced-out retries: on ERR_EMPTY_RESPONSE the CDN needs a beat
+  // before it answers again — retrying instantly just gets cut again.
+  fragLoadingMaxRetry: 4,
+  fragLoadingRetryDelay: 1000,
+  fragLoadingMaxRetryTimeout: 20000,
+  // Jump slightly larger gaps without stalling (direct CDNs drop the odd
+  // segment); combined with the error-recovery handler this avoids freezes.
+  maxBufferHole: 1,
+  nudgeMaxRetry: 8,
 };
 
 // Never auto-resume into the last few seconds of an episode — at that point
@@ -1227,7 +1262,11 @@ export default function UniversalPlayer({
     _event: MediaProviderChangeEvent,
   ) => {
     if (isHLSProvider(provider)) {
-      provider.config = { ...provider.config, ...HLS_CONFIG };
+      // Direct/fragile CDNs (vidmoly) get the gentler, resilience-tuned config;
+      // proxied edge-cached sources (megaplay) get the aggressive one. The ref
+      // is set in render from bestStream just before the provider is built.
+      const cfg = directPlaybackRef.current ? HLS_CONFIG_DIRECT : HLS_CONFIG;
+      provider.config = { ...provider.config, ...cfg };
     }
   };
 
@@ -2265,6 +2304,11 @@ export default function UniversalPlayer({
     };
 
     const warmAt = (timeSec: number) => {
+      // NEVER hover-prefetch a direct/fragile CDN (vidmoly): the warm fetch hits
+      // the CDN itself (not our cache), and hammering it is exactly what triggers
+      // the ERR_EMPTY_RESPONSE cutoff. Warming only helps PROXIED sources, where
+      // the fetch populates the edge cache. Direct streams get nothing here.
+      if (directPlaybackRef.current) return;
       const url = fragmentAt(timeSec);
       if (!url || warmed.has(url)) return;
       // If it's already buffered we don't need to warm it.
