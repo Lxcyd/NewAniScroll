@@ -1,11 +1,18 @@
 // useWatchParty — client orchestrator for the Watch 2gether feature.
 //
-// Transport: SSE (server -> client) via EventSource + HTTP POST (client ->
+// Transport: Ably (managed WebSocket, server -> client) + HTTP POST (client ->
 // server). Everyone can control playback; conflicts are mitigated with
 // echo-suppression (drop own events) and an `applyingRemote` guard owned by
 // the player integration.
+//
+// Why Ably and not the old SSE stream: an SSE function on Vercel stayed ALIVE
+// ~58s per connection, burning ~1h of Fluid Active CPU per person-hour in a
+// room. Ably is a direct browser↔Ably WebSocket; Vercel only publishes events
+// via a short REST call. The client subscribes to a SUBSCRIBE-only token
+// scoped to its room (see /api/v2/watch2gether/ably-token).
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { Realtime, RealtimeChannel } from "ably";
 import { getGuestIdentity } from "./guest";
 import type {
   ChatMessage,
@@ -23,8 +30,8 @@ import type {
 const PRESENCE_INTERVAL_MS = 5_000;
 
 /** Live connection quality, surfaced as a coloured dot in the panel.
- *  - "connected"    → green   (SSE open)
- *  - "reconnecting" → yellow  (briefly dropped, EventSource is retrying)
+ *  - "connected"    → green   (Ably channel attached)
+ *  - "reconnecting" → yellow  (briefly dropped, Ably is retrying)
  *  - "poor"         → red     (still down after several retries) */
 export type ConnectionState = "connected" | "reconnecting" | "poor";
 
@@ -139,7 +146,9 @@ export function useWatchParty(
 
   const applyingRemoteRef = useRef(false);
   const remoteHandlers = useRef<Set<(e: PartyEvent) => void>>(new Set());
-  const esRef = useRef<EventSource | null>(null);
+  // Live Ably client + channel for this room. Replaces the old EventSource.
+  const ablyRef = useRef<Realtime | null>(null);
+  const channelRef = useRef<RealtimeChannel | null>(null);
   const myIdRef = useRef<string | null>(selfId);
   myIdRef.current = selfId;
   const guestRef = useRef(guest);
@@ -242,8 +251,14 @@ export function useWatchParty(
   // Tear down the live connection (used on leave and when we're removed).
   const teardown = useCallback(() => {
     removedRef.current = true;
-    esRef.current?.close();
-    esRef.current = null;
+    try {
+      channelRef.current?.unsubscribe();
+    } catch {
+      /* noop */
+    }
+    channelRef.current = null;
+    ablyRef.current?.close();
+    ablyRef.current = null;
     setIsConnected(false);
     setConnectionState("reconnecting");
     // Forget the joined room so a later re-join (e.g. same code) re-gates with
@@ -476,8 +491,8 @@ export function useWatchParty(
     remoteHandlers.current.forEach((h) => h(ev));
   }, [teardown]);
 
-  // SSE connection lifecycle. Wait until we have an identity (a guest's resolves
-  // asynchronously) so the very first connection authenticates correctly.
+  // Ably connection lifecycle. Wait until we have an identity (a guest's resolves
+  // asynchronously) so the token request authenticates correctly.
   useEffect(() => {
     if (!roomId || !connectGate) return;
     // A new room/identity means a fresh session — clear any prior removal flags.
@@ -485,57 +500,92 @@ export function useWatchParty(
     rejectedRef.current = false;
 
     let cancelled = false;
+    let client: Realtime | null = null;
+    let channel: RealtimeChannel | null = null;
 
-    // Eager join: catches ban / locked-room rejection immediately (the SSE
-    // stream 403s for those and never fires onopen, so we can't rely on it).
+    // Eager join: catches ban / locked-room rejection immediately (the token
+    // route 403s banned users, but locked-room / inactivity rejection is owned
+    // by join(), so we can't rely on the realtime connection alone).
     join();
 
-    const connect = () => {
-      if (cancelled || removedRef.current) return;
-      // Guests pass their identity in the query (SSE can't send a body).
-      const g = guestRef.current;
-      const params = new URLSearchParams({ roomId });
-      if (g) {
-        params.set("guestId", g.guestId);
-        params.set("guestName", g.guestName);
+    // Ably is a client-only dependency (it touches WebSocket/window), so import
+    // it dynamically to keep it out of the SSR bundle.
+    (async () => {
+      let mod: typeof import("ably");
+      try {
+        mod = await import("ably");
+      } catch {
+        return; // Ably failed to load — feature degrades (no live sync).
       }
-      const es = new EventSource(`/api/v2/watch2gether/stream?${params.toString()}`);
-      esRef.current = es;
+      if (cancelled || removedRef.current) return;
+      // Ably v2 exposes Realtime both as a named export and on the default
+      // export; accept either so bundler interop differences don't break it.
+      const AblyRealtime =
+        (mod as any).Realtime || (mod as any).default?.Realtime;
+      if (!AblyRealtime) return;
 
-      es.onopen = () => {
+      // Auth via our token route: it mints a SUBSCRIBE-only token scoped to this
+      // room's channel. Guests pass their identity in the auth request params so
+      // getPartyUser() can resolve their public id server-side.
+      const g = guestRef.current;
+      const authParams: Record<string, string> = { roomId };
+      if (g) {
+        authParams.guestId = g.guestId;
+        authParams.guestName = g.guestName;
+      }
+
+      // Local non-null handles for use in this scope; the outer `client` /
+      // `channel` (nullable, captured by the cleanup closure) mirror them.
+      const rt: Realtime = new AblyRealtime({
+        authUrl: "/api/v2/watch2gether/ably-token",
+        authMethod: "GET",
+        authParams,
+        // We drive (re)sync via join() on connect; Ably handles reconnection.
+        closeOnUnload: true,
+      });
+      client = rt;
+      ablyRef.current = rt;
+
+      rt.connection.on("connected", () => {
         retryCountRef.current = 0;
         setIsConnected(true);
         setConnectionState("connected");
         join(); // (re)sync authoritative state on every (re)connect
-      };
-      es.onmessage = (msg) => {
-        try {
-          dispatch(JSON.parse(msg.data) as PartyEvent);
-        } catch {
-          /* ignore malformed */
-        }
-      };
-      es.onerror = () => {
-        // EventSource auto-reconnects, but if it hard-closed we recreate it.
-        // Escalate the quality signal: a brief drop is "reconnecting" (yellow),
-        // but after a few failed attempts in a row we call it "poor" (red).
+      });
+      // Briefly dropped → yellow; still down after several retries → red.
+      const onDrop = () => {
+        if (cancelled || removedRef.current) return;
         setIsConnected(false);
         retryCountRef.current += 1;
         setConnectionState(retryCountRef.current >= 3 ? "poor" : "reconnecting");
-        if (es.readyState === EventSource.CLOSED && !cancelled && !removedRef.current) {
-          es.close();
-          esRef.current = null;
-          setTimeout(connect, 1500);
-        }
       };
-    };
+      rt.connection.on("disconnected", onDrop);
+      rt.connection.on("suspended", onDrop);
 
-    connect();
+      const ch: RealtimeChannel = rt.channels.get(`w2g:channel:${roomId}`);
+      channel = ch;
+      channelRef.current = ch;
+      ch.subscribe("event", (msg) => {
+        try {
+          dispatch(
+            (typeof msg.data === "string" ? JSON.parse(msg.data) : msg.data) as PartyEvent,
+          );
+        } catch {
+          /* ignore malformed */
+        }
+      });
+    })();
 
     return () => {
       cancelled = true;
-      esRef.current?.close();
-      esRef.current = null;
+      try {
+        channel?.unsubscribe();
+      } catch {
+        /* noop */
+      }
+      channelRef.current = null;
+      client?.close();
+      ablyRef.current = null;
     };
   }, [roomId, connectGate, join, dispatch]);
 
@@ -544,9 +594,10 @@ export function useWatchParty(
     if (!roomId || !connectGate) return;
 
     // A heartbeat that ALSO inspects the response: when we wake from sleep after
-    // being reaped for inactivity, the SSE may not reliably re-fire onopen (so
-    // join() isn't re-called), but the presence interval resumes and the server
-    // 403s it with "Removed for inactivity". That's our reliable wake signal —
+    // being reaped for inactivity, the realtime connection may not reliably
+    // re-fire "connected" (so join() isn't re-called), but the presence beat on
+    // wake hits the server, which 403s it with "Removed for inactivity". That's
+    // our reliable wake signal —
     // detect it here and run the same rejection flow as join() (close the panel
     // + toast), so the kicked user doesn't keep a stale room open.
     const beat = async () => {
@@ -569,14 +620,36 @@ export function useWatchParty(
       }
     };
 
-    beat();
-    const iv = setInterval(beat, PRESENCE_INTERVAL_MS);
-    // Fire an immediate beat the moment the tab/phone wakes, so the inactivity
-    // kick surfaces right away instead of waiting up to a full interval.
+    // Presence beats only run while the tab is VISIBLE. A backgrounded tab that
+    // nobody is watching shouldn't keep invoking the presence function — that
+    // was needless Vercel CPU. When hidden, we stop the interval; the server's
+    // short presence TTL (12s) then drops us as a real departure would. On
+    // return to foreground we beat immediately (re-establishing presence / the
+    // inactivity-kick signal) and restart the interval.
+    let iv: ReturnType<typeof setInterval> | null = null;
+    const startInterval = () => {
+      if (iv == null) iv = setInterval(beat, PRESENCE_INTERVAL_MS);
+    };
+    const stopInterval = () => {
+      if (iv != null) {
+        clearInterval(iv);
+        iv = null;
+      }
+    };
     const onVisible = () => {
-      if (document.visibilityState === "visible") beat();
+      if (document.visibilityState === "visible") {
+        beat();
+        startInterval();
+      } else {
+        stopInterval();
+      }
     };
     document.addEventListener("visibilitychange", onVisible);
+    // Kick off according to the current visibility.
+    if (typeof document === "undefined" || document.visibilityState === "visible") {
+      beat();
+      startInterval();
+    }
 
     const leave = () => {
       try {
@@ -591,7 +664,7 @@ export function useWatchParty(
     window.addEventListener("pagehide", leave);
 
     return () => {
-      clearInterval(iv);
+      stopInterval();
       window.removeEventListener("pagehide", leave);
       document.removeEventListener("visibilitychange", onVisible);
       // NOTE: we deliberately do NOT call leave() here. This cleanup also runs

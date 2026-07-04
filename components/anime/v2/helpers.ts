@@ -418,10 +418,91 @@ const WALKABLE_FORMATS = new Set([
   "SPECIAL",
 ]);
 
-export function isSeasonLike(node: { type?: string; format?: string } | null): boolean {
+export function isSeasonLike(
+  node: { type?: string | null; format?: string | null } | null
+): boolean {
   if (!node) return false;
   if (node.type && node.type !== "ANIME") return false;
   return SEASON_LIKE_FORMATS.has(node.format || "");
+}
+
+/* ── Season-chain guards ──────────────────────────────────────────────────
+   These live here (not in lib/anilist/seasonDetection.ts) because that module
+   re-exports FROM this file; keeping the primitives here avoids an import
+   cycle. seasonDetection.ts re-exports them so non-React callers reach them
+   through one path. */
+
+/** Best available air year for a node (seasonYear, else startDate.year). */
+export function yearOf(
+  node:
+    | { seasonYear?: number | null; startDate?: { year?: number | null } | null }
+    | null
+    | undefined
+): number | null {
+  if (!node) return null;
+  if (typeof node.seasonYear === "number") return node.seasonYear;
+  const y = node.startDate?.year;
+  return typeof y === "number" ? y : null;
+}
+
+/** PREQUEL/SEQUEL only — ALTERNATIVE / PARENT link remakes / alternate
+ *  versions / compilations, which must NOT chain as consecutive seasons
+ *  (Gundam Origin ↔ Gundam 1979 is an ALTERNATIVE remake). */
+export function isChainableRelation(relationType: string | null | undefined): boolean {
+  return relationType === "PREQUEL" || relationType === "SEQUEL";
+}
+
+/** Air-year monotonicity guard — the key fix for the Gundam inversion. A
+ *  SEQUEL edge must point no earlier than the current node; a PREQUEL edge no
+ *  later. AniList mis-tags these (1979 Gundam tagged SEQUEL of the 2019
+ *  remake); this rejects the bad edge. Unknown years → don't reject. */
+export function edgeYearMonotonic(
+  relationType: "PREQUEL" | "SEQUEL",
+  currentNode:
+    | { seasonYear?: number | null; startDate?: { year?: number | null } | null }
+    | null
+    | undefined,
+  targetNode:
+    | { seasonYear?: number | null; startDate?: { year?: number | null } | null }
+    | null
+    | undefined,
+  toleranceYears = 1
+): boolean {
+  const cur = yearOf(currentNode);
+  const tgt = yearOf(targetNode);
+  if (cur == null || tgt == null) return true;
+  if (relationType === "SEQUEL") return tgt >= cur - toleranceYears;
+  return tgt <= cur + toleranceYears;
+}
+
+// Latin recap markers + Japanese ones:
+//   総集編 (soushuuhen) — "recap/digest"; also its romaji "soushuuhen".
+//   特別編集版 / 編集版 (…henshuu-ban) — a "specially re-edited edition", i.e. a
+//     recompilation movie (JUJUTSU KAISEN: … Tokubetsu Henshuu-ban …). The
+//     romaji "henshuu-ban" is the reliable signal these carry.
+const RECAP_TITLE_RE =
+  /\b(recap|digest|r[ée]sum[ée]|compilation|specials?)\b|総集編|特別編集版|編集版|soushuuhen|henshuu-?ban/i;
+
+/** Title reads like a recap / digest / specials compilation → never a real
+ *  numbered season. */
+export function isRecapTitle(
+  node: {
+    title?: {
+      english?: string | null;
+      romaji?: string | null;
+      native?: string | null;
+      userPreferred?: string | null;
+    } | null;
+  } | null | undefined
+): boolean {
+  if (!node?.title) return false;
+  const parts = [
+    node.title.english,
+    node.title.romaji,
+    node.title.native,
+    node.title.userPreferred,
+  ].filter(Boolean) as string[];
+  return parts.some((t) => RECAP_TITLE_RE.test(t));
 }
 
 function isWalkable(node: { type?: string; format?: string } | null): boolean {
@@ -443,9 +524,18 @@ function isWalkable(node: { type?: string; format?: string } | null): boolean {
 function pickChainEdge(
   edges: Array<{ relationType: string; node: any }>,
   relationType: "PREQUEL" | "SEQUEL",
-  currentTitle?: AnyTitle | null
+  currentTitle?: AnyTitle | null,
+  currentNode?: { seasonYear?: number | null; startDate?: { year?: number | null } | null } | null
 ): { node: any } | null {
-  const sameType = edges.filter((e) => e.relationType === relationType);
+  // Chainable relation type + air-year monotonicity: reject ALTERNATIVE/PARENT
+  // remakes and edges that jump the wrong way in time (Gundam 1979 mis-tagged
+  // as a SEQUEL of the 2019 remake).
+  const sameType = edges.filter(
+    (e) =>
+      e.relationType === relationType &&
+      isChainableRelation(e.relationType) &&
+      edgeYearMonotonic(relationType, currentNode, e.node)
+  );
   if (sameType.length === 0) return null;
 
   // Narrow to edges that share at least one significant token with the
@@ -709,7 +799,8 @@ export function computeSeasonInfo(
     const edge = pickChainEdge(
       media.relations?.edges || [],
       "PREQUEL",
-      currentMedia.title
+      currentMedia.title,
+      media
     );
     if (!edge) break;
     const nextId = Number(edge.node.id);
@@ -732,7 +823,8 @@ export function computeSeasonInfo(
     const edge = pickChainEdge(
       media.relations?.edges || [],
       "SEQUEL",
-      currentMedia.title
+      currentMedia.title,
+      media
     );
     if (!edge) break;
     const nextId = Number(edge.node.id);

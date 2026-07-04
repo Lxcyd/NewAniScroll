@@ -360,8 +360,14 @@ export default function Hero({
   // Append " · S<n>[ Part N]" to the episode pill when we know this anime
   // is part of a multi-season series — but only for series formats, never
   // for movies/specials that happen to be tied to a parent franchise.
+  //
+  // Suppress "· S1" for a SINGLE-season franchise: a standalone anime, or a
+  // remake we've correctly isolated from its original's timeline (Gundam
+  // Origin), has no real "season" — showing "S1" there is misleading. We only
+  // badge a season when the franchise actually has more than one (total > 1).
+  const isMultiSeasonFranchise = (seasonInfo?.total ?? 0) > 1;
   const seasonSuffix =
-    !isSingleEpisode && seasonNumber != null && seasonNumber > 0
+    !isSingleEpisode && isMultiSeasonFranchise && seasonNumber != null && seasonNumber > 0
       ? ` · S${seasonNumber}${partSuffix}`
       : !isSingleEpisode && partSuffix
       ? ` ·${partSuffix}`
@@ -766,12 +772,13 @@ const hStyles: Record<string, CSSProperties> = {
     width: "calc(100% + 2px)",
     marginLeft: -1,
     marginRight: -1,
-    borderBottom: "1px solid var(--line)",
+    // No border-bottom: the banner fade already resolves to var(--bg-0), so a
+    // 1px line here just reintroduces the hard seam we're trying to avoid.
   },
   banner: {
     position: "relative",
     width: "100%",
-    height: 280,
+    height: 360,
     overflow: "hidden",
   },
   bannerImg: {
@@ -785,15 +792,12 @@ const hStyles: Record<string, CSSProperties> = {
   bannerFade: {
     position: "absolute",
     inset: 0,
-    /* Banner-to-page fade. Three stops:
-         0%   → almost transparent (let the artwork breathe at the top)
-         55%  → half-opacity (the area where the title art sits)
-         90%  → fully bg-0
-         100% → bg-0 + 1px overshoot so the bottom-most pixel row
-                matches the page background to the byte (no visible
-                seam between banner and the rest of the page). */
+    /* Banner-to-page fade — long and soft, NO hard edge. The image may stay
+       fairly clear up top; the point is that it dissolves smoothly all the way
+       into the page background with no visible seam. Steady ramp, many stops to
+       avoid banding, resolving to exactly bg-0 at the very bottom. */
     background:
-      "linear-gradient(180deg, rgba(12,13,16,0.15) 0%, rgba(12,13,16,0.5) 55%, var(--bg-0) 90%, var(--bg-0) 100%)",
+      "linear-gradient(180deg, rgba(12,13,16,0) 0%, rgba(12,13,16,0.06) 22%, rgba(12,13,16,0.16) 40%, rgba(12,13,16,0.34) 56%, rgba(12,13,16,0.58) 70%, rgba(12,13,16,0.82) 84%, var(--bg-0) 100%)",
   },
   seasonPill: {
     position: "absolute",
@@ -817,7 +821,10 @@ const hStyles: Record<string, CSSProperties> = {
     maxWidth: 1380,
     margin: "0 auto",
     padding: "0 28px 36px",
-    marginTop: -160,
+    // Overlaps the banner. Kept in step with the banner height (360) + fade so
+    // the poster/title sit at the same visual spot: when the banner grew from
+    // 280→360 (+80) this moved -160→-240 to hold that position.
+    marginTop: -240,
     position: "relative",
     zIndex: 2,
   },

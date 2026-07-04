@@ -6,7 +6,10 @@ import { useRouter } from "next/router";
 import { AniListInfoTypes } from "types/info/AnilistInfoTypes";
 import { Episode } from "types/api/Episode";
 import { useTranslation } from "react-i18next";
+import { useEffect, useState } from "react";
 import { useHideSpoilers } from "@/lib/prefs/spoilerPrefs";
+import { useSyncPrefs } from "@/lib/prefs/syncPrefs";
+import { peekLocalEntry, LOCAL_LIST_EVENT } from "@/lib/list/localList";
 
 type EpisodeListsProps = {
   info: AniListInfoTypes;
@@ -29,7 +32,31 @@ export default function EpisodeLists({
   track,
   dub,
 }: EpisodeListsProps) {
-  const progress = info.mediaListEntry?.progress;
+  // Watched-episode count for the "seen" bar. Source of truth must match the
+  // rest of the app: the LOCAL list when sync is off / guest (the editor and
+  // Hero read it there), and only fall back to AniList's mediaListEntry when
+  // sync is ON. Reading AniList directly regardless of sync (the old behaviour)
+  // painted every episode "watched" for a user whose AniList said COMPLETED
+  // even though they never enabled sync and the site shows nothing.
+  const syncEnabled = useSyncPrefs().enabled;
+  const [localProgress, setLocalProgress] = useState<number | undefined>(
+    undefined,
+  );
+  useEffect(() => {
+    const aniId = Number(info?.id);
+    if (!Number.isFinite(aniId)) return;
+    const read = () => setLocalProgress(peekLocalEntry(aniId)?.progress);
+    read();
+    window.addEventListener(LOCAL_LIST_EVENT, read);
+    window.addEventListener("storage", read);
+    return () => {
+      window.removeEventListener(LOCAL_LIST_EVENT, read);
+      window.removeEventListener("storage", read);
+    };
+  }, [info?.id]);
+  const progress = syncEnabled
+    ? info.mediaListEntry?.progress
+    : localProgress;
   const hideSpoilers = useHideSpoilers();
   const { t } = useTranslation();
 

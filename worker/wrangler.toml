@@ -5,11 +5,33 @@ compatibility_date = "2025-10-01"
 # Workers Free includes 100k requests/day and unmetered bandwidth — that's
 # what we're here for. Workers Paid ($5/mo) raises the daily cap to 333k.
 #
-# The default Workers.dev subdomain (https://aniscroll-proxy.<account>.workers.dev)
-# is what NEXT_PUBLIC_PROXY_BASE should point at on the Next.js side.
-# If you later attach a custom domain, update that env var.
+# Custom domain — REQUIRED for the edge cache. Cloudflare's Cache API
+# (caches.default) is a NO-OP on *.workers.dev; it only works when the Worker
+# runs on a custom domain attached to a zone. aniscroll.com is already on
+# Cloudflare, so `wrangler deploy` provisions proxy.aniscroll.com and its DNS
+# record automatically. The *.workers.dev URL stays live as a fallback.
+# NEXT_PUBLIC_PROXY_BASE (Vercel) must point at https://proxy.aniscroll.com.
+routes = [{ pattern = "proxy.aniscroll.com", custom_domain = true }]
 
 # Observability is on by default — opt out only if you want to save log volume.
 [observability]
 enabled = true
+
+# KV namespace backing the offloaded /w/health and /w/broadcast endpoints.
+# The Worker READS this; the Next.js write side (anilist-health cron + admin
+# broadcast POST) mirrors the cached value into the same namespace.
+#
+# Create it once and paste the returned id below:
+#   wrangler kv namespace create W2G_CACHE
+[[kv_namespaces]]
+binding = "W2G_CACHE"
+id = "2ae59b75a28947848063dbac5b433e23"
+
+# Secrets used by /w/track (analytics → Turso over HTTP). Set them with:
+#   wrangler secret put TURSO_ADMIN_URL     # libsql://<your-admin-db>.turso.io
+#   wrangler secret put TURSO_ADMIN_TOKEN   # admin DB auth token
+#
+# Secret used by the Next.js side to write into KV via the REST API (NOT read
+# by the Worker itself — listed here for documentation):
+#   CF_ACCOUNT_ID, CF_KV_NAMESPACE_ID, CF_KV_API_TOKEN  (env on Vercel)
 

@@ -31,7 +31,14 @@ import {
   ImportResult,
 } from "@/lib/list/importExport";
 import { useLocalList, clearLocalList } from "@/lib/list/localList";
-import { fullSyncFromAniList, runAutoPauseSweep } from "@/lib/list/syncEngine";
+import {
+  fullSyncFromAniList,
+  fullSyncToAniList,
+  runAutoPauseSweep,
+} from "@/lib/list/syncEngine";
+import SyncDirectionModal, {
+  type SyncDirection,
+} from "@/components/shared/SyncDirectionModal";
 import { useEffect, useRef, useState } from "react";
 import {
   LanguageIcon,
@@ -455,17 +462,42 @@ export default function Settings() {
     }
   };
 
-  // Confirmed enable: flip the toggle on, then HARD-OVERRIDE local with AniList
-  // (the consequence the confirm dialog spelled out).
-  const enableSync = async () => {
-    setConfirmSync(false);
-    setSyncPrefs({ enabled: true });
-    await runPull(true);
+  // Direction chosen from the modal: flip sync on, then reconcile in the picked
+  // direction. "fromAniList" hard-overrides local with AniList; "toAniList"
+  // pushes the local list up to AniList (adds/updates, never deletes); "off"
+  // leaves sync disabled (the master toggle snaps back off).
+  const chooseDirection = async (direction: SyncDirection) => {
+    if (direction === "off") {
+      setSyncPrefs({ enabled: false, directionChosen: true });
+      setConfirmSync(false);
+      return;
+    }
+    setSyncPrefs({ enabled: true, directionChosen: true });
+    setSyncing(true);
+    try {
+      const r =
+        direction === "fromAniList"
+          ? await fullSyncFromAniList({ replace: true })
+          : await fullSyncToAniList();
+      if (r.ok) {
+        toast.success(
+          direction === "fromAniList"
+            ? t("settings.sync.synced", { count: r.count })
+            : t("settings.sync.pushed", { count: r.count }),
+        );
+        await runAutoPauseSweep().catch(() => {});
+      } else {
+        toast.error(t("settings.sync.syncFailed"));
+      }
+    } finally {
+      setSyncing(false);
+      setConfirmSync(false);
+    }
   };
 
   const handleMasterToggle = (next: boolean) => {
     if (next) {
-      // Turning ON: confirm first (it replaces the local list).
+      // Turning ON: ask which list wins the first reconcile.
       if (isLoggedIn) setConfirmSync(true);
       else setSyncPrefs({ enabled: true }); // guest: nothing to pull/overwrite
     } else {
@@ -565,42 +597,14 @@ export default function Settings() {
       </Head>
       <Navbar withNav={true} scrollP={5} shrink={true} />
 
-      {/* Confirmation before enabling sync — it replaces the local list with
-          the AniList list, so we make the consequence explicit. */}
-      {confirmSync && (
-        <div
-          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 px-4"
-          onClick={() => setConfirmSync(false)}
-        >
-          <div
-            className="w-full max-w-md rounded-xl bg-secondary ring-1 ring-white/10 p-6"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3 className="text-lg font-semibold mb-2">
-              {t("settings.sync.confirmTitle")}
-            </h3>
-            <p className="text-white/70 text-sm mb-6">
-              {t("settings.sync.confirmBody")}
-            </p>
-            <div className="flex justify-end gap-3">
-              <button
-                type="button"
-                onClick={() => setConfirmSync(false)}
-                className="px-4 py-2 rounded-lg bg-white/10 ring-1 ring-white/10 text-sm hover:bg-white/15"
-              >
-                {t("settings.sync.cancel")}
-              </button>
-              <button
-                type="button"
-                onClick={enableSync}
-                className="px-4 py-2 rounded-lg bg-action text-white text-sm font-medium hover:opacity-90"
-              >
-                {t("settings.sync.confirmEnable")}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Enabling sync asks WHICH list wins the first reconcile — AniList
+          overwrites local, or the local list is pushed up to AniList. */}
+      <SyncDirectionModal
+        open={confirmSync}
+        onChoose={chooseDirection}
+        onCancel={() => setConfirmSync(false)}
+        busy={syncing}
+      />
 
       {/* Confirmation before deleting the local list — irreversible. */}
       {confirmClear && (

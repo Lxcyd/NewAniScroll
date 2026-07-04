@@ -26,15 +26,25 @@ export type SyncPrefs = {
   /** Minimum fraction of an episode that must be watched before it counts as
    *  finished (progress +1 / AniList update). 0–1.0; default 0.8 (80%). */
   syncThreshold: number;
+  /** True once the user has answered the "which list wins" direction prompt at
+   *  least once (first AniList login, or a manual toggle). Gates the one-time
+   *  auto-enable + direction popup in _app so it never re-nags on later loads. */
+  directionChosen: boolean;
 };
 
 export const DEFAULT_SYNC_PREFS: SyncPrefs = {
+  // Sync defaults OFF and is turned ON by the user's choice in the first-login
+  // direction popup (see _app.tsx SyncBootstrap). Keeping it off by default
+  // means a guest / not-yet-decided user never has it silently enabled, and
+  // "Don't sync" is a real, sticky choice. `directionChosen` records whether
+  // that one-time question has been answered.
   enabled: false,
   autoProgress: true,
   autoWatching: true,
   autoPause: false,
   autoPauseDays: 30,
   syncThreshold: 0.8,
+  directionChosen: false,
 };
 
 /** Clamp a stored/incoming threshold to the supported 0–100% range. */

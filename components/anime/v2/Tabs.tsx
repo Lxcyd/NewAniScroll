@@ -7,6 +7,7 @@ import Artworks from "./Artworks";
 import ScoresTab from "./ScoresTab";
 import { FanartResponse, collectArtworks } from "./helpers";
 import type { SeasonEntry } from "@/lib/anilist/seasonChain";
+import type { FilmVariant } from "@/lib/anilist/resolveSeason";
 import { useTranslation } from "react-i18next";
 import { replaceUrlPreservingState } from "@/lib/navigation/replaceUrl";
 
@@ -18,6 +19,7 @@ type Props = {
   fanarts: FanartResponse | null;
   progress: number;
   seasonList?: SeasonEntry[];
+  bonusFilms?: FilmVariant[];
 };
 
 /* Persist the active tab in `location.hash` so:
@@ -31,9 +33,15 @@ function readTabFromHash(): TabId {
   return VALID_TABS.indexOf(h) >= 0 ? h : "overview";
 }
 
-export default function Tabs({ info, fanarts, progress, seasonList }: Props) {
+export default function Tabs({ info, fanarts, progress, seasonList, bonusFilms }: Props) {
   const { t } = useTranslation();
   const [tab, setTab] = useState<TabId>("overview");
+  // Real loaded episode count reported by <Episodes>. AniList's info.episodes is
+  // null for long-running airing shows (One Piece), which left the "Épisodes"
+  // tab with no badge; the fetched list length fills that in.
+  const [episodeCount, setEpisodeCount] = useState<number | null>(null);
+  // Reset when navigating to another anime (client-side nav keeps this mounted).
+  useEffect(() => setEpisodeCount(null), [info.id]);
 
   // Restore tab from hash on mount + on hashchange AND popstate (back/forward).
   // hashchange fires when the hash itself changes, but a back/forward that lands
@@ -103,7 +111,16 @@ export default function Tabs({ info, fanarts, progress, seasonList }: Props) {
     {
       id: "episodes",
       label: t("anime.episodes"),
-      count: info.episodes ?? null,
+      // Prefer the real fetched count (fills in for airing shows AniList
+      // reports no episode count for). Before the Episodes tab has loaded, fall
+      // back to AniList's metadata, then to the already-aired count derived from
+      // nextAiringEpisode so a long-running airing show still shows a badge.
+      count:
+        episodeCount ??
+        info.episodes ??
+        (info.nextAiringEpisode?.episode
+          ? info.nextAiringEpisode.episode - 1
+          : null),
     },
     {
       id: "scores",
@@ -163,6 +180,8 @@ export default function Tabs({ info, fanarts, progress, seasonList }: Props) {
             info={info}
             progress={progress}
             seasonList={seasonList}
+            bonusFilms={bonusFilms}
+            onEpisodeCount={setEpisodeCount}
           />
         )}
         {tab === "scores" && (

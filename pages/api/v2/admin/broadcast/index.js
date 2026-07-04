@@ -7,6 +7,7 @@ import {
   ensureAdminSchema,
   logAuditEvent,
 } from "@/lib/db/turso-admin";
+import { writeCloudflareKv } from "@/lib/cloudflareKv";
 
 // Cross-instance cache so every page load doesn't round-trip to Turso.
 // _app.tsx fetches this on mount + every route change with `cache: "no-store"`;
@@ -108,11 +109,15 @@ export default async function handler(req, res) {
         value: payload,
         expiresAt: Date.now() + BROADCAST_CACHE_TTL_S * 1000,
       };
+      const serialized = JSON.stringify(payload);
       if (redis) {
         redis
-          .set(BROADCAST_CACHE_KEY, JSON.stringify(payload), "EX", BROADCAST_CACHE_TTL_S)
+          .set(BROADCAST_CACHE_KEY, serialized, "EX", BROADCAST_CACHE_TTL_S)
           .catch(() => {});
       }
+      // Mirror into Cloudflare KV so the Worker's /w/broadcast endpoint (which
+      // clients poll instead of this route) serves the fresh value from the edge.
+      writeCloudflareKv(BROADCAST_CACHE_KEY, serialized);
       res.setHeader(
         "Cache-Control",
         "public, s-maxage=60, stale-while-revalidate=300",
@@ -153,6 +158,24 @@ export default async function handler(req, res) {
       // Bust caches so the new message shows up immediately for everyone.
       broadcastMemCache = null;
       if (redis) redis.del(BROADCAST_CACHE_KEY).catch(() => {});
+      // Push the fresh payload straight to Cloudflare KV so edge clients polling
+      // /w/broadcast see the update right away (otherwise they'd serve the stale
+      // KV value until the next Vercel GET recomputes it). Mirror GET's shape,
+      // including the start/end window applied to `show`.
+      {
+        const now = Math.floor(Date.now() / 1000);
+        const inWindow =
+          (startAt == null || now >= Number(startAt)) &&
+          (endAt == null || now <= Number(endAt));
+        const payload = {
+          title: title || null,
+          message,
+          startAt: startAt ?? null,
+          endAt: endAt ?? null,
+          show: Boolean(show) && inWindow,
+        };
+        writeCloudflareKv(BROADCAST_CACHE_KEY, JSON.stringify(payload));
+      }
       return res.status(200).json({ message: "Broadcast updated" });
     }
 
@@ -166,6 +189,12 @@ export default async function handler(req, res) {
       );
       broadcastMemCache = null;
       if (redis) redis.del(BROADCAST_CACHE_KEY).catch(() => {});
+      // Mirror the cleared state to KV so edge clients stop showing the banner
+      // immediately.
+      writeCloudflareKv(
+        BROADCAST_CACHE_KEY,
+        JSON.stringify({ title: null, message: null, show: false }),
+      );
       return res.status(200).json({ message: "Broadcast cleared" });
     }
 

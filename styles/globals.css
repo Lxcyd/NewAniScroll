@@ -187,6 +187,7 @@ a {
 .vds-player
   button:not(.aniscroll-skip-btn):not(.aniscroll-next-btn):not(.w2g-fs-send):hover,
 .vds-player [role="menuitem"]:hover,
+.vds-player [role="menuitemcheckbox"]:hover,
 .vds-player a[aria-label]:hover {
   color: var(--brand-primary, #E94560) !important;
 }
@@ -291,6 +292,36 @@ a {
   }
   /* 44 px tap target on the menu items we inject (HIG minimum). */
   .vds-settings-menu-items .vds-menu-button {
+    min-height: 44px;
+  }
+}
+
+/* Injected settings rows (Autoplay, Ambient lights, Automation, OP/ED skip…).
+   These are OUR elements carrying Vidstack's `.vds-menu-button` class, but the
+   custom inline flex layout meant they didn't inherit the native item's height,
+   padding and font-size — so they rendered smaller and more cramped than the
+   real Speed/Quality rows next to them. Pin the same box metrics Vidstack uses
+   so injected rows are visually indistinguishable from native ones. */
+.vds-player .as-menu-row {
+  width: 100%;
+  min-height: var(--media-menu-item-height, 40px);
+  padding: 0 12px;
+  font-size: var(--media-menu-font-size, 15px);
+  line-height: 1.25;
+  border-radius: 6px;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+/* Hover/focus background — matches the native Speed/Quality rows' highlight
+   rectangle (Vidstack draws it on its own items via internal styles that don't
+   reach ours). The accent text tint lives in the shared menu-hover rule above;
+   here we add the fill so the whole row lights up, not just the label. */
+.vds-player .as-menu-row:hover,
+.vds-player .as-menu-row:focus-visible {
+  background-color: rgba(255, 255, 255, 0.1);
+  outline: none;
+}
+@media (max-width: 576px) {
+  .vds-player .as-menu-row {
     min-height: 44px;
   }
 }
@@ -1199,6 +1230,14 @@ input[type="number"] {
   position: relative;
   box-sizing: border-box;
   background-color: rgba(255, 255, 255, 0.22);
+  /* Contain each pill's paint to its own box. Without this, the forced
+     height:100% inner layers + the rounded clip-path caps of two adjacent
+     chapters overlap vertically at their shared seam, painting a few extra
+     pixels of height right at each chapter junction — which reads as the bar
+     being "thicker at two spots" (the intro/outro AniSkip boundaries). Clipping
+     to the box removes the seam bleed. Paint-only, so the X% width / click
+     mapping is untouched. */
+  overflow: hidden;
   /* Each chapter is its own rounded capsule with a gap to the next one. We do
      it with clip-path instead of border-radius+margin because:
        • border-radius alone on edge-to-edge pills makes adjacent rounded ends
@@ -1274,4 +1313,24 @@ input[type="number"] {
   to {
     transform: scaleX(1);
   }
+}
+
+/* Discover swipe toasts: restyle sonner's default white "Undo" action button
+   into a dark, subtle pill that reads as part of the toast. */
+.discover-toast [data-button] {
+  background: rgba(255, 255, 255, 0.12) !important;
+  color: #fff !important;
+  border: 1px solid rgba(255, 255, 255, 0.22) !important;
+  border-radius: 8px !important;
+  font-weight: 700 !important;
+  padding: 4px 12px !important;
+  transition: background 0.15s ease, transform 0.1s ease;
+}
+
+.discover-toast [data-button]:hover {
+  background: rgba(255, 255, 255, 0.2) !important;
+}
+
+.discover-toast [data-button]:active {
+  transform: scale(0.94);
 }

@@ -52,6 +52,13 @@ import { toast } from "sonner";
 import { useWatchParty } from "@/lib/watch2gether/useWatchParty";
 import WatchPartyPanel from "@/components/watch/party/WatchPartyPanel";
 
+// Resolved video-proxy Worker base — mirrors the fallback the player and the
+// source resolver hardcode when NEXT_PUBLIC_PROXY_BASE is unset. Used to warm
+// the connection (preconnect/dns-prefetch) unconditionally in <Head>.
+const PROXY_BASE =
+  process.env.NEXT_PUBLIC_PROXY_BASE ||
+  "https://proxy.aniscroll.com";
+
 // ─────────────────────────────────────────────────────────────
 // SSR
 // ─────────────────────────────────────────────────────────────
@@ -325,6 +332,16 @@ export default function Watch({
     });
   }, []);
 
+  // Verdicts for servers resolved by the ACTIVE-source fast path
+  // (fetchStreamSource), which runs OUTSIDE the probe fan-out's local Sets.
+  // Without this, an active server confirmed here (e.g. the default `megaplay`,
+  // or the user's preferred one) was marked in React state but NEVER added to
+  // the `cachedConfirmed` Set the availability snapshot is built from — so it
+  // was never published, and the NEXT visitor's snapshot omitted it, hiding the
+  // chip. The probe effect reads this ref when publishing so those verdicts make
+  // it into the snapshot. `ok` = resolved 200; `absent` = genuine 204/404.
+  const activeVerdictRef = useRef({ ok: new Set(), absent: new Set() });
+
   // Mirror of failedServers for sync reads inside markFailed without forcing
   // markFailed to depend on failedServers (which would invalidate fetchStreamSource
   // every probe and cancel in-flight requests).
@@ -348,10 +365,8 @@ export default function Watch({
     "hianime-tcloud",
     "animesama-sibnet",
     "animesama-oneupload",
-    "voiranime-voe",
     "voiranime-streamtape",
     "animesama-sibnet-vo",
-    "voiranime-voe-vo",
     "voiranime-streamtape-vo",
   ];
 
@@ -788,6 +803,16 @@ export default function Watch({
     } catch {}
   }, [info?.id, epiNumber, dub, provider, watchId]);
 
+  // Close a lingering rate popup whenever the anime changes. The rating state
+  // lives in the app-wide WatchPageProvider (so it survives client-side nav), so
+  // an unanswered popup from anime A would otherwise stay open — and re-bind to
+  // anime B's dataMedia — the moment you open another anime. Reset it on id change.
+  useEffect(() => {
+    setRatingModalState((prev) =>
+      prev.isOpen ? { ...prev, isOpen: false } : prev,
+    );
+  }, [info?.id, setRatingModalState]);
+
   // ── Episode list + navigation ────────────────────────────────
   useEffect(() => {
     // Reset server-state for the new episode at the START of the effect, not in
@@ -1078,6 +1103,7 @@ export default function Watch({
       setHlsData(prefetched);
       setHlsLoading(false);
       markConfirmed(serverId);
+      activeVerdictRef.current.ok.add(serverId);
       if (prefetched?.degraded) markDegraded(serverId);
       activeSourceSettledRef.current = true;
       return;
@@ -1113,6 +1139,8 @@ export default function Watch({
       if (res.status === 204) {
         setHlsData({ error: true });
         markFailed(serverId, "Source not found");
+        // Genuine "no source" (soft404) → publishable as a stable absence.
+        activeVerdictRef.current.absent.add(serverId);
       } else if (res.ok) {
         const data = await res.json();
         setHlsData(data);
@@ -1123,8 +1151,11 @@ export default function Watch({
           );
         }
         markConfirmed(serverId);
+        activeVerdictRef.current.ok.add(serverId);
         if (data?.degraded) markDegraded(serverId);
       } else {
+        // 5xx / transient — mark failed for the UI but do NOT publish as absent
+        // (would wrongly hide a working server in the 6h snapshot).
         setHlsData({ error: true });
         markFailed(serverId, `HTTP ${res.status}`);
       }
@@ -1499,7 +1530,21 @@ export default function Watch({
       // light up instantly (server-side availability cache). Fire-and-forget,
       // never blocks anything; the endpoint collapses concurrent writes so a
       // popular episode costs ~1 Redis write regardless of viewer count.
-      if (!cancelled && (cachedConfirmed.size > 0 || confirmedAbsent.size > 0)) {
+      // Fold in the active-source fast-path verdicts (the active server is
+      // resolved outside this pool, so its result isn't in cachedConfirmed /
+      // confirmedAbsent). This is what gets `megaplay` (the default active
+      // server) and the user's preferred server into the snapshot at all.
+      const publishOk = new Set([
+        ...cachedConfirmed,
+        ...activeVerdictRef.current.ok,
+      ]);
+      const publishAbsent = new Set([
+        ...confirmedAbsent,
+        ...activeVerdictRef.current.absent,
+      ]);
+      // A server can't be both — a confirmation always wins over a stale absence.
+      for (const id of publishOk) publishAbsent.delete(id);
+      if (!cancelled && (publishOk.size > 0 || publishAbsent.size > 0)) {
         try {
           fetch("/api/v2/availability", {
             method: "POST",
@@ -1508,10 +1553,10 @@ export default function Watch({
               aniId: info.id,
               episode: parseInt(epiNumber),
               sub,
-              servers: Array.from(cachedConfirmed),
+              servers: Array.from(publishOk),
               // Stable absences too → the next visitor skips probing these
               // entirely instead of re-scraping to rediscover they're empty.
-              absent: Array.from(confirmedAbsent),
+              absent: Array.from(publishAbsent),
             }),
             keepalive: true,
             priority: "low",
@@ -1779,12 +1824,12 @@ export default function Watch({
         <link rel="preconnect" href="https://video.sibnet.ru" crossOrigin="anonymous" />
         <link rel="preconnect" href="https://sendvid.com" crossOrigin="anonymous" />
         <link rel="preconnect" href="https://vidmoly.to" crossOrigin="anonymous" />
-        {process.env.NEXT_PUBLIC_PROXY_BASE && (
-          <>
-            <link rel="preconnect" href={process.env.NEXT_PUBLIC_PROXY_BASE} crossOrigin="anonymous" />
-            <link rel="dns-prefetch" href={process.env.NEXT_PUBLIC_PROXY_BASE} />
-          </>
-        )}
+        {/* Warm the video proxy Worker unconditionally: the env var is only a
+            build-time override, and when it's unset the player still hardcodes
+            the same Worker as its fallback — so preconnect must target the
+            resolved base, not gate on the env var being present. */}
+        <link rel="preconnect" href={PROXY_BASE} crossOrigin="anonymous" />
+        <link rel="dns-prefetch" href={PROXY_BASE} />
         <link rel="dns-prefetch" href="https://megaplay.buzz" />
         <link rel="dns-prefetch" href="https://video.sibnet.ru" />
         <link rel="dns-prefetch" href="https://sendvid.com" />

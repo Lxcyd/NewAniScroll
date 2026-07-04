@@ -135,7 +135,7 @@ type Props = {
 const PROXY_BASE =
   (typeof process !== "undefined" &&
     (process as any).env?.NEXT_PUBLIC_PROXY_BASE) ||
-  "https://aniscroll-proxy.luc-deldem.workers.dev";
+  "https://proxy.aniscroll.com";
 
 // hls.js tuning for snappy seeking. The defaults buffer only ~30s ahead and
 // keep almost no back-buffer, so every seek forces a fresh network round-trip —
@@ -150,6 +150,10 @@ const PROXY_BASE =
 // the chapters-VTT blob being rebuilt on a sub-second durationchange, since
 // fixed by quantizing the duration — so the buffer cuts were unnecessary and
 // just made seeking slow. Restored here.)
+// Default HLS tuning — optimised for PROXIED, edge-cached sources (megaplay).
+// The Worker cache absorbs repeated segment fetches, so we can buffer deep and
+// aggressively: forward seeks land in already-fetched data, and re-fetches on a
+// warm cache are ~free (52 ms edge HIT).
 const HLS_CONFIG = {
   lowLatencyMode: false,
   // Buffer well ahead so forward seeks land in already-fetched data. The byte
@@ -164,14 +168,53 @@ const HLS_CONFIG = {
   // working ahead of the playhead — the biggest win for "click far ahead and it
   // loads fast". Safe now that the end-reset cause is fixed.
   startFragPrefetch: true,
-  // Tolerate slow CDN segments a bit longer before giving up, but still fail
-  // fast enough that a genuinely dead segment doesn't hang the seek.
+  // Start at max quality immediately (skip the ABR ramp-up) — the edge cache
+  // makes even top-rung segments cheap, so there's no reason to start low.
+  startLevel: -1,
+  // Load the manifest + first frags fast; the edge cache means low retry cost.
   fragLoadingMaxRetry: 6,
   fragLoadingRetryDelay: 500,
   fragLoadingMaxRetryTimeout: 10000,
+  // Fetch the next fragment while the current one is still being appended —
+  // keeps the buffer ahead of the playhead on a fast (cached) source.
+  progressive: false,
   // Don't stall on tiny gaps between segments (some megaplay encodes have a few
   // ms of PTS drift at boundaries); jump them instead of buffering forever.
   maxBufferHole: 0.5,
+};
+
+// HLS tuning for DIRECT, fragile CDNs (vidmoly). These are NOT cached and the
+// CDN cuts connections (ERR_EMPTY_RESPONSE) when hammered — so we buffer more
+// GENTLY: a smaller working set, fewer/slower retries so a hiccup doesn't burst
+// a retry storm, and a bigger nudge tolerance so playback rides over a briefly
+// missing segment instead of stalling. The goal is resilience, not depth.
+const HLS_CONFIG_DIRECT = {
+  lowLatencyMode: false,
+  // Buffer DEEP ahead. Vidmoly's ERR_EMPTY_RESPONSE mostly comes from the CDN
+  // dropping a keep-alive connection when hls.js re-opens one just-in-time. A
+  // deep buffer keeps the loader working far ahead of the playhead, so playback
+  // rides on already-fetched data and never waits on the segment that failed —
+  // the failed one is simply retried in the background while you keep watching.
+  // hls.js still fetches sequentially (no burst), so this doesn't trip a rate
+  // cutoff; it just stops the "load a segment right as you need it" pattern that
+  // makes a dropped connection visible as a stall.
+  maxBufferLength: 60,
+  maxMaxBufferLength: 180,
+  maxBufferSize: 100 * 1000 * 1000, // 100 MB
+  backBufferLength: 60,
+  startFragPrefetch: true,
+  startLevel: -1,
+  // Patient, spaced-out retries: on ERR_EMPTY_RESPONSE the CDN needs a beat
+  // before it answers again — retrying instantly just gets cut again. But keep
+  // trying a good while (deep buffer buys the time) so a transient cut recovers
+  // silently instead of surfacing as an error.
+  fragLoadingMaxRetry: 6,
+  fragLoadingRetryDelay: 800,
+  fragLoadingMaxRetryTimeout: 30000,
+  // Jump slightly larger gaps without stalling (direct CDNs drop the odd
+  // segment); combined with the error-recovery handler this avoids freezes.
+  maxBufferHole: 1,
+  nudgeMaxRetry: 10,
 };
 
 // Never auto-resume into the last few seconds of an episode — at that point
@@ -866,7 +909,7 @@ function SettingsActionRow({
       <a
         role="menuitem"
         tabIndex={0}
-        className="vds-menu-button"
+        className="vds-menu-button as-menu-row"
         href={href}
         download={downloadFilename}
         style={sharedStyle}
@@ -889,7 +932,7 @@ function SettingsActionRow({
           onClick?.();
         }
       }}
-      className="vds-menu-button"
+      className="vds-menu-button as-menu-row"
       style={sharedStyle}
     >
       {content}
@@ -909,11 +952,16 @@ function SettingsToggleRow({
   enabled,
   onToggle,
   iconPath,
+  iconNode,
 }: {
   label: string;
   enabled: boolean;
   onToggle: (next: boolean) => void;
-  iconPath: string;
+  // Provide EITHER a single-path icon (`iconPath`) or a full SVG body
+  // (`iconNode`, for icons that need <rect>/<text>/multiple elements, e.g. the
+  // OP/ED badges). `iconNode` wins when both are set.
+  iconPath?: string;
+  iconNode?: React.ReactNode;
 }) {
   return (
     <div
@@ -933,7 +981,7 @@ function SettingsToggleRow({
           onToggle(!enabled);
         }
       }}
-      className="vds-menu-button"
+      className="vds-menu-button as-menu-row"
       style={{
         display: "flex",
         alignItems: "center",
@@ -950,7 +998,7 @@ function SettingsToggleRow({
         fill="currentColor"
         style={{ width: 22, height: 22, marginRight: 6, flexShrink: 0 }}
       >
-        <path d={iconPath} />
+        {iconNode ?? <path d={iconPath} />}
       </svg>
       <span style={{ flex: 1 }}>{label}</span>
       {/* Pill-style toggle */}
@@ -1011,7 +1059,7 @@ function SettingsSubmenuRow({
           onOpen();
         }
       }}
-      className="vds-menu-button"
+      className="vds-menu-button as-menu-row"
       style={{ display: "flex", alignItems: "center", cursor: "pointer", userSelect: "none" }}
     >
       <svg
@@ -1050,7 +1098,7 @@ function SettingsSubmenuHeader({ label, onBack }: { label: string; onBack: () =>
           onBack();
         }
       }}
-      className="vds-menu-button"
+      className="vds-menu-button as-menu-row"
       style={{
         display: "flex",
         alignItems: "center",
@@ -1064,6 +1112,87 @@ function SettingsSubmenuHeader({ label, onBack }: { label: string; onBack: () =>
         <path d="M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12z" />
       </svg>
       <span style={{ flex: 1 }}>{label}</span>
+    </div>
+  );
+}
+
+/**
+ * Big centred play button. Its whole purpose is the MANUAL start path — when
+ * the user has NOT enabled autoplay. Its click is a real user gesture, so play()
+ * is always allowed and we unmute (unless the user has an intentional saved
+ * mute). When autoplay IS enabled the video starts on its own (falling back to
+ * muted playback and unmuting on first interaction), so the button would be
+ * redundant — it's hidden entirely in that mode.
+ */
+function CenterPlayButton({
+  playerRef,
+  autoplay,
+}: {
+  playerRef: React.RefObject<MediaPlayerInstance>;
+  autoplay: boolean;
+}) {
+  const { t } = useTranslation();
+  const paused = useMediaState("paused", playerRef);
+  const canPlay = useMediaState("canPlay", playerRef);
+  // One-shot: this is purely the INITIAL "start the anime" affordance. Once
+  // playback has begun even once, it's gone for good — later manual pauses use
+  // the small play/pause control in the bottom-left bar, not this big overlay.
+  const [everStarted, setEverStarted] = useState(false);
+  useEffect(() => {
+    if (!paused) setEverStarted(true);
+  }, [paused]);
+
+  // Only ever shown when autoplay is OFF (this is the manual "click to start"
+  // affordance). With autoplay ON the video launches itself, so the big button
+  // has no reason to appear.
+  if (autoplay) return null;
+  // Gone once playback has ever started; hidden while the media is still
+  // loading (Vidstack draws its buffering spinner then).
+  if (everStarted) return null;
+  if (!paused || !canPlay) return null;
+
+  const start = () => {
+    const player = playerRef.current;
+    const video = (player?.el as HTMLElement | undefined)?.querySelector<HTMLVideoElement>("video");
+    // Respect an intentional saved mute / "default muted" pref; otherwise the
+    // gesture lets us start WITH sound (the whole point of this button).
+    let keepMuted = false;
+    try {
+      keepMuted =
+        localStorage.getItem("aniscroll:muted") === "1" ||
+        getPlayerPrefs().defaultMuted;
+    } catch {}
+    try {
+      if (video && !keepMuted) video.muted = false;
+    } catch {}
+    player?.play?.();
+  };
+
+  return (
+    <div
+      className="pointer-events-none absolute inset-0 grid place-items-center"
+      style={{ zIndex: 15 }}
+    >
+      <button
+        type="button"
+        onClick={start}
+        aria-label={t("player.play", { defaultValue: "Play" })}
+        className="pointer-events-auto grid place-items-center rounded-full transition-transform duration-150 hover:scale-105 active:scale-95"
+        style={{
+          width: 56,
+          height: 56,
+          // App accent (#E94560) fill with a soft accent glow — matches the
+          // "Regarder" / episode play buttons throughout the app.
+          background: "#E94560",
+          border: "none",
+          boxShadow: "0 6px 22px rgba(233,69,96,0.5)",
+          cursor: "pointer",
+        }}
+      >
+        <svg viewBox="0 0 24 24" fill="#fff" style={{ width: 24, height: 24, marginLeft: 3 }}>
+          <polygon points="6 4 20 12 6 20" />
+        </svg>
+      </button>
     </div>
   );
 }
@@ -1109,6 +1238,10 @@ export default function UniversalPlayer({
   // Live hls.js instance — captured on provider setup so the seek handler can
   // abort in-flight segment loads and re-anchor on the new position.
   const hlsRef = useRef<any>(null);
+  // Whether the CURRENT source plays straight from the host CDN (no proxy).
+  // Read inside onProviderSetup (which can't see `bestStream` in scope) to set
+  // the <video> referrerPolicy for direct streams.
+  const directPlaybackRef = useRef<boolean>(false);
 
   // Keep the latest onEpisodeComplete in a ref so the (episode-scoped) ended
   // listener always calls the current handler without re-binding on every
@@ -1137,12 +1270,29 @@ export default function UniversalPlayer({
     _event: MediaProviderChangeEvent,
   ) => {
     if (isHLSProvider(provider)) {
-      provider.config = { ...provider.config, ...HLS_CONFIG };
+      // Direct/fragile CDNs (vidmoly) get the gentler, resilience-tuned config;
+      // proxied edge-cached sources (megaplay) get the aggressive one. The ref
+      // is set in render from bestStream just before the provider is built.
+      const cfg = directPlaybackRef.current ? HLS_CONFIG_DIRECT : HLS_CONFIG;
+      provider.config = { ...provider.config, ...cfg };
     }
   };
 
   // Capture the hls.js instance once Vidstack has set the provider up.
   const onProviderSetup = (provider: any) => {
+    // Direct-CDN streams (sibnet cvn, sendvid MP4, CORS-open HLS CDNs) are
+    // validated server-side to play with an arbitrary Referer. Strip the
+    // Referer at the <video>/hls loader level so a CDN that DOES gate on
+    // Referer never sees our origin (a mismatched Referer would 403). Proxied
+    // streams don't reach here on the direct path — their Referer is carried
+    // by the Worker's query param — so this only affects direct playback.
+    if (directPlaybackRef.current) {
+      const videoEl: HTMLVideoElement | undefined =
+        provider?.video || provider?.media || undefined;
+      if (videoEl && "referrerPolicy" in videoEl) {
+        videoEl.referrerPolicy = "no-referrer";
+      }
+    }
     if (isHLSProvider(provider)) {
       const hls = provider.instance || null;
       hlsRef.current = hls;
@@ -1960,26 +2110,79 @@ export default function UniversalPlayer({
 
   // ── HLS error handler ──
   // hls.js fires `hls-error` on the player element for every load failure.
-  // Most are transient (single segment timeout, etc.) and HLS retries on its
-  // own. The ones we care about are FATAL errors with HTTP 401/403/404/410:
-  // these mean the stream is genuinely gone (token expired, file removed) and
-  // looping won't help. Bubbling those up to our `onError` lets the watch
-  // page mark the server failed and pick the next one.
+  // Most are transient (single segment timeout) and HLS retries on its own.
+  // We handle three tiers:
+  //   1. FATAL + a real "stream gone" HTTP status (401/403/404/410): token
+  //      expired or file removed — looping won't help, so bubble to onError and
+  //      let the watch page fall back to another server.
+  //   2. FATAL network/media WITHOUT such a status (the classic case: a direct
+  //      CDN like Vidmoly answering ERR_EMPTY_RESPONSE when hls.js hammers it
+  //      after a seek-spam — detail.response has no code). hls.js does NOT
+  //      auto-recover these and the player FREEZES forever. We actively recover:
+  //      startLoad() for network errors, recoverMediaError() for media/buffer
+  //      errors. A short cap on consecutive recoveries prevents an infinite
+  //      recover loop on a genuinely dead CDN → then we bubble to onError.
+  //   3. Non-fatal: ignore, hls.js handles it.
   useEffect(() => {
     const playerEl = playerRef.current?.el as HTMLElement | undefined;
     if (!playerEl) return;
+
+    let recoveries = 0;
+    let recoverWindowResetTimer = 0;
+    const MAX_RECOVERIES = 4; // within the rolling window before giving up
 
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail;
       if (!detail || !detail.fatal) return;
       const status = detail.response?.code || detail.response?.status;
+
+      // Tier 1 — genuine "stream gone": don't try to recover, fall back.
       if (status === 401 || status === 403 || status === 404 || status === 410) {
         onError?.(`Stream HTTP ${status}`);
+        return;
+      }
+
+      // Tier 2 — fatal but recoverable (no dead-stream status). This is the
+      // seek-spam freeze on direct CDNs. Try to unstick hls.js in place.
+      const hls = hlsRef.current;
+      if (!hls) {
+        // No hls handle (native playback) — nothing to recover; bubble so the
+        // page can fall back rather than sit frozen.
+        onError?.("Playback stalled");
+        return;
+      }
+      if (recoveries >= MAX_RECOVERIES) {
+        // Too many recoveries in the window → the CDN is genuinely refusing us.
+        onError?.("Playback stalled");
+        return;
+      }
+      recoveries += 1;
+      // Reset the recovery budget after a calm period so a later, unrelated
+      // hiccup gets its own fresh set of attempts.
+      window.clearTimeout(recoverWindowResetTimer);
+      recoverWindowResetTimer = window.setTimeout(() => {
+        recoveries = 0;
+      }, 12000);
+      const type = detail.type; // "networkError" | "mediaError" (hls.js enums)
+      try {
+        if (type === "mediaError") {
+          hls.recoverMediaError();
+        } else {
+          // networkError (ERR_EMPTY_RESPONSE, timeout, etc.): re-arm the loader
+          // at the current playhead so it stops waiting on the killed request.
+          const video = playerEl.querySelector<HTMLVideoElement>("video");
+          hls.startLoad(video ? video.currentTime : -1);
+        }
+      } catch {
+        onError?.("Playback stalled");
       }
     };
 
     playerEl.addEventListener("hls-error", handler as EventListener);
-    return () => playerEl.removeEventListener("hls-error", handler as EventListener);
+    return () => {
+      window.clearTimeout(recoverWindowResetTimer);
+      playerEl.removeEventListener("hls-error", handler as EventListener);
+    };
   }, [onError, streamData]);
 
   // NOTE: the earlier "end-reset guard" (watching for seek/reload to 0 near the
@@ -2013,6 +2216,14 @@ export default function UniversalPlayer({
     let seekCount = 0;
     let lastSeekAt = 0;
     let settleTimer = 0;
+    let hardResumeTimer = 0;
+
+    const resumeAtCurrent = () => {
+      window.clearTimeout(settleTimer);
+      window.clearTimeout(hardResumeTimer);
+      try { hlsRef.current?.startLoad(video!.currentTime); } catch {}
+      seekCount = 0;
+    };
 
     const onSeeking = () => {
       const hls = hlsRef.current;
@@ -2022,14 +2233,21 @@ export default function UniversalPlayer({
       lastSeekAt = now;
       if (seekCount < 2) return; // isolated seek → let hls.js handle it natively
 
-      // Spam: drop whatever fragment is mid-flight right now…
+      // Spam: drop whatever fragment is mid-flight right now so we stop hammering
+      // the CDN with fetches for spots the user is already flying past — this is
+      // what keeps a fragile direct CDN (Vidmoly) from cutting us off with
+      // ERR_EMPTY_RESPONSE and freezing playback.
       try { hls.stopLoad(); } catch {}
       window.clearTimeout(settleTimer);
       // …and resume loading only once the user settles, at the final spot.
-      settleTimer = window.setTimeout(() => {
-        try { hls.startLoad(video!.currentTime); } catch {}
-        seekCount = 0;
-      }, 180);
+      settleTimer = window.setTimeout(resumeAtCurrent, 180);
+      // Safety: under CONTINUOUS spamming the settle timer keeps getting pushed
+      // and startLoad would never fire, leaving the player stuck in stopLoad.
+      // A hard ceiling guarantees we re-arm the loader at least ~1.2s after the
+      // spam began, whatever happens next.
+      if (!hardResumeTimer) {
+        hardResumeTimer = window.setTimeout(resumeAtCurrent, 1200);
+      }
     };
 
     let pollId = 0;
@@ -2048,8 +2266,118 @@ export default function UniversalPlayer({
 
     return () => {
       window.clearTimeout(settleTimer);
+      window.clearTimeout(hardResumeTimer);
       window.clearInterval(pollId);
       video?.removeEventListener("seeking", onSeeking);
+    };
+  }, [streamData]);
+
+  // ── Hover pre-warm ──
+  // The server pre-warms only a SPARSE sample of segments, so a first-time seek
+  // to a cold spot still pays the ~3 s origin fetch. This closes that gap: while
+  // the user hovers the scrubber (before they even click), we find the HLS
+  // fragment under the cursor and fire a fire-and-forget fetch of its URL — that
+  // URL is already proxied (hls.js loaded the rewritten manifest), so the fetch
+  // lands in the Worker and warms the edge cache. By the time the user clicks,
+  // the target segment is HIT. Non-interfering: it's a plain fetch, it never
+  // touches hls.js's loader or the playing <video>. HLS only (native MP4 has no
+  // fragment list); throttled + deduped so a slow drag can't spam the CDN.
+  useEffect(() => {
+    const playerEl = playerRef.current?.el as HTMLElement | undefined;
+    if (!playerEl) return;
+    const hls = hlsRef.current;
+    if (!hls) return; // native MP4 / not ready — nothing to map time→segment
+
+    let slider: HTMLElement | null = null;
+    let hoverTimer = 0;
+    const warmed = new Set<string>(); // dedupe by fragment URL this session
+    let lastFireAt = 0;
+
+    // Map a timestamp to the fragment covering it, using the level hls.js is
+    // actually playing (its details hold the fragment list once parsed).
+    const fragmentAt = (timeSec: number): string | null => {
+      try {
+        const lvls = hls.levels || [];
+        const li = hls.currentLevel >= 0 ? hls.currentLevel : hls.loadLevel;
+        const frags = lvls[li]?.details?.fragments;
+        if (!frags || !frags.length) return null;
+        // Linear scan is fine (a few hundred frags); binary search not worth it.
+        for (const f of frags) {
+          if (timeSec >= f.start && timeSec < f.start + f.duration) {
+            return f.url || null;
+          }
+        }
+      } catch {}
+      return null;
+    };
+
+    const warmAt = (timeSec: number) => {
+      // NEVER hover-prefetch a direct/fragile CDN (vidmoly): the warm fetch hits
+      // the CDN itself (not our cache), and hammering it is exactly what triggers
+      // the ERR_EMPTY_RESPONSE cutoff. Warming only helps PROXIED sources, where
+      // the fetch populates the edge cache. Direct streams get nothing here.
+      if (directPlaybackRef.current) return;
+      const url = fragmentAt(timeSec);
+      if (!url || warmed.has(url)) return;
+      // If it's already buffered we don't need to warm it.
+      try {
+        const v = playerEl.querySelector<HTMLVideoElement>("video");
+        const buffered = v?.buffered;
+        if (buffered) {
+          for (let i = 0; i < buffered.length; i++) {
+            if (timeSec >= buffered.start(i) && timeSec <= buffered.end(i)) return;
+          }
+        }
+      } catch {}
+      warmed.add(url);
+      // Low-priority, credentials-free, body-discarded warm. The Worker stores
+      // it under the same cache key the player's real fetch will look up.
+      // `priority` isn't in the RequestInit type yet — cast to pass it through.
+      try {
+        fetch(url, { credentials: "omit", priority: "low" } as RequestInit)
+          .then((r) => r.body?.cancel?.())
+          .catch(() => {});
+      } catch {}
+    };
+
+    const onMove = (e: PointerEvent) => {
+      const v = playerEl.querySelector<HTMLVideoElement>("video");
+      const dur = v?.duration || 0;
+      if (!dur || !isFinite(dur) || !slider) return;
+      const rect = slider.getBoundingClientRect();
+      const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+      const t = ratio * dur;
+      // Debounce: only warm after the cursor rests ~120ms on a spot, and never
+      // more than ~5 warms/sec, so dragging across the bar doesn't fire hundreds.
+      window.clearTimeout(hoverTimer);
+      hoverTimer = window.setTimeout(() => {
+        const now = performance.now();
+        if (now - lastFireAt < 180) return;
+        lastFireAt = now;
+        warmAt(t);
+      }, 120);
+    };
+
+    let pollId = 0;
+    const bind = () => {
+      slider = playerEl.querySelector<HTMLElement>(
+        'media-time-slider, [data-media-time-slider], .vds-time-slider',
+      );
+      if (!slider) return false;
+      slider.addEventListener("pointermove", onMove as EventListener);
+      return true;
+    };
+    if (!bind()) {
+      let tries = 0;
+      pollId = window.setInterval(() => {
+        if (bind() || ++tries > 40) window.clearInterval(pollId);
+      }, 250);
+    }
+
+    return () => {
+      window.clearTimeout(hoverTimer);
+      window.clearInterval(pollId);
+      slider?.removeEventListener("pointermove", onMove as EventListener);
     };
   }, [streamData]);
 
@@ -2845,50 +3173,243 @@ export default function UniversalPlayer({
   }, []);
 
   // ── Autoplay ──
-  // Chrome rejects unmuted autoplay without a user gesture, period. The
-  // only path that always works is muted-then-let-Chrome's-MEI-decide:
-  // after a few sessions of the user watching with sound, Chrome elevates
-  // the origin's autoplay policy to "allowed" and unmuted autoplay starts
-  // working at refresh on its own — no client code can shortcut this.
-  // So we just kick off muted playback (always accepted) and let MEI handle
-  // the unmute promotion organically.
+  // Goal: the video must ALWAYS start on its own, and with sound whenever the
+  // browser permits. Browsers only allow UNMUTED autoplay when the origin's
+  // Media Engagement Index is high (built up after a few sessions of watching
+  // with sound) or right after a user gesture — no client code can force it.
+  // So:
+  //   1. Try UNMUTED play() first. High-MEI users get instant sound.
+  //   2. If blocked (NotAllowedError), fall back to MUTED play() — that's always
+  //      allowed, so the episode still auto-starts (never a dead paused player).
+  //   3. Having started muted, UNMUTE on the very first user interaction anywhere
+  //      (pointer / key / touch) — the gesture grants activation, so unmuting is
+  //      permitted and won't trip Chrome's "unmute → pause" mitigation.
+  // An intentional saved mute / "default muted" pref keeps it muted throughout.
+  //
+  // The player element is resolved LIVE on every call, never captured once: when
+  // the user switches server/source/episode, streamData changes and Vidstack
+  // re-mounts its element. An element captured at effect-setup time would be the
+  // old detached node (or null if the ref hadn't re-attached yet), so autoplay
+  // silently died on the 2nd+ video. The attach-retry poll below covers the case
+  // where this effect runs before Vidstack has re-attached its element.
   useEffect(() => {
     if (!autoplay) return;
-    const playerEl = playerRef.current?.el as HTMLElement | undefined;
-    if (!playerEl) return;
+    // Iframe/embed sources render an <iframe> instead of a <video> (see the
+    // early return in the render below). There is no media element we can drive
+    // — autoplay is entirely up to the cross-origin embed and its `allow` attr —
+    // so don't spin a poll that can never find a <video>. Mirror the SAME
+    // condition the render uses to decide iframe-vs-video: a vidmoly
+    // clientExtract source becomes a real <video> once extraction succeeds, so
+    // it must NOT be treated as a pure iframe here.
+    const wantsClientExtractAP =
+      streamData?.clientExtract?.type === "vidmoly" && clientStatus !== "failed";
+    const isIframeSource = !wantsClientExtractAP && !!streamData?.iframe;
+    if (isIframeSource) return;
 
     let cancelled = false;
-    const tryPlay = async () => {
-      if (cancelled) return;
-      const video = playerEl.querySelector<HTMLVideoElement>("video");
-      if (!video || !video.paused) return;
-      // Only force autoplay at the very START. `can-play` / `loaded-data` fire
-      // again every time hls.js re-buffers — including after a near-end stall or
-      // an internal reset. Calling play() then would resume from wherever the
-      // element sits, and play() on an *ended* element restarts it from 0, which
-      // was a path into the "video jumps back to the start near the end" bug.
-      // Past the first second the user is already watching; a re-buffer must not
-      // trigger a fresh play() (and we never want to fight a user/end pause).
-      if (video.ended || video.currentTime > 1) return;
+    let started = false; // playback has begun (muted or unmuted) — stop retrying
+    let unmutePending = false; // started muted, still owe the user sound
+    let inFlight = false; // a play() attempt is awaiting — don't overlap
+    let boundVideo: HTMLVideoElement | null = null; // element our events sit on
+
+    const getPlayerEl = () =>
+      (playerRef.current?.el as HTMLElement | undefined) || undefined;
+    const getVideo = () =>
+      getPlayerEl()?.querySelector<HTMLVideoElement>("video") || null;
+
+    const keepMuted = () => {
       try {
-        video.setAttribute("muted", "");
-        video.defaultMuted = true;
-        video.muted = true;
-        video.setAttribute("playsinline", "");
-        await video.play();
-      } catch {}
+        return (
+          localStorage.getItem("aniscroll:muted") === "1" ||
+          getPlayerPrefs().defaultMuted
+        );
+      } catch {
+        return false;
+      }
     };
 
-    tryPlay();
+    const tryPlay = async () => {
+      if (cancelled || started || inFlight) return;
+      const video = getVideo();
+      if (!video) return;
+      // Consider playback truly started ONLY if the element is unpaused AND
+      // actually advancing. A play() that's still in flight on a not-yet-ready
+      // element (readyState 0) also reports paused=false for a moment — marking
+      // `started` there was the Sibnet bug: the effect re-ran mid-load, saw
+      // paused=false, latched started=true, then the original play() aborted and
+      // nothing ever retried. Require readyState >= 2 (has current frame) so a
+      // pending/aborting load can't fake "already playing".
+      if (!video.paused && video.readyState >= 2) {
+        started = true;
+        return;
+      }
+      if (video.ended) return;
+      // The `currentTime > 1` guard exists to avoid hijacking a video the user
+      // is ALREADY WATCHING (re-buffer events, near-end resets — the "jump to
+      // start" bug). But it must NOT block the legitimate case where the user
+      // just enabled autoplay on a PAUSED video sitting past 1s: there we DO
+      // want to start it. So only skip on ct>1 when the video is actually
+      // playing (or mid-load) — a paused video past 1s is a start request.
+      if (video.currentTime > 1 && !video.paused) return;
+
+      const wantMuted = keepMuted();
+      video.setAttribute("playsinline", "");
+      inFlight = true;
+
+      // CRITICAL ordering: start MUTED first, then opportunistically unmute.
+      //
+      // The naive "unmuted first, catch NotAllowedError, fall back to muted"
+      // does NOT work reliably: when the page has no user activation, Chrome's
+      // "unmuting mitigation" doesn't reject play() — it lets play() RESOLVE and
+      // then silently PAUSES the element ("Unmuting failed and the element was
+      // paused because the user didn't interact with the document before").
+      // Because play() resolved, our catch never fires, so we'd think we were
+      // playing while the video sat paused. That's exactly the Sibnet-fallback
+      // "autoplay didn't start on its own" bug.
+      //
+      // Muted play() is ALWAYS allowed and never triggers the mitigation, so we
+      // do that first — playback is guaranteed. Then, if the user didn't ask for
+      // muted, we TRY to unmute in place; if that trips the mitigation and pauses
+      // us, we revert to muted, resume, and defer sound to the first gesture.
+      try {
+        video.muted = true;
+        await video.play();
+      } catch (err: any) {
+        // Muted play rejected. AbortError = "play() interrupted by a new load"
+        // (hls.js swapped the source, e.g. the Sibnet→fallback path). This is
+        // transient: DON'T latch anything — just let the poll's next tick and
+        // the canplay/loadstart events retry against the new source. `started`
+        // stays false, `inFlight` clears, so a retry is guaranteed.
+        inFlight = false;
+        return;
+      }
+      if (cancelled) {
+        inFlight = false;
+        return;
+      }
+      // A muted play() that resolved but left us paused (rare fallback state) is
+      // NOT a real start — clear inFlight and let the poll retry.
+      if (video.paused) {
+        inFlight = false;
+        return;
+      }
+      started = true;
+
+      if (wantMuted) {
+        // User wants muted — done, nothing owed.
+        inFlight = false;
+        return;
+      }
+
+      // Opportunistically go for sound. On an MEI-promoted origin this sticks;
+      // on a cold origin Chrome pauses us, so detect that and recover.
+      try {
+        video.muted = false;
+        // Chrome applies the "unmuting mitigation" (pause) ASYNCHRONOUSLY, not
+        // synchronously after setting .muted — so give it a couple of frames to
+        // land before checking whether we got paused.
+        await new Promise<void>((r) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => r())),
+        );
+        if (cancelled) {
+          inFlight = false;
+          return;
+        }
+        // If unmuting paused us (the mitigation), a muted resume + deferred
+        // unmute-on-gesture is the correct recovery.
+        if (video.paused) {
+          video.muted = true;
+          await video.play().catch(() => {});
+          unmutePending = true; // owe the user sound on first interaction
+        }
+      } catch {
+        // Anything unexpected: stay muted-but-playing, unmute on first gesture.
+        try {
+          video.muted = true;
+        } catch {}
+        unmutePending = true;
+      } finally {
+        inFlight = false;
+      }
+    };
+
+    // Unmute on the first genuine user gesture anywhere on the page. Passive +
+    // capture so we never interfere with the click's own handling (Vidstack's
+    // play toggle still runs); we only flip mute. Reads the player element live
+    // so a source switch mid-wait can't leave us pointing at a detached node.
+    const unmuteOnGesture = () => {
+      if (cancelled || !unmutePending) return;
+      unmutePending = false;
+      const video = getVideo();
+      try {
+        if (video) video.muted = false;
+      } catch {}
+      teardownGestures();
+    };
+    const GESTURES = ["pointerdown", "keydown", "touchstart"] as const;
+    const setupGestures = () => {
+      for (const e of GESTURES)
+        window.addEventListener(e, unmuteOnGesture, { capture: true, passive: true });
+    };
+    const teardownGestures = () => {
+      for (const e of GESTURES)
+        window.removeEventListener(e, unmuteOnGesture, { capture: true } as any);
+    };
+    setupGestures();
+
     const onReady = () => tryPlay();
-    playerEl.addEventListener("can-play", onReady);
-    playerEl.addEventListener("loaded-data", onReady);
+
+    // A single self-healing poll drives everything until playback starts. It
+    // must NOT stop at "the player container exists" — Vidstack mounts its
+    // container first and swaps in the real <video> a beat later, and on a
+    // server switch it replaces the <video> node entirely. So each tick:
+    //   • (re)binds our ready-events to whatever the CURRENT <video> is, and
+    //   • calls tryPlay().
+    // This closes the race that killed autoplay on the 2nd+ source: if the
+    // <video> was recreated, or the can-play/loadstart events fired before we
+    // were listening, the poll still gets us there. It self-terminates the
+    // moment playback begins, and is bounded (~10s) so it can't run forever on
+    // a source that simply never yields a video.
+    const bindEvents = (video: HTMLVideoElement) => {
+      if (video === boundVideo) return;
+      if (boundVideo) {
+        boundVideo.removeEventListener("canplay", onReady);
+        boundVideo.removeEventListener("loadeddata", onReady);
+        boundVideo.removeEventListener("loadstart", onReady);
+      }
+      boundVideo = video;
+      video.addEventListener("canplay", onReady);
+      video.addEventListener("loadeddata", onReady);
+      video.addEventListener("loadstart", onReady);
+    };
+
+    let ticks = 0;
+    const tick = () => {
+      if (cancelled || started) {
+        window.clearInterval(pollId);
+        return;
+      }
+      const video = getVideo();
+      if (video) bindEvents(video);
+      void tryPlay();
+      // ~10s ceiling (100 ticks @ 100ms). By then either playback started, the
+      // source genuinely can't autoplay, or the user has taken over.
+      if (++ticks > 100) window.clearInterval(pollId);
+    };
+    const pollId = window.setInterval(tick, 100);
+    tick(); // run once immediately, don't wait 100ms
+
     return () => {
       cancelled = true;
-      playerEl.removeEventListener("can-play", onReady);
-      playerEl.removeEventListener("loaded-data", onReady);
+      window.clearInterval(pollId);
+      teardownGestures();
+      if (boundVideo) {
+        boundVideo.removeEventListener("canplay", onReady);
+        boundVideo.removeEventListener("loadeddata", onReady);
+        boundVideo.removeEventListener("loadstart", onReady);
+      }
     };
-  }, [autoplay, streamData]);
+  }, [autoplay, streamData, clientStatus]);
 
   // ── Chromecast (Chrome / Edge / Opera) ──
   // Lazy-load the Cast SDK once, then expose the button as soon as the
@@ -3065,6 +3586,11 @@ export default function UniversalPlayer({
         bestStream!.referer || streamData?.referer,
         bestStream!.voeCookie,
       );
+  // Record whether the current source plays straight from the host CDN so
+  // onProviderSetup (which runs after this render and can't see bestStream in
+  // scope) knows to strip the Referer on the underlying <video>. Only direct
+  // streams need it — proxied ones carry their Referer via the Worker query.
+  directPlaybackRef.current = bestStream!.directUrl === true;
   const isM3U8 =
     bestStream!.isM3U8 === true ||
     (bestStream!.isM3U8 !== false && bestStream!.url.includes(".m3u8"));
@@ -3286,8 +3812,18 @@ export default function UniversalPlayer({
         automationOpen ? (
           /* ── Automation sub-panel ───────────────────────────────────
              Drilled into from the "Automation" row below. SkipOverlay
-             reads playerPrefs and performs the actual skips / next-ep. */
+             reads playerPrefs and performs the actual skips / next-ep.
+             Ambient Lights stays pinned at the top so this quick toggle
+             is reachable from the sub-panel too (it used to vanish when
+             the sub-panel replaced the whole main list). */
           <>
+            <SettingsToggleRow
+              label={t("player.ambientLights")}
+              enabled={ctxAmbient}
+              onToggle={setAmbientCtx}
+              // Material "lightbulb_outline" icon.
+              iconPath="M9 21c0 .55.45 1 1 1h4c.55 0 1-.45 1-1v-1H9v1zm3-19C8.14 2 5 5.14 5 9c0 2.38 1.19 4.47 3 5.74V17c0 .55.45 1 1 1h6c.55 0 1-.45 1-1v-2.26c1.81-1.27 3-3.36 3-5.74 0-3.86-3.14-7-7-7zm2.85 11.1-.85.6V16h-4v-2.3l-.85-.6C7.8 12.16 7 10.63 7 9c0-2.76 2.24-5 5-5s5 2.24 5 5c0 1.63-.8 3.16-2.15 4.1z"
+            />
             <SettingsSubmenuHeader
               label={t("player.automation")}
               onBack={() => setAutomationOpen(false)}
@@ -3303,15 +3839,65 @@ export default function UniversalPlayer({
               label={t("player.autoSkipIntro")}
               enabled={playerPrefs.autoSkipIntro}
               onToggle={(v) => setPlayerPrefs({ autoSkipIntro: v })}
-              // Material "fast_forward" icon.
-              iconPath="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z"
+              // "OP" badge — rounded outline frame with the opening monogram.
+              iconNode={
+                <>
+                  <rect
+                    x="2.5"
+                    y="6"
+                    width="19"
+                    height="12"
+                    rx="3.2"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.7"
+                  />
+                  <text
+                    x="12"
+                    y="15.4"
+                    textAnchor="middle"
+                    fontFamily="Space Grotesk, system-ui, sans-serif"
+                    fontSize="8.2"
+                    fontWeight="700"
+                    letterSpacing="0.3"
+                    fill="currentColor"
+                  >
+                    OP
+                  </text>
+                </>
+              }
             />
             <SettingsToggleRow
               label={t("player.autoSkipOutro")}
               enabled={playerPrefs.autoSkipOutro}
               onToggle={(v) => setPlayerPrefs({ autoSkipOutro: v })}
-              // Material "fast_forward" icon (shared with intro — same action).
-              iconPath="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z"
+              // "ED" badge — same frame with the ending monogram.
+              iconNode={
+                <>
+                  <rect
+                    x="2.5"
+                    y="6"
+                    width="19"
+                    height="12"
+                    rx="3.2"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.7"
+                  />
+                  <text
+                    x="12"
+                    y="15.4"
+                    textAnchor="middle"
+                    fontFamily="Space Grotesk, system-ui, sans-serif"
+                    fontSize="8.2"
+                    fontWeight="700"
+                    letterSpacing="0.3"
+                    fill="currentColor"
+                  >
+                    ED
+                  </text>
+                </>
+              }
             />
             <SettingsToggleRow
               label={t("player.autoNextEpisode")}
@@ -3385,15 +3971,22 @@ export default function UniversalPlayer({
           fullscreen button is always visible and a single tap exits. */}
 
       {/* Hover preview — actual video frame at the cursor position on the
-          scrubber. Skipped for noCors streams (sibnet's cvn CDN, …): the
-          preview's hidden <video> MUST run in CORS mode (its frames are
-          drawn to a canvas, which a no-cors source would security-taint),
-          but these CDNs send no Access-Control-Allow-Origin — every fetch
-          would be blocked, spamming the console with CORS errors and never
-          producing a single thumbnail. */}
+          scrubber. DISABLED for noCors direct streams (sendvid, sibnet cvn):
+          the preview's hidden <video> must run in CORS mode (frames drawn to a
+          canvas taint on a no-cors source), and routing the preview through the
+          proxy to add CORS DOESN'T work either — sendvid throttles to 250k AND a
+          mid-file Range through the proxy stalls (returns 206 but 0 bytes / 15s
+          timeout, verified), so a seek to mid-episode never decodes a frame.
+          Playback of these stays direct & fast; they simply have no scrubber
+          preview (same trade-off as sibnet). CORS streams (megaplay HLS) keep it. */}
       {!bestStream!.noCors && (
         <HoverPreview playerRef={playerRef} src={src} isM3U8={isM3U8} />
       )}
+
+      {/* Big centred play button — the MANUAL start affordance, shown only when
+          autoplay is OFF. One click plays WITH sound. With autoplay ON the video
+          starts itself, so the button is hidden (see CenterPlayButton). */}
+      <CenterPlayButton playerRef={playerRef} autoplay={autoplay} />
 
       {/* AniSkip segment overlay + Skip button. Renders null when no
           skip data exists for the current episode AND there's no next

@@ -71,6 +71,70 @@ const emptyFuzzy = (d?: FuzzyDate | null): FuzzyDate | null =>
  * Returns { ok, count }. ok=false means the pull failed and local was left
  * untouched.
  */
+/**
+ * Fetch the signed-in user's whole AniList anime list as a mediaId → LocalEntry
+ * map. Shared by the pull (fullSyncFromAniList) and the merge push
+ * (fullSyncToAniList). Returns null on any failure (network / GraphQL errors)
+ * so callers can bail without clobbering local state.
+ */
+async function fetchAniListListMap(
+  token: string,
+  userName: string,
+): Promise<Map<number, LocalEntry> | null> {
+  const res = await fetch(ENDPOINT, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      query: `query ($userName: String) {
+        MediaListCollection(userName: $userName, type: ANIME) {
+          lists { entries {
+            status score(format: POINT_10_DECIMAL) progress repeat updatedAt
+            startedAt { year month day } completedAt { year month day } notes
+            media { id episodes title { english romaji native userPreferred } coverImage { large } }
+          } }
+        }
+      }`,
+      variables: { userName },
+    }),
+  });
+  if (!res.ok) return null;
+  const json = await res.json();
+  if (json?.errors?.length) return null;
+  const lists = json?.data?.MediaListCollection?.lists || [];
+  const byId = new Map<number, LocalEntry>();
+  const now = Date.now();
+  for (const list of lists) {
+    for (const e of list?.entries || []) {
+      const mediaId = Number(e?.media?.id);
+      if (!Number.isFinite(mediaId)) continue;
+      byId.set(mediaId, {
+        mediaId,
+        status: (e.status as Status) ?? null,
+        score: typeof e.score === "number" && e.score > 0 ? e.score : null,
+        progress: Number(e.progress) || 0,
+        repeat: Number(e.repeat) || 0,
+        total: typeof e.media?.episodes === "number" ? e.media.episodes : null,
+        title: e.media?.title || undefined,
+        coverImage: e.media?.coverImage?.large ?? null,
+        startedAt: emptyFuzzy(e.startedAt),
+        completedAt: emptyFuzzy(e.completedAt),
+        notes: e.notes || null,
+        updatedAt: now,
+        // AniList's MediaList.updatedAt (Unix seconds) is the real last-activity
+        // signal that drives auto-pause. Fall back to `now` if absent.
+        activityAt:
+          typeof e.updatedAt === "number" && e.updatedAt > 0
+            ? e.updatedAt * 1000
+            : now,
+      });
+    }
+  }
+  return byId;
+}
+
 export async function fullSyncFromAniList(
   { replace = false }: { replace?: boolean } = {},
 ): Promise<{ ok: boolean; count: number }> {
@@ -81,57 +145,8 @@ export async function fullSyncFromAniList(
   if (!token || !userName) return { ok: false, count: 0 };
 
   try {
-    const res = await fetch(ENDPOINT, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({
-        query: `query ($userName: String) {
-          MediaListCollection(userName: $userName, type: ANIME) {
-            lists { entries {
-              status score(format: POINT_10_DECIMAL) progress repeat updatedAt
-              startedAt { year month day } completedAt { year month day } notes
-              media { id episodes title { english romaji native userPreferred } coverImage { large } }
-            } }
-          }
-        }`,
-        variables: { userName },
-      }),
-    });
-    if (!res.ok) return { ok: false, count: 0 };
-    const json = await res.json();
-    if (json?.errors?.length) return { ok: false, count: 0 };
-    const lists = json?.data?.MediaListCollection?.lists || [];
-    const byId = new Map<number, LocalEntry>();
-    const now = Date.now();
-    for (const list of lists) {
-      for (const e of list?.entries || []) {
-        const mediaId = Number(e?.media?.id);
-        if (!Number.isFinite(mediaId)) continue;
-        byId.set(mediaId, {
-          mediaId,
-          status: (e.status as Status) ?? null,
-          score: typeof e.score === "number" && e.score > 0 ? e.score : null,
-          progress: Number(e.progress) || 0,
-          repeat: Number(e.repeat) || 0,
-          total: typeof e.media?.episodes === "number" ? e.media.episodes : null,
-          title: e.media?.title || undefined,
-          coverImage: e.media?.coverImage?.large ?? null,
-          startedAt: emptyFuzzy(e.startedAt),
-          completedAt: emptyFuzzy(e.completedAt),
-          notes: e.notes || null,
-          updatedAt: now,
-          // AniList's MediaList.updatedAt (Unix seconds) is the real last-activity
-          // signal that drives auto-pause. Fall back to `now` if absent.
-          activityAt:
-            typeof e.updatedAt === "number" && e.updatedAt > 0
-              ? e.updatedAt * 1000
-              : now,
-        });
-      }
-    }
+    const byId = await fetchAniListListMap(token, userName);
+    if (!byId) return { ok: false, count: 0 };
     // ── Hard override ──────────────────────────────────────────────
     // When the user turns sync ON they asked to make this device match their
     // AniList account: drop everything local and write AniList verbatim.
@@ -140,28 +155,149 @@ export async function fullSyncFromAniList(
       return { ok: true, count };
     }
 
-    // ── Conflict resolution (automatic, non-destructive) ───────────
-    // AniList is authoritative, but we don't blindly drop local-only progress:
-    // when the SAME anime exists in both and they DISAGREE on progress, keep
-    // the more-advanced one (and its matching status) so a few episodes watched
-    // offline / on another device aren't lost. Entries only in local (not on
-    // AniList yet) are preserved too. This makes resync non-destructive.
+    // ── Strict mirror of AniList ───────────────────────────────────
+    // While sync is on, AniList is the SINGLE source of truth and the local
+    // list must show EXACTLY what AniList holds — nothing more. An anime with
+    // no status on AniList must not appear anywhere on this device, so entries
+    // that exist ONLY locally are DROPPED here (this is what fixes the ghost
+    // "Rewatching" pill on an anime AniList considers "not in list": a stale
+    // local-only entry that a non-destructive resync used to keep alive).
+    //
+    // We still defend genuinely-ahead LOCAL progress, but only for anime that
+    // ALSO exist on AniList (reconcileEntry) — a few episodes watched offline
+    // since the last push aren't lost. There's no such thing as "offline
+    // progress" for an anime that was never on AniList in the first place.
     const localNow = getLocalList();
     const resolved: LocalEntry[] = [];
     for (const remote of Array.from(byId.values())) {
       const local = localNow[remote.mediaId];
       resolved.push(local ? reconcileEntry(local, remote) : remote);
     }
-    // Carry over entries that exist ONLY locally (absent from AniList).
-    for (const local of Object.values(localNow)) {
-      if (!byId.has(local.mediaId)) resolved.push(local);
-    }
-    // We've already merged, so a straight replace writes the resolved set.
+    // NOTE: local-only entries are intentionally NOT carried over — see above.
     const count = importEntries(resolved, "replace");
     return { ok: true, count };
   } catch {
     return { ok: false, count: 0 };
   }
+}
+
+/**
+ * Merge one AniList entry with its local counterpart, with LOCAL winning every
+ * conflict (this is the "prioritise our site" merge). We don't blank AniList
+ * fields the local list doesn't track: score / dates / notes fall back to the
+ * AniList value when local has none, but whenever BOTH sides have a value the
+ * local one is kept. `remote` may be undefined (anime only on our site).
+ */
+function mergeLocalWins(local: LocalEntry, remote?: LocalEntry): LocalEntry {
+  if (!remote) return local;
+  return {
+    ...remote,
+    // Local wins on the tracked fields…
+    status: local.status ?? remote.status,
+    progress: Math.max(local.progress ?? 0, remote.progress ?? 0),
+    score: local.score ?? remote.score,
+    repeat: Math.max(local.repeat ?? 0, remote.repeat ?? 0),
+    startedAt: local.startedAt ?? remote.startedAt,
+    completedAt: local.completedAt ?? remote.completedAt,
+    notes: local.notes ?? remote.notes,
+    // …but keep AniList's richer metadata when local lacks it.
+    total: local.total ?? remote.total,
+    title: local.title ?? remote.title,
+    coverImage: local.coverImage ?? remote.coverImage,
+    updatedAt: Date.now(),
+    activityAt: Math.max(local.activityAt ?? 0, remote.activityAt ?? 0),
+  };
+}
+
+/**
+ * Full MERGE push, prioritising our site. The user picked "combine both lists,
+ * and if there's a conflict prefer AniScroll".
+ *
+ * For every anime present in EITHER list we compute a merged entry (local wins
+ * conflicts, AniList fills the gaps) and, when it differs from what AniList
+ * currently holds, push it up via SaveMediaListEntry — which ADDS the anime to
+ * AniList when it's new, or updates it when it exists. AniList is never cleared:
+ * entries only on AniList are kept as-is (they just merge into the local list).
+ *
+ * The local list is rewritten to the fully-merged set so the two sides match
+ * after the run. Sequential (one mutation at a time) to stay under AniList's
+ * rate limit; best-effort per entry. Returns { ok, count } = entries pushed.
+ */
+export async function fullSyncToAniList(): Promise<{ ok: boolean; count: number }> {
+  const prefs = getSyncPrefs();
+  const session = await getAniListSession(prefs);
+  const token = session?.user?.token;
+  const userName = session?.user?.name;
+  if (!token || !userName) return { ok: false, count: 0 };
+
+  // Pull AniList first so we can merge instead of blindly overwriting. If the
+  // pull fails we bail (ok:false) rather than risk clobbering AniList with a
+  // one-sided push.
+  const remoteMap = await fetchAniListListMap(token, userName);
+  if (!remoteMap) return { ok: false, count: 0 };
+
+  const localNow = getLocalList();
+  const allIds = new Set<number>(Object.keys(localNow).map(Number));
+  Array.from(remoteMap.keys()).forEach((id) => allIds.add(id));
+
+  let count = 0;
+  const merged: LocalEntry[] = [];
+  for (const mediaId of Array.from(allIds)) {
+    const local = localNow[mediaId];
+    const remote = remoteMap.get(mediaId);
+
+    // Anime only on AniList → keep it verbatim, no push needed.
+    if (!local) {
+      if (remote) merged.push(remote);
+      continue;
+    }
+
+    const result = mergeLocalWins(local, remote);
+    merged.push(result);
+
+    // Only push when the merged result actually differs from AniList's current
+    // state (avoids burning rate-limit budget on no-op writes).
+    const changed =
+      !remote ||
+      remote.status !== result.status ||
+      (remote.progress ?? 0) !== (result.progress ?? 0) ||
+      (remote.score ?? null) !== (result.score ?? null);
+    if (!changed) continue;
+
+    const payload: Parameters<typeof saveMediaListEntry>[1] = {
+      mediaId,
+      status: result.status ?? undefined,
+      progress: result.progress || 0,
+    };
+    if (typeof result.score === "number" && result.score > 0)
+      payload.score = result.score;
+    if (result.startedAt) payload.startedAt = result.startedAt;
+    if (result.completedAt) payload.completedAt = result.completedAt;
+
+    const saved = await saveMediaListEntry(token, payload);
+    if (!saved) continue;
+    count++;
+    // Keep the client AniList cache consistent with what we just wrote.
+    const existing = peekListEntry(userName, mediaId);
+    patchListEntry(userName, mediaId, {
+      id: saved.id,
+      mediaId,
+      status: saved.status ?? result.status ?? null,
+      score: saved.score ?? result.score ?? null,
+      progress: saved.progress,
+      repeat: existing?.repeat ?? result.repeat ?? 0,
+      private: existing?.private ?? false,
+      hiddenFromStatusLists: existing?.hiddenFromStatusLists ?? false,
+      notes: existing?.notes ?? result.notes ?? null,
+      startedAt: existing?.startedAt ?? result.startedAt ?? null,
+      completedAt: existing?.completedAt ?? result.completedAt ?? null,
+      customLists: existing?.customLists ?? [],
+    });
+  }
+
+  // Rewrite the local list to the merged set so both sides now agree.
+  importEntries(merged, "replace");
+  return { ok: true, count };
 }
 
 /**

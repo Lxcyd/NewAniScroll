@@ -1,0 +1,8 @@
+# Core signal processing — no heavy ML framework (spec requirement).
+numpy>=1.24
+scipy>=1.10
+
+# Optional: only used by the Chromaprint comparison path (Etape 1 eval).
+# Left commented because the homemade peak-hashing fingerprinter is the
+# chosen primary. Uncomment to run tools/opening-detector eval --chromaprint.
+# pyacoustid>=1.3.0

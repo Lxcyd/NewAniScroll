@@ -106,6 +106,14 @@ const withPWA = require("next-pwa")({
   disable: process.env.NODE_ENV === "development",
   skipWaiting: true,
   runtimeCaching,
+  // Keep the ~250 watch-party emoji/sticker assets OUT of the SW precache
+  // manifest. They're only ever needed inside a watch-party room (a tiny
+  // fraction of sessions), but next-pwa precaches EVERYTHING under public/ by
+  // default — so every visitor was downloading all of them up front (visible as
+  // a flood of /emojis/*.png|gif fetches with a workbox initiator on the watch
+  // page). Excluding them here means they load lazily, on demand, only when the
+  // emoji picker actually renders them in a room.
+  publicExcludes: ["!emojis/**/*"],
 });
 
 module.exports = withPWA({

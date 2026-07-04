@@ -40,12 +40,14 @@ import { translateTag } from "@/lib/i18n/animeTags";
 import { hexToCssFilter } from "@/lib/color/hexToCssFilter";
 import { useFanartSrc, onFanartError } from "@/lib/images/fanartFallback";
 import type { SeasonEntry } from "@/lib/anilist/seasonChain";
+import type { FilmVariant } from "@/lib/anilist/resolveSeason";
 import CharactersTab from "../CharactersTab";
 import Episodes from "../Episodes";
 import Artworks from "../Artworks";
 import QueueButton from "../QueueButton";
 import ScoresTab from "../ScoresTab";
 import Related from "../Related";
+import RelationsGraph from "../RelationsGraph";
 
 type Props = {
   info: AniListInfoTypes;
@@ -53,6 +55,7 @@ type Props = {
   initialTitleImage: TitleImage | null;
   seasonInfo: SeasonInfo;
   seasonList: SeasonEntry[];
+  bonusFilms?: FilmVariant[];
   statusLabel: string | null;
   statusResolved?: boolean;
   fav: boolean;
@@ -70,6 +73,7 @@ export default function InfoPageMobile({
   initialTitleImage,
   seasonInfo,
   seasonList,
+  bonusFilms,
   statusLabel,
   statusResolved = true,
   fav,
@@ -84,8 +88,13 @@ export default function InfoPageMobile({
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const charCount = (info.characters?.edges?.length as number | undefined) || 0;
+  // Real loaded count reported by <Episodes>; falls back to AniList metadata /
+  // aired-so-far before the tab has loaded.
+  const [loadedEpCount, setLoadedEpCount] = useState<number | null>(null);
+  useEffect(() => setLoadedEpCount(null), [info.id]);
   const epCount =
-    info.episodes ||
+    loadedEpCount ??
+    info.episodes ??
     (info.nextAiringEpisode?.episode ? info.nextAiringEpisode.episode - 1 : 0);
   const artCount = initialFanarts?.total || 0;
 
@@ -126,6 +135,8 @@ export default function InfoPageMobile({
               info={info}
               progress={progress}
               seasonList={seasonList}
+              bonusFilms={bonusFilms}
+              onEpisodeCount={setLoadedEpCount}
             />
           </div>
         )}
@@ -227,8 +238,11 @@ function MHero({
           style={{
             position: "absolute",
             inset: 0,
+            // Long, soft banner-to-page fade (matches the desktop Hero): no
+            // hard edge — the image dissolves smoothly all the way into the page
+            // background, resolving to bg at the very bottom.
             background:
-              "linear-gradient(180deg, rgba(10,11,16,0.15) 0%, rgba(10,11,16,0.45) 45%, rgba(10,11,16,0.85) 80%, #0a0b10 100%)",
+              "linear-gradient(180deg, rgba(10,11,16,0) 0%, rgba(10,11,16,0.06) 22%, rgba(10,11,16,0.16) 40%, rgba(10,11,16,0.34) 56%, rgba(10,11,16,0.58) 70%, rgba(10,11,16,0.82) 84%, #0a0b10 100%)",
           }}
         />
         <div
@@ -732,6 +746,7 @@ function MOverview({
 }) {
   const { t, i18n } = useTranslation();
   const [exp, setExp] = useState(false);
+  const [graphOpen, setGraphOpen] = useState(false);
   const description = useTranslatedText(stripHtml(info.description || ""));
   const aired = formatAiredRange(info);
   const premiered = prettySeason(info);
@@ -845,8 +860,35 @@ function MOverview({
       {(Array.isArray(info.relations?.edges) && info.relations.edges.length > 0) ||
       (seasonList && seasonList.length > 1) ? (
         <section style={{ marginLeft: -16, marginRight: -16 }}>
-          <div style={{ ...S.kicker, paddingLeft: 16, paddingRight: 16 }}>
-            RELATIONS
+          <div
+            style={{
+              ...S.kicker,
+              paddingLeft: 16,
+              paddingRight: 16,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+            }}
+          >
+            <span>RELATIONS</span>
+            <button
+              type="button"
+              onClick={() => setGraphOpen(true)}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 5,
+                padding: "4px 9px",
+                fontSize: 11,
+                fontWeight: 600,
+                color: "var(--txt-2)",
+                background: "var(--bg-2)",
+                border: "1px solid var(--line)",
+                borderRadius: 8,
+              }}
+            >
+              {t("anime.relationsMap", { defaultValue: "View timeline" })}
+            </button>
           </div>
           <div style={{ paddingLeft: 16, paddingRight: 16 }}>
             <Related
@@ -855,6 +897,13 @@ function MOverview({
               currentId={info.id}
             />
           </div>
+          <RelationsGraph
+            open={graphOpen}
+            onClose={() => setGraphOpen(false)}
+            relations={info.relations?.edges || []}
+            seasonList={seasonList}
+            currentId={info.id}
+          />
         </section>
       ) : null}
 

@@ -4,6 +4,7 @@ import Tabs from "./Tabs";
 import Recommendations from "./Recommendations";
 import { FanartResponse, SeasonInfo, TitleImage } from "./helpers";
 import type { SeasonEntry } from "@/lib/anilist/seasonChain";
+import type { FilmVariant } from "@/lib/anilist/resolveSeason";
 import styles from "./styles.module.css";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { useTranslation } from "react-i18next";
@@ -23,6 +24,8 @@ type Props = {
   /** Ordered list of every season-like sibling, current included.
    *  Drives the season switcher in the Episodes tab. */
   seasonList: SeasonEntry[];
+  /** Franchise bonus films (SIDE_STORY) for the separate Films dropdown. */
+  bonusFilms?: FilmVariant[];
   statusLabel: string | null;
   /** False while a signed-in user's list status is still loading — Hero shows
    *  a loading placeholder instead of flashing "Add to list". */
@@ -40,6 +43,7 @@ export default function InfoPage({
   initialTitleImage,
   seasonInfo,
   seasonList,
+  bonusFilms,
   statusLabel,
   statusResolved = true,
   fav,
@@ -93,6 +97,7 @@ export default function InfoPage({
           fanarts={fanarts}
           progress={progress}
           seasonList={seasonList}
+          bonusFilms={bonusFilms}
         />
         {recs.length > 0 && (
           <Recommendations

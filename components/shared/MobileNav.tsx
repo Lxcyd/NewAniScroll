@@ -1,4 +1,4 @@
-import { MagnifyingGlassIcon } from "@heroicons/react/20/solid";
+import { SparklesIcon } from "@heroicons/react/20/solid";
 import { CalendarIcon, HomeIcon } from "@heroicons/react/24/outline";
 import { signIn, signOut, useSession } from "next-auth/react";
 import Image from "next/image";
@@ -92,15 +92,15 @@ export default function MobileNav({ hideProfile = false }: MobileNavProps) {
                 </Link>
               </button>
               <button className="group flex gap-[1px] flex-col items-center">
-                <Link href="/en/search/anime">
-                  <MagnifyingGlassIcon className="w-6 h-6 group-hover:text-action" />
+                <Link href="/en/discover">
+                  <SparklesIcon className="w-6 h-6 group-hover:text-action" />
                 </Link>
 
                 <Link
-                  href="/en/search/anime"
+                  href="/en/discover"
                   className="font-karla font-bold text-white/60 group-hover:text-action"
                 >
-                  {t("nav.animeBrowse")}
+                  {t("nav.discover")}
                 </Link>
               </button>
               <button className="group flex gap-[1px] flex-col items-center">

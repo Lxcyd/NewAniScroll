@@ -3,6 +3,7 @@ import Link from "next/link";
 import Head from "next/head";
 import { useMemo, useState } from "react";
 import { motion } from "framer-motion";
+import { SparklesIcon } from "@heroicons/react/24/solid";
 import { getUser } from "@/prisma/user";
 import { Navbar } from "@/components/shared/NavBar";
 import Footer from "@/components/shared/footer";
@@ -13,6 +14,7 @@ import { animeHref, useClickTarget } from "@/lib/prefs/clickTarget";
 import { useTranslation } from "react-i18next";
 import { listLabel, STATUS_TO_LIST, LIST_COLORS } from "@/components/anime/v2/helpers";
 import QueueSection from "@/components/list/QueueSection";
+import ForYouPanel from "@/components/discover/ForYouPanel";
 
 type MyListProps = {
   media: CurrentMediaTypes[];
@@ -44,6 +46,7 @@ export default function MyList({
     String(sessions.user.name).toLowerCase() ===
       String(user?.name).toLowerCase();
   const [filter, setFilter] = useState<string>("all");
+  const [showForYou, setShowForYou] = useState(false);
 
   // Flatten AniList's lists → one entry array, then re-group by the canonical
   // status so the layout matches /my-list exactly (status order + colours).
@@ -176,6 +179,20 @@ export default function MyList({
           </div>
         </div>
 
+        {/* For You — recommendation engine, owner only. */}
+        {isOwner && (
+          <div className="mb-6">
+            <button
+              type="button"
+              onClick={() => setShowForYou(true)}
+              className="inline-flex items-center gap-2 rounded-full bg-action px-5 py-2.5 text-sm font-karla font-bold text-white shadow-[0_0_20px_rgba(233,69,96,0.35)] transition-transform hover:scale-105"
+            >
+              <SparklesIcon className="h-5 w-5" />
+              {t("recommend.title")}
+            </button>
+          </div>
+        )}
+
         {/* Watch-next queue — only for the owner viewing their own profile.
             Client-only (localStorage); renders nothing when empty. */}
         {isOwner && <QueueSection />}
@@ -277,6 +294,9 @@ export default function MyList({
         )}
       </motion.div>
       <Footer />
+      {isOwner && (
+        <ForYouPanel isVisible={showForYou} onClose={() => setShowForYou(false)} />
+      )}
     </>
   );
 }

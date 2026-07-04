@@ -1,8 +1,11 @@
 import { rateLimiterRedis, redis } from "@/lib/redis";
 import * as cheerio from "cheerio";
 import { getExtractor, extractMegaplay } from "@/lib/extractors";
-import { getMediaMeta, primeMediaCache } from "@/lib/anilist/getMediaMeta";
+import { getMediaMeta } from "@/lib/anilist/getMediaMeta";
 import { getPlayerMapEntry, upsertPlayerMap, flagPlayerMap } from "@/lib/db/playerMap";
+import { resolveSeasonNumber } from "@/lib/anilist/resolveSeason";
+import { resolveSeasonChain } from "@/lib/anilist/seasonChain";
+import { isRecapTitle } from "@/lib/anilist/seasonDetection";
 
 /* Per-provider trace logger. Off by default â€” set DEBUG_SOURCE=1 in
    .env.local to see the chatty `[anime-sama]` / `[voiranime]` /
@@ -55,7 +58,7 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 5000) {
 // UniversalPlayer for the full story.
 const PROXY_BASE =
   process.env.NEXT_PUBLIC_PROXY_BASE ||
-  "https://aniscroll-proxy.luc-deldem.workers.dev";
+  "https://proxy.aniscroll.com";
 
 async function fetchViaWorker(targetUrl, options = {}, timeoutMs = 5000) {
   // No worker configured → fall back to a direct fetch. Useful for local
@@ -614,7 +617,28 @@ async function getAnimeSamaIframe(serverKey, title, episode, aniId) {
 
     let iframeUrl = null;
     let resolvedViaMap = false;
+
+    // COHERENCE GUARD — drop a mapped panel whose season contradicts the
+    // resolver. anime-sama encodes the season in the panel dir (saison2 = S2,
+    // saison1/null = S1). A season-1 entry mapped to seasonDir=saison2 (written
+    // back while season resolution was on a poisoned Redis) would serve S2's
+    // episode 1 forever, since this fast-path is taken before any re-resolution.
+    // Cross-check against detectSeasonNumber and demote the row on mismatch so
+    // the heuristic path re-derives the correct panel. Films/OAV dirs (non
+    // "saisonN") are exempt — their "season" isn't a number.
+    let mapPanelCoherent = true;
+    if (mapRow?.seasonDir && /^saison/i.test(mapRow.seasonDir)) {
+      const dirSeason = Number((mapRow.seasonDir.match(/saison\s*(\d+)/i) || [])[1] || 1);
+      const expectedSeason = await detectSeasonNumber(aniId);
+      if (dirSeason !== expectedSeason) {
+        dlog(`[anime-sama] player_map ${mapRow.seasonDir} implies S${dirSeason} but resolver says S${expectedSeason} — ignoring poisoned row`);
+        flagPlayerMap(aniId, "animesama", langPath, `season mismatch: ${mapRow.seasonDir} vs resolver S${expectedSeason}`).catch(() => {});
+        mapPanelCoherent = false;
+      }
+    }
+
     if (
+      mapPanelCoherent &&
       mapRow?.slug &&
       mapRow?.seasonDir &&
       (mapRow.status === "verified" || mapRow.status === "heuristic")
@@ -954,8 +978,9 @@ async function finalizeAnimeSamaIframe(serverKey, serverDef, iframeUrl) {
     // `degraded: true`. The chip stays visible (red in the selector) so
     // the user can still click to try the host's own player — better than
     // hiding it on a guess, even when the embed slug might be dead.
-    // EXCEPTION: Sibnet sends X-Frame-Options DENY on the embed page, so a
-    // sibnet iframe just produces "refused to connect". Keep hiding those.
+    // EXCEPTION: Sibnet AND Sendvid send X-Frame-Options DENY on the embed
+    // page, so an iframe fallback for them just produces "refused to connect".
+    // Keep hiding those (return null below instead of a degraded iframe).
     const lower = iframeUrl.toLowerCase();
 
     // Vidmoly bypasses server-side extraction entirely: the master.m3u8 token
@@ -996,7 +1021,9 @@ async function finalizeAnimeSamaIframe(serverKey, serverDef, iframeUrl) {
         return result;
       }
       dlog(`[anime-sama] Extraction failed for ${serverKey}: ${result.error}`);
-      if (lower.includes("sibnet")) return null;
+      // Sibnet + Sendvid X-Frame-Options DENY → an iframe fallback is a dead
+      // "refused to connect" page, so hide the chip instead of degrading it.
+      if (lower.includes("sibnet") || lower.includes("sendvid")) return null;
     }
     return { iframe: iframeUrl, degraded: true, reason: "extraction failed" };
   } catch (e) {
@@ -1105,6 +1132,37 @@ async function detectSeasonNumber(aniId, mediaOpts = {}) {
   const cacheKey = String(aniId);
   if (seasonCache.has(cacheKey)) return seasonCache.get(cacheKey);
 
+  // PRIMARY — the EXACT season number the UI displays. resolveSeasonChain
+  // reads the shared Turso cache (seasonChain:v5) first and only computes+
+  // caches on a miss, so the player and the page header are the same value BY
+  // CONSTRUCTION. This is the coherence that matters: whatever the header
+  // says, the video targets the same season. Calling resolveSeasonNumber
+  // directly here (as before) recomputed LIVE on every source request, and any
+  // transient metadata failure produced a different number than the UI —
+  // which the coherence guards then trusted, killing correct player_map rows.
+  try {
+    const chain = await resolveSeasonChain(Number(aniId));
+    if (chain && chain.number != null) {
+      seasonCache.set(cacheKey, chain.number);
+      return chain.number;
+    }
+  } catch {
+    /* chain resolver unavailable → try the live resolver below */
+  }
+
+  // SECONDARY — the multi-signal resolver, live (no shared cache). Only trust
+  // a confident answer; a `low`/`null` result falls through to the legacy
+  // title+walk heuristics below, which are tuned for anime-sama's naming.
+  try {
+    const r = await resolveSeasonNumber(Number(aniId));
+    if (r && r.number != null && r.confidence !== "low") {
+      seasonCache.set(cacheKey, r.number);
+      return r.number;
+    }
+  } catch {
+    /* resolver unavailable → fall back to the local heuristics */
+  }
+
   let currentId = Number(aniId);
   const visited = new Set();
   const titlesOf = (m) =>
@@ -1142,7 +1200,22 @@ async function detectSeasonNumber(aniId, mediaOpts = {}) {
     const prequel = edges.find(
       (e) => e.relationType === "PREQUEL" && PREQUEL_FORMATS.has(e.node?.format)
     );
-    if (prequel && looksLikePreviousSeason(titlesOf(media), titlesOf(prequel.node))) {
+    // YEAR GUARD — a real previous season aired BEFORE the current node. AniList
+    // frequently mis-tags a later side-OVA as a PREQUEL (SnK S1 (2013) has a
+    // PREQUEL edge to "Kuinaki Sentaku" OVA (2014); Slime → Coleus OVA; …).
+    // Without this the walk crosses that OVA and over-counts, turning S1 into S2
+    // — which then poisons player_map with a season-2 slug/panel. resolveSeason's
+    // hardened walk already applies edgeYearMonotonic; the legacy fallback here
+    // did not, so a low-confidence/failing resolver dropped us into a wrong count.
+    const yr = (x) => x?.seasonYear || x?.startDate?.year || null;
+    const curYr = yr(media);
+    const preYr = yr(prequel?.node);
+    const yearOk = !(curYr && preYr && preYr > curYr); // reject a "prequel" that airs later
+    if (
+      prequel &&
+      yearOk &&
+      looksLikePreviousSeason(titlesOf(media), titlesOf(prequel.node))
+    ) {
       // Crossing INTO the prequel: the CURRENT node being a "Part 2" means it
       // shares the prequel's season, so this hop adds no new distinct season.
       if (!isSeasonContinuationTitle(media)) distinct++;
@@ -1211,6 +1284,15 @@ async function computeSeasonSizes(aniId, mediaOpts = {}) {
     if (!prequel || !looksLikePreviousSeason(titlesOf(media), titlesOf(prequel.node))) {
       break;
     }
+    // Skip recap/digest prequels from the offset arithmetic: they inflate the
+    // prequel episode sum without occupying slots in the merged panel, which
+    // pushes the computed offset past the real S(n) start and serves the wrong
+    // episode. We still walk THROUGH them (continue the chain) but don't count
+    // their episodes.
+    if (isRecapTitle(prequel.node)) {
+      currentId = prequel.node.id;
+      continue;
+    }
     // Prefer the edge node's count (already fetched); fall back to a full meta
     // lookup if the edge omitted it.
     let prevEps = Number(prequel.node?.episodes);
@@ -1264,8 +1346,30 @@ async function resolveMergedOffset(aniId, episodeIndex, panelLen, ownEps, mediaO
 
   const fullChain = sizes.reduce((a, b) => a + b, 0);
   if (!(fullChain > 0)) return 0;
-  // CERTAINTY TEST: panel == whole franchise from S1 (±1 recap/ONA).
-  if (Math.abs(fullChain + ownEps - panelLen) > 1) return 0;
+  // ANCHOR TEST: `fullChain` (the summed prequel seasons) is where THIS season
+  // starts *iff* the panel is the franchise concatenated from S1. We accept the
+  // anchor when the panel provably starts at S1 and this season's full window
+  // fits inside it — WITHOUT requiring the panel to END at this season.
+  //
+  // Two shapes both mean "franchise merged from S1", and both are safe:
+  //   • panel ENDS at this season   → panelLen ≈ fullChain + ownEps (the old
+  //     exact test; Fairy Tail-style where AniList sums to the panel).
+  //   • panel CONTINUES past this season → panelLen > fullChain + ownEps, because
+  //     later seasons are concatenated after (Gintama: S1=201 in a 365-ep panel
+  //     that also holds S2'/S3/S4). The old code rejected this as "too long" and
+  //     collapsed S2 onto ep 1 — the bug this fixes.
+  //
+  // Safety, unchanged in spirit — we still refuse any offset we can't anchor:
+  //   1. fullChain > panelLen           → chain doesn't fit before this season
+  //                                        (tokyo-ghoul-re: chain 37 > panel 24).
+  //   2. fullChain + ownEps > panelLen+S → this season's window runs off the end
+  //                                        → the panel isn't the full franchise.
+  //   3. panel barely longer than ownEps → not actually a merged panel (the
+  //                                        prequels aren't in it) → don't offset.
+  const RECAP_SLACK = 3;
+  if (fullChain > panelLen) return 0;                                   // (1)
+  if (fullChain + ownEps > panelLen + RECAP_SLACK) return 0;            // (2)
+  if (panelLen < fullChain + Math.min(ownEps, 2)) return 0;            // (3)
   if (episodeIndex + fullChain >= panelLen) return 0; // would fall off the end
   return fullChain;
 }
@@ -1614,7 +1718,7 @@ const VOIRANIME_SERVERS = {
   "voiranime-vidmoly-vo": { name: "Vidmoly", host: ["vidmoly.to", "vidmoly.biz", "vidmoly.net"], lang: "vostfr" },
 };
 
-async function getVoiranimeIframe(serverKey, title, episode, aniId) {
+async function getVoiranimeIframe(serverKey, title, episode, aniId, trace = null) {
   try {
     const serverDef = VOIRANIME_SERVERS[serverKey];
     if (!serverDef) return null;
@@ -1626,6 +1730,7 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId) {
     // slug), so a verified row skips findVoiranimeSlug's ~10 worker probes.
     const nowS = Math.floor(Date.now() / 1000);
     const mapRow = await getPlayerMapEntry(aniId, "voiranime", lang);
+    if (trace) trace.mapRow = mapRow ? { status: mapRow.status, slug: mapRow.slug, algoVersion: mapRow.algoVersion } : null;
     if (
       mapRow &&
       (mapRow.status === "absent" || mapRow.status === "broken") &&
@@ -1634,20 +1739,44 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId) {
       dlog(`[voiranime] player_map says ${mapRow.status} for ${aniId}/${lang} — skipping`);
       return null;
     }
-    const mappedSlug =
+    let mappedSlug =
       mapRow?.slug && (mapRow.status === "verified" || mapRow.status === "heuristic")
         ? mapRow.slug
         : null;
+
+    // COHERENCE GUARD — reject a mapped slug whose season number contradicts the
+    // resolver. A voir-anime slug encodes its season as a suffix
+    // (shingeki-no-kyojin-2 = S2, shingeki-no-kyojin = S1). During the season-
+    // cache Redis-poisoning window a season-1 entry got a "-2" slug written back,
+    // and because player_map is read FIRST, every later request served S2's
+    // episode 1 forever — the poison was self-perpetuating (re-served, never
+    // re-resolved). Here we cross-check the mapped slug's suffix-season against
+    // detectSeasonNumber; on mismatch we drop the row and re-resolve, which
+    // breaks the loop for SNK and any other anime poisoned the same way.
+    if (mappedSlug) {
+      const expectedSeason = await detectSeasonNumber(aniId);
+      const base = mappedSlug.replace(/-vf$/i, "");
+      const suffix = base.match(/-(?:s|saison-|season-)?(\d+)$/);
+      const slugSeason = suffix ? Number(suffix[1]) : 1;
+      if (trace) trace.guard = { slugSeason, expectedSeason, mismatch: slugSeason !== expectedSeason };
+      if (slugSeason !== expectedSeason) {
+        dlog(`[voiranime] player_map slug ${mappedSlug} implies S${slugSeason} but resolver says S${expectedSeason} — ignoring poisoned row`);
+        flagPlayerMap(aniId, "voiranime", lang, `season mismatch: slug S${slugSeason} vs resolver S${expectedSeason}`).catch(() => {});
+        mappedSlug = null;
+      }
+    }
 
     let slug = mappedSlug;
     if (!slug) {
       const seasonNum = await detectSeasonNumber(aniId);
       slug = await findVoiranimeSlug(title, aniId, isVF, seasonNum);
+      if (trace) trace.resolvedSlug = { seasonNum, slug };
       if (!slug) {
         dlog(`[voiranime] No slug found for ${title} (${lang}, S${seasonNum})`);
         return null;
       }
     }
+    if (trace) trace.finalSlug = slug;
     dlog(`[voiranime] Slug: ${slug} (${lang}${mappedSlug ? ", via player_map" : ""})`);
 
     // Fetch the anime detail page to get the full episode list.
@@ -2551,7 +2680,15 @@ function sourceCacheKey({ server, aniId, episode, sub }) {
   // m3u8 wrapped through Fly too, so playback lands in the Universal
   // Player instead of the iframe fallback. Bump so the v9 degraded
   // iframe entries flush and the next probe re-runs the tier chain.
-  return `src:v10:${server}:${aniId}:${episode}:${sub || "sub"}`;
+  // v11: EVICT wrong-season stream URLs cached during the season-cache
+  // Redis-poisoning window. A poisoned player_map served season 2's embed
+  // for a season-1 episode, and that wrong URL got cached here under the
+  // player's `sub` key — surviving the player_map purge because THIS cache
+  // is keyed independently and kept hot (rewritten within its 300s TTL on
+  // every hit). Bumping the version orphans every v10 entry so the next
+  // probe re-resolves from the (now-correct) resolver. See the season-cache
+  // Redis->Turso migration + player_map purge for the upstream fix.
+  return `src:v11:${server}:${aniId}:${episode}:${sub || "sub"}`;
 }
 
 // ── Handler ─────────────────────────────────────────────────────────────
@@ -2625,9 +2762,17 @@ export default async function handler(req, res) {
       const ipAddress = req.socket.remoteAddress;
       await rateLimiterRedis.consume(ipAddress);
     } catch (error) {
-      return res.status(429).json({
-        error: `Too Many Requests, retry after ${error.msBeforeNext / 1000}`,
-      });
+      // rate-limiter-flexible rejects with a RateLimiterRes (has msBeforeNext)
+      // on a genuine quota hit, but with a plain Error when its Redis store is
+      // unreachable. FAIL OPEN on the latter: a broken limiter store must not
+      // 429 every request (that's what spammed the console when the native
+      // Redis port was blocked). Only enforce the limit on a real quota breach.
+      if (error && typeof error.msBeforeNext === "number") {
+        return res.status(429).json({
+          error: `Too Many Requests, retry after ${error.msBeforeNext / 1000}`,
+        });
+      }
+      // limiter store error → don't gate; proceed to the scrape.
     }
   }
 
@@ -2690,9 +2835,29 @@ export default async function handler(req, res) {
     return notFoundStatus(msg);
   };
 
-  // If the client passed pre-fetched AniList metadata (from watch page SSR),
-  // prime the cache so no helper has to call AniList itself.
-  if (mediaMeta && aniId) primeMediaCache(aniId, mediaMeta);
+  // A TRANSIENT resolve failure (upstream down/slow, anti-bot, timeout) — as
+  // opposed to a genuine "no source for this episode". Critically it does NOT
+  // write the negative-cache sentinel and answers 503, so the client's probe
+  // treats it as `retry` (not `fail-404`) and NEVER publishes the server into
+  // the 6h availability `absent` snapshot. Otherwise a single flaky scrape hides
+  // a working chip (e.g. Megaplay) for everyone until the TTL expires. We still
+  // release the scrape lock so followers aren't wedged; they just re-scrape.
+  const sendRetryable = (msg) => {
+    if (canCache && isLeader) releaseScrapeLock(cacheKey).catch(() => {});
+    res.setHeader("Cache-Control", "no-store");
+    return res.status(503).json({ error: msg || "Source temporarily unavailable" });
+  };
+
+  // DO NOT prime getMediaMeta's caches from `mediaMeta` — it's a CLIENT-built
+  // slim payload (id/title/synonyms/relations, no seasonYear/startDate/format).
+  // Priming replaced the lambda's full cached Media with that truncated shape
+  // for 24 h (and merged it into the Turso anime row), which broke season
+  // detection fleet-wide: the year guard saw no years, the legacy walk crossed
+  // the mis-tagged "Kuinaki Sentaku" PREQUEL OVA, detectSeasonNumber said S2,
+  // the coherence guards then killed CORRECT player_map rows and re-poisoned
+  // them with season-2 panels (the recurring "SnK S1 plays S2"). It is also
+  // client-controlled data — nothing a client sends should overwrite server
+  // caches. mediaMeta is still read inline below for megaplay's idMal + title.
 
   // Megaplay â€” extract m3u8 + subtitles directly (no iframe).
   // Megaplay exposes two equivalent stream routes (both verified live):
@@ -2718,12 +2883,40 @@ export default async function handler(req, res) {
       return sendNotFound("megaplay: no MAL or AniList id for this anime");
     }
     let lastError = "Source not found";
+    let allAbsent = true; // every route so far returned a genuine "file not found"
     for (const url of routes) {
       const result = await extractMegaplay(url);
-      if (!result.error && result.streams?.length) return sendOk(result);
+      if (!result.error && result.streams?.length) {
+        // Pre-warm the edge cache NOW, at resolve time — before the player even
+        // loads the manifest. Megaplay is proxy-only (the CDN 403s any Referer
+        // but megaplay.buzz, which a browser can't forge), so its cold start
+        // pays a double hop. Firing the master through the Worker here (with the
+        // megaplay Referer) triggers the Worker's existing warm chain (variant +
+        // sampled segments), so by the time the user hits Play the opening is a
+        // cache HIT. Fire-and-forget: never delays the resolve response.
+        const m3u8 = result.streams[0]?.url;
+        if (m3u8 && /\.m3u8/i.test(m3u8)) {
+          const warmUrl =
+            `${PROXY_BASE}?url=${encodeURIComponent(m3u8)}` +
+            `&referer=${encodeURIComponent("https://megaplay.buzz/")}`;
+          // x-warmer so the Worker/endpoints treat it as internal (no double
+          // availability writes etc.). Swallow all errors.
+          fetchWithTimeout(warmUrl, { headers: { "x-warmer": "1" } }, 4000).catch(
+            () => {},
+          );
+        }
+        return sendOk(result);
+      }
       lastError = result.error || lastError;
+      // A route that failed for any reason OTHER than a confirmed absence marks
+      // the whole resolve as transient — don't let a timeout on one route get
+      // negative-cached just because the other route legitimately 404s.
+      if (!result.absent) allAbsent = false;
     }
-    return sendNotFound(lastError);
+    // Only negative-cache + hide the chip when BOTH routes genuinely have no
+    // file. A timeout / anti-bot / upstream error is transient → 503 retry so
+    // the chip isn't buried in the availability snapshot for 6h.
+    return allAbsent ? sendNotFound(lastError) : sendRetryable(lastError);
   }
 
 

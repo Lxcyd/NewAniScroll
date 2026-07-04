@@ -23,7 +23,8 @@ import { peekLocalEntry, LOCAL_LIST_EVENT } from "@/lib/list/localList";
 import { useSyncPrefs } from "@/lib/prefs/syncPrefs";
 import { getCachedAnime } from "@/lib/db/anime";
 import { loadFanarts, FanartPayload } from "@/lib/db/fanarts";
-import { resolveSeasonChain, resolveSeasonList, SeasonEntry } from "@/lib/anilist/seasonChain";
+import { resolveSeasonChain, resolveSeasonList, resolveBonusFilms, SeasonEntry } from "@/lib/anilist/seasonChain";
+import type { FilmVariant } from "@/lib/anilist/resolveSeason";
 import { toast } from "sonner";
 import { Navbar } from "@/components/shared/NavBar";
 import { AniListInfoTypes } from "types/info/AnilistInfoTypes";
@@ -47,6 +48,9 @@ type InfoTypes = {
   seasonInfo: SeasonInfo;
   /** Ordered list of season-like sibling entries (incl. current). */
   seasonList: SeasonEntry[];
+  /** Franchise bonus films (SIDE_STORY movies) for the separate "Films"
+   *  dropdown. Empty when the franchise has none (hides the dropdown). */
+  bonusFilms: FilmVariant[];
   /** Pre-fetched list state for the signed-in user. SSR'd so the heart
    *  and the watch-button don't flash "empty" before useEffect resolves. */
   initialFav: boolean;
@@ -84,6 +88,7 @@ export default function Info({
   initialTitleImage,
   seasonInfo,
   seasonList,
+  bonusFilms,
   initialFav,
   initialStatusLabel,
   initialProgress,
@@ -614,6 +619,7 @@ export default function Info({
             initialTitleImage={initialTitleImage}
             seasonInfo={seasonInfo}
             seasonList={seasonList}
+            bonusFilms={bonusFilms}
             statusLabel={statusLabel}
             statusResolved={statusResolved}
             fav={fav}
@@ -629,6 +635,7 @@ export default function Info({
             initialTitleImage={initialTitleImage}
             seasonInfo={seasonInfo}
             seasonList={seasonList}
+            bonusFilms={bonusFilms}
             statusLabel={statusLabel}
             statusResolved={statusResolved}
             fav={fav}
@@ -754,14 +761,19 @@ export async function getServerSideProps(ctx: any) {
   // Headers:
   //  - `Cache-Control` → BROWSER cache (60s, so a hard refresh sees fresh
   //    metadata, no "stuck on yesterday's status").
-  //  - `CDN-Cache-Control` → Vercel's edge cache (1h + 24h stale-while-
+  //  - `CDN-Cache-Control` → Vercel's edge cache (6h + 24h stale-while-
   //    revalidate). AniList metadata shifts slowly (episode count on an
   //    airing, status on a finale), so worst case a viewer sees a count
-  //    off by one for an hour while the next visitor refreshes it.
+  //    off by a bit for a few hours while the next visitor refreshes it —
+  //    and the nightly refresh-cache cron re-primes RELEASING anime anyway.
+  //    Widened from 1h → 6h to cut Fluid Active CPU: most views on this, the
+  //    busiest page, now hit the edge cache instead of re-invoking SSR. The
+  //    24h stale-while-revalidate is unchanged, so there's no added staleness
+  //    risk beyond serving a slightly older edge copy for longer.
   ctx.res.setHeader("Cache-Control", "public, max-age=60");
   ctx.res.setHeader(
     "CDN-Cache-Control",
-    "public, s-maxage=3600, stale-while-revalidate=86400",
+    "public, s-maxage=21600, stale-while-revalidate=86400",
   );
 
   // A corrupt / partial cached value must not crash the function — treat a
@@ -812,9 +824,10 @@ export async function getServerSideProps(ctx: any) {
 
     // Now wait on the slower stuff in parallel. The browser is already
     // pulling the images while these resolve.
-    const [seasonInfo, seasonList] = await Promise.all([
+    const [seasonInfo, seasonList, bonusFilms] = await Promise.all([
       resolveSeasonChain(animeIdNum).catch(() => ({ number: null, total: null })),
       resolveSeasonList(animeIdNum).catch(() => []),
+      resolveBonusFilms(animeIdNum).catch(() => []),
     ]);
     timer.end(`cache-hit id=${id?.[0]}`);
     return {
@@ -827,6 +840,7 @@ export async function getServerSideProps(ctx: any) {
         initialTitleImage,
         seasonInfo,
         seasonList,
+        bonusFilms,
         // Per-user fields hydrate client-side now (see component) so this
         // SSR payload stays identical for everyone → edge-cacheable.
         initialFav: false,
@@ -897,6 +911,9 @@ export async function getServerSideProps(ctx: any) {
   const seasonListP = resolveSeasonList(animeIdNum).catch(
     () => [] as SeasonEntry[]
   );
+  const bonusFilmsP = resolveBonusFilms(animeIdNum).catch(
+    () => [] as FilmVariant[]
+  );
 
   if (redis) {
     try {
@@ -911,9 +928,10 @@ export async function getServerSideProps(ctx: any) {
     }
   }
 
-  const [seasonInfo, seasonList] = await Promise.all([
+  const [seasonInfo, seasonList, bonusFilms] = await Promise.all([
     seasonInfoP,
     seasonListP,
+    bonusFilmsP,
   ]);
   timer.end(`cache-miss id=${id?.[0]}`);
 
@@ -927,6 +945,7 @@ export async function getServerSideProps(ctx: any) {
       initialTitleImage,
       seasonInfo,
       seasonList,
+      bonusFilms,
       // Per-user fields hydrate client-side (see component) → cacheable SSR.
       initialFav: false,
       initialStatusLabel: null,

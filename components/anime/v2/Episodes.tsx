@@ -1,16 +1,35 @@
-import { CSSProperties, useEffect, useMemo, useState } from "react";
+import {
+  CSSProperties,
+  ReactNode,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import Link from "next/link";
 import { AniListInfoTypes } from "types/info/AnilistInfoTypes";
 import styles from "./styles.module.css";
 import type { SeasonEntry } from "@/lib/anilist/seasonChain";
+import type { FilmVariant } from "@/lib/anilist/resolveSeason";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { useHideSpoilers } from "@/lib/prefs/spoilerPrefs";
 import { slugifyTitle } from "./helpers";
+import OpEdPanel, { useOpEdThemes } from "./OpEdPanel";
+import FilmsPanel from "./FilmsPanel";
 import { useTranslation } from "react-i18next";
 
 /** Episode title to display — a neutral "Episode N" when spoilers are hidden. */
 function epTitle(ep: { number: number; title: string }, hide: boolean): string {
   return hide ? `Episode ${ep.number}` : ep.title;
+}
+
+/** Locale-aware info-page href for an anime id, landing on its Episodes tab.
+ *  The page canonicalises `/…/anime/<id>` to add the slug itself, so id alone
+ *  is enough. Used when a dropdown holds a single entry — clicking it navigates
+ *  to that anime instead of opening a one-item menu. */
+function infoHref(id: number, locale: string): string {
+  const lang = locale === "fr" ? "fr" : "en";
+  return `/${lang}/anime/${id}#episodes`;
 }
 
 type EpisodeRow = {
@@ -21,13 +40,58 @@ type EpisodeRow = {
   img: string | null;
 };
 
+/**
+ * Windowing hook: given the scroll container's live scrollTop, the row height,
+ * the viewport height and how many items sit per row, returns the slice of item
+ * indices to actually render (plus the top spacer height + total height).
+ *
+ * This is what makes One Piece's 1100+ episodes render instantly: mounting ~15
+ * DOM rows instead of 1100 kills the multi-hundred-ms jank when switching back
+ * to the episodes panel from Films / OP-ED. Row height / viewport height are
+ * fixed per view mode, so plain arithmetic windowing is enough — no measuring.
+ */
+function useWindowedSlice(
+  scrollTop: number,
+  count: number,
+  rowHeight: number,
+  maxHeight: number,
+  perRow = 1,
+  overscan = 4,
+): { start: number; end: number; padTop: number; totalHeight: number } {
+  const rows = Math.ceil(count / perRow);
+  const totalHeight = rows * rowHeight;
+  const firstRow = Math.max(0, Math.floor(scrollTop / rowHeight) - overscan);
+  const visibleRows = Math.ceil(maxHeight / rowHeight) + overscan * 2;
+  const lastRow = Math.min(rows, firstRow + visibleRows);
+  return {
+    start: firstRow * perRow,
+    end: Math.min(count, lastRow * perRow),
+    padTop: firstRow * rowHeight,
+    totalHeight,
+  };
+}
+
 type ViewMode = "detailed" | "compact" | "grid";
+
+/* Which source the episode panel is showing. "episodes" = one season id.
+   "films" = one or more MOVIE ids, concatenated into a single numbered list. */
+type ActiveSource =
+  | { kind: "episodes"; id: number }
+  | { kind: "films"; ids: number[]; labels: string[] };
 
 type Props = {
   info: AniListInfoTypes;
   progress: number;
   /** Other seasons of the same franchise (current included). */
   seasonList?: SeasonEntry[];
+  /** Franchise bonus films (SIDE_STORY movies — HxH: Phantom Rouge). Rendered
+   *  in a SEPARATE "Films" dropdown; empty/absent hides it. */
+  bonusFilms?: FilmVariant[];
+  /** Reports the real loaded episode count up to the Tabs bar so the "Épisodes"
+   *  tab can show a badge (like Personnages / Illustrations). AniList's
+   *  info.episodes is null for long-running airing shows (One Piece), so the
+   *  actual fetched list length is the reliable count. */
+  onEpisodeCount?: (count: number) => void;
 };
 
 /* Scroll budget: show roughly N rows in each mode before the box
@@ -44,7 +108,7 @@ const ROW_HEIGHT = {
   compact: 44,
 };
 
-export default function Episodes({ info, progress, seasonList }: Props) {
+export default function Episodes({ info, progress, seasonList, bonusFilms, onEpisodeCount }: Props) {
   const titlePref = useTitlePref();
   const { t } = useTranslation();
   const [eps, setEps] = useState<EpisodeRow[] | null>(null);
@@ -52,29 +116,145 @@ export default function Episodes({ info, progress, seasonList }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [isDub, setIsDub] = useState(false);
   const [view, setView] = useState<ViewMode>("detailed");
+  // Live scroll offset of the episode list container, feeding the windowing
+  // (only the visible rows are rendered — see useWindowedSlice).
+  const scrollBoxRef = useRef<HTMLDivElement>(null);
+  const [scrollTop, setScrollTop] = useState(0);
   const [filter, setFilter] = useState("");
 
-  /* Active season — defaults to the current anime. Switching just
-     swaps which AniList id we fetch episodes for; the episode list
-     re-renders below. Each entry's `id` IS an AniList anime id, so
-     /api/v2/episode/<id> works without changes. */
-  const [activeSeasonId, setActiveSeasonId] = useState<number>(info.id);
+  /* The page's own anime IS one of the franchise's bonus films — e.g. viewing
+     Attack on Titan ~Chronicle~ (a whole-franchise digest) on its own page. It
+     re-anchors to the franchise (season dropdown lists the real seasons), and we
+     open the Films panel by default so the digest the user came for is front and
+     centre instead of its lone 1-episode list. */
+  const selfIsBonusFilm = !!bonusFilms?.some((f) => f.id === info.id);
+
+  /* Which episode id the season control starts on. Normally the page's own
+     anime, BUT for a digest-movie page (selfIsBonusFilm) the movie isn't in the
+     season list — so we anchor to the FIRST real season instead. That makes the
+     season pill read "Season 1" (not the movie title) and its episodes/watch
+     links point at a real season rather than the recap's lone entry. */
+  const defaultEpisodeId =
+    selfIsBonusFilm && seasonList && seasonList.length > 0
+      ? seasonList[0].id
+      : info.id;
+
+  /* Active source — defaults to the current anime's episodes. Switching just
+     swaps which AniList id(s) we fetch episodes for; the list re-renders below.
+     Each entry's `id` IS an AniList anime id, so /api/v2/episode/<id> works
+     without changes.
+
+     Dual-format: a season may be watched as EPISODES (one id) or as FILMS
+     (one or more MOVIE ids). In "films" mode we fetch every film id and
+     concatenate the results into one panel — "Film 1", "Film 2", … — so the
+     two movies read as a single continuous watch order. `activeSeasonId` stays
+     the primary id (the first film in films mode) for the child views. */
+  const [source, setSource] = useState<ActiveSource>({
+    kind: "episodes",
+    id: defaultEpisodeId,
+  });
+  const activeSeasonId =
+    source.kind === "episodes" ? source.id : source.ids[0];
+
+  /* Which panel the main list area shows. The season selector drives the
+     "episodes" panel; the Films / OP-ED tab buttons swap the whole list out for
+     their own content (mutually exclusive with episodes). */
+  const [panel, setPanel] = useState<"episodes" | "films" | "oped">(
+    selfIsBonusFilm ? "films" : "episodes",
+  );
 
   useEffect(() => {
-    setActiveSeasonId(info.id);
-  }, [info.id]);
+    setSource({ kind: "episodes", id: defaultEpisodeId });
+    setPanel(selfIsBonusFilm ? "films" : "episodes");
+  }, [info.id, selfIsBonusFilm, defaultEpisodeId]);
+
+  // Clear the search when swapping panels — an episode query shouldn't linger
+  // and silently filter the Films / OP-ED list (each panel searches its own).
+  useEffect(() => {
+    setFilter("");
+  }, [panel]);
+
+  // OP/ED themes for the whole franchise, fetched once here so the tab button
+  // can show its count and the panel can render without refetching.
+  const {
+    loading: opedLoading,
+    data: opedData,
+    opCount,
+    edCount,
+  } = useOpEdThemes(info, seasonList || []);
+  const hasOpEd = opCount + edCount > 0;
+  const hasBonusFilms = !!(bonusFilms && bonusFilms.length > 0);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    fetch(
-      `/api/v2/episode/${activeSeasonId}?releasing=${
-        info.status === "RELEASING" && activeSeasonId === info.id
-          ? "true"
-          : "false"
-      }${isDub ? "&dub=true" : ""}`
-    )
+
+    const mapProvider = (payload: any): EpisodeRow[] => {
+      if (!Array.isArray(payload)) return [];
+      const provider =
+        payload.find((p: any) => p?.providerId === "megaplay") || payload[0];
+      return (provider?.episodes || []).map((e: any) => ({
+        number: e.number,
+        id: e.id,
+        title: e.title || `${t("common.episode")} ${e.number}`,
+        duration: info.duration ?? null,
+        img: e.img || null,
+      }));
+    };
+
+    const epUrl = (id: number, releasing: boolean) =>
+      `/api/v2/episode/${id}?releasing=${releasing ? "true" : "false"}${
+        isDub ? "&dub=true" : ""
+      }`;
+
+    if (source.kind === "films") {
+      // Fetch each film, then flatten into one numbered "Film N" list. Every
+      // returned entry of a film keeps its film's label; multi-part films still
+      // group under the same "Film N" heading.
+      Promise.all(
+        source.ids.map((id) =>
+          fetch(epUrl(id, false))
+            .then((r) => r.json())
+            .then(mapProvider)
+            .catch(() => [] as EpisodeRow[])
+        )
+      )
+        .then((perFilm) => {
+          if (cancelled) return;
+          const flat: EpisodeRow[] = [];
+          perFilm.forEach((rows, fi) => {
+            const filmLabel =
+              source.labels[fi] ||
+              t("anime.formatFilmNumbered", {
+                n: fi + 1,
+                defaultValue: `Film ${fi + 1}`,
+              });
+            const multiPart = rows.length > 1;
+            rows.forEach((r, ri) => {
+              flat.push({
+                ...r,
+                number: flat.length + 1,
+                title: multiPart ? `${filmLabel} · ${r.title}` : filmLabel,
+              });
+            });
+          });
+          setEps(flat);
+          setLoading(false);
+        })
+        .catch((e) => {
+          if (cancelled) return;
+          setError(e?.message || "Failed to load films");
+          setLoading(false);
+        });
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const releasing =
+      info.status === "RELEASING" && source.id === info.id;
+    fetch(epUrl(source.id, releasing))
       .then((r) => r.json())
       .then((payload: any) => {
         if (cancelled) return;
@@ -84,16 +264,7 @@ export default function Episodes({ info, progress, seasonList }: Props) {
           setLoading(false);
           return;
         }
-        const provider =
-          payload.find((p) => p?.providerId === "megaplay") || payload[0];
-        const list: EpisodeRow[] = (provider?.episodes || []).map((e: any) => ({
-          number: e.number,
-          id: e.id,
-          title: e.title || `${t("common.episode")} ${e.number}`,
-          duration: info.duration ?? null,
-          img: e.img || null,
-        }));
-        setEps(list);
+        setEps(mapProvider(payload));
         setLoading(false);
       })
       .catch((e) => {
@@ -104,7 +275,21 @@ export default function Episodes({ info, progress, seasonList }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [activeSeasonId, info.id, info.status, info.duration, isDub]);
+  }, [source, info.id, info.status, info.duration, isDub, t]);
+
+  // Reset the windowed scroll to the top when the shown set changes (mode,
+  // filter, season/source) so we don't stay scrolled into empty space.
+  useEffect(() => {
+    if (scrollBoxRef.current) scrollBoxRef.current.scrollTop = 0;
+    setScrollTop(0);
+  }, [view, filter, source, isDub, panel]);
+
+  // Report the main episode panel's real length to the Tabs bar (badge). Only
+  // when showing the episodes source — films/OP-ED reuse `eps` for their own
+  // lists and shouldn't overwrite the "Épisodes" tab count.
+  useEffect(() => {
+    if (source.kind === "episodes" && eps) onEpisodeCount?.(eps.length);
+  }, [eps, source.kind, onEpisodeCount]);
 
   const filtered = useMemo(() => {
     if (!eps) return [];
@@ -131,15 +316,71 @@ export default function Episodes({ info, progress, seasonList }: Props) {
     <div>
       {/* Header row */}
       <div style={tStyles.seasonRow}>
-        <SeasonPicker
-          info={info}
-          eps={eps}
-          seasonList={seasonList || []}
-          activeSeasonId={activeSeasonId}
-          onPick={(id) => setActiveSeasonId(id)}
-        />
+        {/* Season selector + Films / OP-ED tab buttons, glued together on the
+            left. The season control is a dropdown (drives the episode list); the
+            Films and OP-ED controls are toggle buttons that swap the whole list
+            out for their own inline panel. */}
+        <div style={tStyles.pickerGroup}>
+          {/* Season selector (dropdown) + Films / OP-ED TAB BUTTONS. The season
+              dropdown drives the episode list; the two buttons swap the whole
+              list out for their own inline panel (mutually exclusive). Picking a
+              season or a per-season source snaps the view back to episodes. */}
+          <SeasonPicker
+            key="season"
+            info={info}
+            eps={eps}
+            seasonList={seasonList || []}
+            activeSeasonId={activeSeasonId}
+            activeKind={source.kind}
+            onPickSource={(s) => {
+              setSource(s);
+              setPanel("episodes");
+            }}
+            onActivate={() => setPanel("episodes")}
+            highlight={panel === "episodes"}
+          />
+          {hasBonusFilms && (
+            <TabButton
+              active={panel === "films"}
+              onClick={() =>
+                setPanel((p) => (p === "films" ? "episodes" : "films"))
+              }
+              label={t("anime.formatFilmsPlural", {
+                count: bonusFilms!.length,
+                defaultValue: "Films",
+              })}
+              sub={t("anime.filmCount", {
+                count: bonusFilms!.length,
+                defaultValue: `${bonusFilms!.length} films`,
+              })}
+              count={bonusFilms!.length}
+            />
+          )}
+          {hasOpEd && (
+            <TabButton
+              active={panel === "oped"}
+              onClick={() =>
+                setPanel((p) => (p === "oped" ? "episodes" : "oped"))
+              }
+              label={t("anime.opEd", { defaultValue: "Opening / Ending" })}
+              sub={[
+                opCount > 0
+                  ? t("anime.opCount", { count: opCount, defaultValue: `${opCount} OP` })
+                  : null,
+                edCount > 0
+                  ? t("anime.edCount", { count: edCount, defaultValue: `${edCount} ED` })
+                  : null,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+              count={opCount + edCount}
+            />
+          )}
+        </div>
 
-        {/* Right side: search + sub/dub + view modes */}
+        {/* Right side: search + sub/dub + view modes. The SEARCH works for every
+            panel (episodes, films, OP-ED) — each filters its own list; the
+            sub/dub toggle and view modes only make sense for the episode list. */}
         <div style={tStyles.epActions}>
           {/* Search */}
           <div style={tStyles.searchWrap}>
@@ -159,11 +400,21 @@ export default function Episodes({ info, progress, seasonList }: Props) {
               type="text"
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
-              placeholder={t("anime.filterEpisodes")}
+              placeholder={
+                panel === "films"
+                  ? t("anime.filterFilms", { defaultValue: "Filter films…" })
+                  : panel === "oped"
+                    ? t("anime.filterThemes", {
+                        defaultValue: "Filter openings & endings…",
+                      })
+                    : t("anime.filterEpisodes")
+              }
               style={tStyles.searchInput}
             />
           </div>
 
+          {/* Sub/Dub only matters for the episode player. */}
+          {panel === "episodes" && (
           <button
             style={{
               ...tStyles.smallBtn,
@@ -175,8 +426,10 @@ export default function Episodes({ info, progress, seasonList }: Props) {
           >
             {isDub ? "Dub" : "Sub"}
           </button>
+          )}
 
-          {/* View-mode segmented control */}
+          {/* View-mode segmented control — applies to every panel (episodes,
+              films, OP-ED): detailed cards / compact list / cover grid. */}
           <div style={tStyles.viewSwitch}>
             <ViewBtn
               active={view === "detailed"}
@@ -205,7 +458,11 @@ export default function Episodes({ info, progress, seasonList }: Props) {
             <ViewBtn
               active={view === "grid"}
               onClick={() => setView("grid")}
-              title={t("anime.gridOfNumbers")}
+              title={
+                panel === "episodes"
+                  ? t("anime.gridOfNumbers")
+                  : t("anime.gridView", { defaultValue: "Grid view" })
+              }
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
                 <rect x="3" y="3" width="7" height="7" rx="1.5" />
@@ -218,7 +475,19 @@ export default function Episodes({ info, progress, seasonList }: Props) {
         </div>
       </div>
 
+      {/* Films panel — replaces the episode list. Movies + Compilations sections. */}
+      {panel === "films" && hasBonusFilms && (
+        <FilmsPanel films={bonusFilms!} filter={filter} view={view} />
+      )}
+
+      {/* OP/ED panel — replaces the episode list. Grouped by season, plays clips. */}
+      {panel === "oped" && (
+        <OpEdPanel data={opedData} loading={opedLoading} filter={filter} view={view} />
+      )}
+
       {/* Episode list */}
+      {panel === "episodes" && (
+      <>
       {loading && <SkeletonList />}
       {error && (
         <div
@@ -251,6 +520,8 @@ export default function Episodes({ info, progress, seasonList }: Props) {
 
       {!loading && !error && eps && eps.length > 0 && (
         <div
+          ref={scrollBoxRef}
+          onScroll={(e) => setScrollTop((e.target as HTMLDivElement).scrollTop)}
           className={styles.customScroll}
           style={{
             maxHeight,
@@ -286,6 +557,8 @@ export default function Episodes({ info, progress, seasonList }: Props) {
               isDub={isDub}
               activeAnimeId={activeSeasonId}
               otherSeason={activeSeasonId !== info.id}
+              scrollTop={scrollTop}
+              maxHeight={maxHeight}
             />
           ) : view === "compact" ? (
             <CompactList
@@ -295,6 +568,8 @@ export default function Episodes({ info, progress, seasonList }: Props) {
               isDub={isDub}
               activeAnimeId={activeSeasonId}
               otherSeason={activeSeasonId !== info.id}
+              scrollTop={scrollTop}
+              maxHeight={maxHeight}
             />
           ) : (
             <DetailedList
@@ -304,9 +579,13 @@ export default function Episodes({ info, progress, seasonList }: Props) {
               isDub={isDub}
               activeAnimeId={activeSeasonId}
               otherSeason={activeSeasonId !== info.id}
+              scrollTop={scrollTop}
+              maxHeight={maxHeight}
             />
           )}
         </div>
+      )}
+      </>
       )}
     </div>
   );
@@ -327,6 +606,10 @@ type ListProps = {
   /** True when the user picked a different season than the page's own
    *  in the season switcher. */
   otherSeason: boolean;
+  /** Live scroll offset of the shared scroll container + its viewport height —
+   *  the two inputs the windowing needs to pick which rows to render. */
+  scrollTop: number;
+  maxHeight: number;
 };
 
 function watchHref(
@@ -381,20 +664,51 @@ function SeasonPicker({
   eps,
   seasonList,
   activeSeasonId,
-  onPick,
+  activeKind,
+  onPickSource,
+  onActivate,
+  highlight = true,
 }: {
   info: AniListInfoTypes;
   eps: EpisodeRow[] | null;
   seasonList: SeasonEntry[];
   activeSeasonId: number;
-  onPick: (id: number) => void;
+  activeKind: ActiveSource["kind"];
+  onPickSource: (s: ActiveSource) => void;
+  /** Re-select the episodes panel without changing the active season. Fired when
+   *  the season pill is clicked while a Films / OP-ED tab owns the list, so a
+   *  single-season anime (One Piece: no dropdown to pick from) can still return
+   *  to its episodes. */
+  onActivate: () => void;
+  /** True when the season/episodes panel is the one currently displayed. When a
+   *  Films / OP-ED tab is active instead we dim the season control so the active
+   *  tab reads as selected. */
+  highlight?: boolean;
 }) {
   const seasonTitlePref = useTitlePref();
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [open, setOpen] = useState(false);
-  const hasMany = seasonList.length > 1;
+  // Show the picker when there are multiple seasons OR any season also offers a
+  // film variant (dual-format: even a single season becomes two menu rows).
+  const filmVariantCount = seasonList.reduce(
+    (n, s) => n + (s.variants?.length ?? 0),
+    0
+  );
+  const hasMany = seasonList.length + filmVariantCount > 1;
   const active =
     seasonList.find((s) => s.id === activeSeasonId) || null;
+
+  // Redirect case: the list holds exactly ONE season and it's a DIFFERENT anime
+  // than the one being viewed (e.g. on Phantom Rouge's film page, the only
+  // "season" is the TV series). Clicking then navigates to that anime's page
+  // instead of opening a pointless one-item menu. Not when the lone entry IS the
+  // current anime (a standalone) — there's nowhere to go.
+  const loneRedirectId =
+    seasonList.length === 1 &&
+    filmVariantCount === 0 &&
+    seasonList[0].id !== info.id
+      ? seasonList[0].id
+      : null;
 
   // Close on outside click / Escape.
   useEffect(() => {
@@ -413,76 +727,124 @@ function SeasonPicker({
     };
   }, [open]);
 
-  const headerLabel = active?.label || pickTitle(info.title, seasonTitlePref);
+  // "Season N" is only meaningful when the franchise actually has multiple
+  // seasons. For a single-entry franchise (a standalone anime, or a remake we
+  // pulled out of its original's timeline like Gundam Origin), show the anime's
+  // TITLE instead of a misleading "Season 1".
+  const isMultiSeason = seasonList.length > 1;
+  // Re-anchored film page (selfIsBonusFilm): the active season is a DIFFERENT
+  // anime than the page itself (the franchise SERIES, not this film). Show that
+  // series' real TITLE — e.g. on Phantom Rouge's page the pill must read
+  // "Hunter x Hunter (2011)", not the film's own title nor a bare "Season 1".
+  const headerLabel =
+    active && active.id !== info.id
+      ? pickTitle(active.title ?? info.title, seasonTitlePref)
+      : isMultiSeason && active?.label
+        ? active.label
+        : pickTitle(info.title, seasonTitlePref);
   const headerSub = active
     ? `${active.year ?? ""}${active.episodes ? ` · ${active.episodes} EP` : ""}`.trim()
     : `${info.status === "RELEASING" ? t("status.airing") : t("list.completed")}${
         info.seasonYear ? ` · ${info.seasonYear}` : ""
       }`;
 
-  return (
-    <div style={{ ...tStyles.seasonTabs, position: "relative" }}>
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          if (hasMany) setOpen((o) => !o);
-        }}
+  // Active = this pill's episode panel is the one currently shown (or its menu
+  // is open). Drives the same accent treatment the Films / OP-ED buttons use.
+  const isActive = highlight || open;
+
+  const triggerInner = (
+    <>
+      <div
         style={{
-          ...tStyles.seasonTab,
-          background: "var(--bg-3)",
-          borderColor: open ? "var(--accent)" : "var(--line-2)",
-          cursor: hasMany ? "pointer" : "default",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "flex-start",
+          gap: 1,
+          minWidth: 0,
         }}
       >
-        <div
+        <span
           style={{
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "flex-start",
-            gap: 1,
-            minWidth: 0,
+            fontSize: 13,
+            fontWeight: 600,
+            color: isActive ? "var(--accent)" : "var(--txt-0)",
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            maxWidth: 240,
           }}
         >
-          <span
-            style={{
-              fontSize: 13,
-              fontWeight: 600,
-              color: "var(--txt-0)",
-              whiteSpace: "nowrap",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              maxWidth: 240,
-            }}
-          >
-            {headerLabel}
-          </span>
-          <span style={{ fontSize: 10.5, color: "var(--txt-3)" }}>
-            {headerSub}
-          </span>
-        </div>
-        <span className="mono" style={tStyles.seasonCount}>
-          {eps ? `${eps.length} EP` : "— EP"}
-          {info.duration ? ` · ${info.duration}min` : ""}
+          {headerLabel}
         </span>
-        {hasMany && (
-          <svg
-            width="12"
-            height="12"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={2}
-            style={{
-              color: "var(--txt-3)",
-              transform: open ? "rotate(180deg)" : "none",
-              transition: "transform 0.15s",
-            }}
-          >
+        <span style={{ fontSize: 10.5, color: "var(--txt-3)" }}>
+          {headerSub}
+        </span>
+      </div>
+      <span className="mono" style={tStyles.seasonCount}>
+        {eps ? `${eps.length}` : "—"}
+      </span>
+      {(hasMany || loneRedirectId) && (
+        <svg
+          width="12"
+          height="12"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={2}
+          style={{
+            color: "var(--txt-3)",
+            transform: !loneRedirectId && open ? "rotate(180deg)" : "none",
+            transition: "transform 0.15s",
+          }}
+        >
+          {loneRedirectId ? (
+            <polyline points="9 18 15 12 9 6" />
+          ) : (
             <polyline points="6 9 12 15 18 9" />
-          </svg>
-        )}
-      </button>
+          )}
+        </svg>
+      )}
+    </>
+  );
+
+  // Same visual treatment as the Films / OP-ED TabButtons so the three read as
+  // one set: accent tint + accent border when active, neutral bg-3 + line-2
+  // otherwise. (No more 0.7 opacity dimming — that made ONE PIECE look "off"
+  // next to the full-opacity Films / OP-ED buttons.)
+  const triggerStyle: CSSProperties = {
+    ...tStyles.seasonTab,
+    background: isActive ? "var(--accent-soft)" : "var(--bg-3)",
+    borderColor: isActive ? "var(--accent)" : "var(--line-2)",
+    // Clickable when it opens a menu, redirects, OR can return from a Films /
+    // OP-ED panel back to its own episode list (single-season case).
+    cursor: hasMany || loneRedirectId || !highlight ? "pointer" : "default",
+    textDecoration: "none",
+  };
+
+  return (
+    <div style={{ ...tStyles.seasonTabs, position: "relative" }}>
+      {loneRedirectId ? (
+        <Link href={infoHref(loneRedirectId, i18n.language)} style={triggerStyle}>
+          {triggerInner}
+        </Link>
+      ) : (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            // A Films / OP-ED tab owns the list right now → clicking the season
+            // pill returns to the episode list (its own content). Multi-season
+            // anime ALSO open the dropdown so a season can be picked; a
+            // single-season anime (One Piece) has no dropdown but must still be
+            // able to come back here, which this handles.
+            if (!highlight) onActivate();
+            if (hasMany) setOpen((o) => !o);
+          }}
+          style={triggerStyle}
+        >
+          {triggerInner}
+        </button>
+      )}
 
       {open && hasMany && (
         <div
@@ -490,45 +852,159 @@ function SeasonPicker({
           style={tStyles.seasonMenu}
         >
           {seasonList.map((s) => {
-            const isActive = s.id === activeSeasonId;
-            return (
+            const films = s.variants ?? [];
+            const grouped = films.length > 0;
+
+            const seasonSub =
+              s.status === "NOT_YET_RELEASED"
+                ? t("anime.notYetReleased")
+                : [s.year, s.episodes ? `${s.episodes} EP` : null]
+                    .filter(Boolean)
+                    .join(" · ") || (s.format ?? "");
+
+            // Simple case — no films: one flat row per season.
+            if (!grouped) {
+              const rowActive =
+                activeKind === "episodes" && s.id === activeSeasonId;
+              return (
+                <button
+                  key={String(s.id)}
+                  type="button"
+                  onClick={() => {
+                    onPickSource({ kind: "episodes", id: s.id });
+                    setOpen(false);
+                  }}
+                  style={{
+                    ...tStyles.seasonMenuItem,
+                    background: rowActive ? "var(--accent-soft)" : "transparent",
+                    color: rowActive ? "var(--accent)" : "var(--txt-0)",
+                  }}
+                >
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start" }}>
+                    <span style={{ fontSize: 12.5, fontWeight: 600 }}>{s.label}</span>
+                    <span style={{ fontSize: 10.5, color: "var(--txt-3)" }}>{seasonSub}</span>
+                  </div>
+                  {rowActive && (
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} style={{ marginLeft: "auto" }}>
+                      <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                  )}
+                </button>
+              );
+            }
+
+            // Dual-format — the season can be watched as EPISODES or as FILMS.
+            // Render a season header, then a "Watch in:" block with two radio
+            // options tied by an accent bar. Picking "Films" hands ALL film ids
+            // to the panel, which concatenates them into "Film 1", "Film 2", …
+            const filmIds = films.map((v) => v.id);
+            const filmLabels = films.map((v) =>
+              v.index
+                ? t("anime.formatFilmNumbered", {
+                    n: v.index,
+                    defaultValue: `Film ${v.index}`,
+                  })
+                : t("anime.formatFilm", { defaultValue: "Film" })
+            );
+            const filmYears = films
+              .map((v) => v.year)
+              .filter(Boolean) as number[];
+            const yearPart = filmYears.length
+              ? filmYears.length > 1
+                ? `${Math.min(...filmYears)}–${Math.max(...filmYears)}`
+                : String(filmYears[0])
+              : "";
+            const countPart = t("anime.filmCount", {
+              count: films.length,
+              defaultValue: films.length > 1 ? `${films.length} films` : "1 film",
+            });
+            const filmSub = [yearPart, countPart].filter(Boolean).join(" · ");
+
+            const epsActive =
+              activeKind === "episodes" && s.id === activeSeasonId;
+            // Films-active must be PER SEASON, not global: `activeKind==="films"`
+            // alone lit up EVERY season's "Films" row (and the first-listed
+            // season's films looked selected even when the user picked another
+            // season's). In films mode `activeSeasonId` is the first film id of
+            // the chosen season, so a season owns the active films only when one
+            // of ITS film ids is that active id.
+            const filmsActive =
+              activeKind === "films" &&
+              films.some((v) => v.id === activeSeasonId);
+
+            const radioRow = (
+              key: string,
+              on: boolean,
+              label: ReactNode,
+              sub: string,
+              onClick: () => void
+            ) => (
               <button
-                key={s.id}
+                key={key}
                 type="button"
                 onClick={() => {
-                  onPick(s.id);
+                  onClick();
                   setOpen(false);
                 }}
                 style={{
-                  ...tStyles.seasonMenuItem,
-                  background: isActive ? "var(--accent-soft)" : "transparent",
-                  color: isActive ? "var(--accent)" : "var(--txt-0)",
+                  ...tStyles.formatItem,
+                  background: on ? "var(--accent-soft)" : "transparent",
                 }}
               >
-                <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start" }}>
-                  <span style={{ fontSize: 12.5, fontWeight: 600 }}>{s.label}</span>
-                  <span style={{ fontSize: 10.5, color: "var(--txt-3)" }}>
-                    {s.status === "NOT_YET_RELEASED"
-                      ? t("anime.notYetReleased")
-                      : [s.year, s.episodes ? `${s.episodes} EP` : null]
-                          .filter(Boolean)
-                          .join(" · ") || s.format}
-                  </span>
-                </div>
-                {isActive && (
-                  <svg
-                    width="13"
-                    height="13"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth={2.5}
-                    style={{ marginLeft: "auto" }}
-                  >
-                    <polyline points="20 6 9 17 4 12" />
-                  </svg>
-                )}
+                <span
+                  style={{
+                    ...tStyles.formatDot,
+                    borderColor: on ? "var(--accent)" : "var(--txt-3)",
+                    background: on ? "var(--accent)" : "transparent",
+                    boxShadow: on ? "0 0 0 2px var(--accent-soft)" : "none",
+                  }}
+                />
+                <span
+                  style={{
+                    fontSize: 12,
+                    fontWeight: on ? 600 : 500,
+                    color: on ? "var(--accent)" : "var(--txt-0)",
+                  }}
+                >
+                  {label}
+                </span>
+                <span style={{ fontSize: 10, color: "var(--txt-3)", marginLeft: "auto" }}>
+                  {sub}
+                </span>
               </button>
+            );
+
+            return (
+              <div key={`grp-${s.id}`} style={tStyles.seasonGroup}>
+                <div style={tStyles.formatSeasonHeader}>{s.label}</div>
+                <div style={tStyles.formatWrap}>
+                  <div style={tStyles.formatLabel}>
+                    {t("anime.watchIn", { defaultValue: "Watch in" })}
+                  </div>
+                  {radioRow(
+                    `${s.id}-eps`,
+                    epsActive,
+                    t("anime.formatEpisodes", { defaultValue: "Episodes" }),
+                    seasonSub,
+                    () => onPickSource({ kind: "episodes", id: s.id })
+                  )}
+                  {radioRow(
+                    `${s.id}-films`,
+                    filmsActive,
+                    t("anime.formatFilmsPlural", {
+                      count: films.length,
+                      defaultValue: films.length > 1 ? "Films" : "Film",
+                    }),
+                    filmSub,
+                    () =>
+                      onPickSource({
+                        kind: "films",
+                        ids: filmIds,
+                        labels: filmLabels,
+                      })
+                  )}
+                </div>
+              </div>
             );
           })}
         </div>
@@ -536,6 +1012,7 @@ function SeasonPicker({
     </div>
   );
 }
+
 
 /* Thumbnail box with multi-tier fallback chain.
    Priority: ep.img → info.bannerImage → info.coverImage → gradient.
@@ -633,62 +1110,101 @@ function EpisodeThumb({
   );
 }
 
-/* DETAILED — original card-with-thumb-and-meta row. */
-function DetailedList({ eps, progress, info, isDub, activeAnimeId, otherSeason }: ListProps) {
+/* DETAILED — original card-with-thumb-and-meta row. Windowed: only the visible
+   rows are rendered (thumb row ≈ 90px + 8px gap = 98px per row). */
+const DETAILED_ROW = 98;
+function DetailedList({
+  eps,
+  progress,
+  info,
+  isDub,
+  activeAnimeId,
+  otherSeason,
+  scrollTop,
+  maxHeight,
+}: ListProps) {
   const { t } = useTranslation();
   const hideSpoilers = useHideSpoilers();
+  const { start, end, padTop, totalHeight } = useWindowedSlice(
+    scrollTop,
+    eps.length,
+    DETAILED_ROW,
+    maxHeight,
+  );
   return (
-    <div style={tStyles.epList}>
-      {eps.map((ep) => {
-        const { watched, current, locked } = classifyEp(info, ep, progress, otherSeason);
-        return (
-          <Link
-            key={ep.number}
-            href={locked ? "#" : watchHref(info, ep, isDub, activeAnimeId)}
-            style={{
-              ...tStyles.epRow,
-              opacity: locked ? 0.55 : 1,
-              borderColor: current ? "color-mix(in srgb, var(--accent) 40%, transparent)" : "var(--line)",
-              background: current
-                ? "linear-gradient(90deg, color-mix(in srgb, var(--accent) 6%, transparent), var(--bg-2))"
-                : "var(--bg-2)",
-              textDecoration: "none",
-              color: "inherit",
-              pointerEvents: locked ? "none" : "auto",
-            }}
-          >
-            <EpisodeThumb ep={ep} info={info} current={current} locked={locked} />
-            <div style={tStyles.epInfo}>
-              <div style={tStyles.epHead}>
-                <span className="mono" style={tStyles.epNum}>
-                  EP {String(ep.number).padStart(2, "0")}
-                </span>
-                {watched && <span style={tStyles.watchedTag}>✓ {t("anime.watched")}</span>}
-                {current && <span style={tStyles.currentTag}>● {t("anime.upNext")}</span>}
+    <div style={{ height: totalHeight, position: "relative" }}>
+      <div style={{ ...tStyles.epList, position: "absolute", top: padTop, left: 0, right: 0 }}>
+        {eps.slice(start, end).map((ep) => {
+          const { watched, current, locked } = classifyEp(info, ep, progress, otherSeason);
+          return (
+            <Link
+              key={ep.number}
+              href={locked ? "#" : watchHref(info, ep, isDub, activeAnimeId)}
+              style={{
+                ...tStyles.epRow,
+                height: DETAILED_ROW - 8, // fixed so windowing math stays exact
+                boxSizing: "border-box",
+                opacity: locked ? 0.55 : 1,
+                borderColor: current ? "color-mix(in srgb, var(--accent) 40%, transparent)" : "var(--line)",
+                background: current
+                  ? "linear-gradient(90deg, color-mix(in srgb, var(--accent) 6%, transparent), var(--bg-2))"
+                  : "var(--bg-2)",
+                textDecoration: "none",
+                color: "inherit",
+                pointerEvents: locked ? "none" : "auto",
+              }}
+            >
+              <EpisodeThumb ep={ep} info={info} current={current} locked={locked} />
+              <div style={tStyles.epInfo}>
+                <div style={tStyles.epHead}>
+                  <span className="mono" style={tStyles.epNum}>
+                    EP {String(ep.number).padStart(2, "0")}
+                  </span>
+                  {watched && <span style={tStyles.watchedTag}>✓ {t("anime.watched")}</span>}
+                  {current && <span style={tStyles.currentTag}>● {t("anime.upNext")}</span>}
+                </div>
+                <div style={tStyles.epTitle}>{epTitle(ep, hideSpoilers)}</div>
+                <div style={tStyles.epMeta}>
+                  {ep.duration && <span>{ep.duration} min</span>}
+                  {ep.duration && <span style={tStyles.dotSep} />}
+                  <span>{isDub ? "Dub" : "Sub"}</span>
+                </div>
               </div>
-              <div style={tStyles.epTitle}>{epTitle(ep, hideSpoilers)}</div>
-              <div style={tStyles.epMeta}>
-                {ep.duration && <span>{ep.duration} min</span>}
-                {ep.duration && <span style={tStyles.dotSep} />}
-                <span>{isDub ? "Dub" : "Sub"}</span>
-              </div>
-            </div>
-            <span style={{ ...tStyles.epPlay, pointerEvents: "none" }}>
-              {locked ? t("anime.notReleased") : current ? t("anime.resume") : watched ? t("anime.replay") : t("anime.play")}
-            </span>
-          </Link>
-        );
-      })}
+              <span style={{ ...tStyles.epPlay, pointerEvents: "none" }}>
+                {locked ? t("anime.notReleased") : current ? t("anime.resume") : watched ? t("anime.replay") : t("anime.play")}
+              </span>
+            </Link>
+          );
+        })}
+      </div>
     </div>
   );
 }
 
-/* COMPACT — small single-line rows: [number] title  ✓/●  Play */
-function CompactList({ eps, progress, info, isDub, activeAnimeId, otherSeason }: ListProps) {
+/* COMPACT — small single-line rows: [number] title  ✓/●  Play. Windowed:
+   ~42px row + 4px gap = 46px per row. */
+const COMPACT_ROW = 46;
+function CompactList({
+  eps,
+  progress,
+  info,
+  isDub,
+  activeAnimeId,
+  otherSeason,
+  scrollTop,
+  maxHeight,
+}: ListProps) {
   const hideSpoilers = useHideSpoilers();
+  const { start, end, padTop, totalHeight } = useWindowedSlice(
+    scrollTop,
+    eps.length,
+    COMPACT_ROW,
+    maxHeight,
+  );
   return (
-    <div style={tStyles.compactList}>
-      {eps.map((ep) => {
+    <div style={{ height: totalHeight, position: "relative" }}>
+      <div style={{ ...tStyles.compactList, position: "absolute", top: padTop, left: 0, right: 0 }}>
+        {eps.slice(start, end).map((ep) => {
         const { watched, current, locked } = classifyEp(info, ep, progress, otherSeason);
         return (
           <Link
@@ -696,6 +1212,9 @@ function CompactList({ eps, progress, info, isDub, activeAnimeId, otherSeason }:
             href={locked ? "#" : watchHref(info, ep, isDub, activeAnimeId)}
             style={{
               ...tStyles.compactRow,
+              height: COMPACT_ROW - 4,
+              minHeight: 0,
+              boxSizing: "border-box",
               opacity: locked ? 0.55 : 1,
               borderColor: current ? "color-mix(in srgb, var(--accent) 40%, transparent)" : "var(--line)",
               background: current
@@ -733,16 +1252,53 @@ function CompactList({ eps, progress, info, isDub, activeAnimeId, otherSeason }:
           </Link>
         );
       })}
+      </div>
     </div>
   );
 }
 
-/* GRID — number-only tiles, useful for One Piece-sized series. */
-function GridView({ eps, progress, info, isDub, activeAnimeId, otherSeason }: ListProps) {
+/* GRID — number-only tiles, useful for One Piece-sized series. Windowed by
+   rows: tiles are ~56px min with 6px gap and auto-fill columns. We can't know
+   the column count without measuring, so we assume a conservative fixed tile
+   pitch and pack `GRID_PER_ROW` tiles per virtual row; overscan hides the small
+   inaccuracy. */
+const GRID_TILE = 56 + 6; // tile min-width + gap
+function GridView({
+  eps,
+  progress,
+  info,
+  isDub,
+  activeAnimeId,
+  otherSeason,
+  scrollTop,
+  maxHeight,
+}: ListProps) {
   const hideSpoilers = useHideSpoilers();
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const [perRow, setPerRow] = useState(8);
+  // Measure how many tiles fit per row from the actual container width so the
+  // windowing rows line up with the CSS grid's auto-fill columns.
+  useEffect(() => {
+    const measure = () => {
+      const w = wrapRef.current?.clientWidth ?? 0;
+      if (w > 0) setPerRow(Math.max(1, Math.floor(w / GRID_TILE)));
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, []);
+  const { start, end, padTop, totalHeight } = useWindowedSlice(
+    scrollTop,
+    eps.length,
+    GRID_TILE,
+    maxHeight,
+    perRow,
+    2,
+  );
   return (
-    <div style={tStyles.gridWrap}>
-      {eps.map((ep) => {
+    <div ref={wrapRef} style={{ height: totalHeight, position: "relative" }}>
+      <div style={{ ...tStyles.gridWrap, position: "absolute", top: padTop, left: 0, right: 0 }}>
+      {eps.slice(start, end).map((ep) => {
         const { watched, current, locked } = classifyEp(info, ep, progress, otherSeason);
         return (
           <Link
@@ -774,6 +1330,7 @@ function GridView({ eps, progress, info, isDub, activeAnimeId, otherSeason }: Li
           </Link>
         );
       })}
+      </div>
     </div>
   );
 }
@@ -781,6 +1338,63 @@ function GridView({ eps, progress, info, isDub, activeAnimeId, otherSeason }: Li
 /* ------------------------------------------------------------------ */
 /* Small components                                                   */
 /* ------------------------------------------------------------------ */
+
+/* Tab button for Films / OP-ED — same pill shape as the season control, but a
+   toggle that swaps the whole list panel. Reads as selected (accent border)
+   when its panel is active. */
+function TabButton({
+  active,
+  onClick,
+  label,
+  sub,
+  count,
+}: {
+  active: boolean;
+  onClick: () => void;
+  label: string;
+  sub: string;
+  count: number;
+}) {
+  return (
+    <div style={{ ...tStyles.seasonTabs }}>
+      <button
+        type="button"
+        onClick={onClick}
+        style={{
+          ...tStyles.seasonTab,
+          background: active ? "var(--accent-soft)" : "var(--bg-3)",
+          borderColor: active ? "var(--accent)" : "var(--line-2)",
+          cursor: "pointer",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "flex-start",
+            gap: 1,
+            minWidth: 0,
+          }}
+        >
+          <span
+            style={{
+              fontSize: 13,
+              fontWeight: 600,
+              color: active ? "var(--accent)" : "var(--txt-0)",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {label}
+          </span>
+          <span style={{ fontSize: 10.5, color: "var(--txt-3)" }}>{sub}</span>
+        </div>
+        <span className="mono" style={tStyles.seasonCount}>
+          {count}
+        </span>
+      </button>
+    </div>
+  );
+}
 
 function ViewBtn({
   active,
@@ -850,21 +1464,38 @@ const tStyles: Record<string, CSSProperties> = {
     marginBottom: 14,
     flexWrap: "wrap",
   },
+  /* Season + Films dropdowns stay glued together on the left; space-between on
+     the row then pushes only the action cluster to the far right. */
+  pickerGroup: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    flexWrap: "wrap",
+  },
+  /* Cover thumbnail in a Films dropdown row. */
+  filmCover: {
+    width: 34,
+    height: 48,
+    borderRadius: 4,
+    overflow: "hidden",
+    background: "var(--bg-2)",
+    flexShrink: 0,
+  },
+  /* Transparent layout wrapper — each pill carries its own bg + border (see
+     seasonTab), so the wrapper must NOT add a second frame around every button
+     (that "box-in-a-box" look was what made the three pills read as mismatched). */
   seasonTabs: {
     display: "flex",
-    gap: 6,
-    padding: 4,
-    background: "var(--bg-2)",
-    border: "1px solid var(--line)",
-    borderRadius: 10,
   },
   seasonTab: {
     display: "flex",
     alignItems: "center",
-    gap: 12,
+    gap: 10,
     padding: "8px 12px",
+    minHeight: 46,
+    boxSizing: "border-box",
     border: "1px solid",
-    borderRadius: 7,
+    borderRadius: 9,
     transition: "all 0.15s",
   },
   seasonCount: {
@@ -902,6 +1533,56 @@ const tStyles: Record<string, CSSProperties> = {
     textAlign: "left",
     cursor: "pointer",
     fontFamily: "inherit",
+    width: "100%",
+    background: "transparent",
+  },
+  // Dual-format: a season watchable as Episodes OR Films. The two format
+  // options sit under a "Watch in" label, tied to the season by an accent bar,
+  // so they read as one mutually-exclusive choice (not additive content).
+  seasonGroup: {
+    display: "flex",
+    flexDirection: "column",
+    borderRadius: 7,
+  },
+  formatSeasonHeader: {
+    fontSize: 12.5,
+    fontWeight: 600,
+    color: "var(--txt-0)",
+    padding: "9px 10px 2px",
+  },
+  formatWrap: {
+    display: "flex",
+    flexDirection: "column",
+    borderLeft: "2px solid var(--accent)",
+    margin: "0 10px 4px 16px",
+    paddingLeft: 2,
+  },
+  formatLabel: {
+    fontSize: 10,
+    textTransform: "uppercase",
+    letterSpacing: "0.06em",
+    color: "var(--txt-3)",
+    padding: "4px 8px 2px",
+  },
+  formatItem: {
+    display: "flex",
+    alignItems: "center",
+    gap: 9,
+    padding: "7px 8px",
+    border: "none",
+    borderRadius: 6,
+    textAlign: "left",
+    cursor: "pointer",
+    fontFamily: "inherit",
+    width: "100%",
+    background: "transparent",
+  },
+  formatDot: {
+    width: 9,
+    height: 9,
+    borderRadius: "50%",
+    border: "1.5px solid var(--txt-3)",
+    flex: "none",
   },
   epActions: { display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" },
   searchWrap: {

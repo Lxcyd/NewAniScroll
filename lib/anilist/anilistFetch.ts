@@ -1,5 +1,5 @@
 import { redis } from "@/lib/redis";
-import { RateLimiterRedis, RateLimiterMemory } from "rate-limiter-flexible";
+import { RateLimiterMemory } from "rate-limiter-flexible";
 
 /**
  * Central choke point for every server-side AniList GraphQL request.
@@ -45,21 +45,22 @@ const DEFAULT_TIMEOUT_MS = 5_000;
 // admin refresh / health=0).
 const RESPONSE_CACHE_TTL_S = 30 * 60;
 
-let limiter: RateLimiterRedis | RateLimiterMemory;
-if (redis) {
-  limiter = new RateLimiterRedis({
-    storeClient: redis,
-    keyPrefix: "anilistApi",
-    points: POINTS_PER_MINUTE,
-    duration: WINDOW_S,
-  });
-} else {
-  // No Redis → still throttle within this process. Better than nothing.
-  limiter = new RateLimiterMemory({
-    points: POINTS_PER_MINUTE,
-    duration: WINDOW_S,
-  });
-}
+// IN-PROCESS ONLY. This used to be a RateLimiterRedis(storeClient: redis), but
+// `redis` is now the Upstash REST shim (native port 6379 is blocked). Two
+// problems with that: (1) rate-limiter-flexible issues Lua/EVALSHA the REST
+// client can't run, and (2) every consume() became a ~300-800ms HTTPS round-trip
+// to Upstash-London. The acquire() retry loop (5s budget) ran out of attempts
+// and returned false → anilistFetch returned null → getMediaMeta(id) came back
+// empty → detectSeasonNumber/pickAnimeSamaSeason resolved the WRONG season
+// (the "SnK S1 plays S2, non-deterministically after reload" bug). A memory
+// limiter is instantaneous and never starves the token, so metadata always
+// arrives and season resolution is deterministic. AniList enforces its real
+// limit per-IP regardless, so we don't need a fleet-shared bucket for
+// correctness — only for politeness, which the per-lambda budget preserves.
+const limiter: RateLimiterMemory = new RateLimiterMemory({
+  points: POINTS_PER_MINUTE,
+  duration: WINDOW_S,
+});
 
 // A purely in-process limiter, always available. Used by `skipCache` callers
 // (the player audit) so they throttle WITHOUT spending a Redis EVALSHA per call

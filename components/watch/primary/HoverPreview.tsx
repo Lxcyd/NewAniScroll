@@ -16,10 +16,15 @@ export default function HoverPreview({
   playerRef,
   src,
   isM3U8,
+  lazy = false,
 }: {
   playerRef: React.RefObject<MediaPlayerInstance>;
   src: string;
   isM3U8: boolean;
+  /** When true, DON'T eagerly walk the whole episode capturing thumbnails
+   *  (that stalls + wastes bandwidth on throttled CDNs like sendvid's 250k).
+   *  Instead capture the frame at the hovered position on demand. */
+  lazy?: boolean;
 }) {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -90,9 +95,15 @@ export default function HoverPreview({
         hlsRef.current = null;
       };
     } else {
+      // For lazy (throttled) MP4 sources, let the element fetch media data on
+      // seek — preload="metadata" alone often refuses to load past the header,
+      // so a seek to mid-episode never decodes a frame (black thumbnail). Force
+      // eager-ish loading and kick a load() so the first hover seek has data.
+      if (lazy) video.preload = "auto";
       video.src = src;
+      video.load();
     }
-  }, [src, isM3U8]);
+  }, [src, isM3U8, lazy]);
 
   // Background thumbnail pre-caching: once metadata is loaded, walk through
   // the video at fixed percentage intervals (every 5%) seeking the hidden
@@ -101,6 +112,9 @@ export default function HoverPreview({
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
+    // Lazy mode: skip the eager full-episode walk entirely. Thumbnails are
+    // captured on demand from the hover handler (see captureAt below).
+    if (lazy) return;
 
     const start = async () => {
       if (cachingActiveRef.current) return;
@@ -140,7 +154,7 @@ export default function HoverPreview({
       video.removeEventListener("loadedmetadata", onLoaded);
       cachingActiveRef.current = false;
     };
-  }, [src]);
+  }, [src, lazy]);
 
   // Track scrubber hover. We poll for the slider since Vidstack mounts it
   // asynchronously inside the DefaultVideoLayout.
@@ -221,12 +235,56 @@ export default function HoverPreview({
       drawPlaceholder();
     };
 
+    // LAZY capture: in lazy mode there's no background walk, so capture the
+    // frame at the hovered bucket ON DEMAND. Debounced (only after the cursor
+    // rests) and single-flight (one seek at a time) so a drag across the bar
+    // doesn't queue dozens of seeks on the throttled CDN. Once captured, the
+    // thumbnail is cached like any other and drawn.
+    let lazyTimer = 0;
+    let lazyBusy = false;
+    const captureAt = (timeSec: number) => {
+      const video = videoRef.current;
+      if (!video) return;
+      const bucket = Math.round(timeSec / THUMB_INTERVAL_S) * THUMB_INTERVAL_S;
+      if (thumbCacheRef.current.has(bucket) || lazyBusy) return;
+      lazyBusy = true;
+      // Longer timeout: a seek on the throttled (250k) proxied MP4 must fetch
+      // the bytes at the target offset before it can decode a frame.
+      seekAndWait(video, bucket, 8000)
+        .then(() => {
+          if (video.videoWidth > 0) {
+            const c = document.createElement("canvas");
+            c.width = THUMB_W;
+            c.height = THUMB_H;
+            const cx = c.getContext("2d");
+            if (cx) {
+              cx.imageSmoothingEnabled = true;
+              cx.imageSmoothingQuality = "high";
+              cx.drawImage(video, 0, 0, c.width, c.height);
+              thumbCacheRef.current.set(bucket, c);
+              // Redraw immediately if the cursor is still near this bucket.
+              drawCachedAt(bucket);
+            }
+          }
+        })
+        .catch(() => {})
+        .finally(() => {
+          lazyBusy = false;
+        });
+    };
+
     const handleMove = (e: PointerEvent) => {
       if (!duration || duration === 0) return;
       const rect = (slider as HTMLElement).getBoundingClientRect();
       const x = e.clientX - rect.left;
       const ratio = Math.max(0, Math.min(1, x / rect.width));
       const time = ratio * duration;
+
+      // In lazy mode, kick a debounced on-demand capture for this spot.
+      if (lazy) {
+        window.clearTimeout(lazyTimer);
+        lazyTimer = window.setTimeout(() => captureAt(time), 140);
+      }
 
       // Position tooltip above the slider, follow the cursor
       const playerRect = playerEl.getBoundingClientRect();
@@ -255,6 +313,7 @@ export default function HoverPreview({
       return () => {
         slider.removeEventListener("pointermove", handleMove as EventListener);
         slider.removeEventListener("pointerleave", handleLeave as EventListener);
+        window.clearTimeout(lazyTimer);
         cancelAnimationFrame(seekRafRef.current);
       };
     }
@@ -264,7 +323,7 @@ export default function HoverPreview({
       cancelled = true;
       cleanup();
     };
-  }, [duration, playerRef]);
+  }, [duration, playerRef, lazy]);
 
   // Cache the player root so we can portal the tooltip inside it — keeps
   // the preview visible when the player goes fullscreen (where any element
@@ -340,42 +399,49 @@ function formatTime(t: number): string {
     : `${m}:${String(s).padStart(2, "0")}`;
 }
 
-/** Seek the hidden video and resolve when the frame is decoded. */
-function seekAndWait(video: HTMLVideoElement, time: number): Promise<void> {
+/**
+ * Seek the hidden video and resolve when a real frame is DECODED at that spot.
+ * `timeoutMs` is longer for throttled sources (a seek on a 250k CDN must fetch
+ * the bytes at the target offset before it can decode). We also wait for the
+ * frame to actually be painted before resolving: `seeked` fires when the seek
+ * completes but the frame may not be decoded yet, so drawImage right after can
+ * grab a black frame. requestVideoFrameCallback (when available) resolves only
+ * once a frame is presented; otherwise we fall back to a short rAF delay.
+ */
+function seekAndWait(
+  video: HTMLVideoElement,
+  time: number,
+  timeoutMs = 3000,
+): Promise<void> {
   return new Promise((resolve, reject) => {
     let resolved = false;
-    const cleanup = () => {
+    const done = (fn: () => void) => {
+      if (resolved) return;
+      resolved = true;
       video.removeEventListener("seeked", onSeeked);
       video.removeEventListener("error", onError);
+      fn();
     };
     const onSeeked = () => {
-      if (resolved) return;
-      resolved = true;
-      cleanup();
-      resolve();
+      // Wait for a decoded frame before resolving.
+      const anyVid = video as any;
+      if (typeof anyVid.requestVideoFrameCallback === "function") {
+        anyVid.requestVideoFrameCallback(() => done(resolve));
+        // Guard: rVFC never fires if the video is paused on some browsers —
+        // resolve on the next macrotask as a floor.
+        setTimeout(() => done(resolve), 120);
+      } else {
+        requestAnimationFrame(() => requestAnimationFrame(() => done(resolve)));
+      }
     };
-    const onError = () => {
-      if (resolved) return;
-      resolved = true;
-      cleanup();
-      reject(new Error("seek error"));
-    };
+    const onError = () => done(() => reject(new Error("seek error")));
     video.addEventListener("seeked", onSeeked);
     video.addEventListener("error", onError);
     try {
       video.currentTime = time;
     } catch (e) {
-      cleanup();
-      reject(e);
+      done(() => reject(e));
     }
-    // Safety timeout — keep it short so one slow/stuck seek doesn't stall the
-    // whole background thumbnail walk (we just skip that frame and move on).
-    setTimeout(() => {
-      if (!resolved) {
-        resolved = true;
-        cleanup();
-        reject(new Error("seek timeout"));
-      }
-    }, 3000);
+    setTimeout(() => done(() => reject(new Error("seek timeout"))), timeoutMs);
   });
 }

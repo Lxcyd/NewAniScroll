@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import Image from "next/image";
 import { useTranslation } from "react-i18next";
@@ -10,18 +11,31 @@ import { animeHref, useClickTarget } from "@/lib/prefs/clickTarget";
  * Computed client-side from the local list + AniList airing schedule; no push.
  * The dropdown closes on outside click / Escape, and opening it marks all
  * current notifications as read (clears the unread badge).
+ *
+ * The panel is rendered through a portal to <body> because the navbar has a
+ * `transform` (translateZ for the blur fix) — a transformed ancestor makes
+ * `position: fixed` resolve against THAT ancestor, not the viewport, which
+ * pushed the panel off-screen on mobile. The portal escapes that.
  */
 export default function NotificationBell() {
   const { t } = useTranslation();
   const { notifications, unreadCount, markAllRead } = useNotifications();
   const clickTarget = useClickTarget();
   const [open, setOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => setMounted(true), []);
 
   useEffect(() => {
     if (!open) return;
     const onDown = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+      const target = e.target as Node;
+      // Ignore clicks on the bell wrapper AND the portaled panel.
+      if (ref.current?.contains(target)) return;
+      if (panelRef.current?.contains(target)) return;
+      setOpen(false);
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") setOpen(false);
@@ -76,48 +90,54 @@ export default function NotificationBell() {
         )}
       </button>
 
-      {open && (
-        <div className="absolute right-0 top-9 w-80 max-h-[70vh] overflow-y-auto rounded-xl bg-secondary ring-1 ring-white/10 shadow-2xl z-50">
-          <div className="px-4 py-3 border-b border-white/10 font-semibold text-sm">
-            {t("notifications.title")}
-          </div>
-          {notifications.length === 0 ? (
-            <div className="px-4 py-8 text-center text-white/50 text-sm">
-              {t("notifications.empty")}
+      {open &&
+        mounted &&
+        createPortal(
+          <div
+            ref={panelRef}
+            className="fixed right-2 left-2 top-16 w-auto sm:left-auto sm:right-4 sm:top-16 sm:w-80 max-h-[70vh] overflow-y-auto rounded-xl bg-secondary ring-1 ring-white/10 shadow-2xl z-[10000]"
+          >
+            <div className="px-4 py-3 border-b border-white/10 font-semibold text-sm">
+              {t("notifications.title")}
             </div>
-          ) : (
-            <ul className="divide-y divide-white/5">
-              {notifications.map((n) => (
-                <li key={n.id}>
-                  <Link
-                    href={animeHref(n.mediaId, clickTarget)}
-                    onClick={() => setOpen(false)}
-                    className="flex gap-3 px-4 py-3 hover:bg-white/5 transition-colors"
-                  >
-                    {n.coverImage ? (
-                      <Image
-                        src={n.coverImage}
-                        alt=""
-                        width={40}
-                        height={56}
-                        className="w-10 h-14 object-cover rounded-md shrink-0 ring-1 ring-white/10"
-                      />
-                    ) : (
-                      <div className="w-10 h-14 rounded-md bg-white/10 shrink-0" />
-                    )}
-                    <div className="min-w-0 flex-1">
-                      <div className="text-sm font-medium line-clamp-1">{n.title}</div>
-                      <div className="text-xs text-white/60 mt-0.5 line-clamp-2">
-                        {bodyFor(n)}
+            {notifications.length === 0 ? (
+              <div className="px-4 py-8 text-center text-white/50 text-sm">
+                {t("notifications.empty")}
+              </div>
+            ) : (
+              <ul className="divide-y divide-white/5">
+                {notifications.map((n) => (
+                  <li key={n.id}>
+                    <Link
+                      href={animeHref(n.mediaId, clickTarget)}
+                      onClick={() => setOpen(false)}
+                      className="flex gap-3 px-4 py-3 hover:bg-white/5 transition-colors"
+                    >
+                      {n.coverImage ? (
+                        <Image
+                          src={n.coverImage}
+                          alt=""
+                          width={40}
+                          height={56}
+                          className="w-10 h-14 object-cover rounded-md shrink-0 ring-1 ring-white/10"
+                        />
+                      ) : (
+                        <div className="w-10 h-14 rounded-md bg-white/10 shrink-0" />
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-medium line-clamp-1">{n.title}</div>
+                        <div className="text-xs text-white/60 mt-0.5 line-clamp-2">
+                          {bodyFor(n)}
+                        </div>
                       </div>
-                    </div>
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      )}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>,
+          document.body
+        )}
     </div>
   );
 }

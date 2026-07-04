@@ -11,6 +11,7 @@
 //   w2g:channel:{id}         Pub/Sub channel for live event fan-out
 
 import { redis } from "@/lib/redis";
+import { getAblyRest, ablyChannelName } from "./ably";
 import type { ChatMessage, Member, PartyEvent, RoomSnapshot } from "./types";
 
 // Re-export the shared types so existing `from "@/lib/watch2gether/redisRoom"`
@@ -483,10 +484,28 @@ export async function getChat(roomId: string): Promise<ChatMessage[]> {
     .filter(Boolean) as ChatMessage[];
 }
 
-/** Fan-out an event to all SSE subscribers of the room. */
+/** Fan-out an event to all subscribers of the room.
+ *
+ *  Dual transport during migration: published to Ably (the new managed-WebSocket
+ *  transport the browser listens on) AND to Redis pub/sub (the legacy SSE
+ *  fallback, pages/api/v2/watch2gether/stream.ts). Once the SSE route is removed
+ *  the Redis publish can go too. The Ably publish is fire-and-forget so a slow
+ *  Ably round-trip never delays the API response that triggered the event. */
 export async function publishEvent(roomId: string, event: PartyEvent): Promise<void> {
   assertRedis();
-  await redis.publish(channelKey(roomId), JSON.stringify(event));
+  const payload = JSON.stringify(event);
+  // New transport: Ably (only when configured). Non-blocking — failures here
+  // must not break moderation/playback actions that call publishEvent.
+  const rest = getAblyRest();
+  if (rest) {
+    rest
+      .channels.get(ablyChannelName(roomId))
+      .publish("event", event)
+      .catch((e: any) => console.error("[w2g] ably publish failed:", e?.message || e));
+  }
+  // Legacy transport: Redis pub/sub for the SSE fallback. Awaited to preserve
+  // the original ordering guarantee for any remaining SSE listeners.
+  await redis.publish(channelKey(roomId), payload);
 }
 
 // ioredis hset expects string values; coerce everything.

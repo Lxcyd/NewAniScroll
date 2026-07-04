@@ -16,7 +16,12 @@
  *   To make the cookie available to the Worker without a shared store, the
  *   extractor embeds it as `vcookie=` in the playback URL handed to the client.
  *   The Worker reads it back here and forwards it as the `Cookie` header.
+ *
+ * This Worker also serves a few endpoints offloaded from Vercel to cut Fluid
+ * Active CPU — see ./edge-endpoints.js (/w/health, /w/broadcast, /w/track).
  */
+
+import { handleEdgeEndpoint } from "./edge-endpoints.js";
 
 // CDNs that genuinely need single-flight requests per IP. Keep this list short
 // — every entry slows down playback for that host. Only VOE's
@@ -103,7 +108,7 @@ function corsHeaders(extra = {}) {
     "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
     "Access-Control-Allow-Headers": "Range, Content-Type",
     "Access-Control-Expose-Headers":
-      "Content-Length, Content-Range, Accept-Ranges, Content-Type",
+      "Content-Length, Content-Range, Accept-Ranges, Content-Type, X-Aniscroll-Cache",
     ...extra,
   };
 }
@@ -138,7 +143,12 @@ async function handle(request, env, ctx) {
   // spike (the part that visibly delayed Play/seek) at near-zero cost; the deep
   // hls.js buffer covers the segments themselves.
   const warmDepth = Math.max(0, parseInt(reqUrl.searchParams.get("warm") || "0", 10) || 0);
-  const WARM_MAX_DEPTH = 1;
+  // Depth 2 so a MASTER → VARIANT → SEGMENTS chain warms all the way to the
+  // segments: master (depth 0) warms the variant (depth 1), which in turn warms
+  // its sampled segments (depth 2). A media playlist served directly (no master)
+  // warms its segments at depth 1. Kept from exploding by warming only ONE
+  // variant (see below), so the worst case is 1 variant + 10 sampled segments.
+  const WARM_MAX_DEPTH = 2;
 
   if (!url) {
     return new Response(JSON.stringify({ error: "Missing url parameter" }), {
@@ -191,8 +201,16 @@ async function handle(request, env, ctx) {
   ) {
     headers.Origin = finalOrigin;
   }
+  // Range handling. Browsers open <video> MP4s with `Range: bytes=0-`; if we
+  // forwarded that, upstream would answer 206 — and cache.put REJECTS 206
+  // partials, so MP4s would never be cacheable. A 200 is a valid answer to
+  // `bytes=0-`, so we upgrade that opening request to a full fetch (200 →
+  // cacheable). Real mid-file ranges (seeks) are forwarded as-is and served
+  // uncached on miss; once the full 200 is stored, cache.match slices 206s
+  // out of it directly at the edge (see lookup below).
   const rangeHeader = request.headers.get("range");
-  if (rangeHeader) headers.Range = rangeHeader;
+  const isOpeningRange = !rangeHeader || /^bytes=0-$/i.test(rangeHeader.trim());
+  if (rangeHeader && !isOpeningRange) headers.Range = rangeHeader;
   if (vcookie) {
     try {
       headers.Cookie = decodeURIComponent(vcookie);
@@ -216,10 +234,24 @@ async function handle(request, env, ctx) {
   cacheKeyUrl.searchParams.delete("filename");
   cacheKeyUrl.searchParams.delete("warm");
   const cacheKey = new Request(cacheKeyUrl.toString(), { method: "GET" });
+  // The LOOKUP carries the client's Range header: cache.match slices a stored
+  // full 200 into the requested 206 directly at the edge (documented Cache API
+  // behaviour) — that's what makes MP4 seeks instant on a warm cache.
+  const cacheLookup = rangeHeader && !isOpeningRange
+    ? new Request(cacheKeyUrl.toString(), {
+        method: "GET",
+        headers: { Range: rangeHeader },
+      })
+    : cacheKey;
   // Only use cache for GET. (HEAD doesn't have a body to cache.)
   if (request.method === "GET" && !isDownload) {
-    const cached = await cache.match(cacheKey);
-    if (cached) return cached;
+    const cached = await cache.match(cacheLookup);
+    if (cached) {
+      // Rebuild so headers are mutable (cache.match responses are immutable).
+      const hit = new Response(cached.body, cached);
+      hit.headers.set("X-Aniscroll-Cache", "HIT");
+      return hit;
+    }
   }
 
   let response;
@@ -282,15 +314,16 @@ async function handle(request, env, ctx) {
 
   // Helper that stores the final response under the normalised cache key
   // before returning it. Skip caching for downloads (Content-Disposition
-  // varies per filename) and for error / partial responses (don't pin a
-  // 4xx upstream blip in cache for 24h).
+  // varies per filename), error responses (don't pin a 4xx upstream blip in
+  // cache for 24h) and 206 partials (cache.put rejects them by design — the
+  // full-200 path populates the cache instead). The put is fire-and-forget:
+  // oversized bodies (Cache API caps objects at ~512 MB) just fail silently.
   const respondAndCache = (res) => {
+    res.headers.set("X-Aniscroll-Cache", "MISS");
     const okToCache =
-      !isDownload &&
-      request.method === "GET" &&
-      (res.status === 200 || res.status === 206);
+      !isDownload && request.method === "GET" && res.status === 200;
     if (okToCache && ctx) {
-      ctx.waitUntil(cache.put(cacheKey, res.clone()));
+      ctx.waitUntil(cache.put(cacheKey, res.clone()).catch(() => {}));
     }
     return res;
   };
@@ -372,27 +405,62 @@ async function handle(request, env, ctx) {
       return rewrite(abs);
     });
 
-    // Pre-warm the first N resources through this same Worker URL so they get
-    // stored under the normal cache key (respondAndCache path) — the player's
-    // subsequent request then matches the edge cache. Fire-and-forget via
-    // waitUntil so it never delays the manifest response. Cap at 3 to keep the
-    // warm-up cheap (one extra subrequest budget item each) and avoid hammering
-    // the CDN; the deep hls.js buffer covers everything past the opening few.
+    // Pre-warm resources through this same Worker URL so they land under the
+    // normal cache key (respondAndCache path) — the player's subsequent request
+    // then matches the edge cache. Fire-and-forget via waitUntil so it never
+    // delays the manifest response.
     if (ctx && warmDepth < WARM_MAX_DEPTH && resourceUrls.length > 0) {
       const childDepth = warmDepth + 1;
-      // Only warm child PLAYLISTS, never segments — keep the warm to small text
-      // fetches so it can't compete for I/O with the player's real segment
-      // requests. A master playlist's children are variant .m3u8s; a media
-      // playlist's children are .ts/.m4s segments (skipped). Cap at 4 variants.
-      const playlists = resourceUrls
-        .filter((u) => /\.m3u8(\?|$)/i.test(u))
-        .slice(0, 4);
-      if (playlists.length > 0) {
+      // MASTER playlist → children are variant .m3u8s. Warm only ONE (a cheap
+      // text fetch) — that variant then warms its own sampled segments one depth
+      // down. Warming every variant would multiply the segment warm by 4 and
+      // blow the subrequest budget; hls.js plays one variant at a time anyway.
+      // Pick the LAST variant: HLS masters list variants low→high bitrate, and
+      // the player defaults to forceMaxQuality (top level), so the last is the
+      // one most likely actually played — warming it makes its segments the hot
+      // ones. (If ABR is on and picks a lower rung, only the sparse segment warm
+      // is "wasted"; the manifest warm still helps.)
+      const allPlaylists = resourceUrls.filter((u) => /\.m3u8(\?|$)/i.test(u));
+      const playlists = allPlaylists.length > 0 ? [allPlaylists[allPlaylists.length - 1]] : [];
+      // MEDIA playlist → children are the actual .ts/.m4s segments. THIS is what
+      // makes a far seek instant: without it, clicking anywhere past the opening
+      // hls.js buffer hits a cold segment (~3 s origin fetch). We warm a SPARSE
+      // sample spread across the whole timeline — one segment every Nth — so any
+      // point on the scrubber lands on (or right next to) an already-cached
+      // segment. Sparse + sequential + capped keeps this within the Worker's
+      // subrequest budget and never bursts alongside the player's real fetches
+      // (the mistake an earlier version made by warming the opening N segments in
+      // parallel, which starved I/O). Skipped entirely for master playlists.
+      // In a MEDIA playlist every non-#tag line IS a segment, whatever its
+      // extension — MegaCloud disguises segments as .jpg/.html/.js/.png/.txt to
+      // dodge filters, so matching a fixed extension list MISSED most of them
+      // (only ~1/3 got warmed). "Everything that isn't a child .m3u8" is the
+      // robust rule: resourceUrls here are already just the playlist's resource
+      // lines, and if there were child playlists we'd be in the master branch.
+      const segments = playlists.length === 0
+        ? resourceUrls.filter((u) => !/\.m3u8(\?|$)/i.test(u))
+        : [];
+      // 20 samples across the timeline. For a ~340-segment (24-min) episode
+      // that's a warm point every ~1 min of video, so a far seek lands within a
+      // few seconds of a hot segment. Still cheap: 20 sequential background
+      // fetches per media playlist, one variant deep.
+      const WARM_SEGMENT_SAMPLES = 20;
+      const sampledSegments = [];
+      if (segments.length > 0) {
+        // Even stride across the timeline; always include the first so playback
+        // start is warm too. De-dupe when the list is shorter than the sample.
+        const stride = Math.max(1, Math.ceil(segments.length / WARM_SEGMENT_SAMPLES));
+        for (let i = 0; i < segments.length; i += stride) sampledSegments.push(segments[i]);
+      }
+      const toWarm = [...playlists, ...sampledSegments];
+      if (toWarm.length > 0) {
         const warm = async () => {
           // Sequential, not parallel: a warm fetch must never burst alongside
           // the player's foreground requests. Carry warm=<childDepth> so the
           // cache key (which strips `warm`) matches the player's plain lookup.
-          for (const abs of playlists) {
+          // Segments are leaves (warmDepth reaches WARM_MAX_DEPTH), so warming
+          // them issues no further recursion.
+          for (const abs of toWarm) {
             await fetch(`${rewrite(abs)}&warm=${childDepth}`).catch(() => {});
           }
         };
@@ -483,6 +551,10 @@ async function handle(request, env, ctx) {
 export default {
   async fetch(request, env, ctx) {
     try {
+      // Offloaded-from-Vercel endpoints (/w/health, /w/broadcast, /w/track) are
+      // routed first; everything else is the HLS/scrape proxy.
+      const edge = await handleEdgeEndpoint(request, env, ctx);
+      if (edge) return edge;
       return await handle(request, env, ctx);
     } catch (err) {
       return new Response(

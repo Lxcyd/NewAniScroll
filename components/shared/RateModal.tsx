@@ -19,7 +19,7 @@ type Props = {
  * `scoreRaw = score * 10` to AniList (which uses a 100-point raw scale).
  */
 export default function RateModal({ toggle, setToggle, session }: Props) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { markComplete } = useAniList(session);
   const { dataMedia } = useWatchProvider();
 
@@ -98,34 +98,69 @@ export default function RateModal({ toggle, setToggle, session }: Props) {
           <p className="text-white/60 text-sm text-center mt-1 line-clamp-2">{title}</p>
         )}
 
-        {/* 1-10 star row */}
+        {/* 0.5–10 star row. Each star is two half-width hit zones: the left
+            half sets X.5, the right half sets X.0 — so a decimal score (8.5)
+            is reachable with a click, matching AniList's POINT_10_DECIMAL. */}
         <div
           className="flex justify-center gap-1 mt-5"
           onMouseLeave={() => setHover(0)}
         >
-          {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
-            <button
-              key={n}
-              type="button"
-              aria-label={`${n}/10`}
-              onMouseEnter={() => setHover(n)}
-              onClick={() => setScore(n)}
-              className="p-0.5 transition-transform hover:scale-110 focus:outline-none"
-            >
-              <svg
-                viewBox="0 0 24 24"
-                className={`w-6 h-6 transition-colors ${
-                  n <= shown ? "text-action" : "text-white/20"
-                }`}
-                fill="currentColor"
-              >
-                <path d="M12 17.27 18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z" />
-              </svg>
-            </button>
-          ))}
+          {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => {
+            // Fill fraction of THIS star given the shown value: full, half, or empty.
+            const fill = shown >= n ? 1 : shown >= n - 0.5 ? 0.5 : 0;
+            return (
+              <div key={n} className="relative w-6 h-6">
+                {/* Empty base star */}
+                <svg
+                  viewBox="0 0 24 24"
+                  className="absolute inset-0 w-6 h-6 text-white/20"
+                  fill="currentColor"
+                >
+                  <path d="M12 17.27 18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z" />
+                </svg>
+                {/* Accent overlay, clipped to the fill fraction (0 / 50% / 100%). */}
+                {fill > 0 && (
+                  <div
+                    className="absolute inset-0 overflow-hidden"
+                    style={{ width: `${fill * 100}%` }}
+                  >
+                    <svg
+                      viewBox="0 0 24 24"
+                      className="w-6 h-6 text-action"
+                      fill="currentColor"
+                    >
+                      <path d="M12 17.27 18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z" />
+                    </svg>
+                  </div>
+                )}
+                {/* Two half-width hit zones: left = n-0.5, right = n. */}
+                <button
+                  type="button"
+                  aria-label={`${n - 0.5}/10`}
+                  onMouseEnter={() => setHover(n - 0.5)}
+                  onClick={() => setScore(n - 0.5)}
+                  className="absolute inset-y-0 left-0 w-1/2 transition-transform hover:scale-110 focus:outline-none"
+                />
+                <button
+                  type="button"
+                  aria-label={`${n}/10`}
+                  onMouseEnter={() => setHover(n)}
+                  onClick={() => setScore(n)}
+                  className="absolute inset-y-0 right-0 w-1/2 transition-transform hover:scale-110 focus:outline-none"
+                />
+              </div>
+            );
+          })}
         </div>
         <p className="text-center text-sm mt-2 h-5 text-white/70">
-          {shown ? t("rate.scoreOutOf", { score: shown }) : t("rate.tapToRate")}
+          {shown
+            ? t("rate.scoreOutOf", {
+                // Locale-format the decimal so FR shows "8,5/10", not "8.5/10".
+                score: shown.toLocaleString(i18n.language, {
+                  maximumFractionDigits: 1,
+                }),
+              })
+            : t("rate.tapToRate")}
         </p>
 
         <input

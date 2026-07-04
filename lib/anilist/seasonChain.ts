@@ -1,5 +1,12 @@
 import { getMediaMeta } from "./getMediaMeta";
-import { redis } from "@/lib/redis";
+import {
+  resolveSeasonNumber,
+  resolveFranchiseSeasons,
+  resolveFranchiseBonusFilms,
+  findFilmVariants,
+  type FilmVariant,
+} from "./resolveSeason";
+import { seasonCacheGet, seasonCacheSet } from "@/lib/db/seasonCache";
 import {
   computeSeasonInfo,
   extractSeasonFromTitle,
@@ -8,39 +15,75 @@ import {
   sharesFranchise,
   SeasonInfo,
 } from "@/components/anime/v2/helpers";
+import {
+  edgeYearMonotonic,
+  isChainableRelation,
+  isRecapTitle,
+  yearOf,
+} from "./seasonDetection";
 
-/* Redis cache for the walker results. Each SSR of an info page used to
-   trigger 10-30 getCachedAnime() calls (one per node in the relation
-   chain × 2 for chain+list), which is the dominant Turso read source.
-   Caching the resolved output sidesteps the walk entirely on warm
-   reads. 7-day TTL: the only thing that invalidates a season chain is
-   AniList publishing a brand-new sequel, which is rare and tolerates
-   a week of staleness. */
-const REDIS_KEY_CHAIN = (id: number) => `seasonChain:v1:${id}`;
+/* Persistent (Turso) cache for the walker results. Each SSR of an info page
+   used to trigger 10-30 getCachedAnime() calls (one per node in the relation
+   chain × 2 for chain+list); caching the resolved output sidesteps the walk
+   entirely on warm reads. 7-day TTL (enforced in lib/db/seasonCache.ts): the
+   only thing that invalidates a season chain is AniList publishing a brand-new
+   sequel, which is rare and tolerates a week of staleness.
+
+   Was Redis — moved to Turso because a slow/unreachable Redis blocked the
+   resolver ~90 s per request AND its stale values served the WRONG season. On
+   Turso a miss/error just recomputes from AniList; it can never serve a wrong
+   season. The cache_key strings keep their version tags (below) unchanged. */
+// v2: numbering now goes through the multi-signal resolver (Fribb + air-year
+//     arbitration + hardened walk) instead of the pure PREQUEL/SEQUEL count,
+//     which mis-ordered remakes (Gundam Origin 2019 vs 1979).
+// v3: meta-franchise guard — Gundam &co report {number:1,total:1} so the Hero
+//     drops the "· S<n>" badge (was numbering unrelated works in one universe).
+// v4: chained sequel films count as seasons (mirrors seasonList v9).
+// v5: SIDE_STORY bonus films (HxH: Phantom Rouge) are excluded from season
+//     numbering, so the "· S<n>" badge no longer over-counts them. Bumped to
+//     drop pre-fix cached numbers (Phantom Rouge was cached as S2).
+const REDIS_KEY_CHAIN = (id: number) => `seasonChain:v5:${id}`;
 // v3: SeasonEntry gained `idMal` (feeds Jikan per-episode score lookups).
 // v4: numbering now uses a running counter so split-cours + unnumbered
 //     "Final Season" entries get the right S<n> (AoT Final Season = S4, not S5).
 // v5: SeasonEntry gained `status` (flags not-yet-released seasons in the UI).
-const REDIS_KEY_LIST = (id: number) => `seasonList:v5:${id}`;
-const TTL_SECONDS = 7 * 24 * 60 * 60;
+// v6: chain walk now applies the air-year monotonicity + relation-type guards
+//     (drops ALTERNATIVE remakes) and sorts chronologically before numbering.
+// v7: season list now comes from the unified resolver (resolveFranchiseSeasons)
+//     — canonical (rebased on franchise root, same list from any page) and
+//     TMDB-restricted (a remake no longer bleeds the original's timeline in),
+//     plus deduped + numbered film variants.
+// v8: meta-franchise guard (Gundam &co: 8+ tmdb.tv fiches → present the entry
+//     standalone, no misleading "Season 1..N").
+// v9: a chained sequel FILM now counts as a season (Chainsaw Man Reze = S2);
+//     only compilation-film variants stay attached as format variants.
+// v10: SIDE_STORY bonus films (HxH: Phantom Rouge, The Last Mission) are pulled
+//      out of the season list into the separate Films dropdown. Bumped to evict
+//      pre-fix cached lists that still numbered them as seasons.
+// v11: SUMMARY recap films now attach as dual-format variants of their season
+//      (Attack on Titan: The Roar of Awakening → S2); multi-season digests
+//      (~Chronicle~) route to the bonus-films dropdown. Changes season variants.
+// v12: SINGLE-season anime (One Piece) no longer attach arc-recap films as
+//      per-season dual-format variants (no season split to host them) — those
+//      recaps move to the Films panel's Compilations section. Changes variants.
+// v13: whole-franchise digest MOVIE pages (Attack on Titan ~Chronicle~) re-anchor
+//      to their franchise's oldest season, so the season list now resolves to the
+//      real seasons instead of the lone movie. Changes the list for those ids.
+// v14: PREQUEL movies (Jujutsu Kaisen 0) no longer counted as a numbered season
+//      — they're bonus films now. Bump to evict lists that had them as "Season N".
+const REDIS_KEY_LIST = (id: number) => `seasonList:v14:${id}`;
 
-async function redisGetJson<T>(key: string): Promise<T | null> {
-  if (!redis) return null;
-  try {
-    const raw = await redis.get(key);
-    return raw ? (JSON.parse(raw) as T) : null;
-  } catch {
-    return null;
-  }
+// Cache accessors now hit Turso (see lib/db/seasonCache.ts) instead of Redis.
+// The cache_key strings keep their version tag, so a version bump still evicts
+// stale rows. A miss or DB error returns null → the caller recomputes from
+// AniList, so a slow/unreachable store can never serve the WRONG season (the
+// bug we're fixing) and never blocks the request for the Redis connect timeout.
+async function cacheGetJson<T>(key: string): Promise<T | null> {
+  return seasonCacheGet<T>(key);
 }
 
-async function redisSetJson(key: string, value: unknown): Promise<void> {
-  if (!redis) return;
-  try {
-    await redis.set(key, JSON.stringify(value), "EX", TTL_SECONDS);
-  } catch {
-    /* non-fatal */
-  }
+async function cacheSetJson(key: string, value: unknown): Promise<void> {
+  await seasonCacheSet(key, value);
 }
 
 /* Walk PREQUEL / SEQUEL edges starting from `startId` and resolve every
@@ -74,9 +117,19 @@ function isWalkable(node: { type?: string; format?: string } | null): boolean {
 function pickEdge(
   edges: Array<{ relationType: string; node: any }>,
   relationType: "PREQUEL" | "SEQUEL",
-  currentTitle?: any
+  currentTitle?: any,
+  currentNode?: any
 ): { node: any } | null {
-  const sameType = edges.filter((e) => e.relationType === relationType);
+  // Only PREQUEL/SEQUEL are chainable — ALTERNATIVE/PARENT link remakes /
+  // versions (Gundam Origin ↔ 1979), which must never chain as seasons.
+  // Air-year monotonicity rejects a mis-tagged edge that jumps the wrong way
+  // in time (AniList tags the 1979 Gundam as a SEQUEL of the 2019 remake).
+  const sameType = edges.filter(
+    (e) =>
+      e.relationType === relationType &&
+      isChainableRelation(e.relationType) &&
+      edgeYearMonotonic(relationType, currentNode, e.node)
+  );
   if (sameType.length === 0) return null;
 
   // When we know the franchise, hard-filter on it before checking the
@@ -99,12 +152,22 @@ function pickEdge(
 }
 
 export async function resolveSeasonChain(startId: number): Promise<SeasonInfo> {
-  const cached = await redisGetJson<SeasonInfo>(REDIS_KEY_CHAIN(startId));
+  const cached = await cacheGetJson<SeasonInfo>(REDIS_KEY_CHAIN(startId));
   if (cached) return cached;
-  const result = await resolveSeasonChainUncached(startId);
+  // Route through the multi-signal resolver (Fribb + air-year arbitration +
+  // hardened walk). It returns richer data; we project it to SeasonInfo here.
+  // Falls back to the legacy walk only if the resolver throws (e.g. Fribb DB
+  // unreachable in a way getMediaMeta still tolerates).
+  let result: SeasonInfo;
+  try {
+    const r = await resolveSeasonNumber(startId);
+    result = { number: r.number, total: r.total };
+  } catch {
+    result = await resolveSeasonChainUncached(startId);
+  }
   // Only cache positive resolutions to avoid pinning a "no info" answer
   // for 7 days when the underlying issue was a transient AniList blip.
-  if (result.number != null) await redisSetJson(REDIS_KEY_CHAIN(startId), result);
+  if (result.number != null) await cacheSetJson(REDIS_KEY_CHAIN(startId), result);
   return result;
 }
 
@@ -128,7 +191,7 @@ async function resolveSeasonChainUncached(startId: number): Promise<SeasonInfo> 
   for (let i = 0; i < MAX_HOPS; i++) {
     const media = map.get(cursor);
     if (!media) break;
-    const edge = pickEdge(media.relations?.edges || [], "PREQUEL", startTitle);
+    const edge = pickEdge(media.relations?.edges || [], "PREQUEL", startTitle, media);
     if (!edge) break;
     const nextId = Number(edge.node.id);
     if (!Number.isFinite(nextId) || visitedBack.has(nextId)) break;
@@ -144,7 +207,7 @@ async function resolveSeasonChainUncached(startId: number): Promise<SeasonInfo> 
   for (let i = 0; i < MAX_HOPS; i++) {
     const media = map.get(cursor);
     if (!media) break;
-    const edge = pickEdge(media.relations?.edges || [], "SEQUEL", startTitle);
+    const edge = pickEdge(media.relations?.edges || [], "SEQUEL", startTitle, media);
     if (!edge) break;
     const nextId = Number(edge.node.id);
     if (!Number.isFinite(nextId) || visitedFwd.has(nextId)) break;
@@ -195,6 +258,21 @@ export type SeasonEntry = {
     extraLarge?: string | null;
     large?: string | null;
   } | null;
+  /** Alternate FORMATS of this same season position (Part 4 — dual-format).
+   *  A season that also exists as a compilation film (Demon Slayer S2) carries
+   *  the film here so the picker can offer "Episodes" + "Film" side by side.
+   *  Empty/absent when the season has only one format. Paired via Fribb TMDB
+   *  ids (tv vs movie) + AniList COMPILATION/ALTERNATIVE relations. */
+  variants?: Array<{
+    id: number;
+    format: string; // "MOVIE" | "TV" | …
+    label?: string | null;
+    year?: number | null;
+    episodes?: number | null;
+    /** 1-based film number within this season (Film 1 / Film 2) when the season
+     *  has more than one compilation film; undefined for a lone film. */
+    index?: number | null;
+  }> | null;
 };
 
 /* Same walk as resolveSeasonChain but returns the ordered list of every
@@ -204,12 +282,58 @@ export type SeasonEntry = {
 export async function resolveSeasonList(
   startId: number
 ): Promise<SeasonEntry[]> {
-  const cached = await redisGetJson<SeasonEntry[]>(REDIS_KEY_LIST(startId));
+  const cached = await cacheGetJson<SeasonEntry[]>(REDIS_KEY_LIST(startId));
   if (cached) return cached;
-  const result = await resolveSeasonListUncached(startId);
+  // Unified path: the season list now comes from the same franchise builder as
+  // the season-number resolver (canonical + Fribb TMDB-restricted). Falls back
+  // to the legacy walk only if the resolver throws.
+  let result: SeasonEntry[];
+  try {
+    result = (await resolveFranchiseSeasons(startId)) as SeasonEntry[];
+  } catch {
+    result = await resolveSeasonListUncached(startId);
+  }
   // Cache even empty arrays — an anime with no season siblings is a
   // stable fact; recomputing it every page render wastes the walk.
-  await redisSetJson(REDIS_KEY_LIST(startId), result);
+  await cacheSetJson(REDIS_KEY_LIST(startId), result);
+  return result;
+}
+
+/* Franchise BONUS films (HxH: Phantom Rouge, The Last Mission) for the separate
+   "Films" dropdown. Shares buildFranchise() with the season resolver, so it's
+   cheap on top of the season list (same getMediaMeta cache). Cached alongside
+   the list — an empty array (no bonus films: Demon Slayer, Chainsaw Man) is a
+   stable fact and hides the second dropdown. */
+// v2: FilmVariant enriched with duration / averageScore / coverImage for the
+//     richer Films dropdown rows (cover + runtime).
+// v3: multi-season SUMMARY digests (Attack on Titan ~Chronicle~) now join the
+//     bonus-films list alongside SIDE_STORY films.
+// v4: FilmVariant tagged with `kind` ("movie" | "compilation") and arc recap
+//     films (SUMMARY/COMPILATION) now included so the UI can split them into a
+//     "Compilations" section. Bump to drop pre-tag cached lists.
+// v5: single-season recaps (Roar of Awakening → S2, One Piece Alabasta/Chopper)
+//     are EXCLUDED from the panel — they belong to the season dropdown only, so
+//     the Compilations section holds multi-season digests (~Chronicle~) alone.
+//     Bump to evict v4 lists that double-listed single-season recaps.
+// v6: SINGLE-season anime (One Piece) DO include their arc recaps here as
+//     "compilation" (there's no season dropdown for them); multi-season keep the
+//     season-dropdown-only rule. Bump to recompute with the season-count split.
+// v7: digest-movie pages (Chronicle) re-anchor to their franchise, so the digest
+//     now resolves as a bonus film on its OWN page (was empty). Changes those ids.
+// v8: PREQUEL movies (Jujutsu Kaisen 0) are now surfaced as bonus films.
+// v9: recompilation movies with a PARENT-to-TV edge (JJK: Execution) are
+//     re-classified kind="compilation" so they land in the Compilations section.
+const REDIS_KEY_FILMS = (id: number) => `bonusFilms:v9:${id}`;
+export async function resolveBonusFilms(startId: number): Promise<FilmVariant[]> {
+  const cached = await cacheGetJson<FilmVariant[]>(REDIS_KEY_FILMS(startId));
+  if (cached) return cached;
+  let result: FilmVariant[];
+  try {
+    result = await resolveFranchiseBonusFilms(startId);
+  } catch {
+    result = [];
+  }
+  await cacheSetJson(REDIS_KEY_FILMS(startId), result);
   return result;
 }
 
@@ -237,7 +361,7 @@ async function resolveSeasonListUncached(
   for (let i = 0; i < MAX_HOPS; i++) {
     const media = map.get(cursor);
     if (!media) break;
-    const edge = pickEdge(media.relations?.edges || [], "PREQUEL", startTitle);
+    const edge = pickEdge(media.relations?.edges || [], "PREQUEL", startTitle, media);
     if (!edge) break;
     const nextId = Number(edge.node.id);
     if (!Number.isFinite(nextId) || visitedBack.has(nextId)) break;
@@ -255,7 +379,7 @@ async function resolveSeasonListUncached(
   for (let i = 0; i < MAX_HOPS; i++) {
     const media = map.get(cursor);
     if (!media) break;
-    const edge = pickEdge(media.relations?.edges || [], "SEQUEL", startTitle);
+    const edge = pickEdge(media.relations?.edges || [], "SEQUEL", startTitle, media);
     if (!edge) break;
     const nextId = Number(edge.node.id);
     if (!Number.isFinite(nextId) || visitedFwd.has(nextId)) break;
@@ -269,11 +393,15 @@ async function resolveSeasonListUncached(
   // Build the full chain in chronological order: [oldest…current…newest]
   const chainIds = [...backIds.slice().reverse(), startId, ...fwdIds];
 
-  // Only emit season-like nodes (TV/TV_SHORT/ONA) — drop OVA bridges.
-  // For each kept node, derive a friendly label.
+  // Only emit season-like nodes (TV/TV_SHORT/ONA) — drop OVA bridges and
+  // recap/digest entries (which must never be a numbered season). Then SORT
+  // chronologically by air year: a safety net so the displayed order can't
+  // invert (S2 older than S1) even if a mis-tagged edge slipped through the
+  // walk's year guard.
   const seasonLike = chainIds
     .map((id) => map.get(id))
-    .filter((m) => m && isSeasonLike(m));
+    .filter((m) => m && isSeasonLike(m) && !isRecapTitle(m))
+    .sort((a, b) => (yearOf(a) ?? Infinity) - (yearOf(b) ?? Infinity));
 
   // Number the chain with a running counter rather than the raw index. The
   // index over-counts whenever a season is split across multiple broadcast
@@ -316,6 +444,13 @@ async function resolveSeasonListUncached(
       // poster cards without re-fetching per-id on the client.
       title: m.title || null,
       coverImage: m.coverImage || null,
+      // Part 4 — dual-format: attach a compilation film of THIS season if one
+      // exists. A recap movie that re-tells a season is linked on AniList via a
+      // COMPILATION (or ALTERNATIVE) edge to a MOVIE node. We surface it so the
+      // Episodes picker can offer "Episodes" + "Film" for the same slot. We do
+      // NOT invent a pairing — only edges AniList actually asserts.
+      variants: findFilmVariants(m),
     };
   });
 }
+
