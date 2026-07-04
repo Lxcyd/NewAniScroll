@@ -102,6 +102,14 @@ Preuve définitive : un Range mid-fichier sur le MP4 Sendvid via proxy → **206
 - [ ] (Suivi) Surveiller dashboard Workers (req/jour) ; > ~70k/jour → Workers Paid 5$/mois.
 - [ ] (Futur) Retester AnimePahe quand `new.vidnest.fun/animepahe/` ne renvoie plus 502.
 
+### Session 3 (2026-07-04 suite) — optims serveurs + nettoyage
+- [x] `efec2fd` — configs hls.js séparées : Megaplay agressif vs Vidmoly résilient. + hover-prefetch désactivé sur les directs (martelait le CDN Vidmoly = ERR_EMPTY_RESPONSE).
+- [x] `28c8d57` — VOE retiré (chip fantôme, 0 lien voir-anime, 204 sur 10 titres testés).
+- [x] `64d2f0e` — **emojis watch-party exclus du precache PWA** (`publicExcludes`). 250 emojis étaient téléchargés par le SW pour chaque visiteur même hors room → maintenant lazy/à la demande en room seulement.
+- [x] `19526e9` — Vidmoly buffer profond (60s/100MB) : la lecture roule loin devant, les ERR_EMPTY_RESPONSE (CDN qui drop un keep-alive) sont réessayés en fond, invisibles. Vidmoly joue bien + plus vite que Megaplay (direct = 0 hop).
+
+**Megaplay direct = IMPOSSIBLE (testé 2026-07-04)** : `cdn.mewstream.buzz` renvoie 403 sans `Referer: megaplay.buzz` (avec Referer bidon aussi). Le CDN envoie bien `ACAO: *` (CORS OK) mais EXIGE le Referer, qu'un navigateur ne peut pas falsifier. Donc le proxy est OBLIGATOIRE pour Megaplay — il injecte le Referer. Megaplay ne peut structurellement pas égaler Vidmoly (direct) au démarrage froid ; le cache edge + hover-prefetch le rendent excellent en relecture/seek. Limite atteinte.
+
 ### Checklist test final (hard refresh Ctrl+Shift+R à chaque fois)
 - [ ] Megaplay : chip présent + reste au reload ; seek rapide (survole loin + attends 1s + clique)
 - [ ] Sendvid : lecture rapide/excellente (pas de preview = normal)
