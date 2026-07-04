@@ -95,9 +95,15 @@ export default function HoverPreview({
         hlsRef.current = null;
       };
     } else {
+      // For lazy (throttled) MP4 sources, let the element fetch media data on
+      // seek — preload="metadata" alone often refuses to load past the header,
+      // so a seek to mid-episode never decodes a frame (black thumbnail). Force
+      // eager-ish loading and kick a load() so the first hover seek has data.
+      if (lazy) video.preload = "auto";
       video.src = src;
+      video.load();
     }
-  }, [src, isM3U8]);
+  }, [src, isM3U8, lazy]);
 
   // Background thumbnail pre-caching: once metadata is loaded, walk through
   // the video at fixed percentage intervals (every 5%) seeking the hidden
@@ -242,7 +248,9 @@ export default function HoverPreview({
       const bucket = Math.round(timeSec / THUMB_INTERVAL_S) * THUMB_INTERVAL_S;
       if (thumbCacheRef.current.has(bucket) || lazyBusy) return;
       lazyBusy = true;
-      seekAndWait(video, bucket)
+      // Longer timeout: a seek on the throttled (250k) proxied MP4 must fetch
+      // the bytes at the target offset before it can decode a frame.
+      seekAndWait(video, bucket, 8000)
         .then(() => {
           if (video.videoWidth > 0) {
             const c = document.createElement("canvas");
@@ -391,42 +399,49 @@ function formatTime(t: number): string {
     : `${m}:${String(s).padStart(2, "0")}`;
 }
 
-/** Seek the hidden video and resolve when the frame is decoded. */
-function seekAndWait(video: HTMLVideoElement, time: number): Promise<void> {
+/**
+ * Seek the hidden video and resolve when a real frame is DECODED at that spot.
+ * `timeoutMs` is longer for throttled sources (a seek on a 250k CDN must fetch
+ * the bytes at the target offset before it can decode). We also wait for the
+ * frame to actually be painted before resolving: `seeked` fires when the seek
+ * completes but the frame may not be decoded yet, so drawImage right after can
+ * grab a black frame. requestVideoFrameCallback (when available) resolves only
+ * once a frame is presented; otherwise we fall back to a short rAF delay.
+ */
+function seekAndWait(
+  video: HTMLVideoElement,
+  time: number,
+  timeoutMs = 3000,
+): Promise<void> {
   return new Promise((resolve, reject) => {
     let resolved = false;
-    const cleanup = () => {
+    const done = (fn: () => void) => {
+      if (resolved) return;
+      resolved = true;
       video.removeEventListener("seeked", onSeeked);
       video.removeEventListener("error", onError);
+      fn();
     };
     const onSeeked = () => {
-      if (resolved) return;
-      resolved = true;
-      cleanup();
-      resolve();
+      // Wait for a decoded frame before resolving.
+      const anyVid = video as any;
+      if (typeof anyVid.requestVideoFrameCallback === "function") {
+        anyVid.requestVideoFrameCallback(() => done(resolve));
+        // Guard: rVFC never fires if the video is paused on some browsers —
+        // resolve on the next macrotask as a floor.
+        setTimeout(() => done(resolve), 120);
+      } else {
+        requestAnimationFrame(() => requestAnimationFrame(() => done(resolve)));
+      }
     };
-    const onError = () => {
-      if (resolved) return;
-      resolved = true;
-      cleanup();
-      reject(new Error("seek error"));
-    };
+    const onError = () => done(() => reject(new Error("seek error")));
     video.addEventListener("seeked", onSeeked);
     video.addEventListener("error", onError);
     try {
       video.currentTime = time;
     } catch (e) {
-      cleanup();
-      reject(e);
+      done(() => reject(e));
     }
-    // Safety timeout — keep it short so one slow/stuck seek doesn't stall the
-    // whole background thumbnail walk (we just skip that frame and move on).
-    setTimeout(() => {
-      if (!resolved) {
-        resolved = true;
-        cleanup();
-        reject(new Error("seek timeout"));
-      }
-    }, 3000);
+    setTimeout(() => done(() => reject(new Error("seek timeout"))), timeoutMs);
   });
 }
