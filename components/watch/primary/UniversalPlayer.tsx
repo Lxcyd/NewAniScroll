@@ -190,23 +190,31 @@ const HLS_CONFIG = {
 // missing segment instead of stalling. The goal is resilience, not depth.
 const HLS_CONFIG_DIRECT = {
   lowLatencyMode: false,
-  // Moderate look-ahead: enough for smooth playback, not so much that we pull a
-  // huge burst that trips the CDN's rate cutoff.
-  maxBufferLength: 30,
-  maxMaxBufferLength: 90,
-  maxBufferSize: 60 * 1000 * 1000, // 60 MB
-  backBufferLength: 30,
+  // Buffer DEEP ahead. Vidmoly's ERR_EMPTY_RESPONSE mostly comes from the CDN
+  // dropping a keep-alive connection when hls.js re-opens one just-in-time. A
+  // deep buffer keeps the loader working far ahead of the playhead, so playback
+  // rides on already-fetched data and never waits on the segment that failed —
+  // the failed one is simply retried in the background while you keep watching.
+  // hls.js still fetches sequentially (no burst), so this doesn't trip a rate
+  // cutoff; it just stops the "load a segment right as you need it" pattern that
+  // makes a dropped connection visible as a stall.
+  maxBufferLength: 60,
+  maxMaxBufferLength: 180,
+  maxBufferSize: 100 * 1000 * 1000, // 100 MB
+  backBufferLength: 60,
   startFragPrefetch: true,
   startLevel: -1,
   // Patient, spaced-out retries: on ERR_EMPTY_RESPONSE the CDN needs a beat
-  // before it answers again — retrying instantly just gets cut again.
-  fragLoadingMaxRetry: 4,
-  fragLoadingRetryDelay: 1000,
-  fragLoadingMaxRetryTimeout: 20000,
+  // before it answers again — retrying instantly just gets cut again. But keep
+  // trying a good while (deep buffer buys the time) so a transient cut recovers
+  // silently instead of surfacing as an error.
+  fragLoadingMaxRetry: 6,
+  fragLoadingRetryDelay: 800,
+  fragLoadingMaxRetryTimeout: 30000,
   // Jump slightly larger gaps without stalling (direct CDNs drop the odd
   // segment); combined with the error-recovery handler this avoids freezes.
   maxBufferHole: 1,
-  nudgeMaxRetry: 8,
+  nudgeMaxRetry: 10,
 };
 
 // Never auto-resume into the last few seconds of an episode — at that point
