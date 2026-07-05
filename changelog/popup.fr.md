@@ -1,11 +1,11 @@
-## v0.0.4
+## v0.0.5
 
-🎉 **Regarder ensemble** — regardez un épisode en synchro parfaite avec vos amis.
+🎉 **Découverte** — un nouveau fil vertical plein écran, façon TikTok, pour parcourir les animes du moment.
 
-**Lancez un salon** — créez un salon, partagez un code à 4 chiffres ou un lien d'invitation, et la lecture reste synchronisée pour tout le monde.
+**Swipe pour trier** — glissez une fiche à droite ou à gauche pour l'ajouter à votre liste AniList (droite = Terminé, gauche = Prévu par défaut, réglable).
 
-**Chat du salon** — discutez en direct à côté du lecteur, avec un sélecteur d'emojis complet et des stickers anime cherchables.
+**Annuler** — revenez sur une fiche déjà glissée pour retirer l'action d'un clic.
 
-**Vous êtes l'hôte** — rendez muet, bloquez la lecture, verrouillez le salon (privé), expulsez ou bannissez, ou cédez l'hôte à quelqu'un d'autre.
+**Info & Regarder** — ouvrez la fiche d'info ou lancez la lecture directement depuis chaque carte.
 
-**Toujours synchro** — changer d'épisode, de serveur ou de sub/dub suit automatiquement tout le salon.
+**« Pour vous »** — des recommandations personnalisées basées sur votre liste AniList, avec le pourquoi de chaque suggestion.

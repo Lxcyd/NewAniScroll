@@ -1,11 +1,11 @@
-## v0.0.4
+## v0.0.5
 
-🎉 **Watch together** — watch an episode in perfect sync with friends.
+🎉 **Discover** — a new full-screen, TikTok-style vertical feed to browse trending anime.
 
-**Start a room** — create a room, share a 4-digit code or invite link, and everyone's playback stays in step.
+**Swipe to sort** — swipe a card right or left to add it to your AniList (right = Completed, left = Planning by default, adjustable).
 
-**Room chat** — chat live next to the player, with a full emoji picker and a set of searchable anime stickers.
+**Undo** — scroll back to a card you already swiped to remove the action in one click.
 
-**You're the host** — mute, block playback, lock the room (private), kick or ban, or hand host to someone else.
+**Info & Watch** — open the info page or jump straight into playback from any card.
 
-**Stays in sync** — changing episode, server or sub/dub follows the whole room automatically.
+**"For You"** — personalised recommendations based on your AniList, with the reasoning behind each pick.

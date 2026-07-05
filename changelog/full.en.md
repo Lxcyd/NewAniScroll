@@ -2,6 +2,23 @@
 
 All notable changes to AniScroll appear here. Most recent first.
 
+## [v0.0.5] — Discover & recommendations (2026-07-05)
+
+### Added
+- **Discover tab**: a full-screen, TikTok-style vertical feed to browse trending
+  anime. Scroll up or down to move between cards.
+- **Swipe to sort**: swipe a card right or left to add it to your AniList. By
+  default, right = "Completed" and left = "Planning".
+- **Swipe settings**: choose the status assigned to each direction from Watching,
+  Rewatching, Completed, Planning, Paused and Dropped.
+- **Undo**: scroll back to a card you already swiped to remove the action in one
+  click (the AniList entry is deleted).
+- **Info & Watch buttons**: on every card, open the info page or jump straight
+  into playback.
+- **"For You"**: a personalised recommendation panel based on your AniList, with
+  the reasoning behind each suggestion. Two modes (all / planning) and a button
+  to generate fresh picks.
+
 ## [v0.0.4] — Watch together (2026-06-26)
 
 ### Added
