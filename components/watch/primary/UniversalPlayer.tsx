@@ -3893,19 +3893,8 @@ export default function UniversalPlayer({
           else (player as any)?.enterFullscreen?.() ?? player?.el?.requestFullscreen?.();
         } catch {}
         break;
-      case "toggleTheater":
-        window.dispatchEvent(new CustomEvent("aniscroll:toggleTheater"));
-        break;
       case "pictureInPicture":
         if (pipSupported) togglePip();
-        break;
-      case "cycleAspect":
-        if (video) {
-          const modes = ["contain", "cover", "fill"] as const;
-          const cur = (video.style.objectFit || "contain") as (typeof modes)[number];
-          const next = modes[(modes.indexOf(cur) + 1) % modes.length];
-          video.style.objectFit = next;
-        }
         break;
       case "mirror":
         if (video) {

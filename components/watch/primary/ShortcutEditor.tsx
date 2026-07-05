@@ -1,16 +1,17 @@
 /**
- * Visual keyboard shortcut editor (overlay) — keyboard-first design.
+ * Visual keyboard shortcut editor (overlay) — keyboard-only, matches the
+ * reference screenshot.
  *
- * Matches the reference screenshot the user shared:
- *   - Just the KEYBOARD, centered. No side list, no bordered card around it.
- *   - Each key that holds an action shows that action's icon; other keys are
- *     blank. No printed letters.
- *   - Hovering a key shows a floating dark pill above the board ("Space :
- *     Play/Pause") AND the key visually retracts / shrinks a touch.
- *   - Rebinding is drag & drop: lift an icon off a key and drop it on another
- *     key to move it. Double-click a key to free it.
- *   - Any actions that aren't on the board sit in a slim tray under the
- *     keyboard so they can be dragged on; the tray hides itself when empty.
+ *  - Pure black background, NO card / border around the keyboard.
+ *  - Keys are flat dark fills, NO borders. A key that holds an action shows its
+ *    icon; empty keys are blank. No printed letters.
+ *  - Hovering ANY key shows a floating pill above the board ("Space :
+ *    Play/Pause" or just the key name) and the key retracts (scale) — every
+ *    key animates, assigned or not.
+ *  - Rebinding = drag & drop, key ↔ key. Dropping onto an occupied key SWAPS
+ *    the two actions (no action is ever lost, so there's no "unassign").
+ *    Actions not currently on the board sit in a slim tray below; drag one onto
+ *    a key (swapping the resident back into the tray).
  */
 import { useCallback, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
@@ -31,7 +32,7 @@ const ACCENT = "#E94560";
 
 type Cap = { code: string | null; w?: number };
 
-// Physical layout. No printed labels — keys stay blank unless bound.
+// Physical layout — a compact 60%-style board like the reference. No labels.
 const ROWS: Cap[][] = [
   [
     { code: "escape" },
@@ -105,36 +106,36 @@ export default function ShortcutEditor({ onClose }: { onClose: () => void }) {
     setKeybindings(next);
   }, []);
 
-  const assign = useCallback(
-    (action: ShortcutAction, code: string) => {
-      const next: Keybindings = { ...binds };
-      (Object.keys(next) as ShortcutAction[]).forEach((a) => {
-        if (a !== action && next[a] && baseOf(next[a] as string) === code) {
-          next[a] = null;
-        }
+  const actionForKey = useCallback(
+    (code: string): ShortcutAction | undefined => {
+      let found: ShortcutAction | undefined;
+      byCombo.forEach((action, combo) => {
+        if (baseOf(combo) === code) found = action;
       });
-      next[action] = code;
-      persist(next);
+      return found;
     },
-    [binds, persist],
+    [byCombo],
   );
 
-  const unbind = useCallback(
-    (action: ShortcutAction) => persist({ ...binds, [action]: null }),
-    [binds, persist],
+  /** Drop `action` on key `code`. If another action already sits there, the two
+   *  SWAP places (the resident moves to wherever `action` came from). If
+   *  `action` came from the tray (no prior key), the resident is evicted back
+   *  to the tray. Nothing is ever silently unbound. */
+  const dropOnKey = useCallback(
+    (action: ShortcutAction, code: string) => {
+      const from = binds[action] ? baseOf(binds[action] as string) : null;
+      const resident = actionForKey(code);
+      if (resident === action) return;
+      const next: Keybindings = { ...binds };
+      next[action] = code;
+      if (resident) next[resident] = from; // from may be null (tray) → evicted
+      persist(next);
+    },
+    [binds, actionForKey, persist],
   );
 
   const resetAll = () => setBinds({ ...resetKeybindings() });
 
-  const actionForKey = (code: string): ShortcutAction | undefined => {
-    let found: ShortcutAction | undefined;
-    byCombo.forEach((action, combo) => {
-      if (baseOf(combo) === code) found = action;
-    });
-    return found;
-  };
-
-  // Actions with no key on the board → shown in the bottom tray.
   const unassigned = useMemo(
     () => ACTION_CATALOG.map((a) => a.id).filter((id) => !binds[id]),
     [binds],
@@ -150,7 +151,6 @@ export default function ShortcutEditor({ onClose }: { onClose: () => void }) {
     setDropTarget(null);
   };
 
-  // Tooltip content for the hovered key.
   const tooltip = (() => {
     if (!hoverKey) return null;
     const act = actionForKey(hoverKey);
@@ -163,18 +163,18 @@ export default function ShortcutEditor({ onClose }: { onClose: () => void }) {
       role="dialog"
       aria-modal="true"
       className="fixed inset-0 z-[9999] flex flex-col"
-      style={{ background: "rgba(6,7,10,0.92)", backdropFilter: "blur(6px)" }}
+      style={{ background: "#000" }}
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      {/* Top bar — title + reset + close. No card around the keyboard. */}
+      {/* Top bar */}
       <div className="flex items-start justify-between px-6 py-5">
         <div>
           <h2 className="text-[16px] font-semibold text-white">
             {t("shortcuts.title")}
           </h2>
-          <p className="mt-0.5 text-[12px] text-white/50">
+          <p className="mt-0.5 text-[12px] text-white/45">
             {t("shortcuts.dragHint")}
           </p>
         </div>
@@ -201,29 +201,26 @@ export default function ShortcutEditor({ onClose }: { onClose: () => void }) {
 
       {/* Centered keyboard */}
       <div className="flex flex-1 flex-col items-center justify-center px-4">
-        {/* Floating tooltip pill (above the board) */}
-        <div className="mb-4 flex h-9 items-center justify-center">
+        {/* Floating tooltip pill */}
+        <div className="mb-5 flex h-9 items-center justify-center">
           {tooltip && (
             <div
               className="rounded-lg px-4 py-2 text-[14px] font-semibold text-white shadow-2xl"
-              style={{ background: "#000", border: "1px solid rgba(255,255,255,0.14)" }}
+              style={{ background: "#16181d" }}
             >
               {tooltip}
             </div>
           )}
         </div>
 
+        {/* Keyboard — black, borderless, generous rounded bezel like the ref. */}
         <div
-          className="w-full max-w-[1000px] space-y-2 rounded-2xl p-3.5"
-          style={{
-            background: "#0a0b0e",
-            border: "4px solid #000",
-            boxShadow: "0 30px 80px rgba(0,0,0,0.6), inset 0 0 0 1px rgba(255,255,255,0.03)",
-          }}
+          className="w-full max-w-[1020px] space-y-2.5 rounded-[22px] p-5"
+          style={{ background: "#0b0c0f" }}
           onDragEnd={onDragEnd}
         >
           {ROWS.map((row, ri) => (
-            <div key={ri} className="flex gap-2">
+            <div key={ri} className="flex gap-2.5">
               {row.map((cap, ci) => {
                 const code = cap.code;
                 const action = code ? actionForKey(code) : undefined;
@@ -248,39 +245,31 @@ export default function ShortcutEditor({ onClose }: { onClose: () => void }) {
                       if (!code) return;
                       e.preventDefault();
                       const a = e.dataTransfer.getData("text/plain") as ShortcutAction;
-                      if (a) assign(a, code);
+                      if (a) dropOnKey(a, code);
                       onDragEnd();
                     }}
                     draggable={!!action}
                     onDragStart={(e) => action && onDragStart(e, action)}
-                    onDoubleClick={() => action && unbind(action)}
-                    className="relative grid place-items-center rounded-lg"
+                    className="relative grid place-items-center rounded-[10px]"
                     style={{
                       flex: cap.w ?? 1,
-                      height: 52,
+                      height: 56,
+                      // Flat dark fills, no borders. Drop target tints accent.
                       background: isDrop
-                        ? "rgba(233,69,96,0.30)"
+                        ? "rgba(233,69,96,0.35)"
                         : action
-                        ? "rgba(255,255,255,0.08)"
-                        : "rgba(255,255,255,0.022)",
-                      border: `1px solid ${
-                        isDrop
-                          ? ACCENT
-                          : action
-                          ? "rgba(255,255,255,0.14)"
-                          : "rgba(255,255,255,0.05)"
-                      }`,
+                        ? "#20242c"
+                        : "#15171c",
                       color: "rgba(255,255,255,0.92)",
                       cursor: action ? "grab" : "default",
-                      opacity: isDead ? 0.55 : 1,
-                      // Retract / shrink on hover (the SS animation).
+                      opacity: isDead ? 0.45 : 1,
+                      // Every key retracts on hover (assigned or not).
                       transform: isHovered && !isDead ? "scale(0.9)" : "scale(1)",
-                      transition:
-                        "transform 120ms ease, background-color 120ms ease, border-color 120ms ease",
+                      transition: "transform 110ms ease, background-color 110ms ease",
                     }}
                   >
                     {action && (
-                      <svg viewBox="0 0 24 24" className="pointer-events-none h-[20px] w-[20px]">
+                      <svg viewBox="0 0 24 24" className="pointer-events-none h-[19px] w-[19px]">
                         {SHORTCUT_ICONS[action]}
                       </svg>
                     )}
@@ -291,57 +280,35 @@ export default function ShortcutEditor({ onClose }: { onClose: () => void }) {
           ))}
         </div>
 
-        <p className="mt-4 text-center text-[12px] text-white/40">
+        <p className="mt-4 text-center text-[12px] text-white/35">
           {t("shortcuts.keyboardHint")}
         </p>
 
-        {/* Bottom tray: actions not on the board yet. Drag one onto a key.
-            Hidden entirely when everything is placed. Dropping an action here
-            unbinds it. */}
-        {(unassigned.length > 0 || dragging) && (
+        {/* Tray: actions not on the board. Drag one onto a key; the resident (if
+            any) swaps back here. Hidden when everything is placed. */}
+        {unassigned.length > 0 && (
           <div
-            className="mt-5 flex w-full max-w-[1000px] flex-wrap items-center justify-center gap-2 rounded-xl p-3"
-            style={{
-              background: "rgba(255,255,255,0.02)",
-              border: `1px dashed ${dragging ? ACCENT : "rgba(255,255,255,0.12)"}`,
-            }}
-            onDragOver={(e) => {
-              e.preventDefault();
-              e.dataTransfer.dropEffect = "move";
-            }}
-            onDrop={(e) => {
-              e.preventDefault();
-              const a = e.dataTransfer.getData("text/plain") as ShortcutAction;
-              if (a) unbind(a);
-              onDragEnd();
-            }}
+            className="mt-5 flex w-full max-w-[980px] flex-wrap items-center justify-center gap-2 rounded-xl p-3"
+            style={{ background: "#0b0c0f" }}
           >
-            {unassigned.length === 0 ? (
-              <span className="px-2 py-1 text-[12px] text-white/40">
-                {t("shortcuts.dropHereToUnbind")}
-              </span>
-            ) : (
-              unassigned.map((id) => (
-                <div
-                  key={id}
-                  draggable
-                  onDragStart={(e) => onDragStart(e, id)}
-                  onDragEnd={onDragEnd}
-                  onMouseEnter={() => setHoverKey(null)}
-                  className="flex cursor-grab items-center gap-2 rounded-lg px-2.5 py-1.5 transition active:cursor-grabbing"
-                  style={{
-                    background:
-                      dragging === id ? "rgba(233,69,96,0.16)" : "rgba(255,255,255,0.05)",
-                    border: `1px solid ${dragging === id ? ACCENT : "rgba(255,255,255,0.08)"}`,
-                  }}
-                >
-                  <svg viewBox="0 0 24 24" className="h-[16px] w-[16px] text-white/85">
-                    {SHORTCUT_ICONS[id]}
-                  </svg>
-                  <span className="text-[12px] text-white/80">{actionLabel(id)}</span>
-                </div>
-              ))
-            )}
+            {unassigned.map((id) => (
+              <div
+                key={id}
+                draggable
+                onDragStart={(e) => onDragStart(e, id)}
+                onDragEnd={onDragEnd}
+                onMouseEnter={() => setHoverKey(null)}
+                className="flex cursor-grab items-center gap-2 rounded-lg px-2.5 py-1.5 transition active:cursor-grabbing"
+                style={{
+                  background: dragging === id ? "rgba(233,69,96,0.18)" : "#181a1f",
+                }}
+              >
+                <svg viewBox="0 0 24 24" className="h-[16px] w-[16px] text-white/85">
+                  {SHORTCUT_ICONS[id]}
+                </svg>
+                <span className="text-[12px] text-white/80">{actionLabel(id)}</span>
+              </div>
+            ))}
           </div>
         )}
       </div>

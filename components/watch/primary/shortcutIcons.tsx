@@ -44,30 +44,30 @@ export const SHORTCUT_ICONS: Record<ShortcutAction, ReactNode> = {
   seekForward: P("M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z"),
   volumeUp: P("M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0014 7.97v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"),
   volumeDown: P("M18.5 12A4.5 4.5 0 0016 7.97v8.05c1.48-.73 2.5-2.25 2.5-4.02zM5 9v6h4l5 5V4L9 9H5z"),
-  rateDown: P("M11 18V6l-8.5 6 8.5 6zM13 6v12l8.5-6L13 6z M2 11h4v2H2z"),
-  rateUp: P("M4 18l8.5-6L4 6v12zM13 6v12l8.5-6L13 6z"),
+  // Speed down/up: a single triangle with a minus / plus badge (distinct and clean).
+  rateDown: P("M4 6v12l8-6-8-6zm9 5h8v2h-8v-2z"),
+  rateUp: P("M4 6v12l8-6-8-6zm12-2v3h3v2h-3v3h-2v-3h-3V9h3V6h2z"),
   rateReset: P("M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"),
-  skipIntro: P("M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"),
-  skipOutro: P("M18 6l-8.5 6L18 18V6zM6 6v12h2V6H6z"),
+  skipIntro: P("M4 18l8.5-6L4 6v12zM16 6v12h2V6h-2z"),
+  skipOutro: P("M6 6v12h2V6H6zm3.5 6l8.5 6V6l-8.5 6z"),
   chromecast: P("M21 3H3c-1.1 0-2 .9-2 2v3h2V5h18v14h-7v2h7c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zM1 18v3h3c0-1.66-1.34-3-3-3zm0-4v2c2.76 0 5 2.24 5 5h2c0-3.87-3.13-7-7-7zm0-4v2c4.97 0 9 4.03 9 9h2c0-6.08-4.93-11-11-11z"),
   fullscreen: P("M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"),
   screenshot: P("M12 15.2a3.2 3.2 0 100-6.4 3.2 3.2 0 000 6.4zM9 2L7.17 4H4a2 2 0 00-2 2v12a2 2 0 002 2h16a2 2 0 002-2V6a2 2 0 00-2-2h-3.17L15 2H9zm3 15a5 5 0 110-10 5 5 0 010 10z"),
   subtitles: P("M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm-9 11H6v-2h5v2zm7 0h-5v-2h5v2zm0-4H6V9h12v2z"),
-  // Extras
-  seekBackwardLong: P("M11 18V6l-8.5 6 8.5 6zm.5-6l8.5 6V6l-8.5 6z"),
-  seekForwardLong: P("M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z"),
+  // Extras — the "long" seeks use a double-chevron (replay_10/forward_10 look)
+  // so they read distinctly from the single-chevron ±5s icons.
+  seekBackwardLong: P("M11 7V3.5L6.5 8 11 12.5V9c2.76 0 5 2.24 5 5s-2.24 5-5 5-5-2.24-5-5H4c0 3.87 3.13 7 7 7s7-3.13 7-7-3.13-7-7-7z"),
+  seekForwardLong: P("M13 7V3.5L17.5 8 13 12.5V9c-2.76 0-5 2.24-5 5s2.24 5 5 5 5-2.24 5-5h2c0 3.87-3.13 7-7 7s-7-3.13-7-7 3.13-7 7-7z"),
   restart: P("M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"),
   seekToEnd: P("M6 6l8.5 6L6 18V6zm10 0h2v12h-2V6z"),
   frameBackward: P("M15 6l-6 6 6 6V6zM7 6H5v12h2V6z"),
   frameForward: P("M9 6l6 6-6 6V6zm8 0h2v12h-2V6z"),
-  toggleTheater: P("M21 3H3c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 12H3V7h18v8z"),
-  cycleAspect: P("M19 12h-2v3h-3v2h5v-5zM7 9h3V7H5v5h2V9zm14-6H3c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16.01H3V4.99h18v14.02z"),
   // "swap/cycle servers" — two arrows looping between stacked layers.
   cycleServer: P("M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46A7.93 7.93 0 0020 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74A7.93 7.93 0 004 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"),
   // "copy timestamped link" — link/chain glyph.
   copyTimestamp: P("M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z"),
-  // "horizontal mirror" — flip arrows around a vertical axis.
-  mirror: P("M15 21h2v-2h-2v2zm4-12h2V7h-2v2zM3 5v14c0 1.1.9 2 2 2h4v-2H5V5h4V3H5c-1.1 0-2 .9-2 2zm16-2v2h2c0-1.1-.9-2-2-2zm-8 20h2V1h-2v22zm8-6h2v-2h-2v2zm-4-12h2V3h-2v2zm4 10h2v-2h-2v2zm0 6c1.1 0 2-.9 2-2h-2v2z"),
+  // "horizontal mirror" (flip): two triangles pointing away from a centre line.
+  mirror: P("M11 3h2v18h-2V3zM9 7v10l-6-5 6-5zm6 0l6 5-6 5V7z"),
   // Percentage jumps.
   seekPct10: Pct(10),
   seekPct20: Pct(20),

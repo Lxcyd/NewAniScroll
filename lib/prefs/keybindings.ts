@@ -46,8 +46,6 @@ export type ShortcutAction =
   | "seekToEnd"
   | "frameBackward"
   | "frameForward"
-  | "toggleTheater"
-  | "cycleAspect"
   | "cycleServer"
   | "copyTimestamp"
   | "mirror"
@@ -119,10 +117,8 @@ export const ACTION_CATALOG: ActionMeta[] = [
   { id: "rateReset", i18n: "rateReset", group: "speed", directOnly: true },
   // View / output
   { id: "fullscreen", i18n: "fullscreen", group: "view" },
-  { id: "toggleTheater", i18n: "toggleTheater", group: "view" },
   { id: "pictureInPicture", i18n: "pictureInPicture", group: "view", directOnly: true },
   { id: "chromecast", i18n: "chromecast", group: "view" },
-  { id: "cycleAspect", i18n: "cycleAspect", group: "view", directOnly: true },
   { id: "cycleServer", i18n: "cycleServer", group: "view" },
   { id: "copyTimestamp", i18n: "copyTimestamp", group: "view", directOnly: true },
   { id: "mirror", i18n: "mirror", group: "view", directOnly: true },
@@ -140,42 +136,7 @@ export const ACTION_CATALOG: ActionMeta[] = [
 // shows a generic icon we don't have a 1:1 action for, we map the nearest
 // action (e.g. its "rotate" cluster → restart / episode nav / cycle-server).
 export const DEFAULT_KEYBINDINGS: Keybindings = {
-  // Row 1 (number row): only the far-right key carries an icon (↺ restart).
-  restart: "backspace",
-  // Row 2 (Q W E R T Y U I O P [ ] \)
-  toggleTheater: "e", // window/theater icon (3rd key)
-  subtitles: "i", // list/tracks icon
-  pictureInPicture: "p", // PiP
-  seekToEnd: "[", // ↺ (jump)
-  copyTimestamp: "]", // ↻ (link)
-  cycleServer: "\\", // ⟳ loop/refresh → cycle player
-  // Row 3 (A S D F G H J K L ; ')
-  toggleStats: "s", // brightness/contrast icon (◐)
-  mirror: "d", // "+90"/flip slot
-  chromecast: "f", // cast
-  fullscreen: "g", // fullscreen brackets
-  frameBackward: "l", // ".0 ←"
-  frameForward: ";", // ".00 →"
-  // Row 4 (Z X C V B N M , . /)
-  screenshot: "c", // screen-share / screenshot
-  cycleAspect: "v", // captions-adjacent slot → aspect
-  prevEpisode: "b", // |◄ previous
-  nextEpisode: "n", // ►| next
-  mute: "m", // ◄× mute
-  volumeUp: ".", // 🔊 (right of the row)
-  // Row 5 (space + right cluster)
-  playPause: "space", // ► play
-  seekBackwardLong: ",", // ◄◄ rewind
-  volumeDown: "/", // 🔉
-  seekForwardLong: "'", // ►► fast-forward
-  // Arrow cluster — standard seek/volume.
-  seekBackward: "arrowleft",
-  seekForward: "arrowright",
-  // Speed on the -/= keys, reset on 0.
-  rateDown: "-",
-  rateUp: "=",
-  rateReset: "0",
-  // Number row 1–9 = jump to 10%–90% (YouTube-style).
+  // Row 1 (number row): 1–9 = jump to 10–90%, far-right key = ↺ restart.
   seekPct10: "1",
   seekPct20: "2",
   seekPct30: "3",
@@ -185,8 +146,39 @@ export const DEFAULT_KEYBINDINGS: Keybindings = {
   seekPct70: "7",
   seekPct80: "8",
   seekPct90: "9",
-  // Skip intro/outro kept bindable but off the default board to stay close to
-  // the reference (which has no dedicated skip keys). User can drag them on.
+  restart: "backspace",
+  // Row 2 (Q W E R T Y U I O P [ ] \)
+  cycleServer: "w", // ⟳ loop → cycle player
+  subtitles: "t", // tracks/list icon
+  copyTimestamp: "y", // 🔗 link
+  pictureInPicture: "o", // ▣ PiP
+  seekToEnd: "p",
+  // Row 3 (A S D F G H J K L ; ')
+  toggleStats: "s", // brightness/contrast
+  nextEpisode: "d", // ►|
+  prevEpisode: "f", // |◄
+  fullscreen: "g", // fullscreen brackets
+  seekBackwardLong: "j", // ◄◄
+  seekForwardLong: "l", // ►►
+  frameBackward: ";", // ".0 ←"
+  // Row 4 (Z X C V B N M , . /)
+  chromecast: "c", // cast
+  screenshot: "v", // screenshot
+  frameForward: "b", // ".00 →"
+  mute: "m", // mute
+  mirror: ",",
+  // Row 5 (space + right cluster + arrows)
+  playPause: "space",
+  volumeDown: ".",
+  volumeUp: "/",
+  seekBackward: "arrowleft",
+  seekForward: "arrowright",
+  // Speed on the -/= keys, reset on 0.
+  rateDown: "-",
+  rateUp: "=",
+  rateReset: "0",
+  // Skip intro/outro kept bindable but off the default board (reference has no
+  // dedicated skip keys). The user can drag them onto any free key.
   skipIntro: null,
   skipOutro: null,
 };
