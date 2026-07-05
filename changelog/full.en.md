@@ -2,7 +2,7 @@
 
 All notable changes to AniScroll appear here. Most recent first.
 
-## [v0.0.5] — Discover & recommendations (2026-07-05)
+## [v0.0.6] — Discover & recommendations (2026-07-05)
 
 ### Added
 - **Discover tab**: a full-screen, TikTok-style vertical feed to browse trending
@@ -18,6 +18,45 @@ All notable changes to AniScroll appear here. Most recent first.
 - **"For You"**: a personalised recommendation panel based on your AniList, with
   the reasoning behind each suggestion. Two modes (all / planning) and a button
   to generate fresh picks.
+
+## [v0.0.5] — Info pages, seasons & players (2026-07-03)
+
+### Added
+- **Movies, Compilations and Opening / Ending tabs** on an anime's page: instead
+  of one long list, dedicated tabs that replace the episode list.
+- **Opening / Ending**: browse and watch a show's openings and endings, grouped
+  by season, with three views (detailed, compact, grid).
+- **Compilations**: recap movies (arc summaries) are now separated from real
+  movies, in their own section.
+- **Relations map**: a pannable, zoomable overview of how a franchise's seasons,
+  movies and spin-offs connect.
+- **Half-star ratings**: rate an anime in half-points (8.5/10) when you finish
+  its last episode.
+- **Choose sync direction**: on sign-in, choose whether your AniList replaces
+  your local list, or your site list is pushed to AniList — instead of a plain
+  overwrite warning.
+
+### Changed
+- **Reworked season numbering**: a new multi-signal engine arbitrated by air
+  dates fixes season order (no more Season 2 showing Season 1, or a remake
+  ranked before the original). Verified franchises: Attack on Titan, Hunter x
+  Hunter, Gundam, Jujutsu Kaisen, Demon Slayer…
+- **Bonus movies sorted correctly**: side-story and prequel movies (e.g. Hunter
+  x Hunter: Phantom Rouge, Jujutsu Kaisen 0) are no longer counted as seasons.
+- **Faster episode list**: very long shows (One Piece, 1000+ episodes) now open
+  instantly and scroll smoothly.
+- **Reorganised episode view**: harmonised season / Movies / Opening-Ending
+  tabs, an episode-count badge, and search and filters available everywhere.
+
+### Fixed
+- **Sturdier players**: the Megaplay player, which often failed in production
+  even when the video existed, is fixed (requests routed to get past anti-bot
+  protection).
+- **More reliable autoplay**: the video starts on its own for more players, and
+  turning on autoplay mid-way actually starts playback.
+- **Multi-season on anime-sama**: long concatenated shows (Gintama…) finally
+  play the correct season.
+- The rating dialog no longer reappears by mistake when opening another anime.
 
 ## [v0.0.4] — Watch together (2026-06-26)
 

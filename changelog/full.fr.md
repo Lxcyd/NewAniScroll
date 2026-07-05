@@ -2,7 +2,7 @@
 
 Toutes les nouveautés d'AniScroll, les plus récentes en premier.
 
-## [v0.0.5] — Découverte & recommandations (2026-07-05)
+## [v0.0.6] — Découverte & recommandations (2026-07-05)
 
 ### Ajouté
 - **Onglet Découverte** : un fil vertical plein écran, façon TikTok, pour
@@ -19,6 +19,49 @@ Toutes les nouveautés d'AniScroll, les plus récentes en premier.
 - **« Pour vous »** : un panneau de recommandations personnalisées basées sur
   votre liste AniList, avec le « pourquoi » de chaque suggestion. Deux modes
   (tout / à prévoir) et un bouton pour en générer de nouvelles.
+
+## [v0.0.5] — Fiches, saisons & lecteurs (2026-07-03)
+
+### Ajouté
+- **Onglets Films, Compilations et Opening / Ending** sur la fiche d'un anime :
+  au lieu d'une longue liste, des onglets dédiés qui remplacent les épisodes.
+- **Opening / Ending** : parcourez et regardez les génériques (openings/endings)
+  d'une série, regroupés par saison, avec trois vues (détaillée, compacte,
+  grille).
+- **Compilations** : les films-résumés (recaps d'arc) sont désormais séparés des
+  vrais films, dans leur propre section.
+- **Carte des relations** : un aperçu déplaçable et zoomable des liens entre les
+  saisons, films et spin-offs d'une franchise.
+- **Note à la demi-étoile** : notez un anime avec des demi-points (8,5/10) à la
+  fin du dernier épisode.
+- **Choix du sens de synchronisation** : à la connexion, choisissez si votre
+  liste AniList remplace votre liste locale, ou si votre liste du site est
+  ajoutée à AniList — au lieu d'un simple avertissement d'écrasement.
+
+### Modifié
+- **Numérotation des saisons refaite** : un nouveau moteur multi-signaux arbitré
+  par les dates de diffusion corrige l'ordre des saisons (fini la saison 2 qui
+  affichait la saison 1, ou un remake classé avant l'original). Franchises
+  vérifiées : Attack on Titan, Hunter x Hunter, Gundam, Jujutsu Kaisen, Demon
+  Slayer…
+- **Films bonus bien classés** : les films side-story et préquelles (ex.
+  Hunter x Hunter : Phantom Rouge, Jujutsu Kaisen 0) ne sont plus comptés comme
+  des saisons.
+- **Liste d'épisodes plus rapide** : les très longues séries (One Piece, 1000+
+  épisodes) s'affichent instantanément et défilent sans à-coups.
+- **Fiche d'épisodes réorganisée** : onglets saison / Films / Opening-Ending
+  harmonisés, badge du nombre d'épisodes, recherche et filtres disponibles
+  partout.
+
+### Corrigé
+- **Lecteurs plus fiables** : le lecteur Megaplay, qui échouait souvent en
+  production alors que la vidéo existait, est réparé (requêtes routées pour
+  passer les protections anti-bot).
+- **Lecture automatique fiabilisée** : la vidéo démarre seule sur davantage de
+  lecteurs, et activer la lecture auto en cours de route la lance vraiment.
+- **Multi-saisons sur anime-sama** : les longues séries concaténées (Gintama…)
+  diffusent enfin la bonne saison.
+- La fenêtre de notation ne réapparaît plus par erreur en ouvrant un autre anime.
 
 ## [v0.0.4] — Regarder ensemble (2026-06-26)
 
