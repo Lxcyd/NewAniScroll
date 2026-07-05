@@ -2,7 +2,7 @@
 
 Toutes les nouveautés d'AniScroll, les plus récentes en premier.
 
-## [v0.0.6] — Découverte & recommandations (2026-07-05)
+## [v0.0.5] — Découverte, fiches, saisons & lecteurs (2026-07-05)
 
 ### Ajouté
 - **Onglet Découverte** : un fil vertical plein écran, façon TikTok, pour
@@ -14,15 +14,9 @@ Toutes les nouveautés d'AniScroll, les plus récentes en premier.
   En cours, En reprise, Terminé, Prévu, En pause et Abandonné.
 - **Annuler** : revenez sur une fiche déjà glissée pour retirer l'action d'un
   simple clic (l'entrée AniList est supprimée).
-- **Boutons Info & Regarder** : sur chaque fiche, ouvrez la fiche d'info ou
-  lancez directement la lecture.
 - **« Pour vous »** : un panneau de recommandations personnalisées basées sur
   votre liste AniList, avec le « pourquoi » de chaque suggestion. Deux modes
   (tout / à prévoir) et un bouton pour en générer de nouvelles.
-
-## [v0.0.5] — Fiches, saisons & lecteurs (2026-07-03)
-
-### Ajouté
 - **Onglets Films, Compilations et Opening / Ending** sur la fiche d'un anime :
   au lieu d'une longue liste, des onglets dédiés qui remplacent les épisodes.
 - **Opening / Ending** : parcourez et regardez les génériques (openings/endings)
