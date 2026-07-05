@@ -110,6 +110,24 @@ Preuve définitive : un Range mid-fichier sur le MP4 Sendvid via proxy → **206
 
 **Megaplay direct = IMPOSSIBLE (testé 2026-07-04)** : `cdn.mewstream.buzz` renvoie 403 sans `Referer: megaplay.buzz` (avec Referer bidon aussi). Le CDN envoie bien `ACAO: *` (CORS OK) mais EXIGE le Referer, qu'un navigateur ne peut pas falsifier. Donc le proxy est OBLIGATOIRE pour Megaplay — il injecte le Referer. Megaplay ne peut structurellement pas égaler Vidmoly (direct) au démarrage froid ; le cache edge + hover-prefetch le rendent excellent en relecture/seek. Limite atteinte.
 
+### Session 4 (2026-07-05) — le VRAI goulot trouvé : région Vercel
+Question de Luc : changer Cloudflare pour une alternative plus rapide (gratuite) ?
+**Mesuré → NON, Cloudflare n'était pas le goulot.** Latences relevées :
+- Worker proxy HIT = **48ms** (origine directe = 43ms) → Cloudflare déjà optimal, aucune alternative ne ferait mieux.
+- MAIS résolution `/api/v2/source` = **1289ms à froid / 500ms à chaud**, et 1 GET Redis = **550ms**.
+- Cause : `X-Vercel-Id: cdg1::iad1` → les fonctions Vercel tournaient en **iad1 (Washington US)** par défaut (pas de vercel.json) alors que les users sont en Europe → aller-retour transatlantique à chaque appel + chaque hop Redis/Turso.
+
+**Fix `e87a812` : `vercel.json` regions:['cdg1'] (Paris).** Mesuré après bascule (stabilisé, hors cold-start) :
+- Redis GET : 550ms → **66ms (8×)**
+- Résolution Megaplay chaude : 500ms → **~100ms (5×)**
+→ ~400ms gagnés sur CHAQUE démarrage/changement d'épisode. Gratuit (1 région = OK plan Hobby). Redis répond en 66ms depuis Paris → il n'était pas le souci, juste la distance. ⚠️ Si un jour Redis/Turso migrent hors EU, réévaluer.
+
+### Décodage / WebCodecs — écarté (bonne question de Luc)
+Le `<video>` décode DÉJÀ sur GPU (hardware). Le goulot est 100% réseau, jamais le décodage. WebCodecs = réécrire tout le pipeline pour 0 gain. MegaCloud n'a qu'1 niveau (1080p) → ABR inutile. Tous les leviers réels = réseau/cache/région, faits.
+
+### Prefetch épisode suivant `a5dff0f`
+Résout+warm le prochain épisode ~5s après stabilisation du courant → clic "suivant" quasi instant.
+
 ### Checklist test final (hard refresh Ctrl+Shift+R à chaque fois)
 - [ ] Megaplay : chip présent + reste au reload ; seek rapide (survole loin + attends 1s + clique)
 - [ ] Sendvid : lecture rapide/excellente (pas de preview = normal)
