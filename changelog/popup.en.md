@@ -1,11 +1,9 @@
 ## v0.0.5
 
-🎉 **Discover** — a new full-screen, TikTok-style vertical feed to browse trending anime.
+🎉 **Discover** — a new full-screen, TikTok-style vertical feed. Swipe a card right or left to add it to your AniList, or tap **"For You"** for personalised recommendations.
 
-**Swipe to sort** — swipe a card right or left to add it to your AniList (right = Completed, left = Planning by default, adjustable).
+🎬 **Opening / Ending** — browse and watch a show's openings and endings, with new Movies and Compilations tabs on every page.
 
-**Undo** — scroll back to a card you already swiped to remove the action in one click.
+📺 **Fixed seasons** — a reworked numbering engine puts seasons back in the right order (no more Season 2 playing Season 1), and long shows like One Piece now open instantly.
 
-**Info & Watch** — open the info page or jump straight into playback from any card.
-
-**"For You"** — personalised recommendations based on your AniList, with the reasoning behind each pick.
+⚡ **Sturdier players** — fewer episodes that won't start, and autoplay that actually kicks in.
