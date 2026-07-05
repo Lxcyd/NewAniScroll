@@ -396,8 +396,8 @@
     "title": "Raccourcis clavier",
     "configure": "Configurer les raccourcis",
     "settingsDesc": "Assigner des touches aux actions du lecteur vidéo",
-    "dragHint": "Glissez-déposez une action sur la touche voulue. Double-cliquez une touche pour la libérer.",
-    "dropOnKey": "Déposez sur une touche pour assigner (ou sur la liste pour libérer)",
+    "dragHint": "Glissez-déposez une icône d'une touche à l'autre pour la déplacer. Double-cliquez une touche pour la libérer.",
+    "dropHereToUnbind": "Déposez ici pour retirer une touche",
     "keyboardHint": "Les touches assignées affichent l'icône de leur action. Survolez une touche pour voir son nom.",
     "unassigned": "Non assigné",
     "clear": "Effacer",
@@ -440,7 +440,17 @@
       "toggleTheater": "Mode cinéma",
       "cycleAspect": "Changer le ratio d'image",
       "cycleServer": "Changer de lecteur",
-      "copyTimestamp": "Copier le lien horodaté"
+      "copyTimestamp": "Copier le lien horodaté",
+      "mirror": "Miroir horizontal",
+      "seekPct10": "Aller à 10 %",
+      "seekPct20": "Aller à 20 %",
+      "seekPct30": "Aller à 30 %",
+      "seekPct40": "Aller à 40 %",
+      "seekPct50": "Aller à 50 %",
+      "seekPct60": "Aller à 60 %",
+      "seekPct70": "Aller à 70 %",
+      "seekPct80": "Aller à 80 %",
+      "seekPct90": "Aller à 90 %"
     }
   },
   "stats": {

@@ -3907,6 +3907,28 @@ export default function UniversalPlayer({
           video.style.objectFit = next;
         }
         break;
+      case "mirror":
+        if (video) {
+          // Toggle a horizontal flip. Compose with any existing objectFit
+          // transform-free (transform is otherwise unused on the <video>).
+          const flipped = video.style.transform.includes("scaleX(-1)");
+          video.style.transform = flipped ? "" : "scaleX(-1)";
+        }
+        break;
+      case "seekPct10":
+      case "seekPct20":
+      case "seekPct30":
+      case "seekPct40":
+      case "seekPct50":
+      case "seekPct60":
+      case "seekPct70":
+      case "seekPct80":
+      case "seekPct90":
+        if (video && isFinite(video.duration) && video.duration > 0) {
+          const pct = Number(action.replace("seekPct", "")) / 100;
+          video.currentTime = video.duration * pct;
+        }
+        break;
       case "subtitles":
         if (subtitleTracks.length) {
           // Cycle: off → track 0 → track 1 → … → off.

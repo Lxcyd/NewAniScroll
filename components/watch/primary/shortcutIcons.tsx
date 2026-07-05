@@ -13,6 +13,26 @@ const P = (d: string) => (
   <path d={d} fill="currentColor" />
 );
 
+// Percentage-jump glyph: a slim progress track with a filled portion up to
+// `pct`, plus the tens digit centred — reads as "jump to N0%".
+const Pct = (pct: number) => (
+  <>
+    <rect x="2" y="7.5" width="20" height="3.2" rx="1.6" fill="currentColor" opacity="0.28" />
+    <rect x="2" y="7.5" width={20 * (pct / 100)} height="3.2" rx="1.6" fill="currentColor" />
+    <text
+      x="12"
+      y="20.5"
+      textAnchor="middle"
+      fontFamily="Space Grotesk, system-ui, sans-serif"
+      fontSize="9"
+      fontWeight="700"
+      fill="currentColor"
+    >
+      {pct}
+    </text>
+  </>
+);
+
 export const SHORTCUT_ICONS: Record<ShortcutAction, ReactNode> = {
   playPause: P("M8 5v14l11-7z"),
   prevEpisode: P("M6 6h2v12H6zm3.5 6l8.5 6V6z"),
@@ -46,4 +66,16 @@ export const SHORTCUT_ICONS: Record<ShortcutAction, ReactNode> = {
   cycleServer: P("M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46A7.93 7.93 0 0020 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74A7.93 7.93 0 004 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"),
   // "copy timestamped link" — link/chain glyph.
   copyTimestamp: P("M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z"),
+  // "horizontal mirror" — flip arrows around a vertical axis.
+  mirror: P("M15 21h2v-2h-2v2zm4-12h2V7h-2v2zM3 5v14c0 1.1.9 2 2 2h4v-2H5V5h4V3H5c-1.1 0-2 .9-2 2zm16-2v2h2c0-1.1-.9-2-2-2zm-8 20h2V1h-2v22zm8-6h2v-2h-2v2zm-4-12h2V3h-2v2zm4 10h2v-2h-2v2zm0 6c1.1 0 2-.9 2-2h-2v2z"),
+  // Percentage jumps.
+  seekPct10: Pct(10),
+  seekPct20: Pct(20),
+  seekPct30: Pct(30),
+  seekPct40: Pct(40),
+  seekPct50: Pct(50),
+  seekPct60: Pct(60),
+  seekPct70: Pct(70),
+  seekPct80: Pct(80),
+  seekPct90: Pct(90),
 };

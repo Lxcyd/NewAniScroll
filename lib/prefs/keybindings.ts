@@ -49,7 +49,18 @@ export type ShortcutAction =
   | "toggleTheater"
   | "cycleAspect"
   | "cycleServer"
-  | "copyTimestamp";
+  | "copyTimestamp"
+  | "mirror"
+  // Jump to N×10% of the runtime (YouTube-style number-row seek).
+  | "seekPct10"
+  | "seekPct20"
+  | "seekPct30"
+  | "seekPct40"
+  | "seekPct50"
+  | "seekPct60"
+  | "seekPct70"
+  | "seekPct80"
+  | "seekPct90";
 
 /** A normalized key combination: lower-cased `event.key`, optionally prefixed
  *  by modifier tokens in a fixed order (ctrl → alt → shift → meta). */
@@ -85,6 +96,16 @@ export const ACTION_CATALOG: ActionMeta[] = [
   { id: "seekForwardLong", i18n: "seekForwardLong", group: "navigation", directOnly: true },
   { id: "frameBackward", i18n: "frameBackward", group: "navigation", directOnly: true },
   { id: "frameForward", i18n: "frameForward", group: "navigation", directOnly: true },
+  // Percentage jumps (YouTube-style 1–9). Grouped under navigation.
+  { id: "seekPct10", i18n: "seekPct10", group: "navigation", directOnly: true },
+  { id: "seekPct20", i18n: "seekPct20", group: "navigation", directOnly: true },
+  { id: "seekPct30", i18n: "seekPct30", group: "navigation", directOnly: true },
+  { id: "seekPct40", i18n: "seekPct40", group: "navigation", directOnly: true },
+  { id: "seekPct50", i18n: "seekPct50", group: "navigation", directOnly: true },
+  { id: "seekPct60", i18n: "seekPct60", group: "navigation", directOnly: true },
+  { id: "seekPct70", i18n: "seekPct70", group: "navigation", directOnly: true },
+  { id: "seekPct80", i18n: "seekPct80", group: "navigation", directOnly: true },
+  { id: "seekPct90", i18n: "seekPct90", group: "navigation", directOnly: true },
   // Skip segments
   { id: "skipIntro", i18n: "skipIntro", group: "skip", directOnly: true },
   { id: "skipOutro", i18n: "skipOutro", group: "skip", directOnly: true },
@@ -104,6 +125,7 @@ export const ACTION_CATALOG: ActionMeta[] = [
   { id: "cycleAspect", i18n: "cycleAspect", group: "view", directOnly: true },
   { id: "cycleServer", i18n: "cycleServer", group: "view" },
   { id: "copyTimestamp", i18n: "copyTimestamp", group: "view", directOnly: true },
+  { id: "mirror", i18n: "mirror", group: "view", directOnly: true },
   { id: "subtitles", i18n: "subtitles", group: "view" },
   { id: "toggleStats", i18n: "toggleStats", group: "view", directOnly: true },
   { id: "screenshot", i18n: "screenshot", group: "view", directOnly: true },
@@ -113,43 +135,60 @@ export const ACTION_CATALOG: ActionMeta[] = [
  *  common video-player conventions (YouTube / Vidstack) and to avoid clashing
  *  with each other. Single keys where possible; modifiers only when we run out
  *  of obvious letters. */
-// Default distribution is inspired by the reference layout the user shared:
-// icons scattered across the board rather than clustered. Each still resolves
-// to a real, sensible key so the shortcuts are usable out of the box.
+// Default layout mirrors the reference screenshot the user shared: each icon
+// sits on the same physical key it does in the reference. Where the reference
+// shows a generic icon we don't have a 1:1 action for, we map the nearest
+// action (e.g. its "rotate" cluster → restart / episode nav / cycle-server).
 export const DEFAULT_KEYBINDINGS: Keybindings = {
-  // Home row-ish cluster
-  toggleStats: "a", // brightness/stats slot in the ref (top-left of ASDF)
-  cycleAspect: "s", // "+90"/rotate slot
-  chromecast: "d", // cast slot
-  fullscreen: "f", // fullscreen brackets slot
-  frameBackward: "l", // ".0 ←" frame-step slot
-  frameForward: ";", // ".00 →" frame-step slot
-  // Upper (QWERTY) row
-  pictureInPicture: "o", // PiP icon
-  toggleTheater: "q", // window/theater icon
-  subtitles: "u", // list/CC-ish icon
-  restart: "p", // rotate-left (restart) slot
-  seekToEnd: "[", // rotate-right slot
-  // Lower (ZXCV) row
-  screenshot: "c", // screen-share/screenshot slot
-  prevEpisode: "n", // |◄ previous
-  nextEpisode: "m", // ►| next
-  mute: ",", // ◄× mute
-  // Bottom row + arrows
-  playPause: "space", // ► play (spacebar in the ref)
+  // Row 1 (number row): only the far-right key carries an icon (↺ restart).
+  restart: "backspace",
+  // Row 2 (Q W E R T Y U I O P [ ] \)
+  toggleTheater: "e", // window/theater icon (3rd key)
+  subtitles: "i", // list/tracks icon
+  pictureInPicture: "p", // PiP
+  seekToEnd: "[", // ↺ (jump)
+  copyTimestamp: "]", // ↻ (link)
+  cycleServer: "\\", // ⟳ loop/refresh → cycle player
+  // Row 3 (A S D F G H J K L ; ')
+  toggleStats: "s", // brightness/contrast icon (◐)
+  mirror: "d", // "+90"/flip slot
+  chromecast: "f", // cast
+  fullscreen: "g", // fullscreen brackets
+  frameBackward: "l", // ".0 ←"
+  frameForward: ";", // ".00 →"
+  // Row 4 (Z X C V B N M , . /)
+  screenshot: "c", // screen-share / screenshot
+  cycleAspect: "v", // captions-adjacent slot → aspect
+  prevEpisode: "b", // |◄ previous
+  nextEpisode: "n", // ►| next
+  mute: "m", // ◄× mute
+  volumeUp: ".", // 🔊 (right of the row)
+  // Row 5 (space + right cluster)
+  playPause: "space", // ► play
+  seekBackwardLong: ",", // ◄◄ rewind
+  volumeDown: "/", // 🔉
+  seekForwardLong: "'", // ►► fast-forward
+  // Arrow cluster — standard seek/volume.
   seekBackward: "arrowleft",
   seekForward: "arrowright",
-  volumeUp: "arrowup",
-  volumeDown: "arrowdown",
-  seekBackwardLong: "j",
-  seekForwardLong: "k",
-  skipIntro: "1",
-  skipOutro: "2",
-  rateDown: "9",
-  rateUp: "0",
-  rateReset: "8",
-  cycleServer: "e", // switch player/host (megaplay → vidmoly → …)
-  copyTimestamp: "y", // copy a link timestamped at the current time
+  // Speed on the -/= keys, reset on 0.
+  rateDown: "-",
+  rateUp: "=",
+  rateReset: "0",
+  // Number row 1–9 = jump to 10%–90% (YouTube-style).
+  seekPct10: "1",
+  seekPct20: "2",
+  seekPct30: "3",
+  seekPct40: "4",
+  seekPct50: "5",
+  seekPct60: "6",
+  seekPct70: "7",
+  seekPct80: "8",
+  seekPct90: "9",
+  // Skip intro/outro kept bindable but off the default board to stay close to
+  // the reference (which has no dedicated skip keys). User can drag them on.
+  skipIntro: null,
+  skipOutro: null,
 };
 
 const KEY = "aniscroll:keybindings";
