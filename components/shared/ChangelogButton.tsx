@@ -46,7 +46,10 @@ export default function ChangelogButton() {
     if (!open || content !== null) return;
     let cancelled = false;
     setLoading(true);
-    fetch(`/api/v2/changelog?lang=${lang}`)
+    // Cache-bust + no-store so a returning visitor always gets the latest
+    // changelog after a release — without this the browser served its cached
+    // copy for the API's full max-age (1h), even across page reloads.
+    fetch(`/api/v2/changelog?lang=${lang}&t=${Date.now()}`, { cache: "no-store" })
       .then((r) => (r.ok ? r.text() : Promise.reject(r.status)))
       .then((text) => {
         if (!cancelled) setContent(text);
