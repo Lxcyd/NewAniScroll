@@ -2,6 +2,24 @@
 
 Toutes les nouveautés d'AniScroll, les plus récentes en premier.
 
+## [v0.0.5] — Découverte & recommandations (2026-07-05)
+
+### Ajouté
+- **Onglet Découverte** : un fil vertical plein écran, façon TikTok, pour
+  parcourir les animes du moment. Faites défiler vers le haut ou le bas pour
+  passer d'une fiche à l'autre.
+- **Swipe pour trier** : glissez une fiche à droite ou à gauche pour l'ajouter à
+  votre liste AniList. Par défaut, droite = « Terminé » et gauche = « Prévu ».
+- **Réglages de swipe** : choisissez le statut assigné à chaque direction parmi
+  En cours, En reprise, Terminé, Prévu, En pause et Abandonné.
+- **Annuler** : revenez sur une fiche déjà glissée pour retirer l'action d'un
+  simple clic (l'entrée AniList est supprimée).
+- **Boutons Info & Regarder** : sur chaque fiche, ouvrez la fiche d'info ou
+  lancez directement la lecture.
+- **« Pour vous »** : un panneau de recommandations personnalisées basées sur
+  votre liste AniList, avec le « pourquoi » de chaque suggestion. Deux modes
+  (tout / à prévoir) et un bouton pour en générer de nouvelles.
+
 ## [v0.0.4] — Regarder ensemble (2026-06-26)
 
 ### Ajouté
