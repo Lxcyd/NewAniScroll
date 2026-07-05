@@ -1184,6 +1184,63 @@ export default function Watch({
     return () => ctrl.abort();
   }, [activeServer, fetchStreamSource, serverResolved]);
 
+  // ── Prefetch the NEXT episode ──────────────────────────────
+  // When the user hits "Next episode", nothing is warm: the source resolves from
+  // scratch, then the manifest + opening segments are fetched cold. We close that
+  // gap by resolving the next episode's source on the ACTIVE server a few seconds
+  // after the current one has settled — cheap (one /api/v2/source call, usually a
+  // Redis hit), and it (a) seeds the shared prefetch cache so switching reads it
+  // instantly, and (b) for megaplay triggers the server-side edge pre-warm (see
+  // source/index.js) so the next episode's opening is a cache HIT on arrival.
+  // Fire-and-forget, low priority, aborted on episode/server change.
+  useEffect(() => {
+    if (!serverResolved || !info?.id) return;
+    const nextNum = episodeNavigation?.next?.number;
+    if (nextNum == null) return;
+    const sub = dub ? "dub" : "sub";
+    // Already have it cached? Don't re-resolve.
+    if (getPrefetchedSource(sourceKey(info.id, parseInt(nextNum), activeServer, sub))) {
+      return;
+    }
+    const ctrl = new AbortController();
+    // Wait until the active stream has settled so this never competes with the
+    // request the user is actually waiting on.
+    const delay = setTimeout(async () => {
+      if (!activeSourceSettledRef.current) return;
+      try {
+        const res = await fetch("/api/v2/source", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            server: activeServer,
+            aniId: info.id,
+            episode: parseInt(nextNum),
+            sub,
+            title: info?.title?.romaji || info?.title?.english,
+            mediaMeta: mediaMetaPayload,
+            soft404: true,
+          }),
+          signal: ctrl.signal,
+          priority: "low",
+        });
+        if (!res.ok || res.status === 204) return;
+        const data = await res.json();
+        if (data && !data.error) {
+          setPrefetchedSource(
+            sourceKey(info.id, parseInt(nextNum), activeServer, sub),
+            data,
+          );
+        }
+      } catch {
+        /* aborted or offline — the next-episode click just resolves normally */
+      }
+    }, 5000);
+    return () => {
+      clearTimeout(delay);
+      ctrl.abort();
+    };
+  }, [serverResolved, info?.id, activeServer, dub, episodeNavigation?.next?.number, mediaMetaPayload]);
+
   // ── Pre-check all servers on page load ─────────────────────
   // Probes are batched (max N concurrent) to avoid overwhelming the dev server
   // and to keep navigation snappy. Aborted on episode change / unmount.
