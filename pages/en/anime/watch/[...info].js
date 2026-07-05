@@ -1661,6 +1661,29 @@ export default function Watch({
     [party, t]
   );
 
+  // ── Keyboard shortcut: cycle to the next player/server ──────
+  // The player fires `aniscroll:cycleServer` (it doesn't own the server list).
+  // We advance to the next CONFIRMED server (the ones that actually resolved a
+  // stream), wrapping around; if none are confirmed yet we cycle the full list.
+  useEffect(() => {
+    const onCycle = () => {
+      const SERVERS = require("@/lib/servers").default;
+      const pool =
+        confirmedServers.size > 0
+          ? SERVERS.filter((s) => confirmedServers.has(s.id))
+          : SERVERS;
+      if (pool.length < 2) return; // nothing to cycle to
+      const idx = pool.findIndex((s) => s.id === activeServer);
+      const next = pool[(idx + 1) % pool.length];
+      if (next && next.id !== activeServer) {
+        handleServerChange(next.id);
+        toast.success(t("player.switchedTo", { name: next.name }));
+      }
+    };
+    window.addEventListener("aniscroll:cycleServer", onCycle);
+    return () => window.removeEventListener("aniscroll:cycleServer", onCycle);
+  }, [confirmedServers, activeServer, handleServerChange, t]);
+
   // ── Media Session (OS-level now playing) ────────────────────
   useEffect(() => {
     const mediaSession = navigator.mediaSession;

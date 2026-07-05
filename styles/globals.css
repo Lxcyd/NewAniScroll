@@ -305,7 +305,11 @@ a {
 .vds-player .as-menu-row {
   width: 100%;
   min-height: var(--media-menu-item-height, 40px);
-  padding: 0 12px;
+  /* Match Vidstack's NATIVE menu-item padding exactly (menus.css uses
+     `--media-menu-item-padding, 10px`). We previously hard-coded 12px, which
+     pushed our injected rows' icon + label ~2px further right than the native
+     Speed/Quality rows — the "ambient lights row is shifted right" report. */
+  padding: var(--media-menu-item-padding, 10px);
   font-size: var(--media-menu-font-size, 15px);
   line-height: 1.25;
   border-radius: 6px;

@@ -47,7 +47,9 @@ export type ShortcutAction =
   | "frameBackward"
   | "frameForward"
   | "toggleTheater"
-  | "cycleAspect";
+  | "cycleAspect"
+  | "cycleServer"
+  | "copyTimestamp";
 
 /** A normalized key combination: lower-cased `event.key`, optionally prefixed
  *  by modifier tokens in a fixed order (ctrl → alt → shift → meta). */
@@ -100,6 +102,8 @@ export const ACTION_CATALOG: ActionMeta[] = [
   { id: "pictureInPicture", i18n: "pictureInPicture", group: "view", directOnly: true },
   { id: "chromecast", i18n: "chromecast", group: "view" },
   { id: "cycleAspect", i18n: "cycleAspect", group: "view", directOnly: true },
+  { id: "cycleServer", i18n: "cycleServer", group: "view" },
+  { id: "copyTimestamp", i18n: "copyTimestamp", group: "view", directOnly: true },
   { id: "subtitles", i18n: "subtitles", group: "view" },
   { id: "toggleStats", i18n: "toggleStats", group: "view", directOnly: true },
   { id: "screenshot", i18n: "screenshot", group: "view", directOnly: true },
@@ -109,34 +113,43 @@ export const ACTION_CATALOG: ActionMeta[] = [
  *  common video-player conventions (YouTube / Vidstack) and to avoid clashing
  *  with each other. Single keys where possible; modifiers only when we run out
  *  of obvious letters. */
+// Default distribution is inspired by the reference layout the user shared:
+// icons scattered across the board rather than clustered. Each still resolves
+// to a real, sensible key so the shortcuts are usable out of the box.
 export const DEFAULT_KEYBINDINGS: Keybindings = {
-  playPause: "k",
-  restart: "home",
-  seekToEnd: "end",
-  prevEpisode: "p",
-  nextEpisode: "n",
+  // Home row-ish cluster
+  toggleStats: "a", // brightness/stats slot in the ref (top-left of ASDF)
+  cycleAspect: "s", // "+90"/rotate slot
+  chromecast: "d", // cast slot
+  fullscreen: "f", // fullscreen brackets slot
+  frameBackward: "l", // ".0 ←" frame-step slot
+  frameForward: ";", // ".00 →" frame-step slot
+  // Upper (QWERTY) row
+  pictureInPicture: "o", // PiP icon
+  toggleTheater: "q", // window/theater icon
+  subtitles: "u", // list/CC-ish icon
+  restart: "p", // rotate-left (restart) slot
+  seekToEnd: "[", // rotate-right slot
+  // Lower (ZXCV) row
+  screenshot: "c", // screen-share/screenshot slot
+  prevEpisode: "n", // |◄ previous
+  nextEpisode: "m", // ►| next
+  mute: ",", // ◄× mute
+  // Bottom row + arrows
+  playPause: "space", // ► play (spacebar in the ref)
   seekBackward: "arrowleft",
   seekForward: "arrowright",
-  seekBackwardLong: "j",
-  seekForwardLong: "l",
-  frameBackward: ",",
-  frameForward: ".",
-  skipIntro: "s",
-  skipOutro: "d",
-  mute: "m",
   volumeUp: "arrowup",
   volumeDown: "arrowdown",
-  rateDown: "shift+comma", // "<"
-  rateUp: "shift+period", // ">"
-  rateReset: "backspace",
-  fullscreen: "f",
-  toggleTheater: "t",
-  pictureInPicture: "i",
-  chromecast: "c",
-  cycleAspect: "a",
-  subtitles: "v",
-  toggleStats: "shift+d",
-  screenshot: "shift+s",
+  seekBackwardLong: "j",
+  seekForwardLong: "k",
+  skipIntro: "1",
+  skipOutro: "2",
+  rateDown: "9",
+  rateUp: "0",
+  rateReset: "8",
+  cycleServer: "e", // switch player/host (megaplay → vidmoly → …)
+  copyTimestamp: "y", // copy a link timestamped at the current time
 };
 
 const KEY = "aniscroll:keybindings";

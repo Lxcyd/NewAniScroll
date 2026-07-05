@@ -362,6 +362,7 @@
     "downloadM3u8": "Download playlist (.m3u8)",
     "cast": "Cast",
     "casting": "Casting…",
+    "switchedTo": "Player: {{name}}",
     "pip": "Picture-in-picture",
     "chapterEpisode": "Episode",
     "chapterIntro": "Intro",
@@ -395,10 +396,9 @@
     "title": "Keyboard shortcuts",
     "configure": "Configure shortcuts",
     "settingsDesc": "Assign keys to video player actions",
-    "hint": "Click an action, then press a key to assign it.",
-    "pressKeyFor": "Press a key for \"{{action}}\"",
-    "pressAKey": "Press a key…",
-    "keyboardHint": "Assigned keys show their action's icon. Hover a key to see its action.",
+    "dragHint": "Drag an action onto the key you want. Double-click a key to free it.",
+    "dropOnKey": "Drop on a key to assign (or on the list to unbind)",
+    "keyboardHint": "Assigned keys show their action's icon. Hover a key to see its name.",
     "unassigned": "Unassigned",
     "clear": "Clear",
     "reset": "Reset to defaults",
@@ -438,7 +438,9 @@
       "frameBackward": "Previous frame",
       "frameForward": "Next frame",
       "toggleTheater": "Theater mode",
-      "cycleAspect": "Cycle aspect ratio"
+      "cycleAspect": "Cycle aspect ratio",
+      "cycleServer": "Switch player",
+      "copyTimestamp": "Copy timestamped link"
     }
   },
   "stats": {
@@ -457,7 +459,9 @@
     "time": "Time",
     "screenshotCopied": "Screenshot copied to clipboard",
     "screenshotSaved": "Screenshot saved",
-    "screenshotFailed": "Couldn't capture (protected source)"
+    "screenshotFailed": "Couldn't capture (protected source)",
+    "timestampCopied": "Link copied (at {{time}})",
+    "timestampFailed": "Couldn't copy the link"
   },
   "queue": {
     "title": "Watch next",

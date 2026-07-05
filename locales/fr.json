@@ -362,6 +362,7 @@
     "downloadM3u8": "Télécharger la playlist (.m3u8)",
     "cast": "Diffuser",
     "casting": "Diffusion…",
+    "switchedTo": "Lecteur : {{name}}",
     "pip": "Image dans l'image",
     "chapterEpisode": "Épisode",
     "chapterIntro": "Intro",
@@ -395,10 +396,9 @@
     "title": "Raccourcis clavier",
     "configure": "Configurer les raccourcis",
     "settingsDesc": "Assigner des touches aux actions du lecteur vidéo",
-    "hint": "Cliquez sur une action, puis appuyez sur une touche pour l'assigner.",
-    "pressKeyFor": "Appuyez sur une touche pour « {{action}} »",
-    "pressAKey": "Appuyez sur une touche…",
-    "keyboardHint": "Les touches assignées affichent l'icône de leur action. Survolez une touche pour voir l'action.",
+    "dragHint": "Glissez-déposez une action sur la touche voulue. Double-cliquez une touche pour la libérer.",
+    "dropOnKey": "Déposez sur une touche pour assigner (ou sur la liste pour libérer)",
+    "keyboardHint": "Les touches assignées affichent l'icône de leur action. Survolez une touche pour voir son nom.",
     "unassigned": "Non assigné",
     "clear": "Effacer",
     "reset": "Réinitialiser",
@@ -438,7 +438,9 @@
       "frameBackward": "Image précédente",
       "frameForward": "Image suivante",
       "toggleTheater": "Mode cinéma",
-      "cycleAspect": "Changer le ratio d'image"
+      "cycleAspect": "Changer le ratio d'image",
+      "cycleServer": "Changer de lecteur",
+      "copyTimestamp": "Copier le lien horodaté"
     }
   },
   "stats": {
@@ -457,7 +459,9 @@
     "time": "Temps",
     "screenshotCopied": "Capture copiée dans le presse-papiers",
     "screenshotSaved": "Capture enregistrée",
-    "screenshotFailed": "Impossible de capturer (source protégée)"
+    "screenshotFailed": "Impossible de capturer (source protégée)",
+    "timestampCopied": "Lien copié (à {{time}})",
+    "timestampFailed": "Impossible de copier le lien"
   },
   "queue": {
     "title": "À regarder ensuite",

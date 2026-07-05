@@ -2666,7 +2666,23 @@ export default function UniversalPlayer({
 
     const resume = () => {
       if (resumeApplied || !video) return;
-      const at = getResumeTime(aniListId, episodeNumber);
+      // A shared timestamped link (`?t=<seconds>`, from the copyTimestamp
+      // shortcut) wins over the saved resume point — the sharer picked that
+      // exact moment on purpose. Consumed once, then removed from the URL so a
+      // later manual seek + reload doesn't snap back.
+      let urlAt = 0;
+      try {
+        const p = new URLSearchParams(window.location.search).get("t");
+        if (p != null) urlAt = Math.max(0, parseInt(p, 10) || 0);
+      } catch {}
+      const at = urlAt > 0 ? urlAt : getResumeTime(aniListId, episodeNumber);
+      if (urlAt > 0) {
+        try {
+          const u = new URL(window.location.href);
+          u.searchParams.delete("t");
+          window.history.replaceState(null, "", u.toString());
+        } catch {}
+      }
       if (at > 0 && video.duration && at < video.duration - END_GUARD) {
         try {
           video.currentTime = at;
@@ -3904,6 +3920,32 @@ export default function UniversalPlayer({
       case "screenshot":
         void captureScreenshot();
         break;
+      case "cycleServer":
+        // The player doesn't own the server list — ask the watch page to
+        // advance to the next confirmed server (same pattern as theater).
+        window.dispatchEvent(new CustomEvent("aniscroll:cycleServer"));
+        break;
+      case "copyTimestamp":
+        void copyTimestampLink();
+        break;
+    }
+  };
+
+  // Copy the current page URL with a `?t=<seconds>` fragment so a shared link
+  // resumes at the exact moment ("share at 12:34").
+  const copyTimestampLink = async () => {
+    const video = getVideo();
+    if (!video) return;
+    const seconds = Math.floor(video.currentTime || 0);
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.set("t", String(seconds));
+      await navigator.clipboard.writeText(url.toString());
+      const mm = Math.floor(seconds / 60);
+      const ss = String(seconds % 60).padStart(2, "0");
+      toast.success(t("stats.timestampCopied", { time: `${mm}:${ss}` }));
+    } catch {
+      toast.error(t("stats.timestampFailed"));
     }
   };
 
@@ -4224,14 +4266,8 @@ export default function UniversalPlayer({
               // Material "fast_forward" icon.
               iconPath="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z"
             />
-            {/* Live playback telemetry ("stats for nerds"). */}
-            <SettingsToggleRow
-              label={t("stats.title")}
-              enabled={statsOpen}
-              onToggle={setStatsOpen}
-              // Material "insights"/bar-chart icon.
-              iconPath="M4 20h16v2H4v-2zm2-9h3v7H6v-7zm5-6h3v13h-3V5zm5 3h3v10h-3V8z"
-            />
+            {/* No stats row here — the video-stats overlay is reachable via its
+                keyboard shortcut (toggleStats), not a menu toggle (per request). */}
             {/* Opens the visual keyboard shortcut editor overlay. */}
             <SettingsActionRow
               label={t("shortcuts.configure")}

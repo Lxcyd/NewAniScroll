@@ -1,21 +1,21 @@
 /**
  * Visual keyboard shortcut editor (overlay).
  *
- * Rendered on top of the player / settings page when the user hits "Configure
- * shortcuts". Two panes:
- *   - LEFT  : the action list. Click an action to start "listening", then press
- *             any key to bind it (click → press-key model). Click again (or
- *             Esc) to cancel; a bound row shows its combo chip + a clear button.
- *   - RIGHT : a physical-keyboard render. Each key that's bound to an action
- *             paints that action's icon; hovering a key shows "<KEY> : <label>".
- *             The key you're currently pressing while listening lights up accent.
+ * Interaction model (per user request, inspired by the reference layout):
+ *   - The keyboard renders CLEAN — no printed key letters. A key shows the
+ *     icon of the action bound to it, and nothing otherwise.
+ *   - Hovering a key reveals its name (e.g. "A", "Space", "←") in a floating
+ *     tooltip — the only place the key label appears.
+ *   - Rebinding is DRAG & DROP: grab an action from the left list (or lift an
+ *     icon off a key) and drop it onto the target key. A key holds one action;
+ *     dropping onto an occupied key swaps the resident out (back to unassigned).
+ *   - Drop an action outside the keyboard (or onto the "remove" strip) to
+ *     unbind it. Reset restores the shipped defaults.
  *
- * Design mirrors the reference screenshot: near-black keyboard bezel, dark keys
- * with subtle borders, white glyphs, a floating dark tooltip above the keyboard.
- * Theme-agnostic (always the dark player aesthetic) since it belongs to the
- * player world.
+ * Visual style matches the reference: near-black bezel, flat dark keys, white
+ * glyphs, accent highlight on the active drop target.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import {
@@ -23,8 +23,6 @@ import {
   type ShortcutAction,
   type Keybindings,
   type KeyCombo,
-  comboFromEvent,
-  comboLabel,
   comboToAction,
   getKeybindings,
   setKeybindings,
@@ -35,61 +33,95 @@ import { SHORTCUT_ICONS } from "./shortcutIcons";
 const ACCENT = "#E94560";
 
 // ── Physical keyboard layout ────────────────────────────────────────────────
-// Each entry is { code, w } where `code` is the normalized base-key token we
-// match against a combo's base (see comboFromEvent) and `w` is a flex weight
-// (1 = a standard key). `null` code = a decorative dead key (renders but can't
-// be assigned). `label` overrides the printed cap glyph.
-type Cap = { code: string | null; w?: number; label?: string };
+// `code` = normalized base-key token we match against a combo (see
+// comboFromEvent). `w` = flex weight (1 = standard key). `null` code = a
+// decorative dead key (modifiers) that can't hold an action. No printed labels:
+// the key stays blank unless an action is bound to it.
+type Cap = { code: string | null; w?: number };
 
 const ROWS: Cap[][] = [
   [
-    { code: "escape", label: "esc" },
+    { code: "escape" },
     { code: "1" }, { code: "2" }, { code: "3" }, { code: "4" }, { code: "5" },
     { code: "6" }, { code: "7" }, { code: "8" }, { code: "9" }, { code: "0" },
-    { code: "-", label: "-" }, { code: "=", label: "=" },
-    { code: "backspace", w: 2, label: "⌫" },
+    { code: "-" }, { code: "=" },
+    { code: "backspace", w: 2 },
   ],
   [
-    { code: "tab", w: 1.5, label: "⇥" },
+    { code: "tab", w: 1.5 },
     { code: "q" }, { code: "w" }, { code: "e" }, { code: "r" }, { code: "t" },
     { code: "y" }, { code: "u" }, { code: "i" }, { code: "o" }, { code: "p" },
-    { code: "[", label: "[" }, { code: "]", label: "]" },
-    { code: "\\", w: 1.5, label: "\\" },
+    { code: "[" }, { code: "]" },
+    { code: "\\", w: 1.5 },
   ],
   [
-    { code: null, w: 1.75, label: "⇪" },
+    { code: null, w: 1.75 },
     { code: "a" }, { code: "s" }, { code: "d" }, { code: "f" }, { code: "g" },
     { code: "h" }, { code: "j" }, { code: "k" }, { code: "l" },
-    { code: ";", label: ";" }, { code: "'", label: "'" },
-    { code: "enter", w: 2.25, label: "↵" },
+    { code: ";" }, { code: "'" },
+    { code: "enter", w: 2.25 },
   ],
   [
-    { code: null, w: 2.25, label: "⇧" },
+    { code: null, w: 2.25 },
     { code: "z" }, { code: "x" }, { code: "c" }, { code: "v" }, { code: "b" },
     { code: "n" }, { code: "m" },
-    { code: ",", label: "," }, { code: ".", label: "." }, { code: "/", label: "/" },
-    { code: null, w: 2.25, label: "⇧" },
+    { code: "," }, { code: "." }, { code: "/" },
+    { code: null, w: 2.25 },
   ],
   [
-    { code: null, w: 1.5, label: "ctrl" },
-    { code: null, w: 1.25, label: "alt" },
-    { code: "space", w: 6, label: "" },
-    { code: null, w: 1.25, label: "alt" },
-    { code: "arrowleft", label: "←" },
-    { code: "arrowup", label: "↑" },
-    { code: "arrowdown", label: "↓" },
-    { code: "arrowright", label: "→" },
+    { code: null, w: 1.5 },
+    { code: null, w: 1.25 },
+    { code: "space", w: 6 },
+    { code: null, w: 1.25 },
+    { code: "arrowleft" },
+    { code: "arrowup" },
+    { code: "arrowdown" },
+    { code: "arrowright" },
   ],
 ];
+
+type ActionMetaGroup = "playback" | "navigation" | "skip" | "audio" | "speed" | "view";
+
+/** Base token of a combo (drops modifiers). */
+function baseOf(combo: KeyCombo): string {
+  const parts = combo.split("+");
+  return parts[parts.length - 1];
+}
+
+/** Human key label, shown only on hover. */
+function capGlyph(code: string): string {
+  const map: Record<string, string> = {
+    arrowleft: "←",
+    arrowright: "→",
+    arrowup: "↑",
+    arrowdown: "↓",
+    space: "Space",
+    backspace: "⌫",
+    enter: "↵",
+    escape: "Esc",
+    tab: "Tab",
+    "-": "-",
+    "=": "=",
+    "[": "[",
+    "]": "]",
+    "\\": "\\",
+    ";": ";",
+    "'": "'",
+    ",": ",",
+    ".": ".",
+    "/": "/",
+  };
+  return map[code] ?? code.toUpperCase();
+}
 
 export default function ShortcutEditor({ onClose }: { onClose: () => void }) {
   const { t } = useTranslation();
   const [binds, setBinds] = useState<Keybindings>(() => getKeybindings());
-  const [listening, setListening] = useState<ShortcutAction | null>(null);
   const [hoverKey, setHoverKey] = useState<string | null>(null);
-  const [flashCombo, setFlashCombo] = useState<KeyCombo | null>(null);
-  const listeningRef = useRef<ShortcutAction | null>(null);
-  listeningRef.current = listening;
+  // The action currently being dragged (from the list or lifted off a key).
+  const [dragging, setDragging] = useState<ShortcutAction | null>(null);
+  // The key currently under the drag (accent highlight).
+  const [dropTarget, setDropTarget] = useState<string | null>(null);
 
   const actionLabel = useCallback(
     (id: ShortcutAction) => t(`shortcuts.actions.${id}`),
@@ -103,58 +135,33 @@ export default function ShortcutEditor({ onClose }: { onClose: () => void }) {
     setKeybindings(next);
   }, []);
 
-  // Global key capture while listening. Captures at the window level so it wins
-  // over anything below. A lone modifier (Shift/Ctrl/…) is ignored so the user
-  // can build "Shift + S" etc. Escape cancels the listen.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const target = listeningRef.current;
-      if (!target) {
-        // Not listening: only Escape (to close the whole editor) is handled,
-        // and only when focus isn't in a text field.
-        if (e.key === "Escape") {
-          e.preventDefault();
-          onClose();
-        }
-        return;
-      }
-      e.preventDefault();
-      e.stopPropagation();
-      if (e.key === "Escape") {
-        setListening(null);
-        return;
-      }
-      const combo = comboFromEvent(e);
-      if (!combo) return; // lone modifier — keep waiting
-      // Remove this combo from any OTHER action (a key maps to one action),
-      // then assign it to the target.
+  /** Assign `action` to physical key `code`. A key holds one action: any action
+   *  already on that key is unbound; the moved action leaves its old key. */
+  const assign = useCallback(
+    (action: ShortcutAction, code: string) => {
       const next: Keybindings = { ...binds };
+      // Evict whatever currently sits on this key.
       (Object.keys(next) as ShortcutAction[]).forEach((a) => {
-        if (a !== target && next[a] === combo) next[a] = null;
+        if (a !== action && next[a] && baseOf(next[a] as string) === code) {
+          next[a] = null;
+        }
       });
-      next[target] = combo;
+      next[action] = code;
       persist(next);
-      setFlashCombo(combo);
-      setTimeout(() => setFlashCombo(null), 250);
-      setListening(null);
-    };
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
-  }, [binds, onClose, persist]);
+    },
+    [binds, persist],
+  );
 
-  const clearAction = (id: ShortcutAction) => {
-    persist({ ...binds, [id]: null });
-  };
+  const unbind = useCallback(
+    (action: ShortcutAction) => persist({ ...binds, [action]: null }),
+    [binds, persist],
+  );
 
-  const resetAll = () => {
-    const def = resetKeybindings();
-    setBinds({ ...def });
-    setListening(null);
-  };
+  const resetAll = () => setBinds({ ...resetKeybindings() });
 
-  // Group actions for the list, preserving catalog order within each group.
+  // Group actions for the list.
   const groups = useMemo(() => {
-    const order: Array<ActionMetaGroup> = [
+    const order: ActionMetaGroup[] = [
       "playback",
       "navigation",
       "skip",
@@ -168,6 +175,16 @@ export default function ShortcutEditor({ onClose }: { onClose: () => void }) {
     }));
   }, []);
 
+  const onDragStart = (e: React.DragEvent, action: ShortcutAction) => {
+    e.dataTransfer.setData("text/plain", action);
+    e.dataTransfer.effectAllowed = "move";
+    setDragging(action);
+  };
+  const onDragEnd = () => {
+    setDragging(null);
+    setDropTarget(null);
+  };
+
   return createPortal(
     <div
       role="dialog"
@@ -175,7 +192,6 @@ export default function ShortcutEditor({ onClose }: { onClose: () => void }) {
       className="fixed inset-0 z-[9999] flex items-center justify-center p-4"
       style={{ background: "rgba(0,0,0,0.72)", backdropFilter: "blur(4px)" }}
       onMouseDown={(e) => {
-        // Click on the dim backdrop (not the panel) closes.
         if (e.target === e.currentTarget) onClose();
       }}
     >
@@ -190,9 +206,7 @@ export default function ShortcutEditor({ onClose }: { onClose: () => void }) {
               {t("shortcuts.title")}
             </h2>
             <p className="mt-0.5 text-[12px] text-white/50">
-              {listening
-                ? t("shortcuts.pressKeyFor", { action: actionLabel(listening) })
-                : t("shortcuts.hint")}
+              {t("shortcuts.dragHint")}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -217,8 +231,24 @@ export default function ShortcutEditor({ onClose }: { onClose: () => void }) {
         </div>
 
         <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-auto p-5 lg:flex-row">
-          {/* LEFT — action list */}
-          <div className="w-full shrink-0 space-y-3 overflow-y-auto lg:w-[340px] lg:pr-1">
+          {/* LEFT — draggable action list. Dropping an action back here unbinds it. */}
+          <div
+            className="w-full shrink-0 space-y-3 overflow-y-auto rounded-xl p-1 transition lg:w-[330px]"
+            style={{
+              outline: dragging ? "1px dashed rgba(255,255,255,0.15)" : "none",
+            }}
+            onDragOver={(e) => {
+              // Allow dropping here to UNBIND the dragged action.
+              e.preventDefault();
+              e.dataTransfer.dropEffect = "move";
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              const a = e.dataTransfer.getData("text/plain") as ShortcutAction;
+              if (a) unbind(a);
+              onDragEnd();
+            }}
+          >
             {groups.map(({ group, items }) => (
               <div key={group}>
                 <div className="mb-1.5 px-1 text-[11px] font-semibold uppercase tracking-wide text-white/35">
@@ -227,76 +257,51 @@ export default function ShortcutEditor({ onClose }: { onClose: () => void }) {
                 <div className="space-y-1">
                   {items.map((a) => {
                     const combo = binds[a.id] ?? null;
-                    const isListening = listening === a.id;
                     return (
                       <div
                         key={a.id}
-                        className="flex items-center gap-2 rounded-lg px-2 py-1.5 transition"
-                        style={{
-                          background: isListening
-                            ? "rgba(233,69,96,0.14)"
-                            : "rgba(255,255,255,0.03)",
-                          border: `1px solid ${
-                            isListening ? ACCENT : "transparent"
-                          }`,
-                        }}
+                        draggable
+                        onDragStart={(e) => onDragStart(e, a.id)}
+                        onDragEnd={onDragEnd}
                         onMouseEnter={() => setHoverKey(combo ? baseOf(combo) : null)}
                         onMouseLeave={() => setHoverKey(null)}
+                        className="flex cursor-grab items-center gap-2 rounded-lg px-2 py-1.5 transition active:cursor-grabbing"
+                        style={{
+                          background:
+                            dragging === a.id
+                              ? "rgba(233,69,96,0.16)"
+                              : "rgba(255,255,255,0.03)",
+                          border: `1px solid ${
+                            dragging === a.id ? ACCENT : "transparent"
+                          }`,
+                          opacity: dragging && dragging !== a.id ? 0.55 : 1,
+                        }}
                       >
-                        <span
-                          className="grid h-6 w-6 shrink-0 place-items-center text-white/80"
-                          style={{ color: isListening ? ACCENT : undefined }}
-                        >
+                        {/* drag dots */}
+                        <span className="shrink-0 text-white/25">
+                          <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
+                            <path d="M9 5a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0zm0 7a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0zm0 7a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0zm9-14a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0zm0 7a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0zm0 7a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0z" />
+                          </svg>
+                        </span>
+                        <span className="grid h-6 w-6 shrink-0 place-items-center text-white/85">
                           <svg viewBox="0 0 24 24" className="h-[18px] w-[18px]">
                             {SHORTCUT_ICONS[a.id]}
                           </svg>
                         </span>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setListening((cur) => (cur === a.id ? null : a.id))
-                          }
-                          className="flex-1 truncate text-left text-[13px] text-white/85"
-                        >
+                        <span className="flex-1 truncate text-[13px] text-white/85">
                           {actionLabel(a.id)}
-                        </button>
-                        {isListening ? (
+                        </span>
+                        {combo ? (
                           <span
-                            className="animate-pulse rounded-md px-2 py-1 text-[11px] font-medium"
-                            style={{ color: ACCENT, background: "rgba(233,69,96,0.12)" }}
+                            className="rounded-md border border-white/12 bg-white/5 px-1.5 py-0.5 font-mono text-[10px] text-white/60"
+                            title={capGlyph(baseOf(combo))}
                           >
-                            {t("shortcuts.pressAKey")}
+                            {capGlyph(baseOf(combo))}
                           </span>
-                        ) : combo ? (
-                          <div className="flex items-center gap-1">
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setListening((cur) => (cur === a.id ? null : a.id))
-                              }
-                              className="rounded-md border border-white/15 bg-white/5 px-2 py-1 font-mono text-[11px] text-white/90 transition hover:border-white/30"
-                            >
-                              {comboLabel(combo)}
-                            </button>
-                            <button
-                              type="button"
-                              aria-label={t("shortcuts.clear")}
-                              onClick={() => clearAction(a.id)}
-                              className="grid h-6 w-6 place-items-center rounded-md text-white/40 transition hover:bg-white/10 hover:text-white/80"
-                            >
-                              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-                                <path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
-                              </svg>
-                            </button>
-                          </div>
                         ) : (
-                          <button
-                            type="button"
-                            onClick={() => setListening(a.id)}
-                            className="rounded-md border border-dashed border-white/15 px-2 py-1 text-[11px] text-white/40 transition hover:border-white/30 hover:text-white/70"
-                          >
+                          <span className="rounded-md border border-dashed border-white/12 px-1.5 py-0.5 text-[10px] text-white/30">
                             {t("shortcuts.unassigned")}
-                          </button>
+                          </span>
                         )}
                       </div>
                     );
@@ -306,22 +311,29 @@ export default function ShortcutEditor({ onClose }: { onClose: () => void }) {
             ))}
           </div>
 
-          {/* RIGHT — physical keyboard */}
+          {/* RIGHT — physical keyboard (drop targets) */}
           <div className="flex min-w-0 flex-1 items-start justify-center">
             <Keyboard
               byCombo={byCombo}
-              binds={binds}
               hoverKey={hoverKey}
-              flashCombo={flashCombo}
+              dropTarget={dropTarget}
+              dragging={dragging}
               actionLabel={actionLabel}
               onHoverKey={setHoverKey}
-              onKeyClick={(code) => {
-                // Clicking a key on the keyboard: if it's bound, start
-                // re-listening for that action; otherwise no-op (assign from
-                // the list). This keeps the primary model "action → press key".
-                const action = byCombo.get(code) || null;
-                if (action) setListening(action);
+              onKeyDragOver={(code) => setDropTarget(code)}
+              onKeyDragLeave={(code) =>
+                setDropTarget((cur) => (cur === code ? null : cur))
+              }
+              onKeyDrop={(code, e) => {
+                e.preventDefault();
+                const a = e.dataTransfer.getData("text/plain") as ShortcutAction;
+                if (a) assign(a, code);
+                onDragEnd();
               }}
+              onKeyGrab={(action, e) => onDragStart(e, action)}
+              onKeyGrabEnd={onDragEnd}
+              onKeyClear={(action) => unbind(action)}
+              draggingAction={dragging}
             />
           </div>
         </div>
@@ -331,57 +343,56 @@ export default function ShortcutEditor({ onClose }: { onClose: () => void }) {
   );
 }
 
-type ActionMetaGroup = "playback" | "navigation" | "skip" | "audio" | "speed" | "view";
-
-/** Base token of a combo (drops modifiers) — used to highlight the physical key
- *  even for a combo like "shift+s" (we light the S key). */
-function baseOf(combo: KeyCombo): string {
-  const parts = combo.split("+");
-  return parts[parts.length - 1];
-}
-
 function Keyboard({
   byCombo,
-  binds,
   hoverKey,
-  flashCombo,
+  dropTarget,
+  dragging,
   actionLabel,
   onHoverKey,
-  onKeyClick,
+  onKeyDragOver,
+  onKeyDragLeave,
+  onKeyDrop,
+  onKeyGrab,
+  onKeyGrabEnd,
+  onKeyClear,
+  draggingAction,
 }: {
   byCombo: Map<KeyCombo, ShortcutAction>;
-  binds: Keybindings;
   hoverKey: string | null;
-  flashCombo: KeyCombo | null;
+  dropTarget: string | null;
+  dragging: ShortcutAction | null;
   actionLabel: (id: ShortcutAction) => string;
   onHoverKey: (code: string | null) => void;
-  onKeyClick: (code: string) => void;
+  onKeyDragOver: (code: string) => void;
+  onKeyDragLeave: (code: string) => void;
+  onKeyDrop: (code: string, e: React.DragEvent) => void;
+  onKeyGrab: (action: ShortcutAction, e: React.DragEvent) => void;
+  onKeyGrabEnd: () => void;
+  onKeyClear: (action: ShortcutAction) => void;
+  draggingAction: ShortcutAction | null;
 }) {
   const { t } = useTranslation();
 
-  // For a given key `code`, find the action bound to it. A key can carry a
-  // plain binding ("s") AND appear as the base of a modified one ("shift+s");
-  // we prefer the plain binding for the on-cap icon, and surface both in the
-  // tooltip.
-  const actionsForKey = (code: string): ShortcutAction[] => {
-    const out: ShortcutAction[] = [];
+  const actionForKey = (code: string): ShortcutAction | undefined => {
+    let found: ShortcutAction | undefined;
     byCombo.forEach((action, combo) => {
-      if (baseOf(combo) === code) out.push(action);
+      if (baseOf(combo) === code) found = action;
     });
-    return out;
+    return found;
   };
 
+  // Tooltip: key name (+ its action, if any). Only shown on hover.
   const tooltip = (() => {
     if (!hoverKey) return null;
-    const acts = actionsForKey(hoverKey);
-    if (!acts.length) return null;
-    const keyGlyph = capGlyph(hoverKey);
-    return `${keyGlyph} : ${acts.map(actionLabel).join(" / ")}`;
+    const act = actionForKey(hoverKey);
+    const glyph = capGlyph(hoverKey);
+    return act ? `${glyph} · ${actionLabel(act)}` : glyph;
   })();
 
   return (
     <div className="w-full max-w-[900px]">
-      {/* Tooltip */}
+      {/* Tooltip strip */}
       <div className="mb-3 flex h-8 items-center justify-center">
         {tooltip && (
           <div
@@ -395,92 +406,79 @@ function Keyboard({
 
       {/* Bezel */}
       <div
-        className="space-y-1.5 rounded-xl p-3"
+        className="space-y-1.5 rounded-2xl p-3"
         style={{
-          background: "#111318",
+          background: "#0a0b0e",
           border: "3px solid #000",
-          boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.04)",
+          boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.03)",
         }}
       >
         {ROWS.map((row, ri) => (
           <div key={ri} className="flex gap-1.5">
             {row.map((cap, ci) => {
               const code = cap.code;
-              const bound = code ? actionsForKey(code) : [];
-              const primary = bound[0];
-              const isFlashing =
-                !!flashCombo && !!code && baseOf(flashCombo) === code;
+              const action = code ? actionForKey(code) : undefined;
               const isHovered = !!code && hoverKey === code;
+              const isDrop = !!code && dropTarget === code;
+              const isDead = !code;
               return (
-                <button
+                <div
                   key={ci}
-                  type="button"
-                  disabled={!code}
-                  onClick={() => code && onKeyClick(code)}
                   onMouseEnter={() => code && onHoverKey(code)}
                   onMouseLeave={() => onHoverKey(null)}
+                  onDragOver={(e) => {
+                    if (isDead) return;
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = "move";
+                    onKeyDragOver(code as string);
+                  }}
+                  onDragLeave={() => code && onKeyDragLeave(code)}
+                  onDrop={(e) => code && onKeyDrop(code, e)}
+                  // The icon of an assigned key is itself draggable (lift &
+                  // move it to another key, or drop it on the list to clear).
+                  draggable={!!action}
+                  onDragStart={(e) => action && onKeyGrab(action, e)}
+                  onDragEnd={onKeyGrabEnd}
+                  onDoubleClick={() => action && onKeyClear(action)}
                   className="relative grid h-11 min-w-0 place-items-center rounded-md transition-colors"
                   style={{
                     flex: cap.w ?? 1,
-                    background: isFlashing
-                      ? ACCENT
-                      : primary
-                      ? "rgba(255,255,255,0.10)"
-                      : "rgba(255,255,255,0.035)",
+                    background: isDrop
+                      ? "rgba(233,69,96,0.28)"
+                      : action
+                      ? "rgba(255,255,255,0.09)"
+                      : "rgba(255,255,255,0.028)",
                     border: `1px solid ${
-                      isHovered
-                        ? "rgba(255,255,255,0.5)"
-                        : primary
-                        ? "rgba(255,255,255,0.18)"
-                        : "rgba(255,255,255,0.05)"
+                      isDrop
+                        ? ACCENT
+                        : isHovered
+                        ? "rgba(255,255,255,0.4)"
+                        : action
+                        ? "rgba(255,255,255,0.16)"
+                        : "rgba(255,255,255,0.045)"
                     }`,
-                    cursor: code ? "pointer" : "default",
-                    color: isFlashing ? "#fff" : "rgba(255,255,255,0.9)",
+                    cursor: action ? "grab" : isDead ? "default" : "default",
+                    color: "rgba(255,255,255,0.92)",
+                    // Dim dead keys slightly so the assignable field reads clearly.
+                    opacity: isDead ? 0.5 : 1,
                   }}
-                  title={code ? capGlyph(code) : undefined}
                 >
-                  {primary ? (
-                    <svg viewBox="0 0 24 24" className="h-[18px] w-[18px]">
-                      {SHORTCUT_ICONS[primary]}
+                  {action && (
+                    <svg viewBox="0 0 24 24" className="pointer-events-none h-[18px] w-[18px]">
+                      {SHORTCUT_ICONS[action]}
                     </svg>
-                  ) : (
-                    <span className="select-none text-[10px] font-medium text-white/30">
-                      {cap.label ?? (code ? code.toUpperCase() : "")}
-                    </span>
                   )}
-                  {/* extra-binding dot (a second, modified binding on this key) */}
-                  {bound.length > 1 && (
-                    <span
-                      className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full"
-                      style={{ background: ACCENT }}
-                    />
-                  )}
-                </button>
+                </div>
               );
             })}
           </div>
         ))}
       </div>
       <p className="mt-3 text-center text-[11px] text-white/35">
-        {t("shortcuts.keyboardHint")}
+        {draggingAction
+          ? t("shortcuts.dropOnKey")
+          : t("shortcuts.keyboardHint")}
       </p>
     </div>
   );
-}
-
-/** Printable cap for a key token in the tooltip. */
-function capGlyph(code: string): string {
-  const map: Record<string, string> = {
-    arrowleft: "←",
-    arrowright: "→",
-    arrowup: "↑",
-    arrowdown: "↓",
-    space: "Space",
-    backspace: "⌫",
-    enter: "↵",
-    escape: "Esc",
-    home: "Home",
-    end: "End",
-  };
-  return map[code] ?? code.toUpperCase();
 }
