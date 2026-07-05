@@ -1,4 +1,4 @@
-## v0.0.6
+## v0.0.5
 
 🎉 **Discover** — a new full-screen, TikTok-style vertical feed to browse trending anime.
 

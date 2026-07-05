@@ -1,4 +1,4 @@
-## v0.0.6
+## v0.0.5
 
 🎉 **Découverte** — un nouveau fil vertical plein écran, façon TikTok, pour parcourir les animes du moment.
 

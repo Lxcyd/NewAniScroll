@@ -2,7 +2,7 @@
 
 All notable changes to AniScroll appear here. Most recent first.
 
-## [v0.0.6] — Discover & recommendations (2026-07-05)
+## [v0.0.5] — Discover, info pages, seasons & players (2026-07-05)
 
 ### Added
 - **Discover tab**: a full-screen, TikTok-style vertical feed to browse trending
@@ -13,15 +13,9 @@ All notable changes to AniScroll appear here. Most recent first.
   Rewatching, Completed, Planning, Paused and Dropped.
 - **Undo**: scroll back to a card you already swiped to remove the action in one
   click (the AniList entry is deleted).
-- **Info & Watch buttons**: on every card, open the info page or jump straight
-  into playback.
 - **"For You"**: a personalised recommendation panel based on your AniList, with
   the reasoning behind each suggestion. Two modes (all / planning) and a button
   to generate fresh picks.
-
-## [v0.0.5] — Info pages, seasons & players (2026-07-03)
-
-### Added
 - **Movies, Compilations and Opening / Ending tabs** on an anime's page: instead
   of one long list, dedicated tabs that replace the episode list.
 - **Opening / Ending**: browse and watch a show's openings and endings, grouped
