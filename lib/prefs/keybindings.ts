@@ -135,8 +135,10 @@ export const ACTION_CATALOG: ActionMeta[] = [
 // sits on the same physical key it does in the reference. Where the reference
 // shows a generic icon we don't have a 1:1 action for, we map the nearest
 // action (e.g. its "rotate" cluster → restart / episode nav / cycle-server).
+// Keys reference the AZERTY layout drawn in the editor (French `event.key`
+// values). Positions roughly mirror the reference screenshot's icon placement.
 export const DEFAULT_KEYBINDINGS: Keybindings = {
-  // Row 1 (number row): 1–9 = jump to 10–90%, far-right key = ↺ restart.
+  // Number row: 1–9 = jump to 10–90%, far-right = ↺ restart.
   seekPct10: "1",
   seekPct20: "2",
   seekPct30: "3",
@@ -147,38 +149,38 @@ export const DEFAULT_KEYBINDINGS: Keybindings = {
   seekPct80: "8",
   seekPct90: "9",
   restart: "backspace",
-  // Row 2 (Q W E R T Y U I O P [ ] \)
-  cycleServer: "w", // ⟳ loop → cycle player
-  subtitles: "t", // tracks/list icon
+  // Upper row (a z e r t y u i o p ^ $)
+  cycleServer: "z", // ⟳ loop → cycle player
+  subtitles: "t", // tracks/list
   copyTimestamp: "y", // 🔗 link
   pictureInPicture: "o", // ▣ PiP
   seekToEnd: "p",
-  // Row 3 (A S D F G H J K L ; ')
+  // Home row (q s d f g h j k l m ù *)
   toggleStats: "s", // brightness/contrast
   nextEpisode: "d", // ►|
   prevEpisode: "f", // |◄
-  fullscreen: "g", // fullscreen brackets
+  fullscreen: "g", // fullscreen
   seekBackwardLong: "j", // ◄◄
   seekForwardLong: "l", // ►►
-  frameBackward: ";", // ".0 ←"
-  // Row 4 (Z X C V B N M , . /)
+  frameBackward: "m", // ".0 ←"
+  frameForward: "ù", // ".00 →"
+  // Bottom letter row (w x c v b n , ; : !)
   chromecast: "c", // cast
   screenshot: "v", // screenshot
-  frameForward: "b", // ".00 →"
-  mute: "m", // mute
+  mute: "n", // mute
   mirror: ",",
-  // Row 5 (space + right cluster + arrows)
+  // Speed on the ; : ! cluster.
+  rateDown: ";",
+  rateUp: ":",
+  rateReset: "!",
+  // Space + arrows.
   playPause: "space",
-  volumeDown: ".",
-  volumeUp: "/",
   seekBackward: "arrowleft",
   seekForward: "arrowright",
-  // Speed on the -/= keys, reset on 0.
-  rateDown: "-",
-  rateUp: "=",
-  rateReset: "0",
-  // Skip intro/outro kept bindable but off the default board (reference has no
-  // dedicated skip keys). The user can drag them onto any free key.
+  volumeUp: "arrowup",
+  volumeDown: "arrowdown",
+  // Skip intro/outro kept bindable but off the default board (drag onto any
+  // free key). Also volume keys already cover ↑/↓.
   skipIntro: null,
   skipOutro: null,
 };

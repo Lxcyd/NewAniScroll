@@ -30,48 +30,93 @@ import { SHORTCUT_ICONS } from "./shortcutIcons";
 
 const ACCENT = "#E94560";
 
-type Cap = { code: string | null; w?: number };
+// A key definition: `code` = normalized `event.key` we match against combos
+// (null = decorative dead key, e.g. shift). `w` = width in units (1 = a
+// standard key). `h` = row span (for the ISO Enter). No printed labels — a key
+// stays blank unless an action is bound to it. `x`/`y` are COMPUTED (below) by
+// walking each row left→right, so there are never manual-coordinate collisions.
+type Key = { code: string | null; w?: number; h?: number };
+type Cap = Key & { x: number; y: number };
 
-// Physical layout — a compact 60%-style board like the reference. No labels.
-const ROWS: Cap[][] = [
+// Full French (AZERTY) layout, in the exact order requested. Codes are the
+// values a French keyboard emits for `event.key`, so pressing the physical key
+// resolves the same combo. Each row is main-block keys, then the right nav
+// cluster (delete / home / pageup / pagedown + arrows), positioned as on a real
+// TKL board.
+const ROWS: Key[][] = [
+  // esc 1..0 - = backspace | delete
   [
     { code: "escape" },
     { code: "1" }, { code: "2" }, { code: "3" }, { code: "4" }, { code: "5" },
     { code: "6" }, { code: "7" }, { code: "8" }, { code: "9" }, { code: "0" },
-    { code: "-" }, { code: "=" },
-    { code: "backspace", w: 2 },
+    { code: "-" }, { code: "=" }, { code: "backspace", w: 2 },
   ],
+  // tab a z e r t y u i o p ^ $ | (ISO Enter starts here, spans 2 rows)
   [
     { code: "tab", w: 1.5 },
-    { code: "q" }, { code: "w" }, { code: "e" }, { code: "r" }, { code: "t" },
+    { code: "a" }, { code: "z" }, { code: "e" }, { code: "r" }, { code: "t" },
     { code: "y" }, { code: "u" }, { code: "i" }, { code: "o" }, { code: "p" },
-    { code: "[" }, { code: "]" },
-    { code: "\\", w: 1.5 },
+    { code: "^" }, { code: "$" }, { code: "enter", w: 1.5, h: 2 },
   ],
+  // home capslock q s d f g h j k l m ù *  (Enter overlaps the last cell)
   [
-    { code: null, w: 1.75 },
-    { code: "a" }, { code: "s" }, { code: "d" }, { code: "f" }, { code: "g" },
-    { code: "h" }, { code: "j" }, { code: "k" }, { code: "l" },
-    { code: ";" }, { code: "'" },
-    { code: "enter", w: 2.25 },
+    { code: null, w: 1.75 }, // capslock
+    { code: "q" }, { code: "s" }, { code: "d" }, { code: "f" }, { code: "g" },
+    { code: "h" }, { code: "j" }, { code: "k" }, { code: "l" }, { code: "m" },
+    { code: "ù" }, { code: "*" },
   ],
+  // lshift w x c v b n , ; : ! rshift
   [
-    { code: null, w: 2.25 },
-    { code: "z" }, { code: "x" }, { code: "c" }, { code: "v" }, { code: "b" },
-    { code: "n" }, { code: "m" },
-    { code: "," }, { code: "." }, { code: "/" },
-    { code: null, w: 2.25 },
+    { code: null, w: 1.25 }, // left shift
+    { code: "w" }, { code: "x" }, { code: "c" }, { code: "v" }, { code: "b" },
+    { code: "n" }, { code: "," }, { code: ";" }, { code: ":" }, { code: "!" },
+    { code: null, w: 2.75 }, // right shift
   ],
+  // ctrl meta alt space altgr menu
   [
-    { code: null, w: 1.5 },
-    { code: null, w: 1.25 },
-    { code: "space", w: 6 },
-    { code: null, w: 1.25 },
-    { code: "arrowleft" },
-    { code: "arrowup" },
-    { code: "arrowdown" },
-    { code: "arrowright" },
+    { code: null, w: 1.5 }, // ctrl
+    { code: null, w: 1.25 }, // meta
+    { code: null, w: 1.25 }, // alt
+    { code: "space", w: 6.25 },
+    { code: null, w: 1.25 }, // altgr
+    { code: null, w: 1.5 }, // menu
   ],
+];
+
+// Right-hand nav/arrow cluster: [code, row, col] on a 3-wide mini grid that
+// starts just right of the main block. row/col are 0-based within the cluster.
+// Top two rows = delete/home/pageup + pagedown; bottom = inverted-T arrows.
+const NAV: Array<{ code: string; row: number; col: number }> = [
+  { code: "delete", row: 0, col: 0 },
+  { code: "home", row: 0, col: 1 },
+  { code: "pageup", row: 0, col: 2 },
+  { code: "pagedown", row: 1, col: 2 },
+  { code: "arrowup", row: 3, col: 1 },
+  { code: "arrowleft", row: 4, col: 0 },
+  { code: "arrowdown", row: 4, col: 1 },
+  { code: "arrowright", row: 4, col: 2 },
+];
+
+// Compute absolute unit coords. Main block widest row sets MAIN_W; the nav
+// cluster sits at MAIN_GAP units to its right.
+const MAIN_GAP = 0.6;
+const MAIN_W = Math.max(
+  ...ROWS.map((r) => r.reduce((s, k) => s + (k.w ?? 1), 0)),
+);
+const NAV_X = MAIN_W + MAIN_GAP;
+const GRID_W = NAV_X + 3; // nav cluster is 3 units wide
+const GRID_H = 5;
+
+const CAPS: Cap[] = [
+  ...ROWS.flatMap((row, y) => {
+    let x = 0;
+    return row.map((k) => {
+      const cap: Cap = { ...k, x, y };
+      x += k.w ?? 1;
+      return cap;
+    });
+  }),
+  ...NAV.map(({ code, row, col }) => ({ code, x: NAV_X + col, y: row })),
 ];
 
 function baseOf(combo: KeyCombo): string {
@@ -213,23 +258,38 @@ export default function ShortcutEditor({ onClose }: { onClose: () => void }) {
           )}
         </div>
 
-        {/* Keyboard — black, borderless, generous rounded bezel like the ref. */}
+        {/* Keyboard — black, borderless, generous rounded bezel like the ref.
+            Unit-based absolute grid so the ISO Enter can span two rows and every
+            key keeps a real keyboard's proportions. GAP is drawn by insetting
+            each key inside its cell (padding trick) so widths stay exact. */}
         <div
-          className="w-full max-w-[1020px] space-y-2.5 rounded-[22px] p-5"
-          style={{ background: "#0b0c0f" }}
+          className="relative w-full max-w-[1040px] rounded-[22px] p-4"
+          style={{ background: "#0b0c0f", aspectRatio: `${GRID_W} / ${GRID_H * 1.08}` }}
           onDragEnd={onDragEnd}
         >
-          {ROWS.map((row, ri) => (
-            <div key={ri} className="flex gap-2.5">
-              {row.map((cap, ci) => {
-                const code = cap.code;
-                const action = code ? actionForKey(code) : undefined;
-                const isHovered = !!code && hoverKey === code;
-                const isDrop = !!code && dropTarget === code;
-                const isDead = !code;
-                return (
+          <div className="relative h-full w-full">
+            {CAPS.map((cap, ci) => {
+              const code = cap.code;
+              const action = code ? actionForKey(code) : undefined;
+              const isHovered = !!code && hoverKey === code;
+              const isDrop = !!code && dropTarget === code;
+              const isDead = !code;
+              const w = cap.w ?? 1;
+              const h = cap.h ?? 1;
+              const GAP = 0.55; // % of a unit, drawn as an inner inset
+              return (
+                <div
+                  key={ci}
+                  style={{
+                    position: "absolute",
+                    left: `${(cap.x / GRID_W) * 100}%`,
+                    top: `${(cap.y / GRID_H) * 100}%`,
+                    width: `${(w / GRID_W) * 100}%`,
+                    height: `${(h / GRID_H) * 100}%`,
+                    padding: `${(GAP / GRID_H)}%  ${(GAP / GRID_W)}%`,
+                  }}
+                >
                   <div
-                    key={ci}
                     onMouseEnter={() => code && setHoverKey(code)}
                     onMouseLeave={() => setHoverKey(null)}
                     onDragOver={(e) => {
@@ -250,11 +310,8 @@ export default function ShortcutEditor({ onClose }: { onClose: () => void }) {
                     }}
                     draggable={!!action}
                     onDragStart={(e) => action && onDragStart(e, action)}
-                    className="relative grid place-items-center rounded-[10px]"
+                    className="relative h-full w-full rounded-[9px]"
                     style={{
-                      flex: cap.w ?? 1,
-                      height: 56,
-                      // Flat dark fills, no borders. Drop target tints accent.
                       background: isDrop
                         ? "rgba(233,69,96,0.35)"
                         : action
@@ -262,22 +319,28 @@ export default function ShortcutEditor({ onClose }: { onClose: () => void }) {
                         : "#15171c",
                       color: "rgba(255,255,255,0.92)",
                       cursor: action ? "grab" : "default",
-                      opacity: isDead ? 0.45 : 1,
-                      // Every key retracts on hover (assigned or not).
+                      opacity: isDead ? 0.4 : 1,
                       transform: isHovered && !isDead ? "scale(0.9)" : "scale(1)",
                       transition: "transform 110ms ease, background-color 110ms ease",
                     }}
                   >
                     {action && (
-                      <svg viewBox="0 0 24 24" className="pointer-events-none h-[19px] w-[19px]">
+                      // Absolutely-centred, FIXED-size icon: it never stretches
+                      // with a wide key (space bar) or a tall one (Enter).
+                      <svg
+                        viewBox="0 0 24 24"
+                        width="19"
+                        height="19"
+                        className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
+                      >
                         {SHORTCUT_ICONS[action]}
                       </svg>
                     )}
                   </div>
-                );
-              })}
-            </div>
-          ))}
+                </div>
+              );
+            })}
+          </div>
         </div>
 
         <p className="mt-4 text-center text-[12px] text-white/35">
