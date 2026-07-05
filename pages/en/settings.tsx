@@ -1,5 +1,6 @@
 import Head from "next/head";
 import Image from "next/image";
+import dynamic from "next/dynamic";
 import { motion } from "framer-motion";
 import { Navbar } from "@/components/shared/NavBar";
 import Footer from "@/components/shared/footer";
@@ -54,6 +55,13 @@ import {
 import { useSession, signIn, signOut } from "next-auth/react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
+
+// The visual keyboard shortcut editor is a heavy, rarely-opened overlay —
+// load it on demand (client-only) so it never weighs down the settings bundle.
+const ShortcutEditor = dynamic(
+  () => import("@/components/watch/primary/ShortcutEditor"),
+  { ssr: false },
+);
 
 /* Reusable segmented switch. Three-option flavour is used by the title
    preference picker; two-option by the UI language placeholder. Kept
@@ -271,6 +279,8 @@ export default function Settings() {
   const serverPref = useServerPref();
   const accent = useAccent();
   const localList = useLocalList();
+  // Visual keyboard shortcut editor overlay (shared with the player).
+  const [shortcutEditorOpen, setShortcutEditorOpen] = useState(false);
   const [titlePref, setTitlePrefState] = useState<TitlePref>("en");
   const [uiLang, setUiLangState] = useState<Lang>("en");
   const [mounted, setMounted] = useState(false);
@@ -856,6 +866,25 @@ export default function Settings() {
                 checked={dataSaver}
                 onChange={setDataSaver}
               />
+              {/* Keyboard shortcuts — opens the same visual keyboard editor the
+                  player exposes, so bindings are configured in one place. */}
+              <div className="flex items-center justify-between gap-4 py-3">
+                <div className="min-w-0">
+                  <div className="text-sm font-medium">
+                    {t("shortcuts.title")}
+                  </div>
+                  <div className="text-white/50 text-xs mt-0.5">
+                    {t("shortcuts.settingsDesc")}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShortcutEditorOpen(true)}
+                  className="shrink-0 rounded-md bg-action px-3 py-1.5 text-sm font-medium text-white transition hover:brightness-110"
+                >
+                  {t("shortcuts.configure")}
+                </button>
+              </div>
             </div>
             <p className="text-white/40 text-xs mt-3">{t("settings.player.note")}</p>
           </section>
@@ -1281,6 +1310,9 @@ export default function Settings() {
         </div>
       </motion.div>
       <Footer />
+      {shortcutEditorOpen && (
+        <ShortcutEditor onClose={() => setShortcutEditorOpen(false)} />
+      )}
     </>
   );
 }

@@ -1739,12 +1739,20 @@ export default function Watch({
        so the navigation feels identical to clicking the next thumbnail
        — same query params (id + num + optional dub), same provider. */
     const nextEp = episodeNavigation?.next;
+    const prevEp = episodeNavigation?.prev;
     // Clean ?id= form: `{server}-{episode}` (no AniList id in the middle). Keeps
     // the URL bar tidy and matches what the in-page sync writes on server change.
     const nextEpisodeHref = nextEp
       ? `/en/anime/watch/${info.id}?id=${encodeURIComponent(
           `${activeServer}-${nextEp.number}`
         )}&num=${nextEp.number}${dub ? `&dub=${dub}` : ""}`
+      : null;
+    // Same shape for the previous episode — surfaced to the player so the
+    // "previous episode" keyboard shortcut can navigate.
+    const prevEpisodeHref = prevEp
+      ? `/en/anime/watch/${info.id}?id=${encodeURIComponent(
+          `${activeServer}-${prevEp.number}`
+        )}&num=${prevEp.number}${dub ? `&dub=${dub}` : ""}`
       : null;
 
     if (needsBackend) {
@@ -1775,6 +1783,7 @@ export default function Watch({
             poster={episodeNavigation?.playing?.img || info?.bannerImage}
             serverId={server.id}
             nextEpisodeHref={nextEpisodeHref}
+            prevEpisodeHref={prevEpisodeHref}
             malId={info?.idMal || null}
             aniListId={info?.id || null}
             episodeNumber={parseInt(epiNumber)}
@@ -1810,6 +1819,7 @@ export default function Watch({
           poster={episodeNavigation?.playing?.img || info?.bannerImage}
           serverId={server.id}
           nextEpisodeHref={nextEpisodeHref}
+          prevEpisodeHref={prevEpisodeHref}
           malId={info?.idMal || null}
           aniListId={info?.id || null}
           episodeNumber={parseInt(epiNumber)}

@@ -20,6 +20,17 @@ import {
 import HoverPreview from "./HoverPreview";
 import SubtitleSettings from "./SubtitleSettings";
 import SkipOverlay from "./SkipOverlay";
+import VideoStats from "./VideoStats";
+import dynamic from "next/dynamic";
+import { useRouter } from "next/router";
+// The visual keyboard editor is a heavy, rarely-opened overlay — load it on
+// demand so it never weighs down the player chunk.
+const ShortcutEditor = dynamic(() => import("./ShortcutEditor"), { ssr: false });
+import {
+  getKeybindings,
+  comboToAction,
+  type ShortcutAction,
+} from "@/lib/prefs/keybindings";
 import FullscreenChat from "@/components/watch/party/FullscreenChat";
 // @ts-ignore — context module is plain JS, no types
 import { useWatchProvider } from "@/lib/context/watchPageProvider";
@@ -99,6 +110,9 @@ type Props = {
    *  "Next Episode" button during the outro segment (and in the last
    *  30 s of the episode) when this is non-null. */
   nextEpisodeHref?: string | null;
+  /** Pre-computed URL for the previous episode. Used by the "previous
+   *  episode" keyboard shortcut. Null on the first episode. */
+  prevEpisodeHref?: string | null;
   /** MAL id for the anime — used as the AniSkip fallback key. Null
    *  when MAL doesn't have a matching entry (rare). */
   malId?: number | null;
@@ -1226,6 +1240,7 @@ export default function UniversalPlayer({
   downloadName = "anime.mp4",
   autoplay = false,
   nextEpisodeHref = null,
+  prevEpisodeHref = null,
   malId = null,
   aniListId = null,
   episodeNumber,
@@ -1332,6 +1347,62 @@ export default function UniversalPlayer({
 
   const [subMenuOpen, setSubMenuOpen] = useState(false);
   const [subStyleOpen, setSubStyleOpen] = useState(false);
+  // Configurable keyboard shortcuts: the visual editor overlay + the live
+  // "stats for nerds" panel are both toggled from the settings menu / hotkeys.
+  const [shortcutEditorOpen, setShortcutEditorOpen] = useState(false);
+  const [statsOpen, setStatsOpen] = useState(false);
+  const router = useRouter();
+  // Central keyboard-shortcut listener. Declared here (before any early return)
+  // so the hooks run unconditionally on every render path. The dispatcher
+  // itself is defined further down (it needs late-bound helpers like
+  // subtitle track selection) and published into this ref; until then / on the
+  // iframe path the ref is null and the listener no-ops.
+  const runActionRef = useRef<((action: ShortcutAction) => void) | null>(null);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const run = runActionRef.current;
+      if (!run) return;
+      // Don't drive playback for a host that has blocked us (watch-party
+      // guard), mirroring the `keyDisabled` we pass to <MediaPlayer>.
+      if (partyRef.current?.amPlaybackBlocked) return;
+      // Ignore while the editor overlay is open (it captures keys itself), or
+      // while typing in an input / textarea / contenteditable.
+      if (shortcutEditorOpen) return;
+      const el = e.target as HTMLElement | null;
+      const tag = el?.tagName;
+      if (
+        tag === "INPUT" ||
+        tag === "TEXTAREA" ||
+        tag === "SELECT" ||
+        el?.isContentEditable
+      ) {
+        return;
+      }
+      const map = comboToAction(getKeybindings());
+      // Build the same normalized combo the editor stores.
+      const parts: string[] = [];
+      if (e.ctrlKey) parts.push("ctrl");
+      if (e.altKey) parts.push("alt");
+      if (e.shiftKey) parts.push("shift");
+      if (e.metaKey) parts.push("meta");
+      let base = e.key.toLowerCase();
+      if (base === " ") base = "space";
+      if (base === "shift" || base === "control" || base === "alt" || base === "meta") {
+        return;
+      }
+      parts.push(base);
+      const action = map.get(parts.join("+"));
+      if (!action) return;
+      // We own this key — stop Vidstack's built-in hotkey (Space/k/arrows/…)
+      // from ALSO firing, so our binding is the single source of truth.
+      e.preventDefault();
+      e.stopPropagation();
+      run(action);
+    };
+    // Capture phase so we run before Vidstack's own key handling.
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [shortcutEditorOpen]);
   // Whether the "Automation" sub-panel (auto-skip intro/outro + auto next) is
   // expanded inside the Settings menu. Lives at the player root so closing the
   // whole settings menu (below) can collapse it back to the main list.
@@ -3699,6 +3770,187 @@ export default function UniversalPlayer({
     default?: boolean;
   }>;
 
+  // ── Configurable keyboard shortcuts ───────────────────────────────────────
+  // A single data-driven dispatcher: each ShortcutAction maps to a small
+  // imperative op on the live <video> / player / hls instance. The keydown
+  // listener (below) looks up the pressed combo in the user's bindings and runs
+  // the matching action. Kept in refs where needed so the listener stays stable.
+  const getVideo = () =>
+    (playerRef.current?.el as HTMLElement | undefined)?.querySelector<HTMLVideoElement>(
+      "video",
+    ) || null;
+
+  // Skip to the end of the active op/ed segment, mirroring SkipOverlay's Skip
+  // button. `skipTimes` is populated by SkipOverlay via the watch context.
+  const skipSegment = (type: "op" | "ed") => {
+    const video = getVideo();
+    if (!video) return;
+    const skips: Array<{ start: number; end: number; type: string }> =
+      (watchCtx as any)?.skipTimes || [];
+    const seg = skips.find(
+      (s) => s.type === type && video.currentTime >= s.start - 1 && video.currentTime < s.end,
+    );
+    // If we're not inside it yet, fall back to the first segment of that type.
+    const target = seg || skips.find((s) => s.type === type);
+    if (target) video.currentTime = target.end;
+  };
+
+  const runAction = (action: ShortcutAction) => {
+    const player = playerRef.current;
+    const video = getVideo();
+    switch (action) {
+      case "playPause": {
+        if (!video) return;
+        if (video.paused) player?.play?.();
+        else player?.pause?.();
+        break;
+      }
+      case "prevEpisode":
+        if (prevEpisodeHref) router.push(prevEpisodeHref);
+        break;
+      case "nextEpisode":
+        if (nextEpisodeHref) router.push(nextEpisodeHref);
+        break;
+      case "mute":
+        if (video) video.muted = !video.muted;
+        break;
+      case "seekBackward":
+        if (video) video.currentTime = Math.max(0, video.currentTime - 5);
+        break;
+      case "seekForward":
+        if (video) video.currentTime = Math.min(video.duration || Infinity, video.currentTime + 5);
+        break;
+      case "seekBackwardLong":
+        if (video) video.currentTime = Math.max(0, video.currentTime - 10);
+        break;
+      case "seekForwardLong":
+        if (video) video.currentTime = Math.min(video.duration || Infinity, video.currentTime + 10);
+        break;
+      case "frameBackward":
+        if (video) {
+          video.pause();
+          video.currentTime = Math.max(0, video.currentTime - 1 / 24);
+        }
+        break;
+      case "frameForward":
+        if (video) {
+          video.pause();
+          video.currentTime = video.currentTime + 1 / 24;
+        }
+        break;
+      case "restart":
+        if (video) video.currentTime = 0;
+        break;
+      case "seekToEnd":
+        if (video && isFinite(video.duration)) video.currentTime = Math.max(0, video.duration - 1);
+        break;
+      case "volumeUp":
+        if (video) {
+          video.muted = false;
+          video.volume = Math.min(1, +(video.volume + 0.1).toFixed(2));
+        }
+        break;
+      case "volumeDown":
+        if (video) video.volume = Math.max(0, +(video.volume - 0.1).toFixed(2));
+        break;
+      case "rateDown":
+        if (video) onRateChange(Math.max(0.25, +(video.playbackRate - 0.25).toFixed(2)));
+        break;
+      case "rateUp":
+        if (video) onRateChange(Math.min(4, +(video.playbackRate + 0.25).toFixed(2)));
+        break;
+      case "rateReset":
+        if (video) onRateChange(1);
+        break;
+      case "skipIntro":
+        skipSegment("op");
+        break;
+      case "skipOutro":
+        skipSegment("ed");
+        break;
+      case "chromecast":
+        if (castAvailable) requestCast();
+        break;
+      case "fullscreen":
+        try {
+          if (document.fullscreenElement) document.exitFullscreen?.();
+          else (player as any)?.enterFullscreen?.() ?? player?.el?.requestFullscreen?.();
+        } catch {}
+        break;
+      case "toggleTheater":
+        window.dispatchEvent(new CustomEvent("aniscroll:toggleTheater"));
+        break;
+      case "pictureInPicture":
+        if (pipSupported) togglePip();
+        break;
+      case "cycleAspect":
+        if (video) {
+          const modes = ["contain", "cover", "fill"] as const;
+          const cur = (video.style.objectFit || "contain") as (typeof modes)[number];
+          const next = modes[(modes.indexOf(cur) + 1) % modes.length];
+          video.style.objectFit = next;
+        }
+        break;
+      case "subtitles":
+        if (subtitleTracks.length) {
+          // Cycle: off → track 0 → track 1 → … → off.
+          const next = activeTrackIdx + 1 >= subtitleTracks.length ? -1 : activeTrackIdx + 1;
+          selectSubtitleTrack(next);
+        }
+        break;
+      case "toggleStats":
+        setStatsOpen((v) => !v);
+        break;
+      case "screenshot":
+        void captureScreenshot();
+        break;
+    }
+  };
+
+  // Grab the current frame → PNG → clipboard (falls back to a download if the
+  // Clipboard image API is unavailable). Only works on CORS-clean sources; a
+  // tainted canvas throws on toBlob and we surface a toast.
+  const captureScreenshot = async () => {
+    const video = getVideo();
+    if (!video || !video.videoWidth) return;
+    try {
+      const canvas = document.createElement("canvas");
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const blob: Blob | null = await new Promise((res) =>
+        canvas.toBlob((b) => res(b), "image/png"),
+      );
+      if (!blob) throw new Error("no blob");
+      try {
+        // Clipboard image write (Chrome/Edge/Safari 13.1+).
+        const item = new (window as any).ClipboardItem({ "image/png": blob });
+        await (navigator.clipboard as any).write([item]);
+        toast.success(t("stats.screenshotCopied"));
+      } catch {
+        // No clipboard-image support → download instead.
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `${downloadName || "screenshot"}.png`;
+        a.click();
+        URL.revokeObjectURL(url);
+        toast.success(t("stats.screenshotSaved"));
+      }
+    } catch {
+      // Tainted canvas (noCors source) — can't read pixels.
+      toast.error(t("stats.screenshotFailed"));
+    }
+  };
+
+  // Publish the dispatcher to the ref declared up top (before the early
+  // returns). On the iframe path this assignment never runs, so the ref stays
+  // null and the (unconditionally-mounted) keydown listener no-ops — correct,
+  // since iframe embeds have no <video> to drive.
+  runActionRef.current = runAction;
+
   return (
     // `isolation: isolate` creates a new stacking context here. Without it,
     // the ambient's z-index:-1 would slip behind elements OUTSIDE this
@@ -3972,6 +4224,21 @@ export default function UniversalPlayer({
               // Material "fast_forward" icon.
               iconPath="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z"
             />
+            {/* Live playback telemetry ("stats for nerds"). */}
+            <SettingsToggleRow
+              label={t("stats.title")}
+              enabled={statsOpen}
+              onToggle={setStatsOpen}
+              // Material "insights"/bar-chart icon.
+              iconPath="M4 20h16v2H4v-2zm2-9h3v7H6v-7zm5-6h3v13h-3V5zm5 3h3v10h-3V8z"
+            />
+            {/* Opens the visual keyboard shortcut editor overlay. */}
+            <SettingsActionRow
+              label={t("shortcuts.configure")}
+              onClick={() => setShortcutEditorOpen(true)}
+              // Material "keyboard" icon.
+              iconPath="M20 5H4c-1.1 0-1.99.9-1.99 2L2 17c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm-9 3h2v2h-2V8zm0 3h2v2h-2v-2zM8 8h2v2H8V8zm0 3h2v2H8v-2zm-1 2H5v-2h2v2zm0-3H5V8h2v2zm9 7H8v-2h8v2zm0-4h-2v-2h2v2zm0-3h-2V8h2v2zm3 3h-2v-2h2v2zm0-3h-2V8h2v2z"
+            />
           </>
         ),
         settingsHostRef.current,
@@ -4044,6 +4311,23 @@ export default function UniversalPlayer({
       )}
 
       <SubtitleSettings open={subStyleOpen} onClose={() => setSubStyleOpen(false)} />
+
+      {/* "Stats for nerds" — live playback telemetry, toggled by the
+          `toggleStats` shortcut or the settings-menu row. Sibling overlay so
+          it survives fullscreen. */}
+      {statsOpen && (
+        <VideoStats
+          playerRef={playerRef}
+          hlsRef={hlsRef}
+          serverName={serverId}
+          onClose={() => setStatsOpen(false)}
+        />
+      )}
+
+      {/* Visual keyboard shortcut editor — opened from the settings menu. */}
+      {shortcutEditorOpen && (
+        <ShortcutEditor onClose={() => setShortcutEditorOpen(false)} />
+      )}
     </div>
   );
 }
