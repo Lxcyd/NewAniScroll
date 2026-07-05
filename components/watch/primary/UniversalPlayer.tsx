@@ -171,16 +171,28 @@ const HLS_CONFIG = {
   // Start at max quality immediately (skip the ABR ramp-up) — the edge cache
   // makes even top-rung segments cheap, so there's no reason to start low.
   startLevel: -1,
-  // Load the manifest + first frags fast; the edge cache means low retry cost.
-  fragLoadingMaxRetry: 6,
-  fragLoadingRetryDelay: 500,
-  fragLoadingMaxRetryTimeout: 10000,
+  // MegaCloud's origin is INTERMITTENTLY slow: a cold segment can dribble in at
+  // ~100 KB/s and take 10-14 s (verified — the CDN throttles the odd segment,
+  // it's their server, we can't speed it up). The default fragLoadingTimeOut
+  // (20 s) is fine, but the OLD short fragLoadingMaxRetryTimeout (10 s) meant
+  // hls.js would ABANDON a 14 s segment and re-request it from scratch — making
+  // the stall worse. We give it room to finish instead: a long per-fragment
+  // timeout, patient retries, and a DEEP buffer (above) so playback rides on the
+  // 60-240 s of already-fetched data while one slow segment finishes in the
+  // background. Net effect: a slow MegaCloud segment becomes invisible instead
+  // of a freeze — the fix for "sometimes megaplay lags, sometimes it's perfect"
+  // (perfect = cache HIT / fast segment; lag = cold + throttled segment).
+  fragLoadingTimeOut: 40000,
+  fragLoadingMaxRetry: 4,
+  fragLoadingRetryDelay: 1000,
+  fragLoadingMaxRetryTimeout: 60000,
   // Fetch the next fragment while the current one is still being appended —
   // keeps the buffer ahead of the playhead on a fast (cached) source.
   progressive: false,
   // Don't stall on tiny gaps between segments (some megaplay encodes have a few
   // ms of PTS drift at boundaries); jump them instead of buffering forever.
   maxBufferHole: 0.5,
+  nudgeMaxRetry: 10,
 };
 
 // HLS tuning for DIRECT, fragile CDNs (vidmoly). These are NOT cached and the
