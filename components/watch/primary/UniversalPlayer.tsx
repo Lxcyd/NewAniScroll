@@ -1371,6 +1371,19 @@ export default function UniversalPlayer({
   // stack them by their real size + a gap.
   const [toastStackHovered, setToastStackHovered] = useState(false);
   const toastHeights = useRef<Record<number, number>>({});
+  // Bumped whenever a card reports a new measured height, so the layout re-runs
+  // with the real height instead of the 56px placeholder. Without this a freshly
+  // mounted card lays out one frame with the wrong height (the "cards shift down
+  // for an instant when a new toast arrives while expanded" bug).
+  const [, setToastMeasureTick] = useState(0);
+  const recordToastHeight = (id: number, el: HTMLDivElement | null) => {
+    if (!el) return;
+    const h = el.offsetHeight;
+    if (toastHeights.current[id] !== h) {
+      toastHeights.current[id] = h;
+      setToastMeasureTick((t) => t + 1);
+    }
+  };
   // Suppress the enter transition for the FRAME a new toast mounts, so an
   // arriving 4th card doesn't make the existing ones visibly slide.
   const [toastAnimateOff, setToastAnimateOff] = useState(false);
@@ -1380,9 +1393,14 @@ export default function UniversalPlayer({
     const id = ++playerToastId.current;
     // Kill the transition around the mount so existing cards don't slide when a
     // new one joins the stack; re-enable it a tick later for hover expand/collapse.
+    // Two rAFs: the card mounts + is measured (recordToastHeight → measureTick)
+    // before we re-arm transitions, so the layout has already settled with the
+    // real heights and nothing visibly slides.
     setToastAnimateOff(true);
     setPlayerToasts((list) => [...list, { id, msg, dur }]);
-    window.setTimeout(() => setToastAnimateOff(false), 60);
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => setToastAnimateOff(false)),
+    );
     playerToastTimers.current.push(
       window.setTimeout(() => dismissPlayerToast(id), dur),
     );
@@ -4526,7 +4544,8 @@ export default function UniversalPlayer({
         createPortal(
           (() => {
             const MAX = 3;
-            const GAP = 10; // px between fully-expanded cards
+            const GAP = 14; // px between fully-expanded cards (sonner uses ~14)
+            const PEEK = 14; // collapsed: px each behind card pokes up
             // Newest first (front of the collapsed stack = index 0).
             const visible = playerToasts.slice(-MAX).reverse();
             const expanded = toastStackHovered && visible.length > 1;
@@ -4540,19 +4559,20 @@ export default function UniversalPlayer({
               }
               return y;
             };
-            // Total height the stack occupies right now — used to size an
-            // invisible hover backdrop so moving the cursor between cards (or
-            // over the gaps while expanding) never drops the hover and flickers.
             const frontH = toastHeights.current[visible[0]?.id] || 56;
-            const stackH = expanded
-              ? expandedOffset(visible.length - 1) +
-                (toastHeights.current[visible[visible.length - 1]?.id] || 56)
-              : frontH + (visible.length - 1) * 14;
+            // Height of the fully-expanded column — the hover backdrop is ALWAYS
+            // sized to this (not the collapsed height). Sizing the hit area to the
+            // max extent means the cursor is already inside it before the cards
+            // finish fanning out, so it can't fall into a transient gap between
+            // two cards and drop the hover → no expand/collapse flicker.
+            const expandedH =
+              expandedOffset(visible.length - 1) +
+              (toastHeights.current[visible[visible.length - 1]?.id] || 56);
             return (
               <div
-                // Hover anywhere in the stack expands it. Handlers here catch the
-                // bubbled mouseover/out from every `auto` child (cards + the gap
-                // backdrop), so the front card and the peeking slivers all count.
+                // Single hover owner. The backdrop below (sized to the expanded
+                // extent) is the only pointer-events target that governs expand,
+                // so crossing gaps between cards never toggles it.
                 onMouseEnter={() => setToastStackHovered(true)}
                 onMouseLeave={() => setToastStackHovered(false)}
                 style={{
@@ -4560,47 +4580,44 @@ export default function UniversalPlayer({
                   right: 16,
                   bottom: 88,
                   zIndex: 60,
-                  width: "min(360px, 86vw)",
+                  width: "min(356px, 86vw)",
                   height: 0, // toasts are absolutely positioned off this anchor
                   pointerEvents: "none",
                 }}
               >
-                {/* Invisible hit area spanning the whole stack, so the cursor
-                    crossing the gaps between expanded cards never drops hover. */}
+                {/* Invisible hit area covering the FULL expanded column height at
+                    all times, so hover never drops while the stack animates. */}
                 <div
                   style={{
                     position: "absolute",
                     right: 0,
                     bottom: 0,
                     width: "100%",
-                    height: stackH,
+                    height: Math.max(expandedH, frontH),
                     pointerEvents: "auto",
-                    transition: toastAnimateOff ? "none" : "height 0.25s ease",
                   }}
                 />
                 {visible.map((n, depth) => {
                   const isFront = depth === 0;
                   const translateY = expanded
                     ? -expandedOffset(depth)
-                    : -depth * 14;
+                    : -depth * PEEK;
                   const scale = expanded ? 1 : 1 - depth * 0.05;
                   return (
                   <div
                     key={n.id}
                     role="status"
                     aria-live="polite"
-                    ref={(el) => {
-                      if (el) toastHeights.current[n.id] = el.offsetHeight;
-                    }}
+                    ref={(el) => recordToastHeight(n.id, el)}
                     style={{
-                      // Interactive for the ✕ / any buttons; the hover backdrop
-                      // below owns the expand trigger.
-                      pointerEvents: "auto",
+                      // Cards are display-only for hit-testing EXCEPT the front
+                      // one (its ✕ needs clicks); the backdrop owns expand.
+                      pointerEvents: isFront ? "auto" : "none",
                       position: "absolute",
                       right: 0,
                       bottom: 0,
                       width: "100%",
-                      // Collapsed: each behind card sits a fixed 14px up + scaled
+                      // Collapsed: each behind card sits a fixed PEEK px up + scaled
                       // down so only an even sliver peeks (never readable text).
                       // Expanded (hover): cards fan up by their real height + gap,
                       // full scale, so all 3 are fully readable.
@@ -4613,47 +4630,72 @@ export default function UniversalPlayer({
                       // not make the others slide); otherwise animate expand/collapse.
                       transition: toastAnimateOff
                         ? "none"
-                        : "transform 0.25s ease",
+                        : "transform 0.3s cubic-bezier(0.22, 1, 0.36, 1)",
                     }}
                   >
                     <div
                       style={{
                         position: "relative",
-                        // No overflow:hidden — the top-left ✕ pill sits OUTSIDE
-                        // the card corner (translate(-35%,-35%)) and must not be
-                        // clipped. The countdown bar is inset instead of clipped.
+                        // overflow:hidden so the countdown bar's ends follow the
+                        // rounded corners. The ✕ pill lives in a non-clipped
+                        // wrapper (rendered as a sibling, below) so it can overhang.
+                        overflow: "hidden",
                         display: "flex",
                         alignItems: "center",
-                        gap: 10,
-                        padding: "12px 14px",
-                        borderRadius: 12,
+                        // Sonner 1.0.3 defaults: 16px padding, 8px radius, ~4px
+                        // icon→text gap, 13px / normal weight text.
+                        gap: 6,
+                        padding: 16,
+                        borderRadius: 8,
                         // sonner richColors "error" (dark theme) — exact 1.0.3
                         // values so it matches the windowed toast.
                         background: "hsl(358, 76%, 10%)",
                         border: "1px solid hsl(357, 89%, 16%)",
                         color: "hsl(358, 100%, 81%)",
                         fontSize: 13,
-                        fontWeight: 600,
-                        lineHeight: 1.4,
-                        boxShadow: "0 8px 30px rgba(0,0,0,0.45)",
+                        fontWeight: 500,
+                        lineHeight: 1.5,
+                        boxShadow:
+                          "0 4px 12px rgba(0,0,0,0.15), 0 8px 30px rgba(0,0,0,0.35)",
                       }}
                     >
                       <svg
                         viewBox="0 0 24 24"
-                        width={18}
-                        height={18}
+                        width={16}
+                        height={16}
                         fill="currentColor"
-                        style={{ flexShrink: 0 }}
+                        style={{ flexShrink: 0, marginRight: 4 }}
                         aria-hidden="true"
                       >
                         <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm-1 5h2v7h-2V7zm0 9h2v2h-2v-2z" />
                       </svg>
                       <span>{n.msg}</span>
-                      {/* ✕ close — sonner-style top-LEFT pill, only on the front
-                          toast. Dismissing it re-slices playerToasts so the whole
-                          stack shifts down one and the ✕ + countdown move to the
-                          next toast; any 4th+ toast that was hidden now peeks in. */}
+                      {/* Thin countdown bar (only on the front toast). Full-width
+                          and, because the card clips overflow, its ends follow the
+                          card's rounded bottom corners — matching the windowed
+                          sonner bar. */}
                       {isFront && (
+                        <span
+                          aria-hidden="true"
+                          style={{
+                            position: "absolute",
+                            left: 0,
+                            right: 0,
+                            bottom: 0,
+                            height: 2,
+                            transformOrigin: "left center",
+                            background:
+                              "color-mix(in srgb, currentColor 45%, transparent)",
+                            animation: `toastCountdown ${n.dur}ms linear forwards`,
+                          }}
+                        />
+                      )}
+                    </div>
+                    {/* ✕ close — sonner-style top-LEFT pill, only on the front
+                        toast. Sibling of the clipped card so it can overhang the
+                        corner. Dismissing re-slices playerToasts so the whole stack
+                        shifts down one; any hidden 4th+ toast now peeks in. */}
+                    {isFront && (
                       <button
                         type="button"
                         aria-label="Close"
@@ -4682,27 +4724,7 @@ export default function UniversalPlayer({
                           <path d="M6 6l12 12M18 6L6 18" />
                         </svg>
                       </button>
-                      )}
-                      {/* Thin countdown bar (only on the front toast). */}
-                      {isFront && (
-                        <span
-                          aria-hidden="true"
-                          style={{
-                            position: "absolute",
-                            left: 10,
-                            right: 10,
-                            bottom: 0,
-                            height: 2,
-                            transformOrigin: "left center",
-                            // Tinted to the toast's red text (currentColor) so it
-                            // matches the card instead of a flashy white strip.
-                            background:
-                              "color-mix(in srgb, currentColor 45%, transparent)",
-                            animation: `toastCountdown ${n.dur}ms linear forwards`,
-                          }}
-                        />
-                      )}
-                    </div>
+                    )}
                   </div>
                   );
                 })}
