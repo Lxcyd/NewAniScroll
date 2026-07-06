@@ -51,24 +51,27 @@ export const SHORTCUT_ICONS: Record<ShortcutAction, ReactNode> = {
   // and badge are drawn directly in 24×24 space.
   rateDown: (
     <>
-      <g transform="translate(0,24) scale(0.025)">
+      {/* Gauge shrunk to the lower-left so the −/+ badge sits clear in the
+          top-right corner (viewBox 0 -960 960 960 → 0 0 24 24, offset down &
+          left). */}
+      <g transform="translate(-1.5,25.5) scale(0.021)">
         <path d="M205-160q-22 0-40.5-9.5T135-198q-28-48-42-100.5T79-406q1-56 18.5-109T146-616l48 76q-17 32-26 66.5t-9 69.5q0 44 11.5 85.5T205-240h551q21-36 32.5-76.5T800-400q0-133-93.5-226.5T480-720q-37 0-72.5 9T340-686l-76-48q48-32 102.5-49T480-800q83 0 155.5 31.5t127 86q54.5 54.5 86 127T880-400q0 54-14 105t-40 97q-11 19-30 28.5t-40 9.5H205Z" fill="currentColor" />
       </g>
       {/* needle → lower-left */}
-      <path d="M12 15.5 6.6 12.8a1.1 1.1 0 0 1 1-2l4.7 2.9a1 1 0 0 1-.3 1.9Z" fill="currentColor" />
-      {/* minus badge */}
-      <path d="M14.5 5h5v2h-5z" fill="currentColor" />
+      <path d="M10.4 15.4 5.6 13a1 1 0 0 1 .9-1.8l4.2 2.6a.95.95 0 0 1-.3 1.8Z" fill="currentColor" />
+      {/* minus badge, top-right corner */}
+      <rect x="16.5" y="3.5" width="5.5" height="2" rx="1" fill="currentColor" />
     </>
   ),
   rateUp: (
     <>
-      <g transform="translate(0,24) scale(0.025)">
+      <g transform="translate(-1.5,25.5) scale(0.021)">
         <path d="M205-160q-22 0-40.5-9.5T135-198q-28-48-42-100.5T79-406q1-56 18.5-109T146-616l48 76q-17 32-26 66.5t-9 69.5q0 44 11.5 85.5T205-240h551q21-36 32.5-76.5T800-400q0-133-93.5-226.5T480-720q-37 0-72.5 9T340-686l-76-48q48-32 102.5-49T480-800q83 0 155.5 31.5t127 86q54.5 54.5 86 127T880-400q0 54-14 105t-40 97q-11 19-30 28.5t-40 9.5H205Z" fill="currentColor" />
       </g>
       {/* needle → lower-right */}
-      <path d="M12 15.5 17.4 12.8a1.1 1.1 0 0 0-1-2l-4.7 2.9a1 1 0 0 0 .3 1.9Z" fill="currentColor" />
-      {/* plus badge */}
-      <path d="M16 4h2v2h2v2h-2v2h-2V8h-2V6h2z" fill="currentColor" />
+      <path d="M13.6 15.4 18.4 13a1 1 0 0 0-.9-1.8l-4.2 2.6a.95.95 0 0 0 .3 1.8Z" fill="currentColor" />
+      {/* plus badge, top-right corner */}
+      <path d="M18.25 2.5a1 1 0 0 1 1 1v1h1a1 1 0 1 1 0 2h-1v1a1 1 0 1 1-2 0v-1h-1a1 1 0 1 1 0-2h1v-1a1 1 0 0 1 1-1Z" fill="currentColor" />
     </>
   ),
   rateReset: P("M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"),

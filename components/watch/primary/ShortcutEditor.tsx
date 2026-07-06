@@ -204,7 +204,7 @@ export default function ShortcutEditor({ onClose }: { onClose: () => void }) {
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="w-full max-w-[720px]">
+      <div className="w-full max-w-[820px]">
         {/* Directly above the keyboard, nothing else on screen: shortcut text
             on the left; Reset then the close ✕ on the right. */}
         <div className="mb-3 flex items-end justify-between">
@@ -283,7 +283,7 @@ export default function ShortcutEditor({ onClose }: { onClose: () => void }) {
                   : isMain
                   ? "#20242c"
                   : "#181b21";
-                const GAP = 0.9; // % of a unit, drawn as an inner inset — roomy gaps like the ref
+                const GAP = 1.4; // % of a unit, drawn as an inner inset — roomy gaps like the ref
                 return (
                   <div
                     key={ci}
