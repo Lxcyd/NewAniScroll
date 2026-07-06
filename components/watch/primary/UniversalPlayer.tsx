@@ -1421,6 +1421,23 @@ export default function UniversalPlayer({
     },
     [],
   );
+  // Let the surrounding page route ITS player notices (e.g. "switched to X"
+  // server change, which the page owns) into this same stack, so every notice
+  // — positive or negative — shares one animated, hover-expandable stack instead
+  // of some going through a plain sonner toast. Fire:
+  //   window.dispatchEvent(new CustomEvent("aniscroll:playerNotice",
+  //     { detail: { msg, dur } }))
+  const pushPlayerToastRef = useRef(pushPlayerToast);
+  pushPlayerToastRef.current = pushPlayerToast;
+  useEffect(() => {
+    const onNotice = (e: Event) => {
+      const detail = (e as CustomEvent).detail || {};
+      if (typeof detail.msg !== "string" || !detail.msg) return;
+      pushPlayerToastRef.current(detail.msg, detail.dur ?? 3500);
+    };
+    window.addEventListener("aniscroll:playerNotice", onNotice);
+    return () => window.removeEventListener("aniscroll:playerNotice", onNotice);
+  }, []);
   // Configurable keyboard shortcuts: the visual editor overlay + the live
   // "stats for nerds" panel are both toggled from the settings menu / hotkeys.
   const [shortcutEditorOpen, setShortcutEditorOpen] = useState(false);
@@ -4119,9 +4136,9 @@ export default function UniversalPlayer({
       await navigator.clipboard.writeText(url.toString());
       const mm = Math.floor(seconds / 60);
       const ss = String(seconds % 60).padStart(2, "0");
-      toast.success(t("stats.timestampCopied", { time: `${mm}:${ss}` }));
+      showPlayerNotice(t("stats.timestampCopied", { time: `${mm}:${ss}` }));
     } catch {
-      toast.error(t("stats.timestampFailed"));
+      showPlayerNotice(t("stats.timestampFailed"));
     }
   };
 
@@ -4146,7 +4163,7 @@ export default function UniversalPlayer({
         // Clipboard image write (Chrome/Edge/Safari 13.1+).
         const item = new (window as any).ClipboardItem({ "image/png": blob });
         await (navigator.clipboard as any).write([item]);
-        toast.success(t("stats.screenshotCopied"));
+        showPlayerNotice(t("stats.screenshotCopied"));
       } catch {
         // No clipboard-image support → download instead.
         const url = URL.createObjectURL(blob);
@@ -4155,11 +4172,11 @@ export default function UniversalPlayer({
         a.download = `${downloadName || "screenshot"}.png`;
         a.click();
         URL.revokeObjectURL(url);
-        toast.success(t("stats.screenshotSaved"));
+        showPlayerNotice(t("stats.screenshotSaved"));
       }
     } catch {
       // Tainted canvas (noCors source) — can't read pixels.
-      toast.error(t("stats.screenshotFailed"));
+      showPlayerNotice(t("stats.screenshotFailed"));
     }
   };
 
@@ -4690,26 +4707,28 @@ export default function UniversalPlayer({
                         <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm-1 5h2v7h-2V7zm0 9h2v2h-2v-2z" />
                       </svg>
                       <span>{n.msg}</span>
-                      {/* Thin countdown bar (only on the front toast). Full-width
-                          and, because the card clips overflow, its ends follow the
-                          card's rounded bottom corners — matching the windowed
-                          sonner bar. */}
-                      {isFront && (
-                        <span
-                          aria-hidden="true"
-                          style={{
-                            position: "absolute",
-                            left: 0,
-                            right: 0,
-                            bottom: 0,
-                            height: 2,
-                            transformOrigin: "left center",
-                            background:
-                              "color-mix(in srgb, currentColor 45%, transparent)",
-                            animation: `toastCountdown ${n.dur}ms linear forwards`,
-                          }}
-                        />
-                      )}
+                      {/* Thin countdown bar on EVERY card (visible once the stack
+                          is expanded on hover). Full-width and, because the card
+                          clips overflow, its ends follow the rounded bottom
+                          corners. When the bar finishes, that toast is killed via
+                          onAnimationEnd. pushPlayerToast also arms a setTimeout of
+                          the same duration as a safety net for toasts beyond the
+                          top-3 (which don't render, so their bar never runs). */}
+                      <span
+                        aria-hidden="true"
+                        onAnimationEnd={() => dismissPlayerToast(n.id)}
+                        style={{
+                          position: "absolute",
+                          left: 0,
+                          right: 0,
+                          bottom: 0,
+                          height: 2,
+                          transformOrigin: "left center",
+                          background:
+                            "color-mix(in srgb, currentColor 45%, transparent)",
+                          animation: `toastCountdown ${n.dur}ms linear forwards`,
+                        }}
+                      />
                     </div>
                     {/* ✕ close — sonner-style top-LEFT pill, only on the front
                         toast. Sibling of the clipped card so it can overhang the

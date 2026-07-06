@@ -1699,7 +1699,13 @@ export default function Watch({
       const next = pool[(idx + 1) % pool.length];
       if (next && next.id !== activeServer) {
         handleServerChange(next.id);
-        toast.success(t("player.switchedTo", { name: next.name }));
+        // Route into the in-player stack (same animated stack as every other
+        // player notice) instead of a standalone sonner toast.
+        window.dispatchEvent(
+          new CustomEvent("aniscroll:playerNotice", {
+            detail: { msg: t("player.switchedTo", { name: next.name }) },
+          }),
+        );
       }
     };
     window.addEventListener("aniscroll:cycleServer", onCycle);
