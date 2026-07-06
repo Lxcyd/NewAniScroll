@@ -252,16 +252,20 @@ export default function ShortcutEditor({ onClose }: { onClose: () => void }) {
     // positioned children) → a blurry oval halo; a solid div with the icon
     // gives a crisp rectangle.
     //
-    // CRUCIAL: the ghost is rendered ON-SCREEN (top:0/left:0, behind everything
-    // via z-index:-1) — NOT at top:-9999px. Chrome refuses to snapshot a drag
-    // image that sits outside the viewport, and for a wide element (the ~500px
-    // space bar) that refusal CANCELS the whole drag. That off-screen position,
-    // not the size, is why dragging the space bar never started.
+    // CRUCIAL: the ghost must be rendered ON-SCREEN AND ON TOP (positive
+    // z-index) for the browser to rasterize it. At top:-9999px Chrome refuses
+    // to snapshot it (and for a wide element like the ~500px space bar that
+    // refusal cancels the whole drag); at z-index:-1 it sits BEHIND the opaque
+    // page, so the snapshot came out almost entirely transparent. We place it at
+    // top:0/left:0 on top of everything for the single frame the browser needs
+    // to grab the image, then remove it on the next tick (pointer-events:none so
+    // it never intercepts the drag).
     const src = e.currentTarget as HTMLElement;
     const rect = src.getBoundingClientRect();
     const ghost = document.createElement("div");
     ghost.style.cssText =
-      `position:fixed;top:0;left:0;z-index:-1;pointer-events:none;width:${rect.width}px;height:${rect.height}px;` +
+      `position:fixed;top:0;left:0;z-index:2147483647;opacity:1;pointer-events:none;` +
+      `width:${rect.width}px;height:${rect.height}px;` +
       "border-radius:8px;background:#20242c;display:flex;align-items:center;justify-content:center;" +
       "color:#fff;box-shadow:0 0 0 1px rgba(255,255,255,.06)";
     const iconSrc = src.querySelector("svg");
