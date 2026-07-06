@@ -2882,41 +2882,72 @@ export default async function handler(req, res) {
     if (routes.length === 0) {
       return sendNotFound("megaplay: no MAL or AniList id for this anime");
     }
-    let lastError = "Source not found";
-    let allAbsent = true; // every route so far returned a genuine "file not found"
-    for (const url of routes) {
-      const result = await extractMegaplay(url);
-      if (!result.error && result.streams?.length) {
-        // Pre-warm the edge cache NOW, at resolve time — before the player even
-        // loads the manifest. Megaplay is proxy-only (the CDN 403s any Referer
-        // but megaplay.buzz, which a browser can't forge), so its cold start
-        // pays a double hop. Firing the master through the Worker here (with the
-        // megaplay Referer) triggers the Worker's existing warm chain (variant +
-        // sampled segments), so by the time the user hits Play the opening is a
-        // cache HIT. Fire-and-forget: never delays the resolve response.
-        const m3u8 = result.streams[0]?.url;
-        if (m3u8 && /\.m3u8/i.test(m3u8)) {
-          const warmUrl =
-            `${PROXY_BASE}?url=${encodeURIComponent(m3u8)}` +
-            `&referer=${encodeURIComponent("https://megaplay.buzz/")}`;
-          // x-warmer so the Worker/endpoints treat it as internal (no double
-          // availability writes etc.). Swallow all errors.
-          fetchWithTimeout(warmUrl, { headers: { "x-warmer": "1" } }, 4000).catch(
-            () => {},
-          );
-        }
-        return sendOk(result);
+    // Try every route once; return the first hit. Reports whether the run was
+    // ALL genuine "file not found" (safe to negative-cache) vs any transient
+    // failure (must 503-retry).
+    const tryRoutes = async () => {
+      let lastError = "Source not found";
+      let allAbsent = true;
+      for (const url of routes) {
+        const result = await extractMegaplay(url);
+        if (!result.error && result.streams?.length) return { hit: result };
+        lastError = result.error || lastError;
+        // A route that failed for any reason OTHER than a confirmed absence
+        // marks the run as transient — don't negative-cache a timeout just
+        // because the other route legitimately 404s.
+        if (!result.absent) allAbsent = false;
       }
-      lastError = result.error || lastError;
-      // A route that failed for any reason OTHER than a confirmed absence marks
-      // the whole resolve as transient — don't let a timeout on one route get
-      // negative-cached just because the other route legitimately 404s.
-      if (!result.absent) allAbsent = false;
+      return { hit: null, allAbsent, lastError };
+    };
+
+    const warmMegaplay = (result) => {
+      // Pre-warm the edge cache NOW, at resolve time — before the player even
+      // loads the manifest. Megaplay is proxy-only (the CDN 403s any Referer but
+      // megaplay.buzz, which a browser can't forge), so its cold start pays a
+      // double hop. Firing the master through the Worker here (with the megaplay
+      // Referer) triggers the Worker's warm chain (variant + sampled segments),
+      // so by the time the user hits Play the opening is a cache HIT.
+      // Fire-and-forget: never delays the resolve response.
+      const m3u8 = result.streams[0]?.url;
+      if (m3u8 && /\.m3u8/i.test(m3u8)) {
+        const warmUrl =
+          `${PROXY_BASE}?url=${encodeURIComponent(m3u8)}` +
+          `&referer=${encodeURIComponent("https://megaplay.buzz/")}`;
+        fetchWithTimeout(warmUrl, { headers: { "x-warmer": "1" } }, 4000).catch(
+          () => {},
+        );
+      }
+    };
+
+    let run = await tryRoutes();
+    if (run.hit) {
+      warmMegaplay(run.hit);
+      return sendOk(run.hit);
     }
-    // Only negative-cache + hide the chip when BOTH routes genuinely have no
-    // file. A timeout / anti-bot / upstream error is transient → 503 retry so
-    // the chip isn't buried in the availability snapshot for 6h.
-    return allAbsent ? sendNotFound(lastError) : sendRetryable(lastError);
+    // A verdict of "genuinely absent on every route" that came from a SINGLE
+    // pass is not trustworthy enough to broadcast: megaplay serves its
+    // "Error - MegaPlay / We can't find the file" page (a 200) during transient
+    // outages too, and the active-source path — unlike the probe fan-out — has
+    // no retry of its own. A one-shot false absence gets negative-cached (10 min)
+    // AND published into the 6h availability snapshot, so the Megaplay chip
+    // vanishes for everyone until the TTL expires (the "megaplay disappeared
+    // after a reload" bug). Confirm a genuine absence with ONE retry: a real
+    // "file not found" is deterministic and stays absent; a transient error page
+    // clears to a hit or a non-200 (→ transient) on the second look.
+    if (run.allAbsent) {
+      await new Promise((r) => setTimeout(r, 500));
+      run = await tryRoutes();
+      if (run.hit) {
+        warmMegaplay(run.hit);
+        return sendOk(run.hit);
+      }
+    }
+    // Only negative-cache + hide the chip when the absence survived the retry.
+    // Anything else stays transient → 503 so the client retries and never buries
+    // the chip in the snapshot.
+    return run.allAbsent
+      ? sendNotFound(run.lastError)
+      : sendRetryable(run.lastError);
   }
 
 

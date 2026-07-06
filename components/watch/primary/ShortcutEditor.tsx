@@ -22,6 +22,7 @@ import {
   type ShortcutAction,
   type Keybindings,
   type KeyCombo,
+  ACTION_CATALOG,
   comboToAction,
   getKeybindings,
   setKeybindings,
@@ -30,6 +31,8 @@ import {
 import { SHORTCUT_ICONS } from "./shortcutIcons";
 
 const ACCENT = "#E94560";
+
+const KNOWN_ACTIONS = new Set<string>(ACTION_CATALOG.map((a) => a.id));
 
 // A key definition: `code` = lower-cased `event.code` (physical position) we
 // match against combos (null = decorative ghost cell). `label` = glyph to show
@@ -234,7 +237,9 @@ export default function ShortcutEditor({ onClose }: { onClose: () => void }) {
     (code: string): ShortcutAction | undefined => {
       let found: ShortcutAction | undefined;
       byCombo.forEach((action, combo) => {
-        if (baseOf(combo) === code) found = action;
+        // Only surface real catalog actions — a stale/bogus id must never paint
+        // a phantom binding with an empty "shortcuts.actions." label.
+        if (baseOf(combo) === code && KNOWN_ACTIONS.has(action)) found = action;
       });
       return found;
     },
@@ -283,7 +288,7 @@ export default function ShortcutEditor({ onClose }: { onClose: () => void }) {
     // translucent copy of the source key → the blurry oval halo in the ref.
     // Cap the ghost to a sane tile so the snapshot always succeeds and stays a
     // crisp rectangle regardless of the grabbed key's real width.
-    const gw = Math.min(rect.width, 120);
+    const gw = Math.min(rect.width, 240);
     const gh = rect.height;
     const ghost = document.createElement("div");
     ghost.style.cssText =

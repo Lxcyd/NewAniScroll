@@ -182,6 +182,9 @@ export const DEFAULT_KEYBINDINGS: Keybindings = {
   skipOutro: "pagedown",
 };
 
+/** Set of valid action ids, to reject bogus stored keys on load. */
+const KNOWN_ACTIONS = new Set<string>(ACTION_CATALOG.map((a) => a.id));
+
 // v3: event.code storage; v3 fixed the AZERTY bottom-row codes (bumped so the
 // v2 defaults that were saved with wrong codes are discarded).
 const KEY = "aniscroll:keybindings:v3";
@@ -199,6 +202,11 @@ export function getKeybindings(): Keybindings {
     // must always be bound.
     const clean: Keybindings = {};
     for (const [k, v] of Object.entries(parsed)) {
+      // Drop entries whose key isn't a real action id — a past bug could store
+      // bogus ids like "undefined" (from dragging an unbound key), which then
+      // surfaced on the board as a phantom binding with an empty label
+      // ("shortcuts.actions.").
+      if (!KNOWN_ACTIONS.has(k)) continue;
       if (typeof v === "string" && v) clean[k as ShortcutAction] = v;
     }
     return { ...DEFAULT_KEYBINDINGS, ...clean };
