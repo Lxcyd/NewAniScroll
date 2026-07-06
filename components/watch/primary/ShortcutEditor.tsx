@@ -267,13 +267,13 @@ export default function ShortcutEditor({ onClose }: { onClose: () => void }) {
   const onDragStart = (e: React.DragEvent, action: ShortcutAction) => {
     e.dataTransfer.setData("text/plain", action);
     e.dataTransfer.effectAllowed = "move";
-    // Drag preview. We paint the ghost onto a <canvas> instead of snapshotting a
-    // DOM element with setDragImage. WHY: setDragImage on a DOM node is flaky in
-    // Chrome for WIDE elements — the ~500px space bar kept coming back almost
-    // fully transparent no matter where we placed it, and clamping the width was
-    // a losing game of guessing an unstable threshold. A canvas is rasterized by
-    // us, deterministically, at any width, so the space bar's full-width ghost
-    // is always opaque. We draw the rounded cap(s) and the action icon directly.
+    // Drag preview: an OPAQUE <div> tile snapshotted by setDragImage. A canvas
+    // proved unreliable here (Chrome returned an EMPTY drag image → no ghost at
+    // all), so we're back to the DOM div that always rasterized.
+    //
+    // CRUCIAL: the div must be ON-SCREEN and ON TOP (positive z-index) for the
+    // single frame Chrome grabs it; pointer-events:none so it never eats the
+    // drag; removed on the next tick.
     const src = e.currentTarget as HTMLElement;
     // Measure the OUTER cell (the padded grid slot), not the inner cap: the cap
     // carries `transform: scale(0.9)` while hovered — and a key is ALWAYS
@@ -281,92 +281,68 @@ export default function ShortcutEditor({ onClose }: { onClose: () => void }) {
     // than the real key. The parent cell is never scaled: true footprint.
     const box = (src.parentElement ?? src).getBoundingClientRect();
     const isEnter = (e.currentTarget as HTMLElement).dataset.enter === "1";
-    // Strip the GAP inset so the ghost matches the DRAWN cap, not the slot. Full
-    // physical width now — the canvas has no snapshot-size limit.
-    const gw = box.width - GAP_PX * 2;
+    // Width CAP: Chrome silently fails to snapshot a very wide setDragImage node
+    // (the ~500px space bar came back transparent). 240px snapshots reliably;
+    // 280px is the widest that still worked in testing, so the space bar's ghost
+    // reads as a proper long rectangle without going see-through.
+    const gw = Math.min(box.width - GAP_PX * 2, 280);
     // One visual row's height (the Enter cell spans two rows).
     const rowH = box.height / (isEnter ? 2 : 1) - GAP_PX * 2;
-    // Full cap height (two rows for the Enter L-shape, one row otherwise).
-    const capH = isEnter ? box.height - GAP_PX * 2 : rowH;
-    const dpr = window.devicePixelRatio || 1;
-    const canvas = document.createElement("canvas");
-    canvas.width = Math.round(gw * dpr);
-    canvas.height = Math.round(capH * dpr);
-    // Must be ON-SCREEN and VISIBLE (opacity:1, positive z-index) for the frame
-    // Chrome snapshots it — at opacity:0 or off-screen the drag image comes back
-    // empty (no ghost at all). pointer-events:none so it never eats the drag; we
-    // remove it on the next tick, after the snapshot is taken.
-    canvas.style.cssText =
-      `position:fixed;top:0;left:0;z-index:2147483647;pointer-events:none;opacity:1;` +
-      `width:${gw}px;height:${capH}px`;
-    const ctx = canvas.getContext("2d");
-    if (ctx) {
-      ctx.scale(dpr, dpr);
-      const R = 8;
-      const FILL = "#20242c";
-      const roundRect = (x: number, y: number, w: number, h: number) => {
-        ctx.beginPath();
-        ctx.roundRect(x, y, w, h, R);
-        ctx.fillStyle = FILL;
-        ctx.fill();
-      };
-      let iconCx = gw / 2;
-      let iconCy = capH / 2;
-      if (isEnter) {
-        // L-shape: wide top half (full width, top row) + narrower right-aligned
-        // lower half (1.25/1.5 width, full height). Two overlapping opaque
-        // rounded rects fuse into one solid L — no seam, since they share the
-        // same fill and overlap (canvas fills don't blend a visible edge).
-        const lowerW = gw * (1.25 / 1.5);
-        roundRect(gw - lowerW, 0, lowerW, capH);
-        roundRect(0, 0, gw, rowH);
-        iconCx = gw / 2;
-        iconCy = rowH / 2; // icon reads on the wide top bar
-      } else {
-        roundRect(0, 0, gw, rowH);
-      }
-      // Paint the action icon by walking the rendered key's <path>s and
-      // replaying each `d` as a Path2D under the 24×24-viewBox → 26px transform.
-      // (All action glyphs are <path fill> shapes, some inside a <g transform>.)
-      const ICON = 26;
-      const svg = src.querySelector("svg");
-      if (svg) {
-        ctx.save();
-        ctx.translate(iconCx - ICON / 2, iconCy - ICON / 2);
-        ctx.scale(ICON / 24, ICON / 24);
-        ctx.fillStyle = "#fff";
-        svg.querySelectorAll("path").forEach((p) => {
-          const d = p.getAttribute("d");
-          if (!d) return;
-          ctx.save();
-          // Apply an ancestor <g transform="translate() scale()"> if present
-          // (Material glyphs authored in the 0 -960 960 960 space use one).
-          const g = p.closest("g[transform]");
-          const tr = g?.getAttribute("transform");
-          if (tr) {
-            const t = /translate\(([^)]+)\)/.exec(tr);
-            const s = /scale\(([^)]+)\)/.exec(tr);
-            if (t) {
-              const [tx, ty] = t[1].split(/[ ,]+/).map(Number);
-              ctx.translate(tx || 0, ty || 0);
-            }
-            if (s) {
-              const parts = s[1].split(/[ ,]+/).map(Number);
-              ctx.scale(parts[0], parts[1] ?? parts[0]);
-            }
-          }
-          ctx.fill(new Path2D(d));
-          ctx.restore();
-        });
-        ctx.restore();
-      }
+    const ghost = document.createElement("div");
+    if (isEnter) {
+      // L-shape: wide top half (full width, top row) over a narrower
+      // right-aligned lower half (1.25/1.5 width, full height). Two overlapping
+      // opaque rects with the SAME fill and NO border → they fuse into one solid
+      // L with no visible seam where they meet.
+      const fullH = box.height - GAP_PX * 2;
+      const lowerW = gw * (1.25 / 1.5);
+      ghost.style.cssText =
+        `position:fixed;top:0;left:0;z-index:2147483647;opacity:1;pointer-events:none;` +
+        `width:${gw}px;height:${fullH}px`;
+      const lower = document.createElement("div");
+      lower.style.cssText =
+        `position:absolute;right:0;top:0;width:${lowerW}px;height:100%;border-radius:8px;background:#20242c`;
+      const top = document.createElement("div");
+      top.style.cssText =
+        `position:absolute;left:0;top:0;width:100%;height:50%;border-radius:8px;background:#20242c`;
+      ghost.appendChild(lower);
+      ghost.appendChild(top);
+    } else {
+      ghost.style.cssText =
+        `position:fixed;top:0;left:0;z-index:2147483647;opacity:1;pointer-events:none;` +
+        `width:${gw}px;height:${rowH}px;` +
+        "border-radius:8px;background:#20242c;display:flex;align-items:center;justify-content:center";
     }
-    document.body.appendChild(canvas);
-    // Force a synchronous layout so the canvas is on-screen and rasterizable the
+    const iconSrc = src.querySelector("svg");
+    if (iconSrc) {
+      const clone = iconSrc.cloneNode(true) as SVGElement;
+      // The key's <svg> is absolutely centred inside the cap; strip its class +
+      // inline style, then re-place it (flex-centred for a plain key, absolutely
+      // centred on the TOP row for the Enter L-shape).
+      clone.removeAttribute("class");
+      clone.removeAttribute("style");
+      clone.style.transform = "none";
+      clone.style.flex = "0 0 auto";
+      clone.setAttribute("width", "26");
+      clone.setAttribute("height", "26");
+      clone.style.color = "#fff";
+      if (isEnter) {
+        clone.style.position = "absolute";
+        clone.style.left = "50%";
+        clone.style.top = "25%";
+        clone.style.transform = "translate(-50%,-50%)";
+        clone.style.zIndex = "1";
+      } else {
+        clone.style.position = "static";
+      }
+      ghost.appendChild(clone);
+    }
+    document.body.appendChild(ghost);
+    // Force a synchronous layout so the div is on-screen and rasterizable the
     // instant setDragImage snapshots it this tick.
-    void canvas.offsetWidth;
-    e.dataTransfer.setDragImage(canvas, gw / 2, rowH / 2);
-    window.setTimeout(() => canvas.remove(), 0);
+    void ghost.offsetWidth;
+    e.dataTransfer.setDragImage(ghost, gw / 2, rowH / 2);
+    window.setTimeout(() => ghost.remove(), 0);
   };
   const onDragEnd = () => setDropTarget(null);
 
