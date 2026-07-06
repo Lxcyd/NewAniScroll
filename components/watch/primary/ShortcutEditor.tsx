@@ -292,9 +292,12 @@ export default function ShortcutEditor({ onClose }: { onClose: () => void }) {
     const canvas = document.createElement("canvas");
     canvas.width = Math.round(gw * dpr);
     canvas.height = Math.round(capH * dpr);
-    // Keep it off the drag itself; it only needs to be a live <canvas> element.
+    // Must be ON-SCREEN and VISIBLE (opacity:1, positive z-index) for the frame
+    // Chrome snapshots it — at opacity:0 or off-screen the drag image comes back
+    // empty (no ghost at all). pointer-events:none so it never eats the drag; we
+    // remove it on the next tick, after the snapshot is taken.
     canvas.style.cssText =
-      `position:fixed;top:0;left:0;pointer-events:none;opacity:0;` +
+      `position:fixed;top:0;left:0;z-index:2147483647;pointer-events:none;opacity:1;` +
       `width:${gw}px;height:${capH}px`;
     const ctx = canvas.getContext("2d");
     if (ctx) {
@@ -359,6 +362,9 @@ export default function ShortcutEditor({ onClose }: { onClose: () => void }) {
       }
     }
     document.body.appendChild(canvas);
+    // Force a synchronous layout so the canvas is on-screen and rasterizable the
+    // instant setDragImage snapshots it this tick.
+    void canvas.offsetWidth;
     e.dataTransfer.setDragImage(canvas, gw / 2, rowH / 2);
     window.setTimeout(() => canvas.remove(), 0);
   };
