@@ -1728,10 +1728,11 @@ export default function UniversalPlayer({
   // observer already watches. Used to hide the fullscreen party chat so it
   // never sits over an open menu.
   const [vdsMenuOpen, setVdsMenuOpen] = useState(false);
-  // Ephemeral in-player warning banner (e.g. "join a party to chat"). Rendered
-  // INSIDE the player element so it's visible in fullscreen too — unlike a
-  // react-hot-toast, which lives in document.body and vanishes when the player
-  // is the fullscreen element.
+  // Ephemeral in-player notice (e.g. "join a party to chat"). Rendered as a
+  // sonner-style bottom-right toast portalled INSIDE the player element so it
+  // matches the rest of the site AND stays visible in fullscreen — a real sonner
+  // toast lives on document.body and vanishes when the player is fullscreen. See
+  // the shared in-player toast stack at the bottom of the render.
   const [chatWarning, setChatWarning] = useState<string | null>(null);
   useEffect(() => {
     if (!chatWarning) return;
@@ -4412,18 +4413,6 @@ export default function UniversalPlayer({
           starts itself, so the button is hidden (see CenterPlayButton). */}
       <CenterPlayButton playerRef={playerRef} autoplay={autoplay} menuOpen={vdsMenuOpen} />
 
-      {/* Ephemeral warning banner, INSIDE the player so it shows in fullscreen
-          too (a react-hot-toast in document.body would be hidden then). Used by
-          the chat shortcut when there's no party to join. */}
-      {chatWarning && (
-        <div
-          className="pointer-events-none absolute left-1/2 top-6 z-[60] -translate-x-1/2 whitespace-nowrap rounded-lg px-4 py-2 text-[13px] font-semibold text-white shadow-2xl"
-          style={{ background: "rgba(22,24,29,0.95)", backdropFilter: "blur(6px)" }}
-        >
-          {chatWarning}
-        </div>
-      )}
-
       {/* AniSkip segment overlay + Skip button. Renders null when no
           skip data exists for the current episode AND there's no next
           episode to surface, so the chrome is unchanged for series
@@ -4480,37 +4469,56 @@ export default function UniversalPlayer({
 
       <SubtitleSettings open={subStyleOpen} onClose={() => setSubStyleOpen(false)} />
 
-      {/* In-player notice (e.g. "subs are burned in"). Portalled INTO the player
-          root so it stays visible in fullscreen — a sonner toast on <body> would
-          be hidden while the player is the fullscreen element. */}
-      {subNotice &&
+      {/* In-player toasts (subs burned-in / "join a party to chat"). Portalled
+          INTO the player root and styled like sonner's dark bottom-right card,
+          so they match the rest of the site AND stay visible in fullscreen — a
+          real sonner toast lives on <body> and is hidden while the player is the
+          fullscreen element. Stacked bottom-right, above the control bar. */}
+      {(subNotice || chatWarning) &&
         playerElState &&
         createPortal(
           <div
-            role="status"
-            aria-live="polite"
-            onClick={() => setSubNotice(null)}
             style={{
               position: "absolute",
-              left: "50%",
+              right: 16,
               bottom: 88,
-              transform: "translateX(-50%)",
               zIndex: 60,
-              maxWidth: "min(520px, 86%)",
-              padding: "12px 16px",
-              borderRadius: 12,
-              background: "rgba(10,10,10,0.92)",
-              backdropFilter: "blur(6px)",
-              border: "1px solid rgba(255,255,255,0.12)",
-              color: "#fff",
-              fontSize: 14,
-              lineHeight: 1.4,
-              textAlign: "center",
-              boxShadow: "0 8px 30px rgba(0,0,0,0.45)",
-              cursor: "pointer",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "flex-end",
+              gap: 8,
+              maxWidth: "min(360px, 86%)",
+              pointerEvents: "none",
             }}
           >
-            {subNotice}
+            {[
+              subNotice ? { key: "sub", msg: subNotice, close: () => setSubNotice(null) } : null,
+              chatWarning ? { key: "chat", msg: chatWarning, close: () => setChatWarning(null) } : null,
+            ]
+              .filter((n): n is { key: string; msg: string; close: () => void } => n !== null)
+              .map((n) => (
+                <div
+                  key={n.key}
+                  role="status"
+                  aria-live="polite"
+                  onClick={n.close}
+                  style={{
+                    pointerEvents: "auto",
+                    padding: "12px 14px",
+                    borderRadius: 12,
+                    background: "rgba(10,10,10,0.94)",
+                    backdropFilter: "blur(8px)",
+                    border: "1px solid rgba(255,255,255,0.12)",
+                    color: "#fff",
+                    fontSize: 13,
+                    lineHeight: 1.4,
+                    boxShadow: "0 8px 30px rgba(0,0,0,0.45)",
+                    cursor: "pointer",
+                  }}
+                >
+                  {n.msg}
+                </div>
+              ))}
           </div>,
           playerElState,
         )}
