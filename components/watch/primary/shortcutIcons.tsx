@@ -48,8 +48,20 @@ export const SHORTCUT_ICONS: Record<ShortcutAction, ReactNode> = {
   rateDown: P("M4 6v12l8-6-8-6zm9 5h8v2h-8v-2z"),
   rateUp: P("M4 6v12l8-6-8-6zm12-2v3h3v2h-3v3h-2v-3h-3V9h3V6h2z"),
   rateReset: P("M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"),
-  skipIntro: P("M4 18l8.5-6L4 6v12zM16 6v12h2V6h-2z"),
-  skipOutro: P("M6 6v12h2V6H6zm3.5 6l8.5 6V6l-8.5 6z"),
+  // Same "OP"/"ED" badge as the Settings > Automation panel, for visual
+  // consistency between the two places this action appears.
+  skipIntro: (
+    <>
+      <rect x="2.5" y="6" width="19" height="12" rx="3.2" fill="none" stroke="currentColor" strokeWidth="1.7" />
+      <text x="12" y="15.4" textAnchor="middle" fontFamily="Space Grotesk, system-ui, sans-serif" fontSize="8.2" fontWeight="700" letterSpacing="0.3" fill="currentColor">OP</text>
+    </>
+  ),
+  skipOutro: (
+    <>
+      <rect x="2.5" y="6" width="19" height="12" rx="3.2" fill="none" stroke="currentColor" strokeWidth="1.7" />
+      <text x="12" y="15.4" textAnchor="middle" fontFamily="Space Grotesk, system-ui, sans-serif" fontSize="8.2" fontWeight="700" letterSpacing="0.3" fill="currentColor">ED</text>
+    </>
+  ),
   chromecast: P("M21 3H3c-1.1 0-2 .9-2 2v3h2V5h18v14h-7v2h7c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zM1 18v3h3c0-1.66-1.34-3-3-3zm0-4v2c2.76 0 5 2.24 5 5h2c0-3.87-3.13-7-7-7zm0-4v2c4.97 0 9 4.03 9 9h2c0-6.08-4.93-11-11-11z"),
   fullscreen: P("M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"),
   screenshot: P("M12 15.2a3.2 3.2 0 100-6.4 3.2 3.2 0 000 6.4zM9 2L7.17 4H4a2 2 0 00-2 2v12a2 2 0 002 2h16a2 2 0 002-2V6a2 2 0 00-2-2h-3.17L15 2H9zm3 15a5 5 0 110-10 5 5 0 010 10z"),

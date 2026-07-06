@@ -265,12 +265,13 @@ export default function ShortcutEditor({ onClose }: { onClose: () => void }) {
                 // lower half (row 2) — two overlapping rounded rects, so every
                 // convex corner stays rounded like the other keys.
                 const isEnter = h === 2;
-                const bg = isDrop
-                  ? "rgba(233,69,96,0.35)"
-                  : action
-                  ? "#20242c"
-                  : "#15171c";
-                const GAP = 0.55; // % of a unit, drawn as an inner inset
+                // Letters/digits get the lighter fill; every other key (nav,
+                // modifiers, punctuation, space, …) is a shade darker so the
+                // alphanumeric block reads as the "main" typing area.
+                const isAlnum = /^[a-z0-9ùç^$]$/i.test(code);
+                const idleBg = isAlnum ? "#20242c" : "#181b21";
+                const bg = isDrop ? "rgba(233,69,96,0.35)" : action ? idleBg : "#131519";
+                const GAP = 0.2; // % of a unit, drawn as an inner inset — tight, near-touching keys
                 return (
                   <div
                     key={ci}

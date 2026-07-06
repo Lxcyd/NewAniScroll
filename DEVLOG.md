@@ -7,6 +7,16 @@ Ordre anti-chronologique (le plus récent en haut). Une entrée = une session/su
 
 ---
 
+## 2026-07-06 (suite 2) — Éditeur raccourcis : touches jointives, non-alphanum plus sombres, icônes OP/ED partagées
+
+Retours user (screenshot) :
+- **Espacement resserré** : `GAP` inset 0.55→0.2 (touches quasi jointives, comme la réf).
+- **Touches non-lettres/chiffres plus sombres** : nouveau test `isAlnum` (`[a-z0-9ùç^$]`) — les touches alphanumériques gardent `#20242c` (assigné) / `#131519` (vide un peu foncé), tout le reste (nav, modificateurs, ponctuation, espace, entrée…) prend `#181b21` quand assigné, même vide sinon — lisible comme un vrai clavier où la zone de frappe se distingue du reste.
+- **skipIntro/skipOutro réutilisent l'icône du menu Settings > Automation** (badge cadre arrondi + monogramme "OP"/"ED", `SettingsToggleRow` dans `UniversalPlayer.tsx`) au lieu d'un chevron générique — même glyphe aux deux endroits où l'action apparaît.
+- `tsc`/`lint` propres ; vérif visuelle via réplique + screenshot headless.
+
+---
+
 ## 2026-07-06 (suite) — Éditeur raccourcis : tout assignable, Enter ISO, fond flou, header minimal
 
 Retours user (5 points) :
