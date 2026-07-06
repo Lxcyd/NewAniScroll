@@ -298,11 +298,11 @@ export default function ShortcutEditor({ onClose }: { onClose: () => void }) {
     // slot around it.
     //
     // Width CAP (crucial): Chrome silently fails to rasterize a setDragImage
-    // element past a certain width — the wide space bar (≈500px) came back
-    // almost fully transparent. 360px still failed; 240px is the value that was
-    // proven to snapshot reliably, so clamp there. The space bar still reads as
-    // a rectangle, just not full physical width.
-    const gw = Math.min(box.width - GAP_PX * 2, 240);
+    // element past a certain width — the full-width space bar (≈500px) came back
+    // almost fully transparent. 300px snapshots reliably while making the space
+    // bar's ghost read as a proper WIDE rectangle (240px was too narrow — the
+    // ghost looked much thinner than the real key).
+    const gw = Math.min(box.width - GAP_PX * 2, 300);
     // One-row cap height. For the ISO Enter the cell spans two rows, so a single
     // visual row is half the cell; the Enter ghost is built at full (two-row)
     // height as an L-shape, but its icon and drag hotspot sit on this top row.
