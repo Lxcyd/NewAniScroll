@@ -2,22 +2,23 @@
  * Visual keyboard shortcut editor (overlay) — keyboard-only, matches the
  * reference screenshot.
  *
- *  - Pure black background, NO card / border around the keyboard.
+ *  - Blurred (frosted) backdrop over the player — not a black sheet.
  *  - Keys are flat dark fills, NO borders. A key that holds an action shows its
- *    icon; empty keys are blank. No printed letters.
+ *    icon; empty keys are blank. No printed letters. EVERY key is assignable,
+ *    modifiers (shift/ctrl/alt/…) included.
  *  - Hovering ANY key shows a floating pill above the board ("Space :
  *    Play/Pause" or just the key name) and the key retracts (scale) — every
  *    key animates, assigned or not.
  *  - Rebinding = drag & drop, key ↔ key. Dropping onto an occupied key SWAPS
- *    the two actions (no action is ever lost, so there's no "unassign").
- *    Actions not currently on the board sit in a slim tray below; drag one onto
- *    a key (swapping the resident back into the tray).
+ *    the two actions. Every action ships with a default key and there is NO
+ *    unbind path — the full catalog is always on the board.
+ *  - Around the keyboard: only a small header (shortcut text left; Reset and ✕
+ *    close on the right, directly above the board). Nothing else.
  */
 import { useCallback, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import {
-  ACTION_CATALOG,
   type ShortcutAction,
   type Keybindings,
   type KeyCombo,
@@ -40,10 +41,12 @@ type Cap = Key & { x: number; y: number };
 
 // Full French (AZERTY) 75%-style layout, in the exact order requested: the nav
 // keys sit INLINE at the end of each row (delete / home / pageup / up+pagedown /
-// arrows) like on a laptop keyboard — no detached cluster. Codes are the values
-// a French keyboard emits for `event.key`, so pressing the physical key
-// resolves the same combo. Every row sums to exactly 16 units. `ghost` marks
-// the empty cell hidden under the ISO Enter's lower half (nothing is drawn).
+// arrows) like on a laptop keyboard — no detached cluster. EVERY key is
+// assignable, modifiers included: their code is the lower-cased `event.code`
+// ("shiftleft", "altright", …) so left/right variants are distinct — matching
+// `comboFromEvent`. Other keys use the `event.key` a French keyboard emits.
+// Every row sums to exactly 16 units. `ghost` marks the cell hidden under the
+// ISO Enter's lower half (nothing is drawn there).
 const ROWS: Key[][] = [
   // escape 1..0 - = backspace delete
   [
@@ -63,29 +66,29 @@ const ROWS: Key[][] = [
   ],
   // capslock q s d f g h j k l m ù * [enter lower half] pageup
   [
-    { code: null, w: 1.5 }, // capslock
+    { code: "capslock", w: 1.75 },
     { code: "q" }, { code: "s" }, { code: "d" }, { code: "f" }, { code: "g" },
     { code: "h" }, { code: "j" }, { code: "k" }, { code: "l" }, { code: "m" },
     { code: "ù" }, { code: "*" },
-    { code: null, w: 1.5, ghost: true }, // under the ISO Enter
+    { code: null, w: 1.25, ghost: true }, // under the ISO Enter's lower half
     { code: "pageup" },
   ],
   // lshift w x c v b n , ; : ! rshift up pagedown
   [
-    { code: null, w: 1.25 }, // left shift
+    { code: "shiftleft", w: 1.25 },
     { code: "w" }, { code: "x" }, { code: "c" }, { code: "v" }, { code: "b" },
     { code: "n" }, { code: "," }, { code: ";" }, { code: ":" }, { code: "!" },
-    { code: null, w: 2.75 }, // right shift
+    { code: "shiftright", w: 2.75 },
     { code: "arrowup" }, { code: "pagedown" },
   ],
   // ctrl meta alt space altgr menu left down right
   [
-    { code: null, w: 1.5 }, // ctrl
-    { code: null, w: 1.25 }, // meta
-    { code: null, w: 1.25 }, // alt
+    { code: "controlleft", w: 1.5 },
+    { code: "metaleft", w: 1.25 },
+    { code: "altleft", w: 1.25 },
     { code: "space", w: 6.5 },
-    { code: null, w: 1.25 }, // altgr
-    { code: null, w: 1.25 }, // context menu
+    { code: "altright", w: 1.25 },
+    { code: "contextmenu", w: 1.25 },
     { code: "arrowleft" }, { code: "arrowdown" }, { code: "arrowright" },
   ],
 ];
@@ -113,6 +116,10 @@ function capGlyph(code: string): string {
   const map: Record<string, string> = {
     arrowleft: "←", arrowright: "→", arrowup: "↑", arrowdown: "↓",
     space: "Space", backspace: "⌫", enter: "↵", escape: "Esc", tab: "Tab",
+    delete: "Suppr", home: "Home", pageup: "PgUp", pagedown: "PgDn",
+    capslock: "⇪ Verr. Maj", shiftleft: "⇧ Maj", shiftright: "⇧ Maj",
+    controlleft: "Ctrl", metaleft: "⊞", altleft: "Alt", altright: "AltGr",
+    contextmenu: "☰ Menu",
   };
   return map[code] ?? code.toUpperCase();
 }
@@ -121,7 +128,6 @@ export default function ShortcutEditor({ onClose }: { onClose: () => void }) {
   const { t } = useTranslation();
   const [binds, setBinds] = useState<Keybindings>(() => getKeybindings());
   const [hoverKey, setHoverKey] = useState<string | null>(null);
-  const [dragging, setDragging] = useState<ShortcutAction | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
 
   const actionLabel = useCallback(
@@ -147,10 +153,9 @@ export default function ShortcutEditor({ onClose }: { onClose: () => void }) {
     [byCombo],
   );
 
-  /** Drop `action` on key `code`. If another action already sits there, the two
-   *  SWAP places (the resident moves to wherever `action` came from). If
-   *  `action` came from the tray (no prior key), the resident is evicted back
-   *  to the tray. Nothing is ever silently unbound. */
+  /** Drop `action` on key `code`. If another action already sits there, the
+   *  two SWAP places (the resident moves to the key `action` came from) —
+   *  every action always stays bound; there is no unbind path. */
   const dropOnKey = useCallback(
     (action: ShortcutAction, code: string) => {
       const from = binds[action] ? baseOf(binds[action] as string) : null;
@@ -158,7 +163,7 @@ export default function ShortcutEditor({ onClose }: { onClose: () => void }) {
       if (resident === action) return;
       const next: Keybindings = { ...binds };
       next[action] = code;
-      if (resident) next[resident] = from; // from may be null (tray) → evicted
+      if (resident) next[resident] = from;
       persist(next);
     },
     [binds, actionForKey, persist],
@@ -166,20 +171,11 @@ export default function ShortcutEditor({ onClose }: { onClose: () => void }) {
 
   const resetAll = () => setBinds({ ...resetKeybindings() });
 
-  const unassigned = useMemo(
-    () => ACTION_CATALOG.map((a) => a.id).filter((id) => !binds[id]),
-    [binds],
-  );
-
   const onDragStart = (e: React.DragEvent, action: ShortcutAction) => {
     e.dataTransfer.setData("text/plain", action);
     e.dataTransfer.effectAllowed = "move";
-    setDragging(action);
   };
-  const onDragEnd = () => {
-    setDragging(null);
-    setDropTarget(null);
-  };
+  const onDragEnd = () => setDropTarget(null);
 
   const tooltip = (() => {
     if (!hoverKey) return null;
@@ -192,173 +188,170 @@ export default function ShortcutEditor({ onClose }: { onClose: () => void }) {
     <div
       role="dialog"
       aria-modal="true"
-      className="fixed inset-0 z-[9999] flex flex-col"
-      style={{ background: "#000" }}
+      className="fixed inset-0 z-[9999] flex items-center justify-center px-4"
+      style={{
+        // Blurred glass over the player — NOT a black sheet.
+        background: "rgba(0, 0, 0, 0.45)",
+        backdropFilter: "blur(20px)",
+        WebkitBackdropFilter: "blur(20px)",
+      }}
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      {/* Top bar */}
-      <div className="flex items-start justify-between px-6 py-5">
-        <div>
-          <h2 className="text-[16px] font-semibold text-white">
-            {t("shortcuts.title")}
-          </h2>
-          <p className="mt-0.5 text-[12px] text-white/45">
-            {t("shortcuts.dragHint")}
-          </p>
+      <div className="w-full max-w-[860px]">
+        {/* Directly above the keyboard, nothing else on screen: shortcut text
+            on the left; Reset then the close ✕ on the right. */}
+        <div className="mb-3 flex items-end justify-between">
+          <div>
+            <h2 className="text-[14px] font-semibold text-white">
+              {t("shortcuts.title")}
+            </h2>
+            <p className="mt-0.5 text-[12px] text-white/50">
+              {t("shortcuts.dragHint")}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={resetAll}
+              className="rounded-lg px-3 py-1.5 text-[12px] font-medium text-white/70 transition hover:bg-white/10 hover:text-white"
+            >
+              {t("shortcuts.reset")}
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label={t("shortcuts.close")}
+              className="grid h-8 w-8 place-items-center rounded-lg text-white/70 transition hover:bg-white/10 hover:text-white"
+            >
+              <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
+                <path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
+              </svg>
+            </button>
+          </div>
         </div>
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={resetAll}
-            className="rounded-lg px-3 py-1.5 text-[12px] font-medium text-white/70 transition hover:bg-white/10 hover:text-white"
-          >
-            {t("shortcuts.reset")}
-          </button>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label={t("shortcuts.close")}
-            className="grid h-8 w-8 place-items-center rounded-lg text-white/70 transition hover:bg-white/10 hover:text-white"
-          >
-            <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
-              <path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
-            </svg>
-          </button>
-        </div>
-      </div>
 
-      {/* Centered keyboard */}
-      <div className="flex flex-1 flex-col items-center justify-center px-4">
-        {/* Floating tooltip pill */}
-        <div className="mb-5 flex h-9 items-center justify-center">
+        {/* Keyboard (relative so the hover pill can float above it). */}
+        <div className="relative">
           {tooltip && (
             <div
-              className="rounded-lg px-4 py-2 text-[14px] font-semibold text-white shadow-2xl"
+              className="pointer-events-none absolute -top-11 left-1/2 z-10 -translate-x-1/2 whitespace-nowrap rounded-lg px-4 py-2 text-[13px] font-semibold text-white shadow-2xl"
               style={{ background: "#16181d" }}
             >
               {tooltip}
             </div>
           )}
-        </div>
 
-        {/* Keyboard — black, borderless, generous rounded bezel like the ref.
-            Unit-based absolute grid so the ISO Enter can span two rows and every
-            key keeps a real keyboard's proportions. GAP is drawn by insetting
-            each key inside its cell (padding trick) so widths stay exact. */}
-        <div
-          className="relative w-full max-w-[1040px] rounded-[22px] p-4"
-          style={{ background: "#0b0c0f", aspectRatio: `${GRID_W} / ${GRID_H * 1.08}` }}
-          onDragEnd={onDragEnd}
-        >
-          <div className="relative h-full w-full">
-            {CAPS.map((cap, ci) => {
-              const code = cap.code;
-              const action = code ? actionForKey(code) : undefined;
-              const isHovered = !!code && hoverKey === code;
-              const isDrop = !!code && dropTarget === code;
-              const isDead = !code;
-              const w = cap.w ?? 1;
-              const h = cap.h ?? 1;
-              const GAP = 0.55; // % of a unit, drawn as an inner inset
-              return (
-                <div
-                  key={ci}
-                  style={{
-                    position: "absolute",
-                    left: `${(cap.x / GRID_W) * 100}%`,
-                    top: `${(cap.y / GRID_H) * 100}%`,
-                    width: `${(w / GRID_W) * 100}%`,
-                    height: `${(h / GRID_H) * 100}%`,
-                    padding: `${(GAP / GRID_H)}%  ${(GAP / GRID_W)}%`,
-                  }}
-                >
+          {/* Keyboard — black, borderless, rounded bezel like the ref.
+              Unit-based absolute grid so the ISO Enter can span two rows and
+              every key keeps a real keyboard's proportions. GAP is drawn by
+              insetting each key inside its cell (padding trick) so widths stay
+              exact. */}
+          <div
+            className="relative w-full rounded-[18px] p-3"
+            style={{ background: "#0b0c0f", aspectRatio: `${GRID_W} / ${GRID_H * 1.08}` }}
+            onDragEnd={onDragEnd}
+          >
+            <div className="relative h-full w-full">
+              {CAPS.map((cap, ci) => {
+                const code = cap.code as string; // every rendered cap is assignable
+                const action = actionForKey(code);
+                const isHovered = hoverKey === code;
+                const isDrop = dropTarget === code;
+                const w = cap.w ?? 1;
+                const h = cap.h ?? 1;
+                // The ISO Enter: wide top half (row 1), narrower right-aligned
+                // lower half (row 2) — two overlapping rounded rects, so every
+                // convex corner stays rounded like the other keys.
+                const isEnter = h === 2;
+                const bg = isDrop
+                  ? "rgba(233,69,96,0.35)"
+                  : action
+                  ? "#20242c"
+                  : "#15171c";
+                const GAP = 0.55; // % of a unit, drawn as an inner inset
+                return (
                   <div
-                    onMouseEnter={() => code && setHoverKey(code)}
-                    onMouseLeave={() => setHoverKey(null)}
-                    onDragOver={(e) => {
-                      if (isDead) return;
-                      e.preventDefault();
-                      e.dataTransfer.dropEffect = "move";
-                      setDropTarget(code as string);
-                    }}
-                    onDragLeave={() =>
-                      code && setDropTarget((c) => (c === code ? null : c))
-                    }
-                    onDrop={(e) => {
-                      if (!code) return;
-                      e.preventDefault();
-                      const a = e.dataTransfer.getData("text/plain") as ShortcutAction;
-                      if (a) dropOnKey(a, code);
-                      onDragEnd();
-                    }}
-                    draggable={!!action}
-                    onDragStart={(e) => action && onDragStart(e, action)}
-                    className="relative h-full w-full rounded-[9px]"
+                    key={ci}
                     style={{
-                      background: isDrop
-                        ? "rgba(233,69,96,0.35)"
-                        : action
-                        ? "#20242c"
-                        : "#15171c",
-                      color: "rgba(255,255,255,0.92)",
-                      cursor: action ? "grab" : "default",
-                      opacity: isDead ? 0.4 : 1,
-                      transform: isHovered && !isDead ? "scale(0.9)" : "scale(1)",
-                      transition: "transform 110ms ease, background-color 110ms ease",
+                      position: "absolute",
+                      left: `${(cap.x / GRID_W) * 100}%`,
+                      top: `${(cap.y / GRID_H) * 100}%`,
+                      width: `${(w / GRID_W) * 100}%`,
+                      height: `${(h / GRID_H) * 100}%`,
+                      padding: `${(GAP / GRID_H)}%  ${(GAP / GRID_W)}%`,
                     }}
                   >
-                    {action && (
-                      // Absolutely-centred, FIXED-size icon: it never stretches
-                      // with a wide key (space bar) or a tall one (Enter).
-                      <svg
-                        viewBox="0 0 24 24"
-                        width="19"
-                        height="19"
-                        className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
-                      >
-                        {SHORTCUT_ICONS[action]}
-                      </svg>
-                    )}
+                    <div
+                      onMouseEnter={() => setHoverKey(code)}
+                      onMouseLeave={() => setHoverKey(null)}
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        e.dataTransfer.dropEffect = "move";
+                        setDropTarget(code);
+                      }}
+                      onDragLeave={() =>
+                        setDropTarget((c) => (c === code ? null : c))
+                      }
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        const a = e.dataTransfer.getData("text/plain") as ShortcutAction;
+                        if (a) dropOnKey(a, code);
+                        onDragEnd();
+                      }}
+                      draggable={!!action}
+                      onDragStart={(e) => action && onDragStart(e, action)}
+                      className="relative h-full w-full"
+                      style={{
+                        color: "rgba(255,255,255,0.92)",
+                        cursor: action ? "grab" : "default",
+                        transform: isHovered ? "scale(0.9)" : "scale(1)",
+                        transition: "transform 110ms ease",
+                      }}
+                    >
+                      {isEnter ? (
+                        <>
+                          <div
+                            className="absolute left-0 top-0 h-1/2 w-full rounded-[8px]"
+                            style={{ background: bg, transition: "background-color 110ms ease" }}
+                          />
+                          <div
+                            className="absolute right-0 top-0 h-full rounded-[8px]"
+                            style={{
+                              width: `${(1.25 / 1.5) * 100}%`,
+                              background: bg,
+                              transition: "background-color 110ms ease",
+                            }}
+                          />
+                        </>
+                      ) : (
+                        <div
+                          className="absolute inset-0 rounded-[8px]"
+                          style={{ background: bg, transition: "background-color 110ms ease" }}
+                        />
+                      )}
+                      {action && (
+                        // Absolutely-centred, FIXED-size icon: it never
+                        // stretches with a wide key (space bar) or a tall one
+                        // (Enter — centred on its top half).
+                        <svg
+                          viewBox="0 0 24 24"
+                          width="17"
+                          height="17"
+                          className="pointer-events-none absolute left-1/2 -translate-x-1/2 -translate-y-1/2"
+                          style={{ top: isEnter ? "25%" : "50%" }}
+                        >
+                          {SHORTCUT_ICONS[action]}
+                        </svg>
+                      )}
+                    </div>
                   </div>
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
           </div>
         </div>
-
-        <p className="mt-4 text-center text-[12px] text-white/35">
-          {t("shortcuts.keyboardHint")}
-        </p>
-
-        {/* Tray: actions not on the board. Drag one onto a key; the resident (if
-            any) swaps back here. Hidden when everything is placed. */}
-        {unassigned.length > 0 && (
-          <div
-            className="mt-5 flex w-full max-w-[980px] flex-wrap items-center justify-center gap-2 rounded-xl p-3"
-            style={{ background: "#0b0c0f" }}
-          >
-            {unassigned.map((id) => (
-              <div
-                key={id}
-                draggable
-                onDragStart={(e) => onDragStart(e, id)}
-                onDragEnd={onDragEnd}
-                onMouseEnter={() => setHoverKey(null)}
-                className="flex cursor-grab items-center gap-2 rounded-lg px-2.5 py-1.5 transition active:cursor-grabbing"
-                style={{
-                  background: dragging === id ? "rgba(233,69,96,0.18)" : "#181a1f",
-                }}
-              >
-                <svg viewBox="0 0 24 24" className="h-[16px] w-[16px] text-white/85">
-                  {SHORTCUT_ICONS[id]}
-                </svg>
-                <span className="text-[12px] text-white/80">{actionLabel(id)}</span>
-              </div>
-            ))}
-          </div>
-        )}
       </div>
     </div>,
     document.body,

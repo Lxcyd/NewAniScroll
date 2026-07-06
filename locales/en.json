@@ -397,7 +397,6 @@
     "configure": "Configure shortcuts",
     "settingsDesc": "Assign keys to video player actions",
     "dragHint": "Drag an icon onto the key you want. Dropping on an occupied key swaps the two.",
-    "keyboardHint": "Assigned keys show their action's icon. Hover a key to see its name.",
     "unassigned": "Unassigned",
     "clear": "Clear",
     "reset": "Reset to defaults",

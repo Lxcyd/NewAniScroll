@@ -397,7 +397,6 @@
     "configure": "Configurer les raccourcis",
     "settingsDesc": "Assigner des touches aux actions du lecteur vidéo",
     "dragHint": "Glissez-déposez une icône sur la touche voulue. Déposer sur une touche occupée échange les deux.",
-    "keyboardHint": "Les touches assignées affichent l'icône de leur action. Survolez une touche pour voir son nom.",
     "unassigned": "Non assigné",
     "clear": "Effacer",
     "reset": "Réinitialiser",

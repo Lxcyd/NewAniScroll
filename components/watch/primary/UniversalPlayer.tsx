@@ -29,6 +29,7 @@ const ShortcutEditor = dynamic(() => import("./ShortcutEditor"), { ssr: false })
 import {
   getKeybindings,
   comboToAction,
+  comboFromEvent,
   type ShortcutAction,
 } from "@/lib/prefs/keybindings";
 import FullscreenChat from "@/components/watch/party/FullscreenChat";
@@ -1379,19 +1380,10 @@ export default function UniversalPlayer({
         return;
       }
       const map = comboToAction(getKeybindings());
-      // Build the same normalized combo the editor stores.
-      const parts: string[] = [];
-      if (e.ctrlKey) parts.push("ctrl");
-      if (e.altKey) parts.push("alt");
-      if (e.shiftKey) parts.push("shift");
-      if (e.metaKey) parts.push("meta");
-      let base = e.key.toLowerCase();
-      if (base === " ") base = "space";
-      if (base === "shift" || base === "control" || base === "alt" || base === "meta") {
-        return;
-      }
-      parts.push(base);
-      const action = map.get(parts.join("+"));
+      // Same normalization the editor stores (modifier keys included — they
+      // are bindable on their own, resolved by `event.code`).
+      const combo = comboFromEvent(e);
+      const action = combo ? map.get(combo) : undefined;
       if (!action) return;
       // We own this key — stop Vidstack's built-in hotkey (Space/k/arrows/…)
       // from ALSO firing, so our binding is the single source of truth.

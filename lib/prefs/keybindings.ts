@@ -179,10 +179,10 @@ export const DEFAULT_KEYBINDINGS: Keybindings = {
   seekForward: "arrowright",
   volumeUp: "arrowup",
   volumeDown: "arrowdown",
-  // Skip intro/outro kept bindable but off the default board (drag onto any
-  // free key). Also volume keys already cover ↑/↓.
-  skipIntro: null,
-  skipOutro: null,
+  // Skip intro/outro on PgUp/PgDn. EVERY action ships bound — the editor has
+  // no unbind path (drops swap), so the full catalog must have a default key.
+  skipIntro: "pageup",
+  skipOutro: "pagedown",
 };
 
 const KEY = "aniscroll:keybindings";
@@ -193,10 +193,16 @@ export function getKeybindings(): Keybindings {
   try {
     const raw = window.localStorage.getItem(KEY);
     if (!raw) return { ...DEFAULT_KEYBINDINGS };
-    const parsed = JSON.parse(raw);
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
     // Merge over defaults so a stored object missing a newer action still has
-    // the default for it (unless the user explicitly unbound it — see below).
-    return { ...DEFAULT_KEYBINDINGS, ...parsed };
+    // the default for it. Null/empty entries (from older versions that allowed
+    // unbinding) are DROPPED so the default reclaims the action — every action
+    // must always be bound.
+    const clean: Keybindings = {};
+    for (const [k, v] of Object.entries(parsed)) {
+      if (typeof v === "string" && v) clean[k as ShortcutAction] = v;
+    }
+    return { ...DEFAULT_KEYBINDINGS, ...clean };
   } catch {
     return { ...DEFAULT_KEYBINDINGS };
   }
@@ -249,13 +255,20 @@ const MOD_ORDER = ["ctrl", "alt", "shift", "meta"] as const;
 
 /**
  * Build a normalized combo string from a KeyboardEvent. Modifiers come first in
- * a fixed order, then the base key (lower-cased `event.key`). Returns null when
- * the event carries only a modifier key (so "press a key" ignores a lone Shift).
+ * a fixed order, then the base key (lower-cased `event.key`).
+ *
+ * Modifier keys are THEMSELVES bindable (the visual keyboard exposes every
+ * key): a lone Shift/Ctrl/Alt/Meta/AltGr resolves to its `event.code`
+ * (lower-cased, e.g. "shiftleft", "altright") so the two Shifts are distinct
+ * physical keys, and carries no modifier prefixes (it would prefix itself).
  */
 export function comboFromEvent(e: KeyboardEvent): KeyCombo | null {
   const key = e.key;
-  if (key === "Shift" || key === "Control" || key === "Alt" || key === "Meta") {
-    return null;
+  if (
+    key === "Shift" || key === "Control" || key === "Alt" || key === "Meta" ||
+    key === "AltGraph"
+  ) {
+    return e.code ? e.code.toLowerCase() : key.toLowerCase();
   }
   const parts: string[] = [];
   if (e.ctrlKey) parts.push("ctrl");
@@ -294,6 +307,17 @@ const KEY_GLYPH: Record<string, string> = {
   pageup: "PgUp",
   pagedown: "PgDn",
   tab: "⇥",
+  delete: "Suppr",
+  capslock: "⇪",
+  shiftleft: "⇧",
+  shiftright: "⇧",
+  controlleft: "Ctrl",
+  controlright: "Ctrl",
+  metaleft: "⊞",
+  metaright: "⊞",
+  altleft: "Alt",
+  altright: "AltGr",
+  contextmenu: "☰",
 };
 
 const MOD_GLYPH: Record<string, string> = {
