@@ -3829,10 +3829,10 @@ export default function UniversalPlayer({
         if (video) video.currentTime = Math.min(video.duration || Infinity, video.currentTime + 5);
         break;
       case "seekBackwardLong":
-        if (video) video.currentTime = Math.max(0, video.currentTime - 10);
+        if (video) video.currentTime = Math.max(0, video.currentTime - 5);
         break;
       case "seekForwardLong":
-        if (video) video.currentTime = Math.min(video.duration || Infinity, video.currentTime + 10);
+        if (video) video.currentTime = Math.min(video.duration || Infinity, video.currentTime + 5);
         break;
       case "frameBackward":
         if (video) {
@@ -3888,12 +3888,13 @@ export default function UniversalPlayer({
       case "pictureInPicture":
         if (pipSupported) togglePip();
         break;
-      case "mirror":
+      case "rotate":
         if (video) {
-          // Toggle a horizontal flip. Compose with any existing objectFit
-          // transform-free (transform is otherwise unused on the <video>).
-          const flipped = video.style.transform.includes("scaleX(-1)");
-          video.style.transform = flipped ? "" : "scaleX(-1)";
+          // Cycle the video rotation 0 → 90 → 180 → 270 → 0. transform is
+          // otherwise unused on the <video>.
+          const m = video.style.transform.match(/rotate\((\d+)deg\)/);
+          const next = ((m ? parseInt(m[1], 10) : 0) + 90) % 360;
+          video.style.transform = next ? `rotate(${next}deg)` : "";
         }
         break;
       case "seekPct10":

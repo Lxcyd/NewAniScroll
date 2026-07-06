@@ -31,53 +31,79 @@ import { SHORTCUT_ICONS } from "./shortcutIcons";
 
 const ACCENT = "#E94560";
 
-// A key definition: `code` = normalized `event.key` we match against combos
-// (null = decorative dead key, e.g. shift). `w` = width in units (1 = a
-// standard key). `h` = row span (for the ISO Enter). No printed labels — a key
-// stays blank unless an action is bound to it. `x`/`y` are COMPUTED (below) by
-// walking each row left→right, so there are never manual-coordinate collisions.
-type Key = { code: string | null; w?: number; h?: number; ghost?: true };
+// A key definition: `code` = lower-cased `event.code` (physical position) we
+// match against combos (null = decorative ghost cell). `label` = glyph to show
+// in the hover pill when it differs from the code (AZERTY caps). `w` = width in
+// units (1 = a standard key). `h` = row span (for the ISO Enter). `x`/`y` are
+// COMPUTED (below) by walking each row left→right, so there are never
+// manual-coordinate collisions.
+type Key = {
+  code: string | null;
+  label?: string;
+  w?: number;
+  h?: number;
+  ghost?: true;
+};
 type Cap = Key & { x: number; y: number };
 
 // Full French (AZERTY) 75%-style layout, in the exact order requested: the nav
 // keys sit INLINE at the end of each row (delete / home / pageup / up+pagedown /
-// arrows) like on a laptop keyboard — no detached cluster. EVERY key is
-// assignable, modifiers included: their code is the lower-cased `event.code`
-// ("shiftleft", "altright", …) so left/right variants are distinct — matching
-// `comboFromEvent`. Other keys use the `event.key` a French keyboard emits.
+// arrows) like on a laptop keyboard — no detached cluster.
+//
+// `code` is the lower-cased `event.code` (PHYSICAL position, layout-agnostic) —
+// this is what we store and what `comboFromEvent` matches, so a binding works
+// regardless of keyboard layout and WITHOUT needing Shift (AZERTY digits/
+// punctuation require Shift for their `event.key`, which broke key-based
+// matching). `label` is what we print on the cap: for an AZERTY board the glyph
+// differs from the physical code (the key at QWERTY-Q shows "A", etc.).
+//
 // Every row sums to exactly 16 units. `ghost` marks the cell hidden under the
 // ISO Enter's lower half (nothing is drawn there).
 const ROWS: Key[][] = [
   // escape 1..0 - = backspace delete
   [
     { code: "escape" },
-    { code: "1" }, { code: "2" }, { code: "3" }, { code: "4" }, { code: "5" },
-    { code: "6" }, { code: "7" }, { code: "8" }, { code: "9" }, { code: "0" },
-    { code: "-" }, { code: "=" }, { code: "backspace", w: 2 },
+    { code: "digit1", label: "1" }, { code: "digit2", label: "2" },
+    { code: "digit3", label: "3" }, { code: "digit4", label: "4" },
+    { code: "digit5", label: "5" }, { code: "digit6", label: "6" },
+    { code: "digit7", label: "7" }, { code: "digit8", label: "8" },
+    { code: "digit9", label: "9" }, { code: "digit0", label: "0" },
+    { code: "minus", label: "-" }, { code: "equal", label: "=" },
+    { code: "backspace", w: 2 },
     { code: "delete" },
   ],
   // tab a z e r t y u i o p ^ $ enter(2 rows) home
   [
     { code: "tab", w: 1.5 },
-    { code: "a" }, { code: "z" }, { code: "e" }, { code: "r" }, { code: "t" },
-    { code: "y" }, { code: "u" }, { code: "i" }, { code: "o" }, { code: "p" },
-    { code: "^" }, { code: "$" }, { code: "enter", w: 1.5, h: 2 },
+    { code: "keyq", label: "a" }, { code: "keyw", label: "z" },
+    { code: "keye", label: "e" }, { code: "keyr", label: "r" },
+    { code: "keyt", label: "t" }, { code: "keyy", label: "y" },
+    { code: "keyu", label: "u" }, { code: "keyi", label: "i" },
+    { code: "keyo", label: "o" }, { code: "keyp", label: "p" },
+    { code: "bracketleft", label: "^" }, { code: "bracketright", label: "$" },
+    { code: "enter", w: 1.5, h: 2 },
     { code: "home" },
   ],
   // capslock q s d f g h j k l m ù * [enter lower half] pageup
   [
     { code: "capslock", w: 1.75 },
-    { code: "q" }, { code: "s" }, { code: "d" }, { code: "f" }, { code: "g" },
-    { code: "h" }, { code: "j" }, { code: "k" }, { code: "l" }, { code: "m" },
-    { code: "ù" }, { code: "*" },
+    { code: "keya", label: "q" }, { code: "keys", label: "s" },
+    { code: "keyd", label: "d" }, { code: "keyf", label: "f" },
+    { code: "keyg", label: "g" }, { code: "keyh", label: "h" },
+    { code: "keyj", label: "j" }, { code: "keyk", label: "k" },
+    { code: "keyl", label: "l" }, { code: "semicolon", label: "m" },
+    { code: "quote", label: "ù" }, { code: "backslash", label: "*" },
     { code: null, w: 1.25, ghost: true }, // under the ISO Enter's lower half
     { code: "pageup" },
   ],
   // lshift w x c v b n , ; : ! rshift up pagedown
   [
     { code: "shiftleft", w: 1.25 },
-    { code: "w" }, { code: "x" }, { code: "c" }, { code: "v" }, { code: "b" },
-    { code: "n" }, { code: "," }, { code: ";" }, { code: ":" }, { code: "!" },
+    { code: "keyz", label: "w" }, { code: "keyx", label: "x" },
+    { code: "keyc", label: "c" }, { code: "keyv", label: "v" },
+    { code: "keyb", label: "b" }, { code: "keyn", label: "n" },
+    { code: "comma", label: "," }, { code: "period", label: ";" },
+    { code: "slash", label: ":" }, { code: "intlbackslash", label: "!" },
     { code: "shiftright", w: 2.75 },
     { code: "arrowup" }, { code: "pagedown" },
   ],
@@ -107,10 +133,14 @@ const CAPS: Cap[] = ROWS.flatMap((row, y) => {
   });
 });
 
-// Punctuation keys that live inside the main typing block and get the lighter
-// "main" fill alongside letters/digits ( , ; : ! - = ^ $ ù * ). Kept as a Set
-// so the regex doesn't have to escape metacharacters like - $ ^ *.
-const MAIN_PUNCT = new Set([",", ";", ":", "!", "-", "=", "^", "$", "ù", "*"]);
+// Physical codes of the keys inside the main typing block (letters + digits +
+// the punctuation among them) — they get the lighter "main" fill. Digits and
+// letters are matched by prefix (digit*/key*); these are the extra punctuation
+// codes ( , ; : ! - = ^ $ ù * in AZERTY label terms).
+const MAIN_PUNCT = new Set([
+  "comma", "period", "slash", "intlbackslash", "minus", "equal",
+  "bracketleft", "bracketright", "quote", "backslash",
+]);
 
 // Fixed per-side gap inset drawn inside each key cell (so the visible gap
 // between two keys is 2×). A fixed pixel value keeps the gap uniform on every
@@ -122,8 +152,18 @@ function baseOf(combo: KeyCombo): string {
   return parts[parts.length - 1];
 }
 
+// code → printed label for the AZERTY caps (letters/digits/punctuation whose
+// physical code doesn't read like their glyph).
+const CODE_LABEL: Record<string, string> = Object.fromEntries(
+  ROWS.flatMap((r) => r)
+    .filter((k): k is Key & { code: string; label: string } =>
+      !!k.code && !!k.label,
+    )
+    .map((k) => [k.code, k.label]),
+);
+
 function capGlyph(code: string): string {
-  const map: Record<string, string> = {
+  const named: Record<string, string> = {
     arrowleft: "←", arrowright: "→", arrowup: "↑", arrowdown: "↓",
     space: "Space", backspace: "⌫", enter: "↵", escape: "Esc", tab: "Tab",
     delete: "Suppr", home: "Home", pageup: "PgUp", pagedown: "PgDn",
@@ -131,7 +171,7 @@ function capGlyph(code: string): string {
     controlleft: "Ctrl", metaleft: "⊞", altleft: "Alt", altright: "AltGr",
     contextmenu: "☰ Menu",
   };
-  return map[code] ?? code.toUpperCase();
+  return named[code] ?? CODE_LABEL[code]?.toUpperCase() ?? code.toUpperCase();
 }
 
 export default function ShortcutEditor({ onClose }: { onClose: () => void }) {
@@ -294,7 +334,9 @@ export default function ShortcutEditor({ onClose }: { onClose: () => void }) {
                 // region. The tint applies whether or not the key holds an
                 // action — an empty nav key stays darker than an empty letter.
                 const isMain =
-                  /^[a-z0-9]$/i.test(code) || MAIN_PUNCT.has(code);
+                  code.startsWith("key") ||
+                  code.startsWith("digit") ||
+                  MAIN_PUNCT.has(code);
                 // Drop highlight is OPAQUE (not an alpha) so the ISO Enter's two
                 // overlapping rects don't double-blend into a darker patch where
                 // they cross.

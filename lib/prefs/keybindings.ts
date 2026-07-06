@@ -48,7 +48,7 @@ export type ShortcutAction =
   | "frameForward"
   | "cycleServer"
   | "copyTimestamp"
-  | "mirror"
+  | "rotate"
   // Jump to N×10% of the runtime (YouTube-style number-row seek).
   | "seekPct10"
   | "seekPct20"
@@ -121,7 +121,7 @@ export const ACTION_CATALOG: ActionMeta[] = [
   { id: "chromecast", i18n: "chromecast", group: "view" },
   { id: "cycleServer", i18n: "cycleServer", group: "view" },
   { id: "copyTimestamp", i18n: "copyTimestamp", group: "view", directOnly: true },
-  { id: "mirror", i18n: "mirror", group: "view", directOnly: true },
+  { id: "rotate", i18n: "rotate", group: "view", directOnly: true },
   { id: "subtitles", i18n: "subtitles", group: "view" },
   { id: "toggleStats", i18n: "toggleStats", group: "view", directOnly: true },
   { id: "screenshot", i18n: "screenshot", group: "view", directOnly: true },
@@ -131,48 +131,45 @@ export const ACTION_CATALOG: ActionMeta[] = [
  *  common video-player conventions (YouTube / Vidstack) and to avoid clashing
  *  with each other. Single keys where possible; modifiers only when we run out
  *  of obvious letters. */
-// Default layout mirrors the reference screenshot the user shared: each icon
-// sits on the same physical key it does in the reference. Where the reference
-// shows a generic icon we don't have a 1:1 action for, we map the nearest
-// action (e.g. its "rotate" cluster → restart / episode nav / cycle-server).
-// Keys reference the AZERTY layout drawn in the editor (French `event.key`
-// values). Positions roughly mirror the reference screenshot's icon placement.
+// Values are `event.code` (physical positions), matching what the visual editor
+// stores and what `comboFromEvent` compares against. The comments give the
+// AZERTY label printed on that physical key.
 export const DEFAULT_KEYBINDINGS: Keybindings = {
-  // Number row: 1–9 = jump to 10–90%, far-right = ↺ restart.
-  seekPct10: "1",
-  seekPct20: "2",
-  seekPct30: "3",
-  seekPct40: "4",
-  seekPct50: "5",
-  seekPct60: "6",
-  seekPct70: "7",
-  seekPct80: "8",
-  seekPct90: "9",
+  // Number row: 1–9 = jump to 10–90%, backspace = ↺ restart.
+  seekPct10: "digit1",
+  seekPct20: "digit2",
+  seekPct30: "digit3",
+  seekPct40: "digit4",
+  seekPct50: "digit5",
+  seekPct60: "digit6",
+  seekPct70: "digit7",
+  seekPct80: "digit8",
+  seekPct90: "digit9",
   restart: "backspace",
   // Upper row (a z e r t y u i o p ^ $)
-  cycleServer: "z", // ⟳ loop → cycle player
-  subtitles: "t", // tracks/list
-  copyTimestamp: "y", // 🔗 link
-  pictureInPicture: "o", // ▣ PiP
-  seekToEnd: "p",
+  cycleServer: "keyw", // "z" cap — ⟳ cycle player
+  subtitles: "keyt", // "t" — tracks/list
+  copyTimestamp: "keyy", // "y" — 🔗 link
+  pictureInPicture: "keyo", // "o" — ▣ PiP
+  seekToEnd: "keyp", // "p"
   // Home row (q s d f g h j k l m ù *)
-  toggleStats: "s", // brightness/contrast
-  nextEpisode: "d", // ►|
-  prevEpisode: "f", // |◄
-  fullscreen: "g", // fullscreen
-  seekBackwardLong: "j", // ◄◄
-  seekForwardLong: "l", // ►►
-  frameBackward: "m", // ".0 ←"
-  frameForward: "ù", // ".00 →"
+  toggleStats: "keys", // "s"
+  nextEpisode: "keyd", // "d"
+  prevEpisode: "keyf", // "f"
+  fullscreen: "keyg", // "g"
+  seekBackwardLong: "keyj", // "j" — −5s
+  seekForwardLong: "keyl", // "l" — +5s
+  frameBackward: "semicolon", // "m"
+  frameForward: "quote", // "ù"
   // Bottom letter row (w x c v b n , ; : !)
-  chromecast: "c", // cast
-  screenshot: "v", // screenshot
-  mute: "n", // mute
-  mirror: ",",
-  // Speed on the ; : ! cluster.
-  rateDown: ";",
-  rateUp: ":",
-  rateReset: "!",
+  chromecast: "keyc", // "c" — cast
+  screenshot: "keyv", // "v"
+  mute: "keyn", // "n"
+  rotate: "comma", // "," — rotate 90°
+  // Speed on the ; : ! cluster (period/slash/intlBackslash caps).
+  rateDown: "period", // ";"
+  rateUp: "slash", // ":"
+  rateReset: "intlbackslash", // "!"
   // Space + arrows.
   playPause: "space",
   seekBackward: "arrowleft",
@@ -185,7 +182,10 @@ export const DEFAULT_KEYBINDINGS: Keybindings = {
   skipOutro: "pagedown",
 };
 
-const KEY = "aniscroll:keybindings";
+// v2: switched from `event.key` to `event.code` storage — the old key-based
+// values are meaningless now, so a new storage key cleanly discards them and
+// falls back to the (code-based) defaults.
+const KEY = "aniscroll:keybindings:v2";
 export const KEYBINDINGS_EVENT = "aniscroll:keybindings:change";
 
 export function getKeybindings(): Keybindings {
@@ -254,32 +254,18 @@ export function useKeybindings(): Keybindings {
 const MOD_ORDER = ["ctrl", "alt", "shift", "meta"] as const;
 
 /**
- * Build a normalized combo string from a KeyboardEvent. Modifiers come first in
- * a fixed order, then the base key (lower-cased `event.key`).
+ * Build a normalized combo string from a KeyboardEvent.
  *
- * Modifier keys are THEMSELVES bindable (the visual keyboard exposes every
- * key): a lone Shift/Ctrl/Alt/Meta/AltGr resolves to its `event.code`
- * (lower-cased, e.g. "shiftleft", "altright") so the two Shifts are distinct
- * physical keys, and carries no modifier prefixes (it would prefix itself).
+ * We key off `event.code` (the PHYSICAL key position, lower-cased) rather than
+ * `event.key` (the produced character). This is layout-agnostic and, crucially,
+ * does NOT require Shift: on an AZERTY keyboard the digit row and much of the
+ * punctuation only yield "1", ";", "!", … as `event.key` WITH Shift held, so a
+ * key-based binding never matched a plain press. `event.code` ("Digit1",
+ * "Semicolon", "ShiftLeft", …) is stable and is exactly what the visual editor
+ * stores for each cap.
  */
 export function comboFromEvent(e: KeyboardEvent): KeyCombo | null {
-  const key = e.key;
-  if (
-    key === "Shift" || key === "Control" || key === "Alt" || key === "Meta" ||
-    key === "AltGraph"
-  ) {
-    return e.code ? e.code.toLowerCase() : key.toLowerCase();
-  }
-  const parts: string[] = [];
-  if (e.ctrlKey) parts.push("ctrl");
-  if (e.altKey) parts.push("alt");
-  if (e.shiftKey) parts.push("shift");
-  if (e.metaKey) parts.push("meta");
-  // Normalize the base key. Space arrives as " "; store it as "space".
-  let base = key.length === 1 ? key.toLowerCase() : key.toLowerCase();
-  if (base === " ") base = "space";
-  parts.push(base);
-  return parts.join("+");
+  return e.code ? e.code.toLowerCase() : null;
 }
 
 /** Same normalization used to match a live event against a stored combo. */
