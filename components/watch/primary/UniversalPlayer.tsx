@@ -4605,20 +4605,21 @@ export default function UniversalPlayer({
               return y;
             };
             const frontH = toastHeights.current[visible[0]?.id] || 56;
-            // Height of the fully-expanded column — the hover backdrop is ALWAYS
-            // sized to this (not the collapsed height). Sizing the hit area to the
-            // max extent means the cursor is already inside it before the cards
-            // finish fanning out, so it can't fall into a transient gap between
-            // two cards and drop the hover → no expand/collapse flicker.
+            // Fully-expanded column height — the hit area grows to this only WHILE
+            // hovered, so the cursor stays inside as the cards fan out (no flicker).
             const expandedH =
               expandedOffset(visible.length - 1) +
               (toastHeights.current[visible[visible.length - 1]?.id] || 56);
+            // Collapsed stack height — the hit area is only THIS tall at rest, so
+            // a cursor resting near the bottom-right corner doesn't hold the stack
+            // open. Front card + the small peek each behind card adds.
+            const collapsedH = frontH + (visible.length - 1) * PEEK;
             return (
               <div
                 // Fan-out on hover is CSS-driven (.ip-toast-anchor:hover), not
-                // React state — see globals.css. The invisible backdrop below
-                // (sized to the expanded extent) is the hover target so crossing
-                // gaps between cards never drops it.
+                // React state — see globals.css. The invisible hit area below is
+                // the hover target; it's collapsed-sized at rest and grows to the
+                // expanded extent on hover so crossing gaps never drops the hover.
                 className={
                   "ip-toast-anchor" + (toastAnimateOff ? " ip-toast-no-anim" : "")
                 }
@@ -4633,17 +4634,19 @@ export default function UniversalPlayer({
                   width: "min(356px, 86vw)",
                   height: 0, // toasts are absolutely positioned off this anchor
                   pointerEvents: "none",
+                  ["--collapsed-hit-h" as any]: `${Math.round(collapsedH)}px`,
+                  ["--expanded-hit-h" as any]: `${Math.round(Math.max(expandedH, frontH))}px`,
                 }}
               >
-                {/* Invisible hit area covering the FULL expanded column height at
-                    all times, so hover never drops while the stack animates. */}
+                {/* Invisible hover hit area — collapsed height at rest, expanded
+                    height while hovered (see .ip-toast-hit in globals.css). */}
                 <div
+                  className="ip-toast-hit"
                   style={{
                     position: "absolute",
                     right: 0,
                     bottom: 0,
                     width: "100%",
-                    height: Math.max(expandedH, frontH),
                     pointerEvents: "auto",
                   }}
                 />

@@ -1338,6 +1338,16 @@ input[type="number"] {
 .ip-toast-anchor.ip-toast-no-anim .ip-toast-card {
   transition: none;
 }
+/* Hover hit area. At rest it only covers the COLLAPSED stack height (var set in
+   JS) so a resting cursor near the bottom-right corner doesn't hold the stack
+   open. Once actually hovered it grows to the full expanded height so the cursor
+   stays "inside" while the cards fan out (no flicker). */
+.ip-toast-hit {
+  height: var(--collapsed-hit-h);
+}
+.ip-toast-anchor:hover .ip-toast-hit {
+  height: var(--expanded-hit-h);
+}
 
 /* Countdown bar used by the in-player toast replica (fullscreen). Shrinks a
    full-width bar to zero over the toast's lifetime (duration set inline). */
