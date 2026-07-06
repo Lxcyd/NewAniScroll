@@ -630,7 +630,12 @@ export default function Watch({
   // State-driven (not event-driven) so it can't miss the transient snapshot.
   useEffect(() => {
     const s = party?.snapshot;
-    if (!s || !s.aniId) return;
+    // Guard against a malformed snapshot (aniId/epiNumber missing or the literal
+    // string "undefined" from a room seeded before the page had its metadata) —
+    // navigating on it produced /anime/watch/undefined/…?num=undefined, which
+    // crashed the page (Array.map over a null episode). Stay put instead.
+    const bad = (v) => v == null || v === "" || v === "undefined";
+    if (!s || bad(s.aniId) || bad(s.epiNumber)) return;
     // Compare against the page's OWN SSR prop (`aniId`), not `info?.id` which
     // hydrates asynchronously: while it lags the new anime, sameAnime reads
     // false and we'd push the same route over and over (the load loop).

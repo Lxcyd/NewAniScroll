@@ -71,16 +71,53 @@ export const SHORTCUT_ICONS: Record<ShortcutAction, ReactNode> = {
       <path d="M19.75 1.5a1.1 1.1 0 0 1 1.1 1.1v1.05h1.05a1.1 1.1 0 1 1 0 2.2h-1.05v1.05a1.1 1.1 0 1 1-2.2 0V5.85h-1.05a1.1 1.1 0 1 1 0-2.2h1.05V2.6a1.1 1.1 0 0 1 1.1-1.1Z" fill="currentColor" />
     </>
   ),
-  // Reset speed: a speedometer gauge with the needle pointing to the TOP-RIGHT
-  // (neutral / normal speed). Full Material "speed" dial remapped from its
-  // 0 -960 960 960 viewBox into 0 0 24 24 (translate 0,24 · scale 0.025).
+  // Reset speed: the "arch" speedometer dial supplied by the user — the base
+  // gauge plus two mirrored top arches (so the ring is closed) and a needle
+  // pointing top-right (neutral speed). Remapped from its 0 -960 960 960 viewBox
+  // into 0 0 24 24 by wrapping the whole thing (defs geometry AND clip rects,
+  // all authored in the same 960 space) in one translate(0,24) scale(0.025).
+  // A small "restart" (circular arrow) badge sits in the top-right corner.
   rateReset: (
-    <g transform="translate(0,24) scale(0.025)">
-      {/* dial with the opening broken at the top-right for the needle to exit */}
-      <path d="M480-800q59 0 113.5 16.5T696-734l-76 48q-33-17-68.5-25.5T480-720q-133 0-226.5 93.5T160-400q0 42 11.5 83t32.5 77h552q23-38 33.5-79t10.5-85q0-36-8.5-70T766-540l48-76q30 47 47.5 100T880-406q1 57-13 109t-41 99q-11 18-30 28t-40 10H204q-21 0-40-10t-30-28q-26-45-40-95.5T80-400q0-83 31.5-155.5t86-127Q252-737 325-768.5T480-800Z" fill="currentColor" />
-      {/* needle pointing to the top-right */}
-      <path d="M480-316.5q38-.5 56-27.5l224-336-336 224q-27 18-28.5 55t22.5 61q24 24 62 23.5Z" fill="currentColor" />
-    </g>
+    <>
+      <g transform="translate(0,24) scale(0.025)">
+        <defs>
+          <path
+            id="rr-cadran"
+            d="M480-800q59 0 113.5 16.5T696-734l-76 48q-33-17-68.5-25.5T480-720q-133 0-226.5 93.5T160-400q0 42 11.5 83t32.5 77h552q23-38 33.5-79t10.5-85q0-36-8.5-70T766-540l48-76q30 47 47.5 100T880-406q1 57-13 109t-41 99q-11 18-30 28t-40 10H204q-21 0-40-10t-30-28q-26-45-40-95.5T80-400q0-83 31.5-155.5t86-127Q252-737 325-768.5T480-800Z"
+          />
+          <clipPath id="rr-arche-haute">
+            <rect x="250" y="-960" width="515" height="300" />
+          </clipPath>
+          <clipPath id="rr-base-etendue">
+            <rect x="0" y="-960" width="250" height="960" />
+            <rect x="810" y="-960" width="150" height="960" />
+            <rect x="0" y="-660" width="960" height="660" />
+          </clipPath>
+          <use
+            id="rr-arche"
+            href="#rr-cadran"
+            clipPath="url(#rr-arche-haute)"
+            transform="rotate(-45 480 -400)"
+          />
+        </defs>
+        <use href="#rr-cadran" clipPath="url(#rr-base-etendue)" fill="currentColor" />
+        <use href="#rr-arche" fill="currentColor" />
+        <use href="#rr-arche" transform="translate(960,0) scale(-1,1)" fill="currentColor" />
+        <path
+          transform="rotate(-45 480 -400)"
+          d="M480-316.5q38-.5 56-27.5l224-336-336 224q-27 18-28.5 55t22.5 61q24 24 62 23.5Z"
+          fill="currentColor"
+        />
+      </g>
+      {/* small "restart" (circular arrow) badge — same glyph as the restart
+          action, shrunk into the top-right corner. */}
+      <g transform="translate(16.5,-1.5) scale(0.375)">
+        <path
+          d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"
+          fill="currentColor"
+        />
+      </g>
+    </>
   ),
   // Same "OP"/"ED" badge as the Settings > Automation panel, for visual
   // consistency between the two places this action appears.
@@ -100,12 +137,12 @@ export const SHORTCUT_ICONS: Record<ShortcutAction, ReactNode> = {
   fullscreen: P("M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"),
   screenshot: P("M12 15.2a3.2 3.2 0 100-6.4 3.2 3.2 0 000 6.4zM9 2L7.17 4H4a2 2 0 00-2 2v12a2 2 0 002 2h16a2 2 0 002-2V6a2 2 0 00-2-2h-3.17L15 2H9zm3 15a5 5 0 110-10 5 5 0 010 10z"),
   subtitles: P("M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm-9 11H6v-2h5v2zm7 0h-5v-2h5v2zm0-4H6V9h12v2z"),
-  // ±5s seeks: just the text "−5" / "+5".
+  // ±5s seeks: just the text "−5" / "+5", a bit larger for legibility.
   seekBackwardLong: (
-    <text x="12" y="16.5" textAnchor="middle" fontFamily="Space Grotesk, system-ui, sans-serif" fontSize="12" fontWeight="700" fill="currentColor">−5</text>
+    <text x="12" y="17" textAnchor="middle" fontFamily="Space Grotesk, system-ui, sans-serif" fontSize="15" fontWeight="700" fill="currentColor">−5</text>
   ),
   seekForwardLong: (
-    <text x="12" y="16.5" textAnchor="middle" fontFamily="Space Grotesk, system-ui, sans-serif" fontSize="12" fontWeight="700" fill="currentColor">+5</text>
+    <text x="12" y="17" textAnchor="middle" fontFamily="Space Grotesk, system-ui, sans-serif" fontSize="15" fontWeight="700" fill="currentColor">+5</text>
   ),
   restart: P("M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"),
   // Prev/next FRAME ("image précédente/suivante"): Material "photo + arrow"

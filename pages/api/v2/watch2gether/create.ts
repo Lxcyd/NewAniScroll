@@ -16,7 +16,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   const { aniId, epiNumber, dub, server, position } = req.body || {};
-  if (!aniId || !epiNumber) {
+  // Reject falsy AND the literal "undefined"/"null" strings a client String()
+  // can produce from un-hydrated metadata — a room seeded with those sends every
+  // joiner to /anime/watch/undefined/…, which crashes the page.
+  const bad = (v: unknown) => {
+    const s = String(v ?? "").trim();
+    return s === "" || s === "undefined" || s === "null";
+  };
+  if (bad(aniId) || bad(epiNumber)) {
     return res.status(400).json({ error: "aniId and epiNumber are required" });
   }
 

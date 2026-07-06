@@ -85,7 +85,14 @@ function Lobby({ lobby, onClose }: { lobby?: LobbyMeta; onClose?: () => void }) 
     );
 
   const create = async () => {
-    if (!lobby?.aniId || !lobby?.epiNumber) {
+    // Reject not just falsy but the literal "undefined"/"null" that String()
+    // produces from an un-hydrated info?.id / epiNumber — seeding a room with
+    // those crashed every joiner (navigates to /anime/watch/undefined/…).
+    const ready = (v?: string | number) => {
+      const s = String(v ?? "").trim();
+      return s !== "" && s !== "undefined" && s !== "null";
+    };
+    if (!lobby || !ready(lobby.aniId) || !ready(lobby.epiNumber)) {
       toast.error(t("party.episodeNotReady"));
       return;
     }
