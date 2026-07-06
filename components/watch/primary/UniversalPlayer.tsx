@@ -35,6 +35,7 @@ import {
 import FullscreenChat from "@/components/watch/party/FullscreenChat";
 // @ts-ignore — context module is plain JS, no types
 import { useWatchProvider } from "@/lib/context/watchPageProvider";
+import { getServer } from "@/lib/servers";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import type { TFunction } from "i18next";
@@ -1348,6 +1349,22 @@ export default function UniversalPlayer({
 
   const [subMenuOpen, setSubMenuOpen] = useState(false);
   const [subStyleOpen, setSubStyleOpen] = useState(false);
+  // Transient in-player notice (e.g. "subs are burned in / this version has no
+  // subs"). Rendered as an overlay portalled INTO the player so it's visible in
+  // fullscreen too — a sonner toast lives on <body> and is hidden in fullscreen.
+  const [subNotice, setSubNotice] = useState<string | null>(null);
+  const subNoticeTimer = useRef<number | null>(null);
+  const showSubNotice = (msg: string) => {
+    setSubNotice(msg);
+    if (subNoticeTimer.current) window.clearTimeout(subNoticeTimer.current);
+    subNoticeTimer.current = window.setTimeout(() => setSubNotice(null), 3500);
+  };
+  useEffect(
+    () => () => {
+      if (subNoticeTimer.current) window.clearTimeout(subNoticeTimer.current);
+    },
+    [],
+  );
   // Configurable keyboard shortcuts: the visual editor overlay + the live
   // "stats for nerds" panel are both toggled from the settings menu / hotkeys.
   const [shortcutEditorOpen, setShortcutEditorOpen] = useState(false);
@@ -3778,6 +3795,32 @@ export default function UniversalPlayer({
     default?: boolean;
   }>;
 
+  // Subtitle mode of the CURRENT server, derived from its definition:
+  //   - "soft" (Megaplay, lang "multi"): separate subtitle tracks → togglable.
+  //   - "none" (VF dubs, lang "vf"): dubbed audio, NO subtitles at all.
+  //   - "hard" (VOSTFR, lang "vo"): subtitles are BURNED into the video and
+  //     cannot be turned off.
+  // Used to (a) still show the Subs button on hard/none servers and (b) explain,
+  // via a fullscreen-safe notice, why toggling subs does nothing there.
+  const serverLang = serverId ? getServer(serverId)?.lang : "multi";
+  const subMode: "soft" | "hard" | "none" =
+    serverLang === "vf" ? "none" : serverLang === "vo" ? "hard" : "soft";
+
+  // The subtitles button/shortcut: on a soft-sub server open the track menu;
+  // on a hard-sub or dub server there's nothing to toggle, so explain why with a
+  // fullscreen-safe notice instead of silently doing nothing.
+  const openSubtitles = () => {
+    if (subMode === "hard") {
+      showSubNotice(t("player.subsHardBurned"));
+      return;
+    }
+    if (subMode === "none" || subtitleTracks.length === 0) {
+      showSubNotice(t("player.subsNoneDub"));
+      return;
+    }
+    setSubMenuOpen((v) => !v);
+  };
+
   // ── Configurable keyboard shortcuts ───────────────────────────────────────
   // A single data-driven dispatcher: each ShortcutAction maps to a small
   // imperative op on the live <video> / player / hls instance. The keydown
@@ -3923,10 +3966,15 @@ export default function UniversalPlayer({
         }
         break;
       case "subtitles":
-        if (subtitleTracks.length) {
+        if (subMode === "soft" && subtitleTracks.length) {
           // Cycle: off → track 0 → track 1 → … → off.
           const next = activeTrackIdx + 1 >= subtitleTracks.length ? -1 : activeTrackIdx + 1;
           selectSubtitleTrack(next);
+        } else {
+          // Hard-sub / dub: explain why there's nothing to cycle.
+          showSubNotice(
+            subMode === "hard" ? t("player.subsHardBurned") : t("player.subsNoneDub"),
+          );
         }
         break;
       case "toggleStats":
@@ -4064,10 +4112,15 @@ export default function UniversalPlayer({
         // StaticGlow on these sources.
         {...(bestStream!.noCors ? {} : { crossorigin: "anonymous" })}
         aspectRatio="16/9"
-        // When the host has blocked our playback, disable Vidstack's keyboard
-        // shortcuts (Space/k = play, arrows = seek, etc.) so they can't drive
-        // playback past the <video> guard below.
-        keyDisabled={!!party?.amPlaybackBlocked}
+        // Disable Vidstack's built-in keyboard shortcuts ENTIRELY: our central
+        // window-level handler (see the keydown effect) is the single source of
+        // truth for every shortcut, driven by the user's keybindings. Leaving
+        // Vidstack's defaults on meant an UNBOUND key still triggered Vidstack's
+        // own action — e.g. in fullscreen, pressing "i" fired Vidstack's default
+        // PiP even though the user's PiP is on "o" (our handler no-ops an unbound
+        // key without preventing Vidstack's default). It also double-fired bound
+        // keys. Always off — playback-block is enforced by the <video> guard.
+        keyDisabled
         onError={() => onError?.("Playback error")}
       >
         <MediaProvider>
@@ -4116,8 +4169,11 @@ export default function UniversalPlayer({
           downloadUrl={downloadUrl}
           downloadFilename={`${safeName}.${ext}`}
           downloadExt={ext}
-          onSubsClick={() => setSubMenuOpen((v) => !v)}
-          hasSubtitles={subtitleTracks.length > 0}
+          onSubsClick={openSubtitles}
+          // Always show the Subs button: on hard-sub / dub servers it has no
+          // menu to open, but clicking it surfaces the "why can't I toggle
+          // subs" notice instead of the button silently disappearing.
+          hasSubtitles={subtitleTracks.length > 0 || subMode !== "soft"}
           subBtnRef={subBtnRef}
           castAvailable={castAvailable}
           castConnected={castConnected}
@@ -4242,10 +4298,10 @@ export default function UniversalPlayer({
                   downloadFilename={`${safeName}.${ext}`}
                   iconPath="M12 16l-5-5h3V4h4v7h3l-5 5zm-7 2h14v2H5v-2z"
                 />
-                {subtitleTracks.length > 0 && (
+                {(subtitleTracks.length > 0 || subMode !== "soft") && (
                   <SettingsActionRow
                     label={t("player.subtitles")}
-                    onClick={() => setSubMenuOpen(true)}
+                    onClick={openSubtitles}
                     iconPath="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm-9 11H6v-2h5v2zm7 0h-5v-2h5v2zm0-4H6V9h12v2z"
                   />
                 )}
@@ -4343,6 +4399,13 @@ export default function UniversalPlayer({
           myId={party.myId}
           playerEl={playerElState}
           active={isFullscreen}
+          // Hide the chat while any player menu/overlay is open (settings,
+          // subtitles, subtitle styling, stats) so it doesn't overlap them in
+          // fullscreen — `settingsHostAttached` is true only while the settings
+          // menu is actually open.
+          suppressed={
+            settingsHostAttached || subMenuOpen || subStyleOpen || statsOpen
+          }
         />
       )}
 
@@ -4363,17 +4426,66 @@ export default function UniversalPlayer({
 
       <SubtitleSettings open={subStyleOpen} onClose={() => setSubStyleOpen(false)} />
 
+      {/* In-player notice (e.g. "subs are burned in"). Portalled INTO the player
+          root so it stays visible in fullscreen — a sonner toast on <body> would
+          be hidden while the player is the fullscreen element. */}
+      {subNotice &&
+        playerElState &&
+        createPortal(
+          <div
+            role="status"
+            aria-live="polite"
+            onClick={() => setSubNotice(null)}
+            style={{
+              position: "absolute",
+              left: "50%",
+              bottom: 88,
+              transform: "translateX(-50%)",
+              zIndex: 60,
+              maxWidth: "min(520px, 86%)",
+              padding: "12px 16px",
+              borderRadius: 12,
+              background: "rgba(10,10,10,0.92)",
+              backdropFilter: "blur(6px)",
+              border: "1px solid rgba(255,255,255,0.12)",
+              color: "#fff",
+              fontSize: 14,
+              lineHeight: 1.4,
+              textAlign: "center",
+              boxShadow: "0 8px 30px rgba(0,0,0,0.45)",
+              cursor: "pointer",
+            }}
+          >
+            {subNotice}
+          </div>,
+          playerElState,
+        )}
+
       {/* "Stats for nerds" — live playback telemetry, toggled by the
-          `toggleStats` shortcut or the settings-menu row. Sibling overlay so
-          it survives fullscreen. */}
-      {statsOpen && (
-        <VideoStats
-          playerRef={playerRef}
-          hlsRef={hlsRef}
-          serverName={serverId}
-          onClose={() => setStatsOpen(false)}
-        />
-      )}
+          `toggleStats` shortcut or the settings-menu row. Portalled INTO the
+          player root (playerElState) — the fullscreen element is `.vds-player`,
+          so a plain sibling here would be outside the fullscreen subtree and
+          invisible in fullscreen (the bug). Falls back to a normal sibling
+          before the element is ready. */}
+      {statsOpen &&
+        (playerElState
+          ? createPortal(
+              <VideoStats
+                playerRef={playerRef}
+                hlsRef={hlsRef}
+                serverName={serverId}
+                onClose={() => setStatsOpen(false)}
+              />,
+              playerElState,
+            )
+          : (
+            <VideoStats
+              playerRef={playerRef}
+              hlsRef={hlsRef}
+              serverName={serverId}
+              onClose={() => setStatsOpen(false)}
+            />
+          ))}
 
       {/* Visual keyboard shortcut editor — opened from the settings menu. */}
       {shortcutEditorOpen && (

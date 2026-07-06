@@ -25,6 +25,9 @@ interface Props {
   playerEl: HTMLElement | null;
   /** Only render when the player is actually fullscreen. */
   active: boolean;
+  /** Hide the chat while a player menu/overlay (settings, subtitles, stats…) is
+   *  open, so it doesn't sit on top of / fight those controls in fullscreen. */
+  suppressed?: boolean;
 }
 
 const BUBBLE_TTL_MS = 4000; // each ephemeral bubble fades after ~4s
@@ -34,7 +37,7 @@ const RECENT_MAX = 30; // history kept for the hover panel
 // closes instantly on mouse-leave (the requested behaviour).
 const TYPING_GRACE_MS = 400;
 
-export default function FullscreenChat({ onRemote, sendChat, playerEl, active }: Props) {
+export default function FullscreenChat({ onRemote, sendChat, playerEl, active, suppressed }: Props) {
   const { t } = useTranslation();
   const [recent, setRecent] = useState<ChatMessage[]>([]);
   const [bubbles, setBubbles] = useState<ChatMessage[]>([]);
@@ -150,7 +153,19 @@ export default function FullscreenChat({ onRemote, sendChat, playerEl, active }:
   const ZONE_H = "58vh";
 
   const overlay = (
-    <div style={{ position: "absolute", inset: 0, zIndex: 40, pointerEvents: "none" }}>
+    // While a player menu is open (suppressed), hide the whole chat overlay so
+    // it doesn't overlap / fight the settings, subtitles or stats panels. We use
+    // display:none rather than unmounting so the live message subscription and
+    // bubble timers keep running underneath.
+    <div
+      style={{
+        position: "absolute",
+        inset: 0,
+        zIndex: 40,
+        pointerEvents: "none",
+        display: suppressed ? "none" : undefined,
+      }}
+    >
       {/* Hover trigger zone — sized to the chat panel's footprint (bottom-right,
           above the control bar). Entering it opens the chat; leaving it (or the
           panel) closes it instantly. Sits above the controls so PiP / fullscreen

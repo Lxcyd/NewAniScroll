@@ -369,6 +369,8 @@
     "chapterOutro": "Outro",
     "chapterRecap": "Recap",
     "customizeSubtitles": "Customize subtitles…",
+    "subsHardBurned": "Subtitles are burned into the video on this server — they can't be turned off. Use Megaplay for toggleable subtitles.",
+    "subsNoneDub": "This (dubbed) version has no subtitles.",
     "track": "Track {{n}}",
     "ambientLights": "Ambient lights",
     "automation": "Automation",
