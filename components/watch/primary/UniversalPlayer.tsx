@@ -1405,18 +1405,14 @@ export default function UniversalPlayer({
       window.setTimeout(() => dismissPlayerToast(id), dur),
     );
   };
-  // True when a <body> toast would be hidden: native fullscreen OR iOS CSS
-  // pseudo-fullscreen (both put the pinned player above document.body).
-  const inFullscreenNow = () =>
-    !!(
-      document.fullscreenElement ||
-      (document as any).webkitFullscreenElement ||
-      iosPseudoFsRef.current
-    );
-  // Route a notice to the right surface: sonner windowed, in-player stack in FS.
+  // Always use the in-player stack (not sonner) for player notices, windowed OR
+  // fullscreen, so the hover-expand fan-out animation is identical everywhere.
+  // Sonner's windowed toasts don't fan out on hover the way our stack does, so
+  // routing both surfaces through pushPlayerToast gives one consistent, animated
+  // stack. The stack renders fine at absolute right/bottom in the player root
+  // regardless of fullscreen state.
   const showPlayerNotice = (msg: string, dur = 3500) => {
-    if (inFullscreenNow()) pushPlayerToast(msg, dur);
-    else toast.error(msg);
+    pushPlayerToast(msg, dur);
   };
   const showSubNotice = (msg: string) => showPlayerNotice(msg, 3500);
   useEffect(
@@ -4547,10 +4543,11 @@ export default function UniversalPlayer({
 
       <SubtitleSettings open={subStyleOpen} onClose={() => setSubStyleOpen(false)} />
 
-      {/* FULLSCREEN-ONLY toast stack (subs burned-in / "join a party to chat").
-          Windowed, these fire a real sonner toast; but a <body> toast is hidden
-          while the player is the fullscreen element, so here we portal a replica
-          INTO the player root, styled like sonner's richColors "error" card.
+      {/* In-player toast stack for player notices (subs burned-in / "join a party
+          to chat"), used in BOTH windowed and fullscreen. We portal a replica
+          INTO the player root, styled like sonner's richColors "error" card, so
+          the hover-expand fan-out is the same everywhere (sonner's own windowed
+          toasts don't fan out on hover the way this stack does).
           Sonner-style COLLAPSED stack: only the 3 newest render — the newest is
           fully visible at the front, older ones peek behind (scaled + offset up).
           Each has a ✕ to dismiss and a thin countdown bar. */}
