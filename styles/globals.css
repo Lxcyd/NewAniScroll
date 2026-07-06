@@ -1345,12 +1345,15 @@ input[type="number"] {
 [data-sonner-toast][data-front="true"]::after {
   content: "";
   position: absolute;
-  left: 8px;
-  right: 8px;
-  bottom: 4px;
+  /* Flush to the card's bottom-left corner. `bottom: 0` sits on the border edge
+     (the visible rounded bottom); any positive value lifts the bar up into the
+     padding and it reads as "floating". Spans the full width, inset by the
+     corner radius so the square ends don't poke past the rounded corners. */
+  left: 10px;
+  right: 10px;
+  bottom: 0;
   height: 2px;
-  border-radius: 2px;
-  transform-origin: left;
+  transform-origin: left center;
   /* Tinted to the toast type (falls back to a subtle white) so it reads as part
      of the card rather than a flashy white strip. Rich-color error/success/etc.
      override --normal-text, which we reuse at low opacity. */

@@ -4539,9 +4539,12 @@ export default function UniversalPlayer({
                       right: 0,
                       bottom: 0,
                       width: "100%",
-                      // Older toasts sit slightly up and scaled down, peeking
-                      // from behind the front one — the sonner collapsed look.
-                      transform: `translateY(${-depth * 14}px) scale(${1 - depth * 0.05})`,
+                      // Older toasts sit a *small, fixed* sliver up + scaled
+                      // down, so only their top edge peeks behind the front one
+                      // (never a readable line of their text). Fixed 8px gap =
+                      // same visual step regardless of how tall the front card
+                      // is, matching the sonner collapsed look.
+                      transform: `translateY(${-depth * 8}px) scale(${1 - depth * 0.04})`,
                       transformOrigin: "bottom right",
                       // No transparency on stacked toasts: the card bg is solid,
                       // so depth reads from the scale + upward offset alone. A
