@@ -4553,7 +4553,13 @@ export default function UniversalPlayer({
           Each has a ✕ to dismiss and a thin countdown bar. */}
       {playerToasts.length > 0 &&
         playerElState &&
-        createPortal(
+        (() => {
+          // Inside the player only when it covers the screen (native or iOS
+          // pseudo fullscreen); otherwise a <body> toast is reachable, so we
+          // render the stack bottom-right of the SCREEN, outside the player.
+          const insidePlayer = isFullscreen || iosPseudoFs;
+          const portalTarget = insidePlayer ? playerElState : document.body;
+          return createPortal(
           (() => {
             const MAX = 3;
             const GAP = 14; // px between fully-expanded cards (sonner uses ~14)
@@ -4589,10 +4595,13 @@ export default function UniversalPlayer({
                   "ip-toast-anchor" + (toastAnimateOff ? " ip-toast-no-anim" : "")
                 }
                 style={{
-                  position: "absolute",
+                  // Inside player (fullscreen): absolute in the player root,
+                  // lifted above the control bar. Windowed: fixed to the screen's
+                  // bottom-right, outside the player, like a normal sonner toast.
+                  position: insidePlayer ? "absolute" : "fixed",
                   right: 16,
-                  bottom: 88,
-                  zIndex: 60,
+                  bottom: insidePlayer ? 88 : 16,
+                  zIndex: insidePlayer ? 60 : 999999999,
                   width: "min(356px, 86vw)",
                   height: 0, // toasts are absolutely positioned off this anchor
                   pointerEvents: "none",
@@ -4742,8 +4751,9 @@ export default function UniversalPlayer({
               </div>
             );
           })(),
-          playerElState,
-        )}
+          portalTarget,
+        );
+        })()}
 
       {/* "Stats for nerds" — live playback telemetry, toggled by the
           `toggleStats` shortcut or the settings-menu row. Portalled INTO the
