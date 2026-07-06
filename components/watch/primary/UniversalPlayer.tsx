@@ -1436,7 +1436,18 @@ export default function UniversalPlayer({
       pushPlayerToastRef.current(detail.msg, detail.dur ?? 3500);
     };
     window.addEventListener("aniscroll:playerNotice", onNotice);
-    return () => window.removeEventListener("aniscroll:playerNotice", onNotice);
+    // Advertise that a player stack is mounted so callers outside the player
+    // (e.g. the AniList progress toast) can route into the stack when it exists
+    // and fall back to a plain sonner toast when it doesn't (any non-watch page).
+    (window as any).__aniscrollPlayerNoticeCount =
+      ((window as any).__aniscrollPlayerNoticeCount || 0) + 1;
+    return () => {
+      window.removeEventListener("aniscroll:playerNotice", onNotice);
+      (window as any).__aniscrollPlayerNoticeCount = Math.max(
+        0,
+        ((window as any).__aniscrollPlayerNoticeCount || 1) - 1,
+      );
+    };
   }, []);
   // Configurable keyboard shortcuts: the visual editor overlay + the live
   // "stats for nerds" panel are both toggled from the settings menu / hotkeys.
