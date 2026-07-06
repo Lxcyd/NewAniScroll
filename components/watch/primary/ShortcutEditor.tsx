@@ -199,7 +199,7 @@ export default function ShortcutEditor({ onClose }: { onClose: () => void }) {
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="w-full max-w-[860px]">
+      <div className="w-full max-w-[720px]">
         {/* Directly above the keyboard, nothing else on screen: shortcut text
             on the left; Reset then the close ✕ on the right. */}
         <div className="mb-3 flex items-end justify-between">
@@ -265,13 +265,19 @@ export default function ShortcutEditor({ onClose }: { onClose: () => void }) {
                 // lower half (row 2) — two overlapping rounded rects, so every
                 // convex corner stays rounded like the other keys.
                 const isEnter = h === 2;
-                // Letters/digits get the lighter fill; every other key (nav,
-                // modifiers, punctuation, space, …) is a shade darker so the
-                // alphanumeric block reads as the "main" typing area.
-                const isAlnum = /^[a-z0-9ùç^$]$/i.test(code);
-                const idleBg = isAlnum ? "#20242c" : "#181b21";
-                const bg = isDrop ? "rgba(233,69,96,0.35)" : action ? idleBg : "#131519";
-                const GAP = 0.2; // % of a unit, drawn as an inner inset — tight, near-touching keys
+                // The alphanumeric block (letters, digits, and the , ; : !
+                // punctuation cluster) uses the lighter fill; every other key
+                // (nav, modifiers, ^ $ ù *, space, enter, …) is a shade darker
+                // so the "main typing area" reads as a distinct region. The
+                // tint applies whether or not the key holds an action — an
+                // empty nav key is still darker than an empty letter key.
+                const isMain = /^[a-z0-9,;:!]$/i.test(code);
+                const bg = isDrop
+                  ? "rgba(233,69,96,0.35)"
+                  : isMain
+                  ? "#20242c"
+                  : "#181b21";
+                const GAP = 0.45; // % of a unit, drawn as an inner inset
                 return (
                   <div
                     key={ci}
