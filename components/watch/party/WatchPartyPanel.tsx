@@ -77,12 +77,19 @@ function Lobby({ lobby, onClose }: { lobby?: LobbyMeta; onClose?: () => void }) 
   const [loading, setLoading] = useState(false);
   const [code, setCode] = useState("");
 
-  const enterRoom = (roomId: string) =>
-    router.replace(
-      { pathname: router.pathname, query: { ...router.query, party: roomId } },
-      undefined,
-      { shallow: true },
-    );
+  // Enter a room by adding ?party to the CURRENT url. We build the target from
+  // window.location (the real address bar) rather than router.pathname/query:
+  // on this i18n catch-all route, router.pathname is the internal
+  // "/en/anime/watch/[...info]" template and router.query can momentarily lack
+  // the `info`/`num` segments — feeding those to router.replace wrote
+  // "/anime/watch/undefined/…?num=undefined", which crashed the page. The live
+  // location already has the correct path + query, so we only append party.
+  const enterRoom = (roomId: string) => {
+    const params = new URLSearchParams(window.location.search);
+    params.set("party", roomId);
+    const url = `${window.location.pathname}?${params.toString()}`;
+    router.replace(url, undefined, { shallow: true });
+  };
 
   const create = async () => {
     // Reject not just falsy but the literal "undefined"/"null" that String()

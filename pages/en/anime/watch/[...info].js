@@ -505,8 +505,14 @@ export default function Watch({
   const stripParty = useCallback(() => {
     setPartyUIOpen(true);
     setPartyPanelHidden(false);
-    const { party: _omit, ...rest } = router.query;
-    router.replace({ pathname: router.pathname, query: rest }, undefined, { shallow: true });
+    // Build from the live location (not router.pathname/query): on this i18n
+    // catch-all route those can drop the `info`/`num` segments and rewrite the
+    // URL as /anime/watch/undefined/…?num=undefined, crashing the page.
+    const params = new URLSearchParams(window.location.search);
+    params.delete("party");
+    const qs = params.toString();
+    const url = `${window.location.pathname}${qs ? `?${qs}` : ""}`;
+    router.replace(url, undefined, { shallow: true });
   }, [router]);
 
   const handleSelfRemoved = useCallback(
@@ -597,6 +603,10 @@ export default function Watch({
   useEffect(() => {
     if (!party) return;
     const navTo = (targetAniId, targetEp, targetDub) => {
+      // Never navigate on a missing/"undefined" target (a malformed snapshot) —
+      // buildWatchUrl would produce /anime/watch/undefined/…?num=undefined.
+      const bad = (v) => v == null || v === "" || v === "undefined";
+      if (bad(targetAniId) || bad(targetEp)) return;
       const sameAnime = String(aniId) === String(targetAniId);
       const sameEp = sameAnime && String(epiNumber) === String(targetEp) && !!dub === !!targetDub;
       if (sameEp) return;
