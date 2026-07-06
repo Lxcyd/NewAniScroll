@@ -1384,6 +1384,20 @@ export default function UniversalPlayer({
       // are bindable on their own, resolved by `event.code`).
       const combo = comboFromEvent(e);
       const action = combo ? map.get(combo) : undefined;
+      // DEBUG (shortcuts): trace every key so we can see why a binding "does
+      // nothing" — the resolved combo, the matched action, and whether a real
+      // <video> is present. Toggle with `localStorage.scDebug = "1"`.
+      if (typeof window !== "undefined" && window.localStorage?.scDebug === "1") {
+        const vid = document.querySelector("media-player video, video");
+        // eslint-disable-next-line no-console
+        console.log("[shortcut]", {
+          code: e.code,
+          combo,
+          action: action ?? null,
+          hasVideo: !!vid,
+          rate: (vid as HTMLVideoElement | null)?.playbackRate,
+        });
+      }
       if (!action) return;
       // We own this key — stop Vidstack's built-in hotkey (Space/k/arrows/…)
       // from ALSO firing, so our binding is the single source of truth.
@@ -3859,13 +3873,24 @@ export default function UniversalPlayer({
         if (video) video.volume = Math.max(0, +(video.volume - 0.1).toFixed(2));
         break;
       case "rateDown":
-        if (video) onRateChange(Math.max(0.25, +(video.playbackRate - 0.25).toFixed(2)));
+        if (video) {
+          const r = Math.max(0.25, +(video.playbackRate - 0.25).toFixed(2));
+          video.playbackRate = r; // immediate
+          onRateChange(r, { request: true }); // persist + keep Vidstack in sync
+        }
         break;
       case "rateUp":
-        if (video) onRateChange(Math.min(4, +(video.playbackRate + 0.25).toFixed(2)));
+        if (video) {
+          const r = Math.min(4, +(video.playbackRate + 0.25).toFixed(2));
+          video.playbackRate = r;
+          onRateChange(r, { request: true });
+        }
         break;
       case "rateReset":
-        if (video) onRateChange(1);
+        if (video) {
+          video.playbackRate = 1;
+          onRateChange(1, { request: true });
+        }
         break;
       case "skipIntro":
         skipSegment("op");

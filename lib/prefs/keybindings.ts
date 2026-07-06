@@ -261,7 +261,13 @@ const MOD_ORDER = ["ctrl", "alt", "shift", "meta"] as const;
  * stores for each cap.
  */
 export function comboFromEvent(e: KeyboardEvent): KeyCombo | null {
-  return e.code ? e.code.toLowerCase() : null;
+  if (!e.code) return null;
+  const code = e.code.toLowerCase();
+  // Numpad digits fold onto the main digit row so a numpad "1" fires the same
+  // binding as the top-row "1" (Num Lock must be on to emit NumpadN).
+  const np = code.match(/^numpad(\d)$/);
+  if (np) return `digit${np[1]}`;
+  return code;
 }
 
 /** Same normalization used to match a live event against a stored combo. */

@@ -71,12 +71,16 @@ export const SHORTCUT_ICONS: Record<ShortcutAction, ReactNode> = {
       <path d="M19.75 1.5a1.1 1.1 0 0 1 1.1 1.1v1.05h1.05a1.1 1.1 0 1 1 0 2.2h-1.05v1.05a1.1 1.1 0 1 1-2.2 0V5.85h-1.05a1.1 1.1 0 1 1 0-2.2h1.05V2.6a1.1 1.1 0 0 1 1.1-1.1Z" fill="currentColor" />
     </>
   ),
-  // Reset speed: Material "speed + settings gear" glyph, remapped from its
-  // 0 -960 960 960 viewBox into 0 0 24 24.
+  // Reset speed: the speedometer dial (same as rateUp/Down) with a small
+  // circular "reset" arrow badge in the top-right corner instead of a ±.
   rateReset: (
-    <g transform="translate(0,24) scale(0.025)">
-      <path d="m680-60-60-60H520v-100l-60-60 60-60v-100h100l60-60 60 60h100v100l60 60-60 60v100H740l-60 60Zm0-100q50 0 85-35t35-85q0-50-35-85t-85-35v240Zm151-400h-83q-26-88-99-144t-169-56q-117 0-198.5 81.5T200-480q0 72 32.5 132t87.5 98v-110h80v240H160v-80h94q-62-50-98-122.5T120-480q0-75 28.5-140.5t77-114q48.5-48.5 114-77T480-840q129 0 226.5 79.5T831-560Z" fill="currentColor" />
-    </g>
+    <>
+      <g transform="translate(1,22.5) scale(0.02)">
+        <path d="M536-343q26-26 24-60t-30-56q-79-62-164-115T199-682q54 83 107 167.5T418-347q20 29 56 29.5t62-25.5ZM205-160q-22 0-40.5-9.5T135-198q-28-48-42-100.5T79-406q1-56 18.5-109T146-616l48 76q-17 32-26 66.5t-9 69.5q0 44 11.5 85.5T205-240h551q21-36 32.5-76.5T800-400q0-133-93.5-226.5T480-720q-37 0-72.5 9T340-686l-76-48q48-32 102.5-49T480-800q83 0 155.5 31.5t127 86q54.5 54.5 86 127T880-400q0 54-14 105t-40 97q-11 19-30 28.5t-40 9.5H205Z" fill="currentColor" />
+      </g>
+      {/* reset (circular arrow) badge, top-right */}
+      <path d="M20 1.6V0l-2 2 2 2V2.4a2.6 2.6 0 1 1-2.6 2.6h-.8A3.4 3.4 0 1 0 20 1.6Z" fill="currentColor" />
+    </>
   ),
   // Same "OP"/"ED" badge as the Settings > Automation panel, for visual
   // consistency between the two places this action appears.
@@ -112,8 +116,8 @@ export const SHORTCUT_ICONS: Record<ShortcutAction, ReactNode> = {
       <g transform="translate(0,24) scale(0.025)">
         <path d="M200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h320v80H200v560h560v-280h80v280q0 33-23.5 56.5T760-120H200Zm40-160h480L570-480 450-320l-90-120-120 160Z" fill="currentColor" />
       </g>
-      {/* arrow → left (nudged right so it doesn't overlap the frame edge) */}
-      <path d="M21.5 4.75h-5.4l1.7-1.7-1.2-1.2-3.75 3.75 3.75 3.75 1.2-1.2-1.7-1.7h5.4z" fill="currentColor" />
+      {/* arrow → left (nudged 1px right so it doesn't overlap the frame edge) */}
+      <path d="M22.5 4.75h-5.4l1.7-1.7-1.2-1.2-3.75 3.75 3.75 3.75 1.2-1.2-1.7-1.7h5.4z" fill="currentColor" />
     </>
   ),
   frameForward: (

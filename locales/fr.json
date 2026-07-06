@@ -396,7 +396,7 @@
     "title": "Raccourcis clavier",
     "configure": "Configurer les raccourcis",
     "settingsDesc": "Assigner des touches aux actions du lecteur vidéo",
-    "dragHint": "Glissez-déposez une icône sur la touche voulue. Déposer sur une touche occupée échange les deux.",
+    "dragHint": "Glissez-déposez une icône sur la touche voulue.",
     "unassigned": "Non assigné",
     "clear": "Effacer",
     "reset": "Réinitialiser",

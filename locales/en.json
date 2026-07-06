@@ -396,7 +396,7 @@
     "title": "Keyboard shortcuts",
     "configure": "Configure shortcuts",
     "settingsDesc": "Assign keys to video player actions",
-    "dragHint": "Drag an icon onto the key you want. Dropping on an occupied key swaps the two.",
+    "dragHint": "Drag an icon onto the key you want.",
     "unassigned": "Unassigned",
     "clear": "Clear",
     "reset": "Reset to defaults",
