@@ -271,12 +271,26 @@ export default function ShortcutEditor({ onClose }: { onClose: () => void }) {
     const iconSrc = src.querySelector("svg");
     if (iconSrc) {
       const clone = iconSrc.cloneNode(true) as SVGElement;
+      // The key's <svg> is absolutely positioned + translated (className
+      // "absolute left-1/2 -translate-x-1/2 …") so it sits centred INSIDE the
+      // key. Dropped into the ghost's flexbox those classes made it snap to the
+      // top-left instead of centring — strip BOTH the class and the inline style
+      // and let flex do the centring. Fixed pixel size so it never stretches.
+      clone.removeAttribute("class");
       clone.removeAttribute("style");
+      clone.style.position = "static";
+      clone.style.transform = "none";
+      clone.style.flex = "0 0 auto";
       clone.setAttribute("width", "26");
       clone.setAttribute("height", "26");
       ghost.appendChild(clone);
     }
     document.body.appendChild(ghost);
+    // Force a synchronous layout/paint so the element is actually rasterizable
+    // when setDragImage snapshots it THIS tick — otherwise Chrome can grab an
+    // empty (transparent) image, which is why the wide space-bar ghost came out
+    // see-through.
+    void ghost.offsetWidth;
     e.dataTransfer.setDragImage(ghost, rect.width / 2, rect.height / 2);
     window.setTimeout(() => ghost.remove(), 0);
   };

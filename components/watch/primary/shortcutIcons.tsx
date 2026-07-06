@@ -78,50 +78,51 @@ export const SHORTCUT_ICONS: Record<ShortcutAction, ReactNode> = {
   // all authored in the same 960 space) in one translate(0,24) scale(0.025).
   // A small "restart" (circular arrow) badge sits in the top-right corner.
   rateReset: (
-    <>
-      <g transform="translate(0,24) scale(0.025)">
-        <defs>
-          <path
-            id="rr-cadran"
-            d="M480-800q59 0 113.5 16.5T696-734l-76 48q-33-17-68.5-25.5T480-720q-133 0-226.5 93.5T160-400q0 42 11.5 83t32.5 77h552q23-38 33.5-79t10.5-85q0-36-8.5-70T766-540l48-76q30 47 47.5 100T880-406q1 57-13 109t-41 99q-11 18-30 28t-40 10H204q-21 0-40-10t-30-28q-26-45-40-95.5T80-400q0-83 31.5-155.5t86-127Q252-737 325-768.5T480-800Z"
-          />
-          <clipPath id="rr-arche-haute">
-            <rect x="250" y="-960" width="515" height="300" />
-          </clipPath>
-          <clipPath id="rr-base-etendue">
-            <rect x="0" y="-960" width="250" height="960" />
-            <rect x="810" y="-960" width="150" height="960" />
-            <rect x="0" y="-660" width="960" height="660" />
-          </clipPath>
-          <use
-            id="rr-arche"
-            href="#rr-cadran"
-            clipPath="url(#rr-arche-haute)"
-            transform="rotate(-45 480 -400)"
-          />
-        </defs>
-        <use href="#rr-cadran" clipPath="url(#rr-base-etendue)" fill="currentColor" />
-        <use href="#rr-arche" fill="currentColor" />
-        <use href="#rr-arche" transform="translate(960,0) scale(-1,1)" fill="currentColor" />
+    // Faithful reproduction of the supplied SVG (viewBox 0 -960 960 1022.55):
+    // the "arch" dial + top-right restart badge are authored together in the
+    // 960 space, so the WHOLE thing maps to 0 0 24 24 via one
+    // translate(0,24) scale(0.025). Everything is currentColor so the key can
+    // tint it (the source's dark badge fill would be invisible on our keys).
+    <g transform="translate(0,24) scale(0.025)" fill="currentColor">
+      <defs>
         <path
+          id="rr-cadran"
+          d="M480-800q59 0 113.5 16.5T696-734l-76 48q-33-17-68.5-25.5T480-720q-133 0-226.5 93.5T160-400q0 42 11.5 83t32.5 77h552q23-38 33.5-79t10.5-85q0-36-8.5-70T766-540l48-76q30 47 47.5 100T880-406q1 57-13 109t-41 99q-11 18-30 28t-40 10H204q-21 0-40-10t-30-28q-26-45-40-95.5T80-400q0-83 31.5-155.5t86-127Q252-737 325-768.5T480-800Z"
+        />
+        <clipPath id="rr-arche-haute">
+          <rect x="250" y="-960" width="515" height="300" />
+        </clipPath>
+        <clipPath id="rr-base-etendue">
+          <rect x="0" y="-960" width="250" height="960" />
+          <rect x="810" y="-960" width="150" height="960" />
+          <rect x="0" y="-660" width="960" height="660" />
+        </clipPath>
+        <use
+          id="rr-arche"
+          href="#rr-cadran"
+          clipPath="url(#rr-arche-haute)"
           transform="rotate(-45 480 -400)"
-          d="M480-316.5q38-.5 56-27.5l224-336-336 224q-27 18-28.5 55t22.5 61q24 24 62 23.5Z"
-          fill="currentColor"
         />
+      </defs>
+      <use href="#rr-cadran" clipPath="url(#rr-base-etendue)" />
+      <use href="#rr-arche" />
+      <use href="#rr-arche" transform="translate(960,0) scale(-1,1)" />
+      <path
+        transform="rotate(-45 480 -400)"
+        d="M480-316.5q38-.5 56-27.5l224-336-336 224q-27 18-28.5 55t22.5 61q24 24 62 23.5Z"
+      />
+      {/* restart badge, top-right — nested transforms straight from the SVG */}
+      <g transform="translate(696,-658) scale(0.32)">
+        <g transform="translate(0,-960) scale(40)">
+          <path
+            d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"
+            stroke="currentColor"
+            strokeWidth="1"
+            strokeLinejoin="round"
+          />
+        </g>
       </g>
-      {/* small "restart" (circular arrow) badge — same glyph as the restart
-          action, in the top-right corner. Slightly bigger, thicker (a stroke
-          on top of the fill), and nudged further right. */}
-      <g transform="translate(17.4,-1.9) scale(0.42)">
-        <path
-          d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"
-          fill="currentColor"
-          stroke="currentColor"
-          strokeWidth="1.2"
-          strokeLinejoin="round"
-        />
-      </g>
-    </>
+    </g>
   ),
   // Same "OP"/"ED" badge as the Settings > Automation panel, for visual
   // consistency between the two places this action appears.

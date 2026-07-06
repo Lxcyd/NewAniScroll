@@ -1717,6 +1717,11 @@ export default function UniversalPlayer({
   // <video>, only re-targets our injected chrome.
   const [controlsHostAttached, setControlsHostAttached] = useState(false);
   const [settingsHostAttached, setSettingsHostAttached] = useState(false);
+  // True while ANY Vidstack menu (settings, chapters, quality, and the native
+  // captions menu) is open — tracked from the `data-open` attribute the same
+  // observer already watches. Used to hide the fullscreen party chat so it
+  // never sits over an open menu.
+  const [vdsMenuOpen, setVdsMenuOpen] = useState(false);
 
   // Collapse the Automation sub-panel back to the main list whenever the
   // Settings menu closes, so reopening always lands on the top-level list.
@@ -1857,6 +1862,14 @@ export default function UniversalPlayer({
         if (settingsHost?.parentElement) settingsHost.remove();
         setSettingsHostAttached((p) => (p ? false : p));
       }
+
+      // Track whether ANY Vidstack menu is open (settings, chapters, quality,
+      // captions…) — they all carry `data-open` when open. Search the player AND
+      // the document (menus can portal to <body> in fullscreen/mobile).
+      const anyMenuOpen =
+        !!playerEl.querySelector(".vds-menu[data-open]") ||
+        !!document.querySelector(".vds-menu[data-open]");
+      setVdsMenuOpen((p) => (p === anyMenuOpen ? p : anyMenuOpen));
     };
 
     setup();
@@ -4170,10 +4183,10 @@ export default function UniversalPlayer({
           downloadFilename={`${safeName}.${ext}`}
           downloadExt={ext}
           onSubsClick={openSubtitles}
-          // Always show the Subs button: on hard-sub / dub servers it has no
-          // menu to open, but clicking it surfaces the "why can't I toggle
-          // subs" notice instead of the button silently disappearing.
-          hasSubtitles={subtitleTracks.length > 0 || subMode !== "soft"}
+          // Only Megaplay (soft subs) gets the Subs button — hard-sub (VOSTFR)
+          // and VF servers have nothing to toggle. The keyboard shortcut still
+          // surfaces the explanatory notice on those servers.
+          hasSubtitles={subMode === "soft" && subtitleTracks.length > 0}
           subBtnRef={subBtnRef}
           castAvailable={castAvailable}
           castConnected={castConnected}
@@ -4298,7 +4311,7 @@ export default function UniversalPlayer({
                   downloadFilename={`${safeName}.${ext}`}
                   iconPath="M12 16l-5-5h3V4h4v7h3l-5 5zm-7 2h14v2H5v-2z"
                 />
-                {(subtitleTracks.length > 0 || subMode !== "soft") && (
+                {subMode === "soft" && subtitleTracks.length > 0 && (
                   <SettingsActionRow
                     label={t("player.subtitles")}
                     onClick={openSubtitles}
@@ -4399,12 +4412,16 @@ export default function UniversalPlayer({
           myId={party.myId}
           playerEl={playerElState}
           active={isFullscreen}
-          // Hide the chat while any player menu/overlay is open (settings,
-          // subtitles, subtitle styling, stats) so it doesn't overlap them in
-          // fullscreen — `settingsHostAttached` is true only while the settings
-          // menu is actually open.
+          // Hide the chat while any player menu/overlay is open so it never
+          // overlaps them in fullscreen: our custom subtitle menu / styling /
+          // stats, the Vidstack settings host, AND any native Vidstack menu
+          // (chapters, quality, captions…) via `vdsMenuOpen`.
           suppressed={
-            settingsHostAttached || subMenuOpen || subStyleOpen || statsOpen
+            settingsHostAttached ||
+            vdsMenuOpen ||
+            subMenuOpen ||
+            subStyleOpen ||
+            statsOpen
           }
         />
       )}
