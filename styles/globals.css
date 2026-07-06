@@ -1335,19 +1335,25 @@ input[type="number"] {
    as a thin (2px) ::after on each toast, tinted to the toast's own text color.
    4s = sonner's default auto-dismiss. Pausing on hover isn't reflected
    (best-effort), and the manual-close (data-removed) state hides it. */
+/* Clip the toast to its rounded corners (like the fullscreen replica card),
+   so the countdown bar can be a plain full-width rectangle whose ends are cut
+   to follow the card's rounded bottom corners — flush to the edge, no detached
+   pill. The ✕ close button lives outside the card in sonner so clipping the
+   card doesn't hide it. */
 [data-sonner-toast] {
   position: relative;
+  overflow: hidden;
 }
-/* Only the FRONT toast shows the bar. Behind toasts are collapsed to the
-   front-toast height with their contents faded out (data-expanded=false /
-   data-front=false), so a bar on them would float in empty space above the
-   real card — that's the "detached fat pill" seen when notices stack. */
-[data-sonner-toast][data-front="true"]::after {
+/* The FRONT toast (collapsed stack) OR any expanded toast (hover fan-out, where
+   every card is fully readable) shows its own bar. A collapsed behind-toast is
+   squashed to the front height with faded contents, so a bar there would float
+   detached — hence it's suppressed. */
+[data-sonner-toast][data-front="true"]::after,
+[data-sonner-toast][data-expanded="true"]::after {
   content: "";
   position: absolute;
-  /* Pin to ALL four inset anchors so the box can't be nudged by the flex
-     layout: left/right/bottom fixed, then height caps it to a thin strip that
-     hugs the card's bottom edge, starting flush at the far-left corner. */
+  /* Plain full-width strip pinned to the bottom edge; the card's overflow:hidden
+     rounds the ends to the corners (matching the fullscreen toast). */
   left: 0;
   right: 0;
   bottom: 0;
@@ -1360,13 +1366,11 @@ input[type="number"] {
      of the card rather than a flashy white strip. Rich-color error/success/etc.
      override --normal-text, which we reuse at low opacity. */
   background: color-mix(in srgb, currentColor 45%, transparent);
-  border-bottom-left-radius: inherit;
-  border-bottom-right-radius: inherit;
   animation: toastCountdown 4s linear forwards;
   pointer-events: none;
 }
 [data-sonner-toast][data-removed="true"]::after,
-[data-sonner-toast][data-front="false"]::after {
+[data-sonner-toast][data-front="false"][data-expanded="false"]::after {
   display: none;
 }
 

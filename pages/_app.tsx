@@ -437,7 +437,7 @@ export default function App({
         <SearchProvider>
           <WatchPageProvider>
             <SkeletonTheme baseColor="#232329" highlightColor="#2a2a32">
-                <Toaster richColors theme="dark" closeButton />
+                <Toaster richColors theme="dark" closeButton expand />
                 {/* <SecretPage
                   cheatCode={"aofienaef"}
                   onCheatCodeEntered={handleCheatCodeEntered}
