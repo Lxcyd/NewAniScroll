@@ -35,30 +35,11 @@ const Pct = (pct: number) => (
 
 export const SHORTCUT_ICONS: Record<ShortcutAction, ReactNode> = {
   playPause: P("M8 5v14l11-7z"),
-  // Prev/next EPISODE: Material "photo + arrow" frame (image with mountains),
-  // the arrow pointing LEFT (prev) or RIGHT (next). Frame+mountains path is
-  // remapped from its 0 -960 960 960 viewBox; the directional arrow is drawn
-  // in 24×24 space at the top-right.
-  prevEpisode: (
-    <>
-      <g transform="translate(0,24) scale(0.025)">
-        <path d="M200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h320v80H200v560h560v-280h80v280q0 33-23.5 56.5T760-120H200Zm40-160h480L570-480 450-320l-90-120-120 160Z" fill="currentColor" />
-      </g>
-      {/* arrow → left */}
-      <path d="M20 4.75h-5.4l1.7-1.7-1.2-1.2-3.75 3.75 3.75 3.75 1.2-1.2-1.7-1.7H20z" fill="currentColor" />
-    </>
-  ),
-  nextEpisode: (
-    <>
-      <g transform="translate(0,24) scale(0.025)">
-        <path d="M200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h320v80H200v560h560v-280h80v280q0 33-23.5 56.5T760-120H200Zm40-160h480L570-480 450-320l-90-120-120 160Z" fill="currentColor" />
-      </g>
-      {/* arrow → right */}
-      <path d="M14 4.75h5.4l-1.7-1.7 1.2-1.2 3.75 3.75L18.9 9.35l-1.2-1.2 1.7-1.7H14z" fill="currentColor" />
-    </>
-  ),
+  // Prev/next EPISODE: skip-to-start / skip-to-end (|◄ / ►|).
+  prevEpisode: P("M6 6h2v12H6zm3.5 6l8.5 6V6z"),
+  nextEpisode: P("M6 18l8.5-6L6 6v12zM16 6h2v12h-2z"),
   // Mute: speaker + ✕, with the ✕ pushed further right for clarity.
-  mute: P("M7 9v6h4l5 5V4l-5 5H7zm14 3 2.3-2.3-1.4-1.4L19.5 10.6l-2.3-2.3-1.4 1.4L18.1 12l-2.3 2.3 1.4 1.4 2.3-2.3 2.4 2.3 1.4-1.4L21 12z"),
+  mute: P("M7 9v6h4l5 5V4l-5 5H7zm15.5 3 2.3-2.3-1.4-1.4L21 10.6l-2.3-2.3-1.4 1.4 2.3 2.3-2.3 2.3 1.4 1.4 2.3-2.3 2.3 2.3 1.4-1.4z"),
   toggleStats: P("M4 20h16v2H4v-2zm2-9h3v7H6v-7zm5-6h3v13h-3V5zm5 3h3v10h-3V8z"),
   pictureInPicture: P("M19 7h-8v6h8V7zm4 12V4.98C23 3.88 22.1 3 21 3H3c-1.1 0-2 .88-2 1.98V19c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2zm-2 .02H3V4.97h18v14.05z"),
   seekBackward: P("M11 18V6l-8.5 6 8.5 6zm.5-6l8.5 6V6l-8.5 6z"),
@@ -109,23 +90,36 @@ export const SHORTCUT_ICONS: Record<ShortcutAction, ReactNode> = {
   fullscreen: P("M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"),
   screenshot: P("M12 15.2a3.2 3.2 0 100-6.4 3.2 3.2 0 000 6.4zM9 2L7.17 4H4a2 2 0 00-2 2v12a2 2 0 002 2h16a2 2 0 002-2V6a2 2 0 00-2-2h-3.17L15 2H9zm3 15a5 5 0 110-10 5 5 0 010 10z"),
   subtitles: P("M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm-9 11H6v-2h5v2zm7 0h-5v-2h5v2zm0-4H6V9h12v2z"),
-  // ±5s seeks: a circular replay/forward arrow with a "5" in the centre.
+  // ±5s seeks: just the text "−5" / "+5".
   seekBackwardLong: (
-    <>
-      <path d="M11 8V4.5L6.5 9 11 13.5V10c2.76 0 5 2.24 5 5s-2.24 5-5 5-5-2.24-5-5H4c0 3.87 3.13 7 7 7s7-3.13 7-7-3.13-7-7-7z" fill="currentColor" />
-      <text x="11" y="18" textAnchor="middle" fontFamily="Space Grotesk, system-ui, sans-serif" fontSize="8" fontWeight="700" fill="currentColor">5</text>
-    </>
+    <text x="12" y="16.5" textAnchor="middle" fontFamily="Space Grotesk, system-ui, sans-serif" fontSize="12" fontWeight="700" fill="currentColor">−5</text>
   ),
   seekForwardLong: (
-    <>
-      <path d="M13 8V4.5L17.5 9 13 13.5V10c-2.76 0-5 2.24-5 5s2.24 5 5 5 5-2.24 5-5h2c0 3.87-3.13 7-7 7s-7-3.13-7-7 3.13-7 7-7z" fill="currentColor" />
-      <text x="13" y="18" textAnchor="middle" fontFamily="Space Grotesk, system-ui, sans-serif" fontSize="8" fontWeight="700" fill="currentColor">5</text>
-    </>
+    <text x="12" y="16.5" textAnchor="middle" fontFamily="Space Grotesk, system-ui, sans-serif" fontSize="12" fontWeight="700" fill="currentColor">+5</text>
   ),
   restart: P("M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"),
   seekToEnd: P("M6 6l8.5 6L6 18V6zm10 0h2v12h-2V6z"),
-  frameBackward: P("M15 6l-6 6 6 6V6zM7 6H5v12h2V6z"),
-  frameForward: P("M9 6l6 6-6 6V6zm8 0h2v12h-2V6z"),
+  // Prev/next FRAME ("image précédente/suivante"): Material "photo + arrow"
+  // frame (image with mountains), arrow LEFT (prev) / RIGHT (next). Frame path
+  // remapped from its 0 -960 960 960 viewBox; arrow drawn in 24×24 space.
+  frameBackward: (
+    <>
+      <g transform="translate(0,24) scale(0.025)">
+        <path d="M200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h320v80H200v560h560v-280h80v280q0 33-23.5 56.5T760-120H200Zm40-160h480L570-480 450-320l-90-120-120 160Z" fill="currentColor" />
+      </g>
+      {/* arrow → left (nudged right so it doesn't overlap the frame edge) */}
+      <path d="M21.5 4.75h-5.4l1.7-1.7-1.2-1.2-3.75 3.75 3.75 3.75 1.2-1.2-1.7-1.7h5.4z" fill="currentColor" />
+    </>
+  ),
+  frameForward: (
+    <>
+      <g transform="translate(0,24) scale(0.025)">
+        <path d="M200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h320v80H200v560h560v-280h80v280q0 33-23.5 56.5T760-120H200Zm40-160h480L570-480 450-320l-90-120-120 160Z" fill="currentColor" />
+      </g>
+      {/* arrow → right */}
+      <path d="M14 4.75h5.4l-1.7-1.7 1.2-1.2 3.75 3.75L18.9 9.35l-1.2-1.2 1.7-1.7H14z" fill="currentColor" />
+    </>
+  ),
   // "swap/cycle servers" — two arrows looping between stacked layers.
   cycleServer: P("M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46A7.93 7.93 0 0020 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74A7.93 7.93 0 004 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"),
   // "copy timestamped link" — link/chain glyph.

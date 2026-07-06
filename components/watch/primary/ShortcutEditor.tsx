@@ -15,7 +15,7 @@
  *  - Around the keyboard: only a small header (shortcut text left; Reset and ✕
  *    close on the right, directly above the board). Nothing else.
  */
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import {
@@ -102,8 +102,10 @@ const ROWS: Key[][] = [
     { code: "keyz", label: "w" }, { code: "keyx", label: "x" },
     { code: "keyc", label: "c" }, { code: "keyv", label: "v" },
     { code: "keyb", label: "b" }, { code: "keyn", label: "n" },
-    { code: "comma", label: "," }, { code: "period", label: ";" },
-    { code: "slash", label: ":" }, { code: "intlbackslash", label: "!" },
+    // AZERTY bottom row: the physical positions are QWERTY M , . / — so these
+    // caps' event.code is KeyM/Comma/Period/Slash (NOT the glyph names).
+    { code: "keym", label: "," }, { code: "comma", label: ";" },
+    { code: "period", label: ":" }, { code: "slash", label: "!" },
     { code: "shiftright", w: 2.75 },
     { code: "arrowup" }, { code: "pagedown" },
   ],
@@ -138,7 +140,7 @@ const CAPS: Cap[] = ROWS.flatMap((row, y) => {
 // letters are matched by prefix (digit*/key*); these are the extra punctuation
 // codes ( , ; : ! - = ^ $ ù * in AZERTY label terms).
 const MAIN_PUNCT = new Set([
-  "comma", "period", "slash", "intlbackslash", "minus", "equal",
+  "comma", "period", "slash", "minus", "equal",
   "bracketleft", "bracketright", "quote", "backslash",
 ]);
 
@@ -184,6 +186,20 @@ export default function ShortcutEditor({ onClose }: { onClose: () => void }) {
     (id: ShortcutAction) => t(`shortcuts.actions.${id}`),
     [t],
   );
+
+  // Escape closes the editor. Capture phase + stopPropagation so the player's
+  // own key handler (which is suspended while the editor is open) never sees it.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [onClose]);
 
   const byCombo = useMemo(() => comboToAction(binds), [binds]);
 

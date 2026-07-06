@@ -165,11 +165,11 @@ export const DEFAULT_KEYBINDINGS: Keybindings = {
   chromecast: "keyc", // "c" — cast
   screenshot: "keyv", // "v"
   mute: "keyn", // "n"
-  rotate: "comma", // "," — rotate 90°
-  // Speed on the ; : ! cluster (period/slash/intlBackslash caps).
-  rateDown: "period", // ";"
-  rateUp: "slash", // ":"
-  rateReset: "intlbackslash", // "!"
+  rotate: "keym", // "," cap (physical KeyM on AZERTY) — rotate 90°
+  // Speed on the ; : ! cluster — AZERTY physical positions Comma/Period/Slash.
+  rateDown: "comma", // ";" cap
+  rateUp: "period", // ":" cap
+  rateReset: "slash", // "!" cap
   // Space + arrows.
   playPause: "space",
   seekBackward: "arrowleft",
@@ -182,10 +182,9 @@ export const DEFAULT_KEYBINDINGS: Keybindings = {
   skipOutro: "pagedown",
 };
 
-// v2: switched from `event.key` to `event.code` storage — the old key-based
-// values are meaningless now, so a new storage key cleanly discards them and
-// falls back to the (code-based) defaults.
-const KEY = "aniscroll:keybindings:v2";
+// v3: event.code storage; v3 fixed the AZERTY bottom-row codes (bumped so the
+// v2 defaults that were saved with wrong codes are discarded).
+const KEY = "aniscroll:keybindings:v3";
 export const KEYBINDINGS_EVENT = "aniscroll:keybindings:change";
 
 export function getKeybindings(): Keybindings {
