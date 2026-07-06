@@ -1355,12 +1355,26 @@ export default function UniversalPlayer({
 
   const [subMenuOpen, setSubMenuOpen] = useState(false);
   const [subStyleOpen, setSubStyleOpen] = useState(false);
-  // Transient in-player notice (e.g. "subs are burned in / this version has no
-  // subs"). Rendered as an overlay portalled INTO the player so it's visible in
-  // fullscreen too — a sonner toast lives on <body> and is hidden in fullscreen.
+  // Transient notice (e.g. "subs are burned in / this version has no subs").
+  // Windowed → a normal sonner toast (bottom-right, richColors), same as the
+  // rest of the site. Fullscreen → sonner lives on <body> and is hidden while
+  // the player is the fullscreen element, so we fall back to an in-player portal
+  // replica (same style) rendered at the bottom of this component.
   const [subNotice, setSubNotice] = useState<string | null>(null);
   const subNoticeTimer = useRef<number | null>(null);
+  // True when a <body> toast would be hidden: native fullscreen OR iOS CSS
+  // pseudo-fullscreen (both put the pinned player above document.body).
+  const inFullscreenNow = () =>
+    !!(
+      document.fullscreenElement ||
+      (document as any).webkitFullscreenElement ||
+      iosPseudoFsRef.current
+    );
   const showSubNotice = (msg: string) => {
+    if (!inFullscreenNow()) {
+      toast.error(msg);
+      return;
+    }
     setSubNotice(msg);
     if (subNoticeTimer.current) window.clearTimeout(subNoticeTimer.current);
     subNoticeTimer.current = window.setTimeout(() => setSubNotice(null), 3500);
@@ -1446,6 +1460,12 @@ export default function UniversalPlayer({
   // because it swaps the <video> for the native player. We pin the
   // wrapper to viewport with `position:fixed` and lock orientation.
   const [iosPseudoFs, setIosPseudoFs] = useState(false);
+  // Ref mirror so the fullscreen tracker (defined below) can fold pseudo-FS into
+  // isFullscreenRef without depending on this state's render timing.
+  const iosPseudoFsRef = useRef(false);
+  useEffect(() => {
+    iosPseudoFsRef.current = iosPseudoFs;
+  }, [iosPseudoFs]);
   useEffect(() => {
     const ua = navigator.userAgent || "";
     // iPadOS 13+ identifies as MacIntel with maxTouchPoints > 1.
@@ -1738,11 +1758,9 @@ export default function UniversalPlayer({
   // observer already watches. Used to hide the fullscreen party chat so it
   // never sits over an open menu.
   const [vdsMenuOpen, setVdsMenuOpen] = useState(false);
-  // Ephemeral in-player notice (e.g. "join a party to chat"). Rendered as a
-  // sonner-style bottom-right toast portalled INSIDE the player element so it
-  // matches the rest of the site AND stays visible in fullscreen — a real sonner
-  // toast lives on document.body and vanishes when the player is fullscreen. See
-  // the shared in-player toast stack at the bottom of the render.
+  // FULLSCREEN-ONLY fallback for the "join a party to chat" notice. Windowed we
+  // fire a real sonner toast; in fullscreen a <body> toast is hidden, so we
+  // render a sonner-style replica portalled inside the player (bottom of render).
   const [chatWarning, setChatWarning] = useState<string | null>(null);
   useEffect(() => {
     if (!chatWarning) return;
@@ -4028,10 +4046,13 @@ export default function UniversalPlayer({
       case "partyChat": {
         // Only meaningful in a watch-together party (the chat lives there).
         if (!party) {
-          // toast.error would render into document.body — invisible while the
-          // player is fullscreen. Show an ephemeral in-player banner instead so
-          // the message appears in BOTH windowed and fullscreen modes.
-          setChatWarning(t("party.chatNeedsParty", { defaultValue: "Rejoins une party pour discuter." }));
+          const msg = t("party.chatNeedsParty", {
+            defaultValue: "Rejoins une party pour discuter.",
+          });
+          // Windowed → normal sonner toast (matches the site). Fullscreen → a
+          // <body> toast is hidden, so fall back to the in-player replica.
+          if (inFullscreenNow()) setChatWarning(msg);
+          else toast.error(msg);
           break;
         }
         // Focus the chat WHERE THE USER IS — never force fullscreen. In
@@ -4479,11 +4500,12 @@ export default function UniversalPlayer({
 
       <SubtitleSettings open={subStyleOpen} onClose={() => setSubStyleOpen(false)} />
 
-      {/* In-player toasts (subs burned-in / "join a party to chat"). Portalled
-          INTO the player root and styled like sonner's dark bottom-right card,
-          so they match the rest of the site AND stay visible in fullscreen — a
-          real sonner toast lives on <body> and is hidden while the player is the
-          fullscreen element. Stacked bottom-right, above the control bar. */}
+      {/* FULLSCREEN-ONLY toast replica (subs burned-in / "join a party to chat").
+          Windowed, these fire a real sonner toast; but a <body> toast is hidden
+          while the player is the fullscreen element, so here we portal a replica
+          INTO the player root styled like sonner's richColors "error" card
+          (dark maroon, red border + icon + text) so it looks identical to the
+          windowed toast. Bottom-right, above the control bar; stacks both. */}
       {(subNotice || chatWarning) &&
         playerElState &&
         createPortal(
@@ -4514,19 +4536,34 @@ export default function UniversalPlayer({
                   onClick={n.close}
                   style={{
                     pointerEvents: "auto",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 10,
                     padding: "12px 14px",
                     borderRadius: 12,
-                    background: "rgba(10,10,10,0.94)",
-                    backdropFilter: "blur(8px)",
-                    border: "1px solid rgba(255,255,255,0.12)",
-                    color: "#fff",
+                    // sonner richColors "error" (dark theme) palette — exact
+                    // values from sonner 1.0.3, so this matches the windowed toast.
+                    background: "hsl(358, 76%, 10%)",
+                    border: "1px solid hsl(357, 89%, 16%)",
+                    color: "hsl(358, 100%, 81%)",
                     fontSize: 13,
+                    fontWeight: 600,
                     lineHeight: 1.4,
                     boxShadow: "0 8px 30px rgba(0,0,0,0.45)",
                     cursor: "pointer",
                   }}
                 >
-                  {n.msg}
+                  <svg
+                    viewBox="0 0 24 24"
+                    width={18}
+                    height={18}
+                    fill="currentColor"
+                    style={{ flexShrink: 0 }}
+                    aria-hidden="true"
+                  >
+                    <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm-1 5h2v7h-2V7zm0 9h2v2h-2v-2z" />
+                  </svg>
+                  <span>{n.msg}</span>
                 </div>
               ))}
           </div>,
