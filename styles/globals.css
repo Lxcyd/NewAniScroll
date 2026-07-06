@@ -1319,6 +1319,42 @@ input[type="number"] {
   }
 }
 
+/* Countdown bar used by the in-player toast replica (fullscreen). Shrinks a
+   full-width bar to zero over the toast's lifetime (duration set inline). */
+@keyframes toastCountdown {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
+
+/* Same countdown bar on the windowed sonner toasts, so every notice shows the
+   time-left indicator. Sonner 1.0.3 has no built-in progress bar; we draw one
+   as a ::after on each toast. 4s = sonner's default auto-dismiss. Pausing on
+   hover isn't reflected (best-effort), and the manual-close (data-removed)
+   state hides it. */
+[data-sonner-toast] {
+  position: relative;
+}
+[data-sonner-toast]::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  transform-origin: left;
+  background: rgba(255, 255, 255, 0.85);
+  border-bottom-left-radius: inherit;
+  border-bottom-right-radius: inherit;
+  animation: toastCountdown 4s linear forwards;
+}
+[data-sonner-toast][data-removed="true"]::after {
+  display: none;
+}
+
 /* Discover swipe toasts: restyle sonner's default white "Undo" action button
    into a dark, subtle pill that reads as part of the toast. */
 .discover-toast [data-button] {

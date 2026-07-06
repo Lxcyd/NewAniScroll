@@ -1355,13 +1355,26 @@ export default function UniversalPlayer({
 
   const [subMenuOpen, setSubMenuOpen] = useState(false);
   const [subStyleOpen, setSubStyleOpen] = useState(false);
-  // Transient notice (e.g. "subs are burned in / this version has no subs").
+  // Transient notices (e.g. "subs are burned in", "join a party to chat").
   // Windowed → a normal sonner toast (bottom-right, richColors), same as the
   // rest of the site. Fullscreen → sonner lives on <body> and is hidden while
   // the player is the fullscreen element, so we fall back to an in-player portal
-  // replica (same style) rendered at the bottom of this component.
-  const [subNotice, setSubNotice] = useState<string | null>(null);
-  const subNoticeTimer = useRef<number | null>(null);
+  // replica. That replica is a real STACK (like sonner) so repeated/overlapping
+  // notices pile up instead of overwriting a single slot.
+  const [playerToasts, setPlayerToasts] = useState<
+    { id: number; msg: string; dur: number }[]
+  >([]);
+  const playerToastId = useRef(0);
+  const playerToastTimers = useRef<number[]>([]);
+  const dismissPlayerToast = (id: number) =>
+    setPlayerToasts((list) => list.filter((t) => t.id !== id));
+  const pushPlayerToast = (msg: string, dur: number) => {
+    const id = ++playerToastId.current;
+    setPlayerToasts((list) => [...list, { id, msg, dur }]);
+    playerToastTimers.current.push(
+      window.setTimeout(() => dismissPlayerToast(id), dur),
+    );
+  };
   // True when a <body> toast would be hidden: native fullscreen OR iOS CSS
   // pseudo-fullscreen (both put the pinned player above document.body).
   const inFullscreenNow = () =>
@@ -1370,18 +1383,15 @@ export default function UniversalPlayer({
       (document as any).webkitFullscreenElement ||
       iosPseudoFsRef.current
     );
-  const showSubNotice = (msg: string) => {
-    if (!inFullscreenNow()) {
-      toast.error(msg);
-      return;
-    }
-    setSubNotice(msg);
-    if (subNoticeTimer.current) window.clearTimeout(subNoticeTimer.current);
-    subNoticeTimer.current = window.setTimeout(() => setSubNotice(null), 3500);
+  // Route a notice to the right surface: sonner windowed, in-player stack in FS.
+  const showPlayerNotice = (msg: string, dur = 3500) => {
+    if (inFullscreenNow()) pushPlayerToast(msg, dur);
+    else toast.error(msg);
   };
+  const showSubNotice = (msg: string) => showPlayerNotice(msg, 3500);
   useEffect(
     () => () => {
-      if (subNoticeTimer.current) window.clearTimeout(subNoticeTimer.current);
+      playerToastTimers.current.forEach((t) => window.clearTimeout(t));
     },
     [],
   );
@@ -1758,15 +1768,6 @@ export default function UniversalPlayer({
   // observer already watches. Used to hide the fullscreen party chat so it
   // never sits over an open menu.
   const [vdsMenuOpen, setVdsMenuOpen] = useState(false);
-  // FULLSCREEN-ONLY fallback for the "join a party to chat" notice. Windowed we
-  // fire a real sonner toast; in fullscreen a <body> toast is hidden, so we
-  // render a sonner-style replica portalled inside the player (bottom of render).
-  const [chatWarning, setChatWarning] = useState<string | null>(null);
-  useEffect(() => {
-    if (!chatWarning) return;
-    const id = window.setTimeout(() => setChatWarning(null), 2600);
-    return () => window.clearTimeout(id);
-  }, [chatWarning]);
 
   // Collapse the Automation sub-panel back to the main list whenever the
   // Settings menu closes, so reopening always lands on the top-level list.
@@ -4046,13 +4047,14 @@ export default function UniversalPlayer({
       case "partyChat": {
         // Only meaningful in a watch-together party (the chat lives there).
         if (!party) {
-          const msg = t("party.chatNeedsParty", {
-            defaultValue: "Rejoins une party pour discuter.",
-          });
-          // Windowed → normal sonner toast (matches the site). Fullscreen → a
-          // <body> toast is hidden, so fall back to the in-player replica.
-          if (inFullscreenNow()) setChatWarning(msg);
-          else toast.error(msg);
+          // Windowed → sonner toast (matches the site). Fullscreen → in-player
+          // stack. Same routing/stacking as the subtitle notices.
+          showPlayerNotice(
+            t("party.chatNeedsParty", {
+              defaultValue: "Rejoins une party pour discuter.",
+            }),
+            2600,
+          );
           break;
         }
         // Focus the chat WHERE THE USER IS — never force fullscreen. In
@@ -4500,13 +4502,15 @@ export default function UniversalPlayer({
 
       <SubtitleSettings open={subStyleOpen} onClose={() => setSubStyleOpen(false)} />
 
-      {/* FULLSCREEN-ONLY toast replica (subs burned-in / "join a party to chat").
+      {/* FULLSCREEN-ONLY toast stack (subs burned-in / "join a party to chat").
           Windowed, these fire a real sonner toast; but a <body> toast is hidden
           while the player is the fullscreen element, so here we portal a replica
-          INTO the player root styled like sonner's richColors "error" card
+          stack INTO the player root, styled like sonner's richColors "error" card
           (dark maroon, red border + icon + text) so it looks identical to the
-          windowed toast. Bottom-right, above the control bar; stacks both. */}
-      {(subNotice || chatWarning) &&
+          windowed toast. Bottom-right, above the control bar; each notice is its
+          own entry so repeated/overlapping notices pile up like sonner. Each has
+          a white countdown bar mirroring its auto-dismiss timer. */}
+      {playerToasts.length > 0 &&
         playerElState &&
         createPortal(
           <div
@@ -4523,19 +4527,16 @@ export default function UniversalPlayer({
               pointerEvents: "none",
             }}
           >
-            {[
-              subNotice ? { key: "sub", msg: subNotice, close: () => setSubNotice(null) } : null,
-              chatWarning ? { key: "chat", msg: chatWarning, close: () => setChatWarning(null) } : null,
-            ]
-              .filter((n): n is { key: string; msg: string; close: () => void } => n !== null)
-              .map((n) => (
+            {playerToasts.map((n) => (
                 <div
-                  key={n.key}
+                  key={n.id}
                   role="status"
                   aria-live="polite"
-                  onClick={n.close}
+                  onClick={() => dismissPlayerToast(n.id)}
                   style={{
                     pointerEvents: "auto",
+                    position: "relative",
+                    overflow: "hidden",
                     display: "flex",
                     alignItems: "center",
                     gap: 10,
@@ -4564,6 +4565,23 @@ export default function UniversalPlayer({
                     <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm-1 5h2v7h-2V7zm0 9h2v2h-2v-2z" />
                   </svg>
                   <span>{n.msg}</span>
+                  {/* Countdown bar — shrinks left→right over the toast's
+                      lifetime, mirroring the auto-dismiss timer. */}
+                  <span
+                    aria-hidden="true"
+                    style={{
+                      position: "absolute",
+                      left: 0,
+                      bottom: 0,
+                      height: 3,
+                      width: "100%",
+                      transformOrigin: "left",
+                      background: "rgba(255,255,255,0.85)",
+                      borderBottomLeftRadius: 12,
+                      borderBottomRightRadius: 12,
+                      animation: `toastCountdown ${n.dur}ms linear forwards`,
+                    }}
+                  />
                 </div>
               ))}
           </div>,
