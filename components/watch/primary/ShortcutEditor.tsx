@@ -299,10 +299,10 @@ export default function ShortcutEditor({ onClose }: { onClose: () => void }) {
     //
     // Width CAP (crucial): Chrome silently fails to rasterize a setDragImage
     // element past a certain width — the wide space bar (≈500px) came back
-    // almost fully transparent when we removed the cap. Clamp the ghost width so
-    // the snapshot always succeeds. 360px keeps the space bar reading as a long
-    // rectangle while staying inside the reliable range.
-    const gw = Math.min(box.width - GAP_PX * 2, 360);
+    // almost fully transparent. 360px still failed; 240px is the value that was
+    // proven to snapshot reliably, so clamp there. The space bar still reads as
+    // a rectangle, just not full physical width.
+    const gw = Math.min(box.width - GAP_PX * 2, 240);
     // One-row cap height. For the ISO Enter the cell spans two rows, so a single
     // visual row is half the cell; the Enter ghost is built at full (two-row)
     // height as an L-shape, but its icon and drag hotspot sit on this top row.
@@ -311,22 +311,27 @@ export default function ShortcutEditor({ onClose }: { onClose: () => void }) {
     if (isEnter) {
       // Reproduce the drawn L-shape: a wide top half (full 1.5u width, one row
       // tall) over a narrower right-aligned lower half (1.25/1.5 width, one row
-      // tall). Two overlapping rounded rects, exactly like the on-board cap — a
-      // plain rectangle looked wrong (the screenshot showed a floating slab that
-      // didn't match the key you grabbed).
+      // tall). Two overlapping rounded rects, exactly like the on-board cap.
+      //
+      // NO box-shadow / border on the two rects: the inner 1px liseré is what
+      // drew the visible SEAM between them (each rect outlined itself at the
+      // overlap). Just the flat opaque fill, like the real cap. The lower rect
+      // starts half a row UP (top:25%) and the top rect overlaps it, so the two
+      // fuse into one solid L with no line where they meet.
       const fullH = box.height - GAP_PX * 2;
       const lowerW = gw * (1.25 / 1.5);
       ghost.style.cssText =
         `position:fixed;top:0;left:0;z-index:2147483647;opacity:1;pointer-events:none;` +
-        `width:${gw}px;height:${fullH}px;`;
+        `width:${gw}px;height:${fullH}px;` +
+        `filter:drop-shadow(0 0 0.5px rgba(255,255,255,.06))`;
       const top = document.createElement("div");
       top.style.cssText =
         `position:absolute;left:0;top:0;width:100%;height:50%;border-radius:8px;` +
-        `background:#20242c;box-shadow:0 0 0 1px rgba(255,255,255,.06)`;
+        `background:#20242c`;
       const lower = document.createElement("div");
       lower.style.cssText =
         `position:absolute;right:0;top:0;width:${lowerW}px;height:100%;border-radius:8px;` +
-        `background:#20242c;box-shadow:0 0 0 1px rgba(255,255,255,.06)`;
+        `background:#20242c`;
       ghost.appendChild(lower);
       ghost.appendChild(top);
     } else {
