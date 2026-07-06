@@ -4543,7 +4543,10 @@ export default function UniversalPlayer({
                       // from behind the front one — the sonner collapsed look.
                       transform: `translateY(${-depth * 14}px) scale(${1 - depth * 0.05})`,
                       transformOrigin: "bottom right",
-                      opacity: depth === 0 ? 1 : 0.6,
+                      // No transparency on stacked toasts: the card bg is solid,
+                      // so depth reads from the scale + upward offset alone. A
+                      // faded peek behind the front toast looked washed out.
+                      opacity: 1,
                       zIndex: MAX - depth,
                       transition: "transform 0.2s ease, opacity 0.2s ease",
                     }}
