@@ -246,27 +246,35 @@ export default function ShortcutEditor({ onClose }: { onClose: () => void }) {
   const onDragStart = (e: React.DragEvent, action: ShortcutAction) => {
     e.dataTransfer.setData("text/plain", action);
     e.dataTransfer.effectAllowed = "move";
-    // Drag preview: a freshly-built OPAQUE tile at the key's real box size.
+    // Drag preview: a freshly-built OPAQUE tile carrying just the icon.
     // Cloning the key produced a mostly-transparent element (its fill lives on
     // absolutely-positioned children), which the browser renders as a blurry
     // oval halo. A solid-filled div with the icon gives a crisp rectangle.
+    //
+    // Size is CLAMPED to a small square (not the key's real box): the space bar
+    // is ~500px wide, and Chrome silently CANCELS the whole drag when the drag
+    // image is that large AND positioned off-screen — which is why dragging the
+    // space bar never started. A fixed 44px tile always rasterizes, so every
+    // key (space included) drags. It's also rendered ON-screen (top:0/left:0
+    // behind everything) rather than at -9999px, because an off-viewport
+    // element is another case Chrome may refuse to snapshot.
     const src = e.currentTarget as HTMLElement;
-    const rect = src.getBoundingClientRect();
+    const SIZE = 44;
     const ghost = document.createElement("div");
     ghost.style.cssText =
-      `position:fixed;top:-9999px;left:-9999px;width:${rect.width}px;height:${rect.height}px;` +
+      `position:fixed;top:0;left:0;z-index:-1;pointer-events:none;width:${SIZE}px;height:${SIZE}px;` +
       "border-radius:8px;background:#20242c;display:flex;align-items:center;justify-content:center;" +
       "color:#fff;box-shadow:0 0 0 1px rgba(255,255,255,.06)";
     const iconSrc = src.querySelector("svg");
     if (iconSrc) {
       const clone = iconSrc.cloneNode(true) as SVGElement;
       clone.removeAttribute("style");
-      clone.setAttribute("width", "22");
-      clone.setAttribute("height", "22");
+      clone.setAttribute("width", "26");
+      clone.setAttribute("height", "26");
       ghost.appendChild(clone);
     }
     document.body.appendChild(ghost);
-    e.dataTransfer.setDragImage(ghost, rect.width / 2, rect.height / 2);
+    e.dataTransfer.setDragImage(ghost, SIZE / 2, SIZE / 2);
     window.setTimeout(() => ghost.remove(), 0);
   };
   const onDragEnd = () => setDropTarget(null);

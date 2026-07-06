@@ -71,19 +71,16 @@ export const SHORTCUT_ICONS: Record<ShortcutAction, ReactNode> = {
       <path d="M19.75 1.5a1.1 1.1 0 0 1 1.1 1.1v1.05h1.05a1.1 1.1 0 1 1 0 2.2h-1.05v1.05a1.1 1.1 0 1 1-2.2 0V5.85h-1.05a1.1 1.1 0 1 1 0-2.2h1.05V2.6a1.1 1.1 0 0 1 1.1-1.1Z" fill="currentColor" />
     </>
   ),
-  // Reset speed: a speedometer with the needle straight UP (neutral / normal
-  // speed). Symmetric dial (semicircular gauge) with a centred vertical needle,
-  // plus a small circular "reset" arrow badge in the top-right corner.
+  // Reset speed: a speedometer gauge with the needle pointing to the TOP-RIGHT
+  // (neutral / normal speed). Full Material "speed" dial remapped from its
+  // 0 -960 960 960 viewBox into 0 0 24 24 (translate 0,24 · scale 0.025).
   rateReset: (
-    <>
-      {/* semicircular gauge arc (open at the bottom), centred at (11,15) */}
-      <path d="M4 15a7 7 0 0 1 14 0h-2a5 5 0 0 0-10 0H4z" fill="currentColor" />
-      {/* centred vertical needle + hub */}
-      <path d="M10.2 15 10 9.5a1 1 0 0 1 2 0L11.8 15a.9.9 0 0 1-1.6 0z" fill="currentColor" />
-      <circle cx="11" cy="15" r="1.6" fill="currentColor" />
-      {/* reset (circular arrow) badge, top-right */}
-      <path d="M21 4.6V3l-2 2 2 2V5.4a2.6 2.6 0 1 1-2.6 2.6h-.8A3.4 3.4 0 1 0 21 4.6Z" fill="currentColor" />
-    </>
+    <g transform="translate(0,24) scale(0.025)">
+      {/* dial with the opening broken at the top-right for the needle to exit */}
+      <path d="M480-800q59 0 113.5 16.5T696-734l-76 48q-33-17-68.5-25.5T480-720q-133 0-226.5 93.5T160-400q0 42 11.5 83t32.5 77h552q23-38 33.5-79t10.5-85q0-36-8.5-70T766-540l48-76q30 47 47.5 100T880-406q1 57-13 109t-41 99q-11 18-30 28t-40 10H204q-21 0-40-10t-30-28q-26-45-40-95.5T80-400q0-83 31.5-155.5t86-127Q252-737 325-768.5T480-800Z" fill="currentColor" />
+      {/* needle pointing to the top-right */}
+      <path d="M480-316.5q38-.5 56-27.5l224-336-336 224q-27 18-28.5 55t22.5 61q24 24 62 23.5Z" fill="currentColor" />
+    </g>
   ),
   // Same "OP"/"ED" badge as the Settings > Automation panel, for visual
   // consistency between the two places this action appears.
@@ -143,8 +140,9 @@ export const SHORTCUT_ICONS: Record<ShortcutAction, ReactNode> = {
       <path d="M487-104 150-440h114l280 280 200-200H640v-80h240v240h-80v-104L600-104q-23 23-56.5 23T487-104ZM80-520v-240h80v104l200-200q23-23 56.5-23t56.5 23l337 336H696L416-800 216-600h104v80H80Z" fill="currentColor" />
     </g>
   ),
-  // Ambient lights: a lightbulb with radiating rays (glow).
-  toggleAmbient: P("M12 3a6 6 0 0 0-3.6 10.8c.5.4.8.9.9 1.4l.3 1.3h4.8l.3-1.3c.1-.5.4-1 .9-1.4A6 6 0 0 0 12 3zm-2 15h4v1a2 2 0 0 1-4 0v-1zM11.25 0h1.5v2.2h-1.5zM11.25 21.8h1.5V24h-1.5zM0 11.25h2.2v1.5H0zM21.8 11.25H24v1.5h-2.2zM3.4 2.34 4.46 3.4 2.34 5.52 1.28 4.46zM19.54 18.48l1.06 1.06-2.12 2.12-1.06-1.06zM20.6 4.46 19.54 5.52 17.42 3.4 18.48 2.34zM4.46 20.6 3.4 19.54l2.12-2.12 1.06 1.06z"),
+  // Ambient lights: same Material "lightbulb_outline" glyph as the Settings >
+  // Ambient Lights toggle, for visual consistency between the two places.
+  toggleAmbient: P("M9 21c0 .55.45 1 1 1h4c.55 0 1-.45 1-1v-1H9v1zm3-19C8.14 2 5 5.14 5 9c0 2.38 1.19 4.47 3 5.74V17c0 .55.45 1 1 1h6c.55 0 1-.45 1-1v-2.26c1.81-1.27 3-3.36 3-5.74 0-3.86-3.14-7-7-7zm2.85 11.1-.85.6V16h-4v-2.3l-.85-.6C7.8 12.16 7 10.63 7 9c0-2.76 2.24-5 5-5s5 2.24 5 5c0 1.63-.8 3.16-2.15 4.1z"),
   // Percentage jumps.
   seekPct10: Pct(10),
   seekPct20: Pct(20),
