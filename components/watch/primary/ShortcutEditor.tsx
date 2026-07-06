@@ -112,6 +112,11 @@ const CAPS: Cap[] = ROWS.flatMap((row, y) => {
 // so the regex doesn't have to escape metacharacters like - $ ^ *.
 const MAIN_PUNCT = new Set([",", ";", ":", "!", "-", "=", "^", "$", "ù", "*"]);
 
+// Fixed per-side gap inset drawn inside each key cell (so the visible gap
+// between two keys is 2×). A fixed pixel value keeps the gap uniform on every
+// side even though the grid isn't square.
+const GAP_PX = 6;
+
 function baseOf(combo: KeyCombo): string {
   const parts = combo.split("+");
   return parts[parts.length - 1];
@@ -179,6 +184,21 @@ export default function ShortcutEditor({ onClose }: { onClose: () => void }) {
   const onDragStart = (e: React.DragEvent, action: ShortcutAction) => {
     e.dataTransfer.setData("text/plain", action);
     e.dataTransfer.effectAllowed = "move";
+    // Use a fixed-size drag ghost so wide keys (space) don't drag a huge,
+    // stretched preview. Build a small square tile carrying just the icon,
+    // hand it to setDragImage, then remove it after the browser snapshots it.
+    const ghost = document.createElement("div");
+    ghost.style.cssText =
+      "position:fixed;top:-9999px;left:-9999px;width:44px;height:44px;border-radius:9px;background:#20242c;display:flex;align-items:center;justify-content:center;color:#fff";
+    ghost.innerHTML =
+      '<svg viewBox="0 0 24 24" width="22" height="22" style="color:#fff"></svg>';
+    document.body.appendChild(ghost);
+    const svg = ghost.firstElementChild as SVGElement | null;
+    const src = document.getElementById(`sc-icon-${action}`);
+    if (svg && src) svg.innerHTML = src.innerHTML;
+    e.dataTransfer.setDragImage(ghost, 22, 22);
+    // Defer removal so the snapshot is taken first.
+    window.setTimeout(() => ghost.remove(), 0);
   };
   const onDragEnd = () => setDropTarget(null);
 
@@ -204,7 +224,7 @@ export default function ShortcutEditor({ onClose }: { onClose: () => void }) {
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="w-full max-w-[820px]">
+      <div className="w-full" style={{ maxWidth: "min(1400px, 94vw)" }}>
         {/* Directly above the keyboard, nothing else on screen: shortcut text
             on the left; Reset then the close ✕ on the right. */}
         <div className="mb-3 flex items-end justify-between">
@@ -278,12 +298,14 @@ export default function ShortcutEditor({ onClose }: { onClose: () => void }) {
                 // action — an empty nav key stays darker than an empty letter.
                 const isMain =
                   /^[a-z0-9]$/i.test(code) || MAIN_PUNCT.has(code);
+                // Drop highlight is OPAQUE (not an alpha) so the ISO Enter's two
+                // overlapping rects don't double-blend into a darker patch where
+                // they cross.
                 const bg = isDrop
-                  ? "rgba(233,69,96,0.35)"
+                  ? "#6f2338"
                   : isMain
                   ? "#20242c"
                   : "#181b21";
-                const GAP = 1.4; // % of a unit, drawn as an inner inset — roomy gaps like the ref
                 return (
                   <div
                     key={ci}
@@ -293,7 +315,10 @@ export default function ShortcutEditor({ onClose }: { onClose: () => void }) {
                       top: `${(cap.y / GRID_H) * 100}%`,
                       width: `${(w / GRID_W) * 100}%`,
                       height: `${(h / GRID_H) * 100}%`,
-                      padding: `${(GAP / GRID_H)}%  ${(GAP / GRID_W)}%`,
+                      // Uniform gap on all sides via a fixed pixel inset on the
+                      // inner cap — % padding wouldn't be uniform because the
+                      // grid isn't square (16 cols × 5 rows).
+                      padding: GAP_PX,
                     }}
                   >
                     <div
@@ -347,8 +372,10 @@ export default function ShortcutEditor({ onClose }: { onClose: () => void }) {
                       {action && (
                         // Absolutely-centred, FIXED-size icon: it never
                         // stretches with a wide key (space bar) or a tall one
-                        // (Enter — centred on its top half).
+                        // (Enter — centred on its top half). The id lets the
+                        // custom drag-ghost copy this icon's markup.
                         <svg
+                          id={`sc-icon-${action}`}
                           viewBox="0 0 24 24"
                           width="17"
                           height="17"

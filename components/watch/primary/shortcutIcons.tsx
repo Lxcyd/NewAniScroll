@@ -44,34 +44,26 @@ export const SHORTCUT_ICONS: Record<ShortcutAction, ReactNode> = {
   seekForward: P("M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z"),
   volumeUp: P("M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0014 7.97v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"),
   volumeDown: P("M18.5 12A4.5 4.5 0 0016 7.97v8.05c1.48-.73 2.5-2.25 2.5-4.02zM5 9v6h4l5 5V4L9 9H5z"),
-  // Speed down/up: the Material "speed" gauge (dial arc) with the needle
-  // swung left (slower) or right (faster), plus a −/+ badge. The gauge dial
-  // path is defined in a 0 -960 960 960 viewBox, remapped into 0 0 24 24 with
-  // a group transform (scale 24/960, shift the -960 origin down). The needle
-  // and badge are drawn directly in 24×24 space.
+  // Speed down/up: the full Material "speed" gauge (dial + centred needle),
+  // remapped from its 0 -960 960 960 viewBox into 0 0 24 24 (scale 0.02, needle
+  // exits the dial's opening on the RIGHT). Same dial for both; only the badge
+  // differs — a −/+ in the top-right corner, clear of the dial.
   rateDown: (
     <>
-      {/* Gauge shrunk to the lower-left so the −/+ badge sits clear in the
-          top-right corner (viewBox 0 -960 960 960 → 0 0 24 24, offset down &
-          left). */}
-      <g transform="translate(-1.5,25.5) scale(0.021)">
-        <path d="M205-160q-22 0-40.5-9.5T135-198q-28-48-42-100.5T79-406q1-56 18.5-109T146-616l48 76q-17 32-26 66.5t-9 69.5q0 44 11.5 85.5T205-240h551q21-36 32.5-76.5T800-400q0-133-93.5-226.5T480-720q-37 0-72.5 9T340-686l-76-48q48-32 102.5-49T480-800q83 0 155.5 31.5t127 86q54.5 54.5 86 127T880-400q0 54-14 105t-40 97q-11 19-30 28.5t-40 9.5H205Z" fill="currentColor" />
+      <g transform="translate(1,22.5) scale(0.02)">
+        <path d="M536-343q26-26 24-60t-30-56q-79-62-164-115T199-682q54 83 107 167.5T418-347q20 29 56 29.5t62-25.5ZM205-160q-22 0-40.5-9.5T135-198q-28-48-42-100.5T79-406q1-56 18.5-109T146-616l48 76q-17 32-26 66.5t-9 69.5q0 44 11.5 85.5T205-240h551q21-36 32.5-76.5T800-400q0-133-93.5-226.5T480-720q-37 0-72.5 9T340-686l-76-48q48-32 102.5-49T480-800q83 0 155.5 31.5t127 86q54.5 54.5 86 127T880-400q0 54-14 105t-40 97q-11 19-30 28.5t-40 9.5H205Z" fill="currentColor" />
       </g>
-      {/* needle → lower-left */}
-      <path d="M10.4 15.4 5.6 13a1 1 0 0 1 .9-1.8l4.2 2.6a.95.95 0 0 1-.3 1.8Z" fill="currentColor" />
-      {/* minus badge, top-right corner */}
-      <rect x="16.5" y="3.5" width="5.5" height="2" rx="1" fill="currentColor" />
+      {/* minus badge, top-right */}
+      <rect x="17" y="2.5" width="5.5" height="2.2" rx="1.1" fill="currentColor" />
     </>
   ),
   rateUp: (
     <>
-      <g transform="translate(-1.5,25.5) scale(0.021)">
-        <path d="M205-160q-22 0-40.5-9.5T135-198q-28-48-42-100.5T79-406q1-56 18.5-109T146-616l48 76q-17 32-26 66.5t-9 69.5q0 44 11.5 85.5T205-240h551q21-36 32.5-76.5T800-400q0-133-93.5-226.5T480-720q-37 0-72.5 9T340-686l-76-48q48-32 102.5-49T480-800q83 0 155.5 31.5t127 86q54.5 54.5 86 127T880-400q0 54-14 105t-40 97q-11 19-30 28.5t-40 9.5H205Z" fill="currentColor" />
+      <g transform="translate(1,22.5) scale(0.02)">
+        <path d="M536-343q26-26 24-60t-30-56q-79-62-164-115T199-682q54 83 107 167.5T418-347q20 29 56 29.5t62-25.5ZM205-160q-22 0-40.5-9.5T135-198q-28-48-42-100.5T79-406q1-56 18.5-109T146-616l48 76q-17 32-26 66.5t-9 69.5q0 44 11.5 85.5T205-240h551q21-36 32.5-76.5T800-400q0-133-93.5-226.5T480-720q-37 0-72.5 9T340-686l-76-48q48-32 102.5-49T480-800q83 0 155.5 31.5t127 86q54.5 54.5 86 127T880-400q0 54-14 105t-40 97q-11 19-30 28.5t-40 9.5H205Z" fill="currentColor" />
       </g>
-      {/* needle → lower-right */}
-      <path d="M13.6 15.4 18.4 13a1 1 0 0 0-.9-1.8l-4.2 2.6a.95.95 0 0 0 .3 1.8Z" fill="currentColor" />
-      {/* plus badge, top-right corner */}
-      <path d="M18.25 2.5a1 1 0 0 1 1 1v1h1a1 1 0 1 1 0 2h-1v1a1 1 0 1 1-2 0v-1h-1a1 1 0 1 1 0-2h1v-1a1 1 0 0 1 1-1Z" fill="currentColor" />
+      {/* plus badge, top-right */}
+      <path d="M19.75 1.5a1.1 1.1 0 0 1 1.1 1.1v1.05h1.05a1.1 1.1 0 1 1 0 2.2h-1.05v1.05a1.1 1.1 0 1 1-2.2 0V5.85h-1.05a1.1 1.1 0 1 1 0-2.2h1.05V2.6a1.1 1.1 0 0 1 1.1-1.1Z" fill="currentColor" />
     </>
   ),
   rateReset: P("M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"),
