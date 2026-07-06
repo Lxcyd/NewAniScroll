@@ -1521,6 +1521,9 @@ export default function UniversalPlayer({
   }, []);
   // Index of the active text track in the subtitleTracks list. -1 = subtitles off.
   const [activeTrackIdx, setActiveTrackIdx] = useState(-1);
+  // Last track index that was actually showing, so the subtitle shortcut can
+  // toggle off → on WITHOUT changing the language (restores the same track).
+  const lastShownTrackIdx = useRef(-1);
   // ── Client-side extraction state ──
   // When streamData.clientExtract is set, the server is asking the browser to
   // do the embed-page fetch itself so the resulting CDN token IP-binds to the
@@ -2152,6 +2155,9 @@ export default function UniversalPlayer({
 
   const selectSubtitleTrack = (idx: number) => {
     setActiveTrackIdx(idx);
+    // Remember the last real track so the on/off shortcut restores this exact
+    // language instead of advancing to the next one.
+    if (idx >= 0) lastShownTrackIdx.current = idx;
     const tracks = playerRef.current?.textTracks;
     if (!tracks) return;
     // Walk the textTracks list, only touching captions/subtitles tracks (skip
@@ -4050,9 +4056,18 @@ export default function UniversalPlayer({
         break;
       case "subtitles":
         if (subMode === "soft" && subtitleTracks.length) {
-          // Cycle: off → track 0 → track 1 → … → off.
-          const next = activeTrackIdx + 1 >= subtitleTracks.length ? -1 : activeTrackIdx + 1;
-          selectSubtitleTrack(next);
+          // Pure on/off toggle — never changes the language. When turning back
+          // on, restore the last shown track (or fall back to the first one).
+          if (activeTrackIdx >= 0) {
+            selectSubtitleTrack(-1);
+          } else {
+            const restore =
+              lastShownTrackIdx.current >= 0 &&
+              lastShownTrackIdx.current < subtitleTracks.length
+                ? lastShownTrackIdx.current
+                : 0;
+            selectSubtitleTrack(restore);
+          }
         } else {
           // Hard-sub / dub: explain why there's nothing to cycle.
           showSubNotice(
