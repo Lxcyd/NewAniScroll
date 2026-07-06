@@ -35,89 +35,74 @@ const ACCENT = "#E94560";
 // standard key). `h` = row span (for the ISO Enter). No printed labels — a key
 // stays blank unless an action is bound to it. `x`/`y` are COMPUTED (below) by
 // walking each row left→right, so there are never manual-coordinate collisions.
-type Key = { code: string | null; w?: number; h?: number };
+type Key = { code: string | null; w?: number; h?: number; ghost?: true };
 type Cap = Key & { x: number; y: number };
 
-// Full French (AZERTY) layout, in the exact order requested. Codes are the
-// values a French keyboard emits for `event.key`, so pressing the physical key
-// resolves the same combo. Each row is main-block keys, then the right nav
-// cluster (delete / home / pageup / pagedown + arrows), positioned as on a real
-// TKL board.
+// Full French (AZERTY) 75%-style layout, in the exact order requested: the nav
+// keys sit INLINE at the end of each row (delete / home / pageup / up+pagedown /
+// arrows) like on a laptop keyboard — no detached cluster. Codes are the values
+// a French keyboard emits for `event.key`, so pressing the physical key
+// resolves the same combo. Every row sums to exactly 16 units. `ghost` marks
+// the empty cell hidden under the ISO Enter's lower half (nothing is drawn).
 const ROWS: Key[][] = [
-  // esc 1..0 - = backspace | delete
+  // escape 1..0 - = backspace delete
   [
     { code: "escape" },
     { code: "1" }, { code: "2" }, { code: "3" }, { code: "4" }, { code: "5" },
     { code: "6" }, { code: "7" }, { code: "8" }, { code: "9" }, { code: "0" },
     { code: "-" }, { code: "=" }, { code: "backspace", w: 2 },
+    { code: "delete" },
   ],
-  // tab a z e r t y u i o p ^ $ | (ISO Enter starts here, spans 2 rows)
+  // tab a z e r t y u i o p ^ $ enter(2 rows) home
   [
     { code: "tab", w: 1.5 },
     { code: "a" }, { code: "z" }, { code: "e" }, { code: "r" }, { code: "t" },
     { code: "y" }, { code: "u" }, { code: "i" }, { code: "o" }, { code: "p" },
     { code: "^" }, { code: "$" }, { code: "enter", w: 1.5, h: 2 },
+    { code: "home" },
   ],
-  // home capslock q s d f g h j k l m ù *  (Enter overlaps the last cell)
+  // capslock q s d f g h j k l m ù * [enter lower half] pageup
   [
-    { code: null, w: 1.75 }, // capslock
+    { code: null, w: 1.5 }, // capslock
     { code: "q" }, { code: "s" }, { code: "d" }, { code: "f" }, { code: "g" },
     { code: "h" }, { code: "j" }, { code: "k" }, { code: "l" }, { code: "m" },
     { code: "ù" }, { code: "*" },
+    { code: null, w: 1.5, ghost: true }, // under the ISO Enter
+    { code: "pageup" },
   ],
-  // lshift w x c v b n , ; : ! rshift
+  // lshift w x c v b n , ; : ! rshift up pagedown
   [
     { code: null, w: 1.25 }, // left shift
     { code: "w" }, { code: "x" }, { code: "c" }, { code: "v" }, { code: "b" },
     { code: "n" }, { code: "," }, { code: ";" }, { code: ":" }, { code: "!" },
     { code: null, w: 2.75 }, // right shift
+    { code: "arrowup" }, { code: "pagedown" },
   ],
-  // ctrl meta alt space altgr menu
+  // ctrl meta alt space altgr menu left down right
   [
     { code: null, w: 1.5 }, // ctrl
     { code: null, w: 1.25 }, // meta
     { code: null, w: 1.25 }, // alt
-    { code: "space", w: 6.25 },
+    { code: "space", w: 6.5 },
     { code: null, w: 1.25 }, // altgr
-    { code: null, w: 1.5 }, // menu
+    { code: null, w: 1.25 }, // context menu
+    { code: "arrowleft" }, { code: "arrowdown" }, { code: "arrowright" },
   ],
 ];
 
-// Right-hand nav/arrow cluster: [code, row, col] on a 3-wide mini grid that
-// starts just right of the main block. row/col are 0-based within the cluster.
-// Top two rows = delete/home/pageup + pagedown; bottom = inverted-T arrows.
-const NAV: Array<{ code: string; row: number; col: number }> = [
-  { code: "delete", row: 0, col: 0 },
-  { code: "home", row: 0, col: 1 },
-  { code: "pageup", row: 0, col: 2 },
-  { code: "pagedown", row: 1, col: 2 },
-  { code: "arrowup", row: 3, col: 1 },
-  { code: "arrowleft", row: 4, col: 0 },
-  { code: "arrowdown", row: 4, col: 1 },
-  { code: "arrowright", row: 4, col: 2 },
-];
-
-// Compute absolute unit coords. Main block widest row sets MAIN_W; the nav
-// cluster sits at MAIN_GAP units to its right.
-const MAIN_GAP = 0.6;
-const MAIN_W = Math.max(
+const GRID_W = Math.max(
   ...ROWS.map((r) => r.reduce((s, k) => s + (k.w ?? 1), 0)),
 );
-const NAV_X = MAIN_W + MAIN_GAP;
-const GRID_W = NAV_X + 3; // nav cluster is 3 units wide
-const GRID_H = 5;
+const GRID_H = ROWS.length;
 
-const CAPS: Cap[] = [
-  ...ROWS.flatMap((row, y) => {
-    let x = 0;
-    return row.map((k) => {
-      const cap: Cap = { ...k, x, y };
-      x += k.w ?? 1;
-      return cap;
-    });
-  }),
-  ...NAV.map(({ code, row, col }) => ({ code, x: NAV_X + col, y: row })),
-];
+const CAPS: Cap[] = ROWS.flatMap((row, y) => {
+  let x = 0;
+  return row.flatMap((k) => {
+    const cap: Cap = { ...k, x, y };
+    x += k.w ?? 1;
+    return k.ghost ? [] : [cap];
+  });
+});
 
 function baseOf(combo: KeyCombo): string {
   const parts = combo.split("+");
