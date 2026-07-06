@@ -243,6 +243,8 @@
     "hours": "Hours",
     "mins": "Mins",
     "secs": "Secs",
+    "dontMissOut": "Don't miss out!",
+    "comingUpNext": "Coming Up Next!",
     "removeFromHistory": "Remove from history",
     "deleteAllEpisodes": "Delete All Episodes",
     "deleteJustThisEpisode": "Delete Just This Episode",

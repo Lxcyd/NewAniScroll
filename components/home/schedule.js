@@ -54,13 +54,13 @@ export default function Schedule({ data, scheduleData, anime, update }) {
   return (
     <div className="flex flex-col gap-5 px-4 lg:px-0">
       <h1 className="font-bold font-karla text-[20px] lg:px-5">
-        Don't miss out!
+        {t("home.dontMissOut")}
       </h1>
       <div className="rounded mb-5 shadow-tersier/50 shadow-button">
         <div className="overflow-hidden w-full h-[96px] lg:h-[10rem] rounded relative">
           <div className="absolute flex flex-col -space-y-1 lg:gap-1 justify-center pl-5 lg:pl-16 rounded z-20 bg-gradient-to-r from-30% from-tersier to-transparent w-full h-full">
             <h1 className="text-xs lg:text-lg font-karla font-thin">
-              Coming Up Next!
+              {t("home.comingUpNext")}
             </h1>
             <div className="w-1/2 lg:w-2/5 hidden lg:flex font-karla font-semibold line-clamp-2">
               <Link
