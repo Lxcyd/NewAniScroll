@@ -1728,6 +1728,16 @@ export default function UniversalPlayer({
   // observer already watches. Used to hide the fullscreen party chat so it
   // never sits over an open menu.
   const [vdsMenuOpen, setVdsMenuOpen] = useState(false);
+  // Ephemeral in-player warning banner (e.g. "join a party to chat"). Rendered
+  // INSIDE the player element so it's visible in fullscreen too — unlike a
+  // react-hot-toast, which lives in document.body and vanishes when the player
+  // is the fullscreen element.
+  const [chatWarning, setChatWarning] = useState<string | null>(null);
+  useEffect(() => {
+    if (!chatWarning) return;
+    const id = window.setTimeout(() => setChatWarning(null), 2600);
+    return () => window.clearTimeout(id);
+  }, [chatWarning]);
 
   // Collapse the Automation sub-panel back to the main list whenever the
   // Settings menu closes, so reopening always lands on the top-level list.
@@ -4007,23 +4017,16 @@ export default function UniversalPlayer({
       case "partyChat": {
         // Only meaningful in a watch-together party (the chat lives there).
         if (!party) {
-          toast.error(t("party.chatNeedsParty", { defaultValue: "Rejoins une party pour discuter." }));
+          // toast.error would render into document.body — invisible while the
+          // player is fullscreen. Show an ephemeral in-player banner instead so
+          // the message appears in BOTH windowed and fullscreen modes.
+          setChatWarning(t("party.chatNeedsParty", { defaultValue: "Rejoins une party pour discuter." }));
           break;
         }
-        // The chat panel is fullscreen-only — enter fullscreen first if needed,
-        // then ask FullscreenChat to open + focus its composer. A short delay
-        // lets the fullscreen transition (and the chat mount) settle before we
-        // focus, so the caret actually lands in the input.
-        const openChat = () =>
-          window.dispatchEvent(new CustomEvent("aniscroll:openPartyChat"));
-        if (!document.fullscreenElement) {
-          try {
-            (player as any)?.enterFullscreen?.() ?? player?.el?.requestFullscreen?.();
-          } catch {}
-          window.setTimeout(openChat, 180);
-        } else {
-          openChat();
-        }
+        // Focus the chat WHERE THE USER IS — never force fullscreen. In
+        // fullscreen the FullscreenChat overlay opens + focuses; windowed, the
+        // WatchPartyPanel composer focuses. Both listen for this one event.
+        window.dispatchEvent(new CustomEvent("aniscroll:openPartyChat"));
         break;
       }
     }
@@ -4408,6 +4411,18 @@ export default function UniversalPlayer({
           autoplay is OFF. One click plays WITH sound. With autoplay ON the video
           starts itself, so the button is hidden (see CenterPlayButton). */}
       <CenterPlayButton playerRef={playerRef} autoplay={autoplay} menuOpen={vdsMenuOpen} />
+
+      {/* Ephemeral warning banner, INSIDE the player so it shows in fullscreen
+          too (a react-hot-toast in document.body would be hidden then). Used by
+          the chat shortcut when there's no party to join. */}
+      {chatWarning && (
+        <div
+          className="pointer-events-none absolute left-1/2 top-6 z-[60] -translate-x-1/2 whitespace-nowrap rounded-lg px-4 py-2 text-[13px] font-semibold text-white shadow-2xl"
+          style={{ background: "rgba(22,24,29,0.95)", backdropFilter: "blur(6px)" }}
+        >
+          {chatWarning}
+        </div>
+      )}
 
       {/* AniSkip segment overlay + Skip button. Renders null when no
           skip data exists for the current episode AND there's no next

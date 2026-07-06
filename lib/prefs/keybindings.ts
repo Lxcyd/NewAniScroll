@@ -147,27 +147,27 @@ export const DEFAULT_KEYBINDINGS: Keybindings = {
   // Upper row (a z e r t y u i o p ^ $) — layout from the user's reference SS.
   cycleServer: "keye", // "e" cap — ⟳ cycle player
   rotate: "keyr", // "r" — ⇅ rotate 90°
-  pictureInPicture: "keyi", // "i" — ▣ PiP
-  prevEpisode: "keyo", // "o" — |◄ previous episode
-  frameBackward: "keyp", // "p" — 🖼← previous frame
-  frameForward: "bracketleft", // "^" — 🖼→ next frame
+  pictureInPicture: "keyo", // "o" — ▣ PiP
+  prevEpisode: "keyp", // "p" — |◄ previous episode
+  frameBackward: "bracketleft", // "^" — 🖼← previous frame
+  frameForward: "bracketright", // "$" — 🖼→ next frame
   // Home row (q s d f g h j k l m ù *)
   partyChat: "keyt", // "t" — 💬 open party chat (watch-together only)
-  toggleStats: "keyd", // "d" — 📊 stats
-  chromecast: "keyf", // "f" — 📶 cast
-  fullscreen: "keyg", // "g" — ⛶ fullscreen
+  toggleStats: "keys", // "s" — 📊 stats
+  chromecast: "keyd", // "d" — 📶 cast
+  fullscreen: "keyf", // "f" — ⛶ fullscreen
   toggleAmbient: "keyl", // "l" — 💡 ambient lights
   mute: "semicolon", // "m" cap — 🔇 mute
   skipIntro: "quote", // "ù" cap — OP
   skipOutro: "backslash", // "*" cap — ED
   // Bottom letter row (w x c v b n , ; : !)
-  subtitles: "keyx", // "x" — 💬 subtitles/tracks
-  screenshot: "keyc", // "c" — 📷 screenshot
-  copyTimestamp: "keyv", // "v" — 🔗 link
-  nextEpisode: "keyb", // "b" — ►| next episode
-  // Speed cluster on the AZERTY , ; ! physical positions (KeyM/Comma/Slash).
-  rateDown: "keym", // "," cap — ⏱−
-  rateUp: "comma", // ";" cap — ⏱+
+  subtitles: "keyc", // "c" — 💬 subtitles/tracks
+  screenshot: "keyv", // "v" — 📷 screenshot
+  copyTimestamp: "keyb", // "b" — 🔗 link
+  nextEpisode: "keyn", // "n" — ►| next episode
+  // Speed cluster on the AZERTY ; : ! physical positions (Comma/Period/Slash).
+  rateDown: "comma", // ";" cap — ⏱−
+  rateUp: "period", // ":" cap — ⏱+
   rateReset: "slash", // "!" cap — ⏱↻ reset speed
   // Space + arrows.
   playPause: "space",
@@ -187,7 +187,10 @@ const KNOWN_ACTIONS = new Set<string>(ACTION_CATALOG.map((a) => a.id));
 // v4: full default-layout reshuffle from the user's reference screenshot +
 // removed the seek±5s "Long" duplicates. Bumped so v3-era saved maps (old
 // positions) don't override the new defaults.
-const KEY = "aniscroll:keybindings:v4";
+// v5: corrected layout per the user's follow-up (frameFwd→$, frameBack→^,
+// prevEp→p, PiP→o, stats→s, cast→d, fullscreen→f, subs→c, screenshot→v,
+// link→b, nextEp→n, rateDown→;, rateUp→:). Bumped so v4 saved maps don't win.
+const KEY = "aniscroll:keybindings:v5";
 export const KEYBINDINGS_EVENT = "aniscroll:keybindings:change";
 
 export function getKeybindings(): Keybindings {

@@ -294,9 +294,13 @@ export default function ShortcutEditor({ onClose }: { onClose: () => void }) {
     // ghost like a normal one-row tile (top half) rather than the tall bounding
     // box — a full 2-row-tall ghost looked wrong too.
     const isEnter = (e.currentTarget as HTMLElement).dataset.enter === "1";
-    // Strip the GAP inset back out so the ghost matches the drawn cap, not the
-    // slot around it.
-    const gw = Math.min(box.width - GAP_PX * 2, 240);
+    // Strip the GAP inset back out so the ghost matches the DRAWN cap, not the
+    // slot around it. No width cap: the space bar's ghost must be as wide as the
+    // real space bar (Chrome snapshots wide images fine now that the ghost is
+    // opaque and on-screen). For the ISO Enter the outer cell spans TWO rows but
+    // the visible cap's wide top half is one row tall, so we halve the height —
+    // giving a proper WIDE rectangle (1.5u × 1 row), not a tall near-square.
+    const gw = box.width - GAP_PX * 2;
     const gh = (isEnter ? box.height / 2 : box.height) - GAP_PX * 2;
     const ghost = document.createElement("div");
     ghost.style.cssText =

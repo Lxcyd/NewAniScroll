@@ -241,6 +241,19 @@ function ActiveRoom({ party, onClose }: { party: PartyContext; onClose?: () => v
     if (el) el.scrollTop = el.scrollHeight;
   }, [chat]);
 
+  // Chat shortcut ("t"): when the player is NOT fullscreen, the FullscreenChat
+  // overlay isn't mounted, so this side panel's composer is the chat input to
+  // focus. We only handle the event while windowed — in fullscreen the overlay
+  // owns it (guarded there by `active`), so both never fire at once.
+  useEffect(() => {
+    const onOpen = () => {
+      if (document.fullscreenElement) return; // fullscreen overlay handles it
+      composerRef.current?.focus();
+    };
+    window.addEventListener("aniscroll:openPartyChat", onOpen);
+    return () => window.removeEventListener("aniscroll:openPartyChat", onOpen);
+  }, []);
+
   const send = (raw: string) => {
     const val = raw.trim();
     if (!val) return;
