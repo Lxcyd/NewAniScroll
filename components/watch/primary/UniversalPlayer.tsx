@@ -4528,40 +4528,42 @@ export default function UniversalPlayer({
                   pointerEvents: "none",
                 }}
               >
-                {visible.map((n, depth) => (
+                {visible.map((n, depth) => {
+                  const isFront = depth === 0;
+                  return (
                   <div
                     key={n.id}
                     role="status"
                     aria-live="polite"
                     style={{
-                      pointerEvents: "auto",
+                      pointerEvents: isFront ? "auto" : "none",
                       position: "absolute",
                       right: 0,
                       bottom: 0,
                       width: "100%",
-                      // Older toasts sit a *small, fixed* sliver up + scaled
-                      // down, so only their top edge peeks behind the front one
-                      // (never a readable line of their text). Fixed 8px gap =
-                      // same visual step regardless of how tall the front card
-                      // is, matching the sonner collapsed look.
-                      transform: `translateY(${-depth * 8}px) scale(${1 - depth * 0.04})`,
-                      transformOrigin: "bottom right",
-                      // No transparency on stacked toasts: the card bg is solid,
-                      // so depth reads from the scale + upward offset alone. A
-                      // faded peek behind the front toast looked washed out.
+                      // sonner collapsed stack: each toast behind the front sits
+                      // a fixed GAP up + scaled slightly down, so only a thin,
+                      // even sliver of every behind toast peeks above the front
+                      // one (never a readable line of its text). Fixed px gap =>
+                      // identical step no matter how tall the front card is.
+                      transform: `translateY(${-depth * 14}px) scale(${1 - depth * 0.05})`,
+                      transformOrigin: "bottom center",
+                      // Solid — no transparency; depth reads from scale + offset.
                       opacity: 1,
                       zIndex: MAX - depth,
-                      transition: "transform 0.2s ease, opacity 0.2s ease",
+                      transition: "transform 0.25s ease, opacity 0.25s ease",
                     }}
                   >
                     <div
                       style={{
                         position: "relative",
-                        overflow: "hidden",
+                        // No overflow:hidden — the top-left ✕ pill sits OUTSIDE
+                        // the card corner (translate(-35%,-35%)) and must not be
+                        // clipped. The countdown bar is inset instead of clipped.
                         display: "flex",
                         alignItems: "center",
                         gap: 10,
-                        padding: "12px 30px 12px 14px",
+                        padding: "12px 14px",
                         borderRadius: 12,
                         // sonner richColors "error" (dark theme) — exact 1.0.3
                         // values so it matches the windowed toast.
@@ -4585,44 +4587,51 @@ export default function UniversalPlayer({
                         <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm-1 5h2v7h-2V7zm0 9h2v2h-2v-2z" />
                       </svg>
                       <span>{n.msg}</span>
-                      {/* ✕ close */}
+                      {/* ✕ close — sonner-style top-LEFT pill, only on the front
+                          toast. Dismissing it re-slices playerToasts so the whole
+                          stack shifts down one and the ✕ + countdown move to the
+                          next toast; any 4th+ toast that was hidden now peeks in. */}
+                      {isFront && (
                       <button
                         type="button"
                         aria-label="Close"
                         onClick={() => dismissPlayerToast(n.id)}
                         style={{
                           position: "absolute",
-                          top: 6,
-                          right: 6,
-                          width: 18,
-                          height: 18,
+                          top: 0,
+                          left: 0,
+                          transform: "translate(-35%, -35%)",
+                          width: 20,
+                          height: 20,
                           display: "flex",
                           alignItems: "center",
                           justifyContent: "center",
-                          borderRadius: 6,
-                          background: "transparent",
-                          border: "none",
+                          borderRadius: "50%",
+                          background: "hsl(358, 76%, 10%)",
+                          border: "1px solid hsl(357, 89%, 16%)",
                           color: "hsl(358, 100%, 81%)",
                           cursor: "pointer",
                           lineHeight: 1,
                           padding: 0,
+                          zIndex: 1,
                         }}
                       >
-                        <svg viewBox="0 0 24 24" width={13} height={13} fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round">
+                        <svg viewBox="0 0 24 24" width={12} height={12} fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round">
                           <path d="M6 6l12 12M18 6L6 18" />
                         </svg>
                       </button>
+                      )}
                       {/* Thin countdown bar (only on the front toast). */}
-                      {depth === 0 && (
+                      {isFront && (
                         <span
                           aria-hidden="true"
                           style={{
                             position: "absolute",
-                            left: 0,
+                            left: 10,
+                            right: 10,
                             bottom: 0,
                             height: 2,
-                            width: "100%",
-                            transformOrigin: "left",
+                            transformOrigin: "left center",
                             // Tinted to the toast's red text (currentColor) so it
                             // matches the card instead of a flashy white strip.
                             background:
@@ -4633,7 +4642,8 @@ export default function UniversalPlayer({
                       )}
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             );
           })(),
