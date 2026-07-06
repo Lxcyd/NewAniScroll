@@ -1319,6 +1319,26 @@ input[type="number"] {
   }
 }
 
+/* In-player toast stack fan-out. The collapsed/expanded transforms are driven
+   entirely by CSS :hover (not React state) so the transition is frame-perfect
+   and never interrupted by re-renders — the windowed player churns state on
+   mouse-move (Vidstack controls), which was snapping the JS-state-driven version
+   open with no animation. Each card carries its target transforms as custom
+   props (set inline in JS from measured heights); hovering the anchor swaps
+   which one applies. Transitions stay on transform only. */
+.ip-toast-card {
+  transform: var(--collapsed-transform);
+  transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.ip-toast-anchor:hover .ip-toast-card {
+  transform: var(--expanded-transform);
+}
+/* A freshly-arrived toast must not animate the existing cards sliding: while
+   the stack has this class (one frame around mount) transitions are off. */
+.ip-toast-anchor.ip-toast-no-anim .ip-toast-card {
+  transition: none;
+}
+
 /* Countdown bar used by the in-player toast replica (fullscreen). Shrinks a
    full-width bar to zero over the toast's lifetime (duration set inline). */
 @keyframes toastCountdown {

@@ -1366,10 +1366,10 @@ export default function UniversalPlayer({
   >([]);
   const playerToastId = useRef(0);
   const playerToastTimers = useRef<number[]>([]);
-  // Fullscreen stack: hovering expands the (up to 3) collapsed cards into a
+  // In-player stack: hovering expands the (up to 3) collapsed cards into a
   // fully-unfolded, readable column. Measured heights let the expanded layout
-  // stack them by their real size + a gap.
-  const [toastStackHovered, setToastStackHovered] = useState(false);
+  // stack them by their real size + a gap. The hover itself is CSS-driven
+  // (.ip-toast-anchor:hover, see globals.css), so no hover state lives here.
   const toastHeights = useRef<Record<number, number>>({});
   // Bumped whenever a card reports a new measured height, so the layout re-runs
   // with the real height instead of the 56px placeholder. Without this a freshly
@@ -4560,7 +4560,6 @@ export default function UniversalPlayer({
             const PEEK = 14; // collapsed: px each behind card pokes up
             // Newest first (front of the collapsed stack = index 0).
             const visible = playerToasts.slice(-MAX).reverse();
-            const expanded = toastStackHovered && visible.length > 1;
             // Cumulative offset (from the bottom anchor) of each card once the
             // stack is expanded: sum of the real heights of the cards in front
             // of it, plus a gap per step.
@@ -4582,11 +4581,13 @@ export default function UniversalPlayer({
               (toastHeights.current[visible[visible.length - 1]?.id] || 56);
             return (
               <div
-                // Single hover owner. The backdrop below (sized to the expanded
-                // extent) is the only pointer-events target that governs expand,
-                // so crossing gaps between cards never toggles it.
-                onMouseEnter={() => setToastStackHovered(true)}
-                onMouseLeave={() => setToastStackHovered(false)}
+                // Fan-out on hover is CSS-driven (.ip-toast-anchor:hover), not
+                // React state — see globals.css. The invisible backdrop below
+                // (sized to the expanded extent) is the hover target so crossing
+                // gaps between cards never drops it.
+                className={
+                  "ip-toast-anchor" + (toastAnimateOff ? " ip-toast-no-anim" : "")
+                }
                 style={{
                   position: "absolute",
                   right: 16,
@@ -4611,15 +4612,19 @@ export default function UniversalPlayer({
                 />
                 {visible.map((n, depth) => {
                   const isFront = depth === 0;
-                  const translateY = expanded
-                    ? -expandedOffset(depth)
-                    : -depth * PEEK;
-                  const scale = expanded ? 1 : 1 - depth * 0.05;
+                  // Collapsed: each behind card sits a fixed PEEK px up + scaled
+                  // down so only an even sliver peeks (never readable text).
+                  // Expanded (hover): cards fan up by their real height + gap,
+                  // full scale, so all 3 are fully readable. Both transforms are
+                  // handed to CSS as custom props; :hover picks which applies.
+                  const collapsedTransform = `translateY(${-depth * PEEK}px) scale(${1 - depth * 0.05})`;
+                  const expandedTransform = `translateY(${-expandedOffset(depth)}px) scale(1)`;
                   return (
                   <div
                     key={n.id}
                     role="status"
                     aria-live="polite"
+                    className="ip-toast-card"
                     ref={(el) => recordToastHeight(n.id, el)}
                     style={{
                       // Cards are display-only for hit-testing EXCEPT the front
@@ -4629,20 +4634,14 @@ export default function UniversalPlayer({
                       right: 0,
                       bottom: 0,
                       width: "100%",
-                      // Collapsed: each behind card sits a fixed PEEK px up + scaled
-                      // down so only an even sliver peeks (never readable text).
-                      // Expanded (hover): cards fan up by their real height + gap,
-                      // full scale, so all 3 are fully readable.
-                      transform: `translateY(${translateY}px) scale(${scale})`,
                       transformOrigin: "bottom center",
                       // Solid — no transparency; depth reads from scale + offset.
                       opacity: 1,
                       zIndex: MAX - depth,
-                      // No transition on the mount frame (a new toast joining must
-                      // not make the others slide); otherwise animate expand/collapse.
-                      transition: toastAnimateOff
-                        ? "none"
-                        : "transform 0.3s cubic-bezier(0.22, 1, 0.36, 1)",
+                      // CSS (.ip-toast-card / :hover) reads these + owns the
+                      // transform + its transition — no React state in the anim path.
+                      ["--collapsed-transform" as any]: collapsedTransform,
+                      ["--expanded-transform" as any]: expandedTransform,
                     }}
                   >
                     <div
