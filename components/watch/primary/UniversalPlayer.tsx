@@ -1366,11 +1366,23 @@ export default function UniversalPlayer({
   >([]);
   const playerToastId = useRef(0);
   const playerToastTimers = useRef<number[]>([]);
+  // Fullscreen stack: hovering expands the (up to 3) collapsed cards into a
+  // fully-unfolded, readable column. Measured heights let the expanded layout
+  // stack them by their real size + a gap.
+  const [toastStackHovered, setToastStackHovered] = useState(false);
+  const toastHeights = useRef<Record<number, number>>({});
+  // Suppress the enter transition for the FRAME a new toast mounts, so an
+  // arriving 4th card doesn't make the existing ones visibly slide.
+  const [toastAnimateOff, setToastAnimateOff] = useState(false);
   const dismissPlayerToast = (id: number) =>
     setPlayerToasts((list) => list.filter((t) => t.id !== id));
   const pushPlayerToast = (msg: string, dur: number) => {
     const id = ++playerToastId.current;
+    // Kill the transition around the mount so existing cards don't slide when a
+    // new one joins the stack; re-enable it a tick later for hover expand/collapse.
+    setToastAnimateOff(true);
     setPlayerToasts((list) => [...list, { id, msg, dur }]);
+    window.setTimeout(() => setToastAnimateOff(false), 60);
     playerToastTimers.current.push(
       window.setTimeout(() => dismissPlayerToast(id), dur),
     );
@@ -4514,10 +4526,35 @@ export default function UniversalPlayer({
         createPortal(
           (() => {
             const MAX = 3;
+            const GAP = 10; // px between fully-expanded cards
             // Newest first (front of the collapsed stack = index 0).
             const visible = playerToasts.slice(-MAX).reverse();
+            const expanded = toastStackHovered && visible.length > 1;
+            // Cumulative offset (from the bottom anchor) of each card once the
+            // stack is expanded: sum of the real heights of the cards in front
+            // of it, plus a gap per step.
+            const expandedOffset = (depth: number) => {
+              let y = 0;
+              for (let d = 0; d < depth; d++) {
+                y += (toastHeights.current[visible[d].id] || 56) + GAP;
+              }
+              return y;
+            };
+            // Total height the stack occupies right now — used to size an
+            // invisible hover backdrop so moving the cursor between cards (or
+            // over the gaps while expanding) never drops the hover and flickers.
+            const frontH = toastHeights.current[visible[0]?.id] || 56;
+            const stackH = expanded
+              ? expandedOffset(visible.length - 1) +
+                (toastHeights.current[visible[visible.length - 1]?.id] || 56)
+              : frontH + (visible.length - 1) * 14;
             return (
               <div
+                // Hover anywhere in the stack expands it. Handlers here catch the
+                // bubbled mouseover/out from every `auto` child (cards + the gap
+                // backdrop), so the front card and the peeking slivers all count.
+                onMouseEnter={() => setToastStackHovered(true)}
+                onMouseLeave={() => setToastStackHovered(false)}
                 style={{
                   position: "absolute",
                   right: 16,
@@ -4528,30 +4565,55 @@ export default function UniversalPlayer({
                   pointerEvents: "none",
                 }}
               >
+                {/* Invisible hit area spanning the whole stack, so the cursor
+                    crossing the gaps between expanded cards never drops hover. */}
+                <div
+                  style={{
+                    position: "absolute",
+                    right: 0,
+                    bottom: 0,
+                    width: "100%",
+                    height: stackH,
+                    pointerEvents: "auto",
+                    transition: toastAnimateOff ? "none" : "height 0.25s ease",
+                  }}
+                />
                 {visible.map((n, depth) => {
                   const isFront = depth === 0;
+                  const translateY = expanded
+                    ? -expandedOffset(depth)
+                    : -depth * 14;
+                  const scale = expanded ? 1 : 1 - depth * 0.05;
                   return (
                   <div
                     key={n.id}
                     role="status"
                     aria-live="polite"
+                    ref={(el) => {
+                      if (el) toastHeights.current[n.id] = el.offsetHeight;
+                    }}
                     style={{
-                      pointerEvents: isFront ? "auto" : "none",
+                      // Interactive for the ✕ / any buttons; the hover backdrop
+                      // below owns the expand trigger.
+                      pointerEvents: "auto",
                       position: "absolute",
                       right: 0,
                       bottom: 0,
                       width: "100%",
-                      // sonner collapsed stack: each toast behind the front sits
-                      // a fixed GAP up + scaled slightly down, so only a thin,
-                      // even sliver of every behind toast peeks above the front
-                      // one (never a readable line of its text). Fixed px gap =>
-                      // identical step no matter how tall the front card is.
-                      transform: `translateY(${-depth * 14}px) scale(${1 - depth * 0.05})`,
+                      // Collapsed: each behind card sits a fixed 14px up + scaled
+                      // down so only an even sliver peeks (never readable text).
+                      // Expanded (hover): cards fan up by their real height + gap,
+                      // full scale, so all 3 are fully readable.
+                      transform: `translateY(${translateY}px) scale(${scale})`,
                       transformOrigin: "bottom center",
                       // Solid — no transparency; depth reads from scale + offset.
                       opacity: 1,
                       zIndex: MAX - depth,
-                      transition: "transform 0.25s ease, opacity 0.25s ease",
+                      // No transition on the mount frame (a new toast joining must
+                      // not make the others slide); otherwise animate expand/collapse.
+                      transition: toastAnimateOff
+                        ? "none"
+                        : "transform 0.25s ease",
                     }}
                   >
                     <div
