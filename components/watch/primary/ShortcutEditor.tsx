@@ -282,14 +282,22 @@ export default function ShortcutEditor({ onClose }: { onClose: () => void }) {
     // to grab the image, then remove it on the next tick (pointer-events:none so
     // it never intercepts the drag).
     const src = e.currentTarget as HTMLElement;
-    const rect = src.getBoundingClientRect();
-    // Chrome cannot reliably snapshot a very wide drag image: for the ~500px
-    // space bar `setDragImage` silently failed and the browser fell back to a
-    // translucent copy of the source key → the blurry oval halo in the ref.
-    // Cap the ghost to a sane tile so the snapshot always succeeds and stays a
-    // crisp rectangle regardless of the grabbed key's real width.
-    const gw = Math.min(rect.width, 240);
-    const gh = rect.height;
+    // Measure the OUTER cell (the padded grid slot), not the inner cap: the cap
+    // carries `transform: scale(0.9)` while hovered — and a key is ALWAYS
+    // hovered at the instant you grab it — so the cap's own rect is 10% smaller
+    // than the real key (that's why the Entrée ghost came out too small). The
+    // parent cell is never scaled and always reports the true footprint.
+    const box = (src.parentElement ?? src).getBoundingClientRect();
+    // The ISO Enter's inner cap is the full 1.5u × 2-row rectangle, but the
+    // VISIBLE cap is an L-shape: a 1.5u top half over a 1.25u lower half. Its
+    // wide, single-row top half is what reads as "the Enter key", so size the
+    // ghost like a normal one-row tile (top half) rather than the tall bounding
+    // box — a full 2-row-tall ghost looked wrong too.
+    const isEnter = (e.currentTarget as HTMLElement).dataset.enter === "1";
+    // Strip the GAP inset back out so the ghost matches the drawn cap, not the
+    // slot around it.
+    const gw = Math.min(box.width - GAP_PX * 2, 240);
+    const gh = (isEnter ? box.height / 2 : box.height) - GAP_PX * 2;
     const ghost = document.createElement("div");
     ghost.style.cssText =
       `position:fixed;top:0;left:0;z-index:2147483647;opacity:1;pointer-events:none;` +
@@ -463,6 +471,7 @@ export default function ShortcutEditor({ onClose }: { onClose: () => void }) {
                         onDragEnd();
                       }}
                       draggable={!!action}
+                      data-enter={isEnter ? "1" : undefined}
                       onDragStart={(e) => {
                         // A key with no action must never start a drag (the
                         // browser would otherwise drag the bare cell — you could

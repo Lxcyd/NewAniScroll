@@ -1678,15 +1678,22 @@ export default function Watch({
 
   // ── Keyboard shortcut: cycle to the next player/server ──────
   // The player fires `aniscroll:cycleServer` (it doesn't own the server list).
-  // We advance to the next CONFIRMED server (the ones that actually resolved a
-  // stream), wrapping around; if none are confirmed yet we cycle the full list.
+  // We cycle through the servers IN THE EXACT ORDER THEY'RE SHOWN in the
+  // selector (multi → vo → vf, each fastest-first) and with the SAME visibility
+  // rules (`shouldShow`), so pressing the shortcut walks the chips left→right,
+  // top→bottom just like the UI — never a hidden/failed server.
   useEffect(() => {
     const onCycle = () => {
-      const SERVERS = require("@/lib/servers").default;
-      const pool =
-        confirmedServers.size > 0
-          ? SERVERS.filter((s) => confirmedServers.has(s.id))
-          : SERVERS;
+      const { getServersByLang } = require("@/lib/servers");
+      const groups = getServersByLang();
+      // Same visibility test as serverSelector.js `shouldShow`.
+      const isVisible = (s) => {
+        if (s.id === activeServer) return true;
+        if (failedServers?.has?.(s.id)) return false;
+        if (s.type === "iframe") return true;
+        return confirmedServers.has(s.id);
+      };
+      const pool = [...groups.multi, ...groups.vo, ...groups.vf].filter(isVisible);
       if (pool.length < 2) return; // nothing to cycle to
       const idx = pool.findIndex((s) => s.id === activeServer);
       const next = pool[(idx + 1) % pool.length];
@@ -1697,7 +1704,7 @@ export default function Watch({
     };
     window.addEventListener("aniscroll:cycleServer", onCycle);
     return () => window.removeEventListener("aniscroll:cycleServer", onCycle);
-  }, [confirmedServers, activeServer, handleServerChange, t]);
+  }, [confirmedServers, failedServers, activeServer, handleServerChange, t]);
 
   // ── Media Session (OS-level now playing) ────────────────────
   useEffect(() => {

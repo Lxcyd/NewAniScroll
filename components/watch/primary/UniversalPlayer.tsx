@@ -1155,9 +1155,11 @@ function SettingsSubmenuHeader({ label, onBack }: { label: string; onBack: () =>
 function CenterPlayButton({
   playerRef,
   autoplay,
+  menuOpen,
 }: {
   playerRef: React.RefObject<MediaPlayerInstance>;
   autoplay: boolean;
+  menuOpen: boolean;
 }) {
   const { t } = useTranslation();
   const paused = useMediaState("paused", playerRef);
@@ -1178,6 +1180,10 @@ function CenterPlayButton({
   // loading (Vidstack draws its buffering spinner then).
   if (everStarted) return null;
   if (!paused || !canPlay) return null;
+  // A Vidstack menu (chapters / settings / subtitles) is open: it must sit ON
+  // TOP, not be covered by this big center button — hide the button while any
+  // menu is open (it reappears when the menu closes, playback still not begun).
+  if (menuOpen) return null;
 
   const start = () => {
     const player = playerRef.current;
@@ -3884,12 +3890,6 @@ export default function UniversalPlayer({
       case "seekForward":
         if (video) video.currentTime = Math.min(video.duration || Infinity, video.currentTime + 5);
         break;
-      case "seekBackwardLong":
-        if (video) video.currentTime = Math.max(0, video.currentTime - 5);
-        break;
-      case "seekForwardLong":
-        if (video) video.currentTime = Math.min(video.duration || Infinity, video.currentTime + 5);
-        break;
       case "frameBackward":
         if (video) {
           video.pause();
@@ -4004,6 +4004,28 @@ export default function UniversalPlayer({
       case "copyTimestamp":
         void copyTimestampLink();
         break;
+      case "partyChat": {
+        // Only meaningful in a watch-together party (the chat lives there).
+        if (!party) {
+          toast.error(t("party.chatNeedsParty", { defaultValue: "Rejoins une party pour discuter." }));
+          break;
+        }
+        // The chat panel is fullscreen-only — enter fullscreen first if needed,
+        // then ask FullscreenChat to open + focus its composer. A short delay
+        // lets the fullscreen transition (and the chat mount) settle before we
+        // focus, so the caret actually lands in the input.
+        const openChat = () =>
+          window.dispatchEvent(new CustomEvent("aniscroll:openPartyChat"));
+        if (!document.fullscreenElement) {
+          try {
+            (player as any)?.enterFullscreen?.() ?? player?.el?.requestFullscreen?.();
+          } catch {}
+          window.setTimeout(openChat, 180);
+        } else {
+          openChat();
+        }
+        break;
+      }
     }
   };
 
@@ -4385,7 +4407,7 @@ export default function UniversalPlayer({
       {/* Big centred play button — the MANUAL start affordance, shown only when
           autoplay is OFF. One click plays WITH sound. With autoplay ON the video
           starts itself, so the button is hidden (see CenterPlayButton). */}
-      <CenterPlayButton playerRef={playerRef} autoplay={autoplay} />
+      <CenterPlayButton playerRef={playerRef} autoplay={autoplay} menuOpen={vdsMenuOpen} />
 
       {/* AniSkip segment overlay + Skip button. Renders null when no
           skip data exists for the current episode AND there's no next

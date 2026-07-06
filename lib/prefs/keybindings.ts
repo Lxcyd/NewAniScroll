@@ -40,8 +40,6 @@ export type ShortcutAction =
   | "screenshot"
   | "subtitles"
   // Extra actions we propose on top of the user's list:
-  | "seekBackwardLong"
-  | "seekForwardLong"
   | "restart"
   | "frameBackward"
   | "frameForward"
@@ -49,6 +47,7 @@ export type ShortcutAction =
   | "copyTimestamp"
   | "rotate"
   | "toggleAmbient"
+  | "partyChat"
   // Jump to N×10% of the runtime (YouTube-style number-row seek).
   | "seekPct10"
   | "seekPct20"
@@ -89,8 +88,6 @@ export const ACTION_CATALOG: ActionMeta[] = [
   { id: "nextEpisode", i18n: "nextEpisode", group: "navigation" },
   { id: "seekBackward", i18n: "seekBackward", group: "navigation", directOnly: true },
   { id: "seekForward", i18n: "seekForward", group: "navigation", directOnly: true },
-  { id: "seekBackwardLong", i18n: "seekBackwardLong", group: "navigation", directOnly: true },
-  { id: "seekForwardLong", i18n: "seekForwardLong", group: "navigation", directOnly: true },
   { id: "frameBackward", i18n: "frameBackward", group: "navigation", directOnly: true },
   { id: "frameForward", i18n: "frameForward", group: "navigation", directOnly: true },
   // Percentage jumps (YouTube-style 1–9). Grouped under navigation.
@@ -122,6 +119,7 @@ export const ACTION_CATALOG: ActionMeta[] = [
   { id: "copyTimestamp", i18n: "copyTimestamp", group: "view", directOnly: true },
   { id: "rotate", i18n: "rotate", group: "view", directOnly: true },
   { id: "toggleAmbient", i18n: "toggleAmbient", group: "view" },
+  { id: "partyChat", i18n: "partyChat", group: "view" },
   { id: "subtitles", i18n: "subtitles", group: "view" },
   { id: "toggleStats", i18n: "toggleStats", group: "view", directOnly: true },
   { id: "screenshot", i18n: "screenshot", group: "view", directOnly: true },
@@ -146,40 +144,39 @@ export const DEFAULT_KEYBINDINGS: Keybindings = {
   seekPct80: "digit8",
   seekPct90: "digit9",
   restart: "backspace",
-  // Upper row (a z e r t y u i o p ^ $)
-  cycleServer: "keyw", // "z" cap — ⟳ cycle player
-  subtitles: "keyt", // "t" — tracks/list
-  copyTimestamp: "keyy", // "y" — 🔗 link
-  pictureInPicture: "keyo", // "o" — ▣ PiP
-  toggleAmbient: "keyp", // "p" — ambient lights on/off
+  // Upper row (a z e r t y u i o p ^ $) — layout from the user's reference SS.
+  cycleServer: "keye", // "e" cap — ⟳ cycle player
+  rotate: "keyr", // "r" — ⇅ rotate 90°
+  pictureInPicture: "keyi", // "i" — ▣ PiP
+  prevEpisode: "keyo", // "o" — |◄ previous episode
+  frameBackward: "keyp", // "p" — 🖼← previous frame
+  frameForward: "bracketleft", // "^" — 🖼→ next frame
   // Home row (q s d f g h j k l m ù *)
-  toggleStats: "keys", // "s"
-  nextEpisode: "keyd", // "d"
-  prevEpisode: "keyf", // "f"
-  fullscreen: "keyg", // "g"
-  seekBackwardLong: "keyj", // "j" — −5s
-  seekForwardLong: "keyl", // "l" — +5s
-  frameBackward: "semicolon", // "m"
-  frameForward: "quote", // "ù"
+  partyChat: "keyt", // "t" — 💬 open party chat (watch-together only)
+  toggleStats: "keyd", // "d" — 📊 stats
+  chromecast: "keyf", // "f" — 📶 cast
+  fullscreen: "keyg", // "g" — ⛶ fullscreen
+  toggleAmbient: "keyl", // "l" — 💡 ambient lights
+  mute: "semicolon", // "m" cap — 🔇 mute
+  skipIntro: "quote", // "ù" cap — OP
+  skipOutro: "backslash", // "*" cap — ED
   // Bottom letter row (w x c v b n , ; : !)
-  chromecast: "keyc", // "c" — cast
-  screenshot: "keyv", // "v"
-  mute: "keyn", // "n"
-  rotate: "keym", // "," cap (physical KeyM on AZERTY) — rotate 90°
-  // Speed on the ; : ! cluster — AZERTY physical positions Comma/Period/Slash.
-  rateDown: "comma", // ";" cap
-  rateUp: "period", // ":" cap
-  rateReset: "slash", // "!" cap
+  subtitles: "keyx", // "x" — 💬 subtitles/tracks
+  screenshot: "keyc", // "c" — 📷 screenshot
+  copyTimestamp: "keyv", // "v" — 🔗 link
+  nextEpisode: "keyb", // "b" — ►| next episode
+  // Speed cluster on the AZERTY , ; ! physical positions (KeyM/Comma/Slash).
+  rateDown: "keym", // "," cap — ⏱−
+  rateUp: "comma", // ";" cap — ⏱+
+  rateReset: "slash", // "!" cap — ⏱↻ reset speed
   // Space + arrows.
   playPause: "space",
   seekBackward: "arrowleft",
   seekForward: "arrowright",
   volumeUp: "arrowup",
   volumeDown: "arrowdown",
-  // Skip intro/outro on PgUp/PgDn. EVERY action ships bound — the editor has
-  // no unbind path (drops swap), so the full catalog must have a default key.
-  skipIntro: "pageup",
-  skipOutro: "pagedown",
+  // skipIntro/skipOutro (OP/ED) now live on the ù/* keys of the home row (see
+  // above) — per the user's reference layout — not the old PgUp/PgDn.
 };
 
 /** Set of valid action ids, to reject bogus stored keys on load. */
@@ -187,7 +184,10 @@ const KNOWN_ACTIONS = new Set<string>(ACTION_CATALOG.map((a) => a.id));
 
 // v3: event.code storage; v3 fixed the AZERTY bottom-row codes (bumped so the
 // v2 defaults that were saved with wrong codes are discarded).
-const KEY = "aniscroll:keybindings:v3";
+// v4: full default-layout reshuffle from the user's reference screenshot +
+// removed the seek±5s "Long" duplicates. Bumped so v3-era saved maps (old
+// positions) don't override the new defaults.
+const KEY = "aniscroll:keybindings:v4";
 export const KEYBINDINGS_EVENT = "aniscroll:keybindings:change";
 
 export function getKeybindings(): Keybindings {

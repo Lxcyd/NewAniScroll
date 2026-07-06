@@ -142,13 +142,8 @@ export const SHORTCUT_ICONS: Record<ShortcutAction, ReactNode> = {
   fullscreen: P("M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"),
   screenshot: P("M12 15.2a3.2 3.2 0 100-6.4 3.2 3.2 0 000 6.4zM9 2L7.17 4H4a2 2 0 00-2 2v12a2 2 0 002 2h16a2 2 0 002-2V6a2 2 0 00-2-2h-3.17L15 2H9zm3 15a5 5 0 110-10 5 5 0 010 10z"),
   subtitles: P("M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm-9 11H6v-2h5v2zm7 0h-5v-2h5v2zm0-4H6V9h12v2z"),
-  // ±5s seeks: just the text "−5" / "+5", a bit larger for legibility.
-  seekBackwardLong: (
-    <text x="12" y="17" textAnchor="middle" fontFamily="Space Grotesk, system-ui, sans-serif" fontSize="15" fontWeight="700" fill="currentColor">−5</text>
-  ),
-  seekForwardLong: (
-    <text x="12" y="17" textAnchor="middle" fontFamily="Space Grotesk, system-ui, sans-serif" fontSize="15" fontWeight="700" fill="currentColor">+5</text>
-  ),
+  // Party chat: a speech bubble with three dots — the watch-together chat.
+  partyChat: P("M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zM8 11H6V9h2v2zm5 0h-2V9h2v2zm5 0h-2V9h2v2z"),
   restart: P("M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"),
   // Prev/next FRAME ("image précédente/suivante"): Material "photo + arrow"
   // frame (image with mountains), arrow LEFT (prev) / RIGHT (next). Frame path

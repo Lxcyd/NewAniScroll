@@ -121,6 +121,23 @@ export default function FullscreenChat({ onRemote, sendChat, playerEl, active, s
     if (open && logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [recent, open]);
 
+  // Keyboard shortcut ("t"): UniversalPlayer dispatches this after making sure
+  // we're fullscreen. Open the panel and focus the composer so the user can
+  // type straight away — the same result as hovering the reveal zone, minus the
+  // mouse. `active`-gated so a stray event while windowed does nothing.
+  useEffect(() => {
+    if (!active) return;
+    const onOpen = () => {
+      openNow();
+      // Focus after the panel's open transition begins (pointer-events flip to
+      // auto) so the caret reliably lands in the input.
+      window.setTimeout(() => composerRef.current?.focus(), 60);
+    };
+    window.addEventListener("aniscroll:openPartyChat", onOpen);
+    return () => window.removeEventListener("aniscroll:openPartyChat", onOpen);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active]);
+
   if (!active || !playerEl) return null;
 
   // Send the composer's serialized text (sticker <img> → :shortcode:).
