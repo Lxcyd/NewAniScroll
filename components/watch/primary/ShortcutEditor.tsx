@@ -107,6 +107,11 @@ const CAPS: Cap[] = ROWS.flatMap((row, y) => {
   });
 });
 
+// Punctuation keys that live inside the main typing block and get the lighter
+// "main" fill alongside letters/digits ( , ; : ! - = ^ $ ù * ). Kept as a Set
+// so the regex doesn't have to escape metacharacters like - $ ^ *.
+const MAIN_PUNCT = new Set([",", ";", ":", "!", "-", "=", "^", "$", "ù", "*"]);
+
 function baseOf(combo: KeyCombo): string {
   const parts = combo.split("+");
   return parts[parts.length - 1];
@@ -265,19 +270,20 @@ export default function ShortcutEditor({ onClose }: { onClose: () => void }) {
                 // lower half (row 2) — two overlapping rounded rects, so every
                 // convex corner stays rounded like the other keys.
                 const isEnter = h === 2;
-                // The alphanumeric block (letters, digits, and the , ; : !
-                // punctuation cluster) uses the lighter fill; every other key
-                // (nav, modifiers, ^ $ ù *, space, enter, …) is a shade darker
-                // so the "main typing area" reads as a distinct region. The
-                // tint applies whether or not the key holds an action — an
-                // empty nav key is still darker than an empty letter key.
-                const isMain = /^[a-z0-9,;:!]$/i.test(code);
+                // The main typing block (letters, digits, and the punctuation
+                // that sits among them: , ; : ! - = ^ $ ù *) uses the lighter
+                // fill; every other key (nav, modifiers, space, enter, tab, …)
+                // is a shade darker so the typing area reads as a distinct
+                // region. The tint applies whether or not the key holds an
+                // action — an empty nav key stays darker than an empty letter.
+                const isMain =
+                  /^[a-z0-9]$/i.test(code) || MAIN_PUNCT.has(code);
                 const bg = isDrop
                   ? "rgba(233,69,96,0.35)"
                   : isMain
                   ? "#20242c"
                   : "#181b21";
-                const GAP = 0.45; // % of a unit, drawn as an inner inset
+                const GAP = 0.9; // % of a unit, drawn as an inner inset — roomy gaps like the ref
                 return (
                   <div
                     key={ci}

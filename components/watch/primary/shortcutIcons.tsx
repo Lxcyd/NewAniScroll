@@ -44,9 +44,33 @@ export const SHORTCUT_ICONS: Record<ShortcutAction, ReactNode> = {
   seekForward: P("M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z"),
   volumeUp: P("M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0014 7.97v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"),
   volumeDown: P("M18.5 12A4.5 4.5 0 0016 7.97v8.05c1.48-.73 2.5-2.25 2.5-4.02zM5 9v6h4l5 5V4L9 9H5z"),
-  // Speed down/up: a single triangle with a minus / plus badge (distinct and clean).
-  rateDown: P("M4 6v12l8-6-8-6zm9 5h8v2h-8v-2z"),
-  rateUp: P("M4 6v12l8-6-8-6zm12-2v3h3v2h-3v3h-2v-3h-3V9h3V6h2z"),
+  // Speed down/up: the Material "speed" gauge (dial arc) with the needle
+  // swung left (slower) or right (faster), plus a −/+ badge. The gauge dial
+  // path is defined in a 0 -960 960 960 viewBox, remapped into 0 0 24 24 with
+  // a group transform (scale 24/960, shift the -960 origin down). The needle
+  // and badge are drawn directly in 24×24 space.
+  rateDown: (
+    <>
+      <g transform="translate(0,24) scale(0.025)">
+        <path d="M205-160q-22 0-40.5-9.5T135-198q-28-48-42-100.5T79-406q1-56 18.5-109T146-616l48 76q-17 32-26 66.5t-9 69.5q0 44 11.5 85.5T205-240h551q21-36 32.5-76.5T800-400q0-133-93.5-226.5T480-720q-37 0-72.5 9T340-686l-76-48q48-32 102.5-49T480-800q83 0 155.5 31.5t127 86q54.5 54.5 86 127T880-400q0 54-14 105t-40 97q-11 19-30 28.5t-40 9.5H205Z" fill="currentColor" />
+      </g>
+      {/* needle → lower-left */}
+      <path d="M12 15.5 6.6 12.8a1.1 1.1 0 0 1 1-2l4.7 2.9a1 1 0 0 1-.3 1.9Z" fill="currentColor" />
+      {/* minus badge */}
+      <path d="M14.5 5h5v2h-5z" fill="currentColor" />
+    </>
+  ),
+  rateUp: (
+    <>
+      <g transform="translate(0,24) scale(0.025)">
+        <path d="M205-160q-22 0-40.5-9.5T135-198q-28-48-42-100.5T79-406q1-56 18.5-109T146-616l48 76q-17 32-26 66.5t-9 69.5q0 44 11.5 85.5T205-240h551q21-36 32.5-76.5T800-400q0-133-93.5-226.5T480-720q-37 0-72.5 9T340-686l-76-48q48-32 102.5-49T480-800q83 0 155.5 31.5t127 86q54.5 54.5 86 127T880-400q0 54-14 105t-40 97q-11 19-30 28.5t-40 9.5H205Z" fill="currentColor" />
+      </g>
+      {/* needle → lower-right */}
+      <path d="M12 15.5 17.4 12.8a1.1 1.1 0 0 0-1-2l-4.7 2.9a1 1 0 0 0 .3 1.9Z" fill="currentColor" />
+      {/* plus badge */}
+      <path d="M16 4h2v2h2v2h-2v2h-2V8h-2V6h2z" fill="currentColor" />
+    </>
+  ),
   rateReset: P("M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"),
   // Same "OP"/"ED" badge as the Settings > Automation panel, for visual
   // consistency between the two places this action appears.
