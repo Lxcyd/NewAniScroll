@@ -188,6 +188,22 @@ export default function ShortcutEditor({ onClose }: { onClose: () => void }) {
   const [hoverKey, setHoverKey] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
 
+  // Lock the page behind the editor: while the overlay is open the underlying
+  // page (player + comments) must not scroll on wheel/touch/space/arrows.
+  useEffect(() => {
+    const { overflow } = document.body.style;
+    document.body.style.overflow = "hidden";
+    const stopScroll = (e: Event) => e.preventDefault();
+    // `passive:false` is required or preventDefault() is ignored on wheel/touch.
+    window.addEventListener("wheel", stopScroll, { passive: false });
+    window.addEventListener("touchmove", stopScroll, { passive: false });
+    return () => {
+      document.body.style.overflow = overflow;
+      window.removeEventListener("wheel", stopScroll);
+      window.removeEventListener("touchmove", stopScroll);
+    };
+  }, []);
+
   const actionLabel = useCallback(
     (id: ShortcutAction) => t(`shortcuts.actions.${id}`),
     [t],
@@ -262,10 +278,17 @@ export default function ShortcutEditor({ onClose }: { onClose: () => void }) {
     // it never intercepts the drag).
     const src = e.currentTarget as HTMLElement;
     const rect = src.getBoundingClientRect();
+    // Chrome cannot reliably snapshot a very wide drag image: for the ~500px
+    // space bar `setDragImage` silently failed and the browser fell back to a
+    // translucent copy of the source key → the blurry oval halo in the ref.
+    // Cap the ghost to a sane tile so the snapshot always succeeds and stays a
+    // crisp rectangle regardless of the grabbed key's real width.
+    const gw = Math.min(rect.width, 120);
+    const gh = rect.height;
     const ghost = document.createElement("div");
     ghost.style.cssText =
       `position:fixed;top:0;left:0;z-index:2147483647;opacity:1;pointer-events:none;` +
-      `width:${rect.width}px;height:${rect.height}px;` +
+      `width:${gw}px;height:${gh}px;` +
       "border-radius:8px;background:#20242c;display:flex;align-items:center;justify-content:center;" +
       "color:#fff;box-shadow:0 0 0 1px rgba(255,255,255,.06)";
     const iconSrc = src.querySelector("svg");
@@ -291,7 +314,7 @@ export default function ShortcutEditor({ onClose }: { onClose: () => void }) {
     // empty (transparent) image, which is why the wide space-bar ghost came out
     // see-through.
     void ghost.offsetWidth;
-    e.dataTransfer.setDragImage(ghost, rect.width / 2, rect.height / 2);
+    e.dataTransfer.setDragImage(ghost, gw / 2, gh / 2);
     window.setTimeout(() => ghost.remove(), 0);
   };
   const onDragEnd = () => setDropTarget(null);
@@ -435,7 +458,16 @@ export default function ShortcutEditor({ onClose }: { onClose: () => void }) {
                         onDragEnd();
                       }}
                       draggable={!!action}
-                      onDragStart={(e) => action && onDragStart(e, action)}
+                      onDragStart={(e) => {
+                        // A key with no action must never start a drag (the
+                        // browser would otherwise drag the bare cell — you could
+                        // "grab" Entrée/Suppr and drop them onto real keys).
+                        if (!action) {
+                          e.preventDefault();
+                          return;
+                        }
+                        onDragStart(e, action);
+                      }}
                       className="relative h-full w-full"
                       style={{
                         color: "rgba(255,255,255,0.92)",
