@@ -171,18 +171,17 @@ const CODE_LABEL: Record<string, string> = Object.fromEntries(
 
 // Human-readable NAME for each key (never a symbol/icon) — used by the hover
 // tooltip so e.g. Enter reads "Entrée", not "↵".
-function capGlyph(code: string): string {
-  const named: Record<string, string> = {
-    arrowleft: "Flèche gauche", arrowright: "Flèche droite",
-    arrowup: "Flèche haut", arrowdown: "Flèche bas",
-    space: "Espace", backspace: "Retour arrière", enter: "Entrée",
-    escape: "Échap", tab: "Tab", delete: "Suppr", home: "Début",
-    pageup: "Page préc.", pagedown: "Page suiv.", capslock: "Verr. Maj",
-    shiftleft: "Maj gauche", shiftright: "Maj droite",
-    controlleft: "Ctrl", metaleft: "Windows", altleft: "Alt",
-    altright: "AltGr", contextmenu: "Menu",
-  };
-  return named[code] ?? CODE_LABEL[code]?.toUpperCase() ?? code.toUpperCase();
+// Codes that have a human-readable name in the locale (shortcuts.keys.*).
+const NAMED_KEYS = new Set([
+  "arrowleft", "arrowright", "arrowup", "arrowdown",
+  "space", "backspace", "enter", "escape", "tab", "delete", "home",
+  "pageup", "pagedown", "capslock", "shiftleft", "shiftright",
+  "controlleft", "metaleft", "altleft", "altright", "contextmenu",
+]);
+
+function capGlyph(code: string, t: (k: string) => string): string {
+  if (NAMED_KEYS.has(code)) return t(`shortcuts.keys.${code}`);
+  return CODE_LABEL[code]?.toUpperCase() ?? code.toUpperCase();
 }
 
 export default function ShortcutEditor({ onClose }: { onClose: () => void }) {
@@ -383,7 +382,7 @@ export default function ShortcutEditor({ onClose }: { onClose: () => void }) {
   const tooltip = (() => {
     if (!hoverKey) return null;
     const act = actionForKey(hoverKey);
-    const glyph = capGlyph(hoverKey);
+    const glyph = capGlyph(hoverKey, t);
     return act ? `${glyph} : ${actionLabel(act)}` : glyph;
   })();
 
