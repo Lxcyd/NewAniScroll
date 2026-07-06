@@ -15,7 +15,7 @@
  *  - Around the keyboard: only a small header (shortcut text left; Reset and ✕
  *    close on the right, directly above the board). Nothing else.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import {
@@ -190,6 +190,13 @@ export default function ShortcutEditor({ onClose }: { onClose: () => void }) {
   const [binds, setBinds] = useState<Keybindings>(() => getKeybindings());
   const [hoverKey, setHoverKey] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
+  // Manual drag ghost. setDragImage proved hopeless for the wide space bar
+  // (Chrome returns a near-transparent snapshot no matter the size), so we hide
+  // the native drag image and move our OWN opaque element under the cursor on
+  // dragover. `ghostOffset` is the grab point inside the ghost so it tracks the
+  // cursor from where you clicked, not the corner.
+  const ghostRef = useRef<HTMLDivElement | null>(null);
+  const ghostOffset = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
 
   // Lock the page behind the editor: while the overlay is open the underlying
   // page (player + comments) must not scroll on wheel/touch/space/arrows.
@@ -267,13 +274,14 @@ export default function ShortcutEditor({ onClose }: { onClose: () => void }) {
   const onDragStart = (e: React.DragEvent, action: ShortcutAction) => {
     e.dataTransfer.setData("text/plain", action);
     e.dataTransfer.effectAllowed = "move";
-    // Drag preview: an OPAQUE <div> tile snapshotted by setDragImage. A canvas
-    // proved unreliable here (Chrome returned an EMPTY drag image → no ghost at
-    // all), so we're back to the DOM div that always rasterized.
-    //
-    // CRUCIAL: the div must be ON-SCREEN and ON TOP (positive z-index) for the
-    // single frame Chrome grabs it; pointer-events:none so it never eats the
-    // drag; removed on the next tick.
+    // Hide the NATIVE drag image (a 1×1 transparent px) — we render our own
+    // ghost and move it under the cursor on dragover. This sidesteps
+    // setDragImage entirely, which never rendered the wide space bar opaquely.
+    const blank = new Image();
+    blank.src =
+      "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
+    e.dataTransfer.setDragImage(blank, 0, 0);
+
     const src = e.currentTarget as HTMLElement;
     // Measure the OUTER cell (the padded grid slot), not the inner cap: the cap
     // carries `transform: scale(0.9)` while hovered — and a key is ALWAYS
@@ -281,24 +289,19 @@ export default function ShortcutEditor({ onClose }: { onClose: () => void }) {
     // than the real key. The parent cell is never scaled: true footprint.
     const box = (src.parentElement ?? src).getBoundingClientRect();
     const isEnter = (e.currentTarget as HTMLElement).dataset.enter === "1";
-    // Width CAP: Chrome silently fails to snapshot a very wide setDragImage node
-    // (the ~500px space bar came back transparent). 240px snapshots reliably;
-    // 280px is the widest that still worked in testing, so the space bar's ghost
-    // reads as a proper long rectangle without going see-through.
-    const gw = Math.min(box.width - GAP_PX * 2, 280);
+    // FULL physical width now — our manual ghost has no snapshot-size limit.
+    const gw = box.width - GAP_PX * 2;
     // One visual row's height (the Enter cell spans two rows).
     const rowH = box.height / (isEnter ? 2 : 1) - GAP_PX * 2;
+    const fullH = isEnter ? box.height - GAP_PX * 2 : rowH;
     const ghost = document.createElement("div");
+    ghost.style.cssText =
+      `position:fixed;left:0;top:0;z-index:2147483647;opacity:.92;pointer-events:none;` +
+      `width:${gw}px;height:${fullH}px;will-change:transform`;
     if (isEnter) {
-      // L-shape: wide top half (full width, top row) over a narrower
-      // right-aligned lower half (1.25/1.5 width, full height). Two overlapping
-      // opaque rects with the SAME fill and NO border → they fuse into one solid
-      // L with no visible seam where they meet.
-      const fullH = box.height - GAP_PX * 2;
+      // L-shape: wide top half over a narrower right-aligned lower half. Two
+      // overlapping opaque rects, same fill, NO border → one solid L, no seam.
       const lowerW = gw * (1.25 / 1.5);
-      ghost.style.cssText =
-        `position:fixed;top:0;left:0;z-index:2147483647;opacity:1;pointer-events:none;` +
-        `width:${gw}px;height:${fullH}px`;
       const lower = document.createElement("div");
       lower.style.cssText =
         `position:absolute;right:0;top:0;width:${lowerW}px;height:100%;border-radius:8px;background:#20242c`;
@@ -308,43 +311,74 @@ export default function ShortcutEditor({ onClose }: { onClose: () => void }) {
       ghost.appendChild(lower);
       ghost.appendChild(top);
     } else {
-      ghost.style.cssText =
-        `position:fixed;top:0;left:0;z-index:2147483647;opacity:1;pointer-events:none;` +
-        `width:${gw}px;height:${rowH}px;` +
-        "border-radius:8px;background:#20242c;display:flex;align-items:center;justify-content:center";
+      const cap = document.createElement("div");
+      cap.style.cssText =
+        `position:absolute;inset:0;border-radius:8px;background:#20242c;` +
+        `display:flex;align-items:center;justify-content:center`;
+      ghost.appendChild(cap);
     }
     const iconSrc = src.querySelector("svg");
     if (iconSrc) {
       const clone = iconSrc.cloneNode(true) as SVGElement;
-      // The key's <svg> is absolutely centred inside the cap; strip its class +
-      // inline style, then re-place it (flex-centred for a plain key, absolutely
-      // centred on the TOP row for the Enter L-shape).
       clone.removeAttribute("class");
       clone.removeAttribute("style");
-      clone.style.transform = "none";
       clone.style.flex = "0 0 auto";
       clone.setAttribute("width", "26");
       clone.setAttribute("height", "26");
       clone.style.color = "#fff";
-      if (isEnter) {
-        clone.style.position = "absolute";
-        clone.style.left = "50%";
-        clone.style.top = "25%";
-        clone.style.transform = "translate(-50%,-50%)";
-        clone.style.zIndex = "1";
-      } else {
-        clone.style.position = "static";
-      }
+      // Absolutely centred on the top row (Enter) or the whole cap (plain key).
+      clone.style.position = "absolute";
+      clone.style.left = "50%";
+      clone.style.top = isEnter ? "25%" : "50%";
+      clone.style.transform = "translate(-50%,-50%)";
+      clone.style.zIndex = "1";
       ghost.appendChild(clone);
     }
+    // Grab point = where the cursor is inside the key, so the ghost doesn't jump.
+    ghostOffset.current = {
+      x: e.clientX - (box.left + GAP_PX),
+      y: e.clientY - (box.top + GAP_PX),
+    };
+    ghost.style.transform = `translate(${e.clientX - ghostOffset.current.x}px,${
+      e.clientY - ghostOffset.current.y
+    }px)`;
     document.body.appendChild(ghost);
-    // Force a synchronous layout so the div is on-screen and rasterizable the
-    // instant setDragImage snapshots it this tick.
-    void ghost.offsetWidth;
-    e.dataTransfer.setDragImage(ghost, gw / 2, rowH / 2);
-    window.setTimeout(() => ghost.remove(), 0);
+    ghostRef.current = ghost;
   };
-  const onDragEnd = () => setDropTarget(null);
+
+  // Move the manual ghost under the cursor. `dragover` fires continuously with
+  // valid coordinates during a drag (unlike `drag`, whose clientX/Y are 0 in
+  // some browsers at drop). Bound on window so it tracks across the whole page.
+  useEffect(() => {
+    const onDragOver = (e: DragEvent) => {
+      const g = ghostRef.current;
+      if (!g) return;
+      g.style.transform = `translate(${e.clientX - ghostOffset.current.x}px,${
+        e.clientY - ghostOffset.current.y
+      }px)`;
+    };
+    // Safety net: whatever ends the drag (drop anywhere, Esc, cancel), tear the
+    // ghost down. The React onDragEnd on the board only fires when the source is
+    // still mounted under it; this window listener catches every case.
+    const onEnd = () => {
+      ghostRef.current?.remove();
+      ghostRef.current = null;
+    };
+    window.addEventListener("dragover", onDragOver);
+    window.addEventListener("dragend", onEnd);
+    window.addEventListener("drop", onEnd);
+    return () => {
+      window.removeEventListener("dragover", onDragOver);
+      window.removeEventListener("dragend", onEnd);
+      window.removeEventListener("drop", onEnd);
+    };
+  }, []);
+
+  const onDragEnd = () => {
+    setDropTarget(null);
+    ghostRef.current?.remove();
+    ghostRef.current = null;
+  };
 
   const tooltip = (() => {
     if (!hoverKey) return null;
