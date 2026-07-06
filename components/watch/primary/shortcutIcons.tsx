@@ -71,15 +71,18 @@ export const SHORTCUT_ICONS: Record<ShortcutAction, ReactNode> = {
       <path d="M19.75 1.5a1.1 1.1 0 0 1 1.1 1.1v1.05h1.05a1.1 1.1 0 1 1 0 2.2h-1.05v1.05a1.1 1.1 0 1 1-2.2 0V5.85h-1.05a1.1 1.1 0 1 1 0-2.2h1.05V2.6a1.1 1.1 0 0 1 1.1-1.1Z" fill="currentColor" />
     </>
   ),
-  // Reset speed: the speedometer dial (same as rateUp/Down) with a small
-  // circular "reset" arrow badge in the top-right corner instead of a ±.
+  // Reset speed: a speedometer with the needle straight UP (neutral / normal
+  // speed). Symmetric dial (semicircular gauge) with a centred vertical needle,
+  // plus a small circular "reset" arrow badge in the top-right corner.
   rateReset: (
     <>
-      <g transform="translate(1,22.5) scale(0.02)">
-        <path d="M536-343q26-26 24-60t-30-56q-79-62-164-115T199-682q54 83 107 167.5T418-347q20 29 56 29.5t62-25.5ZM205-160q-22 0-40.5-9.5T135-198q-28-48-42-100.5T79-406q1-56 18.5-109T146-616l48 76q-17 32-26 66.5t-9 69.5q0 44 11.5 85.5T205-240h551q21-36 32.5-76.5T800-400q0-133-93.5-226.5T480-720q-37 0-72.5 9T340-686l-76-48q48-32 102.5-49T480-800q83 0 155.5 31.5t127 86q54.5 54.5 86 127T880-400q0 54-14 105t-40 97q-11 19-30 28.5t-40 9.5H205Z" fill="currentColor" />
-      </g>
+      {/* semicircular gauge arc (open at the bottom), centred at (11,15) */}
+      <path d="M4 15a7 7 0 0 1 14 0h-2a5 5 0 0 0-10 0H4z" fill="currentColor" />
+      {/* centred vertical needle + hub */}
+      <path d="M10.2 15 10 9.5a1 1 0 0 1 2 0L11.8 15a.9.9 0 0 1-1.6 0z" fill="currentColor" />
+      <circle cx="11" cy="15" r="1.6" fill="currentColor" />
       {/* reset (circular arrow) badge, top-right */}
-      <path d="M20 1.6V0l-2 2 2 2V2.4a2.6 2.6 0 1 1-2.6 2.6h-.8A3.4 3.4 0 1 0 20 1.6Z" fill="currentColor" />
+      <path d="M21 4.6V3l-2 2 2 2V5.4a2.6 2.6 0 1 1-2.6 2.6h-.8A3.4 3.4 0 1 0 21 4.6Z" fill="currentColor" />
     </>
   ),
   // Same "OP"/"ED" badge as the Settings > Automation panel, for visual
@@ -140,6 +143,8 @@ export const SHORTCUT_ICONS: Record<ShortcutAction, ReactNode> = {
       <path d="M487-104 150-440h114l280 280 200-200H640v-80h240v240h-80v-104L600-104q-23 23-56.5 23T487-104ZM80-520v-240h80v104l200-200q23-23 56.5-23t56.5 23l337 336H696L416-800 216-600h104v80H80Z" fill="currentColor" />
     </g>
   ),
+  // Ambient lights: a lightbulb with radiating rays (glow).
+  toggleAmbient: P("M12 3a6 6 0 0 0-3.6 10.8c.5.4.8.9.9 1.4l.3 1.3h4.8l.3-1.3c.1-.5.4-1 .9-1.4A6 6 0 0 0 12 3zm-2 15h4v1a2 2 0 0 1-4 0v-1zM11.25 0h1.5v2.2h-1.5zM11.25 21.8h1.5V24h-1.5zM0 11.25h2.2v1.5H0zM21.8 11.25H24v1.5h-2.2zM3.4 2.34 4.46 3.4 2.34 5.52 1.28 4.46zM19.54 18.48l1.06 1.06-2.12 2.12-1.06-1.06zM20.6 4.46 19.54 5.52 17.42 3.4 18.48 2.34zM4.46 20.6 3.4 19.54l2.12-2.12 1.06 1.06z"),
   // Percentage jumps.
   seekPct10: Pct(10),
   seekPct20: Pct(20),

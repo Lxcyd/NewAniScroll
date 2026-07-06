@@ -48,6 +48,7 @@ export type ShortcutAction =
   | "cycleServer"
   | "copyTimestamp"
   | "rotate"
+  | "toggleAmbient"
   // Jump to N×10% of the runtime (YouTube-style number-row seek).
   | "seekPct10"
   | "seekPct20"
@@ -120,6 +121,7 @@ export const ACTION_CATALOG: ActionMeta[] = [
   { id: "cycleServer", i18n: "cycleServer", group: "view" },
   { id: "copyTimestamp", i18n: "copyTimestamp", group: "view", directOnly: true },
   { id: "rotate", i18n: "rotate", group: "view", directOnly: true },
+  { id: "toggleAmbient", i18n: "toggleAmbient", group: "view" },
   { id: "subtitles", i18n: "subtitles", group: "view" },
   { id: "toggleStats", i18n: "toggleStats", group: "view", directOnly: true },
   { id: "screenshot", i18n: "screenshot", group: "view", directOnly: true },
@@ -149,6 +151,7 @@ export const DEFAULT_KEYBINDINGS: Keybindings = {
   subtitles: "keyt", // "t" — tracks/list
   copyTimestamp: "keyy", // "y" — 🔗 link
   pictureInPicture: "keyo", // "o" — ▣ PiP
+  toggleAmbient: "keyp", // "p" — ambient lights on/off
   // Home row (q s d f g h j k l m ù *)
   toggleStats: "keys", // "s"
   nextEpisode: "keyd", // "d"

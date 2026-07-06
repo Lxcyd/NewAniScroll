@@ -246,15 +246,25 @@ export default function ShortcutEditor({ onClose }: { onClose: () => void }) {
   const onDragStart = (e: React.DragEvent, action: ShortcutAction) => {
     e.dataTransfer.setData("text/plain", action);
     e.dataTransfer.effectAllowed = "move";
-    // Drag preview = a clone of the ACTUAL key being dragged, at its real size
-    // and shape (so the space bar drags a wide ghost, the ISO Enter its L
-    // shape, …). We snapshot the key element, position it off-screen at the
-    // same box size, hand it to setDragImage, then remove it next tick.
+    // Drag preview: a freshly-built OPAQUE tile at the key's real box size.
+    // Cloning the key produced a mostly-transparent element (its fill lives on
+    // absolutely-positioned children), which the browser renders as a blurry
+    // oval halo. A solid-filled div with the icon gives a crisp rectangle.
     const src = e.currentTarget as HTMLElement;
     const rect = src.getBoundingClientRect();
-    const ghost = src.cloneNode(true) as HTMLElement;
-    ghost.style.cssText +=
-      `;position:fixed;top:-9999px;left:-9999px;width:${rect.width}px;height:${rect.height}px;margin:0;transform:none;opacity:1;pointer-events:none`;
+    const ghost = document.createElement("div");
+    ghost.style.cssText =
+      `position:fixed;top:-9999px;left:-9999px;width:${rect.width}px;height:${rect.height}px;` +
+      "border-radius:8px;background:#20242c;display:flex;align-items:center;justify-content:center;" +
+      "color:#fff;box-shadow:0 0 0 1px rgba(255,255,255,.06)";
+    const iconSrc = src.querySelector("svg");
+    if (iconSrc) {
+      const clone = iconSrc.cloneNode(true) as SVGElement;
+      clone.removeAttribute("style");
+      clone.setAttribute("width", "22");
+      clone.setAttribute("height", "22");
+      ghost.appendChild(clone);
+    }
     document.body.appendChild(ghost);
     e.dataTransfer.setDragImage(ghost, rect.width / 2, rect.height / 2);
     window.setTimeout(() => ghost.remove(), 0);

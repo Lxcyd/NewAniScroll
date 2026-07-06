@@ -437,6 +437,7 @@
       "cycleServer": "Switch player",
       "copyTimestamp": "Copy timestamped link",
       "rotate": "Rotate 90°",
+      "toggleAmbient": "Ambient lights",
       "seekPct10": "Jump to 10%",
       "seekPct20": "Jump to 20%",
       "seekPct30": "Jump to 30%",
