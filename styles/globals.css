@@ -1330,30 +1330,29 @@ input[type="number"] {
   }
 }
 
-/* Same countdown bar on the windowed sonner toasts, so every notice shows the
+/* Countdown bar on the windowed sonner toasts, so every notice shows the
    time-left indicator. Sonner 1.0.3 has no built-in progress bar; we draw one
-   as a thin (2px) ::after on each toast, tinted to the toast's own text color.
-   4s = sonner's default auto-dismiss. Pausing on hover isn't reflected
-   (best-effort), and the manual-close (data-removed) state hides it. */
-/* Clip the toast to its rounded corners (like the fullscreen replica card),
-   so the countdown bar can be a plain full-width rectangle whose ends are cut
-   to follow the card's rounded bottom corners — flush to the edge, no detached
-   pill. The ✕ close button lives outside the card in sonner so clipping the
-   card doesn't hide it. */
+   as a thin (2px) strip tinted to the toast's own text color. 4s = sonner's
+   default auto-dismiss. Pausing on hover isn't reflected (best-effort), and the
+   manual-close (data-removed) state hides it.
+
+   IMPORTANT: we use ::before, NOT ::after. Sonner's own [data-sonner-toast]:after
+   is the invisible hover bridge between stacked cards (bottom:100%, height=gap)
+   that keeps the pointer "inside" the stack so hovering fans it out. Overriding
+   ::after killed that bridge → the hover expand animation stopped working. And
+   we must NOT set overflow:hidden on the toast — sonner's :before overflows the
+   top by 20% as part of the collapsed layout; clipping it breaks the stack. So
+   the bar rounds its OWN ends via border-radius:inherit instead of card clip. */
 [data-sonner-toast] {
   position: relative;
-  overflow: hidden;
 }
-/* The FRONT toast (collapsed stack) OR any expanded toast (hover fan-out, where
-   every card is fully readable) shows its own bar. A collapsed behind-toast is
-   squashed to the front height with faded contents, so a bar there would float
-   detached — hence it's suppressed. */
-[data-sonner-toast][data-front="true"]::after,
-[data-sonner-toast][data-expanded="true"]::after {
+/* Only the FRONT toast shows the bar. We can't target behind cards: sonner
+   already owns their ::before ([data-front=false]:before sets the collapse
+   height), so adding ours there collides. The front toast's ::before is free. */
+[data-sonner-toast][data-front="true"]::before {
   content: "";
   position: absolute;
-  /* Plain full-width strip pinned to the bottom edge; the card's overflow:hidden
-     rounds the ends to the corners (matching the fullscreen toast). */
+  /* Flush to the far-left corner, full width, hugging the bottom edge. */
   left: 0;
   right: 0;
   bottom: 0;
@@ -1366,11 +1365,13 @@ input[type="number"] {
      of the card rather than a flashy white strip. Rich-color error/success/etc.
      override --normal-text, which we reuse at low opacity. */
   background: color-mix(in srgb, currentColor 45%, transparent);
+  /* Round the bar's own bottom ends to match the card corners (no card clip). */
+  border-bottom-left-radius: inherit;
+  border-bottom-right-radius: inherit;
   animation: toastCountdown 4s linear forwards;
   pointer-events: none;
 }
-[data-sonner-toast][data-removed="true"]::after,
-[data-sonner-toast][data-front="false"][data-expanded="false"]::after {
+[data-sonner-toast][data-removed="true"]::before {
   display: none;
 }
 
