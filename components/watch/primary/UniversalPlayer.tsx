@@ -1402,6 +1402,16 @@ export default function UniversalPlayer({
       ) {
         return;
       }
+      // Never hijack browser/OS chords (Ctrl+R reload, Cmd+L, Ctrl+T…). Our
+      // combos are single physical keys — the editor can't bind a Ctrl/Meta
+      // combination — so a Ctrl/Meta press is always the browser's, not ours.
+      // Exception: a Ctrl/Meta key pressed ALONE can be a standalone binding
+      // (event.code is ControlLeft/MetaLeft, which reads the modifier as down),
+      // so only bail when the modifier accompanies a *different* key.
+      const code = e.code.toLowerCase();
+      const isModifierKey =
+        code.startsWith("control") || code.startsWith("meta");
+      if ((e.ctrlKey || e.metaKey) && !isModifierKey) return;
       const map = comboToAction(getKeybindings());
       // Same normalization the editor stores (modifier keys included — they
       // are bindable on their own, resolved by `event.code`).
