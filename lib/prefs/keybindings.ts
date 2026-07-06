@@ -43,7 +43,6 @@ export type ShortcutAction =
   | "seekBackwardLong"
   | "seekForwardLong"
   | "restart"
-  | "seekToEnd"
   | "frameBackward"
   | "frameForward"
   | "cycleServer"
@@ -84,7 +83,6 @@ export const ACTION_CATALOG: ActionMeta[] = [
   // Playback
   { id: "playPause", i18n: "playPause", group: "playback" },
   { id: "restart", i18n: "restart", group: "playback", directOnly: true },
-  { id: "seekToEnd", i18n: "seekToEnd", group: "playback", directOnly: true },
   // Navigation (episodes / seeking)
   { id: "prevEpisode", i18n: "prevEpisode", group: "navigation" },
   { id: "nextEpisode", i18n: "nextEpisode", group: "navigation" },
@@ -151,7 +149,6 @@ export const DEFAULT_KEYBINDINGS: Keybindings = {
   subtitles: "keyt", // "t" — tracks/list
   copyTimestamp: "keyy", // "y" — 🔗 link
   pictureInPicture: "keyo", // "o" — ▣ PiP
-  seekToEnd: "keyp", // "p"
   // Home row (q s d f g h j k l m ù *)
   toggleStats: "keys", // "s"
   nextEpisode: "keyd", // "d"

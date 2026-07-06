@@ -3849,9 +3849,6 @@ export default function UniversalPlayer({
       case "restart":
         if (video) video.currentTime = 0;
         break;
-      case "seekToEnd":
-        if (video && isFinite(video.duration)) video.currentTime = Math.max(0, video.duration - 1);
-        break;
       case "volumeUp":
         if (video) {
           video.muted = false;

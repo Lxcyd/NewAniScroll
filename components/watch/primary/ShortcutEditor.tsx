@@ -137,10 +137,12 @@ const CAPS: Cap[] = ROWS.flatMap((row, y) => {
 
 // Physical codes of the keys inside the main typing block (letters + digits +
 // the punctuation among them) — they get the lighter "main" fill. Digits and
-// letters are matched by prefix (digit*/key*); these are the extra punctuation
-// codes ( , ; : ! - = ^ $ ù * in AZERTY label terms).
+// letters are matched by prefix (digit*/key*); these are the extra codes whose
+// physical name isn't key*/digit* but which are still part of the AZERTY typing
+// block: the "m" cap is physically `semicolon`, and the , ; : ! - = ^ $ ù *
+// punctuation.
 const MAIN_PUNCT = new Set([
-  "comma", "period", "slash", "minus", "equal",
+  "semicolon", "comma", "period", "slash", "minus", "equal",
   "bracketleft", "bracketright", "quote", "backslash",
 ]);
 
@@ -164,14 +166,18 @@ const CODE_LABEL: Record<string, string> = Object.fromEntries(
     .map((k) => [k.code, k.label]),
 );
 
+// Human-readable NAME for each key (never a symbol/icon) — used by the hover
+// tooltip so e.g. Enter reads "Entrée", not "↵".
 function capGlyph(code: string): string {
   const named: Record<string, string> = {
-    arrowleft: "←", arrowright: "→", arrowup: "↑", arrowdown: "↓",
-    space: "Space", backspace: "⌫", enter: "↵", escape: "Esc", tab: "Tab",
-    delete: "Suppr", home: "Home", pageup: "PgUp", pagedown: "PgDn",
-    capslock: "⇪ Verr. Maj", shiftleft: "⇧ Maj", shiftright: "⇧ Maj",
-    controlleft: "Ctrl", metaleft: "⊞", altleft: "Alt", altright: "AltGr",
-    contextmenu: "☰ Menu",
+    arrowleft: "Flèche gauche", arrowright: "Flèche droite",
+    arrowup: "Flèche haut", arrowdown: "Flèche bas",
+    space: "Espace", backspace: "Retour arrière", enter: "Entrée",
+    escape: "Échap", tab: "Tab", delete: "Suppr", home: "Début",
+    pageup: "Page préc.", pagedown: "Page suiv.", capslock: "Verr. Maj",
+    shiftleft: "Maj gauche", shiftright: "Maj droite",
+    controlleft: "Ctrl", metaleft: "Windows", altleft: "Alt",
+    altright: "AltGr", contextmenu: "Menu",
   };
   return named[code] ?? CODE_LABEL[code]?.toUpperCase() ?? code.toUpperCase();
 }
