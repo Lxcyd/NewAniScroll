@@ -295,34 +295,71 @@ export default function ShortcutEditor({ onClose }: { onClose: () => void }) {
     // box — a full 2-row-tall ghost looked wrong too.
     const isEnter = (e.currentTarget as HTMLElement).dataset.enter === "1";
     // Strip the GAP inset back out so the ghost matches the DRAWN cap, not the
-    // slot around it. No width cap: the space bar's ghost must be as wide as the
-    // real space bar (Chrome snapshots wide images fine now that the ghost is
-    // opaque and on-screen). For the ISO Enter the outer cell spans TWO rows but
-    // the visible cap's wide top half is one row tall, so we halve the height —
-    // giving a proper WIDE rectangle (1.5u × 1 row), not a tall near-square.
-    const gw = box.width - GAP_PX * 2;
-    const gh = (isEnter ? box.height / 2 : box.height) - GAP_PX * 2;
+    // slot around it.
+    //
+    // Width CAP (crucial): Chrome silently fails to rasterize a setDragImage
+    // element past a certain width — the wide space bar (≈500px) came back
+    // almost fully transparent when we removed the cap. Clamp the ghost width so
+    // the snapshot always succeeds. 360px keeps the space bar reading as a long
+    // rectangle while staying inside the reliable range.
+    const gw = Math.min(box.width - GAP_PX * 2, 360);
+    // One-row cap height. For the ISO Enter the cell spans two rows, so a single
+    // visual row is half the cell; the Enter ghost is built at full (two-row)
+    // height as an L-shape, but its icon and drag hotspot sit on this top row.
+    const rowH = box.height / (isEnter ? 2 : 1) - GAP_PX * 2;
     const ghost = document.createElement("div");
-    ghost.style.cssText =
-      `position:fixed;top:0;left:0;z-index:2147483647;opacity:1;pointer-events:none;` +
-      `width:${gw}px;height:${gh}px;` +
-      "border-radius:8px;background:#20242c;display:flex;align-items:center;justify-content:center;" +
-      "color:#fff;box-shadow:0 0 0 1px rgba(255,255,255,.06)";
+    if (isEnter) {
+      // Reproduce the drawn L-shape: a wide top half (full 1.5u width, one row
+      // tall) over a narrower right-aligned lower half (1.25/1.5 width, one row
+      // tall). Two overlapping rounded rects, exactly like the on-board cap — a
+      // plain rectangle looked wrong (the screenshot showed a floating slab that
+      // didn't match the key you grabbed).
+      const fullH = box.height - GAP_PX * 2;
+      const lowerW = gw * (1.25 / 1.5);
+      ghost.style.cssText =
+        `position:fixed;top:0;left:0;z-index:2147483647;opacity:1;pointer-events:none;` +
+        `width:${gw}px;height:${fullH}px;`;
+      const top = document.createElement("div");
+      top.style.cssText =
+        `position:absolute;left:0;top:0;width:100%;height:50%;border-radius:8px;` +
+        `background:#20242c;box-shadow:0 0 0 1px rgba(255,255,255,.06)`;
+      const lower = document.createElement("div");
+      lower.style.cssText =
+        `position:absolute;right:0;top:0;width:${lowerW}px;height:100%;border-radius:8px;` +
+        `background:#20242c;box-shadow:0 0 0 1px rgba(255,255,255,.06)`;
+      ghost.appendChild(lower);
+      ghost.appendChild(top);
+    } else {
+      ghost.style.cssText =
+        `position:fixed;top:0;left:0;z-index:2147483647;opacity:1;pointer-events:none;` +
+        `width:${gw}px;height:${rowH}px;` +
+        "border-radius:8px;background:#20242c;display:flex;align-items:center;justify-content:center;" +
+        "color:#fff;box-shadow:0 0 0 1px rgba(255,255,255,.06)";
+    }
     const iconSrc = src.querySelector("svg");
     if (iconSrc) {
       const clone = iconSrc.cloneNode(true) as SVGElement;
       // The key's <svg> is absolutely positioned + translated (className
       // "absolute left-1/2 -translate-x-1/2 …") so it sits centred INSIDE the
-      // key. Dropped into the ghost's flexbox those classes made it snap to the
-      // top-left instead of centring — strip BOTH the class and the inline style
-      // and let flex do the centring. Fixed pixel size so it never stretches.
+      // key. Strip BOTH the class and the inline style, then place it:
+      // flex-centred for a plain key; absolutely centred on the TOP half for the
+      // Enter L-shape (the icon reads on the wide bar, not the corner).
       clone.removeAttribute("class");
       clone.removeAttribute("style");
-      clone.style.position = "static";
       clone.style.transform = "none";
       clone.style.flex = "0 0 auto";
       clone.setAttribute("width", "26");
       clone.setAttribute("height", "26");
+      if (isEnter) {
+        clone.style.position = "absolute";
+        clone.style.left = "50%";
+        clone.style.top = "25%";
+        clone.style.transform = "translate(-50%,-50%)";
+        clone.style.zIndex = "1";
+        clone.style.color = "#fff";
+      } else {
+        clone.style.position = "static";
+      }
       ghost.appendChild(clone);
     }
     document.body.appendChild(ghost);
@@ -331,7 +368,9 @@ export default function ShortcutEditor({ onClose }: { onClose: () => void }) {
     // empty (transparent) image, which is why the wide space-bar ghost came out
     // see-through.
     void ghost.offsetWidth;
-    e.dataTransfer.setDragImage(ghost, gw / 2, gh / 2);
+    // Hotspot on the (top-row) centre so the ghost tracks the cursor from where
+    // the icon sits, for both a plain key and the Enter L-shape.
+    e.dataTransfer.setDragImage(ghost, gw / 2, rowH / 2);
     window.setTimeout(() => ghost.remove(), 0);
   };
   const onDragEnd = () => setDropTarget(null);
