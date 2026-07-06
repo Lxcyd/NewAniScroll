@@ -4505,86 +4505,132 @@ export default function UniversalPlayer({
       {/* FULLSCREEN-ONLY toast stack (subs burned-in / "join a party to chat").
           Windowed, these fire a real sonner toast; but a <body> toast is hidden
           while the player is the fullscreen element, so here we portal a replica
-          stack INTO the player root, styled like sonner's richColors "error" card
-          (dark maroon, red border + icon + text) so it looks identical to the
-          windowed toast. Bottom-right, above the control bar; each notice is its
-          own entry so repeated/overlapping notices pile up like sonner. Each has
-          a white countdown bar mirroring its auto-dismiss timer. */}
+          INTO the player root, styled like sonner's richColors "error" card.
+          Sonner-style COLLAPSED stack: only the 3 newest render — the newest is
+          fully visible at the front, older ones peek behind (scaled + offset up).
+          Each has a ✕ to dismiss and a thin countdown bar. */}
       {playerToasts.length > 0 &&
         playerElState &&
         createPortal(
-          <div
-            style={{
-              position: "absolute",
-              right: 16,
-              bottom: 88,
-              zIndex: 60,
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "flex-end",
-              gap: 8,
-              maxWidth: "min(360px, 86%)",
-              pointerEvents: "none",
-            }}
-          >
-            {playerToasts.map((n) => (
-                <div
-                  key={n.id}
-                  role="status"
-                  aria-live="polite"
-                  onClick={() => dismissPlayerToast(n.id)}
-                  style={{
-                    pointerEvents: "auto",
-                    position: "relative",
-                    overflow: "hidden",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 10,
-                    padding: "12px 14px",
-                    borderRadius: 12,
-                    // sonner richColors "error" (dark theme) palette — exact
-                    // values from sonner 1.0.3, so this matches the windowed toast.
-                    background: "hsl(358, 76%, 10%)",
-                    border: "1px solid hsl(357, 89%, 16%)",
-                    color: "hsl(358, 100%, 81%)",
-                    fontSize: 13,
-                    fontWeight: 600,
-                    lineHeight: 1.4,
-                    boxShadow: "0 8px 30px rgba(0,0,0,0.45)",
-                    cursor: "pointer",
-                  }}
-                >
-                  <svg
-                    viewBox="0 0 24 24"
-                    width={18}
-                    height={18}
-                    fill="currentColor"
-                    style={{ flexShrink: 0 }}
-                    aria-hidden="true"
-                  >
-                    <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm-1 5h2v7h-2V7zm0 9h2v2h-2v-2z" />
-                  </svg>
-                  <span>{n.msg}</span>
-                  {/* Countdown bar — shrinks left→right over the toast's
-                      lifetime, mirroring the auto-dismiss timer. */}
-                  <span
-                    aria-hidden="true"
+          (() => {
+            const MAX = 3;
+            // Newest first (front of the collapsed stack = index 0).
+            const visible = playerToasts.slice(-MAX).reverse();
+            return (
+              <div
+                style={{
+                  position: "absolute",
+                  right: 16,
+                  bottom: 88,
+                  zIndex: 60,
+                  width: "min(360px, 86vw)",
+                  height: 0, // toasts are absolutely positioned off this anchor
+                  pointerEvents: "none",
+                }}
+              >
+                {visible.map((n, depth) => (
+                  <div
+                    key={n.id}
+                    role="status"
+                    aria-live="polite"
                     style={{
+                      pointerEvents: "auto",
                       position: "absolute",
-                      left: 0,
+                      right: 0,
                       bottom: 0,
-                      height: 3,
                       width: "100%",
-                      transformOrigin: "left",
-                      background: "rgba(255,255,255,0.85)",
-                      borderBottomLeftRadius: 12,
-                      borderBottomRightRadius: 12,
-                      animation: `toastCountdown ${n.dur}ms linear forwards`,
+                      // Older toasts sit slightly up and scaled down, peeking
+                      // from behind the front one — the sonner collapsed look.
+                      transform: `translateY(${-depth * 14}px) scale(${1 - depth * 0.05})`,
+                      transformOrigin: "bottom right",
+                      opacity: depth === 0 ? 1 : 0.6,
+                      zIndex: MAX - depth,
+                      transition: "transform 0.2s ease, opacity 0.2s ease",
                     }}
-                  />
-                </div>
-              ))}
-          </div>,
+                  >
+                    <div
+                      style={{
+                        position: "relative",
+                        overflow: "hidden",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 10,
+                        padding: "12px 30px 12px 14px",
+                        borderRadius: 12,
+                        // sonner richColors "error" (dark theme) — exact 1.0.3
+                        // values so it matches the windowed toast.
+                        background: "hsl(358, 76%, 10%)",
+                        border: "1px solid hsl(357, 89%, 16%)",
+                        color: "hsl(358, 100%, 81%)",
+                        fontSize: 13,
+                        fontWeight: 600,
+                        lineHeight: 1.4,
+                        boxShadow: "0 8px 30px rgba(0,0,0,0.45)",
+                      }}
+                    >
+                      <svg
+                        viewBox="0 0 24 24"
+                        width={18}
+                        height={18}
+                        fill="currentColor"
+                        style={{ flexShrink: 0 }}
+                        aria-hidden="true"
+                      >
+                        <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm-1 5h2v7h-2V7zm0 9h2v2h-2v-2z" />
+                      </svg>
+                      <span>{n.msg}</span>
+                      {/* ✕ close */}
+                      <button
+                        type="button"
+                        aria-label="Close"
+                        onClick={() => dismissPlayerToast(n.id)}
+                        style={{
+                          position: "absolute",
+                          top: 6,
+                          right: 6,
+                          width: 18,
+                          height: 18,
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          borderRadius: 6,
+                          background: "transparent",
+                          border: "none",
+                          color: "hsl(358, 100%, 81%)",
+                          cursor: "pointer",
+                          lineHeight: 1,
+                          padding: 0,
+                        }}
+                      >
+                        <svg viewBox="0 0 24 24" width={13} height={13} fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round">
+                          <path d="M6 6l12 12M18 6L6 18" />
+                        </svg>
+                      </button>
+                      {/* Thin countdown bar (only on the front toast). */}
+                      {depth === 0 && (
+                        <span
+                          aria-hidden="true"
+                          style={{
+                            position: "absolute",
+                            left: 0,
+                            bottom: 0,
+                            height: 2,
+                            width: "100%",
+                            transformOrigin: "left",
+                            // Tinted to the toast's red text (currentColor) so it
+                            // matches the card instead of a flashy white strip.
+                            background:
+                              "color-mix(in srgb, currentColor 45%, transparent)",
+                            animation: `toastCountdown ${n.dur}ms linear forwards`,
+                          }}
+                        />
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            );
+          })(),
           playerElState,
         )}
 

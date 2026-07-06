@@ -1332,9 +1332,9 @@ input[type="number"] {
 
 /* Same countdown bar on the windowed sonner toasts, so every notice shows the
    time-left indicator. Sonner 1.0.3 has no built-in progress bar; we draw one
-   as a ::after on each toast. 4s = sonner's default auto-dismiss. Pausing on
-   hover isn't reflected (best-effort), and the manual-close (data-removed)
-   state hides it. */
+   as a thin (2px) ::after on each toast, tinted to the toast's own text color.
+   4s = sonner's default auto-dismiss. Pausing on hover isn't reflected
+   (best-effort), and the manual-close (data-removed) state hides it. */
 [data-sonner-toast] {
   position: relative;
 }
@@ -1344,9 +1344,12 @@ input[type="number"] {
   left: 0;
   right: 0;
   bottom: 0;
-  height: 3px;
+  height: 2px;
   transform-origin: left;
-  background: rgba(255, 255, 255, 0.85);
+  /* Tinted to the toast type (falls back to a subtle white) so it reads as part
+     of the card rather than a flashy white strip. Rich-color error/success/etc.
+     override --normal-text, which we reuse at low opacity. */
+  background: color-mix(in srgb, currentColor 45%, transparent);
   border-bottom-left-radius: inherit;
   border-bottom-right-radius: inherit;
   animation: toastCountdown 4s linear forwards;
