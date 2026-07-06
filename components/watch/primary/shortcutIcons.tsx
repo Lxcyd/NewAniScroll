@@ -45,9 +45,11 @@ export const SHORTCUT_ICONS: Record<ShortcutAction, ReactNode> = {
   volumeUp: P("M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0014 7.97v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"),
   volumeDown: P("M18.5 12A4.5 4.5 0 0016 7.97v8.05c1.48-.73 2.5-2.25 2.5-4.02zM5 9v6h4l5 5V4L9 9H5z"),
   // Speed down/up: the full Material "speed" gauge (dial + centred needle),
-  // remapped from its 0 -960 960 960 viewBox into 0 0 24 24 (scale 0.02, needle
-  // exits the dial's opening on the RIGHT). Same dial for both; only the badge
-  // differs — a −/+ in the top-right corner, clear of the dial.
+  // remapped from its 0 -960 960 960 viewBox into 0 0 24 24 (scale 0.02).
+  // rateDown keeps the Material orientation (needle exits the opening on the
+  // RIGHT); rateUp mirrors the DIAL horizontally (needle exits on the LEFT) so
+  // the two read as opposites — but the +/− badge stays in the top-right
+  // corner for both (the badge is NOT mirrored).
   rateDown: (
     <>
       <g transform="translate(1,22.5) scale(0.02)">
@@ -59,10 +61,11 @@ export const SHORTCUT_ICONS: Record<ShortcutAction, ReactNode> = {
   ),
   rateUp: (
     <>
-      <g transform="translate(1,22.5) scale(0.02)">
+      {/* dial mirrored horizontally around x=12 (scale −0.02 x, translate 23) */}
+      <g transform="translate(23,22.5) scale(-0.02,0.02)">
         <path d="M536-343q26-26 24-60t-30-56q-79-62-164-115T199-682q54 83 107 167.5T418-347q20 29 56 29.5t62-25.5ZM205-160q-22 0-40.5-9.5T135-198q-28-48-42-100.5T79-406q1-56 18.5-109T146-616l48 76q-17 32-26 66.5t-9 69.5q0 44 11.5 85.5T205-240h551q21-36 32.5-76.5T800-400q0-133-93.5-226.5T480-720q-37 0-72.5 9T340-686l-76-48q48-32 102.5-49T480-800q83 0 155.5 31.5t127 86q54.5 54.5 86 127T880-400q0 54-14 105t-40 97q-11 19-30 28.5t-40 9.5H205Z" fill="currentColor" />
       </g>
-      {/* plus badge, top-right */}
+      {/* plus badge, top-right (not mirrored) */}
       <path d="M19.75 1.5a1.1 1.1 0 0 1 1.1 1.1v1.05h1.05a1.1 1.1 0 1 1 0 2.2h-1.05v1.05a1.1 1.1 0 1 1-2.2 0V5.85h-1.05a1.1 1.1 0 1 1 0-2.2h1.05V2.6a1.1 1.1 0 0 1 1.1-1.1Z" fill="currentColor" />
     </>
   ),

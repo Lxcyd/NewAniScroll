@@ -184,20 +184,17 @@ export default function ShortcutEditor({ onClose }: { onClose: () => void }) {
   const onDragStart = (e: React.DragEvent, action: ShortcutAction) => {
     e.dataTransfer.setData("text/plain", action);
     e.dataTransfer.effectAllowed = "move";
-    // Use a fixed-size drag ghost so wide keys (space) don't drag a huge,
-    // stretched preview. Build a small square tile carrying just the icon,
-    // hand it to setDragImage, then remove it after the browser snapshots it.
-    const ghost = document.createElement("div");
-    ghost.style.cssText =
-      "position:fixed;top:-9999px;left:-9999px;width:44px;height:44px;border-radius:9px;background:#20242c;display:flex;align-items:center;justify-content:center;color:#fff";
-    ghost.innerHTML =
-      '<svg viewBox="0 0 24 24" width="22" height="22" style="color:#fff"></svg>';
+    // Drag preview = a clone of the ACTUAL key being dragged, at its real size
+    // and shape (so the space bar drags a wide ghost, the ISO Enter its L
+    // shape, …). We snapshot the key element, position it off-screen at the
+    // same box size, hand it to setDragImage, then remove it next tick.
+    const src = e.currentTarget as HTMLElement;
+    const rect = src.getBoundingClientRect();
+    const ghost = src.cloneNode(true) as HTMLElement;
+    ghost.style.cssText +=
+      `;position:fixed;top:-9999px;left:-9999px;width:${rect.width}px;height:${rect.height}px;margin:0;transform:none;opacity:1;pointer-events:none`;
     document.body.appendChild(ghost);
-    const svg = ghost.firstElementChild as SVGElement | null;
-    const src = document.getElementById(`sc-icon-${action}`);
-    if (svg && src) svg.innerHTML = src.innerHTML;
-    e.dataTransfer.setDragImage(ghost, 22, 22);
-    // Defer removal so the snapshot is taken first.
+    e.dataTransfer.setDragImage(ghost, rect.width / 2, rect.height / 2);
     window.setTimeout(() => ghost.remove(), 0);
   };
   const onDragEnd = () => setDropTarget(null);
@@ -224,7 +221,7 @@ export default function ShortcutEditor({ onClose }: { onClose: () => void }) {
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="w-full" style={{ maxWidth: "min(1400px, 94vw)" }}>
+      <div className="w-full" style={{ maxWidth: "min(1200px, 92vw)" }}>
         {/* Directly above the keyboard, nothing else on screen: shortcut text
             on the left; Reset then the close ✕ on the right. */}
         <div className="mb-3 flex items-end justify-between">
@@ -372,13 +369,11 @@ export default function ShortcutEditor({ onClose }: { onClose: () => void }) {
                       {action && (
                         // Absolutely-centred, FIXED-size icon: it never
                         // stretches with a wide key (space bar) or a tall one
-                        // (Enter — centred on its top half). The id lets the
-                        // custom drag-ghost copy this icon's markup.
+                        // (Enter — centred on its top half).
                         <svg
-                          id={`sc-icon-${action}`}
                           viewBox="0 0 24 24"
-                          width="17"
-                          height="17"
+                          width="26"
+                          height="26"
                           className="pointer-events-none absolute left-1/2 -translate-x-1/2 -translate-y-1/2"
                           style={{ top: isEnter ? "25%" : "50%" }}
                         >
