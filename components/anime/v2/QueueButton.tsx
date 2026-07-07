@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { notify } from "@/lib/notifications/noticeStore";
 import { toggleQueue, useIsQueued } from "@/lib/list/queue";
 import type { LocalTitle } from "@/lib/list/localList";
 
@@ -25,7 +25,7 @@ export default function QueueButton({
 
   const onClick = () => {
     const nowQueued = toggleQueue({ mediaId, title, coverImage });
-    toast.success(nowQueued ? t("queue.added") : t("queue.removed"));
+    notify.success(nowQueued ? t("queue.added") : t("queue.removed"));
   };
 
   return (

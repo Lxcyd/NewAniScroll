@@ -1,7 +1,7 @@
 import Loading from "@/components/shared/loading";
 import Image from "next/image";
 import { useState } from "react";
-import { toast } from "sonner";
+import { notify } from "@/lib/notifications/noticeStore";
 
 // Define a function to convert the data
 function convertData(episodes) {
@@ -76,7 +76,7 @@ export default function AppendMeta({ api }) {
       });
       if (data.status === 200) {
         const json = await data.json();
-        toast.success(json.message);
+        notify.success(json.message);
         setLoading(false);
       }
     } catch (err) {

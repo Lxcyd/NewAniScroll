@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/router";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { notify } from "@/lib/notifications/noticeStore";
 import { IoSend, IoCopyOutline, IoPeople, IoClose, IoExitOutline, IoAdd, IoEnterOutline } from "react-icons/io5";
 import { FaCrown } from "react-icons/fa";
 import { MdVolumeOff, MdLock, MdPublic } from "react-icons/md";
@@ -100,7 +100,7 @@ function Lobby({ lobby, onClose }: { lobby?: LobbyMeta; onClose?: () => void }) 
       return s !== "" && s !== "undefined" && s !== "null";
     };
     if (!lobby || !ready(lobby.aniId) || !ready(lobby.epiNumber)) {
-      toast.error(t("party.episodeNotReady"));
+      notify.error(t("party.episodeNotReady"));
       return;
     }
     setLoading(true);
@@ -120,7 +120,7 @@ function Lobby({ lobby, onClose }: { lobby?: LobbyMeta; onClose?: () => void }) 
       });
       const data = await res.json();
       if (!res.ok || !data?.roomId) {
-        toast.error(data?.error || t("party.cantCreate"));
+        notify.error(data?.error || t("party.cantCreate"));
         return;
       }
       const params = new URLSearchParams(window.location.search);
@@ -128,13 +128,13 @@ function Lobby({ lobby, onClose }: { lobby?: LobbyMeta; onClose?: () => void }) 
       const url = `${window.location.origin}${window.location.pathname}?${params.toString()}`;
       try {
         await navigator.clipboard.writeText(url);
-        toast.success(t("party.createdCopied", { code: data.roomId }));
+        notify.success(t("party.createdCopied", { code: data.roomId }));
       } catch {
-        toast.success(t("party.created", { code: data.roomId }));
+        notify.success(t("party.created", { code: data.roomId }));
       }
       enterRoom(data.roomId);
     } catch {
-      toast.error(t("party.cantCreate"));
+      notify.error(t("party.cantCreate"));
     } finally {
       setLoading(false);
     }
@@ -144,7 +144,7 @@ function Lobby({ lobby, onClose }: { lobby?: LobbyMeta; onClose?: () => void }) 
     e.preventDefault();
     const roomId = code.trim();
     if (!/^\d{4}$/.test(roomId)) {
-      toast.error(t("party.enterCode"));
+      notify.error(t("party.enterCode"));
       return;
     }
     enterRoom(roomId);
@@ -258,7 +258,7 @@ function ActiveRoom({ party, onClose }: { party: PartyContext; onClose?: () => v
     const val = raw.trim();
     if (!val) return;
     if (amMuted) {
-      toast.error(t("party.mutedBanner"));
+      notify.error(t("party.mutedBanner"));
       return;
     }
     sendChat(val);
@@ -275,9 +275,9 @@ function ActiveRoom({ party, onClose }: { party: PartyContext; onClose?: () => v
   const copy = async (value: string, label: string) => {
     try {
       await navigator.clipboard.writeText(value);
-      toast.success(t("party.copied", { label }));
+      notify.success(t("party.copied", { label }));
     } catch {
-      toast.error(t("party.cantCopy"));
+      notify.error(t("party.cantCopy"));
     }
   };
 
@@ -420,7 +420,7 @@ function ActiveRoom({ party, onClose }: { party: PartyContext; onClose?: () => v
       </div>
 
       {/* Composer. When muted by the host: input + send are disabled, a banner
-          explains why, and clicking the area shows a toast. Typed `:pog:`
+          explains why, and clicking the area shows a notify. Typed `:pog:`
           shortcodes are converted to the actual emoji inline on change. */}
       <div className="border-t border-white/10">
         {amMuted && (
@@ -451,12 +451,12 @@ function ActiveRoom({ party, onClose }: { party: PartyContext; onClose?: () => v
             </button>
           </div>
           {/* When muted, a transparent overlay swallows clicks (disabled inputs
-              don't fire events) and shows the "you are muted" toast. */}
+              don't fire events) and shows the "you are muted" notify. */}
           {amMuted && (
             <button
               type="button"
               aria-label={t("party.mutedBanner")}
-              onClick={() => toast.error(t("party.mutedBanner"))}
+              onClick={() => notify.error(t("party.mutedBanner"))}
               className="absolute inset-0 z-10 cursor-not-allowed bg-transparent"
             />
           )}

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import React, { useEffect, useRef, useState } from "react";
-import { toast } from "sonner";
+import { notify } from "@/lib/notifications/noticeStore";
 
 /**
  * Admin dashboard. Real Turso stats, broadcast control, recent bug reports,
@@ -192,9 +192,9 @@ function BroadcastCard({ broadcast, onUpdate }) {
         }),
       });
       if (r.ok) {
-        toast.success("Broadcast updated");
+        notify.success("Broadcast updated");
         onUpdate();
-      } else toast.error("Broadcast failed");
+      } else notify.error("Broadcast failed");
     } finally {
       setBusy(false);
     }
@@ -208,13 +208,13 @@ function BroadcastCard({ broadcast, onUpdate }) {
         headers: { "X-Broadcast-Key": "get-broadcast" },
       });
       if (r.ok) {
-        toast.success("Broadcast cleared");
+        notify.success("Broadcast cleared");
         setTitle("");
         setMessage("");
         setStartAt("");
         setEndAt("");
         onUpdate();
-      } else toast.error("Failed to clear");
+      } else notify.error("Failed to clear");
     } finally {
       setBusy(false);
     }
@@ -402,11 +402,11 @@ function ScrapeCard({ onSuccess }) {
       });
       const data = await r.json();
       if (r.ok) {
-        toast.success(`Scraped: ${data.anime?.title || data.anime?.id}`);
+        notify.success(`Scraped: ${data.anime?.title || data.anime?.id}`);
         setResult(data);
         onSuccess?.();
       } else {
-        toast.error(data.error || "Scrape failed");
+        notify.error(data.error || "Scrape failed");
       }
     } finally {
       setBusy(false);
@@ -564,10 +564,10 @@ function BulkRefreshCard({ onSuccess }) {
       const data = await r.json();
       if (r.ok) {
         setResult(data);
-        toast.success(`${data.refreshed} refreshed, ${data.failed} failed`);
+        notify.success(`${data.refreshed} refreshed, ${data.failed} failed`);
         onSuccess?.();
       } else {
-        toast.error(data.error || "Bulk refresh failed");
+        notify.error(data.error || "Bulk refresh failed");
       }
     } finally {
       setBusy(false);
@@ -638,10 +638,10 @@ function BannedIpsCard() {
       body: JSON.stringify({ ip: ip.trim(), reason: reason.trim() }),
     });
     if (r.ok) {
-      toast.success(`Banned ${ip}`);
+      notify.success(`Banned ${ip}`);
       setIp(""); setReason("");
       fetchBans();
-    } else toast.error("Ban failed");
+    } else notify.error("Ban failed");
   };
 
   const handleUnban = async (target) => {
@@ -651,9 +651,9 @@ function BannedIpsCard() {
       body: JSON.stringify({ ip: target }),
     });
     if (r.ok) {
-      toast.success(`Unbanned ${target}`);
+      notify.success(`Unbanned ${target}`);
       fetchBans();
-    } else toast.error("Unban failed");
+    } else notify.error("Unban failed");
   };
 
   return (
@@ -733,11 +733,11 @@ function ReportsCard({ report, onResolve }) {
       });
       const data = await r.json();
       if (r.status === 200) {
-        toast.success(data.message);
+        notify.success(data.message);
         onResolve?.();
-      } else toast.error("Failed");
+      } else notify.error("Failed");
     } catch {
-      toast.error("Failed");
+      notify.error("Failed");
     }
   };
 
@@ -753,11 +753,11 @@ function ReportsCard({ report, onResolve }) {
       });
       const data = await r.json();
       if (r.status === 200) {
-        toast.success(data.message);
+        notify.success(data.message);
         onResolve?.();
-      } else toast.error("Failed");
+      } else notify.error("Failed");
     } catch {
-      toast.error("Failed");
+      notify.error("Failed");
     }
   };
 

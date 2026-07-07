@@ -54,7 +54,7 @@ import {
 } from "@heroicons/react/24/outline";
 import { useSession, signIn, signOut } from "next-auth/react";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { notify } from "@/lib/notifications/noticeStore";
 
 // The visual keyboard shortcut editor is a heavy, rarely-opened overlay —
 // load it on demand (client-only) so it never weighs down the settings bundle.
@@ -342,7 +342,7 @@ export default function Settings() {
       setProfileSettings(settings);
     } catch {
       setProfilePrivate(!next); // revert
-      toast.error(t("settings.profile.saveError"));
+      notify.error(t("settings.profile.saveError"));
     } finally {
       setProfileBusy(false);
     }
@@ -393,7 +393,7 @@ export default function Settings() {
   const handleClearList = () => {
     clearLocalList();
     setConfirmClear(false);
-    toast.success(t("settings.list.clearDone"));
+    notify.success(t("settings.list.clearDone"));
   };
 
   // ── Advanced: clear history / restore defaults (confirmed) ───────
@@ -402,12 +402,12 @@ export default function Settings() {
   const handleClearHistory = () => {
     clearAllProgress();
     setConfirmClearHistory(false);
-    toast.success(t("settings.advanced.clearHistoryDone"));
+    notify.success(t("settings.advanced.clearHistoryDone"));
   };
   const handleRestoreDefaults = () => {
     restoreDefaultSettings();
     setConfirmReset(false);
-    toast.success(t("settings.advanced.restoreDone"));
+    notify.success(t("settings.advanced.restoreDone"));
     // Reflect the reset immediately without a manual reload.
     setTimeout(() => window.location.reload(), 600);
   };
@@ -461,12 +461,12 @@ export default function Settings() {
     try {
       const r = await fullSyncFromAniList({ replace });
       if (r.ok) {
-        toast.success(t("settings.sync.synced", { count: r.count }));
+        notify.success(t("settings.sync.synced", { count: r.count }));
         // Run the auto-pause sweep immediately on the freshly-pulled list so the
         // user sees stale CURRENT entries move to PAUSED right after syncing,
         // not only on the next page load.
         await runAutoPauseSweep().catch(() => {});
-      } else toast.error(t("settings.sync.syncFailed"));
+      } else notify.error(t("settings.sync.syncFailed"));
     } finally {
       setSyncing(false);
     }
@@ -490,14 +490,14 @@ export default function Settings() {
           ? await fullSyncFromAniList({ replace: true })
           : await fullSyncToAniList();
       if (r.ok) {
-        toast.success(
+        notify.success(
           direction === "fromAniList"
             ? t("settings.sync.synced", { count: r.count })
             : t("settings.sync.pushed", { count: r.count }),
         );
         await runAutoPauseSweep().catch(() => {});
       } else {
-        toast.error(t("settings.sync.syncFailed"));
+        notify.error(t("settings.sync.syncFailed"));
       }
     } finally {
       setSyncing(false);
@@ -528,17 +528,17 @@ export default function Settings() {
         setMalProgress({ done, total }),
       );
       if (r.skipped > 0) {
-        toast.success(
+        notify.success(
           t("settings.list.exportDoneSkipped", {
             exported: r.exported,
             skipped: r.skipped,
           }),
         );
       } else {
-        toast.success(t("settings.list.exportDone", { exported: r.exported }));
+        notify.success(t("settings.list.exportDone", { exported: r.exported }));
       }
     } catch {
-      toast.error(t("settings.list.exportError"));
+      notify.error(t("settings.list.exportError"));
     } finally {
       setBusy(false);
       setMalProgress(null);
@@ -546,7 +546,7 @@ export default function Settings() {
   };
 
   const reportResult = (r: ImportResult) => {
-    toast.success(
+    notify.success(
       t("settings.list.importDone", { imported: r.imported, total: r.total }),
     );
   };
@@ -569,7 +569,7 @@ export default function Settings() {
         reportResult(importFromJson(text, importMode));
       }
     } catch (e: any) {
-      toast.error(t("settings.list.importError"));
+      notify.error(t("settings.list.importError"));
     } finally {
       setBusy(false);
       setMalProgress(null);
@@ -583,7 +583,7 @@ export default function Settings() {
     try {
       reportResult(await importFromAniListUsername(aniUsername, importMode));
     } catch (e: any) {
-      toast.error(
+      notify.error(
         e?.message === "user-not-found"
           ? t("settings.list.userNotFound")
           : t("settings.list.importError"),
@@ -1105,7 +1105,7 @@ export default function Settings() {
                   // tell them so. Toggling back off cancels the pending sweep.
                   if (v) {
                     pendingAutoPauseSweep.current = true;
-                    toast(t("settings.sync.autoPausePending"), { icon: "⏳" });
+                    notify(t("settings.sync.autoPausePending"), { icon: "⏳" });
                   } else {
                     pendingAutoPauseSweep.current = false;
                   }

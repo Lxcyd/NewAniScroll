@@ -4,7 +4,7 @@ import ViewSelector from "./viewSelector";
 import ThumbnailOnly from "./viewMode/thumbnailOnly";
 import ThumbnailDetail from "./viewMode/thumbnailDetail";
 import ListMode from "./viewMode/listMode";
-import { toast } from "sonner";
+import { notify } from "@/lib/notifications/noticeStore";
 
 const ITEMS_PER_PAGE = 13;
 const DEFAULT_VIEW = 3;
@@ -202,7 +202,7 @@ export default function AnimeEpisode({
       }, 5000);
     } catch (err) {
       console.log(err);
-      toast.error("Something went wrong");
+      notify.error("Something went wrong");
     }
   };
 

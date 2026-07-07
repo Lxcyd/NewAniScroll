@@ -47,7 +47,6 @@
     "react-loading-skeleton": "^3.2.0",
     "react-use-draggable-scroll": "^0.4.7",
     "sharp": "^0.32.6",
-    "sonner": "^1.0.3",
     "tailwind-scrollbar-hide": "^1.1.7",
     "workbox-webpack-plugin": "^7.0.0"
   },

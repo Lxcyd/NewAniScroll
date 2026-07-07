@@ -15,7 +15,7 @@ import {
   SeasonInfo,
   TitleImage,
 } from "./helpers";
-import { toast } from "sonner";
+import { notify } from "@/lib/notifications/noticeStore";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { useTranslation } from "react-i18next";
 import { genreLabel } from "@/lib/i18n/genreLabel";
@@ -711,7 +711,7 @@ export default function Hero({
                       navigator.share({ title, url: window.location.href }).catch(() => {});
                     } else if (typeof navigator !== "undefined") {
                       navigator.clipboard?.writeText(window.location.href);
-                      toast.success(t("anime.linkCopied"));
+                      notify.success(t("anime.linkCopied"));
                     }
                   }}
                   style={{

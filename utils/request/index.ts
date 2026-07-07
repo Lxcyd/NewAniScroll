@@ -1,6 +1,6 @@
 import axios, { AxiosRequestConfig } from "axios";
 import { getSession } from "next-auth/react";
-import { toast } from "sonner";
+import { notify } from "@/lib/notifications/noticeStore";
 
 function isAnilist(url: string | undefined): boolean {
   return url?.includes("anilist.co") ?? false;
@@ -82,32 +82,32 @@ function handleError(error: {
     const { status, data } = error.response;
     switch (status) {
       case 400:
-        toast.error("400 Bad request", {
+        notify.error("400 Bad request", {
           description: data?.message || error.message,
         });
         break;
       case 401:
-        toast.error("401 Unauthorized", {
+        notify.error("401 Unauthorized", {
           description: data?.message || error.message,
         });
         break;
       case 403:
-        toast.error("403 Forbidden", {
+        notify.error("403 Forbidden", {
           description: data?.message || error.message,
         });
         break;
       case 404:
-        toast.error(`Resource not found - 404`, {
+        notify.error(`Resource not found - 404`, {
           description: data?.message || error.message,
         });
         break;
       case 500:
-        toast.error("500 Internal server error", {
+        notify.error("500 Internal server error", {
           description: data?.message || error.message,
         });
         break;
       default:
-        toast.error("An error occurred", {
+        notify.error("An error occurred", {
           description: data?.message || error.message,
         });
         break;

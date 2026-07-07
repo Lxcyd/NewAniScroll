@@ -11,7 +11,7 @@ import { ChevronLeftIcon } from "@heroicons/react/20/solid";
 import { ExclamationCircleIcon, PlayIcon } from "@heroicons/react/24/solid";
 import { useRouter } from "next/router";
 import HistoryOptions from "./content/historyOptions";
-import { toast } from "sonner";
+import { notify } from "@/lib/notifications/noticeStore";
 import { truncateImgUrl } from "@/utils/imageUtils";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { animeHref, useClickTarget } from "@/lib/prefs/clickTarget";
@@ -347,7 +347,7 @@ export default function Content({
       setRemoved(id || aniId);
 
       if (data?.message === "Episode deleted") {
-        toast.success(t("home.episodeRemoved"));
+        notify.success(t("home.episodeRemoved"));
       }
     } else {
       if (id) {

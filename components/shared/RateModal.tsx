@@ -4,7 +4,7 @@ import { upsertLocalEntry } from "@/lib/list/localList";
 import { todayFuzzy } from "@/lib/list/types";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { notify } from "@/lib/notifications/noticeStore";
 
 type Props = {
   toggle: boolean;
@@ -60,10 +60,10 @@ export default function RateModal({ toggle, setToggle, session }: Props) {
       });
       // Push to AniList when connected (no-op for guests). scoreRaw is /100.
       await markComplete(mediaId, { notes, scoreRaw: score * 10 });
-      toast.success(t("rate.success"));
+      notify.success(t("rate.success"));
       close();
     } catch {
-      toast.error(t("rate.error"));
+      notify.error(t("rate.error"));
     } finally {
       setBusy(false);
     }

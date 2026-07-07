@@ -37,7 +37,11 @@ import FullscreenChat from "@/components/watch/party/FullscreenChat";
 import { useWatchProvider } from "@/lib/context/watchPageProvider";
 import { getServer } from "@/lib/servers";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { notify } from "@/lib/notifications/noticeStore";
+import {
+  setPlayerSurface,
+  clearPlayerSurface,
+} from "@/lib/notifications/playerSurface";
 import type { TFunction } from "i18next";
 import { VIDSTACK_FR } from "@/lib/i18n/vidstackFr";
 import { getResumeTime, saveProgress, markComplete } from "@/lib/watch/progress";
@@ -1355,91 +1359,21 @@ export default function UniversalPlayer({
 
   const [subMenuOpen, setSubMenuOpen] = useState(false);
   const [subStyleOpen, setSubStyleOpen] = useState(false);
-  // Transient notices (e.g. "subs are burned in", "join a party to chat").
-  // Windowed → a normal sonner toast (bottom-right, richColors), same as the
-  // rest of the site. Fullscreen → sonner lives on <body> and is hidden while
-  // the player is the fullscreen element, so we fall back to an in-player portal
-  // replica. That replica is a real STACK (like sonner) so repeated/overlapping
-  // notices pile up instead of overwriting a single slot.
-  const [playerToasts, setPlayerToasts] = useState<
-    { id: number; msg: string; dur: number }[]
-  >([]);
-  const playerToastId = useRef(0);
-  const playerToastTimers = useRef<number[]>([]);
-  // In-player stack: hovering expands the (up to 3) collapsed cards into a
-  // fully-unfolded, readable column. Measured heights let the expanded layout
-  // stack them by their real size + a gap. The hover itself is CSS-driven
-  // (.ip-toast-anchor:hover, see globals.css), so no hover state lives here.
-  const toastHeights = useRef<Record<number, number>>({});
-  // Bumped whenever a card reports a new measured height, so the layout re-runs
-  // with the real height instead of the 56px placeholder. Without this a freshly
-  // mounted card lays out one frame with the wrong height (the "cards shift down
-  // for an instant when a new toast arrives while expanded" bug).
-  const [, setToastMeasureTick] = useState(0);
-  const recordToastHeight = (id: number, el: HTMLDivElement | null) => {
-    if (!el) return;
-    const h = el.offsetHeight;
-    if (toastHeights.current[id] !== h) {
-      toastHeights.current[id] = h;
-      setToastMeasureTick((t) => t + 1);
-    }
+  // Transient notices (e.g. "subs are burned in", "join a party to chat") now
+  // go through the unified, app-wide notice store (lib/notifications), so every
+  // notice — player OR site (party created, HTTP error, …) — shares ONE animated,
+  // hover-expandable stack. The store's renderer (<NoticeStack>) portals INTO
+  // this player when it's fullscreen; we publish that surface below.
+  const showPlayerNotice = (
+    msg: string,
+    dur = 3500,
+    type: "error" | "success" | "info" | "message" = "message",
+  ) => {
+    notify(msg, { duration: dur, type });
   };
-  // Suppress the enter transition for the FRAME a new toast mounts, so an
-  // arriving 4th card doesn't make the existing ones visibly slide.
-  const [toastAnimateOff, setToastAnimateOff] = useState(false);
-  const dismissPlayerToast = (id: number) =>
-    setPlayerToasts((list) => list.filter((t) => t.id !== id));
-  const pushPlayerToast = (msg: string, dur: number) => {
-    const id = ++playerToastId.current;
-    // Kill the transition around the mount so existing cards don't slide when a
-    // new one joins the stack; re-enable it a tick later for hover expand/collapse.
-    // Two rAFs: the card mounts + is measured (recordToastHeight → measureTick)
-    // before we re-arm transitions, so the layout has already settled with the
-    // real heights and nothing visibly slides.
-    setToastAnimateOff(true);
-    setPlayerToasts((list) => [...list, { id, msg, dur }]);
-    requestAnimationFrame(() =>
-      requestAnimationFrame(() => setToastAnimateOff(false)),
-    );
-    playerToastTimers.current.push(
-      window.setTimeout(() => dismissPlayerToast(id), dur),
-    );
-  };
-  // Always use the in-player stack (not sonner) for player notices, windowed OR
-  // fullscreen, so the hover-expand fan-out animation is identical everywhere.
-  // Sonner's windowed toasts don't fan out on hover the way our stack does, so
-  // routing both surfaces through pushPlayerToast gives one consistent, animated
-  // stack. The stack renders fine at absolute right/bottom in the player root
-  // regardless of fullscreen state.
-  const showPlayerNotice = (msg: string, dur = 3500) => {
-    pushPlayerToast(msg, dur);
-  };
-  const showSubNotice = (msg: string) => showPlayerNotice(msg, 3500);
-  useEffect(
-    () => () => {
-      playerToastTimers.current.forEach((t) => window.clearTimeout(t));
-    },
-    [],
-  );
-  // Let the surrounding page route ITS player notices (e.g. "switched to X"
-  // server change, which the page owns) into this same stack, so every notice
-  // — positive or negative — shares one animated, hover-expandable stack instead
-  // of some going through a plain sonner toast. Fire:
-  //   window.dispatchEvent(new CustomEvent("aniscroll:playerNotice",
-  //     { detail: { msg, dur } }))
-  const pushPlayerToastRef = useRef(pushPlayerToast);
-  pushPlayerToastRef.current = pushPlayerToast;
-  useEffect(() => {
-    const onNotice = (e: Event) => {
-      const detail = (e as CustomEvent).detail || {};
-      if (typeof detail.msg !== "string" || !detail.msg) return;
-      pushPlayerToastRef.current(detail.msg, detail.dur ?? 3500);
-      // Tell the emitter we handled it so it doesn't ALSO fire a sonner toast.
-      detail.consumed = true;
-    };
-    window.addEventListener("aniscroll:playerNotice", onNotice);
-    return () => window.removeEventListener("aniscroll:playerNotice", onNotice);
-  }, []);
+  // Sub / dub explanatory notices are shown red (error), matching the look the
+  // user validated for the "subtitles are burned in" banner.
+  const showSubNotice = (msg: string) => showPlayerNotice(msg, 3500, "error");
   // Configurable keyboard shortcuts: the visual editor overlay + the live
   // "stats for nerds" panel are both toggled from the settings menu / hotkeys.
   const [shortcutEditorOpen, setShortcutEditorOpen] = useState(false);
@@ -1773,6 +1707,17 @@ export default function UniversalPlayer({
       if (raf) cancelAnimationFrame(raf);
     };
   }, [streamData]);
+  // Publish this player as the "notice surface" so the global <NoticeStack>
+  // portals its stack INTO the player root while the player covers the screen
+  // (a body-level toast is invisible when `.vds-player` is the fullscreen
+  // element). When windowed / unmounted it falls back to the screen corner.
+  useEffect(() => {
+    setPlayerSurface({
+      el: playerElState,
+      active: (isFullscreen || iosPseudoFs) && !!playerElState,
+    });
+  }, [playerElState, isFullscreen, iosPseudoFs]);
+  useEffect(() => () => clearPlayerSurface(), []);
   // Data Saver disables the live ambient-light sampling (a constant canvas read
   // + blur, the heaviest visual work the player does).
   const dataSaver = useDataSaver();
@@ -2980,7 +2925,7 @@ export default function UniversalPlayer({
         const now = Date.now();
         if (now - blockedToastAtRef.current > 2500) {
           blockedToastAtRef.current = now;
-          toast.error(t("party.blockedBanner"));
+          notify.error(t("party.blockedBanner"));
         }
       }
       return true;
@@ -3363,7 +3308,7 @@ export default function UniversalPlayer({
         const now = Date.now();
         if (now - blockedToastAtRef.current > 2500) {
           blockedToastAtRef.current = now;
-          toast.error(t("party.blockedBanner"));
+          notify.error(t("party.blockedBanner"));
         }
       }
     };
@@ -4138,9 +4083,9 @@ export default function UniversalPlayer({
       await navigator.clipboard.writeText(url.toString());
       const mm = Math.floor(seconds / 60);
       const ss = String(seconds % 60).padStart(2, "0");
-      showPlayerNotice(t("stats.timestampCopied", { time: `${mm}:${ss}` }));
+      showPlayerNotice(t("stats.timestampCopied", { time: `${mm}:${ss}` }), 3500, "success");
     } catch {
-      showPlayerNotice(t("stats.timestampFailed"));
+      showPlayerNotice(t("stats.timestampFailed"), 3500, "error");
     }
   };
 
@@ -4165,7 +4110,7 @@ export default function UniversalPlayer({
         // Clipboard image write (Chrome/Edge/Safari 13.1+).
         const item = new (window as any).ClipboardItem({ "image/png": blob });
         await (navigator.clipboard as any).write([item]);
-        showPlayerNotice(t("stats.screenshotCopied"));
+        showPlayerNotice(t("stats.screenshotCopied"), 3500, "success");
       } catch {
         // No clipboard-image support → download instead.
         const url = URL.createObjectURL(blob);
@@ -4174,11 +4119,11 @@ export default function UniversalPlayer({
         a.download = `${downloadName || "screenshot"}.png`;
         a.click();
         URL.revokeObjectURL(url);
-        showPlayerNotice(t("stats.screenshotSaved"));
+        showPlayerNotice(t("stats.screenshotSaved"), 3500, "success");
       }
     } catch {
       // Tainted canvas (noCors source) — can't read pixels.
-      showPlayerNotice(t("stats.screenshotFailed"));
+      showPlayerNotice(t("stats.screenshotFailed"), 3500, "error");
     }
   };
 
@@ -4562,222 +4507,12 @@ export default function UniversalPlayer({
 
       <SubtitleSettings open={subStyleOpen} onClose={() => setSubStyleOpen(false)} />
 
-      {/* In-player toast stack for player notices (subs burned-in / "join a party
-          to chat"), used in BOTH windowed and fullscreen. We portal a replica
-          INTO the player root, styled like sonner's richColors "error" card, so
-          the hover-expand fan-out is the same everywhere (sonner's own windowed
-          toasts don't fan out on hover the way this stack does).
-          Sonner-style COLLAPSED stack: only the 3 newest render — the newest is
-          fully visible at the front, older ones peek behind (scaled + offset up).
-          Each has a ✕ to dismiss and a thin countdown bar. */}
-      {playerToasts.length > 0 &&
-        playerElState &&
-        (() => {
-          // Inside the player only when it covers the screen (native or iOS
-          // pseudo fullscreen); otherwise a <body> toast is reachable, so we
-          // render the stack bottom-right of the SCREEN, outside the player.
-          const insidePlayer = isFullscreen || iosPseudoFs;
-          const portalTarget = insidePlayer ? playerElState : document.body;
-          return createPortal(
-          (() => {
-            const MAX = 3;
-            const GAP = 14; // px between fully-expanded cards (sonner uses ~14)
-            const PEEK = 14; // collapsed: px each behind card pokes up
-            // Newest first (front of the collapsed stack = index 0).
-            const visible = playerToasts.slice(-MAX).reverse();
-            // Cumulative offset (from the bottom anchor) of each card once the
-            // stack is expanded: sum of the real heights of the cards in front
-            // of it, plus a gap per step.
-            const expandedOffset = (depth: number) => {
-              let y = 0;
-              for (let d = 0; d < depth; d++) {
-                y += (toastHeights.current[visible[d].id] || 56) + GAP;
-              }
-              return y;
-            };
-            const frontH = toastHeights.current[visible[0]?.id] || 56;
-            // Fully-expanded column height — the hit area grows to this only WHILE
-            // hovered, so the cursor stays inside as the cards fan out (no flicker).
-            const expandedH =
-              expandedOffset(visible.length - 1) +
-              (toastHeights.current[visible[visible.length - 1]?.id] || 56);
-            // Collapsed stack height — the hit area is only THIS tall at rest, so
-            // a cursor resting near the bottom-right corner doesn't hold the stack
-            // open. Front card + the small peek each behind card adds.
-            const collapsedH = frontH + (visible.length - 1) * PEEK;
-            return (
-              <div
-                // Fan-out on hover is CSS-driven (.ip-toast-anchor:hover), not
-                // React state — see globals.css. The invisible hit area below is
-                // the hover target; it's collapsed-sized at rest and grows to the
-                // expanded extent on hover so crossing gaps never drops the hover.
-                className={
-                  "ip-toast-anchor" + (toastAnimateOff ? " ip-toast-no-anim" : "")
-                }
-                style={{
-                  // Inside player (fullscreen): absolute in the player root,
-                  // lifted above the control bar. Windowed: fixed to the screen's
-                  // bottom-right, outside the player, like a normal sonner toast.
-                  position: insidePlayer ? "absolute" : "fixed",
-                  right: 16,
-                  bottom: insidePlayer ? 88 : 16,
-                  zIndex: insidePlayer ? 60 : 999999999,
-                  width: "min(356px, 86vw)",
-                  height: 0, // toasts are absolutely positioned off this anchor
-                  pointerEvents: "none",
-                  ["--collapsed-hit-h" as any]: `${Math.round(collapsedH)}px`,
-                  ["--expanded-hit-h" as any]: `${Math.round(Math.max(expandedH, frontH))}px`,
-                }}
-              >
-                {/* Invisible hover hit area — collapsed height at rest, expanded
-                    height while hovered (see .ip-toast-hit in globals.css). */}
-                <div
-                  className="ip-toast-hit"
-                  style={{
-                    position: "absolute",
-                    right: 0,
-                    bottom: 0,
-                    width: "100%",
-                    pointerEvents: "auto",
-                  }}
-                />
-                {visible.map((n, depth) => {
-                  const isFront = depth === 0;
-                  // Collapsed: each behind card sits a fixed PEEK px up + scaled
-                  // down so only an even sliver peeks (never readable text).
-                  // Expanded (hover): cards fan up by their real height + gap,
-                  // full scale, so all 3 are fully readable. Both transforms are
-                  // handed to CSS as custom props; :hover picks which applies.
-                  const collapsedTransform = `translateY(${-depth * PEEK}px) scale(${1 - depth * 0.05})`;
-                  const expandedTransform = `translateY(${-expandedOffset(depth)}px) scale(1)`;
-                  return (
-                  <div
-                    key={n.id}
-                    role="status"
-                    aria-live="polite"
-                    className="ip-toast-card"
-                    ref={(el) => recordToastHeight(n.id, el)}
-                    style={{
-                      // Cards are display-only for hit-testing EXCEPT the front
-                      // one (its ✕ needs clicks); the backdrop owns expand.
-                      pointerEvents: isFront ? "auto" : "none",
-                      position: "absolute",
-                      right: 0,
-                      bottom: 0,
-                      width: "100%",
-                      transformOrigin: "bottom center",
-                      // Solid — no transparency; depth reads from scale + offset.
-                      opacity: 1,
-                      zIndex: MAX - depth,
-                      // CSS (.ip-toast-card / :hover) reads these + owns the
-                      // transform + its transition — no React state in the anim path.
-                      ["--collapsed-transform" as any]: collapsedTransform,
-                      ["--expanded-transform" as any]: expandedTransform,
-                    }}
-                  >
-                    <div
-                      style={{
-                        position: "relative",
-                        // overflow:hidden so the countdown bar's ends follow the
-                        // rounded corners. The ✕ pill lives in a non-clipped
-                        // wrapper (rendered as a sibling, below) so it can overhang.
-                        overflow: "hidden",
-                        display: "flex",
-                        alignItems: "center",
-                        // Sonner 1.0.3 defaults: 16px padding, 8px radius, ~4px
-                        // icon→text gap, 13px / normal weight text.
-                        gap: 6,
-                        padding: 16,
-                        borderRadius: 8,
-                        // sonner richColors "error" (dark theme) — exact 1.0.3
-                        // values so it matches the windowed toast.
-                        background: "hsl(358, 76%, 10%)",
-                        border: "1px solid hsl(357, 89%, 16%)",
-                        color: "hsl(358, 100%, 81%)",
-                        fontSize: 13,
-                        fontWeight: 500,
-                        lineHeight: 1.5,
-                        boxShadow:
-                          "0 4px 12px rgba(0,0,0,0.15), 0 8px 30px rgba(0,0,0,0.35)",
-                      }}
-                    >
-                      <svg
-                        viewBox="0 0 24 24"
-                        width={16}
-                        height={16}
-                        fill="currentColor"
-                        style={{ flexShrink: 0, marginRight: 4 }}
-                        aria-hidden="true"
-                      >
-                        <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm-1 5h2v7h-2V7zm0 9h2v2h-2v-2z" />
-                      </svg>
-                      <span>{n.msg}</span>
-                      {/* Thin countdown bar on EVERY card (visible once the stack
-                          is expanded on hover). Full-width and, because the card
-                          clips overflow, its ends follow the rounded bottom
-                          corners. When the bar finishes, that toast is killed via
-                          onAnimationEnd. pushPlayerToast also arms a setTimeout of
-                          the same duration as a safety net for toasts beyond the
-                          top-3 (which don't render, so their bar never runs). */}
-                      <span
-                        aria-hidden="true"
-                        onAnimationEnd={() => dismissPlayerToast(n.id)}
-                        style={{
-                          position: "absolute",
-                          left: 0,
-                          right: 0,
-                          bottom: 0,
-                          height: 2,
-                          transformOrigin: "left center",
-                          background:
-                            "color-mix(in srgb, currentColor 45%, transparent)",
-                          animation: `toastCountdown ${n.dur}ms linear forwards`,
-                        }}
-                      />
-                    </div>
-                    {/* ✕ close — sonner-style top-LEFT pill, only on the front
-                        toast. Sibling of the clipped card so it can overhang the
-                        corner. Dismissing re-slices playerToasts so the whole stack
-                        shifts down one; any hidden 4th+ toast now peeks in. */}
-                    {isFront && (
-                      <button
-                        type="button"
-                        aria-label="Close"
-                        onClick={() => dismissPlayerToast(n.id)}
-                        style={{
-                          position: "absolute",
-                          top: 0,
-                          left: 0,
-                          transform: "translate(-35%, -35%)",
-                          width: 20,
-                          height: 20,
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          borderRadius: "50%",
-                          background: "hsl(358, 76%, 10%)",
-                          border: "1px solid hsl(357, 89%, 16%)",
-                          color: "hsl(358, 100%, 81%)",
-                          cursor: "pointer",
-                          lineHeight: 1,
-                          padding: 0,
-                          zIndex: 1,
-                        }}
-                      >
-                        <svg viewBox="0 0 24 24" width={12} height={12} fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round">
-                          <path d="M6 6l12 12M18 6L6 18" />
-                        </svg>
-                      </button>
-                    )}
-                  </div>
-                  );
-                })}
-              </div>
-            );
-          })(),
-          portalTarget,
-        );
-        })()}
+      {/* Player notices (subs burned-in / "join a party to chat" / screenshots)
+          now render through the global <NoticeStack> (lib/notifications). It
+          portals its stack INTO this player root while we're fullscreen (see the
+          setPlayerSurface effect above), so player notices and site notices
+          (party created, HTTP errors, …) share ONE animated, hover-expandable
+          stack. Nothing to render here anymore. */}
 
       {/* "Stats for nerds" — live playback telemetry, toggled by the
           `toggleStats` shortcut or the settings-menu row. Portalled INTO the

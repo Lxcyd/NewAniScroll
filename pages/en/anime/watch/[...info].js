@@ -48,7 +48,7 @@ import Head from "next/head";
 import { useRouter } from "next/router";
 import { Spinner } from "@vidstack/react";
 import RateModal from "@/components/shared/RateModal";
-import { toast } from "sonner";
+import { notify } from "@/lib/notifications/noticeStore";
 import { useWatchParty } from "@/lib/watch2gether/useWatchParty";
 import WatchPartyPanel from "@/components/watch/party/WatchPartyPanel";
 
@@ -517,8 +517,8 @@ export default function Watch({
 
   const handleSelfRemoved = useCallback(
     (reason) => {
-      if (reason === "kick") toast.error(t("party.toastKicked"));
-      else if (reason === "ban") toast.error(t("party.toastBanned"));
+      if (reason === "kick") notify.error(t("party.toastKicked"));
+      else if (reason === "ban") notify.error(t("party.toastBanned"));
       stripParty();
     },
     [stripParty, t]
@@ -526,10 +526,10 @@ export default function Watch({
 
   const handleJoinRejected = useCallback(
     (reason) => {
-      if (reason === "banned") toast.error(t("party.toastBanned"));
-      else if (reason === "inactive") toast.error(t("party.toastInactive"));
-      else if (reason === "locked") toast.error(t("party.toastLocked"));
-      else toast.error(t("party.toastNotFound"));
+      if (reason === "banned") notify.error(t("party.toastBanned"));
+      else if (reason === "inactive") notify.error(t("party.toastInactive"));
+      else if (reason === "locked") notify.error(t("party.toastLocked"));
+      else notify.error(t("party.toastNotFound"));
       stripParty();
     },
     [stripParty, t]
@@ -1660,7 +1660,7 @@ export default function Watch({
       // When the host has blocked our playback, changing the server (lecteur)
       // is also a playback action — refuse it and explain why.
       if (party?.amPlaybackBlocked) {
-        toast.error(t("party.blockedBanner"));
+        notify.error(t("party.blockedBanner"));
         return;
       }
       setActiveServer(serverId);
@@ -1699,13 +1699,9 @@ export default function Watch({
       const next = pool[(idx + 1) % pool.length];
       if (next && next.id !== activeServer) {
         handleServerChange(next.id);
-        // Route into the in-player stack (same animated stack as every other
-        // player notice) instead of a standalone sonner toast.
-        window.dispatchEvent(
-          new CustomEvent("aniscroll:playerNotice", {
-            detail: { msg: t("player.switchedTo", { name: next.name }) },
-          }),
-        );
+        // Unified notice store — same animated stack as every other notice; the
+        // global <NoticeStack> portals it into the player when fullscreen.
+        notify(t("player.switchedTo", { name: next.name }));
       }
     };
     window.addEventListener("aniscroll:cycleServer", onCycle);

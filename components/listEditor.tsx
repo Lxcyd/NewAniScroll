@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from "react";
-import { toast } from "sonner";
+import { notify } from "@/lib/notifications/noticeStore";
 import { AniListInfoTypes } from "types/info/AnilistInfoTypes";
 import { useTranslation } from "react-i18next";
 import { peekListEntry, patchListEntry, UserListEntry } from "@/lib/anilist/userListCache";
@@ -384,7 +384,7 @@ const ListEditor: React.FC<ListEditorProps> = ({
     if (isLocal) {
       removeLocalEntry(animeId);
       onSaved?.({ status: null, progress: 0, score: 0, removed: true });
-      toast.success(t("listEditor.removed"));
+      notify.success(t("listEditor.removed"));
       close();
       return;
     }
@@ -395,10 +395,10 @@ const ListEditor: React.FC<ListEditorProps> = ({
     if (session?.user?.name) patchListEntry(session.user.name, animeId, null);
     removeLocalEntry(animeId); // keep the local mirror in sync with the delete
     onSaved?.({ status: null, progress: 0, score: 0, removed: true });
-    toast.success(t("listEditor.removed"));
+    notify.success(t("listEditor.removed"));
     close();
     deleteEntry().then((ok) => {
-      if (!ok) toast.error(t("listEditor.error"));
+      if (!ok) notify.error(t("listEditor.error"));
     });
   };
 
@@ -408,7 +408,7 @@ const ListEditor: React.FC<ListEditorProps> = ({
       if (status === null) {
         removeLocalEntry(animeId);
         onSaved?.({ status: null, progress: 0, score: 0, removed: true });
-        toast.success(t("listEditor.saved"));
+        notify.success(t("listEditor.saved"));
         close();
         return;
       }
@@ -426,7 +426,7 @@ const ListEditor: React.FC<ListEditorProps> = ({
         completedAt: finishDate ? toFuzzy(finishDate) : null,
       });
       onSaved?.({ status, progress, score, removed: false });
-      toast.success(t("listEditor.saved"));
+      notify.success(t("listEditor.saved"));
       close();
       return;
     }
@@ -440,10 +440,10 @@ const ListEditor: React.FC<ListEditorProps> = ({
       if (session?.user?.name) patchListEntry(session.user.name, animeId, null);
       removeLocalEntry(animeId); // mirror the delete locally
       onSaved?.({ status: null, progress: 0, score: 0, removed: true });
-      toast.success(entryId ? t("listEditor.removed") : t("listEditor.saved"));
+      notify.success(entryId ? t("listEditor.removed") : t("listEditor.saved"));
       close();
       deleteEntry().then((ok) => {
-        if (!ok) toast.error(t("listEditor.error"));
+        if (!ok) notify.error(t("listEditor.error"));
       });
       return;
     }
@@ -474,7 +474,7 @@ const ListEditor: React.FC<ListEditorProps> = ({
       });
     }
     onSaved?.({ status, progress, score, removed: false });
-    toast.success(t("listEditor.saved"));
+    notify.success(t("listEditor.saved"));
     close();
 
     // Background mutation — fire-and-forget. We still patch the cache with the
@@ -519,7 +519,7 @@ const ListEditor: React.FC<ListEditorProps> = ({
       .then((json) => {
         const saved = json?.data?.SaveMediaListEntry;
         if (!saved) {
-          toast.error(t("listEditor.error"));
+          notify.error(t("listEditor.error"));
           return;
         }
         // Reconcile the cache with the server's authoritative record.
@@ -559,7 +559,7 @@ const ListEditor: React.FC<ListEditorProps> = ({
           completedAt: saved.completedAt || null,
         });
       })
-      .catch(() => toast.error(t("listEditor.error")));
+      .catch(() => notify.error(t("listEditor.error")));
   };
 
   const statusLabel = (s: Status): string => {

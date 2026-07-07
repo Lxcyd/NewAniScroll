@@ -25,7 +25,7 @@ import { getCachedAnime } from "@/lib/db/anime";
 import { loadFanarts, FanartPayload } from "@/lib/db/fanarts";
 import { resolveSeasonChain, resolveSeasonList, resolveBonusFilms, SeasonEntry } from "@/lib/anilist/seasonChain";
 import type { FilmVariant } from "@/lib/anilist/resolveSeason";
-import { toast } from "sonner";
+import { notify } from "@/lib/notifications/noticeStore";
 import { Navbar } from "@/components/shared/NavBar";
 import { AniListInfoTypes } from "types/info/AnilistInfoTypes";
 import InfoPage from "@/components/anime/v2/InfoPage";
@@ -123,7 +123,7 @@ export default function Info({
 
   useEffect(() => {
     if (chapterNotFound) {
-      toast.error(t("anime.sourceNotFound"));
+      notify.error(t("anime.sourceNotFound"));
       const cleanUrl = window.location.origin + window.location.pathname;
       replaceUrlPreservingState(cleanUrl);
     }
@@ -415,7 +415,7 @@ export default function Info({
 
   /* Optimistic favourite toggle. Flips the heart immediately so the
      click feels instant; if the AniList mutation fails we roll back
-     and surface a toast. Requires the user to be signed in. */
+     and surface a notify. Requires the user to be signed in. */
   const handleToggleFav = async () => {
     if (!session?.user?.name) {
       handleOpen(); // opens the login modal that the list-editor uses
@@ -428,7 +428,7 @@ export default function Info({
       if (res?.errors?.length) throw new Error(res.errors[0]?.message);
     } catch (e: any) {
       setFav(previous);
-      toast.error(t("anime.couldntUpdateFav", { message: e?.message || t("anime.unknown") }));
+      notify.error(t("anime.couldntUpdateFav", { message: e?.message || t("anime.unknown") }));
     }
   };
 
