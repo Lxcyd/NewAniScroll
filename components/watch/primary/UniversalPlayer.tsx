@@ -3411,6 +3411,13 @@ export default function UniversalPlayer({
 
     const tryPlay = async () => {
       if (cancelled || started || inFlight) return;
+      // In a Watch-party, playback state is AUTHORITATIVE from the room, not the
+      // local autoplay pref. A freshly created room is seeded paused/pos 0, so
+      // the host must NOT auto-start (that read as "creating a party launches
+      // the anime"); a guest joining a playing room is started by the remote
+      // `play`/`snapshot` sync instead. So skip local autoplay entirely while in
+      // a party — the sync engine (applyRemote) owns play/pause here.
+      if (partyRef.current) return;
       const video = getVideo();
       if (!video) return;
       // Consider playback truly started ONLY if the element is unpaused AND

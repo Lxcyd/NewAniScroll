@@ -147,33 +147,65 @@ export default function FullscreenChat({ onRemote, sendChat, playerEl, active, s
 
   // ── "Click video while typing = just defocus the chat" ──
   // While the composer holds focus, a click on the video surface should NOT
-  // toggle play/pause (Vidstack's gesture layer). Instead it should feel like a
-  // click-away: blur the composer and close the panel, leaving playback alone.
-  // We veto the gesture in the CAPTURE phase (before Vidstack's own listeners),
-  // but only when the pointer landed OUTSIDE the chat panel itself — clicks
-  // inside the chat (log, composer, buttons) must keep working normally.
+  // toggle play/pause. Instead it should feel like a click-away: blur the
+  // composer and close the panel, leaving playback alone.
+  //
+  // Vidstack's play/pause GESTURE listens for `pointerup` (→ `touchend` on
+  // coarse pointers) on the PLAYER ROOT element itself — the very same element
+  // we portal into. So:
+  //  • We must veto `pointerup`/`touchend`, NOT `pointerdown`/`click`
+  //    (an earlier version keyed on the wrong events, so the gesture always
+  //     fired and the video paused anyway).
+  //  • A CAPTURE-phase `stopPropagation()` on that element stops the event
+  //    before Vidstack's own (bubble-phase) listener on the same element runs.
+  //  • By `pointerup`, the composer may already have blurred (focus left on the
+  //    preceding `pointerdown`), so `focusedRef` can read false. We therefore
+  //    latch "was the chat focused when the press STARTED" on `pointerdown` and
+  //    consult that latch on `pointerup`.
   useEffect(() => {
     if (!active || !playerEl) return;
-    const veto = (e: Event) => {
-      if (!focusedRef.current) return; // chat not focused → normal playback gesture
+
+    // Did the press begin while the composer held focus AND land outside the
+    // chat panel? If so, the matching release must be swallowed (no play/pause)
+    // and instead just defocus + close the chat.
+    let armed = false;
+
+    const isOutsideChat = (e: Event) => {
       const target = e.target as Node | null;
-      // A click inside the chat panel is legitimate chat interaction; let it be.
-      if (target && panelRef.current?.contains(target)) return;
-      // Outside the panel (i.e. on the video) → swallow the gesture and defocus.
+      return !(target && panelRef.current?.contains(target));
+    };
+
+    const onDown = (e: Event) => {
+      // Latch state at press time — focus is still on the composer here.
+      armed = focusedRef.current && isOutsideChat(e);
+      if (armed) {
+        // Swallow the down too so Vidstack never even arms anything from it.
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    };
+
+    const onUp = (e: Event) => {
+      if (!armed) return; // normal playback gesture
+      armed = false;
+      // Swallow the release so Vidstack's pointerup toggle never fires.
       e.preventDefault();
       e.stopPropagation();
       composerRef.current?.blur();
       focusedRef.current = false;
       requestClose();
     };
-    // pointerdown is where Vidstack arms its toggle; vetoing here (capture)
-    // stops the pause before it starts. We also veto the trailing click so no
-    // late handler re-toggles.
-    playerEl.addEventListener("pointerdown", veto, { capture: true });
-    playerEl.addEventListener("click", veto, { capture: true });
+
+    playerEl.addEventListener("pointerdown", onDown, { capture: true });
+    playerEl.addEventListener("pointerup", onUp, { capture: true });
+    // Coarse pointers (touch): Vidstack maps the gesture to touchstart/touchend.
+    playerEl.addEventListener("touchstart", onDown, { capture: true });
+    playerEl.addEventListener("touchend", onUp, { capture: true });
     return () => {
-      playerEl.removeEventListener("pointerdown", veto, { capture: true } as any);
-      playerEl.removeEventListener("click", veto, { capture: true } as any);
+      playerEl.removeEventListener("pointerdown", onDown, { capture: true } as any);
+      playerEl.removeEventListener("pointerup", onUp, { capture: true } as any);
+      playerEl.removeEventListener("touchstart", onDown, { capture: true } as any);
+      playerEl.removeEventListener("touchend", onUp, { capture: true } as any);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, playerEl]);
