@@ -2837,6 +2837,9 @@ export default function UniversalPlayer({
     let video: HTMLVideoElement | null = null;
     let pollId = 0;
     let reconcileId = 0;
+    // Whether we've already forced the host's local player to pause on the very
+    // first snapshot of a freshly created room. One-shot per effect (re)mount.
+    let didInitialHostPause = false;
     const applying = party.applyingRemoteRef;
 
     type Target = { position: number; paused: boolean; rate: number; at: number; known: boolean };
@@ -3011,7 +3014,18 @@ export default function UniversalPlayer({
             typeof e.payload?.selfIsHost === "boolean"
               ? e.payload.selfIsHost
               : partyRef.current?.isHost;
-          if (selfIsHost) return;
+          if (selfIsHost) {
+            // Freshly created room: seed is paused/pos-0. If the host was already
+            // watching the episode, their local <video> is still playing —
+            // creating a party must NOT keep it running ("créer une party lance
+            // l'anime"). Align them to the room's neutral (paused) state ONCE,
+            // via withGuard so the resulting local `pause` doesn't re-broadcast.
+            if (!didInitialHostPause && s.paused && Number(s.position) === 0) {
+              didInitialHostPause = true;
+              withGuard(() => player?.pause?.());
+            }
+            return;
+          }
           withGuard(() => {
             seekTo(p);
             video!.playbackRate = rate;
