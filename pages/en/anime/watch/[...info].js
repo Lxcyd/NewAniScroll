@@ -628,8 +628,22 @@ export default function Watch({
       } else if (e.type === "snapshot" && e.payload?.snapshot) {
         const s = e.payload.snapshot;
         navTo(s.aniId, s.epiNumber, s.dub);
-        // Align the server for late joiners (also without re-broadcasting).
-        if (s.server && s.server !== activeServer) setActiveServer(s.server);
+        // Align the server for late joiners ONLY — never for the host who just
+        // seeded this snapshot (they're already on the right server). Applying
+        // it to the host swapped `activeServer` to the snapshot's value, which
+        // re-ran the stream fetch and reloaded the <video> from 0s — THAT was
+        // the "creating a party rewinds to 0" bug (not the playback snapshot,
+        // which is host-guarded). Also skip when we're already on the room's
+        // anime+episode: a server realign there is a source reload we don't want
+        // mid-watch. Genuine cross-server joiners still align via the `server`
+        // event and the initial mismatch handled before playback settles.
+        const selfIsHost = e.payload?.selfIsHost === true;
+        const sameAnime = String(aniId) === String(s.aniId);
+        const sameEp =
+          sameAnime && String(epiNumber) === String(s.epiNumber) && !!dub === !!s.dub;
+        if (!selfIsHost && !sameEp && s.server && s.server !== activeServer) {
+          setActiveServer(s.server);
+        }
       }
     });
     return unsub;
