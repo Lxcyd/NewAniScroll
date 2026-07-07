@@ -15,7 +15,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(429).json({ error: "Too many requests" });
   }
 
-  const { aniId, epiNumber, dub, server, position, paused } = req.body || {};
+  const { aniId, epiNumber, dub, server, position, paused, positionKnown } = req.body || {};
   // Reject falsy AND the literal "undefined"/"null" strings a client String()
   // can produce from un-hydrated metadata — a room seeded with those sends every
   // joiner to /anime/watch/undefined/…, which crashes the page.
@@ -39,6 +39,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       // Default to paused (safe seed); only start "playing" when the client
       // explicitly reports the host was mid-playback at create time.
       paused: paused === false ? false : true,
+      // Only false when the client couldn't read a live <video> (iframe embed),
+      // so `position: 0` here means "unknown" and must not rewind the host.
+      positionKnown: positionKnown !== false,
     });
     // Register the creator as the first member so they can emit events before
     // their SSE join() round-trip completes (the event route gates on this).

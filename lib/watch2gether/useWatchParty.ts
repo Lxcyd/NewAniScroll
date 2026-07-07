@@ -479,6 +479,22 @@ export function useWatchParty(
       if (ev.payload?.snapshot) {
         setSnapshot(reconcileSnapshot(ev.payload.snapshot));
         if (ev.payload.snapshot.hostId) setHostId(ev.payload.snapshot.hostId);
+        // Tag whether WE are the host from the snapshot's own hostId vs our id,
+        // unless the event already carries the flag (the synthetic join replay
+        // sets it). Wire/Ably snapshots don't, and the player's host guard would
+        // otherwise fall back to a React-derived `isHost` that's still stale
+        // `false` right after create — letting the seeded snapshot drive (rewind)
+        // the host's own player. Computing it here closes that race for every
+        // snapshot path.
+        if (typeof ev.payload.selfIsHost !== "boolean" && myId) {
+          ev = {
+            ...ev,
+            payload: {
+              ...ev.payload,
+              selfIsHost: String(ev.payload.snapshot.hostId) === String(myId),
+            },
+          };
+        }
       }
       if (Array.isArray(ev.payload?.members)) setMembers(ev.payload.members);
       remoteHandlers.current.forEach((h) => h(ev));

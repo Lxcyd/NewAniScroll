@@ -7,6 +7,7 @@ import { FaCrown } from "react-icons/fa";
 import { MdVolumeOff, MdLock, MdPublic } from "react-icons/md";
 import type { PartyContext } from "@/lib/watch2gether/useWatchParty";
 import { getGuestIdentity } from "@/lib/watch2gether/guest";
+import { getResumeTime } from "@/lib/watch/progress";
 import MemberAvatar from "./MemberAvatar";
 import MemberMenu from "./MemberMenu";
 import ChatText from "./ChatText";
@@ -117,8 +118,15 @@ function Lobby({ lobby, onClose }: { lobby?: LobbyMeta; onClose?: () => void }) 
           ? document.querySelector<HTMLVideoElement>("video[disableremoteplayback]") ||
             document.querySelector<HTMLVideoElement>("media-player video")
           : null;
-      const position =
-        video && Number.isFinite(video.currentTime) ? Math.max(0, video.currentTime) : 0;
+      // `positionKnown` is true ONLY when we read a real playhead from a native
+      // <video>. For iframe embeds (Vidmoly/Sibnet — no <video>) the position is
+      // unreadable: fall back to the persisted resume point for this episode
+      // (from a previous native session, if any) rather than a bare 0, and flag
+      // it unknown so the host's player isn't rewound/paused server-side.
+      const positionKnown = !!video && Number.isFinite(video.currentTime);
+      const position = positionKnown
+        ? Math.max(0, video!.currentTime)
+        : getResumeTime(lobby.aniId!, lobby.epiNumber!);
       // Seed the room's play/pause to match the host's live state too: if they
       // created the party WHILE watching, the host keeps playing (their player
       // isn't driven by the snapshot) but no `play` event fires to tell joiners,
@@ -135,6 +143,7 @@ function Lobby({ lobby, onClose }: { lobby?: LobbyMeta; onClose?: () => void }) 
           dub: !!lobby.dub,
           server: lobby.server || "",
           position,
+          positionKnown,
           paused,
           guestId: guest.guestId,
           guestName: guest.guestName,

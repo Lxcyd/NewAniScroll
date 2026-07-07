@@ -3048,7 +3048,17 @@ export default function UniversalPlayer({
             // one-shot pause when the room was seeded at pos-0 AND paused — i.e.
             // the host hadn't actually started watching — so a party created
             // before playback doesn't auto-launch the anime.
-            if (!didInitialHostPause && s.paused && Number(s.position) === 0) {
+            // ...but ONLY when position 0 is a REAL playhead. For iframe embeds
+            // (no readable <video>) the room is seeded at 0 as "unknown", not
+            // "the start" — pausing there rewound/froze an in-progress iframe on
+            // create. `positionKnown === false` marks that case; absent = native
+            // = known.
+            if (
+              !didInitialHostPause &&
+              s.paused &&
+              Number(s.position) === 0 &&
+              s.positionKnown !== false
+            ) {
               didInitialHostPause = true;
               withGuard(() => player?.pause?.());
             }
