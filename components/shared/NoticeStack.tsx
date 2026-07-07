@@ -61,7 +61,11 @@ const TYPE_STYLES: Record<
 
 const MAX = 3;
 const GAP = 14; // px between fully-expanded cards (sonner uses ~14)
-const PEEK = 14; // collapsed: px each behind card pokes up
+// Collapsed stack: each card behind is offset so that TOP-edge to TOP-edge
+// between consecutive cards is exactly PEEK px, whatever their individual
+// heights. Cards stay at full size (no scale) so that top-edge distance is the
+// literal, constant gap the design calls for.
+const PEEK = 14;
 
 export default function NoticeStack() {
   const notices = useNotices();
@@ -156,7 +160,12 @@ export default function NoticeStack() {
       />
       {visible.map((n, depth) => {
         const isFront = depth === 0;
-        const collapsedTransform = `translateY(${-depth * PEEK}px) scale(${1 - depth * 0.05})`;
+        // Cards are natural-bottom-anchored (bottom:0). To place a behind card so
+        // its TOP edge sits exactly `depth * PEEK` above the front card's top,
+        // translate it up by (frontTop - itsTop) = (frontH + depth*PEEK) - itsH.
+        // No scale: the top-edge gap must be the literal, constant PEEK.
+        const cardH = heights.current[n.id] || 56;
+        const collapsedTransform = `translateY(${-(frontH + depth * PEEK - cardH)}px) scale(1)`;
         const expandedTransform = `translateY(${-expandedOffset(depth)}px) scale(1)`;
         return (
           <div
