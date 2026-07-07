@@ -168,14 +168,24 @@ export default function NoticeStack() {
         const cardH = heights.current[n.id] || 56;
         const collapsedTransform = `translateY(${-(frontH + depth * PEEK - cardH)}px) scale(1)`;
         const expandedTransform = `translateY(${-expandedOffset(depth)}px) scale(1)`;
+        // Collapsed clip: a behind card must only show its top PEEK sliver — its
+        // real (possibly multi-line) body would otherwise bleed out below the
+        // front card. We clip everything below `frontH + depth*PEEK` measured
+        // from the card's own top. Removed on hover (see .ip-toast-card in CSS).
+        // The front card is never clipped (its ✕/countdown live outside the
+        // clipped body anyway).
+        const collapsedClipBottom = isFront
+          ? 0
+          : Math.max(0, cardH - (frontH + depth * PEEK));
         return (
           <div
             key={n.id}
             role="status"
             aria-live="polite"
-            className="ip-toast-card"
+            className={"ip-toast-card" + (isFront ? " ip-toast-front" : "")}
             ref={(el) => recordHeight(n.id, el)}
             style={{
+              ["--collapsed-clip-bottom" as any]: `${Math.round(collapsedClipBottom)}px`,
               // Cards are display-only for hit-testing EXCEPT the front one (its
               // ✕ needs clicks); the backdrop owns expand.
               pointerEvents: isFront ? "auto" : "none",

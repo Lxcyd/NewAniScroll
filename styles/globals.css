@@ -1328,10 +1328,25 @@ input[type="number"] {
    which one applies. Transitions stay on transform only. */
 .ip-toast-card {
   transform: var(--collapsed-transform);
-  transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+  transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1),
+    clip-path 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+  /* At rest, clip a behind card's body below its top peek so a tall (multi-line)
+     card can't bleed out below the front card. `--collapsed-clip-bottom` is the
+     px to hide from the bottom (set inline from measured heights). The clip is
+     inset generously on the top/left/right (negative would be ideal but isn't
+     allowed) — we only care about the BOTTOM here, so keep the other sides at 0
+     but disable clipping entirely on the front card (its overhanging ✕ pill must
+     not be cut). Fully revealed on hover. */
+  clip-path: inset(0 0 var(--collapsed-clip-bottom, 0px) 0);
+}
+/* Front card: never clipped, so its overhanging ✕ pill and countdown bar render
+   in full. Its own body already clips overflow via NoticeCard's overflow:hidden. */
+.ip-toast-card.ip-toast-front {
+  clip-path: none;
 }
 .ip-toast-anchor:hover .ip-toast-card {
   transform: var(--expanded-transform);
+  clip-path: none;
 }
 /* A freshly-arrived toast must not animate the existing cards sliding: while
    the stack has this class (one frame around mount) transitions are off. */

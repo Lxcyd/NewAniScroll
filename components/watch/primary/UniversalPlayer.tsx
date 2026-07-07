@@ -2994,6 +2994,13 @@ export default function UniversalPlayer({
           const rate = typeof s.rate === "number" ? s.rate : remoteTarget.rate;
           const p = compensate(Number(s.position), !s.paused);
           setRemoteTarget(p, !!s.paused, rate);
+          // The host is the source of truth for the room's state — a freshly
+          // created room is seeded at position 0 / paused, so driving the host's
+          // player from that snapshot yanked them back to the start (and the
+          // resulting play()/pause() churn read as "creating a party launches the
+          // anime"). Record the target for drift/others, but never force the
+          // host's own player from a snapshot.
+          if (partyRef.current?.isHost) return;
           withGuard(() => {
             seekTo(p);
             video!.playbackRate = rate;
@@ -4058,7 +4065,7 @@ export default function UniversalPlayer({
             t("party.chatNeedsParty", {
               defaultValue: "Rejoins une party pour discuter.",
             }),
-            2600,
+            5000,
           );
           break;
         }
