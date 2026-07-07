@@ -3072,7 +3072,23 @@ export default function UniversalPlayer({
       }
     };
 
-    const unsub = party.onRemote(applyRemote);
+    // Snapshot replayed by onRemote for a late subscriber (create/join). If it
+    // arrives before the <video> is bound, applyRemote bails on `!video`; we
+    // stash it here and re-apply the moment bind() succeeds so the host still
+    // gets aligned to the room's paused state.
+    let pendingSnapshot: { type: string; ts?: number; payload?: any } | null = null;
+
+    const applyRemoteOrDefer = (e: {
+      type: string;
+      ts?: number;
+      payload?: any;
+    }) => {
+      if (!video && e.type === "snapshot") {
+        pendingSnapshot = e;
+        return;
+      }
+      applyRemote(e);
+    };
 
     const bind = () => {
       const player = playerRef.current;
@@ -3083,6 +3099,12 @@ export default function UniversalPlayer({
       video.addEventListener("pause", onPause);
       video.addEventListener("seeked", onSeeked);
       video.addEventListener("ratechange", onRate);
+      // Flush a snapshot that landed before the video was ready.
+      if (pendingSnapshot) {
+        const s = pendingSnapshot;
+        pendingSnapshot = null;
+        applyRemote(s);
+      }
       return true;
     };
 
@@ -3092,6 +3114,11 @@ export default function UniversalPlayer({
         if (bind() || ++tries > 40) window.clearInterval(pollId);
       }, 250);
     }
+
+    // Subscribe AFTER bind() so a synchronous snapshot replay (onRemote replays
+    // the last snapshot to late subscribers) sees a bound `video`; if the video
+    // wasn't ready yet, applyRemoteOrDefer stashes it for the bind() flush above.
+    const unsub = party.onRemote(applyRemoteOrDefer);
 
     // ── Continuous reconciliation ──
     // Event-only sync leaves two holes:

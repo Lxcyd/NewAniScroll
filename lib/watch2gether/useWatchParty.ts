@@ -146,6 +146,13 @@ export function useWatchParty(
 
   const applyingRemoteRef = useRef(false);
   const remoteHandlers = useRef<Set<(e: PartyEvent) => void>>(new Set());
+  // The last snapshot event we broadcast to handlers. The player's sync effect
+  // subscribes via onRemote only AFTER `party` becomes non-null (next render),
+  // so the initial snapshot replayed inside join() fires before applyRemote is
+  // registered and is otherwise lost — the host's already-playing video then
+  // never gets paused ("créer une party lance l'anime"). Replaying this to each
+  // late subscriber closes that race.
+  const lastSnapshotEvent = useRef<PartyEvent | null>(null);
   // Live Ably client + channel for this room. Replaces the old EventSource.
   const ablyRef = useRef<Realtime | null>(null);
   const channelRef = useRef<RealtimeChannel | null>(null);
@@ -188,6 +195,10 @@ export function useWatchParty(
 
   const onRemote = useCallback((handler: (e: PartyEvent) => void) => {
     remoteHandlers.current.add(handler);
+    // Replay the latest snapshot to a handler that subscribed after it fired,
+    // so the player's sync effect (mounted a render later) still receives the
+    // create/join snapshot and can align the host to the room's paused state.
+    if (lastSnapshotEvent.current) handler(lastSnapshotEvent.current);
     return () => {
       remoteHandlers.current.delete(handler);
     };
@@ -426,6 +437,7 @@ export function useWatchParty(
         ts: Date.now(),
         payload: { snapshot: data.snapshot, selfIsHost },
       };
+      lastSnapshotEvent.current = ev;
       remoteHandlers.current.forEach((h) => h(ev));
     }
   }, [roomId, reconcileSnapshot, rejectOnce]);
