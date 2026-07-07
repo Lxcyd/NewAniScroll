@@ -3040,11 +3040,14 @@ export default function UniversalPlayer({
               ? e.payload.selfIsHost
               : partyRef.current?.isHost;
           if (selfIsHost) {
-            // Freshly created room: seed is paused/pos-0. If the host was already
-            // watching the episode, their local <video> is still playing —
-            // creating a party must NOT keep it running ("créer une party lance
-            // l'anime"). Align them to the room's neutral (paused) state ONCE,
-            // via withGuard so the resulting local `pause` doesn't re-broadcast.
+            // The host's own player is authoritative — we never seek/rewind it
+            // from the seeded snapshot (that's what rewound an in-progress
+            // episode to 0 on create). The room is now seeded at the host's LIVE
+            // position (see WatchPartyPanel.create), so the host simply keeps
+            // playing from where they were. The ONLY thing we still do is a
+            // one-shot pause when the room was seeded at pos-0 AND paused — i.e.
+            // the host hadn't actually started watching — so a party created
+            // before playback doesn't auto-launch the anime.
             if (!didInitialHostPause && s.paused && Number(s.position) === 0) {
               didInitialHostPause = true;
               withGuard(() => player?.pause?.());

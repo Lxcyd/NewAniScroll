@@ -106,6 +106,26 @@ function Lobby({ lobby, onClose }: { lobby?: LobbyMeta; onClose?: () => void }) 
     setLoading(true);
     try {
       const guest = getGuestIdentity();
+      // Seed the room at the host's CURRENT playback position so creating a
+      // party on an already-started episode doesn't rewind everyone to 0. Read
+      // it live from the MAIN <video>: UniversalPlayer stamps it with
+      // `disableremoteplayback`, which the hidden HoverPreview <video> lacks, so
+      // this reliably picks the playing element (and skips iframe embeds, which
+      // have no <video> at all → falls back to 0).
+      const video =
+        typeof document !== "undefined"
+          ? document.querySelector<HTMLVideoElement>("video[disableremoteplayback]") ||
+            document.querySelector<HTMLVideoElement>("media-player video")
+          : null;
+      const position =
+        video && Number.isFinite(video.currentTime) ? Math.max(0, video.currentTime) : 0;
+      // Seed the room's play/pause to match the host's live state too: if they
+      // created the party WHILE watching, the host keeps playing (their player
+      // isn't driven by the snapshot) but no `play` event fires to tell joiners,
+      // so without this the room would sit "paused" and late joiners would wait
+      // at the seeded position until the host next acted. `null` (iframe embeds
+      // with no readable <video>) falls back to paused server-side.
+      const paused = video ? !!video.paused : true;
       const res = await fetch("/api/v2/watch2gether/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -114,6 +134,8 @@ function Lobby({ lobby, onClose }: { lobby?: LobbyMeta; onClose?: () => void }) 
           epiNumber: String(lobby.epiNumber),
           dub: !!lobby.dub,
           server: lobby.server || "",
+          position,
+          paused,
           guestId: guest.guestId,
           guestName: guest.guestName,
         }),
