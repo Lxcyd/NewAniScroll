@@ -54,9 +54,9 @@ export interface NotifyOptions {
   onDismiss?: () => void;
 }
 
-// Every transient notice shares the same on-screen lifetime (3s), whatever its
+// Every transient notice shares the same on-screen lifetime (5s), whatever its
 // type. Persistent banners opt out explicitly with duration: Infinity.
-const DEFAULT_DUR = 3000;
+const DEFAULT_DUR = 5000;
 
 let notices: Notice[] = [];
 const listeners = new Set<() => void>();

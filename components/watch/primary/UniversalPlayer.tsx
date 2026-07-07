@@ -1366,14 +1366,14 @@ export default function UniversalPlayer({
   // this player when it's fullscreen; we publish that surface below.
   const showPlayerNotice = (
     msg: string,
-    dur = 3000,
+    dur = 5000,
     type: "error" | "success" | "info" | "message" = "message",
   ) => {
     notify(msg, { duration: dur, type });
   };
   // Sub / dub explanatory notices are shown red (error), matching the look the
   // user validated for the "subtitles are burned in" banner.
-  const showSubNotice = (msg: string) => showPlayerNotice(msg, 3000, "error");
+  const showSubNotice = (msg: string) => showPlayerNotice(msg, 5000, "error");
   // Configurable keyboard shortcuts: the visual editor overlay + the live
   // "stats for nerds" panel are both toggled from the settings menu / hotkeys.
   const [shortcutEditorOpen, setShortcutEditorOpen] = useState(false);
@@ -4083,9 +4083,9 @@ export default function UniversalPlayer({
       await navigator.clipboard.writeText(url.toString());
       const mm = Math.floor(seconds / 60);
       const ss = String(seconds % 60).padStart(2, "0");
-      showPlayerNotice(t("stats.timestampCopied", { time: `${mm}:${ss}` }), 3000, "success");
+      showPlayerNotice(t("stats.timestampCopied", { time: `${mm}:${ss}` }), 5000, "success");
     } catch {
-      showPlayerNotice(t("stats.timestampFailed"), 3000, "error");
+      showPlayerNotice(t("stats.timestampFailed"), 5000, "error");
     }
   };
 
@@ -4110,7 +4110,7 @@ export default function UniversalPlayer({
         // Clipboard image write (Chrome/Edge/Safari 13.1+).
         const item = new (window as any).ClipboardItem({ "image/png": blob });
         await (navigator.clipboard as any).write([item]);
-        showPlayerNotice(t("stats.screenshotCopied"), 3000, "success");
+        showPlayerNotice(t("stats.screenshotCopied"), 5000, "success");
       } catch {
         // No clipboard-image support → download instead.
         const url = URL.createObjectURL(blob);
@@ -4119,11 +4119,11 @@ export default function UniversalPlayer({
         a.download = `${downloadName || "screenshot"}.png`;
         a.click();
         URL.revokeObjectURL(url);
-        showPlayerNotice(t("stats.screenshotSaved"), 3000, "success");
+        showPlayerNotice(t("stats.screenshotSaved"), 5000, "success");
       }
     } catch {
       // Tainted canvas (noCors source) — can't read pixels.
-      showPlayerNotice(t("stats.screenshotFailed"), 3000, "error");
+      showPlayerNotice(t("stats.screenshotFailed"), 5000, "error");
     }
   };
 

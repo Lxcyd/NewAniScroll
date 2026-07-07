@@ -34,8 +34,9 @@ const TYPE_STYLES: Record<
     bg: "hsl(358, 76%, 10%)",
     border: "hsl(357, 89%, 16%)",
     color: "hsl(358, 100%, 81%)",
-    // filled circle + "!"
-    iconPath: "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm-1 5h2v7h-2V7zm0 9h2v2h-2v-2z",
+    // filled warning triangle + "!"
+    iconPath:
+      "M12 2 1 21h22L12 2zm0 5.5c.55 0 1 .45 1 1v5a1 1 0 0 1-2 0v-5c0-.55.45-1 1-1zm0 9.25a1.1 1.1 0 1 1 0 2.2 1.1 1.1 0 0 1 0-2.2z",
   },
   success: {
     bg: "hsl(140, 100%, 6%)",
