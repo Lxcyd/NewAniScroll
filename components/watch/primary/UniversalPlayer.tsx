@@ -1160,10 +1160,17 @@ function CenterPlayButton({
   playerRef,
   autoplay,
   menuOpen,
+  inParty,
+  onGesture,
 }: {
   playerRef: React.RefObject<MediaPlayerInstance>;
   autoplay: boolean;
   menuOpen: boolean;
+  /** True while in a Watch-party: the button is the guest's "join playback"
+   *  gesture and must be shown even when autoplay is on, until they click it. */
+  inParty: boolean;
+  /** Called on click to mark the party gesture as taken (unblocks sync-play). */
+  onGesture: () => void;
 }) {
   const { t } = useTranslation();
   const paused = useMediaState("paused", playerRef);
@@ -1178,8 +1185,9 @@ function CenterPlayButton({
 
   // Only ever shown when autoplay is OFF (this is the manual "click to start"
   // affordance). With autoplay ON the video launches itself, so the big button
-  // has no reason to appear.
-  if (autoplay) return null;
+  // has no reason to appear — EXCEPT in a party, where the guest's sync-play is
+  // gated behind this button so a &party= link never auto-launches the anime.
+  if (autoplay && !inParty) return null;
   // Gone once playback has ever started; hidden while the media is still
   // loading (Vidstack draws its buffering spinner then).
   if (everStarted) return null;
@@ -1203,6 +1211,9 @@ function CenterPlayButton({
     try {
       if (video && !keepMuted) video.muted = false;
     } catch {}
+    // Mark the party gesture BEFORE play() so the sync engine (which reads the
+    // ref live) lets this play through instead of re-pausing the guest.
+    onGesture();
     player?.play?.();
   };
 
@@ -1277,6 +1288,15 @@ export default function UniversalPlayer({
   // Live hls.js instance — captured on provider setup so the seek handler can
   // abort in-flight segment loads and re-anchor on the new position.
   const hlsRef = useRef<any>(null);
+  // In a Watch-party, a guest joining a room whose host is already playing must
+  // NOT have their video auto-started by the incoming snapshot/play — that read
+  // as "opening a &party= link launches the anime with no play button". Until
+  // the guest makes their first real gesture (the big center play button), the
+  // sync engine SEEKS to the live position but stays paused, so the big play
+  // button remains and the user chooses when to join playback (with sound).
+  // Flipped to true by CenterPlayButton's click. Reset per stream (below) so a
+  // navigation to a new episode requires a fresh gesture.
+  const partyGestureRef = useRef(false);
   // Whether the CURRENT source plays straight from the host CDN (no proxy).
   // Read inside onProviderSetup (which can't see `bestStream` in scope) to set
   // the <video> referrerPolicy for direct streams.
@@ -2828,6 +2848,11 @@ export default function UniversalPlayer({
   useEffect(() => {
     if (!party) return;
 
+    // A fresh source (new episode / server switch) means the guest must make a
+    // new "join playback" gesture before sync auto-plays them again — otherwise
+    // a party-driven episode change would silently auto-launch the next one.
+    partyGestureRef.current = false;
+
     // Tolerance for accepting a remote position as "already here" (avoids
     // seek-wars from timeupdate jitter). Drift beyond DRIFT_TOLERANCE while
     // playing is silently nudged by the reconciliation loop below.
@@ -3029,7 +3054,11 @@ export default function UniversalPlayer({
           withGuard(() => {
             seekTo(p);
             video!.playbackRate = rate;
-            if (s.paused) player?.pause?.();
+            // Guest hasn't made their initial gesture yet: align to the live
+            // position but stay PAUSED so the big center play button remains and
+            // the anime doesn't auto-launch from a &party= link. They join
+            // playback (with sound) by clicking it.
+            if (s.paused || !partyGestureRef.current) player?.pause?.();
             else player?.play?.()?.catch?.(() => {});
           });
           return;
@@ -3039,7 +3068,10 @@ export default function UniversalPlayer({
           setRemoteTarget(p, false);
           withGuard(() => {
             seekTo(p);
-            player?.play?.()?.catch?.(() => {});
+            // Same gate as the snapshot above: a host `play` must not auto-start
+            // a guest who hasn't clicked to join yet (seek only, stay paused).
+            if (partyGestureRef.current) player?.play?.()?.catch?.(() => {});
+            else player?.pause?.();
           });
           return;
         }
@@ -4515,7 +4547,15 @@ export default function UniversalPlayer({
       {/* Big centred play button — the MANUAL start affordance, shown only when
           autoplay is OFF. One click plays WITH sound. With autoplay ON the video
           starts itself, so the button is hidden (see CenterPlayButton). */}
-      <CenterPlayButton playerRef={playerRef} autoplay={autoplay} menuOpen={vdsMenuOpen} />
+      <CenterPlayButton
+        playerRef={playerRef}
+        autoplay={autoplay}
+        menuOpen={vdsMenuOpen}
+        inParty={!!party}
+        onGesture={() => {
+          partyGestureRef.current = true;
+        }}
+      />
 
       {/* AniSkip segment overlay + Skip button. Renders null when no
           skip data exists for the current episode AND there's no next
