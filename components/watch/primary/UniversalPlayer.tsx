@@ -2838,6 +2838,64 @@ export default function UniversalPlayer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [aniListId, episodeNumber, streamData]);
 
+  // ── TEMP DEBUG: trace who resets currentTime to ~0 (add ?w2gdebug to URL) ──
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!new URLSearchParams(window.location.search).has("w2gdebug")) return;
+    const proto = HTMLMediaElement.prototype as any;
+    if (proto.__w2gTrapped) return;
+    const desc = Object.getOwnPropertyDescriptor(proto, "currentTime");
+    if (!desc?.set || !desc?.get) return;
+    proto.__w2gTrapped = true;
+    Object.defineProperty(proto, "currentTime", {
+      configurable: true,
+      enumerable: desc.enumerable,
+      get() {
+        return desc.get!.call(this);
+      },
+      set(v: number) {
+        const from = desc.get!.call(this);
+        if (v <= 1 && from > 2) {
+          // eslint-disable-next-line no-console
+          console.warn(`[w2gdebug] currentTime ${from.toFixed(2)} -> ${v}`, new Error().stack);
+        }
+        desc.set!.call(this, v);
+      },
+    });
+    // eslint-disable-next-line no-console
+    console.warn("[w2gdebug] currentTime trap installed");
+  }, []);
+
+  // ── TEMP DEBUG: log source-reload signals (distinguishes reload-to-0 from a
+  // JS seek-to-0). Binds to whatever <video> is live and re-binds via a poll. ──
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!new URLSearchParams(window.location.search).has("w2gdebug")) return;
+    let bound: HTMLVideoElement | null = null;
+    const log = (name: string) => () =>
+      // eslint-disable-next-line no-console
+      console.warn(`[w2gdebug] media event: ${name} (ct=${bound?.currentTime?.toFixed(2)})`);
+    const evs = ["emptied", "loadstart", "abort", "loadedmetadata", "durationchange"];
+    const handlers = evs.map((e) => log(e));
+    const bind = () => {
+      const v =
+        (playerRef.current?.el as HTMLElement | undefined)?.querySelector<HTMLVideoElement>("video") ||
+        null;
+      if (!v || v === bound) return;
+      if (bound) evs.forEach((e, i) => bound!.removeEventListener(e, handlers[i]));
+      bound = v;
+      // eslint-disable-next-line no-console
+      console.warn("[w2gdebug] bound to a NEW <video> element");
+      evs.forEach((e, i) => v.addEventListener(e, handlers[i]));
+    };
+    const iv = window.setInterval(bind, 200);
+    bind();
+    return () => {
+      window.clearInterval(iv);
+      if (bound) evs.forEach((e, i) => bound!.removeEventListener(e, handlers[i]));
+    };
+  }, []);
+
   // ── Watch 2gether sync ──
   // When a `party` is present, mirror play/pause/seek/rate across participants.
   // Everyone can control, so we guard against feedback loops two ways:
