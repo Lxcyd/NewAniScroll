@@ -49,6 +49,13 @@ export default function FullscreenChat({ onRemote, sendChat, playerEl, active, s
   const composerRef = useRef<ChatComposerHandle | null>(null);
   // Whether the composer currently has content (drives the typing-grace on close).
   const hasTextRef = useRef(false);
+  // Whether the chat composer currently holds keyboard focus. When it does, a
+  // click on the video must NOT toggle play/pause — it should just defocus the
+  // chat and close the panel (see the capture-phase veto effect below).
+  const focusedRef = useRef(false);
+  // The chat panel root, so the veto can tell a click INSIDE the chat (which
+  // must keep working) from a click on the video surface.
+  const panelRef = useRef<HTMLDivElement | null>(null);
   const logRef = useRef<HTMLDivElement | null>(null);
   const closeTimer = useRef<number | null>(null);
   // Once-per-session guard: persists for the component's lifetime (the whole
@@ -137,6 +144,39 @@ export default function FullscreenChat({ onRemote, sendChat, playerEl, active, s
     return () => window.removeEventListener("aniscroll:openPartyChat", onOpen);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active]);
+
+  // ── "Click video while typing = just defocus the chat" ──
+  // While the composer holds focus, a click on the video surface should NOT
+  // toggle play/pause (Vidstack's gesture layer). Instead it should feel like a
+  // click-away: blur the composer and close the panel, leaving playback alone.
+  // We veto the gesture in the CAPTURE phase (before Vidstack's own listeners),
+  // but only when the pointer landed OUTSIDE the chat panel itself — clicks
+  // inside the chat (log, composer, buttons) must keep working normally.
+  useEffect(() => {
+    if (!active || !playerEl) return;
+    const veto = (e: Event) => {
+      if (!focusedRef.current) return; // chat not focused → normal playback gesture
+      const target = e.target as Node | null;
+      // A click inside the chat panel is legitimate chat interaction; let it be.
+      if (target && panelRef.current?.contains(target)) return;
+      // Outside the panel (i.e. on the video) → swallow the gesture and defocus.
+      e.preventDefault();
+      e.stopPropagation();
+      composerRef.current?.blur();
+      focusedRef.current = false;
+      requestClose();
+    };
+    // pointerdown is where Vidstack arms its toggle; vetoing here (capture)
+    // stops the pause before it starts. We also veto the trailing click so no
+    // late handler re-toggles.
+    playerEl.addEventListener("pointerdown", veto, { capture: true });
+    playerEl.addEventListener("click", veto, { capture: true });
+    return () => {
+      playerEl.removeEventListener("pointerdown", veto, { capture: true } as any);
+      playerEl.removeEventListener("click", veto, { capture: true } as any);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, playerEl]);
 
   if (!active || !playerEl) return null;
 
@@ -252,6 +292,7 @@ export default function FullscreenChat({ onRemote, sendChat, playerEl, active, s
       {/* The panel itself. Slides in from the right + fades; closing is the same
           transition reversed, so it disappears "instantly with an animation". */}
       <div
+        ref={panelRef}
         onMouseEnter={openNow}
         onMouseLeave={requestClose}
         style={{
@@ -315,7 +356,13 @@ export default function FullscreenChat({ onRemote, sendChat, playerEl, active, s
               hasTextRef.current = !!v;
               openNow();
             }}
-            onFocus={openNow}
+            onFocus={() => {
+              focusedRef.current = true;
+              openNow();
+            }}
+            onBlur={() => {
+              focusedRef.current = false;
+            }}
             style={{
               flex: 1,
               borderRadius: 10,

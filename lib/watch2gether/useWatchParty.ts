@@ -407,12 +407,24 @@ export function useWatchParty(
     if (Array.isArray(data.chat)) setChat(data.chat);
     if (Array.isArray(data.members)) setMembers(data.members);
     // Replay the snapshot to player handlers so it syncs after a (re)connect.
+    // Tag whether WE are the host, computed SYNCHRONOUSLY here from the server's
+    // own response (snapshot.hostId vs data.me.userId). The player's snapshot
+    // guard must NOT drive the host's own player, but it can't rely on the
+    // React-derived `isHost` — on the FIRST snapshot after create/join that
+    // state hasn't re-rendered yet (setHostId above is still queued), so the
+    // guard read stale `false` and the seeded snapshot's play/pause churn drove
+    // the host's player ("creating a party launches the anime"). Passing the
+    // authoritative value inline closes that race.
     if (data.snapshot) {
+      const selfIsHost =
+        !!data.snapshot.hostId &&
+        !!data.me?.userId &&
+        String(data.snapshot.hostId) === String(data.me.userId);
       const ev: PartyEvent = {
         type: "snapshot",
         senderId: "server",
         ts: Date.now(),
-        payload: { snapshot: data.snapshot },
+        payload: { snapshot: data.snapshot, selfIsHost },
       };
       remoteHandlers.current.forEach((h) => h(ev));
     }

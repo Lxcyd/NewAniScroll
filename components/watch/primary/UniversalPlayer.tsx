@@ -3000,7 +3000,18 @@ export default function UniversalPlayer({
           // resulting play()/pause() churn read as "creating a party launches the
           // anime"). Record the target for drift/others, but never force the
           // host's own player from a snapshot.
-          if (partyRef.current?.isHost) return;
+          // Prefer the authoritative `selfIsHost` flag the party hook computes
+          // synchronously from the server response — on the FIRST snapshot after
+          // create/join, `partyRef.current.isHost` (React-derived) is still stale
+          // `false` because setHostId hasn't re-rendered yet, which let the seeded
+          // snapshot drive the host's own player ("creating a party launches the
+          // anime"). Fall back to the derived value for wire snapshots that don't
+          // carry the flag.
+          const selfIsHost =
+            typeof e.payload?.selfIsHost === "boolean"
+              ? e.payload.selfIsHost
+              : partyRef.current?.isHost;
+          if (selfIsHost) return;
           withGuard(() => {
             seekTo(p);
             video!.playbackRate = rate;
