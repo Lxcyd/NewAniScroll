@@ -126,9 +126,13 @@ def _pair_hashes(f_idx: np.ndarray, t_idx: np.ndarray) -> tuple[np.ndarray, np.n
 
 def fingerprint(samples: np.ndarray) -> Fingerprint:
     """Compute the constellation fingerprint of mono samples."""
+    if samples.size == 0:
+        # Empty/failed decode (e.g. ffmpeg returned nothing for this host).
+        # Return an empty fingerprint instead of letting the empty spectrogram
+        # crash ndimage.maximum_filter (1D spec vs 2D footprint mismatch).
+        return Fingerprint(np.empty(0, np.uint64), np.empty(0, np.int32), n_frames=0)
     spec = _spectrogram(samples)
     f_idx, t_idx = _find_peaks(spec)
     hashes, times = _pair_hashes(f_idx, t_idx)
-    # Sort by hash for fast intersection in the matcher.
     order = np.argsort(hashes, kind="stable")
     return Fingerprint(hashes[order], times[order], n_frames=spec.shape[1])

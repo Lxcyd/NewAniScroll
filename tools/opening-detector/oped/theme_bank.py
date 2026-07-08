@@ -18,6 +18,13 @@ Speed strategy (the episode download is the bottleneck):
     only those slices instead of streaming the whole file.
   - Reference themes are fingerprinted once per (anime, theme, version) and
     the Fingerprint itself is cached (.npz), so re-runs skip the spectrogram.
+  - Episode WINDOW fingerprints are ALSO cached now (`cached_fingerprint`),
+    not just their raw PCM — see that function's docstring. This is purely a
+    caching optimization: the numbers a fresh (uncached) run produces are
+    unchanged, only their recomputation on a rerun is skipped.
+  - OP and ED are independent per episode (different windows, different refs),
+    so `detect_op_ed` resolves+matches them concurrently instead of one after
+    the other — see that function's docstring. No detection parameter changes.
 
 Robustness (answering "what if the theme isn't where AnimeThemes says"):
   - Try ALL versions of the expected theme (JJK OP1 has 4) and keep the best.
@@ -30,18 +37,31 @@ No changes to fingerprint/matcher: `best_match` is already query↔reference.
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from . import SAMPLE_RATE
 from .animethemes import Theme
 from .audio import load_audio
 from .fingerprint import Fingerprint, fingerprint
 from .matcher import Match, best_match
+from .refine import refine_edges_ref_anchored
+from .video_fingerprint import VideoFingerprint, best_match_video, extract_keyframe_hashes
 
 # Default decode windows (seconds). OP: from episode start, covering a possible
 # cold-open + the OP itself. ED: the tail, via end-of-file seek.
 OP_WINDOW = (0.0, 240.0)          # first 4 min
 ED_WINDOW = (-180.0, None)        # last 3 min (negative start = -sseof)
+
+# Quality gate: votes/second of the matched span. 0.0 = off (the old default).
+# Real themes are dense clusters; a thin-but-wide spurious cluster has low
+# density. Calibrated on SnK S1 — see the calibration note in the plan.
+MIN_SCORE_DEFAULT = 0.15
+
+# Fraction of the VIDEO match span that must fall inside the audio span to count
+# as confirmation (video ⊆ audio). Same metric validated in diag_full.py.
+VIDEO_CONTAINMENT = 0.7
 
 
 @dataclass
@@ -55,11 +75,20 @@ class ThemeReference:
     video_url: str
     fp: Fingerprint
     duration: float    # seconds of the reference clip
+    video_fp: VideoFingerprint | None = None  # keyframe hashes of the clean NC clip
 
 
 @dataclass
 class ThemeHit:
-    """A theme located inside one episode (the skip interval, episode time)."""
+    """A theme located inside one episode (the skip interval, episode time).
+
+    `start`/`end` are the DELIVERED skip interval: the reference theme's full
+    extent projected onto episode time (see `_match_best_version`), so they
+    correspond to the AnimeThemes NC clip's first/last frame — NOT the raw
+    dense-vote span. `vote_start`/`vote_end` keep that raw dense-vote span (the
+    portion of the theme that actually collided on hashes) for confidence gating
+    and for reference-anchored edge refinement.
+    """
 
     kind: str          # "op" | "ed"
     slug: str          # which theme matched
@@ -68,33 +97,90 @@ class ThemeHit:
     end: float
     votes: int
     score: float       # votes / matched-span seconds
+    # Raw dense-vote span in EPISODE time (window offset added) — where hashes
+    # actually agreed. Narrower than start/end when fades produced no anchors.
+    vote_start: float = 0.0
+    vote_end: float = 0.0
+    # Where the vote span landed in REFERENCE (theme) time. r_start≈0 means the
+    # match reached the theme's true start; r_start well inside the theme means
+    # earlier theme audio existed but didn't vote (VF ducking/compression).
+    r_start: float = 0.0
+    r_end: float = 0.0
+    ref_duration: float = 0.0   # the reference clip's full length (canonical OP/ED len)
     inferred: bool = False   # True when matched via cour fallback (no direct map)
+    confirmed_by_video: bool = False  # audio+video agreed (containment) — confidence only
+    video_disagreement: bool = False  # both matched but diverged — anomaly flag
 
 
-def _fp_cached(samples_key: str, url: str, cache_dir: Path, *,
-               referer: str | None = None) -> tuple[Fingerprint, float]:
-    """Load-or-build a fingerprint for a reference clip, caching the FP itself.
+def _window_tag(window: tuple[float | None, float | None] | None) -> str:
+    """Cache-filename tag for a decode window.
 
-    Returns (fingerprint, duration_seconds). The .npz sits next to the PCM
-    cache so a re-run skips both the ffmpeg decode and the spectrogram.
+    Mirrors the tagging scheme in `audio.load_audio` so the OP window, the ED
+    window, and the whole-clip case (window=None, tag="") all cache under
+    distinct filenames and never collide — including for the reference-theme
+    cache, where window is always None, so this is a no-op there and existing
+    `.fp.npz` files on disk stay valid untouched.
     """
+    if window is None:
+        return ""
+    start_s, dur_s = window
+    start_part = "" if start_s is None else str(round(start_s, 1))
+    dur_part = "" if dur_s is None else str(round(dur_s, 1))
+    return f".w{start_part}_{dur_part}"
+
+
+def cached_fingerprint(
+    samples_key: str,
+    url: str,
+    cache_dir: str | Path,
+    *,
+    window: tuple[float | None, float | None] | None = None,
+    referer: str | None = None,
+) -> tuple[Fingerprint, float]:
+    """Load-or-build a Fingerprint for a clip or episode WINDOW, caching the
+    fingerprint itself on disk (not just the decoded PCM).
+
+    Before this, `audio.load_audio` already cached the raw PCM per (key,
+    window), but the spectrogram + constellation-hash pass (`fingerprint()`)
+    was recomputed from that cached PCM on every call. For repeated runs over
+    the same episode/window — e.g. re-running a debug session, or building up
+    `--out` incrementally episode by episode — this made the decode "free" but
+    the fingerprinting step was still paid every time. Caching the Fingerprint
+    itself (an .npz of hashes/times, tiny compared to PCM) skips both steps on
+    a cache hit.
+
+    Returns (fingerprint, duration_seconds). `duration` is recovered from a
+    small sidecar `.dur.txt` written alongside the `.fp.npz` so a cache hit
+    never needs to reload the PCM to know the clip length.
+    """
+    cache_dir = Path(cache_dir)
     safe = samples_key.replace("/", "__").replace("\\", "__")
-    fp_file = cache_dir / f"{safe}.fp.npz"
+    tag = _window_tag(window)
+    fp_file = cache_dir / f"{safe}{tag}.fp.npz"
     if fp_file.exists():
         fp = Fingerprint.load(fp_file)
-        # duration is derivable from the cached PCM; recompute lazily only if
-        # needed. Store it alongside as a tiny sidecar to avoid a reload.
-        dur_file = cache_dir / f"{safe}.dur.txt"
+        dur_file = cache_dir / f"{safe}{tag}.dur.txt"
         dur = float(dur_file.read_text()) if dur_file.exists() else 0.0
         return fp, dur
     cache_dir.mkdir(parents=True, exist_ok=True)
     samples = load_audio(url, cache_key=samples_key, cache_dir=cache_dir,
-                         referer=referer)
+                          window=window, referer=referer)
     fp = fingerprint(samples)
     fp.save(fp_file)
     dur = len(samples) / 11025
-    (cache_dir / f"{safe}.dur.txt").write_text(str(dur))
+    (cache_dir / f"{safe}{tag}.dur.txt").write_text(str(dur))
     return fp, dur
+
+
+def _fp_cached(samples_key: str, url: str, cache_dir: Path, *,
+               referer: str | None = None) -> tuple[Fingerprint, float]:
+    """Whole-clip fingerprint cache used by `build_references` (reference
+    theme videos, never windowed). Kept as a thin alias over
+    `cached_fingerprint` with window=None so the on-disk filename is byte-for-
+    byte identical to before this patch — no cache invalidation for existing
+    `.fp.npz` reference files.
+    """
+    return cached_fingerprint(samples_key, url, cache_dir, window=None, referer=referer)
 
 
 def build_references(
@@ -102,33 +188,59 @@ def build_references(
     *,
     cache_dir: str | Path = "cache/audio",
     slug_prefix: str = "animethemes",
+    with_video: bool = False,
+    video_cache_dir: str | Path = "cache/video",
 ) -> list[ThemeReference]:
     """Fingerprint EVERY playable version of a theme (cached once each).
 
     Matching an episode against all versions rescues the case where the
     release uses a different cut than the one AnimeThemes' episode range names.
+
+    Versions are fingerprinted CONCURRENTLY: each is an independent download +
+    spectrogram computation, and a theme can have several versions (JJK OP1
+    has 4), so this is a straightforward wall-clock win with zero change to
+    what's computed for each version.
+
+    `with_video=True` ALSO fingerprints the clean NC clip's keyframes (cached as
+    `.vfp.npz`) so `detect_op_ed`'s `resolve_video` can cross-confirm the audio
+    boundary. Off by default so the audio-only path pays nothing.
     """
     cache_dir = Path(cache_dir)
-    refs: list[ThemeReference] = []
+    entries = []
     seen: set[str] = set()
     for entry in theme.entries:
         if not entry.video_url or entry.video_url in seen:
             continue
         seen.add(entry.video_url)
+        entries.append(entry)
+
+    if not entries:
+        return []
+
+    def _build_one(entry) -> ThemeReference:
         key = f"{slug_prefix}/{theme.slug}/v{entry.version}"
         fp, dur = _fp_cached(key, entry.video_url, cache_dir)
-        refs.append(
-            ThemeReference(
-                kind=theme.kind,
-                slug=theme.slug,
-                version=entry.version,
-                song=theme.song,
-                video_url=entry.video_url,
-                fp=fp,
-                duration=dur,
-            )
+        vfp = None
+        if with_video:
+            try:
+                vfp = extract_keyframe_hashes(
+                    entry.video_url, cache_key=key, cache_dir=video_cache_dir
+                )
+            except Exception:
+                vfp = None  # video is confirmation-only; audio still ships
+        return ThemeReference(
+            kind=theme.kind,
+            slug=theme.slug,
+            version=entry.version,
+            song=theme.song,
+            video_url=entry.video_url,
+            fp=fp,
+            duration=dur,
+            video_fp=vfp,
         )
-    return refs
+
+    with ThreadPoolExecutor(max_workers=len(entries)) as pool:
+        return list(pool.map(_build_one, entries))
 
 
 def _match_best_version(
@@ -138,29 +250,65 @@ def _match_best_version(
     *,
     min_votes: int,
     min_score: float,
+    min_fill: float = 0.5,
 ) -> ThemeHit | None:
     """Match an episode fingerprint against all versions of ONE theme; keep the
-    strongest. `window_offset` (seconds) is added to the recovered query span
-    to convert window-relative times back to absolute episode time.
+    version whose vote span best FILLS its own reference length. `window_offset`
+    (seconds) converts window-relative times back to absolute episode time.
+
+    Boundary policy (the precision decision): the delivered `start`/`end` are
+    the reference clip's FULL extent projected onto episode time via the
+    frame-accurate alignment offset —
+
+        start = offset_seconds + 0.0            (+ window_offset)
+        end   = offset_seconds + ref.duration   (+ window_offset)
+
+    — so they line up with the AnimeThemes NC clip's first and last frame BY
+    CONSTRUCTION, instead of the raw dense-vote span (`m.q_start/q_end`) which
+    clips fade-in/out where few hashes form. offset_seconds = m.q_start -
+    m.r_start (the theme's t0 in query time). The raw vote span is retained on
+    the hit (vote_start/end, r_start/end) for confidence and edge refinement.
+
+    Version selection: prefer the version whose vote span covers the largest
+    FRACTION of its own reference duration (`fill`). A release that airs a
+    different cut/length than one AnimeThemes version will vote densely on the
+    version it actually matches and sparsely on the others, so fill — not raw
+    vote count — is the right discriminator. A version below `min_fill` is a
+    partial/spurious match and is rejected.
     """
-    best: tuple[Match, ThemeReference] | None = None
+    best: tuple[Match, ThemeReference, float] | None = None
     for ref in refs:
         m = best_match(episode_fp, ref.fp, min_votes=min_votes)
         if m is None or m.score < min_score:
             continue
-        if best is None or m.n_votes > best[0].n_votes:
-            best = (m, ref)
+        ref_dur = ref.duration if ref.duration > 0 else max(m.r_end, 1e-6)
+        fill = min(1.0, (m.r_end - m.r_start) / max(ref_dur, 1e-6))
+        if fill < min_fill:
+            continue
+        if best is None or fill > best[2]:
+            best = (m, ref, fill)
     if best is None:
         return None
-    m, ref = best
+    m, ref, _fill = best
+
+    # Theme t0 in query time = where the reference's frame 0 lands.
+    theme_t0 = m.q_start - m.r_start
+    ref_dur = ref.duration if ref.duration > 0 else m.r_end
+    proj_start = theme_t0 + window_offset
+    proj_end = theme_t0 + ref_dur + window_offset
     return ThemeHit(
         kind=ref.kind,
         slug=ref.slug,
         version=ref.version,
-        start=m.q_start + window_offset,
-        end=m.q_end + window_offset,
+        start=proj_start,
+        end=proj_end,
         votes=m.n_votes,
         score=m.score,
+        vote_start=m.q_start + window_offset,
+        vote_end=m.q_end + window_offset,
+        r_start=m.r_start,
+        r_end=m.r_end,
+        ref_duration=ref_dur,
     )
 
 
@@ -170,11 +318,14 @@ def detect_op_ed(
     op_refs: list[ThemeReference],
     ed_refs: list[ThemeReference],
     *,
+    resolve_samples=None,
+    resolve_video=None,
     op_window: tuple[float | None, float | None] = OP_WINDOW,
     ed_window: tuple[float | None, float | None] = ED_WINDOW,
     min_votes: int = 40,
-    min_score: float = 0.0,
+    min_score: float = MIN_SCORE_DEFAULT,
     full_fallback: bool = True,
+    refine: bool = True,
 ) -> list[ThemeHit]:
     """Locate the OP and ED inside one episode, decoding only short windows.
 
@@ -184,9 +335,22 @@ def detect_op_ed(
     window, and — only on windowed failure if `full_fallback` — with None
     (whole episode).
 
+    `resolve_samples(window)` (optional) returns the raw mono PCM for the SAME
+    window — used only to snap the projected edges to the true music onset/cut
+    (`refine`). Because `audio.load_audio` caches per (key, window), asking for
+    the same window that produced the fingerprint is a cache hit, not a second
+    decode. When None, boundaries are the pure reference projection (no snap).
+
+    `resolve_video(window)` (optional) returns a VideoFingerprint for the window;
+    if it and a `.video_fp` reference are present, a video match is computed and
+    used ONLY to set `confirmed_by_video` / `video_disagreement` on the hit — the
+    numeric boundary stays audio-frame-accurate and is never averaged with video.
+
+    OP and ED are detected in PARALLEL. Detection LOGIC is byte-for-byte the same
+    as running them sequentially — only the wall-clock ordering changes.
+
     Returns the accepted ThemeHits (0..2), each in absolute episode time.
     """
-    hits: list[ThemeHit] = []
 
     def _abs_offset(win) -> float:
         # Convert a window's start into an absolute episode offset. A negative
@@ -198,10 +362,78 @@ def detect_op_ed(
             return 0.0
         return episode_duration + start_s if start_s < 0 else start_s
 
-    for refs, win, kind in ((op_refs, op_window, "op"), (ed_refs, ed_window, "ed")):
+    def _refine_hit(hit: ThemeHit, win) -> None:
+        """Snap hit.start/end to the true onset/cut using the window's PCM. Edits
+        the hit in place; a failure leaves the projection untouched."""
+        if resolve_samples is None:
+            return
+        win_off = _abs_offset(win)
+        try:
+            samples = resolve_samples(win)
+        except Exception:
+            return
+        if samples is None or samples.size == 0:
+            return
+        # Slice a padded region around the projection, in window-relative sec.
+        lead, tail = 5.0, 6.0
+        s_lo = max(0.0, (hit.start - win_off) - lead)
+        s_hi = (hit.end - win_off) + tail
+        i0 = int(s_lo * SAMPLE_RATE)
+        i1 = min(samples.size, int(s_hi * SAMPLE_RATE))
+        if i1 - i0 < SAMPLE_RATE // 2:
+            return
+        sl = samples[i0:i1]
+        base = i0 / SAMPLE_RATE  # slice start in window-relative seconds
+        rs, re = refine_edges_ref_anchored(
+            sl,
+            proj_start_local=(hit.start - win_off) - base,
+            proj_end_local=(hit.end - win_off) - base,
+            vote_start_local=(hit.vote_start - win_off) - base,
+            vote_end_local=(hit.vote_end - win_off) - base,
+            r_start=hit.r_start,
+            r_end=hit.r_end,
+            ref_duration=hit.ref_duration,
+        )
+        start = base + rs + win_off
+        end = base + re + win_off
+        hit.start = float(min(max(start, 0.0), episode_duration))
+        hit.end = float(min(max(end, 0.0), episode_duration))
+
+    def _confirm_video(hit: ThemeHit, refs: list[ThemeReference], win) -> None:
+        """Set confirmed_by_video / video_disagreement from a video match.
+        Audio boundary is authoritative; video only flags."""
+        if resolve_video is None:
+            return
+        video_ref = next((r.video_fp for r in refs
+                          if r.slug == hit.slug and getattr(r, "video_fp", None) is not None),
+                         None)
+        if video_ref is None or video_ref.hashes.size == 0:
+            return
+        try:
+            q = resolve_video(win)
+        except Exception:
+            return
+        if q is None or q.hashes.size == 0:
+            return
+        m = best_match_video(q, video_ref)
+        if m is None:
+            return
+        win_off = _abs_offset(win)
+        v_start = m.q_start + win_off
+        v_end = m.q_end + win_off
+        # Containment: fraction of the VIDEO span that overlaps the audio span.
+        ov = max(0.0, min(hit.end, v_end) - max(hit.start, v_start))
+        v_len = max(1e-6, v_end - v_start)
+        if ov / v_len >= VIDEO_CONTAINMENT:
+            hit.confirmed_by_video = True
+        else:
+            hit.video_disagreement = True
+
+    def _detect_kind(refs: list[ThemeReference], win) -> ThemeHit | None:
         if not refs:
-            continue
+            return None
         fp = resolve_window(win)
+        used_win = win
         hit = _match_best_version(
             fp, refs, _abs_offset(win), min_votes=min_votes, min_score=min_score
         )
@@ -213,8 +445,20 @@ def detect_op_ed(
             hit = _match_best_version(
                 fp_full, refs, 0.0, min_votes=min_votes, min_score=min_score
             )
+            used_win = None
         if hit is not None:
-            hits.append(hit)
+            if refine:
+                _refine_hit(hit, used_win)
+            _confirm_video(hit, refs, used_win)
+        return hit
 
-    hits.sort(key=lambda h: h.start)
-    return hits
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [
+            pool.submit(_detect_kind, op_refs, op_window),
+            pool.submit(_detect_kind, ed_refs, ed_window),
+        ]
+        hits = [f.result() for f in futures]
+
+    kept = [h for h in hits if h is not None]
+    kept.sort(key=lambda h: h.start)
+    return kept

@@ -85,6 +85,19 @@ def load_audio(
     return samples
 
 
+def _is_hls_url(src: str) -> bool:
+    """True if `src` points at an HLS playlist (.m3u8), ignoring query params.
+
+    The `-allowed_extensions` / `-allowed_segment_extensions` /
+    `-extension_picky` flags below are private options of ffmpeg's HLS
+    demuxer (`hls,applehttp`). They do not exist for other demuxers (e.g.
+    plain MP4, as served by sendvid) and ffmpeg hard-errors with
+    "Option ... not found" if you pass them for a non-HLS input. So they must
+    only be added when the source is actually an .m3u8 — never unconditionally.
+    """
+    return ".m3u8" in src.split("?", 1)[0].lower()
+
+
 def _ffmpeg_decode(
     src: str,
     sample_rate: int,
@@ -93,8 +106,15 @@ def _ffmpeg_decode(
 ) -> np.ndarray:
     """Decode `src` to mono float32 PCM via ffmpeg, read from stdout.
 
-    Some hosts (embed4me) 403 the m3u8 unless a Referer header is sent; pass it
-    via `referer`. Sibnet's noip URLs need nothing.
+    Some hosts (embed4me, megaplay's mewstream/zapora CDN) 403 the m3u8
+    unless a Referer header is sent; pass it via `referer`. Sibnet's noip
+    URLs need nothing.
+
+    Some HLS hosts (megaplay's zapora CDN) serve real media segments under a
+    disguised extension (e.g. `.jpg` for actual audio/video segments, an
+    anti-scraping trick). ffmpeg's default segment-extension allowlist
+    rejects those with "Invalid data found" unless we relax it — but that
+    relaxation is HLS-only, see `_is_hls_url`.
 
     When `window=(start_s, dur_s)` is given, seek options go BEFORE `-i` so the
     seek happens at the demuxer/network layer (fast, range-limited download)
@@ -104,6 +124,8 @@ def _ffmpeg_decode(
     cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error"]
     if referer:
         cmd += ["-headers", f"Referer: {referer}\r\n"]
+    if _is_hls_url(src):
+        cmd += ["-allowed_extensions", "ALL", "-allowed_segment_extensions", "ALL", "-extension_picky", "0"]
     if window is not None:
         start_s, dur_s = window
         if start_s is not None:
@@ -126,4 +148,11 @@ def _ffmpeg_decode(
     if proc.returncode != 0:
         err = proc.stderr.decode("utf-8", "replace").strip()
         raise RuntimeError(f"ffmpeg failed for {src!r}:\n{err}")
-    return np.frombuffer(proc.stdout, dtype="<f4").copy()
+    samples = np.frombuffer(proc.stdout, dtype="<f4").copy()
+    if samples.size == 0:
+        err = proc.stderr.decode("utf-8", "replace").strip()
+        raise RuntimeError(
+            f"ffmpeg returned 0 bytes of audio for {src!r} (window={window!r}) "
+            f"— stream likely unreachable/empty for this segment. stderr:\n{err}"
+        )
+    return samples

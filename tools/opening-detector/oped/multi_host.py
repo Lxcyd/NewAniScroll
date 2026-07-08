@@ -34,12 +34,17 @@ For each episode, a `ReconciledHit` per kind carrying BOTH representations:
 so the importer/API can ship robust, self-describing skip data.
 
 This module does NOT change the core detector: it calls `detect_op_ed` once per
-host (each with that host's own duration) and reconciles the results.
+host (each with that host's own duration) and reconciles the results. The
+per-host calls are run IN PARALLEL (see `detect_op_ed_multi`) since each one
+is an independent, network-bound decode + fingerprint + match — the dominant
+cost of a multi-host run — and a single flaky/slow host must not stall its
+peers.
 """
 
 from __future__ import annotations
 
 import statistics
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
 from .theme_bank import ThemeHit, ThemeReference, detect_op_ed, ED_WINDOW, OP_WINDOW
@@ -85,10 +90,20 @@ class ReconciledHit:
     n_hosts_total: int              # how many hosts produced any hit for this kind
     spread_s: float                 # max−min of the agreeing anchor values
     inferred: bool = False
+    n_video_confirm: int = 0        # agreeing hosts whose video confirmed the audio
+    video_disagreement: bool = False  # any agreeing host had audio/video divergence
 
     @property
     def confident(self) -> bool:
         return self.n_hosts_agree >= MIN_AGREE_FOR_CONFIDENT
+
+    @property
+    def serve(self) -> bool:
+        """Serve floor (user-confirmed policy): ≥2 hosts agree, OR a single host
+        whose video confirmed the audio. Everything else is stored-but-held."""
+        return self.n_hosts_agree >= MIN_AGREE_FOR_CONFIDENT or (
+            self.n_hosts_agree >= 1 and self.n_video_confirm >= 1
+        )
 
 
 def _anchor_value(hit: ThemeHit, duration: float, kind: str) -> float:
@@ -194,6 +209,8 @@ def reconcile_hits(
                 n_hosts_total=len(hits),
                 spread_s=round(spread, 3),
                 inferred=all(hits[i].inferred for i in kept) if kept else False,
+                n_video_confirm=sum(1 for i in kept if hits[i].confirmed_by_video),
+                video_disagreement=any(hits[i].video_disagreement for i in kept),
             )
         )
 
@@ -207,10 +224,12 @@ def detect_op_ed_multi(
     op_refs: list[ThemeReference],
     ed_refs: list[ThemeReference],
     *,
+    resolve_samples_for=None,
+    resolve_video_for=None,
     op_window=OP_WINDOW,
     ed_window=ED_WINDOW,
     min_votes: int = 40,
-    min_score: float = 0.0,
+    min_score: float | None = None,
     full_fallback: bool = True,
     canonical_duration: float | None = None,
 ) -> list[ReconciledHit]:
@@ -222,24 +241,47 @@ def detect_op_ed_multi(
     host's OWN duration, so the ED end-of-file window maps correctly per host;
     reconciliation then folds the per-host results into consensus hits that are
     robust to the hosts' differing lengths.
+
+    Hosts are processed IN PARALLEL — each `detect_op_ed` call decodes two
+    short audio windows (OP + ED) over the network and fingerprints them, which
+    is the most expensive step per host. Running them concurrently means the
+    wall-clock cost of this call is close to the SLOWEST single host, not the
+    sum of all of them.
     """
-    per_host: list[tuple[HostStream, list[ThemeHit]]] = []
-    for stream in streams:
+
+    def _run_one(stream: HostStream) -> tuple[HostStream, list[ThemeHit]]:
+        samples_cb = (
+            (lambda win, _s=stream: resolve_samples_for(_s, win))
+            if resolve_samples_for is not None else None
+        )
+        video_cb = (
+            (lambda win, _s=stream: resolve_video_for(_s, win))
+            if resolve_video_for is not None else None
+        )
+        kw = {} if min_score is None else {"min_score": min_score}
         try:
             hits = detect_op_ed(
                 lambda win, _s=stream: resolve_window_for(_s, win),
                 stream.duration,
                 op_refs,
                 ed_refs,
+                resolve_samples=samples_cb,
+                resolve_video=video_cb,
                 op_window=op_window,
                 ed_window=ed_window,
                 min_votes=min_votes,
-                min_score=min_score,
                 full_fallback=full_fallback,
+                **kw,
             )
         except Exception:
             # A single flaky host must not sink the episode — its peers carry it.
             hits = []
-        per_host.append((stream, hits))
+        return stream, hits
+
+    per_host: list[tuple[HostStream, list[ThemeHit]]] = []
+    if streams:
+        with ThreadPoolExecutor(max_workers=len(streams)) as pool:
+            for stream, hits in pool.map(_run_one, streams):
+                per_host.append((stream, hits))
 
     return reconcile_hits(per_host, canonical_duration=canonical_duration)
