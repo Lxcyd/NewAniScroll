@@ -85,10 +85,16 @@ def _probe_cell(args, host: str, lang: str, refs_bundle) -> tuple[list[str], dic
     if host == "megaplay" and not args.mal:
         return [f"  {tag}: skipped — needs --mal <malId>"], None
     if host == "vidmoly-va":
-        va = args.va_slug if lang == "vostfr" else (args.va_slug_vf or None)
+        # A single voir-anime page-slug frequently carries BOTH languages (e.g.
+        # SnK S1 lives at .../anime/shingeki-no-kyojin/ with -N-vostfr AND -N-vf
+        # episode URLs under it; the -vostfr-suffixed slug 404s). So fall back to
+        # the OTHER language's slug when this one wasn't given, rather than
+        # skipping — the bridge picks the right episode URL by language anyway.
+        va = (args.va_slug if lang == "vostfr" else args.va_slug_vf) \
+            or args.va_slug_vf or args.va_slug
         if not va:
-            need = "--va-slug" if lang == "vostfr" else "--va-slug-vf"
-            return [f"  {tag}: skipped — needs {need} <voir-anime {lang} slug>"], None
+            return [f"  {tag}: skipped — needs --va-slug / --va-slug-vf "
+                    f"<voir-anime slug>"], None
     else:
         va = args.va_slug if lang == "vostfr" else args.va_slug_vf
 
@@ -109,26 +115,44 @@ def _probe_cell(args, host: str, lang: str, refs_bundle) -> tuple[list[str], dic
     # Key includes lang so vostfr/vf never share a cache entry for the same host.
     base_key = f"{args.slug}/{args.season}/{lang}/{actual_host}/ep{args.ep}"
 
+    # uqload's master-m3u8 token is single-use/IP-bound: the FIRST ffmpeg pull
+    # consumes it, so every later pull on the same URL (and the vostfr/vf sibling
+    # cell, whose embed is identical) 403s. For uqload we therefore re-resolve a
+    # FRESH url on demand for each pull, bypassing the URL cache (cache_dir set to
+    # a throwaway path so resolve_episodes always re-hits the bridge). Other hosts
+    # keep the single stable url (their tokens survive repeated pulls).
+    is_uqload = actual_host == "uqload"
+
+    def fresh_url() -> str:
+        if not is_uqload:
+            return url
+        fresh = resolve_episodes(
+            args.slug, args.season, lang, args.ep, args.ep,
+            host_pref=host, mal_id=args.mal, va_slug=va,
+            cache_dir="cache/urls_nocache_uqload",
+        )
+        return fresh[0]["url"] if fresh else url
+
     def resolve_window(win):
         fp, _dur = cached_fingerprint(
-            base_key, url, "cache/audio", window=win, referer=referer
+            base_key, fresh_url(), "cache/audio", window=win, referer=referer
         )
         return fp
 
     def resolve_samples(win):
         return load_audio(
-            url, cache_key=base_key, cache_dir="cache/audio",
+            fresh_url(), cache_key=base_key, cache_dir="cache/audio",
             window=win, referer=referer,
         )
 
     def resolve_video(win):
         return extract_keyframe_hashes(
-            url, cache_key=f"video/{base_key}", cache_dir="cache/video",
+            fresh_url(), cache_key=f"video/{base_key}", cache_dir="cache/video",
             window=win, referer=referer,
         )
 
     try:
-        ep_dur = _probe_duration(url, referer=referer)
+        ep_dur = _probe_duration(fresh_url(), referer=referer)
         # Only compute the kind the user asked for: pass empty refs for the
         # other so detect_op_ed skips it (and its decode) entirely.
         hits = detect_op_ed(
