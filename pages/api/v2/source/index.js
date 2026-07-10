@@ -168,6 +168,11 @@ const EXTRACTABLE_HOSTS = [
   // signed master.m3u8. See lib/extractors.js → extractVoe.
   "voe.sx",
   "voe.",          // catches voe-network.net, voe-unblock.com, etc.
+  // uqload gates the embed on the EMBEDDING site's Referer (anime-sama), so a
+  // raw iframe fallback would just render its "embed restricted" page — treat
+  // it like sibnet/sendvid below and hide the chip on extraction failure
+  // rather than degrade to a dead iframe. See lib/extractors.js → extractUqload.
+  "uqload.",
 ];
 
 /**
@@ -534,12 +539,17 @@ const ANIMESAMA_SERVERS = {
   "animesama-vidmoly":      { name: "Vidmoly",     preferred: ["vidmoly.to", "vidmoly.biz", "vidmoly.net"], lang: "vf" },
   "animesama-embed4me":     { name: "Embed4Me",    preferred: ["embed4me.com", "lpayer"],                 lang: "vf" },
   "animesama-callistanise": { name: "Player",      preferred: ["callistanise.com", "dingtezuni.com", "movearnpre.com"], lang: "vf" },
+  // Fallback only — uqload's stream token is IP/single-use-bound (a concurrent
+  // pull 403s), so it's the least reliable host; kept last so it's offered only
+  // when the more robust players above are unavailable.
+  "animesama-uqload":       { name: "Uqload",      preferred: ["uqload."],                                lang: "vf" },
   // VOSTFR (Japanese + French subs)
   "animesama-sibnet-vo":       { name: "Sibnet",      preferred: ["sibnet.ru"],                              lang: "vostfr" },
   "animesama-sendvid-vo":      { name: "Sendvid",     preferred: ["sendvid.com"],                            lang: "vostfr" },
   "animesama-vidmoly-vo":      { name: "Vidmoly",     preferred: ["vidmoly.to", "vidmoly.biz", "vidmoly.net"], lang: "vostfr" },
   "animesama-embed4me-vo":     { name: "Embed4Me",    preferred: ["embed4me.com", "lpayer"],                 lang: "vostfr" },
   "animesama-callistanise-vo": { name: "Player",      preferred: ["callistanise.com", "dingtezuni.com", "movearnpre.com"], lang: "vostfr" },
+  "animesama-uqload-vo":       { name: "Uqload",      preferred: ["uqload."],                                lang: "vostfr" },
 };
 
 /**
@@ -1023,7 +1033,10 @@ async function finalizeAnimeSamaIframe(serverKey, serverDef, iframeUrl) {
       dlog(`[anime-sama] Extraction failed for ${serverKey}: ${result.error}`);
       // Sibnet + Sendvid X-Frame-Options DENY → an iframe fallback is a dead
       // "refused to connect" page, so hide the chip instead of degrading it.
-      if (lower.includes("sibnet") || lower.includes("sendvid")) return null;
+      // uqload: same outcome for a different reason — its embed is Referer-gated
+      // to anime-sama, so a raw iframe here renders "embed restricted", not the
+      // player. Hide it too rather than serve a dead chip.
+      if (lower.includes("sibnet") || lower.includes("sendvid") || lower.includes("uqload")) return null;
     }
     return { iframe: iframeUrl, degraded: true, reason: "extraction failed" };
   } catch (e) {
