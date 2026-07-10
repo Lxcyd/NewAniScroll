@@ -83,6 +83,15 @@ CLUSTER_GAP_S = 4.0       # dense-span clustering gap, seconds. At 2fps sampling
 # for a negligible decode cost since we downscale to 32x18 gray.
 SAMPLE_FPS = 2.0
 
+# Dense edge refinement. The coarse 2fps match localises an edge to ~1s (2fps
+# sampling + 1s vote bins); we then re-decode a TIGHT window around each edge at
+# a much higher rate to pin the sub-second transition where the episode frames
+# start/stop matching the credited reference. Cost is bounded: ±3s * 12fps ≈ 72
+# tiny (32x18 gray) frames per edge.
+DENSE_FPS = 12.0                          # ~83ms/frame → well under the 0.25s target
+DENSE_HALF_WINDOW_S = 3.0                 # search ±3s around the coarse edge
+DENSE_EDGE_HAMMING = HAMMING_THRESHOLD_CREDITED  # credited-vs-credited: re-encode noise only
+
 
 @dataclass
 class VideoFingerprint:
@@ -278,28 +287,37 @@ def extract_keyframe_hashes(
     cache_dir: str | Path = "cache/video",
     referer: str | None = None,
     window: tuple[float | None, float | None] | None = None,
+    fps: float = SAMPLE_FPS,
 ) -> VideoFingerprint:
     """Load-or-build a VideoFingerprint for `src`, cached on disk exactly like
     `theme_bank.cached_fingerprint` caches audio fingerprints — same
     (key, window) -> filename scheme, so the OP window, the ED window, and a
     whole-clip reference never collide, and a rerun skips the ffmpeg keyframe
     decode entirely on a cache hit.
+
+    `fps` MUST be part of the cache identity: the same (key, window) decoded at
+    the coarse SAMPLE_FPS and at DENSE_FPS produce completely different
+    hashes/times, and returning one for the other silently corrupts the match.
+    A dense re-decode over a small edge window (see `decode_dense_window`) is
+    exactly this case. The tag is empty at SAMPLE_FPS so existing 2fps caches
+    stay valid and aren't invalidated.
     """
     cache_dir = Path(cache_dir)
     win_tag = ""
     if window is not None:
         start_s, dur_s = window
         win_tag = f".w{'' if start_s is None else round(start_s, 1)}_{'' if dur_s is None else round(dur_s, 1)}"
+    fps_tag = "" if fps == SAMPLE_FPS else f".fps{fps:g}"
 
     cache_file = None
     if cache_key is not None:
         safe = cache_key.replace("/", "__").replace("\\", "__")
         cache_dir.mkdir(parents=True, exist_ok=True)
-        cache_file = cache_dir / f"{safe}{win_tag}.vfp.npz"
+        cache_file = cache_dir / f"{safe}{win_tag}{fps_tag}.vfp.npz"
         if cache_file.exists():
             return VideoFingerprint.load(cache_file)
 
-    hashes, times = _ffmpeg_keyframe_hashes(src, referer=referer, window=window)
+    hashes, times = _ffmpeg_keyframe_hashes(src, referer=referer, window=window, fps=fps)
     fp = VideoFingerprint(hashes, times, n_frames=len(hashes))
     if cache_file is not None:
         fp.save(cache_file)
@@ -399,3 +417,124 @@ def _dense_span_video(q_times: np.ndarray, *, gap_s: float):
     lo, hi = starts[best], ends[best]
     keep = order[lo:hi]
     return float(qs[lo]), float(qs[hi - 1]), np.sort(keep)
+
+
+# ── dense sub-second edge refinement ──────────────────────────────────────────
+
+
+def refine_edge_credited_video(
+    ep_fp: VideoFingerprint,
+    ref_fp: VideoFingerprint,
+    *,
+    edge_kind: str,               # "start" | "end"
+    theme_t0_ep_t: float,         # episode time where the credited ref frame 0 lands
+    ep_win_off: float,            # abs episode time of ep_fp's window start
+    ref_win_off: float,           # abs ref time of ref_fp's window start
+    fps: float = DENSE_FPS,
+    hamming_threshold: int = DENSE_EDGE_HAMMING,
+) -> float | None:
+    """Locate the exact sub-second EPISODE time of an OP/ED edge by comparing
+    densely-sampled episode frames against the aligned credited reference.
+
+    PURE — takes two already-built fingerprints and the coarse alignment, and
+    returns the absolute episode edge time (or None to keep the coarse
+    estimate). No ffmpeg here (see `decode_dense_window` for the decode side),
+    so it is unit-testable with synthetic fingerprints.
+
+    Alignment: the coarse match already told us where the reference's frame 0
+    lands in episode time (`theme_t0_ep_t`), so an episode frame at absolute
+    time `t_ep` should equal the reference frame at `t_ref = t_ep - theme_t0`.
+    We pair each episode frame with its NEAREST reference frame in that mapped
+    time (residual ≤ ~1/fps, well under 0.25s at 12fps) and mark it matched when
+    the dHash Hamming distance is within `hamming_threshold`.
+
+    Transition finding (robust to fade-to-black, where both sides fade together
+    and keep matching INTO the fade, so the last matched frame is exactly the
+    desired last credited frame):
+      • sustain = max(3, round(0.4*fps)) — a lone in-black or spurious match
+        can't define an edge.
+      • "start": first episode time that BEGINS a sustained matched run.
+      • "end":   last matched frame whose preceding `sustain` frames also match.
+    No sustained run → None (caller keeps the coarse edge).
+    """
+    if ep_fp.hashes.size == 0 or ref_fp.hashes.size == 0:
+        return None
+
+    ep_t_abs = ep_fp.times.astype(np.float64) + ep_win_off
+    ref_t_abs = ref_fp.times.astype(np.float64) + ref_win_off
+    order = np.argsort(ep_t_abs)
+    ep_t_abs = ep_t_abs[order]
+    ep_hashes = ep_fp.hashes[order]
+
+    # Map each episode frame into reference time and pair with the nearest ref
+    # frame; drop frames whose nearest ref frame is farther than one frame
+    # period (outside the reference's decoded extent → no valid comparison).
+    ref_order = np.argsort(ref_t_abs)
+    ref_t_sorted = ref_t_abs[ref_order]
+    ref_hashes_sorted = ref_fp.hashes[ref_order]
+    mapped = ep_t_abs - theme_t0_ep_t
+    idx = np.searchsorted(ref_t_sorted, mapped)
+    idx = np.clip(idx, 0, len(ref_t_sorted) - 1)
+    # searchsorted lands on the frame just RIGHT of `mapped`; check its left
+    # neighbour too and keep whichever is closer.
+    left = np.clip(idx - 1, 0, len(ref_t_sorted) - 1)
+    pick_left = np.abs(ref_t_sorted[left] - mapped) < np.abs(ref_t_sorted[idx] - mapped)
+    nearest = np.where(pick_left, left, idx)
+    residual = np.abs(ref_t_sorted[nearest] - mapped)
+    valid = residual <= (1.0 / fps + 1e-3)
+
+    dist = _popcount64(ep_hashes ^ ref_hashes_sorted[nearest])
+    matched = valid & (dist <= hamming_threshold)
+    if not matched.any():
+        return None
+
+    sustain = max(3, int(round(0.4 * fps)))
+    n = matched.size
+
+    if edge_kind == "start":
+        run = 0
+        for i in range(n):
+            run = run + 1 if matched[i] else 0
+            if run >= sustain:
+                return float(ep_t_abs[i - sustain + 1])
+        return None
+
+    # "end": scan from the right for the last frame that closes a sustained run.
+    run = 0
+    for i in range(n - 1, -1, -1):
+        run = run + 1 if matched[i] else 0
+        if run >= sustain:
+            return float(ep_t_abs[i + sustain - 1])
+    return None
+
+
+def decode_dense_window(
+    src: str,
+    edge_t: float,
+    *,
+    referer: str | None = None,
+    cache_key: str | None = None,
+    cache_dir: str | Path = "cache/video",
+    fps: float = DENSE_FPS,
+    half_window_s: float = DENSE_HALF_WINDOW_S,
+) -> tuple[VideoFingerprint, float]:
+    """Decode a tight ±`half_window_s` window around `edge_t` at high `fps`,
+    returning (fingerprint, window_start_offset). The offset is the absolute
+    time of the window's first sample so the caller can convert the
+    fingerprint's window-relative `times` back to absolute (as
+    `refine_edge_credited_video` expects via `*_win_off`).
+
+    Window start is clamped to >= 0; the cache key includes fps (see
+    `extract_keyframe_hashes`) so dense windows never alias the 2fps cache.
+    """
+    win_start = max(0.0, edge_t - half_window_s)
+    dur = half_window_s * 2.0
+    fp = extract_keyframe_hashes(
+        src,
+        cache_key=cache_key,
+        cache_dir=cache_dir,
+        referer=referer,
+        window=(win_start, dur),
+        fps=fps,
+    )
+    return fp, win_start

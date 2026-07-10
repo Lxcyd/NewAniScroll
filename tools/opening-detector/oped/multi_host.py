@@ -274,6 +274,7 @@ def detect_per_host(
     *,
     resolve_samples_for=None,
     resolve_video_for=None,
+    resolve_video_dense_for=None,
     op_window=OP_WINDOW,
     ed_window=ED_WINDOW,
     min_votes: int = 40,
@@ -300,6 +301,10 @@ def detect_per_host(
             (lambda win, _s=stream: resolve_video_for(_s, win))
             if resolve_video_for is not None else None
         )
+        video_dense_cb = (
+            (lambda win, fps, _s=stream: resolve_video_dense_for(_s, win, fps))
+            if resolve_video_dense_for is not None else None
+        )
         kw = {} if min_score is None else {"min_score": min_score}
         try:
             hits = detect_op_ed(
@@ -309,6 +314,7 @@ def detect_per_host(
                 ed_refs,
                 resolve_samples=samples_cb,
                 resolve_video=video_cb,
+                resolve_video_dense=video_dense_cb,
                 op_window=op_window,
                 ed_window=ed_window,
                 min_votes=min_votes,
@@ -336,6 +342,7 @@ def detect_op_ed_multi(
     *,
     resolve_samples_for=None,
     resolve_video_for=None,
+    resolve_video_dense_for=None,
     op_window=OP_WINDOW,
     ed_window=ED_WINDOW,
     min_votes: int = 40,
@@ -365,6 +372,7 @@ def detect_op_ed_multi(
         streams, resolve_window_for, op_refs, ed_refs,
         resolve_samples_for=resolve_samples_for,
         resolve_video_for=resolve_video_for,
+        resolve_video_dense_for=resolve_video_dense_for,
         op_window=op_window, ed_window=ed_window,
         min_votes=min_votes, min_score=min_score, full_fallback=full_fallback,
     )

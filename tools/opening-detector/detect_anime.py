@@ -233,6 +233,12 @@ def run_single_host(args, themes, refs_by_theme, op_pool, ed_pool, eps):
                 window=win, referer=e.get("referer"),
             )
 
+        def resolve_video_dense(win, fps):
+            return extract_keyframe_hashes(
+                url, cache_key=f"video/{base_key}", cache_dir="cache/video",
+                window=win, referer=e.get("referer"), fps=fps,
+            )
+
         op_refs, ed_refs, inferred_op, inferred_ed = refs_for_episode(
             themes, refs_by_theme, op_pool, ed_pool, ep
         )
@@ -240,6 +246,7 @@ def run_single_host(args, themes, refs_by_theme, op_pool, ed_pool, eps):
             resolve_window, ep_dur, op_refs, ed_refs,
             resolve_samples=resolve_samples,
             resolve_video=(resolve_video if not args.no_video else None),
+            resolve_video_dense=(resolve_video_dense if not args.no_video else None),
             op_window=OP_WINDOW, ed_window=ED_WINDOW,
             min_votes=args.min_votes, min_score=args.min_score,
             refine=not args.no_refine,
@@ -337,6 +344,14 @@ def run_multi_host(args, themes, refs_by_theme, op_pool, ed_pool, lang: str, log
                 window=win, referer=e.get("referer"),
             )
 
+        def resolve_video_dense_for(stream: HostStream, win, fps):
+            e = stream_meta[stream.host]
+            base_key = f"video/{args.slug}/{args.season}/{lang}/{stream.host}/ep{ep}"
+            return extract_keyframe_hashes(
+                stream.url, cache_key=base_key, cache_dir="cache/video",
+                window=win, referer=e.get("referer"), fps=fps,
+            )
+
         op_refs, ed_refs, inferred_op, inferred_ed = refs_for_episode(
             themes, refs_by_theme, op_pool, ed_pool, ep
         )
@@ -347,6 +362,7 @@ def run_multi_host(args, themes, refs_by_theme, op_pool, ed_pool, lang: str, log
             streams, resolve_window_for, op_refs, ed_refs,
             resolve_samples_for=resolve_samples_for,
             resolve_video_for=(resolve_video_for if not args.no_video else None),
+            resolve_video_dense_for=(resolve_video_dense_for if not args.no_video else None),
             op_window=OP_WINDOW, ed_window=ED_WINDOW,
             min_votes=args.min_votes, min_score=args.min_score,
         )

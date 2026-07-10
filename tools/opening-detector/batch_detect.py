@@ -223,11 +223,22 @@ def process_anime(
                         window=win,
                     )
 
+                def resolve_video_dense_for(stream: HostStream, win, fps):
+                    # Dense edge decode per host; fps in the cache key keeps it
+                    # distinct from the 2fps windows for the same stream.
+                    return extract_keyframe_hashes(
+                        stream.url,
+                        cache_key=f"video/{base_prefix}/ep{ep}/{stream.host}",
+                        cache_dir="cache/video",
+                        window=win, fps=fps,
+                    )
+
                 try:
                     hits = detect_op_ed_multi(
                         streams, resolve_window_for, op_refs, ed_refs,
                         resolve_samples_for=resolve_samples_for,
                         resolve_video_for=resolve_video_for,
+                        resolve_video_dense_for=resolve_video_dense_for,
                         op_window=OP_WINDOW, ed_window=ED_WINDOW,
                     )
                 except Exception as exc:
@@ -299,11 +310,21 @@ def process_anime(
                         cache_dir="cache/video", window=win,
                     )
 
+                def resolve_video_dense(win, fps):
+                    # Dense (high-fps) episode decode over a TIGHT edge window for
+                    # sub-second refinement. fps is in the cache key (see
+                    # extract_keyframe_hashes) so it never aliases the 2fps cache.
+                    return extract_keyframe_hashes(
+                        url, cache_key=f"video/{base_key}",
+                        cache_dir="cache/video", window=win, fps=fps,
+                    )
+
                 try:
                     hits = detect_op_ed(
                         resolve_window, ep_dur, op_refs, ed_refs,
                         resolve_samples=resolve_samples,
                         resolve_video=resolve_video,
+                        resolve_video_dense=resolve_video_dense,
                         op_window=OP_WINDOW, ed_window=ED_WINDOW,
                     )
                 except Exception as exc:

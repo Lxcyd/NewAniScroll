@@ -7,6 +7,26 @@ Ordre anti-chronologique (le plus récent en haut). Une entrée = une session/su
 
 ---
 
+## 2026-07-10 — OP/ED : précision ~0.25s sur les 4 bords (refine image *credited* dense)
+
+Problème : le détecteur OP/ED se trompait de plusieurs secondes, surtout sur la **dernière frame de l'ED**. Objectif user : que la « dernière frame » de notre timing soit à ~0.25s près de la vraie dernière frame dans le player, sur **les 4 bords**.
+
+**Cause racine (3 cumuls)** :
+1. Précision vidéo plafonnée à ~0.5–1s : `SAMPLE_FPS=2.0` + bins de vote arrondis à 1s entière (`best_match_video`).
+2. Fin credited déléguée à l'audio (`_refine_hit(end_only=True)`) — or la dernière frame IMAGE d'un fondu au noir ne correspond à aucun cut audio.
+3. API `opedRowToSkip` arrondissait à la **seconde entière**.
+
+**Fix — refine dense ancré sur l'image credited** (décision user : précision d'abord, décodage dense OK) :
+- `video_fingerprint.py` : nouveau `refine_edge_credited_video()` **pur** — re-décode ep + réf credited à `DENSE_FPS=12` sur une fenêtre ±3s autour du bord grossier, apparie chaque frame ep à sa frame réf alignée (`t_ref = t_ep - theme_t0`), et trouve la transition sub-seconde (start = 1er run soutenu matché ; end = dernière frame matchée — **robuste au fondu au noir** car ep+réf fondent ensemble et matchent jusqu'à la dernière frame credited). + `decode_dense_window()`.
+- **Bug latent corrigé** : `extract_keyframe_hashes` ne mettait PAS `fps` dans la clé de cache → un décodage 12fps aurait renvoyé le `.vfp.npz` 2fps. Tag `.fps12` ajouté ; tag vide à 2fps → caches existants préservés.
+- `theme_bank.py` : champ `ThemeHit.video_theme_t0` (ancre stable) ; `_refine_credited_dense()` OWN les 2 bords d'un hit credited (remplace le snap audio `end_only`) ; **sharpe aussi les hits audio** quand une réf credited existe, **gardé** par plancher de votes + bande de sanité ±2s (`DENSE_AUDIO_SHARPEN_BAND_S`) + flag `sharpen_audio_with_credited`. Sans réf credited → refine audio inchangé (fallback).
+- Threading `resolve_video_dense` : `detect_op_ed` → `multi_host` (`detect_per_host`/`detect_op_ed_multi`, **sans** resserrer les tolérances d'outlier) → `batch_detect.py` + `detect_anime.py` (single + multi-host).
+- API `pages/api/v2/skip` : arrondi 2 décimales au lieu d'entier (DB stocke déjà des floats). Fallbacks AniSkip/Anime-Skip laissés à la seconde.
+
+**Vérif** : unit test pur (bords exacts, None si pas de match) ✓ ; test d'intégration `detect_op_ed` avec resolvers mock (fondu au noir) → erreur de fin **0.067s** ✓ ; tout compile, rétro-compatible (params optionnels).
+
+**Leçon/piège** : le refine dense attend des `times` **window-relatifs** (comme `decode_dense_window` les produit) + `*_win_off` ; en full_fallback (audio None) `used_win=None` → `_abs_offset=0`, donc `resolve_video(None)` doit renvoyer des times **absolus**. **Reste à faire** : check visuel décisif sur vrai anime (JJK ED1 fondu au noir) via `detect_anime.py` + extraire la frame à `end` avec ffmpeg pour confirmer que c'est bien la dernière frame de l'ED.
+
 ## 2026-07-06 (suite 21) — toasts player : pile collapse sonner (max 3) + barre fine teintée + croix
 
 Retours user : la barre était trop épaisse / mal placée / trop blanche « flashy », et en fullscreen les toasts s'empilaient à l'infini au lieu de se collapser comme sonner (max ~3 visibles derrière, + une croix).

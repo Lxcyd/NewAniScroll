@@ -48,11 +48,15 @@ from .fingerprint import Fingerprint, fingerprint
 from .matcher import Match, best_match
 from .refine import refine_edges_ref_anchored
 from .video_fingerprint import (
+    DENSE_FPS,
+    DENSE_HALF_WINDOW_S,
     HAMMING_THRESHOLD,
     HAMMING_THRESHOLD_CREDITED,
     VideoFingerprint,
     best_match_video,
+    decode_dense_window,
     extract_keyframe_hashes,
+    refine_edge_credited_video,
 )
 
 # Default decode windows (seconds). OP: from episode start, covering a possible
@@ -99,6 +103,15 @@ VIDEO_EDGE_ADJACENCY_S = 6.0
 # extends via the audio path. Only credited refs get this power — a plain NC
 # ref still pays the credit penalty and stays subordinate to audio.
 CREDITED_ALIGN_MIN_VOTES = 60
+
+# Sanity band for the dense credited refiner when it sharpens an AUDIO-sourced
+# edge (source=="audio" but a credited ref exists). The dense image match is the
+# authority for the picture edge, but only within this many seconds of the audio
+# projection — a larger disagreement means the two signals located different
+# things (a wrong theme version, a mid-episode false match) and we KEEP the audio
+# edge rather than trust a distant image transition. Credited-SOURCED hits are
+# already image-authoritative and are not subject to this band.
+DENSE_AUDIO_SHARPEN_BAND_S = 2.0
 
 
 @dataclass
@@ -164,6 +177,13 @@ class ThemeHit:
     # what ships. Defaults to the projection source.
     edge_start_source: str = "audio"
     edge_end_source: str = "audio"
+    # Episode time where the credited image reference's frame 0 lands, recovered
+    # from the coarse video match (offset + window base). It's the stable anchor
+    # the dense sub-second refiner uses to map episode frames onto reference
+    # frames (ep frame at t ↔ ref frame at t - video_theme_t0). None when no
+    # video match produced an alignment. More reliable than re-deriving from
+    # vote_start - r_start, which refine may have since moved.
+    video_theme_t0: float | None = None
 
 
 def _window_tag(window: tuple[float | None, float | None] | None) -> str:
@@ -384,12 +404,14 @@ def detect_op_ed(
     *,
     resolve_samples=None,
     resolve_video=None,
+    resolve_video_dense=None,
     op_window: tuple[float | None, float | None] = OP_WINDOW,
     ed_window: tuple[float | None, float | None] = ED_WINDOW,
     min_votes: int = 40,
     min_score: float = MIN_SCORE_DEFAULT,
     full_fallback: bool = True,
     refine: bool = True,
+    sharpen_audio_with_credited: bool = True,
 ) -> list[ThemeHit]:
     """Locate the OP and ED inside one episode, decoding only short windows.
 
@@ -409,6 +431,16 @@ def detect_op_ed(
     if it and a `.video_fp` reference are present, a video match is computed and
     used ONLY to set `confirmed_by_video` / `video_disagreement` on the hit — the
     numeric boundary stays audio-frame-accurate and is never averaged with video.
+
+    `resolve_video_dense(window, fps)` (optional) returns a densely-sampled
+    VideoFingerprint for a TIGHT window at the given `fps` (the caller wires this
+    to `extract_keyframe_hashes(..., fps=fps)` with an fps-tagged cache). When
+    present with a credited image reference, the delivered edges are pinned to the
+    sub-second image transition via `refine_edge_credited_video` — this is the
+    ~0.25s precision path, and it OWNS the credited hit's start AND end (replacing
+    the old audio `end_only` snap). `sharpen_audio_with_credited` (default True)
+    also lets it tighten an AUDIO-sourced edge when a credited ref exists, guarded
+    by `DENSE_AUDIO_SHARPEN_BAND_S`.
 
     OP and ED are detected in PARALLEL. Detection LOGIC is byte-for-byte the same
     as running them sequentially — only the wall-clock ordering changes.
@@ -473,6 +505,91 @@ def detect_op_ed(
             hit.start = float(min(max(start, 0.0), episode_duration))
         hit.end = float(min(max(end, 0.0), episode_duration))
 
+    def _credited_ref_for(refs: list[ThemeReference], hit: ThemeHit) -> ThemeReference | None:
+        """The credited image reference matching this hit's theme (slug pinned),
+        i.e. one whose keyframes came from the with-credits rip. None when the
+        theme has no credited rip (older BD-only titles) — the caller then keeps
+        the audio refine."""
+        for r in refs:
+            if r.slug != hit.slug:
+                continue
+            if r.video_ref_url and r.video_ref_url != r.video_url:
+                return r
+        return None
+
+    def _refine_credited_dense(
+        hit: ThemeHit, refs: list[ThemeReference], win, *, audio_sharpen: bool = False
+    ) -> bool:
+        """Pin hit.start/end to the sub-second IMAGE transition against the
+        credited reference, decoding a tight dense window around each edge.
+
+        This is the ~0.25s precision path. For a credited-SOURCED hit it OWNS
+        both edges (the picture is the answer). For an audio-sourced hit
+        (`audio_sharpen=True`) it only tightens an edge that lands within
+        DENSE_AUDIO_SHARPEN_BAND_S of the audio projection — a farther image
+        transition is a different match and is ignored, keeping the audio edge.
+
+        Returns True when at least one edge was moved. On any missing prerequisite
+        (no dense resolver, no credited ref, no recovered anchor) returns False so
+        the caller can fall back to the audio refine."""
+        if resolve_video_dense is None or hit.video_theme_t0 is None:
+            return False
+        ref = _credited_ref_for(refs, hit)
+        if ref is None or not ref.video_ref_url:
+            return False
+        theme_t0 = hit.video_theme_t0
+
+        def _dense_edge(edge_kind: str, edge_t: float) -> float | None:
+            try:
+                ep_fp = resolve_video_dense(
+                    (max(0.0, edge_t - DENSE_HALF_WINDOW_S), DENSE_HALF_WINDOW_S * 2.0),
+                    DENSE_FPS,
+                )
+            except Exception:
+                return None
+            if ep_fp is None or ep_fp.hashes.size == 0:
+                return None
+            ep_win_off = max(0.0, edge_t - DENSE_HALF_WINDOW_S)
+            # The reference edge that this episode edge corresponds to (ref time).
+            ref_edge_t = edge_t - theme_t0
+            try:
+                ref_fp, ref_win_off = decode_dense_window(
+                    ref.video_ref_url,
+                    ref_edge_t,
+                    cache_key=f"{ref.slug}+cred/dense",
+                    cache_dir="cache/video",
+                )
+            except Exception:
+                return None
+            if ref_fp is None or ref_fp.hashes.size == 0:
+                return None
+            return refine_edge_credited_video(
+                ep_fp, ref_fp,
+                edge_kind=edge_kind,
+                theme_t0_ep_t=theme_t0,
+                ep_win_off=ep_win_off,
+                ref_win_off=ref_win_off,
+            )
+
+        moved = False
+        new_start = _dense_edge("start", hit.start)
+        if new_start is not None:
+            if not audio_sharpen or abs(new_start - hit.start) <= DENSE_AUDIO_SHARPEN_BAND_S:
+                hit.start = float(min(max(new_start, 0.0), episode_duration))
+                hit.edge_start_source = "credited"
+                moved = True
+        new_end = _dense_edge("end", hit.end)
+        if new_end is not None:
+            if not audio_sharpen or abs(new_end - hit.end) <= DENSE_AUDIO_SHARPEN_BAND_S:
+                hit.end = float(min(max(new_end, 0.0), episode_duration))
+                hit.edge_end_source = "credited"
+                moved = True
+        if hit.end <= hit.start:
+            # Degenerate result — should not happen, but never ship an inverted
+            # interval; the caller's fallback / clamp keeps the projection.
+            return False
+        return moved
+
     def _video_hit_for(refs: list[ThemeReference], win, slug: str | None):
         """Best video match against the video refs of `slug` (or all refs when
         slug is None), in ABSOLUTE episode time. Returns a dict or None:
@@ -536,6 +653,10 @@ def detect_op_ed(
         v = _video_hit_for(refs, win, hit.slug)
         if v is None:
             return
+        # Record the credited alignment anchor on the audio hit too, so the dense
+        # sub-second refiner can sharpen an audio-sourced boundary when a credited
+        # ref exists (the picture edge audio can't see on a fade-to-black).
+        hit.video_theme_t0 = v["theme_t0"]
         v_start, v_end, v_votes = v["v_start"], v["v_end"], v["votes"]
 
         # Containment confidence flag (unchanged semantics): does the video slice
@@ -637,6 +758,7 @@ def detect_op_ed(
             vote_start=v["v_start"], vote_end=v["v_end"],
             r_start=v["r_start_raw"], r_end=v["r_end_raw"], ref_duration=ref_dur,
             source=src, edge_start_source=src, edge_end_source=src,
+            video_theme_t0=theme_t0,
         )
 
     def _is_strong(hit: ThemeHit) -> bool:
@@ -698,18 +820,32 @@ def detect_op_ed(
                 hit = v_hit
 
         if hit is not None:
-            if refine and hit.source == "audio":
-                # RMS onset/cut snap only makes sense on an audio-aligned hit.
-                _refine_hit(hit, used_win)
-            elif refine and hit.source == "credited":
-                # The credited START is frame-accurate (the picture matched), but
-                # the END is `r_end_raw` — the last 2fps video sample that still
-                # hash-matched — so it overshoots the true cut into the fade/black
-                # tail. Snap ONLY the end to the audio energy→silence collapse;
-                # never touch the trusted credited start.
-                _refine_hit(hit, used_win, end_only=True)
             if hit.source == "audio":
+                # Cross-confirm + extend fade edges with the coarse video match;
+                # this also records hit.video_theme_t0 for the dense sharpen below.
                 _apply_video(hit, refs, used_win)
+
+            if refine and hit.source == "credited":
+                # Both edges come from the sub-second IMAGE transition against the
+                # credited reference — frame-accurate for the picture, including a
+                # fade-to-black end (where audio says nothing about the last
+                # visible frame). Falls back to the audio end-snap only if the
+                # dense refine can't run (no dense resolver, no credited ref).
+                if not (refine and resolve_video_dense is not None
+                        and _refine_credited_dense(hit, refs, used_win)):
+                    _refine_hit(hit, used_win, end_only=True)
+            elif refine and hit.source == "audio":
+                # Audio alignment is frame-accurate for the MUSIC. Where a credited
+                # ref exists, tighten the PICTURE edges to the dense image
+                # transition (guarded to stay near the audio projection); else fall
+                # back to the RMS onset/cut snap.
+                sharpened = (
+                    sharpen_audio_with_credited
+                    and hit.votes >= CREDITED_ALIGN_MIN_VOTES
+                    and _refine_credited_dense(hit, refs, used_win, audio_sharpen=True)
+                )
+                if not sharpened:
+                    _refine_hit(hit, used_win)
         return hit
 
     with ThreadPoolExecutor(max_workers=2) as pool:

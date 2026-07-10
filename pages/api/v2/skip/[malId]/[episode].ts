@@ -181,9 +181,14 @@ function opedRowToSkip(r: OpedSkipRow, episodeLength: number): Skip | null {
   }
   if (episodeLength > 0) end = Math.min(end, episodeLength);
   if (end - start < 5) return null; // sub-frame / degenerate — not worth a button
+  // Keep sub-second precision: the detector now pins ED/OP edges to the image
+  // transition to ~0.25s (dense credited refine), so rounding to whole seconds
+  // here would throw that away and land the "last frame" up to a second off.
+  // 2 decimals is well below the ~0.25s target and the DB already stores floats.
+  const round2 = (x: number) => Math.round(x * 100) / 100;
   return {
-    start: Math.round(start),
-    end: Math.round(end),
+    start: round2(start),
+    end: round2(end),
     type: r.kind,
     confidence: r.source,
   };
