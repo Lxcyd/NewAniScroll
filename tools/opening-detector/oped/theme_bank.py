@@ -426,9 +426,18 @@ def detect_op_ed(
             return 0.0
         return episode_duration + start_s if start_s < 0 else start_s
 
-    def _refine_hit(hit: ThemeHit, win) -> None:
+    def _refine_hit(hit: ThemeHit, win, *, end_only: bool = False) -> None:
         """Snap hit.start/end to the true onset/cut using the window's PCM. Edits
-        the hit in place; a failure leaves the projection untouched."""
+        the hit in place; a failure leaves the projection untouched.
+
+        `end_only` snaps ONLY the trailing edge and leaves hit.start untouched.
+        Used for a CREDITED hit, whose start is already frame-accurate (the
+        picture matched) but whose end came from `r_end_raw` — the last 2fps
+        video sample that hash-matched — and so overshoots the real cut by up to
+        a sample period (biased outward by the `.max()`) plus any fade/black tail
+        the credited clip holds that still dHash-matches. The audio energy→silence
+        collapse is the frame-accurate end; snap to it without disturbing the
+        trusted credited start."""
         if resolve_samples is None:
             return
         win_off = _abs_offset(win)
@@ -460,14 +469,23 @@ def detect_op_ed(
         )
         start = base + rs + win_off
         end = base + re + win_off
-        hit.start = float(min(max(start, 0.0), episode_duration))
+        if not end_only:
+            hit.start = float(min(max(start, 0.0), episode_duration))
         hit.end = float(min(max(end, 0.0), episode_duration))
 
     def _video_hit_for(refs: list[ThemeReference], win, slug: str | None):
         """Best video match against the video refs of `slug` (or all refs when
-        slug is None), in ABSOLUTE episode time. Returns (v_start, v_end, votes,
-        ref) or None. Reused by both the confirm/extend path (slug pinned to the
-        audio hit's theme) and the weak-audio fallback (slug=None, best overall).
+        slug is None), in ABSOLUTE episode time. Returns a dict or None:
+            theme_t0  — episode time where the clip's frame 0 lands (= win_off +
+                        winning offset). The frame-accurate anchor.
+            v_start   — dense-cluster start in episode time (raw vote start).
+            v_end     — dense-cluster end in episode time.
+            r_start_raw/r_end_raw — matched clip-time extent (0..ref.duration),
+                        UNGATED by dense clustering, so a mid-theme gap can't
+                        truncate the delivered span.
+            votes, ref.
+        Reused by the confirm/extend path (slug pinned to the audio hit's theme)
+        and the weak-audio fallback (slug=None, best overall).
         """
         if resolve_video is None:
             return None
@@ -498,8 +516,16 @@ def detect_op_ed(
             m = best_match_video(q, r.video_fp, hamming_threshold=thr)
             if m is None:
                 continue
-            if best is None or m.n_votes > best[2]:
-                best = (m.q_start + win_off, m.q_end + win_off, m.n_votes, r)
+            if best is None or m.n_votes > best["votes"]:
+                best = {
+                    "theme_t0": m.offset + win_off,
+                    "v_start": m.q_start + win_off,
+                    "v_end": m.q_end + win_off,
+                    "r_start_raw": m.r_start_raw,
+                    "r_end_raw": m.r_end_raw,
+                    "votes": m.n_votes,
+                    "ref": r,
+                }
         return best
 
     def _apply_video(hit: ThemeHit, refs: list[ThemeReference], win) -> None:
@@ -510,7 +536,7 @@ def detect_op_ed(
         v = _video_hit_for(refs, win, hit.slug)
         if v is None:
             return
-        v_start, v_end, v_votes, _ref = v
+        v_start, v_end, v_votes = v["v_start"], v["v_end"], v["votes"]
 
         # Containment confidence flag (unchanged semantics): does the video slice
         # sit inside the audio span?
@@ -562,32 +588,54 @@ def detect_op_ed(
         refs: list[ThemeReference], win, slug: str | None = None,
         min_votes: int = VIDEO_EDGE_MIN_VOTES,
     ) -> ThemeHit | None:
-        """Build a hit whose ALIGNMENT comes from video. Projects onto the
-        matched ref's clip length so the delivered interval still spans the full
-        theme. Tags source="credited" when the matched ref is the with-credits
-        rip (frame-accurate) or "video" for an NC-only match (GOP-level, ± a few
-        seconds). `slug` pins the match to one theme (used by the credited-
-        priority path to line up with the audio hit's theme); None = best overall
-        (weak-audio fallback). `min_votes` is the confidence floor to accept it."""
+        """Build a hit whose ALIGNMENT comes from video. Tags source="credited"
+        when the matched ref is the with-credits rip (frame-accurate) or "video"
+        for an NC-only match (GOP-level, ± a few seconds). `slug` pins the match
+        to one theme; None = best overall (weak-audio fallback). `min_votes` is
+        the confidence floor.
+
+        Boundary policy differs by source, and this is the precision fix:
+
+          CREDITED — deliver what the picture actually matched, anchored on the
+            winning alignment offset (theme_t0 = where the clip's frame 0 lands):
+              start = theme_t0 + r_start_raw
+              end   = theme_t0 + r_end_raw
+            r_start_raw/r_end_raw are the matched clip-time extent BEFORE dense
+            clustering, so (a) a >gap hole mid-theme can't truncate the end to a
+            sub-cluster (the earlier bug: JJK ED1 dense span stopped at r≈53s and
+            delivered 22:12, while the raw votes cover r=0..87 → true end ≈22:46,
+            matching the on-screen last frame ~22:43), and (b) we never
+            extrapolate past where the episode frames stopped colliding — so a
+            clip LONGER than the aired segment doesn't overshoot the real end.
+
+          NC "video" (fallback only) — keep the clip-length projection: a loose
+            NC match is coarse and only fires when audio failed, where spanning
+            the whole theme is the safer default than a short visual cluster."""
         v = _video_hit_for(refs, win, slug)
         if v is None:
             return None
-        v_start, v_end, v_votes, ref = v
+        v_votes = v["votes"]
         if v_votes < min_votes:
             return None
+        ref = v["ref"]
         credited = _ref_is_credited(ref)
         src = "credited" if credited else "video"
-        ref_dur = ref.duration if ref.duration > 0 else (v_end - v_start)
-        # Center the clip-length projection on the video span so a slightly short
-        # visual match still delivers the full theme extent.
-        proj_start = v_start
-        proj_end = v_start + ref_dur
+        ref_dur = ref.duration if ref.duration > 0 else (v["v_end"] - v["v_start"])
+        theme_t0 = v["theme_t0"]
+        if credited:
+            # The matched picture IS the frame-accurate answer.
+            proj_start = theme_t0 + v["r_start_raw"]
+            proj_end = theme_t0 + v["r_end_raw"]
+        else:
+            # Coarse NC fallback: span the full theme from the recovered start.
+            proj_start = theme_t0
+            proj_end = theme_t0 + ref_dur
         return ThemeHit(
             kind=ref.kind, slug=ref.slug, version=ref.version,
             start=proj_start, end=proj_end,
             votes=v_votes, score=0.0,
-            vote_start=v_start, vote_end=v_end,
-            r_start=0.0, r_end=ref_dur, ref_duration=ref_dur,
+            vote_start=v["v_start"], vote_end=v["v_end"],
+            r_start=v["r_start_raw"], r_end=v["r_end_raw"], ref_duration=ref_dur,
             source=src, edge_start_source=src, edge_end_source=src,
         )
 
@@ -653,6 +701,13 @@ def detect_op_ed(
             if refine and hit.source == "audio":
                 # RMS onset/cut snap only makes sense on an audio-aligned hit.
                 _refine_hit(hit, used_win)
+            elif refine and hit.source == "credited":
+                # The credited START is frame-accurate (the picture matched), but
+                # the END is `r_end_raw` — the last 2fps video sample that still
+                # hash-matched — so it overshoots the true cut into the fade/black
+                # tail. Snap ONLY the end to the audio energy→silence collapse;
+                # never touch the trusted credited start.
+                _refine_hit(hit, used_win, end_only=True)
             if hit.source == "audio":
                 _apply_video(hit, refs, used_win)
         return hit

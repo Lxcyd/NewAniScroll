@@ -112,6 +112,16 @@ class VideoMatch:
     r_start: float
     r_end: float
     score: float
+    # The winning alignment offset (query_time - ref_time), i.e. where the clip's
+    # r=0 lands in query time. Stable anchor for a frame-accurate credited
+    # projection: theme frame 0 = offset, theme frame T = offset + T.
+    offset: float = 0.0
+    # RAW matched clip-time extent at the winning offset, BEFORE dense-span
+    # clustering (r_start/r_end above are the clustered sub-span). A credited
+    # projection uses this so a >gap_s hole in the middle of a real theme doesn't
+    # truncate the delivered end to a sub-cluster.
+    r_start_raw: float = 0.0
+    r_end_raw: float = 0.0
 
     @property
     def duration(self) -> float:
@@ -369,6 +379,9 @@ def best_match_video(
         q_start=q_start, q_end=q_end,
         r_start=float(r_kept.min()), r_end=float(r_kept.max()),
         score=n_votes / span,
+        offset=float(vals[top]),
+        # Full matched clip-time extent at this offset, ungated by clustering.
+        r_start_raw=float(r_sel.min()), r_end_raw=float(r_sel.max()),
     )
 
 
