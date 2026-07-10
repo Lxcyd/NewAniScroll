@@ -54,7 +54,12 @@ from oped.adapter_aniscroll import (
 )
 from oped.animethemes import fetch_themes, resolve_slug, themes_for_episode
 from oped.audio import _is_hls_url, load_audio
-from oped.multi_host import HostStream, ReconciledHit, detect_op_ed_multi
+from oped.multi_host import (
+    HostStream,
+    ReconciledHit,
+    detect_per_host,
+    reconcile_hits,
+)
 from oped.video_fingerprint import extract_keyframe_hashes
 from oped.theme_bank import (
     ED_WINDOW,
@@ -335,46 +340,170 @@ def run_multi_host(args, themes, refs_by_theme, op_pool, ed_pool, lang: str, log
         op_refs, ed_refs, inferred_op, inferred_ed = refs_for_episode(
             themes, refs_by_theme, op_pool, ed_pool, ep
         )
-        hits = detect_op_ed_multi(
+        # Detect once per host, keeping EACH host's own timing (its video has its
+        # own length/offset, so the delivered skip differs per player). The
+        # consensus is derived on top only as a cross-host confidence check.
+        per_host = detect_per_host(
             streams, resolve_window_for, op_refs, ed_refs,
             resolve_samples_for=resolve_samples_for,
             resolve_video_for=(resolve_video_for if args.video else None),
             op_window=OP_WINDOW, ed_window=ED_WINDOW,
             min_votes=args.min_votes, min_score=args.min_score,
         )
-        for h in hits:
-            if (h.kind == "op" and inferred_op) or (h.kind == "ed" and inferred_ed):
-                h.inferred = True
-        return ep, streams, hits
+        for _stream, host_hits in per_host:
+            for h in host_hits:
+                if (h.kind == "op" and inferred_op) or (h.kind == "ed" and inferred_ed):
+                    h.inferred = True
+        reconciled = reconcile_hits(per_host)
+        return ep, streams, per_host, reconciled
 
     results = []
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
-        for ep, streams, hits in pool.map(process, sorted(by_ep.items())):
-            results.append((ep, streams, hits))
+        for ep, streams, per_host, reconciled in pool.map(process, sorted(by_ep.items())):
+            results.append((ep, streams, per_host, reconciled))
             hosts_used = [s.host for s in streams]
-            log(f"  ep{ep}: {len(streams)} host(s) {hosts_used}, {len(hits)} hit(s)")
+            n_hit = sum(1 for _s, hh in per_host if hh)
+            log(f"  ep{ep}: {len(streams)} host(s) {hosts_used}, "
+                f"{n_hit} with a hit")
     return results
 
 
+def _hit_to_dict(h: ThemeHit, duration: float) -> dict:
+    """Serialize ONE host's hit for JSON, self-describing about its own encode.
+
+    `duration` is THIS host's total length. For an ED we also emit seconds-from-
+    end (`from_end_start`/`from_end_end`) so a player on a differently-trimmed
+    stream can re-project onto its own <video> duration; for an OP the absolute
+    start is already the anchor. `start`/`end` are in THIS host's episode time.
+    """
+    out = {
+        "kind": h.kind,
+        "slug": h.slug,
+        "version": h.version,
+        "start": round(h.start, 2),
+        "end": round(h.end, 2),
+        "duration": round(duration, 2),
+        "votes": h.votes,
+        "score": round(h.score, 4),
+        "source": h.source,
+        "edge_start_source": h.edge_start_source,
+        "edge_end_source": h.edge_end_source,
+        "confirmed_by_video": h.confirmed_by_video,
+        "video_disagreement": h.video_disagreement,
+        "inferred": h.inferred,
+    }
+    if h.kind == "ed":
+        out["from_end_start"] = round(max(0.0, duration - h.start), 2)
+        out["from_end_end"] = round(max(0.0, duration - h.end), 2)
+    return out
+
+
 def report_multi_host(results, log=print) -> dict:
-    log("\nRecovered OP/ED (cross-host consensus, absolute + from-end):\n")
-    hdr = (f"{'ep':>3}  {'kind':>4}  {'recovered':>13}  {'votes':>6}  "
-           f"{'agree':>7}  {'spread':>7}")
+    """Per-host OP/ED delivery (each player keeps its OWN timing), with the
+    cross-host consensus reported alongside as a confidence check only."""
+    log("\nRecovered OP/ED — PER HOST (each player's own video/timing):\n")
+    hdr = (f"{'ep':>3}  {'host':>10}  {'lang-dur':>9}  {'kind':>4}  "
+           f"{'recovered':>13}  {'from-end':>9}  {'votes':>6}  {'align':>6}")
     log(hdr)
     log("-" * len(hdr))
+
     out_eps: dict[str, dict] = {}
-    for ep, _streams, hits in sorted(results, key=lambda r: r[0]):
-        ep_out: dict = {}
-        for h in sorted(hits, key=lambda h: h.start):
+    for ep, streams, per_host, reconciled in sorted(results, key=lambda r: r[0]):
+        dur_by_host = {s.host: s.duration for s in streams}
+        ph_out: dict = {}
+        for stream, hits in sorted(per_host, key=lambda x: x[0].host):
+            host = stream.host
+            host_out: dict = {"duration": round(stream.duration, 2)}
+            if not hits:
+                log(f"{ep:>3}  {host:>10}  {stream.duration/60:>7.1f}m  "
+                    f"{'—':>4}  {'no hit':>13}  {'—':>9}  {'—':>6}  {'—':>6}")
+            for h in sorted(hits, key=lambda h: h.start):
+                flag = "*" if h.inferred else ""
+                fe = (f"-{ms(max(0.0, stream.duration - h.start))}"
+                      if h.kind == "ed" else "—")
+                log(f"{ep:>3}  {host:>10}  {stream.duration/60:>7.1f}m  "
+                    f"{h.kind+flag:>4}  {clock((h.start, h.end)):>13}  "
+                    f"{fe:>9}  {h.votes:>6}  {h.source:>6}")
+                host_out[h.kind] = _hit_to_dict(h, stream.duration)
+            ph_out[host] = host_out
+
+        # Consensus is kept ONLY as a cross-check (which hosts agree, how tight),
+        # not as the delivered timing — the per-host entries above are authoritative.
+        consensus_out: dict = {}
+        for h in sorted(reconciled, key=lambda h: h.start):
+            consensus_out[h.kind] = {**asdict(h)}
+
+        out_eps[str(ep)] = {"per_host": ph_out, "consensus": consensus_out}
+
+    # Compact consensus recap so a quick read still shows agreement/spread.
+    log("\nCross-host consensus (confidence check only — NOT the delivered per-host "
+        "timing):\n")
+    chdr = (f"{'ep':>3}  {'kind':>4}  {'consensus':>13}  {'votes':>6}  "
+            f"{'agree':>7}  {'spread':>7}")
+    log(chdr)
+    log("-" * len(chdr))
+    for ep, _streams, _per_host, reconciled in sorted(results, key=lambda r: r[0]):
+        for h in sorted(reconciled, key=lambda h: h.start):
             flag = "*" if h.inferred else " "
             agree = f"{h.n_hosts_agree}/{h.n_hosts_total}"
             log(f"{ep:>3}  {h.kind:>4}{flag} {clock((h.start, h.end)):>12}  "
                 f"{h.votes:>6}  {agree:>7}  {h.spread_s:>6.1f}s")
-            ep_out[h.kind] = {**asdict(h)}
-        out_eps[str(ep)] = ep_out
-    log("\n(* = matched via cour fallback; 'agree' = hosts within tolerance / "
-        "hosts that produced a hit)")
+
+    log("\n(* = matched via cour fallback. PER-HOST times are in each host's own "
+        "episode time; 'from-end' is the ED anchor for re-projection. Consensus "
+        "'agree' = hosts within tolerance / hosts that produced a hit.)")
     return out_eps
+
+
+def print_final_recap(out_eps: dict, log=print) -> None:
+    """One consolidated table across EVERY (episode, lang, host) cell — the full
+    per-player picture in a single place, with the language spelled out on each
+    row. `out_eps` is the merged multi-host map: out_eps[ep][lang] = {per_host,
+    consensus}. OP and ED are shown side by side per row so one line = one
+    player's complete delivery for that episode/language."""
+    log("\n" + "=" * 96)
+    log("RÉCAPITULATIF COMPLET — chaque lecteur, chaque langue (OP + ED côte à côte)")
+    log("=" * 96)
+    hdr = (f"{'ep':>3}  {'lang':>6}  {'host':>10}  {'dur':>6}  "
+           f"{'OP':>13}  {'ED':>13}  {'ED from-end':>12}  {'votes(op/ed)':>13}  {'align':>6}")
+    log(hdr)
+    log("-" * len(hdr))
+
+    def _fmt(iv):
+        return clock(iv) if iv else "—"
+
+    n_rows = 0
+    # ep keys are strings; sort numerically when possible.
+    for ep in sorted(out_eps, key=lambda x: (int(x) if str(x).isdigit() else 1 << 30, str(x))):
+        for lang in sorted(out_eps[ep]):
+            cell = out_eps[ep][lang]
+            per_host = cell.get("per_host", {}) if isinstance(cell, dict) else {}
+            for host in sorted(per_host):
+                hd = per_host[host]
+                op = hd.get("op")
+                ed = hd.get("ed")
+                dur = hd.get("duration")
+                op_iv = (op["start"], op["end"]) if op else None
+                ed_iv = (ed["start"], ed["end"]) if ed else None
+                ed_fe = (f"-{ms(ed['from_end_start'])}"
+                         if ed and ed.get("from_end_start") is not None else "—")
+                votes = (f"{op['votes'] if op else '—'}/"
+                         f"{ed['votes'] if ed else '—'}")
+                # Alignment provenance: prefer whichever hit exists; flag mixed.
+                srcs = {x["source"] for x in (op, ed) if x}
+                align = "/".join(sorted(srcs)) if srcs else "—"
+                infer = "*" if (op and op.get("inferred")) or (ed and ed.get("inferred")) else ""
+                log(f"{ep:>3}  {lang:>6}  {host:>10}  "
+                    f"{(dur/60 if dur else 0):>5.1f}m  "
+                    f"{_fmt(op_iv):>13}  {_fmt(ed_iv):>13}  {ed_fe:>12}  "
+                    f"{votes:>13}  {align:>6}{infer}")
+                n_rows += 1
+    if n_rows == 0:
+        log("  (aucun résultat)")
+    log("\n(dur = durée de CE lecteur; ED from-end = ancre indépendante de la durée, "
+        "pour re-projeter le skip sur la vraie durée du <video> joué; * = cour "
+        "fallback. Chaque ligne = un lecteur pour un épisode/une langue donnés — "
+        "AUCUNE moyenne.)")
 
 
 # ── main ─────────────────────────────────────────────────────────────────────
@@ -477,6 +606,10 @@ def main() -> None:
                     print(line)
                 for ep, kinds in lang_eps.items():
                     out_eps.setdefault(ep, {})[lang] = kinds
+
+        # One consolidated table across every (ep, lang, host) once all
+        # languages are in — the "tableau récapitulatif complet".
+        print_final_recap(out_eps)
     else:
         langs = [args.lang]
         print(f"\nResolving {args.slug} {args.season}/{args.lang} "

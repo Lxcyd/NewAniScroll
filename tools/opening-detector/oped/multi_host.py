@@ -260,7 +260,7 @@ def reconcile_hits(
     return out
 
 
-def detect_op_ed_multi(
+def detect_per_host(
     streams: list[HostStream],
     resolve_window_for,
     op_refs: list[ThemeReference],
@@ -273,22 +273,16 @@ def detect_op_ed_multi(
     min_votes: int = 40,
     min_score: float | None = None,
     full_fallback: bool = True,
-    canonical_duration: float | None = None,
-) -> list[ReconciledHit]:
-    """Detect OP/ED across MULTIPLE hosts of one episode, then reconcile.
+) -> list[tuple[HostStream, list[ThemeHit]]]:
+    """Run the full detector once PER HOST (in parallel), returning each host's
+    OWN detected hits — WITHOUT reconciling them into a consensus.
 
-    `resolve_window_for(stream, window)` returns the episode Fingerprint for a
-    given host stream + decode window (the caller owns stream resolution and
-    caching). Each host is matched against the SAME theme references with that
-    host's OWN duration, so the ED end-of-file window maps correctly per host;
-    reconciliation then folds the per-host results into consensus hits that are
-    robust to the hosts' differing lengths.
-
-    Hosts are processed IN PARALLEL — each `detect_op_ed` call decodes two
-    short audio windows (OP + ED) over the network and fingerprints them, which
-    is the most expensive step per host. Running them concurrently means the
-    wall-clock cost of this call is close to the SLOWEST single host, not the
-    sum of all of them.
+    This is the raw material behind both `detect_op_ed_multi` (which reconciles
+    it) and the per-host delivery path: each entry is (stream, hits) where the
+    hits are in THAT host's own episode time, against THAT host's own duration.
+    Because every host serves a differently-trimmed encode, these per-host
+    timings are what a player actually needs at runtime — the consensus is only
+    a cross-check on top.
     """
 
     def _run_one(stream: HostStream) -> tuple[HostStream, list[ThemeHit]]:
@@ -325,5 +319,47 @@ def detect_op_ed_multi(
         with ThreadPoolExecutor(max_workers=len(streams)) as pool:
             for stream, hits in pool.map(_run_one, streams):
                 per_host.append((stream, hits))
+    return per_host
 
+
+def detect_op_ed_multi(
+    streams: list[HostStream],
+    resolve_window_for,
+    op_refs: list[ThemeReference],
+    ed_refs: list[ThemeReference],
+    *,
+    resolve_samples_for=None,
+    resolve_video_for=None,
+    op_window=OP_WINDOW,
+    ed_window=ED_WINDOW,
+    min_votes: int = 40,
+    min_score: float | None = None,
+    full_fallback: bool = True,
+    canonical_duration: float | None = None,
+) -> list[ReconciledHit]:
+    """Detect OP/ED across MULTIPLE hosts of one episode, then reconcile.
+
+    `resolve_window_for(stream, window)` returns the episode Fingerprint for a
+    given host stream + decode window (the caller owns stream resolution and
+    caching). Each host is matched against the SAME theme references with that
+    host's OWN duration, so the ED end-of-file window maps correctly per host;
+    reconciliation then folds the per-host results into consensus hits that are
+    robust to the hosts' differing lengths.
+
+    Hosts are processed IN PARALLEL — each `detect_op_ed` call decodes two
+    short audio windows (OP + ED) over the network and fingerprints them, which
+    is the most expensive step per host. Running them concurrently means the
+    wall-clock cost of this call is close to the SLOWEST single host, not the
+    sum of all of them.
+
+    Thin wrapper over `detect_per_host` + `reconcile_hits`; use `detect_per_host`
+    directly when you also need each host's individual timing.
+    """
+    per_host = detect_per_host(
+        streams, resolve_window_for, op_refs, ed_refs,
+        resolve_samples_for=resolve_samples_for,
+        resolve_video_for=resolve_video_for,
+        op_window=op_window, ed_window=ed_window,
+        min_votes=min_votes, min_score=min_score, full_fallback=full_fallback,
+    )
     return reconcile_hits(per_host, canonical_duration=canonical_duration)
