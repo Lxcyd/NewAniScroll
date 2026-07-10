@@ -239,7 +239,7 @@ def run_single_host(args, themes, refs_by_theme, op_pool, ed_pool, eps):
         hits = detect_op_ed(
             resolve_window, ep_dur, op_refs, ed_refs,
             resolve_samples=resolve_samples,
-            resolve_video=(resolve_video if args.video else None),
+            resolve_video=(resolve_video if not args.no_video else None),
             op_window=OP_WINDOW, ed_window=ED_WINDOW,
             min_votes=args.min_votes, min_score=args.min_score,
             refine=not args.no_refine,
@@ -346,7 +346,7 @@ def run_multi_host(args, themes, refs_by_theme, op_pool, ed_pool, lang: str, log
         per_host = detect_per_host(
             streams, resolve_window_for, op_refs, ed_refs,
             resolve_samples_for=resolve_samples_for,
-            resolve_video_for=(resolve_video_for if args.video else None),
+            resolve_video_for=(resolve_video_for if not args.no_video else None),
             op_window=OP_WINDOW, ed_window=ED_WINDOW,
             min_votes=args.min_votes, min_score=args.min_score,
         )
@@ -403,7 +403,7 @@ def report_multi_host(results, log=print) -> dict:
     cross-host consensus reported alongside as a confidence check only."""
     log("\nRecovered OP/ED — PER HOST (each player's own video/timing):\n")
     hdr = (f"{'ep':>3}  {'host':>10}  {'lang-dur':>9}  {'kind':>4}  "
-           f"{'recovered':>13}  {'from-end':>9}  {'votes':>6}  {'align':>6}")
+           f"{'recovered':>13}  {'from-end':>9}  {'votes':>6}  {'align':>8}")
     log(hdr)
     log("-" * len(hdr))
 
@@ -416,14 +416,14 @@ def report_multi_host(results, log=print) -> dict:
             host_out: dict = {"duration": round(stream.duration, 2)}
             if not hits:
                 log(f"{ep:>3}  {host:>10}  {stream.duration/60:>7.1f}m  "
-                    f"{'—':>4}  {'no hit':>13}  {'—':>9}  {'—':>6}  {'—':>6}")
+                    f"{'—':>4}  {'no hit':>13}  {'—':>9}  {'—':>6}  {'—':>8}")
             for h in sorted(hits, key=lambda h: h.start):
                 flag = "*" if h.inferred else ""
                 fe = (f"-{ms(max(0.0, stream.duration - h.start))}"
                       if h.kind == "ed" else "—")
                 log(f"{ep:>3}  {host:>10}  {stream.duration/60:>7.1f}m  "
                     f"{h.kind+flag:>4}  {clock((h.start, h.end)):>13}  "
-                    f"{fe:>9}  {h.votes:>6}  {h.source:>6}")
+                    f"{fe:>9}  {h.votes:>6}  {h.source:>8}")
                 host_out[h.kind] = _hit_to_dict(h, stream.duration)
             ph_out[host] = host_out
 
@@ -465,7 +465,7 @@ def print_final_recap(out_eps: dict, log=print) -> None:
     log("RÉCAPITULATIF COMPLET — chaque lecteur, chaque langue (OP + ED côte à côte)")
     log("=" * 96)
     hdr = (f"{'ep':>3}  {'lang':>6}  {'host':>10}  {'dur':>6}  "
-           f"{'OP':>13}  {'ED':>13}  {'ED from-end':>12}  {'votes(op/ed)':>13}  {'align':>6}")
+           f"{'OP':>13}  {'ED':>13}  {'ED from-end':>12}  {'votes(op/ed)':>13}  {'align':>14}")
     log(hdr)
     log("-" * len(hdr))
 
@@ -496,7 +496,7 @@ def print_final_recap(out_eps: dict, log=print) -> None:
                 log(f"{ep:>3}  {lang:>6}  {host:>10}  "
                     f"{(dur/60 if dur else 0):>5.1f}m  "
                     f"{_fmt(op_iv):>13}  {_fmt(ed_iv):>13}  {ed_fe:>12}  "
-                    f"{votes:>13}  {align:>6}{infer}")
+                    f"{votes:>13}  {align:>14}{infer}")
                 n_rows += 1
     if n_rows == 0:
         log("  (aucun résultat)")
@@ -556,12 +556,14 @@ def main() -> None:
     ap.add_argument("--min-score", type=float, default=0.15,
                      help="min votes/sec of the matched span — quality gate "
                           "(default: 0.15; 0 = off)")
-    ap.add_argument("--video", action="store_true",
-                     help="also fingerprint the clean NC keyframes and cross-"
-                          "confirm each audio hit with video (sets "
-                          "confirmed_by_video / video_disagreement; the audio "
-                          "boundary stays authoritative). Costs an extra "
-                          "keyframe decode per window.")
+    ap.add_argument("--no-video", action="store_true",
+                     help="disable the credited-frame path (audio-only, fast). "
+                          "By default the detector also fingerprints the theme "
+                          "keyframes: a confident CREDITED (with-credits) frame "
+                          "match becomes the frame-accurate alignment source and "
+                          "overrides audio; a clean NC match only cross-confirms "
+                          "the audio boundary and extends cropped fade edges. "
+                          "Costs an extra keyframe decode per window.")
     ap.add_argument("--no-refine", action="store_true",
                      help="disable RMS edge-snapping — deliver the raw reference "
                           "projection without onset/cut refinement (debug).")
@@ -576,7 +578,7 @@ def main() -> None:
         raise SystemExit("--end must be >= --start")
 
     at_slug, themes, refs_by_theme, op_pool, ed_pool = load_theme_pools(
-        args.anilist, with_video=args.video
+        args.anilist, with_video=not args.no_video
     )
 
     if args.multi_host:

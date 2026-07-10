@@ -88,6 +88,18 @@ AUDIO_STRONG_SCORE = 0.5
 VIDEO_EDGE_MIN_VOTES = 50
 VIDEO_EDGE_ADJACENCY_S = 6.0
 
+# When a CREDITED (with-credits) theme rip is available, its frames carry the
+# same on-screen credits as the episode, so a true frame pair differs by
+# re-encode noise only — the match is frame-accurate, not GOP-level. Above this
+# vote floor a credited match is trusted enough to BECOME the delivered
+# alignment and override even a strong audio hit (the user wants the credited
+# visual boundary prioritised over audio when it's available and confident).
+# Set a notch above VIDEO_EDGE_MIN_VOTES so a marginal credited match doesn't
+# yank a solid audio boundary; a weaker credited match still cross-confirms /
+# extends via the audio path. Only credited refs get this power — a plain NC
+# ref still pays the credit penalty and stays subordinate to audio.
+CREDITED_ALIGN_MIN_VOTES = 60
+
 
 @dataclass
 class ThemeReference:
@@ -137,9 +149,14 @@ class ThemeHit:
     inferred: bool = False   # True when matched via cour fallback (no direct map)
     confirmed_by_video: bool = False  # audio+video agreed (containment) — confidence only
     video_disagreement: bool = False  # both matched but diverged — anomaly flag
-    # Which signal produced the hit's ALIGNMENT: "audio" (frame-accurate) or
-    # "video" (GOP-level, used when audio was too weak to match). The delivered
-    # boundary is still projected onto ref.duration in both cases.
+    # Which signal produced the hit's ALIGNMENT:
+    #   "audio"    — audio-histogram alignment (frame-accurate); the default.
+    #   "credited" — a with-credits AnimeThemes rip matched the episode frames;
+    #                frame-accurate and PRIORITISED over audio (same on-screen
+    #                credits as the episode → tight image match).
+    #   "video"    — a clean NC rip matched; GOP-level (± a few seconds), used
+    #                only when audio was too weak/absent to match.
+    # The delivered boundary is still projected onto ref.duration in every case.
     source: str = "audio"
     # Where each delivered EDGE came from after fade-extension: "audio" (raw
     # projection/refine kept), "video" (image extended a cropped fade edge), or
@@ -536,18 +553,30 @@ def detect_op_ed(
         hit.start = float(min(max(hit.start, 0.0), episode_duration))
         hit.end = float(min(max(hit.end, 0.0), episode_duration))
 
-    def _video_sourced_hit(refs: list[ThemeReference], win) -> ThemeHit | None:
-        """Build a hit whose ALIGNMENT comes from video, for when audio matched
-        nothing (or only weakly). Projects onto the matched ref's clip length so
-        the delivered interval still spans the full theme, and flags source=
-        "video" so the consumer knows it's GOP-level (± a few seconds), not
-        frame-accurate."""
-        v = _video_hit_for(refs, win, None)
+    def _ref_is_credited(ref: ThemeReference) -> bool:
+        """True when this ref's image fingerprint came from the credited (with-
+        credits) rip, not the NC clip — a credited match is frame-accurate."""
+        return bool(ref.video_ref_url) and ref.video_ref_url != ref.video_url
+
+    def _video_sourced_hit(
+        refs: list[ThemeReference], win, slug: str | None = None,
+        min_votes: int = VIDEO_EDGE_MIN_VOTES,
+    ) -> ThemeHit | None:
+        """Build a hit whose ALIGNMENT comes from video. Projects onto the
+        matched ref's clip length so the delivered interval still spans the full
+        theme. Tags source="credited" when the matched ref is the with-credits
+        rip (frame-accurate) or "video" for an NC-only match (GOP-level, ± a few
+        seconds). `slug` pins the match to one theme (used by the credited-
+        priority path to line up with the audio hit's theme); None = best overall
+        (weak-audio fallback). `min_votes` is the confidence floor to accept it."""
+        v = _video_hit_for(refs, win, slug)
         if v is None:
             return None
         v_start, v_end, v_votes, ref = v
-        if v_votes < VIDEO_EDGE_MIN_VOTES:
+        if v_votes < min_votes:
             return None
+        credited = _ref_is_credited(ref)
+        src = "credited" if credited else "video"
         ref_dur = ref.duration if ref.duration > 0 else (v_end - v_start)
         # Center the clip-length projection on the video span so a slightly short
         # visual match still delivers the full theme extent.
@@ -559,7 +588,7 @@ def detect_op_ed(
             votes=v_votes, score=0.0,
             vote_start=v_start, vote_end=v_end,
             r_start=0.0, r_end=ref_dur, ref_duration=ref_dur,
-            source="video", edge_start_source="video", edge_end_source="video",
+            source=src, edge_start_source=src, edge_end_source=src,
         )
 
     def _is_strong(hit: ThemeHit) -> bool:
@@ -583,10 +612,36 @@ def detect_op_ed(
             )
             used_win = None
 
-        # Audio absent OR too weak → let the image become the timing source.
-        # (Weak audio that the VF dub ducked, an encode that trimmed the audio,
-        # etc. — the picture is intact even where the sound is corrupted.)
-        if hit is None or not _is_strong(hit):
+        # CREDITED-FRAME PRIORITY. A with-credits AnimeThemes rip carries the same
+        # on-screen credits as the episode, so a confident frame match is
+        # frame-accurate and is PRIORITISED over audio — including over a strong
+        # audio hit. Pin the credited match to the audio hit's theme when we have
+        # one (keeps OP1-vs-OP2 disambiguation from the audio vote); otherwise
+        # take the best credited match overall. Only a genuinely credited ref that
+        # clears CREDITED_ALIGN_MIN_VOTES may override audio here — an NC-only ref
+        # returns source="video" and is rejected by this gate, staying subordinate.
+        cred_hit = _video_sourced_hit(
+            refs, used_win,
+            slug=(hit.slug if hit is not None else None),
+            min_votes=CREDITED_ALIGN_MIN_VOTES,
+        )
+        if cred_hit is not None and cred_hit.source == "credited":
+            # Confirm agreement with the audio boundary for the confidence flag,
+            # but the credited frames now own the delivered timing.
+            if hit is not None:
+                ov = max(0.0, min(hit.end, cred_hit.end) - max(hit.start, cred_hit.start))
+                span = max(1e-6, cred_hit.end - cred_hit.start)
+                if ov / span >= VIDEO_CONTAINMENT:
+                    cred_hit.confirmed_by_video = True
+                else:
+                    cred_hit.video_disagreement = True
+            hit = cred_hit
+
+        # Audio absent OR too weak (and no credited win) → let a clean NC image
+        # become the timing source. (VF dub ducked the theme under dialogue, an
+        # encode trimmed the audio, etc. — the picture is intact even where the
+        # sound is corrupted.)
+        elif hit is None or not _is_strong(hit):
             v_hit = _video_sourced_hit(refs, used_win)
             # Take the video alignment when audio produced nothing, or when the
             # video match is stronger than the weak audio one. A strong audio hit

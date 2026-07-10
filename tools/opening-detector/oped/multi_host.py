@@ -101,9 +101,11 @@ class ReconciledHit:
     inferred: bool = False
     n_video_confirm: int = 0        # agreeing hosts whose video confirmed the audio
     video_disagreement: bool = False  # any agreeing host had audio/video divergence
-    # Alignment provenance of the consensus: "audio" (all agreeing hosts audio-
-    # aligned, frame-accurate), "video" (all video-sourced, GOP-level), or
-    # "mixed" (both). Consumers can down-rank auto-skip on non-"audio" hits.
+    # Alignment provenance of the consensus (uniform across agreeing hosts, else
+    # "mixed"): "credited" (all matched the with-credits rip — frame-accurate,
+    # highest trust), "audio" (all audio-aligned, frame-accurate), "video" (all
+    # NC-video-sourced, GOP-level), or "mixed". Consumers can trust "credited"/
+    # "audio" for auto-skip and down-rank "video"/"mixed".
     source: str = "audio"
 
     @property
@@ -197,10 +199,12 @@ def reconcile_hits(
             continue
 
         anchors = [_anchor_value(h, s.duration, kind) for s, h in zip(streams, hits)]
-        # Weight each host by its votes, but scale video-sourced hits down so a
-        # coarse (GOP-level) video alignment can't dominate a frame-accurate
-        # audio one when both are present. A widened tolerance also applies when
-        # any contributing hit is video-sourced (audio↔video jitters more).
+        # Weight each host by its votes, but scale NC-video hits down so a coarse
+        # (GOP-level) video alignment can't dominate a frame-accurate audio one
+        # when both are present. A CREDITED hit is frame-accurate (same on-screen
+        # credits as the episode), so it is full-trust like audio — never
+        # down-weighted, never loosens the tolerance. Only NC source="video"
+        # triggers the widened tolerance (audio↔NC-video jitters more).
         has_video = any(h.source == "video" for h in hits)
         weights = [
             h.votes * (VIDEO_WEIGHT_FACTOR if h.source == "video" else 1.0)
@@ -226,14 +230,16 @@ def reconcile_hits(
             end = start + length
             from_end_start = from_end_end = None
 
-        # Provenance of the AGREEING hosts: all-audio, all-video, or mixed.
+        # Provenance of the AGREEING hosts. "credited" is the highest-trust,
+        # frame-accurate source and is reported as such when every agreeing host
+        # used it; a uniform audio or NC-video set reports that source; anything
+        # else is "mixed". (credited + audio, both frame-accurate, still reports
+        # "mixed" so a reader can see the hosts disagreed on method.)
         kept_sources = {hits[i].source for i in kept} if kept else {"audio"}
-        if kept_sources == {"video"}:
-            src = "video"
-        elif "video" in kept_sources:
-            src = "mixed"
+        if len(kept_sources) == 1:
+            src = next(iter(kept_sources))
         else:
-            src = "audio"
+            src = "mixed"
 
         out.append(
             ReconciledHit(

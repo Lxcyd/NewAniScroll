@@ -241,9 +241,10 @@ def main() -> None:
 
     print(f"\nProbing {len(cells)} cell(s): {cells}")
     if not args.video:
-        print("[note] --video off → the 'edges=video' image-extension pass is "
-              "disabled; edges will only read audio/rms. Add --video to see "
-              "whether the image extended a cropped fade.")
+        print("[note] --video off → the credited-frame path is disabled; "
+              "align can only read 'audio' and edges only audio/rms. Add "
+              "--video to let a credited (with-credits) frame match win as "
+              "align=credited and to see whether the image extended a cropped fade.")
     print()
 
     rows: list[dict] = []
@@ -263,7 +264,7 @@ def main() -> None:
 
     print("\n" + "=" * 108)
     hdr = (f"{'host':>10}  {'lang':>6}  {'duration':>9}  {'kind':>4}  "
-           f"{'delivered':>17}  {'align':>6}  {'edge start':>10}  {'edge end':>10}  "
+           f"{'delivered':>17}  {'align':>8}  {'edge start':>10}  {'edge end':>10}  "
            f"{'infer':>5}")
     print(hdr)
     print("-" * len(hdr))
@@ -279,7 +280,7 @@ def main() -> None:
             end_src = hit.edge_end_source
         infer = "yes" if r["inferred"] else ""
         print(f"{r['host']:>10}  {r['lang']:>6}  {r['duration']:>8.1f}s  "
-              f"{args.kind:>4}  {delivered:>17}  {align:>6}  {start_src:>10}  "
+              f"{args.kind:>4}  {delivered:>17}  {align:>8}  {start_src:>10}  "
               f"{end_src:>10}  {infer:>5}")
 
     print("\nRead the two edge columns as the 'image extension' answer:")
