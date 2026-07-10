@@ -84,11 +84,13 @@ async function extractVidmolyDirect(embedUrl) {
 //     e.g. lpayer.embed4me.com) — including both in a hostPref list resolves
 //     the identical stream twice under two different labels. Also IP-bound,
 //     same caveat as vidmoly.
-//   - uqload: no extractor registered for it in lib/extractors.js at all
-//     (falls through to the generic JWPlayer scraper, which won't match
-//     anime-sama's markup) — always fails, kept out to avoid a guaranteed
-//     wasted resolution attempt.
-const DEFAULT_PRIORITY = ["sibnet", "sendvid", "megaplay"];
+//   - uqload: NOW has a dedicated extractor (extractUqload — unpacks its
+//     P.A.C.K.E.R block and reads the JWPlayer `file:` HLS src). Its master
+//     m3u8 plays with/without a Referer and isn't hard IP-bound, so it's a
+//     safe downstream pull. Added at LOW priority (after the proven hosts).
+//     NOTE: uqload gates the embed on the anime-sama Referer — the extractor
+//     sends it; a wrong Referer yields a 38-byte "restricted" stub.
+const DEFAULT_PRIORITY = ["sibnet", "sendvid", "megaplay", "uqload"];
 
 async function viaWorker(url) {
   const r = await fetch(`${WORKER}?url=${encodeURIComponent(url)}`);

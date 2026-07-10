@@ -63,6 +63,25 @@ MIN_SCORE_DEFAULT = 0.15
 # as confirmation (video ⊆ audio). Same metric validated in diag_full.py.
 VIDEO_CONTAINMENT = 0.7
 
+# Above these thresholds the AUDIO hit is "strong": its alignment is trusted and
+# the image is used only to EXTEND cropped fade edges (never to move a strong
+# audio boundary). Below them the audio is "weak" and the image is allowed to
+# BECOME the timing source (VF dub ducking the theme under dialogue, an encode
+# that trims the audio, aggressive compression). Calibrated on SnK + a VF title
+# where the ED is sung under speech — see the plan's calibration note.
+AUDIO_STRONG_VOTES = 120
+AUDIO_STRONG_SCORE = 0.5
+
+# Video-edge extension guardrails.
+#   - VIDEO_EDGE_MIN_VOTES: a video match must clear this to be trusted to move a
+#     fade edge (same floor family as best_match_video's own min_votes=50).
+#   - VIDEO_EDGE_ADJACENCY_S: the video span must be CONTIGUOUS with the audio
+#     span (start/end within this gap) to count as "the same segment's fade" —
+#     an isolated video cluster elsewhere in the window is rejected, so we never
+#     stretch a boundary onto an unrelated visual shot.
+VIDEO_EDGE_MIN_VOTES = 50
+VIDEO_EDGE_ADJACENCY_S = 6.0
+
 
 @dataclass
 class ThemeReference:
@@ -110,6 +129,16 @@ class ThemeHit:
     inferred: bool = False   # True when matched via cour fallback (no direct map)
     confirmed_by_video: bool = False  # audio+video agreed (containment) — confidence only
     video_disagreement: bool = False  # both matched but diverged — anomaly flag
+    # Which signal produced the hit's ALIGNMENT: "audio" (frame-accurate) or
+    # "video" (GOP-level, used when audio was too weak to match). The delivered
+    # boundary is still projected onto ref.duration in both cases.
+    source: str = "audio"
+    # Where each delivered EDGE came from after fade-extension: "audio" (raw
+    # projection/refine kept), "video" (image extended a cropped fade edge), or
+    # "rms" (music onset/cut snap). Pure diagnostics — the numeric start/end is
+    # what ships. Defaults to the projection source.
+    edge_start_source: str = "audio"
+    edge_end_source: str = "audio"
 
 
 def _window_tag(window: tuple[float | None, float | None] | None) -> str:
@@ -399,35 +428,117 @@ def detect_op_ed(
         hit.start = float(min(max(start, 0.0), episode_duration))
         hit.end = float(min(max(end, 0.0), episode_duration))
 
-    def _confirm_video(hit: ThemeHit, refs: list[ThemeReference], win) -> None:
-        """Set confirmed_by_video / video_disagreement from a video match.
-        Audio boundary is authoritative; video only flags."""
+    def _video_hit_for(refs: list[ThemeReference], win, slug: str | None):
+        """Best video match against the video refs of `slug` (or all refs when
+        slug is None), in ABSOLUTE episode time. Returns (v_start, v_end, votes,
+        ref) or None. Reused by both the confirm/extend path (slug pinned to the
+        audio hit's theme) and the weak-audio fallback (slug=None, best overall).
+        """
         if resolve_video is None:
-            return
-        video_ref = next((r.video_fp for r in refs
-                          if r.slug == hit.slug and getattr(r, "video_fp", None) is not None),
-                         None)
-        if video_ref is None or video_ref.hashes.size == 0:
-            return
+            return None
+        candidates = [
+            r for r in refs
+            if getattr(r, "video_fp", None) is not None
+            and r.video_fp.hashes.size > 0
+            and (slug is None or r.slug == slug)
+        ]
+        if not candidates:
+            return None
         try:
             q = resolve_video(win)
         except Exception:
-            return
+            return None
         if q is None or q.hashes.size == 0:
-            return
-        m = best_match_video(q, video_ref)
-        if m is None:
-            return
+            return None
         win_off = _abs_offset(win)
-        v_start = m.q_start + win_off
-        v_end = m.q_end + win_off
-        # Containment: fraction of the VIDEO span that overlaps the audio span.
+        best = None
+        for r in candidates:
+            m = best_match_video(q, r.video_fp)
+            if m is None:
+                continue
+            if best is None or m.n_votes > best[2]:
+                best = (m.q_start + win_off, m.q_end + win_off, m.n_votes, r)
+        return best
+
+    def _apply_video(hit: ThemeHit, refs: list[ThemeReference], win) -> None:
+        """Confirm the audio hit with video AND extend any fade edge the audio
+        vote cropped. Audio alignment stays authoritative; video only ever
+        EXTENDS a boundary outward (never pulls it in), and never past the clean
+        theme clip's extent [theme_t0, theme_t0 + ref_duration]."""
+        v = _video_hit_for(refs, win, hit.slug)
+        if v is None:
+            return
+        v_start, v_end, v_votes, _ref = v
+
+        # Containment confidence flag (unchanged semantics): does the video slice
+        # sit inside the audio span?
         ov = max(0.0, min(hit.end, v_end) - max(hit.start, v_start))
         v_len = max(1e-6, v_end - v_start)
         if ov / v_len >= VIDEO_CONTAINMENT:
             hit.confirmed_by_video = True
         else:
             hit.video_disagreement = True
+
+        if v_votes < VIDEO_EDGE_MIN_VOTES:
+            return  # too weak to trust for moving a fade edge
+
+        # The theme clip's full extent in episode time — the hard cap for any
+        # extension (we never claim more than the AnimeThemes clip covers).
+        # Recover theme frame-0 from the vote span + ref geometry (NOT hit.start,
+        # which refine may have moved) so the cap is stable regardless of refine.
+        cap_lo = hit.vote_start - hit.r_start           # theme frame 0 in ep time
+        cap_hi = cap_lo + hit.ref_duration              # theme last frame in ep time
+
+        # LEFT edge: extend earlier only if the video starts before the audio AND
+        # is contiguous with it (same segment's fade-in), clamped to the clip.
+        if (v_start < hit.start
+                and (hit.start - v_start) <= VIDEO_EDGE_ADJACENCY_S):
+            new_start = max(v_start, cap_lo)
+            if new_start < hit.start:
+                hit.start = new_start
+                hit.edge_start_source = "video"
+
+        # RIGHT edge: extend later only if the video ends after the audio AND is
+        # contiguous (same segment's fade-out / staff-roll), clamped to the clip.
+        if (v_end > hit.end
+                and (v_end - hit.end) <= VIDEO_EDGE_ADJACENCY_S):
+            new_end = min(v_end, cap_hi)
+            if new_end > hit.end:
+                hit.end = new_end
+                hit.edge_end_source = "video"
+
+        # Keep edges sane after moving them.
+        hit.start = float(min(max(hit.start, 0.0), episode_duration))
+        hit.end = float(min(max(hit.end, 0.0), episode_duration))
+
+    def _video_sourced_hit(refs: list[ThemeReference], win) -> ThemeHit | None:
+        """Build a hit whose ALIGNMENT comes from video, for when audio matched
+        nothing (or only weakly). Projects onto the matched ref's clip length so
+        the delivered interval still spans the full theme, and flags source=
+        "video" so the consumer knows it's GOP-level (± a few seconds), not
+        frame-accurate."""
+        v = _video_hit_for(refs, win, None)
+        if v is None:
+            return None
+        v_start, v_end, v_votes, ref = v
+        if v_votes < VIDEO_EDGE_MIN_VOTES:
+            return None
+        ref_dur = ref.duration if ref.duration > 0 else (v_end - v_start)
+        # Center the clip-length projection on the video span so a slightly short
+        # visual match still delivers the full theme extent.
+        proj_start = v_start
+        proj_end = v_start + ref_dur
+        return ThemeHit(
+            kind=ref.kind, slug=ref.slug, version=ref.version,
+            start=proj_start, end=proj_end,
+            votes=v_votes, score=0.0,
+            vote_start=v_start, vote_end=v_end,
+            r_start=0.0, r_end=ref_dur, ref_duration=ref_dur,
+            source="video", edge_start_source="video", edge_end_source="video",
+        )
+
+    def _is_strong(hit: ThemeHit) -> bool:
+        return hit.votes >= AUDIO_STRONG_VOTES and hit.score >= AUDIO_STRONG_SCORE
 
     def _detect_kind(refs: list[ThemeReference], win) -> ThemeHit | None:
         if not refs:
@@ -446,10 +557,24 @@ def detect_op_ed(
                 fp_full, refs, 0.0, min_votes=min_votes, min_score=min_score
             )
             used_win = None
+
+        # Audio absent OR too weak → let the image become the timing source.
+        # (Weak audio that the VF dub ducked, an encode that trimmed the audio,
+        # etc. — the picture is intact even where the sound is corrupted.)
+        if hit is None or not _is_strong(hit):
+            v_hit = _video_sourced_hit(refs, used_win)
+            # Take the video alignment when audio produced nothing, or when the
+            # video match is stronger than the weak audio one. A strong audio hit
+            # never reaches here, so this never overrides a trusted boundary.
+            if v_hit is not None and (hit is None or v_hit.votes > hit.votes):
+                hit = v_hit
+
         if hit is not None:
-            if refine:
+            if refine and hit.source == "audio":
+                # RMS onset/cut snap only makes sense on an audio-aligned hit.
                 _refine_hit(hit, used_win)
-            _confirm_video(hit, refs, used_win)
+            if hit.source == "audio":
+                _apply_video(hit, refs, used_win)
         return hit
 
     with ThreadPoolExecutor(max_workers=2) as pool:

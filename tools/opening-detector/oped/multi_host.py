@@ -55,6 +55,15 @@ from .theme_bank import ThemeHit, ThemeReference, detect_op_ed, ED_WINDOW, OP_WI
 # generously: real cross-host jitter is sub-second to a couple of seconds, while
 # a differently-trimmed encode or a false match is off by many seconds.
 OUTLIER_TOLERANCE_S = 4.0
+# Looser tolerance when video-sourced hits are in the mix: a video alignment is
+# only GOP-accurate (a few seconds), so audio-vs-video across hosts legitimately
+# jitters more than audio-vs-audio. Used when at least one contributing hit is
+# source="video".
+OUTLIER_TOLERANCE_VIDEO_S = 7.0
+# A video-sourced hit is trusted, but its vote count lives on a different scale
+# than audio's (keyframe votes vs hash-collision votes) and it's coarser, so it
+# should not dominate the vote-weighted consensus center. Scale its weight down.
+VIDEO_WEIGHT_FACTOR = 0.4
 # Below this many agreeing hosts we still emit a hit but flag it low-confidence
 # (a single host can be right, but we can't cross-check it).
 MIN_AGREE_FOR_CONFIDENT = 2
@@ -92,6 +101,10 @@ class ReconciledHit:
     inferred: bool = False
     n_video_confirm: int = 0        # agreeing hosts whose video confirmed the audio
     video_disagreement: bool = False  # any agreeing host had audio/video divergence
+    # Alignment provenance of the consensus: "audio" (all agreeing hosts audio-
+    # aligned, frame-accurate), "video" (all video-sourced, GOP-level), or
+    # "mixed" (both). Consumers can down-rank auto-skip on non-"audio" hits.
+    source: str = "audio"
 
     @property
     def confident(self) -> bool:
@@ -99,8 +112,11 @@ class ReconciledHit:
 
     @property
     def serve(self) -> bool:
-        """Serve floor (user-confirmed policy): ≥2 hosts agree, OR a single host
-        whose video confirmed the audio. Everything else is stored-but-held."""
+        """Serve floor (user-confirmed policy — precision-first): ≥2 hosts agree,
+        OR a single host whose video confirmed the audio. A purely video-sourced
+        consensus counts toward the ≥2 floor (covers episodes where no host had
+        usable audio — the picture still agreed across hosts). Everything else is
+        stored-but-held."""
         return self.n_hosts_agree >= MIN_AGREE_FOR_CONFIDENT or (
             self.n_hosts_agree >= 1 and self.n_video_confirm >= 1
         )
@@ -117,21 +133,27 @@ def _anchor_value(hit: ThemeHit, duration: float, kind: str) -> float:
     return hit.start
 
 
-def _consensus(values: list[float], weights: list[int]) -> tuple[list[int], float, float]:
-    """Cluster values around their median, drop outliers past the tolerance.
+def _consensus(
+    values: list[float],
+    weights: list[float],
+    *,
+    tolerance: float = OUTLIER_TOLERANCE_S,
+) -> tuple[list[int], float, float]:
+    """Cluster values around their median, drop outliers past `tolerance`.
 
     Returns (kept_indices, weighted_center, spread). The center is the
-    vote-weighted mean of the kept values — votes are our per-host confidence,
-    so a strong match pulls the consensus more than a weak one.
+    weight-weighted mean of the kept values — weights are our per-host confidence
+    (votes, scaled down for coarse video-sourced hits), so a strong match pulls
+    the consensus more than a weak one.
     """
     if not values:
         return [], 0.0, 0.0
     med = statistics.median(values)
-    kept = [i for i, v in enumerate(values) if abs(v - med) <= OUTLIER_TOLERANCE_S]
+    kept = [i for i, v in enumerate(values) if abs(v - med) <= tolerance]
     if not kept:
         kept = list(range(len(values)))
     kv = [values[i] for i in kept]
-    kw = [max(1, weights[i]) for i in kept]
+    kw = [max(1e-6, weights[i]) for i in kept]
     center = sum(v * w for v, w in zip(kv, kw)) / sum(kw)
     spread = (max(kv) - min(kv)) if len(kv) > 1 else 0.0
     return kept, center, spread
@@ -175,8 +197,17 @@ def reconcile_hits(
             continue
 
         anchors = [_anchor_value(h, s.duration, kind) for s, h in zip(streams, hits)]
-        weights = [h.votes for h in hits]
-        kept, center, spread = _consensus(anchors, weights)
+        # Weight each host by its votes, but scale video-sourced hits down so a
+        # coarse (GOP-level) video alignment can't dominate a frame-accurate
+        # audio one when both are present. A widened tolerance also applies when
+        # any contributing hit is video-sourced (audio↔video jitters more).
+        has_video = any(h.source == "video" for h in hits)
+        weights = [
+            h.votes * (VIDEO_WEIGHT_FACTOR if h.source == "video" else 1.0)
+            for h in hits
+        ]
+        tol = OUTLIER_TOLERANCE_VIDEO_S if has_video else OUTLIER_TOLERANCE_S
+        kept, center, spread = _consensus(anchors, weights, tolerance=tol)
 
         # Reconcile the interval LENGTH the same way (it's duration-independent
         # for both kinds), so a host that mis-bounded one edge can't stretch it.
@@ -195,6 +226,15 @@ def reconcile_hits(
             end = start + length
             from_end_start = from_end_end = None
 
+        # Provenance of the AGREEING hosts: all-audio, all-video, or mixed.
+        kept_sources = {hits[i].source for i in kept} if kept else {"audio"}
+        if kept_sources == {"video"}:
+            src = "video"
+        elif "video" in kept_sources:
+            src = "mixed"
+        else:
+            src = "audio"
+
         out.append(
             ReconciledHit(
                 kind=kind,
@@ -204,13 +244,15 @@ def reconcile_hits(
                 canonical_duration=round(canon, 3),
                 from_end_start=None if from_end_start is None else round(from_end_start, 3),
                 from_end_end=None if from_end_end is None else round(from_end_end, 3),
-                votes=sum(weights[i] for i in kept),
+                # Report the raw (unscaled) summed votes of the agreeing hosts.
+                votes=sum(hits[i].votes for i in kept),
                 n_hosts_agree=len(kept),
                 n_hosts_total=len(hits),
                 spread_s=round(spread, 3),
                 inferred=all(hits[i].inferred for i in kept) if kept else False,
                 n_video_confirm=sum(1 for i in kept if hits[i].confirmed_by_video),
                 video_disagreement=any(hits[i].video_disagreement for i in kept),
+                source=src,
             )
         )
 

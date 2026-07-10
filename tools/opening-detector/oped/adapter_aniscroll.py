@@ -132,7 +132,7 @@ def resolve_episodes(
 #     substrings, e.g. lpayer.embed4me.com) — listing both resolves the
 #     identical stream twice under two different labels. Also IP-bound.
 #   - uqload: no extractor registered for it at all; always fails.
-MULTI_HOSTS = ["sibnet", "sendvid", "megaplay", "vidmoly", "vidmoly-va"]
+MULTI_HOSTS = ["sibnet", "sendvid", "megaplay", "vidmoly", "vidmoly-va", "uqload"]
 
 
 def resolve_episodes_multi(

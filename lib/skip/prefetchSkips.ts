@@ -11,9 +11,13 @@ export type Skip = { start: number; end: number; type: string };
 
 // Module-level memo so changing servers (which remounts the player and
 // therefore SkipOverlay) doesn't refetch the same episode. Key is
-// `${malId}:${episode}` — sub/dub doesn't change the op/ed timestamps.
+// `${malId}:${episode}:${lang}` — the crowdsourced op/ed timestamps don't
+// change with sub/dub, but our OWN detector stores per-lang rows (a VF encode
+// can differ), so the lang is part of the key to avoid serving one lang's
+// timing under another.
 export const SKIP_MEMO = new Map<string, Skip[]>();
-export const skipMemoKey = (mal: number, ep: number) => `${mal}:${ep}`;
+export const skipMemoKey = (mal: number, ep: number, lang = "vostfr") =>
+  `${mal}:${ep}:${lang}`;
 
 // In-flight requests, so the watch page's eager prefetch and SkipOverlay's
 // own fetch don't both hit the network for the same episode — the second
@@ -30,9 +34,11 @@ export async function prefetchSkips(
   malId?: number | null,
   episode?: number | null,
   aniListId?: number | null,
+  opts?: { lang?: string; episodeLength?: number },
 ): Promise<Skip[]> {
   if (!malId || !episode) return [];
-  const key = skipMemoKey(malId, episode);
+  const lang = opts?.lang || "vostfr";
+  const key = skipMemoKey(malId, episode, lang);
   const cached = SKIP_MEMO.get(key);
   if (cached) return cached;
   const inflight = SKIP_INFLIGHT.get(key);
@@ -41,6 +47,13 @@ export async function prefetchSkips(
     try {
       const params = new URLSearchParams();
       if (aniListId) params.set("aniListId", String(aniListId));
+      params.set("lang", lang);
+      // episodeLength lets the API re-project an ED onto this encode's real
+      // duration (and is required by the AniSkip fallback). 0/absent is fine —
+      // the API then serves the ED in its canonical duration.
+      if (opts?.episodeLength && opts.episodeLength > 0) {
+        params.set("episodeLength", String(Math.round(opts.episodeLength)));
+      }
       const res = await fetch(`/api/v2/skip/${malId}/${episode}?${params.toString()}`);
       if (!res.ok) return [];
       const json = await res.json();

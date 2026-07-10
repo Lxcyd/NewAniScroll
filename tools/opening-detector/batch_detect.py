@@ -66,6 +66,7 @@ from oped.theme_bank import (
     detect_op_ed,
 )
 from oped.throttle import HostThrottler, is_throttle_error
+from oped.video_fingerprint import extract_keyframe_hashes
 
 
 # ── result sink ──────────────────────────────────────────────────────────────
@@ -105,13 +106,20 @@ def _probe_duration(url: str) -> float:
         return 24 * 60.0
 
 
-def build_theme_index(at_slug: str) -> tuple[list[Theme], dict[str, list[ThemeReference]]]:
+def build_theme_index(
+    at_slug: str, *, with_video: bool = True
+) -> tuple[list[Theme], dict[str, list[ThemeReference]]]:
     """Fetch themes + fingerprint every version once (cached). Returns
-    (themes, refs_by_theme_slug). Empty refs => nothing to detect against."""
+    (themes, refs_by_theme_slug). Empty refs => nothing to detect against.
+
+    `with_video` (default on): also fingerprint each clean NC clip's keyframes,
+    so detection can EXTEND cropped fade edges and fall back to a video-sourced
+    alignment when audio is too weak — the image is a first-class signal now,
+    not an optional extra."""
     themes = fetch_themes(at_slug)
     refs_by_theme: dict[str, list[ThemeReference]] = {}
     for t in themes:
-        rs = build_references(t, slug_prefix=f"animethemes/{at_slug}")
+        rs = build_references(t, slug_prefix=f"animethemes/{at_slug}", with_video=with_video)
         if rs:
             refs_by_theme[t.slug] = rs
     return themes, refs_by_theme
@@ -198,9 +206,28 @@ def process_anime(
                     )
                     return fingerprint(samples)
 
+                def resolve_samples_for(stream: HostStream, win):
+                    # Same (key, window) as the fingerprint above → load_audio
+                    # cache hit, no second decode. Feeds RMS edge-refinement.
+                    return load_audio(
+                        stream.url,
+                        cache_key=f"{base_prefix}/ep{ep}/{stream.host}",
+                        window=win,
+                    )
+
+                def resolve_video_for(stream: HostStream, win):
+                    return extract_keyframe_hashes(
+                        stream.url,
+                        cache_key=f"video/{base_prefix}/ep{ep}/{stream.host}",
+                        cache_dir="cache/video",
+                        window=win,
+                    )
+
                 try:
                     hits = detect_op_ed_multi(
                         streams, resolve_window_for, op_refs, ed_refs,
+                        resolve_samples_for=resolve_samples_for,
+                        resolve_video_for=resolve_video_for,
                         op_window=OP_WINDOW, ed_window=ED_WINDOW,
                     )
                 except Exception as exc:
@@ -210,11 +237,14 @@ def process_anime(
                             slot.throttled()
                     raise
 
-                row = {"mal_id": mal_id, "episode": ep, "op": None, "ed": None}
+                row = {
+                    "mal_id": mal_id, "episode": ep, "lang": season["lang"],
+                    "op": None, "ed": None,
+                }
                 for h in hits:
                     inferred = (h.kind == "op" and inf_op) or (h.kind == "ed" and inf_ed)
                     row[h.kind] = {
-                        "start": h.start, "end": h.end,
+                        "start": round(h.start, 2), "end": round(h.end, 2),
                         "theme": h.slug,
                         "votes": h.votes, "inferred": inferred or h.inferred,
                         # Cross-host robustness metadata: the duration the times
@@ -227,6 +257,13 @@ def process_anime(
                         "hosts_agree": h.n_hosts_agree,
                         "hosts_total": h.n_hosts_total,
                         "spread": h.spread_s,
+                        # Signal provenance + serve gate for the importer/API:
+                        # "audio"|"video"|"mixed" alignment, how many hosts had
+                        # video confirming, and whether it clears the precision-
+                        # first serve floor (≥2 agree, or 1 + video confirm).
+                        "source": h.source,
+                        "n_video_confirm": h.n_video_confirm,
+                        "serve": h.serve,
                     }
                 sink.write(row)
                 written += 1
@@ -253,9 +290,20 @@ def process_anime(
                     samples = load_audio(url, cache_key=base_key, window=win)
                     return fingerprint(samples)
 
+                def resolve_samples(win):
+                    return load_audio(url, cache_key=base_key, window=win)
+
+                def resolve_video(win):
+                    return extract_keyframe_hashes(
+                        url, cache_key=f"video/{base_key}",
+                        cache_dir="cache/video", window=win,
+                    )
+
                 try:
                     hits = detect_op_ed(
                         resolve_window, ep_dur, op_refs, ed_refs,
+                        resolve_samples=resolve_samples,
+                        resolve_video=resolve_video,
                         op_window=OP_WINDOW, ed_window=ED_WINDOW,
                     )
                 except Exception as exc:
@@ -263,13 +311,22 @@ def process_anime(
                         slot.throttled()
                     raise
 
-            row = {"mal_id": mal_id, "episode": ep, "op": None, "ed": None}
+            row = {
+                "mal_id": mal_id, "episode": ep, "lang": season["lang"],
+                "op": None, "ed": None,
+            }
             for h in hits:
                 inferred = (h.kind == "op" and inf_op) or (h.kind == "ed" and inf_ed)
                 row[h.kind] = {
                     "start": round(h.start, 2), "end": round(h.end, 2),
                     "theme": h.slug, "version": h.version,
                     "votes": h.votes, "inferred": inferred,
+                    # Single-host: no cross-host agreement, so serve is decided by
+                    # the video confirmation flag alone (audio+video agreed).
+                    "source": h.source,
+                    "confirmed_by_video": h.confirmed_by_video,
+                    "edge_start_source": h.edge_start_source,
+                    "edge_end_source": h.edge_end_source,
                 }
             sink.write(row)
             written += 1
@@ -352,11 +409,19 @@ def main() -> None:
     ap.add_argument("--start-conc", type=int, default=6, help="initial per-host concurrency")
     ap.add_argument("--max-per-host", type=int, default=24)
     ap.add_argument("--resume", action="store_true", help="skip anime already done")
+    # Multi-host is the default now (precision-first): it's what lets a video
+    # signal on one host confirm/rescue the audio on another and yields the
+    # cross-host `serve` gate the API relies on. --no-multi-host opts back to the
+    # cheaper single-host path (no reconciliation, no serve gate).
     ap.add_argument(
-        "--multi-host", action="store_true",
-        help="resolve each episode from every audio-capable host and reconcile "
-             "the OP/ED across them (robust to per-player duration differences; "
-             "emits from_end anchors + cross-host agreement). Costs more network.",
+        "--multi-host", dest="multi_host", action="store_true", default=True,
+        help="(default) resolve each episode from every audio-capable host and "
+             "reconcile OP/ED across them — robust to per-player duration "
+             "differences; emits from_end anchors + cross-host agreement + serve.",
+    )
+    ap.add_argument(
+        "--no-multi-host", dest="multi_host", action="store_false",
+        help="single-host path only (cheaper, but no cross-host serve gate).",
     )
     args = ap.parse_args()
 
