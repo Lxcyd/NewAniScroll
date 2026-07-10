@@ -195,30 +195,44 @@ def resolve_slug(
 def _pick_video(vids: list[dict], *, credited: bool) -> dict | None:
     """Best video from an entry's `videos` list for one signal.
 
-    `credited=False` (AUDIO): NC preferred, then highest resolution — the
-    cleanest audio anchor. `credited=True` (IMAGE): only nc=false rips, with
-    overlap=None preferred (a Transition/Over rip splices in adjacent-episode
-    footage, poisoning the keyframe match), then highest resolution. Returns
-    None when no video satisfies the request (e.g. no credited rip exists).
+    Resolution policy: prefer the LOWEST resolution, NOT the highest. Every
+    reference clip is downsampled to 11025 Hz mono audio and a 32x18 gray dHash
+    before matching, so a 1080p BD rip and a 480p rip fingerprint identically —
+    the extra pixels are pure download cost. On BD-quality titles (e.g. SnK) the
+    1080p OP/ED clips are tens of MB and dominate reference-building wall time;
+    the smallest valid rip is ~4-5x smaller for byte-for-byte identical hashes.
+    `_res_rank` sorts unknown/zero resolution LAST so a rip with a real, small
+    resolution always wins over one with no resolution metadata.
+
+    `credited=False` (AUDIO): NC preferred, then lowest resolution — the cleanest
+    audio anchor. `credited=True` (IMAGE): only nc=false rips, with overlap=None
+    preferred (a Transition/Over rip splices in adjacent-episode footage,
+    poisoning the keyframe match), then lowest resolution. Returns None when no
+    video satisfies the request (e.g. no credited rip exists).
     """
+    def _res_rank(v: dict) -> int:
+        # Smaller is better; None/0 → treated as "largest" so it's picked last.
+        r = v.get("resolution") or 0
+        return r if r > 0 else 1 << 30
+
     if credited:
         vids = [v for v in vids if not v.get("nc")]
         if not vids:
             return None
-        # overlap=None first (clean), then resolution. AnimeThemes returns
-        # overlap as the string "None" when absent, so treat that as clean too.
-        return max(
+        # overlap=None first (clean), then SMALLEST resolution. AnimeThemes
+        # returns overlap as the string "None" when absent → treat as clean.
+        return min(
             vids,
             key=lambda v: (
-                str(v.get("overlap")) in ("None", "none", ""),
-                v.get("resolution") or 0,
+                str(v.get("overlap")) not in ("None", "none", ""),  # clean first
+                _res_rank(v),
             ),
         )
     if not vids:
         return None
-    return max(
+    return min(
         vids,
-        key=lambda v: (bool(v.get("nc")), v.get("resolution") or 0),
+        key=lambda v: (not bool(v.get("nc")), _res_rank(v)),  # NC first, then smallest
     )
 
 
