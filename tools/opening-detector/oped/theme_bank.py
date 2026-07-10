@@ -47,7 +47,13 @@ from .audio import load_audio
 from .fingerprint import Fingerprint, fingerprint
 from .matcher import Match, best_match
 from .refine import refine_edges_ref_anchored
-from .video_fingerprint import VideoFingerprint, best_match_video, extract_keyframe_hashes
+from .video_fingerprint import (
+    HAMMING_THRESHOLD,
+    HAMMING_THRESHOLD_CREDITED,
+    VideoFingerprint,
+    best_match_video,
+    extract_keyframe_hashes,
+)
 
 # Default decode windows (seconds). OP: from episode start, covering a possible
 # cold-open + the OP itself. ED: the tail, via end-of-file seek.
@@ -94,7 +100,9 @@ class ThemeReference:
     video_url: str
     fp: Fingerprint
     duration: float    # seconds of the reference clip
-    video_fp: VideoFingerprint | None = None  # keyframe hashes of the clean NC clip
+    video_fp: VideoFingerprint | None = None  # keyframe hashes of the IMAGE ref
+    video_ref_url: str | None = None  # URL the keyframes came from (credited
+                                      # clip when available, else the NC clip)
 
 
 @dataclass
@@ -230,9 +238,12 @@ def build_references(
     has 4), so this is a straightforward wall-clock win with zero change to
     what's computed for each version.
 
-    `with_video=True` ALSO fingerprints the clean NC clip's keyframes (cached as
+    `with_video=True` ALSO fingerprints the theme's keyframes (cached as
     `.vfp.npz`) so `detect_op_ed`'s `resolve_video` can cross-confirm the audio
-    boundary. Off by default so the audio-only path pays nothing.
+    boundary. The image reference is the CREDITED clip when AnimeThemes has one
+    (its on-screen credits match the aired episode's overlaid frames, so the
+    keyframe hashes line up far tighter than a clean NC clip would), else the NC
+    clip. Off by default so the audio-only path pays nothing.
     """
     cache_dir = Path(cache_dir)
     entries = []
@@ -250,10 +261,16 @@ def build_references(
         key = f"{slug_prefix}/{theme.slug}/v{entry.version}"
         fp, dur = _fp_cached(key, entry.video_url, cache_dir)
         vfp = None
+        # IMAGE reference: prefer the CREDITED clip (its on-screen credits match
+        # the aired episode's overlaid frames), falling back to the NC clip when
+        # AnimeThemes has no credited rip. A distinct cache_key (+cred) keeps the
+        # credited keyframe fingerprint from colliding with any NC `.vfp.npz`.
+        video_ref_url = entry.video_url_credited or entry.video_url
+        video_key = key + ("+cred" if entry.video_url_credited else "")
         if with_video:
             try:
                 vfp = extract_keyframe_hashes(
-                    entry.video_url, cache_key=key, cache_dir=video_cache_dir
+                    video_ref_url, cache_key=video_key, cache_dir=video_cache_dir
                 )
             except Exception:
                 vfp = None  # video is confirmation-only; audio still ships
@@ -266,6 +283,7 @@ def build_references(
             fp=fp,
             duration=dur,
             video_fp=vfp,
+            video_ref_url=video_ref_url,
         )
 
     with ThreadPoolExecutor(max_workers=len(entries)) as pool:
@@ -453,7 +471,14 @@ def detect_op_ed(
         win_off = _abs_offset(win)
         best = None
         for r in candidates:
-            m = best_match_video(q, r.video_fp)
+            # A credited image reference carries the same on-screen credits as the
+            # episode, so a true frame pair now differs by re-encode noise only —
+            # use the tight threshold. An NC-only fallback ref still pays the full
+            # credit penalty (see video_fingerprint.HAMMING_THRESHOLD comment), so
+            # keep the loose default there.
+            is_credited = bool(r.video_ref_url) and r.video_ref_url != r.video_url
+            thr = HAMMING_THRESHOLD_CREDITED if is_credited else HAMMING_THRESHOLD
+            m = best_match_video(q, r.video_fp, hamming_threshold=thr)
             if m is None:
                 continue
             if best is None or m.n_votes > best[2]:

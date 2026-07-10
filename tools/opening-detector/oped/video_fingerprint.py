@@ -50,14 +50,26 @@ SCALE_W = 32          # smaller than before: we sample many more frames now
 SCALE_H = 18          # (fixed-rate, not keyframe-only), so keep each one tiny
 
 # Matching tolerance / clustering, deliberately looser than audio's since
-# re-encodes are never bit-identical AND the reference is a CLEAN NC clip while
-# the episode has credits/subtitles composited over the same footage — so even
-# a correct frame pair differs by more bits than a plain re-encode would.
-HAMMING_THRESHOLD = 12    # bits (out of 64) — below this, two hashes "match".
-                          # 8 was too strict against credit-overlaid episode
-                          # frames (starved the vote below min_votes → tiny
-                          # spurious spans); 12 keeps true pairs while a random
-                          # frame pair averages ~32 bits apart, well clear.
+# re-encodes are never bit-identical. TWO thresholds, chosen by what the image
+# reference is (see theme_bank._video_hit_for):
+#
+#   HAMMING_THRESHOLD (12) — the NC-only FALLBACK. When AnimeThemes has no
+#     credited rip, the reference is a CLEAN clip while the episode has credits
+#     composited over the same footage. We measured that "credit penalty" by
+#     frame-aligning a theme's credited vs NC rip: median ~2 bits when credits
+#     are sparse (bocchi OP1) but ~10 on busy endings (bocchi ED1/ED2) and ~30
+#     on a dense sequence (chainsaw OP1) — i.e. it can reach random-pair range
+#     (~32). 12 is the pragmatic ceiling that still keeps SOME true pairs in the
+#     bad case without dragging in junk; 8 starved the vote below min_votes.
+#
+#   HAMMING_THRESHOLD_CREDITED (8) — the DEFAULT now that a credited reference
+#     exists for almost every theme. Episode-credited vs reference-credited pays
+#     re-encode noise ONLY (the credit overlay is present on BOTH sides and
+#     cancels), so the true-pair distance collapses back to a few bits and we can
+#     tighten to 8 — sharper spans, fewer spurious clusters — while a random
+#     frame pair still averages ~32 bits apart, well clear.
+HAMMING_THRESHOLD = 12          # bits (out of 64) — NC-only fallback reference.
+HAMMING_THRESHOLD_CREDITED = 8  # credited reference: only re-encode noise remains.
 CLUSTER_GAP_S = 4.0       # dense-span clustering gap, seconds. At 2fps sampling
                           # (see SAMPLE_FPS) anchors are dense, so a real OP/ED
                           # segment has no internal gap this large — a jump this
@@ -129,14 +141,27 @@ def _parse_keyframe_raw(
     )
 
     pts = [float(m.group(1)) for m in _SHOWINFO_PTS_RE.finditer(stderr)]
-    if len(pts) != n_frames:
-        # showinfo's pts count should match the decoded frame count; if
-        # ffmpeg's stderr format ever drifts, fall back to synthetic even
-        # spacing rather than crashing — a coarse video signal beats none.
-        pts = list(np.linspace(0.0, max(n_frames - 1, 0), n_frames))
+    # showinfo's pts count SHOULD equal the decoded frame count, but the `fps=`
+    # filter routinely flushes a few extra duplicated/padding frames at segment
+    # boundaries on HLS (seen on megaplay: 360 rawvideo frames vs 350 showinfo
+    # pts) — those trailing frames carry no pts line. Earlier this ANY mismatch
+    # discarded every real timestamp for a synthetic 1s-spaced linspace, which
+    # both doubled the spacing (true rate is SAMPLE_FPS=2) and de-anchored the
+    # timeline, smearing the offset histogram and starving the vote below
+    # min_votes — the ED video match then always returned None. Instead: keep the
+    # real pts, and align frames↔pts by their common prefix (both are in emission
+    # order, so pair i is frame i with pts i). Drop the untimed tail frames rather
+    # than the timestamps. Only when showinfo yielded NOTHING do we synthesize
+    # spacing, and then at the true 1/SAMPLE_FPS interval, not 1s.
+    if pts:
+        keep = min(len(pts), n_frames)
+        frames = frames[:keep]
+        times = np.asarray(pts[:keep], dtype=np.float32)
+    else:
+        step = 1.0 / SAMPLE_FPS
+        times = np.arange(n_frames, dtype=np.float32) * step
 
     hashes = _dhash_batch(frames)
-    times = np.asarray(pts[:n_frames], dtype=np.float32)
     return hashes, times
 
 
