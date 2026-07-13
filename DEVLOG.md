@@ -7,6 +7,23 @@ Ordre anti-chronologique (le plus récent en haut). Une entrée = une session/su
 
 ---
 
+## 2026-07-14 — OP/ED : fin d'OP tronquée à 4:00 (fenêtre) + megaplay ED décalé (credited faible override audio)
+
+Validation sur **JJK S1** (AniList 113415, mal 40748). Deux bugs distincts trouvés en vérifiant l'ép3 au pixel.
+
+**Bug 1 — OP end tronqué à 4:00 pour tous les lecteurs anime-sama.** `OP_WINDOW=(0,240)` ne décode que les 4 premières min. L'OP de JJK (90s) démarre à 3:12 → finit à **4:42**, donc **à cheval** sur le bord 240s. Le match fenêtré en capturait ~48s (fill 0.53, juste au-dessus de `min_fill=0.5`) et renvoyait un hit **tronqué à 4:00**, ce qui **supprimait** le fallback épisode-complet (déclenché seulement si `hit is None`). ep2 (OP entièrement hors fenêtre à 5:45) marchait, lui, via ce fallback. Tous les hosts d'accord sur 4:00 = signal partagé (fenêtre), pas du bruit par lecteur.
+- **Fix** : `_window_clipped(hit, win)` — détecte que `theme_t0 + ref_duration` déborde la plage décodée (marge 1s, un bord = fin d'épisode ne compte pas). Le fallback se déclenche alors **aussi sur troncature**, pas que sur `hit is None`, et garde le match qui couvre le plus de la réf (`r_end - r_start`).
+- **Perf** : au lieu de re-décoder l'épisode entier (~24 min audio **et** keyframes vidéo → très lent), le fallback décode une **fenêtre élargie** `(theme_lo-12, theme_hi+12)` (~2 min) puisque l'audio a déjà localisé le thème. `video_win` dérivé de même pour ne jamais scanner les keyframes de tout l'épisode. Résultat ép3 : OP **3:12→4:40** (span 88s, 278 votes vs 197 avant).
+
+**Bug 2 — megaplay ED à 21:20 au lieu de 21:15 (même contenu/durée que les autres).** Prouvé au pixel : megaplay@1362 == sibnet@1362 (frame « 制作 MAPPA » identique) → **même timeline**. megaplay = source `mewstream.buzz` (HLS, construite depuis le MAL id), keyframes clairsemées → match **credited faible (137 votes)** qui **overridait l'audio très fort (2616 votes)** et décalait le start de ~10s. L'ED ouvrant sur un **aplat cyan sans détail**, l'image ne peut pas y planter un bord.
+- **Fix** : `CREDITED_OVERRIDE_AGREE_BAND_S=4.0` — un credited n'override un hit audio **fort** que si son `theme_t0` est à ≤4s de l'ancre audio. Désaccord large → on **garde l'alignement audio** (flag `video_disagreement`). Ne gate que l'audio fort ; audio faible/absent cède au credited comme avant. megaplay ép3 : ED **21:20→21:10** (audio, vrai ≈21:12). Fin encore ~6s tôt (22:38 vs ~22:44) : son credited HLS reste trop pauvre pour caler le fondu — plafond de la source.
+
+Aussi : `diag_match.ms()` floor → **round-to-nearest** (le floor biaisait chaque timecode ~1s tôt).
+
+**Constat clé** : les 3 lecteurs anime-sama (sendvid/sibnet/vidmoly) donnent un résultat **identique au dixième** (même source). Seuls **megaplay** (mewstream) et **vidmoly-va** (voir-anime) divergent = providers réellement différents (encodage/keyframes/intro). Les bords OP/ED étant des fondus/aplats, le calage image y est intrinsèquement ambigu.
+
+**Prochaine piste (idée user)** : **ancrage sur image-repère** — repérer 1–2 frames *distinctives* (haute entropie) de la réf credited, les localiser (match unique) dans l'épisode, et **projeter** les bords via la géométrie connue du clip, au lieu de planter le bord sur un aplat/fondu. Devrait fixer megaplay (une seule keyframe repère suffit) et les fins en fondu. Plan à établir.
+
 ## 2026-07-10 — OP/ED : précision ~0.25s sur les 4 bords (refine image *credited* dense)
 
 Problème : le détecteur OP/ED se trompait de plusieurs secondes, surtout sur la **dernière frame de l'ED**. Objectif user : que la « dernière frame » de notre timing soit à ~0.25s près de la vraie dernière frame dans le player, sur **les 4 bords**.

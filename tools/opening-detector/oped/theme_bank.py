@@ -113,6 +113,17 @@ CREDITED_ALIGN_MIN_VOTES = 60
 # already image-authoritative and are not subject to this band.
 DENSE_AUDIO_SHARPEN_BAND_S = 2.0
 
+# Max disagreement (seconds) between a credited video alignment and a STRONG audio
+# alignment for the credited match to be allowed to OVERRIDE the audio timing.
+# Credited priority exists to sharpen fade edges the audio can't see, so a genuine
+# credited refinement sits within a couple of seconds of the audio. A far larger
+# gap means the credited match itself is unreliable — sparse HLS keyframes (a
+# 137-vote credited vs a 2616-vote audio on megaplay), or an edge on a featureless
+# solid-colour card the image matcher can't pin — so we KEEP the strong audio
+# alignment instead of letting the weak picture drag it off. Only gates STRONG
+# audio; weak/absent audio still yields to credited as before.
+CREDITED_OVERRIDE_AGREE_BAND_S = 4.0
+
 
 @dataclass
 class ThemeReference:
@@ -458,6 +469,37 @@ def detect_op_ed(
             return 0.0
         return episode_duration + start_s if start_s < 0 else start_s
 
+    def _window_span(win) -> tuple[float, float]:
+        """Absolute episode-time range a decode window actually covers."""
+        if win is None:
+            return (0.0, episode_duration)
+        _start_s, dur_s = win
+        lo = _abs_offset(win)
+        hi = episode_duration if dur_s is None else lo + dur_s
+        return (max(0.0, lo), min(episode_duration, hi))
+
+    def _window_clipped(hit: ThemeHit, win) -> bool:
+        """True when the matched theme extends past the decode window, so the
+        windowed match could only see PART of it — the segment straddles the
+        window edge (e.g. a JJK OP that starts after a >2:30 cold-open runs past
+        the 4-min OP window). Such a hit is truncated AT the window boundary,
+        with its end clamped to the edge; the caller then re-matches on the whole
+        episode to recover the full extent.
+
+        Compares the theme's projected full extent [theme_t0, theme_t0 +
+        ref_duration] against the window's covered range. A 1s margin absorbs
+        projection rounding so a theme that merely reaches the boundary isn't
+        needlessly re-decoded. A window that already ends at the episode boundary
+        can't clip on that side (the theme legitimately runs to the end)."""
+        if win is None:
+            return False
+        lo, hi = _window_span(win)
+        theme_lo = hit.vote_start - hit.r_start            # ref frame 0 in ep time
+        theme_hi = theme_lo + hit.ref_duration
+        right_clip = hi < episode_duration - 1.0 and theme_hi > hi + 1.0
+        left_clip = lo > 1.0 and theme_lo < lo - 1.0
+        return right_clip or left_clip
+
     def _refine_hit(hit: ThemeHit, win, *, end_only: bool = False) -> None:
         """Snap hit.start/end to the true onset/cut using the window's PCM. Edits
         the hit in place; a failure leaves the projection untouched.
@@ -772,47 +814,99 @@ def detect_op_ed(
         hit = _match_best_version(
             fp, refs, _abs_offset(win), min_votes=min_votes, min_score=min_score
         )
-        if hit is None and full_fallback:
-            # Windowed match missed — retry on the whole episode (long cold-open
-            # pushed the OP past the window, or an unusual layout). Only for the
-            # failures, so the fast path stays windowed.
-            fp_full = resolve_window(None)
-            hit = _match_best_version(
-                fp_full, refs, 0.0, min_votes=min_votes, min_score=min_score
+        # Fall back to the WHOLE episode when the fast window either missed the
+        # theme entirely (hit is None: a long cold-open or unusual layout put the
+        # OP/ED outside the window) OR only caught PART of it (the theme straddles
+        # the window edge, so the windowed hit is truncated at the boundary — the
+        # JJK late-OP case, where all hosts agreed on a wrong 4:00 end because the
+        # OP window stops at 4:00 while the OP runs to ~4:42). Keep the full hit
+        # only when it covers MORE of the reference; otherwise the windowed hit —
+        # which is frame-accurate on the fast path — stands. Only the failures and
+        # the straddlers pay the full decode; a fully-in-window OP/ED does not.
+        if full_fallback and (hit is None or _window_clipped(hit, win)):
+            # Recover the truncated/out-of-window theme. When the windowed match
+            # DID locate it (the straddle case: an in-window hit whose theme runs
+            # past the edge), we know roughly where it sits, so decode only a
+            # WIDENED window covering the theme's full extent — ~2 min instead of
+            # the whole ~24-min episode. Only when the window missed the theme
+            # ENTIRELY (hit is None: a very late OP / unusual layout) do we pay the
+            # whole-episode decode, since then we have no idea where it is.
+            if hit is not None:
+                theme_lo = hit.vote_start - hit.r_start
+                theme_hi = theme_lo + hit.ref_duration
+                pad = 12.0
+                w_start = max(0.0, theme_lo - pad)
+                fb_win = (w_start, (theme_hi + pad) - w_start)
+            else:
+                fb_win = None
+            fp_fb = resolve_window(fb_win)
+            fb_hit = _match_best_version(
+                fp_fb, refs, _abs_offset(fb_win),
+                min_votes=min_votes, min_score=min_score,
             )
-            used_win = None
+            if fb_hit is not None and (
+                hit is None
+                or (fb_hit.r_end - fb_hit.r_start) > (hit.r_end - hit.r_start)
+            ):
+                hit = fb_hit
+                used_win = fb_win
+
+        # Video-decode window for the steps below. On the fast path it's the
+        # original window. On the full-episode fallback the audio match already
+        # located the theme, so decode video only AROUND it rather than rescanning
+        # the whole episode's keyframes — otherwise a straddling OP would cost a
+        # ~24-min keyframe decode. When audio failed entirely (hit is None) we keep
+        # None so the video path can still search the whole episode.
+        video_win = used_win
+        if used_win is None and hit is not None:
+            _pad = 8.0
+            _lo = max(0.0, hit.start - _pad)
+            video_win = (_lo, (hit.end - hit.start) + 2 * _pad)
 
         # CREDITED-FRAME PRIORITY. A with-credits AnimeThemes rip carries the same
         # on-screen credits as the episode, so a confident frame match is
-        # frame-accurate and is PRIORITISED over audio — including over a strong
-        # audio hit. Pin the credited match to the audio hit's theme when we have
-        # one (keeps OP1-vs-OP2 disambiguation from the audio vote); otherwise
-        # take the best credited match overall. Only a genuinely credited ref that
-        # clears CREDITED_ALIGN_MIN_VOTES may override audio here — an NC-only ref
-        # returns source="video" and is rejected by this gate, staying subordinate.
+        # frame-accurate and is PRIORITISED over audio. Pin the credited match to
+        # the audio hit's theme when we have one (keeps OP1-vs-OP2 disambiguation
+        # from the audio vote); otherwise take the best credited match overall.
+        # Only a genuinely credited ref that clears CREDITED_ALIGN_MIN_VOTES may
+        # override audio — an NC-only ref returns source="video" and is rejected.
         cred_hit = _video_sourced_hit(
-            refs, used_win,
+            refs, video_win,
             slug=(hit.slug if hit is not None else None),
             min_votes=CREDITED_ALIGN_MIN_VOTES,
         )
         if cred_hit is not None and cred_hit.source == "credited":
-            # Confirm agreement with the audio boundary for the confidence flag,
-            # but the credited frames now own the delivered timing.
-            if hit is not None:
-                ov = max(0.0, min(hit.end, cred_hit.end) - max(hit.start, cred_hit.start))
-                span = max(1e-6, cred_hit.end - cred_hit.start)
-                if ov / span >= VIDEO_CONTAINMENT:
-                    cred_hit.confirmed_by_video = True
-                else:
-                    cred_hit.video_disagreement = True
-            hit = cred_hit
+            # A STRONG audio hit is only overridden when the credited alignment
+            # AGREES with it (their theme-t0 anchors within the band). A gross
+            # disagreement means the credited match is unreliable (sparse HLS
+            # keyframes, a featureless card edge) — keep the strong audio timing
+            # and just flag it. Weak/absent audio still yields to credited.
+            audio_t0 = None if hit is None else (hit.vote_start - hit.r_start)
+            gross_disagree = (
+                hit is not None
+                and _is_strong(hit)
+                and cred_hit.video_theme_t0 is not None
+                and audio_t0 is not None
+                and abs(cred_hit.video_theme_t0 - audio_t0) > CREDITED_OVERRIDE_AGREE_BAND_S
+            )
+            if gross_disagree:
+                hit.video_disagreement = True
+            else:
+                if hit is not None:
+                    ov = max(0.0, min(hit.end, cred_hit.end) - max(hit.start, cred_hit.start))
+                    span = max(1e-6, cred_hit.end - cred_hit.start)
+                    if ov / span >= VIDEO_CONTAINMENT:
+                        cred_hit.confirmed_by_video = True
+                    else:
+                        cred_hit.video_disagreement = True
+                hit = cred_hit
 
         # Audio absent OR too weak (and no credited win) → let a clean NC image
         # become the timing source. (VF dub ducked the theme under dialogue, an
         # encode trimmed the audio, etc. — the picture is intact even where the
         # sound is corrupted.)
         elif hit is None or not _is_strong(hit):
-            v_hit = _video_sourced_hit(refs, used_win)
+            v_hit = _video_sourced_hit(refs, video_win)
             # Take the video alignment when audio produced nothing, or when the
             # video match is stronger than the weak audio one. A strong audio hit
             # never reaches here, so this never overrides a trusted boundary.
@@ -823,7 +917,7 @@ def detect_op_ed(
             if hit.source == "audio":
                 # Cross-confirm + extend fade edges with the coarse video match;
                 # this also records hit.video_theme_t0 for the dense sharpen below.
-                _apply_video(hit, refs, used_win)
+                _apply_video(hit, refs, video_win)
 
             if refine and hit.source == "credited":
                 # Both edges come from the sub-second IMAGE transition against the

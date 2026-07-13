@@ -29,9 +29,12 @@ from oped.theme_bank import ED_WINDOW, OP_WINDOW
 
 
 def ms(s: float) -> str:
+    # Round to the NEAREST second (not floor): flooring biases every timecode
+    # up to ~1s early. Round total seconds first, then divmod, so x:59.7 rolls
+    # over to (x+1):00 instead of x:60.
     sign = "-" if s < 0 else ""
-    s = abs(s)
-    return f"{sign}{int(s) // 60}:{int(s) % 60:02d}"
+    s = round(abs(s))
+    return f"{sign}{s // 60}:{s % 60:02d}"
 
 
 def _measure_actual_window_start(url: str, window, referer: str | None) -> float | None:
