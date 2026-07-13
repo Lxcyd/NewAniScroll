@@ -416,6 +416,7 @@ def detect_op_ed(
     resolve_samples=None,
     resolve_video=None,
     resolve_video_dense=None,
+    resolve_window_duration=None,
     op_window: tuple[float | None, float | None] = OP_WINDOW,
     ed_window: tuple[float | None, float | None] = ED_WINDOW,
     min_votes: int = 40,
@@ -453,11 +454,34 @@ def detect_op_ed(
     also lets it tighten an AUDIO-sourced edge when a credited ref exists, guarded
     by `DENSE_AUDIO_SHARPEN_BAND_S`.
 
+    `resolve_window_duration(window)` (optional) returns the ACTUAL decoded length
+    (seconds) of a window. It matters only for the ED `-sseof` window: ffmpeg's
+    keyframe seek can overshoot (megaplay HLS returned ~175s for a `-sseof 180`),
+    so the window's true start is EOF - decoded_len, not the nominal EOF-180. With
+    this wired, every ED timestamp is anchored on the real decoded extent instead
+    of shipping ~5s early on hosts whose seek overshot. Without it, the nominal
+    anchor is used (correct for hosts that decode the full window).
+
     OP and ED are detected in PARALLEL. Detection LOGIC is byte-for-byte the same
     as running them sequentially — only the wall-clock ordering changes.
 
     Returns the accepted ThemeHits (0..2), each in absolute episode time.
     """
+
+    _win_dur_cache: dict = {}
+
+    def _window_decoded_dur(win) -> float | None:
+        """Actual decoded length (seconds) of a window, via the optional
+        `resolve_window_duration` callback. Memoised per window (it's called
+        repeatedly for the same window from every _abs_offset use)."""
+        if resolve_window_duration is None or win is None:
+            return None
+        if win not in _win_dur_cache:
+            try:
+                _win_dur_cache[win] = resolve_window_duration(win)
+            except Exception:
+                _win_dur_cache[win] = None
+        return _win_dur_cache[win]
 
     def _abs_offset(win) -> float:
         # Convert a window's start into an absolute episode offset. A negative
@@ -467,7 +491,21 @@ def detect_op_ed(
         start_s, _dur = win
         if start_s is None:
             return 0.0
-        return episode_duration + start_s if start_s < 0 else start_s
+        if start_s < 0:
+            # -sseof seeks to the nearest keyframe <= (EOF - |start_s|) and then
+            # decodes to EOF, so the window's TRUE start is EOF - (actual decoded
+            # length), which a keyframe seek routinely overshoots: on megaplay's
+            # HLS a `-sseof 180` returned only ~175s, so the nominal anchor
+            # (EOF-180) was ~5s early and EVERY ED timestamp shipped ~5s low
+            # (21:10 instead of 21:15). Recover the real anchor from the decoded
+            # length; the well-behaved hosts decode a full 180s so their offset is
+            # unchanged. Falls back to the nominal anchor when the length is
+            # unknown (no duration callback wired).
+            d = _window_decoded_dur(win)
+            if d is not None and d > 0:
+                return max(0.0, episode_duration - d)
+            return episode_duration + start_s
+        return start_s
 
     def _window_span(win) -> tuple[float, float]:
         """Absolute episode-time range a decode window actually covers."""

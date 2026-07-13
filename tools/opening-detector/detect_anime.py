@@ -220,6 +220,16 @@ def run_single_host(args, themes, refs_by_theme, op_pool, ed_pool, eps):
             )
             return fp
 
+        def resolve_window_duration(win):
+            # Actual decoded length of the window (same cached fingerprint, cache
+            # hit → reads the .dur.txt sidecar, no decode). detect_op_ed uses this
+            # to anchor the ED `-sseof` window on EOF - decoded_len instead of the
+            # nominal EOF-180, correcting hosts whose keyframe seek overshot.
+            _fp, dur = cached_fingerprint(
+                base_key, url, "cache/audio", window=win, referer=e.get("referer")
+            )
+            return dur
+
         def resolve_samples(win):
             # SAME (base_key, window) → load_audio cache hit, no second decode.
             return load_audio(
@@ -247,6 +257,7 @@ def run_single_host(args, themes, refs_by_theme, op_pool, ed_pool, eps):
             resolve_samples=resolve_samples,
             resolve_video=(resolve_video if not args.no_video else None),
             resolve_video_dense=(resolve_video_dense if not args.no_video else None),
+            resolve_window_duration=resolve_window_duration,
             op_window=OP_WINDOW, ed_window=ED_WINDOW,
             min_votes=args.min_votes, min_score=args.min_score,
             refine=not args.no_refine,
@@ -352,6 +363,16 @@ def run_multi_host(args, themes, refs_by_theme, op_pool, ed_pool, lang: str, log
                 window=win, referer=e.get("referer"), fps=fps,
             )
 
+        def resolve_window_duration_for(stream: HostStream, win):
+            # Actual decoded window length per host → anchors each host's ED
+            # `-sseof` window on EOF - decoded_len (see detect_op_ed._abs_offset).
+            e = stream_meta[stream.host]
+            base_key = f"{args.slug}/{args.season}/{lang}/{stream.host}/ep{ep}"
+            _fp, dur = cached_fingerprint(
+                base_key, stream.url, "cache/audio", window=win, referer=e.get("referer")
+            )
+            return dur
+
         op_refs, ed_refs, inferred_op, inferred_ed = refs_for_episode(
             themes, refs_by_theme, op_pool, ed_pool, ep
         )
@@ -363,6 +384,7 @@ def run_multi_host(args, themes, refs_by_theme, op_pool, ed_pool, lang: str, log
             resolve_samples_for=resolve_samples_for,
             resolve_video_for=(resolve_video_for if not args.no_video else None),
             resolve_video_dense_for=(resolve_video_dense_for if not args.no_video else None),
+            resolve_window_duration_for=resolve_window_duration_for,
             op_window=OP_WINDOW, ed_window=ED_WINDOW,
             min_votes=args.min_votes, min_score=args.min_score,
         )

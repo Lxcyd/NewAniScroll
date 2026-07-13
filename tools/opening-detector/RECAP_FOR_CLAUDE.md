@@ -408,6 +408,45 @@ un obstacle (`subprocess.run` et les I/O réseau le libèrent). Les logs par hos
 bufferisés et affichés en bloc dans l'ordre de soumission pour rester lisibles malgré
 l'exécution concurrente.
 
+### 11.6 — Ancre ED `-sseof` fausse quand le seek keyframe déborde (megaplay 21:10→21:15)
+**Symptôme** : megaplay ep3 livrait l'ED à **21:10-22:40** alors que le trio anime-sama
+(sibnet/sendvid/vidmoly) et la vérité terrain sont à **21:15-22:44.9**. Un décalage
+systématique de ~5s, uniquement sur megaplay.
+
+**Fausse piste écartée (mesurée)** : ce n'était PAS un problème de précision audio ni
+de landmarks vidéo. En décodant la fenêtre ED, l'audio place le thème à `theme_t0=15.07`
+(temps fenêtre) et la vidéo à `25.0` — **10s d'écart pour le MÊME ED**. Un décodage
+ffmpeg **fusionné** (un seul `-sseof`, deux sorties) ne corrige rien : l'écart persiste
+→ ce n'est pas un désaccord de seek entre passes.
+
+**Cause racine** : `-sseof 180` demande « 180s avant la fin », mais ffmpeg seeke à la
+**keyframe la plus proche ≤ (EOF-180)** puis décode jusqu'à EOF. Sur le HLS de megaplay
+le seek déborde : il ne décode que **175.08s** au lieu de 180. Or `_abs_offset` supposait
+que la fenêtre commençait pile à `EOF-180`, donc **chaque timestamp ED partait 5s trop
+tôt**. Le vrai début de fenêtre = `EOF - longueur_décodée_réelle`. Vérifié : `1434.99 -
+175.08 + 15.07 = 1274.98 = 21:15.0` (cible 1274.99), fin `+90.05 = 1365.03 = 22:45.0`
+(vérité terrain じゅじゅさんぽ 22:44.9). Le trio décode ~180s pile (179.96/180.00/180.00)
+→ décalage ≤ 0.04s, **inchangé**.
+
+**Fix** : `_abs_offset` calcule, pour une fenêtre à start négatif (`-sseof`), l'offset =
+`episode_duration - longueur_décodée` au lieu de `episode_duration + start`. La longueur
+décodée est fournie par un nouveau callback optionnel `resolve_window_duration(window)`
+(câblé sur `cached_fingerprint`, qui renvoie déjà la durée depuis le sidecar `.dur.txt`
+— gratuit en cache-hit). Fallback sur l'ancre nominale si le callback est absent. Le
+paramètre est propagé dans `detect_op_ed`, `multi_host.detect_per_host` /
+`detect_op_ed_multi`, et câblé aux deux chemins (`run_single_host` /
+`run_multi_host`) de `detect_anime.py`. Auto-correctif : gère aussi bien un débordement
+(décode <180s) qu'un sous-débordement (>180s).
+
+**Note pour la suite (landmarks)** : le prototype d'ancrage sur image-repère (voir
+`proto_landmark.py`) a été validé — la localisation de repères distinctifs est
+extrêmement robuste, même sur megaplay (4/4 repères, Hamming 0-3, là où le raffineur
+dense d'arête ne décodait qu'`n=1` frame). Mais ce n'était PAS le correctif megaplay
+(la vidéo megaplay a en plus un offset A/V de ~5s propre à son décodage HLS seeké, qui
+la rend peu fiable en temps absolu). Les landmarks restent un chantier ouvert pour les
+**fondus** (bord OP/ED sur un aplat/fade où l'audio et l'arête dense échouent), pas pour
+megaplay.
+
 ---
 
 ## 12. Résumé en une phrase
