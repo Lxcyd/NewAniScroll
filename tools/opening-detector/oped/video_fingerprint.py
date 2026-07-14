@@ -242,6 +242,52 @@ def _ffmpeg_keyframe_hashes(
     return _parse_keyframe_raw(proc.stdout, proc.stderr, SCALE_W, SCALE_H)
 
 
+def keyframe_hashes_abs(
+    src: str,
+    start_abs: float,
+    dur: float | None = None,
+    *,
+    fps: float = SAMPLE_FPS,
+    referer: str | None = None,
+) -> VideoFingerprint:
+    """Decode `[start_abs, start_abs+dur]` at `fps`, downscaled gray, with
+    ABSOLUTE timestamps (`-copyts` + absolute `-ss`), returning a
+    VideoFingerprint whose `times` are absolute episode seconds.
+
+    Measured on megaplay's HLS: with `-copyts` the `showinfo` pts come out
+    absolute (first frame pts 1260.0 for a `-ss 1254.99`) and agree with the
+    audio pass's `ashowinfo` pts (1260.08) to within the container A/V offset —
+    i.e. audio and video share ONE clock. This is what lets the image own the
+    boundary in absolute time without any `-sseof` anchor or A/V reconciliation.
+    The `times` are used as-is (no window offset added by the caller).
+    """
+    from .audio import _is_hls_url
+
+    cmd = ["ffmpeg", "-hide_banner", "-loglevel", "info"]
+    if referer:
+        cmd += ["-headers", f"Referer: {referer}\r\n"]
+    if _is_hls_url(src):
+        cmd += ["-allowed_extensions", "ALL", "-allowed_segment_extensions", "ALL", "-extension_picky", "0"]
+    # -to (ABSOLUTE end, before -i) not -t: with -copyts the timeline is absolute
+    # so -t truncates to ~nothing on HLS (megaplay: 2 frames). See audio.py.
+    cmd += ["-copyts", "-ss", str(start_abs)]
+    if dur is not None:
+        cmd += ["-to", str(start_abs + dur)]
+    cmd += ["-i", src]
+    # fps=None → NO fps filter: decode every native frame with its real pts. Used
+    # for edge refinement, where sampling to a grid would cap precision at the
+    # grid; native frames give ±1 real frame (~42ms) accuracy.
+    scale_chain = f"scale={SCALE_W}:{SCALE_H},format=gray,showinfo"
+    vf = scale_chain if fps is None else f"fps={fps},{scale_chain}"
+    cmd += ["-vf", vf, "-an", "-f", "rawvideo", "-pix_fmt", "gray", "-"]
+    proc = subprocess.run(cmd, capture_output=True)
+    if proc.returncode != 0:
+        err = proc.stderr.decode("utf-8", "replace").strip()
+        raise RuntimeError(f"ffmpeg (abs keyframes) failed for {src!r}:\n{err}")
+    hashes, times = _parse_keyframe_raw(proc.stdout, proc.stderr, SCALE_W, SCALE_H)
+    return VideoFingerprint(hashes, times, n_frames=len(hashes))
+
+
 def _dhash_batch(frames: np.ndarray) -> np.ndarray:
     """Vectorized dHash: for each frame, compare adjacent-pixel brightness on
     an (HASH_W+1) x HASH_H grid — bit=1 if left pixel < right pixel. Robust to
@@ -417,6 +463,131 @@ def _dense_span_video(q_times: np.ndarray, *, gap_s: float):
     lo, hi = starts[best], ends[best]
     keep = order[lo:hi]
     return float(qs[lo]), float(qs[hi - 1]), np.sort(keep)
+
+
+# ── landmark (distinctive-frame) anchoring ────────────────────────────────────
+#
+# The precise, robust way to place a credited theme inside an episode: pick a few
+# DISTINCTIVE reference frames (rich in detail, unique within the clip) and find
+# where each re-appears in the episode. A distinctive frame has a rare dHash that
+# relocates at the pixel in any re-encode, so its match is a sharp Hamming minimum
+# — unlike a flat card/fade/black frame whose hash matches "everywhere". We anchor
+# on those frames (NOT on the boundary, which may be a fade/solid), then project.
+# Validated on JJK ED across all hosts incl. megaplay's sparse 2fps keyframes:
+# accepted landmarks match at Hamming 0-3 with a wide 2nd-best gap, and the median
+# theme_t0 is consistent to the sampling grid.
+
+
+def landmark_scores(
+    vfp: VideoFingerprint, *, neighbor_guard_s: float = 0.75
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Per-frame distinctiveness, from the dHash alone. Returns (score, detail,
+    unique), parallel to vfp.hashes.
+
+      detail  = min(popcount, 64-popcount) — bit balance. Flat/black/fade frames
+                have a degenerate (mostly-0) hash → low detail; textured frames
+                balance near 32 → high detail.
+      unique  = min Hamming distance to every frame that isn't a temporal
+                neighbour (within neighbor_guard_s). A frame with a near-twin
+                elsewhere is ambiguous to relocate; a frame with none has a sharp
+                minimum in the episode search.
+      score   = detail * unique (both must be high).
+    """
+    h, t = vfp.hashes, vfp.times
+    n = len(h)
+    if n == 0:
+        z = np.empty(0, np.float64)
+        return z, z, z
+    pc = _popcount64(h)
+    detail = np.minimum(pc, 64 - pc).astype(np.float64)
+    if n == 1:
+        return detail, detail, np.zeros(1, np.float64)
+    dist = _popcount64(h[:, None] ^ h[None, :]).astype(np.float64)
+    dt = np.abs(t[:, None].astype(np.float64) - t[None, :].astype(np.float64))
+    dist[dt <= neighbor_guard_s] = np.inf
+    unique = dist.min(axis=1)
+    unique[~np.isfinite(unique)] = 0.0
+    return detail * unique, detail, unique
+
+
+def pick_landmarks(
+    vfp: VideoFingerprint, *, k: int = 4, min_gap_floor_s: float = 8.0
+) -> list[tuple[float, int]]:
+    """Choose up to `k` distinctive, well-separated landmarks from a reference
+    fingerprint. Returns [(r_time, hash_uint64), ...] sorted by time — storable
+    on ThemeReference INDEPENDENT of the fingerprint, so localisation later needs
+    only these pairs. Spread is enforced (>= min_gap) so the projection is
+    anchored across the clip, not clustered in one spot.
+    """
+    if len(vfp.hashes) == 0:
+        return []
+    score, _detail, _unique = landmark_scores(vfp)
+    t = vfp.times
+    dur = float(t.max() - t.min()) if len(t) else 0.0
+    order = np.argsort(score)[::-1]  # best first
+    min_gap = max(dur / (k + 1), min_gap_floor_s)
+    picked: list[int] = []
+    for i in order:
+        if len(picked) >= k:
+            break
+        if all(abs(float(t[i]) - float(t[j])) >= min_gap for j in picked):
+            picked.append(int(i))
+    picked.sort(key=lambda i: float(t[i]))
+    return [(float(t[i]), int(vfp.hashes[i])) for i in picked]
+
+
+@dataclass
+class LandmarkAnchor:
+    """Result of anchoring a set of reference landmarks in an episode."""
+
+    theme_t0: float      # median projected reference-frame-0 time (episode time,
+                         # absolute when the episode fingerprint carries abs pts)
+    n_accepted: int      # landmarks that passed the Hamming + separation guards
+    n_total: int         # landmarks attempted
+    spread_s: float      # max-min of the per-landmark theme_t0 estimates
+
+
+def anchor_by_landmarks(
+    ep_vfp: VideoFingerprint,
+    landmarks: list[tuple[float, int]],
+    *,
+    hamming_max: int = HAMMING_THRESHOLD_CREDITED,
+    sep_min: int = 6,
+    guard_s: float = 1.0,
+) -> LandmarkAnchor | None:
+    """Locate each reference landmark in `ep_vfp` and project a robust theme_t0.
+
+    For each (r_time, hash): find the episode frame with the smallest Hamming
+    distance; ACCEPT it only when that best distance <= `hamming_max` AND the
+    2nd-best distance (outside a `guard_s` temporal guard around the winner) is at
+    least `sep_min` farther — i.e. the localisation is unambiguous. Each accepted
+    landmark yields theme_t0 = ep_time - r_time; return their median (+ spread and
+    counts for confidence). None when nothing is accepted.
+
+    Because it anchors on distinctive frames INSIDE the theme, it is immune to
+    fade/solid boundaries and to sparse keyframes — the failure modes of matching
+    the boundary itself.
+    """
+    if ep_vfp.hashes.size == 0 or not landmarks:
+        return None
+    t0s: list[float] = []
+    for r_time, h in landmarks:
+        d = _popcount64(ep_vfp.hashes ^ np.uint64(h))
+        j = int(np.argmin(d))
+        best = int(d[j])
+        guard = np.abs(ep_vfp.times - ep_vfp.times[j]) > guard_s
+        second = int(d[guard].min()) if guard.any() else 64
+        if best <= hamming_max and (second - best) >= sep_min:
+            t0s.append(float(ep_vfp.times[j]) - r_time)
+    if not t0s:
+        return None
+    arr = np.asarray(t0s)
+    return LandmarkAnchor(
+        theme_t0=float(np.median(arr)),
+        n_accepted=len(t0s),
+        n_total=len(landmarks),
+        spread_s=float(arr.max() - arr.min()),
+    )
 
 
 # ── dense sub-second edge refinement ──────────────────────────────────────────

@@ -56,6 +56,7 @@ from .video_fingerprint import (
     best_match_video,
     decode_dense_window,
     extract_keyframe_hashes,
+    pick_landmarks,
     refine_edge_credited_video,
 )
 
@@ -139,6 +140,10 @@ class ThemeReference:
     video_fp: VideoFingerprint | None = None  # keyframe hashes of the IMAGE ref
     video_ref_url: str | None = None  # URL the keyframes came from (credited
                                       # clip when available, else the NC clip)
+    # Distinctive reference frames [(r_time, dHash), ...] for landmark anchoring
+    # (see video_fingerprint.pick_landmarks). Precomputed once from video_fp so
+    # locating the theme in an episode needs only these pairs, not the whole ref.
+    landmarks: list = field(default_factory=list)
 
 
 @dataclass
@@ -315,11 +320,16 @@ def build_references(
         # credited keyframe fingerprint from colliding with any NC `.vfp.npz`.
         video_ref_url = entry.video_url_credited or entry.video_url
         video_key = key + ("+cred" if entry.video_url_credited else "")
+        landmarks: list = []
         if with_video:
             try:
                 vfp = extract_keyframe_hashes(
                     video_ref_url, cache_key=video_key, cache_dir=video_cache_dir
                 )
+                # Distinctive-frame landmarks for anchoring — cheap to derive from
+                # the (cached) reference fingerprint, stored so episode matching
+                # needs only the (r_time, hash) pairs.
+                landmarks = pick_landmarks(vfp)
             except Exception:
                 vfp = None  # video is confirmation-only; audio still ships
         return ThemeReference(
@@ -332,6 +342,7 @@ def build_references(
             duration=dur,
             video_fp=vfp,
             video_ref_url=video_ref_url,
+            landmarks=landmarks,
         )
 
     with ThreadPoolExecutor(max_workers=len(entries)) as pool:

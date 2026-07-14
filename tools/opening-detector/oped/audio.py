@@ -8,12 +8,18 @@ is never re-decoded needlessly (spec: never recompute uselessly).
 from __future__ import annotations
 
 import hashlib
+import re
 import subprocess
 from pathlib import Path
 
 import numpy as np
 
 from . import SAMPLE_RATE
+
+# ashowinfo prints one `pts_time:<abs seconds>` per audio frame to stderr; with
+# -copyts these are ABSOLUTE episode timestamps. We only need the first (the pts
+# of output sample 0) to anchor the window on the shared absolute clock.
+_ASHOWINFO_PTS_RE = re.compile(rb"pts_time:([\d.]+)")
 
 
 def _cache_key(src: Path, sample_rate: int) -> str:
@@ -83,6 +89,67 @@ def load_audio(
     if cache_file is not None:
         np.save(cache_file, samples)
     return samples
+
+
+def decode_audio_abs(
+    src: str,
+    start_abs: float,
+    dur: float | None = None,
+    *,
+    sample_rate: int = SAMPLE_RATE,
+    referer: str | None = None,
+) -> tuple[np.ndarray, float]:
+    """Decode `[start_abs, start_abs+dur]` (or to EOF when `dur` is None) with
+    ABSOLUTE timestamps, returning `(mono float32 samples, abs_start)`.
+
+    `abs_start` is the true absolute episode time (seconds) of output sample 0.
+    A keyframe/segment seek rounds `start_abs` (megaplay landed at 1260.0 for a
+    requested 1254.99), so we recover the realized start from `ashowinfo` rather
+    than trusting the requested value. `-copyts` keeps the muxer from rebasing
+    timestamps to zero, so those pts are absolute.
+
+    This is the audio half of the shared-clock foundation: the video decoder
+    (`video_fingerprint.keyframe_hashes_abs`) uses the same `-copyts` + absolute
+    `-ss`, so both timelines share one clock and
+    `theme_t0_abs = abs_start + q_start_seconds` is directly comparable to the
+    video match's absolute offset — no `-sseof` anchor guessing, no A/V drift.
+    """
+    cmd = ["ffmpeg", "-hide_banner", "-loglevel", "info"]
+    if referer:
+        cmd += ["-headers", f"Referer: {referer}\r\n"]
+    if _is_hls_url(src):
+        cmd += ["-allowed_extensions", "ALL", "-allowed_segment_extensions", "ALL", "-extension_picky", "0"]
+    # -copyts + absolute -ss (before -i) → range-limited fetch AND absolute pts.
+    # Bound the end with -to (ABSOLUTE, before -i): with -copyts the timeline is
+    # absolute, so `-t <dur>` is measured against it and truncates to ~nothing on
+    # HLS (megaplay: `-t 113` yielded 2 frames). `-to <start+dur>` gives the full
+    # window. None dur → decode to EOF.
+    cmd += ["-copyts", "-ss", str(start_abs)]
+    if dur is not None:
+        cmd += ["-to", str(start_abs + dur)]
+    cmd += ["-i", src]
+    cmd += [
+        "-vn",
+        "-af", f"aresample={sample_rate},ashowinfo",  # ashowinfo → per-frame abs pts
+        "-ac", "1",
+        "-ar", str(sample_rate),
+        "-f", "f32le",
+        "-",
+    ]
+    proc = subprocess.run(cmd, capture_output=True)
+    if proc.returncode != 0:
+        err = proc.stderr.decode("utf-8", "replace").strip()
+        raise RuntimeError(f"ffmpeg (abs) failed for {src!r}:\n{err}")
+    samples = np.frombuffer(proc.stdout, dtype="<f4").copy()
+    if samples.size == 0:
+        err = proc.stderr.decode("utf-8", "replace").strip()
+        raise RuntimeError(
+            f"ffmpeg returned 0 bytes of audio for {src!r} "
+            f"(start_abs={start_abs}, dur={dur}). stderr:\n{err}"
+        )
+    m = _ASHOWINFO_PTS_RE.search(proc.stderr)
+    abs_start = float(m.group(1)) if m else float(start_abs)
+    return samples, abs_start
 
 
 def _is_hls_url(src: str) -> bool:
