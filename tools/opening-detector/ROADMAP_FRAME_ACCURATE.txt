@@ -1,0 +1,178 @@
+================================================================================
+ROADMAP — Détection OP/ED frame-accurate via référence credited
+(horloge absolue partagée + image credited autorité)
+Dernière mise à jour : 2026-07-14
+================================================================================
+
+Plan approuvé complet : ~/.claude/plans/ok-je-pense-que-humming-phoenix.md
+Journal détaillé des bugs : RECAP_FOR_CLAUDE.md §11 (11.6 = fix ancre -sseof)
+
+
+--------------------------------------------------------------------------------
+0. OBJECTIF
+--------------------------------------------------------------------------------
+Pour TOUS les lecteurs (sibnet, sendvid, megaplay, vidmoly, vidmoly-va), détecter
+le DÉBUT et la FIN de l'OP et de l'ED avec une précision FRAME-ACCURATE
+(±1 frame ≈ 42 ms à 23,976 fps), rapportée en ms, en s'appuyant sur les
+références CREDITED d'AnimeThemes (mêmes crédits que l'épisode → appariement image
+quasi bit-exact).
+
+Décisions cadrées avec l'utilisateur :
+  - Précision : frame-accurate (±42 ms), pas de sub-frame/onset audio.
+  - Portée : reconstruction de la FONDATION, pas des patches.
+  - L'IMAGE credited = autorité UNIQUE du bord (elle mesure la coupe visuelle,
+    le bon événement). L'audio = repérage grossier + choix de version SEULEMENT.
+    (L'audio est plus fin ~12 ms mais mesure la musique, pas la coupe visuelle.)
+
+
+--------------------------------------------------------------------------------
+1. POURQUOI (cause racine des échecs observés)
+--------------------------------------------------------------------------------
+Les bugs megaplay (ED 21:10 au lieu de 21:15) et vidmoly-va (OP 3:28 au lieu de
+3:11) venaient TOUS d'une fondation timestamp fragile :
+  - decode -sseof séparés pour audio et vidéo → pts fenêtre-relatifs qui dérivent
+    (10 s d'écart A/V sur megaplay dans la MÊME fenêtre).
+  - ancre -sseof nominale (suppose 180 s décodées ; le seek keyframe débordait à
+    175 s → 5 s d'erreur).
+  - cascade d'heuristiques qui se contredisent (audio/credited/video override,
+    fenêtre élargie sélectionnée au "fill" → vidmoly-va +15 s faux alignement).
+
+FAIT MESURÉ (la clé) : en décodant avec -copyts + -ss ABSOLU (durée probée), audio
+ET vidéo portent le MÊME pts absolu (megaplay : vidéo 1260.0, audio 1260.08). Le
+"décalage A/V de 10 s" était un artefact de -sseof, pas un vrai désync.
+=> une horloge absolue partagée par hôte supprime la classe de bugs à la racine.
+
+
+--------------------------------------------------------------------------------
+2. FAIT (commits sur dev)
+--------------------------------------------------------------------------------
+[e195926] fix ancre ED -sseof (megaplay 21:10 -> 21:15) — patch de fondation :
+  _abs_offset pour fenêtre négative = episode_duration - longueur_décodée réelle
+  (au lieu de ep_dur - 180). Callback resolve_window_duration câblé (single+multi).
+  Trio inchangé (<0.04 s), megaplay corrigé +4.92 s. RECAP §11.6.
+  NOTE : ce patch sera REMPLACÉ par l'horloge absolue (plus besoin de _abs_offset).
+
+[eb53ae5] FONDATION horloge absolue partagée + landmarks (Stages 1-2) :
+  - audio.decode_audio_abs(src, start_abs, dur) -> (samples, abs_start)
+      -copyts + -ss absolu ; abs_start récupéré via ashowinfo (le seek arrondit).
+  - video_fingerprint.keyframe_hashes_abs(src, start_abs, dur, fps) -> VideoFingerprint
+      pts absolus directement ; fps=None => décode TOUTES les frames natives.
+  - IMPORTANT : utiliser -to <abs_end> (AVANT -i), PAS -t. Avec -copyts, -t est
+    mesuré sur la timeline absolue et tronque à ~rien sur HLS
+    (megaplay : -t 113 -> 2 frames ; -to -> 681 frames). Déjà corrigé.
+  - video_fingerprint : landmark_scores / pick_landmarks / anchor_by_landmarks +
+    LandmarkAnchor. ThemeReference.landmarks (calculé dans build_references).
+  - Additif : l'ancien detect_op_ed marche toujours (ED 1274.98 sur cache).
+
+VALIDÉ (mesuré, live) :
+  - Invariant horloge : megaplay ED audio 1275.15 vs vidéo 1275.25 = 0.096 s
+    (avant : 10 s). sibnet MP4 A/V = 0.058 s. OK sur HLS ET MP4.
+  - anchor_by_landmarks : megaplay ED, landmarks acceptés à Hamming 0-3, spread
+    5 ms sur 2 landmarks (interne très précis quand acceptés).
+  - Prototypes : proto_absclock.py, proto_pipeline.py, proto_native.py.
+
+
+--------------------------------------------------------------------------------
+3. EN COURS — Stage 3 : précision frame-accurate du theme_t0 (À FINIR)
+--------------------------------------------------------------------------------
+Problème ouvert : le theme_t0 par landmarks doit être frame-accurate ET robuste.
+
+Constats de la session :
+  - refine_edge_credited_video "start" ne peut que confirmer/pousser APRÈS
+    theme_t0 (les frames avant theme_t0 sont marquées "invalid", pas "non-match").
+    => la précision du DÉBUT = la précision de theme_t0. Il faut donc un theme_t0
+       frame-accurate, pas une détection de transition côté start.
+  - ref_dur EXACT = 2157 frames à 24000/1001 = 89.972 s (PAS 89.5 = max du VREF 2fps).
+    Comme le clip credited EST l'ED diffusé, FIN = theme_t0 + ref_dur (frame-accurate
+    si theme_t0 l'est). refine "end" reste utile pour les ED TRIMÉS (à débuguer,
+    renvoyait None).
+  - Les r_time des landmarks venaient du VREF 2fps (quantifiés 0.5 s) => biais.
+    FIX : landmarks depuis un décodage NATIF de la ref credited (r_time frame-exact).
+    Fait dans proto_native.py (cache _ED1_native_ref.npz). ref_dur natif = 89.972.
+  - Acceptation des landmarks TROP RARE en natif (2-3/8) => médiane bruitée
+    (cross-host from_end 255 ms). CAUSE probable : fenêtre de localisation trop
+    petite / seuils trop stricts / re-encode qui décale la frame exacte.
+
+À FAIRE pour clore Stage 3 :
+  a) Rendre l'acceptation des landmarks robuste en natif :
+       - 1 SEUL décodage natif de toute la zone ED par hôte, localiser TOUS les
+         landmarks dedans (proto_native.py réécrit dans ce sens — run interrompu
+         par le commit, À RELANCER).
+       - relâcher un peu (Hamming ≤ 10, sep ≥ 4 ?) et augmenter k (15-25).
+       - viser n_accepté ≥ 5 et SPREAD par hôte < 42 ms (la VRAIE métrique
+         frame-accuracy = cohérence interne, PAS le cross-host).
+  b) IMPORTANT — le cross-host from_end n'est PAS une vérité terrain fiable :
+     deux hôtes peuvent différer en contenu POST-ED (preview épisode suivant).
+     La bonne métrique = SPREAD PAR HÔTE (tous les landmarks d'un hôte projettent
+     le même theme_t0 à <1 frame). Valider là-dessus, pas sur l'accord cross-host.
+  c) Décider FIN : theme_t0 + ref_dur (défaut) + refine "end" pour les ED trimés
+     (débuguer le None : vérifier fenêtre ref/épisode natives + ref_dur).
+  d) Confirmer sur vidmoly-va OP que le landmark ancre bien sur les vraies frames
+     d'OP (3:11) et pas sur le faux +15 s audio => le bug vidmoly-va disparaît.
+
+
+--------------------------------------------------------------------------------
+4. À FAIRE — Stage 4 : réécrire detect_op_ed (image credited autorité)
+--------------------------------------------------------------------------------
+Remplacer la cascade actuelle (audio-sourced / _video_sourced_hit / _apply_video /
+override guards / _refine_credited_dense / fenêtre élargie au fill / _abs_offset)
+par un pipeline unique par (hôte, kind) :
+
+  A. LOCATE (audio, grossier) : décoder fenêtre large en absolu (decode_audio_abs),
+     match audio -> theme_t0 grossier + VERSION (OP1 vs OP2) + ref credited.
+     Fallback image-coarse si audio absent (VF ducking, cold-open sans musique).
+  B. ALIGN (landmarks natifs) : décoder fenêtre vidéo native autour de theme_t0 ->
+     anchor_by_landmarks -> theme_t0 précis ABSOLU (frame-accurate).
+  C. BORDS :
+       - start = theme_t0.
+       - end   = theme_t0 + ref_dur (ref_dur = frames_natifs/fps du clip credited).
+       - refine "end" optionnel pour ED trimés (garde-fou : rester proche).
+  D. LIVRER : ThemeHit.start/end en secondes absolues (ms). Pour l'ED, from_end =
+     ep_dur - t pour la re-projection runtime.
+
+À RETIRER (rendu inutile) : _abs_offset, resolve_window_duration, sélection
+fenêtre-élargie-au-fill, override guards (CREDITED_OVERRIDE_AGREE_BAND_S etc.),
+_video_sourced_hit / _apply_video / _refine_credited_dense. Garder un flag de
+confiance (n landmarks acceptés, spread).
+
+Signature pressentie (resolvers fournis par detect_anime, en ABSOLU) :
+  detect_op_ed(episode_duration, op_refs, ed_refs,
+               resolve_audio_abs=(start_abs,dur)->(Fingerprint,abs_start),
+               resolve_video_abs=(start_abs,dur,fps)->VideoFingerprint,
+               resolve_ref_video=(ref,ref_start,dur,fps)->VideoFingerprint, ...)
+
+
+--------------------------------------------------------------------------------
+5. À FAIRE — Stage 5 : multi-hôtes + câblage + validation E2E
+--------------------------------------------------------------------------------
+  - multi_host : chaque hôte détecte en absolu dans SON temps. reconcile_hits
+    devient un CONTRÔLE DE CONFIANCE (spread/agree), plus une correction.
+  - detect_anime : câbler durée probée + décodage absolu dans les resolvers
+    (run_single_host + run_multi_host). Retirer resolve_window_duration.
+  - Cache : les fenêtres absolues ont des clés host-spécifiques (ep_dur-180 varie).
+    Les anciens caches .w-180.0_ / .w0.0_240.0 seront invalidés (rebuild accepté).
+
+VALIDATION E2E (données réelles) :
+  - JJK ep3 : detect_anime.py --multi-host --langs vostfr,vf --start 3 --end 3
+    --mal 40748 --va-slug jujutsu-kaisen
+  - Attendus : megaplay ED ~21:15 ; vidmoly-va OP 3:11 (plus 3:28) ; trio inchangé.
+  - Métrique frame-accuracy = SPREAD PAR HÔTE des landmarks < 42 ms (pas cross-host).
+  - Repère terrain JJK ED : carton cyan ~21:12 ; coupe じゅじゅさんぽ ~22:44.9.
+  - Non-régression SnK S1 (OP long cold-open).
+
+
+--------------------------------------------------------------------------------
+6. RISQUES / NOTES
+--------------------------------------------------------------------------------
+  - -copyts + -ss absolu sur HLS : le seek tombe sur un bord de segment (megaplay
+    1260 pour -ss 1254.99), mais les pts restent absolus et cohérents A/V. OK.
+  - TOUJOURS -to (avant -i), jamais -t, avec -copyts (sinon 2 frames sur HLS).
+  - ffprobe HLS : ajouter -allowed_extensions ALL etc. + -headers Referer sinon
+    duration vide (megaplay).
+  - Esthétique très plate (aucun landmark net) -> repli audio-locate + projection.
+  - Coût : ~1 décodage natif de la zone ED/OP par hôte (2000-2200 frames 32x18 gray,
+    négligeable) + fenêtre audio de locate. Pas de décodage plein-épisode.
+  - Fichiers proto_* = scripts de validation, pas du code de prod (à nettoyer une
+    fois detect_op_ed réécrit et validé).
+
+================================================================================
