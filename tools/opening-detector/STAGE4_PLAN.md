@@ -191,9 +191,21 @@ Attendus :
    OP_SEARCH=300s couvre le cold-open SnK. Fallback audio par-hit OK.
    ⚠ Nuance A/B : v2 tie-break la VERSION OP1 par fill audio (a pris v1) vs ancien
    (v2). Cuts OP1 quasi identiques → cosmétique pour le timing, à surveiller step 4-5.
-4. **→ PROCHAIN : Câbler multi_host** (§5), valider E2E (§7) : megaplay ED ~21:15,
-   vidmoly-va OP 3:11, trio inchangé, métrique = consensus_frac PAR HÔTE.
-5. **Supprimer** l'ancienne cascade + constantes mortes une fois le nouveau validé.
+4. ✅ **Câbler multi_host** (§5, commit 8e8481b) — detect_per_host /
+   detect_op_ed_multi : resolvers absolus `_for` + flag v2 ; reconcile_hits
+   inchangé (lit source/votes/flags → devient pur contrôle de confiance).
+   E2E validé JJK ep3 --multi-host --langs vostfr,vf (9 lignes host×lang, TOUTES
+   align=credited, zéro fallback audio) :
+     megaplay VOSTFR ED 21:15-22:45  (fin du bug -5s → 21:10)
+     vidmoly-va OP     3:12-4:42      (fin du bug +15s → 3:28)
+     trio (sibnet/sendvid/vidmoly) inchangé : OP 3:11-3:12, ED 21:14-21:15
+     consensus OP 4/4 spread 0.2s, ED 3/4 spread 0.2s
+   Les 2 clusters ED (21:14 vs 21:15) = vraie diff d'encode par hôte, préservée
+   en timing par-hôte (pas moyennée) ; reconcile rapporte le spread intra-cluster.
+5. **→ PROCHAIN : Supprimer** l'ancienne cascade + constantes mortes, faire de v2
+   le chemin par défaut (retirer le flag --v2, ou l'inverser en --legacy). À faire
+   quand tu es prêt à basculer : le flag --v2 permet encore l'A/B en attendant.
+   Adapter alors l'importeur DB + diag_* aux champs (soft-dépréciés, non cassants).
 
 Risque principal : régresser le trio validé. Mitigation : l'ancien chemin reste en
 place jusqu'à la bascule finale (étape 5).
