@@ -510,41 +510,79 @@ def landmark_scores(
     return detail * unique, detail, unique
 
 
+# Landmark selection. Frame-accuracy of theme_t0 comes from anchoring MANY
+# strong landmarks and taking their consensus (see anchor_by_landmarks), so the
+# picker must SUPPLY many strong ones — the earlier k=4 / gap-floor=8s starved a
+# 90s theme to ~6-8 landmarks (some weak), of which only ~3 localised, and the
+# median was noisy (±3-5 frames). Measured on the visually FLAT JJK ED (unique
+# median only ~6 bits): with a distinctiveness FLOOR (min_unique) plus a smaller
+# gap floor, the same 90s clip yields ~15-20 landmarks that each localise at
+# Hamming ≤ 8, and ~70% land within ±1 frame of the mode. LANDMARK_MIN_UNIQUE=10
+# is the elbow: below it weak near-twin frames leak in and mislocalise; above 12
+# a flat clip runs short. LANDMARK_GAP_FLOOR_S=3 keeps them spread across the clip
+# (not clustered in one busy shot) while still fitting ~20 on a 90s theme.
+LANDMARK_MIN_UNIQUE = 10   # min Hamming distance to any non-neighbour frame (bits)
+LANDMARK_GAP_FLOOR_S = 3.0
+LANDMARK_K = 24            # ceiling; a flat clip supplies fewer, a busy one caps here
+
+
 def pick_landmarks(
-    vfp: VideoFingerprint, *, k: int = 4, min_gap_floor_s: float = 8.0
+    vfp: VideoFingerprint,
+    *,
+    k: int = LANDMARK_K,
+    min_gap_floor_s: float = LANDMARK_GAP_FLOOR_S,
+    min_unique: int = LANDMARK_MIN_UNIQUE,
 ) -> list[tuple[float, int]]:
     """Choose up to `k` distinctive, well-separated landmarks from a reference
     fingerprint. Returns [(r_time, hash_uint64), ...] sorted by time — storable
     on ThemeReference INDEPENDENT of the fingerprint, so localisation later needs
     only these pairs. Spread is enforced (>= min_gap) so the projection is
     anchored across the clip, not clustered in one spot.
+
+    A frame is eligible only if its `unique` distinctiveness (min Hamming to any
+    non-neighbour frame) is at least `min_unique`: a landmark with a near-twin
+    elsewhere in the clip relocates ambiguously in the episode and drags the
+    projection off by whole frames. Filtering these out at selection time is what
+    turns the noisy median into a tight per-host consensus (see
+    `anchor_by_landmarks`). On a flat clip this yields fewer than `k` landmarks;
+    that is fine — quality over count.
     """
     if len(vfp.hashes) == 0:
         return []
-    score, _detail, _unique = landmark_scores(vfp)
+    score, _detail, unique = landmark_scores(vfp)
     t = vfp.times
-    dur = float(t.max() - t.min()) if len(t) else 0.0
     order = np.argsort(score)[::-1]  # best first
-    min_gap = max(dur / (k + 1), min_gap_floor_s)
     picked: list[int] = []
     for i in order:
         if len(picked) >= k:
             break
-        if all(abs(float(t[i]) - float(t[j])) >= min_gap for j in picked):
+        if unique[i] < min_unique:
+            continue
+        if all(abs(float(t[i]) - float(t[j])) >= min_gap_floor_s for j in picked):
             picked.append(int(i))
     picked.sort(key=lambda i: float(t[i]))
     return [(float(t[i]), int(vfp.hashes[i])) for i in picked]
+
+
+# Native NTSC-film frame period (23.976fps). Landmark theme_t0 estimates that
+# come from a native decode land ON this grid, so we snap to it to find the
+# consensus. Not host-configurable: every host we ingest is 23.976fps content.
+FRAME_S = 1001.0 / 24000.0                     # ~0.04171s (~41.7ms)
+LANDMARK_CONSENSUS_FRAMES = 1                    # ±1 frame counts as "agrees"
+LANDMARK_MIN_CONSENSUS = 4                       # need this many agreeing landmarks
 
 
 @dataclass
 class LandmarkAnchor:
     """Result of anchoring a set of reference landmarks in an episode."""
 
-    theme_t0: float      # median projected reference-frame-0 time (episode time,
-                         # absolute when the episode fingerprint carries abs pts)
+    theme_t0: float      # consensus projected reference-frame-0 time (episode
+                         # time, absolute when ep_vfp carries abs pts)
     n_accepted: int      # landmarks that passed the Hamming + separation guards
     n_total: int         # landmarks attempted
-    spread_s: float      # max-min of the per-landmark theme_t0 estimates
+    spread_s: float      # max-min of ALL accepted estimates (incl. outliers)
+    n_consensus: int     # accepted estimates within ±1 frame of the mode
+    consensus_frac: float  # n_consensus / n_accepted — the confidence signal
 
 
 def anchor_by_landmarks(
@@ -561,8 +599,17 @@ def anchor_by_landmarks(
     distance; ACCEPT it only when that best distance <= `hamming_max` AND the
     2nd-best distance (outside a `guard_s` temporal guard around the winner) is at
     least `sep_min` farther — i.e. the localisation is unambiguous. Each accepted
-    landmark yields theme_t0 = ep_time - r_time; return their median (+ spread and
-    counts for confidence). None when nothing is accepted.
+    landmark yields an estimate theme_t0 = ep_time - r_time.
+
+    CONSENSUS, not plain median (the frame-accuracy fix): measured on a flat clip,
+    accepted estimates form a SHARP mode on the native frame grid with a few
+    whole-frame outliers (a landmark that relocated to a neighbouring GOP frame).
+    A plain median is dragged by those outliers (±3-5 frames of "spread"). Instead
+    we snap every estimate to the 23.976fps grid, take the MODE frame, average only
+    the estimates within ±`LANDMARK_CONSENSUS_FRAMES` of it, and report the
+    consensus fraction as confidence. This is what makes theme_t0 frame-accurate:
+    the ~70% of landmarks that agree pin it to ±1 frame, and the outliers are
+    dropped rather than averaged in.
 
     Because it anchors on distinctive frames INSIDE the theme, it is immune to
     fade/solid boundaries and to sparse keyframes — the failure modes of matching
@@ -582,11 +629,21 @@ def anchor_by_landmarks(
     if not t0s:
         return None
     arr = np.asarray(t0s)
+
+    # Snap to the native frame grid and find the mode frame; the consensus is the
+    # estimates within ±LANDMARK_CONSENSUS_FRAMES of that mode.
+    frames = np.round(arr / FRAME_S).astype(np.int64)
+    vals, counts = np.unique(frames, return_counts=True)
+    mode_frame = int(vals[np.argmax(counts)])
+    in_consensus = np.abs(frames - mode_frame) <= LANDMARK_CONSENSUS_FRAMES
+    theme_t0 = float(arr[in_consensus].mean())
     return LandmarkAnchor(
-        theme_t0=float(np.median(arr)),
+        theme_t0=theme_t0,
         n_accepted=len(t0s),
         n_total=len(landmarks),
         spread_s=float(arr.max() - arr.min()),
+        n_consensus=int(in_consensus.sum()),
+        consensus_frac=float(in_consensus.mean()),
     )
 
 

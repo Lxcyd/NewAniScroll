@@ -7,7 +7,6 @@ the ground-truth proxy, replacing the fuzzy hand-clocked values.
 from __future__ import annotations
 
 import os, sys, subprocess
-import numpy as np
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
@@ -17,7 +16,7 @@ from oped.audio import decode_audio_abs
 from oped.fingerprint import Fingerprint, fingerprint
 from oped.matcher import best_match
 from oped.video_fingerprint import (
-    VideoFingerprint, keyframe_hashes_abs, pick_landmarks, _popcount64,
+    VideoFingerprint, keyframe_hashes_abs, pick_landmarks, anchor_by_landmarks,
 )
 
 AREF = Fingerprint.load("cache/audio/animethemes__jujutsu_kaisen__ED1__v1.fp.npz")
@@ -51,21 +50,12 @@ def theme_t0_native(url, referer, ep_dur, landmarks, ref_dur):
     samples, a_abs = decode_audio_abs(url, ss, None, referer=referer)
     m = best_match(fingerprint(samples), AREF, min_votes=40)
     t0c = a_abs + (m.q_start - m.r_start)
-    # B. ONE native decode of the whole ED region, localize every landmark in it
+    # B. ONE native decode of the whole ED region, anchor by landmark consensus.
     fp = keyframe_hashes_abs(url, t0c - 2.0, ref_dur + 4.0, fps=None, referer=referer)
-    if fp.hashes.size == 0:
-        return None, t0c, 0, 0.0
-    ests = []
-    for r_time, h in landmarks:
-        d = _popcount64(fp.hashes ^ np.uint64(h)); j = int(np.argmin(d)); best = int(d[j])
-        guard = np.abs(fp.times - fp.times[j]) > 0.3
-        second = int(d[guard].min()) if guard.any() else 64
-        if best <= 8 and (second - best) >= 6:
-            ests.append(float(fp.times[j]) - r_time)
-    if not ests:
-        return None, t0c, 0, 0.0
-    ests = np.array(ests)
-    return float(np.median(ests)), t0c, len(ests), float(ests.max() - ests.min())
+    anc = anchor_by_landmarks(fp, landmarks)
+    if anc is None:
+        return None, t0c, None
+    return anc.theme_t0, t0c, anc
 
 
 def main():
@@ -80,7 +70,7 @@ def main():
     for host, (url, ref) in hosts.items():
         try:
             ep_dur = probe_dur(url, ref)
-            t0, t0c, n, spread = theme_t0_native(url, ref, ep_dur, landmarks, ref_dur)
+            t0, t0c, anc = theme_t0_native(url, ref, ep_dur, landmarks, ref_dur)
         except Exception as e:
             print(f"{host:9s} ERROR {e}"); continue
         if t0 is None:
@@ -88,7 +78,8 @@ def main():
         fe = ep_dur - t0
         rows.append((host, fe))
         print(f"{host:9s} ep_dur={ep_dur:.2f}  audio_t0={t0c:.3f}  NATIVE_t0={t0:.3f}  "
-              f"n={n}/{len(landmarks)}  spread={spread*1000:.0f}ms  from_end={fe:.3f}")
+              f"consensus={anc.n_consensus}/{anc.n_accepted} ({anc.consensus_frac*100:.0f}%)  "
+              f"spread={anc.spread_s*1000:.0f}ms  from_end={fe:.3f}")
     if len(rows) >= 2:
         fes = [r[1] for r in rows]
         print(f"\nCROSS-HOST from_end spread = {(max(fes)-min(fes))*1000:.0f} ms across {len(rows)} hosts (target < 42ms)")

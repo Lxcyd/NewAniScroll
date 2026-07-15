@@ -1,7 +1,7 @@
 ================================================================================
 ROADMAP — Détection OP/ED frame-accurate via référence credited
 (horloge absolue partagée + image credited autorité)
-Dernière mise à jour : 2026-07-14
+Dernière mise à jour : 2026-07-15
 ================================================================================
 
 Plan approuvé complet : ~/.claude/plans/ok-je-pense-que-humming-phoenix.md
@@ -73,42 +73,53 @@ VALIDÉ (mesuré, live) :
 
 
 --------------------------------------------------------------------------------
-3. EN COURS — Stage 3 : précision frame-accurate du theme_t0 (À FINIR)
+3. FAIT — Stage 3 : précision frame-accurate du theme_t0 (CLOS 2026-07-15)
 --------------------------------------------------------------------------------
-Problème ouvert : le theme_t0 par landmarks doit être frame-accurate ET robuste.
+RÉSULTAT : theme_t0 frame-accurate par hôte, avec un signal de confiance propre.
+  megaplay t0=1275.114  vidmoly t0=1275.114  (IDENTIQUES au ms)  sibnet t0=1274.956
+  consensus 73-82 % des landmarks à ±1 frame du mode. Reproductible (run à froid
+  == run sur cache). Le 228 ms cross-host restant = sibnet (contenu/encode ED
+  réellement décalé), PAS une erreur (cf. §3b : métrique = cohérence PAR HÔTE).
 
-Constats de la session :
-  - refine_edge_credited_video "start" ne peut que confirmer/pousser APRÈS
-    theme_t0 (les frames avant theme_t0 sont marquées "invalid", pas "non-match").
-    => la précision du DÉBUT = la précision de theme_t0. Il faut donc un theme_t0
-       frame-accurate, pas une détection de transition côté start.
-  - ref_dur EXACT = 2157 frames à 24000/1001 = 89.972 s (PAS 89.5 = max du VREF 2fps).
-    Comme le clip credited EST l'ED diffusé, FIN = theme_t0 + ref_dur (frame-accurate
-    si theme_t0 l'est). refine "end" reste utile pour les ED TRIMÉS (à débuguer,
-    renvoyait None).
-  - Les r_time des landmarks venaient du VREF 2fps (quantifiés 0.5 s) => biais.
-    FIX : landmarks depuis un décodage NATIF de la ref credited (r_time frame-exact).
-    Fait dans proto_native.py (cache _ED1_native_ref.npz). ref_dur natif = 89.972.
-  - Acceptation des landmarks TROP RARE en natif (2-3/8) => médiane bruitée
-    (cross-host from_end 255 ms). CAUSE probable : fenêtre de localisation trop
-    petite / seuils trop stricts / re-encode qui décale la frame exacte.
+CAUSE RACINE trouvée : ce n'était PAS l'acceptation, c'était l'ESTIMATEUR + la
+FOURNITURE de landmarks.
+  1) pick_landmarks plafonnait à ~8 landmarks (min_gap_floor_s=8 sur clip 90s) et
+     admettait des faibles (unique~6 bits sur cet ED très plat) → 3/8 acceptés,
+     médiane bruitée. FIX : min_unique=10 (plancher de distinctivité) + gap floor
+     3 s → ~19 landmarks forts (unique 10-23). k=24 plafond.
+  2) La "spread" brute (84-668 ms) était un LEURRE : les estimations forment un
+     MODE net sur la grille frame native (23.976fps) avec quelques outliers à
+     ±N frames entiers (un landmark relocalisé sur la frame GOP voisine). La
+     médiane simple était tirée par ces outliers. FIX : anchor_by_landmarks snappe
+     à la grille frame, prend le MODE, moyenne SEULEMENT les estimations à ±1 frame
+     du mode, et rapporte consensus_frac comme confiance. C'est ça qui rend
+     theme_t0 frame-accurate.
 
-À FAIRE pour clore Stage 3 :
-  a) Rendre l'acceptation des landmarks robuste en natif :
-       - 1 SEUL décodage natif de toute la zone ED par hôte, localiser TOUS les
-         landmarks dedans (proto_native.py réécrit dans ce sens — run interrompu
-         par le commit, À RELANCER).
-       - relâcher un peu (Hamming ≤ 10, sep ≥ 4 ?) et augmenter k (15-25).
-       - viser n_accepté ≥ 5 et SPREAD par hôte < 42 ms (la VRAIE métrique
-         frame-accuracy = cohérence interne, PAS le cross-host).
-  b) IMPORTANT — le cross-host from_end n'est PAS une vérité terrain fiable :
-     deux hôtes peuvent différer en contenu POST-ED (preview épisode suivant).
-     La bonne métrique = SPREAD PAR HÔTE (tous les landmarks d'un hôte projettent
-     le même theme_t0 à <1 frame). Valider là-dessus, pas sur l'accord cross-host.
-  c) Décider FIN : theme_t0 + ref_dur (défaut) + refine "end" pour les ED trimés
-     (débuguer le None : vérifier fenêtre ref/épisode natives + ref_dur).
-  d) Confirmer sur vidmoly-va OP que le landmark ancre bien sur les vraies frames
-     d'OP (3:11) et pas sur le faux +15 s audio => le bug vidmoly-va disparaît.
+CODE (oped/video_fingerprint.py) :
+  - pick_landmarks : params min_unique (LANDMARK_MIN_UNIQUE=10), min_gap_floor_s
+    (LANDMARK_GAP_FLOOR_S=3.0), k défaut LANDMARK_K=24.
+  - anchor_by_landmarks : estimateur mode-consensus (FRAME_S=1001/24000,
+    LANDMARK_CONSENSUS_FRAMES=1). LandmarkAnchor gagne n_consensus + consensus_frac.
+  - proto_native.py mis à jour pour utiliser anchor_by_landmarks. proto_native2.py
+    = harnais de sweep (floor/min_unique/hamming/sep + MAD-trim) ayant servi à
+    trouver l'estimateur ; caches _native_ed__<host>.npz pour re-runs instantanés.
+
+RETENUS pour Stage 4 (métrique + rappels, toujours valides) :
+  - refine_edge_credited_video "start" ne peut que confirmer/pousser APRÈS theme_t0
+    (frames avant = "invalid", pas "non-match"). => précision du DÉBUT = précision
+    de theme_t0 (maintenant frame-accurate). Pas de détection de transition côté start.
+  - ref_dur EXACT = 2157 frames à 24000/1001 = 89.972 s (PAS 89.5 = max VREF 2fps).
+    Le clip credited EST l'ED diffusé => FIN = theme_t0 + ref_dur (frame-accurate).
+    refine "end" reste utile pour les ED TRIMÉS (débuguer le None : fenêtre ref/
+    épisode natives + ref_dur) — à faire dans Stage 4.C.
+  - Les landmarks DOIVENT venir d'un décodage NATIF de la ref credited (r_time
+    frame-exact) ; les r_time du VREF 2fps sont quantifiés 0.5 s => biais.
+    ⚠ theme_bank.build_references appelle encore pick_landmarks sur un vfp 2fps
+    (SAMPLE_FPS) — À CÂBLER en natif dans Stage 4 (ref décodée fps=None).
+  - Métrique de vérité : cross-host from_end n'est PAS fiable (contenu POST-ED
+    différent entre hôtes). Valider sur consensus_frac PAR HÔTE, pas cross-host.
+  - RESTE à confirmer (Stage 5 E2E) : vidmoly-va OP ancre bien sur les vraies
+    frames d'OP (3:11), pas sur le faux +15 s audio => bug vidmoly-va disparaît.
 
 
 --------------------------------------------------------------------------------
