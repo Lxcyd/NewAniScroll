@@ -53,6 +53,7 @@ from .video_fingerprint import (
     HAMMING_THRESHOLD,
     HAMMING_THRESHOLD_CREDITED,
     VideoFingerprint,
+    anchor_by_landmarks,
     best_match_video,
     decode_dense_window,
     extract_keyframe_hashes,
@@ -208,6 +209,17 @@ class ThemeHit:
     # video match produced an alignment. More reliable than re-deriving from
     # vote_start - r_start, which refine may have since moved.
     video_theme_t0: float | None = None
+    # Stage-4 landmark-anchor confidence (detect_op_ed_v2). n_landmarks = accepted
+    # landmarks; consensus_frac = fraction within ±1 frame of the mode (see
+    # video_fingerprint.anchor_by_landmarks). 0.0 when the image anchor did not
+    # run or fell back to the audio t0. These SOFT-DEPRECATE votes/score as the
+    # confidence signal for image-sourced hits without removing those fields.
+    n_landmarks: int = 0
+    consensus_frac: float = 0.0
+    # True when the image anchor was too weak (below the consensus floor) and the
+    # delivered t0 fell back to the coarse AUDIO locate — still shipped (no gap),
+    # but flagged low-confidence for multi-host reconciliation.
+    low_confidence: bool = False
 
 
 def _window_tag(window: tuple[float | None, float | None] | None) -> str:
@@ -281,6 +293,62 @@ def _fp_cached(samples_key: str, url: str, cache_dir: Path, *,
     return cached_fingerprint(samples_key, url, cache_dir, window=None, referer=referer)
 
 
+# A credited theme clip is a full OP/ED (~85-95s). A native decode that returns
+# far fewer frames than that (a rate-limited/reset fetch) is degenerate: too few
+# landmarks to anchor, and a truncated ref_native_dur would shorten every end.
+# Require most of the clip decoded before trusting/caching it. Duration is the
+# real gate; the frame floor rejects the 0-2 frame case even if pts look long.
+_NATIVE_REF_MIN_FRAMES = 500
+_NATIVE_REF_MIN_DUR_S = 60.0
+
+
+def _native_ref_ok(vfp: VideoFingerprint) -> bool:
+    """True when a native credited-clip decode is complete enough to trust for
+    landmark anchoring (see `_NATIVE_REF_MIN_*`)."""
+    return (
+        vfp is not None
+        and vfp.hashes.size >= _NATIVE_REF_MIN_FRAMES
+        and vfp.times.size > 0
+        and float(vfp.times.max()) >= _NATIVE_REF_MIN_DUR_S
+    )
+
+
+# build_references fetches every (theme, version) concurrently, and the caller
+# (detect_anime) fans THAT out again per theme — so a full-clip native pull races
+# many others against animethemes.moe and a rate-limit/reset yields a truncated
+# decode. It's a one-time cached cost, so retry a couple of times with a short
+# backoff before giving up (then the ref degrades to audio-only anchoring).
+_NATIVE_REF_RETRIES = 3
+_NATIVE_REF_BACKOFF_S = 2.0
+
+# A full-clip native decode is heavy and animethemes.moe rate-limits: when
+# build_references fans out every (theme, version) — and the caller fans THAT out
+# per theme — a dozen simultaneous full-clip pulls get reset, so the retry above
+# alone wasn't enough (all siblings retried in lockstep and re-collided). Serialise
+# just the native decodes through one lock: the 2fps keyframe pull and audio stay
+# concurrent (they're small), but only ONE full-clip native fetch hits the CDN at
+# a time. It's a one-time cached cost, so the wall-clock hit is paid once.
+_NATIVE_REF_LOCK = __import__("threading").Lock()
+
+
+def _decode_native_ref(url: str) -> VideoFingerprint | None:
+    """Native (fps=None) full-clip decode with a bounded retry, serialised across
+    threads (see `_NATIVE_REF_LOCK`). Returns a VideoFingerprint only when it
+    passes `_native_ref_ok`, else None."""
+    import time as _time
+    with _NATIVE_REF_LOCK:
+        for attempt in range(_NATIVE_REF_RETRIES):
+            try:
+                vfp = keyframe_hashes_abs(url, 0.0, None, fps=None)
+            except Exception:
+                vfp = None
+            if _native_ref_ok(vfp):
+                return vfp
+            if attempt < _NATIVE_REF_RETRIES - 1:
+                _time.sleep(_NATIVE_REF_BACKOFF_S * (attempt + 1))
+    return None
+
+
 def build_references(
     theme: Theme,
     *,
@@ -344,16 +412,29 @@ def build_references(
                 # frame-exact r_time (Stage-3 fix) + the canonical native duration
                 # for the Stage-4 end boundary. Cached under a distinct
                 # `.native.vfp.npz` so it never collides with the 2fps `vfp` above.
+                #
+                # Only a NON-degenerate decode is cached. build_references fetches
+                # every version concurrently, so this native pull races the 2fps
+                # one against animethemes.moe; a rate-limit/reset can return 0-few
+                # frames. Caching that empty result froze the failure permanently
+                # (0-frame OP refs → the image ALIGN always fell back to audio).
+                # Requiring a plausible frame count before saving means a transient
+                # failure is simply RETRIED on the next run instead of persisted.
                 native_file = Path(video_cache_dir) / (
                     f"{video_key.replace('/', '__')}.native.vfp.npz"
                 )
+                nref = None
                 if native_file.exists():
-                    nref = VideoFingerprint.load(native_file)
-                else:
-                    nref = keyframe_hashes_abs(video_ref_url, 0.0, None, fps=None)
-                    native_file.parent.mkdir(parents=True, exist_ok=True)
-                    nref.save(native_file)
-                if nref.hashes.size:
+                    cached = VideoFingerprint.load(native_file)
+                    if _native_ref_ok(cached):
+                        nref = cached
+                if nref is None:
+                    decoded = _decode_native_ref(video_ref_url)
+                    if decoded is not None:
+                        native_file.parent.mkdir(parents=True, exist_ok=True)
+                        decoded.save(native_file)
+                        nref = decoded
+                if nref is not None:
                     landmarks = pick_landmarks(nref)
                     ref_native_dur = float(nref.times.max())
             except Exception:
@@ -1023,6 +1104,165 @@ def detect_op_ed(
         futures = [
             pool.submit(_detect_kind, op_refs, op_window),
             pool.submit(_detect_kind, ed_refs, ed_window),
+        ]
+        hits = [f.result() for f in futures]
+
+    kept = [h for h in hits if h is not None]
+    kept.sort(key=lambda h: h.start)
+    return kept
+
+
+# ── Stage 4: image-credited pipeline (LOCATE audio → ALIGN image) ──────────────
+#
+# The replacement for the override cascade above. One linear path per (kind):
+#   A. LOCATE (audio, coarse, ABSOLUTE) — find roughly WHERE the theme is and
+#      WHICH version (OP1 vs OP2). Audio measures the music; that's all we ask.
+#   B. ALIGN (image landmarks, native, ABSOLUTE) — anchor on distinctive frames
+#      INSIDE the theme to pin theme_t0 frame-accurate (Stage 3). The picture is
+#      the authority for the boundary.
+#   C. BORDS — start = theme_t0 ; end = theme_t0 + ref_native_dur.
+#   D. Fallback — if the image anchor is too weak (below the consensus floor),
+#      ship the coarse AUDIO t0 flagged low_confidence rather than dropping the
+#      hit (agreed policy: never a gap when audio located the theme).
+#
+# No -sseof, no _abs_offset, no override bands: the resolvers hand back ABSOLUTE
+# timelines (shared clock), so audio and image t0 are directly comparable.
+
+# LOCATE search windows, in ABSOLUTE episode seconds. OP: from the start (covers a
+# cold-open). ED: the tail, expressed as seconds-before-end (resolved against the
+# probed duration by the caller-agnostic helper below).
+OP_SEARCH = (0.0, 300.0)          # first 5 min
+ED_SEARCH_FROM_END = 240.0        # last 4 min
+
+# Minimum landmark consensus to trust the IMAGE t0. Below it we keep the audio t0
+# and flag low_confidence. On JJK ED all hosts land at 0.73-0.82, and a spurious
+# anchor scatters (no mode) → well separated. n floor guards the degenerate 1-2
+# landmark case where a "fraction" is meaningless.
+ALIGN_MIN_CONSENSUS_FRAC = 0.5
+ALIGN_MIN_LANDMARKS = 4
+
+# Extra native video decoded on each side of the coarse audio t0 for the ALIGN
+# window. The theme spans [t0, t0+ref_dur]; pad so every landmark (incl. the
+# last, near ref_dur) is inside the decoded region even if the audio t0 is a few
+# seconds off.
+ALIGN_PAD_S = 4.0
+
+
+def detect_op_ed_v2(
+    episode_duration: float,
+    op_refs: list[ThemeReference],
+    ed_refs: list[ThemeReference],
+    *,
+    resolve_audio_abs,
+    resolve_video_abs,
+    op_search: tuple[float, float] = OP_SEARCH,
+    ed_search_from_end: float = ED_SEARCH_FROM_END,
+    min_votes: int = 40,
+    min_score: float = MIN_SCORE_DEFAULT,
+    min_fill: float = 0.5,
+) -> list[ThemeHit]:
+    """Locate OP and ED with the image-credited pipeline (see section banner).
+
+    Resolvers (caller supplies, ABSOLUTE timeline — shared clock):
+      resolve_audio_abs(start_abs, dur) -> (Fingerprint, abs_start)
+          episode audio fingerprint for [start_abs, start_abs+dur]; abs_start is
+          the realized absolute time of sample 0 (a seek rounds start_abs).
+      resolve_video_abs(start_abs, dur, fps) -> VideoFingerprint
+          native (fps=None) episode keyframes with ABSOLUTE pts.
+
+    Returns 0..2 ThemeHits in absolute episode time. Runs OP and ED in parallel;
+    logic is identical to sequential.
+    """
+
+    def _locate_audio(refs, start_abs, dur):
+        """A. Coarse audio locate. Returns (best ThemeReference, theme_t0_abs,
+        Match) or None. theme_t0_abs = abs_start + (q_start - r_start)."""
+        try:
+            fp, abs_start = resolve_audio_abs(start_abs, dur)
+        except Exception:
+            return None
+        if fp is None:
+            return None
+        best = None  # (fill, ref, m)
+        for ref in refs:
+            m = best_match(fp, ref.fp, min_votes=min_votes)
+            if m is None or m.score < min_score:
+                continue
+            ref_dur = ref.duration if ref.duration > 0 else max(m.r_end, 1e-6)
+            fill = min(1.0, (m.r_end - m.r_start) / max(ref_dur, 1e-6))
+            if fill < min_fill:
+                continue
+            if best is None or fill > best[0]:
+                best = (fill, ref, m)
+        if best is None:
+            return None
+        _fill, ref, m = best
+        theme_t0_abs = abs_start + (m.q_start - m.r_start)
+        return ref, theme_t0_abs, m
+
+    def _align_image(ref, theme_t0_coarse):
+        """B. Native landmark anchor around the coarse t0. Returns LandmarkAnchor
+        or None (no landmarks / no image decode / nothing accepted)."""
+        if not ref.landmarks:
+            return None
+        span = ref.ref_native_dur if ref.ref_native_dur > 0 else ref.duration
+        start_abs = max(0.0, theme_t0_coarse - ALIGN_PAD_S)
+        dur = span + 2 * ALIGN_PAD_S
+        try:
+            ep_vfp = resolve_video_abs(start_abs, dur, None)
+        except Exception:
+            return None
+        if ep_vfp is None or ep_vfp.hashes.size == 0:
+            return None
+        return anchor_by_landmarks(ep_vfp, ref.landmarks)
+
+    def _detect_kind(refs, start_abs, dur):
+        if not refs:
+            return None
+        loc = _locate_audio(refs, start_abs, dur)
+        if loc is None:
+            return None
+        ref, theme_t0_audio, m = loc
+
+        ref_dur = ref.ref_native_dur if ref.ref_native_dur > 0 else (
+            ref.duration if ref.duration > 0 else m.r_end
+        )
+        anc = _align_image(ref, theme_t0_audio)
+        strong = (
+            anc is not None
+            and anc.n_accepted >= ALIGN_MIN_LANDMARKS
+            and anc.consensus_frac >= ALIGN_MIN_CONSENSUS_FRAC
+        )
+        if strong:
+            theme_t0 = anc.theme_t0          # C. image is the authority
+            source = "credited"
+            low_conf = False
+        else:
+            theme_t0 = theme_t0_audio        # D. fall back to coarse audio t0
+            source = "audio"
+            low_conf = True
+
+        start = float(min(max(theme_t0, 0.0), episode_duration))
+        end = float(min(max(theme_t0 + ref_dur, 0.0), episode_duration))
+        return ThemeHit(
+            kind=ref.kind, slug=ref.slug, version=ref.version,
+            start=start, end=end,
+            votes=m.n_votes, score=m.score,
+            vote_start=theme_t0_audio + m.r_start, vote_end=theme_t0_audio + m.r_end,
+            r_start=m.r_start, r_end=m.r_end, ref_duration=ref_dur,
+            source=source,
+            edge_start_source=source, edge_end_source=source,
+            video_theme_t0=(anc.theme_t0 if anc is not None else None),
+            n_landmarks=(anc.n_accepted if anc is not None else 0),
+            consensus_frac=(anc.consensus_frac if anc is not None else 0.0),
+            low_confidence=low_conf,
+        )
+
+    ed_start = max(0.0, episode_duration - ed_search_from_end)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [
+            pool.submit(_detect_kind, op_refs, op_search[0], op_search[1]),
+            pool.submit(_detect_kind, ed_refs, ed_start, ed_search_from_end),
         ]
         hits = [f.result() for f in futures]
 
