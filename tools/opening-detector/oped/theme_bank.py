@@ -56,6 +56,7 @@ from .video_fingerprint import (
     best_match_video,
     decode_dense_window,
     extract_keyframe_hashes,
+    keyframe_hashes_abs,
     pick_landmarks,
     refine_edge_credited_video,
 )
@@ -141,9 +142,16 @@ class ThemeReference:
     video_ref_url: str | None = None  # URL the keyframes came from (credited
                                       # clip when available, else the NC clip)
     # Distinctive reference frames [(r_time, dHash), ...] for landmark anchoring
-    # (see video_fingerprint.pick_landmarks). Precomputed once from video_fp so
-    # locating the theme in an episode needs only these pairs, not the whole ref.
+    # (see video_fingerprint.pick_landmarks). Precomputed once from the NATIVE
+    # decode of the credited clip so `r_time` is frame-exact (a 2fps decode
+    # quantises r_time to 0.5s and biases every projection — Stage 3). Locating
+    # the theme in an episode needs only these pairs, not the whole ref.
     landmarks: list = field(default_factory=list)
+    # Length of the credited clip from its NATIVE decode (frames/fps), the
+    # canonical frame-accurate OP/ED duration used by the Stage-4 boundary
+    # `end = theme_t0 + ref_native_dur`. Distinct from `duration` (the AUDIO
+    # clip length, ~equal but 2fps/decoder-rounded). 0.0 when no video ref built.
+    ref_native_dur: float = 0.0
 
 
 @dataclass
@@ -321,17 +329,36 @@ def build_references(
         video_ref_url = entry.video_url_credited or entry.video_url
         video_key = key + ("+cred" if entry.video_url_credited else "")
         landmarks: list = []
+        ref_native_dur = 0.0
         if with_video:
             try:
+                # 2fps keyframe fingerprint — the coarse cross-confirm signal used
+                # by the current cascade (best_match_video / _video_hit_for).
                 vfp = extract_keyframe_hashes(
                     video_ref_url, cache_key=video_key, cache_dir=video_cache_dir
                 )
-                # Distinctive-frame landmarks for anchoring — cheap to derive from
-                # the (cached) reference fingerprint, stored so episode matching
-                # needs only the (r_time, hash) pairs.
-                landmarks = pick_landmarks(vfp)
             except Exception:
                 vfp = None  # video is confirmation-only; audio still ships
+            try:
+                # NATIVE decode of the whole credited clip: landmarks with
+                # frame-exact r_time (Stage-3 fix) + the canonical native duration
+                # for the Stage-4 end boundary. Cached under a distinct
+                # `.native.vfp.npz` so it never collides with the 2fps `vfp` above.
+                native_file = Path(video_cache_dir) / (
+                    f"{video_key.replace('/', '__')}.native.vfp.npz"
+                )
+                if native_file.exists():
+                    nref = VideoFingerprint.load(native_file)
+                else:
+                    nref = keyframe_hashes_abs(video_ref_url, 0.0, None, fps=None)
+                    native_file.parent.mkdir(parents=True, exist_ok=True)
+                    nref.save(native_file)
+                if nref.hashes.size:
+                    landmarks = pick_landmarks(nref)
+                    ref_native_dur = float(nref.times.max())
+            except Exception:
+                landmarks = []      # anchoring degrades to audio-only; still ships
+                ref_native_dur = 0.0
         return ThemeReference(
             kind=theme.kind,
             slug=theme.slug,
@@ -343,6 +370,7 @@ def build_references(
             video_fp=vfp,
             video_ref_url=video_ref_url,
             landmarks=landmarks,
+            ref_native_dur=ref_native_dur,
         )
 
     with ThreadPoolExecutor(max_workers=len(entries)) as pool:
