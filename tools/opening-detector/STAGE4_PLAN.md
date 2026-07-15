@@ -168,16 +168,25 @@ Attendus :
 
 ---
 
-## 8. Ordre d'exécution proposé (incrémental, testable à chaque pas)
+## 8. Ordre d'exécution (incrémental, testable à chaque pas)
 
-1. **Refs natifs** (§3) — `ThemeReference.ref_native_dur` + landmarks natifs dans
-   `build_references`. Isolé, testable via proto (déjà validé Stage 3).
-2. **Nouveau `detect_op_ed`** (§1-2) en PARALLÈLE de l'ancien (nom temporaire ou
-   flag) pour comparer sur JJK ep3 avant bascule.
-3. **Câbler run_single_host** (§5) sur le nouveau, valider single-host JJK + SnK.
+1. ✅ **Refs natifs** (§3, commit 84f185a) — `ThemeReference.ref_native_dur` +
+   landmarks natifs dans `build_references`. Validé : JJK ED1 19 landmarks natifs,
+   ref_native_dur=89.972.
+2. ✅ **`detect_op_ed_v2`** (§1-2, commit 79c091b) en PARALLÈLE de l'ancien.
+   Validé A/B sur JJK ep3 (proto_v2_ab.py) :
+     OP1 credited img 76-94% : megaplay 3:12.12, sibnet 3:11.98, vidmoly 3:12.11
+     ED1 credited : 21:15.11..22:45.09 (sibnet 21:14.96..22:44.93) vs GT 21:15/22:44.9
+   Bug trouvé & corrigé : décodes natifs concurrents rate-limités par
+   animethemes.moe → 0 frame caché en dur → OP toujours en fallback audio. Fix :
+   `_native_ref_ok` (ne cache jamais un décode dégénéré) + `_decode_native_ref`
+   (retry borné + LOCK sérialisant les décodes natifs lourds).
+3. **→ PROCHAIN : Câbler run_single_host** (§5) sur detect_op_ed_v2 (resolvers
+   absolus), valider single-host JJK + SnK (cold-open long : OP_SEARCH=300s
+   doit couvrir ; sinon élargir).
 4. **Câbler multi_host** (§5), valider E2E (§7).
 5. **Supprimer** l'ancienne cascade + constantes mortes une fois le nouveau validé.
 
-Risque principal : régresser le trio validé. Mitigation : étape 2 garde l'ancien
-chemin jusqu'à comparaison A/B chiffrée.
+Risque principal : régresser le trio validé. Mitigation : l'ancien chemin reste en
+place jusqu'à la bascule finale (étape 5).
 ```
