@@ -509,6 +509,13 @@ def _hit_to_dict(h: ThemeHit, duration: float) -> dict:
         "video_disagreement": h.video_disagreement,
         "inferred": h.inferred,
     }
+    # Stage-4 image-anchor confidence per host — emitted only when the landmark
+    # aligner actually ran (v2) or fell back to audio, so the old cascade's
+    # per-host JSON stays byte-identical for existing consumers.
+    if h.n_landmarks > 0 or h.low_confidence:
+        out["n_landmarks"] = h.n_landmarks
+        out["consensus_frac"] = round(h.consensus_frac, 3)
+        out["low_confidence"] = h.low_confidence
     if h.kind == "ed":
         out["from_end_start"] = round(max(0.0, duration - h.start), 2)
         out["from_end_end"] = round(max(0.0, duration - h.end), 2)
