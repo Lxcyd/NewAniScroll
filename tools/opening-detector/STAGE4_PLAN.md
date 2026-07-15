@@ -202,10 +202,28 @@ Attendus :
      consensus OP 4/4 spread 0.2s, ED 3/4 spread 0.2s
    Les 2 clusters ED (21:14 vs 21:15) = vraie diff d'encode par hôte, préservée
    en timing par-hôte (pas moyennée) ; reconcile rapporte le spread intra-cluster.
-5. **→ PROCHAIN : Supprimer** l'ancienne cascade + constantes mortes, faire de v2
-   le chemin par défaut (retirer le flag --v2, ou l'inverser en --legacy). À faire
-   quand tu es prêt à basculer : le flag --v2 permet encore l'A/B en attendant.
-   Adapter alors l'importeur DB + diag_* aux champs (soft-dépréciés, non cassants).
+5a. ✅ **v2 par défaut** (commit 966e4b8) — flag inversé : --v2 retiré, v2 est le
+    défaut (single + multi) ; --legacy réactive l'ancienne cascade (filet A/B).
+    --no-video s'applique aussi à v2 (skip ALIGN → fallback audio). Vérifié : run
+    sans flag == ancien --v2 ; --legacy route vers l'ancien détecteur.
+5b. **→ RESTE : Supprimer** l'ancienne cascade + constantes mortes (detect_op_ed,
+    _apply_video / _video_sourced_hit / _refine_credited_dense / _abs_offset /
+    resolve_window_duration, constantes *_OVERRIDE_* / VIDEO_EDGE_* /
+    CREDITED_ALIGN_MIN_VOTES / DENSE_AUDIO_SHARPEN_BAND_S…) + le flag --legacy.
+    ⚠ À FAIRE seulement quand v2 aura tourné sur PLUS d'animes que JJK/SnK (le
+    filet legacy existe pour ça). Adapter alors l'importeur DB + diag_* aux champs
+    (soft-dépréciés, non cassants).
+
+## Suivi / à surveiller avant 5b
+- Sélection de VERSION OP par fill audio (v2 a pris OP1 v1 vs legacy v2 sur JJK
+  ep3). Cuts OP1 quasi identiques → cosmétique pour le timing, mais vérifier sur
+  un titre où les versions diffèrent VRAIMENT (durée/cut).
+- Bord "end" des ED TRIMÉS (§6) : refine "end" pas encore branché dans v2
+  (end = theme_t0 + ref_native_dur systématique). OK sur JJK/SnK ; à valider si
+  un hôte coupe l'ED avant la fin du clip credited.
+- Coût : v2 décode une fenêtre vidéo NATIVE par (hôte, kind) à chaque run (pas de
+  cache des fenêtres épisode absolues encore). Acceptable en batch offline ;
+  ajouter un cache (clé abs-window) si les re-runs deviennent fréquents.
 
 Risque principal : régresser le trio validé. Mitigation : l'ancien chemin reste en
 place jusqu'à la bascule finale (étape 5).
