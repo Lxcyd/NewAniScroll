@@ -386,9 +386,24 @@ def build_references(
     if not entries:
         return []
 
-    def _build_one(entry) -> ThemeReference:
+    def _build_one(entry) -> ThemeReference | None:
         key = f"{slug_prefix}/{theme.slug}/v{entry.version}"
-        fp, dur = _fp_cached(key, entry.video_url, cache_dir)
+        # The AUDIO fingerprint is essential (v2 LOCATE needs it). A version whose
+        # NC/credited audio clip is broken on animethemes.moe (a persistent 5XX —
+        # seen on ChainsawMan-ED4-NCBD1080.webm) or transiently unavailable must
+        # NOT sink the whole anime: skip just that version and let the others ship
+        # (a theme usually has a usable version; a per-episode-ED series has many).
+        # Bounded retry first, since a 5XX is often transient under concurrency.
+        fp = dur = None
+        for attempt in range(_NATIVE_REF_RETRIES):
+            try:
+                fp, dur = _fp_cached(key, entry.video_url, cache_dir)
+                break
+            except Exception:
+                if attempt < _NATIVE_REF_RETRIES - 1:
+                    __import__("time").sleep(_NATIVE_REF_BACKOFF_S * (attempt + 1))
+        if fp is None:
+            return None
         vfp = None
         # IMAGE reference: prefer the CREDITED clip (its on-screen credits match
         # the aired episode's overlaid frames), falling back to the NC clip when
@@ -455,7 +470,10 @@ def build_references(
         )
 
     with ThreadPoolExecutor(max_workers=len(entries)) as pool:
-        return list(pool.map(_build_one, entries))
+        built = list(pool.map(_build_one, entries))
+    # Drop versions whose audio ref could not be fetched (see _build_one); the
+    # anime still ships with the versions that succeeded.
+    return [r for r in built if r is not None]
 
 
 def _match_best_version(
