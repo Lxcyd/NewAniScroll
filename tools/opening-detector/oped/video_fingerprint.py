@@ -249,6 +249,8 @@ def keyframe_hashes_abs(
     *,
     fps: float = SAMPLE_FPS,
     referer: str | None = None,
+    cache_key: str | None = None,
+    cache_dir: str | Path = "cache/video",
 ) -> VideoFingerprint:
     """Decode `[start_abs, start_abs+dur]` at `fps`, downscaled gray, with
     ABSOLUTE timestamps (`-copyts` + absolute `-ss`), returning a
@@ -260,8 +262,26 @@ def keyframe_hashes_abs(
     i.e. audio and video share ONE clock. This is what lets the image own the
     boundary in absolute time without any `-sseof` anchor or A/V reconciliation.
     The `times` are used as-is (no window offset added by the caller).
+
+    When `cache_key` is given the result is cached on disk keyed by
+    (cache_key, start_abs, dur, fps): the v2 ALIGN window is derived from the
+    coarse audio t0, which is deterministic per (host, episode), so the abs
+    window is stable across re-runs and the native decode is skipped on a hit.
+    Rounded to 0.1s so trivial float jitter doesn't miss the cache.
     """
     from .audio import _is_hls_url
+
+    cache_file = None
+    if cache_key is not None:
+        safe = cache_key.replace("/", "__").replace("\\", "__")
+        s_tag = f"{round(start_abs, 1)}"
+        d_tag = "" if dur is None else f"{round(dur, 1)}"
+        f_tag = "native" if fps is None else f"{fps:g}"
+        cache_dir = Path(cache_dir)
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        cache_file = cache_dir / f"{safe}.abs{s_tag}_{d_tag}.fps{f_tag}.vfp.npz"
+        if cache_file.exists():
+            return VideoFingerprint.load(cache_file)
 
     cmd = ["ffmpeg", "-hide_banner", "-loglevel", "info"]
     if referer:
@@ -285,7 +305,10 @@ def keyframe_hashes_abs(
         err = proc.stderr.decode("utf-8", "replace").strip()
         raise RuntimeError(f"ffmpeg (abs keyframes) failed for {src!r}:\n{err}")
     hashes, times = _parse_keyframe_raw(proc.stdout, proc.stderr, SCALE_W, SCALE_H)
-    return VideoFingerprint(hashes, times, n_frames=len(hashes))
+    vfp = VideoFingerprint(hashes, times, n_frames=len(hashes))
+    if cache_file is not None and hashes.size:
+        vfp.save(cache_file)
+    return vfp
 
 
 def _dhash_batch(frames: np.ndarray) -> np.ndarray:

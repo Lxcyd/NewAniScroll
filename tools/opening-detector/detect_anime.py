@@ -54,7 +54,7 @@ from oped.adapter_aniscroll import (
 )
 from oped.animethemes import fetch_themes, resolve_slug, themes_for_episode
 from oped.audio import _is_hls_url, decode_audio_abs, load_audio
-from oped.fingerprint import fingerprint
+from oped.fingerprint import Fingerprint, fingerprint
 from oped.multi_host import (
     HostStream,
     ReconciledHit,
@@ -205,6 +205,33 @@ def _flag_inferred(hits: list[ThemeHit], inferred_op: bool, inferred_ed: bool):
 # ── single-host path ─────────────────────────────────────────────────────────
 
 
+def _cached_audio_abs(cache_key, url, start_abs, dur, *, referer=None,
+                      cache_dir="cache/audio"):
+    """Decode+fingerprint an ABSOLUTE audio window, cached on disk so the v2
+    LOCATE re-decode is skipped on a re-run. Returns (Fingerprint, abs_start).
+
+    Keyed like keyframe_hashes_abs' abs cache: (cache_key, start_abs, dur),
+    rounded to 0.1s. abs_start (the seek-realized sample-0 time) is stored in a
+    tiny sidecar since it can differ from the requested start_abs. Only a
+    non-empty decode is cached.
+    """
+    safe = cache_key.replace("/", "__").replace("\\", "__")
+    s_tag = f"{round(start_abs, 1)}"
+    d_tag = "" if dur is None else f"{round(dur, 1)}"
+    stem = f"{safe}.abs{s_tag}_{d_tag}"
+    fp_file = Path(cache_dir) / f"{stem}.fp.npz"
+    off_file = Path(cache_dir) / f"{stem}.abs.txt"
+    if fp_file.exists() and off_file.exists():
+        return Fingerprint.load(fp_file), float(off_file.read_text())
+    samples, abs_start = decode_audio_abs(url, start_abs, dur, referer=referer)
+    fp = fingerprint(samples)
+    if samples.size:
+        Path(cache_dir).mkdir(parents=True, exist_ok=True)
+        fp.save(fp_file)
+        off_file.write_text(str(abs_start))
+    return fp, abs_start
+
+
 def run_single_host(args, themes, refs_by_theme, op_pool, ed_pool, eps):
     def process(e: dict):
         ep = e["ep"]
@@ -255,14 +282,14 @@ def run_single_host(args, themes, refs_by_theme, op_pool, ed_pool, eps):
         # with -copyts + absolute -ss so audio and native video carry the same
         # absolute pts; detect_op_ed_v2 needs no -sseof anchor / window offset.
         def resolve_audio_abs(start_abs, dur):
-            samples, abs_start = decode_audio_abs(
-                url, start_abs, dur, referer=e.get("referer")
+            return _cached_audio_abs(
+                f"absa/{base_key}", url, start_abs, dur, referer=e.get("referer")
             )
-            return fingerprint(samples), abs_start
 
         def resolve_video_abs(start_abs, dur, fps):
             return keyframe_hashes_abs(
-                url, start_abs, dur, fps=fps, referer=e.get("referer")
+                url, start_abs, dur, fps=fps, referer=e.get("referer"),
+                cache_key=f"absv/{base_key}", cache_dir="cache/video",
             )
 
         op_refs, ed_refs, inferred_op, inferred_ed = refs_for_episode(
@@ -409,15 +436,17 @@ def run_multi_host(args, themes, refs_by_theme, op_pool, ed_pool, lang: str, log
         # Stage-4 absolute resolvers (shared clock) for the --v2 path.
         def resolve_audio_abs_for(stream: HostStream, start_abs, dur):
             e = stream_meta[stream.host]
-            samples, abs_start = decode_audio_abs(
-                stream.url, start_abs, dur, referer=e.get("referer")
+            base_key = f"{args.slug}/{args.season}/{lang}/{stream.host}/ep{ep}"
+            return _cached_audio_abs(
+                f"absa/{base_key}", stream.url, start_abs, dur, referer=e.get("referer")
             )
-            return fingerprint(samples), abs_start
 
         def resolve_video_abs_for(stream: HostStream, start_abs, dur, fps):
             e = stream_meta[stream.host]
+            base_key = f"{args.slug}/{args.season}/{lang}/{stream.host}/ep{ep}"
             return keyframe_hashes_abs(
-                stream.url, start_abs, dur, fps=fps, referer=e.get("referer")
+                stream.url, start_abs, dur, fps=fps, referer=e.get("referer"),
+                cache_key=f"absv/{base_key}", cache_dir="cache/video",
             )
 
         op_refs, ed_refs, inferred_op, inferred_ed = refs_for_episode(
