@@ -1149,7 +1149,11 @@ def detect_op_ed(
 # LOCATE search windows, in ABSOLUTE episode seconds. OP: from the start (covers a
 # cold-open). ED: the tail, expressed as seconds-before-end (resolved against the
 # probed duration by the caller-agnostic helper below).
-OP_SEARCH = (0.0, 300.0)          # first 5 min
+OP_SEARCH = (0.0, 300.0)          # first 5 min (fast path)
+# When the OP isn't in the fast window (a long cold-open pushes it later —
+# Bocchi ep6 OP1 at 5:03), retry over this much of the episode start before
+# giving up. Bounded, and clamped away from the ED region by the caller.
+OP_SEARCH_FALLBACK_DUR = 720.0    # up to first 12 min
 ED_SEARCH_FROM_END = 240.0        # last 4 min
 
 # Minimum landmark consensus to trust the IMAGE t0. Below it we keep the audio t0
@@ -1235,10 +1239,18 @@ def detect_op_ed_v2(
             return None
         return anchor_by_landmarks(ep_vfp, ref.landmarks)
 
-    def _detect_kind(refs, start_abs, dur):
+    def _detect_kind(refs, start_abs, dur, fallback_dur=None):
         if not refs:
             return None
         loc = _locate_audio(refs, start_abs, dur)
+        if loc is None and fallback_dur is not None and fallback_dur > dur:
+            # The theme wasn't in the default search window — retry over a WIDER
+            # one. An OP after a long cold-open can start past OP_SEARCH's 5 min
+            # (Bocchi ep6: OP1 at 5:03, just past 300s); the audio match itself is
+            # strong (3356 votes) once the window reaches it. This is v2's
+            # equivalent of the old full_fallback, but bounded to the widened
+            # window instead of the whole episode.
+            loc = _locate_audio(refs, start_abs, fallback_dur)
         if loc is None:
             return None
         ref, theme_t0_audio, m = loc
@@ -1278,9 +1290,12 @@ def detect_op_ed_v2(
         )
 
     ed_start = max(0.0, episode_duration - ed_search_from_end)
+    # OP wide-fallback window, clamped so it never reaches into the ED search
+    # region (a theme match there would be the ED/next-ep preview, not the OP).
+    op_fallback = min(OP_SEARCH_FALLBACK_DUR, max(op_search[1], ed_start - op_search[0]))
     with ThreadPoolExecutor(max_workers=2) as pool:
         futures = [
-            pool.submit(_detect_kind, op_refs, op_search[0], op_search[1]),
+            pool.submit(_detect_kind, op_refs, op_search[0], op_search[1], op_fallback),
             pool.submit(_detect_kind, ed_refs, ed_start, ed_search_from_end),
         ]
         hits = [f.result() for f in futures]
