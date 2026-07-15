@@ -1366,6 +1366,16 @@ export default function Watch({
     // absences are published to the availability snapshot — persisting a
     // transient one would wrongly hide a working host for 6h (the snapshot TTL).
     const confirmedAbsent = new Set();
+    // Servers the cross-visitor snapshot reported as absent. Unlike cachedFailed
+    // these are NOT skipped by the probe fan-out — they get RE-PROBED in the
+    // background this visit. Reason: an `absent` entry is otherwise self-
+    // perpetuating — hidden at paint, skipped by the probe, then re-published as
+    // absent → frozen for the snapshot's whole 6h TTL even after the host is
+    // healthy again (the megaplay / sibnet-vo "chip never comes back" bug). They
+    // still stay HIDDEN at first paint (we don't markConfirmed them); the
+    // background probe flips them to a green chip + re-publishes `ok` the moment
+    // one resolves 200. A genuine 204/404 simply re-confirms the absence.
+    const snapshotAbsent = new Set();
     // Save back to sessionStorage as confirmations come in. Failed probes
     // are intentionally not persisted (see comment above).
     const persistProbeCache = () => {
@@ -1555,11 +1565,13 @@ export default function Watch({
           }
         }
         if (Array.isArray(absent)) {
-          // Servers known to have NO source for this episode: skip the probe
-          // entirely instead of re-scraping to rediscover they're absent. We do
-          // NOT call markFailed — an absent server simply stays hidden in the
-          // selector (same as a never-confirmed one), which is its current UX.
-          for (const id of absent) cachedFailed.add(id);
+          // Snapshot-absent servers stay HIDDEN at first paint (we don't paint
+          // them green), but we do NOT drop them into cachedFailed — that would
+          // make the probe fan-out skip them and re-publish the same absence,
+          // freezing a since-recovered host for the whole 6h TTL. Instead they
+          // go into snapshotAbsent so they get a background re-probe this visit:
+          // a host that now resolves flips its chip green and re-publishes `ok`.
+          for (const id of absent) snapshotAbsent.add(id);
         }
       } catch {
         /* offline / aborted — fall through to the normal probe fan-out */
