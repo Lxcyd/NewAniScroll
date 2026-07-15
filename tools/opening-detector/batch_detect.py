@@ -54,8 +54,8 @@ if hasattr(sys.stdout, "reconfigure"):
 
 from oped.adapter_aniscroll import resolve_episodes, resolve_episodes_multi
 from oped.animethemes import Theme, fetch_themes, resolve_slug, themes_for_episode
-from oped.audio import load_audio
-from oped.fingerprint import fingerprint
+from oped.audio import decode_audio_abs, load_audio
+from oped.fingerprint import Fingerprint, fingerprint
 from oped.manifest import Manifest, Record
 from oped.multi_host import HostStream, detect_op_ed_multi
 from oped.theme_bank import (
@@ -66,7 +66,8 @@ from oped.theme_bank import (
     detect_op_ed,
 )
 from oped.throttle import HostThrottler, is_throttle_error
-from oped.video_fingerprint import extract_keyframe_hashes
+from oped.timings import TimingCollector
+from oped.video_fingerprint import extract_keyframe_hashes, keyframe_hashes_abs
 
 
 # ── result sink ──────────────────────────────────────────────────────────────
@@ -106,6 +107,29 @@ def _probe_duration(url: str) -> float:
         return 24 * 60.0
 
 
+def _cached_audio_abs(cache_key, url, start_abs, dur, *, referer=None,
+                      cache_dir="cache/audio"):
+    """Decode+fingerprint an ABSOLUTE audio window, cached on disk so a re-run's
+    v2 LOCATE is skipped. Returns (Fingerprint, abs_start). Ported verbatim from
+    detect_anime.py so the batch's v2 path caches identically (same absa/ keys),
+    letting a resumed backfill reuse windows a single-anime debug run produced."""
+    safe = cache_key.replace("/", "__").replace("\\", "__")
+    s_tag = f"{round(start_abs, 1)}"
+    d_tag = "" if dur is None else f"{round(dur, 1)}"
+    stem = f"{safe}.abs{s_tag}_{d_tag}"
+    fp_file = Path(cache_dir) / f"{stem}.fp.npz"
+    off_file = Path(cache_dir) / f"{stem}.abs.txt"
+    if fp_file.exists() and off_file.exists():
+        return Fingerprint.load(fp_file), float(off_file.read_text())
+    samples, abs_start = decode_audio_abs(url, start_abs, dur, referer=referer)
+    fp = fingerprint(samples)
+    if samples.size:
+        Path(cache_dir).mkdir(parents=True, exist_ok=True)
+        fp.save(fp_file)
+        off_file.write_text(str(abs_start))
+    return fp, abs_start
+
+
 def build_theme_index(
     at_slug: str, *, with_video: bool = True
 ) -> tuple[list[Theme], dict[str, list[ThemeReference]]]:
@@ -131,6 +155,7 @@ def process_anime(
     sink: ResultSink,
     *,
     multi_host: bool = False,
+    timings: TimingCollector | None = None,
 ) -> Record:
     """Resolve + detect one anime across all its seasons. Raises on transient
     failure (so the caller can requeue); returns a Record on a clean outcome.
@@ -142,13 +167,15 @@ def process_anime(
     so it's opt-in."""
     mal_id = anime.get("mal_id")
     key = f"mal:{mal_id}" if mal_id else f"slug:{anime.get('slug')}"
+    tc = timings or TimingCollector.disabled()
 
     # 2. PRE-FILTER: resolve to AnimeThemes and check there is anything to do
     #    BEFORE touching any stream. Cached, so cheap on re-runs.
-    at_slug = resolve_slug(mal_id=mal_id) if mal_id else resolve_slug(slug=anime.get("at_slug"))
-    if not at_slug:
-        return Record(key, "skipped", reason="no AnimeThemes entry")
-    themes, refs_by_theme = build_theme_index(at_slug)
+    with tc.span("themes"):
+        at_slug = resolve_slug(mal_id=mal_id) if mal_id else resolve_slug(slug=anime.get("at_slug"))
+        if not at_slug:
+            return Record(key, "skipped", reason="no AnimeThemes entry")
+        themes, refs_by_theme = build_theme_index(at_slug)
     if not refs_by_theme:
         return Record(key, "skipped", reason="no themes/videos on AnimeThemes")
 
@@ -173,28 +200,43 @@ def process_anime(
 
         if multi_host:
             # Resolve every episode from all hosts up front, grouped by episode.
-            by_ep = resolve_episodes_multi(
-                anime["slug"], season["season_dir"], season["lang"],
-                season["ep_start"], season["ep_end"],
-            )
+            with tc.span("resolve"):
+                by_ep = resolve_episodes_multi(
+                    anime["slug"], season["season_dir"], season["lang"],
+                    season["ep_start"], season["ep_end"],
+                )
             for ep in sorted(by_ep):
                 op_refs, ed_refs, inf_op, inf_ed = refs_for(ep)
 
                 # Probe each host's duration under its own throttle slot, then
                 # match. Different hosts = different encode lengths — exactly the
                 # per-player duration variance the reconciler absorbs.
-                streams: list[HostStream] = []
-                for e in by_ep[ep]:
+                #
+                # Probes run IN PARALLEL across hosts: each is an independent
+                # ffprobe round-trip against a DIFFERENT CDN under its OWN throttle
+                # slot, so serialising them stalled every episode on ~5 sequential
+                # header reads before detection could even start. One thread per
+                # host (same pattern as detect_anime.py's `_probe_one`); the
+                # per-host AIMD slot still bounds concurrency to what each CDN
+                # tolerates, so this adds no extra load to any single host.
+                def _probe_one(e: dict) -> "HostStream | None":
+                    host = e.get("host", "?")
                     with throttler.slot(e["url"]) as slot:
                         try:
-                            dur = _probe_duration(e["url"])
+                            with tc.span("probe", host=host):
+                                dur = _probe_duration(e["url"])
                         except Exception as exc:
                             if is_throttle_error(exc):
                                 slot.throttled()
-                            continue
-                    streams.append(
-                        HostStream(host=e.get("host", "?"), url=e["url"], duration=dur)
-                    )
+                            return None
+                    return HostStream(host=host, url=e["url"], duration=dur)
+
+                entries = by_ep[ep]
+                streams: list[HostStream] = []
+                with ThreadPoolExecutor(max_workers=max(1, len(entries))) as ppool:
+                    for s in ppool.map(_probe_one, entries):
+                        if s is not None:
+                            streams.append(s)
                 if not streams:
                     continue
 
@@ -233,14 +275,36 @@ def process_anime(
                         window=win, fps=fps,
                     )
 
-                try:
-                    hits = detect_op_ed_multi(
-                        streams, resolve_window_for, op_refs, ed_refs,
-                        resolve_samples_for=resolve_samples_for,
-                        resolve_video_for=resolve_video_for,
-                        resolve_video_dense_for=resolve_video_dense_for,
-                        op_window=OP_WINDOW, ed_window=ED_WINDOW,
+                # v2 ABSOLUTE-timeline resolvers (shared clock) — the default now.
+                # decode_audio_abs / keyframe_hashes_abs use -copyts + absolute -ss
+                # so audio and native video carry the same absolute pts and the
+                # image landmark anchor owns the boundary; no -sseof, no dense
+                # cascade. Same absa/absv cache keys as detect_anime.py.
+                def resolve_audio_abs_for(stream: HostStream, start_abs, dur):
+                    return _cached_audio_abs(
+                        f"absa/{base_prefix}/ep{ep}/{stream.host}",
+                        stream.url, start_abs, dur,
                     )
+
+                def resolve_video_abs_for(stream: HostStream, start_abs, dur, fps):
+                    return keyframe_hashes_abs(
+                        stream.url, start_abs, dur, fps=fps,
+                        cache_key=f"absv/{base_prefix}/ep{ep}/{stream.host}",
+                        cache_dir="cache/video",
+                    )
+
+                try:
+                    with tc.span("detect"):
+                        hits = detect_op_ed_multi(
+                            streams, resolve_window_for, op_refs, ed_refs,
+                            resolve_samples_for=resolve_samples_for,
+                            resolve_video_for=resolve_video_for,
+                            resolve_video_dense_for=resolve_video_dense_for,
+                            resolve_audio_abs_for=resolve_audio_abs_for,
+                            resolve_video_abs_for=resolve_video_abs_for,
+                            v2=True,
+                            op_window=OP_WINDOW, ed_window=ED_WINDOW,
+                        )
                 except Exception as exc:
                     if is_throttle_error(exc):
                         # Charge the slowest/first host with the throttle signal.
@@ -281,10 +345,11 @@ def process_anime(
             continue
 
         # ── single-host path (default) ──────────────────────────────────────
-        eps = resolve_episodes(
-            anime["slug"], season["season_dir"], season["lang"],
-            season["ep_start"], season["ep_end"],
-        )
+        with tc.span("resolve"):
+            eps = resolve_episodes(
+                anime["slug"], season["season_dir"], season["lang"],
+                season["ep_start"], season["ep_end"],
+            )
         for e in eps:
             ep = e["ep"]
             url = e["url"]
@@ -294,8 +359,10 @@ def process_anime(
 
             # 4. ADAPTIVE CONCURRENCY: the network-heavy work (probe + windowed
             #    fetches) runs under the host's AIMD slot.
+            host = e.get("host", "?")
             with throttler.slot(url) as slot:
-                ep_dur = _probe_duration(url)
+                with tc.span("probe", host=host):
+                    ep_dur = _probe_duration(url)
 
                 def resolve_window(win):
                     samples = load_audio(url, cache_key=base_key, window=win)
@@ -320,13 +387,14 @@ def process_anime(
                     )
 
                 try:
-                    hits = detect_op_ed(
-                        resolve_window, ep_dur, op_refs, ed_refs,
-                        resolve_samples=resolve_samples,
-                        resolve_video=resolve_video,
-                        resolve_video_dense=resolve_video_dense,
-                        op_window=OP_WINDOW, ed_window=ED_WINDOW,
-                    )
+                    with tc.span("detect", host=host):
+                        hits = detect_op_ed(
+                            resolve_window, ep_dur, op_refs, ed_refs,
+                            resolve_samples=resolve_samples,
+                            resolve_video=resolve_video,
+                            resolve_video_dense=resolve_video_dense,
+                            op_window=OP_WINDOW, ed_window=ED_WINDOW,
+                        )
                 except Exception as exc:
                     if is_throttle_error(exc):
                         slot.throttled()
@@ -368,10 +436,13 @@ def run(
     max_per_host: int,
     resume: bool,
     multi_host: bool = False,
+    timings: bool = False,
 ) -> None:
     manifest = Manifest(manifest_path)
     sink = ResultSink(out_path)
     throttler = HostThrottler(start=start_conc, max_per_host=max_per_host)
+    tc = TimingCollector(enabled=timings)
+    t_run0 = time.monotonic()
 
     def key_of(a: dict) -> str:
         return f"mal:{a['mal_id']}" if a.get("mal_id") else f"slug:{a.get('slug')}"
@@ -385,7 +456,7 @@ def run(
     def worker(a: dict) -> tuple[str, str]:
         key = key_of(a)
         try:
-            rec = process_anime(a, throttler, sink, multi_host=multi_host)
+            rec = process_anime(a, throttler, sink, multi_host=multi_host, timings=tc)
         except Exception as exc:  # transient -> failed, requeued at end
             rec = Record(key, "failed", reason=f"{type(exc).__name__}: {exc}")
         manifest.record(rec)
@@ -420,6 +491,55 @@ def run(
         print(f"still failed after retry ({len(still)}):",
               ", ".join(still[:20]), "…" if len(still) > 20 else "")
 
+    if tc.enabled:
+        print(tc.report())
+        _print_eta(tc, anime_list, manifest, wall_s=time.monotonic() - t_run0)
+
+
+# The full verified DB, measured 2026-07-15 from player_map (see
+# export-oped-anime-list.mjs): 33 719 episode-lang panels to backfill. Used only
+# to extrapolate a bench run's throughput to the whole backfill.
+FULL_DB_EPISODE_LANGS = 33_719
+
+
+def _print_eta(tc: TimingCollector, anime_list: list[dict], manifest: Manifest,
+               *, wall_s: float) -> None:
+    """Extrapolate this (bench) run's throughput to the full 33.7k-episode-lang
+    backfill. Deliberately conservative: it measures REAL episode-langs actually
+    detected this run (the `detect` phase count) and the observed skip rate, then
+    scales wall time linearly. Prints a plain ETA plus the two levers that move
+    it (skip rate, per-episode wall)."""
+    detect = tc._phases.get("detect")
+    n_detected = detect.n if detect else 0
+    # Episode-langs represented by this run's input (what we TRIED to cover).
+    sample_eps = sum(
+        s["ep_end"] - s["ep_start"] + 1
+        for a in anime_list for s in a.get("seasons", [])
+    )
+    summ = manifest.summary()
+    n_skipped = summ.get("skipped", 0)
+    n_anime = len(anime_list)
+
+    print("\n=== BACKFILL ETA (extrapolated from this run) ===")
+    print(f"  sample: {n_anime} anime, {sample_eps} episode-lang input, "
+          f"{n_detected} actually detected, {n_skipped} anime skipped (no AnimeThemes)")
+    if n_detected == 0 or wall_s <= 0:
+        print("  (no episodes detected — cannot extrapolate)")
+        return
+    per_ep = wall_s / n_detected
+    skip_frac = (n_skipped / n_anime) if n_anime else 0.0
+    # The full DB has the same skip rate roughly, so effective episode-langs to
+    # decode ≈ total * (1 - skip_frac). This is the number that actually costs.
+    eff_full = FULL_DB_EPISODE_LANGS * (1 - skip_frac)
+    eta_s = eff_full * per_ep
+    print(f"  throughput: {per_ep:.1f} s / episode-lang (wall, incl. concurrency)")
+    print(f"  skip rate: {skip_frac*100:.0f}% of anime have no AnimeThemes data")
+    print(f"  → full backfill of ~{FULL_DB_EPISODE_LANGS} episode-langs "
+          f"(~{eff_full:.0f} effective): {eta_s/3600:.1f} h "
+          f"= {eta_s/3600/24:.1f} days of wall time")
+    print("  NB: linear extrapolation. Real backfill is CDN-throughput-bound; a "
+          "larger run lets the AIMD limiter settle, which usually IMPROVES per-ep.")
+
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Batch OP/ED detector (AnimeThemes-anchored)")
@@ -444,6 +564,13 @@ def main() -> None:
         "--no-multi-host", dest="multi_host", action="store_false",
         help="single-host path only (cheaper, but no cross-host serve gate).",
     )
+    ap.add_argument(
+        "--timings", action="store_true",
+        help="measure wall-clock per phase (resolve/probe/detect) and per host, "
+             "then print a table + a backfill ETA extrapolated to the full DB. "
+             "Use on a small --anime-list to size the full backfill before "
+             "committing to it. Negligible overhead; off by default.",
+    )
     args = ap.parse_args()
 
     anime_list = json.loads(Path(args.anime_list).read_text("utf-8"))
@@ -456,6 +583,7 @@ def main() -> None:
         max_per_host=args.max_per_host,
         resume=args.resume,
         multi_host=args.multi_host,
+        timings=args.timings,
     )
 
 

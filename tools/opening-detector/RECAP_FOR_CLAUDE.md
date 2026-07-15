@@ -189,6 +189,40 @@ c'est l'app (son season resolver) qui génère ce `anime.json`.
 frame-accurate par mode-consensus), Stage 4 steps 1-5a — v2 est le chemin PAR DÉFAUT,
 single + multi-host, avec cache.
 
+**Nettoyage + batch v2 (2026-07-15) :**
+- Ménage : supprimés tous les `proto_*`, `poc_synthetic`, `probe_*`, `run_series/snk`,
+  `diag_full`, `diag_per_host`, le dossier `out/`, et le code mort `oped/classify.py`
+  + `oped/fallback.py` (importés par personne de vivant). RESTENT : cœur `oped/*`,
+  `batch_detect.py`, `detect_anime.py`, + `diag_multi_host.py` (& sa dépendance
+  `diag_match.py`) comme unique outil de diag. Tout récupérable via git.
+- **`batch_detect.py` passe maintenant en v2** (multi-host) : `resolve_audio_abs_for`
+  + `resolve_video_abs_for` + `v2=True` câblés (helper `_cached_audio_abs` porté du
+  CLI, mêmes clés cache `absa/`/`absv/`). Le single-host `--no-multi-host` reste sur
+  la cascade legacy (chemin d'opt-out, non prioritaire). Gain : plus de `-sseof` ni de
+  dense-refine systématique → moins de décodes réseau par host, qualité identique.
+- **`uqload` retiré de `MULTI_HOSTS`** : aucun extracteur enregistré → échouait
+  TOUJOURS. Le garder ne faisait que dépenser un subprocess de résolution par épisode
+  pour zéro hit (charge CDN/handshake gaspillée sur 33k eps). Zéro impact qualité.
+- **Instrumentation** `oped/timings.py` + flag `batch_detect.py --timings` : mesure
+  wall-clock par phase (resolve/probe/detect) et par host, imprime un tableau + une
+  ETA de backfill extrapolée à la DB (33 719 ep-langues). Zéro coût si désactivé.
+- **Fetch audio+vidéo fusionné : ÉCARTÉ** (étudié, non viable sur v2). LOCATE audio
+  décode une large fenêtre (OP 300s) ; ALIGN vidéo une fenêtre étroite (~98s) centrée
+  sur un `theme_t0` qui n'existe QU'APRÈS l'audio. Fusionner obligerait à décoder la
+  vidéo sur les 300s → ~3× plus de vidéo → plus lent ET plus de charge CDN. La
+  structure LOCATE→ALIGN est causalement séquentielle : ne pas re-tenter la fusion.
+- **Probe multi-host parallélisé** (batch) : les ~5 `_probe_duration` par épisode
+  étaient en série (5 round-trips ffprobe avant détection). Passés en ThreadPool (1
+  thread/host, même pattern que `detect_anime._probe_one`) ; chaque host garde son
+  slot AIMD → aucune charge CDN supplémentaire, juste moins de latence en série.
+- **Code mort supprimé de `matcher.py`** : `SeriesBank` + `EpisodeSegment` +
+  `_overlaps` (~90 lignes, ancien mode épisode↔épisode, instancié par personne).
+  `best_match` (prod) et `all_matches` (diag) conservés.
+- **LOCK natif global (`_NATIVE_REF_LOCK`) : GARDÉ tel quel.** Il sérialise les décodes
+  natifs des clips credited d'AnimeThemes sur tout le batch — NÉCESSAIRE (animethemes.moe
+  rate-limite ; sans lui 0 frame était caché en dur, cf. §9). Coût one-time caché ; ne
+  pas « paralléliser » sous peine de re-casser le cache des refs.
+
 **Validé E2E (JJK ep3, multi-host VO+VF, 9 lignes host×lang, TOUTES credited) :**
 - megaplay ED **21:15** (fin du bug -5 s → 21:10) ; vidmoly-va OP **3:12** (fin du bug
   +15 s → 3:28) ; trio (sibnet/sendvid/vidmoly) inchangé.
@@ -242,6 +276,24 @@ tourné sur PLUS d'animes que JJK/SnK (le filet legacy existe pour ça).
 Une autre feature JOUE les clips NC AnimeThemes dans la page info (3e dropdown). Ce
 n'est PAS le détecteur. Fichiers : `lib/animethemes/themes.ts`,
 `pages/api/v2/themes/[id].ts`, `components/anime/v2/OpEdPanel.tsx`. Chantiers distincts.
+
+---
+
+## 8bis. Optimisations perf (précision INCHANGÉE — résultats bit-identiques)
+- **popcount LUT** (`video_fingerprint._popcount64`, 2026-07-15) : l'ancienne
+  version faisait 64 passes shift+mask par élément. Remplacée par une table 8-bit
+  (`_POPCOUNT_LUT`) : on voit chaque uint64 comme 8 octets, LUT + somme. Résultat
+  BIT-POUR-BIT identique (vérifié sur vide / 1-D / 2-D / patterns limites) ; ~3×
+  plus vite sur la matrice de distance vidéo `(n_q, n_r)` de `best_match_video`,
+  ~17× sur les tableaux 1-D de `anchor_by_landmarks`/`landmark_scores`. C'est le
+  hot-path CPU de TOUT le chemin image (best_match_video, anchor_by_landmarks,
+  landmark_scores, refine_edge_credited_video). Aucune constante de détection
+  touchée. Micro-bench post-fix : best_match_video ~5 ms/call, anchor ~1 ms/call.
+- **Non fait volontairement** : paralléliser LOCATE-audio ∥ ALIGN-vidéo dans
+  `_detect_kind` v2. La fenêtre ALIGN dérive du t0 audio (donc dépendance réelle) ;
+  spéculer la fenêtre risque un décode incomplet/gaspillé, l'élargir coûte plus de
+  décode → au détriment de la robustesse. Le réseau reste le goulot mais est déjà
+  parallélisé aux niveaux OP∥ED, inter-hosts, inter-langues, inter-versions.
 
 ---
 

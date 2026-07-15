@@ -131,8 +131,12 @@ def resolve_episodes(
 #   - embed4me / lpayer: literally the SAME host (its URLs contain both
 #     substrings, e.g. lpayer.embed4me.com) — listing both resolves the
 #     identical stream twice under two different labels. Also IP-bound.
-#   - uqload: no extractor registered for it at all; always fails.
-MULTI_HOSTS = ["sibnet", "sendvid", "megaplay", "vidmoly", "vidmoly-va", "uqload"]
+#   - uqload: no extractor registered for it at all; always fails — so it is
+#     NOT in the default list. Including it only spent a Node resolve subprocess
+#     per episode that could never yield a hit; over a 33k-episode backfill that
+#     is pure wasted CDN/handshake load. Kept documented here so nobody re-adds
+#     it expecting it to work; add an extractor first, then put it back.
+MULTI_HOSTS = ["sibnet", "sendvid", "megaplay", "vidmoly", "vidmoly-va"]
 
 
 def resolve_episodes_multi(
