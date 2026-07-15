@@ -53,14 +53,15 @@ from oped.adapter_aniscroll import (
     resolve_episodes_multi,
 )
 from oped.animethemes import fetch_themes, resolve_slug, themes_for_episode
-from oped.audio import _is_hls_url, load_audio
+from oped.audio import _is_hls_url, decode_audio_abs, load_audio
+from oped.fingerprint import fingerprint
 from oped.multi_host import (
     HostStream,
     ReconciledHit,
     detect_per_host,
     reconcile_hits,
 )
-from oped.video_fingerprint import extract_keyframe_hashes
+from oped.video_fingerprint import extract_keyframe_hashes, keyframe_hashes_abs
 from oped.theme_bank import (
     ED_WINDOW,
     OP_WINDOW,
@@ -69,6 +70,7 @@ from oped.theme_bank import (
     build_references,
     cached_fingerprint,
     detect_op_ed,
+    detect_op_ed_v2,
 )
 
 
@@ -249,19 +251,41 @@ def run_single_host(args, themes, refs_by_theme, op_pool, ed_pool, eps):
                 window=win, referer=e.get("referer"), fps=fps,
             )
 
+        # Stage-4 pipeline: ABSOLUTE-timeline resolvers (shared clock). decode
+        # with -copyts + absolute -ss so audio and native video carry the same
+        # absolute pts; detect_op_ed_v2 needs no -sseof anchor / window offset.
+        def resolve_audio_abs(start_abs, dur):
+            samples, abs_start = decode_audio_abs(
+                url, start_abs, dur, referer=e.get("referer")
+            )
+            return fingerprint(samples), abs_start
+
+        def resolve_video_abs(start_abs, dur, fps):
+            return keyframe_hashes_abs(
+                url, start_abs, dur, fps=fps, referer=e.get("referer")
+            )
+
         op_refs, ed_refs, inferred_op, inferred_ed = refs_for_episode(
             themes, refs_by_theme, op_pool, ed_pool, ep
         )
-        hits = detect_op_ed(
-            resolve_window, ep_dur, op_refs, ed_refs,
-            resolve_samples=resolve_samples,
-            resolve_video=(resolve_video if not args.no_video else None),
-            resolve_video_dense=(resolve_video_dense if not args.no_video else None),
-            resolve_window_duration=resolve_window_duration,
-            op_window=OP_WINDOW, ed_window=ED_WINDOW,
-            min_votes=args.min_votes, min_score=args.min_score,
-            refine=not args.no_refine,
-        )
+        if args.v2:
+            hits = detect_op_ed_v2(
+                ep_dur, op_refs, ed_refs,
+                resolve_audio_abs=resolve_audio_abs,
+                resolve_video_abs=resolve_video_abs,
+                min_votes=args.min_votes, min_score=args.min_score,
+            )
+        else:
+            hits = detect_op_ed(
+                resolve_window, ep_dur, op_refs, ed_refs,
+                resolve_samples=resolve_samples,
+                resolve_video=(resolve_video if not args.no_video else None),
+                resolve_video_dense=(resolve_video_dense if not args.no_video else None),
+                resolve_window_duration=resolve_window_duration,
+                op_window=OP_WINDOW, ed_window=ED_WINDOW,
+                min_votes=args.min_votes, min_score=args.min_score,
+                refine=not args.no_refine,
+            )
         return ep, ep_dur, _flag_inferred(hits, inferred_op, inferred_ed)
 
     results = []
@@ -288,12 +312,21 @@ def report_single_host(results, log=print) -> dict:
             theme = f"{h.slug}{'*' if h.inferred else ''}"
             log(f"{ep:>3}  {kind:>4}  {theme:>6}  {clock((h.start, h.end)):>13}  "
                 f"{h.votes:>6}")
-            ep_out[kind] = {
+            hit_out = {
                 "slug": h.slug, "version": h.version,
                 "start": round(h.start, 2), "end": round(h.end, 2),
                 "votes": h.votes, "score": round(h.score, 4),
                 "inferred": h.inferred,
             }
+            # Stage-4 image-anchor confidence. Emitted only when the landmark
+            # aligner actually ran (n_landmarks > 0) or fell back to audio, so the
+            # old cascade's output stays byte-identical for existing consumers.
+            if h.n_landmarks > 0 or h.low_confidence:
+                hit_out["source"] = h.source
+                hit_out["n_landmarks"] = h.n_landmarks
+                hit_out["consensus_frac"] = round(h.consensus_frac, 3)
+                hit_out["low_confidence"] = h.low_confidence
+            ep_out[kind] = hit_out
         out_eps[str(ep)] = ep_out
     log("\n(* = matched via cour fallback, no direct AnimeThemes mapping)")
     return out_eps
@@ -605,6 +638,12 @@ def main() -> None:
     ap.add_argument("--no-refine", action="store_true",
                      help="disable RMS edge-snapping — deliver the raw reference "
                           "projection without onset/cut refinement (debug).")
+    ap.add_argument("--v2", action="store_true",
+                     help="use the Stage-4 image-credited pipeline (detect_op_ed_v2): "
+                          "LOCATE audio (absolute window) → ALIGN native landmarks → "
+                          "start=theme_t0, end=theme_t0+ref_native_dur. Replaces the "
+                          "override cascade with a single linear path per (host, kind). "
+                          "Single-host only for now; --multi-host still uses the old path.")
     ap.add_argument("--out", default=None, help="write results as JSON to this path")
     args = ap.parse_args()
 
