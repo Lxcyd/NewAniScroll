@@ -318,7 +318,8 @@ def detect_per_host(
                 lambda start_abs, dur, _s=stream: resolve_audio_abs_for(_s, start_abs, dur)
             )
             video_abs_cb = (
-                lambda start_abs, dur, fps, _s=stream: resolve_video_abs_for(_s, start_abs, dur, fps)
+                (lambda start_abs, dur, fps, _s=stream: resolve_video_abs_for(_s, start_abs, dur, fps))
+                if resolve_video_abs_for is not None else None
             )
             kw = {} if min_score is None else {"min_score": min_score}
             try:

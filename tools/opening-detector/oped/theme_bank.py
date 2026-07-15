@@ -1154,7 +1154,7 @@ def detect_op_ed_v2(
     ed_refs: list[ThemeReference],
     *,
     resolve_audio_abs,
-    resolve_video_abs,
+    resolve_video_abs=None,
     op_search: tuple[float, float] = OP_SEARCH,
     ed_search_from_end: float = ED_SEARCH_FROM_END,
     min_votes: int = 40,
@@ -1202,8 +1202,9 @@ def detect_op_ed_v2(
 
     def _align_image(ref, theme_t0_coarse):
         """B. Native landmark anchor around the coarse t0. Returns LandmarkAnchor
-        or None (no landmarks / no image decode / nothing accepted)."""
-        if not ref.landmarks:
+        or None (no video resolver / no landmarks / no image decode / nothing
+        accepted). None → the caller keeps the coarse audio t0."""
+        if resolve_video_abs is None or not ref.landmarks:
             return None
         span = ref.ref_native_dur if ref.ref_native_dur > 0 else ref.duration
         start_abs = max(0.0, theme_t0_coarse - ALIGN_PAD_S)

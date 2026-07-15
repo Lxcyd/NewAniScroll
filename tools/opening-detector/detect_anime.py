@@ -268,11 +268,11 @@ def run_single_host(args, themes, refs_by_theme, op_pool, ed_pool, eps):
         op_refs, ed_refs, inferred_op, inferred_ed = refs_for_episode(
             themes, refs_by_theme, op_pool, ed_pool, ep
         )
-        if args.v2:
+        if not args.legacy:
             hits = detect_op_ed_v2(
                 ep_dur, op_refs, ed_refs,
                 resolve_audio_abs=resolve_audio_abs,
-                resolve_video_abs=resolve_video_abs,
+                resolve_video_abs=(None if args.no_video else resolve_video_abs),
                 min_votes=args.min_votes, min_score=args.min_score,
             )
         else:
@@ -433,8 +433,8 @@ def run_multi_host(args, themes, refs_by_theme, op_pool, ed_pool, lang: str, log
             resolve_video_dense_for=(resolve_video_dense_for if not args.no_video else None),
             resolve_window_duration_for=resolve_window_duration_for,
             resolve_audio_abs_for=resolve_audio_abs_for,
-            resolve_video_abs_for=resolve_video_abs_for,
-            v2=args.v2,
+            resolve_video_abs_for=(None if args.no_video else resolve_video_abs_for),
+            v2=not args.legacy,
             op_window=OP_WINDOW, ed_window=ED_WINDOW,
             min_votes=args.min_votes, min_score=args.min_score,
         )
@@ -655,13 +655,15 @@ def main() -> None:
     ap.add_argument("--no-refine", action="store_true",
                      help="disable RMS edge-snapping — deliver the raw reference "
                           "projection without onset/cut refinement (debug).")
-    ap.add_argument("--v2", action="store_true",
-                     help="use the Stage-4 image-credited pipeline (detect_op_ed_v2): "
-                          "LOCATE audio (absolute window) → ALIGN native landmarks → "
-                          "start=theme_t0, end=theme_t0+ref_native_dur. Replaces the "
-                          "override cascade with a single linear path per (host, kind). "
-                          "Applies to both single-host and --multi-host; reconcile "
-                          "becomes a pure cross-host confidence check.")
+    ap.add_argument("--legacy", action="store_true",
+                     help="use the OLD override-cascade detector (detect_op_ed) "
+                          "instead of the default Stage-4 image-credited pipeline. "
+                          "The default (detect_op_ed_v2): LOCATE audio (absolute "
+                          "window) → ALIGN native landmarks → start=theme_t0, "
+                          "end=theme_t0+ref_native_dur, a single linear path per "
+                          "(host, kind); reconcile becomes a pure cross-host "
+                          "confidence check. --legacy is kept as an A/B fallback "
+                          "until the old cascade is removed.")
     ap.add_argument("--out", default=None, help="write results as JSON to this path")
     args = ap.parse_args()
 
