@@ -181,10 +181,18 @@ Attendus :
    animethemes.moe → 0 frame caché en dur → OP toujours en fallback audio. Fix :
    `_native_ref_ok` (ne cache jamais un décode dégénéré) + `_decode_native_ref`
    (retry borné + LOCK sérialisant les décodes natifs lourds).
-3. **→ PROCHAIN : Câbler run_single_host** (§5) sur detect_op_ed_v2 (resolvers
-   absolus), valider single-host JJK + SnK (cold-open long : OP_SEARCH=300s
-   doit couvrir ; sinon élargir).
-4. **Câbler multi_host** (§5), valider E2E (§7).
+3. ✅ **Câbler run_single_host** (§5, commit 60d9cde) — flag `--v2` (resolvers
+   absolus decode_audio_abs / keyframe_hashes_abs ; défaut = ancien chemin, A/B).
+   report_single_host émet source/n_landmarks/consensus_frac/low_confidence
+   SEULEMENT si l'aligner a tourné → JSON de l'ancien chemin byte-identique.
+   Validé :
+     JJK ep3 sibnet : OP1 3:11.98-4:42.03 credited 17lm/0.77 ; ED1 21:14.96-22:44.93 credited 11lm/0.82
+     SnK ep1 sibnet (cold-open ~2min) : OP1 2:02-3:34 source=audio low_conf (pas de rip credited → fallback gracieux, OP quand même localisé après le cold-open) ; ED1 23:54-25:24 credited 16lm/0.94
+   OP_SEARCH=300s couvre le cold-open SnK. Fallback audio par-hit OK.
+   ⚠ Nuance A/B : v2 tie-break la VERSION OP1 par fill audio (a pris v1) vs ancien
+   (v2). Cuts OP1 quasi identiques → cosmétique pour le timing, à surveiller step 4-5.
+4. **→ PROCHAIN : Câbler multi_host** (§5), valider E2E (§7) : megaplay ED ~21:15,
+   vidmoly-va OP 3:11, trio inchangé, métrique = consensus_frac PAR HÔTE.
 5. **Supprimer** l'ancienne cascade + constantes mortes une fois le nouveau validé.
 
 Risque principal : régresser le trio validé. Mitigation : l'ancien chemin reste en
