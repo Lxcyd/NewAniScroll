@@ -47,7 +47,14 @@ import statistics
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
-from .theme_bank import ThemeHit, ThemeReference, detect_op_ed, ED_WINDOW, OP_WINDOW
+from .theme_bank import (
+    ThemeHit,
+    ThemeReference,
+    detect_op_ed,
+    detect_op_ed_v2,
+    ED_WINDOW,
+    OP_WINDOW,
+)
 
 
 # A host whose recovered timecode sits further than this from the consensus is
@@ -276,6 +283,9 @@ def detect_per_host(
     resolve_video_for=None,
     resolve_video_dense_for=None,
     resolve_window_duration_for=None,
+    resolve_audio_abs_for=None,
+    resolve_video_abs_for=None,
+    v2: bool = False,
     op_window=OP_WINDOW,
     ed_window=ED_WINDOW,
     min_votes: int = 40,
@@ -291,9 +301,40 @@ def detect_per_host(
     Because every host serves a differently-trimmed encode, these per-host
     timings are what a player actually needs at runtime — the consensus is only
     a cross-check on top.
+
+    `v2=True` runs the Stage-4 image-credited pipeline (`detect_op_ed_v2`) per
+    host instead of the cascade, using the ABSOLUTE resolvers
+    `resolve_audio_abs_for(stream, start_abs, dur)` and
+    `resolve_video_abs_for(stream, start_abs, dur, fps)`. Each host is still
+    detected in its OWN absolute time; `reconcile_hits` then folds them the same
+    way (it reads only source/votes/flags, which v2 populates), becoming a pure
+    cross-host confidence check rather than a correction (per-host t0 is already
+    frame-accurate on the shared absolute clock).
     """
 
     def _run_one(stream: HostStream) -> tuple[HostStream, list[ThemeHit]]:
+        if v2:
+            audio_abs_cb = (
+                lambda start_abs, dur, _s=stream: resolve_audio_abs_for(_s, start_abs, dur)
+            )
+            video_abs_cb = (
+                lambda start_abs, dur, fps, _s=stream: resolve_video_abs_for(_s, start_abs, dur, fps)
+            )
+            kw = {} if min_score is None else {"min_score": min_score}
+            try:
+                hits = detect_op_ed_v2(
+                    stream.duration,
+                    op_refs,
+                    ed_refs,
+                    resolve_audio_abs=audio_abs_cb,
+                    resolve_video_abs=video_abs_cb,
+                    min_votes=min_votes,
+                    **kw,
+                )
+            except Exception:
+                hits = []
+            return stream, hits
+
         samples_cb = (
             (lambda win, _s=stream: resolve_samples_for(_s, win))
             if resolve_samples_for is not None else None
@@ -350,6 +391,9 @@ def detect_op_ed_multi(
     resolve_video_for=None,
     resolve_video_dense_for=None,
     resolve_window_duration_for=None,
+    resolve_audio_abs_for=None,
+    resolve_video_abs_for=None,
+    v2: bool = False,
     op_window=OP_WINDOW,
     ed_window=ED_WINDOW,
     min_votes: int = 40,
@@ -381,6 +425,9 @@ def detect_op_ed_multi(
         resolve_video_for=resolve_video_for,
         resolve_video_dense_for=resolve_video_dense_for,
         resolve_window_duration_for=resolve_window_duration_for,
+        resolve_audio_abs_for=resolve_audio_abs_for,
+        resolve_video_abs_for=resolve_video_abs_for,
+        v2=v2,
         op_window=op_window, ed_window=ed_window,
         min_votes=min_votes, min_score=min_score, full_fallback=full_fallback,
     )

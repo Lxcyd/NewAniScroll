@@ -406,6 +406,20 @@ def run_multi_host(args, themes, refs_by_theme, op_pool, ed_pool, lang: str, log
             )
             return dur
 
+        # Stage-4 absolute resolvers (shared clock) for the --v2 path.
+        def resolve_audio_abs_for(stream: HostStream, start_abs, dur):
+            e = stream_meta[stream.host]
+            samples, abs_start = decode_audio_abs(
+                stream.url, start_abs, dur, referer=e.get("referer")
+            )
+            return fingerprint(samples), abs_start
+
+        def resolve_video_abs_for(stream: HostStream, start_abs, dur, fps):
+            e = stream_meta[stream.host]
+            return keyframe_hashes_abs(
+                stream.url, start_abs, dur, fps=fps, referer=e.get("referer")
+            )
+
         op_refs, ed_refs, inferred_op, inferred_ed = refs_for_episode(
             themes, refs_by_theme, op_pool, ed_pool, ep
         )
@@ -418,6 +432,9 @@ def run_multi_host(args, themes, refs_by_theme, op_pool, ed_pool, lang: str, log
             resolve_video_for=(resolve_video_for if not args.no_video else None),
             resolve_video_dense_for=(resolve_video_dense_for if not args.no_video else None),
             resolve_window_duration_for=resolve_window_duration_for,
+            resolve_audio_abs_for=resolve_audio_abs_for,
+            resolve_video_abs_for=resolve_video_abs_for,
+            v2=args.v2,
             op_window=OP_WINDOW, ed_window=ED_WINDOW,
             min_votes=args.min_votes, min_score=args.min_score,
         )
@@ -643,7 +660,8 @@ def main() -> None:
                           "LOCATE audio (absolute window) → ALIGN native landmarks → "
                           "start=theme_t0, end=theme_t0+ref_native_dur. Replaces the "
                           "override cascade with a single linear path per (host, kind). "
-                          "Single-host only for now; --multi-host still uses the old path.")
+                          "Applies to both single-host and --multi-host; reconcile "
+                          "becomes a pure cross-host confidence check.")
     ap.add_argument("--out", default=None, help="write results as JSON to this path")
     args = ap.parse_args()
 
