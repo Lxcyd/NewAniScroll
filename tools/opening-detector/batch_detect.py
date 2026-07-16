@@ -58,7 +58,7 @@ from oped.audio import decode_audio_abs, load_audio
 from oped.fingerprint import Fingerprint, fingerprint
 from oped.manifest import Manifest, Record
 from oped.multi_host import HostStream, detect_per_host, reconcile_hits
-from detect_anime import _hit_to_dict, _probe_duration
+from detect_anime import ProbeError, _hit_to_dict, _probe_duration
 from oped.theme_bank import (
     ED_WINDOW,
     OP_WINDOW,
@@ -225,6 +225,12 @@ def process_anime(
                         except Exception as exc:
                             if is_throttle_error(exc):
                                 slot.throttled()
+                            # Dropping the host is the CORRECT outcome (its
+                            # timings would have no clock to hang on), but a
+                            # silent drop is how megaplay quietly left 4 of 10
+                            # cyberpunk episodes. Say so.
+                            print(f"  [drop] ep{ep} {season['lang']}: {host} "
+                                  f"— {type(exc).__name__}: {exc}")
                             return None
                     return HostStream(host=host, url=e["url"], duration=dur,
                                       referer=referer)
@@ -403,8 +409,17 @@ def process_anime(
             #    fetches) runs under the host's AIMD slot.
             host = e.get("host", "?")
             with throttler.slot(url) as slot:
-                with tc.span("probe", host=host):
-                    ep_dur = _probe_duration(url)
+                try:
+                    with tc.span("probe", host=host):
+                        ep_dur = _probe_duration(url)
+                except ProbeError as exc:
+                    # No duration = no clock to express this episode's timings
+                    # against. Skip the EPISODE (not the season) rather than
+                    # detect against a fabricated one.
+                    if is_throttle_error(exc):
+                        slot.throttled()
+                    print(f"  [skip] ep{ep} {season['lang']} {host}: {exc}")
+                    continue
 
                 def resolve_window(win):
                     samples = load_audio(url, cache_key=base_key, window=win)

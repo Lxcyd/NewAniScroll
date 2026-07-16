@@ -40,6 +40,7 @@ import argparse
 import json
 import subprocess
 import sys
+import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from pathlib import Path
@@ -77,9 +78,38 @@ from oped.theme_bank import (
 # ── small helpers ────────────────────────────────────────────────────────────
 
 
+class ProbeError(RuntimeError):
+    """ffprobe could not determine a stream's duration.
+
+    Raised instead of returning a fabricated fallback: every downstream timing
+    is expressed against the host's duration, so a made-up one does not
+    degrade gracefully — it silently corrupts. See `_probe_duration`.
+    """
+
+
+# Probe retries. Megaplay rotates CDN hostnames and hands out short-lived URLs
+# (`cdn.mewstream.buzz` one run, `nekostream.site` the next), so a probe that
+# fails is usually a transient/expired-URL miss, not an absent episode —
+# measured on cyberpunk eps 4/8/9/10, where every "failed" host re-probed clean
+# minutes later. Retry before giving up.
+PROBE_RETRIES = 3
+PROBE_BACKOFF_S = [1.0, 3.0]
+
+
 def _probe_duration(url: str, referer: str | None = None) -> float:
     """Episode duration in seconds via ffprobe (container header only, no
     full read — cheap even over the network).
+
+    RAISES `ProbeError` when the duration cannot be read. It deliberately does
+    NOT fall back to a nominal 24*60: `duration` is the clock every timing on
+    this host is expressed against, so a fabricated value does not fail safe.
+    Measured on cyberpunk (run of 2026-07-16): megaplay's probe failed on 4 of
+    10 episodes, each time returning the 1440.0 fallback. Two distinct harms
+    followed — the host produced NO hits at all (it silently left the
+    consensus), and its bogus from-end projection fabricated a wide cross-host
+    "agreement" (ED spreads of 102s and 87s on eps 3/5) that only the serve
+    gate's spread guard caught. A raised error lets the caller drop the host,
+    which is both honest and what the reconciler already handles.
 
     Needs the same treatment as `_ffmpeg_decode` in audio.py, or probing
     silently fails on some hosts and we fall back to a bogus hardcoded
@@ -110,13 +140,43 @@ def _probe_duration(url: str, referer: str | None = None) -> float:
         "-show_entries", "format=duration",
         "-of", "default=noprint_wrappers=1:nokey=1", url,
     ]
-    try:
-        out = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-        return float(out.stdout.strip())
-    except Exception as exc:
-        print(f"  [warn] _probe_duration failed for {url!r}: {exc} "
-              f"— using 1440s fallback (approximate ED offset only)")
-        return 24 * 60.0  # sane default; only makes the ED offset approximate
+
+    last = "no attempt ran"
+    for attempt in range(PROBE_RETRIES):
+        if attempt:
+            time.sleep(PROBE_BACKOFF_S[min(attempt - 1, len(PROBE_BACKOFF_S) - 1)])
+        try:
+            out = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        except subprocess.TimeoutExpired:
+            last = "ffprobe timed out after 30s"
+            continue
+        except Exception as exc:  # ffprobe missing, OS-level failure
+            raise ProbeError(f"could not run ffprobe: {exc}") from exc
+
+        # Read the RETURN CODE, not just stdout: on failure ffprobe exits
+        # non-zero with an empty stdout, so the old `float(out.stdout)` blew up
+        # with a bare "could not convert string to float: ''" — hiding the real
+        # cause (403, expired URL, invalid data), which only ever lands on stderr.
+        text = out.stdout.strip()
+        if out.returncode != 0 or not text:
+            last = (out.stderr.strip() or f"exit {out.returncode}, empty output")
+            continue
+        try:
+            dur = float(text)
+        except ValueError:
+            last = f"unparsable duration {text!r}"
+            continue
+        # ffprobe reports N/A as nan and live/unbounded streams as 0 — neither is
+        # a usable clock, and both parse as a float, so they'd pass a naive check.
+        if not (dur > 0) or dur != dur:
+            last = f"non-positive/NaN duration {text!r}"
+            continue
+        return dur
+
+    raise ProbeError(
+        f"ffprobe could not read a duration after {PROBE_RETRIES} attempts "
+        f"for {url!r}: {last}"
+    )
 
 
 def ms(s: float) -> str:
@@ -237,7 +297,11 @@ def run_single_host(args, themes, refs_by_theme, op_pool, ed_pool, eps):
         ep = e["ep"]
         url = e["url"]
         base_key = f"{args.slug}/{args.season}/{args.lang}/ep{ep}"
-        ep_dur = _probe_duration(url, referer=e.get("referer"))
+        try:
+            ep_dur = _probe_duration(url, referer=e.get("referer"))
+        except ProbeError as exc:
+            print(f"  [skip] ep{ep}: {exc}")
+            return None
 
         def resolve_window(win):
             # cached_fingerprint caches the FINGERPRINT itself (not just the
@@ -317,7 +381,13 @@ def run_single_host(args, themes, refs_by_theme, op_pool, ed_pool, eps):
 
     results = []
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
-        for ep, dur, hits in pool.map(process, eps):
+        # `process` returns None for an episode whose duration could not be
+        # probed (it has no clock to detect against) — skip those rather than
+        # unpacking a None into (ep, dur, hits).
+        for out in pool.map(process, eps):
+            if out is None:
+                continue
+            ep, dur, hits = out
             results.append((ep, dur, hits))
             print(f"  ep{ep}: {dur / 60:.1f} min, {len(hits)} hit(s)")
     return results
@@ -377,17 +447,30 @@ def run_multi_host(args, themes, refs_by_theme, op_pool, ed_pool, lang: str, log
     def process(item):
         ep, entries = item
 
-        def _probe_one(e: dict) -> tuple[str, HostStream, dict]:
-            dur = _probe_duration(e["url"], referer=e.get("referer"))
+        def _probe_one(e: dict) -> tuple[str, HostStream, dict] | None:
             host = e.get("host", "?")
+            try:
+                dur = _probe_duration(e["url"], referer=e.get("referer"))
+            except ProbeError as exc:
+                # Drop THIS host only — the others still form a consensus. A
+                # raised error here would otherwise propagate out of pool.map
+                # and take the whole episode down with one flaky CDN.
+                log(f"  [drop] ep{ep} {lang}: {host} — {exc}")
+                return None
             return host, HostStream(host=host, url=e["url"], duration=dur), e
 
         streams: list[HostStream] = []
         stream_meta: dict[str, dict] = {}
         with ThreadPoolExecutor(max_workers=max(1, len(entries))) as pool:
-            for host, stream, e in pool.map(_probe_one, entries):
+            for out in pool.map(_probe_one, entries):
+                if out is None:
+                    continue
+                host, stream, e = out
                 streams.append(stream)
                 stream_meta[host] = e
+        if not streams:
+            log(f"  [warn] ep{ep} {lang}: no host survived probing — skipping")
+            return None
 
         def resolve_window_for(stream: HostStream, win):
             e = stream_meta[stream.host]
@@ -476,7 +559,11 @@ def run_multi_host(args, themes, refs_by_theme, op_pool, ed_pool, lang: str, log
 
     results = []
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
-        for ep, streams, per_host, reconciled in pool.map(process, sorted(by_ep.items())):
+        # None = no host survived probing for that episode (see `process`).
+        for out in pool.map(process, sorted(by_ep.items())):
+            if out is None:
+                continue
+            ep, streams, per_host, reconciled = out
             results.append((ep, streams, per_host, reconciled))
             hosts_used = [s.host for s in streams]
             n_hit = sum(1 for _s, hh in per_host if hh)

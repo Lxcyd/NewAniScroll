@@ -20,7 +20,7 @@ import sys
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
-from detect_anime import _probe_duration, load_theme_pools, refs_for_episode
+from detect_anime import ProbeError, _probe_duration, load_theme_pools, refs_for_episode
 from oped.adapter_aniscroll import resolve_episodes
 from oped.audio import load_audio
 from oped.fingerprint import fingerprint
@@ -109,7 +109,10 @@ def main() -> None:
     if not eps:
         raise SystemExit("Episode did not resolve.")
     e = eps[0]
-    ep_dur = _probe_duration(e["url"])
+    try:
+        ep_dur = _probe_duration(e["url"])
+    except ProbeError as exc:
+        raise SystemExit(f"Could not probe the episode's duration: {exc}")
     print(f"  host={e.get('host')}  duration={ep_dur:.1f}s ({ms(ep_dur)})")
 
     if args.full_episode:
