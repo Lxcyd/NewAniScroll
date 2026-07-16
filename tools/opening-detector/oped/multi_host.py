@@ -74,6 +74,26 @@ VIDEO_WEIGHT_FACTOR = 0.4
 # Below this many agreeing hosts we still emit a hit but flag it low-confidence
 # (a single host can be right, but we can't cross-check it).
 MIN_AGREE_FOR_CONFIDENT = 2
+# Serve-gate ceiling on the agreeing-anchor spread. When ≥2 hosts "agree" but
+# their anchors are this far apart, the agreement is fabricated by the _consensus
+# outlier fallback (see its comment): the two hosts matched DIFFERENT occurrences
+# of the theme, averaged into a timecode that exists on neither. A healthy spread
+# can't exceed the upstream tolerance (4.0 audio / 7.0 video) EXCEPT through that
+# fallback, so anything past a decade above it (the pathological case measured at
+# 87-91s ≈ one ED length) is held back. 10 sits just above the structural floor;
+# 15 or 20 give the same verdicts on the bench. Not a measure of accuracy on a
+# single host (spread=0.0 there), so this only bites the ≥2 path.
+SERVE_MAX_SPREAD_S = 10.0
+# An `inferred` hit came from the cour-wide pool (a theme borrowed from ANOTHER
+# episode because this one has no direct AnimeThemes mapping), so — unlike a
+# directly-mapped theme — there is NO guarantee the sequence actually plays on
+# this episode. Its song may still air over the end credits (the music matches)
+# while the ED PICTURE is absent: that's a false positive on audio alone
+# (measured on cyberpunk ep1 — 2 hosts agreed on an audio-only ED with zero
+# video confirmation, matching the ED song's reprise, not the ED sequence). So
+# an inferred hit is served ONLY when at least one host's IMAGE confirmed it.
+# A directly-mapped hit is unaffected: AnimeThemes vouches that it belongs here.
+INFERRED_REQUIRES_VIDEO = True
 
 
 @dataclass
@@ -83,6 +103,8 @@ class HostStream:
     host: str
     url: str
     duration: float  # seconds — THIS host's encode length (differs across hosts)
+    referer: str | None = None  # some hosts (megaplay) validate segment fetches
+                                # by Referer only — must be passed to ffmpeg/probe
 
 
 @dataclass
@@ -125,7 +147,22 @@ class ReconciledHit:
         OR a single host whose video confirmed the audio. A purely video-sourced
         consensus counts toward the ≥2 floor (covers episodes where no host had
         usable audio — the picture still agreed across hosts). Everything else is
-        stored-but-held."""
+        stored-but-held.
+
+        A ≥2-host "agreement" whose spread exceeds SERVE_MAX_SPREAD_S is held back:
+        that wide a spread means the _consensus outlier fallback fabricated the
+        agreement (hosts matched different theme occurrences). The hit stays stored
+        for inspection but is not served. The guard is inert on the single-host
+        video-confirm path (spread=0.0 there).
+
+        An `inferred` hit (theme borrowed from another episode) is served only
+        with image confirmation — see INFERRED_REQUIRES_VIDEO. Audio-only
+        agreement across hosts is NOT enough for an inferred theme: the song can
+        reprise over the credits without the ED sequence being present."""
+        if self.n_hosts_agree >= 2 and self.spread_s > SERVE_MAX_SPREAD_S:
+            return False
+        if INFERRED_REQUIRES_VIDEO and self.inferred and self.n_video_confirm < 1:
+            return False
         return self.n_hosts_agree >= MIN_AGREE_FOR_CONFIDENT or (
             self.n_hosts_agree >= 1 and self.n_video_confirm >= 1
         )
@@ -160,6 +197,13 @@ def _consensus(
     med = statistics.median(values)
     kept = [i for i, v in enumerate(values) if abs(v - med) <= tolerance]
     if not kept:
+        # Everything fell outside tolerance (e.g. 2 hosts far apart → their median
+        # is the midpoint, so BOTH are half-the-gap away). We reintegrate all so a
+        # legitimate tight cluster near the tolerance edge isn't lost — but here
+        # `len(kept)` is NOT a measure of agreement. The returned `spread` carries
+        # the truth, and ReconciledHit.serve (SERVE_MAX_SPREAD_S) is what holds
+        # back a fabricated ≥2 "agreement". Do not read n_hosts_agree as consensus
+        # without also checking spread.
         kept = list(range(len(values)))
     kv = [values[i] for i in kept]
     kw = [max(1e-6, weights[i]) for i in kept]
@@ -172,6 +216,8 @@ def reconcile_hits(
     per_host: list[tuple[HostStream, list[ThemeHit]]],
     *,
     canonical_duration: float | None = None,
+    inferred_op: bool = False,
+    inferred_ed: bool = False,
 ) -> list[ReconciledHit]:
     """Merge per-host detections of ONE episode into cross-host consensus hits.
 
@@ -183,7 +229,12 @@ def reconcile_hits(
     representative encode). ED absolute times are recomputed from the
     consensus seconds-from-end against this canonical duration, so they're
     coherent regardless of which hosts contributed.
-    """
+
+    `inferred_op`/`inferred_ed` mark the kind as borrowed from the cour-wide
+    pool (no direct AnimeThemes mapping for this episode). detect_op_ed_v2 does
+    NOT stamp `inferred` on its per-host ThemeHits — the caller owns that
+    knowledge (it chose the pool refs) — so it's threaded in here and set on the
+    ReconciledHit, where `serve` reads it (see INFERRED_REQUIRES_VIDEO)."""
     if not per_host:
         return []
 
@@ -262,8 +313,17 @@ def reconcile_hits(
                 n_hosts_agree=len(kept),
                 n_hosts_total=len(hits),
                 spread_s=round(spread, 3),
-                inferred=all(hits[i].inferred for i in kept) if kept else False,
-                n_video_confirm=sum(1 for i in kept if hits[i].confirmed_by_video),
+                inferred=(inferred_op if kind == "op" else inferred_ed)
+                or (all(hits[i].inferred for i in kept) if kept else False),
+                # A host counts as image-confirmed when EITHER the legacy pipeline
+                # set confirmed_by_video, OR (v2) its hit is image-sourced at all:
+                # in v2 a "credited"/"video" hit's t0 IS the landmark-anchored one
+                # (confirmed_by_video is never set on that path), so provenance is
+                # the image-confirmation signal. An "audio"/"mixed" hit is not.
+                n_video_confirm=sum(
+                    1 for i in kept
+                    if hits[i].confirmed_by_video or hits[i].source in ("credited", "video")
+                ),
                 video_disagreement=any(hits[i].video_disagreement for i in kept),
                 source=src,
             )

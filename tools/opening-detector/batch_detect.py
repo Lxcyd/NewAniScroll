@@ -57,7 +57,8 @@ from oped.animethemes import Theme, fetch_themes, resolve_slug, themes_for_episo
 from oped.audio import decode_audio_abs, load_audio
 from oped.fingerprint import Fingerprint, fingerprint
 from oped.manifest import Manifest, Record
-from oped.multi_host import HostStream, detect_op_ed_multi
+from oped.multi_host import HostStream, detect_per_host, reconcile_hits
+from detect_anime import _hit_to_dict, _probe_duration
 from oped.theme_bank import (
     ED_WINDOW,
     OP_WINDOW,
@@ -92,19 +93,6 @@ class ResultSink:
 
 
 # ── per-anime work ─────────────────────────────────────────────────────────
-
-
-def _probe_duration(url: str) -> float:
-    import subprocess
-    cmd = [
-        "ffprobe", "-v", "error", "-show_entries", "format=duration",
-        "-of", "default=noprint_wrappers=1:nokey=1", url,
-    ]
-    try:
-        out = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-        return float(out.stdout.strip())
-    except Exception:
-        return 24 * 60.0
 
 
 def _cached_audio_abs(cache_key, url, start_abs, dur, *, referer=None,
@@ -200,10 +188,18 @@ def process_anime(
 
         if multi_host:
             # Resolve every episode from all hosts up front, grouped by episode.
+            # Pass mal_id (megaplay needs it — resolved from a MAL id, not a slug)
+            # and va_slug (vidmoly-va needs the voir-anime slug). Without them both
+            # hosts are cleanly filtered out, so a run silently loses two encodes
+            # from the cross-host consensus. va_slug comes from the anime entry
+            # (the DB export owns the mapping); falls back to the anime-sama slug
+            # when voir-anime happens to use the same one.
+            va_slug = anime.get("va_slug") or anime.get("slug")
             with tc.span("resolve"):
                 by_ep = resolve_episodes_multi(
                     anime["slug"], season["season_dir"], season["lang"],
                     season["ep_start"], season["ep_end"],
+                    mal_id=mal_id, va_slug=va_slug,
                 )
             for ep in sorted(by_ep):
                 op_refs, ed_refs, inf_op, inf_ed = refs_for(ep)
@@ -221,15 +217,17 @@ def process_anime(
                 # tolerates, so this adds no extra load to any single host.
                 def _probe_one(e: dict) -> "HostStream | None":
                     host = e.get("host", "?")
+                    referer = e.get("referer")
                     with throttler.slot(e["url"]) as slot:
                         try:
                             with tc.span("probe", host=host):
-                                dur = _probe_duration(e["url"])
+                                dur = _probe_duration(e["url"], referer=referer)
                         except Exception as exc:
                             if is_throttle_error(exc):
                                 slot.throttled()
                             return None
-                    return HostStream(host=host, url=e["url"], duration=dur)
+                    return HostStream(host=host, url=e["url"], duration=dur,
+                                      referer=referer)
 
                 entries = by_ep[ep]
                 streams: list[HostStream] = []
@@ -244,7 +242,7 @@ def process_anime(
                     samples = load_audio(
                         stream.url,
                         cache_key=f"{base_prefix}/ep{ep}/{stream.host}",
-                        window=win,
+                        window=win, referer=stream.referer,
                     )
                     return fingerprint(samples)
 
@@ -254,7 +252,7 @@ def process_anime(
                     return load_audio(
                         stream.url,
                         cache_key=f"{base_prefix}/ep{ep}/{stream.host}",
-                        window=win,
+                        window=win, referer=stream.referer,
                     )
 
                 def resolve_video_for(stream: HostStream, win):
@@ -262,7 +260,7 @@ def process_anime(
                         stream.url,
                         cache_key=f"video/{base_prefix}/ep{ep}/{stream.host}",
                         cache_dir="cache/video",
-                        window=win,
+                        window=win, referer=stream.referer,
                     )
 
                 def resolve_video_dense_for(stream: HostStream, win, fps):
@@ -272,7 +270,7 @@ def process_anime(
                         stream.url,
                         cache_key=f"video/{base_prefix}/ep{ep}/{stream.host}",
                         cache_dir="cache/video",
-                        window=win, fps=fps,
+                        window=win, fps=fps, referer=stream.referer,
                     )
 
                 # v2 ABSOLUTE-timeline resolvers (shared clock) — the default now.
@@ -284,18 +282,26 @@ def process_anime(
                     return _cached_audio_abs(
                         f"absa/{base_prefix}/ep{ep}/{stream.host}",
                         stream.url, start_abs, dur,
+                        referer=stream.referer,
                     )
 
                 def resolve_video_abs_for(stream: HostStream, start_abs, dur, fps):
                     return keyframe_hashes_abs(
                         stream.url, start_abs, dur, fps=fps,
+                        referer=stream.referer,
                         cache_key=f"absv/{base_prefix}/ep{ep}/{stream.host}",
                         cache_dir="cache/video",
                     )
 
                 try:
                     with tc.span("detect"):
-                        hits = detect_op_ed_multi(
+                        # Detect each host ON ITS OWN encode, then reconcile. The
+                        # per-host hits are what a player actually needs at runtime
+                        # (each host serves a differently-trimmed stream, so the
+                        # averaged consensus lands on NO real host — e.g. cyberpunk
+                        # OP consensus 1:13 while sibnet is 1:16, vidmoly 1:10). The
+                        # consensus stays as the cross-host confidence check only.
+                        per_host = detect_per_host(
                             streams, resolve_window_for, op_refs, ed_refs,
                             resolve_samples_for=resolve_samples_for,
                             resolve_video_for=resolve_video_for,
@@ -304,6 +310,9 @@ def process_anime(
                             resolve_video_abs_for=resolve_video_abs_for,
                             v2=True,
                             op_window=OP_WINDOW, ed_window=ED_WINDOW,
+                        )
+                        hits = reconcile_hits(
+                            per_host, inferred_op=inf_op, inferred_ed=inf_ed
                         )
                 except Exception as exc:
                     if is_throttle_error(exc):
@@ -340,6 +349,39 @@ def process_anime(
                         "n_video_confirm": h.n_video_confirm,
                         "serve": h.serve,
                     }
+                # Per-host delivery: each host's OWN op/ed timing against its OWN
+                # duration, keyed by host. This is the authoritative timing for a
+                # player; `op`/`ed` above are the averaged consensus (cross-check).
+                # Reuses detect_anime._hit_to_dict (handles ED from_end re-projection).
+                #
+                # `inferred` is stamped HERE, not by detect_op_ed_v2: refs_for()
+                # owns the knowledge that a theme was borrowed from the cour pool
+                # (same reason reconcile_hits takes it as an argument). Without it
+                # the per-host dicts carry inferred=false and INFERRED_REQUIRES_VIDEO
+                # never bites on the path a player actually consumes — a borrowed ED
+                # matching only the song's reprise ships as a real timing.
+                def _host_entry(stream, host_hits: list) -> dict:
+                    out = {"duration": round(stream.duration, 2)}
+                    for h in host_hits:
+                        inferred = inf_op if h.kind == "op" else inf_ed
+                        d = _hit_to_dict(h, stream.duration)
+                        d["inferred"] = d.get("inferred", False) or inferred
+                        # Same precision-first rule as ReconciledHit.serve, applied
+                        # per host: a borrowed theme is only real here if THIS host's
+                        # image backs it. Audio alone can't tell the ED sequence from
+                        # the ED song playing over ordinary end credits.
+                        if (d["inferred"]
+                                and not h.confirmed_by_video
+                                and h.source not in ("credited", "video")):
+                            d["serve"] = False
+                            d["held_reason"] = "inferred theme, no image confirmation"
+                        out[h.kind] = d
+                    return out
+
+                row["per_host"] = {
+                    stream.host: _host_entry(stream, host_hits)
+                    for stream, host_hits in per_host
+                }
                 sink.write(row)
                 written += 1
             continue

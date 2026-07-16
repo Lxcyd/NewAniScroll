@@ -59,6 +59,14 @@ const PROXY_BASE =
   process.env.NEXT_PUBLIC_PROXY_BASE ||
   "https://proxy.aniscroll.com";
 
+// Anti-bot decoy retries on the on-click source fetch. Some scraper hosts
+// (sibnet) answer a cold hit with a decoy that extracts to nothing (204); the
+// route seeds its player_map and the next call resolves. Seeding can outlast a
+// single short retry, so back off across attempts — total ~5.6s worst case,
+// only ever paid on a 204 that would otherwise drop the chip.
+const DECOY_BACKOFF_MS = [800, 1600, 3200];
+const DECOY_RETRIES = DECOY_BACKOFF_MS.length;
+
 // ─────────────────────────────────────────────────────────────
 // SSR
 // ─────────────────────────────────────────────────────────────
@@ -339,8 +347,13 @@ export default function Watch({
   // the `cachedConfirmed` Set the availability snapshot is built from — so it
   // was never published, and the NEXT visitor's snapshot omitted it, hiding the
   // chip. The probe effect reads this ref when publishing so those verdicts make
-  // it into the snapshot. `ok` = resolved 200; `absent` = genuine 204/404.
-  const activeVerdictRef = useRef({ ok: new Set(), absent: new Set() });
+  // it into the snapshot.
+  //
+  // `ok` only. The click path deliberately does NOT publish absences: there, a
+  // cold anti-bot decoy and a genuine soft404 look identical, and guessing wrong
+  // hides a working host for the snapshot's 6h TTL. The background probe, which
+  // retries properly, owns `absent` via confirmedAbsent.
+  const activeVerdictRef = useRef({ ok: new Set() });
 
   // Mirror of failedServers for sync reads inside markFailed without forcing
   // markFailed to depend on failedServers (which would invalidate fetchStreamSource
@@ -1138,8 +1151,8 @@ export default function Watch({
       return;
     }
 
-    try {
-      const res = await fetch("/api/v2/source", {
+    const requestSource = () =>
+      fetch("/api/v2/source", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1161,15 +1174,38 @@ export default function Watch({
         priority: "high",
       });
 
+    try {
+      let res = await requestSource();
+
       if (signal?.aborted) return;
 
-      // 204 = "source absent" under the soft404 contract (res.ok is true for
-      // 204, but there's no body — json() would throw).
+      // 204 = "source absent" under the soft404 contract. But some scraper
+      // hosts (sibnet is the canonical case) serve an anti-bot DECOY on the
+      // first cold hit — extraction fails once, then the route's player_map is
+      // seeded and the very next call resolves fine (verified: 204 then 200
+      // stable). The background probe already retries transient misses before
+      // giving up; the on-click path did NOT, so one cold decoy hid a working
+      // chip the instant the user selected it.
+      //
+      // One 800ms retry was not enough: seeding the player_map can outlast it,
+      // so a second decoy still concluded "absent" and hid a WORKING chip for
+      // the snapshot's 6h TTL — the user-visible bug is the chip vanishing at
+      // the very moment you click it. Back off over a few attempts instead.
+      for (let attempt = 0; res.status === 204 && attempt < DECOY_RETRIES; attempt++) {
+        await new Promise((r) => setTimeout(r, DECOY_BACKOFF_MS[attempt]));
+        if (signal?.aborted) return;
+        res = await requestSource();
+        if (signal?.aborted) return;
+      }
+
       if (res.status === 204) {
         setHlsData({ error: true });
         markFailed(serverId, "Source not found");
-        // Genuine "no source" (soft404) → publishable as a stable absence.
-        activeVerdictRef.current.absent.add(serverId);
+        // Still 204 after the backoff. Mark the chip failed for THIS session, but
+        // do not publish the absence: on the click path a decoy and a genuine
+        // soft404 are indistinguishable, and publishing loses far more (a working
+        // host hidden for 6h, cross-visitor) than it saves (one re-probe). The
+        // background probe, which can afford to retry properly, owns `absent`.
       } else if (res.ok) {
         const data = await res.json();
         setHlsData(data);
@@ -1478,14 +1514,16 @@ export default function Watch({
         if (first.degraded) markDegraded(s.id);
         return markConfirmed(s.id);
       }
-      if (first.v === "fail-404") {
-        cachedFailed.add(s.id);
-        confirmedAbsent.add(s.id);
-        persistProbeCache();
-        return markFailed(s.id, "Source not found");
-      }
+      // NOTE: a FIRST 204/404 is NOT treated as a terminal absence anymore.
+      // sibnet (and other scraper hosts) serve an anti-bot decoy on the first
+      // cold hit — the route resolves 204 once, then 200 on the very next call
+      // (verified: cyberpunk ep2 sibnet-vo 204→200, the compile-cold request
+      // even tripping a handler timeout). Concluding "absent" here is what made
+      // the sibnet chip appear then vanish. So a first fail-404 falls through to
+      // the same wait-and-retry as a transient error; only a SECOND fail-404
+      // (below) is published as a genuine absence.
 
-      // Transient — wait, then try once more before giving up.
+      // Transient OR a first cold 204 — wait, then try once more before giving up.
       await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
       if (cancelled || controller.signal.aborted) return;
 
@@ -1636,10 +1674,7 @@ export default function Watch({
         ...cachedConfirmed,
         ...activeVerdictRef.current.ok,
       ]);
-      const publishAbsent = new Set([
-        ...confirmedAbsent,
-        ...activeVerdictRef.current.absent,
-      ]);
+      const publishAbsent = new Set(confirmedAbsent);
       // A server can't be both — a confirmation always wins over a stale absence.
       for (const id of publishOk) publishAbsent.delete(id);
       if (!cancelled && (publishOk.size > 0 || publishAbsent.size > 0)) {

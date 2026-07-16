@@ -919,9 +919,9 @@ def detect_op_ed(
         hit.end = float(min(max(hit.end, 0.0), episode_duration))
 
     def _ref_is_credited(ref: ThemeReference) -> bool:
-        """True when this ref's image fingerprint came from the credited (with-
-        credits) rip, not the NC clip — a credited match is frame-accurate."""
-        return bool(ref.video_ref_url) and ref.video_ref_url != ref.video_url
+        """Legacy alias for the module-level helper (kept so the surrounding
+        closures read unchanged); delegates so v2 and the cascade share one rule."""
+        return _ref_is_credited_impl(ref)
 
     def _video_sourced_hit(
         refs: list[ThemeReference], win, slug: str | None = None,
@@ -1163,11 +1163,52 @@ ED_SEARCH_FROM_END = 240.0        # last 4 min
 ALIGN_MIN_CONSENSUS_FRAC = 0.5
 ALIGN_MIN_LANDMARKS = 4
 
+# NC (non-credited) reference gates. When AnimeThemes has no credited rip the
+# landmarks are built from the CLEAN clip, so the episode (which has credits
+# composited over the SAME footage) matches at a looser Hamming distance
+# (HAMMING_THRESHOLD=12 vs 8 — see video_fingerprint.py:52-72: the credit text is
+# the only difference, ~2 bits sparse to ~30 dense). A looser per-landmark
+# threshold lets more junk through, so we compensate on the AGGREGATE: demand more
+# accepted landmarks and a tighter consensus fraction. A true NC landmark that
+# clears 12 bits IS the right frame and lands on the mode; a false one scatters.
+# The real lever is the landmark COUNT (a loose threshold costs count, not
+# coherence), so MIN_LANDMARKS_NC is the guard that matters most.
+ALIGN_MIN_CONSENSUS_FRAC_NC = 0.65
+ALIGN_MIN_LANDMARKS_NC = 6
+
 # Extra native video decoded on each side of the coarse audio t0 for the ALIGN
 # window. The theme spans [t0, t0+ref_dur]; pad so every landmark (incl. the
 # last, near ref_dur) is inside the decoded region even if the audio t0 is a few
 # seconds off.
 ALIGN_PAD_S = 4.0
+
+# IMAGE-ONLY fallback (audio LOCATE found nothing). The audio is the normal way
+# to (a) locate the theme and (b) pick the version (OP1 vs OP2), so losing it is
+# dangerous: without it we scan a WIDE window and must not accept a spurious
+# anchor. Two protections make this false-positive-safe, both verified on real
+# data (devilman VF, where the audio is re-dubbed / translated so LOCATE fails
+# but the PICTURE is identical → anchors at t0=0.99, 20/21 landmarks, frac 0.95;
+# the WRONG theme on the same window returns None):
+#   1. CREDITED refs only. An NC ref already needs the loose 12-bit threshold to
+#      match at all; combining that with a wide, unguided window is where false
+#      positives live. A credited ref matches at the tight 8-bit threshold, so a
+#      non-theme frame can't masquerade as a landmark.
+#   2. STRICTER aggregate gates than the audio-guided path, plus a raised sep_min
+#      so every accepted landmark is unambiguous (2nd-best match far away). A
+#      theme that isn't in the window produces scattered estimates → no mode →
+#      rejected. anchor_by_landmarks is self-discriminating: absence = no anchor.
+ALIGN_NOAUDIO_MIN_LANDMARKS = 6      # of ~19-21 built — a real theme lands most
+ALIGN_NOAUDIO_MIN_CONSENSUS_FRAC = 0.7  # tighter than the 0.5 audio-guided floor
+ALIGN_NOAUDIO_SEP_MIN = 8            # raised from the default 6: unambiguous only
+
+
+def _ref_is_credited_impl(ref: "ThemeReference") -> bool:
+    """True when this ref's image fingerprint came from the credited (with-
+    credits) rip, not the NC clip — a credited match is frame-accurate and can
+    use the tight Hamming threshold; an NC match must use the looser one. Module
+    level so BOTH the legacy cascade (detect_op_ed) and v2 (detect_op_ed_v2) share
+    one definition."""
+    return bool(ref.video_ref_url) and ref.video_ref_url != ref.video_url
 
 
 def detect_op_ed_v2(
@@ -1237,7 +1278,52 @@ def detect_op_ed_v2(
             return None
         if ep_vfp is None or ep_vfp.hashes.size == 0:
             return None
-        return anchor_by_landmarks(ep_vfp, ref.landmarks)
+        # Threshold by provenance: a credited ref matches episode-credited frames
+        # (re-encode noise only → tight 8 bits); an NC ref matches episode frames
+        # that carry credit text over the same footage → the looser 12-bit
+        # threshold. Without this, NC landmarks (built by build_references from the
+        # clean clip) are ALWAYS rejected at 8 bits and v2 silently falls back to
+        # audio. sep_min stays at its default (one parameter at a time).
+        thr = HAMMING_THRESHOLD_CREDITED if _ref_is_credited_impl(ref) else HAMMING_THRESHOLD
+        return anchor_by_landmarks(ep_vfp, ref.landmarks, hamming_max=thr)
+
+    def _locate_image_noaudio(refs, start_abs, dur):
+        """A'. IMAGE-ONLY locate when audio LOCATE found nothing (e.g. the theme
+        is re-dubbed / translated so its music no longer matches, but the PICTURE
+        is unchanged). Decodes the WHOLE search window once and anchors each
+        CREDITED ref's landmarks over it, keeping the best consensus. Returns
+        (ref, theme_t0, LandmarkAnchor) or None. False-positive-safe by design —
+        see the ALIGN_NOAUDIO_* constants: credited-only, tight threshold, strict
+        gates. A theme absent from the window yields no mode → None."""
+        if resolve_video_abs is None:
+            return None
+        # Only credited refs are eligible (NC + wide window = false-positive risk).
+        cand = [r for r in refs if _ref_is_credited_impl(r) and r.landmarks]
+        if not cand:
+            return None
+        try:
+            ep_vfp = resolve_video_abs(start_abs, dur, None)
+        except Exception:
+            return None
+        if ep_vfp is None or ep_vfp.hashes.size == 0:
+            return None
+        best = None  # (consensus_frac, ref, anchor)
+        for ref in cand:
+            anc = anchor_by_landmarks(
+                ep_vfp, ref.landmarks,
+                hamming_max=HAMMING_THRESHOLD_CREDITED,
+                sep_min=ALIGN_NOAUDIO_SEP_MIN,
+            )
+            if anc is None:
+                continue
+            if (anc.n_accepted >= ALIGN_NOAUDIO_MIN_LANDMARKS
+                    and anc.consensus_frac >= ALIGN_NOAUDIO_MIN_CONSENSUS_FRAC):
+                if best is None or anc.consensus_frac > best[0]:
+                    best = (anc.consensus_frac, ref, anc)
+        if best is None:
+            return None
+        _frac, ref, anc = best
+        return ref, anc.theme_t0, anc
 
     def _detect_kind(refs, start_abs, dur, fallback_dur=None):
         if not refs:
@@ -1252,21 +1338,59 @@ def detect_op_ed_v2(
             # window instead of the whole episode.
             loc = _locate_audio(refs, start_abs, fallback_dur)
         if loc is None:
-            return None
+            # AUDIO GATE BYPASS: the music didn't match (re-dub / translated theme
+            # / audio-only trim), but the PICTURE may still be there. Scan the
+            # search window by image alone, credited-only + strict gates. If it
+            # anchors, deliver a frame-accurate "video"-sourced hit; else give up.
+            img = _locate_image_noaudio(refs, start_abs, dur)
+            if img is None:
+                return None
+            ref, theme_t0_img, anc = img
+            ref_dur = ref.ref_native_dur if ref.ref_native_dur > 0 else (
+                ref.duration if ref.duration > 0 else 90.0
+            )
+            start = float(min(max(theme_t0_img, 0.0), episode_duration))
+            end = float(min(max(theme_t0_img + ref_dur, 0.0), episode_duration))
+            return ThemeHit(
+                kind=ref.kind, slug=ref.slug, version=ref.version,
+                start=start, end=end,
+                votes=0, score=0.0,
+                vote_start=start, vote_end=end,
+                r_start=0.0, r_end=ref_dur, ref_duration=ref_dur,
+                # "video": frame-accurate picture but no audio cross-check, so
+                # multi_host applies the wider tolerance / down-weight. NOT
+                # "credited" (that implies the full audio+image agreement).
+                source="video",
+                edge_start_source="video", edge_end_source="video",
+                video_theme_t0=anc.theme_t0,
+                n_landmarks=anc.n_accepted,
+                consensus_frac=anc.consensus_frac,
+                low_confidence=False,
+            )
         ref, theme_t0_audio, m = loc
 
         ref_dur = ref.ref_native_dur if ref.ref_native_dur > 0 else (
             ref.duration if ref.duration > 0 else m.r_end
         )
         anc = _align_image(ref, theme_t0_audio)
+        # Gates scale with provenance: the NC path used a looser per-landmark
+        # Hamming threshold, so it must clear stricter AGGREGATE gates (more
+        # accepted landmarks, tighter consensus) before we trust the image t0.
+        credited = _ref_is_credited_impl(ref)
+        min_lm = ALIGN_MIN_LANDMARKS if credited else ALIGN_MIN_LANDMARKS_NC
+        min_frac = ALIGN_MIN_CONSENSUS_FRAC if credited else ALIGN_MIN_CONSENSUS_FRAC_NC
         strong = (
             anc is not None
-            and anc.n_accepted >= ALIGN_MIN_LANDMARKS
-            and anc.consensus_frac >= ALIGN_MIN_CONSENSUS_FRAC
+            and anc.n_accepted >= min_lm
+            and anc.consensus_frac >= min_frac
         )
         if strong:
             theme_t0 = anc.theme_t0          # C. image is the authority
-            source = "credited"
+            # Honest provenance: "credited" only when the ref WAS the credited rip
+            # (frame-accurate, full trust). An NC image anchor is real but
+            # GOP-coarser vs the episode's credits, so it's "video" — which
+            # multi_host reads to apply the wider tolerance / down-weight.
+            source = "credited" if credited else "video"
             low_conf = False
         else:
             theme_t0 = theme_t0_audio        # D. fall back to coarse audio t0
