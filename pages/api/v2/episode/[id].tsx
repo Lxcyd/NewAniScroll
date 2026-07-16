@@ -4,6 +4,7 @@ import { rateLimiterRedis, rateSuperStrict, redis } from "@/lib/redis";
 import { NextApiRequest, NextApiResponse } from "next";
 import { anilistFetch } from "@/lib/anilist/anilistFetch";
 import { getCachedAnime } from "@/lib/db/anime";
+import { getEpisodeStills } from "@/lib/tmdb/episodeStills";
 
 /**
  * Episode API — generates episode lists from AniList data.
@@ -29,7 +30,11 @@ async function fetchAniListEpisodes(id: string) {
   return json?.data?.Media || null;
 }
 
-function buildEpisodeList(id: string, media: any) {
+function buildEpisodeList(
+  id: string,
+  media: any,
+  stills: Record<number, string> = {},
+) {
   // Determine total episodes: known count, or aired-so-far for ongoing anime
   let totalEpisodes = media?.episodes;
   if (!totalEpisodes && media?.nextAiringEpisode?.episode) {
@@ -74,13 +79,17 @@ function buildEpisodeList(id: string, media: any) {
       id: `megaplay-${id}-${num}`,
       title: cleanTitle || `Episode ${num}`,
       number: num,
-      /* Only a genuinely per-episode thumb, or null. We used to fall back to
+      /* Only a genuinely per-episode image, or null. We used to fall back to
          the anime's banner here, which handed EVERY row the same image — the
          "10 identical tiles" bug. Null lets the client vary the tile from the
          fanart pool instead (lib/images/episodeImagePool.ts); it has the
          artwork loaded already, and this response is a shared 30-day cache
-         blob, so a pick made here would freeze one viewer's choice for all. */
-      img: streaming?.thumbnail || null,
+         blob, so a pick made here would freeze one viewer's choice for all.
+
+         AniList's own thumb wins over TMDB: it belongs to THIS entry, whereas
+         a TMDB still is inferred via a season mapping (validated, but still an
+         inference — see lib/tmdb/resolveTmdbSeason.ts). */
+      img: streaming?.thumbnail || stills[num] || null,
       description: null,
     };
   });
@@ -199,7 +208,20 @@ export default async function handler(
     return res.status(404).json({ error: "Anime not found" });
   }
 
-  const rawData = buildEpisodeList(id as string, media);
+  /* Real per-episode stills, when TMDB has a season we can validate against
+     AniList's episode count. Only on the cache-miss path — a Redis hit returns
+     above and never reaches TMDB.
+
+     Timeboxed: the episode list is the site's hot path, and getEpisodeStills
+     can make two sequential 8s TMDB calls. Past the budget we drop the stills
+     and let the client's fanart pool cover the rows; the result still lands in
+     the cache on a later request. Never blocks, never throws. */
+  const stills = await Promise.race([
+    getEpisodeStills(Number(id), media?.episodes ?? null).catch(() => ({})),
+    new Promise<Record<number, string>>((r) => setTimeout(() => r({}), 2500)),
+  ]);
+
+  const rawData = buildEpisodeList(id as string, media, stills);
 
   // Cache
   if (redis && cacheTime !== null && rawData.length > 0) {
