@@ -57,8 +57,6 @@ function buildEpisodeList(id: string, media: any) {
     });
   }
 
-  const fallbackImg = media?.bannerImage || media?.coverImage?.extraLarge || null;
-
   const episodes = Array.from({ length: totalEpisodes }, (_, i) => {
     const num = i + 1;
     const streaming = streamingByNum[num];
@@ -76,9 +74,13 @@ function buildEpisodeList(id: string, media: any) {
       id: `megaplay-${id}-${num}`,
       title: cleanTitle || `Episode ${num}`,
       number: num,
-      // Per-episode thumb when AniList exposes one, otherwise the
-      // anime's banner / cover so the tile isn't a blank gradient.
-      img: streaming?.thumbnail || fallbackImg,
+      /* Only a genuinely per-episode thumb, or null. We used to fall back to
+         the anime's banner here, which handed EVERY row the same image — the
+         "10 identical tiles" bug. Null lets the client vary the tile from the
+         fanart pool instead (lib/images/episodeImagePool.ts); it has the
+         artwork loaded already, and this response is a shared 30-day cache
+         blob, so a pick made here would freeze one viewer's choice for all. */
+      img: streaming?.thumbnail || null,
       description: null,
     };
   });
@@ -143,13 +145,13 @@ export default async function handler(
     }
 
     if (refresh !== null) {
-      await redis.del(`episode:v3:${id}`);
+      await redis.del(`episode:v4:${id}`);
     } else {
-      cached = await redis.get(`episode:v3:${id}`);
+      cached = await redis.get(`episode:v4:${id}`);
       if (cached) {
         const parsed = JSON.parse(cached);
         if (!parsed || parsed.length === 0) {
-          await redis.del(`episode:v3:${id}`);
+          await redis.del(`episode:v4:${id}`);
           cached = null;
         }
       }
@@ -202,7 +204,7 @@ export default async function handler(
   // Cache
   if (redis && cacheTime !== null && rawData.length > 0) {
     await redis.set(
-      `episode:v3:${id}`,
+      `episode:v4:${id}`,
       JSON.stringify(rawData),
       "EX",
       cacheTime

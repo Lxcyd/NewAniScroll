@@ -178,6 +178,7 @@ export default function Tabs({ info, fanarts, progress, seasonList, bonusFilms }
         {tab === "episodes" && (
           <Episodes
             info={info}
+            fanarts={fanarts}
             progress={progress}
             seasonList={seasonList}
             bonusFilms={bonusFilms}

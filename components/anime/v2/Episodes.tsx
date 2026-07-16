@@ -14,6 +14,12 @@ import type { FilmVariant } from "@/lib/anilist/resolveSeason";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { useHideSpoilers } from "@/lib/prefs/spoilerPrefs";
 import { slugifyTitle } from "./helpers";
+import type { FanartResponse } from "./helpers";
+import {
+  buildEpisodeImagePool,
+  pickEpisodeImage,
+} from "@/lib/images/episodeImagePool";
+import { onFanartError, originalFanartUrl } from "@/lib/images/fanartFallback";
 import OpEdPanel, { useOpEdThemes } from "./OpEdPanel";
 import FilmsPanel from "./FilmsPanel";
 import { useTranslation } from "react-i18next";
@@ -82,6 +88,11 @@ type ActiveSource =
 type Props = {
   info: AniListInfoTypes;
   progress: number;
+  /** fanart.tv artwork for this anime, already loaded SSR for the Artworks
+   *  tab. Used to give each episode row a different image when AniList has no
+   *  per-episode thumbnails (see lib/images/episodeImagePool.ts). Optional:
+   *  callers without it (watch sidebar) just fall back to the banner. */
+  fanarts?: FanartResponse | null;
   /** Other seasons of the same franchise (current included). */
   seasonList?: SeasonEntry[];
   /** Franchise bonus films (SIDE_STORY movies — HxH: Phantom Rouge). Rendered
@@ -108,8 +119,15 @@ const ROW_HEIGHT = {
   compact: 44,
 };
 
-export default function Episodes({ info, progress, seasonList, bonusFilms, onEpisodeCount }: Props) {
+export default function Episodes({ info, fanarts, progress, seasonList, bonusFilms, onEpisodeCount }: Props) {
   const titlePref = useTitlePref();
+  /* Built once per anime, not per row: buildEpisodeImagePool walks every
+     fanart type and collectArtworks re-sorts them, which is wasted work on a
+     1100-episode list. */
+  const imagePool = useMemo(
+    () => buildEpisodeImagePool(info, fanarts),
+    [info, fanarts],
+  );
   const { t } = useTranslation();
   const [eps, setEps] = useState<EpisodeRow[] | null>(null);
   const [loading, setLoading] = useState(true);
@@ -576,6 +594,7 @@ export default function Episodes({ info, progress, seasonList, bonusFilms, onEpi
               eps={filtered}
               progress={progress}
               info={info}
+              imagePool={imagePool}
               isDub={isDub}
               activeAnimeId={activeSeasonId}
               otherSeason={activeSeasonId !== info.id}
@@ -599,6 +618,9 @@ type ListProps = {
   eps: EpisodeRow[];
   progress: number;
   info: AniListInfoTypes;
+  /** Landscape art to vary episode thumbs with, built once by <Episodes>.
+   *  Only DetailedList renders thumbs, so compact/grid leave it unset. */
+  imagePool?: string[];
   isDub: boolean;
   /** Forwarded to watchHref so episode links go to the active season's
    *  AniList id rather than the page's own id. */
@@ -1015,17 +1037,20 @@ function SeasonPicker({
 
 
 /* Thumbnail box with multi-tier fallback chain.
-   Priority: ep.img → info.bannerImage → info.coverImage → gradient.
+   Priority: ep.img → this episode's pick from the image pool →
+   info.bannerImage → info.coverImage → gradient.
    Each <img> upgrade is gated on `onError` so a 404/blocked image
    silently moves to the next source instead of leaving a broken icon. */
 function EpisodeThumb({
   ep,
   info,
+  imagePool,
   current,
   locked,
 }: {
   ep: EpisodeRow;
   info: AniListInfoTypes;
+  imagePool: string[];
   current: boolean;
   locked: boolean;
 }) {
@@ -1037,11 +1062,22 @@ function EpisodeThumb({
       if (u && !out.includes(u)) out.push(u);
     };
     push(ep.img);
+    // Deterministic per-episode pick — what makes rows differ when AniList
+    // has no per-episode thumbnail. Banner/cover stay below it as onError
+    // rungs, so a dead fanart URL still lands on something.
+    push(pickEpisodeImage(imagePool, ep.number));
     push(info.bannerImage);
     push(info.coverImage?.extraLarge);
     push(info.coverImage?.large);
     return out;
-  }, [ep.img, info.bannerImage, info.coverImage?.extraLarge, info.coverImage?.large]);
+  }, [
+    ep.img,
+    ep.number,
+    imagePool,
+    info.bannerImage,
+    info.coverImage?.extraLarge,
+    info.coverImage?.large,
+  ]);
 
   const [idx, setIdx] = useState(0);
   const src = sources[idx];
@@ -1064,7 +1100,19 @@ function EpisodeThumb({
           }}
           loading="lazy"
           decoding="async"
-          onError={() => setIdx((i) => i + 1)}
+          onError={(e) => {
+            /* Pool images come from the fanart CF proxy, which 429s once the
+               month's transform quota is spent. onFanartError swaps that URL
+               to assets.fanart.tv in place — so when it applies, DON'T bump
+               idx: advancing would remount a fresh <img> (keyed on src) and
+               throw the recovery away. Only skip to the next source when
+               there's no origin URL to fall back to. */
+            if (originalFanartUrl(e.currentTarget.src)) {
+              onFanartError(e);
+              return;
+            }
+            setIdx((i) => i + 1);
+          }}
         />
       ) : (
         /* All sources exhausted (or none) — show the deterministic
@@ -1117,6 +1165,7 @@ function DetailedList({
   eps,
   progress,
   info,
+  imagePool = [],
   isDub,
   activeAnimeId,
   otherSeason,
@@ -1154,7 +1203,13 @@ function DetailedList({
                 pointerEvents: locked ? "none" : "auto",
               }}
             >
-              <EpisodeThumb ep={ep} info={info} current={current} locked={locked} />
+              <EpisodeThumb
+                ep={ep}
+                info={info}
+                imagePool={imagePool}
+                current={current}
+                locked={locked}
+              />
               <div style={tStyles.epInfo}>
                 <div style={tStyles.epHead}>
                   <span className="mono" style={tStyles.epNum}>

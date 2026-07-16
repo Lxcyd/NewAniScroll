@@ -133,6 +133,7 @@ export default function InfoPageMobile({
           <div style={S.tabBox}>
             <Episodes
               info={info}
+              fanarts={initialFanarts}
               progress={progress}
               seasonList={seasonList}
               bonusFilms={bonusFilms}
