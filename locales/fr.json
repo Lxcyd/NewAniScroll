@@ -29,7 +29,9 @@
     "disclaimer": "Ce site n'héberge aucun fichier sur nos serveurs ; nous ne faisons que créer des liens vers des médias hébergés par des services tiers.",
     "movies": "Films",
     "tvShows": "Séries TV",
-    "dmca": "DMCA"
+    "dmca": "DMCA",
+    "sources": "Sources",
+    "about": "À propos"
   },
   "nav": {
     "home": "Accueil",
@@ -735,6 +737,28 @@
     "emailNotAvailable": "pas encore disponible",
     "emailNotice": "Une adresse e-mail pour les notifications DMCA est",
     "emailRest": ". En attendant, utilisez le bouton Signaler dans la barre de navigation avec autant de détails que dans un e-mail et je ferai le suivi."
+  },
+  "sources": {
+    "title": "Sources",
+    "subtitle": "Les bases de données et communautés ouvertes qui alimentent AniScroll.",
+    "thanksTitle": "Merci à elles",
+    "thanks1": "AniScroll ne crée aucune de ces données. Les fiches, les images, les génériques, les notes — tout vient de projets ouverts et de communautés qui les maintiennent, souvent bénévolement, depuis des années.",
+    "thanks2": "Cette page les cite nommément. Certaines l'exigent, les autres le méritent.",
+    "dataTitle": "Données",
+    "legalTitle": "Mentions",
+    "legalNote": "Les logos et marques cités appartiennent à leurs propriétaires respectifs. AniScroll n'est affilié à aucun de ces services.",
+    "desc": {
+      "anilist": "La colonne vertébrale du site : fiches, titres, synopsis, jaquettes, notes, genres, relations entre saisons, calendrier de diffusion, personnages — et la synchronisation de votre liste.",
+      "fanart": "Illustrations, logos, bannières et arrière-plans. Sert aussi de repli pour les vignettes d'épisode quand aucune image de l'épisode n'existe.",
+      "animethemes": "Génériques d'ouverture et de fin : titres, artistes, et les extraits vidéo lisibles dans l'onglet Opening / Ending.",
+      "mal": "Les notes communautaires par épisode affichées dans l'onglet Notes.",
+      "jikan": "L'API ouverte qui rend les données MyAnimeList accessibles.",
+      "simkl": "Les vignettes réelles de chaque épisode, y compris pour les très longues séries que les autres bases ne couvrent pas.",
+      "tmdb": "Des vignettes d'épisode complémentaires.",
+      "fribb": "La table de correspondance entre les identifiants des différentes bases, sans laquelle rien ne pourrait être recoupé.",
+      "aniskip": "Les repères communautaires pour passer les génériques.",
+      "animeskip": "Repères de génériques, en complément."
+    }
   },
   "about": {
     "title": "À propos",

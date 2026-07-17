@@ -29,7 +29,9 @@
     "disclaimer": "This site does not store any files on our server, we only linked to the media which is hosted on 3rd party services.",
     "movies": "Movies",
     "tvShows": "TV Shows",
-    "dmca": "DMCA"
+    "dmca": "DMCA",
+    "sources": "Sources",
+    "about": "About"
   },
   "nav": {
     "home": "Home",
@@ -735,6 +737,28 @@
     "emailNotAvailable": "not available yet",
     "emailNotice": "An email address for DMCA notices is",
     "emailRest": ". In the meantime, please use the Report button in the navbar with as much detail as you would put in an email and I'll follow up."
+  },
+  "sources": {
+    "title": "Sources",
+    "subtitle": "The open databases and communities whose data powers AniScroll.",
+    "thanksTitle": "Credit where it's due",
+    "thanks1": "AniScroll creates none of this data. The entries, the artwork, the themes, the scores — all of it comes from open projects and the communities that have maintained them, mostly unpaid, for years.",
+    "thanks2": "This page names them. Some require it; the rest have earned it.",
+    "dataTitle": "Data",
+    "legalTitle": "Notices",
+    "legalNote": "All logos and trademarks belong to their respective owners. AniScroll is not affiliated with any of these services.",
+    "desc": {
+      "anilist": "The backbone: entries, titles, synopses, cover art, scores, genres, season relations, airing schedule, characters — and your list sync.",
+      "fanart": "Artwork, logos, banners and backgrounds. Also the fallback for episode thumbnails when no image of the episode exists.",
+      "animethemes": "Opening and ending themes: song titles, artists, and the video clips playable in the Opening / Ending tab.",
+      "mal": "The per-episode community scores shown on the Scores tab.",
+      "jikan": "The open API that makes MyAnimeList data reachable.",
+      "simkl": "Real per-episode thumbnails, including for the very long-running series other databases don't cover.",
+      "tmdb": "Additional episode thumbnails.",
+      "fribb": "The cross-database ID map, without which none of these could be matched to each other.",
+      "aniskip": "Community-sourced timestamps for skipping openings and endings.",
+      "animeskip": "Opening/ending skip timestamps, as a complement."
+    }
   },
   "about": {
     "title": "About Us",
