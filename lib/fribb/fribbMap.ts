@@ -26,6 +26,10 @@ export interface FribbEntry {
   tmdbTvId: number | null;
   tmdbMovieId: number | null;
   tvdbId: number | null;
+  /** Simkl id — indexes the SAME entry AniList does (not the franchise), which
+   *  is what makes it usable for per-episode stills with no season guessing.
+   *  See lib/simkl/episodeStills.ts. */
+  simklId: number | null;
   tmdbSeason: number | null;
   tvdbSeason: number | null;
   type: string | null;
@@ -37,6 +41,7 @@ interface RawFribbRecord {
   mal_id?: number;
   themoviedb_id?: { tv?: number; movie?: number[] | number } | number;
   tvdb_id?: number;
+  simkl_id?: number;
   season?: { tmdb?: number | null; tvdb?: number | null } | null;
   type?: string;
 }
@@ -64,6 +69,7 @@ function normalize(r: RawFribbRecord): FribbEntry | null {
     tmdbTvId: tvId(r.themoviedb_id),
     tmdbMovieId: firstMovieId(r.themoviedb_id),
     tvdbId: typeof r.tvdb_id === "number" ? r.tvdb_id : null,
+    simklId: typeof r.simkl_id === "number" ? r.simkl_id : null,
     tmdbSeason:
       r.season && typeof r.season.tmdb === "number" ? r.season.tmdb : null,
     tvdbSeason:
@@ -81,6 +87,7 @@ CREATE TABLE IF NOT EXISTS fribb_map (
   tmdb_tv_id     INTEGER,
   tmdb_movie_id  INTEGER,
   tvdb_id        INTEGER,
+  simkl_id       INTEGER,
   tmdb_season    INTEGER,
   tvdb_season    INTEGER,
   type           TEXT,
@@ -91,6 +98,15 @@ async function ensureTable(): Promise<void> {
   const db = getTursoClient();
   if (!db) return;
   await db.execute(CREATE_FRIBB_SQL);
+  /* simkl_id was added after the table shipped, so CREATE TABLE IF NOT EXISTS
+     won't add it to an existing DB. SQLite has no ALTER TABLE ... IF NOT
+     EXISTS, and re-adding throws "duplicate column name" — which is the
+     success case on a second run, so swallow exactly that. */
+  try {
+    await db.execute("ALTER TABLE fribb_map ADD COLUMN simkl_id INTEGER");
+  } catch (e: any) {
+    if (!/duplicate column/i.test(String(e?.message))) throw e;
+  }
   await db.execute(
     "CREATE INDEX IF NOT EXISTS idx_fribb_tmdb_tv ON fribb_map(tmdb_tv_id)"
   );
@@ -124,12 +140,13 @@ export async function ingestFribb(): Promise<{ rows: number; skipped: number }> 
     const slice = entries.slice(i, i + BATCH);
     const stmts = slice.map((e) => ({
       sql: `INSERT INTO fribb_map
-        (anilist_id, mal_id, tmdb_tv_id, tmdb_movie_id, tvdb_id,
+        (anilist_id, mal_id, tmdb_tv_id, tmdb_movie_id, tvdb_id, simkl_id,
          tmdb_season, tvdb_season, type, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(anilist_id) DO UPDATE SET
           mal_id=excluded.mal_id, tmdb_tv_id=excluded.tmdb_tv_id,
           tmdb_movie_id=excluded.tmdb_movie_id, tvdb_id=excluded.tvdb_id,
+          simkl_id=excluded.simkl_id,
           tmdb_season=excluded.tmdb_season, tvdb_season=excluded.tvdb_season,
           type=excluded.type, updated_at=excluded.updated_at`,
       args: [
@@ -138,6 +155,7 @@ export async function ingestFribb(): Promise<{ rows: number; skipped: number }> 
         e.tmdbTvId,
         e.tmdbMovieId,
         e.tvdbId,
+        e.simklId,
         e.tmdbSeason,
         e.tvdbSeason,
         e.type,
@@ -160,6 +178,7 @@ function rowToEntry(row: any): FribbEntry {
     tmdbTvId: row.tmdb_tv_id != null ? Number(row.tmdb_tv_id) : null,
     tmdbMovieId: row.tmdb_movie_id != null ? Number(row.tmdb_movie_id) : null,
     tvdbId: row.tvdb_id != null ? Number(row.tvdb_id) : null,
+    simklId: row.simkl_id != null ? Number(row.simkl_id) : null,
     tmdbSeason: row.tmdb_season != null ? Number(row.tmdb_season) : null,
     tvdbSeason: row.tvdb_season != null ? Number(row.tvdb_season) : null,
     type: row.type ?? null,

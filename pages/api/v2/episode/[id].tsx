@@ -5,6 +5,7 @@ import { NextApiRequest, NextApiResponse } from "next";
 import { anilistFetch } from "@/lib/anilist/anilistFetch";
 import { getCachedAnime } from "@/lib/db/anime";
 import { getEpisodeStills } from "@/lib/tmdb/episodeStills";
+import { getSimklEpisodeStills } from "@/lib/simkl/episodeStills";
 
 /**
  * Episode API — generates episode lists from AniList data.
@@ -30,12 +31,10 @@ async function fetchAniListEpisodes(id: string) {
   return json?.data?.Media || null;
 }
 
-function buildEpisodeList(
-  id: string,
-  media: any,
-  stills: Record<number, string> = {},
-) {
-  // Determine total episodes: known count, or aired-so-far for ongoing anime
+/** How many episode rows we render: AniList's total, or aired-so-far for an
+ *  ongoing show. Shared with the stills lookups so they validate against the
+ *  exact count we display. */
+function displayedEpisodeCount(media: any): number {
   let totalEpisodes = media?.episodes;
   if (!totalEpisodes && media?.nextAiringEpisode?.episode) {
     totalEpisodes = media.nextAiringEpisode.episode - 1; // aired so far
@@ -44,6 +43,15 @@ function buildEpisodeList(
     // Ongoing with no episode count — show at least 1
     totalEpisodes = media?.status === "RELEASING" ? 1 : 0;
   }
+  return totalEpisodes;
+}
+
+function buildEpisodeList(
+  id: string,
+  media: any,
+  stills: Record<number, string> = {},
+) {
+  const totalEpisodes = displayedEpisodeCount(media);
 
   // AniList provides per-episode thumbnails for Crunchyroll/Funimation
   // titles via `streamingEpisodes`. They come ordered by air date but
@@ -208,18 +216,33 @@ export default async function handler(
     return res.status(404).json({ error: "Anime not found" });
   }
 
-  /* Real per-episode stills, when TMDB has a season we can validate against
-     AniList's episode count. Only on the cache-miss path — a Redis hit returns
-     above and never reaches TMDB.
+  /* Real per-episode stills. Only on the cache-miss path — a Redis hit returns
+     above and never reaches these.
 
-     Timeboxed: the episode list is the site's hot path, and getEpisodeStills
-     can make two sequential 8s TMDB calls. Past the budget we drop the stills
-     and let the client's fanart pool cover the rows; the result still lands in
-     the cache on a later request. Never blocks, never throws. */
-  const stills = await Promise.race([
-    getEpisodeStills(Number(id), media?.episodes ?? null).catch(() => ({})),
-    new Promise<Record<number, string>>((r) => setTimeout(() => r({}), 2500)),
+     Two sources, merged with TMDB winning per episode:
+       - TMDB is validated against an EXACT episode-count match on a mapped
+         season, so where it answers it's the tighter guarantee.
+       - Simkl is keyed to this exact AniList entry (no season inference), so it
+         covers what TMDB structurally can't — long sagas with no tmdb_season
+         (One Piece) and airing shows with no total.
+     Merging rather than choosing: TMDB may cover a season Simkl lacks images
+     for, and vice versa. Neither is ever the ANIME's banner, so a mixed row set
+     is still all real per-episode frames.
+
+     Timeboxed: the episode list is the site's hot path and these make external
+     calls. Past the budget we drop the stills and let the client's fanart pool
+     cover the rows; the result still lands in the cache on a later request. */
+  const displayed = displayedEpisodeCount(media);
+  const [tmdbStills, simklStills] = await Promise.race([
+    Promise.all([
+      getEpisodeStills(Number(id), media?.episodes ?? null).catch(() => ({})),
+      getSimklEpisodeStills(Number(id), displayed || null).catch(() => ({})),
+    ]),
+    new Promise<[Record<number, string>, Record<number, string>]>((r) =>
+      setTimeout(() => r([{}, {}]), 3000),
+    ),
   ]);
+  const stills = { ...simklStills, ...tmdbStills };
 
   const rawData = buildEpisodeList(id as string, media, stills);
 

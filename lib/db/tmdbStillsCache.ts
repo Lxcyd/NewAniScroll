@@ -25,8 +25,9 @@ import type { TmdbMatchReason } from "@/lib/tmdb/resolveTmdbSeason";
 export interface StillsCacheValue {
   /** episode number → full still URL. Empty on a refusal. */
   stills: Record<number, string>;
-  /** Why this is what it is — kept so a bad mapping is diagnosable later. */
-  reason: TmdbMatchReason;
+  /** Why this is what it is — kept so a bad mapping is diagnosable later.
+   *  Simkl reasons are free-form strings; TMDB's are the typed union. */
+  reason: TmdbMatchReason | string;
   tvId: number | null;
   season: number | null;
 }
@@ -54,14 +55,21 @@ async function ensureTable(): Promise<void> {
   }
 }
 
-function keyFor(anilistId: number): string {
-  return `tmdbStills:v1:${anilistId}`;
+/** Stills source. Part of the cache key so the two never overwrite each other. */
+export type StillsSource = "tmdb" | "simkl";
+
+function keyFor(anilistId: number, source: StillsSource): string {
+  // "tmdbStills:v1:" kept verbatim for tmdb so existing rows stay valid.
+  return source === "tmdb"
+    ? `tmdbStills:v1:${anilistId}`
+    : `simklStills:v1:${anilistId}`;
 }
 
 /** Cached value, or null on miss / expiry / DB disabled / error. A stale row is
  *  a miss so we never serve past the freshness window. */
 export async function getCachedStills(
   anilistId: number,
+  source: StillsSource = "tmdb",
 ): Promise<StillsCacheValue | null> {
   const db = getFanartsClient();
   if (!db) return null;
@@ -69,7 +77,7 @@ export async function getCachedStills(
   try {
     const r = await db.execute({
       sql: "SELECT value, updated_at FROM tmdb_stills_cache WHERE cache_key = ? LIMIT 1",
-      args: [keyFor(anilistId)],
+      args: [keyFor(anilistId, source)],
     });
     if (!r.rows.length) return null;
     const row = r.rows[0] as any;
@@ -89,6 +97,7 @@ export async function getCachedStills(
 export async function setCachedStills(
   anilistId: number,
   value: StillsCacheValue,
+  source: StillsSource = "tmdb",
 ): Promise<void> {
   const db = getFanartsClient();
   if (!db) return;
@@ -100,7 +109,11 @@ export async function setCachedStills(
             ON CONFLICT(cache_key) DO UPDATE SET
               value = excluded.value,
               updated_at = excluded.updated_at`,
-      args: [keyFor(anilistId), JSON.stringify(value), Math.floor(Date.now() / 1000)],
+      args: [
+        keyFor(anilistId, source),
+        JSON.stringify(value),
+        Math.floor(Date.now() / 1000),
+      ],
     });
   } catch {
     /* non-fatal */
