@@ -25,6 +25,9 @@ import type { TmdbMatchReason } from "@/lib/tmdb/resolveTmdbSeason";
 export interface StillsCacheValue {
   /** episode number → full still URL. Empty on a refusal. */
   stills: Record<number, string>;
+  /** episode number → title. Simkl only; absent on TMDB rows and on every row
+   *  written before titles shipped, so readers must treat it as optional. */
+  titles?: Record<number, string>;
   /** Why this is what it is — kept so a bad mapping is diagnosable later.
    *  Simkl reasons are free-form strings; TMDB's are the typed union. */
   reason: TmdbMatchReason | string;

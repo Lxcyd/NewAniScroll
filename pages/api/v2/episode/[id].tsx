@@ -5,7 +5,10 @@ import { NextApiRequest, NextApiResponse } from "next";
 import { anilistFetch } from "@/lib/anilist/anilistFetch";
 import { getCachedAnime } from "@/lib/db/anime";
 import { getEpisodeStills } from "@/lib/tmdb/episodeStills";
-import { getSimklEpisodeStills } from "@/lib/simkl/episodeStills";
+import {
+  getSimklEpisodeStills,
+  type SimklEpisodeData,
+} from "@/lib/simkl/episodeStills";
 
 /**
  * Episode API — generates episode lists from AniList data.
@@ -46,10 +49,34 @@ function displayedEpisodeCount(media: any): number {
   return totalEpisodes;
 }
 
+/**
+ * True when `streamingEpisodes` describes a DIFFERENT entry than this one.
+ *
+ * Crunchyroll attaches its catalogue to the franchise, and AniList copies that
+ * same list onto every sequel entry — so Shingeki S3 (episodes=12) ships the
+ * 25 season-1 titles, and the rows read "To You, 2,000 Years in the Future"
+ * under a "Season 3" pill. Measured across the library: every S1 matches its
+ * own count exactly, every sequel over-runs it (SnK S2/S3/S3P2/Final/FinalP2,
+ * Demon Slayer S2/S3, JJK S2), and in each of those the first title is S1's.
+ *
+ * The signal is strictly MORE entries than the season has, which cannot be a
+ * list of this season. Fewer is legitimate partial coverage — One Piece has 69
+ * of 1169 — and those 69 really are One Piece's, so we keep them.
+ */
+function streamingEpisodesAreForeign(media: any): boolean {
+  const listed = Array.isArray(media?.streamingEpisodes)
+    ? media.streamingEpisodes.filter((e: any) => e?.title || e?.thumbnail).length
+    : 0;
+  const own = media?.episodes;
+  if (!listed || !own || own <= 0) return false;
+  return listed > own;
+}
+
 function buildEpisodeList(
   id: string,
   media: any,
   stills: Record<number, string> = {},
+  titles: Record<number, string> = {},
 ) {
   const totalEpisodes = displayedEpisodeCount(media);
 
@@ -59,7 +86,7 @@ function buildEpisodeList(
   // to an episode index. We try the number out of the title, then fall
   // back to the array index.
   const streamingByNum: Record<number, { thumbnail: string; title: string }> = {};
-  if (Array.isArray(media?.streamingEpisodes)) {
+  if (Array.isArray(media?.streamingEpisodes) && !streamingEpisodesAreForeign(media)) {
     media.streamingEpisodes.forEach((se: any, idx: number) => {
       if (!se?.thumbnail) return;
       const m = String(se.title || "").match(/Episode\s+(\d+)/i);
@@ -85,7 +112,10 @@ function buildEpisodeList(
       .trim();
     return {
       id: `megaplay-${id}-${num}`,
-      title: cleanTitle || `Episode ${num}`,
+      /* Simkl backs the sequels up: it keys on THIS entry and numbers from 1,
+         so it has real titles exactly where streamingEpisodes was rejected as
+         foreign (and where AniList lists nothing at all — Chainsaw Man). */
+      title: cleanTitle || titles[num] || `Episode ${num}`,
       number: num,
       /* Only a genuinely per-episode image, or null. We used to fall back to
          the anime's banner here, which handed EVERY row the same image — the
@@ -162,13 +192,13 @@ export default async function handler(
     }
 
     if (refresh !== null) {
-      await redis.del(`episode:v4:${id}`);
+      await redis.del(`episode:v5:${id}`);
     } else {
-      cached = await redis.get(`episode:v4:${id}`);
+      cached = await redis.get(`episode:v5:${id}`);
       if (cached) {
         const parsed = JSON.parse(cached);
         if (!parsed || parsed.length === 0) {
-          await redis.del(`episode:v4:${id}`);
+          await redis.del(`episode:v5:${id}`);
           cached = null;
         }
       }
@@ -233,23 +263,26 @@ export default async function handler(
      calls. Past the budget we drop the stills and let the client's fanart pool
      cover the rows; the result still lands in the cache on a later request. */
   const displayed = displayedEpisodeCount(media);
-  const [tmdbStills, simklStills] = await Promise.race([
+  const [tmdbStills, simkl] = await Promise.race([
     Promise.all([
       getEpisodeStills(Number(id), media?.episodes ?? null).catch(() => ({})),
-      getSimklEpisodeStills(Number(id), displayed || null).catch(() => ({})),
+      getSimklEpisodeStills(Number(id), displayed || null).catch(() => ({
+        stills: {},
+        titles: {},
+      })),
     ]),
-    new Promise<[Record<number, string>, Record<number, string>]>((r) =>
-      setTimeout(() => r([{}, {}]), 3000),
+    new Promise<[Record<number, string>, SimklEpisodeData]>((r) =>
+      setTimeout(() => r([{}, { stills: {}, titles: {} }]), 3000),
     ),
   ]);
-  const stills = { ...simklStills, ...tmdbStills };
+  const stills = { ...simkl.stills, ...tmdbStills };
 
-  const rawData = buildEpisodeList(id as string, media, stills);
+  const rawData = buildEpisodeList(id as string, media, stills, simkl.titles);
 
   // Cache
   if (redis && cacheTime !== null && rawData.length > 0) {
     await redis.set(
-      `episode:v4:${id}`,
+      `episode:v5:${id}`,
       JSON.stringify(rawData),
       "EX",
       cacheTime

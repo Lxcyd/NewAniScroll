@@ -29,7 +29,18 @@ import { getSimklEpisodes, simklEnabled, simklStillUrl } from "./simklClient";
 /** episode number → still URL. Empty when we have nothing trustworthy. */
 export type EpisodeStills = Record<number, string>;
 
+/** episode number → title. Simkl numbers each ENTRY from 1, so these line up
+ *  with the rows we render — unlike AniList's streamingEpisodes, which serves
+ *  the franchise's season-1 list on every sequel entry (see [id].tsx). */
+export type EpisodeTitles = Record<number, string>;
+
+export interface SimklEpisodeData {
+  stills: EpisodeStills;
+  titles: EpisodeTitles;
+}
+
 const EMPTY: EpisodeStills = {};
+const EMPTY_DATA: SimklEpisodeData = { stills: {}, titles: {} };
 
 type Reason =
   | "ok"
@@ -46,11 +57,13 @@ export async function getSimklEpisodeStills(
   /** How many episodes we actually display: AniList's total, or aired-so-far
    *  for an airing show. Null when we know neither — nothing to validate. */
   displayedEpisodes: number | null,
-): Promise<EpisodeStills> {
-  if (!simklEnabled()) return EMPTY;
+): Promise<SimklEpisodeData> {
+  if (!simklEnabled()) return EMPTY_DATA;
 
   const cached = await getCachedStills(anilistId, "simkl");
-  if (cached) return cached.stills ?? EMPTY;
+  if (cached) {
+    return { stills: cached.stills ?? {}, titles: cached.titles ?? {} };
+  }
 
   const refuse = async (reason: Reason, simklId: number | null = null) => {
     // Never cache a transient failure as "no stills" — it'd stick for a day.
@@ -64,7 +77,7 @@ export async function getSimklEpisodeStills(
       await setCachedStills(anilistId, value, "simkl");
     }
     console.info(`[simkl-stills] ${anilistId}: no stills (${reason})`);
-    return EMPTY;
+    return EMPTY_DATA;
   };
 
   if (!displayedEpisodes || displayedEpisodes <= 0) {
@@ -87,11 +100,16 @@ export async function getSimklEpisodeStills(
   }
 
   const stills: EpisodeStills = {};
+  const titles: EpisodeTitles = {};
   for (const ep of episodes) {
     // Ignore anything past what we render (Simkl runs ahead on airing shows).
     if (ep.episode < 1 || ep.episode > displayedEpisodes) continue;
     const url = simklStillUrl(ep.img);
     if (url) stills[ep.episode] = url;
+    /* Simkl labels an untitled episode "Episode N" — that's what the caller
+       already falls back to, so keeping it would just fake a real title. */
+    const title = typeof ep.title === "string" ? ep.title.trim() : "";
+    if (title && !/^episode\s+\d+$/i.test(title)) titles[ep.episode] = title;
   }
 
   const count = Object.keys(stills).length;
@@ -99,13 +117,15 @@ export async function getSimklEpisodeStills(
 
   const value: StillsCacheValue = {
     stills,
+    titles,
     reason: "ok",
     tvId: entry.simklId,
     season: null,
   };
   await setCachedStills(anilistId, value, "simkl");
   console.info(
-    `[simkl-stills] ${anilistId}: ${count}/${displayedEpisodes} stills (simkl ${entry.simklId})`,
+    `[simkl-stills] ${anilistId}: ${count}/${displayedEpisodes} stills, ` +
+      `${Object.keys(titles).length} titles (simkl ${entry.simklId})`,
   );
-  return stills;
+  return { stills, titles };
 }
