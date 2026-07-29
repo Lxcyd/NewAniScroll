@@ -7,6 +7,27 @@ Ordre anti-chronologique (le plus récent en haut). Une entrée = une session/su
 
 ---
 
+## 2026-07-30 — Upstash toujours ~31k cmd/j après le fix edge-cache : le vrai volume = re-probe des `absent` sur `/source`
+
+Constat user (captures Upstash + Vercel) : **le volume Upstash n'a PAS baissé** après le fix du 29/07 (Mer 31 673 cmd, à peine sous les ~35k d'avant). Le fix est pourtant bien en prod (`main` `97b732d` : availability edge-cachée + `/source` CDN + `LOCK_POLL=350`).
+
+**Pourquoi le fix du 29 ne pouvait pas faire baisser la courbe :**
+- Il a edge-caché **catalog / discover / episode / availability** = endpoints à **faible trafic** (bas du tableau Vercel : episode 406, availability 759 inv).
+- L'edge-cache n'aide que si plusieurs visiteurs tapent la **même URL** dans la fenêtre TTL. Or le trafic est **long-tail par épisode** (`aniId:episode:sub` quasi unique en 10 min) → **taux de hit edge faible**. C'est structurel, pas un bug de config.
+
+**Le vrai consommateur = `/api/v2/source`** (5,7K inv / ~12h, loin devant). C'est un **POST → jamais edge-cachable** : chaque probe traverse la fonction et fait ≥1 commande Upstash. La page watch tire un **fan-out ~17 probes/chargement**.
+
+**L'amplificateur non traité :** les serveurs marqués `absent` dans le snapshot cross-visiteur étaient **re-probés à CHAQUE visite** ([watch/[...info].js] `hydrateFromServer` → `snapshotAbsent`), et `probe()` fait **2 tentatives** (gestion decoy anti-bot). Comme ~la moitié des ~17 serveurs sont absents → **~8 × 2 = ~16 GET Redis par visite d'un épisode déjà connu**, uniquement pour redécouvrir des absences déjà confirmées. Les serveurs `ok`, eux, étaient bien skippés.
+
+**Fix appliqué (dev, choix user "1 tentative + proba 20%") :**
+- **Re-probe probabiliste** des `snapshotAbsent` : `SNAPSHOT_ABSENT_REPROBE_P=0.2` — on ne re-probe un absent que ~1 visite/5 (drop dans le calcul de `remaining`). Un host récupéré est redécouvert en ~5 visiteurs, bien dans la fenêtre 6h.
+- **1 seule tentative** pour un absent connu (pas le double-retry decoy, qui ne sert qu'aux inconnus froids).
+- Effet attendu : coût `/source` d'un épisode connu ~16 GET → ~2 GET (÷~5-8). Seul levier qui fait réellement plonger Upstash (edge-cache impuissant sur un POST long-tail).
+
+**Question ouverte TOUJOURS non résolue (à checker en priorité) :** **Preview (dev) et Prod partagent-ils la même DB Upstash ?** La console montre **une seule DB** `aniscroll-cache`. Si `REDIS_URL` a la même valeur en Preview et Production (Vercel → Settings → Env Vars), les tests dev en continu brûlent le budget commun → à séparer. Potentiellement une grosse part des 31k.
+
+**Leçon :** l'edge-cache HTTP ne réduit le volume Upstash que sur des **GET à URL partagée et chaude**. Sur du **POST** (ou du GET long-tail par-épisode), le seul levier est de **réduire le nombre de requêtes / commandes-par-requête** (ici : ne pas re-prober ce qu'un visiteur a déjà tranché). Toujours identifier l'endpoint qui DOMINE le volume (Vercel invocations × cmd-par-req) **avant** d'optimiser — le fix du 29 a optimisé le petit.
+
 ## 2026-07-29 — Explosion du Fluid Active CPU (Vercel) depuis le 18/07 : plafond Upstash gratuit
 
 Le Fluid Active CPU a explosé (**6h24 / 4h**, pic isolé **1h20 le 18/07**, puis palier **×2‑3** vs. début juillet). Diagnostic + fix (commits `fcbd942`, `79d4632`, sur `dev`).

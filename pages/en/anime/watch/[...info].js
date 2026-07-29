@@ -1363,6 +1363,15 @@ export default function Watch({
     // probed immediately and separately — the delay only gates the rest.
     const PROBE_START_DELAY_MS = isMobileViewport ? 700 : 250;
     const RETRY_DELAY_MS = 3000;
+    // A server the cross-visitor snapshot already reported `absent` was confirmed
+    // dead by a previous visitor (2 attempts). Re-probing it every single visit —
+    // ~half the ~17 servers, ×2 attempts each — was by far the biggest /api/v2/source
+    // (POST, non-edge-cachable → ≥1 Upstash command each) consumer, and it dwarfed
+    // everything the July edge-cache pass optimized. We still re-probe absents to
+    // catch a recovered host, but only on a FRACTION of visits: across ~1/p visitors
+    // a recovered host is rediscovered well within the snapshot's 6h TTL, while the
+    // per-visit Upstash cost drops ~p×. See DEVLOG 2026-07-30.
+    const SNAPSHOT_ABSENT_REPROBE_P = 0.2;
     let cancelled = false;
 
     // Session-level probe result cache. When navigating between episodes of
@@ -1517,6 +1526,26 @@ export default function Watch({
         if (first.degraded) markDegraded(s.id);
         return markConfirmed(s.id);
       }
+      // Snapshot-absent servers were ALREADY confirmed absent cross-visitor (a
+      // previous visitor ran the full 2-attempt probe and published the absence).
+      // Re-probing here only exists to catch a recovered host, so a SINGLE attempt
+      // is enough — the decoy double-retry below is for FRESH unknown chips whose
+      // first 204 might be an anti-bot decoy, not for a server another visitor has
+      // already verified dead. Skipping the retry halves the /api/v2/source cost of
+      // every re-probe (each POST = a non-cachable Upstash command).
+      if (snapshotAbsent.has(s.id)) {
+        if (first.v === "fail-404") {
+          cachedFailed.add(s.id);
+          confirmedAbsent.add(s.id);
+          persistProbeCache();
+          return markFailed(s.id, "Source not found");
+        }
+        // Transient this visit — keep it out of the UI but don't publish absence.
+        cachedFailed.add(s.id);
+        persistProbeCache();
+        return markFailed(s.id, "Source unavailable");
+      }
+
       // NOTE: a FIRST 204/404 is NOT treated as a terminal absence anymore.
       // sibnet (and other scraper hosts) serve an anti-bot decoy on the first
       // cold hit — the route resolves 204 once, then 200 on the very next call
@@ -1652,9 +1681,20 @@ export default function Watch({
       await hydrated;
       if (cancelled) return;
 
-      const remaining = toProbe.filter(
-        (s) => !cachedConfirmed.has(s.id) && !cachedFailed.has(s.id),
-      );
+      const remaining = toProbe.filter((s) => {
+        if (cachedConfirmed.has(s.id) || cachedFailed.has(s.id)) return false;
+        // Snapshot-absent servers are re-probed only on a fraction of visits
+        // (SNAPSHOT_ABSENT_REPROBE_P): a recovered host is still rediscovered
+        // within ~1/p visitors (well inside the 6h snapshot TTL), but we stop
+        // paying a per-visit /api/v2/source POST (= an Upstash command) to
+        // rediscover an absence a previous visitor already confirmed. This is
+        // the dominant steady-state Upstash saving. Servers with NO snapshot
+        // verdict yet (genuine unknowns) always probe.
+        if (snapshotAbsent.has(s.id) && Math.random() >= SNAPSHOT_ABSENT_REPROBE_P) {
+          return false;
+        }
+        return true;
+      });
 
       // 2) The active server's source is fetched by fetchStreamSource (its own
       //    effect, priority:"high") — that lights its chip via markConfirmed.
