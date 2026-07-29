@@ -41,8 +41,11 @@ export async function getServerSideProps(ctx: any) {
   );
   let cachedData;
 
+  // A dead/unreachable Redis (e.g. a rotated REDIS_URL an older deployment
+  // never picked up) must NOT take the whole homepage down — swallow the error
+  // and treat it as a cache miss so we fall through to a live AniList fetch.
   if (redis) {
-    cachedData = await redis.get("index_server_v2");
+    cachedData = await redis.get("index_server_v2").catch(() => null);
   }
 
   // Resolve the hero entries (HD logo for the top trending titles) outside
@@ -125,22 +128,25 @@ export async function getServerSideProps(ctx: any) {
     const moviesDetail = batch.movies;
 
     if (redis) {
-      await redis.set(
-        // Key bumped — payload now carries thisSeason + movies; the old
-        // `index_server` value would lack them and the sections wouldn't
-        // render until the 2 h TTL expired.
-        "index_server_v2",
-        JSON.stringify({
-          genre: genreDetail.props,
-          detail: trendingDetail.props,
-          populars: popularDetail.props,
-          firstTrend: trendingDetail.props.data?.[0] || null,
-          thisSeason: seasonDetail.props,
-          movies: moviesDetail.props,
-        }), // set cache for 2 hours
-        "EX",
-        60 * 60 * 2
-      );
+      // Best-effort cache write — a failing Redis must not crash SSR.
+      await redis
+        .set(
+          // Key bumped — payload now carries thisSeason + movies; the old
+          // `index_server` value would lack them and the sections wouldn't
+          // render until the 2 h TTL expired.
+          "index_server_v2",
+          JSON.stringify({
+            genre: genreDetail.props,
+            detail: trendingDetail.props,
+            populars: popularDetail.props,
+            firstTrend: trendingDetail.props.data?.[0] || null,
+            thisSeason: seasonDetail.props,
+            movies: moviesDetail.props,
+          }), // set cache for 2 hours
+          "EX",
+          60 * 60 * 2
+        )
+        .catch(() => {});
     }
 
     const heroEntries = await resolveHeroEntries(
