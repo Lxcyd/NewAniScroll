@@ -261,6 +261,16 @@ export default async function handler(request: any) {
         { name: "Karla", data: Karla, style: "normal" },
         { name: "Outfit", data: Outfit, style: "normal" },
       ],
+      // The card is deterministic for a given query string, so let the CDN (and
+      // the sharing platform's unfurl bot) hold it: an edge HIT never re-runs
+      // the ~4.6s Satori render. A day at the edge with a week of SWR keeps the
+      // renderer cold for a shared link while a score/episode bump still lands
+      // within a day. (This is the edge runtime, not Fluid — a correctness win,
+      // not part of the Fluid CPU fix.)
+      headers: {
+        "Cache-Control":
+          "public, no-transform, max-age=86400, s-maxage=86400, stale-while-revalidate=604800",
+      },
     }
   );
 }
