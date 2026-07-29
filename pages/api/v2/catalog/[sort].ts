@@ -45,12 +45,26 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const page = Math.max(1, Math.min(50, Number(req.query.page) || 1));
   const cacheKey = `catalog:${sortKey}:${page}`;
 
+  // Edge-cache the response: a catalog page is identical for every visitor and
+  // gets hammered by pagination scroll, so without a real edge window each
+  // scroll spent a Redis GET here. s-maxage matches the 1 h Redis TTL — an edge
+  // HIT never reaches the function, so that steady-state GET disappears. (The
+  // old `s-maxage=60` gave a 60 s window, after which every request revalidated
+  // through the function anyway.)
+  const setEdgeCache = () => {
+    res.setHeader("Cache-Control", "public, max-age=60");
+    res.setHeader(
+      "CDN-Cache-Control",
+      `public, s-maxage=${TTL_S}, stale-while-revalidate=86400`,
+    );
+  };
+
   if (redis) {
     try {
       const cached = await redis.get(cacheKey);
       if (cached) {
         res.setHeader("X-Cache", "HIT");
-        res.setHeader("Cache-Control", "public, s-maxage=60, stale-while-revalidate=600");
+        setEdgeCache();
         return res.status(200).json(JSON.parse(cached));
       }
     } catch {
@@ -81,6 +95,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   res.setHeader("X-Cache", "MISS");
-  res.setHeader("Cache-Control", "public, s-maxage=60, stale-while-revalidate=600");
+  setEdgeCache();
   return res.status(200).json(payload);
 }

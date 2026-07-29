@@ -93,9 +93,10 @@ export async function getServerSideProps(ctx: any) {
 
   let cachedData;
 
-  // Check if the data is already in Redis
+  // Check if the data is already in Redis. A dead/unreachable Redis must be
+  // treated as a cache miss (fall through to AniList), never crash SSR.
   if (redis) {
-    cachedData = await redis.get("new_schedule");
+    cachedData = await redis.get("new_schedule").catch(() => null);
   }
 
   // Treat an empty cached object as a miss too — an older deploy may have
@@ -163,12 +164,15 @@ export async function getServerSideProps(ctx: any) {
     // the write when empty we let the next request retry AniList instead.
     const hasData = Object.keys(scheduleByDay).length > 0;
     if (redis && hasData) {
-      await redis.set(
-        "new_schedule",
-        JSON.stringify(scheduleByDay),
-        "EX",
-        timeUntilMidnightJapan
-      );
+      // Best-effort cache write — a failing Redis must not crash SSR.
+      await redis
+        .set(
+          "new_schedule",
+          JSON.stringify(scheduleByDay),
+          "EX",
+          timeUntilMidnightJapan
+        )
+        .catch(() => {});
     }
 
     return {

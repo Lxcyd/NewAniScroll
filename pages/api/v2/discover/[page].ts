@@ -36,12 +36,26 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const page = Math.max(1, Math.min(50, Number(req.query.page) || 1));
   const cacheKey = `discover:${page}`;
 
+  // Edge-cache the response: the discover deck is identical for every visitor
+  // and each session swipes a new page every ~3 cards, so without a real edge
+  // window every few swipes spent a Redis GET. s-maxage matches the 30 min
+  // Redis TTL — an edge HIT never reaches the function. (The old `s-maxage=60`
+  // gave only a 60 s window, after which every request revalidated through the
+  // function anyway.)
+  const setEdgeCache = () => {
+    res.setHeader("Cache-Control", "public, max-age=60");
+    res.setHeader(
+      "CDN-Cache-Control",
+      `public, s-maxage=${TTL_S}, stale-while-revalidate=86400`,
+    );
+  };
+
   if (redis) {
     try {
       const cached = await redis.get(cacheKey);
       if (cached) {
         res.setHeader("X-Cache", "HIT");
-        res.setHeader("Cache-Control", "public, s-maxage=60, stale-while-revalidate=600");
+        setEdgeCache();
         return res.status(200).json(JSON.parse(cached));
       }
     } catch {
@@ -66,6 +80,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   res.setHeader("X-Cache", "MISS");
-  res.setHeader("Cache-Control", "public, s-maxage=60, stale-while-revalidate=600");
+  setEdgeCache();
   return res.status(200).json(payload);
 }

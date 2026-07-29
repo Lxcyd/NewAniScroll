@@ -51,9 +51,23 @@ export default async function handler(
     // ── Cache check ──────────────────────────────────────────
     // Key bumped to v2 — the sort order + popularity filter changed, so
     // the old cached payload would serve the obscure-first ordering.
+    // Edge-cache this response: the "Freshly Added" rail is identical for every
+    // visitor and loads on the homepage, so without an edge cache every visitor
+    // spent a Redis GET here. s-maxage matches the 1 h Redis TTL — an edge HIT
+    // never reaches the function, so that steady-state GET disappears entirely.
+    const setEdgeCache = () => {
+      res.setHeader("Cache-Control", "public, max-age=60");
+      res.setHeader(
+        "CDN-Cache-Control",
+        "public, s-maxage=3600, stale-while-revalidate=86400",
+      );
+    };
+
     if (redis) {
-      const cache = await redis.get(`recent-episode-v2`);
+      // A dead Redis must degrade to a live AniList fetch, not 500 the rail.
+      const cache = await redis.get(`recent-episode-v2`).catch(() => null);
       if (cache) {
+        setEdgeCache();
         return res.status(200).json({ results: JSON.parse(cache) });
       }
     }
@@ -94,9 +108,13 @@ export default async function handler(
 
     // ── Cache for 1 hour ─────────────────────────────────────
     if (redis) {
-      await redis.set(`recent-episode-v2`, JSON.stringify(results), "EX", 60 * 60);
+      // Best-effort cache write — a failing Redis must not sink the response.
+      await redis
+        .set(`recent-episode-v2`, JSON.stringify(results), "EX", 60 * 60)
+        .catch(() => {});
     }
 
+    setEdgeCache();
     return res.status(200).json({ results });
   } catch (error) {
     console.error("[recent] error:", error);
