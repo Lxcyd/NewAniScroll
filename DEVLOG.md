@@ -7,6 +7,16 @@ Ordre anti-chronologique (le plus récent en haut). Une entrée = une session/su
 
 ---
 
+## 2026-07-30 (suite) — `tools/usage-monitor` : collecteur de diagnostic usage quotidien
+
+Nouveau tool pour comprendre **d'où vient le volume** sans deviner. `node tools/usage-monitor/collect.mjs` écrit un snapshot daté + `LATEST.md`/`HISTORY.md` avec deltas jour/jour :
+- **Census keyspace Redis** (REST, SCAN complet borné) → clés bucketées par préfixe (`src:`/`avail:`/`episode:`/`lock:`/W2G `room:`…). C'est l'attribution que le chiffre agrégé Upstash ne donne pas — si `src:` domine, le levier est le fan-out `/source`, pas les GET edge-cachés.
+- **Daily requests Upstash** (management API, optionnel) → la courbe "Daily Commands" + **projection mensuelle vs cap 500K** + flag saturation. `databaseCount>1` = dev/prod déjà séparés.
+- **Déploiements Vercel** (API, best-effort) → corréler un pic avec une release (Vercel n'expose pas d'API publique invocations/CPU par route sur Hobby).
+- Section **Flags** en tête (projection cap, DB partagée, spike J/J, explosion de préfixe). Action GitHub `.github/workflows/usage-monitor.yml` (cron 06:20 UTC) commit le snapshot ; creds en secrets repo.
+
+**Effet de bord trouvé en testant :** le `REDIS_URL` de `.env.local` pointe sur une **vieille DB Upstash supprimée** (`stable-tahr-110008`, NXDOMAIN) → le dev **local tourne sans Redis** (cache désactivé). La DB live est `aniscroll-cache` (creds seulement dans Vercel). Pour lancer le census sur la vraie DB : mettre `UPSTASH_REDIS_REST_URL`/`_TOKEN` de `aniscroll-cache`. Le tool a été validé de bout en bout (rendu rapport + flags + deltas + projection) sur snapshot synthétique.
+
 ## 2026-07-30 — Upstash toujours ~31k cmd/j après le fix edge-cache : le vrai volume = re-probe des `absent` sur `/source`
 
 Constat user (captures Upstash + Vercel) : **le volume Upstash n'a PAS baissé** après le fix du 29/07 (Mer 31 673 cmd, à peine sous les ~35k d'avant). Le fix est pourtant bien en prod (`main` `97b732d` : availability edge-cachée + `/source` CDN + `LOCK_POLL=350`).
