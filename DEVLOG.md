@@ -7,6 +7,31 @@ Ordre anti-chronologique (le plus récent en haut). Une entrée = une session/su
 
 ---
 
+## 2026-07-29 — Explosion du Fluid Active CPU (Vercel) depuis le 18/07 : plafond Upstash gratuit
+
+Le Fluid Active CPU a explosé (**6h24 / 4h**, pic isolé **1h20 le 18/07**, puis palier **×2‑3** vs. début juillet). Diagnostic + fix (commits `fcbd942`, `79d4632`, sur `dev`).
+
+**Cause racine — plafond de commandes Upstash gratuit.** Upstash Free ≈ **500K commandes/mois** (~16k/j soutenable), mais volume réel **~35k/j** (~1M/mois, **~2× le cap**, lu dans la console : Sam 40k / Dim 28k / Lun 44k / Mar 34k). L'allocation mensuelle s'épuise **à mi‑mois** → Upstash throttle → le cache Redis ne sert plus de hits → **chaque requête recompute** (AniList/TMDB/Simkl/scrapes au lieu d'un GET) → le CPU déborde le plafond Hobby 4h. Le bump de clé `episode:v4→v5` du 17/07 (commit `779fa13` : **invalidation totale + rafale de SET**) a avancé l'épuisement au ~18 ce cycle-là. Timeline confirmée par git : **0 commit entre le 17 (18h) et le 29** → aucun autre suspect.
+
+**Ce que Redis fait vraiment (2 rôles) :** (1) **cache** (episode/catalog/discover/availability/recent/health…) = l'essentiel du volume, proportionnel au trafic ; (2) **état partagé** W2G rooms/présence/chat + merge availability + lock single-flight `/source` = besoin d'un KV, volume faible. → **Supprimer Upstash = mauvaise idée** (CPU haut en permanence + W2G cassé). Le bon move = **vider Redis de son rôle de cache** vers l'edge HTTP **gratuit** de Vercel (hors quota), Upstash ne garde que l'état.
+
+**Fix appliqué (option B) :**
+- `catalog/[sort]`, `discover/[page]` : fenêtre edge **60s → TTL Redis (1h / 30min)** via `CDN-Cache-Control`. Avant, `s-maxage=60` faisait re-traverser la fonction (et payer un GET) toutes les 60s.
+- `episode/[id]` : edge **30min → 24h** pour séries **terminées** (liste immuable) ; **30min gardé** pour les en‑cours (nouvel épisode visible vite). + suppression de la **copie inutile par épisode** dans `filterData` (coût CPU réel sur One Piece/Conan, chemin cache‑hit).
+- `availability` GET : edge **300 → 600s** (`CDN-Cache-Control`).
+- `/source` : `LOCK_POLL_MS` **150 → 350ms** — le polling follower du single-flight = **amplificateur de GET** pendant les vagues (jusqu'à 40 GET/follower sur les 6s → ~17).
+- `og` : header cache long — **mais runtime `edge`, PAS Fluid** → correctness, ne compte pas dans la métrique qui a explosé.
+
+**Leçons/pièges :**
+- **Ne jamais bumper une clé de cache « à sec ».** Invalidation totale = pic CPU + rafale de commandes garantis. Migrer/backfiller.
+- Sur Upstash gratuit, un `redis.get` par requête sur un endpoint **identique pour tous** est du gaspillage → **edge cache HTTP** (gratuit, hors quota). `CDN-Cache-Control` (edge) ≠ `Cache-Control` (navigateur) : split pour un TTL edge long sans forcer le cache navigateur.
+- `og` = runtime **edge** = pool compute distinct de **Fluid** ; optimiser og ne bouge PAS la métrique Fluid.
+
+**Reste à faire :**
+- **Merger `dev → main`** pour appliquer en **prod** (le CPU qui explose est prod ; `dev` = preview).
+- Soulagement CPU **immédiat** = dépend du cycle Upstash : reset le 1er du mois, ou **pay‑as‑you‑go ~2 $/mois** en attendant. Le fix code empêche surtout la **récidive** les mois suivants.
+- Vérifier **Upstash → Usage mensuel** : le compteur doit saturer ~le 18 puis chuter après le merge prod. Contrôler les headers `X-Cache` / `age` sur catalog/discover/episode.
+
 ## 2026-07-14 — OP/ED : fin d'OP tronquée à 4:00 (fenêtre) + megaplay ED décalé (credited faible override audio)
 
 Validation sur **JJK S1** (AniList 113415, mal 40748). Deux bugs distincts trouvés en vérifiant l'ép3 au pixel.
