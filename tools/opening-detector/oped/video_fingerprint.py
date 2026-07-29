@@ -270,6 +270,7 @@ def keyframe_hashes_abs(
     Rounded to 0.1s so trivial float jitter doesn't miss the cache.
     """
     from .audio import _is_hls_url
+    from .megaplay import is_megaplay, materialize_window
 
     cache_file = None
     if cache_key is not None:
@@ -282,6 +283,14 @@ def keyframe_hashes_abs(
         cache_file = cache_dir / f"{safe}.abs{s_tag}_{d_tag}.fps{f_tag}.vfp.npz"
         if cache_file.exists():
             return VideoFingerprint.load(cache_file)
+
+    # Megaplay's HLS segments are PNG-decoy-wrapped (ffmpeg sees a lone
+    # `Video: png`, no real video/audio). Materialise the window as a local,
+    # de-PNG'd .ts that keeps the same absolute PTS, so the `-copyts -ss/-to`
+    # decode below works on it unchanged. See oped/megaplay.py + audio.py.
+    if is_megaplay(src):
+        src = materialize_window(src, start_abs, dur, referer=referer)
+        referer = None
 
     cmd = ["ffmpeg", "-hide_banner", "-loglevel", "info"]
     if referer:

@@ -15,6 +15,7 @@ from pathlib import Path
 import numpy as np
 
 from . import SAMPLE_RATE
+from .megaplay import is_megaplay, materialize_window
 
 # ashowinfo prints one `pts_time:<abs seconds>` per audio frame to stderr; with
 # -copyts these are ABSOLUTE episode timestamps. We only need the first (the pts
@@ -113,7 +114,17 @@ def decode_audio_abs(
     `-ss`, so both timelines share one clock and
     `theme_t0_abs = abs_start + q_start_seconds` is directly comparable to the
     video match's absolute offset — no `-sseof` anchor guessing, no A/V drift.
+
+    Megaplay's segments are PNG-decoy-wrapped, so ffmpeg reads its raw HLS as a
+    lone `Video: png` stream with no audio and `-vn` yields 0 bytes. For megaplay
+    we first materialise the window as a local, de-PNG'd .ts (see `oped.megaplay`)
+    which keeps the same absolute PTS — the `-copyts -ss/-to` below then work on
+    it unchanged, so the shared-clock contract still holds.
     """
+    if is_megaplay(src):
+        src = materialize_window(src, start_abs, dur, referer=referer)
+        referer = None  # local file: no HTTP headers, no HLS demuxer flags
+
     cmd = ["ffmpeg", "-hide_banner", "-loglevel", "info"]
     if referer:
         cmd += ["-headers", f"Referer: {referer}\r\n"]
