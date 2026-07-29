@@ -2684,7 +2684,12 @@ const NOT_FOUND_SENTINEL = '{"__nf":1}';
 // leader never deadlocks the rest.
 const LOCK_TTL_S = 20; // > maxDuration won't happen; covers a slow-but-alive scrape
 const LOCK_WAIT_MS = 6000; // follower waits at most this long for the leader
-const LOCK_POLL_MS = 150;
+// Follower poll cadence. Each tick is a Redis GET, so on a cold popular episode
+// with dozens of concurrent followers this is a command AMPLIFIER (150ms over a
+// 6s budget = up to 40 GETs per follower). 350ms caps it at ~17 while adding at
+// most ~200ms to a follower that is already waiting on the leader anyway — a
+// worthwhile trade against the Upstash command budget during viewing waves.
+const LOCK_POLL_MS = 350;
 const lockKey = (cacheKey) => `lock:${cacheKey}`;
 
 // Try to become the leader. Returns true if WE hold the lock (must scrape),

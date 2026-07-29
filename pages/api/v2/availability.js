@@ -86,9 +86,15 @@ export default async function handler(req, res) {
     try {
       const raw = await redis.get(key(aniId, episode, sub));
       const { ok, absent } = parseSnapshot(raw);
-      // Short browser/edge cache: identical for everyone, and the client also
-      // keeps re-probing, so a few minutes of staleness is harmless.
-      res.setHeader("Cache-Control", "public, max-age=60, s-maxage=300");
+      // Edge cache: this verdict is identical for everyone and drifts slowly
+      // (6h TTL), and the client also keeps re-probing live + POSTs corrections,
+      // so ~10 min of edge staleness is harmless. A HIT never reaches the
+      // function and never spends the Redis GET below. Browser stays at 60s.
+      res.setHeader("Cache-Control", "public, max-age=60");
+      res.setHeader(
+        "CDN-Cache-Control",
+        "public, s-maxage=600, stale-while-revalidate=3600",
+      );
       // `servers` keeps the original field name (= confirmed/ok) for any older
       // client; `absent` is additive so a stale client just ignores it.
       return res.status(200).json({ servers: ok, absent, cached: !!raw });
