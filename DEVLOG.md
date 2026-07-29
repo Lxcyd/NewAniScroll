@@ -11,7 +11,9 @@ Ordre anti-chronologique (le plus récent en haut). Une entrée = une session/su
 
 Le Fluid Active CPU a explosé (**6h24 / 4h**, pic isolé **1h20 le 18/07**, puis palier **×2‑3** vs. début juillet). Diagnostic + fix (commits `fcbd942`, `79d4632`, sur `dev`).
 
-**Cause racine — plafond de commandes Upstash gratuit.** Upstash Free ≈ **500K commandes/mois** (~16k/j soutenable), mais volume réel **~35k/j** (~1M/mois, **~2× le cap**, lu dans la console : Sam 40k / Dim 28k / Lun 44k / Mar 34k). L'allocation mensuelle s'épuise **à mi‑mois** → Upstash throttle → le cache Redis ne sert plus de hits → **chaque requête recompute** (AniList/TMDB/Simkl/scrapes au lieu d'un GET) → le CPU déborde le plafond Hobby 4h. Le bump de clé `episode:v4→v5` du 17/07 (commit `779fa13` : **invalidation totale + rafale de SET**) a avancé l'épuisement au ~18 ce cycle-là. Timeline confirmée par git : **0 commit entre le 17 (18h) et le 29** → aucun autre suspect.
+**Cause racine — plafond de commandes Upstash gratuit.** Upstash Free ≈ **500K commandes/mois** (~16k/j soutenable), mais volume réel **~35k/j** (~1M/mois, **~2× le cap**, lu dans la console : Sam 40k / Dim 28k / Lun 44k / Mar 34k). L'allocation mensuelle s'épuise **à mi‑mois** → Upstash throttle → le cache Redis ne sert plus de hits → **chaque requête recompute** (AniList/scrapes au lieu d'un GET) → le CPU déborde le plafond Hobby 4h.
+
+⚠️ **Correction (piège d'analyse) :** j'avais d'abord attribué le pic du 18 au bump de clé `episode:v4→v5` du 17/07. **Faux pour prod** : `main` (prod) date du **5 juillet** et n'a jamais reçu ce commit (il est resté sur `dev`/preview). Le pic prod s'explique donc uniquement par le **volume vs cap**, pas par le bump. **Question ouverte clé : `dev` (preview, testé en continu) et prod partagent-ils la même DB Upstash gratuite ?** Si oui, le trafic de dev brûle le budget commun et tue aussi le cache de prod → à vérifier dans la console (une DB ou deux ?). Leçon : toujours vérifier `git log origin/main..origin/dev` **avant** de bâtir une timeline — prod ≠ dev.
 
 **Ce que Redis fait vraiment (2 rôles) :** (1) **cache** (episode/catalog/discover/availability/recent/health…) = l'essentiel du volume, proportionnel au trafic ; (2) **état partagé** W2G rooms/présence/chat + merge availability + lock single-flight `/source` = besoin d'un KV, volume faible. → **Supprimer Upstash = mauvaise idée** (CPU haut en permanence + W2G cassé). Le bon move = **vider Redis de son rôle de cache** vers l'edge HTTP **gratuit** de Vercel (hors quota), Upstash ne garde que l'état.
 
@@ -27,10 +29,12 @@ Le Fluid Active CPU a explosé (**6h24 / 4h**, pic isolé **1h20 le 18/07**, pui
 - Sur Upstash gratuit, un `redis.get` par requête sur un endpoint **identique pour tous** est du gaspillage → **edge cache HTTP** (gratuit, hors quota). `CDN-Cache-Control` (edge) ≠ `Cache-Control` (navigateur) : split pour un TTL edge long sans forcer le cache navigateur.
 - `og` = runtime **edge** = pool compute distinct de **Fluid** ; optimiser og ne bouge PAS la métrique Fluid.
 
+**Release prod (fait) :** `dev` était **117 commits devant `main`** (features non sorties : episode thumbs, éditeur raccourcis, notices, W2G, opening-detector). Donc **pas** de merge `dev→main` complet — **release perf uniquement** via une branche `perf-cpu-fix` partie de `main` : 2 cherry-picks du 29 (SSR résilient Redis + cut volume recent/translate) + réapplication à la main des 6 fixes edge-cache sur les versions `main` (l'edit `episode/[id]` s'appliquait proprement car main est en clé `v3` sans Simkl). Mergé dans `main` (`97b732d`), 10 fichiers, 0 code de feature. ⚠️ **Piège futur :** le prochain merge `dev→main` complet **conflictera sur `episode/[id].tsx`** (main = v3+perf, dev = v5+Simkl+perf) — résoudre en gardant la version dev + les 2 perf (no-clone `filterData`, `edgeSmaxage`).
+
 **Reste à faire :**
-- **Merger `dev → main`** pour appliquer en **prod** (le CPU qui explose est prod ; `dev` = preview).
 - Soulagement CPU **immédiat** = dépend du cycle Upstash : reset le 1er du mois, ou **pay‑as‑you‑go ~2 $/mois** en attendant. Le fix code empêche surtout la **récidive** les mois suivants.
-- Vérifier **Upstash → Usage mensuel** : le compteur doit saturer ~le 18 puis chuter après le merge prod. Contrôler les headers `X-Cache` / `age` sur catalog/discover/episode.
+- **Vérifier si dev et prod partagent la même DB Upstash** (cf. cause racine) — si oui, séparer, sinon le budget prod restera pollué par les tests dev.
+- Vérifier **Upstash → Usage mensuel** (saturation ~le 18 ?) et les headers `X-Cache` / `age` sur catalog/discover/episode en prod.
 
 ## 2026-07-14 — OP/ED : fin d'OP tronquée à 4:00 (fenêtre) + megaplay ED décalé (credited faible override audio)
 
