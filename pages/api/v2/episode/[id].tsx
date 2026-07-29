@@ -150,9 +150,14 @@ function filterData(data: any[], type: "sub" | "dub") {
       if (!item.episodes[type] || item.episodes[type].length === 0) {
         return null;
       }
+      // No per-episode clone: `data` is always freshly built or freshly
+      // JSON.parse'd for this request and discarded after serialization, so
+      // returning the array by reference is safe. The old `.map(e => ({...e}))`
+      // copied every episode on every request — cheap per row, but a real CPU
+      // cost on 1000+-episode lists (One Piece, Conan) on the hot cache-hit path.
       return {
         ...item,
-        episodes: item.episodes[type].map((episode: any) => ({ ...episode })),
+        episodes: item.episodes[type],
       };
     }
     return item;
@@ -168,6 +173,13 @@ export default async function handler(
   const { id, releasing = "false", dub = false, refresh = null } = req.query;
 
   let cacheTime = releasing === "true" ? 60 * 60 * 3 : 60 * 60 * 24 * 30;
+
+  // Edge TTL mirrors the cache lifetime. An airing show keeps a short 30 min
+  // window so a freshly aired episode shows up promptly; a finished show's
+  // episode list is immutable, so it can sit on the edge for a day (with a day
+  // of stale-while-revalidate on top). The old flat 30 min woke the function —
+  // and spent a Redis GET — every half hour for every popular finished series.
+  const edgeSmaxage = releasing === "true" ? 1800 : 86400;
 
   let cached;
   let headers: any = {};
@@ -224,7 +236,7 @@ export default async function handler(
     res.setHeader("Cache-Control", "public, max-age=60");
     res.setHeader(
       "CDN-Cache-Control",
-      "public, s-maxage=1800, stale-while-revalidate=86400",
+      `public, s-maxage=${edgeSmaxage}, stale-while-revalidate=86400`,
     );
     return res.status(200).json(filteredData.filter((i) => i.episodes.length > 0));
   }
