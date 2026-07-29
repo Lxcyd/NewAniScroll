@@ -1097,9 +1097,12 @@ export default function Watch({
   // after the player JS downloads. Fire-and-forget: the cache is the channel.
   useEffect(() => {
     if (!info?.idMal || !epiNumber) return;
-    prefetchSkips(info.idMal, Number(epiNumber), info.id);
+    // Pass the active server so the warmed entry is the per-host one SkipOverlay
+    // (which keys by server) will read — otherwise it'd warm the lang-keyed
+    // reconciled entry and the overlay would still fetch its own.
+    prefetchSkips(info.idMal, Number(epiNumber), info.id, { server: activeServer });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [info?.idMal, info?.id, epiNumber]);
+  }, [info?.idMal, info?.id, epiNumber, activeServer]);
 
   // ── Fetch stream source when server needs backend (hls or api) ──
   // Tracks the latest in-flight request so server-change / navigation aborts it.

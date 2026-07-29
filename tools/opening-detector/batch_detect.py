@@ -52,8 +52,14 @@ from pathlib import Path
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
-from oped.adapter_aniscroll import resolve_episodes, resolve_episodes_multi
+from oped.adapter_aniscroll import (
+    MULTI_HOSTS,
+    VF_INCOMPATIBLE_HOSTS,
+    resolve_episodes,
+    resolve_episodes_multi,
+)
 from oped.animethemes import Theme, fetch_themes, resolve_slug, themes_for_episode
+from oped.host_registry import version_of
 from oped.audio import decode_audio_abs, load_audio
 from oped.fingerprint import Fingerprint, fingerprint
 from oped.manifest import Manifest, Record
@@ -137,12 +143,34 @@ def build_theme_index(
     return themes, refs_by_theme
 
 
+def needed_hosts(mal_id, lang: str, coverage: dict | None) -> list[str]:
+    """The displayed hosts that still need (re)processing for (mal_id, lang):
+    those absent from the DB coverage OR stored at a stale algo_version (a host
+    we've since added or fixed — e.g. megaplay 1→2 after the de-PNG fix).
+
+    `coverage` is the DB snapshot exported by scripts/export-oped-coverage.mjs:
+    { "<mal>:<lang>": { host: processed_version } }. When it's None (no
+    --coverage passed) every displayed host is "needed" — i.e. a full run.
+
+    VF-incompatible hosts (megaplay) are dropped for non-vostfr langs so they
+    aren't perpetually reported as "needed" for a language they never serve
+    (resolve_episodes_multi would filter them anyway, but this keeps the
+    per-season skip decision honest)."""
+    hosts = [h for h in MULTI_HOSTS
+             if not (lang != "vostfr" and h in VF_INCOMPATIBLE_HOSTS)]
+    if coverage is None:
+        return hosts
+    cov = coverage.get(f"{mal_id}:{lang}", {})
+    return [h for h in hosts if cov.get(h, 0) < version_of(h)]
+
+
 def process_anime(
     anime: dict,
     throttler: HostThrottler,
     sink: ResultSink,
     *,
     multi_host: bool = False,
+    coverage: dict | None = None,
     timings: TimingCollector | None = None,
 ) -> Record:
     """Resolve + detect one anime across all its seasons. Raises on transient
@@ -195,10 +223,18 @@ def process_anime(
             # (the DB export owns the mapping); falls back to the anime-sama slug
             # when voir-anime happens to use the same one.
             va_slug = anime.get("va_slug") or anime.get("slug")
+            # Version-based resume: only (re)resolve the hosts that are missing or
+            # stale in the DB coverage. A newly-added or newly-fixed host (bumped
+            # in host_versions.json) is the ONLY thing that gets re-run on an anime
+            # already in the DB — everything up to date is skipped for free.
+            hosts_to_run = needed_hosts(mal_id, season["lang"], coverage)
+            if not hosts_to_run:
+                continue
             with tc.span("resolve"):
                 by_ep = resolve_episodes_multi(
                     anime["slug"], season["season_dir"], season["lang"],
                     season["ep_start"], season["ep_end"],
+                    hosts=hosts_to_run,
                     mal_id=mal_id, va_slug=va_slug,
                 )
             for ep in sorted(by_ep):
@@ -367,7 +403,14 @@ def process_anime(
                 # never bites on the path a player actually consumes — a borrowed ED
                 # matching only the song's reprise ships as a real timing.
                 def _host_entry(stream, host_hits: list) -> dict:
-                    out = {"duration": round(stream.duration, 2)}
+                    # algo_version stamps WHICH detector version produced this
+                    # host's result, so the importer/coverage can tell a fresh row
+                    # from one predating a host fix (megaplay de-PNG = v2). Present
+                    # even when host_hits is empty: the row still records that this
+                    # host was PROCESSED at this version, so the version-based
+                    # resume won't re-run it until the version moves again.
+                    out = {"duration": round(stream.duration, 2),
+                           "algo_version": version_of(stream.host)}
                     for h in host_hits:
                         inferred = inf_op if h.kind == "op" else inf_ed
                         d = _hit_to_dict(h, stream.duration)
@@ -493,6 +536,7 @@ def run(
     max_per_host: int,
     resume: bool,
     multi_host: bool = False,
+    coverage: dict | None = None,
     timings: bool = False,
 ) -> None:
     manifest = Manifest(manifest_path)
@@ -504,8 +548,25 @@ def run(
     def key_of(a: dict) -> str:
         return f"mal:{a['mal_id']}" if a.get("mal_id") else f"slug:{a.get('slug')}"
 
+    def _has_work(a: dict) -> bool:
+        # An anime needs a run when ANY of its seasons still has a host missing or
+        # stale in the coverage snapshot (version-based resume). Multi-host only —
+        # the single-host path keeps the manifest-based skip below.
+        return any(
+            needed_hosts(a.get("mal_id"), s["lang"], coverage)
+            for s in a.get("seasons", [])
+        )
+
     todo = anime_list
-    if resume:
+    if coverage is not None and multi_host:
+        # Coverage-driven resume: run only anime with a missing/stale host. This
+        # is what makes "add or fix a host → re-run ONLY that host" work, even on
+        # anime the manifest already marked done in a previous full run.
+        before = len(todo)
+        todo = [a for a in todo if _has_work(a)]
+        print(f"coverage resume: {before - len(todo)} fully up-to-date, "
+              f"{len(todo)} with a missing/stale host to do")
+    elif resume:
         before = len(todo)
         todo = [a for a in todo if not manifest.is_done(key_of(a))]
         print(f"resume: {before - len(todo)} already done/skipped, {len(todo)} to do")
@@ -513,7 +574,8 @@ def run(
     def worker(a: dict) -> tuple[str, str]:
         key = key_of(a)
         try:
-            rec = process_anime(a, throttler, sink, multi_host=multi_host, timings=tc)
+            rec = process_anime(a, throttler, sink, multi_host=multi_host,
+                                coverage=coverage, timings=tc)
         except Exception as exc:  # transient -> failed, requeued at end
             rec = Record(key, "failed", reason=f"{type(exc).__name__}: {exc}")
         manifest.record(rec)
@@ -607,6 +669,14 @@ def main() -> None:
     ap.add_argument("--start-conc", type=int, default=6, help="initial per-host concurrency")
     ap.add_argument("--max-per-host", type=int, default=24)
     ap.add_argument("--resume", action="store_true", help="skip anime already done")
+    ap.add_argument(
+        "--coverage", default=None,
+        help="path to a coverage snapshot from scripts/export-oped-coverage.mjs "
+             "({'<mal>:<lang>': {host: version}}). Enables version-based resume: "
+             "only hosts absent or at a stale algo_version (host_versions.json) "
+             "are (re)run — so adding a host or bumping one (e.g. megaplay 1->2) "
+             "re-runs ONLY that host on anime already in the DB. Multi-host only.",
+    )
     # Multi-host is the default now (precision-first): it's what lets a video
     # signal on one host confirm/rescue the audio on another and yields the
     # cross-host `serve` gate the API relies on. --no-multi-host opts back to the
@@ -632,6 +702,13 @@ def main() -> None:
 
     anime_list = json.loads(Path(args.anime_list).read_text("utf-8"))
     print(f"loaded {len(anime_list)} anime from {args.anime_list}")
+
+    coverage = None
+    if args.coverage:
+        coverage = json.loads(Path(args.coverage).read_text("utf-8"))
+        print(f"loaded coverage for {len(coverage)} (mal:lang) panels "
+              f"from {args.coverage}")
+
     run(
         anime_list, args.out,
         manifest_path=args.manifest,
@@ -640,6 +717,7 @@ def main() -> None:
         max_per_host=args.max_per_host,
         resume=args.resume,
         multi_host=args.multi_host,
+        coverage=coverage,
         timings=args.timings,
     )
 

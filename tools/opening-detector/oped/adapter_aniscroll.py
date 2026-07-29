@@ -131,12 +131,15 @@ def resolve_episodes(
 #   - embed4me / lpayer: literally the SAME host (its URLs contain both
 #     substrings, e.g. lpayer.embed4me.com) — listing both resolves the
 #     identical stream twice under two different labels. Also IP-bound.
-#   - uqload: no extractor registered for it at all; always fails — so it is
-#     NOT in the default list. Including it only spent a Node resolve subprocess
-#     per episode that could never yield a hit; over a 33k-episode backfill that
-#     is pure wasted CDN/handshake load. Kept documented here so nobody re-adds
-#     it expecting it to work; add an extractor first, then put it back.
-MULTI_HOSTS = ["sibnet", "sendvid", "megaplay", "vidmoly", "vidmoly-va"]
+#   - uqload: now HAS a dedicated extractor (extractUqload) and is a displayed
+#     server in lib/servers.js, so it belongs here — "detected hosts" must equal
+#     "displayed hosts" (see lib/hostRegistry.js DISPLAYED_HOSTS). Its stream
+#     token is IP/single-use-bound though, so a server-side ffmpeg pull may 403;
+#     when it can't be pulled it simply yields no row (a resolve/decode miss),
+#     which is fine — it never poisons the DB, it just doesn't contribute.
+# This list is the displayed-host allowlist (mirrors host_versions.json keys /
+# lib/hostRegistry.js DISPLAYED_HOSTS). Keep the three in sync.
+MULTI_HOSTS = ["sibnet", "sendvid", "megaplay", "vidmoly", "vidmoly-va", "uqload"]
 
 
 def resolve_episodes_multi(

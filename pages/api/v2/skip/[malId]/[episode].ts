@@ -1,5 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { getOpedSkips, type OpedSkipRow } from "@/lib/db/opedSkips";
+import { getHostSkip, type OpedHostSkipRow } from "@/lib/db/opedHostSkips";
+import { serverToHost } from "@/lib/hostRegistry";
 
 /**
  * Skip-times proxy.
@@ -74,13 +76,40 @@ export default async function handler(
   const aniListId = Number(req.query.aniListId) || null;
   const episodeLength = Number(req.query.episodeLength) || 0;
   const lang = typeof req.query.lang === "string" ? req.query.lang : "vostfr";
+  // The player's ACTIVE server (lib/servers.js id). When present it pins the
+  // exact encode, which matters for the OP: its absolute start is encode-specific
+  // (SnK ep1 OP is 2:02 on sibnet but 2:19 on megaplay), so a per-host row is the
+  // only correct answer. Absent → fall back to the reconciled oped_skips below.
+  const serverId = typeof req.query.server === "string" ? req.query.server : null;
+  const mapped = serverId ? serverToHost(serverId) : null;
+  // A mapped server also fixes the language (its id encodes vo/vf); use that for
+  // every downstream lookup so the fallback reads the matching panel too.
+  const effLang = mapped ? mapped.lang : lang;
   if (!malId || !episode) {
     return res.status(400).json({ error: "malId + episode required" });
   }
 
+  // 0. PER-HOST: if we know which server the viewer is on, return that encode's
+  //    own OP/ED (correct absolute OP; ED re-projected from its from_end anchor).
+  if (mapped) {
+    const hostRow = await getHostSkipSafe(malId, episode, mapped.lang, mapped.host);
+    if (hostRow && hostRow.serve) {
+      const skips = hostRowToSkips(hostRow, episodeLength);
+      if (skips.length) {
+        res.setHeader(
+          "Cache-Control",
+          "public, max-age=86400, s-maxage=86400, stale-while-revalidate=604800",
+        );
+        return res
+          .status(200)
+          .json({ source: "oped-host", host: mapped.host, skips });
+      }
+    }
+  }
+
   // 1. Our own detector first. Only servable rows; ED re-projected onto the
   //    caller's real duration from its from_end anchor.
-  const oped = await getOpedSkipsSafe(malId, episode, lang);
+  const oped = await getOpedSkipsSafe(malId, episode, effLang);
   const opedSkips = oped
     .filter((r) => r.serve)
     .map((r) => opedRowToSkip(r, episodeLength))
@@ -141,6 +170,53 @@ export default async function handler(
     );
   }
   return res.status(200).json({ source, skips });
+}
+
+/** Read one host's row without ever throwing into the request path. */
+async function getHostSkipSafe(
+  malId: number,
+  episode: number,
+  lang: string,
+  host: string,
+): Promise<OpedHostSkipRow | null> {
+  try {
+    return await getHostSkip(malId, episode, lang, host);
+  } catch (e: any) {
+    console.warn("[skip] host lookup failed:", e?.message);
+    return null;
+  }
+}
+
+/** Build the OP/ED skips for ONE host's encode. The OP start is absolute in this
+ *  host's own encode (no re-projection — that's the whole point of per-host). The
+ *  ED is re-projected from its host-independent from_end anchor onto the player's
+ *  real duration, so a differently-trimmed encode of the SAME host stays right. */
+function hostRowToSkips(r: OpedHostSkipRow, episodeLength: number): Skip[] {
+  const round2 = (x: number) => Math.round(x * 100) / 100;
+  const out: Skip[] = [];
+
+  if (r.opStart != null && r.opEnd != null) {
+    let end = r.opEnd;
+    if (episodeLength > 0) end = Math.min(end, episodeLength);
+    if (end - r.opStart >= 5) {
+      out.push({ start: round2(r.opStart), end: round2(end), type: "op", confidence: r.source });
+    }
+  }
+
+  if (r.edStart != null && r.edEnd != null) {
+    let start = r.edStart;
+    let end = r.edEnd;
+    if (episodeLength > 0 && r.edFromEndStart != null && r.edFromEndEnd != null) {
+      start = Math.max(0, episodeLength - r.edFromEndStart);
+      end = Math.max(start, episodeLength - r.edFromEndEnd);
+    }
+    if (episodeLength > 0) end = Math.min(end, episodeLength);
+    if (end - start >= 5) {
+      out.push({ start: round2(start), end: round2(end), type: "ed", confidence: r.source });
+    }
+  }
+
+  return out.sort((a, b) => a.start - b.start);
 }
 
 /** Read oped_skips without ever throwing into the request path — a DB hiccup

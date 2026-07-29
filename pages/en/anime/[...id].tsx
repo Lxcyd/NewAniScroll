@@ -370,7 +370,9 @@ export default function Info({
     // matters once the video reports its duration, so it can wait for idle.
     const runIdle = () => {
       if (cancelled) return;
-      if (malId) void prefetchSkips(malId, resumeEp, info.id);
+      // Warm the per-host entry for the server the watch page starts on
+      // (megaplay, its SSR default) so the overlay reads a hit on arrival.
+      if (malId) void prefetchSkips(malId, resumeEp, info.id, { server: "megaplay" });
     };
 
     // Short delay: just enough to let the info page's first paint + its own

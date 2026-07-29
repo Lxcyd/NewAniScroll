@@ -4637,6 +4637,7 @@ export default function UniversalPlayer({
         malId={malId}
         aniListId={aniListId}
         episode={episodeNumber}
+        server={serverId}
         nextEpisodeHref={nextEpisodeHref}
         externalMenuOpen={subMenuOpen || subStyleOpen}
         isFinalEpisode={isFinalEpisode}

@@ -78,6 +78,10 @@ type Props = {
   aniListId?: number | null;
   /** 1-based episode number. */
   episode?: number;
+  /** Active server id (lib/servers.js). Pins the exact encode so the API can
+   *  return that host's own OP/ED — the OP's absolute start is encode-specific.
+   *  When absent the API falls back to the reconciled/crowdsourced timing. */
+  server?: string;
   /** Pre-computed URL for the next episode. */
   nextEpisodeHref?: string | null;
   /** Set to true when a non-Vidstack popover (subtitle picker, etc.)
@@ -112,6 +116,7 @@ export default function SkipOverlay({
   malId,
   aniListId,
   episode,
+  server,
   nextEpisodeHref,
   externalMenuOpen = false,
   isFinalEpisode = false,
@@ -145,7 +150,7 @@ export default function SkipOverlay({
     setRawSkips([]);
     watchCtx?.setSkipTimes?.([]);
     if (!malId || !episode) return;
-    const memoKey = skipMemoKey(malId, episode);
+    const memoKey = skipMemoKey(malId, episode, server);
     const memoed = SKIP_MEMO.get(memoKey);
     if (memoed) {
       setRawSkips(memoed);
@@ -154,16 +159,16 @@ export default function SkipOverlay({
     let cancelled = false;
     (async () => {
       // Shared with the watch page's eager prefetch: if it already ran (or is
-      // in flight) for this episode, this resolves from the memo / the same
-      // request instead of issuing a second one.
-      const arr = await prefetchSkips(malId, episode, aniListId);
+      // in flight) for this episode+server, this resolves from the memo / the
+      // same request instead of issuing a second one.
+      const arr = await prefetchSkips(malId, episode, aniListId, { server });
       if (!cancelled) setRawSkips(arr);
     })();
     return () => {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [malId, aniListId, episode]);
+  }, [malId, aniListId, episode, server]);
 
   // Clamp/filter against the real duration once the player reports it.
   // Cheap CPU work — runs in microseconds, so the chapter pills appear
