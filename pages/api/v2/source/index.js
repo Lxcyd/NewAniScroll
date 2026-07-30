@@ -2747,8 +2747,29 @@ function sourceCacheKey({ server, aniId, episode, sub }) {
 }
 
 // ── Handler ─────────────────────────────────────────────────────────────
+/**
+ * GET  /api/v2/source?server=&aniId=&episode=&sub=&title=&malId=
+ * POST /api/v2/source   { server, aniId, episode, sub, title, mediaMeta, soft404 }
+ *
+ * GET is what the browser uses, and the reason this endpoint stopped being the
+ * site's top Active-CPU line. The route always set `s-maxage` / stale-while-
+ * revalidate on its answers, but they were dead letters: **no CDN caches a
+ * POST**, so every visitor re-invoked the function for a resolution the edge
+ * already had — and the watch page fires one per server it probes, per page
+ * load. Same handler, same cache keys; only the transport changed, so a GET and
+ * a POST for the same episode still share the Redis entry.
+ *
+ * The body carried nothing that doesn't fit in a query string: `mediaMeta` was a
+ * whole media object (title, synonyms, relations) of which the route reads
+ * exactly one field, `idMal` — now `?malId=`.
+ *
+ * POST is kept verbatim for the warmers / crons / audit scripts, which are not
+ * cacheable anyway (they exist to bust the cache) and rely on the 404/204
+ * contract below.
+ */
 export default async function handler(req, res) {
-  if (req.method !== "POST") {
+  const isGet = req.method === "GET";
+  if (!isGet && req.method !== "POST") {
     return res.status(405).json({ message: "Method not allowed" });
   }
 
@@ -2757,20 +2778,65 @@ export default async function handler(req, res) {
   // consume() is a write and was needless quota burn during bulk runs.
   const isInternal = req.headers["x-warmer"] === "1";
 
-  const { server, aniId, episode, sub = "sub", title, mediaMeta } = req.body;
+  const input = (isGet ? req.query : req.body) || {};
+  const server = input.server;
+  // Query values arrive as strings; the resolvers below expect the numbers the
+  // POST body always gave them (ids are compared and used to build upstream
+  // URLs, and `NaN` must not silently reach a cache key).
+  const aniId = input.aniId != null ? Number(input.aniId) : undefined;
+  const episode = input.episode != null ? Number(input.episode) : undefined;
+  const sub = input.sub === "dub" ? "dub" : "sub";
+  const title = input.title;
+  const mediaMeta = isGet
+    ? input.malId
+      ? { idMal: Number(input.malId) }
+      : null
+    : input.mediaMeta;
 
-  // The watch page's probe fan-out + active-source fetch send soft404:true —
-  // "source absent" is an EXPECTED outcome for them (half the probes miss by
-  // design), so we answer 204 No Content instead of 404. Browsers print a
-  // console error for every non-2xx fetch response and there is no way to
-  // suppress it from JS; a page with a few absent servers looked like it was
-  // throwing errors when nothing was wrong. Scripts / warmers / the audit
-  // don't send the flag and keep the hard 404 contract.
-  const wantsSoft404 = req.body?.soft404 === true;
+  if (isGet && (!server || !Number.isFinite(aniId) || !Number.isFinite(episode))) {
+    return res.status(400).json({ error: "server, aniId and episode required" });
+  }
+
+  // "Source absent" is an EXPECTED outcome for the watch page (half the probes
+  // miss by design), so it must not read as an error:
+  //   - GET  → 200 { absent: true }. A status the CDN is guaranteed to cache
+  //     (204 caching is not something to bet the busiest endpoint on) and that
+  //     prints nothing in the browser console.
+  //   - POST → the original contract: 204 with soft404:true, hard 404 without,
+  //     which the warmers and audit scripts still read.
+  const wantsSoft404 = !isGet && req.body?.soft404 === true;
   const notFoundStatus = (msg) =>
-    wantsSoft404
+    isGet
+      ? res.status(200).json({ absent: true })
+      : wantsSoft404
       ? res.status(204).end()
       : res.status(404).json({ error: msg || "Source not found" });
+
+  /* The cache contract, in one place (three code paths answer "found" and three
+     answer "absent", and they used to disagree with each other).
+
+     `CDN-Cache-Control` is what Vercel's edge reads — plain `Cache-Control`
+     alone only ever reached the browser, which is why the negative path (~half
+     of all probes) re-invoked the function every single time.
+
+     Found → 5 min at the edge, matching SOURCE_CACHE_TTL_S. A payload can be
+     served up to its Redis TTL old and then sit another 5 min in the edge, so
+     the worst case is a ~10 min old stream URL — well inside the 60-240 min
+     lifetime of the CDN tokens we proxy, and the browser's own 60 s means a
+     manual refresh always re-resolves.
+
+     Absent → 5 min at the edge, under the 10 min negative sentinel in Redis, so
+     the edge never claims "absent" longer than the server itself would. */
+  const CACHE_FOUND = "public, s-maxage=300, stale-while-revalidate=600";
+  const CACHE_ABSENT = "public, s-maxage=300, stale-while-revalidate=300";
+  const cacheFound = () => {
+    res.setHeader("Cache-Control", "public, max-age=60");
+    res.setHeader("CDN-Cache-Control", CACHE_FOUND);
+  };
+  const cacheAbsent = () => {
+    res.setHeader("Cache-Control", "public, max-age=30");
+    res.setHeader("CDN-Cache-Control", CACHE_ABSENT);
+  };
 
   // Redis lookup FIRST — short-circuit identical (server, aniId, episode, sub)
   // requests served within the last SOURCE_CACHE_TTL_S. The probe fan-out on
@@ -2794,13 +2860,10 @@ export default async function handler(req, res) {
           // the main CPU win: ~half of probe fan-outs naturally 404, and a
           // popular episode would re-extract the same dead servers for every
           // visitor without this.
-          res.setHeader("Cache-Control", "public, max-age=30");
+          cacheAbsent();
           return notFoundStatus("Source not found");
         }
-        res.setHeader(
-          "Cache-Control",
-          "public, s-maxage=60, stale-while-revalidate=120",
-        );
+        cacheFound();
         return res.status(200).json(JSON.parse(cached));
       }
     } catch {
@@ -2842,13 +2905,10 @@ export default async function handler(req, res) {
       const leaderResult = await waitForLeaderResult(cacheKey);
       if (leaderResult) {
         if (leaderResult === NOT_FOUND_SENTINEL) {
-          res.setHeader("Cache-Control", "public, max-age=30");
+          cacheAbsent();
           return notFoundStatus("Source not found");
         }
-        res.setHeader(
-          "Cache-Control",
-          "public, s-maxage=60, stale-while-revalidate=120",
-        );
+        cacheFound();
         return res.status(200).json(JSON.parse(leaderResult));
       }
       // Leader timed out (slow upstream or it crashed and its lock expired).
@@ -2867,15 +2927,7 @@ export default async function handler(req, res) {
         .catch(() => {});
       if (isLeader) write.finally(() => releaseScrapeLock(cacheKey));
     }
-    // Edge cache matches the 5 min Redis TTL — most CDN tokens we proxy
-    // last 60-240 min, so 5 min between refresh is well within the safe
-    // window. Browser cache stays short (60 s) so a manual refresh in
-    // the player picks up a new token if the user's current one fails.
-    res.setHeader("Cache-Control", "public, max-age=60");
-    res.setHeader(
-      "CDN-Cache-Control",
-      "public, s-maxage=300, stale-while-revalidate=600",
-    );
+    cacheFound();
     return res.status(200).json(payload);
   };
 
@@ -2886,7 +2938,7 @@ export default async function handler(req, res) {
         .catch(() => {});
       if (isLeader) write.finally(() => releaseScrapeLock(cacheKey));
     }
-    res.setHeader("Cache-Control", "public, max-age=30");
+    cacheAbsent();
     return notFoundStatus(msg);
   };
 

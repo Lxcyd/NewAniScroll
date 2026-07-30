@@ -4,13 +4,15 @@
  * The anime info page warms the source for the "Watch" target (megaplay,
  * resume episode) in the background. When the user then opens the watch page,
  * it reads the already-resolved source from here instead of re-issuing the
- * /api/v2/source POST + waiting on extraction — so playback starts almost
+ * /api/v2/source request + waiting on extraction — so playback starts almost
  * immediately.
  *
  * Keyed by `${aniId}:${episode}:${server}:${sub|dub}`. Entries are short-lived
  * (source URLs carry rotating tokens) — we expire them after a few minutes so
  * a stale token never reaches the player.
  */
+
+import { requestSource } from "./sourceRequest";
 
 type CacheEntry = { data: any; at: number };
 
@@ -83,28 +85,21 @@ export async function resolveSource(
   const existing = inflight.get(key);
   if (existing) return existing;
 
-  const p = fetch("/api/v2/source", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
+  const p = requestSource(
+    {
       server: params.server,
       aniId: params.aniId,
       episode: params.episode,
       sub: params.sub,
       title: params.title,
-      mediaMeta: params.mediaMeta,
-      // Absent source → 204 instead of 404 so a background prefetch miss
-      // never prints a console error (see source/index.js).
-      soft404: true,
-    }),
-    signal: opts.signal,
-    // @ts-ignore — `priority` is a valid fetch init in modern browsers.
-    priority: opts.priority || "auto",
-  })
-    .then((r) => (r.ok && r.status !== 204 ? r.json() : null))
-    .then((data) => {
-      if (data && !data.error) setPrefetchedSource(key, data);
-      return data && !data.error ? data : null;
+      malId: params.mediaMeta?.idMal ?? null,
+    },
+    { signal: opts.signal, priority: opts.priority || "auto" },
+  )
+    .then((out) => {
+      if (out.kind !== "ok") return null;
+      setPrefetchedSource(key, out.data);
+      return out.data;
     })
     .catch(() => null)
     .finally(() => {
