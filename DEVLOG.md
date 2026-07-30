@@ -7,6 +7,25 @@ Ordre anti-chronologique (le plus récent en haut). Une entrée = une session/su
 
 ---
 
+## 2026-07-30 (suite 3) — Navbar illisible sur une bannière claire → on mesure les pixels
+
+La navbar flotte en transparent sur la bannière de la page info, donc **tout** son chrome est blanc (liens, icônes, pilule de recherche). Sur une bannière blanche/pastel (Nippon Sangoku) elle disparaît complètement. Aucune métadonnée AniList ne dit "cette image est claire" → la seule source de vérité, ce sont les pixels.
+
+**Design.** `lib/color/navContrast.ts` : store hors React (les deux côtés sont des composants sans lien — la navbar est rendue par la page, la bannière par le hero ; un contexte aurait voulu dire brancher un provider sur deux layouts pour un booléen). Le hero déclare l'artwork (`useNavBackdrop(src)`), la navbar lit le verdict (`useNavOnLight()`) et bascule en chrome quasi-noir. Seuil : **luminance relative WCAG moyenne > 0,42**. Le croisement blanc/noir est à L≈0,28, mais basculer pile au croisement repeindrait la navbar sur toutes les bannières gris moyen pour un gain marginal ; mesuré sur 20 bannières réelles, les claires sont à 0,51-0,99 et les "ciel bleu" (AoT, Kimi no Na wa) restent à 0,28-0,37 et gardent le look du site.
+
+**Le piège (2 h perdues) : lire les pixels dans le navigateur est IMPOSSIBLE sur le CDN AniList.** Première version : `crossOrigin="anonymous"` sur le `<img>` + canvas + `getImageData`, en vérifiant d'abord au curl que `s4.anilist.co` renvoie bien `Access-Control-Allow-Origin` (oui, sur MISS **et** sur HIT). En vrai Chrome sur le preview : **toutes** les bannières en `ERR_FAILED` / "blocked by CORS policy". Raison : **Cloudflare ignore `Vary: origin` pour la mise en cache**. Le fait de recevoir l'en-tête dépend donc de la copie que ce PoP détient — curl (avec Origin, sa propre entrée de cache) le voit, le navigateur non, parce que les chargements *sans* CORS de la même image ailleurs sur le site ont rempli le cache en premier. **Leçon : "curl voit l'en-tête CORS" ne prouve rien ; derrière un CDN, la validité d'un ACAO dépend du cache, pas du serveur.** (Le fallback `onError` → retrait de l'attribut → rechargement en clair a bien joué son rôle : la bannière s'affichait, seule la mesure était perdue.)
+
+**Refonte : mesure côté serveur.** `GET /api/v2/banner-tone?u=…` (sharp) renvoie `{ l }`, la luminance moyenne du haut de l'image. Réponse **immuable** (une nouvelle illustration = un nouveau nom de fichier) → `s-maxage` d'un an : **une invocation par bannière existante**, pas une par page vue, et le client télécharge ~20 octets au lieu d'une 2ᵉ copie de la bannière. Le seuil reste **côté client** exprès : la réponse est cachée un an, le régler ne doit pas demander de purge. Allowlist d'hôte (`s4.anilist.co`) parce que la route fetch l'URL qu'on lui donne (SSRF).
+Alternatives écartées : `/_next/image` (l'optimiseur est désactivé, `unoptimized: true` → 404), le proxy fanart CF (quota 5k transformations/mois, réservé à fanart.tv).
+
+**Le serveur ne connaît pas le viewport** → il échantillonne le **haut 25 %** du fichier. `object-fit: cover` place la bande de la navbar dans cette zone à toutes nos largeurs (lignes 0-80 à 1280 px, 14-86 à 1900, 47-100 à 2560). Vérifié contre le crop exact par viewport sur 21 bannières : même verdict sur 19, les 2 autres étant des crops mobiles limites.
+
+**CSS (`.nav-on-light`) : surtout PAS de `nav.nav-on-light { color }` global.** La navbar *contient* le menu avatar, la liste de notifications et la modale changelog — des panneaux sombres dont le texte hérite sa couleur : une règle en cascade les aurait passés en noir sur noir. Seuls les éléments marqués `nav-chrome` (Discord/cloche/report/changelog) et `nav-chrome-dim` (le tag "Beta") sont repeints, marqueur posé **sur le bouton**, jamais sur un wrapper ; les liens de nav et la pilule de recherche prennent des classes conditionnelles dans NavBar. La bascule ne s'applique que tant que la navbar est transparente : passé le seuil de scroll elle peint son propre fond sombre et le blanc redevient correct.
+
+**Validé en vrai Chrome sur le preview** (Playwright + Chrome système) : desktop 1900 px → classe posée, liens `rgba(0,0,0,.8)`, pilule `rgba(0,0,0,.06)`, icônes `rgba(11,13,18,.72)` ; scroll → retour au chrome blanc ; page à bannière sombre (Jujutsu Kaisen) inchangée ; mobile (Pixel 7) idem ; menu avatar toujours blanc sur `#212127` ; **1 seule requête** pour la bannière.
+
+---
+
 ## 2026-07-30 (suite 2) — Bouton "épisode suivant" dans la barre + on RESTE en plein écran au changement d'épisode
 
 Deux demandes liées. Le bouton est trivial ; garder le plein écran l'était moins.
