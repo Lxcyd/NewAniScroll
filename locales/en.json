@@ -368,6 +368,8 @@
     "casting": "Casting…",
     "switchedTo": "Player: {{name}}",
     "pip": "Picture-in-picture",
+    "fullscreen": "Fullscreen",
+    "exitFullscreen": "Exit fullscreen",
     "chapterEpisode": "Episode",
     "chapterIntro": "Intro",
     "chapterOutro": "Outro",

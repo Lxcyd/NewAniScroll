@@ -368,6 +368,8 @@
     "casting": "Diffusion…",
     "switchedTo": "Lecteur : {{name}}",
     "pip": "Image dans l'image",
+    "fullscreen": "Plein écran",
+    "exitFullscreen": "Quitter le plein écran",
     "chapterEpisode": "Épisode",
     "chapterIntro": "Intro",
     "chapterOutro": "Outro",

@@ -52,10 +52,13 @@ import { getSyncPrefs } from "@/lib/prefs/syncPrefs";
 import {
   claimEpisodeTransition,
   isEpisodeTransitionPending,
-  isPseudoFullscreenActive,
   navigateToEpisode,
-  setPseudoFullscreenActive,
 } from "@/lib/player/episodeTransition";
+import {
+  setPlayerFullscreen,
+  togglePlayerFullscreen,
+  usePlayerFullscreen,
+} from "@/lib/player/usePlayerFullscreen";
 
 // Trace logger — off by default. Set NEXT_PUBLIC_DEBUG_SOURCE=1 to surface the
 // vidmoly-fallback diagnostics. These are EXPECTED control-flow branches
@@ -570,6 +573,35 @@ function NextEpisodeButton({
       {/* Material "skip_next". */}
       <svg viewBox="0 0 24 24" fill="currentColor" className="vds-icon">
         <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" />
+      </svg>
+    </button>
+  );
+}
+
+// Fullscreen toggle. Replaces Vidstack's (hidden in globals.css) because the
+// screen is taken on <html>, not on the player element — Vidstack's own button
+// reads its internal `fullscreen` state and would show "Enter fullscreen" while
+// fullscreen. See lib/player/playerFullscreen for why we own this.
+function FullscreenToggle({ active }: { active: boolean }) {
+  const { t } = useTranslation();
+  const label = active ? t("player.exitFullscreen") : t("player.fullscreen");
+  return (
+    <button
+      type="button"
+      onClick={togglePlayerFullscreen}
+      title={label}
+      aria-label={label}
+      aria-pressed={active}
+      className={ICON_BTN_CLS}
+      style={ICON_BTN_STYLE}
+    >
+      {/* Material "fullscreen" / "fullscreen_exit". */}
+      <svg viewBox="0 0 24 24" fill="currentColor" className="vds-icon">
+        {active ? (
+          <path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z" />
+        ) : (
+          <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z" />
+        )}
       </svg>
     </button>
   );
@@ -1510,37 +1542,33 @@ export default function UniversalPlayer({
   //    via CSS keeps our chrome on screen.
   const [isIOS, setIsIOS] = useState(false);
   const [isSmallLayout, setIsSmallLayout] = useState(false);
-  // iOS pseudo-fullscreen — Safari hides our buttons in real fullscreen
-  // because it swaps the <video> for the native player. We pin the
-  // wrapper to viewport with `position:fixed` and lock orientation.
-  //
-  // Restored on mount when an episode transition is in flight: this is React
-  // state on a component the episode change REMOUNTS, so "stay fullscreen
-  // across episodes" needs the flag mirrored outside the tree (the real
-  // Fullscreen API case is handled by the transition host itself).
-  const [iosPseudoFs, setIosPseudoFs] = useState(
-    () => isEpisodeTransitionPending() && isPseudoFullscreenActive(),
-  );
-  // Publish it so the next player (and beginEpisodeTransition) can see it.
-  useEffect(() => {
-    setPseudoFullscreenActive(iosPseudoFs);
-  }, [iosPseudoFs]);
-  // Leaving the watch page entirely must clear it — otherwise a later, windowed
-  // player would think a pseudo-fullscreen is still on and show the transition
-  // host over a normal page. An episode change is the exception: the transition
-  // is already pending there, and the flag is what the next player restores.
+  // Touch device: no Escape key and no hover, so fullscreen has to keep its
+  // controls (and its exit button) reachable, and landscape is worth locking.
+  const isTouch =
+    isIOS ||
+    (typeof window !== "undefined" &&
+      !!window.matchMedia?.("(pointer: coarse)").matches);
+  // FULLSCREEN. Not Vidstack's: the screen is taken on <html> and the player
+  // fills it via CSS (`aniscroll-player-fs`) — see lib/player/playerFullscreen
+  // for why (short version: the player element is remounted per episode, and a
+  // remount can never re-enter fullscreen, Chrome demands a fresh gesture).
+  // State lives in that module so it survives the remount; this hook just
+  // mirrors it into React, seeded from the module so a player mounted mid-
+  // transition renders fullscreen on its very first paint.
+  const isFullscreen = usePlayerFullscreen();
+  // Ref mirror so listeners / the DOM observer that must not re-bind can read
+  // it. Assigned in render (like partyRef below) so it's never a frame stale.
+  const isFullscreenRef = useRef(false);
+  isFullscreenRef.current = isFullscreen;
+  // Leaving the watch page for good must release the screen — an episode change
+  // is the exception (a transition is pending there, and the next player picks
+  // the mode straight back up).
   useEffect(
     () => () => {
-      if (!isEpisodeTransitionPending()) setPseudoFullscreenActive(false);
+      if (!isEpisodeTransitionPending()) setPlayerFullscreen(false);
     },
     [],
   );
-  // Ref mirror so the fullscreen tracker (defined below) can fold pseudo-FS into
-  // isFullscreenRef without depending on this state's render timing.
-  const iosPseudoFsRef = useRef(false);
-  useEffect(() => {
-    iosPseudoFsRef.current = iosPseudoFs;
-  }, [iosPseudoFs]);
   useEffect(() => {
     const ua = navigator.userAgent || "";
     // iPadOS 13+ identifies as MacIntel with maxTouchPoints > 1.
@@ -1756,24 +1784,8 @@ export default function UniversalPlayer({
   // Suppress ambient lights in fullscreen — they're invisible anyway (the
   // player covers the whole screen, no room for the glow to extend into)
   // and the per-frame canvas draw + N×CSS blur layers are a measurable GPU
-  // hit that's pure waste at that resolution.
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  useEffect(() => {
-    const update = () => {
-      const fsEl =
-        document.fullscreenElement ||
-        (document as any).webkitFullscreenElement ||
-        null;
-      setIsFullscreen(!!fsEl);
-    };
-    update();
-    document.addEventListener("fullscreenchange", update);
-    document.addEventListener("webkitfullscreenchange", update);
-    return () => {
-      document.removeEventListener("fullscreenchange", update);
-      document.removeEventListener("webkitfullscreenchange", update);
-    };
-  }, []);
+  // hit that's pure waste at that resolution. (`isFullscreen` is declared up
+  // top, next to the rest of the fullscreen wiring.)
 
   // Reactive handle to the player root, so portalled overlays (e.g. the
   // fullscreen party chat) mount as soon as the element exists.
@@ -1784,11 +1796,9 @@ export default function UniversalPlayer({
       const el = (playerRef.current?.el as HTMLElement | undefined) || null;
       if (el) {
         setPlayerElState(el);
-        // Coming from an episode change that was fullscreen: take the screen
-        // back from the transition host, as EARLY as possible (the browser is
-        // likelier to grant it while the click that started the navigation is
-        // still recent). No-op when no transition is pending.
-        claimEpisodeTransition(el);
+        // Coming from an episode change: the player is on screen, so drop the
+        // loading host. No-op when no transition is pending.
+        claimEpisodeTransition();
         return;
       }
       raf = requestAnimationFrame(find);
@@ -1805,15 +1815,15 @@ export default function UniversalPlayer({
   useEffect(() => {
     setPlayerSurface({
       el: playerElState,
-      active: (isFullscreen || iosPseudoFs) && !!playerElState,
+      active: isFullscreen && !!playerElState,
     });
-  }, [playerElState, isFullscreen, iosPseudoFs]);
+  }, [playerElState, isFullscreen]);
   useEffect(() => () => clearPlayerSurface(), []);
   // Data Saver disables the live ambient-light sampling (a constant canvas read
   // + blur, the heaviest visual work the player does).
   const dataSaver = useDataSaver();
   const ambientEnabled =
-    ambient && ctxAmbient && !dataSaver && !isFullscreen && !iosPseudoFs;
+    ambient && ctxAmbient && !dataSaver && !isFullscreen;
   const [castAvailable, setCastAvailable] = useState(false);
   const [castConnected, setCastConnected] = useState(false);
 
@@ -1833,6 +1843,11 @@ export default function UniversalPlayer({
   // the Download / Subs / Cast group, and it stays on the small layout too —
   // one 40px button always fits.
   const navHostRef = useRef<HTMLDivElement | null>(null);
+  // Fourth host, for OUR fullscreen button. Vidstack's own is hidden (CSS): its
+  // icon and label come from Vidstack's `fullscreen` state, which stays false
+  // because the screen is taken on <html>, so it would read "Enter fullscreen"
+  // while fullscreen. Ours renders from the real mode.
+  const fsHostRef = useRef<HTMLDivElement | null>(null);
   if (typeof document !== "undefined") {
     if (!controlsHostRef.current) {
       const d = document.createElement("div");
@@ -1852,6 +1867,12 @@ export default function UniversalPlayer({
       d.style.display = "contents";
       navHostRef.current = d;
     }
+    if (!fsHostRef.current) {
+      const d = document.createElement("div");
+      d.dataset.slot = "moopa-fullscreen-host";
+      d.style.display = "contents";
+      fsHostRef.current = d;
+    }
   }
   // Whether each host is currently attached into the live Vidstack subtree.
   // Drives the conditional portal render; flipping these never unmounts the
@@ -1859,6 +1880,7 @@ export default function UniversalPlayer({
   const [controlsHostAttached, setControlsHostAttached] = useState(false);
   const [settingsHostAttached, setSettingsHostAttached] = useState(false);
   const [navHostAttached, setNavHostAttached] = useState(false);
+  const [fsHostAttached, setFsHostAttached] = useState(false);
   // True while ANY Vidstack menu (settings, chapters, quality, and the native
   // captions menu) is open — tracked from the `data-open` attribute the same
   // observer already watches. Used to hide the fullscreen party chat so it
@@ -2003,6 +2025,36 @@ export default function UniversalPlayer({
         setNavHostAttached((p) => (p ? false : p));
       }
 
+      // Our fullscreen button goes where Vidstack's is (last in that group,
+      // right after the hidden native one — which is still in the DOM, so it
+      // stays a reliable anchor on both layouts).
+      const fsHost = fsHostRef.current;
+      const nativeFsBtn = playerEl.querySelector<HTMLElement>(
+        ".vds-fullscreen-button",
+      );
+      const fsGroup = nativeFsBtn?.parentElement || null;
+      if (fsGroup && fsHost) {
+        if (fsGroup.lastChild !== fsHost) fsGroup.appendChild(fsHost);
+        setFsHostAttached((p) => (p ? p : true));
+      } else {
+        if (fsHost?.parentElement) fsHost.remove();
+        setFsHostAttached((p) => (p ? false : p));
+      }
+
+      // Vidstack's `fullscreen` state can't see our mode (the screen is taken on
+      // <html>), so mirror it onto the player root by hand: every
+      // `[data-fullscreen]` rule — Vidstack's theme AND ours in globals.css —
+      // keys off this attribute for sizing, radius and caption scale. Vidstack
+      // only writes the attribute when its own state changes, which never
+      // happens now, so it won't fight us; re-asserted here on every rebuild.
+      if (isFullscreenRef.current) {
+        if (!playerEl.hasAttribute("data-fullscreen")) {
+          playerEl.setAttribute("data-fullscreen", "");
+        }
+      } else if (playerEl.hasAttribute("data-fullscreen")) {
+        playerEl.removeAttribute("data-fullscreen");
+      }
+
       // The Settings menu is opened/closed dynamically. Vidstack tags the
       // root menu list with BOTH `vds-settings-menu-items` and `vds-menu-items`;
       // submenus (Speed, Quality, Audio) only get `vds-menu-items`. So we
@@ -2053,59 +2105,63 @@ export default function UniversalPlayer({
     // re-run the locator when the breakpoint flips.
   }, [isSmallLayout]);
 
-  // ── iOS fullscreen interception ──
-  // Safari on iPhone/iPad responds to a fullscreen request by handing the
-  // <video> off to the system player, which hides every overlay we draw
-  // (Skip / Next / custom buttons). Intercept the Vidstack fullscreen
-  // button at capture phase, block the native handler, and toggle a
-  // CSS pseudo-fullscreen on our wrapper. Orientation lock is best-effort
-  // — Safari only allows it after a user gesture inside a real fullscreen.
+  // Toggling fullscreen mutates no DOM the observer above watches, so drive the
+  // faked `data-fullscreen` attribute from the state as well (the observer only
+  // re-asserts it when Vidstack rebuilds its layout).
+  useEffect(() => {
+    const playerEl = playerRef.current?.el as HTMLElement | undefined;
+    if (!playerEl) return;
+    if (isFullscreen) playerEl.setAttribute("data-fullscreen", "");
+    else playerEl.removeAttribute("data-fullscreen");
+  }, [isFullscreen, playerElState]);
+
+  // Double-click toggles fullscreen — but OURS. Vidstack's default layout ships
+  // a `toggle:fullscreen` gesture that would enter ITS fullscreen (on the player
+  // element), which an episode change then destroys. Veto it at capture phase,
+  // before the gesture handler sees the event, and run our toggle instead. The
+  // dblclick is a user gesture, so the root request is authorised.
+  useEffect(() => {
+    const playerEl = playerElState;
+    if (!playerEl) return;
+    const onDblClick = (e: Event) => {
+      const t = e.target as HTMLElement | null;
+      // Only the video surface — never the control bar, menus or our buttons
+      // (double-clicking those must not throw the user into fullscreen).
+      if (
+        t?.closest(
+          ".vds-controls, .vds-menu, .vds-menu-items, [data-slot], button, a, input",
+        )
+      ) {
+        return;
+      }
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      togglePlayerFullscreen();
+    };
+    playerEl.addEventListener("dblclick", onDblClick, { capture: true });
+    return () =>
+      playerEl.removeEventListener("dblclick", onDblClick, { capture: true });
+  }, [playerElState]);
+
+  // ── iOS native-player interception ──
+  // Safari on iPhone/iPad responds to a fullscreen <video> by handing it off to
+  // the system player, which hides every overlay we draw (Skip / Next / custom
+  // buttons). Our own fullscreen never asks the <video> for anything, but iOS
+  // still pushes it into the system player through other paths (tap-to-play on
+  // some versions, the native mini-controls, AirPlay handoff…), each firing
+  // `webkitbeginfullscreen`. Catch it, bail out of the native player, and use
+  // our CSS fullscreen instead so the chrome stays ours.
   useEffect(() => {
     if (!isIOS) return;
     const playerEl = playerRef.current?.el as HTMLElement | undefined;
     if (!playerEl) return;
 
-    // Block Vidstack's fullscreen on the button across EVERY event it might
-    // act on. On touch devices Vidstack triggers fullscreen on pointerup, so
-    // intercepting `click` alone is too late (the native iOS player has
-    // already opened). We veto pointerup/touchend/click in the capture phase
-    // and only toggle the native fullscreen flag ONCE per tap (pointerup),
-    // letting the others just suppress the default + propagation.
-    const hitFsButton = (e: Event) => {
-      const t = e.target as HTMLElement | null;
-      if (!t) return null;
-      return t.closest<HTMLElement>(
-        ".vds-fullscreen-button, [data-fullscreen-button], button[aria-label*='ullscreen']",
-      );
-    };
-    const suppress = (e: Event) => {
-      if (!hitFsButton(e)) return;
-      e.preventDefault();
-      e.stopImmediatePropagation();
-    };
-    const onPointerUp = (e: Event) => {
-      if (!hitFsButton(e)) return;
-      e.preventDefault();
-      e.stopImmediatePropagation();
-      setIosPseudoFs((v) => !v);
-    };
-    // Capture phase so we beat Vidstack's own handlers.
-    playerEl.addEventListener("pointerup", onPointerUp, { capture: true });
-    playerEl.addEventListener("touchend", suppress, { capture: true });
-    playerEl.addEventListener("click", suppress, { capture: true });
-
-    // Intercepting the fullscreen BUTTON isn't enough: iOS also pushes the
-    // <video> into its system fullscreen player via other paths (tap-to-play
-    // on some versions, the native mini-controls, AirPlay handoff…). Each of
-    // those fires `webkitbeginfullscreen` on the <video>. We catch it, bail
-    // out of the native player immediately, and switch to our own CSS
-    // pseudo-fullscreen so our controls/overlays stay visible.
     let boundVideo: HTMLVideoElement | null = null;
     const onBeginFs = () => {
       try {
         (boundVideo as any)?.webkitExitFullscreen?.();
       } catch {}
-      setIosPseudoFs(true);
+      setPlayerFullscreen(true);
     };
     // The <video> is created by the provider slightly after this effect runs,
     // so poll a few frames until it exists, then bind the listener once.
@@ -2122,35 +2178,39 @@ export default function UniversalPlayer({
     bind();
 
     return () => {
-      playerEl.removeEventListener("pointerup", onPointerUp, { capture: true });
-      playerEl.removeEventListener("touchend", suppress, { capture: true });
-      playerEl.removeEventListener("click", suppress, { capture: true });
       cancelAnimationFrame(raf);
       boundVideo?.removeEventListener("webkitbeginfullscreen", onBeginFs);
     };
   }, [isIOS]);
 
-  // Lock body scroll while iOS pseudo-fullscreen is active and try to
-  // rotate the screen to landscape — same UX as the native player.
+  // While fullscreen: lock body scroll, and on touch devices try landscape —
+  // same UX as a native player. Escape is handled by the browser when it granted
+  // real fullscreen on <html>; this listener covers the case where it refused
+  // and only our CSS mode is up (and iOS, which has no real fullscreen).
   useEffect(() => {
-    if (!iosPseudoFs) return;
+    if (!isFullscreen) return;
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-    try {
-      (screen.orientation as any)?.lock?.("landscape").catch(() => {});
-    } catch {}
+    const coarse = isTouch;
+    if (coarse) {
+      try {
+        (screen.orientation as any)?.lock?.("landscape").catch(() => {});
+      } catch {}
+    }
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setIosPseudoFs(false);
+      if (e.key === "Escape") setPlayerFullscreen(false);
     };
     window.addEventListener("keydown", onKey);
     return () => {
       document.body.style.overflow = prevOverflow;
-      try {
-        (screen.orientation as any)?.unlock?.();
-      } catch {}
+      if (coarse) {
+        try {
+          (screen.orientation as any)?.unlock?.();
+        } catch {}
+      }
       window.removeEventListener("keydown", onKey);
     };
-  }, [iosPseudoFs]);
+  }, [isFullscreen, isTouch]);
 
   // ── Keep controls visible while subtitle menu is open ──
   // Vidstack auto-hides the controls bar after 2s of mouse idle. The CC
@@ -2169,20 +2229,20 @@ export default function UniversalPlayer({
     }
   }, [subMenuOpen]);
 
-  // ── Keep controls visible in iOS pseudo-fullscreen ──
-  // Exiting pseudo-fullscreen is done by re-tapping the fullscreen button. If
-  // Vidstack's idle auto-hide hides the bar (after ~2s), the first tap only
-  // re-reveals it and the exit tap is lost — the user gets stuck. Pinning the
-  // controls visible (controls.pause) for the whole pseudo-fullscreen session
-  // keeps the fullscreen button on screen so a single tap always exits.
+  // ── Keep controls visible in fullscreen on touch devices ──
+  // Exiting is done by re-tapping the fullscreen button. If Vidstack's idle
+  // auto-hide hides the bar (after ~2s), the first tap only re-reveals it and
+  // the exit tap is lost — the user gets stuck (no Escape key on a phone).
+  // Pinning the controls visible keeps the button reachable. Desktop keeps the
+  // normal auto-hide: Escape always works there.
   useEffect(() => {
     const player = playerRef.current;
-    if (!player || !iosPseudoFs) return;
+    if (!player || !isFullscreen || !isTouch) return;
     try { (player as any).controls?.pause?.(); } catch {}
     return () => {
       try { (player as any).controls?.resume?.(); } catch {}
     };
-  }, [iosPseudoFs]);
+  }, [isFullscreen, isTouch]);
 
   // ── Keep controls visible while hovering custom buttons ──
   // Vidstack auto-hides its controls after ~2 s of mouse inactivity. Our
@@ -4004,7 +4064,9 @@ export default function UniversalPlayer({
     const isVidmoly = /vidmoly\.(to|biz|net)/i.test(iframeSrc);
     return (
       <div
-        className={`relative h-full w-full${iosPseudoFs ? " moopa-ios-fs" : ""}`}
+        className={`relative h-full w-full${
+          isFullscreen ? " aniscroll-player-fs" : ""
+        }`}
       >
         {/* No ambient glow behind iframe embeds — the poster-based gradient was
             distracting and added nothing for an embed we can't sample frames
@@ -4192,13 +4254,13 @@ export default function UniversalPlayer({
         else player?.pause?.();
         break;
       }
-      // Both go through navigateToEpisode so a fullscreen session survives the
-      // episode change (see lib/player/episodeTransition.ts).
+      // Both go through navigateToEpisode, which raises the loading host over
+      // the fullscreen player (see lib/player/episodeTransition.ts).
       case "prevEpisode":
-        void navigateToEpisode(router, prevEpisodeHref);
+        navigateToEpisode(router, prevEpisodeHref, isFullscreenRef.current);
         break;
       case "nextEpisode":
-        void navigateToEpisode(router, nextEpisodeHref);
+        navigateToEpisode(router, nextEpisodeHref, isFullscreenRef.current);
         break;
       case "mute":
         if (video) video.muted = !video.muted;
@@ -4266,10 +4328,8 @@ export default function UniversalPlayer({
         if (castAvailable) requestCast();
         break;
       case "fullscreen":
-        try {
-          if (document.fullscreenElement) document.exitFullscreen?.();
-          else (player as any)?.enterFullscreen?.() ?? player?.el?.requestFullscreen?.();
-        } catch {}
+        // A keydown is a user gesture, so the root fullscreen request is allowed.
+        togglePlayerFullscreen();
         break;
       case "pictureInPicture":
         if (pipSupported) togglePip();
@@ -4423,9 +4483,9 @@ export default function UniversalPlayer({
     // the ambient's transform:scale() overflow. With isolate, z-index:-1
     // is clamped to "behind this component but not behind its siblings".
     <div
-      className={`relative h-full w-full${iosPseudoFs ? " moopa-ios-fs" : ""}${
-        party?.amPlaybackBlocked ? " w2g-playback-blocked" : ""
-      }`}
+      className={`relative h-full w-full${
+        isFullscreen ? " aniscroll-player-fs" : ""
+      }${party?.amPlaybackBlocked ? " w2g-playback-blocked" : ""}`}
       style={{ isolation: "isolate" }}
     >
       {ambientEnabled && <LiveAmbient playerRef={playerRef} />}
@@ -4547,7 +4607,9 @@ export default function UniversalPlayer({
           rationale as the group above. Hidden on the last episode (no href). */}
       {nextEpisodeHref && navHostAttached && navHostRef.current && createPortal(
         <NextEpisodeButton
-          onClick={() => void navigateToEpisode(router, nextEpisodeHref)}
+          onClick={() =>
+            navigateToEpisode(router, nextEpisodeHref, isFullscreen)
+          }
           onWarm={() => {
             try {
               // JS bundle only — a getServerSideProps route isn't data-prefetched
@@ -4559,6 +4621,12 @@ export default function UniversalPlayer({
           }}
         />,
         navHostRef.current,
+      )}
+
+      {/* Our fullscreen button, where Vidstack's hidden one sits. */}
+      {fsHostAttached && fsHostRef.current && createPortal(
+        <FullscreenToggle active={isFullscreen} />,
+        fsHostRef.current,
       )}
 
       {/* Custom toggles injected at the top of Vidstack's Settings menu, via the
@@ -4873,11 +4941,10 @@ function IframeEmbed({
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [failed, setFailed] = useState(false);
 
-  // Embed hosts request fullscreen from INSIDE the iframe, so the <iframe>
-  // element is what the Fullscreen API hands over — hand that same element the
-  // screen back after an episode change. No-op unless a transition is pending.
+  // The embed is on screen — drop the episode-transition loading host. No-op
+  // unless a transition is pending.
   useEffect(() => {
-    claimEpisodeTransition(iframeRef.current);
+    claimEpisodeTransition();
   }, []);
 
   useEffect(() => {
