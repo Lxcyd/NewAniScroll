@@ -16,6 +16,7 @@ const UniversalPlayer = dynamic(
   }
 );
 import PlayerErrorBoundary from "@/components/watch/primary/PlayerErrorBoundary";
+import { setPlayerFullscreen } from "@/lib/player/playerFullscreen";
 import { getServerSession } from "next-auth";
 import { useWatchProvider } from "@/lib/context/watchPageProvider";
 import { authOptions } from "../../../api/auth/[...nextauth]";
@@ -560,6 +561,15 @@ export default function Watch({
       setPartyUIOpen(true);
     }
   }, [partyRoomId]);
+
+  // Release the player's fullscreen mode when we actually LEAVE the watch page.
+  // This lives here, not in UniversalPlayer: the player is remounted on every
+  // episode change, on a server fallback, and for a beat whenever the router's
+  // episode number lands before the new stream data does (its key holds both) —
+  // releasing on its unmount kicked the user out of fullscreen mid-navigation.
+  // This page stays mounted across all of that (same route), so its unmount is
+  // the only honest "the user is gone" signal.
+  useEffect(() => () => setPlayerFullscreen(false), []);
 
   // Track the player's pixel height so (on large screens) the party panel can
   // match it exactly. Falls back to a max-height via CSS when unset.

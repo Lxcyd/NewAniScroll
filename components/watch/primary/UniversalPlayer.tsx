@@ -51,7 +51,6 @@ import { usePlayerPrefs, setPlayerPrefs, getPlayerPrefs } from "@/lib/prefs/play
 import { getSyncPrefs } from "@/lib/prefs/syncPrefs";
 import {
   claimEpisodeTransition,
-  isEpisodeTransitionPending,
   navigateToEpisode,
 } from "@/lib/player/episodeTransition";
 import {
@@ -1560,15 +1559,13 @@ export default function UniversalPlayer({
   // it. Assigned in render (like partyRef below) so it's never a frame stale.
   const isFullscreenRef = useRef(false);
   isFullscreenRef.current = isFullscreen;
-  // Leaving the watch page for good must release the screen — an episode change
-  // is the exception (a transition is pending there, and the next player picks
-  // the mode straight back up).
-  useEffect(
-    () => () => {
-      if (!isEpisodeTransitionPending()) setPlayerFullscreen(false);
-    },
-    [],
-  );
+  // NOTE: releasing fullscreen is deliberately NOT tied to this component's
+  // unmount. The player is remounted far more often than "the user left":
+  // per episode, per server fallback, and for a beat whenever the router's
+  // episode number changes before the new stream data lands (the key holds
+  // both). Any of those firing a release turned the *second* episode change
+  // into an exit from fullscreen. The watch PAGE owns the release instead —
+  // it only unmounts when we actually leave the route.
   useEffect(() => {
     const ua = navigator.userAgent || "";
     // iPadOS 13+ identifies as MacIntel with maxTouchPoints > 1.
