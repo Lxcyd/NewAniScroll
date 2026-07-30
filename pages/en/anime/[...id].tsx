@@ -570,6 +570,11 @@ export default function Info({
             rel="preload"
             as="image"
             href={info.bannerImage}
+            /* Must mirror the banner <img>, which loads in CORS mode so the
+               navbar can read its brightness (lib/color/navContrast). A preload
+               in a different mode doesn't match the image request — the browser
+               would fetch the banner twice and warn about an unused preload. */
+            crossOrigin="anonymous"
             // @ts-expect-error fetchPriority not in lib.dom yet
             fetchpriority="high"
           />

@@ -21,6 +21,7 @@ import { useTranslation } from "react-i18next";
 import { genreLabel } from "@/lib/i18n/genreLabel";
 import { prefetchEpisodeList } from "@/lib/watch/episodePrefetch";
 import { useFanartSrc, fanartSrcNow, onFanartError } from "@/lib/images/fanartFallback";
+import { useNavBackdrop } from "@/lib/color/navContrast";
 import QueueButton from "./QueueButton";
 
 type HeroProps = {
@@ -321,6 +322,9 @@ export default function Hero({
   // only after mount if the session flagged the CF quota as exhausted.
   const currentTitleUrl = useFanartSrc(renderedUrl);
 
+  // Props for the banner <img> that let the navbar read its brightness.
+  const navBackdrop = useNavBackdrop(info.bannerImage);
+
   // Single-episode entries (movies, specials, short OVAs) don't have a
   // meaningful "EP NN" or "S<n>" — they're standalone units. Detect them
   // and collapse the button to a single big "WATCH NOW" / "REWATCH" line.
@@ -385,11 +389,18 @@ export default function Hero({
           to   { opacity: 1; transform: translateY(0); }
         }
       `}</style>
-      {/* Banner */}
+      {/* Banner. The navbar floats over its top ~72px with white chrome, so the
+          banner reports how light those pixels are — a white banner flips the
+          navbar to dark chrome (lib/color/navContrast). */}
       <div style={hStyles.banner}>
         {info.bannerImage && (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={info.bannerImage} alt="" style={hStyles.bannerImg} />
+          <img
+            src={info.bannerImage}
+            alt=""
+            style={hStyles.bannerImg}
+            {...navBackdrop}
+          />
         )}
         <div style={hStyles.bannerFade} />
       </div>

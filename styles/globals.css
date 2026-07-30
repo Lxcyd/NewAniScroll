@@ -306,6 +306,37 @@ a {
     transform: scaleX(0.94);
   }
 }
+
+/* ── Navbar over light artwork ────────────────────────────────────
+   The navbar floats transparent over the info page's banner with all-white
+   chrome, which disappears entirely on a white / pastel banner. The hero
+   measures the pixels under the navbar and flips this class on when white
+   stops being readable (lib/color/navContrast.ts).
+
+   Only elements that opt in with `nav-chrome` are repainted — deliberately NOT
+   a blanket `nav.nav-on-light { color }`. The navbar also *contains* the
+   avatar menu, the notification list and the changelog modal: dark panels whose
+   text mostly inherits its colour, so a cascading rule would turn them
+   black-on-black. Each marker sits on the button itself, never on a wrapper.
+
+   These selectors outrank Tailwind's `text-white/70` (and its `hover:`
+   variants), which is the point — the utilities stay in the markup as the
+   default, dark-banner styling. */
+nav.nav-on-light .nav-chrome {
+  color: rgba(11, 13, 18, 0.72);
+}
+nav.nav-on-light .nav-chrome:hover {
+  color: #0b0d12;
+}
+/* Only the buttons that already tint their background on hover get one here,
+   so the bare bell icon doesn't sprout a square. */
+nav.nav-on-light .nav-chrome[class*="hover:bg-white"]:hover {
+  background-color: rgba(11, 13, 18, 0.07);
+}
+/* Secondary text (the logo's "Beta" tag) — dim, not black. */
+nav.nav-on-light .nav-chrome-dim {
+  color: rgba(11, 13, 18, 0.5);
+}
 @media (prefers-reduced-motion: reduce) {
   /* Must out-specify the [data-active] rule above, whose `animation` shorthand
      would otherwise reset the duration back to 14s. */
