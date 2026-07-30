@@ -7,6 +7,24 @@ Ordre anti-chronologique (le plus récent en haut). Une entrée = une session/su
 
 ---
 
+## 2026-07-30 (suite 4) — Chasse aux invocations : le POST qui rendait tout le cache décoratif
+
+Parti du tableau Observability de Vercel (top Active CPU : `/api/v2/source` 1,5 K invocations / 1 min CPU, page watch 1,3 K / 51 s, page info 107 / 28 s). Le monitor maison (`tools/usage-monitor`) **n'a jamais tourné** : `snapshots/` est vide, pas de `LATEST.md` — il manque les secrets Upstash/Vercel dans les Actions. À réactiver, c'est lui qui doit voir venir le mur, pas une capture d'écran.
+
+**La trouvaille : `/api/v2/source` est en POST — donc aucun CDN ne cache ses réponses.** La route posait pourtant scrupuleusement `s-maxage=300, stale-while-revalidate=600` depuis des mois : des en-têtes qui n'ont jamais rien fait. Chaque visiteur ré-invoquait la fonction pour une résolution que l'edge avait déjà, et la page watch en tire **une par serveur sondé** à chaque chargement (~18). **Leçon : un en-tête de cache sur un POST est du commentaire.** Le passage en GET n'a rien coûté côté contrat : le body ne portait qu'un seul champ utile, `mediaMeta` (objet média complet avec `synonyms` + `relations`) dont la route ne lit que `idMal` → `?malId=`. POST conservé tel quel pour les warmers/scripts d'audit.
+
+Deuxième moitié du même bug : **la branche "source absente" n'avait que `max-age` (navigateur)**, alors que ~la moitié des sondes ratent par design → chacune ré-invoquait. Maintenant `CDN-Cache-Control` aussi, 5 min, sous le sentinel négatif Redis de 10 min (l'edge ne prétend jamais "absent" plus longtemps que le serveur). Sur GET l'absence est un **`200 {absent:true}`** et non un 204/404 : garanti cachable (le comportement de Vercel sur le cache d'un 204 n'est pas une chose sur laquelle parier pour l'endpoint le plus chaud du site) et muet en console. Côté client, les trois dialectes de statut éparpillés sur 4 appelants sont pliés dans un helper unique (`lib/watch/sourceRequest.ts`) à trois issues : `ok` / `absent` / `retry`.
+
+**Page watch : le SSR ne dépend plus de qui demande.** Il lisait la session pour injecter `sessions` + le `mediaListEntry` de l'utilisateur dans les props → `private, no-store` → les connectés (ceux qui enchaînent le plus d'épisodes) ré-invoquaient la fonction à **chaque vue et chaque changement d'épisode** (la navigation SPA refetch les props). Les deux passent côté client (`useSession()`, et l'effet de backfill `/api/v2/media/[id]` qui existait déjà) — même arbitrage que la page info. Coût assumé : un `/api/auth/session` par chargement à froid, partagé ensuite sur toute la navigation SPA (mesuré : 1, exactement comme la page info le faisait déjà).
+
+Au passage, trois allers-retours Prisma par vue connectée (`createUser` + `createList` + `getEpisode`) **construisaient une prop `userData` que le composant déstructurait sans jamais la lire**. Et les lignes écrites étaient des coquilles vides : `updateUserEpisode` n'a plus aucun appelant, et `recently-watched` filtre les lignes sans image/titre et retombe sur localStorage — qui est ce qui contient réellement l'historique. Supprimés. **Leçon : vérifier ce que la prop devient avant d'optimiser ce qui la produit.** Idem `getRemovedMedia()` : un `findMany` non caché à chaque SSR watch pour une table DMCA éditée à la main → cache mémoire 10 min (un échec de lecture n'est PAS caché, sinon un hoquet Prisma dé-masquerait un retrait).
+
+**Mesuré sur le preview** (Chrome réel) : deux visiteurs neufs successifs sur la même page watch → **18 appels `/api/v2/source`, 18 `x-vercel-cache: HIT`, 0 invocation** (avant : 18 POST = 18 invocations, par visiteur). HTML de la page watch : HIT. Absence : MISS puis HIT. POST : MISS (jamais caché — la preuve du diagnostic). Lecture inchangée : `readyState 4`, durée 1435 s, zéro erreur console.
+
+Petit à côté du même acabit : le popup changelog s'appelait avec `?t=${Date.now()}` + `cache:"no-store"`, **deux fois par chargement de page**, pour un fichier markdown qui ne change qu'au déploiement (246 invocations/jour qu'aucun cache ne pouvait servir).
+
+---
+
 ## 2026-07-30 (suite 3) — Navbar illisible sur une bannière claire → on mesure les pixels
 
 La navbar flotte en transparent sur la bannière de la page info, donc **tout** son chrome est blanc (liens, icônes, pilule de recherche). Sur une bannière blanche/pastel (Nippon Sangoku) elle disparaît complètement. Aucune métadonnée AniList ne dit "cette image est claire" → la seule source de vérité, ce sont les pixels.
