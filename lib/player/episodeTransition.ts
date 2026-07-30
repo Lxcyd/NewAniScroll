@@ -38,13 +38,41 @@
 
 const MAX_WAIT_MS = 25_000;
 
+/** How long to wait before believing a `fullscreenchange` (see `listen`). */
+const SETTLE_MS = 300;
+
 let hostEl: HTMLElement | null = null;
 /** A transition is in flight: the host owns the screen until a player claims it. */
 let pending = false;
+/**
+ * A `requestFullscreen()` WE issued is in flight (host taking the screen, or a
+ * player taking it back). Swapping the fullscreen element is not atomic:
+ * browsers exit the current element and enter the new one, firing intermediate
+ * `fullscreenchange` events — including one where `fullscreenElement` is null.
+ * Treating that as "the user pressed Escape" is what used to kill the whole
+ * transition (and then force an exit through the stale-host safety net).
+ */
+let swapping = false;
 /** The iOS CSS pseudo-fullscreen is currently on (mirrored from the player). */
 let pseudoActive = false;
 let watchdog: ReturnType<typeof setTimeout> | null = null;
 let listening = false;
+
+/** `?fsdebug` in the URL traces the handoff — fullscreen bugs are unreproducible
+ *  without knowing WHICH step the browser refused. */
+let debugChecked = false;
+let debugOn = false;
+function dlog(...args: unknown[]): void {
+  if (!debugChecked) {
+    debugChecked = true;
+    try {
+      debugOn = window.location.search.includes("fsdebug");
+    } catch {
+      debugOn = false;
+    }
+  }
+  if (debugOn) console.log("[ep-transition]", ...args);
+}
 
 function fsElement(): Element | null {
   if (typeof document === "undefined") return null;
@@ -75,10 +103,11 @@ function exitFs(): void {
 }
 
 function show() {
-  // Toggled as a data attribute rather than React state so the host is already
-  // painted (and its progress-bar animation restarted) by the time we call
-  // requestFullscreen in the same tick — a `display:none` element would take
-  // the screen as pure black.
+  // Toggled as a data attribute rather than React state so the host is visible
+  // (and its progress-bar animation restarted) in the SAME tick as the
+  // requestFullscreen call below — React state wouldn't have committed yet. The
+  // host is always in the DOM and always laid out (opacity, not display), so
+  // we never hand the screen to a `display:none` element.
   if (hostEl) hostEl.dataset.active = "1";
 }
 
@@ -105,17 +134,34 @@ function listen() {
   listening = true;
   const onChange = () => {
     const el = fsElement();
-    // Escape (or the browser) left fullscreen mid-transition: stop waiting and
-    // let the page load windowed, where the site's own progress bar shows.
+    dlog("fullscreenchange", {
+      el: el === hostEl ? "host" : el?.tagName || null,
+      pending,
+      swapping,
+    });
+    // Never react while one of our own swaps is mid-flight — the intermediate
+    // states are noise, and the request's own promise reports the outcome.
+    if (swapping) return;
+
     if (pending && !el) {
-      cancelEpisodeTransition();
+      // Could be Escape… or a swap step we didn't initiate. Re-check once the
+      // dust settles instead of tearing the transition down on the first sign.
+      setTimeout(() => {
+        if (!pending || swapping || fsElement()) return;
+        dlog("fullscreen really gone → cancelling transition");
+        cancelEpisodeTransition();
+      }, SETTLE_MS);
       return;
     }
     // Safety net: some engines stack fullscreen elements instead of replacing
     // them, so exiting the player could surface the (hidden) host again.
     if (!pending && el && el === hostEl) {
-      hide();
-      exitFs();
+      setTimeout(() => {
+        if (pending || swapping || fsElement() !== hostEl) return;
+        dlog("stale host owns the screen → exiting fullscreen");
+        hide();
+        exitFs();
+      }, SETTLE_MS);
     }
   };
   document.addEventListener("fullscreenchange", onChange);
@@ -150,8 +196,12 @@ export function isPseudoFullscreenActive(): boolean {
  * caller just navigates and the site's own top progress bar does the talking.
  */
 export async function beginEpisodeTransition(): Promise<boolean> {
-  if (typeof document === "undefined" || !hostEl) return false;
+  if (typeof document === "undefined" || !hostEl) {
+    dlog("begin: no host registered");
+    return false;
+  }
   const current = fsElement();
+  dlog("begin", { fullscreen: !!current, pseudoActive });
   if (!current && !pseudoActive) return false;
   pending = true;
   show();
@@ -159,13 +209,20 @@ export async function beginEpisodeTransition(): Promise<boolean> {
   // iOS pseudo-fullscreen: no real fullscreen to move, the host overlay alone
   // covers the (CSS-)fullscreen player.
   if (!current || current === hostEl) return true;
+  // MUST stay synchronous up to here: we're inside the click that started the
+  // navigation, and that user activation is what authorises the request.
+  swapping = true;
   try {
     await requestFs(hostEl);
-  } catch {
+    dlog("begin: host owns the screen");
+    return true;
+  } catch (err) {
+    dlog("begin: host request REFUSED", err);
     cancelEpisodeTransition();
     return false;
+  } finally {
+    swapping = false;
   }
-  return true;
 }
 
 /**
@@ -177,22 +234,30 @@ export function claimEpisodeTransition(el: HTMLElement | null | undefined): void
   pending = false;
   disarm();
   const current = fsElement();
+  dlog("claim", { from: current === hostEl ? "host" : current?.tagName || null });
   // iOS: nothing was really fullscreen, the new player re-applies its CSS
   // pseudo-fullscreen itself (restored from `isPseudoFullscreenActive`).
   if (!current || !el || current === el) {
     hide();
     return;
   }
+  swapping = true;
   // Belt and braces: never leave the host up if the swap hangs.
-  const failsafe = setTimeout(hide, 2000);
+  const failsafe = setTimeout(() => {
+    swapping = false;
+    hide();
+  }, 3000);
   requestFs(el)
-    .catch(() => {
+    .then(() => dlog("claim: player owns the screen"))
+    .catch((err) => {
       // Browser insisted on a fresh user gesture — give the page back instead
       // of stranding the user on the host.
+      dlog("claim: player request REFUSED", err);
       exitFs();
     })
     .finally(() => {
       clearTimeout(failsafe);
+      swapping = false;
       hide();
     });
 }
@@ -201,6 +266,7 @@ export function cancelEpisodeTransition(
   { exitFullscreen = false }: { exitFullscreen?: boolean } = {},
 ): void {
   if (!pending) return;
+  dlog("cancel", { exitFullscreen });
   pending = false;
   disarm();
   hide();

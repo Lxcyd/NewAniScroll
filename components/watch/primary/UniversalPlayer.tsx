@@ -451,8 +451,13 @@ function LiveAmbient({
   );
 }
 
+// Deliberately NO fixed width/height/icon size: `.vds-button` (Vidstack's own
+// theme) sizes these to --media-button-size, which grows 40px → 42px in
+// fullscreen, and `.vds-icon` on the glyph makes it 80% of that. Hardcoding
+// h-10 + h-7 instead left our buttons' icons visibly smaller (28px) than the
+// native play / mute / fullscreen ones next to them.
 const ICON_BTN_CLS =
-  "vds-button moopa-vds-btn group ring-media-focus relative inline-flex h-10 w-10 cursor-pointer items-center justify-center rounded-md outline-none ring-inset hover:bg-white/20 data-[focus]:ring-4";
+  "vds-button moopa-vds-btn group ring-media-focus relative inline-flex cursor-pointer items-center justify-center rounded-md outline-none ring-inset hover:bg-white/20 data-[focus]:ring-4";
 const ICON_BTN_STYLE: React.CSSProperties = {
   color: "rgb(var(--media-controls-color, 240 240 240))",
 };
@@ -493,7 +498,7 @@ function CustomControls({
         className={ICON_BTN_CLS}
         style={ICON_BTN_STYLE}
       >
-        <svg viewBox="0 0 24 24" fill="currentColor" className="h-7 w-7">
+        <svg viewBox="0 0 24 24" fill="currentColor" className="vds-icon">
           <path d="M12 16l-5-5h3V4h4v7h3l-5 5zm-7 2h14v2H5v-2z" />
         </svg>
       </a>
@@ -508,7 +513,7 @@ function CustomControls({
           className={ICON_BTN_CLS}
           style={ICON_BTN_STYLE}
         >
-          <svg viewBox="0 0 24 24" fill="currentColor" className="h-7 w-7">
+          <svg viewBox="0 0 24 24" fill="currentColor" className="vds-icon">
             <path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm-9 11H6v-2h5v2zm7 0h-5v-2h5v2zm0-4H6V9h12v2z" />
           </svg>
         </button>
@@ -528,7 +533,7 @@ function CustomControls({
               : "rgb(var(--media-controls-color, 240 240 240))",
           }}
         >
-          <svg viewBox="0 0 24 24" fill="currentColor" className="h-7 w-7">
+          <svg viewBox="0 0 24 24" fill="currentColor" className="vds-icon">
             <path d="M1 18v3h3c0-1.66-1.34-3-3-3zm0-4v2c2.76 0 5 2.24 5 5h2c0-3.87-3.13-7-7-7zm18-7H5v1.63c3.96 1.28 7.09 4.41 8.37 8.37H19V7zM1 10v2c4.97 0 9 4.03 9 9h2c0-6.08-4.93-11-11-11zm20-7H3c-1.1 0-2 .9-2 2v3h2V5h18v14h-7v2h7c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z" />
           </svg>
         </button>
@@ -540,19 +545,30 @@ function CustomControls({
 // "Next episode" — the classic skip-next glyph (▶|), sitting right after
 // play/pause in the control bar. Only rendered when there IS a next episode.
 // Navigation goes through navigateToEpisode so fullscreen is preserved.
-function NextEpisodeButton({ onClick }: { onClick: () => void }) {
+function NextEpisodeButton({
+  onClick,
+  onWarm,
+}: {
+  onClick: () => void;
+  onWarm: () => void;
+}) {
   const { t } = useTranslation();
   return (
     <button
       type="button"
       onClick={onClick}
+      // Warm the next route on hover/focus. Beyond the obvious latency win this
+      // keeps the fullscreen handoff inside the browser's user-activation
+      // window: the new player can only take the screen back once it mounts.
+      onPointerEnter={onWarm}
+      onFocus={onWarm}
       title={t("player.nextEpisode")}
       aria-label={t("player.nextEpisode")}
       className={ICON_BTN_CLS}
       style={ICON_BTN_STYLE}
     >
       {/* Material "skip_next". */}
-      <svg viewBox="0 0 24 24" fill="currentColor" className="h-7 w-7">
+      <svg viewBox="0 0 24 24" fill="currentColor" className="vds-icon">
         <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" />
       </svg>
     </button>
@@ -4532,6 +4548,15 @@ export default function UniversalPlayer({
       {nextEpisodeHref && navHostAttached && navHostRef.current && createPortal(
         <NextEpisodeButton
           onClick={() => void navigateToEpisode(router, nextEpisodeHref)}
+          onWarm={() => {
+            try {
+              // JS bundle only — a getServerSideProps route isn't data-prefetched
+              // by the Pages Router, so this costs no function invocation.
+              router.prefetch(nextEpisodeHref);
+            } catch {
+              /* prefetch unsupported — the click still works, just colder */
+            }
+          }}
         />,
         navHostRef.current,
       )}

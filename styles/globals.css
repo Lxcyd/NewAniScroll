@@ -252,15 +252,20 @@ a {
    lib/player/episodeTransition.ts). Hidden until a transition starts; the
    z-index has to beat the iOS pseudo-fullscreen wrapper (9999) since it covers
    that case too. */
+/* Always in the layout, only invisible: a `display:none` element can still be
+   handed the screen by requestFullscreen, and then shows as pure black with no
+   loading bar. `pointer-events:none` keeps the (full-viewport) idle host from
+   swallowing any click. */
 .aniscroll-ep-transition {
-  display: none;
-}
-.aniscroll-ep-transition[data-active] {
-  display: block;
   position: fixed;
   inset: 0;
   z-index: 100000;
   background: #000;
+  opacity: 0;
+  pointer-events: none;
+}
+.aniscroll-ep-transition[data-active] {
+  opacity: 1;
 }
 /* Same signal as the site's page-change bar (<NextNProgress>, pink, 3px, top
    of the screen) — that one lives in the page and is invisible while another
@@ -278,6 +283,11 @@ a {
   background: var(--brand-primary, #e94560);
   box-shadow: 0 0 10px var(--brand-primary, #e94560),
     0 0 5px var(--brand-primary, #e94560);
+}
+/* Gating the animation on [data-active] (rather than on the host appearing)
+   restarts it from 0 on every transition — the host is never display:none, so
+   an always-on animation would have finished long before the first click. */
+.aniscroll-ep-transition[data-active] .aniscroll-ep-transition__bar {
   animation: aniscroll-ep-progress 14s cubic-bezier(0.05, 0.8, 0.3, 1) forwards;
 }
 @keyframes aniscroll-ep-progress {
@@ -289,7 +299,9 @@ a {
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .aniscroll-ep-transition__bar {
+  /* Must out-specify the [data-active] rule above, whose `animation` shorthand
+     would otherwise reset the duration back to 14s. */
+  .aniscroll-ep-transition[data-active] .aniscroll-ep-transition__bar {
     animation-duration: 0.01s;
     transform: scaleX(0.5);
   }
