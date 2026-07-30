@@ -16,6 +16,7 @@ import { asCssVars, BRAND } from "@/lib/theme";
 import { applyAccent, getAccent } from "@/lib/prefs/accentColor";
 // import SecretPage from "@/components/secret";
 import NoticeStack from "@/components/shared/NoticeStack";
+import EpisodeTransitionOverlay from "@/components/shared/episodeTransitionOverlay";
 import { notify } from "@/lib/notifications/noticeStore";
 import ChangeLogs from "../components/shared/changelogs";
 import AnilistHealthBanner from "../components/shared/AnilistHealthBanner";
@@ -438,6 +439,10 @@ export default function App({
           <WatchPageProvider>
             <SkeletonTheme baseColor="#232329" highlightColor="#2a2a32">
                 <NoticeStack />
+                {/* Holds fullscreen (and shows the pink loading bar) while the
+                    player navigates to another episode. Must live OUTSIDE
+                    <Component> so it survives the navigation. */}
+                <EpisodeTransitionOverlay />
                 {/* <SecretPage
                   cheatCode={"aofienaef"}
                   onCheatCodeEntered={handleCheatCodeEntered}

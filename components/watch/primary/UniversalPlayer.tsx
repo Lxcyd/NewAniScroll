@@ -49,6 +49,13 @@ import { recordWatchToday } from "@/lib/stats/streak";
 import { useDataSaver } from "@/lib/prefs/dataSaver";
 import { usePlayerPrefs, setPlayerPrefs, getPlayerPrefs } from "@/lib/prefs/playerPrefs";
 import { getSyncPrefs } from "@/lib/prefs/syncPrefs";
+import {
+  claimEpisodeTransition,
+  isEpisodeTransitionPending,
+  isPseudoFullscreenActive,
+  navigateToEpisode,
+  setPseudoFullscreenActive,
+} from "@/lib/player/episodeTransition";
 
 // Trace logger — off by default. Set NEXT_PUBLIC_DEBUG_SOURCE=1 to surface the
 // vidmoly-fallback diagnostics. These are EXPECTED control-flow branches
@@ -527,6 +534,28 @@ function CustomControls({
         </button>
       )}
     </>
+  );
+}
+
+// "Next episode" — the classic skip-next glyph (▶|), sitting right after
+// play/pause in the control bar. Only rendered when there IS a next episode.
+// Navigation goes through navigateToEpisode so fullscreen is preserved.
+function NextEpisodeButton({ onClick }: { onClick: () => void }) {
+  const { t } = useTranslation();
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={t("player.nextEpisode")}
+      aria-label={t("player.nextEpisode")}
+      className={ICON_BTN_CLS}
+      style={ICON_BTN_STYLE}
+    >
+      {/* Material "skip_next". */}
+      <svg viewBox="0 0 24 24" fill="currentColor" className="h-7 w-7">
+        <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" />
+      </svg>
+    </button>
   );
 }
 
@@ -1468,7 +1497,28 @@ export default function UniversalPlayer({
   // iOS pseudo-fullscreen — Safari hides our buttons in real fullscreen
   // because it swaps the <video> for the native player. We pin the
   // wrapper to viewport with `position:fixed` and lock orientation.
-  const [iosPseudoFs, setIosPseudoFs] = useState(false);
+  //
+  // Restored on mount when an episode transition is in flight: this is React
+  // state on a component the episode change REMOUNTS, so "stay fullscreen
+  // across episodes" needs the flag mirrored outside the tree (the real
+  // Fullscreen API case is handled by the transition host itself).
+  const [iosPseudoFs, setIosPseudoFs] = useState(
+    () => isEpisodeTransitionPending() && isPseudoFullscreenActive(),
+  );
+  // Publish it so the next player (and beginEpisodeTransition) can see it.
+  useEffect(() => {
+    setPseudoFullscreenActive(iosPseudoFs);
+  }, [iosPseudoFs]);
+  // Leaving the watch page entirely must clear it — otherwise a later, windowed
+  // player would think a pseudo-fullscreen is still on and show the transition
+  // host over a normal page. An episode change is the exception: the transition
+  // is already pending there, and the flag is what the next player restores.
+  useEffect(
+    () => () => {
+      if (!isEpisodeTransitionPending()) setPseudoFullscreenActive(false);
+    },
+    [],
+  );
   // Ref mirror so the fullscreen tracker (defined below) can fold pseudo-FS into
   // isFullscreenRef without depending on this state's render timing.
   const iosPseudoFsRef = useRef(false);
@@ -1718,6 +1768,11 @@ export default function UniversalPlayer({
       const el = (playerRef.current?.el as HTMLElement | undefined) || null;
       if (el) {
         setPlayerElState(el);
+        // Coming from an episode change that was fullscreen: take the screen
+        // back from the transition host, as EARLY as possible (the browser is
+        // likelier to grant it while the click that started the navigation is
+        // still recent). No-op when no transition is pending.
+        claimEpisodeTransition(el);
         return;
       }
       raf = requestAnimationFrame(find);
@@ -1757,6 +1812,11 @@ export default function UniversalPlayer({
   // the start near the end"). Stable containers eliminate it at the source.
   const controlsHostRef = useRef<HTMLDivElement | null>(null);
   const settingsHostRef = useRef<HTMLDivElement | null>(null);
+  // Third host, for the "next episode" button only: it belongs at the LEFT of
+  // the bar (right after play/pause, the classic placement) rather than with
+  // the Download / Subs / Cast group, and it stays on the small layout too —
+  // one 40px button always fits.
+  const navHostRef = useRef<HTMLDivElement | null>(null);
   if (typeof document !== "undefined") {
     if (!controlsHostRef.current) {
       const d = document.createElement("div");
@@ -1770,12 +1830,19 @@ export default function UniversalPlayer({
       d.style.display = "contents";
       settingsHostRef.current = d;
     }
+    if (!navHostRef.current) {
+      const d = document.createElement("div");
+      d.dataset.slot = "moopa-nav-controls-host";
+      d.style.display = "contents";
+      navHostRef.current = d;
+    }
   }
   // Whether each host is currently attached into the live Vidstack subtree.
   // Drives the conditional portal render; flipping these never unmounts the
   // <video>, only re-targets our injected chrome.
   const [controlsHostAttached, setControlsHostAttached] = useState(false);
   const [settingsHostAttached, setSettingsHostAttached] = useState(false);
+  const [navHostAttached, setNavHostAttached] = useState(false);
   // True while ANY Vidstack menu (settings, chapters, quality, and the native
   // captions menu) is open — tracked from the `data-open` attribute the same
   // observer already watches. Used to hide the fullscreen party chat so it
@@ -1889,6 +1956,35 @@ export default function UniversalPlayer({
         // in the orphaned node; flipping the flag just hides the chrome.
         if (controlsHost?.parentElement) controlsHost.remove();
         setControlsHostAttached((p) => (p ? false : p));
+      }
+
+      // "Next episode" host — classic placement: immediately AFTER the
+      // play/pause button, on BOTH layouts. We locate the group by CONTENT
+      // rather than position: the play button lives in the last group on the
+      // large layout, but in a centered group of its own on the small one
+      // (where the last group is the seek bar).
+      const navHost = navHostRef.current;
+      let playBtn: HTMLElement | null = null;
+      for (let i = 0; i < groups.length; i++) {
+        if (!groups[i].isConnected) continue;
+        const found = groups[i].querySelector<HTMLElement>(
+          ".vds-play-button, [data-media-play-button]",
+        );
+        if (found) {
+          playBtn = found;
+          break;
+        }
+      }
+      // Idempotent: only touch the DOM when the host isn't already in place, or
+      // our own insertion would re-trigger this observer forever.
+      if (playBtn?.parentElement && navHost) {
+        if (playBtn.nextSibling !== navHost) {
+          playBtn.parentElement.insertBefore(navHost, playBtn.nextSibling);
+        }
+        setNavHostAttached((p) => (p ? p : true));
+      } else {
+        if (navHost?.parentElement) navHost.remove();
+        setNavHostAttached((p) => (p ? false : p));
       }
 
       // The Settings menu is opened/closed dynamically. Vidstack tags the
@@ -4080,11 +4176,13 @@ export default function UniversalPlayer({
         else player?.pause?.();
         break;
       }
+      // Both go through navigateToEpisode so a fullscreen session survives the
+      // episode change (see lib/player/episodeTransition.ts).
       case "prevEpisode":
-        if (prevEpisodeHref) router.push(prevEpisodeHref);
+        void navigateToEpisode(router, prevEpisodeHref);
         break;
       case "nextEpisode":
-        if (nextEpisodeHref) router.push(nextEpisodeHref);
+        void navigateToEpisode(router, nextEpisodeHref);
         break;
       case "mute":
         if (video) video.muted = !video.muted;
@@ -4428,6 +4526,16 @@ export default function UniversalPlayer({
         controlsHostRef.current,
       )}
 
+      {/* "Next episode" button, portaled into the STABLE navHost the observer
+          parks right after the play/pause button. Same stable-container
+          rationale as the group above. Hidden on the last episode (no href). */}
+      {nextEpisodeHref && navHostAttached && navHostRef.current && createPortal(
+        <NextEpisodeButton
+          onClick={() => void navigateToEpisode(router, nextEpisodeHref)}
+        />,
+        navHostRef.current,
+      )}
+
       {/* Custom toggles injected at the top of Vidstack's Settings menu, via the
           STABLE settingsHostRef the observer parks at the top of the open menu
           list. Same rationale as above: stable container → no portal teardown. */}
@@ -4739,6 +4847,13 @@ function IframeEmbed({
 }) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [failed, setFailed] = useState(false);
+
+  // Embed hosts request fullscreen from INSIDE the iframe, so the <iframe>
+  // element is what the Fullscreen API hands over — hand that same element the
+  // screen back after an episode change. No-op unless a transition is pending.
+  useEffect(() => {
+    claimEpisodeTransition(iframeRef.current);
+  }, []);
 
   useEffect(() => {
     setFailed(false);

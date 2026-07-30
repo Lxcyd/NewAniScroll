@@ -13,7 +13,7 @@ import { getTursoClient } from "./turso";
  *   absolute start genuinely differs per host.)
  *
  * A row EXISTS as soon as a host has been processed for an episode — even with no
- * hit (op_*/ed_* left null). That's what distinguishes "processed, found nothing"
+ * hit (op_… and ed_… left null). That's what distinguishes "processed, found nothing"
  * from "not processed yet", which the batch's version-based resume relies on.
  *
  * `host` is always one of lib/hostRegistry.js DISPLAYED_HOSTS — the importer

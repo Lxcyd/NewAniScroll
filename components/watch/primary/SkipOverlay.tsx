@@ -13,6 +13,7 @@ import { useRouter } from "next/router";
 // synchronous hit on remount.
 import { SKIP_MEMO, skipMemoKey, prefetchSkips } from "@/lib/skip/prefetchSkips";
 import { useTranslation } from "react-i18next";
+import { navigateToEpisode } from "@/lib/player/episodeTransition";
 
 const SEGMENT_LABEL_KEY: Record<string, string> = {
   op: "player.skipIntro",
@@ -380,24 +381,12 @@ export default function SkipOverlay({
   };
 
   const goToNextEpisode = () => {
-    if (!nextEpisodeHref) return;
-    // Leave fullscreen FIRST. Otherwise the new page loads underneath the
-    // fullscreen video element and the user just sees the current frame frozen
-    // — it looks like the button did nothing. Exiting fullscreen makes the
-    // navigation (and its loading state) visible. Best-effort on every API:
-    // Vidstack's player, then the raw DOM Fullscreen API.
-    try {
-      const p: any = playerRef?.current;
-      if (p?.exitFullscreen) {
-        // Vidstack returns a promise; navigate regardless of its outcome.
-        Promise.resolve(p.exitFullscreen()).catch(() => {});
-      } else if (typeof document !== "undefined" && document.fullscreenElement) {
-        document.exitFullscreen?.();
-      }
-    } catch {
-      /* fullscreen exit unsupported / rejected — navigate anyway */
-    }
-    router.push(nextEpisodeHref);
+    // STAY in fullscreen across the change. This used to exit fullscreen first,
+    // because the next page otherwise loaded underneath a frozen fullscreen
+    // frame and the button looked broken. navigateToEpisode fixes that
+    // properly: a page-level host holds the screen (black + the site's pink
+    // loading bar) until the new player takes it back.
+    void navigateToEpisode(router, nextEpisodeHref);
   };
 
   /* ── Auto-skip intro/outro ───────────────────────────────────────

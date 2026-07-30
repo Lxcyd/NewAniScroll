@@ -229,6 +229,72 @@ a {
   box-shadow: 0 8px 24px rgba(232, 41, 75, 0.55) !important;
 }
 
+/* Next-episode button on the SMALL (phone) layout: Vidstack centers the play
+   button in its own controls group there, and that group is `pointer-events:
+   none` (the play button opts back in). Our button sits right next to it, so it
+   has to opt in too — and match the round, dark, slightly-lowered look of the
+   play button instead of the square bar-style chrome used on desktop. */
+.vds-video-layout[data-size="sm"]
+  [data-slot="moopa-nav-controls-host"]
+  > button {
+  pointer-events: auto;
+  width: var(--video-sm-play-button-size, 40px);
+  height: var(--video-sm-play-button-size, 40px);
+  border-radius: 100%;
+  background-color: var(--video-sm-play-button-bg, rgba(0, 0, 0, 0.6));
+  transform: var(--video-sm-play-button-transform, translateY(25%));
+  margin-bottom: 2px;
+}
+
+/* ── Episode transition host ──────────────────────────────────────
+   Holds fullscreen while we navigate to the next/previous episode (the player
+   itself is remounted per episode and would drop fullscreen with it — see
+   lib/player/episodeTransition.ts). Hidden until a transition starts; the
+   z-index has to beat the iOS pseudo-fullscreen wrapper (9999) since it covers
+   that case too. */
+.aniscroll-ep-transition {
+  display: none;
+}
+.aniscroll-ep-transition[data-active] {
+  display: block;
+  position: fixed;
+  inset: 0;
+  z-index: 100000;
+  background: #000;
+}
+/* Same signal as the site's page-change bar (<NextNProgress>, pink, 3px, top
+   of the screen) — that one lives in the page and is invisible while another
+   element owns the screen, so the host paints its own. Indeterminate: it
+   trickles toward the edge and stays there until the new player claims the
+   screen, which is what removes it. */
+.aniscroll-ep-transition__bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 3px;
+  width: 100%;
+  transform: scaleX(0);
+  transform-origin: 0 50%;
+  background: var(--brand-primary, #e94560);
+  box-shadow: 0 0 10px var(--brand-primary, #e94560),
+    0 0 5px var(--brand-primary, #e94560);
+  animation: aniscroll-ep-progress 14s cubic-bezier(0.05, 0.8, 0.3, 1) forwards;
+}
+@keyframes aniscroll-ep-progress {
+  0% {
+    transform: scaleX(0.03);
+  }
+  100% {
+    transform: scaleX(0.94);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .aniscroll-ep-transition__bar {
+    animation-duration: 0.01s;
+    transform: scaleX(0.5);
+  }
+}
+
 /* iOS pseudo-fullscreen: Safari refuses to host our overlays in real
    fullscreen (it swaps the <video> for the native system player and hides
    every absolutely-positioned child). We work around it by pinning the
