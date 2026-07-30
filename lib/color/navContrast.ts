@@ -8,9 +8,10 @@
  * strip. Nothing in the AniList metadata tells us how bright a banner is, so the
  * only source of truth is the pixels themselves.
  *
- * So the component that owns the banner <img> reports the mean luminance of the
- * strip the navbar actually covers (`useNavBackdrop`), and the navbar flips to
- * dark chrome when white would be unreadable there (`useNavOnLight`).
+ * So the page that shows a banner declares it (`useNavBackdrop`), the brightness
+ * of its top is measured server-side (`/api/v2/banner-tone` — see that file for
+ * why it can't be done in the browser), and the navbar flips to dark chrome when
+ * white would be unreadable (`useNavOnLight`).
  *
  * State lives outside React because the two sides are unrelated components on
  * opposite ends of the tree (the navbar is rendered by the page, the banner by
@@ -18,12 +19,7 @@
  * a single boolean.
  */
 
-import { useEffect, useRef, useState } from "react";
-
-/** Height of the artwork strip we judge, in CSS px. The navbar is `py-2` around
- *  a `min-h-[48px]` row = 64px; we look slightly lower so a bright band right
- *  under the links still counts. */
-const STRIP_PX = 72;
+import { useEffect, useState } from "react";
 
 /**
  * Mean WCAG relative luminance above which white chrome stops holding up.
@@ -31,18 +27,25 @@ const STRIP_PX = 72;
  * White text over a backdrop of luminance L has contrast `1.05 / (L + 0.05)`;
  * near-black text has `(L + 0.05) / 0.1055`. They cross at L ≈ 0.28, but
  * flipping right at the crossover would repaint the navbar on every mid-grey
- * banner for a marginal gain. We wait for 0.42 — genuinely light artwork —
- * so the site keeps its white chrome everywhere else.
+ * banner for a marginal gain. We wait for 0.42 — genuinely light artwork — so
+ * the site keeps its white chrome everywhere else. Measured over 20 real
+ * banners: white/pastel ones land at 0.51-0.99, blue-sky ones at 0.28-0.37.
+ *
+ * The threshold lives here rather than in the API route on purpose: the route's
+ * answer is CDN-cached for a year, so tuning this must not need a cache bust.
  */
 const LIGHT_L = 0.42;
 
 let onLight = false;
 const subscribers = new Set<() => void>();
 
-/** Verdict per image URL. The pixels never change, so a second visit (SPA
- *  navigation back to an anime) can flip the navbar on its first paint instead
- *  of waiting for the image to load and be re-measured. */
-const verdicts = new Map<string, boolean>();
+/** Luminance per image URL. The pixels never change, so a second visit (SPA
+ *  navigation back to an anime) flips the navbar on its first paint instead of
+ *  waiting for another round-trip. */
+const measured = new Map<string, number>();
+/** In-flight probes, so two components asking for the same banner (or a fast
+ *  back-and-forth) share one request. */
+const pending = new Map<string, Promise<number | null>>();
 
 function emit(): void {
   subscribers.forEach((fn) => {
@@ -77,168 +80,74 @@ export function useNavOnLight(): boolean {
   useEffect(() => {
     const sync = () => setLight(isNavOnLight());
     // Catch a verdict that landed between this render and the subscription
-    // (a cached banner can be measured before the navbar mounts its effect).
+    // (a cached measurement is applied the moment the banner mounts).
     sync();
     return subscribeNavContrast(sync);
   }, []);
   return light;
 }
 
-/* ── Measuring ──────────────────────────────────────────────────────────── */
+/** Mean luminance of the top of `src`, or null if it couldn't be measured. */
+async function probe(src: string): Promise<number | null> {
+  const cached = measured.get(src);
+  if (cached !== undefined) return cached;
 
-function srgbToLinear(v: number): number {
-  const c = v / 255;
-  return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
-}
+  const inFlight = pending.get(src);
+  if (inFlight) return inFlight;
 
-/** One `object-position` component as a 0..1 fraction. Covers the `%` and
- *  keyword forms our banners use; anything else falls back to the CSS default. */
-function axisFraction(token: string | undefined, fallback: number): number {
-  if (!token) return fallback;
-  if (token.endsWith("%")) {
-    const n = parseFloat(token);
-    return Number.isFinite(n) ? Math.min(1, Math.max(0, n / 100)) : fallback;
-  }
-  switch (token) {
-    case "left":
-    case "top":
-      return 0;
-    case "center":
-      return 0.5;
-    case "right":
-    case "bottom":
-      return 1;
-    default:
-      return fallback;
-  }
-}
-
-/**
- * Mean luminance of the source pixels that end up under the navbar, or null when
- * they can't be read (image not decoded yet, or a tainted canvas because the CDN
- * answered without CORS headers).
- *
- * The crop is derived from the element, never hardcoded: `object-fit: cover`
- * gives the scale, `object-position` the offset, so we sample exactly the rows
- * the navbar sits on — which is not the top of the file (our banners are drawn
- * from 30-35% down) and moves with the viewport width.
- */
-export function measureNavBackdrop(img: HTMLImageElement): number | null {
-  const nw = img.naturalWidth;
-  const nh = img.naturalHeight;
-  const box = img.getBoundingClientRect();
-  if (!nw || !nh || box.width < 1 || box.height < 1) return null;
-
-  const scale = Math.max(box.width / nw, box.height / nh); // object-fit: cover
-  const pos = getComputedStyle(img).objectPosition.trim().split(/\s+/);
-  const fx = axisFraction(pos[0], 0.5);
-  const fy = axisFraction(pos[1] ?? pos[0], 0.5);
-
-  // Source rectangle visible inside the box, then its top STRIP_PX.
-  const srcW = Math.min(nw, box.width / scale);
-  const srcH = Math.min(nh, box.height / scale);
-  const sx = (nw - srcW) * fx;
-  const sy = (nh - srcH) * fy;
-  const sh = Math.min(srcH, Math.min(box.height, STRIP_PX) / scale);
-  if (sh < 1 || srcW < 1) return null;
-
-  // 32×6 is plenty: we want the average tone of a strip, not detail.
-  const W = 32;
-  const H = 6;
-  const canvas = document.createElement("canvas");
-  canvas.width = W;
-  canvas.height = H;
-  const ctx = canvas.getContext("2d", { willReadFrequently: true });
-  if (!ctx) return null;
-  // High-quality downscale = the browser averages the source block for us
-  // instead of point-sampling 192 pixels out of a 1900px-wide banner.
-  ctx.imageSmoothingEnabled = true;
-  ctx.imageSmoothingQuality = "high";
-
-  try {
-    ctx.drawImage(img, sx, sy, srcW, sh, 0, 0, W, H);
-    const { data } = ctx.getImageData(0, 0, W, H);
-    let sum = 0;
-    for (let i = 0; i < data.length; i += 4) {
-      sum +=
-        0.2126 * srgbToLinear(data[i]) +
-        0.7152 * srgbToLinear(data[i + 1]) +
-        0.0722 * srgbToLinear(data[i + 2]);
+  const run = (async () => {
+    try {
+      const res = await fetch(
+        `/api/v2/banner-tone?u=${encodeURIComponent(src)}`
+      );
+      if (!res.ok) return null;
+      const { l } = await res.json();
+      if (typeof l !== "number" || !Number.isFinite(l)) return null;
+      measured.set(src, l);
+      return l;
+    } catch {
+      // Offline, blocked, upstream down — the navbar keeps its default chrome,
+      // which is the right look for the overwhelming majority of banners.
+      return null;
+    } finally {
+      pending.delete(src);
     }
-    return sum / (data.length / 4);
-  } catch {
-    // SecurityError (tainted canvas) or a decode failure — keep the default
-    // white chrome rather than guessing.
-    return null;
-  }
+  })();
+
+  pending.set(src, run);
+  return run;
 }
 
-/* ── Reporting side ─────────────────────────────────────────────────────── */
-
-type BackdropImgProps = {
-  ref: (el: HTMLImageElement | null) => void;
-  crossOrigin?: "anonymous";
-  onLoad: () => void;
-  onError: () => void;
-};
-
 /**
- * Wire the page's top artwork into the navbar's contrast decision: spread the
- * returned props onto that <img>.
+ * Declare the artwork the navbar currently floats over. Call it from whatever
+ * renders the page's banner; it has no visual output of its own.
  *
- * `crossOrigin` is what makes the pixels readable — without it the canvas is
- * tainted and `getImageData` throws. AniList's CDN does answer with CORS headers
- * (and the info page preloads the banner with the same `crossorigin`, so this
- * costs no second request). If some host ever doesn't, the image would fail to
- * load *at all* — hence `onError`: it drops the attribute and reloads plainly,
- * giving up on the probe rather than on the banner.
+ * Passing null (or leaving the page) resets the navbar to its default white
+ * chrome — the flip must never outlive the banner that justified it.
  */
-export function useNavBackdrop(src: string | null | undefined): BackdropImgProps {
-  const imgRef = useRef<HTMLImageElement | null>(null);
-  const [cors, setCors] = useState(true);
-
-  const measure = (img: HTMLImageElement, key: string) => {
-    const luminance = measureNavBackdrop(img);
-    if (luminance === null) return;
-    const light = luminance > LIGHT_L;
-    verdicts.set(key, light);
-    setNavOnLight(light);
-  };
-
+export function useNavBackdrop(src: string | null | undefined): void {
   useEffect(() => {
     if (!src) {
       setNavOnLight(false);
       return;
     }
-    const known = verdicts.get(src);
+
+    const known = measured.get(src);
     if (known !== undefined) {
-      setNavOnLight(known);
+      setNavOnLight(known > LIGHT_L);
     } else {
       // Unknown artwork: assume dark (the site's normal case) until measured.
       setNavOnLight(false);
-      // A browser-cached image can be complete before React attaches `onLoad`,
-      // in which case that event never fires — measure it here instead.
-      const img = imgRef.current;
-      if (img?.complete) measure(img, src);
+      let cancelled = false;
+      void probe(src).then((l) => {
+        if (!cancelled && l !== null) setNavOnLight(l > LIGHT_L);
+      });
+      return () => {
+        cancelled = true;
+        setNavOnLight(false);
+      };
     }
-    // Leaving the page (or switching anime) → back to white chrome until the
-    // next banner reports in.
-    return () => setNavOnLight(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [src, cors]);
 
-  return {
-    ref: (el) => {
-      imgRef.current = el;
-    },
-    crossOrigin: cors ? "anonymous" : undefined,
-    onLoad: () => {
-      const img = imgRef.current;
-      if (!img || !src) return;
-      // One frame later: the <img> has its final box (the hero's layout settles
-      // in the same paint), and the crop depends on that box.
-      requestAnimationFrame(() => measure(img, src));
-    },
-    onError: () => setCors(false),
-  };
+    return () => setNavOnLight(false);
+  }, [src]);
 }

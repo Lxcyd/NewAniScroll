@@ -322,8 +322,9 @@ export default function Hero({
   // only after mount if the session flagged the CF quota as exhausted.
   const currentTitleUrl = useFanartSrc(renderedUrl);
 
-  // Props for the banner <img> that let the navbar read its brightness.
-  const navBackdrop = useNavBackdrop(info.bannerImage);
+  // The navbar floats over the top of the banner: tell it what it's sitting on
+  // so it can flip to dark chrome over light artwork.
+  useNavBackdrop(info.bannerImage);
 
   // Single-episode entries (movies, specials, short OVAs) don't have a
   // meaningful "EP NN" or "S<n>" — they're standalone units. Detect them
@@ -389,18 +390,13 @@ export default function Hero({
           to   { opacity: 1; transform: translateY(0); }
         }
       `}</style>
-      {/* Banner. The navbar floats over its top ~72px with white chrome, so the
-          banner reports how light those pixels are — a white banner flips the
-          navbar to dark chrome (lib/color/navContrast). */}
+      {/* Banner. The navbar floats over its top ~72px with white chrome — see
+          the useNavBackdrop call above, which flips it to dark chrome when this
+          artwork is light. */}
       <div style={hStyles.banner}>
         {info.bannerImage && (
           // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={info.bannerImage}
-            alt=""
-            style={hStyles.bannerImg}
-            {...navBackdrop}
-          />
+          <img src={info.bannerImage} alt="" style={hStyles.bannerImg} />
         )}
         <div style={hStyles.bannerFade} />
       </div>

@@ -201,8 +201,8 @@ function MHero({
   const { t } = useTranslation();
   const banner = info.bannerImage || info.coverImage?.extraLarge;
   // The shared <Navbar> floats over the top of this banner with white chrome —
-  // report how light those pixels are so it can flip (lib/color/navContrast).
-  const navBackdrop = useNavBackdrop(banner);
+  // let it flip to dark when the artwork is light (lib/color/navContrast).
+  useNavBackdrop(banner);
   const cover =
     info.coverImage?.extraLarge || info.coverImage?.large;
   // Hydration-safe: proxy URL on SSR + first client render, swaps to origin
@@ -237,7 +237,6 @@ function MHero({
               objectFit: "cover",
               objectPosition: "center 30%",
             }}
-            {...navBackdrop}
           />
         )}
         <div
