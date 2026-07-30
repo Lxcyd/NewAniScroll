@@ -28,9 +28,15 @@ export default async function handler(
   try {
     const filePath = path.join(process.cwd(), "changelog", `popup.${lang}.md`);
     const content = await readFile(filePath, "utf-8");
-    // Short cache so a new release shows up fast for returning users; the client
-    // also cache-busts the request. SWR keeps it cheap.
-    res.setHeader("Cache-Control", "public, max-age=60, s-maxage=60, stale-while-revalidate=300");
+    // This file only changes on a deploy, but the endpoint is hit on every page
+    // load (twice — one per language), so the cache is what keeps it from being
+    // a per-visit function invocation. A new release surfacing a few minutes
+    // late is invisible: the popup is dismissed per release signature, so a
+    // visitor who misses the first window still gets it on the next page.
+    res.setHeader(
+      "Cache-Control",
+      "public, max-age=300, s-maxage=300, stale-while-revalidate=86400",
+    );
     res.setHeader("Content-Type", "text/plain; charset=utf-8");
     res.status(200).send(content);
   } catch (e: any) {

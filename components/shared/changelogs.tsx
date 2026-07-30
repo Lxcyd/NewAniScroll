@@ -123,7 +123,13 @@ export default function ChangeLogs() {
     const LANGS = ["en", "fr"] as const;
     Promise.all(
       LANGS.map((l) =>
-        fetch(`/api/v2/changelog-popup?lang=${l}&t=${Date.now()}`, { cache: "no-store" })
+        /* No cache-buster, no no-store: this fires on EVERY page load, twice
+           (once per language), and a unique `t=` made every one of them a fresh
+           function invocation for a static markdown file — the CDN could never
+           serve it. The route's own s-maxage handles freshness (a new release
+           shows up a few minutes late at worst, and the popup is dismissed by
+           signature, so a late arrival costs nothing). */
+        fetch(`/api/v2/changelog-popup?lang=${l}`)
           .then((r) => (r.ok ? r.text() : Promise.reject(r.status)))
           .then((md) => ({ l, parsed: parsePopup(md) }))
           .catch(() => ({ l, parsed: null })),
