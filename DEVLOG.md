@@ -1,5 +1,95 @@
 # DEVLOG
 
+## 2026-08-04 (suite) — Passe de propreté : deps mortes, duplication, pages statiques
+
+Suite de la passe de perf. Cette fois la question était « que reste-t-il de sale,
+en double ou mal pensé ». Plusieurs trouvailles dépassent la cosmétique.
+
+### ⚠️ cheerio n'était pas déclaré
+`pages/api/v2/source/index.js` — le cœur de la résolution vidéo — importe
+`cheerio` directement, mais il **n'était pas dans package.json**. Il n'arrivait
+que comme dépendance transitive de `@consumet/extensions`, un paquet git que
+l'application n'importe nulle part. Supprimer cette dépendance morte (ce qui
+paraissait totalement anodin) aurait cassé la fonctionnalité principale du site
+sans le moindre avertissement au build. Déclaré explicitement avant toute
+suppression. **Leçon : avant de retirer une dépendance inutilisée, vérifier ce
+qu'elle traîne derrière elle.**
+
+### 10 dépendances mortes retirées
+Aucun import dans tout le dépôt, et aucun paquet installé ne les déclare en peer
+(vérifié par script sur node_modules) : `@consumet/extensions` (dépendance git,
+clonée à chaque install), `@tensorflow/tfjs-node` (module natif — c'est LUI qui
+fait échouer `npm install` en local sans toolchain C++), `nsfwjs`, `media-icons`,
+`workbox-webpack-plugin` (déjà une vraie dep de next-pwa), `cron`, `graphql`,
+`i18next-browser-languagedetector` et `react-use-draggable-scroll` (ces deux-là
+n'apparaissaient que dans des commentaires expliquant qu'on ne les utilise
+volontairement PAS), `disqus-react`. `onnxruntime-node` déplacé en devDeps (seul
+scripts/classify-fanarts.mjs s'en sert).
+
+`tailwindcss-animate` a bien failli y passer aussi : absent des 60 premières
+lignes de tailwind.config.js, il est en fait bien dans `plugins`. **C'est le
+build qui l'a rattrapé** — d'où l'intérêt de rebuilder après chaque lot.
+
+### 4 pages passées de serverless à statique
+En typant un composant partagé, TypeScript a sorti ce que les fichiers `.js`
+cachaient : **`<MobileNav>` n'accepte pas de prop `sessions`** — il lit la
+session lui-même via `useSession()`. Or popular, trending et recent appelaient
+`getServerSession` dans getServerSideProps *uniquement* pour alimenter cette
+prop morte. recently-watched, elle, lisait la session… mais seulement dans des
+effets client. Les quatre pages sont maintenant ○ (statiques, CDN) au lieu de ƒ :
+plus aucune invocation Vercel par vue.
+
+### Duplication
+- **popular.js et trending.js étaient le même fichier** (147 et 145 lignes) à la
+  clé de tri, deux clés i18n et une meta près → components/anime/CatalogGrid.
+  Un `mt-5` parasite sur le bouton de trending était de la dérive, pas une
+  intention.
+- **getClientIp existait en 3 exemplaires divergents**, et l'écart comptait :
+  deux copies ne gardaient pas contre un `x-forwarded-for` vide et renvoyaient
+  `""`. Comme bug-report conditionne son anti-spam par IP à `if (ip)`, une
+  chaîne vide **désactivait le contrôle**. → lib/net/clientIp.
+- **setEdgeCache** redéfini dans 3 handlers → lib/http/edgeCache. Ces en-têtes
+  décident si une requête est facturée en Edge Request : un seul endroit.
+- **`convertSecondsToTime` existait en double avec DES SORTIES DIFFÉRENTES**
+  (2 unités vs 4 avec les secondes). Substituer l'une par l'autre aurait changé
+  le compte à rebours de la home. Les deux vivent maintenant dans getTimes, la
+  compacte renommée `formatCountdownCompact`. **Un nom identique pour deux
+  comportements, c'est comme ça qu'on « corrige » l'un en cassant l'autre.**
+- listEditor importait `inputToFuzzy as toFuzzy` ET redéfinissait sa propre copie
+  identique sous le vrai nom — deux appels utilisaient l'une, deux l'autre.
+- `getCurrentSeason` de footer.tsx : copie mot pour mot de utils/getTimes.
+
+### Fichiers morts supprimés
+components/anime/{charactersCard.js (2023), episode.js}, components/anime/mobile/
+(topSection + reused/, tout le dossier), utils/getRedisWithPrefix.ts (2024),
+components/disqus.tsx — ce dernier accompagné d'une prop `disqus` que la page
+watch calculait, sérialisait dans les props SSR de CHAQUE épisode et
+déstructurait sans jamais l'utiliser.
+
+`components/home/content.tsx` coexistait avec un dossier `components/home/content/`,
+et content.tsx importait `./content/historyOptions` — un fichier important depuis
+un dossier portant son propre nom. Aplati.
+
+### Volontairement PAS touché
+- **`components/shared/{AnimeCard,RankingBadge,StatusPill}.tsx`** : importés
+  nulle part, mais créés ensemble le 2026-04-28 et jamais câblés depuis. Ça
+  ressemble à un design system amorcé — c'est un choix produit, pas du code mort
+  évident. (Note : AnimeCard a reçu l'optimisation d'images de la passe
+  précédente avant que je réalise qu'il était orphelin.)
+- **`pages/api/v2/source/index.js`** (3129 lignes) duplique `fetchWithTimeout` et
+  `fetchViaWorker` avec lib/extractors.js. C'est le fichier le plus critique du
+  site et le player ne se teste pas en local (cf. no-local-player-testing) :
+  refactor à faire avec une vraie session de test sur dev, pas à l'aveugle.
+- **components/admin/{dashboard,reports}** partagent 4 fonctions identiques
+  (fetchReports, handleResolved, handleTogglePending, openImageInNewTab). Page
+  admin, trafic nul, aucun impact perf → pas prioritaire.
+- **Page watch (91,9 kB)** : ReportModal / RateModal / WatchPartyPanel montés en
+  permanence. ReportModal se splitte proprement (`<Transition appear>` de
+  headlessui), mais **RateModal anime son ouverture en CSS depuis l'état monté**
+  — le gater sur le montage lui ferait perdre son fondu.
+
+---
+
 ## 2026-08-04 — Passe de perf : bundle, images, code splitting, scroll
 
 Point de départ : « le site est très laggy ». Tout a été mesuré au build, pas
