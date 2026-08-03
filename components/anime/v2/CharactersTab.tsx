@@ -77,7 +77,10 @@ export default function CharactersTab({ info }: Props) {
     };
   }, [info.id, seeded]);
 
-  const edges = characters?.edges || [];
+  /* `characters` is `any` here: it arrives either from the SSR seed (typed) or
+     from /api/v2/characters (untyped JSON), so the element type has to be
+     stated for the map below under noImplicitAny. */
+  const edges: any[] = characters?.edges || [];
   if (loading && edges.length === 0) {
     return (
       <div
