@@ -18,6 +18,12 @@ import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { useNavOnLight } from "@/lib/color/navContrast";
 import { useTranslation } from "react-i18next";
 
+/* How far down the page the "back to top" button appears. This used to be
+   inlined as `scrollPosition?.y ?? 0 >= 180`, which parses as
+   `scrollPosition?.y ?? (0 >= 180)` — so the test was "is y a non-zero number",
+   and the button actually appeared after ONE pixel of scroll, not 180. */
+const TOP_BUTTON_AT = 180;
+
 const getScrollPosition = (el: Window | Element = window) => {
   if (el instanceof Window) {
     return { x: el.pageXOffset, y: el.pageYOffset };
@@ -58,9 +64,8 @@ export function Navbar({
   const router = useRouter();
   const titlePref = useTitlePref();
   const { t } = useTranslation();
-  const [scrollPosition, setScrollPosition] = useState<
-    { x: number; y: number } | undefined
-  >();
+  const [scrolled, setScrolled] = useState(false);
+  const [pastTopButton, setPastTopButton] = useState(false);
   const { setIsOpen } = useSearch();
 
   const year = new Date().getFullYear();
@@ -82,25 +87,40 @@ export function Navbar({
       }
     : null;
 
+  /* The navbar is mounted on essentially every page, and this used to store the
+     raw scroll offset — i.e. a React state update, and a re-render of this
+     whole (large) component, on EVERY scroll event. Nothing reads the number:
+     the only things derived from it are the two booleans below. So we compute
+     them in the handler, coalesce to one read per animation frame, and only
+     call setState when a flag actually flips — two renders per page session
+     instead of one per frame. */
   useEffect(() => {
+    let frame = 0;
+    const read = () => {
+      frame = 0;
+      const y = getScrollPosition().y;
+      setScrolled((prev) => (prev === y >= scrollP ? prev : y >= scrollP));
+      setPastTopButton((prev) =>
+        prev === y >= TOP_BUTTON_AT ? prev : y >= TOP_BUTTON_AT,
+      );
+    };
     const handleScroll = () => {
-      setScrollPosition(getScrollPosition());
+      if (frame) return;
+      frame = requestAnimationFrame(read);
     };
 
-    // Add a scroll event listener when the component mounts
-    window.addEventListener("scroll", handleScroll);
-
-    // Clean up the event listener when the component unmounts
+    read(); // seed, e.g. after a back-navigation that restores the scroll position
+    window.addEventListener("scroll", handleScroll, { passive: true });
     return () => {
+      if (frame) cancelAnimationFrame(frame);
       window.removeEventListener("scroll", handleScroll);
     };
-  }, []);
+  }, [scrollP]);
   /* ── Chrome colour ──
      The navbar is white-on-transparent, which vanishes over a light banner
      (see lib/color/navContrast: the hero measures the pixels under us). Flip to
      dark chrome only while we're still transparent — past the scroll threshold
      the navbar paints its own dark background and white wins again. */
-  const scrolled = (scrollPosition?.y ?? 0) >= scrollP;
   const bannerIsLight = useNavOnLight();
   const onLight = bannerIsLight && !scrolled;
 
@@ -410,7 +430,7 @@ export function Navbar({
             });
           }}
           className={`${
-            scrollPosition?.y ?? 0 >= 180
+            pastTopButton
               ? "-translate-x-6 opacity-100"
               : "translate-x-[100%] opacity-0"
           } transform transition-all duration-300 ease-in-out fixed bottom-24 lg:bottom-14 right-0 z-[500]`}

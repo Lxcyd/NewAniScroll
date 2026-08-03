@@ -12,6 +12,7 @@ import { truncateImgUrl } from "@/utils/imageUtils";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { animeHref, useClickTarget } from "@/lib/prefs/clickTarget";
 import { useTranslation } from "react-i18next";
+import { useInfiniteScroll } from "@/lib/hooks/useInfiniteScroll";
 
 export async function getServerSideProps(context) {
   const session = await getServerSession(context.req, context.res, authOptions);
@@ -54,25 +55,10 @@ export default function Recent({ sessions }) {
     getRecent();
   }, [page]);
 
-  useEffect(() => {
-    function handleScroll() {
-      if (page > 5 || !nextPage) {
-        window.removeEventListener("scroll", handleScroll);
-        return;
-      }
-
-      if (
-        window.innerHeight + window.pageYOffset >=
-        document.body.offsetHeight - 3
-      ) {
-        setPage((prevPage) => prevPage + 1);
-      }
-    }
-
-    window.addEventListener("scroll", handleScroll);
-
-    return () => window.removeEventListener("scroll", handleScroll);
-  }, [page, nextPage]);
+  useInfiniteScroll(
+    () => setPage((prevPage) => prevPage + 1),
+    page <= 5 && !!nextPage,
+  );
 
   return (
     <Fragment>

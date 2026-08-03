@@ -32,6 +32,7 @@ import { StaticImport } from "next/dist/shared/lib/get-img-props";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { animeHref, useClickTarget } from "@/lib/prefs/clickTarget";
 import { useTranslation } from "react-i18next";
+import { useInfiniteScroll } from "@/lib/hooks/useInfiniteScroll";
 
 export async function getServerSideProps(context: any) {
   // Search results are public and keyed entirely by the query string, so the
@@ -256,31 +257,14 @@ export default function Card({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, imageSearch]);
 
-  useEffect(() => {
-    function handleScroll() {
-      if (imageSearch) {
-        window.removeEventListener("scroll", handleScroll);
-        return;
-      }
-      if (page > 10 || !nextPage) {
-        window.removeEventListener("scroll", handleScroll);
-        return;
-      }
-
-      if (
-        window.innerHeight + window.pageYOffset >=
-        document.body.offsetHeight - 3
-      ) {
-        if (!loading) {
-          setPage((prevPage) => prevPage + 1);
-        }
-      }
-    }
-
-    window.addEventListener("scroll", handleScroll);
-
-    return () => window.removeEventListener("scroll", handleScroll);
-  }, [page, nextPage, imageSearch, loading]);
+  useInfiniteScroll(
+    () => {
+      // `loading` is checked here rather than in `enabled` so an in-flight page
+      // doesn't tear down and re-arm the listener on every fetch.
+      if (!loading) setPage((prevPage) => prevPage + 1);
+    },
+    !imageSearch && page <= 10 && !!nextPage,
+  );
 
   const handleKeyDown = async (event: any) => {
     if (event.key === "Enter") {
