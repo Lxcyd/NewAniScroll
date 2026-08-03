@@ -5,7 +5,7 @@ import Episodes from "./Episodes";
 import CharactersTab from "./CharactersTab";
 import Artworks from "./Artworks";
 import ScoresTab from "./ScoresTab";
-import { FanartResponse, collectArtworks } from "./helpers";
+import type { FanartsMeta } from "./helpers";
 import type { SeasonEntry } from "@/lib/anilist/seasonChain";
 import type { FilmVariant } from "@/lib/anilist/resolveSeason";
 import { useTranslation } from "react-i18next";
@@ -16,7 +16,9 @@ const VALID_TABS: TabId[] = ["overview", "episodes", "scores", "characters", "ar
 
 type Props = {
   info: AniListInfoTypes;
-  fanarts: FanartResponse | null;
+  /* Counts only — see FanartsMeta. The rows live behind useFanarts and are
+     fetched by whichever tab body needs them, i.e. on click. */
+  fanartsMeta: FanartsMeta | null;
   progress: number;
   seasonList?: SeasonEntry[];
   bonusFilms?: FilmVariant[];
@@ -33,7 +35,7 @@ function readTabFromHash(): TabId {
   return VALID_TABS.indexOf(h) >= 0 ? h : "overview";
 }
 
-export default function Tabs({ info, fanarts, progress, seasonList, bonusFilms }: Props) {
+export default function Tabs({ info, fanartsMeta, progress, seasonList, bonusFilms }: Props) {
   const { t } = useTranslation();
   const [tab, setTab] = useState<TabId>("overview");
   // Real loaded episode count reported by <Episodes>. AniList's info.episodes is
@@ -106,12 +108,16 @@ export default function Tabs({ info, fanarts, progress, seasonList, bonusFilms }
     {
       id: "characters",
       label: t("anime.characters"),
-      count: info.characters?.edges?.length ?? null,
+      /* `characters` is no longer in the SSR payload; the SSR replaced it with
+         this count so the badge is right on first paint. Falls back to the live
+         array for any caller that still passes the full object. */
+      count:
+        (info as any).charactersCount ?? info.characters?.edges?.length ?? null,
     },
     {
       id: "artworks",
       label: t("anime.artworks"),
-      count: collectArtworks(fanarts).length || null,
+      count: fanartsMeta?.artworkCount || null,
     },
   ];
 
@@ -154,7 +160,6 @@ export default function Tabs({ info, fanarts, progress, seasonList, bonusFilms }
         {tab === "episodes" && (
           <Episodes
             info={info}
-            fanarts={fanarts}
             progress={progress}
             seasonList={seasonList}
             bonusFilms={bonusFilms}
@@ -167,7 +172,7 @@ export default function Tabs({ info, fanarts, progress, seasonList, bonusFilms }
         {tab === "characters" && <CharactersTab info={info} />}
         {tab === "artworks" && (
           <Artworks
-            fanarts={fanarts}
+            animeId={info.id}
             coverFallback={info.coverImage?.extraLarge || info.coverImage?.large}
             bannerFallback={info.bannerImage}
           />

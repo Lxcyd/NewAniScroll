@@ -2,7 +2,7 @@ import { AniListInfoTypes } from "types/info/AnilistInfoTypes";
 import Hero from "./Hero";
 import Tabs from "./Tabs";
 import Recommendations from "./Recommendations";
-import { FanartResponse, SeasonInfo, TitleImage } from "./helpers";
+import { FanartsMeta, SeasonInfo, TitleImage } from "./helpers";
 import type { SeasonEntry } from "@/lib/anilist/seasonChain";
 import type { FilmVariant } from "@/lib/anilist/resolveSeason";
 import styles from "./styles.module.css";
@@ -11,10 +11,11 @@ import { useTranslation } from "react-i18next";
 
 type Props = {
   info: AniListInfoTypes;
-  /** Fanarts shipped inline from SSR (lib/db/fanarts.loadFanarts).
-   *  Null when Turso is unavailable; the page degrades to AniList-only
-   *  imagery in that case. */
-  initialFanarts: FanartResponse | null;
+  /** Fanart COUNTS only. The rows are no longer serialised into the page —
+   *  they were 24 KB of every HTML response for two tab bodies that only mount
+   *  on click. useFanarts pulls them then. Null when Turso is unavailable; the
+   *  page degrades to AniList-only imagery in that case. */
+  fanartsMeta: FanartsMeta | null;
   /** Pre-picked hero artwork (URL + kind + cycle queue) so the <img>
    *  renders in the initial HTML and clicks can cycle through other
    *  clearart variants without a refetch. */
@@ -39,7 +40,7 @@ type Props = {
 
 export default function InfoPage({
   info,
-  initialFanarts,
+  fanartsMeta,
   initialTitleImage,
   seasonInfo,
   seasonList,
@@ -54,7 +55,6 @@ export default function InfoPage({
 }: Props) {
   const titlePref = useTitlePref();
   const { t } = useTranslation();
-  const fanarts = initialFanarts;
 
   const ratingRank =
     info.rankings?.find((r) => r.type === "RATED" && r.allTime)?.rank ?? null;
@@ -94,7 +94,7 @@ export default function InfoPage({
       >
         <Tabs
           info={info}
-          fanarts={fanarts}
+          fanartsMeta={fanartsMeta}
           progress={progress}
           seasonList={seasonList}
           bonusFilms={bonusFilms}

@@ -1,11 +1,14 @@
 import { CSSProperties, useEffect, useState } from "react";
-import { collectArtworks, FanartResponse } from "./helpers";
+import { collectArtworks } from "./helpers";
+import { useFanarts } from "@/lib/hooks/useFanarts";
 import styles from "./styles.module.css";
 import { useTranslation } from "react-i18next";
 import { useFanartProxyDown, resolveFanartSrc, onFanartError } from "@/lib/images/fanartFallback";
 
 type Props = {
-  fanarts: FanartResponse | null;
+  /** AniList id — the gallery rows are fetched on mount (i.e. on tab click)
+   *  rather than shipped in the page payload. See FanartsMeta. */
+  animeId: number;
   /** Cover from AniList — always include as a default artwork. */
   coverFallback?: string | null;
   bannerFallback?: string | null;
@@ -22,11 +25,15 @@ const TYPE_LABEL: Record<string, string> = {
 };
 
 export default function Artworks({
-  fanarts,
+  animeId,
   coverFallback,
   bannerFallback,
 }: Props) {
   const { t } = useTranslation();
+  /* This body only mounts once the Artworks tab is selected, so fetching here
+     IS the lazy load. Shared memo with <Episodes>, so opening both costs one
+     request. */
+  const { fanarts } = useFanarts(animeId);
   const typeLabel = (type: string) =>
     TYPE_LABEL[type] ? t(`anime.artType.${type}`) : type;
   const arts = collectArtworks(fanarts);

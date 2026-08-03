@@ -22,7 +22,7 @@ import { getUserList, peekListEntry, hasUserList, patchListEntry } from "@/lib/a
 import { peekLocalEntry, LOCAL_LIST_EVENT } from "@/lib/list/localList";
 import { useSyncPrefs } from "@/lib/prefs/syncPrefs";
 import { getCachedAnime } from "@/lib/db/anime";
-import { loadFanarts, slimFanartsForSsr, FanartPayload } from "@/lib/db/fanarts";
+import { loadFanarts } from "@/lib/db/fanarts";
 import { resolveSeasonChain, resolveSeasonList, resolveBonusFilms, SeasonEntry } from "@/lib/anilist/seasonChain";
 import type { FilmVariant } from "@/lib/anilist/resolveSeason";
 import { notify } from "@/lib/notifications/noticeStore";
@@ -31,7 +31,8 @@ import { AniListInfoTypes } from "types/info/AnilistInfoTypes";
 import InfoPage from "@/components/anime/v2/InfoPage";
 import InfoPageMobile from "@/components/anime/v2/mobile/InfoPageMobile";
 import { useIsMobile } from "@/lib/hooks/useIsMobile";
-import { pickTitleImage, slugifyTitle, SeasonInfo, TitleImage } from "@/components/anime/v2/helpers";
+import { pickTitleImage, collectArtworks, slugifyTitle, SeasonInfo, TitleImage } from "@/components/anime/v2/helpers";
+import type { FanartsMeta } from "@/components/anime/v2/helpers";
 import { replaceUrlPreservingState } from "@/lib/navigation/replaceUrl";
 
 type InfoTypes = {
@@ -39,7 +40,9 @@ type InfoTypes = {
   color: string;
   api: string;
   chapterNotFound: string;
-  fanarts: FanartPayload | null;
+  /** Counts only — the fanart rows are fetched on tab click (useFanarts).
+   *  See FanartsMeta for why. */
+  fanartsMeta: FanartsMeta | null;
   /** Clearart/logo URL picked at SSR time so the <img> is in the
    *  initial HTML and starts streaming with the document. Carries a
    *  cycle queue for clearart so the client can swap images on click. */
@@ -84,7 +87,7 @@ const CACHE_VERSION = "v5";
 export default function Info({
   info,
   chapterNotFound,
-  fanarts,
+  fanartsMeta,
   initialTitleImage,
   seasonInfo,
   seasonList,
@@ -618,7 +621,7 @@ export default function Info({
         {isMobile ? (
           <InfoPageMobile
             info={info}
-            initialFanarts={fanarts}
+            fanartsMeta={fanartsMeta}
             initialTitleImage={initialTitleImage}
             seasonInfo={seasonInfo}
             seasonList={seasonList}
@@ -634,7 +637,7 @@ export default function Info({
         ) : (
           <InfoPage
             info={info}
-            initialFanarts={fanarts}
+            fanartsMeta={fanartsMeta}
             initialTitleImage={initialTitleImage}
             seasonInfo={seasonInfo}
             seasonList={seasonList}
@@ -703,6 +706,33 @@ function makeTimer() {
       console.log(`[ssr info] ${summary}`);
     },
   };
+}
+
+/* Collapse the fanart payload to the two counts the tab bar needs. The rows go
+   over the wire only when a tab that reads them is opened — see FanartsMeta and
+   lib/hooks/useFanarts. */
+function toFanartsMeta(fanarts: any): FanartsMeta | null {
+  if (!fanarts) return null;
+  return {
+    total: fanarts.total ?? 0,
+    artworkCount: collectArtworks(fanarts).length,
+  };
+}
+
+/* Drop the cast from the `info` that goes into __NEXT_DATA__.
+
+   It is ~12 KB on a big title and only the Characters tab reads it — a tab body
+   that <Tabs> does not even mount until its tab is clicked, at which point
+   CharactersTab pulls the rows from /api/v2/characters/[id]. The count is kept
+   inline so the tab badge is correct on first paint.
+
+   Applied at the props boundary only: the Redis blob under `anime:v5:<id>` and
+   the media cache primed by primeMediaCache both keep the full object, so
+   nothing downstream (the watch page, /api/v2/media) loses a field. */
+function stripCharacters(info: any): any {
+  if (!info?.characters) return info;
+  const { characters, ...rest } = info;
+  return { ...rest, charactersCount: characters?.edges?.length ?? 0 };
 }
 
 export async function getServerSideProps(ctx: any) {
@@ -818,11 +848,10 @@ export async function getServerSideProps(ctx: any) {
     // Resolve fanarts first so we can ALSO emit a preload header for
     // the clearart before we await the (slower) season-chain walk.
     // Single-row Turso read, typically <50ms.
-    const fanarts = await loadFanarts(animeIdNum)
-      .then(slimFanartsForSsr)
-      .catch(() => null);
+    const fanarts = await loadFanarts(animeIdNum).catch(() => null);
     timer.mark("fanarts");
     const initialTitleImage = pickTitleImage(fanarts);
+    const fanartsMeta = toFanartsMeta(fanarts);
     // No clearart preload header — see the <link> note above: the <img> may
     // swap to assets.fanart.tv on proxy error, leaving a proxy-URL preload
     // unconsumed ("preloaded but not used"). preconnect handles the latency.
@@ -837,11 +866,11 @@ export async function getServerSideProps(ctx: any) {
     timer.end(`cache-hit id=${id?.[0]}`);
     return {
       props: {
-        info,
+        info: stripCharacters(info),
         color,
         api: API_URI,
         chapterNotFound: chapterNotFound || null,
-        fanarts,
+        fanartsMeta,
         initialTitleImage,
         seasonInfo,
         seasonList,
@@ -904,11 +933,10 @@ export async function getServerSideProps(ctx: any) {
 
   // Resolve fanarts ahead of the slower walker work so we can emit the
   // clearart preload header before the response body is sent.
-  const fanarts = await loadFanarts(animeIdNum)
-    .then(slimFanartsForSsr)
-    .catch(() => null);
+  const fanarts = await loadFanarts(animeIdNum).catch(() => null);
   timer.mark("fanarts");
   const initialTitleImage = pickTitleImage(fanarts);
+  const fanartsMeta = toFanartsMeta(fanarts);
   // No clearart preload header — the <img> may swap to assets.fanart.tv on
   // proxy error, which would leave a proxy-URL preload unconsumed.
 
@@ -944,11 +972,11 @@ export async function getServerSideProps(ctx: any) {
 
   return {
     props: {
-      info: data,
+      info: stripCharacters(data),
       color,
       api: API_URI,
       chapterNotFound: chapterNotFound || null,
-      fanarts,
+      fanartsMeta,
       initialTitleImage,
       seasonInfo,
       seasonList,
