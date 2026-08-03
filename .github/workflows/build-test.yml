@@ -1,5 +1,18 @@
 name: Build Test
 
+# Compiles the app on every PR to main. It had NEVER passed once — its first
+# run was PR #1 on 03/08/2026 — because `npm run build` starts with
+# `prisma migrate deploy`, which needs DATABASE_URL / DIRECT_URL and a
+# reachable Postgres. CI has neither, so the job died before webpack ever ran
+# and the gate said nothing about the code.
+#
+# Fixed by doing here what CI is actually for: generate the Prisma client and
+# compile. Migrations belong to the deploy (Vercel runs `npm run build` with the
+# real credentials), not to a build check — and pointing a CI job at the
+# production database to satisfy a schema validation would be worse than no
+# check at all. The dummy URLs below are never connected to; Prisma only parses
+# them to validate the schema and emit the client.
+
 on:
   pull_request:
     branches:
@@ -11,15 +24,24 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Set up Node.js
-        uses: actions/setup-node@v2
+        uses: actions/setup-node@v4
         with:
-          node-version: 18
+          # Match the runtime Vercel builds and serves on. Node 18 here meant
+          # the check compiled against a version production never uses.
+          node-version: 22
 
       - name: Install dependencies
-        run: npm install
+        # --ignore-scripts: @tensorflow/tfjs-node (an opening-detector
+        # dependency, never imported by the site) builds a native addon that
+        # needs a C++ toolchain. It is irrelevant to the Next.js bundle.
+        run: npm install --ignore-scripts
 
       - name: Build the Next.js app
-        run: npm run build
+        env:
+          # Parsed for schema validation only — never connected to.
+          DATABASE_URL: postgresql://user:pass@localhost:5432/db?schema=public
+          DIRECT_URL: postgresql://user:pass@localhost:5432/db?schema=public
+        run: npx prisma generate && npx next build
