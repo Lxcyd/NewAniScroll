@@ -2,6 +2,52 @@
 
 Toutes les nouveautés d'AniScroll, les plus récentes en premier.
 
+## [v0.0.6] — Contrôles du lecteur, vraies vignettes d'épisode & rapidité (2026-08-03)
+
+### Ajouté
+- **Raccourcis clavier configurables** : attribuez n'importe quelle touche à
+  n'importe quelle action du lecteur depuis un clavier visuel — glissez l'icône
+  d'une action sur la touche voulue. Regroupés par Lecture, Navigation, Saut,
+  Audio, Vitesse et Affichage, avec un retour aux valeurs par défaut.
+- **Panneau de statistiques vidéo** : résolution, images/s, débit, débit de
+  connexion, tampon et images perdues pendant la lecture — plus un bouton de
+  capture d'écran et « copier le lien à cet instant ».
+- **Bouton épisode suivant** dans la barre de contrôle, à côté de lecture.
+- **Le plein écran survit au changement d'épisode** : passer à l'épisode suivant
+  ne vous éjecte plus du plein écran.
+- **Vraies vignettes d'épisode** : chaque ligne affiche désormais l'image réelle
+  de l'épisode au lieu d'un visuel répété, et de vrais titres d'épisode sur les
+  séries où AniList n'en liste aucun (Chainsaw Man…).
+- **Page Sources** : une page de crédits, accessible depuis le pied de page,
+  listant les bases de données et communautés ouvertes qui alimentent le site.
+- **Nouveau lecteur** : uqload s'ajoute aux serveurs anime-sama.
+
+### Modifié
+- **Un site nettement plus rapide** : les pages et requêtes communes à tous — la
+  page de lecture, les listes d'épisodes, la résolution des sources — sont
+  maintenant servies depuis le CDN au lieu d'être recalculées pour chaque
+  visiteur. Les pages s'ouvrent plus vite et le site tient bien mieux la charge.
+- **Saut d'intro / d'outro plus précis**, sur plus de lecteurs : la détection a
+  été reprise lecteur par lecteur, donc les boutons Passer l'intro et Passer
+  l'outro apparaissent sur plus d'épisodes et tombent à la bonne seconde.
+- **Les notices du lecteur** (sous-titres incrustés, chat) s'affichent comme des
+  notifications empilées dans un coin, et fonctionnent aussi en plein écran.
+- **Barre de navigation lisible sur les visuels clairs** : elle passe en texte
+  sombre quand la bannière derrière elle est claire, au lieu de disparaître.
+
+### Corrigé
+- **Mauvais titres d'épisode sur les suites** : les saisons 2 et suivantes de
+  certaines séries affichaient les titres de la saison 1 (L'Attaque des Titans,
+  Demon Slayer, Jujutsu Kaisen).
+- **Regarder ensemble** : la lecture automatique démarre pour tout le monde dans
+  le salon, et la réinitialisation d'un salon refonctionne.
+- **La page d'accueil et le planning ne cassent plus** quand le cache est
+  momentanément indisponible.
+- **Serveurs affichés indisponibles à tort** : un lecteur qui échoue une fois
+  pour une raison passagère n'est plus masqué comme s'il n'avait aucune source.
+- Un lecteur choisi à la main ne s'affiche plus comme indisponible au moment
+  précis où vous cliquez dessus.
+
 ## [v0.0.5] — Découverte, fiches, saisons & lecteurs (2026-07-05)
 
 ### Ajouté

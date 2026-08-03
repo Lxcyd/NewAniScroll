@@ -25,7 +25,12 @@ import {
   type StillsCacheValue,
 } from "@/lib/db/tmdbStillsCache";
 import { getFribbEntry } from "@/lib/fribb/fribbMap";
-import { getSimklEpisodes, simklEnabled, simklStillUrl } from "./simklClient";
+import {
+  getSimklEpisodes,
+  resolveSimklId,
+  simklEnabled,
+  simklStillUrl,
+} from "./simklClient";
 
 /** episode number → still URL. Empty when we have nothing trustworthy. */
 export type EpisodeStills = Record<number, string>;
@@ -85,19 +90,28 @@ export async function getSimklEpisodeStills(
     return refuse("unknown-episode-count");
   }
 
+  /* Fribb first (a local row, no network), then ask Simkl itself.
+     Fribb's Simkl coverage is partial and skewed against new shows — 14,480 of
+     its 42,868 entries carry a simkl_id — so relying on it alone left airing
+     titles with no stills at all and every row falling back to the same pool
+     placeholder. Measured case: AniList 208044, `simkl_id: null` in Fribb while
+     Simkl has the entry with 6 stills.
+     A missing Fribb row is no longer fatal either: the AniList id alone is
+     enough for the lookup, `mal_id` is only a second chance. */
   const entry = await getFribbEntry(anilistId);
-  if (!entry) return refuse("no-fribb");
-  if (entry.simklId == null) return refuse("no-simkl-id");
+  const simklId =
+    entry?.simklId ?? (await resolveSimklId(anilistId, entry?.malId ?? null));
+  if (simklId == null) return refuse("no-simkl-id");
 
-  const all = await getSimklEpisodes(entry.simklId);
-  if (!all) return refuse("simkl-error", entry.simklId);
+  const all = await getSimklEpisodes(simklId);
+  if (!all) return refuse("simkl-error", simklId);
 
   // Specials are numbered in their own sequence and would collide with real
   // episode numbers.
   const episodes = all.filter((e) => e.type === "episode");
 
   if (episodes.length < displayedEpisodes) {
-    return refuse("too-few-episodes", entry.simklId);
+    return refuse("too-few-episodes", simklId);
   }
 
   const stills: EpisodeStills = {};
@@ -114,19 +128,19 @@ export async function getSimklEpisodeStills(
   }
 
   const count = Object.keys(stills).length;
-  if (count === 0) return refuse("no-images", entry.simklId);
+  if (count === 0) return refuse("no-images", simklId);
 
   const value: StillsCacheValue = {
     stills,
     titles,
     reason: "ok",
-    tvId: entry.simklId,
+    tvId: simklId,
     season: null,
   };
   await setCachedStills(anilistId, value, "simkl");
   console.info(
     `[simkl-stills] ${anilistId}: ${count}/${displayedEpisodes} stills, ` +
-      `${Object.keys(titles).length} titles (simkl ${entry.simklId})`,
+      `${Object.keys(titles).length} titles (simkl ${simklId})`,
   );
   return { stills, titles };
 }
