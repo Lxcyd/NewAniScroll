@@ -4,11 +4,22 @@ name: usage-monitor
 # Writes tools/usage-monitor/{snapshots/*.json,LATEST.md,HISTORY.md} and commits
 # them so the history builds up for day-over-day deltas.
 #
+# THIS FILE MUST LIVE ON `main`. GitHub only ever schedules a workflow from the
+# repository's DEFAULT branch, and only lists it for manual dispatch if it is
+# there. From 30/07 to 03/08 this file existed on `dev` only: the cron below was
+# never registered, `snapshots/` stayed empty, and the tool that was supposed to
+# see the Upstash wall coming saw nothing at all. If you move it back to a
+# feature branch, it stops running — silently.
+#
 # Required repo secrets (Settings → Secrets and variables → Actions):
 #   UPSTASH_REDIS_REST_URL, UPSTASH_REDIS_REST_TOKEN   (live aniscroll-cache DB)
 # Optional:
 #   UPSTASH_EMAIL, UPSTASH_API_KEY  (daily-requests chart + cap projection)
 #   VERCEL_TOKEN, VERCEL_PROJECT_ID, VERCEL_TEAM_ID  (deploy correlation)
+#
+# With no Upstash secrets the collector now EXITS 1 rather than committing an
+# empty snapshot — a red run is the only reliable signal that the creds are
+# missing.
 
 on:
   schedule:

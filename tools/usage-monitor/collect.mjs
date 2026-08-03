@@ -98,6 +98,22 @@ async function main() {
   console.log("\n" + report);
   console.log(`\n✓ snapshot → tools/usage-monitor/snapshots/${file}`);
   console.log("✓ report   → tools/usage-monitor/LATEST.md");
+
+  // Fail LOUDLY when nothing was actually collected. Every collector above
+  // degrades gracefully on purpose (a missing VERCEL_TOKEN must not lose the
+  // Upstash census), but "all three skipped" is not a degraded run — it is a
+  // monitor that reports nothing while staying green, which is precisely how
+  // this tool sat dead from 30/07 to 03/08 without anyone noticing. A red run
+  // is the signal that the secrets are missing.
+  const censusOk = !!snapshot.census && !snapshot.census.error;
+  const statsOk = !!snapshot.upstashStats && !snapshot.upstashStats.error;
+  if (!censusOk && !statsOk) {
+    console.error(
+      "\n✗ no Upstash data collected — set UPSTASH_REDIS_REST_URL/_TOKEN " +
+        "(census) and/or UPSTASH_EMAIL/UPSTASH_API_KEY (daily requests).",
+    );
+    process.exit(1);
+  }
 }
 
 main().catch((e) => {

@@ -57,6 +57,18 @@ and commits the snapshot + reports. Add the creds above as **repository
 secrets** (Settings → Secrets and variables → Actions). It also supports
 `workflow_dispatch` for a manual run.
 
+> **The workflow file has to be on `main`.** GitHub schedules `cron:` only from
+> the default branch, and only offers manual dispatch for workflows it can see
+> there. This tool was added on `dev` on 30/07 and therefore never ran once —
+> `snapshots/` was still empty on 03/08, while the Upstash cap it exists to
+> watch was being hit. Same trap as any `schedule:` workflow; it fails by doing
+> nothing, which is the hardest failure to notice.
+
+> **Missing creds now fail the run.** Each collector degrades gracefully on its
+> own (no `VERCEL_TOKEN` must not cost you the census), but if *neither* Upstash
+> collector produced data the process exits 1. A red Action is the only thing
+> that reliably tells you the secrets aren't set.
+
 Prefer to keep it out of git history? Switch the workflow's commit step for an
 `actions/upload-artifact` step — the JSON snapshots are self-contained.
 
