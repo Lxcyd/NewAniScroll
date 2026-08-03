@@ -7,7 +7,7 @@ import Footer from "@/components/shared/footer";
 import { useSession } from "next-auth/react";
 import { ChevronRightIcon, MagnifyingGlassIcon } from "@heroicons/react/24/outline";
 import { useRouter } from "next/router";
-import HistoryOptions from "@/components/home/content/historyOptions";
+import HistoryOptions from "@/components/home/historyOptions";
 import Head from "next/head";
 import MobileNav from "@/components/shared/MobileNav";
 import { notify } from "@/lib/notifications/noticeStore";

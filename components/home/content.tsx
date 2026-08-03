@@ -10,7 +10,7 @@ import {
 import { ChevronLeftIcon } from "@heroicons/react/20/solid";
 import { ExclamationCircleIcon, PlayIcon } from "@heroicons/react/24/solid";
 import { useRouter } from "next/router";
-import HistoryOptions from "./content/historyOptions";
+import HistoryOptions from "./historyOptions";
 import { notify } from "@/lib/notifications/noticeStore";
 import { truncateImgUrl } from "@/utils/imageUtils";
 import { coverUrl } from "@/lib/images/cover";
