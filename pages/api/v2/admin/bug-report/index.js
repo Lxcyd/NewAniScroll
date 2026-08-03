@@ -7,6 +7,7 @@ import {
   logAuditEvent,
 } from "@/lib/db/turso-admin";
 import { flagPlayerMap } from "@/lib/db/playerMap";
+import { getClientIp } from "@/lib/net/clientIp";
 
 /**
  * Feed a user report back into the player_map. The watch URL carries the
@@ -47,13 +48,6 @@ const MAX_IMAGES = 5;
 const MAX_IMAGE_BYTES = 2 * 1024 * 1024; // 2 MB per image after base64 decode
 const SPAM_WINDOW_S = 600; // 10 minutes
 const SPAM_THRESHOLD = 3;  // > this many reports in window → block
-
-function getClientIp(req) {
-  const xff = req.headers["x-forwarded-for"];
-  if (typeof xff === "string") return xff.split(",")[0].trim();
-  if (Array.isArray(xff) && xff.length) return xff[0];
-  return req.socket?.remoteAddress || null;
-}
 
 /**
  * Bug-report endpoint backed by the admin Turso DB.

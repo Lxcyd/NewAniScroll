@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { redis } from "@/lib/redis";
 import { anilistFetch } from "@/lib/anilist/anilistFetch";
+import { setEdgeCache } from "@/lib/http/edgeCache";
 
 /**
  * GET /api/v2/discover/<page>
@@ -46,20 +47,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   // every few cards, and re-requesting one already in the browser cache costs a
   // billed Edge Request even though it HITs the CDN. Well inside the 30 min
   // edge/Redis TTL, so no added staleness.
-  const setEdgeCache = () => {
-    res.setHeader("Cache-Control", "public, max-age=300");
-    res.setHeader(
-      "CDN-Cache-Control",
-      `public, s-maxage=${TTL_S}, stale-while-revalidate=86400`,
-    );
-  };
 
   if (redis) {
     try {
       const cached = await redis.get(cacheKey);
       if (cached) {
         res.setHeader("X-Cache", "HIT");
-        setEdgeCache();
+        setEdgeCache(res, TTL_S);
         return res.status(200).json(JSON.parse(cached));
       }
     } catch {
@@ -84,6 +78,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   res.setHeader("X-Cache", "MISS");
-  setEdgeCache();
+  setEdgeCache(res, TTL_S);
   return res.status(200).json(payload);
 }

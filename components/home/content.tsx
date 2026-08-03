@@ -14,6 +14,7 @@ import HistoryOptions from "./content/historyOptions";
 import { notify } from "@/lib/notifications/noticeStore";
 import { truncateImgUrl } from "@/utils/imageUtils";
 import { coverUrl } from "@/lib/images/cover";
+import { formatCountdownCompact } from "@/utils/getTimes";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { animeHref, useClickTarget } from "@/lib/prefs/clickTarget";
 import { useTranslation } from "react-i18next";
@@ -492,7 +493,7 @@ export default function Content({
                                   Episode {anime.nextAiringEpisode.episode} in
                                 </h1>
                                 <h1 className="font-bold">
-                                  {convertSecondsToTime(
+                                  {formatCountdownCompact(
                                     anime?.nextAiringEpisode?.timeUntilAiring
                                   )}
                                 </h1>
@@ -739,23 +740,6 @@ export default function Content({
   );
 }
 
-function convertSecondsToTime(sec: number) {
-  let days = Math.floor(sec / (3600 * 24));
-  let hours = Math.floor((sec % (3600 * 24)) / 3600);
-  let minutes = Math.floor((sec % 3600) / 60);
-
-  let time = "";
-
-  if (days > 0) {
-    time += `${days}d `;
-    time += `${hours}h`;
-  } else {
-    time += `${hours}h `;
-    time += `${minutes}m`;
-  }
-
-  return time.trim();
-}
 
 function checkProgress(entry: { progress: any; media: any }) {
   const { progress, media } = entry;
