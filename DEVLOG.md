@@ -7,6 +7,63 @@ Ordre anti-chronologique (le plus récent en haut). Une entrée = une session/su
 
 ---
 
+## 2026-08-03 — Le fix du 30/07 n'était jamais parti en prod (et le monitor ne pouvait pas le dire)
+
+Parti de deux captures Vercel (Functions 12 h + Fluid Active CPU **6h41 / 4h**) avec la consigne « regarde le usage monitor ». Le monitor n'a rien à dire : `snapshots/` est vide depuis le 30/07. **Ma première lecture des captures était fausse** et c'est la leçon centrale de la session.
+
+### Ce que j'ai cru, puis mesuré
+
+Lecture naïve du tableau : `/api/v2/source` 1,5 K → 155 invocations, page watch 1,3 K → 31. « Le fix du 30/07 a marché, spectaculairement. » Faux. `npx vercel logs aniscroll.com --json` (le CLI est authentifié, ça marche, **c'est l'outil qui manquait**) :
+
+```
+requestMethod:"POST"  requestPath:"/api/v2/source"  cache:"MISS"  branch:"main"
+```
+
+**La prod tourne `main`, qui n'a jamais reçu le commit `8fc3d62`.** `dev` est 135 commits devant ; le seul truc mergé le 29/07 était la branche `perf-cpu-fix`. Toutes les mesures triomphales du 30/07 (« 18 HIT, 0 invocation ») avaient été faites **sur le preview**. La baisse observée sur les captures, c'est le **reset mensuel Upstash du 1er août** (cache de nouveau vivant → moins de recompute), pas un fix. Le mur de mi-août revenait à l'identique.
+
+**Leçon : un fix validé sur preview n'est pas un fix. Vérifier `git branch --contains <sha>` avant de conclure quoi que ce soit d'un dashboard de prod.** Le DEVLOG du 29/07 se faisait déjà exactement ce reproche (« toujours vérifier `git log origin/main..origin/dev` **avant** de bâtir une timeline ») — et j'ai remis le pied dedans quatre jours plus tard.
+
+### Une 2ᵉ mise en cache décorative, du même acabit que le POST
+
+Mesuré au curl sur la prod, deux fois de suite :
+
+```
+GET /en/anime/watch/16498/1
+  Set-Cookie: __Host-next-auth.csrf-token=…
+  Cdn-Cache-Control: public, s-maxage=1800…
+  X-Vercel-Cache: MISS        ← les deux fois
+```
+
+`getServerSession()` **pose des cookies** en sortant. Une réponse avec `Set-Cookie` n'est stockée par aucun cache partagé → le `s-maxage=1800` de la branche *anonyme* ne servait à rien non plus. Le DEVLOG du 30/07 attribuait la non-cachabilité aux seuls connectés (`private, no-store`) ; en réalité **personne** n'était caché. **Leçon : lire la session côté serveur rend la réponse non-cachable même quand on ne met rien de personnel dedans.**
+
+### Ce qui est parti sur `perf-prod-aug` (branche partie de `main`, 3 commits)
+
+Même méthode que `perf-cpu-fix` : cherry-pick de ce qui s'applique proprement (4/5 fichiers de `8fc3d62`, dont la route `/source`), **réapplication à la main de la page watch** pour ne pas embarquer le code de feature de `dev` (`setPlayerFullscreen`, `DECOY_RETRIES`).
+
+- **`/api/v2/source` en GET** + branche « absente » edge-cachée. POST intact pour les warmers.
+- **SSR watch sans session** → plus de `Set-Cookie`. Au passage : `createUser`+`createList`+`getEpisode` supprimés (3 allers-retours Prisma pour une prop `userData` jamais lue).
+- **`/` : redirect dans `next.config.js`** au lieu d'un `getServerSideProps` qui ne retournait que `{ redirect }` — **133 invocations/12 h** pour un en-tête `Location` que la couche de routage sert gratuitement.
+- **Popup changelog** (`0413ed5`, aussi coincé sur dev) : `?t=${Date.now()}` + `no-store` deux fois par page pour un markdown qui change au déploiement.
+- **`mediaMeta` supprimé du contrat client** : la route n'en lisait que `idMal` → `?malId=`. Bonus, ça ferme le piège que la route documentait déjà (données client atteignant les caches serveur, cf. « SnK S1 joue la S2 »).
+
+**Vérifié sur le preview** (curl, pas déduit) : watch MISS→**HIT**, `Set-Cookie` disparu ; GET `/source` MISS→HIT→HIT ; **branche « absente » HIT** (c'est ~la moitié des sondes) ; POST toujours 200 ; `/` → 307 sans passer par une fonction. Type-check + `next build` propres.
+
+### Le monitor : pourquoi il n'a jamais tourné
+
+Pas (que) les secrets, comme dit le 30/07. **`tools/usage-monitor/` et son workflow n'existaient que sur `dev`, et GitHub n'enregistre les `schedule:` que depuis la branche par défaut.** Le cron de 06:20 n'a jamais existé côté GitHub ; le workflow n'était même pas dispatchable à la main. Déplacé sur `main`, avec la raison écrite en tête de fichier.
+
+Second défaut : le collecteur dégradait gracieusement *chaque* source, donc une exécution **sans aucune** credential sortait en **exit 0** après avoir commité un snapshot vide. Il `exit 1` désormais si aucun collecteur Upstash n'a produit de données. **Leçon : un monitor qui ne rapporte rien en restant vert est pire que pas de monitor.**
+
+### Restant / décidé
+
+- **Secrets à poser** (`UPSTASH_REDIS_REST_URL`/`_TOKEN` depuis `aniscroll-cache`) : `vercel env pull` ne les donne pas, ils sortent en `[SENSITIVE]`. Console Upstash obligatoire.
+- **Page info en ISR : volontairement PAS fait.** Elle pèse 51 % du CPU sur la capture (255 inv × 224 ms), mais sur 15 min de logs réels elle fait 6 lignes contre **54 pour `/api/v2/source`**, toutes MISS. Refactorer 973 lignes à l'aveugle avant que le fix ci-dessus n'ait changé le profil, c'est exactement l'erreur nommée le 30/07 (« le fix du 29 a optimisé le petit »). À rouvrir avec les chiffres d'après-merge.
+- **`/api/og` compte-t-il dans Fluid ?** Le 29/07 concluait « runtime edge, pas Fluid, ne pas optimiser ». La capture le montre dans le tableau Fluid : **23 s de CPU pour 4 invocations** (5,75 s/appel), 21 % du total. À revérifier — si c'est confirmé, c'est le 2ᵉ levier. Accessoirement son `Cache-Control` sort dupliqué (`@vercel/og` pose le sien, le nôtre est concaténé derrière, `s-maxage` perdu) — sans effet mesurable, il HIT quand même.
+- **Les 1,3 % d'erreurs sur `/source` sont normales** : c'est `sendRetryable` → 503 sur un upstream capricieux, compté 5XX par Vercel. Rien à corriger.
+- **Le 6h41/4h est un cumul de cycle** (axe 6 juil → 3 août, reset vers le 5-6 août), dominé par le pic du 18/07 (1h23 à lui seul) et le palier pré-reset. La barre du jour : 4 min 6 s.
+
+---
+
 ## 2026-07-30 (suite 4) — Chasse aux invocations : le POST qui rendait tout le cache décoratif
 
 Parti du tableau Observability de Vercel (top Active CPU : `/api/v2/source` 1,5 K invocations / 1 min CPU, page watch 1,3 K / 51 s, page info 107 / 28 s). Le monitor maison (`tools/usage-monitor`) **n'a jamais tourné** : `snapshots/` est vide, pas de `LATEST.md` — il manque les secrets Upstash/Vercel dans les Actions. À réactiver, c'est lui qui doit voir venir le mur, pas une capture d'écran.
