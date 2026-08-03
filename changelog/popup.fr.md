@@ -1,9 +1,9 @@
-## v0.0.5
+## v0.0.6
 
-🎉 **Découverte** — un nouveau fil vertical plein écran, façon TikTok. Glissez une fiche à droite ou à gauche pour l'ajouter à votre liste AniList, ou touchez **« Pour vous »** pour des recommandations personnalisées.
+⌨️ **Vos propres raccourcis** — attribuez n'importe quelle touche à n'importe quelle action du lecteur depuis un clavier visuel, et ouvrez un panneau de **statistiques vidéo** avec capture d'écran et « copier le lien à cet instant ».
 
-🎬 **Opening / Ending** — parcourez et regardez les génériques d'une série, avec de nouveaux onglets Films et Compilations sur chaque fiche.
+🖼️ **Vraies vignettes d'épisode** — chaque ligne affiche enfin son propre visuel au lieu de la même image répétée, avec de vrais titres là où AniList n'en liste aucun.
 
-📺 **Saisons corrigées** — une refonte de la numérotation remet les saisons dans le bon ordre (fini la saison 2 qui jouait la saison 1), et les longues séries comme One Piece s'affichent instantanément.
+⛶ **Le plein écran qui tient** — un bouton **épisode suivant** dans la barre de contrôle, et passer à l'épisode suivant ne vous éjecte plus du plein écran.
 
-⚡ **Lecteurs plus fiables** — moins d'épisodes qui refusent de se lancer, et une lecture automatique qui démarre vraiment.
+⚡ **Un site bien plus rapide** — les pages communes à tous sont servies depuis le CDN au lieu d'être reconstruites pour chaque visiteur, et le saut d'intro / d'outro est plus précis sur plus de lecteurs.

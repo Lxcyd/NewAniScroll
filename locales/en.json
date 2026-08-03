@@ -756,7 +756,6 @@
       "mal": "The per-episode community scores shown on the Scores tab.",
       "jikan": "The open API that makes MyAnimeList data reachable.",
       "simkl": "Real per-episode thumbnails, including for the very long-running series other databases don't cover.",
-      "tmdb": "Additional episode thumbnails.",
       "fribb": "The cross-database ID map, without which none of these could be matched to each other.",
       "aniskip": "Community-sourced timestamps for skipping openings and endings.",
       "animeskip": "Opening/ending skip timestamps, as a complement."

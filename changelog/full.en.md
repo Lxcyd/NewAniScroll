@@ -2,6 +2,50 @@
 
 All notable changes to AniScroll appear here. Most recent first.
 
+## [v0.0.6] — Player controls, real episode thumbnails & speed (2026-08-03)
+
+### Added
+- **Configurable keyboard shortcuts**: assign any key to any player action from
+  a visual keyboard — drag an action's icon onto the key you want. Grouped by
+  Playback, Navigation, Skip, Audio, Speed and View, with a reset to defaults.
+- **Video stats panel**: resolution, FPS, bitrate, connection speed, buffer
+  health and dropped frames while you watch — plus a screenshot button and
+  "copy link at this timestamp".
+- **Next-episode button** in the player's control bar, next to play.
+- **Fullscreen survives an episode change**: moving to the next episode no
+  longer kicks you out of fullscreen.
+- **Real per-episode thumbnails**: episode rows now show the actual frame from
+  each episode instead of a repeated placeholder, and real episode titles on
+  shows where AniList lists none (Chainsaw Man…).
+- **Sources page**: a credits page in the footer listing the open databases and
+  communities whose data powers the site.
+- **New player**: uqload is available as an additional anime-sama server.
+
+### Changed
+- **A much faster site**: the pages and requests everyone shares — the watch
+  page, the episode lists, source resolution — are now served from the CDN
+  instead of being recomputed for every visitor. Pages open quicker and the
+  site holds up far better under load.
+- **More accurate intro / outro skipping**, on more players: detection was
+  reworked per player, so the Skip Intro and Skip Outro buttons appear on more
+  episodes and land on the right second.
+- **Player notices** (hardcoded subtitles, chat) now appear as regular toasts,
+  stacked in the corner, and work in fullscreen too.
+- **Readable navigation bar on light artwork**: the bar switches to dark text
+  when the banner behind it is light, instead of turning invisible.
+
+### Fixed
+- **Wrong episode titles on sequels**: seasons 2+ of some shows listed season
+  1's episode titles (Attack on Titan, Demon Slayer, Jujutsu Kaisen).
+- **Watch together**: autoplay now starts for everyone in the room, and
+  resetting a room works again.
+- **The home page and schedule no longer break** when the cache is briefly
+  unavailable.
+- **Servers that wrongly appeared unavailable**: a player that failed once for a
+  temporary reason is no longer hidden as if it had no source.
+- A player selected by hand no longer shows as unavailable the moment you click
+  it.
+
 ## [v0.0.5] — Discover, info pages, seasons & players (2026-07-05)
 
 ### Added

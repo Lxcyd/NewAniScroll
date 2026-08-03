@@ -1,9 +1,10 @@
 /**
  * Per-episode stills for an AniList id, via Simkl: cache → validate → fetch → cache.
  *
- * Simkl's id maps 1:1 onto the AniList entry (Fribb's `simkl_id`), so unlike
- * TMDB there is no season to infer — which is why this works for the titles
- * lib/tmdb/resolveTmdbSeason.ts must refuse (One Piece: no tmdb_season at all).
+ * Simkl's id maps 1:1 onto the AniList entry (Fribb's `simkl_id`), so there is
+ * no season to infer. That is why it is now the only stills provider: the TMDB
+ * path it replaced had to map a franchise onto a season and then refuse
+ * whenever it couldn't prove the match (One Piece has no tmdb_season at all).
  *
  * We still validate rather than trust. The check is a floor, not equality:
  *   - Drop `type: "special"` first — specials inflate the count (AoT S1 returns
@@ -24,7 +25,12 @@ import {
   type StillsCacheValue,
 } from "@/lib/db/tmdbStillsCache";
 import { getFribbEntry } from "@/lib/fribb/fribbMap";
-import { getSimklEpisodes, simklEnabled, simklStillUrl } from "./simklClient";
+import {
+  getSimklEpisodes,
+  resolveSimklId,
+  simklEnabled,
+  simklStillUrl,
+} from "./simklClient";
 
 /** episode number → still URL. Empty when we have nothing trustworthy. */
 export type EpisodeStills = Record<number, string>;
@@ -76,7 +82,9 @@ export async function getSimklEpisodeStills(
       };
       await setCachedStills(anilistId, value, "simkl");
     }
-    console.info(`[simkl-stills] ${anilistId}: no stills (${reason})`);
+    // warn, not info: "this title shows placeholder tiles" is the symptom we
+    // actually get asked about, and Vercel's log stream drops `info`.
+    console.warn(`[simkl-stills] ${anilistId}: no stills (${reason})`);
     return EMPTY_DATA;
   };
 
@@ -84,19 +92,34 @@ export async function getSimklEpisodeStills(
     return refuse("unknown-episode-count");
   }
 
+  /* Fribb first (a local row, no network), then ask Simkl itself.
+     Fribb's Simkl coverage is partial and skewed against new shows — 14,480 of
+     its 42,868 entries carry a simkl_id — so relying on it alone left airing
+     titles with no stills at all and every row falling back to the same pool
+     placeholder. Measured case: AniList 208044, `simkl_id: null` in Fribb while
+     Simkl has the entry with 6 stills.
+     A missing Fribb row is no longer fatal either: the AniList id alone is
+     enough for the lookup, `mal_id` is only a second chance. */
   const entry = await getFribbEntry(anilistId);
-  if (!entry) return refuse("no-fribb");
-  if (entry.simklId == null) return refuse("no-simkl-id");
+  let simklId = entry?.simklId ?? null;
+  if (simklId == null) {
+    simklId = await resolveSimklId(anilistId, entry?.malId ?? null);
+    console.warn(
+      `[simkl-stills] ${anilistId}: no simkl_id in fribb (mal=${entry?.malId ?? "?"}) ` +
+        `→ direct lookup ${simklId == null ? "FAILED" : "resolved " + simklId}`,
+    );
+  }
+  if (simklId == null) return refuse("no-simkl-id");
 
-  const all = await getSimklEpisodes(entry.simklId);
-  if (!all) return refuse("simkl-error", entry.simklId);
+  const all = await getSimklEpisodes(simklId);
+  if (!all) return refuse("simkl-error", simklId);
 
   // Specials are numbered in their own sequence and would collide with real
   // episode numbers.
   const episodes = all.filter((e) => e.type === "episode");
 
   if (episodes.length < displayedEpisodes) {
-    return refuse("too-few-episodes", entry.simklId);
+    return refuse("too-few-episodes", simklId);
   }
 
   const stills: EpisodeStills = {};
@@ -113,19 +136,19 @@ export async function getSimklEpisodeStills(
   }
 
   const count = Object.keys(stills).length;
-  if (count === 0) return refuse("no-images", entry.simklId);
+  if (count === 0) return refuse("no-images", simklId);
 
   const value: StillsCacheValue = {
     stills,
     titles,
     reason: "ok",
-    tvId: entry.simklId,
+    tvId: simklId,
     season: null,
   };
   await setCachedStills(anilistId, value, "simkl");
   console.info(
     `[simkl-stills] ${anilistId}: ${count}/${displayedEpisodes} stills, ` +
-      `${Object.keys(titles).length} titles (simkl ${entry.simklId})`,
+      `${Object.keys(titles).length} titles (simkl ${simklId})`,
   );
   return { stills, titles };
 }

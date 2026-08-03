@@ -7,6 +7,53 @@ Ordre anti-chronologique (le plus récent en haut). Une entrée = une session/su
 
 ---
 
+## 2026-08-03 (suite) — Release `dev` → `main`, monitor vivant, et TMDB dégagé
+
+### La release
+
+`dev` → `main` mergé (PR #1, 136 commits). Merge testé avant : **zéro conflit**, `next build` propre sur l'arbre mergé. Le conflit sur `episode/[id].tsx` que le DEVLOG du 29/07 annonçait n'a pas eu lieu — git a auto-mergé et les deux fixes perf ont survécu (vérifié : `edgeSmaxage`, `filterData` sans clone).
+
+**`perf-prod-aug` supprimée.** Elle réécrivait à la main sur `main` ce que `dev` avait nativement → la merger d'abord créait 2 conflits (`next.config.js`, page watch) que `dev` seul n'avait pas. Les deux seules choses qui n'étaient que sur elle (redirect `/`, durcissement du monitor) ont été portées sur `dev` d'abord. **Leçon : quand une branche de backport et la branche principale se recouvrent, porter le delta sur la principale et jeter le backport — ne jamais merger les deux.**
+
+**Vérifié en prod après déploiement** (curl, pas déduit) :
+```
+page watch          MISS → HIT      (avant : MISS, MISS)   + Set-Cookie disparu
+GET /api/v2/source  MISS → HIT → HIT
+absent (~½ sondes)  MISS → HIT
+/                   307 sans en-tête x-vercel-cache → servi par le routage, pas de fonction
+```
+Et sur 133 s de trafic réel : `/api/v2/source` en **GET, 5 HIT / 2 MISS**. Le matin même : 54 POST, 54 MISS, zéro HIT.
+
+### `build-test.yml` n'avait jamais réussi une seule fois
+
+Sa toute première exécution était cette PR #1 — et elle a échoué **avant de compiler quoi que ce soit** : `npm run build` commence par `prisma migrate deploy`, qui veut `DATABASE_URL`/`DIRECT_URL` et un Postgres joignable. La CI n'a ni l'un ni l'autre. Le gate ne disait rien sur le code depuis sa création. Corrigé : `prisma generate && next build` avec des URLs bidons (parsées pour valider le schéma, jamais connectées), Node 18 → 22, actions v2 → v4, `npm install --ignore-scripts`. **Leçon : un check qui n'a jamais été vert n'est pas un check.** Il passe maintenant en 1 min 52.
+
+### Le monitor tourne
+
+Secrets Upstash posés par le user → run vert en 22 s, premier recensement commité. Ce qu'il montre tout de suite : **`anime:v5` = 3 756 clés, 67 % du keyspace**. Le gros du cache Redis, c'est la page info, pas `src:` (1 clé — TTL 5 min). `episode:v3` (1 654) est le résidu de l'ancienne prod, il expirera seul ; `episode:v5` démarrait à 15.
+
+Restent optionnels : `UPSTASH_EMAIL`+`UPSTASH_API_KEY` (c'est **eux** qui projettent le plafond de 500 K, donc qui voient venir le mur) et `VERCEL_TOKEN`.
+
+### TMDB supprimé (décision user)
+
+« On arrête avec TMDB, plus jamais, on utilise Simkl. » Retiré : client, résolveur de saison, adaptateur de stills, crédit sur /en/sources, disclaimer contractuel, `TMDB_API_KEY`.
+
+Le point qui justifie la décision : **Simkl n'a aucune saison à inférer** (son id, via `simkl_id` de Fribb, indexe la MÊME entrée qu'AniList). Tout le poids du chemin TMDB venait de là — mapper une franchise sur une saison TMDB, valider contre un compte d'épisodes exact, et refuser dès qu'il ne pouvait pas prouver le match. **Mesuré après suppression, avec `?refresh=1` pour forcer le recalcul** : couverture inchangée. Chainsaw Man 12/12 par Simkl (AniList ne liste rien), One Piece 1102 Simkl + 69 Crunchyroll sur 1172.
+
+**Gardés exprès :**
+- `tmdb_stills_cache` **garde son nom** : la table contient des lignes Simkl vivantes en prod ; la renommer les orphelinerait et re-téléchargerait le catalogue pour rien. `StillsSource` garde sa variante `"tmdb"` pour que les vieilles lignes restent lisibles.
+- **`tmdb_id` / `season.tmdb` de Fribb ne sont PAS TMDB le fournisseur** — ce sont des identifiants dans un fichier de mapping statique dont `resolveSeason.ts` se sert pour arbitrer l'ordre des franchises. Rien à voir avec l'API.
+
+**Piège corrigé au passage :** une note mémoire affirmait « l'onglet Scores utilise TMDB, nécessite `TMDB_API_KEY` ». **Faux** — il est sur Jikan depuis toujours. J'avais recommandé au user de poser `TMDB_API_KEY` en me basant dessus. **Leçon : une note périmée qui contredit le code produit une recommandation fausse ; vérifier avant de conseiller une variable d'env.**
+
+### Piège d'outillage (auto-infligé)
+
+J'avais créé une jonction Windows `node_modules` **à l'intérieur** d'un worktree de test. `git worktree remove --force` a suivi la jonction et vidé le `node_modules` du dépôt principal. Réinstallé (`npm install --ignore-scripts`). **Leçon : ne jamais mettre de jonction/symlink vers un dossier partagé dans un worktree qu'on va supprimer en `--force`.**
+
+Effet de bord non résolu : depuis, `next build` **local** meurt en OOM dans la phase de type-check (le worker de Next plafonne à 4 Go et n'hérite pas de `NODE_OPTIONS`). **Vérifié que ce n'est PAS lié à la suppression de TMDB** — il OOM aussi avec les changements remisés. La validation est passée par le build Vercel (préview Ready en 1 min), qui est de toute façon l'environnement de référence. À creuser si ça gêne.
+
+---
+
 ## 2026-08-03 — Le fix du 30/07 n'était jamais parti en prod (et le monitor ne pouvait pas le dire)
 
 Parti de deux captures Vercel (Functions 12 h + Fluid Active CPU **6h41 / 4h**) avec la consigne « regarde le usage monitor ». Le monitor n'a rien à dire : `snapshots/` est vide depuis le 30/07. **Ma première lecture des captures était fausse** et c'est la leçon centrale de la session.

@@ -1,9 +1,9 @@
-## v0.0.5
+## v0.0.6
 
-🎉 **Discover** — a new full-screen, TikTok-style vertical feed. Swipe a card right or left to add it to your AniList, or tap **"For You"** for personalised recommendations.
+⌨️ **Your own shortcuts** — assign any key to any player action from a visual keyboard, and open a **video stats** panel with screenshot and "copy link at this timestamp".
 
-🎬 **Opening / Ending** — browse and watch a show's openings and endings, with new Movies and Compilations tabs on every page.
+🖼️ **Real episode thumbnails** — every episode row now shows its own frame instead of the same repeated image, with real titles where AniList lists none.
 
-📺 **Fixed seasons** — a reworked numbering engine puts seasons back in the right order (no more Season 2 playing Season 1), and long shows like One Piece now open instantly.
+⛶ **Fullscreen that stays** — a **next episode** button in the control bar, and moving to the next episode no longer drops you out of fullscreen.
 
-⚡ **Sturdier players** — fewer episodes that won't start, and autoplay that actually kicks in.
+⚡ **A much faster site** — the pages everyone shares are now served from the CDN instead of being rebuilt for each visitor, and intro / outro skipping is more accurate on more players.

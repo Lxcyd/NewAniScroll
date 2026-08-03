@@ -4,7 +4,6 @@ import { rateLimiterRedis, rateSuperStrict, redis } from "@/lib/redis";
 import { NextApiRequest, NextApiResponse } from "next";
 import { anilistFetch } from "@/lib/anilist/anilistFetch";
 import { getCachedAnime } from "@/lib/db/anime";
-import { getEpisodeStills } from "@/lib/tmdb/episodeStills";
 import {
   getSimklEpisodeStills,
   type SimklEpisodeData,
@@ -124,9 +123,8 @@ function buildEpisodeList(
          artwork loaded already, and this response is a shared 30-day cache
          blob, so a pick made here would freeze one viewer's choice for all.
 
-         AniList's own thumb wins over TMDB: it belongs to THIS entry, whereas
-         a TMDB still is inferred via a season mapping (validated, but still an
-         inference — see lib/tmdb/resolveTmdbSeason.ts). */
+         AniList's own thumb still wins over the Simkl still when it survived
+         the foreign-entry check above: it is this entry's own artwork. */
       img: streaming?.thumbnail || stills[num] || null,
       description: null,
     };
@@ -258,38 +256,32 @@ export default async function handler(
     return res.status(404).json({ error: "Anime not found" });
   }
 
-  /* Real per-episode stills. Only on the cache-miss path — a Redis hit returns
-     above and never reaches these.
+  /* Real per-episode stills, from Simkl. Only on the cache-miss path — a Redis
+     hit returns above and never reaches these.
 
-     Two sources, merged with TMDB winning per episode:
-       - TMDB is validated against an EXACT episode-count match on a mapped
-         season, so where it answers it's the tighter guarantee.
-       - Simkl is keyed to this exact AniList entry (no season inference), so it
-         covers what TMDB structurally can't — long sagas with no tmdb_season
-         (One Piece) and airing shows with no total.
-     Merging rather than choosing: TMDB may cover a season Simkl lacks images
-     for, and vice versa. Neither is ever the ANIME's banner, so a mixed row set
-     is still all real per-episode frames.
+     TMDB used to be merged in on top of this (it won per episode, being
+     validated against an exact episode-count match on a mapped season). It is
+     gone: Simkl is keyed to THIS AniList entry, so it needs no season
+     inference at all, which is what made the TMDB path both fragile and
+     expensive — a mapping to resolve, a validation to refuse on, and an API key
+     to carry. Where Simkl has no image the row falls back to the client's
+     fanart pool, same as it always did past the timeout.
 
-     Timeboxed: the episode list is the site's hot path and these make external
-     calls. Past the budget we drop the stills and let the client's fanart pool
-     cover the rows; the result still lands in the cache on a later request. */
+     Timeboxed: the episode list is the site's hot path and this makes an
+     external call. Past the budget we drop the stills and let the pool cover
+     the rows; the result still lands in the cache on a later request. */
   const displayed = displayedEpisodeCount(media);
-  const [tmdbStills, simkl] = await Promise.race([
-    Promise.all([
-      getEpisodeStills(Number(id), media?.episodes ?? null).catch(() => ({})),
-      getSimklEpisodeStills(Number(id), displayed || null).catch(() => ({
-        stills: {},
-        titles: {},
-      })),
-    ]),
-    new Promise<[Record<number, string>, SimklEpisodeData]>((r) =>
-      setTimeout(() => r([{}, { stills: {}, titles: {} }]), 3000),
+  const simkl = await Promise.race([
+    getSimklEpisodeStills(Number(id), displayed || null).catch(() => ({
+      stills: {},
+      titles: {},
+    })),
+    new Promise<SimklEpisodeData>((r) =>
+      setTimeout(() => r({ stills: {}, titles: {} }), 3000),
     ),
   ]);
-  const stills = { ...simkl.stills, ...tmdbStills };
 
-  const rawData = buildEpisodeList(id as string, media, stills, simkl.titles);
+  const rawData = buildEpisodeList(id as string, media, simkl.stills, simkl.titles);
 
   // Cache
   if (redis && cacheTime !== null && rawData.length > 0) {
