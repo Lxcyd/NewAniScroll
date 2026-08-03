@@ -7,6 +7,35 @@ Ordre anti-chronologique (le plus récent en haut). Une entrée = une session/su
 
 ---
 
+## 2026-08-03 (suite 2) — « Pourquoi on a pas les bonnes vignettes ? » — Fribb ne connaît qu'un tiers des ids Simkl
+
+Signalement user : `/fr/anime/208044`, les 6 épisodes affichent **la même image**. `GET /api/v2/episode/208044` → `img: null` partout, donc le client retombe sur le pool fanart.
+
+**Ce n'est pas notre code, c'est la couverture de Fribb.** Mesuré sur le fichier live :
+```
+anime-list-mini.json : 14 480 / 42 868 entrées ont un simkl_id  (34 %)
+fribb_map (Turso)    : 13 018 / 20 693
+AniList 208044       : simkl_id = null   (mais mal_id 63508 présent)
+```
+Simkl a pourtant l'entrée complète (id 3025908, 6 stills). **On ne lui demandait jamais**, parce que Fribb était le seul chemin qu'on connaissait vers son id. Et le trou frappe exactement les titres qui en ont le plus besoin : une série en cours de diffusion est la moins susceptible d'avoir été indexée par le mapping.
+
+**Fix :** Fribb reste le chemin rapide (une ligne locale, zéro réseau), `resolveSimklId` est le repli — `/search/id` de Simkl, par id AniList puis par id MAL. Une ligne Fribb absente n'est plus bloquante (`no-fribb` n'est plus un cul-de-sac). Vérifié en prod, cache purgé, **dès le premier appel à froid : 6/6 vraies URLs `simkl.in`**.
+
+**Note sur TMDB :** Fribb avait `themoviedb_id.tv: 314554` + `season.tmdb: 1` pour ce titre — mais TMDB ne l'aurait pas sauvé non plus, son ancien chemin exigeait une **égalité exacte** du nombre d'épisodes, ce qu'une série en diffusion ne peut pas satisfaire. La suppression de TMDB ne coûte rien ici.
+
+### Deux pièges de diagnostic à retenir
+
+1. **`?refresh=1` ne purge que Redis, pas le cache de stills Turso.** Le premier test après le fix renvoyait toujours `null` : c'était la ligne `{"reason":"no-simkl-id"}` de `tmdb_stills_cache` (TTL 24 h) qui répondait, avant même que le code ne tourne. Il faut supprimer la ligne pour tester un changement de résolution. 6 lignes bloquées ont été purgées après le déploiement.
+2. **Vercel ne remonte pas les `console.info`** dans `vercel logs --json` — seulement warn/error. Un titre en vignettes génériques ne laissait donc **aucune trace**, ce qui est précisément le symptôme dont on nous parle. Le log de refus est passé en `warn`, et la résolution directe logge son issue.
+
+**Leçon générale : « aucune ligne écrite en cache » ne prouve pas quelle branche a tourné** — si le client Turso n'est pas configuré dans cet environnement, rien ne s'écrit quoi qu'il arrive. J'ai perdu plusieurs allers-retours à déduire d'une absence. Instrumenter au bon niveau de log, puis lire, aurait été plus court.
+
+### Changelog v0.0.6
+
+`changelog/full.{en,fr}.md` + `popup.{en,fr}.md`. Format respecté (popup = première ligne `## vX.Y.Z`, puis 4 lignes `emoji + **titre** — phrase` ; seul `**gras**` est rendu, la signature est un hash du fichier entier donc toute édition re-déclenche le popup). Contenu : éditeur de raccourcis, stats vidéo, bouton épisode suivant, plein écran conservé, vraies vignettes, page Sources, uqload, et le travail de perf.
+
+---
+
 ## 2026-08-03 (suite) — Release `dev` → `main`, monitor vivant, et TMDB dégagé
 
 ### La release
