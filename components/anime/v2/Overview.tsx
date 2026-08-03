@@ -11,7 +11,11 @@ import {
   capitalize,
 } from "./helpers";
 import Related from "./Related";
-import RelationsGraph from "./RelationsGraph";
+import dynamic from "next/dynamic";
+
+/* The relations overlay is behind a button most visitors never press, and it
+   renders nothing until `open`. Split out so its cost is paid on first open. */
+const RelationsGraph = dynamic(() => import("./RelationsGraph"));
 import styles from "./styles.module.css";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { useTranslation } from "react-i18next";
@@ -35,6 +39,11 @@ export default function Overview({ info, seasonList }: Props) {
   const { t, i18n } = useTranslation();
   const [spoilers, setSpoilers] = useState(false);
   const [graphOpen, setGraphOpen] = useState(false);
+  /* Mount the (lazily-chunked) overlay only once it has been opened, so the
+     chunk isn't fetched on page load — it renders null when closed anyway.
+     Sticky rather than tied to `graphOpen` so a reopened graph keeps its
+     pan/zoom, exactly as when it was always mounted. */
+  const [graphMounted, setGraphMounted] = useState(false);
 
   const details = useMemo(() => buildDetails(info, t), [info, t]);
   const allTags = info.tags || [];
@@ -181,7 +190,10 @@ export default function Overview({ info, seasonList }: Props) {
               <div style={tStyles.secKicker}>{t("anime.sectionRelations")}</div>
               <button
                 type="button"
-                onClick={() => setGraphOpen(true)}
+                onClick={() => {
+                  setGraphMounted(true);
+                  setGraphOpen(true);
+                }}
                 style={relMapBtnStyle}
                 title={t("anime.relationsMap", { defaultValue: "View timeline" })}
               >
@@ -211,13 +223,15 @@ export default function Overview({ info, seasonList }: Props) {
           </section>
         </div>
 
-        <RelationsGraph
-          open={graphOpen}
-          onClose={() => setGraphOpen(false)}
-          relations={info.relations?.edges || []}
-          seasonList={seasonList}
-          currentId={info.id}
-        />
+        {graphMounted && (
+          <RelationsGraph
+            open={graphOpen}
+            onClose={() => setGraphOpen(false)}
+            relations={info.relations?.edges || []}
+            seasonList={seasonList}
+            currentId={info.id}
+          />
+        )}
 
         {/* Row 2 col 1 — Tags + External Sites (absolutely positioned trick
              so the sidebar height tracks the main column). */}

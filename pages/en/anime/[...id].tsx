@@ -1,4 +1,5 @@
 import Head from "next/head";
+import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import { resolveSource, warmStream, clearPrefetchedSourcesFor } from "@/lib/watch/sourcePrefetch";
@@ -28,8 +29,16 @@ import type { FilmVariant } from "@/lib/anilist/resolveSeason";
 import { notify } from "@/lib/notifications/noticeStore";
 import { Navbar } from "@/components/shared/NavBar";
 import { AniListInfoTypes } from "types/info/AnilistInfoTypes";
-import InfoPage from "@/components/anime/v2/InfoPage";
-import InfoPageMobile from "@/components/anime/v2/mobile/InfoPageMobile";
+/* The page renders exactly ONE of these — the branch is known from the
+   useragent at SSR — but importing both statically shipped both layouts to
+   every visitor. Split so a phone never downloads the desktop tree and vice
+   versa. A desktop visitor who narrows the window past the md breakpoint
+   (useIsMobile switches to matchMedia after mount) fetches the other chunk
+   then, which is the rare case worth paying for. */
+const InfoPage = dynamic(() => import("@/components/anime/v2/InfoPage"));
+const InfoPageMobile = dynamic(
+  () => import("@/components/anime/v2/mobile/InfoPageMobile"),
+);
 import { useIsMobile } from "@/lib/hooks/useIsMobile";
 import { pickTitleImage, collectArtworks, slugifyTitle, SeasonInfo, TitleImage } from "@/components/anime/v2/helpers";
 import type { FanartsMeta } from "@/components/anime/v2/helpers";
