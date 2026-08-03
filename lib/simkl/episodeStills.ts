@@ -82,7 +82,9 @@ export async function getSimklEpisodeStills(
       };
       await setCachedStills(anilistId, value, "simkl");
     }
-    console.info(`[simkl-stills] ${anilistId}: no stills (${reason})`);
+    // warn, not info: "this title shows placeholder tiles" is the symptom we
+    // actually get asked about, and Vercel's log stream drops `info`.
+    console.warn(`[simkl-stills] ${anilistId}: no stills (${reason})`);
     return EMPTY_DATA;
   };
 
@@ -99,8 +101,14 @@ export async function getSimklEpisodeStills(
      A missing Fribb row is no longer fatal either: the AniList id alone is
      enough for the lookup, `mal_id` is only a second chance. */
   const entry = await getFribbEntry(anilistId);
-  const simklId =
-    entry?.simklId ?? (await resolveSimklId(anilistId, entry?.malId ?? null));
+  let simklId = entry?.simklId ?? null;
+  if (simklId == null) {
+    simklId = await resolveSimklId(anilistId, entry?.malId ?? null);
+    console.warn(
+      `[simkl-stills] ${anilistId}: no simkl_id in fribb (mal=${entry?.malId ?? "?"}) ` +
+        `→ direct lookup ${simklId == null ? "FAILED" : "resolved " + simklId}`,
+    );
+  }
   if (simklId == null) return refuse("no-simkl-id");
 
   const all = await getSimklEpisodes(simklId);
