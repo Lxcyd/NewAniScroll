@@ -1,5 +1,108 @@
 # DEVLOG
 
+## 2026-08-04 — Passe de perf : bundle, images, code splitting, scroll
+
+Point de départ : « le site est très laggy ». Tout a été mesuré au build, pas
+supposé — et le build lui-même était cassé, ce qui a été la première trouvaille.
+
+### Le build ne passait plus (et personne ne le voyait)
+`tsconfig.json` avait `exclude: ["node_modules"]`, qui n'exclut QUE le
+node_modules racine. Avec `include: ["**/*.ts"]`, tsc avalait donc
+`worker/node_modules` (125 Mo, typings wrangler + workerd) et les caches de
+scraping sauvegardés en `.ts` sous `tools/`. Le build mourait en OOM au-delà de
+**12 Go** de heap, en phase « checking validity of types ». Excludes explicites
+→ build complet en **71 s**. À retenir : `"node_modules"` seul est un piège dès
+qu'un sous-projet a ses propres deps.
+
+### Bundle : shared 247 → 201 kB, _app 138 → 91,6 kB
+- **framer-motion vivait dans `_app`** pour un unique fade d'opacité 0→1 — donc
+  dans le chunk partagé de TOUTES les pages. Remplacé par un keyframe CSS
+  (`.as-fade-in` dans globals.css). Même chose pour les wrappers purement
+  décoratifs de about / my-list / profile / settings, et pour search où
+  l'animation tournait **par carte de résultat**. framer-motion ne reste que
+  sur home et schedule, où il anime réellement quelque chose (carrousel héros).
+- **Les deux locales étaient bundlées** dans `_app` : chaque visiteur
+  téléchargeait ~48 kB de traductions qu'il ne lirait jamais. Seule la locale
+  par défaut (celle du SSR) reste bundlée ; l'autre arrive via `ensureLanguage()`
+  dans son propre chunk, dont le fetch part à l'évaluation du module pour
+  recouvrir l'hydratation. `I18nProvider` l'attend avant `changeLanguage`, donc
+  on ne bascule jamais sur une langue dont les chaînes ne sont pas là.
+  `partialBundledLanguages: true` est requis côté i18next.
+
+### Images : la vraie cause du scroll qui saccade
+`images.unoptimized: true` (volontaire, pour ne pas payer les transformations
+Vercel) veut dire que l'URL passée à `<Image>` est **littéralement** ce que le
+navigateur télécharge et décode. Or presque tous les appelants prenaient
+`coverImage.extraLarge`, y compris les cartes de 135-180 px. Mesuré :
+
+| variante | segment d'URL AniList | taille | poids |
+|---|---|---|---|
+| extraLarge | `/cover/large/` | 460×636 | 83,8 kB |
+| large | `/cover/medium/` | 230×318 | 28,8 kB |
+| medium | `/cover/small/` | 100×138 | 9,7 kB |
+
+Sur une home d'une soixantaine de posters : ~5 Mo et ~18 Mpx à décoder contre
+~1,7 Mo et ~4 Mpx. Les trois variantes ne diffèrent que par ce segment, donc
+`lib/images/cover.ts` **dérive** la bonne taille de celle qu'on a reçue —
+aucune query GraphQL à changer (le batch de la home ne demande QUE extraLarge),
+aucun payload en plus, et les URL non-AniList passent intactes. Le helper
+remplace au passage l'échelle `extraLarge || large || medium` recopiée dans une
+dizaine de composants. Laissé en `full` là où l'image est réellement grande :
+héros, poster de fiche, grille de recherche, deck discover.
+
+### Code splitting de la fiche anime : 53,2 → 9,1 kB de JS de page
+Les onglets étaient déjà montés à la demande mais **importés statiquement** :
+tout le monde téléchargeait Episodes (le plus gros composant de l'app),
+ScoresTab, CharactersTab et Artworks pour n'afficher qu'Overview. Pire, la page
+embarquait InfoPage (desktop) ET InfoPageMobile alors que la branche est connue
+dès le SSR via l'useragent. Chacun est passé en `next/dynamic` (ssr:true — rien
+n'est browser-only, un onglet restauré depuis le hash d'un lien partagé doit
+rendre côté serveur). L'overlay RelationsGraph n'est monté qu'à la première
+ouverture, avec un montage **collant** (pas lié à `open`) pour qu'un graphe
+rouvert garde son pan/zoom, exactement comme quand il restait monté.
+299 → 212 kB de first load.
+
+### Scroll
+- **Navbar** (sur quasi toutes les pages) : elle stockait l'offset brut, donc un
+  setState et un re-render de tout le composant à chaque événement de scroll,
+  alors que seuls **deux booléens** en sont dérivés. Calculés dans le handler,
+  coalescés en rAF, setState uniquement quand un booléen bascule.
+- Bug trouvé au passage : `scrollPosition?.y ?? 0 >= 180` se parse en
+  `scrollPosition?.y ?? (0 >= 180)`, soit « y est-il non nul » → le bouton
+  « haut de page » apparaissait après 1 px de scroll, pas 180.
+- **Scroll infini** : le même useEffect copié-collé dans 4 pages, lisant
+  `document.body.offsetHeight` dans le handler (reflow synchrone forcé à chaque
+  scroll, sur les pages au DOM le plus long). Chaque copie appelait aussi
+  `removeEventListener` depuis l'intérieur du handler, en doublon du cleanup —
+  et ce mécanisme cessait silencieusement de marcher dès que l'effet se
+  ré-exécutait. Factorisé dans `lib/hooks/useInfiniteScroll`.
+
+### Résultat (first load JS)
+| route | avant | après |
+|---|---|---|
+| shared / `_app` | 247 / 138 kB | **201 / 91,6 kB** |
+| `/en/anime/[...id]` | 299 kB | **212 kB** |
+| `/en/anime/watch/[...info]` | 341 kB | **296 kB** |
+| `/en/settings` | 256 kB | **209 kB** |
+| `/en/anime/popular` | 230 kB | **184 kB** |
+
+### Pistes restantes
+- Page watch encore à 91,9 kB de JS de page : ReportModal / RateModal /
+  WatchPartyPanel sont montés en permanence et se contentent de se cacher —
+  mêmes candidats que RelationsGraph. Attention : RateModal anime son ouverture
+  en CSS depuis l'état monté, donc le gater sur le montage lui ferait perdre son
+  fondu (contrairement à ReportModal qui utilise `<Transition appear>` de
+  headlessui et supporte le montage tardif).
+- `tailwindcss-animate` est en devDependency mais **absent des plugins** de
+  tailwind.config.js → dépendance morte.
+- `components/home/content.tsx` coexiste avec un dossier `components/home/content/`
+  (un seul fichier dedans, historyOptions.js). Résolution ambiguë à l'œil nu,
+  piège pour la prochaine personne.
+- Vérifier en vrai sur dev.aniscroll.com : bascule FR (le chunk de locale arrive
+  maintenant en différé) et onglets de la fiche anime.
+
+---
+
 Journal des modifs de dev, pour garder le contexte entre les sessions (survit aux `/clear`).
 Ordre anti-chronologique (le plus récent en haut). Une entrée = une session/sujet, avec **décisions** et **leçons/pièges**, pas juste les commits (git les a déjà).
 
