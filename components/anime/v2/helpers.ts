@@ -285,7 +285,12 @@ export type FanartItem = {
   language: string | null;
   likes: number;
   season: number | null;
-  label: string;
+  /* Both are server-side only: the NSFW decision is made by the WHERE clause in
+     lib/db/fanarts.loadFanarts, and slimFanartsForSsr strips them before the
+     payload is serialised into __NEXT_DATA__. No component reads either — they
+     stay declared (optional) so a payload straight from /api/v2/fanarts, which
+     still carries them, also type-checks. */
+  label?: string;
   nsfwScore?: number | null;
 };
 
