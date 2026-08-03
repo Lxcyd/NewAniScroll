@@ -1,5 +1,4 @@
 import Head from "next/head";
-import { motion } from "framer-motion";
 import Link from "next/link";
 import { Navbar } from "@/components/shared/NavBar";
 import Footer from "@/components/shared/footer";
@@ -24,12 +23,7 @@ export default function About() {
         <link rel="icon" type="image/png" href="/logo.png" />
       </Head>
       <Navbar withNav={true} scrollP={5} shrink={true} />
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        className="flex flex-col justify-center items-center min-h-screen md:py-0 py-16"
-      >
+      <div className="as-fade-in flex flex-col justify-center items-center min-h-screen md:py-0 py-16">
         <div className="max-w-screen-lg w-full px-4 py-10">
           <h1 className="text-4xl font-bold mb-6">{t("about.title")}</h1>
           <p className="text-lg mb-8">{t("about.p1")}</p>
@@ -42,7 +36,7 @@ export default function About() {
             </div>
           </Link>
         </div>
-      </motion.div>
+      </div>
       <Footer />
     </>
   );

@@ -2,7 +2,6 @@ import Head from "next/head";
 import Link from "next/link";
 import Image from "next/image";
 import { useMemo, useState } from "react";
-import { motion } from "framer-motion";
 import { Navbar } from "@/components/shared/NavBar";
 import Footer from "@/components/shared/footer";
 import { useTranslation } from "react-i18next";
@@ -62,11 +61,7 @@ export default function MyListLocal() {
       </Head>
       <Navbar withNav toTop shrink bgHover scrollP={110} paddingY={"py-1"} />
 
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        className="min-h-screen w-full max-w-screen-lg mx-auto px-4 pt-28 pb-16"
-      >
+      <div className="as-fade-in min-h-screen w-full max-w-screen-lg mx-auto px-4 pt-28 pb-16">
         <div className="mb-8 flex items-start justify-between gap-4">
           <div>
             <h1 className="text-3xl font-bold mb-1">{t("nav.myList")}</h1>
@@ -190,7 +185,7 @@ export default function MyListLocal() {
             </div>
           </>
         )}
-      </motion.div>
+      </div>
       <Footer />
     </>
   );
