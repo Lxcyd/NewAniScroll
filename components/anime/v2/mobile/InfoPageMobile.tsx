@@ -17,7 +17,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { AniListInfoTypes } from "types/info/AnilistInfoTypes";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import {
-  FanartResponse,
+  FanartsMeta,
   SeasonInfo,
   TitleImage,
   formatAiredRange,
@@ -52,7 +52,9 @@ import RelationsGraph from "../RelationsGraph";
 
 type Props = {
   info: AniListInfoTypes;
-  initialFanarts: FanartResponse | null;
+  /** Fanart COUNTS only — the rows are fetched by whichever tab body needs
+   *  them, i.e. on click. See FanartsMeta. */
+  fanartsMeta: FanartsMeta | null;
   initialTitleImage: TitleImage | null;
   seasonInfo: SeasonInfo;
   seasonList: SeasonEntry[];
@@ -70,7 +72,7 @@ type TabId = "overview" | "episodes" | "scores" | "characters" | "artworks";
 
 export default function InfoPageMobile({
   info,
-  initialFanarts,
+  fanartsMeta,
   initialTitleImage,
   seasonInfo,
   seasonList,
@@ -88,7 +90,12 @@ export default function InfoPageMobile({
   const [tab, setTab] = useState<TabId>("overview");
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  const charCount = (info.characters?.edges?.length as number | undefined) || 0;
+  /* `characters` is stripped from the SSR payload; the SSR ships this count
+     instead so the badge is right without the rows. */
+  const charCount =
+    ((info as any).charactersCount as number | undefined) ??
+    (info.characters?.edges?.length as number | undefined) ??
+    0;
   // Real loaded count reported by <Episodes>; falls back to AniList metadata /
   // aired-so-far before the tab has loaded.
   const [loadedEpCount, setLoadedEpCount] = useState<number | null>(null);
@@ -97,7 +104,7 @@ export default function InfoPageMobile({
     loadedEpCount ??
     info.episodes ??
     (info.nextAiringEpisode?.episode ? info.nextAiringEpisode.episode - 1 : 0);
-  const artCount = initialFanarts?.total || 0;
+  const artCount = fanartsMeta?.total || 0;
 
   return (
     <div style={S.root}>
@@ -134,7 +141,6 @@ export default function InfoPageMobile({
           <div style={S.tabBox}>
             <Episodes
               info={info}
-              fanarts={initialFanarts}
               progress={progress}
               seasonList={seasonList}
               bonusFilms={bonusFilms}
@@ -155,7 +161,7 @@ export default function InfoPageMobile({
         {tab === "artworks" && (
           <div style={S.tabBox}>
             <Artworks
-              fanarts={initialFanarts}
+              animeId={info.id}
               coverFallback={
                 info.coverImage?.extraLarge ||
                 info.coverImage?.large ||

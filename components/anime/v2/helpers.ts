@@ -301,6 +301,23 @@ export type FanartResponse = {
   types: Record<string, FanartItem[]>;
 };
 
+/* What the SSR ships INSTEAD of the FanartResponse above.
+
+   The rows themselves were 24 KB of every info-page HTML response (208 of them
+   on One Piece) even though only two tab bodies read them, and <Tabs> mounts a
+   body only once its tab is clicked. The tab bar still has to render its count
+   badges on first paint, though — and a count is all it needs. So the payload
+   collapses to these two numbers and lib/hooks/useFanarts fetches the rows from
+   /api/v2/fanarts on demand. */
+export type FanartsMeta = {
+  /** Every row the query returned — drives the mobile "Artworks" badge. */
+  total: number;
+  /** Rows that collectArtworks would actually surface in the gallery
+      (gallery-eligible types, acceptable language). Precomputed at SSR so the
+      desktop badge is right without the rows being present. */
+  artworkCount: number;
+};
+
 export type TitleImage = {
   url: string;
   kind: "clearart" | "logo";

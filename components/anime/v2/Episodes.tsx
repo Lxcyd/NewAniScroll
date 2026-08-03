@@ -14,7 +14,6 @@ import type { FilmVariant } from "@/lib/anilist/resolveSeason";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { useHideSpoilers } from "@/lib/prefs/spoilerPrefs";
 import { slugifyTitle } from "./helpers";
-import type { FanartResponse } from "./helpers";
 import {
   buildEpisodeImagePool,
   pickEpisodeImage,
@@ -22,6 +21,7 @@ import {
 import { onFanartError, originalFanartUrl } from "@/lib/images/fanartFallback";
 import OpEdPanel, { useOpEdThemes } from "./OpEdPanel";
 import FilmsPanel from "./FilmsPanel";
+import { useFanarts } from "@/lib/hooks/useFanarts";
 import { useTranslation } from "react-i18next";
 
 /** Episode title to display — a neutral "Episode N" when spoilers are hidden. */
@@ -92,7 +92,6 @@ type Props = {
    *  tab. Used to give each episode row a different image when AniList has no
    *  per-episode thumbnails (see lib/images/episodeImagePool.ts). Optional:
    *  callers without it (watch sidebar) just fall back to the banner. */
-  fanarts?: FanartResponse | null;
   /** Other seasons of the same franchise (current included). */
   seasonList?: SeasonEntry[];
   /** Franchise bonus films (SIDE_STORY movies — HxH: Phantom Rouge). Rendered
@@ -119,7 +118,12 @@ const ROW_HEIGHT = {
   compact: 44,
 };
 
-export default function Episodes({ info, fanarts, progress, seasonList, bonusFilms, onEpisodeCount }: Props) {
+export default function Episodes({ info, progress, seasonList, bonusFilms, onEpisodeCount }: Props) {
+  /* Fanart rows are no longer inlined in the page (see FanartsMeta). This body
+     only mounts once the Episodes tab is selected, so the fetch here IS the
+     lazy load; the hook memoises across tab switches and shares its result
+     with <Artworks>. Thumbnails fall back to AniList art until it resolves. */
+  const { fanarts } = useFanarts(info.id);
   const titlePref = useTitlePref();
   /* Built once per anime, not per row: buildEpisodeImagePool walks every
      fanart type and collectArtworks re-sorts them, which is wasted work on a
