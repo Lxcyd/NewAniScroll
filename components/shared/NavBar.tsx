@@ -15,6 +15,7 @@ import NotificationBell from "./NotificationBell";
 import LanguageToggle from "./LanguageToggle";
 import { isAdminName } from "@/lib/auth/isAdmin";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
+import { useNavOnLight } from "@/lib/color/navContrast";
 import { useTranslation } from "react-i18next";
 
 const getScrollPosition = (el: Window | Element = window) => {
@@ -94,6 +95,15 @@ export function Navbar({
       window.removeEventListener("scroll", handleScroll);
     };
   }, []);
+  /* ── Chrome colour ──
+     The navbar is white-on-transparent, which vanishes over a light banner
+     (see lib/color/navContrast: the hero measures the pixels under us). Flip to
+     dark chrome only while we're still transparent — past the scroll threshold
+     the navbar paints its own dark background and white wins again. */
+  const scrolled = (scrollPosition?.y ?? 0) >= scrollP;
+  const bannerIsLight = useNavOnLight();
+  const onLight = bannerIsLight && !scrolled;
+
   // ── Unified navbar layout ──
   // Same structure on every page: logo left, nav links spread, centered
   // search bar, avatar right. Symmetric horizontal padding so the logo's
@@ -119,10 +129,8 @@ export function Navbar({
         //     the navbar is fully opaque, killing edge-sampling artefacts.
         className={`fixed top-0 left-0 right-0 z-[9999] w-full ${PAD_X} py-2 rounded-none border-0 ${
           bgHover ? "hover:bg-tersier" : ""
-        } ${
-          (scrollPosition?.y ?? 0) >= scrollP
-            ? "bg-tersier"
-            : ""
+        } ${scrolled ? "bg-tersier" : ""} ${
+          onLight ? "nav-on-light" : ""
         } transition-colors duration-200 ease-linear`}
         style={{
           borderRadius: 0,
@@ -149,7 +157,11 @@ export function Navbar({
               type="button"
               onClick={() => setIsOpen(true)}
               title={t("nav.search")}
-              className="hidden lg:flex absolute left-1/2 -translate-x-1/2 top-1/2 -translate-y-1/2 items-center gap-2 w-[320px] h-9 px-4 rounded-full bg-white/10 hover:bg-white/15 ring-1 ring-white/10 text-white/70 hover:text-white/90 transition-all"
+              className={`hidden lg:flex absolute left-1/2 -translate-x-1/2 top-1/2 -translate-y-1/2 items-center gap-2 w-[320px] h-9 px-4 rounded-full ring-1 transition-all ${
+                onLight
+                  ? "bg-black/[0.06] hover:bg-black/10 ring-black/10 text-black/60 hover:text-black/80"
+                  : "bg-white/10 hover:bg-white/15 ring-white/10 text-white/70 hover:text-white/90"
+              }`}
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
@@ -179,7 +191,14 @@ export function Navbar({
             <Logo size="sm" />
 
             {withNav && (
-              <ul className="hidden lg:flex items-center gap-8 font-outfit text-[16px]">
+              /* The links carry no colour of their own — they inherit the page
+                 text colour, so the light-banner variant is set here rather
+                 than on the <nav> (which also holds dark dropdown panels). */
+              <ul
+                className={`hidden lg:flex items-center gap-8 font-outfit text-[16px] ${
+                  onLight ? "text-black/80" : ""
+                }`}
+              >
                 <li>
                   <Link
                     /* Lower-case season + year only. The search page
@@ -266,7 +285,10 @@ export function Navbar({
                 rel="noopener noreferrer"
                 title="Join our Discord"
                 aria-label="Join our Discord"
-                className="flex-center w-9 h-9 rounded-full text-white/70 hover:text-white hover:bg-white/10 transition-colors"
+                /* `nav-chrome` = "recolour me when the navbar sits on light
+                   artwork" (styles/globals.css). Same marker on the bell /
+                   report / changelog buttons, which live in their own files. */
+                className="nav-chrome flex-center w-9 h-9 rounded-full text-white/70 hover:text-white hover:bg-white/10 transition-colors"
               >
                 <svg
                   viewBox="0 0 24 24"
@@ -311,7 +333,9 @@ export function Navbar({
                   type="button"
                   onClick={() => signIn("AniListProvider")}
                   title={t("nav.signInWithAniList")}
-                  className="w-10 h-10 bg-white/30 rounded-full overflow-hidden shrink-0"
+                  className={`w-10 h-10 rounded-full overflow-hidden shrink-0 ${
+                    onLight ? "bg-black/10 text-black/70" : "bg-white/30"
+                  }`}
                 >
                   <UserIcon className="w-full h-full translate-y-1" />
                 </button>

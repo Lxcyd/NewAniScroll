@@ -51,3 +51,20 @@ CREATE INDEX IF NOT EXISTS idx_fanart_anime  ON anime_fanarts(anime_id);
 CREATE INDEX IF NOT EXISTS idx_fanart_type   ON anime_fanarts(type);
 CREATE INDEX IF NOT EXISTS idx_fanart_label  ON anime_fanarts(nsfw_label);
 CREATE INDEX IF NOT EXISTS idx_fanart_unclassified ON anime_fanarts(classified_at);
+
+-- ─────────────────────────────────────────────────────────────────────────
+-- tmdb_stills_cache — per-anime TMDB episode still URLs, keyed
+-- "tmdbStills:v1:<anilistId>" (version tag in the key, like season_cache).
+-- Created lazily at runtime by lib/db/tmdbStillsCache.ts; mirrored here so the
+-- schema is readable in one place.
+--
+-- Stores REFUSALS too (empty stills + a `reason`): most anime never resolve to
+-- a trustworthy TMDB season, and caching the "no" is what keeps us from
+-- re-asking TMDB on every cache miss. Lives in the fanarts DB to keep image
+-- row-reads off the hot metadata path.
+-- ─────────────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS tmdb_stills_cache (
+  cache_key   TEXT PRIMARY KEY,        -- tmdbStills:v1:<anilistId>
+  value       TEXT NOT NULL,           -- JSON: { stills, reason, tvId, season }
+  updated_at  INTEGER NOT NULL         -- epoch s; TTL checked on read
+);

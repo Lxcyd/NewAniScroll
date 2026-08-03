@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { toast } from "sonner";
+import { notify } from "@/lib/notifications/noticeStore";
 import { useTranslation } from "react-i18next";
 
 /**
@@ -43,14 +43,14 @@ export default function AnilistHealthBanner() {
 
     const dismiss = () => {
       if (shownRef.current) {
-        toast.dismiss(TOAST_ID);
+        notify.dismiss(TOAST_ID);
         shownRef.current = null;
       }
     };
 
     const showAnilistDown = (message: string | null) => {
       if (shownRef.current === "anilist") return;
-      toast.error(t("health.anilistDown"), {
+      notify.error(t("health.anilistDown"), {
         id: TOAST_ID,
         description:
           (message ? `${message}. ` : "") + t("health.anilistDownDesc"),
@@ -61,7 +61,7 @@ export default function AnilistHealthBanner() {
 
     const showNetworkIssue = () => {
       if (shownRef.current === "network") return;
-      toast.error(t("health.connectionIssue"), {
+      notify.error(t("health.connectionIssue"), {
         id: TOAST_ID,
         description: t("health.connectionIssueDesc"),
         duration: Infinity,

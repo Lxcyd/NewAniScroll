@@ -11,6 +11,7 @@ export interface ChatComposerHandle {
   /** Insert a sticker image (by shortcode) or a unicode char at the caret. */
   insert: (token: string) => void;
   focus: () => void;
+  blur: () => void;
   /** Read the current value as serialized text. */
   getText: () => string;
   /** Clear the composer. */
@@ -24,6 +25,7 @@ interface Props {
   /** Fired on any input/change with the serialized text (for hasText state etc). */
   onChange?: (text: string) => void;
   onFocus?: () => void;
+  onBlur?: () => void;
   maxLen?: number;
   /** Extra styles merged onto the editable box. */
   style?: React.CSSProperties;
@@ -58,7 +60,7 @@ function serialize(root: HTMLElement): string {
 }
 
 const ChatComposer = React.forwardRef<ChatComposerHandle, Props>(function ChatComposer(
-  { placeholder, onSubmit, onChange, onFocus, maxLen = 500, style, className },
+  { placeholder, onSubmit, onChange, onFocus, onBlur, maxLen = 500, style, className },
   ref,
 ) {
   const boxRef = useRef<HTMLDivElement | null>(null);
@@ -112,6 +114,7 @@ const ChatComposer = React.forwardRef<ChatComposerHandle, Props>(function ChatCo
       }
     },
     focus: () => boxRef.current?.focus(),
+    blur: () => boxRef.current?.blur(),
     getText: () => (boxRef.current ? serialize(boxRef.current) : ""),
     clear: () => {
       if (boxRef.current) boxRef.current.innerHTML = "";
@@ -158,6 +161,7 @@ const ChatComposer = React.forwardRef<ChatComposerHandle, Props>(function ChatCo
         onChange?.(text);
       }}
       onFocus={onFocus}
+      onBlur={onBlur}
       onKeyDown={(e) => {
         if (e.key === "Enter" && !e.shiftKey) {
           e.preventDefault();

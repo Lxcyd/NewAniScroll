@@ -15,7 +15,9 @@ import { unixTimestampToRelativeTime } from "@/utils/getTimes";
 import { asCssVars, BRAND } from "@/lib/theme";
 import { applyAccent, getAccent } from "@/lib/prefs/accentColor";
 // import SecretPage from "@/components/secret";
-import { Toaster, toast } from "sonner";
+import NoticeStack from "@/components/shared/NoticeStack";
+import EpisodeTransitionOverlay from "@/components/shared/episodeTransitionOverlay";
+import { notify } from "@/lib/notifications/noticeStore";
 import ChangeLogs from "../components/shared/changelogs";
 import AnilistHealthBanner from "../components/shared/AnilistHealthBanner";
 import { Analytics } from "@vercel/analytics/react";
@@ -86,7 +88,7 @@ function SyncBootstrap() {
     // "Don't sync" — leave both lists untouched, sync stays off.
     if (direction === "off") {
       setSyncPrefs({ enabled: false, directionChosen: true });
-      toast.message(t("settings.sync.dismissedToast"));
+      notify.message(t("settings.sync.dismissedToast"));
       setShowDirection(false);
       return;
     }
@@ -95,7 +97,7 @@ function SyncBootstrap() {
     // Picking a direction enables sync (+ confirmation toast, same style as the
     // "list entry saved" toast).
     setSyncPrefs({ enabled: true });
-    toast.success(t("settings.sync.enabledToast"), {
+    notify.success(t("settings.sync.enabledToast"), {
       description: t("settings.sync.enabledToastDesc"),
     });
     try {
@@ -104,14 +106,14 @@ function SyncBootstrap() {
           ? await fullSyncFromAniList({ replace: true })
           : await fullSyncToAniList();
       if (r.ok) {
-        toast.success(
+        notify.success(
           direction === "fromAniList"
             ? t("settings.sync.synced", { count: r.count })
             : t("settings.sync.pushed", { count: r.count }),
         );
         await runAutoPauseSweep().catch(() => {});
       } else {
-        toast.error(t("settings.sync.syncFailed"));
+        notify.error(t("settings.sync.syncFailed"));
       }
     } finally {
       // Record the answer whatever the outcome so we don't re-prompt on every
@@ -324,9 +326,8 @@ export default function App({
         // Admin can customise the heading — fallback to "Update notice"
         // when they leave it empty.
         const heading = (data.title || "").trim() || "Update notice";
-        toast.message(heading, {
+        notify.message(heading, {
           id: "global-broadcast",
-          position: "bottom-right",
           important: true,
           duration: Infinity,
           className: "font-karla",
@@ -437,7 +438,11 @@ export default function App({
         <SearchProvider>
           <WatchPageProvider>
             <SkeletonTheme baseColor="#232329" highlightColor="#2a2a32">
-                <Toaster richColors theme="dark" closeButton />
+                <NoticeStack />
+                {/* Holds fullscreen (and shows the pink loading bar) while the
+                    player navigates to another episode. Must live OUTSIDE
+                    <Component> so it survives the navigation. */}
+                <EpisodeTransitionOverlay />
                 {/* <SecretPage
                   cheatCode={"aofienaef"}
                   onCheatCodeEntered={handleCheatCodeEntered}

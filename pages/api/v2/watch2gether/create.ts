@@ -15,8 +15,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(429).json({ error: "Too many requests" });
   }
 
-  const { aniId, epiNumber, dub, server, position } = req.body || {};
-  if (!aniId || !epiNumber) {
+  const { aniId, epiNumber, dub, server, position, paused, positionKnown } = req.body || {};
+  // Reject falsy AND the literal "undefined"/"null" strings a client String()
+  // can produce from un-hydrated metadata — a room seeded with those sends every
+  // joiner to /anime/watch/undefined/…, which crashes the page.
+  const bad = (v: unknown) => {
+    const s = String(v ?? "").trim();
+    return s === "" || s === "undefined" || s === "null";
+  };
+  if (bad(aniId) || bad(epiNumber)) {
     return res.status(400).json({ error: "aniId and epiNumber are required" });
   }
 
@@ -29,7 +36,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       server: String(server || ""),
       hostId: user.userId,
       position: Number(position) || 0,
-      paused: true,
+      // Default to paused (safe seed); only start "playing" when the client
+      // explicitly reports the host was mid-playback at create time.
+      paused: paused === false ? false : true,
+      // Only false when the client couldn't read a live <video> (iframe embed),
+      // so `position: 0` here means "unknown" and must not rewind the host.
+      positionKnown: positionKnown !== false,
     });
     // Register the creator as the first member so they can emit events before
     // their SSE join() round-trip completes (the event route gates on this).

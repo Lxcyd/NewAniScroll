@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { toast } from "sonner";
+import { notify } from "@/lib/notifications/noticeStore";
 
 /**
  * Per-anime metadata editor for the admin Metadata page.
@@ -54,11 +54,11 @@ export default function MetadataEditor() {
       });
       const data = await r.json();
       if (r.ok) {
-        toast.success(`Refreshed: ${data.anime?.title || id}`);
+        notify.success(`Refreshed: ${data.anime?.title || id}`);
         // Re-run search so the row reflects the new data.
         setQ((cur) => cur);
       } else {
-        toast.error(data.error || "Refresh failed");
+        notify.error(data.error || "Refresh failed");
       }
     } finally {
       setRefreshing(null);

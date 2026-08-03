@@ -13,6 +13,8 @@ import { useRouter } from "next/router";
 // synchronous hit on remount.
 import { SKIP_MEMO, skipMemoKey, prefetchSkips } from "@/lib/skip/prefetchSkips";
 import { useTranslation } from "react-i18next";
+import { navigateToEpisode } from "@/lib/player/episodeTransition";
+import { isPlayerFullscreen } from "@/lib/player/playerFullscreen";
 
 const SEGMENT_LABEL_KEY: Record<string, string> = {
   op: "player.skipIntro",
@@ -78,6 +80,10 @@ type Props = {
   aniListId?: number | null;
   /** 1-based episode number. */
   episode?: number;
+  /** Active server id (lib/servers.js). Pins the exact encode so the API can
+   *  return that host's own OP/ED — the OP's absolute start is encode-specific.
+   *  When absent the API falls back to the reconciled/crowdsourced timing. */
+  server?: string;
   /** Pre-computed URL for the next episode. */
   nextEpisodeHref?: string | null;
   /** Set to true when a non-Vidstack popover (subtitle picker, etc.)
@@ -112,6 +118,7 @@ export default function SkipOverlay({
   malId,
   aniListId,
   episode,
+  server,
   nextEpisodeHref,
   externalMenuOpen = false,
   isFinalEpisode = false,
@@ -145,7 +152,7 @@ export default function SkipOverlay({
     setRawSkips([]);
     watchCtx?.setSkipTimes?.([]);
     if (!malId || !episode) return;
-    const memoKey = skipMemoKey(malId, episode);
+    const memoKey = skipMemoKey(malId, episode, server);
     const memoed = SKIP_MEMO.get(memoKey);
     if (memoed) {
       setRawSkips(memoed);
@@ -154,16 +161,16 @@ export default function SkipOverlay({
     let cancelled = false;
     (async () => {
       // Shared with the watch page's eager prefetch: if it already ran (or is
-      // in flight) for this episode, this resolves from the memo / the same
-      // request instead of issuing a second one.
-      const arr = await prefetchSkips(malId, episode, aniListId);
+      // in flight) for this episode+server, this resolves from the memo / the
+      // same request instead of issuing a second one.
+      const arr = await prefetchSkips(malId, episode, aniListId, { server });
       if (!cancelled) setRawSkips(arr);
     })();
     return () => {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [malId, aniListId, episode]);
+  }, [malId, aniListId, episode, server]);
 
   // Clamp/filter against the real duration once the player reports it.
   // Cheap CPU work — runs in microseconds, so the chapter pills appear
@@ -375,24 +382,12 @@ export default function SkipOverlay({
   };
 
   const goToNextEpisode = () => {
-    if (!nextEpisodeHref) return;
-    // Leave fullscreen FIRST. Otherwise the new page loads underneath the
-    // fullscreen video element and the user just sees the current frame frozen
-    // — it looks like the button did nothing. Exiting fullscreen makes the
-    // navigation (and its loading state) visible. Best-effort on every API:
-    // Vidstack's player, then the raw DOM Fullscreen API.
-    try {
-      const p: any = playerRef?.current;
-      if (p?.exitFullscreen) {
-        // Vidstack returns a promise; navigate regardless of its outcome.
-        Promise.resolve(p.exitFullscreen()).catch(() => {});
-      } else if (typeof document !== "undefined" && document.fullscreenElement) {
-        document.exitFullscreen?.();
-      }
-    } catch {
-      /* fullscreen exit unsupported / rejected — navigate anyway */
-    }
-    router.push(nextEpisodeHref);
+    // STAY in fullscreen across the change. This used to exit fullscreen first,
+    // because the next page otherwise loaded underneath a frozen fullscreen
+    // frame and the button looked broken. Fullscreen now lives on <html> (see
+    // lib/player/playerFullscreen) so the navigation can't drop it, and
+    // navigateToEpisode raises a black + pink-loading-bar host meanwhile.
+    navigateToEpisode(router, nextEpisodeHref, isPlayerFullscreen());
   };
 
   /* ── Auto-skip intro/outro ───────────────────────────────────────

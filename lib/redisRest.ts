@@ -128,12 +128,39 @@ export function createRestRedis(): IoRedisish | null {
     hgetall: (k) => c.hgetall<Record<string, string>>(k),
     hdel: (k, ...f) => c.hdel(k, ...(f as [string, ...string[]])),
     zadd: (k, ...args) => {
-      // ioredis: zadd(k, score, member). Upstash: zadd(k, {score, member}).
-      const [score, member] = args;
-      return c.zadd(k, { score: Number(score), member }) as Promise<number>;
+      // ioredis: zadd(k, [NX|XX|GT|LT], [CH], score, member). Upstash takes the
+      // flags as an options object, then {score, member}. Peel any leading
+      // string flags off before reading the score/member pair — otherwise the
+      // flag is parsed AS the score (Number("NX") → NaN), which Upstash rejects
+      // with a 500 and takes the whole request (e.g. w2g room create) down.
+      const opts: Record<string, boolean> = {};
+      let i = 0;
+      for (; i < args.length; i++) {
+        const tok = String(args[i]).toUpperCase();
+        if (tok === "NX") opts.nx = true;
+        else if (tok === "XX") opts.xx = true;
+        else if (tok === "GT") opts.gt = true;
+        else if (tok === "LT") opts.lt = true;
+        else if (tok === "CH") opts.ch = true;
+        else break;
+      }
+      const score = Number(args[i]);
+      const member = args[i + 1];
+      const payload = { score, member };
+      return (
+        Object.keys(opts).length ? c.zadd(k, opts, payload) : c.zadd(k, payload)
+      ) as Promise<number>;
     },
     zrem: (k, ...m) => c.zrem(k, ...(m as [string, ...string[]])),
-    zrange: (k, start, stop) => c.zrange(k, start, stop) as Promise<string[]>,
+    zrange: (k, start, stop, ...args) => {
+      // ioredis: zrange(k, start, stop, [WITHSCORES]). Upstash flattens
+      // member/score pairs into the same array when withScores is set, matching
+      // ioredis's output shape, so downstream WITHSCORES parsing is unchanged.
+      const withScores = args.some((a) => String(a).toUpperCase() === "WITHSCORES");
+      return c.zrange(k, start, stop, withScores ? { withScores: true } : undefined) as Promise<
+        string[]
+      >;
+    },
     rpush: (k, ...v) => c.rpush(k, ...(v as [string, ...string[]])),
     lrange: (k, start, stop) => c.lrange(k, start, stop),
     ltrim: (k, start, stop) => c.ltrim(k, start, stop),

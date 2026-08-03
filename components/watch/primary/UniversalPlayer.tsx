@@ -20,11 +20,28 @@ import {
 import HoverPreview from "./HoverPreview";
 import SubtitleSettings from "./SubtitleSettings";
 import SkipOverlay from "./SkipOverlay";
+import VideoStats from "./VideoStats";
+import dynamic from "next/dynamic";
+import { useRouter } from "next/router";
+// The visual keyboard editor is a heavy, rarely-opened overlay — load it on
+// demand so it never weighs down the player chunk.
+const ShortcutEditor = dynamic(() => import("./ShortcutEditor"), { ssr: false });
+import {
+  getKeybindings,
+  comboToAction,
+  comboFromEvent,
+  type ShortcutAction,
+} from "@/lib/prefs/keybindings";
 import FullscreenChat from "@/components/watch/party/FullscreenChat";
 // @ts-ignore — context module is plain JS, no types
 import { useWatchProvider } from "@/lib/context/watchPageProvider";
+import { getServer } from "@/lib/servers";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { notify } from "@/lib/notifications/noticeStore";
+import {
+  setPlayerSurface,
+  clearPlayerSurface,
+} from "@/lib/notifications/playerSurface";
 import type { TFunction } from "i18next";
 import { VIDSTACK_FR } from "@/lib/i18n/vidstackFr";
 import { getResumeTime, saveProgress, markComplete } from "@/lib/watch/progress";
@@ -32,6 +49,15 @@ import { recordWatchToday } from "@/lib/stats/streak";
 import { useDataSaver } from "@/lib/prefs/dataSaver";
 import { usePlayerPrefs, setPlayerPrefs, getPlayerPrefs } from "@/lib/prefs/playerPrefs";
 import { getSyncPrefs } from "@/lib/prefs/syncPrefs";
+import {
+  claimEpisodeTransition,
+  navigateToEpisode,
+} from "@/lib/player/episodeTransition";
+import {
+  setPlayerFullscreen,
+  togglePlayerFullscreen,
+  usePlayerFullscreen,
+} from "@/lib/player/usePlayerFullscreen";
 
 // Trace logger — off by default. Set NEXT_PUBLIC_DEBUG_SOURCE=1 to surface the
 // vidmoly-fallback diagnostics. These are EXPECTED control-flow branches
@@ -99,6 +125,9 @@ type Props = {
    *  "Next Episode" button during the outro segment (and in the last
    *  30 s of the episode) when this is non-null. */
   nextEpisodeHref?: string | null;
+  /** Pre-computed URL for the previous episode. Used by the "previous
+   *  episode" keyboard shortcut. Null on the first episode. */
+  prevEpisodeHref?: string | null;
   /** MAL id for the anime — used as the AniSkip fallback key. Null
    *  when MAL doesn't have a matching entry (rare). */
   malId?: number | null;
@@ -424,8 +453,13 @@ function LiveAmbient({
   );
 }
 
+// Deliberately NO fixed width/height/icon size: `.vds-button` (Vidstack's own
+// theme) sizes these to --media-button-size, which grows 40px → 42px in
+// fullscreen, and `.vds-icon` on the glyph makes it 80% of that. Hardcoding
+// h-10 + h-7 instead left our buttons' icons visibly smaller (28px) than the
+// native play / mute / fullscreen ones next to them.
 const ICON_BTN_CLS =
-  "vds-button moopa-vds-btn group ring-media-focus relative inline-flex h-10 w-10 cursor-pointer items-center justify-center rounded-md outline-none ring-inset hover:bg-white/20 data-[focus]:ring-4";
+  "vds-button moopa-vds-btn group ring-media-focus relative inline-flex cursor-pointer items-center justify-center rounded-md outline-none ring-inset hover:bg-white/20 data-[focus]:ring-4";
 const ICON_BTN_STYLE: React.CSSProperties = {
   color: "rgb(var(--media-controls-color, 240 240 240))",
 };
@@ -466,7 +500,7 @@ function CustomControls({
         className={ICON_BTN_CLS}
         style={ICON_BTN_STYLE}
       >
-        <svg viewBox="0 0 24 24" fill="currentColor" className="h-7 w-7">
+        <svg viewBox="0 0 24 24" fill="currentColor" className="vds-icon">
           <path d="M12 16l-5-5h3V4h4v7h3l-5 5zm-7 2h14v2H5v-2z" />
         </svg>
       </a>
@@ -481,7 +515,7 @@ function CustomControls({
           className={ICON_BTN_CLS}
           style={ICON_BTN_STYLE}
         >
-          <svg viewBox="0 0 24 24" fill="currentColor" className="h-7 w-7">
+          <svg viewBox="0 0 24 24" fill="currentColor" className="vds-icon">
             <path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm-9 11H6v-2h5v2zm7 0h-5v-2h5v2zm0-4H6V9h12v2z" />
           </svg>
         </button>
@@ -501,12 +535,74 @@ function CustomControls({
               : "rgb(var(--media-controls-color, 240 240 240))",
           }}
         >
-          <svg viewBox="0 0 24 24" fill="currentColor" className="h-7 w-7">
+          <svg viewBox="0 0 24 24" fill="currentColor" className="vds-icon">
             <path d="M1 18v3h3c0-1.66-1.34-3-3-3zm0-4v2c2.76 0 5 2.24 5 5h2c0-3.87-3.13-7-7-7zm18-7H5v1.63c3.96 1.28 7.09 4.41 8.37 8.37H19V7zM1 10v2c4.97 0 9 4.03 9 9h2c0-6.08-4.93-11-11-11zm20-7H3c-1.1 0-2 .9-2 2v3h2V5h18v14h-7v2h7c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z" />
           </svg>
         </button>
       )}
     </>
+  );
+}
+
+// "Next episode" — the classic skip-next glyph (▶|), sitting right after
+// play/pause in the control bar. Only rendered when there IS a next episode.
+// Navigation goes through navigateToEpisode so fullscreen is preserved.
+function NextEpisodeButton({
+  onClick,
+  onWarm,
+}: {
+  onClick: () => void;
+  onWarm: () => void;
+}) {
+  const { t } = useTranslation();
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      // Warm the next route on hover/focus. Beyond the obvious latency win this
+      // keeps the fullscreen handoff inside the browser's user-activation
+      // window: the new player can only take the screen back once it mounts.
+      onPointerEnter={onWarm}
+      onFocus={onWarm}
+      title={t("player.nextEpisode")}
+      aria-label={t("player.nextEpisode")}
+      className={ICON_BTN_CLS}
+      style={ICON_BTN_STYLE}
+    >
+      {/* Material "skip_next". */}
+      <svg viewBox="0 0 24 24" fill="currentColor" className="vds-icon">
+        <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" />
+      </svg>
+    </button>
+  );
+}
+
+// Fullscreen toggle. Replaces Vidstack's (hidden in globals.css) because the
+// screen is taken on <html>, not on the player element — Vidstack's own button
+// reads its internal `fullscreen` state and would show "Enter fullscreen" while
+// fullscreen. See lib/player/playerFullscreen for why we own this.
+function FullscreenToggle({ active }: { active: boolean }) {
+  const { t } = useTranslation();
+  const label = active ? t("player.exitFullscreen") : t("player.fullscreen");
+  return (
+    <button
+      type="button"
+      onClick={togglePlayerFullscreen}
+      title={label}
+      aria-label={label}
+      aria-pressed={active}
+      className={ICON_BTN_CLS}
+      style={ICON_BTN_STYLE}
+    >
+      {/* Material "fullscreen" / "fullscreen_exit". */}
+      <svg viewBox="0 0 24 24" fill="currentColor" className="vds-icon">
+        {active ? (
+          <path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z" />
+        ) : (
+          <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z" />
+        )}
+      </svg>
+    </button>
   );
 }
 
@@ -1139,9 +1235,18 @@ function SettingsSubmenuHeader({ label, onBack }: { label: string; onBack: () =>
 function CenterPlayButton({
   playerRef,
   autoplay,
+  menuOpen,
+  inParty,
+  onGesture,
 }: {
   playerRef: React.RefObject<MediaPlayerInstance>;
   autoplay: boolean;
+  menuOpen: boolean;
+  /** True while in a Watch-party: the button is the guest's "join playback"
+   *  gesture and must be shown even when autoplay is on, until they click it. */
+  inParty: boolean;
+  /** Called on click to mark the party gesture as taken (unblocks sync-play). */
+  onGesture: () => void;
 }) {
   const { t } = useTranslation();
   const paused = useMediaState("paused", playerRef);
@@ -1156,12 +1261,17 @@ function CenterPlayButton({
 
   // Only ever shown when autoplay is OFF (this is the manual "click to start"
   // affordance). With autoplay ON the video launches itself, so the big button
-  // has no reason to appear.
-  if (autoplay) return null;
+  // has no reason to appear — EXCEPT in a party, where the guest's sync-play is
+  // gated behind this button so a &party= link never auto-launches the anime.
+  if (autoplay && !inParty) return null;
   // Gone once playback has ever started; hidden while the media is still
   // loading (Vidstack draws its buffering spinner then).
   if (everStarted) return null;
   if (!paused || !canPlay) return null;
+  // A Vidstack menu (chapters / settings / subtitles) is open: it must sit ON
+  // TOP, not be covered by this big center button — hide the button while any
+  // menu is open (it reappears when the menu closes, playback still not begun).
+  if (menuOpen) return null;
 
   const start = () => {
     const player = playerRef.current;
@@ -1177,6 +1287,9 @@ function CenterPlayButton({
     try {
       if (video && !keepMuted) video.muted = false;
     } catch {}
+    // Mark the party gesture BEFORE play() so the sync engine (which reads the
+    // ref live) lets this play through instead of re-pausing the guest.
+    onGesture();
     player?.play?.();
   };
 
@@ -1226,6 +1339,7 @@ export default function UniversalPlayer({
   downloadName = "anime.mp4",
   autoplay = false,
   nextEpisodeHref = null,
+  prevEpisodeHref = null,
   malId = null,
   aniListId = null,
   episodeNumber,
@@ -1250,6 +1364,15 @@ export default function UniversalPlayer({
   // Live hls.js instance — captured on provider setup so the seek handler can
   // abort in-flight segment loads and re-anchor on the new position.
   const hlsRef = useRef<any>(null);
+  // In a Watch-party, a guest joining a room whose host is already playing must
+  // NOT have their video auto-started by the incoming snapshot/play — that read
+  // as "opening a &party= link launches the anime with no play button". Until
+  // the guest makes their first real gesture (the big center play button), the
+  // sync engine SEEKS to the live position but stays paused, so the big play
+  // button remains and the user chooses when to join playback (with sound).
+  // Flipped to true by CenterPlayButton's click. Reset per stream (below) so a
+  // navigation to a new episode requires a fresh gesture.
+  const partyGestureRef = useRef(false);
   // Whether the CURRENT source plays straight from the host CDN (no proxy).
   // Read inside onProviderSetup (which can't see `bestStream` in scope) to set
   // the <video> referrerPolicy for direct streams.
@@ -1332,6 +1455,78 @@ export default function UniversalPlayer({
 
   const [subMenuOpen, setSubMenuOpen] = useState(false);
   const [subStyleOpen, setSubStyleOpen] = useState(false);
+  // Transient notices (e.g. "subs are burned in", "join a party to chat") now
+  // go through the unified, app-wide notice store (lib/notifications), so every
+  // notice — player OR site (party created, HTTP error, …) — shares ONE animated,
+  // hover-expandable stack. The store's renderer (<NoticeStack>) portals INTO
+  // this player when it's fullscreen; we publish that surface below.
+  const showPlayerNotice = (
+    msg: string,
+    dur = 5000,
+    type: "error" | "success" | "info" | "message" = "message",
+  ) => {
+    notify(msg, { duration: dur, type });
+  };
+  // Sub / dub explanatory notices are shown red (error), matching the look the
+  // user validated for the "subtitles are burned in" banner.
+  const showSubNotice = (msg: string) => showPlayerNotice(msg, 5000, "error");
+  // Configurable keyboard shortcuts: the visual editor overlay + the live
+  // "stats for nerds" panel are both toggled from the settings menu / hotkeys.
+  const [shortcutEditorOpen, setShortcutEditorOpen] = useState(false);
+  const [statsOpen, setStatsOpen] = useState(false);
+  const router = useRouter();
+  // Central keyboard-shortcut listener. Declared here (before any early return)
+  // so the hooks run unconditionally on every render path. The dispatcher
+  // itself is defined further down (it needs late-bound helpers like
+  // subtitle track selection) and published into this ref; until then / on the
+  // iframe path the ref is null and the listener no-ops.
+  const runActionRef = useRef<((action: ShortcutAction) => void) | null>(null);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const run = runActionRef.current;
+      if (!run) return;
+      // Don't drive playback for a host that has blocked us (watch-party
+      // guard), mirroring the `keyDisabled` we pass to <MediaPlayer>.
+      if (partyRef.current?.amPlaybackBlocked) return;
+      // Ignore while the editor overlay is open (it captures keys itself), or
+      // while typing in an input / textarea / contenteditable.
+      if (shortcutEditorOpen) return;
+      const el = e.target as HTMLElement | null;
+      const tag = el?.tagName;
+      if (
+        tag === "INPUT" ||
+        tag === "TEXTAREA" ||
+        tag === "SELECT" ||
+        el?.isContentEditable
+      ) {
+        return;
+      }
+      // Never hijack browser/OS chords (Ctrl+R reload, Cmd+L, Ctrl+T…). Our
+      // combos are single physical keys — the editor can't bind a Ctrl/Meta
+      // combination — so a Ctrl/Meta press is always the browser's, not ours.
+      // Exception: a Ctrl/Meta key pressed ALONE can be a standalone binding
+      // (event.code is ControlLeft/MetaLeft, which reads the modifier as down),
+      // so only bail when the modifier accompanies a *different* key.
+      const code = e.code.toLowerCase();
+      const isModifierKey =
+        code.startsWith("control") || code.startsWith("meta");
+      if ((e.ctrlKey || e.metaKey) && !isModifierKey) return;
+      const map = comboToAction(getKeybindings());
+      // Same normalization the editor stores (modifier keys included — they
+      // are bindable on their own, resolved by `event.code`).
+      const combo = comboFromEvent(e);
+      const action = combo ? map.get(combo) : undefined;
+      if (!action) return;
+      // We own this key — stop Vidstack's built-in hotkey (Space/k/arrows/…)
+      // from ALSO firing, so our binding is the single source of truth.
+      e.preventDefault();
+      e.stopPropagation();
+      run(action);
+    };
+    // Capture phase so we run before Vidstack's own key handling.
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [shortcutEditorOpen]);
   // Whether the "Automation" sub-panel (auto-skip intro/outro + auto next) is
   // expanded inside the Settings menu. Lives at the player root so closing the
   // whole settings menu (below) can collapse it back to the main list.
@@ -1346,10 +1541,31 @@ export default function UniversalPlayer({
   //    via CSS keeps our chrome on screen.
   const [isIOS, setIsIOS] = useState(false);
   const [isSmallLayout, setIsSmallLayout] = useState(false);
-  // iOS pseudo-fullscreen — Safari hides our buttons in real fullscreen
-  // because it swaps the <video> for the native player. We pin the
-  // wrapper to viewport with `position:fixed` and lock orientation.
-  const [iosPseudoFs, setIosPseudoFs] = useState(false);
+  // Touch device: no Escape key and no hover, so fullscreen has to keep its
+  // controls (and its exit button) reachable, and landscape is worth locking.
+  const isTouch =
+    isIOS ||
+    (typeof window !== "undefined" &&
+      !!window.matchMedia?.("(pointer: coarse)").matches);
+  // FULLSCREEN. Not Vidstack's: the screen is taken on <html> and the player
+  // fills it via CSS (`aniscroll-player-fs`) — see lib/player/playerFullscreen
+  // for why (short version: the player element is remounted per episode, and a
+  // remount can never re-enter fullscreen, Chrome demands a fresh gesture).
+  // State lives in that module so it survives the remount; this hook just
+  // mirrors it into React, seeded from the module so a player mounted mid-
+  // transition renders fullscreen on its very first paint.
+  const isFullscreen = usePlayerFullscreen();
+  // Ref mirror so listeners / the DOM observer that must not re-bind can read
+  // it. Assigned in render (like partyRef below) so it's never a frame stale.
+  const isFullscreenRef = useRef(false);
+  isFullscreenRef.current = isFullscreen;
+  // NOTE: releasing fullscreen is deliberately NOT tied to this component's
+  // unmount. The player is remounted far more often than "the user left":
+  // per episode, per server fallback, and for a beat whenever the router's
+  // episode number changes before the new stream data lands (the key holds
+  // both). Any of those firing a release turned the *second* episode change
+  // into an exit from fullscreen. The watch PAGE owns the release instead —
+  // it only unmounts when we actually leave the route.
   useEffect(() => {
     const ua = navigator.userAgent || "";
     // iPadOS 13+ identifies as MacIntel with maxTouchPoints > 1.
@@ -1365,6 +1581,9 @@ export default function UniversalPlayer({
   }, []);
   // Index of the active text track in the subtitleTracks list. -1 = subtitles off.
   const [activeTrackIdx, setActiveTrackIdx] = useState(-1);
+  // Last track index that was actually showing, so the subtitle shortcut can
+  // toggle off → on WITHOUT changing the language (restores the same track).
+  const lastShownTrackIdx = useRef(-1);
   // ── Client-side extraction state ──
   // When streamData.clientExtract is set, the server is asking the browser to
   // do the embed-page fetch itself so the resulting CDN token IP-binds to the
@@ -1483,7 +1702,7 @@ export default function UniversalPlayer({
   const onRateChange = (next: number, event?: any) => {
     if (typeof next !== "number" || next <= 0) return;
     if (!event?.request) return; // auto-reset → leave the target; effect re-applies
-    rateTargetRef.current = Math.min(4, Math.max(0.25, next));
+    rateTargetRef.current = Math.min(2, Math.max(0.25, next));
     try {
       window.localStorage.setItem(
         "aniscroll:playbackRate",
@@ -1562,24 +1781,8 @@ export default function UniversalPlayer({
   // Suppress ambient lights in fullscreen — they're invisible anyway (the
   // player covers the whole screen, no room for the glow to extend into)
   // and the per-frame canvas draw + N×CSS blur layers are a measurable GPU
-  // hit that's pure waste at that resolution.
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  useEffect(() => {
-    const update = () => {
-      const fsEl =
-        document.fullscreenElement ||
-        (document as any).webkitFullscreenElement ||
-        null;
-      setIsFullscreen(!!fsEl);
-    };
-    update();
-    document.addEventListener("fullscreenchange", update);
-    document.addEventListener("webkitfullscreenchange", update);
-    return () => {
-      document.removeEventListener("fullscreenchange", update);
-      document.removeEventListener("webkitfullscreenchange", update);
-    };
-  }, []);
+  // hit that's pure waste at that resolution. (`isFullscreen` is declared up
+  // top, next to the rest of the fullscreen wiring.)
 
   // Reactive handle to the player root, so portalled overlays (e.g. the
   // fullscreen party chat) mount as soon as the element exists.
@@ -1590,6 +1793,9 @@ export default function UniversalPlayer({
       const el = (playerRef.current?.el as HTMLElement | undefined) || null;
       if (el) {
         setPlayerElState(el);
+        // Coming from an episode change: the player is on screen, so drop the
+        // loading host. No-op when no transition is pending.
+        claimEpisodeTransition();
         return;
       }
       raf = requestAnimationFrame(find);
@@ -1599,11 +1805,22 @@ export default function UniversalPlayer({
       if (raf) cancelAnimationFrame(raf);
     };
   }, [streamData]);
+  // Publish this player as the "notice surface" so the global <NoticeStack>
+  // portals its stack INTO the player root while the player covers the screen
+  // (a body-level toast is invisible when `.vds-player` is the fullscreen
+  // element). When windowed / unmounted it falls back to the screen corner.
+  useEffect(() => {
+    setPlayerSurface({
+      el: playerElState,
+      active: isFullscreen && !!playerElState,
+    });
+  }, [playerElState, isFullscreen]);
+  useEffect(() => () => clearPlayerSurface(), []);
   // Data Saver disables the live ambient-light sampling (a constant canvas read
   // + blur, the heaviest visual work the player does).
   const dataSaver = useDataSaver();
   const ambientEnabled =
-    ambient && ctxAmbient && !dataSaver && !isFullscreen && !iosPseudoFs;
+    ambient && ctxAmbient && !dataSaver && !isFullscreen;
   const [castAvailable, setCastAvailable] = useState(false);
   const [castConnected, setCastConnected] = useState(false);
 
@@ -1618,6 +1835,16 @@ export default function UniversalPlayer({
   // the start near the end"). Stable containers eliminate it at the source.
   const controlsHostRef = useRef<HTMLDivElement | null>(null);
   const settingsHostRef = useRef<HTMLDivElement | null>(null);
+  // Third host, for the "next episode" button only: it belongs at the LEFT of
+  // the bar (right after play/pause, the classic placement) rather than with
+  // the Download / Subs / Cast group, and it stays on the small layout too —
+  // one 40px button always fits.
+  const navHostRef = useRef<HTMLDivElement | null>(null);
+  // Fourth host, for OUR fullscreen button. Vidstack's own is hidden (CSS): its
+  // icon and label come from Vidstack's `fullscreen` state, which stays false
+  // because the screen is taken on <html>, so it would read "Enter fullscreen"
+  // while fullscreen. Ours renders from the real mode.
+  const fsHostRef = useRef<HTMLDivElement | null>(null);
   if (typeof document !== "undefined") {
     if (!controlsHostRef.current) {
       const d = document.createElement("div");
@@ -1631,12 +1858,31 @@ export default function UniversalPlayer({
       d.style.display = "contents";
       settingsHostRef.current = d;
     }
+    if (!navHostRef.current) {
+      const d = document.createElement("div");
+      d.dataset.slot = "moopa-nav-controls-host";
+      d.style.display = "contents";
+      navHostRef.current = d;
+    }
+    if (!fsHostRef.current) {
+      const d = document.createElement("div");
+      d.dataset.slot = "moopa-fullscreen-host";
+      d.style.display = "contents";
+      fsHostRef.current = d;
+    }
   }
   // Whether each host is currently attached into the live Vidstack subtree.
   // Drives the conditional portal render; flipping these never unmounts the
   // <video>, only re-targets our injected chrome.
   const [controlsHostAttached, setControlsHostAttached] = useState(false);
   const [settingsHostAttached, setSettingsHostAttached] = useState(false);
+  const [navHostAttached, setNavHostAttached] = useState(false);
+  const [fsHostAttached, setFsHostAttached] = useState(false);
+  // True while ANY Vidstack menu (settings, chapters, quality, and the native
+  // captions menu) is open — tracked from the `data-open` attribute the same
+  // observer already watches. Used to hide the fullscreen party chat so it
+  // never sits over an open menu.
+  const [vdsMenuOpen, setVdsMenuOpen] = useState(false);
 
   // Collapse the Automation sub-panel back to the main list whenever the
   // Settings menu closes, so reopening always lands on the top-level list.
@@ -1747,6 +1993,65 @@ export default function UniversalPlayer({
         setControlsHostAttached((p) => (p ? false : p));
       }
 
+      // "Next episode" host — classic placement: immediately AFTER the
+      // play/pause button, on BOTH layouts. We locate the group by CONTENT
+      // rather than position: the play button lives in the last group on the
+      // large layout, but in a centered group of its own on the small one
+      // (where the last group is the seek bar).
+      const navHost = navHostRef.current;
+      let playBtn: HTMLElement | null = null;
+      for (let i = 0; i < groups.length; i++) {
+        if (!groups[i].isConnected) continue;
+        const found = groups[i].querySelector<HTMLElement>(
+          ".vds-play-button, [data-media-play-button]",
+        );
+        if (found) {
+          playBtn = found;
+          break;
+        }
+      }
+      // Idempotent: only touch the DOM when the host isn't already in place, or
+      // our own insertion would re-trigger this observer forever.
+      if (playBtn?.parentElement && navHost) {
+        if (playBtn.nextSibling !== navHost) {
+          playBtn.parentElement.insertBefore(navHost, playBtn.nextSibling);
+        }
+        setNavHostAttached((p) => (p ? p : true));
+      } else {
+        if (navHost?.parentElement) navHost.remove();
+        setNavHostAttached((p) => (p ? false : p));
+      }
+
+      // Our fullscreen button goes where Vidstack's is (last in that group,
+      // right after the hidden native one — which is still in the DOM, so it
+      // stays a reliable anchor on both layouts).
+      const fsHost = fsHostRef.current;
+      const nativeFsBtn = playerEl.querySelector<HTMLElement>(
+        ".vds-fullscreen-button",
+      );
+      const fsGroup = nativeFsBtn?.parentElement || null;
+      if (fsGroup && fsHost) {
+        if (fsGroup.lastChild !== fsHost) fsGroup.appendChild(fsHost);
+        setFsHostAttached((p) => (p ? p : true));
+      } else {
+        if (fsHost?.parentElement) fsHost.remove();
+        setFsHostAttached((p) => (p ? false : p));
+      }
+
+      // Vidstack's `fullscreen` state can't see our mode (the screen is taken on
+      // <html>), so mirror it onto the player root by hand: every
+      // `[data-fullscreen]` rule — Vidstack's theme AND ours in globals.css —
+      // keys off this attribute for sizing, radius and caption scale. Vidstack
+      // only writes the attribute when its own state changes, which never
+      // happens now, so it won't fight us; re-asserted here on every rebuild.
+      if (isFullscreenRef.current) {
+        if (!playerEl.hasAttribute("data-fullscreen")) {
+          playerEl.setAttribute("data-fullscreen", "");
+        }
+      } else if (playerEl.hasAttribute("data-fullscreen")) {
+        playerEl.removeAttribute("data-fullscreen");
+      }
+
       // The Settings menu is opened/closed dynamically. Vidstack tags the
       // root menu list with BOTH `vds-settings-menu-items` and `vds-menu-items`;
       // submenus (Speed, Quality, Audio) only get `vds-menu-items`. So we
@@ -1777,6 +2082,14 @@ export default function UniversalPlayer({
         if (settingsHost?.parentElement) settingsHost.remove();
         setSettingsHostAttached((p) => (p ? false : p));
       }
+
+      // Track whether ANY Vidstack menu is open (settings, chapters, quality,
+      // captions…) — they all carry `data-open` when open. Search the player AND
+      // the document (menus can portal to <body> in fullscreen/mobile).
+      const anyMenuOpen =
+        !!playerEl.querySelector(".vds-menu[data-open]") ||
+        !!document.querySelector(".vds-menu[data-open]");
+      setVdsMenuOpen((p) => (p === anyMenuOpen ? p : anyMenuOpen));
     };
 
     setup();
@@ -1789,59 +2102,63 @@ export default function UniversalPlayer({
     // re-run the locator when the breakpoint flips.
   }, [isSmallLayout]);
 
-  // ── iOS fullscreen interception ──
-  // Safari on iPhone/iPad responds to a fullscreen request by handing the
-  // <video> off to the system player, which hides every overlay we draw
-  // (Skip / Next / custom buttons). Intercept the Vidstack fullscreen
-  // button at capture phase, block the native handler, and toggle a
-  // CSS pseudo-fullscreen on our wrapper. Orientation lock is best-effort
-  // — Safari only allows it after a user gesture inside a real fullscreen.
+  // Toggling fullscreen mutates no DOM the observer above watches, so drive the
+  // faked `data-fullscreen` attribute from the state as well (the observer only
+  // re-asserts it when Vidstack rebuilds its layout).
+  useEffect(() => {
+    const playerEl = playerRef.current?.el as HTMLElement | undefined;
+    if (!playerEl) return;
+    if (isFullscreen) playerEl.setAttribute("data-fullscreen", "");
+    else playerEl.removeAttribute("data-fullscreen");
+  }, [isFullscreen, playerElState]);
+
+  // Double-click toggles fullscreen — but OURS. Vidstack's default layout ships
+  // a `toggle:fullscreen` gesture that would enter ITS fullscreen (on the player
+  // element), which an episode change then destroys. Veto it at capture phase,
+  // before the gesture handler sees the event, and run our toggle instead. The
+  // dblclick is a user gesture, so the root request is authorised.
+  useEffect(() => {
+    const playerEl = playerElState;
+    if (!playerEl) return;
+    const onDblClick = (e: Event) => {
+      const t = e.target as HTMLElement | null;
+      // Only the video surface — never the control bar, menus or our buttons
+      // (double-clicking those must not throw the user into fullscreen).
+      if (
+        t?.closest(
+          ".vds-controls, .vds-menu, .vds-menu-items, [data-slot], button, a, input",
+        )
+      ) {
+        return;
+      }
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      togglePlayerFullscreen();
+    };
+    playerEl.addEventListener("dblclick", onDblClick, { capture: true });
+    return () =>
+      playerEl.removeEventListener("dblclick", onDblClick, { capture: true });
+  }, [playerElState]);
+
+  // ── iOS native-player interception ──
+  // Safari on iPhone/iPad responds to a fullscreen <video> by handing it off to
+  // the system player, which hides every overlay we draw (Skip / Next / custom
+  // buttons). Our own fullscreen never asks the <video> for anything, but iOS
+  // still pushes it into the system player through other paths (tap-to-play on
+  // some versions, the native mini-controls, AirPlay handoff…), each firing
+  // `webkitbeginfullscreen`. Catch it, bail out of the native player, and use
+  // our CSS fullscreen instead so the chrome stays ours.
   useEffect(() => {
     if (!isIOS) return;
     const playerEl = playerRef.current?.el as HTMLElement | undefined;
     if (!playerEl) return;
 
-    // Block Vidstack's fullscreen on the button across EVERY event it might
-    // act on. On touch devices Vidstack triggers fullscreen on pointerup, so
-    // intercepting `click` alone is too late (the native iOS player has
-    // already opened). We veto pointerup/touchend/click in the capture phase
-    // and only toggle the native fullscreen flag ONCE per tap (pointerup),
-    // letting the others just suppress the default + propagation.
-    const hitFsButton = (e: Event) => {
-      const t = e.target as HTMLElement | null;
-      if (!t) return null;
-      return t.closest<HTMLElement>(
-        ".vds-fullscreen-button, [data-fullscreen-button], button[aria-label*='ullscreen']",
-      );
-    };
-    const suppress = (e: Event) => {
-      if (!hitFsButton(e)) return;
-      e.preventDefault();
-      e.stopImmediatePropagation();
-    };
-    const onPointerUp = (e: Event) => {
-      if (!hitFsButton(e)) return;
-      e.preventDefault();
-      e.stopImmediatePropagation();
-      setIosPseudoFs((v) => !v);
-    };
-    // Capture phase so we beat Vidstack's own handlers.
-    playerEl.addEventListener("pointerup", onPointerUp, { capture: true });
-    playerEl.addEventListener("touchend", suppress, { capture: true });
-    playerEl.addEventListener("click", suppress, { capture: true });
-
-    // Intercepting the fullscreen BUTTON isn't enough: iOS also pushes the
-    // <video> into its system fullscreen player via other paths (tap-to-play
-    // on some versions, the native mini-controls, AirPlay handoff…). Each of
-    // those fires `webkitbeginfullscreen` on the <video>. We catch it, bail
-    // out of the native player immediately, and switch to our own CSS
-    // pseudo-fullscreen so our controls/overlays stay visible.
     let boundVideo: HTMLVideoElement | null = null;
     const onBeginFs = () => {
       try {
         (boundVideo as any)?.webkitExitFullscreen?.();
       } catch {}
-      setIosPseudoFs(true);
+      setPlayerFullscreen(true);
     };
     // The <video> is created by the provider slightly after this effect runs,
     // so poll a few frames until it exists, then bind the listener once.
@@ -1858,35 +2175,39 @@ export default function UniversalPlayer({
     bind();
 
     return () => {
-      playerEl.removeEventListener("pointerup", onPointerUp, { capture: true });
-      playerEl.removeEventListener("touchend", suppress, { capture: true });
-      playerEl.removeEventListener("click", suppress, { capture: true });
       cancelAnimationFrame(raf);
       boundVideo?.removeEventListener("webkitbeginfullscreen", onBeginFs);
     };
   }, [isIOS]);
 
-  // Lock body scroll while iOS pseudo-fullscreen is active and try to
-  // rotate the screen to landscape — same UX as the native player.
+  // While fullscreen: lock body scroll, and on touch devices try landscape —
+  // same UX as a native player. Escape is handled by the browser when it granted
+  // real fullscreen on <html>; this listener covers the case where it refused
+  // and only our CSS mode is up (and iOS, which has no real fullscreen).
   useEffect(() => {
-    if (!iosPseudoFs) return;
+    if (!isFullscreen) return;
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-    try {
-      (screen.orientation as any)?.lock?.("landscape").catch(() => {});
-    } catch {}
+    const coarse = isTouch;
+    if (coarse) {
+      try {
+        (screen.orientation as any)?.lock?.("landscape").catch(() => {});
+      } catch {}
+    }
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setIosPseudoFs(false);
+      if (e.key === "Escape") setPlayerFullscreen(false);
     };
     window.addEventListener("keydown", onKey);
     return () => {
       document.body.style.overflow = prevOverflow;
-      try {
-        (screen.orientation as any)?.unlock?.();
-      } catch {}
+      if (coarse) {
+        try {
+          (screen.orientation as any)?.unlock?.();
+        } catch {}
+      }
       window.removeEventListener("keydown", onKey);
     };
-  }, [iosPseudoFs]);
+  }, [isFullscreen, isTouch]);
 
   // ── Keep controls visible while subtitle menu is open ──
   // Vidstack auto-hides the controls bar after 2s of mouse idle. The CC
@@ -1905,20 +2226,20 @@ export default function UniversalPlayer({
     }
   }, [subMenuOpen]);
 
-  // ── Keep controls visible in iOS pseudo-fullscreen ──
-  // Exiting pseudo-fullscreen is done by re-tapping the fullscreen button. If
-  // Vidstack's idle auto-hide hides the bar (after ~2s), the first tap only
-  // re-reveals it and the exit tap is lost — the user gets stuck. Pinning the
-  // controls visible (controls.pause) for the whole pseudo-fullscreen session
-  // keeps the fullscreen button on screen so a single tap always exits.
+  // ── Keep controls visible in fullscreen on touch devices ──
+  // Exiting is done by re-tapping the fullscreen button. If Vidstack's idle
+  // auto-hide hides the bar (after ~2s), the first tap only re-reveals it and
+  // the exit tap is lost — the user gets stuck (no Escape key on a phone).
+  // Pinning the controls visible keeps the button reachable. Desktop keeps the
+  // normal auto-hide: Escape always works there.
   useEffect(() => {
     const player = playerRef.current;
-    if (!player || !iosPseudoFs) return;
+    if (!player || !isFullscreen || !isTouch) return;
     try { (player as any).controls?.pause?.(); } catch {}
     return () => {
       try { (player as any).controls?.resume?.(); } catch {}
     };
-  }, [iosPseudoFs]);
+  }, [isFullscreen, isTouch]);
 
   // ── Keep controls visible while hovering custom buttons ──
   // Vidstack auto-hides its controls after ~2 s of mouse inactivity. Our
@@ -1983,6 +2304,9 @@ export default function UniversalPlayer({
 
   const selectSubtitleTrack = (idx: number) => {
     setActiveTrackIdx(idx);
+    // Remember the last real track so the on/off shortcut restores this exact
+    // language instead of advancing to the next one.
+    if (idx >= 0) lastShownTrackIdx.current = idx;
     const tracks = playerRef.current?.textTracks;
     if (!tracks) return;
     // Walk the textTracks list, only touching captions/subtitles tracks (skip
@@ -2595,7 +2919,23 @@ export default function UniversalPlayer({
 
     const resume = () => {
       if (resumeApplied || !video) return;
-      const at = getResumeTime(aniListId, episodeNumber);
+      // A shared timestamped link (`?t=<seconds>`, from the copyTimestamp
+      // shortcut) wins over the saved resume point — the sharer picked that
+      // exact moment on purpose. Consumed once, then removed from the URL so a
+      // later manual seek + reload doesn't snap back.
+      let urlAt = 0;
+      try {
+        const p = new URLSearchParams(window.location.search).get("t");
+        if (p != null) urlAt = Math.max(0, parseInt(p, 10) || 0);
+      } catch {}
+      const at = urlAt > 0 ? urlAt : getResumeTime(aniListId, episodeNumber);
+      if (urlAt > 0) {
+        try {
+          const u = new URL(window.location.href);
+          u.searchParams.delete("t");
+          window.history.replaceState(null, "", u.toString());
+        } catch {}
+      }
       if (at > 0 && video.duration && at < video.duration - END_GUARD) {
         try {
           video.currentTime = at;
@@ -2667,6 +3007,64 @@ export default function UniversalPlayer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [aniListId, episodeNumber, streamData]);
 
+  // ── TEMP DEBUG: trace who resets currentTime to ~0 (add ?w2gdebug to URL) ──
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!new URLSearchParams(window.location.search).has("w2gdebug")) return;
+    const proto = HTMLMediaElement.prototype as any;
+    if (proto.__w2gTrapped) return;
+    const desc = Object.getOwnPropertyDescriptor(proto, "currentTime");
+    if (!desc?.set || !desc?.get) return;
+    proto.__w2gTrapped = true;
+    Object.defineProperty(proto, "currentTime", {
+      configurable: true,
+      enumerable: desc.enumerable,
+      get() {
+        return desc.get!.call(this);
+      },
+      set(v: number) {
+        const from = desc.get!.call(this);
+        if (v <= 1 && from > 2) {
+          // eslint-disable-next-line no-console
+          console.warn(`[w2gdebug] currentTime ${from.toFixed(2)} -> ${v}`, new Error().stack);
+        }
+        desc.set!.call(this, v);
+      },
+    });
+    // eslint-disable-next-line no-console
+    console.warn("[w2gdebug] currentTime trap installed");
+  }, []);
+
+  // ── TEMP DEBUG: log source-reload signals (distinguishes reload-to-0 from a
+  // JS seek-to-0). Binds to whatever <video> is live and re-binds via a poll. ──
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!new URLSearchParams(window.location.search).has("w2gdebug")) return;
+    let bound: HTMLVideoElement | null = null;
+    const log = (name: string) => () =>
+      // eslint-disable-next-line no-console
+      console.warn(`[w2gdebug] media event: ${name} (ct=${bound?.currentTime?.toFixed(2)})`);
+    const evs = ["emptied", "loadstart", "abort", "loadedmetadata", "durationchange"];
+    const handlers = evs.map((e) => log(e));
+    const bind = () => {
+      const v =
+        (playerRef.current?.el as HTMLElement | undefined)?.querySelector<HTMLVideoElement>("video") ||
+        null;
+      if (!v || v === bound) return;
+      if (bound) evs.forEach((e, i) => bound!.removeEventListener(e, handlers[i]));
+      bound = v;
+      // eslint-disable-next-line no-console
+      console.warn("[w2gdebug] bound to a NEW <video> element");
+      evs.forEach((e, i) => v.addEventListener(e, handlers[i]));
+    };
+    const iv = window.setInterval(bind, 200);
+    bind();
+    return () => {
+      window.clearInterval(iv);
+      if (bound) evs.forEach((e, i) => bound!.removeEventListener(e, handlers[i]));
+    };
+  }, []);
+
   // ── Watch 2gether sync ──
   // When a `party` is present, mirror play/pause/seek/rate across participants.
   // Everyone can control, so we guard against feedback loops two ways:
@@ -2677,6 +3075,11 @@ export default function UniversalPlayer({
   useEffect(() => {
     if (!party) return;
 
+    // A fresh source (new episode / server switch) means the guest must make a
+    // new "join playback" gesture before sync auto-plays them again — otherwise
+    // a party-driven episode change would silently auto-launch the next one.
+    partyGestureRef.current = false;
+
     // Tolerance for accepting a remote position as "already here" (avoids
     // seek-wars from timeupdate jitter). Drift beyond DRIFT_TOLERANCE while
     // playing is silently nudged by the reconciliation loop below.
@@ -2686,6 +3089,9 @@ export default function UniversalPlayer({
     let video: HTMLVideoElement | null = null;
     let pollId = 0;
     let reconcileId = 0;
+    // Whether we've already forced the host's local player to pause on the very
+    // first snapshot of a freshly created room. One-shot per effect (re)mount.
+    let didInitialHostPause = false;
     const applying = party.applyingRemoteRef;
 
     type Target = { position: number; paused: boolean; rate: number; at: number; known: boolean };
@@ -2774,7 +3180,7 @@ export default function UniversalPlayer({
         const now = Date.now();
         if (now - blockedToastAtRef.current > 2500) {
           blockedToastAtRef.current = now;
-          toast.error(t("party.blockedBanner"));
+          notify.error(t("party.blockedBanner"));
         }
       }
       return true;
@@ -2843,10 +3249,56 @@ export default function UniversalPlayer({
           const rate = typeof s.rate === "number" ? s.rate : remoteTarget.rate;
           const p = compensate(Number(s.position), !s.paused);
           setRemoteTarget(p, !!s.paused, rate);
+          // The host is the source of truth for the room's state — a freshly
+          // created room is seeded at position 0 / paused, so driving the host's
+          // player from that snapshot yanked them back to the start (and the
+          // resulting play()/pause() churn read as "creating a party launches the
+          // anime"). Record the target for drift/others, but never force the
+          // host's own player from a snapshot.
+          // Prefer the authoritative `selfIsHost` flag the party hook computes
+          // synchronously from the server response — on the FIRST snapshot after
+          // create/join, `partyRef.current.isHost` (React-derived) is still stale
+          // `false` because setHostId hasn't re-rendered yet, which let the seeded
+          // snapshot drive the host's own player ("creating a party launches the
+          // anime"). Fall back to the derived value for wire snapshots that don't
+          // carry the flag.
+          const selfIsHost =
+            typeof e.payload?.selfIsHost === "boolean"
+              ? e.payload.selfIsHost
+              : partyRef.current?.isHost;
+          if (selfIsHost) {
+            // The host's own player is authoritative — we never seek/rewind it
+            // from the seeded snapshot (that's what rewound an in-progress
+            // episode to 0 on create). The room is now seeded at the host's LIVE
+            // position (see WatchPartyPanel.create), so the host simply keeps
+            // playing from where they were. The ONLY thing we still do is a
+            // one-shot pause when the room was seeded at pos-0 AND paused — i.e.
+            // the host hadn't actually started watching — so a party created
+            // before playback doesn't auto-launch the anime.
+            // ...but ONLY when position 0 is a REAL playhead. For iframe embeds
+            // (no readable <video>) the room is seeded at 0 as "unknown", not
+            // "the start" — pausing there rewound/froze an in-progress iframe on
+            // create. `positionKnown === false` marks that case; absent = native
+            // = known.
+            if (
+              !didInitialHostPause &&
+              s.paused &&
+              Number(s.position) === 0 &&
+              s.positionKnown !== false
+            ) {
+              didInitialHostPause = true;
+              withGuard(() => player?.pause?.());
+            }
+            return;
+          }
           withGuard(() => {
             seekTo(p);
             video!.playbackRate = rate;
-            if (s.paused) player?.pause?.();
+            // Guest hasn't made their initial gesture yet: align to the live
+            // position but stay PAUSED so the big center play button remains and
+            // the anime doesn't auto-launch from a &party= link. They join
+            // playback (with sound) by clicking it.
+            if (s.paused || !partyGestureRef.current) player?.pause?.();
             else player?.play?.()?.catch?.(() => {});
           });
           return;
@@ -2856,7 +3308,10 @@ export default function UniversalPlayer({
           setRemoteTarget(p, false);
           withGuard(() => {
             seekTo(p);
-            player?.play?.()?.catch?.(() => {});
+            // Same gate as the snapshot above: a host `play` must not auto-start
+            // a guest who hasn't clicked to join yet (seek only, stay paused).
+            if (partyGestureRef.current) player?.play?.()?.catch?.(() => {});
+            else player?.pause?.();
           });
           return;
         }
@@ -2889,7 +3344,23 @@ export default function UniversalPlayer({
       }
     };
 
-    const unsub = party.onRemote(applyRemote);
+    // Snapshot replayed by onRemote for a late subscriber (create/join). If it
+    // arrives before the <video> is bound, applyRemote bails on `!video`; we
+    // stash it here and re-apply the moment bind() succeeds so the host still
+    // gets aligned to the room's paused state.
+    let pendingSnapshot: { type: string; ts?: number; payload?: any } | null = null;
+
+    const applyRemoteOrDefer = (e: {
+      type: string;
+      ts?: number;
+      payload?: any;
+    }) => {
+      if (!video && e.type === "snapshot") {
+        pendingSnapshot = e;
+        return;
+      }
+      applyRemote(e);
+    };
 
     const bind = () => {
       const player = playerRef.current;
@@ -2900,6 +3371,12 @@ export default function UniversalPlayer({
       video.addEventListener("pause", onPause);
       video.addEventListener("seeked", onSeeked);
       video.addEventListener("ratechange", onRate);
+      // Flush a snapshot that landed before the video was ready.
+      if (pendingSnapshot) {
+        const s = pendingSnapshot;
+        pendingSnapshot = null;
+        applyRemote(s);
+      }
       return true;
     };
 
@@ -2909,6 +3386,11 @@ export default function UniversalPlayer({
         if (bind() || ++tries > 40) window.clearInterval(pollId);
       }, 250);
     }
+
+    // Subscribe AFTER bind() so a synchronous snapshot replay (onRemote replays
+    // the last snapshot to late subscribers) sees a bound `video`; if the video
+    // wasn't ready yet, applyRemoteOrDefer stashes it for the bind() flush above.
+    const unsub = party.onRemote(applyRemoteOrDefer);
 
     // ── Continuous reconciliation ──
     // Event-only sync leaves two holes:
@@ -3157,7 +3639,7 @@ export default function UniversalPlayer({
         const now = Date.now();
         if (now - blockedToastAtRef.current > 2500) {
           blockedToastAtRef.current = now;
-          toast.error(t("party.blockedBanner"));
+          notify.error(t("party.blockedBanner"));
         }
       }
     };
@@ -3242,6 +3724,13 @@ export default function UniversalPlayer({
 
     const tryPlay = async () => {
       if (cancelled || started || inFlight) return;
+      // In a Watch-party, playback state is AUTHORITATIVE from the room, not the
+      // local autoplay pref. A freshly created room is seeded paused/pos 0, so
+      // the host must NOT auto-start (that read as "creating a party launches
+      // the anime"); a guest joining a playing room is started by the remote
+      // `play`/`snapshot` sync instead. So skip local autoplay entirely while in
+      // a party — the sync engine (applyRemote) owns play/pause here.
+      if (partyRef.current) return;
       const video = getVideo();
       if (!video) return;
       // Consider playback truly started ONLY if the element is unpaused AND
@@ -3572,7 +4061,9 @@ export default function UniversalPlayer({
     const isVidmoly = /vidmoly\.(to|biz|net)/i.test(iframeSrc);
     return (
       <div
-        className={`relative h-full w-full${iosPseudoFs ? " moopa-ios-fs" : ""}`}
+        className={`relative h-full w-full${
+          isFullscreen ? " aniscroll-player-fs" : ""
+        }`}
       >
         {/* No ambient glow behind iframe embeds — the poster-based gradient was
             distracting and added nothing for an embed we can't sample frames
@@ -3699,6 +4190,289 @@ export default function UniversalPlayer({
     default?: boolean;
   }>;
 
+  // Subtitle mode of the CURRENT server, derived from its definition:
+  //   - "soft" (Megaplay, lang "multi"): separate subtitle tracks → togglable.
+  //   - "none" (VF dubs, lang "vf"): dubbed audio, NO subtitles at all.
+  //   - "hard" (VOSTFR, lang "vo"): subtitles are BURNED into the video and
+  //     cannot be turned off.
+  // Used to (a) still show the Subs button on hard/none servers and (b) explain,
+  // via a fullscreen-safe notice, why toggling subs does nothing there.
+  const serverLang = serverId ? getServer(serverId)?.lang : "multi";
+  const subMode: "soft" | "hard" | "none" =
+    serverLang === "vf" ? "none" : serverLang === "vo" ? "hard" : "soft";
+
+  // The subtitles button/shortcut: on a soft-sub server open the track menu;
+  // on a hard-sub or dub server there's nothing to toggle, so explain why with a
+  // fullscreen-safe notice instead of silently doing nothing.
+  const openSubtitles = () => {
+    if (subMode === "hard") {
+      showSubNotice(t("player.subsHardBurned"));
+      return;
+    }
+    if (subMode === "none" || subtitleTracks.length === 0) {
+      showSubNotice(t("player.subsNoneDub"));
+      return;
+    }
+    setSubMenuOpen((v) => !v);
+  };
+
+  // ── Configurable keyboard shortcuts ───────────────────────────────────────
+  // A single data-driven dispatcher: each ShortcutAction maps to a small
+  // imperative op on the live <video> / player / hls instance. The keydown
+  // listener (below) looks up the pressed combo in the user's bindings and runs
+  // the matching action. Kept in refs where needed so the listener stays stable.
+  const getVideo = () =>
+    (playerRef.current?.el as HTMLElement | undefined)?.querySelector<HTMLVideoElement>(
+      "video",
+    ) || null;
+
+  // Skip to the end of the active op/ed segment, mirroring SkipOverlay's Skip
+  // button. `skipTimes` is populated by SkipOverlay via the watch context.
+  const skipSegment = (type: "op" | "ed") => {
+    const video = getVideo();
+    if (!video) return;
+    const skips: Array<{ start: number; end: number; type: string }> =
+      (watchCtx as any)?.skipTimes || [];
+    const seg = skips.find(
+      (s) => s.type === type && video.currentTime >= s.start - 1 && video.currentTime < s.end,
+    );
+    // If we're not inside it yet, fall back to the first segment of that type.
+    const target = seg || skips.find((s) => s.type === type);
+    if (target) video.currentTime = target.end;
+  };
+
+  const runAction = (action: ShortcutAction) => {
+    const player = playerRef.current;
+    const video = getVideo();
+    switch (action) {
+      case "playPause": {
+        if (!video) return;
+        if (video.paused) player?.play?.();
+        else player?.pause?.();
+        break;
+      }
+      // Both go through navigateToEpisode, which raises the loading host over
+      // the fullscreen player (see lib/player/episodeTransition.ts).
+      case "prevEpisode":
+        navigateToEpisode(router, prevEpisodeHref, isFullscreenRef.current);
+        break;
+      case "nextEpisode":
+        navigateToEpisode(router, nextEpisodeHref, isFullscreenRef.current);
+        break;
+      case "mute":
+        if (video) video.muted = !video.muted;
+        break;
+      case "seekBackward":
+        if (video) video.currentTime = Math.max(0, video.currentTime - 5);
+        break;
+      case "seekForward":
+        if (video) video.currentTime = Math.min(video.duration || Infinity, video.currentTime + 5);
+        break;
+      case "frameBackward":
+        if (video) {
+          video.pause();
+          video.currentTime = Math.max(0, video.currentTime - 1 / 24);
+        }
+        break;
+      case "frameForward":
+        if (video) {
+          video.pause();
+          video.currentTime = video.currentTime + 1 / 24;
+        }
+        break;
+      case "restart":
+        if (video) video.currentTime = 0;
+        break;
+      case "volumeUp":
+        if (video) {
+          video.muted = false;
+          video.volume = Math.min(1, +(video.volume + 0.1).toFixed(2));
+        }
+        break;
+      case "volumeDown":
+        if (video) video.volume = Math.max(0, +(video.volume - 0.1).toFixed(2));
+        break;
+      case "rateDown":
+        if (video) {
+          const r = Math.max(0.25, +(video.playbackRate - 0.25).toFixed(2));
+          video.playbackRate = r; // immediate
+          onRateChange(r, { request: true }); // persist + keep Vidstack in sync
+        }
+        break;
+      case "rateUp":
+        if (video) {
+          const r = Math.min(2, +(video.playbackRate + 0.25).toFixed(2));
+          video.playbackRate = r;
+          onRateChange(r, { request: true });
+        }
+        break;
+      case "rateReset":
+        if (video) {
+          video.playbackRate = 1;
+          onRateChange(1, { request: true });
+        }
+        break;
+      case "toggleAmbient":
+        setAmbientCtx(!ctxAmbient);
+        break;
+      case "skipIntro":
+        skipSegment("op");
+        break;
+      case "skipOutro":
+        skipSegment("ed");
+        break;
+      case "chromecast":
+        if (castAvailable) requestCast();
+        break;
+      case "fullscreen":
+        // A keydown is a user gesture, so the root fullscreen request is allowed.
+        togglePlayerFullscreen();
+        break;
+      case "pictureInPicture":
+        if (pipSupported) togglePip();
+        break;
+      case "rotate":
+        if (video) {
+          // Cycle the video rotation 0 → 90 → 180 → 270 → 0. transform is
+          // otherwise unused on the <video>.
+          const m = video.style.transform.match(/rotate\((\d+)deg\)/);
+          const next = ((m ? parseInt(m[1], 10) : 0) + 90) % 360;
+          video.style.transform = next ? `rotate(${next}deg)` : "";
+        }
+        break;
+      case "seekPct10":
+      case "seekPct20":
+      case "seekPct30":
+      case "seekPct40":
+      case "seekPct50":
+      case "seekPct60":
+      case "seekPct70":
+      case "seekPct80":
+      case "seekPct90":
+        if (video && isFinite(video.duration) && video.duration > 0) {
+          const pct = Number(action.replace("seekPct", "")) / 100;
+          video.currentTime = video.duration * pct;
+        }
+        break;
+      case "subtitles":
+        if (subMode === "soft" && subtitleTracks.length) {
+          // Pure on/off toggle — never changes the language. When turning back
+          // on, restore the last shown track (or fall back to the first one).
+          if (activeTrackIdx >= 0) {
+            selectSubtitleTrack(-1);
+          } else {
+            const restore =
+              lastShownTrackIdx.current >= 0 &&
+              lastShownTrackIdx.current < subtitleTracks.length
+                ? lastShownTrackIdx.current
+                : 0;
+            selectSubtitleTrack(restore);
+          }
+        } else {
+          // Hard-sub / dub: explain why there's nothing to cycle.
+          showSubNotice(
+            subMode === "hard" ? t("player.subsHardBurned") : t("player.subsNoneDub"),
+          );
+        }
+        break;
+      case "toggleStats":
+        setStatsOpen((v) => !v);
+        break;
+      case "screenshot":
+        void captureScreenshot();
+        break;
+      case "cycleServer":
+        // The player doesn't own the server list — ask the watch page to
+        // advance to the next confirmed server (same pattern as theater).
+        window.dispatchEvent(new CustomEvent("aniscroll:cycleServer"));
+        break;
+      case "copyTimestamp":
+        void copyTimestampLink();
+        break;
+      case "partyChat": {
+        // Only meaningful in a watch-together party (the chat lives there).
+        if (!party) {
+          // Windowed → sonner toast (matches the site). Fullscreen → in-player
+          // stack. Same routing/stacking as the subtitle notices.
+          showPlayerNotice(
+            t("party.chatNeedsParty", {
+              defaultValue: "Rejoins une party pour discuter.",
+            }),
+            5000,
+          );
+          break;
+        }
+        // Focus the chat WHERE THE USER IS — never force fullscreen. In
+        // fullscreen the FullscreenChat overlay opens + focuses; windowed, the
+        // WatchPartyPanel composer focuses. Both listen for this one event.
+        window.dispatchEvent(new CustomEvent("aniscroll:openPartyChat"));
+        break;
+      }
+    }
+  };
+
+  // Copy the current page URL with a `?t=<seconds>` fragment so a shared link
+  // resumes at the exact moment ("share at 12:34").
+  const copyTimestampLink = async () => {
+    const video = getVideo();
+    if (!video) return;
+    const seconds = Math.floor(video.currentTime || 0);
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.set("t", String(seconds));
+      await navigator.clipboard.writeText(url.toString());
+      const mm = Math.floor(seconds / 60);
+      const ss = String(seconds % 60).padStart(2, "0");
+      showPlayerNotice(t("stats.timestampCopied", { time: `${mm}:${ss}` }), 5000, "success");
+    } catch {
+      showPlayerNotice(t("stats.timestampFailed"), 5000, "error");
+    }
+  };
+
+  // Grab the current frame → PNG → clipboard (falls back to a download if the
+  // Clipboard image API is unavailable). Only works on CORS-clean sources; a
+  // tainted canvas throws on toBlob and we surface a toast.
+  const captureScreenshot = async () => {
+    const video = getVideo();
+    if (!video || !video.videoWidth) return;
+    try {
+      const canvas = document.createElement("canvas");
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const blob: Blob | null = await new Promise((res) =>
+        canvas.toBlob((b) => res(b), "image/png"),
+      );
+      if (!blob) throw new Error("no blob");
+      try {
+        // Clipboard image write (Chrome/Edge/Safari 13.1+).
+        const item = new (window as any).ClipboardItem({ "image/png": blob });
+        await (navigator.clipboard as any).write([item]);
+        showPlayerNotice(t("stats.screenshotCopied"), 5000, "success");
+      } catch {
+        // No clipboard-image support → download instead.
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `${downloadName || "screenshot"}.png`;
+        a.click();
+        URL.revokeObjectURL(url);
+        showPlayerNotice(t("stats.screenshotSaved"), 5000, "success");
+      }
+    } catch {
+      // Tainted canvas (noCors source) — can't read pixels.
+      showPlayerNotice(t("stats.screenshotFailed"), 5000, "error");
+    }
+  };
+
+  // Publish the dispatcher to the ref declared up top (before the early
+  // returns). On the iframe path this assignment never runs, so the ref stays
+  // null and the (unconditionally-mounted) keydown listener no-ops — correct,
+  // since iframe embeds have no <video> to drive.
+  runActionRef.current = runAction;
+
   return (
     // `isolation: isolate` creates a new stacking context here. Without it,
     // the ambient's z-index:-1 would slip behind elements OUTSIDE this
@@ -3706,9 +4480,9 @@ export default function UniversalPlayer({
     // the ambient's transform:scale() overflow. With isolate, z-index:-1
     // is clamped to "behind this component but not behind its siblings".
     <div
-      className={`relative h-full w-full${iosPseudoFs ? " moopa-ios-fs" : ""}${
-        party?.amPlaybackBlocked ? " w2g-playback-blocked" : ""
-      }`}
+      className={`relative h-full w-full${
+        isFullscreen ? " aniscroll-player-fs" : ""
+      }${party?.amPlaybackBlocked ? " w2g-playback-blocked" : ""}`}
       style={{ isolation: "isolate" }}
     >
       {ambientEnabled && <LiveAmbient playerRef={playerRef} />}
@@ -3755,10 +4529,15 @@ export default function UniversalPlayer({
         // StaticGlow on these sources.
         {...(bestStream!.noCors ? {} : { crossorigin: "anonymous" })}
         aspectRatio="16/9"
-        // When the host has blocked our playback, disable Vidstack's keyboard
-        // shortcuts (Space/k = play, arrows = seek, etc.) so they can't drive
-        // playback past the <video> guard below.
-        keyDisabled={!!party?.amPlaybackBlocked}
+        // Disable Vidstack's built-in keyboard shortcuts ENTIRELY: our central
+        // window-level handler (see the keydown effect) is the single source of
+        // truth for every shortcut, driven by the user's keybindings. Leaving
+        // Vidstack's defaults on meant an UNBOUND key still triggered Vidstack's
+        // own action — e.g. in fullscreen, pressing "i" fired Vidstack's default
+        // PiP even though the user's PiP is on "o" (our handler no-ops an unbound
+        // key without preventing Vidstack's default). It also double-fired bound
+        // keys. Always off — playback-block is enforced by the <video> guard.
+        keyDisabled
         onError={() => onError?.("Playback error")}
       >
         <MediaProvider>
@@ -3807,14 +4586,44 @@ export default function UniversalPlayer({
           downloadUrl={downloadUrl}
           downloadFilename={`${safeName}.${ext}`}
           downloadExt={ext}
-          onSubsClick={() => setSubMenuOpen((v) => !v)}
-          hasSubtitles={subtitleTracks.length > 0}
+          onSubsClick={openSubtitles}
+          // Only Megaplay (soft subs) gets the Subs button — hard-sub (VOSTFR)
+          // and VF servers have nothing to toggle. The keyboard shortcut still
+          // surfaces the explanatory notice on those servers.
+          hasSubtitles={subMode === "soft" && subtitleTracks.length > 0}
           subBtnRef={subBtnRef}
           castAvailable={castAvailable}
           castConnected={castConnected}
           onCastClick={requestCast}
         />,
         controlsHostRef.current,
+      )}
+
+      {/* "Next episode" button, portaled into the STABLE navHost the observer
+          parks right after the play/pause button. Same stable-container
+          rationale as the group above. Hidden on the last episode (no href). */}
+      {nextEpisodeHref && navHostAttached && navHostRef.current && createPortal(
+        <NextEpisodeButton
+          onClick={() =>
+            navigateToEpisode(router, nextEpisodeHref, isFullscreen)
+          }
+          onWarm={() => {
+            try {
+              // JS bundle only — a getServerSideProps route isn't data-prefetched
+              // by the Pages Router, so this costs no function invocation.
+              router.prefetch(nextEpisodeHref);
+            } catch {
+              /* prefetch unsupported — the click still works, just colder */
+            }
+          }}
+        />,
+        navHostRef.current,
+      )}
+
+      {/* Our fullscreen button, where Vidstack's hidden one sits. */}
+      {fsHostAttached && fsHostRef.current && createPortal(
+        <FullscreenToggle active={isFullscreen} />,
+        fsHostRef.current,
       )}
 
       {/* Custom toggles injected at the top of Vidstack's Settings menu, via the
@@ -3933,10 +4742,10 @@ export default function UniversalPlayer({
                   downloadFilename={`${safeName}.${ext}`}
                   iconPath="M12 16l-5-5h3V4h4v7h3l-5 5zm-7 2h14v2H5v-2z"
                 />
-                {subtitleTracks.length > 0 && (
+                {subMode === "soft" && subtitleTracks.length > 0 && (
                   <SettingsActionRow
                     label={t("player.subtitles")}
-                    onClick={() => setSubMenuOpen(true)}
+                    onClick={openSubtitles}
                     iconPath="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm-9 11H6v-2h5v2zm7 0h-5v-2h5v2zm0-4H6V9h12v2z"
                   />
                 )}
@@ -3972,6 +4781,15 @@ export default function UniversalPlayer({
               // Material "fast_forward" icon.
               iconPath="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z"
             />
+            {/* No stats row here — the video-stats overlay is reachable via its
+                keyboard shortcut (toggleStats), not a menu toggle (per request). */}
+            {/* Opens the visual keyboard shortcut editor overlay. */}
+            <SettingsActionRow
+              label={t("shortcuts.configure")}
+              onClick={() => setShortcutEditorOpen(true)}
+              // Material "keyboard" icon.
+              iconPath="M20 5H4c-1.1 0-1.99.9-1.99 2L2 17c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm-9 3h2v2h-2V8zm0 3h2v2h-2v-2zM8 8h2v2H8V8zm0 3h2v2H8v-2zm-1 2H5v-2h2v2zm0-3H5V8h2v2zm9 7H8v-2h8v2zm0-4h-2v-2h2v2zm0-3h-2V8h2v2zm3 3h-2v-2h2v2zm0-3h-2V8h2v2z"
+            />
           </>
         ),
         settingsHostRef.current,
@@ -3998,7 +4816,15 @@ export default function UniversalPlayer({
       {/* Big centred play button — the MANUAL start affordance, shown only when
           autoplay is OFF. One click plays WITH sound. With autoplay ON the video
           starts itself, so the button is hidden (see CenterPlayButton). */}
-      <CenterPlayButton playerRef={playerRef} autoplay={autoplay} />
+      <CenterPlayButton
+        playerRef={playerRef}
+        autoplay={autoplay}
+        menuOpen={vdsMenuOpen}
+        inParty={!!party}
+        onGesture={() => {
+          partyGestureRef.current = true;
+        }}
+      />
 
       {/* AniSkip segment overlay + Skip button. Renders null when no
           skip data exists for the current episode AND there's no next
@@ -4009,6 +4835,7 @@ export default function UniversalPlayer({
         malId={malId}
         aniListId={aniListId}
         episode={episodeNumber}
+        server={serverId}
         nextEpisodeHref={nextEpisodeHref}
         externalMenuOpen={subMenuOpen || subStyleOpen}
         isFinalEpisode={isFinalEpisode}
@@ -4025,6 +4852,17 @@ export default function UniversalPlayer({
           myId={party.myId}
           playerEl={playerElState}
           active={isFullscreen}
+          // Hide the chat while any player menu/overlay is open so it never
+          // overlaps them in fullscreen: our custom subtitle menu / styling /
+          // stats, the Vidstack settings host, AND any native Vidstack menu
+          // (chapters, quality, captions…) via `vdsMenuOpen`.
+          suppressed={
+            settingsHostAttached ||
+            vdsMenuOpen ||
+            subMenuOpen ||
+            subStyleOpen ||
+            statsOpen
+          }
         />
       )}
 
@@ -4044,6 +4882,44 @@ export default function UniversalPlayer({
       )}
 
       <SubtitleSettings open={subStyleOpen} onClose={() => setSubStyleOpen(false)} />
+
+      {/* Player notices (subs burned-in / "join a party to chat" / screenshots)
+          now render through the global <NoticeStack> (lib/notifications). It
+          portals its stack INTO this player root while we're fullscreen (see the
+          setPlayerSurface effect above), so player notices and site notices
+          (party created, HTTP errors, …) share ONE animated, hover-expandable
+          stack. Nothing to render here anymore. */}
+
+      {/* "Stats for nerds" — live playback telemetry, toggled by the
+          `toggleStats` shortcut or the settings-menu row. Portalled INTO the
+          player root (playerElState) — the fullscreen element is `.vds-player`,
+          so a plain sibling here would be outside the fullscreen subtree and
+          invisible in fullscreen (the bug). Falls back to a normal sibling
+          before the element is ready. */}
+      {statsOpen &&
+        (playerElState
+          ? createPortal(
+              <VideoStats
+                playerRef={playerRef}
+                hlsRef={hlsRef}
+                serverName={serverId}
+                onClose={() => setStatsOpen(false)}
+              />,
+              playerElState,
+            )
+          : (
+            <VideoStats
+              playerRef={playerRef}
+              hlsRef={hlsRef}
+              serverName={serverId}
+              onClose={() => setStatsOpen(false)}
+            />
+          ))}
+
+      {/* Visual keyboard shortcut editor — opened from the settings menu. */}
+      {shortcutEditorOpen && (
+        <ShortcutEditor onClose={() => setShortcutEditorOpen(false)} />
+      )}
     </div>
   );
 }
@@ -4061,6 +4937,12 @@ function IframeEmbed({
 }) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [failed, setFailed] = useState(false);
+
+  // The embed is on screen — drop the episode-transition loading host. No-op
+  // unless a transition is pending.
+  useEffect(() => {
+    claimEpisodeTransition();
+  }, []);
 
   useEffect(() => {
     setFailed(false);

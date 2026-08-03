@@ -10,10 +10,15 @@
 export type Skip = { start: number; end: number; type: string };
 
 // Module-level memo so changing servers (which remounts the player and
-// therefore SkipOverlay) doesn't refetch the same episode. Key is
-// `${malId}:${episode}` — sub/dub doesn't change the op/ed timestamps.
+// therefore SkipOverlay) doesn't refetch the same episode. The discriminator is
+// the ACTIVE SERVER id when known, else the lang: our own detector now stores
+// PER-HOST rows because the OP's absolute start is encode-specific (SnK ep1 OP
+// is 2:02 on sibnet, 2:19 on megaplay), so two servers must not share a cache
+// entry. Falling back to lang keeps the crowdsourced path (server-agnostic)
+// deduped as before.
 export const SKIP_MEMO = new Map<string, Skip[]>();
-export const skipMemoKey = (mal: number, ep: number) => `${mal}:${ep}`;
+export const skipMemoKey = (mal: number, ep: number, disc = "vostfr") =>
+  `${mal}:${ep}:${disc}`;
 
 // In-flight requests, so the watch page's eager prefetch and SkipOverlay's
 // own fetch don't both hit the network for the same episode — the second
@@ -30,9 +35,15 @@ export async function prefetchSkips(
   malId?: number | null,
   episode?: number | null,
   aniListId?: number | null,
+  opts?: { lang?: string; episodeLength?: number; server?: string },
 ): Promise<Skip[]> {
   if (!malId || !episode) return [];
-  const key = skipMemoKey(malId, episode);
+  const lang = opts?.lang || "vostfr";
+  const server = opts?.server || null;
+  // Server (when known) discriminates the cache AND is sent to the API so it can
+  // return that exact encode's per-host OP/ED; without it we key by lang and the
+  // API falls back to the reconciled/crowdsourced answer.
+  const key = skipMemoKey(malId, episode, server || lang);
   const cached = SKIP_MEMO.get(key);
   if (cached) return cached;
   const inflight = SKIP_INFLIGHT.get(key);
@@ -41,6 +52,14 @@ export async function prefetchSkips(
     try {
       const params = new URLSearchParams();
       if (aniListId) params.set("aniListId", String(aniListId));
+      params.set("lang", lang);
+      if (server) params.set("server", server);
+      // episodeLength lets the API re-project an ED onto this encode's real
+      // duration (and is required by the AniSkip fallback). 0/absent is fine —
+      // the API then serves the ED in its canonical duration.
+      if (opts?.episodeLength && opts.episodeLength > 0) {
+        params.set("episodeLength", String(Math.round(opts.episodeLength)));
+      }
       const res = await fetch(`/api/v2/skip/${malId}/${episode}?${params.toString()}`);
       if (!res.ok) return [];
       const json = await res.json();

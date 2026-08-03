@@ -105,6 +105,9 @@ CREATE TABLE IF NOT EXISTS fribb_map (
   tmdb_tv_id     INTEGER,                     -- themoviedb_id.tv (franchise key)
   tmdb_movie_id  INTEGER,                     -- themoviedb_id.movie (dual-format)
   tvdb_id        INTEGER,
+  simkl_id       INTEGER,                     -- per-ENTRY id (not franchise) —
+                                              -- powers per-episode stills, see
+                                              -- lib/simkl/episodeStills.ts
   tmdb_season    INTEGER,                     -- season.tmdb (NULL when unmapped)
   tvdb_season    INTEGER,                     -- season.tvdb
   type           TEXT,                        -- TV/MOVIE/OVA/... (Fribb `type`)

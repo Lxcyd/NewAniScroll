@@ -20,8 +20,11 @@ import { seasonCacheGet, seasonCacheSet } from "@/lib/db/seasonCache";
  *   • CDN (Cache-Control) — still set so the edge re-serves without hitting us.
  * A miss/DB error just recomputes from AnimeThemes; the cache never blocks.
  */
+// v2: the Theme shape gained videoNc/videoCredited (credits toggle). Bumping the
+// key retires v1 rows that only had a single `video` URL, so warm caches don't
+// serve the old shape without the credited variant.
 const THEMES_KEY = (anilistId: number | null, malId: number | null) =>
-  `themes:v1:${malId ? `mal${malId}` : `al${anilistId}`}`;
+  `themes:v2:${malId ? `mal${malId}` : `al${anilistId}`}`;
 
 export default async function handler(
   req: NextApiRequest,

@@ -1,12 +1,13 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/router";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { notify } from "@/lib/notifications/noticeStore";
 import { IoSend, IoCopyOutline, IoPeople, IoClose, IoExitOutline, IoAdd, IoEnterOutline } from "react-icons/io5";
 import { FaCrown } from "react-icons/fa";
 import { MdVolumeOff, MdLock, MdPublic } from "react-icons/md";
 import type { PartyContext } from "@/lib/watch2gether/useWatchParty";
 import { getGuestIdentity } from "@/lib/watch2gether/guest";
+import { getResumeTime } from "@/lib/watch/progress";
 import MemberAvatar from "./MemberAvatar";
 import MemberMenu from "./MemberMenu";
 import ChatText from "./ChatText";
@@ -77,21 +78,62 @@ function Lobby({ lobby, onClose }: { lobby?: LobbyMeta; onClose?: () => void }) 
   const [loading, setLoading] = useState(false);
   const [code, setCode] = useState("");
 
-  const enterRoom = (roomId: string) =>
-    router.replace(
-      { pathname: router.pathname, query: { ...router.query, party: roomId } },
-      undefined,
-      { shallow: true },
-    );
+  // Enter a room by adding ?party to the CURRENT url. We build the target from
+  // window.location (the real address bar) rather than router.pathname/query:
+  // on this i18n catch-all route, router.pathname is the internal
+  // "/en/anime/watch/[...info]" template and router.query can momentarily lack
+  // the `info`/`num` segments — feeding those to router.replace wrote
+  // "/anime/watch/undefined/…?num=undefined", which crashed the page. The live
+  // location already has the correct path + query, so we only append party.
+  const enterRoom = (roomId: string) => {
+    const params = new URLSearchParams(window.location.search);
+    params.set("party", roomId);
+    const url = `${window.location.pathname}?${params.toString()}`;
+    router.replace(url, undefined, { shallow: true });
+  };
 
   const create = async () => {
-    if (!lobby?.aniId || !lobby?.epiNumber) {
-      toast.error(t("party.episodeNotReady"));
+    // Reject not just falsy but the literal "undefined"/"null" that String()
+    // produces from an un-hydrated info?.id / epiNumber — seeding a room with
+    // those crashed every joiner (navigates to /anime/watch/undefined/…).
+    const ready = (v?: string | number) => {
+      const s = String(v ?? "").trim();
+      return s !== "" && s !== "undefined" && s !== "null";
+    };
+    if (!lobby || !ready(lobby.aniId) || !ready(lobby.epiNumber)) {
+      notify.error(t("party.episodeNotReady"));
       return;
     }
     setLoading(true);
     try {
       const guest = getGuestIdentity();
+      // Seed the room at the host's CURRENT playback position so creating a
+      // party on an already-started episode doesn't rewind everyone to 0. Read
+      // it live from the MAIN <video>: UniversalPlayer stamps it with
+      // `disableremoteplayback`, which the hidden HoverPreview <video> lacks, so
+      // this reliably picks the playing element (and skips iframe embeds, which
+      // have no <video> at all → falls back to 0).
+      const video =
+        typeof document !== "undefined"
+          ? document.querySelector<HTMLVideoElement>("video[disableremoteplayback]") ||
+            document.querySelector<HTMLVideoElement>("media-player video")
+          : null;
+      // `positionKnown` is true ONLY when we read a real playhead from a native
+      // <video>. For iframe embeds (Vidmoly/Sibnet — no <video>) the position is
+      // unreadable: fall back to the persisted resume point for this episode
+      // (from a previous native session, if any) rather than a bare 0, and flag
+      // it unknown so the host's player isn't rewound/paused server-side.
+      const positionKnown = !!video && Number.isFinite(video.currentTime);
+      const position = positionKnown
+        ? Math.max(0, video!.currentTime)
+        : getResumeTime(lobby.aniId!, lobby.epiNumber!);
+      // Seed the room's play/pause to match the host's live state too: if they
+      // created the party WHILE watching, the host keeps playing (their player
+      // isn't driven by the snapshot) but no `play` event fires to tell joiners,
+      // so without this the room would sit "paused" and late joiners would wait
+      // at the seeded position until the host next acted. `null` (iframe embeds
+      // with no readable <video>) falls back to paused server-side.
+      const paused = video ? !!video.paused : true;
       const res = await fetch("/api/v2/watch2gether/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -100,13 +142,16 @@ function Lobby({ lobby, onClose }: { lobby?: LobbyMeta; onClose?: () => void }) 
           epiNumber: String(lobby.epiNumber),
           dub: !!lobby.dub,
           server: lobby.server || "",
+          position,
+          positionKnown,
+          paused,
           guestId: guest.guestId,
           guestName: guest.guestName,
         }),
       });
       const data = await res.json();
       if (!res.ok || !data?.roomId) {
-        toast.error(data?.error || t("party.cantCreate"));
+        notify.error(data?.error || t("party.cantCreate"));
         return;
       }
       const params = new URLSearchParams(window.location.search);
@@ -114,13 +159,13 @@ function Lobby({ lobby, onClose }: { lobby?: LobbyMeta; onClose?: () => void }) 
       const url = `${window.location.origin}${window.location.pathname}?${params.toString()}`;
       try {
         await navigator.clipboard.writeText(url);
-        toast.success(t("party.createdCopied", { code: data.roomId }));
+        notify.success(t("party.createdCopied", { code: data.roomId }));
       } catch {
-        toast.success(t("party.created", { code: data.roomId }));
+        notify.success(t("party.created", { code: data.roomId }));
       }
       enterRoom(data.roomId);
     } catch {
-      toast.error(t("party.cantCreate"));
+      notify.error(t("party.cantCreate"));
     } finally {
       setLoading(false);
     }
@@ -130,7 +175,7 @@ function Lobby({ lobby, onClose }: { lobby?: LobbyMeta; onClose?: () => void }) 
     e.preventDefault();
     const roomId = code.trim();
     if (!/^\d{4}$/.test(roomId)) {
-      toast.error(t("party.enterCode"));
+      notify.error(t("party.enterCode"));
       return;
     }
     enterRoom(roomId);
@@ -227,11 +272,24 @@ function ActiveRoom({ party, onClose }: { party: PartyContext; onClose?: () => v
     if (el) el.scrollTop = el.scrollHeight;
   }, [chat]);
 
+  // Chat shortcut ("t"): when the player is NOT fullscreen, the FullscreenChat
+  // overlay isn't mounted, so this side panel's composer is the chat input to
+  // focus. We only handle the event while windowed — in fullscreen the overlay
+  // owns it (guarded there by `active`), so both never fire at once.
+  useEffect(() => {
+    const onOpen = () => {
+      if (document.fullscreenElement) return; // fullscreen overlay handles it
+      composerRef.current?.focus();
+    };
+    window.addEventListener("aniscroll:openPartyChat", onOpen);
+    return () => window.removeEventListener("aniscroll:openPartyChat", onOpen);
+  }, []);
+
   const send = (raw: string) => {
     const val = raw.trim();
     if (!val) return;
     if (amMuted) {
-      toast.error(t("party.mutedBanner"));
+      notify.error(t("party.mutedBanner"));
       return;
     }
     sendChat(val);
@@ -248,9 +306,9 @@ function ActiveRoom({ party, onClose }: { party: PartyContext; onClose?: () => v
   const copy = async (value: string, label: string) => {
     try {
       await navigator.clipboard.writeText(value);
-      toast.success(t("party.copied", { label }));
+      notify.success(t("party.copied", { label }));
     } catch {
-      toast.error(t("party.cantCopy"));
+      notify.error(t("party.cantCopy"));
     }
   };
 
@@ -393,7 +451,7 @@ function ActiveRoom({ party, onClose }: { party: PartyContext; onClose?: () => v
       </div>
 
       {/* Composer. When muted by the host: input + send are disabled, a banner
-          explains why, and clicking the area shows a toast. Typed `:pog:`
+          explains why, and clicking the area shows a notify. Typed `:pog:`
           shortcodes are converted to the actual emoji inline on change. */}
       <div className="border-t border-white/10">
         {amMuted && (
@@ -424,12 +482,12 @@ function ActiveRoom({ party, onClose }: { party: PartyContext; onClose?: () => v
             </button>
           </div>
           {/* When muted, a transparent overlay swallows clicks (disabled inputs
-              don't fire events) and shows the "you are muted" toast. */}
+              don't fire events) and shows the "you are muted" notify. */}
           {amMuted && (
             <button
               type="button"
               aria-label={t("party.mutedBanner")}
-              onClick={() => toast.error(t("party.mutedBanner"))}
+              onClick={() => notify.error(t("party.mutedBanner"))}
               className="absolute inset-0 z-10 cursor-not-allowed bg-transparent"
             />
           )}

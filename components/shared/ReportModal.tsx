@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import { Dialog, Transition } from "@headlessui/react";
-import { toast } from "sonner";
+import { notify } from "@/lib/notifications/noticeStore";
 import { useTranslation } from "react-i18next";
 
 /* Two-tab report form.
@@ -114,7 +114,7 @@ const ReportModal: React.FC<Props> = ({ isOpen, setIsOpen, animeContext }) => {
     if (!files) return;
     const slots = MAX_IMAGES - images.length;
     if (slots <= 0) {
-      toast.error(t("report.errors.tooManyImages", { max: MAX_IMAGES }));
+      notify.error(t("report.errors.tooManyImages", { max: MAX_IMAGES }));
       return;
     }
     const chosen = Array.from(files).slice(0, slots);
@@ -122,7 +122,7 @@ const ReportModal: React.FC<Props> = ({ isOpen, setIsOpen, animeContext }) => {
     const valid = encoded.filter((x): x is string => Boolean(x));
     const rejected = encoded.length - valid.length;
     if (rejected > 0) {
-      toast.error(t("report.errors.filesSkipped", { count: rejected }));
+      notify.error(t("report.errors.filesSkipped", { count: rejected }));
     }
     if (valid.length) setImages((cur) => [...cur, ...valid]);
   };
@@ -151,7 +151,7 @@ const ReportModal: React.FC<Props> = ({ isOpen, setIsOpen, animeContext }) => {
   } | null => {
     if (tab === "site") {
       if (!siteTitle.trim() || !siteDesc.trim()) {
-        toast.error(t("report.errors.titleDescRequired"));
+        notify.error(t("report.errors.titleDescRequired"));
         return null;
       }
       return {
@@ -162,7 +162,7 @@ const ReportModal: React.FC<Props> = ({ isOpen, setIsOpen, animeContext }) => {
     }
     // anime tab
     if (animeIssues.size === 0) {
-      toast.error(t("report.errors.pickIssue"));
+      notify.error(t("report.errors.pickIssue"));
       return null;
     }
     const ctxBits: string[] = [];
@@ -220,18 +220,18 @@ const ReportModal: React.FC<Props> = ({ isOpen, setIsOpen, animeContext }) => {
       });
       const json = await res.json();
       if (res.status === 429) {
-        toast.error(json.message || t("report.errors.tooManyReports"));
+        notify.error(json.message || t("report.errors.tooManyReports"));
         return;
       }
       if (!res.ok) {
-        toast.error(json.error || t("report.errors.submissionFailed"));
+        notify.error(json.error || t("report.errors.submissionFailed"));
         return;
       }
-      toast.success(json.message || t("report.success"));
+      notify.success(json.message || t("report.success"));
       closeModal();
     } catch (err: any) {
       console.error(err);
-      toast.error(t("report.errors.somethingWrong", { message: err.message }));
+      notify.error(t("report.errors.somethingWrong", { message: err.message }));
     } finally {
       setSubmitting(false);
     }

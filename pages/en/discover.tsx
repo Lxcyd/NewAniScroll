@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import Head from "next/head";
 import { useRouter } from "next/router";
 import { useSession } from "next-auth/react";
-import { toast } from "sonner";
+import { notify } from "@/lib/notifications/noticeStore";
 import { Cog6ToothIcon, SparklesIcon } from "@heroicons/react/24/solid";
 import { useTranslation } from "react-i18next";
 import { Navbar } from "@/components/shared/NavBar";
@@ -87,7 +87,7 @@ export default function Discover() {
         );
       } catch (e) {
         console.error(e);
-        toast.error(t("discover.failedToLoad"));
+        notify.error(t("discover.failedToLoad"));
       } finally {
         setLoading(false);
       }
@@ -153,7 +153,7 @@ export default function Discover() {
           /* non-fatal */
         }
       }
-      toast(t("discover.removed"));
+      notify(t("discover.removed"));
     },
     [session, t]
   );
@@ -181,12 +181,12 @@ export default function Discover() {
         });
         if (saved) {
           entryIds.current[anime.id] = saved.id;
-          toast.success(t("discover.addedTo", { status: label }), {
+          notify.success(t("discover.addedTo", { status: label }), {
             action: undoAction,
             className: "discover-toast",
           });
         } else {
-          toast.error(t("discover.couldntSave"));
+          notify.error(t("discover.couldntSave"));
           setSwiped((prev) => {
             const next = { ...prev };
             delete next[anime.id];
@@ -203,7 +203,7 @@ export default function Discover() {
         } catch {
           /* non-fatal */
         }
-        toast(t("discover.savedLocally"), {
+        notify(t("discover.savedLocally"), {
           action: undoAction,
           className: "discover-toast",
         });

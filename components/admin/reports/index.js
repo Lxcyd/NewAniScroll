@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { toast } from "sonner";
+import { notify } from "@/lib/notifications/noticeStore";
 
 /**
  * Dedicated Reports admin page. Same data as the dashboard's report card,
@@ -46,13 +46,13 @@ export default function AdminReports() {
       });
       const data = await r.json();
       if (r.status === 200) {
-        toast.success(data.message);
+        notify.success(data.message);
         setReports((cur) => cur.filter((r) => r.id !== id));
       } else {
-        toast.error("Failed");
+        notify.error("Failed");
       }
     } catch {
-      toast.error("Failed");
+      notify.error("Failed");
     }
   };
 
@@ -73,7 +73,7 @@ export default function AdminReports() {
       });
       const data = await r.json();
       if (r.status !== 200) throw new Error(data?.error || "Failed");
-      toast.success(data.message);
+      notify.success(data.message);
     } catch (e) {
       // Roll back on failure.
       setReports((cur) =>
@@ -81,7 +81,7 @@ export default function AdminReports() {
           r.id === id ? { ...r, pending_at: nextPending ? null : now } : r,
         ),
       );
-      toast.error(e.message || "Failed");
+      notify.error(e.message || "Failed");
     }
   };
 

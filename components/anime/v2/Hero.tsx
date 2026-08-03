@@ -15,12 +15,13 @@ import {
   SeasonInfo,
   TitleImage,
 } from "./helpers";
-import { toast } from "sonner";
+import { notify } from "@/lib/notifications/noticeStore";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { useTranslation } from "react-i18next";
 import { genreLabel } from "@/lib/i18n/genreLabel";
 import { prefetchEpisodeList } from "@/lib/watch/episodePrefetch";
 import { useFanartSrc, fanartSrcNow, onFanartError } from "@/lib/images/fanartFallback";
+import { useNavBackdrop } from "@/lib/color/navContrast";
 import QueueButton from "./QueueButton";
 
 type HeroProps = {
@@ -321,6 +322,10 @@ export default function Hero({
   // only after mount if the session flagged the CF quota as exhausted.
   const currentTitleUrl = useFanartSrc(renderedUrl);
 
+  // The navbar floats over the top of the banner: tell it what it's sitting on
+  // so it can flip to dark chrome over light artwork.
+  useNavBackdrop(info.bannerImage);
+
   // Single-episode entries (movies, specials, short OVAs) don't have a
   // meaningful "EP NN" or "S<n>" — they're standalone units. Detect them
   // and collapse the button to a single big "WATCH NOW" / "REWATCH" line.
@@ -385,7 +390,9 @@ export default function Hero({
           to   { opacity: 1; transform: translateY(0); }
         }
       `}</style>
-      {/* Banner */}
+      {/* Banner. The navbar floats over its top ~72px with white chrome — see
+          the useNavBackdrop call above, which flips it to dark chrome when this
+          artwork is light. */}
       <div style={hStyles.banner}>
         {info.bannerImage && (
           // eslint-disable-next-line @next/next/no-img-element
@@ -711,7 +718,7 @@ export default function Hero({
                       navigator.share({ title, url: window.location.href }).catch(() => {});
                     } else if (typeof navigator !== "undefined") {
                       navigator.clipboard?.writeText(window.location.href);
-                      toast.success(t("anime.linkCopied"));
+                      notify.success(t("anime.linkCopied"));
                     }
                   }}
                   style={{

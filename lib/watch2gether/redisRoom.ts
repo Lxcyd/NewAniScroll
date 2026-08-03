@@ -98,6 +98,9 @@ export async function createRoom(
     hostId: String(init.hostId),
     updatedAt: Date.now(),
     locked: false,
+    // Default true (native servers / older callers); only an iframe-embed create
+    // with no readable <video> sets this false to mark position 0 as "unknown".
+    positionKnown: init.positionKnown !== false,
   };
   await redis.hset(roomKey(roomId), serialize(snapshot));
   await redis.expire(roomKey(roomId), ROOM_TTL);
@@ -145,6 +148,8 @@ export async function getSnapshot(roomId: string): Promise<RoomSnapshot | null> 
     hostId: h.hostId,
     updatedAt: Number(h.updatedAt) || 0,
     locked: h.locked === "true",
+    // Absent on older rooms → treat as known (native default).
+    positionKnown: h.positionKnown === undefined ? true : h.positionKnown === "true",
   };
 }
 

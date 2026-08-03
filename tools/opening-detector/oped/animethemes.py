@@ -75,11 +75,25 @@ def spec_covers(spec: str | None, episode: int) -> bool:
 
 @dataclass
 class ThemeEntry:
-    """One version of a theme, mapped to a set of episodes, with its video."""
+    """One version of a theme, mapped to a set of episodes, with its video(s).
+
+    We keep TWO video URLs per entry, because the OP/ED detector needs them for
+    different signals:
+      - `video_url` — the best AUDIO reference: NC (creditless) preferred, since
+        a clean rip gives the cleanest audio anchor. The song is identical either
+        way, so credits don't matter to the audio matcher.
+      - `video_url_credited` — the best CREDITED reference (nc=false), used for
+        the IMAGE/keyframe signal: real episodes have credits/subs composited
+        over the same footage, so a CREDITED reference matches those overlaid
+        frames far more tightly than a clean NC clip. `None` when AnimeThemes has
+        no credited rip (older BD-only entries, e.g. Shingeki no Kyojin) — the
+        video pipeline then falls back to `video_url`.
+    """
 
     version: int
     episodes_spec: str | None
     video_url: str | None
+    video_url_credited: str | None
     nc: bool
     resolution: int | None
     source: str | None  # "BD", "WEB", ...
@@ -178,6 +192,50 @@ def resolve_slug(
     return None
 
 
+def _pick_video(vids: list[dict], *, credited: bool) -> dict | None:
+    """Best video from an entry's `videos` list for one signal.
+
+    Resolution policy: prefer the LOWEST resolution, NOT the highest. Every
+    reference clip is downsampled to 11025 Hz mono audio and a 32x18 gray dHash
+    before matching, so a 1080p BD rip and a 480p rip fingerprint identically —
+    the extra pixels are pure download cost. On BD-quality titles (e.g. SnK) the
+    1080p OP/ED clips are tens of MB and dominate reference-building wall time;
+    the smallest valid rip is ~4-5x smaller for byte-for-byte identical hashes.
+    `_res_rank` sorts unknown/zero resolution LAST so a rip with a real, small
+    resolution always wins over one with no resolution metadata.
+
+    `credited=False` (AUDIO): NC preferred, then lowest resolution — the cleanest
+    audio anchor. `credited=True` (IMAGE): only nc=false rips, with overlap=None
+    preferred (a Transition/Over rip splices in adjacent-episode footage,
+    poisoning the keyframe match), then lowest resolution. Returns None when no
+    video satisfies the request (e.g. no credited rip exists).
+    """
+    def _res_rank(v: dict) -> int:
+        # Smaller is better; None/0 → treated as "largest" so it's picked last.
+        r = v.get("resolution") or 0
+        return r if r > 0 else 1 << 30
+
+    if credited:
+        vids = [v for v in vids if not v.get("nc")]
+        if not vids:
+            return None
+        # overlap=None first (clean), then SMALLEST resolution. AnimeThemes
+        # returns overlap as the string "None" when absent → treat as clean.
+        return min(
+            vids,
+            key=lambda v: (
+                str(v.get("overlap")) not in ("None", "none", ""),  # clean first
+                _res_rank(v),
+            ),
+        )
+    if not vids:
+        return None
+    return min(
+        vids,
+        key=lambda v: (not bool(v.get("nc")), _res_rank(v)),  # NC first, then smallest
+    )
+
+
 def fetch_themes(
     slug: str, *, cache_dir: str | Path = "cache/animethemes"
 ) -> list[Theme]:
@@ -189,7 +247,7 @@ def fetch_themes(
             "fields[anime]": "slug,name",
             "fields[animetheme]": "type,sequence,slug",
             "fields[animethemeentry]": "episodes,version,nsfw,spoiler",
-            "fields[video]": "link,nc,resolution,source",
+            "fields[video]": "link,nc,overlap,resolution,source",
             "fields[song]": "title",
             "fields[artist]": "name",
         },
@@ -204,21 +262,21 @@ def fetch_themes(
         entries: list[ThemeEntry] = []
         for e in t.get("animethemeentries", []):
             vids = e.get("videos") or []
-            # Best video for this entry: NC then highest resolution.
-            vids = sorted(
-                vids,
-                key=lambda v: (bool(v.get("nc")), v.get("resolution") or 0),
-                reverse=True,
-            )
-            v = vids[0] if vids else {}
+            # AUDIO reference: NC preferred, then highest resolution (as before).
+            v = _pick_video(vids, credited=False)
+            # IMAGE reference: a CREDITED rip (nc=false) with the same on-screen
+            # credits as the aired episode, preferring overlap=None (avoid
+            # Transition/Over rips that splice in neighbouring-episode footage).
+            v_cred = _pick_video(vids, credited=True)
             entries.append(
                 ThemeEntry(
                     version=e.get("version") or 1,
                     episodes_spec=e.get("episodes"),
-                    video_url=v.get("link"),
-                    nc=bool(v.get("nc")),
-                    resolution=v.get("resolution"),
-                    source=v.get("source"),
+                    video_url=(v or {}).get("link"),
+                    video_url_credited=(v_cred or {}).get("link"),
+                    nc=bool((v or {}).get("nc")),
+                    resolution=(v or {}).get("resolution"),
+                    source=(v or {}).get("source"),
                 )
             )
         out.append(

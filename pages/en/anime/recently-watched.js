@@ -11,7 +11,7 @@ import { useRouter } from "next/router";
 import HistoryOptions from "@/components/home/content/historyOptions";
 import Head from "next/head";
 import MobileNav from "@/components/shared/MobileNav";
-import { toast } from "sonner";
+import { notify } from "@/lib/notifications/noticeStore";
 import { useTranslation } from "react-i18next";
 
 export default function PopularAnime({ sessions }) {
@@ -135,7 +135,7 @@ export default function PopularAnime({ sessions }) {
       setRemoved(id || aniId);
 
       if (data?.message === "Episode deleted") {
-        toast.success(t("home.episodeRemoved"), {
+        notify.success(t("home.episodeRemoved"), {
           position: "bottom-right",
         });
       }

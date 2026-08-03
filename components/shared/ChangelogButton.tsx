@@ -81,7 +81,9 @@ export default function ChangelogButton() {
         onClick={() => setOpen(true)}
         title={t("nav.changelog")}
         aria-label={t("nav.changelog")}
-        className="flex-center w-9 h-9 rounded-full text-white/70 hover:text-white hover:bg-white/10 transition-colors"
+        /* nav-chrome: recoloured when the navbar sits on light artwork
+           (styles/globals.css + lib/color/navContrast). */
+        className="nav-chrome flex-center w-9 h-9 rounded-full text-white/70 hover:text-white hover:bg-white/10 transition-colors"
       >
         {/* Material Symbols "deployed_code_update" — a document with a
             change marker. Reads as "changelog / release notes" clearly

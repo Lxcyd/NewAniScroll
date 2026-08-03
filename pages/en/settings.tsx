@@ -1,5 +1,6 @@
 import Head from "next/head";
 import Image from "next/image";
+import dynamic from "next/dynamic";
 import { motion } from "framer-motion";
 import { Navbar } from "@/components/shared/NavBar";
 import Footer from "@/components/shared/footer";
@@ -53,7 +54,14 @@ import {
 } from "@heroicons/react/24/outline";
 import { useSession, signIn, signOut } from "next-auth/react";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { notify } from "@/lib/notifications/noticeStore";
+
+// The visual keyboard shortcut editor is a heavy, rarely-opened overlay —
+// load it on demand (client-only) so it never weighs down the settings bundle.
+const ShortcutEditor = dynamic(
+  () => import("@/components/watch/primary/ShortcutEditor"),
+  { ssr: false },
+);
 
 /* Reusable segmented switch. Three-option flavour is used by the title
    preference picker; two-option by the UI language placeholder. Kept
@@ -271,6 +279,8 @@ export default function Settings() {
   const serverPref = useServerPref();
   const accent = useAccent();
   const localList = useLocalList();
+  // Visual keyboard shortcut editor overlay (shared with the player).
+  const [shortcutEditorOpen, setShortcutEditorOpen] = useState(false);
   const [titlePref, setTitlePrefState] = useState<TitlePref>("en");
   const [uiLang, setUiLangState] = useState<Lang>("en");
   const [mounted, setMounted] = useState(false);
@@ -332,7 +342,7 @@ export default function Settings() {
       setProfileSettings(settings);
     } catch {
       setProfilePrivate(!next); // revert
-      toast.error(t("settings.profile.saveError"));
+      notify.error(t("settings.profile.saveError"));
     } finally {
       setProfileBusy(false);
     }
@@ -383,7 +393,7 @@ export default function Settings() {
   const handleClearList = () => {
     clearLocalList();
     setConfirmClear(false);
-    toast.success(t("settings.list.clearDone"));
+    notify.success(t("settings.list.clearDone"));
   };
 
   // ── Advanced: clear history / restore defaults (confirmed) ───────
@@ -392,12 +402,12 @@ export default function Settings() {
   const handleClearHistory = () => {
     clearAllProgress();
     setConfirmClearHistory(false);
-    toast.success(t("settings.advanced.clearHistoryDone"));
+    notify.success(t("settings.advanced.clearHistoryDone"));
   };
   const handleRestoreDefaults = () => {
     restoreDefaultSettings();
     setConfirmReset(false);
-    toast.success(t("settings.advanced.restoreDone"));
+    notify.success(t("settings.advanced.restoreDone"));
     // Reflect the reset immediately without a manual reload.
     setTimeout(() => window.location.reload(), 600);
   };
@@ -451,12 +461,12 @@ export default function Settings() {
     try {
       const r = await fullSyncFromAniList({ replace });
       if (r.ok) {
-        toast.success(t("settings.sync.synced", { count: r.count }));
+        notify.success(t("settings.sync.synced", { count: r.count }));
         // Run the auto-pause sweep immediately on the freshly-pulled list so the
         // user sees stale CURRENT entries move to PAUSED right after syncing,
         // not only on the next page load.
         await runAutoPauseSweep().catch(() => {});
-      } else toast.error(t("settings.sync.syncFailed"));
+      } else notify.error(t("settings.sync.syncFailed"));
     } finally {
       setSyncing(false);
     }
@@ -480,14 +490,14 @@ export default function Settings() {
           ? await fullSyncFromAniList({ replace: true })
           : await fullSyncToAniList();
       if (r.ok) {
-        toast.success(
+        notify.success(
           direction === "fromAniList"
             ? t("settings.sync.synced", { count: r.count })
             : t("settings.sync.pushed", { count: r.count }),
         );
         await runAutoPauseSweep().catch(() => {});
       } else {
-        toast.error(t("settings.sync.syncFailed"));
+        notify.error(t("settings.sync.syncFailed"));
       }
     } finally {
       setSyncing(false);
@@ -518,17 +528,17 @@ export default function Settings() {
         setMalProgress({ done, total }),
       );
       if (r.skipped > 0) {
-        toast.success(
+        notify.success(
           t("settings.list.exportDoneSkipped", {
             exported: r.exported,
             skipped: r.skipped,
           }),
         );
       } else {
-        toast.success(t("settings.list.exportDone", { exported: r.exported }));
+        notify.success(t("settings.list.exportDone", { exported: r.exported }));
       }
     } catch {
-      toast.error(t("settings.list.exportError"));
+      notify.error(t("settings.list.exportError"));
     } finally {
       setBusy(false);
       setMalProgress(null);
@@ -536,7 +546,7 @@ export default function Settings() {
   };
 
   const reportResult = (r: ImportResult) => {
-    toast.success(
+    notify.success(
       t("settings.list.importDone", { imported: r.imported, total: r.total }),
     );
   };
@@ -559,7 +569,7 @@ export default function Settings() {
         reportResult(importFromJson(text, importMode));
       }
     } catch (e: any) {
-      toast.error(t("settings.list.importError"));
+      notify.error(t("settings.list.importError"));
     } finally {
       setBusy(false);
       setMalProgress(null);
@@ -573,7 +583,7 @@ export default function Settings() {
     try {
       reportResult(await importFromAniListUsername(aniUsername, importMode));
     } catch (e: any) {
-      toast.error(
+      notify.error(
         e?.message === "user-not-found"
           ? t("settings.list.userNotFound")
           : t("settings.list.importError"),
@@ -856,6 +866,25 @@ export default function Settings() {
                 checked={dataSaver}
                 onChange={setDataSaver}
               />
+              {/* Keyboard shortcuts — opens the same visual keyboard editor the
+                  player exposes, so bindings are configured in one place. */}
+              <div className="flex items-center justify-between gap-4 py-3">
+                <div className="min-w-0">
+                  <div className="text-sm font-medium">
+                    {t("shortcuts.title")}
+                  </div>
+                  <div className="text-white/50 text-xs mt-0.5">
+                    {t("shortcuts.settingsDesc")}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShortcutEditorOpen(true)}
+                  className="shrink-0 rounded-md bg-action px-3 py-1.5 text-sm font-medium text-white transition hover:brightness-110"
+                >
+                  {t("shortcuts.configure")}
+                </button>
+              </div>
             </div>
             <p className="text-white/40 text-xs mt-3">{t("settings.player.note")}</p>
           </section>
@@ -1076,7 +1105,7 @@ export default function Settings() {
                   // tell them so. Toggling back off cancels the pending sweep.
                   if (v) {
                     pendingAutoPauseSweep.current = true;
-                    toast(t("settings.sync.autoPausePending"), { icon: "⏳" });
+                    notify(t("settings.sync.autoPausePending"), { icon: "⏳" });
                   } else {
                     pendingAutoPauseSweep.current = false;
                   }
@@ -1281,6 +1310,9 @@ export default function Settings() {
         </div>
       </motion.div>
       <Footer />
+      {shortcutEditorOpen && (
+        <ShortcutEditor onClose={() => setShortcutEditorOpen(false)} />
+      )}
     </>
   );
 }

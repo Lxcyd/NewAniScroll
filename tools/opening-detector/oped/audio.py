@@ -8,12 +8,19 @@ is never re-decoded needlessly (spec: never recompute uselessly).
 from __future__ import annotations
 
 import hashlib
+import re
 import subprocess
 from pathlib import Path
 
 import numpy as np
 
 from . import SAMPLE_RATE
+from .megaplay import is_megaplay, materialize_window
+
+# ashowinfo prints one `pts_time:<abs seconds>` per audio frame to stderr; with
+# -copyts these are ABSOLUTE episode timestamps. We only need the first (the pts
+# of output sample 0) to anchor the window on the shared absolute clock.
+_ASHOWINFO_PTS_RE = re.compile(rb"pts_time:([\d.]+)")
 
 
 def _cache_key(src: Path, sample_rate: int) -> str:
@@ -85,6 +92,90 @@ def load_audio(
     return samples
 
 
+def decode_audio_abs(
+    src: str,
+    start_abs: float,
+    dur: float | None = None,
+    *,
+    sample_rate: int = SAMPLE_RATE,
+    referer: str | None = None,
+) -> tuple[np.ndarray, float]:
+    """Decode `[start_abs, start_abs+dur]` (or to EOF when `dur` is None) with
+    ABSOLUTE timestamps, returning `(mono float32 samples, abs_start)`.
+
+    `abs_start` is the true absolute episode time (seconds) of output sample 0.
+    A keyframe/segment seek rounds `start_abs` (megaplay landed at 1260.0 for a
+    requested 1254.99), so we recover the realized start from `ashowinfo` rather
+    than trusting the requested value. `-copyts` keeps the muxer from rebasing
+    timestamps to zero, so those pts are absolute.
+
+    This is the audio half of the shared-clock foundation: the video decoder
+    (`video_fingerprint.keyframe_hashes_abs`) uses the same `-copyts` + absolute
+    `-ss`, so both timelines share one clock and
+    `theme_t0_abs = abs_start + q_start_seconds` is directly comparable to the
+    video match's absolute offset — no `-sseof` anchor guessing, no A/V drift.
+
+    Megaplay's segments are PNG-decoy-wrapped, so ffmpeg reads its raw HLS as a
+    lone `Video: png` stream with no audio and `-vn` yields 0 bytes. For megaplay
+    we first materialise the window as a local, de-PNG'd .ts (see `oped.megaplay`)
+    which keeps the same absolute PTS — the `-copyts -ss/-to` below then work on
+    it unchanged, so the shared-clock contract still holds.
+    """
+    if is_megaplay(src):
+        src = materialize_window(src, start_abs, dur, referer=referer)
+        referer = None  # local file: no HTTP headers, no HLS demuxer flags
+
+    cmd = ["ffmpeg", "-hide_banner", "-loglevel", "info"]
+    if referer:
+        cmd += ["-headers", f"Referer: {referer}\r\n"]
+    if _is_hls_url(src):
+        cmd += ["-allowed_extensions", "ALL", "-allowed_segment_extensions", "ALL", "-extension_picky", "0"]
+    # -copyts + absolute -ss (before -i) → range-limited fetch AND absolute pts.
+    # Bound the end with -to (ABSOLUTE, before -i): with -copyts the timeline is
+    # absolute, so `-t <dur>` is measured against it and truncates to ~nothing on
+    # HLS (megaplay: `-t 113` yielded 2 frames). `-to <start+dur>` gives the full
+    # window. None dur → decode to EOF.
+    cmd += ["-copyts", "-ss", str(start_abs)]
+    if dur is not None:
+        cmd += ["-to", str(start_abs + dur)]
+    cmd += ["-i", src]
+    cmd += [
+        "-vn",
+        "-af", f"aresample={sample_rate},ashowinfo",  # ashowinfo → per-frame abs pts
+        "-ac", "1",
+        "-ar", str(sample_rate),
+        "-f", "f32le",
+        "-",
+    ]
+    proc = subprocess.run(cmd, capture_output=True)
+    if proc.returncode != 0:
+        err = proc.stderr.decode("utf-8", "replace").strip()
+        raise RuntimeError(f"ffmpeg (abs) failed for {src!r}:\n{err}")
+    samples = np.frombuffer(proc.stdout, dtype="<f4").copy()
+    if samples.size == 0:
+        err = proc.stderr.decode("utf-8", "replace").strip()
+        raise RuntimeError(
+            f"ffmpeg returned 0 bytes of audio for {src!r} "
+            f"(start_abs={start_abs}, dur={dur}). stderr:\n{err}"
+        )
+    m = _ASHOWINFO_PTS_RE.search(proc.stderr)
+    abs_start = float(m.group(1)) if m else float(start_abs)
+    return samples, abs_start
+
+
+def _is_hls_url(src: str) -> bool:
+    """True if `src` points at an HLS playlist (.m3u8), ignoring query params.
+
+    The `-allowed_extensions` / `-allowed_segment_extensions` /
+    `-extension_picky` flags below are private options of ffmpeg's HLS
+    demuxer (`hls,applehttp`). They do not exist for other demuxers (e.g.
+    plain MP4, as served by sendvid) and ffmpeg hard-errors with
+    "Option ... not found" if you pass them for a non-HLS input. So they must
+    only be added when the source is actually an .m3u8 — never unconditionally.
+    """
+    return ".m3u8" in src.split("?", 1)[0].lower()
+
+
 def _ffmpeg_decode(
     src: str,
     sample_rate: int,
@@ -93,8 +184,15 @@ def _ffmpeg_decode(
 ) -> np.ndarray:
     """Decode `src` to mono float32 PCM via ffmpeg, read from stdout.
 
-    Some hosts (embed4me) 403 the m3u8 unless a Referer header is sent; pass it
-    via `referer`. Sibnet's noip URLs need nothing.
+    Some hosts (embed4me, megaplay's mewstream/zapora CDN) 403 the m3u8
+    unless a Referer header is sent; pass it via `referer`. Sibnet's noip
+    URLs need nothing.
+
+    Some HLS hosts (megaplay's zapora CDN) serve real media segments under a
+    disguised extension (e.g. `.jpg` for actual audio/video segments, an
+    anti-scraping trick). ffmpeg's default segment-extension allowlist
+    rejects those with "Invalid data found" unless we relax it — but that
+    relaxation is HLS-only, see `_is_hls_url`.
 
     When `window=(start_s, dur_s)` is given, seek options go BEFORE `-i` so the
     seek happens at the demuxer/network layer (fast, range-limited download)
@@ -104,6 +202,8 @@ def _ffmpeg_decode(
     cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error"]
     if referer:
         cmd += ["-headers", f"Referer: {referer}\r\n"]
+    if _is_hls_url(src):
+        cmd += ["-allowed_extensions", "ALL", "-allowed_segment_extensions", "ALL", "-extension_picky", "0"]
     if window is not None:
         start_s, dur_s = window
         if start_s is not None:
@@ -126,4 +226,11 @@ def _ffmpeg_decode(
     if proc.returncode != 0:
         err = proc.stderr.decode("utf-8", "replace").strip()
         raise RuntimeError(f"ffmpeg failed for {src!r}:\n{err}")
-    return np.frombuffer(proc.stdout, dtype="<f4").copy()
+    samples = np.frombuffer(proc.stdout, dtype="<f4").copy()
+    if samples.size == 0:
+        err = proc.stderr.decode("utf-8", "replace").strip()
+        raise RuntimeError(
+            f"ffmpeg returned 0 bytes of audio for {src!r} (window={window!r}) "
+            f"— stream likely unreachable/empty for this segment. stderr:\n{err}"
+        )
+    return samples

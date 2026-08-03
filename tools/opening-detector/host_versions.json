@@ -1,0 +1,11 @@
+{
+  "_comment": "Per-host detector algo version. Keys = the displayed-host allowlist (must match lib/hostRegistry.js DISPLAYED_HOSTS). BUMP a host's number when a fix changes what it can detect (e.g. megaplay -> 2 after the PNG-decoy de-obfuscation) so the batch re-runs ONLY that host on already-processed anime. ADD a key when a new host becomes displayable.",
+  "versions": {
+    "sibnet": 1,
+    "sendvid": 1,
+    "megaplay": 2,
+    "vidmoly": 1,
+    "vidmoly-va": 1,
+    "uqload": 1
+  }
+}

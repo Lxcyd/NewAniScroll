@@ -185,6 +185,18 @@ module.exports = withPWA({
   },
   async redirects() {
     return [
+      // The site root. This lived in `pages/index.tsx` as a getServerSideProps
+      // that returned only `{ redirect: { destination: "/en" } }` — i.e. a
+      // serverless invocation on every hit to `/` just to emit a Location
+      // header (133 in a 12h window on the Functions dashboard). Declared here,
+      // Vercel's routing layer answers it before any function exists. 307 (not
+      // 308) keeps the exact status the page returned, so no browser has a
+      // permanent redirect pinned for a URL we may want to render one day.
+      {
+        source: "/",
+        destination: "/en",
+        permanent: false,
+      },
       {
         source: "/donate",
         destination: "https://ko-fi.com/factiven",

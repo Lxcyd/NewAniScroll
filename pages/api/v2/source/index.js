@@ -14,6 +14,24 @@ import { isRecapTitle } from "@/lib/anilist/seasonDetection";
 const DEBUG_SOURCE = process.env.DEBUG_SOURCE === "1";
 const dlog = DEBUG_SOURCE ? console.log.bind(console) : () => {};
 
+/* Thrown by a provider resolver when it fails for a TRANSIENT reason — an
+   upstream (worker proxy / catalogue page / embed host) that timed out, 5xx'd,
+   or was momentarily unreachable — as opposed to a genuine "this episode has no
+   source here". The handler maps this to a 503 (sendRetryable) instead of a 204
+   (sendNotFound), so the watch page treats the chip as `retry`, NOT as a stable
+   6h `absent`. Without this distinction a single flaky worker fetch hid working
+   anime-sama chips (sibnet/sendvid/vidmoly) from every visitor for 6h — the
+   resolver returned null (indistinguishable from a real miss), which the client
+   published into the availability snapshot as an absence. Genuine misses still
+   return null; only upstream failures throw this. */
+class TransientSourceError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "TransientSourceError";
+    this.transient = true;
+  }
+}
+
 // Full Chrome desktop UA — anime-sama / voiranime reject the minimal "Mozilla/5.0"
 // string on some endpoints (returns 403 or empty body) and we have no signal
 // in the failure case. Using the same UA the m3u8 proxy already sends avoids
@@ -168,6 +186,11 @@ const EXTRACTABLE_HOSTS = [
   // signed master.m3u8. See lib/extractors.js → extractVoe.
   "voe.sx",
   "voe.",          // catches voe-network.net, voe-unblock.com, etc.
+  // uqload gates the embed on the EMBEDDING site's Referer (anime-sama), so a
+  // raw iframe fallback would just render its "embed restricted" page — treat
+  // it like sibnet/sendvid below and hide the chip on extraction failure
+  // rather than degrade to a dead iframe. See lib/extractors.js → extractUqload.
+  "uqload.",
 ];
 
 /**
@@ -534,12 +557,17 @@ const ANIMESAMA_SERVERS = {
   "animesama-vidmoly":      { name: "Vidmoly",     preferred: ["vidmoly.to", "vidmoly.biz", "vidmoly.net"], lang: "vf" },
   "animesama-embed4me":     { name: "Embed4Me",    preferred: ["embed4me.com", "lpayer"],                 lang: "vf" },
   "animesama-callistanise": { name: "Player",      preferred: ["callistanise.com", "dingtezuni.com", "movearnpre.com"], lang: "vf" },
+  // Fallback only — uqload's stream token is IP/single-use-bound (a concurrent
+  // pull 403s), so it's the least reliable host; kept last so it's offered only
+  // when the more robust players above are unavailable.
+  "animesama-uqload":       { name: "Uqload",      preferred: ["uqload."],                                lang: "vf" },
   // VOSTFR (Japanese + French subs)
   "animesama-sibnet-vo":       { name: "Sibnet",      preferred: ["sibnet.ru"],                              lang: "vostfr" },
   "animesama-sendvid-vo":      { name: "Sendvid",     preferred: ["sendvid.com"],                            lang: "vostfr" },
   "animesama-vidmoly-vo":      { name: "Vidmoly",     preferred: ["vidmoly.to", "vidmoly.biz", "vidmoly.net"], lang: "vostfr" },
   "animesama-embed4me-vo":     { name: "Embed4Me",    preferred: ["embed4me.com", "lpayer"],                 lang: "vostfr" },
   "animesama-callistanise-vo": { name: "Player",      preferred: ["callistanise.com", "dingtezuni.com", "movearnpre.com"], lang: "vostfr" },
+  "animesama-uqload-vo":       { name: "Uqload",      preferred: ["uqload."],                                lang: "vostfr" },
 };
 
 /**
@@ -672,7 +700,12 @@ async function getAnimeSamaIframe(serverKey, title, episode, aniId) {
     return await finalizeAnimeSamaIframe(serverKey, serverDef, iframeUrl);
   } catch (error) {
     console.error(`[anime-sama] ${serverKey} failed:`, error.message);
-    return null;
+    // A THROWN error is never a clean "no source" — genuine absence always
+    // returns null above. A network/worker/parse throw is transient, so
+    // propagate it as retryable rather than swallowing it into a 6h absence.
+    throw error instanceof TransientSourceError
+      ? error
+      : new TransientSourceError(error.message);
   }
 }
 
@@ -711,7 +744,11 @@ async function resolveAnimeSamaHeuristically(
     const detailRes = await fetchViaWorker(`${ANIMESAMA_BASE}/catalogue/${slug}/`);
     if (!detailRes.ok) {
       console.error(`[anime-sama] ${serverKey} detail page ${detailRes.status} for slug=${slug}`);
-      return null;
+      // The slug resolved (the anime EXISTS on anime-sama) but its catalogue
+      // page is momentarily unreachable via the worker — a TRANSIENT upstream
+      // failure, not "this episode has no source". Signal retry so the chip
+      // isn't frozen absent for 6h on a worker hiccup.
+      throw new TransientSourceError(`anime-sama detail page ${detailRes.status} for ${slug}`);
     }
     const detailHtml = await detailRes.text();
 
@@ -1023,7 +1060,10 @@ async function finalizeAnimeSamaIframe(serverKey, serverDef, iframeUrl) {
       dlog(`[anime-sama] Extraction failed for ${serverKey}: ${result.error}`);
       // Sibnet + Sendvid X-Frame-Options DENY → an iframe fallback is a dead
       // "refused to connect" page, so hide the chip instead of degrading it.
-      if (lower.includes("sibnet") || lower.includes("sendvid")) return null;
+      // uqload: same outcome for a different reason — its embed is Referer-gated
+      // to anime-sama, so a raw iframe here renders "embed restricted", not the
+      // player. Hide it too rather than serve a dead chip.
+      if (lower.includes("sibnet") || lower.includes("sendvid") || lower.includes("uqload")) return null;
     }
     return { iframe: iframeUrl, degraded: true, reason: "extraction failed" };
   } catch (e) {
@@ -1503,6 +1543,7 @@ async function findAnimeSamaSlug(title, aniId, mediaOpts = {}) {
   // Reject scores of 0 â€” those are unrelated catalogue entries (Baccano vs
   // Baki Hanma) that the search returned because of a fuzzy match on letters.
   const candidates = new Map(); // slug â†’ best score
+  let anySearchOk = false; // did at least one query reach anime-sama and parse?
   for (const q of queries) {
     let searchRes;
     try {
@@ -1517,6 +1558,7 @@ async function findAnimeSamaSlug(title, aniId, mediaOpts = {}) {
       console.error(`[anime-sama] search "${q}" HTTP ${searchRes.status}`);
       continue;
     }
+    anySearchOk = true;
     const html = await searchRes.text();
     const $ = cheerio.load(html);
 
@@ -1579,6 +1621,14 @@ async function findAnimeSamaSlug(title, aniId, mediaOpts = {}) {
       chosen = slug;
       chosenScore = composite;
     }
+  }
+
+  // No slug AND not one search even reached anime-sama → the catalogue was
+  // unreachable (worker/upstream down), not "this anime isn't on anime-sama".
+  // Signal retry so the caller doesn't freeze the chip absent for 6h; and don't
+  // cache the null (a transient miss must not stick).
+  if (!chosen && !anySearchOk) {
+    throw new TransientSourceError("anime-sama catalogue search unreachable");
   }
 
   slugCache.set(cacheKey, chosen);
@@ -2697,8 +2747,29 @@ function sourceCacheKey({ server, aniId, episode, sub }) {
 }
 
 // ── Handler ─────────────────────────────────────────────────────────────
+/**
+ * GET  /api/v2/source?server=&aniId=&episode=&sub=&title=&malId=
+ * POST /api/v2/source   { server, aniId, episode, sub, title, mediaMeta, soft404 }
+ *
+ * GET is what the browser uses, and the reason this endpoint stopped being the
+ * site's top Active-CPU line. The route always set `s-maxage` / stale-while-
+ * revalidate on its answers, but they were dead letters: **no CDN caches a
+ * POST**, so every visitor re-invoked the function for a resolution the edge
+ * already had — and the watch page fires one per server it probes, per page
+ * load. Same handler, same cache keys; only the transport changed, so a GET and
+ * a POST for the same episode still share the Redis entry.
+ *
+ * The body carried nothing that doesn't fit in a query string: `mediaMeta` was a
+ * whole media object (title, synonyms, relations) of which the route reads
+ * exactly one field, `idMal` — now `?malId=`.
+ *
+ * POST is kept verbatim for the warmers / crons / audit scripts, which are not
+ * cacheable anyway (they exist to bust the cache) and rely on the 404/204
+ * contract below.
+ */
 export default async function handler(req, res) {
-  if (req.method !== "POST") {
+  const isGet = req.method === "GET";
+  if (!isGet && req.method !== "POST") {
     return res.status(405).json({ message: "Method not allowed" });
   }
 
@@ -2707,20 +2778,65 @@ export default async function handler(req, res) {
   // consume() is a write and was needless quota burn during bulk runs.
   const isInternal = req.headers["x-warmer"] === "1";
 
-  const { server, aniId, episode, sub = "sub", title, mediaMeta } = req.body;
+  const input = (isGet ? req.query : req.body) || {};
+  const server = input.server;
+  // Query values arrive as strings; the resolvers below expect the numbers the
+  // POST body always gave them (ids are compared and used to build upstream
+  // URLs, and `NaN` must not silently reach a cache key).
+  const aniId = input.aniId != null ? Number(input.aniId) : undefined;
+  const episode = input.episode != null ? Number(input.episode) : undefined;
+  const sub = input.sub === "dub" ? "dub" : "sub";
+  const title = input.title;
+  const mediaMeta = isGet
+    ? input.malId
+      ? { idMal: Number(input.malId) }
+      : null
+    : input.mediaMeta;
 
-  // The watch page's probe fan-out + active-source fetch send soft404:true —
-  // "source absent" is an EXPECTED outcome for them (half the probes miss by
-  // design), so we answer 204 No Content instead of 404. Browsers print a
-  // console error for every non-2xx fetch response and there is no way to
-  // suppress it from JS; a page with a few absent servers looked like it was
-  // throwing errors when nothing was wrong. Scripts / warmers / the audit
-  // don't send the flag and keep the hard 404 contract.
-  const wantsSoft404 = req.body?.soft404 === true;
+  if (isGet && (!server || !Number.isFinite(aniId) || !Number.isFinite(episode))) {
+    return res.status(400).json({ error: "server, aniId and episode required" });
+  }
+
+  // "Source absent" is an EXPECTED outcome for the watch page (half the probes
+  // miss by design), so it must not read as an error:
+  //   - GET  → 200 { absent: true }. A status the CDN is guaranteed to cache
+  //     (204 caching is not something to bet the busiest endpoint on) and that
+  //     prints nothing in the browser console.
+  //   - POST → the original contract: 204 with soft404:true, hard 404 without,
+  //     which the warmers and audit scripts still read.
+  const wantsSoft404 = !isGet && req.body?.soft404 === true;
   const notFoundStatus = (msg) =>
-    wantsSoft404
+    isGet
+      ? res.status(200).json({ absent: true })
+      : wantsSoft404
       ? res.status(204).end()
       : res.status(404).json({ error: msg || "Source not found" });
+
+  /* The cache contract, in one place (three code paths answer "found" and three
+     answer "absent", and they used to disagree with each other).
+
+     `CDN-Cache-Control` is what Vercel's edge reads — plain `Cache-Control`
+     alone only ever reached the browser, which is why the negative path (~half
+     of all probes) re-invoked the function every single time.
+
+     Found → 5 min at the edge, matching SOURCE_CACHE_TTL_S. A payload can be
+     served up to its Redis TTL old and then sit another 5 min in the edge, so
+     the worst case is a ~10 min old stream URL — well inside the 60-240 min
+     lifetime of the CDN tokens we proxy, and the browser's own 60 s means a
+     manual refresh always re-resolves.
+
+     Absent → 5 min at the edge, under the 10 min negative sentinel in Redis, so
+     the edge never claims "absent" longer than the server itself would. */
+  const CACHE_FOUND = "public, s-maxage=300, stale-while-revalidate=600";
+  const CACHE_ABSENT = "public, s-maxage=300, stale-while-revalidate=300";
+  const cacheFound = () => {
+    res.setHeader("Cache-Control", "public, max-age=60");
+    res.setHeader("CDN-Cache-Control", CACHE_FOUND);
+  };
+  const cacheAbsent = () => {
+    res.setHeader("Cache-Control", "public, max-age=30");
+    res.setHeader("CDN-Cache-Control", CACHE_ABSENT);
+  };
 
   // Redis lookup FIRST — short-circuit identical (server, aniId, episode, sub)
   // requests served within the last SOURCE_CACHE_TTL_S. The probe fan-out on
@@ -2744,13 +2860,10 @@ export default async function handler(req, res) {
           // the main CPU win: ~half of probe fan-outs naturally 404, and a
           // popular episode would re-extract the same dead servers for every
           // visitor without this.
-          res.setHeader("Cache-Control", "public, max-age=30");
+          cacheAbsent();
           return notFoundStatus("Source not found");
         }
-        res.setHeader(
-          "Cache-Control",
-          "public, s-maxage=60, stale-while-revalidate=120",
-        );
+        cacheFound();
         return res.status(200).json(JSON.parse(cached));
       }
     } catch {
@@ -2792,13 +2905,10 @@ export default async function handler(req, res) {
       const leaderResult = await waitForLeaderResult(cacheKey);
       if (leaderResult) {
         if (leaderResult === NOT_FOUND_SENTINEL) {
-          res.setHeader("Cache-Control", "public, max-age=30");
+          cacheAbsent();
           return notFoundStatus("Source not found");
         }
-        res.setHeader(
-          "Cache-Control",
-          "public, s-maxage=60, stale-while-revalidate=120",
-        );
+        cacheFound();
         return res.status(200).json(JSON.parse(leaderResult));
       }
       // Leader timed out (slow upstream or it crashed and its lock expired).
@@ -2817,15 +2927,7 @@ export default async function handler(req, res) {
         .catch(() => {});
       if (isLeader) write.finally(() => releaseScrapeLock(cacheKey));
     }
-    // Edge cache matches the 5 min Redis TTL — most CDN tokens we proxy
-    // last 60-240 min, so 5 min between refresh is well within the safe
-    // window. Browser cache stays short (60 s) so a manual refresh in
-    // the player picks up a new token if the user's current one fails.
-    res.setHeader("Cache-Control", "public, max-age=60");
-    res.setHeader(
-      "CDN-Cache-Control",
-      "public, s-maxage=300, stale-while-revalidate=600",
-    );
+    cacheFound();
     return res.status(200).json(payload);
   };
 
@@ -2836,7 +2938,7 @@ export default async function handler(req, res) {
         .catch(() => {});
       if (isLeader) write.finally(() => releaseScrapeLock(cacheKey));
     }
-    res.setHeader("Cache-Control", "public, max-age=30");
+    cacheAbsent();
     return notFoundStatus(msg);
   };
 
@@ -2887,41 +2989,72 @@ export default async function handler(req, res) {
     if (routes.length === 0) {
       return sendNotFound("megaplay: no MAL or AniList id for this anime");
     }
-    let lastError = "Source not found";
-    let allAbsent = true; // every route so far returned a genuine "file not found"
-    for (const url of routes) {
-      const result = await extractMegaplay(url);
-      if (!result.error && result.streams?.length) {
-        // Pre-warm the edge cache NOW, at resolve time — before the player even
-        // loads the manifest. Megaplay is proxy-only (the CDN 403s any Referer
-        // but megaplay.buzz, which a browser can't forge), so its cold start
-        // pays a double hop. Firing the master through the Worker here (with the
-        // megaplay Referer) triggers the Worker's existing warm chain (variant +
-        // sampled segments), so by the time the user hits Play the opening is a
-        // cache HIT. Fire-and-forget: never delays the resolve response.
-        const m3u8 = result.streams[0]?.url;
-        if (m3u8 && /\.m3u8/i.test(m3u8)) {
-          const warmUrl =
-            `${PROXY_BASE}?url=${encodeURIComponent(m3u8)}` +
-            `&referer=${encodeURIComponent("https://megaplay.buzz/")}`;
-          // x-warmer so the Worker/endpoints treat it as internal (no double
-          // availability writes etc.). Swallow all errors.
-          fetchWithTimeout(warmUrl, { headers: { "x-warmer": "1" } }, 4000).catch(
-            () => {},
-          );
-        }
-        return sendOk(result);
+    // Try every route once; return the first hit. Reports whether the run was
+    // ALL genuine "file not found" (safe to negative-cache) vs any transient
+    // failure (must 503-retry).
+    const tryRoutes = async () => {
+      let lastError = "Source not found";
+      let allAbsent = true;
+      for (const url of routes) {
+        const result = await extractMegaplay(url);
+        if (!result.error && result.streams?.length) return { hit: result };
+        lastError = result.error || lastError;
+        // A route that failed for any reason OTHER than a confirmed absence
+        // marks the run as transient — don't negative-cache a timeout just
+        // because the other route legitimately 404s.
+        if (!result.absent) allAbsent = false;
       }
-      lastError = result.error || lastError;
-      // A route that failed for any reason OTHER than a confirmed absence marks
-      // the whole resolve as transient — don't let a timeout on one route get
-      // negative-cached just because the other route legitimately 404s.
-      if (!result.absent) allAbsent = false;
+      return { hit: null, allAbsent, lastError };
+    };
+
+    const warmMegaplay = (result) => {
+      // Pre-warm the edge cache NOW, at resolve time — before the player even
+      // loads the manifest. Megaplay is proxy-only (the CDN 403s any Referer but
+      // megaplay.buzz, which a browser can't forge), so its cold start pays a
+      // double hop. Firing the master through the Worker here (with the megaplay
+      // Referer) triggers the Worker's warm chain (variant + sampled segments),
+      // so by the time the user hits Play the opening is a cache HIT.
+      // Fire-and-forget: never delays the resolve response.
+      const m3u8 = result.streams[0]?.url;
+      if (m3u8 && /\.m3u8/i.test(m3u8)) {
+        const warmUrl =
+          `${PROXY_BASE}?url=${encodeURIComponent(m3u8)}` +
+          `&referer=${encodeURIComponent("https://megaplay.buzz/")}`;
+        fetchWithTimeout(warmUrl, { headers: { "x-warmer": "1" } }, 4000).catch(
+          () => {},
+        );
+      }
+    };
+
+    let run = await tryRoutes();
+    if (run.hit) {
+      warmMegaplay(run.hit);
+      return sendOk(run.hit);
     }
-    // Only negative-cache + hide the chip when BOTH routes genuinely have no
-    // file. A timeout / anti-bot / upstream error is transient → 503 retry so
-    // the chip isn't buried in the availability snapshot for 6h.
-    return allAbsent ? sendNotFound(lastError) : sendRetryable(lastError);
+    // A verdict of "genuinely absent on every route" that came from a SINGLE
+    // pass is not trustworthy enough to broadcast: megaplay serves its
+    // "Error - MegaPlay / We can't find the file" page (a 200) during transient
+    // outages too, and the active-source path — unlike the probe fan-out — has
+    // no retry of its own. A one-shot false absence gets negative-cached (10 min)
+    // AND published into the 6h availability snapshot, so the Megaplay chip
+    // vanishes for everyone until the TTL expires (the "megaplay disappeared
+    // after a reload" bug). Confirm a genuine absence with ONE retry: a real
+    // "file not found" is deterministic and stays absent; a transient error page
+    // clears to a hit or a non-200 (→ transient) on the second look.
+    if (run.allAbsent) {
+      await new Promise((r) => setTimeout(r, 500));
+      run = await tryRoutes();
+      if (run.hit) {
+        warmMegaplay(run.hit);
+        return sendOk(run.hit);
+      }
+    }
+    // Only negative-cache + hide the chip when the absence survived the retry.
+    // Anything else stays transient → 503 so the client retries and never buries
+    // the chip in the snapshot.
+    return run.allAbsent
+      ? sendNotFound(run.lastError)
+      : sendRetryable(run.lastError);
   }
 
 
@@ -2932,11 +3065,27 @@ export default async function handler(req, res) {
     return m?.title?.english || m?.title?.romaji || null;
   }
 
+  // A provider resolver returning null = genuine "no source for this episode"
+  // (→ 204 absent). A TransientSourceError = an upstream hiccup (worker/host
+  // timeout) → 503 retryable, so the watch page retries instead of freezing the
+  // chip absent for 6h. See TransientSourceError.
+  const resolveProvider = async (fn) => {
+    try {
+      return { data: await fn() };
+    } catch (error) {
+      if (error instanceof TransientSourceError) return { retry: error.message };
+      throw error; // a genuinely unexpected error keeps the outer 500 handling
+    }
+  };
+
   // Anime-Sama (VF + VOSTFR) â€” returns iframe embed URL
   if (ANIMESAMA_SERVERS[server]) {
     const searchTitle = await resolveTitle();
     if (!searchTitle) return sendNotFound("Could not resolve anime title");
-    const data = await getAnimeSamaIframe(server, searchTitle, episode, aniId);
+    const { data, retry } = await resolveProvider(() =>
+      getAnimeSamaIframe(server, searchTitle, episode, aniId),
+    );
+    if (retry) return sendRetryable(retry);
     if (!data) return sendNotFound("Source not found");
     return sendOk(data);
   }
@@ -2945,7 +3094,10 @@ export default async function handler(req, res) {
   if (VOIRANIME_SERVERS[server]) {
     const searchTitle = await resolveTitle();
     if (!searchTitle) return sendNotFound("Could not resolve anime title");
-    const data = await getVoiranimeIframe(server, searchTitle, episode, aniId);
+    const { data, retry } = await resolveProvider(() =>
+      getVoiranimeIframe(server, searchTitle, episode, aniId),
+    );
+    if (retry) return sendRetryable(retry);
     if (!data) return sendNotFound("Source not found");
     return sendOk(data);
   }
@@ -2954,7 +3106,10 @@ export default async function handler(req, res) {
   if (CONSUMET_PROVIDERS[server]) {
     const searchTitle = await resolveTitle();
     if (!searchTitle) return sendNotFound("Could not resolve anime title");
-    const data = await getConsumetStream(server, searchTitle, episode, sub);
+    const { data, retry } = await resolveProvider(() =>
+      getConsumetStream(server, searchTitle, episode, sub),
+    );
+    if (retry) return sendRetryable(retry);
     if (!data) return sendNotFound("Source not found");
     return sendOk(data);
   }

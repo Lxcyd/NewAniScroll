@@ -16,11 +16,9 @@ const UniversalPlayer = dynamic(
   }
 );
 import PlayerErrorBoundary from "@/components/watch/primary/PlayerErrorBoundary";
-import { getServerSession } from "next-auth";
+import { setPlayerFullscreen } from "@/lib/player/playerFullscreen";
 import { useWatchProvider } from "@/lib/context/watchPageProvider";
-import { authOptions } from "../../../api/auth/[...nextauth]";
 import { getRemovedMedia } from "@/prisma/removed";
-import { createList, createUser, getEpisode } from "@/prisma/user";
 import { getServer } from "@/lib/servers";
 import { primeMediaCache, getCachedMediaMeta } from "@/lib/anilist/getMediaMeta";
 import { getCachedAnime } from "@/lib/db/anime";
@@ -31,6 +29,7 @@ import { recordWatchToday } from "@/lib/stats/streak";
 import { useTranslation } from "react-i18next";
 import { FULL_MEDIA_FIELDS } from "@/lib/anilist/fullMediaQuery";
 import { getPrefetchedSource, sourceKey, setPrefetchedSource, clearPrefetchedSourcesFor } from "@/lib/watch/sourcePrefetch";
+import { requestSource } from "@/lib/watch/sourceRequest";
 import { replaceUrlPreservingState } from "@/lib/navigation/replaceUrl";
 import { getPrefetchedEpisodes, setPrefetchedEpisodes, clearPrefetchedEpisodesFor } from "@/lib/watch/episodePrefetch";
 import { getPrefetchedInfo, clearPrefetchedInfoFor } from "@/lib/watch/infoPrefetch";
@@ -41,14 +40,14 @@ import MobileNav from "@/components/shared/MobileNav";
 import { Navbar } from "@/components/shared/NavBar";
 import Modal from "@/components/modal";
 import AniList from "@/components/media/aniList";
-import { signIn } from "next-auth/react";
+import { signIn, useSession } from "next-auth/react";
 import ReportModal from "@/components/shared/ReportModal";
 import Skeleton from "react-loading-skeleton";
 import Head from "next/head";
 import { useRouter } from "next/router";
 import { Spinner } from "@vidstack/react";
 import RateModal from "@/components/shared/RateModal";
-import { toast } from "sonner";
+import { notify } from "@/lib/notifications/noticeStore";
 import { useWatchParty } from "@/lib/watch2gether/useWatchParty";
 import WatchPartyPanel from "@/components/watch/party/WatchPartyPanel";
 
@@ -59,35 +58,44 @@ const PROXY_BASE =
   process.env.NEXT_PUBLIC_PROXY_BASE ||
   "https://proxy.aniscroll.com";
 
+// Anti-bot decoy retries on the on-click source fetch. Some scraper hosts
+// (sibnet) answer a cold hit with a decoy that extracts to nothing (204); the
+// route seeds its player_map and the next call resolves. Seeding can outlast a
+// single short retry, so back off across attempts — total ~5.6s worst case,
+// only ever paid on a 204 that would otherwise drop the chip.
+const DECOY_BACKOFF_MS = [800, 1600, 3200];
+const DECOY_RETRIES = DECOY_BACKOFF_MS.length;
+
 // ─────────────────────────────────────────────────────────────
 // SSR
 // ─────────────────────────────────────────────────────────────
 export async function getServerSideProps(context) {
-  let userData = null;
-  const session = await getServerSession(context.req, context.res, authOptions);
-  const accessToken = session?.user?.token || null;
-
   const query = context?.query;
   if (!query) return { notFound: true };
 
-  // Edge-cache the watch SSR for anonymous users. The same anime+episode+
-  // dub combo renders identical HTML for everyone without a session
-  // (info is anime metadata from AniList; userData is null). Logged-in
-  // users get a fresh render every time because we bake their watch
-  // history (`userData`) into props. Watch pages can update when a new
-  // episode airs, so we use a shorter edge cache than anime-info (30 min
-  // vs 1 h) but still well above the previous 5 min — combined with the
-  // 1-day stale-while-revalidate, viewers always see something fresh and
-  // the function only fires once per PoP per 30 min.
-  if (session) {
-    context.res.setHeader("Cache-Control", "private, no-store");
-  } else {
-    context.res.setHeader("Cache-Control", "public, max-age=60");
-    context.res.setHeader(
-      "CDN-Cache-Control",
-      "public, s-maxage=1800, stale-while-revalidate=86400",
-    );
-  }
+  /* This render is the SAME for everyone — no session is read here at all.
+     That is the whole point: the previous version baked the signed-in user into
+     the props, which forced `private, no-store` and re-invoked this function on
+     EVERY view *and every episode change* (SPA navigation still fetches the
+     page's props). Signed-in users are the ones who watch the most episodes, so
+     the busiest page on the site was also the least cacheable one.
+
+     Where the per-user bits went:
+       - `sessions` → `useSession()` in the component (same object, incl. the
+         AniList token; the SessionProvider fetches it once per full page load
+         and keeps it across SPA navigation).
+       - `mediaListEntry` → the client backfill effect that already existed for
+         it (GET /api/v2/media/[id], `private, no-store`), because the SSR only
+         ever had it on a cold hit anyway.
+
+     Same trade the anime-info page already made. Episodes can appear while a
+     copy is cached, hence 30 min (vs 6 h there) + a day of
+     stale-while-revalidate. */
+  context.res.setHeader("Cache-Control", "public, max-age=60");
+  context.res.setHeader(
+    "CDN-Cache-Control",
+    "public, s-maxage=1800, stale-while-revalidate=86400",
+  );
 
   let proxy = process.env.PROXY_URI || null;
   if (proxy && proxy.endsWith("/")) proxy = proxy.slice(0, -1);
@@ -135,15 +143,16 @@ export async function getServerSideProps(context) {
   if (!data?.data?.Media) {
     try {
       if (simulateDown) throw new Error("simulated AniList outage");
+      // No `authToken`: this response is shared by every visitor (and cached
+      // as such), so it must not carry anyone's list entry. The client backfills
+      // `mediaListEntry` right after mount — see the effect below.
       const json = await anilistFetch({
         query: `query ($id: Int) {
           Media (id: $id) {
-            mediaListEntry { progress status customLists repeat }
             ${FULL_MEDIA_FIELDS}
           }
         }`,
         variables: { id: Number(aniId) },
-        authToken: accessToken,
         timeoutMs: 2500,
         label: `watch-ssr:${aniId}`,
       });
@@ -169,29 +178,24 @@ export async function getServerSideProps(context) {
     }
   }
 
-  try {
-    if (session) {
-      await createUser(session.user.name);
-      await createList(session.user.name, watchId);
-      const epData = await getEpisode(session.user.name, watchId);
-      userData = JSON.parse(
-        JSON.stringify(epData, (key, value) =>
-          key === "createdDate" ? String(value) : value
-        )
-      );
-    }
-  } catch (error) {
-    console.error(error);
-  }
+  /* NOTE — three Prisma round-trips used to run here on every signed-in view
+     (createUser + createList + getEpisode) to build a `userData` prop that the
+     component destructured and NEVER read. They were the bulk of this
+     function's work on the site's busiest page, and the rows they wrote were
+     stubs: `updateUserEpisode` (the only thing that fills in title / image /
+     timeWatched) has no caller left, and /en/anime/recently-watched drops rows
+     with no image or title — it explicitly falls back to localStorage, which is
+     what actually holds the watch history now. So the writes bought nothing and
+     the read fed a dead prop. If a server-side watch history comes back, it
+     belongs in the progress-sync path (which knows what was watched), not in a
+     page render that fires on every episode open. */
 
   return {
     props: {
-      sessions:   session,
       provider:   provider || null,
       watchId:    watchId  || null,
       epiNumber:  epiNumber || null,
       dub:        dub || null,
-      userData:   userData?.[0] || null,
       info:       data?.data?.Media || null,
       aniId:      aniId || null,
       proxy,
@@ -209,14 +213,19 @@ export default function Watch({
   disqus,
   proxy,
   dub,
-  userData,
-  sessions,
   provider,
   epiNumber,
   aniId,
 }) {
   const titlePref = useTitlePref();
   const { t } = useTranslation();
+  /* Client-side, deliberately: the SSR render is shared by every visitor so it
+     can be edge-cached (see getServerSideProps). Same object as the old
+     `sessions` prop — the AniList token included — resolved once per full page
+     load by the app-level <SessionProvider> and kept across SPA navigation. It
+     is null for the first paint of a cold load, so anything reading it must
+     tolerate that (they all do: modals, list buttons and effects). */
+  const { data: sessions } = useSession();
 
   // ── Client-hydratable metadata ────────────────────────────────────────
   // `info` no longer relies solely on the SSR prop. To make SPA navigation
@@ -339,8 +348,13 @@ export default function Watch({
   // the `cachedConfirmed` Set the availability snapshot is built from — so it
   // was never published, and the NEXT visitor's snapshot omitted it, hiding the
   // chip. The probe effect reads this ref when publishing so those verdicts make
-  // it into the snapshot. `ok` = resolved 200; `absent` = genuine 204/404.
-  const activeVerdictRef = useRef({ ok: new Set(), absent: new Set() });
+  // it into the snapshot.
+  //
+  // `ok` only. The click path deliberately does NOT publish absences: there, a
+  // cold anti-bot decoy and a genuine soft404 look identical, and guessing wrong
+  // hides a working host for the snapshot's 6h TTL. The background probe, which
+  // retries properly, owns `absent` via confirmedAbsent.
+  const activeVerdictRef = useRef({ ok: new Set() });
 
   // Mirror of failedServers for sync reads inside markFailed without forcing
   // markFailed to depend on failedServers (which would invalidate fetchStreamSource
@@ -505,14 +519,20 @@ export default function Watch({
   const stripParty = useCallback(() => {
     setPartyUIOpen(true);
     setPartyPanelHidden(false);
-    const { party: _omit, ...rest } = router.query;
-    router.replace({ pathname: router.pathname, query: rest }, undefined, { shallow: true });
+    // Build from the live location (not router.pathname/query): on this i18n
+    // catch-all route those can drop the `info`/`num` segments and rewrite the
+    // URL as /anime/watch/undefined/…?num=undefined, crashing the page.
+    const params = new URLSearchParams(window.location.search);
+    params.delete("party");
+    const qs = params.toString();
+    const url = `${window.location.pathname}${qs ? `?${qs}` : ""}`;
+    router.replace(url, undefined, { shallow: true });
   }, [router]);
 
   const handleSelfRemoved = useCallback(
     (reason) => {
-      if (reason === "kick") toast.error(t("party.toastKicked"));
-      else if (reason === "ban") toast.error(t("party.toastBanned"));
+      if (reason === "kick") notify.error(t("party.toastKicked"));
+      else if (reason === "ban") notify.error(t("party.toastBanned"));
       stripParty();
     },
     [stripParty, t]
@@ -520,10 +540,10 @@ export default function Watch({
 
   const handleJoinRejected = useCallback(
     (reason) => {
-      if (reason === "banned") toast.error(t("party.toastBanned"));
-      else if (reason === "inactive") toast.error(t("party.toastInactive"));
-      else if (reason === "locked") toast.error(t("party.toastLocked"));
-      else toast.error(t("party.toastNotFound"));
+      if (reason === "banned") notify.error(t("party.toastBanned"));
+      else if (reason === "inactive") notify.error(t("party.toastInactive"));
+      else if (reason === "locked") notify.error(t("party.toastLocked"));
+      else notify.error(t("party.toastNotFound"));
       stripParty();
     },
     [stripParty, t]
@@ -541,6 +561,15 @@ export default function Watch({
       setPartyUIOpen(true);
     }
   }, [partyRoomId]);
+
+  // Release the player's fullscreen mode when we actually LEAVE the watch page.
+  // This lives here, not in UniversalPlayer: the player is remounted on every
+  // episode change, on a server fallback, and for a beat whenever the router's
+  // episode number lands before the new stream data does (its key holds both) —
+  // releasing on its unmount kicked the user out of fullscreen mid-navigation.
+  // This page stays mounted across all of that (same route), so its unmount is
+  // the only honest "the user is gone" signal.
+  useEffect(() => () => setPlayerFullscreen(false), []);
 
   // Track the player's pixel height so (on large screens) the party panel can
   // match it exactly. Falls back to a max-height via CSS when unset.
@@ -597,6 +626,10 @@ export default function Watch({
   useEffect(() => {
     if (!party) return;
     const navTo = (targetAniId, targetEp, targetDub) => {
+      // Never navigate on a missing/"undefined" target (a malformed snapshot) —
+      // buildWatchUrl would produce /anime/watch/undefined/…?num=undefined.
+      const bad = (v) => v == null || v === "" || v === "undefined";
+      if (bad(targetAniId) || bad(targetEp)) return;
       const sameAnime = String(aniId) === String(targetAniId);
       const sameEp = sameAnime && String(epiNumber) === String(targetEp) && !!dub === !!targetDub;
       if (sameEp) return;
@@ -618,8 +651,22 @@ export default function Watch({
       } else if (e.type === "snapshot" && e.payload?.snapshot) {
         const s = e.payload.snapshot;
         navTo(s.aniId, s.epiNumber, s.dub);
-        // Align the server for late joiners (also without re-broadcasting).
-        if (s.server && s.server !== activeServer) setActiveServer(s.server);
+        // Align the server for late joiners ONLY — never for the host who just
+        // seeded this snapshot (they're already on the right server). Applying
+        // it to the host swapped `activeServer` to the snapshot's value, which
+        // re-ran the stream fetch and reloaded the <video> from 0s — THAT was
+        // the "creating a party rewinds to 0" bug (not the playback snapshot,
+        // which is host-guarded). Also skip when we're already on the room's
+        // anime+episode: a server realign there is a source reload we don't want
+        // mid-watch. Genuine cross-server joiners still align via the `server`
+        // event and the initial mismatch handled before playback settles.
+        const selfIsHost = e.payload?.selfIsHost === true;
+        const sameAnime = String(aniId) === String(s.aniId);
+        const sameEp =
+          sameAnime && String(epiNumber) === String(s.epiNumber) && !!dub === !!s.dub;
+        if (!selfIsHost && !sameEp && s.server && s.server !== activeServer) {
+          setActiveServer(s.server);
+        }
       }
     });
     return unsub;
@@ -630,7 +677,12 @@ export default function Watch({
   // State-driven (not event-driven) so it can't miss the transient snapshot.
   useEffect(() => {
     const s = party?.snapshot;
-    if (!s || !s.aniId) return;
+    // Guard against a malformed snapshot (aniId/epiNumber missing or the literal
+    // string "undefined" from a room seeded before the page had its metadata) —
+    // navigating on it produced /anime/watch/undefined/…?num=undefined, which
+    // crashed the page (Array.map over a null episode). Stay put instead.
+    const bad = (v) => v == null || v === "" || v === "undefined";
+    if (!s || bad(s.aniId) || bad(s.epiNumber)) return;
     // Compare against the page's OWN SSR prop (`aniId`), not `info?.id` which
     // hydrates asynchronously: while it lags the new anime, sameAnime reads
     // false and we'd push the same route over and over (the load loop).
@@ -1055,9 +1107,12 @@ export default function Watch({
   // after the player JS downloads. Fire-and-forget: the cache is the channel.
   useEffect(() => {
     if (!info?.idMal || !epiNumber) return;
-    prefetchSkips(info.idMal, Number(epiNumber), info.id);
+    // Pass the active server so the warmed entry is the per-host one SkipOverlay
+    // (which keys by server) will read — otherwise it'd warm the lang-keyed
+    // reconciled entry and the overlay would still fetch its own.
+    prefetchSkips(info.idMal, Number(epiNumber), info.id, { server: activeServer });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [info?.idMal, info?.id, epiNumber]);
+  }, [info?.idMal, info?.id, epiNumber, activeServer]);
 
   // ── Fetch stream source when server needs backend (hls or api) ──
   // Tracks the latest in-flight request so server-change / navigation aborts it.
@@ -1067,16 +1122,6 @@ export default function Watch({
   // — the request that actually gates the player — gets the connection pool to
   // itself first, instead of competing with ~17 low-priority probes.
   const activeSourceSettledRef = useRef(false);
-
-  // Slim AniList metadata payload — sent with every probe so the source API
-  // skips its own AniList fetches (one batched fetch per page instead of per probe).
-  const mediaMetaPayload = info ? {
-    id: info.id,
-    idMal: info.idMal,
-    title: info.title,
-    synonyms: info.synonyms,
-    relations: info.relations,
-  } : null;
 
   const fetchStreamSource = useCallback(async (serverId, signal) => {
     // `info` is hydrated client-side now — on a cold SSR it can be null for the
@@ -1109,47 +1154,65 @@ export default function Watch({
       return;
     }
 
-    try {
-      const res = await fetch("/api/v2/source", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+    const askSource = () =>
+      requestSource(
+        {
           server: serverId,
           aniId: info.id,
           episode: parseInt(epiNumber),
           sub: dub ? "dub" : "sub",
           title: info?.title?.romaji || info?.title?.english,
-          mediaMeta: mediaMetaPayload,
-          // Absent source → 204 instead of 404, so an unavailable server
-          // doesn't print a spurious console error (see source/index.js).
-          soft404: true,
-        }),
-        signal,
-        // The active server's source is the request the user is actually
-        // waiting on (everything else on the page is decoration). Hinting
-        // high priority lets the browser bump it ahead of the probe burst
-        // and any image / analytics fetches in the connection pool.
-        priority: "high",
-      });
+          malId: info?.idMal ?? null,
+        },
+        {
+          signal,
+          // The active server's source is the request the user is actually
+          // waiting on (everything else on the page is decoration). Hinting
+          // high priority lets the browser bump it ahead of the probe burst
+          // and any image / analytics fetches in the connection pool.
+          priority: "high",
+        },
+      );
+
+    try {
+      let out = await askSource();
 
       if (signal?.aborted) return;
 
-      // 204 = "source absent" under the soft404 contract (res.ok is true for
-      // 204, but there's no body — json() would throw).
-      if (res.status === 204) {
+      // 204 = "source absent" under the soft404 contract. But some scraper
+      // hosts (sibnet is the canonical case) serve an anti-bot DECOY on the
+      // first cold hit — extraction fails once, then the route's player_map is
+      // seeded and the very next call resolves fine (verified: 204 then 200
+      // stable). The background probe already retries transient misses before
+      // giving up; the on-click path did NOT, so one cold decoy hid a working
+      // chip the instant the user selected it.
+      //
+      // One 800ms retry was not enough: seeding the player_map can outlast it,
+      // so a second decoy still concluded "absent" and hid a WORKING chip for
+      // the snapshot's 6h TTL — the user-visible bug is the chip vanishing at
+      // the very moment you click it. Back off over a few attempts instead.
+      for (let attempt = 0; out.kind === "absent" && attempt < DECOY_RETRIES; attempt++) {
+        await new Promise((r) => setTimeout(r, DECOY_BACKOFF_MS[attempt]));
+        if (signal?.aborted) return;
+        out = await askSource();
+        if (signal?.aborted) return;
+      }
+
+      if (out.kind === "absent") {
         setHlsData({ error: true });
         markFailed(serverId, "Source not found");
-        // Genuine "no source" (soft404) → publishable as a stable absence.
-        activeVerdictRef.current.absent.add(serverId);
-      } else if (res.ok) {
-        const data = await res.json();
+        // Still 204 after the backoff. Mark the chip failed for THIS session, but
+        // do not publish the absence: on the click path a decoy and a genuine
+        // soft404 are indistinguishable, and publishing loses far more (a working
+        // host hidden for 6h, cross-visitor) than it saves (one re-probe). The
+        // background probe, which can afford to retry properly, owns `absent`.
+      } else if (out.kind === "ok") {
+        const data = out.data;
         setHlsData(data);
-        if (data && !data.error) {
-          setPrefetchedSource(
-            sourceKey(info.id, parseInt(epiNumber), serverId, sub),
-            data,
-          );
-        }
+        setPrefetchedSource(
+          sourceKey(info.id, parseInt(epiNumber), serverId, sub),
+          data,
+        );
         markConfirmed(serverId);
         activeVerdictRef.current.ok.add(serverId);
         if (data?.degraded) markDegraded(serverId);
@@ -1157,7 +1220,7 @@ export default function Watch({
         // 5xx / transient — mark failed for the UI but do NOT publish as absent
         // (would wrongly hide a working server in the 6h snapshot).
         setHlsData({ error: true });
-        markFailed(serverId, `HTTP ${res.status}`);
+        markFailed(serverId, out.status ? `HTTP ${out.status}` : "Source unavailable");
       }
     } catch (e) {
       if (e.name === "AbortError") return;
@@ -1208,29 +1271,22 @@ export default function Watch({
     const delay = setTimeout(async () => {
       if (!activeSourceSettledRef.current) return;
       try {
-        const res = await fetch("/api/v2/source", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
+        const out = await requestSource(
+          {
             server: activeServer,
             aniId: info.id,
             episode: parseInt(nextNum),
             sub,
             title: info?.title?.romaji || info?.title?.english,
-            mediaMeta: mediaMetaPayload,
-            soft404: true,
-          }),
-          signal: ctrl.signal,
-          priority: "low",
-        });
-        if (!res.ok || res.status === 204) return;
-        const data = await res.json();
-        if (data && !data.error) {
-          setPrefetchedSource(
-            sourceKey(info.id, parseInt(nextNum), activeServer, sub),
-            data,
-          );
-        }
+            malId: info?.idMal ?? null,
+          },
+          { signal: ctrl.signal, priority: "low" },
+        );
+        if (out.kind !== "ok") return;
+        setPrefetchedSource(
+          sourceKey(info.id, parseInt(nextNum), activeServer, sub),
+          out.data,
+        );
       } catch {
         /* aborted or offline — the next-episode click just resolves normally */
       }
@@ -1239,7 +1295,7 @@ export default function Watch({
       clearTimeout(delay);
       ctrl.abort();
     };
-  }, [serverResolved, info?.id, activeServer, dub, episodeNavigation?.next?.number, mediaMetaPayload]);
+  }, [serverResolved, info?.id, activeServer, dub, episodeNavigation?.next?.number, info?.idMal]);
 
   // ── Pre-check all servers on page load ─────────────────────
   // Probes are batched (max N concurrent) to avoid overwhelming the dev server
@@ -1295,6 +1351,15 @@ export default function Watch({
     // probed immediately and separately — the delay only gates the rest.
     const PROBE_START_DELAY_MS = isMobileViewport ? 700 : 250;
     const RETRY_DELAY_MS = 3000;
+    // A server the cross-visitor snapshot already reported `absent` was confirmed
+    // dead by a previous visitor (2 attempts). Re-probing it every single visit —
+    // ~half the ~17 servers, ×2 attempts each — was by far the biggest /api/v2/source
+    // (POST, non-edge-cachable → ≥1 Upstash command each) consumer, and it dwarfed
+    // everything the July edge-cache pass optimized. We still re-probe absents to
+    // catch a recovered host, but only on a FRACTION of visits: across ~1/p visitors
+    // a recovered host is rediscovered well within the snapshot's 6h TTL, while the
+    // per-visit Upstash cost drops ~p×. See DEVLOG 2026-07-30.
+    const SNAPSHOT_ABSENT_REPROBE_P = 0.2;
     let cancelled = false;
 
     // Session-level probe result cache. When navigating between episodes of
@@ -1337,6 +1402,16 @@ export default function Watch({
     // absences are published to the availability snapshot — persisting a
     // transient one would wrongly hide a working host for 6h (the snapshot TTL).
     const confirmedAbsent = new Set();
+    // Servers the cross-visitor snapshot reported as absent. Unlike cachedFailed
+    // these are NOT skipped by the probe fan-out — they get RE-PROBED in the
+    // background this visit. Reason: an `absent` entry is otherwise self-
+    // perpetuating — hidden at paint, skipped by the probe, then re-published as
+    // absent → frozen for the snapshot's whole 6h TTL even after the host is
+    // healthy again (the megaplay / sibnet-vo "chip never comes back" bug). They
+    // still stay HIDDEN at first paint (we don't markConfirmed them); the
+    // background probe flips them to a green chip + re-publishes `ok` the moment
+    // one resolves 200. A genuine 204/404 simply re-confirms the absence.
+    const snapshotAbsent = new Set();
     // Save back to sessionStorage as confirmations come in. Failed probes
     // are intentionally not persisted (see comment above).
     const persistProbeCache = () => {
@@ -1349,51 +1424,35 @@ export default function Watch({
       } catch {}
     };
 
-    const probeMeta = info ? {
-      id: info.id,
-      idMal: info.idMal,
-      title: info.title,
-      synonyms: info.synonyms,
-      relations: info.relations,
-    } : null;
-
     // Returns: "ok" | "retry" | "fail-404" | "abort"
-    // We parse the body so a 200 with { error } counts as "retry", not "ok".
+    // `requestSource` already folds a 200-with-{error} into "retry" for us.
     const attemptProbe = async (s) => {
       try {
-        const res = await fetch("/api/v2/source", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
+        const out = await requestSource(
+          {
             server: s.id,
             aniId: info.id,
             episode: parseInt(epiNumber),
             sub: dub ? "dub" : "sub",
             title: info?.title?.romaji || info?.title?.english,
-            mediaMeta: probeMeta,
-            // Absent source → 204 instead of 404 (half the probes miss by
-            // design; they shouldn't read as console errors).
-            soft404: true,
-          }),
-          signal: controller.signal,
-          // Probes are background work — they fill in the server-selector
-          // chips but the user isn't blocked on them. Marking low priority
-          // gets them out of the way of the active stream's source fetch
-          // (which is priority:"high") in the browser's connection scheduler.
-          priority: "low",
-        });
+            malId: info?.idMal ?? null,
+          },
+          {
+            signal: controller.signal,
+            // Probes are background work — they fill in the server-selector
+            // chips but the user isn't blocked on them. Marking low priority
+            // gets them out of the way of the active stream's source fetch
+            // (which is priority:"high") in the browser's connection scheduler.
+            priority: "low",
+          },
+        );
 
-        // 204 = the soft404 contract's "source absent" (404 kept for callers
-        // that don't send the flag — handle both, terminal either way).
-        if (res.status === 204 || res.status === 404)
-          return { v: "fail-404" };
-        if (!res.ok) return { v: "retry" }; // 5xx, 429, anything non-2xx
+        if (out.kind === "absent") return { v: "fail-404" };
+        if (out.kind !== "ok") return { v: "retry" };
 
-        // 200 — but the backend sometimes wraps an extractor failure as
-        // { error: "..." } or returns nothing playable. Validate the shape.
-        let body;
-        try { body = await res.json(); } catch { return { v: "retry" }; }
-        if (body?.error) return { v: "retry" };
+        // 200 without `error` still isn't proof of a playable source — the
+        // payload can come back empty. Validate the shape.
+        const body = out.data;
         const hasStream =
           (Array.isArray(body?.streams) && body.streams.length > 0) ||
           (Array.isArray(body?.sources) && body.sources.length > 0) ||
@@ -1439,14 +1498,36 @@ export default function Watch({
         if (first.degraded) markDegraded(s.id);
         return markConfirmed(s.id);
       }
-      if (first.v === "fail-404") {
+      // Snapshot-absent servers were ALREADY confirmed absent cross-visitor (a
+      // previous visitor ran the full 2-attempt probe and published the absence).
+      // Re-probing here only exists to catch a recovered host, so a SINGLE attempt
+      // is enough — the decoy double-retry below is for FRESH unknown chips whose
+      // first 204 might be an anti-bot decoy, not for a server another visitor has
+      // already verified dead. Skipping the retry halves the /api/v2/source cost of
+      // every re-probe (each POST = a non-cachable Upstash command).
+      if (snapshotAbsent.has(s.id)) {
+        if (first.v === "fail-404") {
+          cachedFailed.add(s.id);
+          confirmedAbsent.add(s.id);
+          persistProbeCache();
+          return markFailed(s.id, "Source not found");
+        }
+        // Transient this visit — keep it out of the UI but don't publish absence.
         cachedFailed.add(s.id);
-        confirmedAbsent.add(s.id);
         persistProbeCache();
-        return markFailed(s.id, "Source not found");
+        return markFailed(s.id, "Source unavailable");
       }
 
-      // Transient — wait, then try once more before giving up.
+      // NOTE: a FIRST 204/404 is NOT treated as a terminal absence anymore.
+      // sibnet (and other scraper hosts) serve an anti-bot decoy on the first
+      // cold hit — the route resolves 204 once, then 200 on the very next call
+      // (verified: cyberpunk ep2 sibnet-vo 204→200, the compile-cold request
+      // even tripping a handler timeout). Concluding "absent" here is what made
+      // the sibnet chip appear then vanish. So a first fail-404 falls through to
+      // the same wait-and-retry as a transient error; only a SECOND fail-404
+      // (below) is published as a genuine absence.
+
+      // Transient OR a first cold 204 — wait, then try once more before giving up.
       await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
       if (cancelled || controller.signal.aborted) return;
 
@@ -1526,11 +1607,13 @@ export default function Watch({
           }
         }
         if (Array.isArray(absent)) {
-          // Servers known to have NO source for this episode: skip the probe
-          // entirely instead of re-scraping to rediscover they're absent. We do
-          // NOT call markFailed — an absent server simply stays hidden in the
-          // selector (same as a never-confirmed one), which is its current UX.
-          for (const id of absent) cachedFailed.add(id);
+          // Snapshot-absent servers stay HIDDEN at first paint (we don't paint
+          // them green), but we do NOT drop them into cachedFailed — that would
+          // make the probe fan-out skip them and re-publish the same absence,
+          // freezing a since-recovered host for the whole 6h TTL. Instead they
+          // go into snapshotAbsent so they get a background re-probe this visit:
+          // a host that now resolves flips its chip green and re-publishes `ok`.
+          for (const id of absent) snapshotAbsent.add(id);
         }
       } catch {
         /* offline / aborted — fall through to the normal probe fan-out */
@@ -1570,9 +1653,20 @@ export default function Watch({
       await hydrated;
       if (cancelled) return;
 
-      const remaining = toProbe.filter(
-        (s) => !cachedConfirmed.has(s.id) && !cachedFailed.has(s.id),
-      );
+      const remaining = toProbe.filter((s) => {
+        if (cachedConfirmed.has(s.id) || cachedFailed.has(s.id)) return false;
+        // Snapshot-absent servers are re-probed only on a fraction of visits
+        // (SNAPSHOT_ABSENT_REPROBE_P): a recovered host is still rediscovered
+        // within ~1/p visitors (well inside the 6h snapshot TTL), but we stop
+        // paying a per-visit /api/v2/source POST (= an Upstash command) to
+        // rediscover an absence a previous visitor already confirmed. This is
+        // the dominant steady-state Upstash saving. Servers with NO snapshot
+        // verdict yet (genuine unknowns) always probe.
+        if (snapshotAbsent.has(s.id) && Math.random() >= SNAPSHOT_ABSENT_REPROBE_P) {
+          return false;
+        }
+        return true;
+      });
 
       // 2) The active server's source is fetched by fetchStreamSource (its own
       //    effect, priority:"high") — that lights its chip via markConfirmed.
@@ -1595,10 +1689,7 @@ export default function Watch({
         ...cachedConfirmed,
         ...activeVerdictRef.current.ok,
       ]);
-      const publishAbsent = new Set([
-        ...confirmedAbsent,
-        ...activeVerdictRef.current.absent,
-      ]);
+      const publishAbsent = new Set(confirmedAbsent);
       // A server can't be both — a confirmation always wins over a stale absence.
       for (const id of publishOk) publishAbsent.delete(id);
       if (!cancelled && (publishOk.size > 0 || publishAbsent.size > 0)) {
@@ -1645,7 +1736,7 @@ export default function Watch({
       // When the host has blocked our playback, changing the server (lecteur)
       // is also a playback action — refuse it and explain why.
       if (party?.amPlaybackBlocked) {
-        toast.error(t("party.blockedBanner"));
+        notify.error(t("party.blockedBanner"));
         return;
       }
       setActiveServer(serverId);
@@ -1660,6 +1751,38 @@ export default function Watch({
     },
     [party, t]
   );
+
+  // ── Keyboard shortcut: cycle to the next player/server ──────
+  // The player fires `aniscroll:cycleServer` (it doesn't own the server list).
+  // We cycle through the servers IN THE EXACT ORDER THEY'RE SHOWN in the
+  // selector (multi → vo → vf, each fastest-first) and with the SAME visibility
+  // rules (`shouldShow`), so pressing the shortcut walks the chips left→right,
+  // top→bottom just like the UI — never a hidden/failed server.
+  useEffect(() => {
+    const onCycle = () => {
+      const { getServersByLang } = require("@/lib/servers");
+      const groups = getServersByLang();
+      // Same visibility test as serverSelector.js `shouldShow`.
+      const isVisible = (s) => {
+        if (s.id === activeServer) return true;
+        if (failedServers?.has?.(s.id)) return false;
+        if (s.type === "iframe") return true;
+        return confirmedServers.has(s.id);
+      };
+      const pool = [...groups.multi, ...groups.vo, ...groups.vf].filter(isVisible);
+      if (pool.length < 2) return; // nothing to cycle to
+      const idx = pool.findIndex((s) => s.id === activeServer);
+      const next = pool[(idx + 1) % pool.length];
+      if (next && next.id !== activeServer) {
+        handleServerChange(next.id);
+        // Unified notice store — same animated stack as every other notice; the
+        // global <NoticeStack> portals it into the player when fullscreen.
+        notify(t("player.switchedTo", { name: next.name }));
+      }
+    };
+    window.addEventListener("aniscroll:cycleServer", onCycle);
+    return () => window.removeEventListener("aniscroll:cycleServer", onCycle);
+  }, [confirmedServers, failedServers, activeServer, handleServerChange, t]);
 
   // ── Media Session (OS-level now playing) ────────────────────
   useEffect(() => {
@@ -1739,12 +1862,20 @@ export default function Watch({
        so the navigation feels identical to clicking the next thumbnail
        — same query params (id + num + optional dub), same provider. */
     const nextEp = episodeNavigation?.next;
+    const prevEp = episodeNavigation?.prev;
     // Clean ?id= form: `{server}-{episode}` (no AniList id in the middle). Keeps
     // the URL bar tidy and matches what the in-page sync writes on server change.
     const nextEpisodeHref = nextEp
       ? `/en/anime/watch/${info.id}?id=${encodeURIComponent(
           `${activeServer}-${nextEp.number}`
         )}&num=${nextEp.number}${dub ? `&dub=${dub}` : ""}`
+      : null;
+    // Same shape for the previous episode — surfaced to the player so the
+    // "previous episode" keyboard shortcut can navigate.
+    const prevEpisodeHref = prevEp
+      ? `/en/anime/watch/${info.id}?id=${encodeURIComponent(
+          `${activeServer}-${prevEp.number}`
+        )}&num=${prevEp.number}${dub ? `&dub=${dub}` : ""}`
       : null;
 
     if (needsBackend) {
@@ -1775,6 +1906,7 @@ export default function Watch({
             poster={episodeNavigation?.playing?.img || info?.bannerImage}
             serverId={server.id}
             nextEpisodeHref={nextEpisodeHref}
+            prevEpisodeHref={prevEpisodeHref}
             malId={info?.idMal || null}
             aniListId={info?.id || null}
             episodeNumber={parseInt(epiNumber)}
@@ -1810,6 +1942,7 @@ export default function Watch({
           poster={episodeNavigation?.playing?.img || info?.bannerImage}
           serverId={server.id}
           nextEpisodeHref={nextEpisodeHref}
+          prevEpisodeHref={prevEpisodeHref}
           malId={info?.idMal || null}
           aniListId={info?.id || null}
           episodeNumber={parseInt(epiNumber)}

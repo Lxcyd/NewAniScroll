@@ -40,6 +40,13 @@ function Footer() {
                 <li className="cursor-pointer hover:text-action">
                   <Link href={`/en/dmca`}>{t("footer.dmca")}</Link>
                 </li>
+                <li className="cursor-pointer hover:text-action">
+                  <Link href={`/en/sources`}>{t("footer.sources")}</Link>
+                </li>
+                {/* /en/about existed but nothing linked to it. */}
+                <li className="cursor-pointer hover:text-action">
+                  <Link href={`/en/about`}>{t("footer.about")}</Link>
+                </li>
               </ul>
             </div>
           </div>

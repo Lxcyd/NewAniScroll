@@ -12,19 +12,26 @@ import type { AniListInfoTypes } from "types/info/AnilistInfoTypes";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 
 /* One theme as returned by /api/v2/themes/{id}. Mirrors lib/animethemes/themes.ts. */
+type ThemeVideo = {
+  url: string;
+  nc: boolean;
+  overlap: string | null;
+  resolution: number | null;
+  source: string | null;
+  episodes: string | null;
+};
 type Theme = {
   slug: string;
   kind: "op" | "ed";
   sequence: number;
   song: string | null;
   artists: string[];
-  video: {
-    url: string;
-    nc: boolean;
-    resolution: number | null;
-    source: string | null;
-    episodes: string | null;
-  } | null;
+  /** NC-preferred default clip (kept for the row thumbnail / play entry). */
+  video: ThemeVideo | null;
+  /** Creditless rip, or null if only credited exists. */
+  videoNc: ThemeVideo | null;
+  /** Credited rip, or null if AnimeThemes has no credited version. */
+  videoCredited: ThemeVideo | null;
 };
 
 type SeasonThemes = { season: SeasonEntry; themes: Theme[] };
@@ -243,6 +250,28 @@ function chipStyle(isOp: boolean): CSSProperties {
   };
 }
 
+/** A theme has a credits toggle inside the player only when BOTH a creditless
+ *  and a credited rip exist — signal that upfront on the row so the toggle isn't
+ *  a hidden surprise. Mirrors ThemePlayerModal's `showToggle` gate. */
+function hasCreditsToggle(theme: Theme): boolean {
+  return !!(theme.videoNc && theme.videoCredited);
+}
+
+/** Small "CC" badge marking rows whose player exposes the credits toggle. */
+function CreditsBadge() {
+  const { t } = useTranslation();
+  return (
+    <span
+      style={styles.creditsBadge}
+      title={t("anime.creditsAvailable", {
+        defaultValue: "Creditless & with-credits versions available",
+      })}
+    >
+      CC
+    </span>
+  );
+}
+
 function ThemeRow({
   theme,
   cover,
@@ -275,6 +304,7 @@ function ThemeRow({
         <span style={styles.compactTitle} title={theme.song || kindLabel}>
           {theme.song || kindLabel}
         </span>
+        {hasCreditsToggle(theme) && <CreditsBadge />}
         {metaText && <span style={styles.compactMeta}>{metaText}</span>}
         <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style={{ color: "var(--txt-3)", flexShrink: 0 }}>
           <polygon points="8 5 19 12 8 19" />
@@ -291,6 +321,7 @@ function ThemeRow({
         <div style={styles.titleRow}>
           <span style={chipStyle(isOp)}>{kindLabel}</span>
           <span style={styles.title}>{theme.song || kindLabel}</span>
+          {hasCreditsToggle(theme) && <CreditsBadge />}
         </div>
         <div style={styles.meta}>{metaText}</div>
       </div>
@@ -337,8 +368,11 @@ function ThemeTile({
           </svg>
         </span>
       </div>
-      <div style={styles.tileTitle} title={theme.song || kindLabel}>
-        {theme.song || kindLabel}
+      <div style={styles.tileTitleRow}>
+        <span style={styles.tileTitle} title={theme.song || kindLabel}>
+          {theme.song || kindLabel}
+        </span>
+        {hasCreditsToggle(theme) && <CreditsBadge />}
       </div>
       {artists && (
         <div style={styles.tileMeta} title={artists}>
@@ -349,8 +383,10 @@ function ThemeTile({
   );
 }
 
-/* Overlay clip player — native <video> for the selected NC OP/ED (short clips,
-   so the full Vidstack chrome would be overkill). Portalled to <body>. */
+/* Overlay clip player — native <video> for the selected OP/ED (short clips, so
+   the full Vidstack chrome would be overkill). A credits/no-credits toggle picks
+   between the credited and creditless (NC) AnimeThemes rips of the same theme;
+   the side with no rip is disabled. Portalled to <body>. */
 function ThemePlayerModal({
   theme,
   seasonLabel,
@@ -363,6 +399,14 @@ function ThemePlayerModal({
   const { t } = useTranslation();
   const videoRef = useRef<HTMLVideoElement>(null);
 
+  const nc = theme.videoNc;
+  const credited = theme.videoCredited;
+  // Default = WITHOUT credits (NC) when available; only fall back to credited if
+  // no NC rip exists. `showCredits` therefore starts false unless NC is missing.
+  const [showCredits, setShowCredits] = useState<boolean>(!nc);
+  const active = showCredits ? credited : nc;
+  const activeUrl = active?.url ?? theme.video?.url ?? undefined;
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -371,12 +415,36 @@ function ThemePlayerModal({
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
+  // Preserve playback position across a credits/no-credits switch: capture the
+  // current time before the src swaps, restore it once the new clip can seek.
+  const resumeAt = useRef(0);
+  const switchVariant = (toCredits: boolean) => {
+    if (videoRef.current) resumeAt.current = videoRef.current.currentTime || 0;
+    setShowCredits(toCredits);
+  };
+  useEffect(() => {
+    const el = videoRef.current;
+    if (!el || !resumeAt.current) return;
+    const target = resumeAt.current;
+    const onLoaded = () => {
+      try {
+        el.currentTime = Math.min(target, (el.duration || target) - 0.1);
+      } catch {
+        /* seeking not ready yet — ignore */
+      }
+    };
+    el.addEventListener("loadedmetadata", onLoaded, { once: true });
+    return () => el.removeEventListener("loadedmetadata", onLoaded);
+  }, [activeUrl]);
+
   if (typeof document === "undefined") return null;
 
   const isOp = theme.kind === "op";
   const kindWord = isOp
     ? t("anime.opening", { defaultValue: "Opening" })
     : t("anime.ending", { defaultValue: "Ending" });
+
+  const showToggle = !!(nc && credited);
 
   return createPortal(
     <div style={styles.overlay} onClick={onClose}>
@@ -392,19 +460,80 @@ function ThemePlayerModal({
                 .join(" · ")}
             </div>
           </div>
-          <button type="button" onClick={onClose} style={styles.closeBtn} aria-label="Close">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-              <line x1="6" y1="6" x2="18" y2="18" />
-              <line x1="6" y1="18" x2="18" y2="6" />
-            </svg>
-          </button>
+          <div style={styles.headActions}>
+            {showToggle ? (
+              <div style={styles.creditsControl}>
+                <span style={styles.creditsLabel}>
+                  {t("anime.creditsToggle", { defaultValue: "Credits" })}
+                </span>
+                <div style={styles.segmented} role="group" aria-label={t("anime.creditsToggle", { defaultValue: "Credits" })}>
+                  <button
+                    type="button"
+                    onClick={() => switchVariant(false)}
+                    disabled={!nc}
+                    aria-pressed={!showCredits}
+                    style={segBtnStyle(!showCredits, !nc)}
+                  >
+                    {t("anime.noCredits", { defaultValue: "No credits" })}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => switchVariant(true)}
+                    disabled={!credited}
+                    aria-pressed={showCredits}
+                    style={segBtnStyle(showCredits, !credited)}
+                  >
+                    {t("anime.withCredits", { defaultValue: "With credits" })}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              // Only one rip exists — explain the absence rather than silently
+              // hiding the control, so the toggle never feels "missing".
+              <span style={styles.creditsOnlyHint}>
+                {credited
+                  ? t("anime.onlyWithCredits", { defaultValue: "With credits only" })
+                  : t("anime.onlyNoCredits", { defaultValue: "Creditless only" })}
+              </span>
+            )}
+            <button type="button" onClick={onClose} style={styles.closeBtn} aria-label="Close">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                <line x1="6" y1="6" x2="18" y2="18" />
+                <line x1="6" y1="18" x2="18" y2="6" />
+              </svg>
+            </button>
+          </div>
         </div>
         {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
-        <video ref={videoRef} src={theme.video?.url} controls autoPlay playsInline style={styles.video} />
+        <video ref={videoRef} src={activeUrl} controls autoPlay playsInline style={styles.video} />
       </div>
     </div>,
     document.body,
   );
+}
+
+/** Segmented-toggle button style. `active` = currently selected variant;
+ *  `disabled` = that variant has no rip (greyed out, not clickable). */
+function segBtnStyle(active: boolean, disabled: boolean): CSSProperties {
+  return {
+    padding: "5px 10px",
+    fontSize: 11.5,
+    fontWeight: 600,
+    fontFamily: "inherit",
+    border: "none",
+    borderRadius: 6,
+    cursor: disabled ? "not-allowed" : "pointer",
+    color: disabled
+      ? "var(--txt-3)"
+      : active
+        ? "var(--txt-0)"
+        : "var(--txt-2)",
+    background: active ? "var(--bg-1)" : "transparent",
+    boxShadow: active ? "0 1px 3px rgba(0,0,0,0.25)" : "none",
+    opacity: disabled ? 0.45 : 1,
+    transition: "all 0.12s",
+    whiteSpace: "nowrap",
+  };
 }
 
 const styles: Record<string, CSSProperties> = {
@@ -546,6 +675,8 @@ const styles: Record<string, CSSProperties> = {
     background: "color-mix(in srgb, var(--accent) 85%, transparent)",
   },
   tileTitle: {
+    flex: 1,
+    minWidth: 0,
     fontSize: 12.5,
     fontWeight: 600,
     color: "var(--txt-0)",
@@ -642,6 +773,60 @@ const styles: Record<string, CSSProperties> = {
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
     marginTop: 2,
+  },
+  headActions: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    flexShrink: 0,
+  },
+  creditsControl: {
+    display: "flex",
+    alignItems: "center",
+    gap: 7,
+  },
+  creditsLabel: {
+    fontSize: 11,
+    fontWeight: 700,
+    letterSpacing: "0.03em",
+    textTransform: "uppercase",
+    color: "var(--txt-3)",
+    whiteSpace: "nowrap",
+  },
+  creditsOnlyHint: {
+    fontSize: 11,
+    color: "var(--txt-3)",
+    whiteSpace: "nowrap",
+    padding: "4px 8px",
+    borderRadius: 6,
+    background: "var(--bg-3)",
+    border: "1px solid var(--line)",
+  },
+  creditsBadge: {
+    flexShrink: 0,
+    fontSize: 9.5,
+    fontWeight: 700,
+    letterSpacing: "0.04em",
+    padding: "1px 5px",
+    borderRadius: 4,
+    color: "var(--accent)",
+    background: "var(--accent-soft)",
+    border: "1px solid color-mix(in srgb, var(--accent) 35%, transparent)",
+    lineHeight: 1.6,
+  },
+  tileTitleRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    minWidth: 0,
+  },
+  segmented: {
+    display: "flex",
+    gap: 2,
+    padding: 2,
+    borderRadius: 8,
+    background: "var(--bg-3)",
+    border: "1px solid var(--line)",
   },
   closeBtn: {
     display: "grid",

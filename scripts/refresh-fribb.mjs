@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS fribb_map (
   tmdb_tv_id     INTEGER,
   tmdb_movie_id  INTEGER,
   tvdb_id        INTEGER,
+  simkl_id       INTEGER,
   tmdb_season    INTEGER,
   tvdb_season    INTEGER,
   type           TEXT,
@@ -80,6 +81,15 @@ async function setState(value) {
 
 async function main() {
   await db.execute(CREATE_FRIBB_SQL);
+  // simkl_id landed after the table shipped: CREATE TABLE IF NOT EXISTS won't
+  // add it to an existing DB, and SQLite has no ALTER ... IF NOT EXISTS. The
+  // "duplicate column" error IS the success case on later runs.
+  try {
+    await db.execute("ALTER TABLE fribb_map ADD COLUMN simkl_id INTEGER");
+    console.log("• added simkl_id column");
+  } catch (e) {
+    if (!/duplicate column/i.test(String(e?.message))) throw e;
+  }
   await db.execute(
     "CREATE INDEX IF NOT EXISTS idx_fribb_tmdb_tv ON fribb_map(tmdb_tv_id)"
   );
@@ -110,6 +120,9 @@ async function main() {
       tmdbTvId: tvId(r.themoviedb_id),
       tmdbMovieId: movieId(r.themoviedb_id),
       tvdbId: typeof r.tvdb_id === "number" ? r.tvdb_id : null,
+      // Per-ENTRY id (not franchise) — powers per-episode stills, see
+      // lib/simkl/episodeStills.ts.
+      simklId: typeof r.simkl_id === "number" ? r.simkl_id : null,
       tmdbSeason:
         r.season && typeof r.season.tmdb === "number" ? r.season.tmdb : null,
       tvdbSeason:
@@ -124,16 +137,17 @@ async function main() {
     await db.batch(
       slice.map((e) => ({
         sql: `INSERT INTO fribb_map
-          (anilist_id, mal_id, tmdb_tv_id, tmdb_movie_id, tvdb_id,
+          (anilist_id, mal_id, tmdb_tv_id, tmdb_movie_id, tvdb_id, simkl_id,
            tmdb_season, tvdb_season, type, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(anilist_id) DO UPDATE SET
             mal_id=excluded.mal_id, tmdb_tv_id=excluded.tmdb_tv_id,
             tmdb_movie_id=excluded.tmdb_movie_id, tvdb_id=excluded.tvdb_id,
+            simkl_id=excluded.simkl_id,
             tmdb_season=excluded.tmdb_season, tvdb_season=excluded.tvdb_season,
             type=excluded.type, updated_at=excluded.updated_at`,
         args: [
-          e.anilistId, e.malId, e.tmdbTvId, e.tmdbMovieId, e.tvdbId,
+          e.anilistId, e.malId, e.tmdbTvId, e.tmdbMovieId, e.tvdbId, e.simklId,
           e.tmdbSeason, e.tvdbSeason, e.type, now,
         ],
       })),

@@ -38,7 +38,10 @@ export default function Logo({
       <span className={`${TEXT_CLS[size]} text-action`}>AniScroll</span>
       {/* Tiny beta tag. Lives at a step smaller than the wordmark so it
           stays visible but doesn't compete with the brand. */}
-      <span className="text-xs font-karla font-medium tracking-wider uppercase text-white/40">
+      {/* nav-chrome-dim: recoloured when the navbar sits on light artwork
+          (styles/globals.css) — white/40 is invisible on a white banner.
+          Inert everywhere else the logo is used. */}
+      <span className="nav-chrome-dim text-xs font-karla font-medium tracking-wider uppercase text-white/40">
         Beta
       </span>
     </Link>

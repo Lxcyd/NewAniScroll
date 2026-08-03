@@ -1,7 +1,7 @@
 import { PhotoIcon } from "@heroicons/react/24/outline";
 import { useRouter } from "next/router";
 import React, { useEffect } from "react";
-import { toast } from "sonner";
+import { notify } from "@/lib/notifications/noticeStore";
 
 type SearchByImageProps = {
   searchPalette?: boolean;
@@ -32,7 +32,7 @@ export default function SearchByImage({
         });
     });
 
-    toast.promise(response, {
+    notify.promise(response, {
       loading: "Finding episodes...",
       success: `Episodes found!`,
       error: "Error",

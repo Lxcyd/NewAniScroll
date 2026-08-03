@@ -13,7 +13,12 @@
       "Bash(cat > *)",
       "Skill(update-config)",
       "Skill(update-config:*)",
-      "Bash(python run_snk.py)"
+      "Bash(python run_snk.py)",
+      "Bash(python -c \"import json,sys; d=json.loads\\(sys.stdin.read\\(\\)\\); print\\('ep', d['episode'], d['lang'], 'op' if d.get\\('op'\\) else 'no-op', 'ed' if d.get\\('ed'\\) else 'no-ed'\\)\")",
+      "Bash(powershell -Command \"if \\(Get-Process python* -EA SilentlyContinue\\) {'ALIVE'} else {'DEAD'}\")",
+      "Bash(wc -l)",
+      "Bash(cat cache/bench-manifest.jsonl)",
+      "Bash(powershell -Command \"if \\(Get-Process python* -EA SilentlyContinue\\) {'ALIVE'} else {'DONE'}\")"
     ],
     "additionalDirectories": [
       "C:\\Users\\Luc\\Github\\NewAniScroll\\.git"

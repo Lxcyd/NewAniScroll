@@ -25,6 +25,9 @@ interface Props {
   playerEl: HTMLElement | null;
   /** Only render when the player is actually fullscreen. */
   active: boolean;
+  /** Hide the chat while a player menu/overlay (settings, subtitles, stats…) is
+   *  open, so it doesn't sit on top of / fight those controls in fullscreen. */
+  suppressed?: boolean;
 }
 
 const BUBBLE_TTL_MS = 4000; // each ephemeral bubble fades after ~4s
@@ -34,7 +37,7 @@ const RECENT_MAX = 30; // history kept for the hover panel
 // closes instantly on mouse-leave (the requested behaviour).
 const TYPING_GRACE_MS = 400;
 
-export default function FullscreenChat({ onRemote, sendChat, playerEl, active }: Props) {
+export default function FullscreenChat({ onRemote, sendChat, playerEl, active, suppressed }: Props) {
   const { t } = useTranslation();
   const [recent, setRecent] = useState<ChatMessage[]>([]);
   const [bubbles, setBubbles] = useState<ChatMessage[]>([]);
@@ -46,6 +49,13 @@ export default function FullscreenChat({ onRemote, sendChat, playerEl, active }:
   const composerRef = useRef<ChatComposerHandle | null>(null);
   // Whether the composer currently has content (drives the typing-grace on close).
   const hasTextRef = useRef(false);
+  // Whether the chat composer currently holds keyboard focus. When it does, a
+  // click on the video must NOT toggle play/pause — it should just defocus the
+  // chat and close the panel (see the capture-phase veto effect below).
+  const focusedRef = useRef(false);
+  // The chat panel root, so the veto can tell a click INSIDE the chat (which
+  // must keep working) from a click on the video surface.
+  const panelRef = useRef<HTMLDivElement | null>(null);
   const logRef = useRef<HTMLDivElement | null>(null);
   const closeTimer = useRef<number | null>(null);
   // Once-per-session guard: persists for the component's lifetime (the whole
@@ -118,6 +128,88 @@ export default function FullscreenChat({ onRemote, sendChat, playerEl, active }:
     if (open && logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [recent, open]);
 
+  // Keyboard shortcut ("t"): UniversalPlayer dispatches this after making sure
+  // we're fullscreen. Open the panel and focus the composer so the user can
+  // type straight away — the same result as hovering the reveal zone, minus the
+  // mouse. `active`-gated so a stray event while windowed does nothing.
+  useEffect(() => {
+    if (!active) return;
+    const onOpen = () => {
+      openNow();
+      // Focus after the panel's open transition begins (pointer-events flip to
+      // auto) so the caret reliably lands in the input.
+      window.setTimeout(() => composerRef.current?.focus(), 60);
+    };
+    window.addEventListener("aniscroll:openPartyChat", onOpen);
+    return () => window.removeEventListener("aniscroll:openPartyChat", onOpen);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active]);
+
+  // ── "Click video while typing = just defocus the chat" ──
+  // While the composer holds focus, a click on the video surface should NOT
+  // toggle play/pause. Instead it should feel like a click-away: blur the
+  // composer and close the panel, leaving playback alone.
+  //
+  // Vidstack's play/pause GESTURE listens for `pointerup` (→ `touchend` on
+  // coarse pointers) on the PLAYER ROOT element itself — the very same element
+  // we portal into. So:
+  //  • We must veto `pointerup`/`touchend`, NOT `pointerdown`/`click`
+  //    (an earlier version keyed on the wrong events, so the gesture always
+  //     fired and the video paused anyway).
+  //  • A CAPTURE-phase `stopPropagation()` on that element stops the event
+  //    before Vidstack's own (bubble-phase) listener on the same element runs.
+  //  • By `pointerup`, the composer may already have blurred (focus left on the
+  //    preceding `pointerdown`), so `focusedRef` can read false. We therefore
+  //    latch "was the chat focused when the press STARTED" on `pointerdown` and
+  //    consult that latch on `pointerup`.
+  useEffect(() => {
+    if (!active || !playerEl) return;
+
+    // Did the press begin while the composer held focus AND land outside the
+    // chat panel? If so, the matching release must be swallowed (no play/pause)
+    // and instead just defocus + close the chat.
+    let armed = false;
+
+    const isOutsideChat = (e: Event) => {
+      const target = e.target as Node | null;
+      return !(target && panelRef.current?.contains(target));
+    };
+
+    const onDown = (e: Event) => {
+      // Latch state at press time — focus is still on the composer here.
+      armed = focusedRef.current && isOutsideChat(e);
+      if (armed) {
+        // Swallow the down too so Vidstack never even arms anything from it.
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    };
+
+    const onUp = (e: Event) => {
+      if (!armed) return; // normal playback gesture
+      armed = false;
+      // Swallow the release so Vidstack's pointerup toggle never fires.
+      e.preventDefault();
+      e.stopPropagation();
+      composerRef.current?.blur();
+      focusedRef.current = false;
+      requestClose();
+    };
+
+    playerEl.addEventListener("pointerdown", onDown, { capture: true });
+    playerEl.addEventListener("pointerup", onUp, { capture: true });
+    // Coarse pointers (touch): Vidstack maps the gesture to touchstart/touchend.
+    playerEl.addEventListener("touchstart", onDown, { capture: true });
+    playerEl.addEventListener("touchend", onUp, { capture: true });
+    return () => {
+      playerEl.removeEventListener("pointerdown", onDown, { capture: true } as any);
+      playerEl.removeEventListener("pointerup", onUp, { capture: true } as any);
+      playerEl.removeEventListener("touchstart", onDown, { capture: true } as any);
+      playerEl.removeEventListener("touchend", onUp, { capture: true } as any);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, playerEl]);
+
   if (!active || !playerEl) return null;
 
   // Send the composer's serialized text (sticker <img> → :shortcode:).
@@ -150,7 +242,19 @@ export default function FullscreenChat({ onRemote, sendChat, playerEl, active }:
   const ZONE_H = "58vh";
 
   const overlay = (
-    <div style={{ position: "absolute", inset: 0, zIndex: 40, pointerEvents: "none" }}>
+    // While a player menu is open (suppressed), hide the whole chat overlay so
+    // it doesn't overlap / fight the settings, subtitles or stats panels. We use
+    // display:none rather than unmounting so the live message subscription and
+    // bubble timers keep running underneath.
+    <div
+      style={{
+        position: "absolute",
+        inset: 0,
+        zIndex: 40,
+        pointerEvents: "none",
+        display: suppressed ? "none" : undefined,
+      }}
+    >
       {/* Hover trigger zone — sized to the chat panel's footprint (bottom-right,
           above the control bar). Entering it opens the chat; leaving it (or the
           panel) closes it instantly. Sits above the controls so PiP / fullscreen
@@ -220,6 +324,7 @@ export default function FullscreenChat({ onRemote, sendChat, playerEl, active }:
       {/* The panel itself. Slides in from the right + fades; closing is the same
           transition reversed, so it disappears "instantly with an animation". */}
       <div
+        ref={panelRef}
         onMouseEnter={openNow}
         onMouseLeave={requestClose}
         style={{
@@ -283,7 +388,13 @@ export default function FullscreenChat({ onRemote, sendChat, playerEl, active }:
               hasTextRef.current = !!v;
               openNow();
             }}
-            onFocus={openNow}
+            onFocus={() => {
+              focusedRef.current = true;
+              openNow();
+            }}
+            onBlur={() => {
+              focusedRef.current = false;
+            }}
             style={{
               flex: 1,
               borderRadius: 10,

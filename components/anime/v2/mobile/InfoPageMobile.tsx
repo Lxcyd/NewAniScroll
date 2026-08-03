@@ -38,6 +38,7 @@ import { genreLabel } from "@/lib/i18n/genreLabel";
 import { useTranslatedText } from "@/lib/i18n/useTranslatedText";
 import { translateTag } from "@/lib/i18n/animeTags";
 import { hexToCssFilter } from "@/lib/color/hexToCssFilter";
+import { useNavBackdrop } from "@/lib/color/navContrast";
 import { useFanartSrc, onFanartError } from "@/lib/images/fanartFallback";
 import type { SeasonEntry } from "@/lib/anilist/seasonChain";
 import type { FilmVariant } from "@/lib/anilist/resolveSeason";
@@ -133,6 +134,7 @@ export default function InfoPageMobile({
           <div style={S.tabBox}>
             <Episodes
               info={info}
+              fanarts={initialFanarts}
               progress={progress}
               seasonList={seasonList}
               bonusFilms={bonusFilms}
@@ -198,6 +200,9 @@ function MHero({
 }) {
   const { t } = useTranslation();
   const banner = info.bannerImage || info.coverImage?.extraLarge;
+  // The shared <Navbar> floats over the top of this banner with white chrome —
+  // let it flip to dark when the artwork is light (lib/color/navContrast).
+  useNavBackdrop(banner);
   const cover =
     info.coverImage?.extraLarge || info.coverImage?.large;
   // Hydration-safe: proxy URL on SSR + first client render, swaps to origin

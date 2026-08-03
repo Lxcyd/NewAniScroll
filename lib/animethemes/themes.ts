@@ -9,9 +9,10 @@
  *   MAL/AniList id  --/resource-->  anime slug  --/anime/{slug}-->  themes.
  *
  * Per theme AnimeThemes gives us the SONG (title + artists), which EPISODES it
- * plays in ("1-13", free-form), and a downloadable NC video. Unlike the skip
- * detector we don't need in-episode timestamps here — the dropdown just plays
- * the clean OP/ED clip, so the video `link` is all we surface.
+ * plays in ("1-13", free-form), and downloadable videos. Unlike the skip
+ * detector we don't need in-episode timestamps here — the panel just plays the
+ * OP/ED clip. We surface BOTH the creditless (NC) and the credited rip so the
+ * player can offer a "with credits / without credits" toggle.
  */
 
 const API = "https://api.animethemes.moe";
@@ -22,6 +23,8 @@ export type ThemeVideo = {
   url: string;
   /** No-credit (clean) rip — preferred for a standalone OP/ED player. */
   nc: boolean;
+  /** Overlap with adjacent-episode footage: "None" | "Transition" | "Over". */
+  overlap: string | null;
   resolution: number | null;
   source: string | null;
   /** Free-form episode mapping from AnimeThemes (e.g. "1-13", "2-18, 20-25"). */
@@ -36,8 +39,14 @@ export type Theme = {
   sequence: number;
   song: string | null;
   artists: string[];
-  /** Best playable video for this theme (NC, then highest resolution). */
+  /** Best playable video, NC-preferred (kept for backward compatibility — the
+   *  default clip the player opens on). */
   video: ThemeVideo | null;
+  /** Best creditless (NC) rip, or null if the theme only has credited rips. */
+  videoNc: ThemeVideo | null;
+  /** Best CREDITED rip (nc=false, overlap=None preferred), or null when
+   *  AnimeThemes has no credited version. Powers the "with credits" toggle. */
+  videoCredited: ThemeVideo | null;
 };
 
 const _SITE = { mal: "MyAnimeList", anilist: "AniList" } as const;
@@ -93,7 +102,7 @@ export async function fetchThemes(slug: string): Promise<Theme[]> {
     "fields[anime]": "slug,name",
     "fields[animetheme]": "type,sequence,slug",
     "fields[animethemeentry]": "episodes,version,nsfw,spoiler",
-    "fields[video]": "link,nc,resolution,source",
+    "fields[video]": "link,nc,overlap,resolution,source",
     "fields[song]": "title",
     "fields[artist]": "name",
   });
@@ -105,24 +114,34 @@ export async function fetchThemes(slug: string): Promise<Theme[]> {
       .map((a: any) => a?.name)
       .filter(Boolean);
 
-    // Best playable video across every entry of this theme: prefer NC (clean,
-    // no on-screen credits/subs), then highest resolution. Mirrors the Python
-    // client's `entry_for_episode` ranking, but here we surface a single clip
-    // for the whole theme (the dropdown plays the OP/ED itself, not per-episode).
-    let best: ThemeVideo | null = null;
+    // Two variants across every entry of this theme, so the player can toggle
+    // "with credits" / "without credits". Mirrors the Python client's `_pick_video`.
+    //   • NC:       cleanest creditless rip (nc=true), then highest resolution.
+    //   • CREDITED: nc=false, overlap=None preferred (a Transition/Over rip
+    //               splices in adjacent-episode footage), then resolution.
+    let bestNc: ThemeVideo | null = null;
+    let bestCredited: ThemeVideo | null = null;
     for (const e of t?.animethemeentries || []) {
       for (const v of e?.videos || []) {
         if (!v?.link) continue;
         const cand: ThemeVideo = {
           url: v.link,
           nc: !!v.nc,
+          overlap: v.overlap ?? null,
           resolution: v.resolution ?? null,
           source: v.source ?? null,
           episodes: e?.episodes ?? null,
         };
-        if (!best || rankVideo(cand) > rankVideo(best)) best = cand;
+        if (cand.nc) {
+          if (!bestNc || rankNc(cand) > rankNc(bestNc)) bestNc = cand;
+        } else {
+          if (!bestCredited || rankCredited(cand) > rankCredited(bestCredited))
+            bestCredited = cand;
+        }
       }
     }
+    // Default clip the player opens on: NC when available, else credited.
+    const best = bestNc ?? bestCredited;
 
     out.push({
       slug: t?.slug || `${t?.type}${t?.sequence}`,
@@ -131,6 +150,8 @@ export async function fetchThemes(slug: string): Promise<Theme[]> {
       song,
       artists,
       video: best,
+      videoNc: bestNc,
+      videoCredited: bestCredited,
     });
   }
   // Stable, human order: OPs first then EDs, each by sequence.
@@ -142,9 +163,16 @@ export async function fetchThemes(slug: string): Promise<Theme[]> {
   return out;
 }
 
-/** NC first, then higher resolution — same tiebreak the offline client uses. */
-function rankVideo(v: ThemeVideo): number {
-  return (v.nc ? 1_000_000 : 0) + (v.resolution ?? 0);
+/** Among NC rips: higher resolution wins. */
+function rankNc(v: ThemeVideo): number {
+  return v.resolution ?? 0;
+}
+
+/** Among credited rips: overlap=None (clean) first, then higher resolution.
+ *  AnimeThemes returns overlap as the string "None" when absent. */
+function rankCredited(v: ThemeVideo): number {
+  const clean = v.overlap == null || v.overlap.toLowerCase() === "none";
+  return (clean ? 1_000_000 : 0) + (v.resolution ?? 0);
 }
 
 /** One-shot: id → themes (empty array when the anime isn't on AnimeThemes). */

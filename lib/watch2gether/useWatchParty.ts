@@ -146,6 +146,13 @@ export function useWatchParty(
 
   const applyingRemoteRef = useRef(false);
   const remoteHandlers = useRef<Set<(e: PartyEvent) => void>>(new Set());
+  // The last snapshot event we broadcast to handlers. The player's sync effect
+  // subscribes via onRemote only AFTER `party` becomes non-null (next render),
+  // so the initial snapshot replayed inside join() fires before applyRemote is
+  // registered and is otherwise lost — the host's already-playing video then
+  // never gets paused ("créer une party lance l'anime"). Replaying this to each
+  // late subscriber closes that race.
+  const lastSnapshotEvent = useRef<PartyEvent | null>(null);
   // Live Ably client + channel for this room. Replaces the old EventSource.
   const ablyRef = useRef<Realtime | null>(null);
   const channelRef = useRef<RealtimeChannel | null>(null);
@@ -188,6 +195,10 @@ export function useWatchParty(
 
   const onRemote = useCallback((handler: (e: PartyEvent) => void) => {
     remoteHandlers.current.add(handler);
+    // Replay the latest snapshot to a handler that subscribed after it fired,
+    // so the player's sync effect (mounted a render later) still receives the
+    // create/join snapshot and can align the host to the room's paused state.
+    if (lastSnapshotEvent.current) handler(lastSnapshotEvent.current);
     return () => {
       remoteHandlers.current.delete(handler);
     };
@@ -407,13 +418,26 @@ export function useWatchParty(
     if (Array.isArray(data.chat)) setChat(data.chat);
     if (Array.isArray(data.members)) setMembers(data.members);
     // Replay the snapshot to player handlers so it syncs after a (re)connect.
+    // Tag whether WE are the host, computed SYNCHRONOUSLY here from the server's
+    // own response (snapshot.hostId vs data.me.userId). The player's snapshot
+    // guard must NOT drive the host's own player, but it can't rely on the
+    // React-derived `isHost` — on the FIRST snapshot after create/join that
+    // state hasn't re-rendered yet (setHostId above is still queued), so the
+    // guard read stale `false` and the seeded snapshot's play/pause churn drove
+    // the host's player ("creating a party launches the anime"). Passing the
+    // authoritative value inline closes that race.
     if (data.snapshot) {
+      const selfIsHost =
+        !!data.snapshot.hostId &&
+        !!data.me?.userId &&
+        String(data.snapshot.hostId) === String(data.me.userId);
       const ev: PartyEvent = {
         type: "snapshot",
         senderId: "server",
         ts: Date.now(),
-        payload: { snapshot: data.snapshot },
+        payload: { snapshot: data.snapshot, selfIsHost },
       };
+      lastSnapshotEvent.current = ev;
       remoteHandlers.current.forEach((h) => h(ev));
     }
   }, [roomId, reconcileSnapshot, rejectOnce]);
@@ -455,6 +479,22 @@ export function useWatchParty(
       if (ev.payload?.snapshot) {
         setSnapshot(reconcileSnapshot(ev.payload.snapshot));
         if (ev.payload.snapshot.hostId) setHostId(ev.payload.snapshot.hostId);
+        // Tag whether WE are the host from the snapshot's own hostId vs our id,
+        // unless the event already carries the flag (the synthetic join replay
+        // sets it). Wire/Ably snapshots don't, and the player's host guard would
+        // otherwise fall back to a React-derived `isHost` that's still stale
+        // `false` right after create — letting the seeded snapshot drive (rewind)
+        // the host's own player. Computing it here closes that race for every
+        // snapshot path.
+        if (typeof ev.payload.selfIsHost !== "boolean" && myId) {
+          ev = {
+            ...ev,
+            payload: {
+              ...ev.payload,
+              selfIsHost: String(ev.payload.snapshot.hostId) === String(myId),
+            },
+          };
+        }
       }
       if (Array.isArray(ev.payload?.members)) setMembers(ev.payload.members);
       remoteHandlers.current.forEach((h) => h(ev));
