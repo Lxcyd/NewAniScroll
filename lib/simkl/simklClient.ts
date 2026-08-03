@@ -1,12 +1,13 @@
 /**
  * Simkl client — per-episode stills.
  *
- * Why Simkl and not TMDB for this: Simkl's id (from Fribb's `simkl_id`) indexes
+ * Why Simkl replaced TMDB here: Simkl's id (from Fribb's `simkl_id`) indexes
  * the SAME entry AniList does, not the franchise. So there is no season to
- * guess — the exact problem that makes lib/tmdb/resolveTmdbSeason.ts refuse
- * long sagas (One Piece has no `tmdb_season` at all) and split cours. Measured
- * on the live API: One Piece 1170 stills / 1172 episodes, Naruto 220/220,
- * AoT S1 25/25, all distinct real frames.
+ * guess — the exact problem that forced the old TMDB path to refuse long sagas
+ * (One Piece has no `tmdb_season` at all) and split cours, and to carry a
+ * mapping, a validation and an API key to do it. Measured on the live API:
+ * One Piece 1170 stills / 1172 episodes, Naruto 220/220, AoT S1 25/25, all
+ * distinct real frames.
  *
  * Simkl requires a client_id (free; the app dashboard states the required
  * query params and User-Agent). Keyless calls happen to answer today, but we

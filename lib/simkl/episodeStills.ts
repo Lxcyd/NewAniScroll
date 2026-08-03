@@ -1,9 +1,10 @@
 /**
  * Per-episode stills for an AniList id, via Simkl: cache → validate → fetch → cache.
  *
- * Simkl's id maps 1:1 onto the AniList entry (Fribb's `simkl_id`), so unlike
- * TMDB there is no season to infer — which is why this works for the titles
- * lib/tmdb/resolveTmdbSeason.ts must refuse (One Piece: no tmdb_season at all).
+ * Simkl's id maps 1:1 onto the AniList entry (Fribb's `simkl_id`), so there is
+ * no season to infer. That is why it is now the only stills provider: the TMDB
+ * path it replaced had to map a franchise onto a season and then refuse
+ * whenever it couldn't prove the match (One Piece has no tmdb_season at all).
  *
  * We still validate rather than trust. The check is a floor, not equality:
  *   - Drop `type: "special"` first — specials inflate the count (AoT S1 returns

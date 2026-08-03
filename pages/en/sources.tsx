@@ -7,9 +7,10 @@ import { useTranslation } from "react-i18next";
 /**
  * Credits page — who supplies the data AniScroll shows.
  *
- * Two of these are contractual, not courtesy: TMDB's terms require the exact
- * wording below wherever their data appears, and Simkl expects attribution
- * under its free tier. The rest are here because they earned it.
+ * One of these is contractual, not courtesy: Simkl expects attribution under
+ * its free tier. The rest are here because they earned it. (TMDB used to be the
+ * other one — its terms mandated a verbatim disclaimer — but it is no longer a
+ * provider, so both the credit and the disclaimer are gone with it.)
  *
  * Streaming hosts are deliberately absent: they aren't data sources, and the
  * footer disclaimer already covers them.
@@ -33,7 +34,6 @@ const SOURCES: Source[] = [
   { name: "MyAnimeList", url: "https://myanimelist.net", key: "mal" },
   { name: "Jikan", url: "https://jikan.moe", key: "jikan" },
   { name: "Simkl", url: "https://simkl.com", key: "simkl" },
-  { name: "TMDB", url: "https://www.themoviedb.org", key: "tmdb" },
   { name: "Fribb/anime-lists", url: "https://github.com/Fribb/anime-lists", key: "fribb" },
   { name: "AniSkip", url: "https://aniskip.com", key: "aniskip" },
   { name: "Anime-Skip", url: "https://anime-skip.com", key: "animeskip" },
@@ -107,17 +107,11 @@ export default function Sources() {
             </ul>
           </section>
 
-          {/* Required by TMDB's API terms — the wording is theirs, not ours,
-              so it stays in English and out of the locale files. */}
           <section>
             <h2 className="font-outfit font-semibold text-2xl text-white mb-3">
               {t("sources.legalTitle")}
             </h2>
             <div className="font-karla text-white/80 space-y-3 leading-relaxed">
-              <p className="text-white/60 text-sm italic">
-                This product uses the TMDB API but is not endorsed or certified
-                by TMDB.
-              </p>
               <p className="text-white/60 text-sm">{t("sources.legalNote")}</p>
             </div>
           </section>

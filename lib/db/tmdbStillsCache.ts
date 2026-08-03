@@ -1,8 +1,12 @@
 import { getFanartsClient } from "./turso-fanarts";
-import type { TmdbMatchReason } from "@/lib/tmdb/resolveTmdbSeason";
 
 /**
- * tmdb_stills_cache — per-anime TMDB episode still URLs, and the refusals.
+ * tmdb_stills_cache — per-anime episode still URLs, and the refusals.
+ *
+ * The TABLE NAME is a fossil and stays one on purpose: TMDB was dropped as a
+ * provider (Simkl is the only source now), but this table holds live Simkl rows
+ * in production. Renaming it would orphan every one of them and re-fetch the
+ * whole catalogue for nothing. It is, and always was, a generic stills cache.
  *
  * Shape and failure policy copied from lib/db/seasonCache.ts: the key carries
  * its own version tag, TTL is checked on read, the table is created lazily, and
@@ -14,23 +18,22 @@ import type { TmdbMatchReason } from "@/lib/tmdb/resolveTmdbSeason";
  * episode stills have exactly that profile. It falls back to the main DB when
  * the fanarts env vars are unset.
  *
- * REFUSALS ARE CACHED, and that's the point. Most of the catalogue will never
- * resolve (resolveTmdbSeason refuses on purpose — see its header), so without
- * caching the "no" every Redis miss would re-hit TMDB for a title we already
- * know we won't use. Refusals get a shorter TTL than hits so a Fribb re-ingest
- * or a TMDB correction can rescue a title within a day. Transient failures
- * (network, rate-limit) must NOT be cached — the caller decides that.
+ * REFUSALS ARE CACHED, and that's the point: a title Simkl has no images for
+ * would otherwise be re-fetched on every Redis miss. Refusals get a shorter TTL
+ * than hits so a provider-side correction can rescue a title within a day.
+ * Transient failures (network, rate-limit) must NOT be cached — the caller
+ * decides that.
  */
 
 export interface StillsCacheValue {
   /** episode number → full still URL. Empty on a refusal. */
   stills: Record<number, string>;
-  /** episode number → title. Simkl only; absent on TMDB rows and on every row
-   *  written before titles shipped, so readers must treat it as optional. */
+  /** episode number → title. Absent on rows written before titles shipped and
+   *  on leftover TMDB-era rows, so readers must treat it as optional. */
   titles?: Record<number, string>;
   /** Why this is what it is — kept so a bad mapping is diagnosable later.
-   *  Simkl reasons are free-form strings; TMDB's are the typed union. */
-  reason: TmdbMatchReason | string;
+   *  Free-form; older rows may still carry a TMDB refusal tag. */
+  reason: string;
   tvId: number | null;
   season: number | null;
 }
