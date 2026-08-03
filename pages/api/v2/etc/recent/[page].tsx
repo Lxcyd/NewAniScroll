@@ -55,8 +55,11 @@ export default async function handler(
     // visitor and loads on the homepage, so without an edge cache every visitor
     // spent a Redis GET here. s-maxage matches the 1 h Redis TTL — an edge HIT
     // never reaches the function, so that steady-state GET disappears entirely.
+    // 5 min in the browser, against the same 1 h edge/Redis TTL: the rail sits
+    // on the homepage, so a visitor bouncing back to it re-requested it every
+    // minute — each one a billed Edge Request for a payload that changes hourly.
     const setEdgeCache = () => {
-      res.setHeader("Cache-Control", "public, max-age=60");
+      res.setHeader("Cache-Control", "public, max-age=300");
       res.setHeader(
         "CDN-Cache-Control",
         "public, s-maxage=3600, stale-while-revalidate=86400",

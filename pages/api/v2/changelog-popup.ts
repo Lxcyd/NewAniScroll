@@ -30,12 +30,20 @@ export default async function handler(
     const content = await readFile(filePath, "utf-8");
     // This file only changes on a deploy, but the endpoint is hit on every page
     // load (twice — one per language), so the cache is what keeps it from being
-    // a per-visit function invocation. A new release surfacing a few minutes
-    // late is invisible: the popup is dismissed per release signature, so a
-    // visitor who misses the first window still gets it on the next page.
+    // a per-visit function invocation. A new release surfacing a little late is
+    // invisible: the popup is dismissed per release signature, so a visitor who
+    // misses the first window still gets it on the next page.
+    //
+    // The old 300s pair was measured at a 7.5% CDN hit rate — at ~7 requests an
+    // hour, most arrivals fall outside a 5-minute window, so the edge copy has
+    // almost always expired and the function runs again. Both TTLs are widened
+    // to match how often the content ACTUALLY changes (once per deploy):
+    // an hour at the edge caps the delay for a fresh release, a day of
+    // stale-while-revalidate absorbs the quiet hours, and an hour in the browser
+    // means a visitor clicking through several pages fetches this once.
     res.setHeader(
       "Cache-Control",
-      "public, max-age=300, s-maxage=300, stale-while-revalidate=86400",
+      "public, max-age=3600, s-maxage=3600, stale-while-revalidate=86400",
     );
     res.setHeader("Content-Type", "text/plain; charset=utf-8");
     res.status(200).send(content);

@@ -7,6 +7,106 @@ Ordre anti-chronologique (le plus récent en haut). Une entrée = une session/su
 
 ---
 
+## 2026-08-03 (suite 3) — Audit usage Vercel : le plus gros poste de coût était notre propre cron
+
+Parti de la doc « manage and optimize usage ». La doc elle-même n'apporte presque rien (c'est un
+guide de dashboard), mais **mesurer** a renversé trois conclusions successives.
+
+### Méthode (à réutiliser)
+- `npx vercel logs https://aniscroll.com --json` sur ~40 min → tableau path × source × cache.
+  C'est le seul instrument qui donne la répartition réelle ; l'Observability donne l'Active CPU
+  par route, la page **Usage** donne les barres d'allotment. Les trois sont nécessaires.
+- ⚠️ **Ne jamais extrapoler une fenêtre de 12 h Production vers le mois** : j'ai projeté 66 K
+  invocations, la vraie barre en disait **256 K** (×4). La page Usage compte *tous* les
+  environnements, previews `dev` comprises, et une fenêtre courte tombe dans un creux.
+
+### Le vrai coupable : `warm-cache.yml`
+Le step « Run page warmer » (`scripts/warm-cache.mjs`) parcourait **chaque `/en/anime/{id}`** tous
+les jours depuis un runner GitHub (datacenter US). Conséquences mesurées :
+- **56,4 % des Edge Requests sur le PoP Cleveland** contre 15,6 % Paris → il réchauffait un edge
+  que personne ne consulte. Un cache CDN est **par PoP** : warmer depuis les US ne sert pas les FR.
+- `/en/anime/[...id]` = 1ʳᵉ route en Active CPU (54 s/12 h) **et 1,2 % de hit CDN** — chaque id
+  marché est une clé de cache distincte, rendue à froid, jetée.
+- ~170 KB de HTML SSR par page droit dans le **Fast Origin Transfer** (quota Hobby = 10 GB, on
+  était à 40 %).
+- **Et il n'atteignait pas son but** : un `fetch()` Node ne parse pas le HTML et ne charge aucune
+  sous-ressource — il ne pouvait donc pas faire ingérer un seul fanart au Worker. Le vrai
+  réchauffage d'images, c'est `warm-images.mjs`, qui tape `fanart-proxy` en direct.
+→ Step passé en `if: github.event_name == 'workflow_dispatch'`. Le schedule ne fait plus que les images.
+
+### Leçons
+- **Un Edge Request est facturé sur un HIT comme sur un MISS.** Donc `s-maxage` réduit les
+  invocations mais **pas** la barre Edge Requests (la plus haute : 420 K/1 M). Le seul levier sur
+  celle-ci, c'est de **ne pas émettre la requête** : `max-age` navigateur, et SW en `CacheFirst`.
+- **Le `s-maxage` ne sert à rien sur une route à longue traîne à faible trafic.** `/en/anime/{id}`
+  a `s-maxage=21600` et 1,2 % de hit : 15 requêtes = 15 ids distincts, zéro répétition. À
+  l'inverse `/en/manga/[...id]`, qui n'a **aucun `getServerSideProps`**, est à 94,4 %. C'est le
+  mode de rendu qui décide, pas le TTL.
+- **Fluid ne facture pas l'attente I/O** : `/api/v2/source` est la route la plus invoquée (341)
+  mais seulement 29 s d'Active CPU — scraper des hosts morts ne coûte quasi rien. J'avais dit le
+  contraire avant de mesurer.
+- Le SW interceptait **tout** `/api/` en `NetworkFirst` avec `maxEntries: 16` → chaque GET repartait
+  au réseau et le peu de cache était évincé avant réutilisation.
+
+### Fait
+- `warm-cache.yml` : page-walk en dispatch-only.
+- `pages/api/og.tsx` : **4,5 s d'Active CPU par appel** (23 % du budget mensuel pour 8 appels) —
+  rendu 1800×945 ramené à 1200×630 via une constante `SCALE` (revert = une ligne). Le blur du
+  bandeau est l'opération dominante de resvg. Meta `og:image:width/height` synchronisées.
+- SW : nouvelle règle `CacheFirst` (`apis-static`, 256 entrées) pour skip/themes/episode-scores/
+  changelog-popup/changelog/banner-tone/fanarts ; `apis` passe de 16 → 64 entrées.
+- `max-age` navigateur 60 s → 300 s sur catalog / discover / etc-recent / episode (les 2 sorties).
+- `changelog-popup` : 300 s → 3600 s (il était à 7,5 % de hit — 5 min est plus court que
+  l'intervalle entre deux visiteurs).
+- `Tabs.tsx` : **suppression du prefetch idle de `/api/v2/episode-scores`** — il partait à chaque
+  chargement de page pour un onglet que peu ouvrent. Les onglets ne montent que sur clic.
+- `lib/db/fanarts.ts` : `slimFanartsForSsr()` retire `label`/`nsfwScore` (décidés par le WHERE SQL,
+  lus par aucun composant) du payload SSR — ~9 KB sur les 34 KB de la prop `fanarts`.
+
+### Restant / piège
+- **`/en/anime/[...id]` en ISR : BLOQUÉ**, pas par la donnée mais par `initialUA`. La page choisit
+  `InfoPageMobile` vs `InfoPage` à partir du User-Agent lu au SSR ; un rendu statique ne le connaît
+  pas → tout visiteur mobile recevrait le HTML desktop puis un swap complet de composant au mount.
+  Il faut d'abord passer ce choix en CSS (rendre les deux, masquer par media-query) — ce qui gonfle
+  le HTML et va contre l'allègement. Décision produit, pas technique.
+- `__NEXT_DATA__` = **40 % du HTML** (120 KB sur 300 KB pour One Piece) : `info.relations` 37,7 KB,
+  `tags` 15,6 KB, `characters` 11,8 KB, `fanarts` 34 KB. La suite = sortir `characters` et
+  `fanarts` du payload SSR et les charger au clic sur l'onglet.
+- **`npx tsc --noEmit` OOM même à 8 GB** sur ce repo (préexistant) → validation par parsing
+  TypeScript fichier par fichier. Le vrai gate, c'est `build-test.yml`, qui tourne **sur PR vers
+  main** — donc une release passe par une PR, pas par un merge direct.
+
+---
+
+## 2026-08-03 (suite 2) — « Pourquoi on a pas les bonnes vignettes ? » — Fribb ne connaît qu'un tiers des ids Simkl
+
+Signalement user : `/fr/anime/208044`, les 6 épisodes affichent **la même image**. `GET /api/v2/episode/208044` → `img: null` partout, donc le client retombe sur le pool fanart.
+
+**Ce n'est pas notre code, c'est la couverture de Fribb.** Mesuré sur le fichier live :
+```
+anime-list-mini.json : 14 480 / 42 868 entrées ont un simkl_id  (34 %)
+fribb_map (Turso)    : 13 018 / 20 693
+AniList 208044       : simkl_id = null   (mais mal_id 63508 présent)
+```
+Simkl a pourtant l'entrée complète (id 3025908, 6 stills). **On ne lui demandait jamais**, parce que Fribb était le seul chemin qu'on connaissait vers son id. Et le trou frappe exactement les titres qui en ont le plus besoin : une série en cours de diffusion est la moins susceptible d'avoir été indexée par le mapping.
+
+**Fix :** Fribb reste le chemin rapide (une ligne locale, zéro réseau), `resolveSimklId` est le repli — `/search/id` de Simkl, par id AniList puis par id MAL. Une ligne Fribb absente n'est plus bloquante (`no-fribb` n'est plus un cul-de-sac). Vérifié en prod, cache purgé, **dès le premier appel à froid : 6/6 vraies URLs `simkl.in`**.
+
+**Note sur TMDB :** Fribb avait `themoviedb_id.tv: 314554` + `season.tmdb: 1` pour ce titre — mais TMDB ne l'aurait pas sauvé non plus, son ancien chemin exigeait une **égalité exacte** du nombre d'épisodes, ce qu'une série en diffusion ne peut pas satisfaire. La suppression de TMDB ne coûte rien ici.
+
+### Deux pièges de diagnostic à retenir
+
+1. **`?refresh=1` ne purge que Redis, pas le cache de stills Turso.** Le premier test après le fix renvoyait toujours `null` : c'était la ligne `{"reason":"no-simkl-id"}` de `tmdb_stills_cache` (TTL 24 h) qui répondait, avant même que le code ne tourne. Il faut supprimer la ligne pour tester un changement de résolution. 6 lignes bloquées ont été purgées après le déploiement.
+2. **Vercel ne remonte pas les `console.info`** dans `vercel logs --json` — seulement warn/error. Un titre en vignettes génériques ne laissait donc **aucune trace**, ce qui est précisément le symptôme dont on nous parle. Le log de refus est passé en `warn`, et la résolution directe logge son issue.
+
+**Leçon générale : « aucune ligne écrite en cache » ne prouve pas quelle branche a tourné** — si le client Turso n'est pas configuré dans cet environnement, rien ne s'écrit quoi qu'il arrive. J'ai perdu plusieurs allers-retours à déduire d'une absence. Instrumenter au bon niveau de log, puis lire, aurait été plus court.
+
+### Changelog v0.0.6
+
+`changelog/full.{en,fr}.md` + `popup.{en,fr}.md`. Format respecté (popup = première ligne `## vX.Y.Z`, puis 4 lignes `emoji + **titre** — phrase` ; seul `**gras**` est rendu, la signature est un hash du fichier entier donc toute édition re-déclenche le popup). Contenu : éditeur de raccourcis, stats vidéo, bouton épisode suivant, plein écran conservé, vraies vignettes, page Sources, uqload, et le travail de perf.
+
+---
+
 ## 2026-08-03 (suite) — Release `dev` → `main`, monitor vivant, et TMDB dégagé
 
 ### La release

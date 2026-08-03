@@ -20,8 +20,11 @@ export type FanartRow = {
   language: string | null;
   likes: number;
   season: number | null;
-  label: string;
-  nsfwScore: number | null;
+  /* Server-side only: set by loadFanarts, dropped by slimFanartsForSsr before
+     the payload is serialised into a page's props. Optional so both shapes
+     type-check without a cast. */
+  label?: string;
+  nsfwScore?: number | null;
 };
 
 export type FanartPayload = {
@@ -30,6 +33,29 @@ export type FanartPayload = {
   total: number;
   types: Record<string, FanartRow[]>;
 };
+
+/* Strip the fields that exist only to serve the SQL filter, for payloads that
+   get serialised into the page's __NEXT_DATA__.
+
+   `label` and `nsfwScore` are decided in the WHERE clause of loadFanarts below
+   — by the time a row reaches the client the filtering has already happened,
+   and no component reads either field. On a big title (One Piece: 208 rows)
+   they were ~9 KB of the 34 KB the fanarts prop contributed to a 300 KB HTML
+   response, all of it re-sent on every single page view and billed as Fast
+   Origin Transfer, whose Hobby quota is only 10 GB.
+
+   Applied at the SSR boundary rather than inside loadFanarts so /api/v2/fanarts
+   and any admin consumer keep receiving the full row unchanged. */
+export function slimFanartsForSsr(
+  payload: FanartPayload | null,
+): FanartPayload | null {
+  if (!payload) return null;
+  const types: Record<string, FanartRow[]> = {};
+  for (const [type, rows] of Object.entries(payload.types)) {
+    types[type] = rows.map(({ label, nsfwScore, ...keep }) => keep);
+  }
+  return { ...payload, types };
+}
 
 /* Direct DB read used by SSR (pages/en/anime/[...id].tsx) to ship fanarts
    inline with the first HTML response. The /api/v2/fanarts HTTP endpoint
