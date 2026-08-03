@@ -5,6 +5,7 @@ import type { SeasonEntry } from "@/lib/anilist/seasonChain";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { animeHref, useClickTarget } from "@/lib/prefs/clickTarget";
 import { useTranslation } from "react-i18next";
+import { coverUrl } from "@/lib/images/cover";
 
 /**
  * Interactive, pan-with-mouse franchise map.
@@ -105,7 +106,7 @@ export default function RelationsGraph({
       title: s.title || { romaji: s.label },
       format: s.format || "TV",
       year: s.year ?? null,
-      cover: s.coverImage?.extraLarge || s.coverImage?.large || null,
+      cover: coverUrl(s.coverImage, "tiny"),
       relationType: "SEQUEL",
       isSeason: true,
     }));
@@ -126,7 +127,7 @@ export default function RelationsGraph({
       title: e.node.title,
       format: e.node.format || "OVA",
       year: e.node.seasonYear ?? null,
-      cover: e.node.coverImage?.extraLarge || (e.node.coverImage as any)?.large || null,
+      cover: coverUrl(e.node.coverImage as any, "tiny"),
       relationType: e.relationType,
       isSeason: SEASON_FORMATS.has(e.node.format || ""),
     }))

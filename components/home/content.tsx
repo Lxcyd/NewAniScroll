@@ -13,6 +13,7 @@ import { useRouter } from "next/router";
 import HistoryOptions from "./content/historyOptions";
 import { notify } from "@/lib/notifications/noticeStore";
 import { truncateImgUrl } from "@/utils/imageUtils";
+import { coverUrl } from "@/lib/images/cover";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { animeHref, useClickTarget } from "@/lib/prefs/clickTarget";
 import { useTranslation } from "react-i18next";
@@ -428,16 +429,17 @@ export default function Content({
             ? slicedData?.map((anime) => {
                 const progress = og?.find((i: any) => i.mediaId === anime.id);
 
-                let image;
-                if (typeof anime.coverImage === "string") {
-                  image = truncateImgUrl(anime.coverImage);
-                } else if (anime.coverImage) {
-                  image = anime.coverImage.extraLarge || anime.coverImage.large;
-                }
-
-                if (!image && anime.image) {
-                  image = anime.image;
-                }
+                // Carousel posters are 135-185 CSS px wide, so they take the
+                // ~230 px AniList variant, not the 460 px one. Images are
+                // served unoptimized (next.config.js), so the URL we pick IS
+                // the download — see lib/images/cover.ts.
+                const image =
+                  coverUrl(
+                    typeof anime.coverImage === "string"
+                      ? truncateImgUrl(anime.coverImage) ?? undefined
+                      : anime.coverImage,
+                    "card",
+                  ) ?? anime.image;
 
                 return (
                   <div

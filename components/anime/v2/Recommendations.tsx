@@ -3,6 +3,7 @@ import Link from "next/link";
 import { MediaRecommendation } from "types/info/AnilistInfoTypes";
 import { useTranslation } from "react-i18next";
 import { animeHref, useClickTarget } from "@/lib/prefs/clickTarget";
+import { coverUrl } from "@/lib/images/cover";
 
 type Props = {
   items: MediaRecommendation[];
@@ -127,10 +128,10 @@ export default function Recommendations({ items, forTitle }: Props) {
             style={{ ...rStyles.cardLink } as CSSProperties}
           >
             <div style={rStyles.cover}>
-              {r.coverImage?.extraLarge && (
+              {coverUrl(r.coverImage, "card") && (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
-                  src={r.coverImage.extraLarge}
+                  src={coverUrl(r.coverImage, "card")!}
                   alt={r.title?.romaji || ""}
                   style={{
                     position: "absolute",

@@ -10,6 +10,7 @@ import { useTranslation } from "react-i18next";
 import type { SeasonEntry } from "@/lib/anilist/seasonChain";
 import type { AniListInfoTypes } from "types/info/AnilistInfoTypes";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
+import { coverUrl } from "@/lib/images/cover";
 
 /* One theme as returned by /api/v2/themes/{id}. Mirrors lib/animethemes/themes.ts. */
 type ThemeVideo = {
@@ -170,11 +171,7 @@ export default function OpEdPanel({
                 <ThemeTile
                   key={`${g.season.id}-${th.slug}`}
                   theme={th}
-                  cover={
-                    g.season.coverImage?.large ||
-                    g.season.coverImage?.extraLarge ||
-                    null
-                  }
+                  cover={coverUrl(g.season.coverImage, "card")}
                   onPlay={() => setPlaying({ theme: th, seasonLabel: g.season.label })}
                 />
               ))}
@@ -185,11 +182,7 @@ export default function OpEdPanel({
                 <ThemeRow
                   key={`${g.season.id}-${th.slug}`}
                   theme={th}
-                  cover={
-                    g.season.coverImage?.large ||
-                    g.season.coverImage?.extraLarge ||
-                    null
-                  }
+                  cover={coverUrl(g.season.coverImage, "card")}
                   compact={view === "compact"}
                   onPlay={() => setPlaying({ theme: th, seasonLabel: g.season.label })}
                 />

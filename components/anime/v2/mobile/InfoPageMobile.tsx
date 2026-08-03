@@ -49,6 +49,7 @@ import QueueButton from "../QueueButton";
 import ScoresTab from "../ScoresTab";
 import Related from "../Related";
 import RelationsGraph from "../RelationsGraph";
+import { coverUrl } from "@/lib/images/cover";
 
 type Props = {
   info: AniListInfoTypes;
@@ -1383,10 +1384,7 @@ function MRecs({ info }: { info: AniListInfoTypes }) {
       >
         {recs.map((r: any) => {
           const t = pickTitle(r.title, titlePref) || "Untitled";
-          const cover =
-            r.coverImage?.extraLarge ||
-            r.coverImage?.large ||
-            r.coverImage?.medium;
+          const cover = coverUrl(r.coverImage, "card");
           const score = typeof r.averageScore === "number"
             ? (r.averageScore / 10).toFixed(1)
             : null;

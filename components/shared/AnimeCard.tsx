@@ -2,6 +2,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { StarIcon, TvIcon } from "@heroicons/react/24/solid";
 import { animeHref, useClickTarget } from "@/lib/prefs/clickTarget";
+import { coverUrl } from "@/lib/images/cover";
 
 type Anime = {
   id: number | string;
@@ -23,11 +24,11 @@ const SIZE: Record<Size, { w: string; h: string; titleSize: string }> = {
   lg: { w: "w-[180px] lg:w-[220px]", h: "h-[270px] lg:h-[330px]", titleSize: "text-base" },
 };
 
-function getCover(anime: Anime): string | null {
-  if (typeof anime.coverImage === "string") return anime.coverImage;
-  if (anime.coverImage?.extraLarge) return anime.coverImage.extraLarge;
-  if (anime.coverImage?.large) return anime.coverImage.large;
-  return anime.image || null;
+function getCover(anime: Anime, size: Size): string | null {
+  // Cards top out at 220 CSS px, so they take the ~230 px AniList variant
+  // rather than the 460 px one they used to pull (see lib/images/cover.ts —
+  // images are served unoptimized, so this URL is literally what downloads).
+  return coverUrl(anime.coverImage ?? anime.image, size === "lg" ? "full" : "card");
 }
 
 /**
@@ -48,7 +49,7 @@ export default function AnimeCard({
   size?: Size;
   showTitle?: boolean;
 }) {
-  const cover = getCover(anime);
+  const cover = getCover(anime, size);
   const title =
     anime.title?.english || anime.title?.romaji || anime.title?.native || "Anime";
   const score = anime.averageScore ?? anime.meanScore ?? null;
