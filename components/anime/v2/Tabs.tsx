@@ -61,39 +61,15 @@ export default function Tabs({ info, fanarts, progress, seasonList, bonusFilms }
     };
   }, [info.id]);
 
-  // Warm the per-episode score endpoint in the background once the page is idle,
-  // BEFORE the user opens the Scores tab. The response (Redis-backed, edge- and
-  // HTTP-cached) then lands instantly when they click in, instead of starting a
-  // cold round-trip on click. Fire-and-forget, low priority, never blocks.
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const base =
-      seasonList && seasonList.length > 0
-        ? seasonList.map((s) => ({ aniId: s.id, idMal: s.idMal ?? null }))
-        : [{ aniId: info.id, idMal: info.idMal ?? null }];
-    if (base.every((p) => p.idMal == null)) return; // no MAL ids → nothing to fetch
-    const url = `/api/v2/episode-scores/${info.id}?seasons=${encodeURIComponent(
-      JSON.stringify(base),
-    )}`;
-    const warm = () => {
-      // priority:"low" so it never competes with images / the visible tab.
-      fetch(url, { priority: "low" } as RequestInit).catch(() => {});
-    };
-    const ric = (window as any).requestIdleCallback as
-      | ((cb: () => void, opts?: { timeout: number }) => number)
-      | undefined;
-    const handle = ric
-      ? ric(warm, { timeout: 3000 })
-      : window.setTimeout(warm, 1200);
-    return () => {
-      if (ric && (window as any).cancelIdleCallback) {
-        (window as any).cancelIdleCallback(handle);
-      } else {
-        clearTimeout(handle as number);
-      }
-    };
-  }, [info.id, info.idMal, seasonList]);
-
+  // NOTE: this used to idle-prefetch /api/v2/episode-scores on every info-page
+  // load so the Scores tab felt instant on click. Removed deliberately: it fired
+  // for EVERY visitor, but only the small fraction who actually open Scores ever
+  // used the result. On Vercel a request is billed as an Edge Request whether it
+  // HITs the CDN or not, so a speculative warm-up is never free — and Edge
+  // Requests are the account's highest-consumption meter. The tab now fetches on
+  // activation, like every other section here (each tab body below is only
+  // mounted once its tab is selected, so episodes / characters / artworks
+  // already behave this way).
   function switchTab(next: TabId) {
     setTab(next);
     if (typeof window === "undefined") return;

@@ -75,6 +75,33 @@ const runtimeCaching = [
       expiration: { maxEntries: 32, maxAgeSeconds: 24 * 60 * 60 },
     },
   },
+  // Quasi-static API GETs — CacheFirst, so a repeat view costs NO network
+  // request at all. Every one of these already ships a long Cache-Control from
+  // the server (24h on skip, an hour on changelog-popup, a year on
+  // banner-tone), but the blanket NetworkFirst rule below used to intercept
+  // them first and go to the network anyway. On Vercel an Edge Request is
+  // billed on a cache HIT just the same as a MISS, so "served from the CDN"
+  // was never free — not making the request is the only thing that is.
+  //
+  // Deliberately excluded: anything user-scoped (/api/user, /api/auth) and
+  // anything that must reflect a live change (/api/v2/source, /api/v2/track).
+  {
+    urlPattern: ({ url, sameOrigin }) =>
+      sameOrigin &&
+      /^\/api\/v2\/(skip|themes|episode-scores|changelog-popup|changelog|banner-tone|fanarts)\b/.test(
+        url.pathname,
+      ),
+    handler: "CacheFirst",
+    method: "GET",
+    options: {
+      cacheName: "apis-static",
+      // Generous entry budget: these are keyed per anime/episode, so a viewer
+      // working through a season fills a lot of distinct URLs. Too small an
+      // LRU evicts entries before they're ever reused — which is exactly what
+      // maxEntries:16 was doing to the shared cache below.
+      expiration: { maxEntries: 256, maxAgeSeconds: 24 * 60 * 60 },
+    },
+  },
   {
     urlPattern: ({ url, sameOrigin }) =>
       sameOrigin && url.pathname.startsWith("/api/"),
@@ -82,7 +109,9 @@ const runtimeCaching = [
     method: "GET",
     options: {
       cacheName: "apis",
-      expiration: { maxEntries: 16, maxAgeSeconds: 24 * 60 * 60 },
+      // Was 16 — far too small once a session touches a dozen distinct
+      // per-id endpoints, so entries were evicted before they could serve.
+      expiration: { maxEntries: 64, maxAgeSeconds: 24 * 60 * 60 },
       networkTimeoutSeconds: 10,
     },
   },

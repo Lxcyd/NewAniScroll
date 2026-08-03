@@ -1,7 +1,11 @@
-# Walks every /en/anime/[id] page so the Cloudflare Worker proxy
-# (fanart-proxy.aniscroll.com) ingests every clearart/banner/cover
-# into its 1-year edge cache. Cuts the first-paint for those images
-# from ~800ms (fanart.tv origin) to ~50ms (CF edge in user's region).
+# Warms the Cloudflare Worker proxy (fanart-proxy.aniscroll.com) so every
+# clearart/banner/cover is already in its 1-year edge cache. Cuts the
+# first-paint for those images from ~800ms (fanart.tv origin) to ~50ms
+# (CF edge in the user's region).
+#
+# On the SCHEDULE this runs the image warmer only. The /en/anime/[id] page
+# walk is dispatch-only — see the comment on that step for why it was the
+# site's biggest self-inflicted Vercel cost.
 #
 # Schedule: every Monday 05:00 UTC, after refresh-fanarts has run.
 # Also dispatchable manually from the Actions tab.
@@ -65,7 +69,28 @@ jobs:
       - name: Install libsql client
         run: npm install --no-save @libsql/client
 
+      # MANUAL ONLY — never on the daily schedule. This step fetches the full
+      # SSR HTML of /en/anime/{id} for every delta anime, and it was measured
+      # as the site's single largest self-inflicted cost:
+      #
+      #   - 56.4% of all Edge Requests landed on the Cleveland PoP (vs 15.6%
+      #     Paris) — GitHub runners are in US datacenters, so the walk warms a
+      #     CDN edge nobody browses from. French visitors never see that cache.
+      #   - /en/anime/[...id] is the top Active CPU route AND sat at 1.2% CDN
+      #     hit rate: each walked id is a distinct cache key, rendered cold,
+      #     then thrown away.
+      #   - ~170 KB of SSR HTML per page straight into Fast Origin Transfer,
+      #     whose Hobby quota is only 10 GB (was sitting at 40%).
+      #
+      # And it never achieved its stated goal: a Node `fetch()` does not parse
+      # HTML or load subresources, so it cannot make the Cloudflare Worker
+      # ingest any fanart. The image warming that actually works is the
+      # `warm-images.mjs` step below, which hits fanart-proxy directly.
+      #
+      # Kept dispatchable for the one case that genuinely needs it: seeding the
+      # whole catalog with `--full` right after a deploy that changes the page.
       - name: Run page warmer
+        if: github.event_name == 'workflow_dispatch'
         env:
           TURSO_FANARTS_DATABASE_URL: ${{ secrets.TURSO_FANARTS_DATABASE_URL }}
           TURSO_FANARTS_AUTH_TOKEN: ${{ secrets.TURSO_FANARTS_AUTH_TOKEN }}

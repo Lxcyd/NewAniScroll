@@ -231,7 +231,12 @@ export default async function handler(
     // function dormant for popular series. The Redis check above runs
     // in-function, but with this header most viewers never reach it —
     // they hit the edge cache instead.
-    res.setHeader("Cache-Control", "public, max-age=60");
+    //
+    // Browser window widened 60s → 5 min: the watch page re-requests this on
+    // every episode change, and each repeat inside a session was a billed Edge
+    // Request for a list that only moves when an episode airs. Still far below
+    // the 30 min (RELEASING) edge window, so nothing gets staler.
+    res.setHeader("Cache-Control", "public, max-age=300");
     res.setHeader(
       "CDN-Cache-Control",
       `public, s-maxage=${edgeSmaxage}, stale-while-revalidate=86400`,
@@ -302,7 +307,9 @@ export default async function handler(
     res.setHeader("X-RateLimit-BeforeReset", headers.msBeforeNext);
   }
 
-  res.setHeader("Cache-Control", "public, max-age=60");
+  // Same 5 min browser window as the cached branch above — kept in sync so the
+  // two exit paths don't disagree about how long a client may hold the list.
+  res.setHeader("Cache-Control", "public, max-age=300");
   res.setHeader(
     "CDN-Cache-Control",
     "public, s-maxage=1800, stale-while-revalidate=86400",

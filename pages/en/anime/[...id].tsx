@@ -22,7 +22,7 @@ import { getUserList, peekListEntry, hasUserList, patchListEntry } from "@/lib/a
 import { peekLocalEntry, LOCAL_LIST_EVENT } from "@/lib/list/localList";
 import { useSyncPrefs } from "@/lib/prefs/syncPrefs";
 import { getCachedAnime } from "@/lib/db/anime";
-import { loadFanarts, FanartPayload } from "@/lib/db/fanarts";
+import { loadFanarts, slimFanartsForSsr, FanartPayload } from "@/lib/db/fanarts";
 import { resolveSeasonChain, resolveSeasonList, resolveBonusFilms, SeasonEntry } from "@/lib/anilist/seasonChain";
 import type { FilmVariant } from "@/lib/anilist/resolveSeason";
 import { notify } from "@/lib/notifications/noticeStore";
@@ -516,8 +516,9 @@ export default function Info({
         />
         <meta property="og:url" content={pageUrl} />
         <meta property="og:image" content={ogImageUrl} />
-        <meta property="og:image:width" content="1800" />
-        <meta property="og:image:height" content="945" />
+        {/* Must match SCALE / CARD_W / CARD_H in pages/api/og.tsx. */}
+        <meta property="og:image:width" content="1200" />
+        <meta property="og:image:height" content="630" />
 
         <meta name="twitter:card" content="summary_large_image" />
         <meta name="twitter:title" content={`AniScroll - ${title}`} />
@@ -817,7 +818,9 @@ export async function getServerSideProps(ctx: any) {
     // Resolve fanarts first so we can ALSO emit a preload header for
     // the clearart before we await the (slower) season-chain walk.
     // Single-row Turso read, typically <50ms.
-    const fanarts = await loadFanarts(animeIdNum).catch(() => null);
+    const fanarts = await loadFanarts(animeIdNum)
+      .then(slimFanartsForSsr)
+      .catch(() => null);
     timer.mark("fanarts");
     const initialTitleImage = pickTitleImage(fanarts);
     // No clearart preload header — see the <link> note above: the <img> may
@@ -901,7 +904,9 @@ export async function getServerSideProps(ctx: any) {
 
   // Resolve fanarts ahead of the slower walker work so we can emit the
   // clearart preload header before the response body is sent.
-  const fanarts = await loadFanarts(animeIdNum).catch(() => null);
+  const fanarts = await loadFanarts(animeIdNum)
+    .then(slimFanartsForSsr)
+    .catch(() => null);
   timer.mark("fanarts");
   const initialTitleImage = pickTitleImage(fanarts);
   // No clearart preload header — the <img> may swap to assets.fanart.tv on

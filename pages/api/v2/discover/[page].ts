@@ -42,8 +42,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   // Redis TTL — an edge HIT never reaches the function. (The old `s-maxage=60`
   // gave only a 60 s window, after which every request revalidated through the
   // function anyway.)
+  // 5 min in the browser rather than 60s: a swipe session pulls a new page
+  // every few cards, and re-requesting one already in the browser cache costs a
+  // billed Edge Request even though it HITs the CDN. Well inside the 30 min
+  // edge/Redis TTL, so no added staleness.
   const setEdgeCache = () => {
-    res.setHeader("Cache-Control", "public, max-age=60");
+    res.setHeader("Cache-Control", "public, max-age=300");
     res.setHeader(
       "CDN-Cache-Control",
       `public, s-maxage=${TTL_S}, stale-while-revalidate=86400`,

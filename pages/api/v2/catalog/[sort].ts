@@ -51,8 +51,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   // HIT never reaches the function, so that steady-state GET disappears. (The
   // old `s-maxage=60` gave a 60 s window, after which every request revalidated
   // through the function anyway.)
+  // The BROWSER window was 60s, which meant a visitor scrolling the catalog for
+  // ten minutes re-requested every page ~10 times. Those all HIT the edge, but
+  // an Edge Request is billed on a HIT exactly like a MISS, so the only way to
+  // not pay for them is to not send them. 5 min against a 1 h edge/Redis TTL
+  // adds no staleness a catalog listing would ever notice.
   const setEdgeCache = () => {
-    res.setHeader("Cache-Control", "public, max-age=60");
+    res.setHeader("Cache-Control", "public, max-age=300");
     res.setHeader(
       "CDN-Cache-Control",
       `public, s-maxage=${TTL_S}, stale-while-revalidate=86400`,

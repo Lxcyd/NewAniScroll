@@ -15,6 +15,29 @@ const ACCENT_FALLBACK = "#E94560";
 const HEX_RE = /^#[0-9a-fA-F]{6}$/;
 
 /**
+ * Render scale. The card's layout below is authored at 1× = 1200×630, the
+ * canonical Open-Graph size every platform expects.
+ *
+ * This used to be hard-coded at 1.5× (1800×945) for extra crispness after
+ * Discord/X downscale on hi-DPI screens. Measured cost of that choice: ~4.5s
+ * of Active CPU per render — 23% of the whole month's Fluid CPU budget for
+ * only 8 invocations in a 12h window, by far the worst per-call route on the
+ * site. Satori hands off to resvg, whose rasterisation (and especially the
+ * Gaussian blur on the banner) scales with pixel count, and 1.5× is 2.25× the
+ * pixels.
+ *
+ * Bumping this back to 1.5 restores the old output in one edit — but keep the
+ * og:image:width/height meta in pages/en/anime/[...id].tsx in sync, and know
+ * that a 2× render was already found to fail intermittently and make the
+ * embed vanish entirely.
+ */
+const SCALE = 1;
+const CARD_W = Math.round(1200 * SCALE);
+const CARD_H = Math.round(630 * SCALE);
+/** Scale a 1×-authored length to the current render scale. */
+const s = (n: number) => Math.round(n * SCALE);
+
+/**
  * Dynamic Open-Graph card for an anime.
  *
  * Rendered into the `<meta og:image>` of the anime info page, so when a user
@@ -67,11 +90,8 @@ export default async function handler(request: any) {
     .filter(Boolean)
     .join("   ·   ");
 
-  // Render at 1.5× (1800×945) so the card stays crisp after Discord/X downscale
-  // on hi-DPI screens, while staying well within @vercel/og (Satori) limits —
-  // a heavier 2× render with a big blurred banner intermittently failed and
-  // made the embed vanish. NOTE: keep the og:image:width/height meta in sync
-  // with these on the page (1800×945, same 1.905:1 ratio).
+  // Layout is authored at 1× (1200×630) and multiplied through `s()` — see the
+  // SCALE constant above for why, and for how to revert.
   return new ImageResponse(
     (
       <div
@@ -90,16 +110,20 @@ export default async function handler(request: any) {
           <img
             src={banner}
             alt=""
-            width={1920}
-            height={1065}
+            width={s(1280)}
+            height={s(710)}
             style={{
               position: "absolute",
-              top: -60,
-              left: -60,
-              width: 1920,
-              height: 1065,
+              top: s(-40),
+              left: s(-40),
+              width: s(1280),
+              height: s(710),
               objectFit: "cover",
-              filter: "blur(12px) brightness(0.4)",
+              // Blur radius scales with the render, otherwise the background
+              // reads as a different image at a different SCALE. This filter is
+              // the single most expensive operation in the render — resvg's
+              // Gaussian blur touches every pixel of a full-bleed image.
+              filter: `blur(${s(8)}px) brightness(0.4)`,
             }}
           />
         ) : null}
@@ -122,7 +146,7 @@ export default async function handler(request: any) {
             width: "100%",
             height: "100%",
             alignItems: "center",
-            padding: "84px",
+            padding: `${s(56)}px`,
           }}
         >
           {/* Cover (left) */}
@@ -131,14 +155,14 @@ export default async function handler(request: any) {
             <img
               src={cover}
               alt=""
-              width={450}
-              height={645}
+              width={s(300)}
+              height={s(430)}
               style={{
-                width: 450,
-                height: 645,
+                width: s(300),
+                height: s(430),
                 objectFit: "cover",
-                borderRadius: 27,
-                boxShadow: "0 36px 90px rgba(0,0,0,0.6)",
+                borderRadius: s(18),
+                boxShadow: `0 ${s(24)}px ${s(60)}px rgba(0,0,0,0.6)`,
               }}
             />
           ) : null}
@@ -148,7 +172,7 @@ export default async function handler(request: any) {
             style={{
               display: "flex",
               flexDirection: "column",
-              marginLeft: cover ? 72 : 0,
+              marginLeft: cover ? s(48) : 0,
               flex: 1,
               height: "100%",
               justifyContent: "center",
@@ -157,8 +181,8 @@ export default async function handler(request: any) {
             <div
               style={{
                 display: "flex",
-                fontSize: 45,
-                letterSpacing: 1.5,
+                fontSize: s(30),
+                letterSpacing: SCALE,
                 fontFamily: "Outfit",
                 color: accent,
                 fontWeight: 700,
@@ -170,13 +194,13 @@ export default async function handler(request: any) {
             <div
               style={{
                 display: "flex",
-                fontSize: title.length > 38 ? 81 : 99,
+                fontSize: title.length > 38 ? s(54) : s(66),
                 lineHeight: 1.05,
                 color: "#ffffff",
                 fontFamily: "Outfit",
                 fontWeight: 700,
-                marginTop: 27,
-                maxWidth: 1080,
+                marginTop: s(18),
+                maxWidth: s(720),
               }}
             >
               {title}
@@ -186,9 +210,9 @@ export default async function handler(request: any) {
               <div
                 style={{
                   display: "flex",
-                  fontSize: 45,
+                  fontSize: s(30),
                   color: "rgba(255,255,255,0.72)",
-                  marginTop: 33,
+                  marginTop: s(22),
                 }}
               >
                 {meta}
@@ -196,19 +220,19 @@ export default async function handler(request: any) {
             ) : null}
 
             {genres.length ? (
-              <div style={{ display: "flex", marginTop: 39 }}>
+              <div style={{ display: "flex", marginTop: s(26) }}>
                 {genres.map((g: string) => (
                   <div
                     key={g}
                     style={{
                       display: "flex",
-                      fontSize: 36,
+                      fontSize: s(24),
                       color: "rgba(255,255,255,0.9)",
                       background: "rgba(255,255,255,0.1)",
-                      border: "2px solid rgba(255,255,255,0.16)",
+                      border: `${Math.max(1, s(1.5))}px solid rgba(255,255,255,0.16)`,
                       borderRadius: 999,
-                      padding: "12px 30px",
-                      marginRight: 21,
+                      padding: `${s(8)}px ${s(20)}px`,
+                      marginRight: s(14),
                     }}
                   >
                     {g}
@@ -222,13 +246,13 @@ export default async function handler(request: any) {
                 style={{
                   display: "flex",
                   alignItems: "flex-end",
-                  marginTop: 51,
+                  marginTop: s(34),
                 }}
               >
                 <div
                   style={{
                     display: "flex",
-                    fontSize: 96,
+                    fontSize: s(64),
                     fontFamily: "Outfit",
                     fontWeight: 700,
                     color: accent,
@@ -240,10 +264,10 @@ export default async function handler(request: any) {
                 <div
                   style={{
                     display: "flex",
-                    fontSize: 39,
+                    fontSize: s(26),
                     color: "rgba(255,255,255,0.55)",
-                    marginLeft: 12,
-                    marginBottom: 9,
+                    marginLeft: s(8),
+                    marginBottom: s(6),
                   }}
                 >
                   / 10
@@ -255,8 +279,8 @@ export default async function handler(request: any) {
       </div>
     ),
     {
-      width: 1800,
-      height: 945,
+      width: CARD_W,
+      height: CARD_H,
       fonts: [
         { name: "Karla", data: Karla, style: "normal" },
         { name: "Outfit", data: Outfit, style: "normal" },
