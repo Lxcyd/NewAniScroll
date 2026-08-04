@@ -2170,6 +2170,57 @@ export default function UniversalPlayer({
       playerEl.removeEventListener("dblclick", onDblClick, { capture: true });
   }, [playerElState]);
 
+  // ── Click the time readout → copy the timestamped link ──
+  // Same action as the `copyTimestamp` shortcut, on the one bit of chrome that
+  // already shows the current time. Vidstack owns that markup (`.vds-time-group`
+  // is re-rendered on its own schedule), so we DELEGATE from the player root
+  // instead of binding the node: no re-binding when it re-renders, no observer.
+  // `pointerover` is where we stamp the affordance attributes (tooltip, role,
+  // focusability) — it can only fire on a node that exists, and it precedes any
+  // click. The hover styling itself lives in globals.css (`.vds-time-group`).
+  useEffect(() => {
+    const playerEl = playerElState;
+    if (!playerEl) return;
+    const label = t("shortcuts.actions.copyTimestamp");
+
+    const timeGroup = (e: Event) =>
+      (e.target as HTMLElement | null)?.closest<HTMLElement>(".vds-time-group") || null;
+
+    const onPointerOver = (e: Event) => {
+      const el = timeGroup(e);
+      if (!el || el.dataset.asCopyTs) return;
+      el.dataset.asCopyTs = "1";
+      el.setAttribute("role", "button");
+      el.setAttribute("tabindex", "0");
+      el.setAttribute("title", label);
+      el.setAttribute("aria-label", label);
+    };
+
+    const onClick = (e: Event) => {
+      if (!timeGroup(e)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      runActionRef.current?.("copyTimestamp");
+    };
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "Enter" && e.key !== " ") return;
+      if (!timeGroup(e)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      runActionRef.current?.("copyTimestamp");
+    };
+
+    playerEl.addEventListener("pointerover", onPointerOver);
+    playerEl.addEventListener("click", onClick);
+    playerEl.addEventListener("keydown", onKeyDown);
+    return () => {
+      playerEl.removeEventListener("pointerover", onPointerOver);
+      playerEl.removeEventListener("click", onClick);
+      playerEl.removeEventListener("keydown", onKeyDown);
+    };
+  }, [playerElState, t]);
+
   // ── iOS native-player interception ──
   // Safari on iPhone/iPad responds to a fullscreen <video> by handing it off to
   // the system player, which hides every overlay we draw (Skip / Next / custom

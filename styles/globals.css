@@ -233,6 +233,27 @@ a {
   filter: brightness(0.92);
 }
 
+/* The time readout (current / duration) doubles as a button: clicking it copies
+   the timestamped link, exactly like the `copyTimestamp` shortcut (handler in
+   UniversalPlayer, delegated from the player root). Give it the same affordance
+   as the rest of the chrome — pointer cursor, rose tint, faint pill — since
+   nothing else in the bar hints that the text is clickable. */
+.vds-player .vds-time-group {
+  cursor: pointer;
+  border-radius: 6px;
+  padding: 2px 6px;
+  margin: -2px -6px;
+  transition: color 0.15s ease, background-color 0.15s ease;
+}
+.vds-player .vds-time-group:hover,
+.vds-player .vds-time-group:focus-visible {
+  color: var(--brand-primary, #e94560);
+  background: rgba(255, 255, 255, 0.1);
+}
+.vds-player .vds-time-group:focus-visible {
+  outline: none;
+}
+
 /* Floating Skip Intro / Skip Outro button (dark pill on left of
    the Next Episode CTA). Match the chrome hover — text + arrow
    tint to rose, subtle background lift. */
