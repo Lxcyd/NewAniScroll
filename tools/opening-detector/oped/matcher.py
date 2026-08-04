@@ -80,6 +80,13 @@ def _matching_offsets(
     )
 
 
+# Offsets within this many seconds of the winning one describe the SAME
+# alignment (vote spill into neighbouring bins from encode drift), so they are
+# not rivals. Anything further is a genuinely different placement of the same
+# reference inside the query — the signature of an ambiguous match.
+RIVAL_EXCLUSION_S = 3.0
+
+
 def best_match(
     q: Fingerprint,
     r: Fingerprint,
@@ -92,9 +99,38 @@ def best_match(
     `offset_tolerance` (in frames) merges near-equal offsets so a tiny bit of
     clock drift between encodes doesn't split the vote across adjacent bins.
     """
+    return best_match_ranked(
+        q, r, min_votes=min_votes, offset_tolerance=offset_tolerance
+    )[0]
+
+
+def best_match_ranked(
+    q: Fingerprint,
+    r: Fingerprint,
+    *,
+    min_votes: int = 40,
+    offset_tolerance: int = 1,
+) -> tuple[Match | None, float]:
+    """`best_match` plus the RIVAL RATIO — how contested the winning offset was.
+
+    The ratio is (votes of the strongest offset that is NOT the winner's) /
+    (winner's votes), counting only offsets further than RIVAL_EXCLUSION_S away
+    (nearer bins are the same alignment's spill). 0.0 means the peak stands
+    alone.
+
+    Why it matters: `best_match` returns the top bin unconditionally, so a theme
+    whose SONG also plays elsewhere in the window (an ED reprising over ordinary
+    end credits, an insert song, a next-episode preview reusing the OP) produces
+    TWO real peaks and we silently ship whichever won by a hair. The ratio makes
+    that visible so the caller can demand image confirmation instead of guessing
+    — see oped/validate.py:AMBIGUOUS_PEAK_RATIO.
+
+    Computed in the SAME pass as the winner (the offset histogram is already
+    built), so it costs no extra collision work.
+    """
     offsets, q_times, r_times = _matching_offsets(q, r)
     if offsets.size == 0:
-        return None
+        return None, 0.0
 
     # Histogram of offsets. Bin width = (2*tol + 1) frames.
     bin_w = 2 * offset_tolerance + 1
@@ -103,9 +139,15 @@ def best_match(
     top = int(np.argmax(counts))
     n_votes = int(counts[top])
     if n_votes < min_votes:
-        return None
+        return None, 0.0
 
-    return _build_match(offsets, q_times, r_times, binned, vals[top], n_votes)
+    # Strongest bin outside the winner's neighbourhood.
+    excl_bins = RIVAL_EXCLUSION_S / (bin_w * HOP_SECONDS)
+    far = np.abs(vals - vals[top]) > excl_bins
+    rival = float(counts[far].max()) / n_votes if far.any() else 0.0
+
+    m = _build_match(offsets, q_times, r_times, binned, vals[top], n_votes)
+    return m, rival
 
 
 def _dense_span(q_times, *, gap_s: float = 8.0):

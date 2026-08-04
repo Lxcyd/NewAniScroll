@@ -43,6 +43,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import statistics
 import sys
 import threading
 import time
@@ -66,12 +67,15 @@ from oped.manifest import Manifest, Record
 from oped.multi_host import HostStream, detect_per_host, reconcile_hits
 from detect_anime import ProbeError, _hit_to_dict, _probe_duration
 from oped.theme_bank import (
+    ED_SEARCH_FROM_END,
     ED_WINDOW,
+    OP_SEARCH,
     OP_WINDOW,
     ThemeReference,
     build_references,
     detect_op_ed,
 )
+from oped import self_ref
 from oped.throttle import HostThrottler, is_throttle_error
 from oped.timings import TimingCollector
 from oped.video_fingerprint import extract_keyframe_hashes, keyframe_hashes_abs
@@ -164,6 +168,196 @@ def needed_hosts(mal_id, lang: str, coverage: dict | None) -> list[str]:
     return [h for h in hosts if cov.get(h, 0) < version_of(h)]
 
 
+def _row_from(ep: int, season: dict, mal_id, streams, per_host, hits,
+              inf_op: bool, inf_ed: bool) -> dict:
+    """One JSONL row: the cross-host consensus plus the PER-HOST timings.
+
+    `op`/`ed` are the averaged consensus and exist as a confidence CHECK — they
+    land on no real host (each serves a differently-trimmed encode, e.g.
+    cyberpunk OP consensus 1:13 while sibnet is 1:16 and vidmoly 1:10). What a
+    player must use is `per_host[host]`.
+
+    `inferred` is stamped HERE, not by detect_op_ed_v2: `refs_for()` owns the
+    knowledge that a theme was borrowed from the series pool (same reason
+    reconcile_hits takes it as an argument). Without it the per-host dicts carry
+    inferred=false and INFERRED_REQUIRES_VIDEO never bites on the path a player
+    actually consumes — a borrowed ED matching only the song's reprise would ship
+    as a real timing.
+    """
+    row = {
+        "mal_id": mal_id, "episode": ep, "lang": season["lang"],
+        "op": None, "ed": None,
+    }
+    for h in hits:
+        inferred = (h.kind == "op" and inf_op) or (h.kind == "ed" and inf_ed)
+        row[h.kind] = {
+            "start": round(h.start, 2), "end": round(h.end, 2),
+            "theme": h.slug,
+            "votes": h.votes, "inferred": inferred or h.inferred,
+            # Cross-host robustness metadata: the duration the times are
+            # expressed against, the host-independent from-end anchor (for
+            # re-projection onto the player's real duration), and the agreement.
+            "canonical_duration": h.canonical_duration,
+            "from_end_start": h.from_end_start,
+            "from_end_end": h.from_end_end,
+            "hosts_agree": h.n_hosts_agree,
+            "hosts_total": h.n_hosts_total,
+            "spread": h.spread_s,
+            # Signal provenance + serve gate for the importer/API.
+            "source": h.source,
+            "n_video_confirm": h.n_video_confirm,
+            "serve": h.serve,
+            # Why a stored hit is not served, and the plausibility reasons
+            # behind it (oped/validate.py). None/empty on a clean served hit.
+            "held_reason": h.held_reason,
+            "anomalies": list(h.anomalies),
+            "low_confidence": h.low_confidence,
+            "derived": h.derived,
+        }
+
+    def _host_entry(stream, host_hits: list) -> dict:
+        # algo_version stamps WHICH detector version produced this host's
+        # result, so the importer/coverage can tell a fresh row from one
+        # predating a host fix (megaplay de-PNG = v2). Present even when
+        # host_hits is empty: the row still records that this host was PROCESSED
+        # at this version, so the version-based resume won't re-run it until the
+        # version moves again.
+        out = {"duration": round(stream.duration, 2),
+               "algo_version": version_of(stream.host)}
+        if stream.duration_estimated:
+            out["duration_estimated"] = True
+        for h in host_hits:
+            inferred = inf_op if h.kind == "op" else inf_ed
+            d = _hit_to_dict(h, stream.duration)
+            d["inferred"] = d.get("inferred", False) or inferred
+            # Same precision-first rule as ReconciledHit.serve, applied per
+            # host: a borrowed theme is only real here if THIS host's image
+            # backs it. Audio alone can't tell the ED sequence from the ED song
+            # playing over ordinary end credits.
+            if (d["inferred"]
+                    and not h.confirmed_by_video
+                    and h.source not in ("credited", "video")):
+                d["serve"] = False
+                d["held_reason"] = "inferred theme, no image confirmation"
+            # A self-derived reference is never served on detection alone —
+            # season_pass.py is the only thing that can confirm it
+            # (multi_host.DERIVED_REQUIRES_SEASON).
+            if h.derived:
+                d["serve"] = False
+                d["held_reason"] = ("self-derived reference, awaiting season "
+                                    "confirmation")
+            # F4 — this host's length is borrowed from its peers, so everything
+            # anchored on the END is unreliable here. The OP (start-anchored on
+            # the absolute clock) ships normally.
+            if stream.duration_estimated and h.kind == "ed":
+                d["serve"] = False
+                d["held_reason"] = "duration estimated, ED anchor unreliable"
+            out[h.kind] = d
+        return out
+
+    row["per_host"] = {
+        stream.host: _host_entry(stream, host_hits)
+        for stream, host_hits in per_host
+    }
+    return row
+
+
+# Below this share of episodes carrying a kind, the AnimeThemes reference is
+# considered not to describe OUR encode (a replaced/absent theme, a wrong
+# mapping) and the self-derived path is attempted for that kind. A real theme
+# lands on nearly every episode, so a third is already a generous floor.
+SELF_REF_MIN_HIT_RATE = 0.34
+
+
+def _self_reference_pass(season_rows, season_streams, season_detect, season_flags,
+                         base_prefix: str, season: dict, mal_id, build_row) -> None:
+    """F1 — recover the OP/ED from the EPISODES when the reference didn't work.
+
+    Runs after a season's normal pass and only for the kind(s) that came back
+    mostly empty. It derives a reference from the repeated segment across
+    episodes (oped/self_ref.py), then re-detects the episodes that are missing
+    that kind, in place.
+
+    The audio windows it self-matches on are the SAME absolute windows the normal
+    pass decoded (`absa/…` cache keys), so on an anime that was just processed
+    this costs no network at all; on an anime skipped for having no themes it is
+    one window per sampled episode.
+
+    Every hit produced here is stamped `derived` — never served until the
+    intra-season pass confirms it (multi_host.DERIVED_REQUIRES_SEASON).
+    """
+    eps = sorted(season_rows)
+    if len(eps) < self_ref.MIN_SUPPORT:
+        return
+    missing = {
+        kind: [e for e in eps if season_rows[e].get(kind) is None]
+        for kind in ("op", "ed")
+    }
+    kinds = tuple(
+        k for k in ("op", "ed")
+        if len(missing[k]) / len(eps) > (1.0 - SELF_REF_MIN_HIT_RATE)
+    )
+    if not kinds:
+        return
+
+    duration_by_ep = {
+        e: (season_streams[e][0].duration if season_streams.get(e) else 0.0)
+        for e in eps
+    }
+
+    def resolve_window_fp(ep: int, kind: str):
+        """The episode's OP or ED search-window fingerprint, from the FIRST host
+        that resolved. Same (start, dur) the detector uses, so this hits the
+        cache whenever the normal pass already ran."""
+        streams = season_streams.get(ep) or []
+        if not streams:
+            return None
+        s = streams[0]
+        if kind == "op":
+            start, dur = OP_SEARCH[0], OP_SEARCH[1]
+        else:
+            start = max(0.0, s.duration - ED_SEARCH_FROM_END)
+            dur = ED_SEARCH_FROM_END
+        fp, abs_start = _cached_audio_abs(
+            f"absa/{base_prefix}/ep{ep}/{s.host}", s.url, start, dur,
+            referer=s.referer,
+        )
+        return (fp, abs_start)
+
+    refs = self_ref.derive_references(
+        eps, resolve_window_fp, duration_by_ep=duration_by_ep, kinds=kinds,
+        log=print,
+    )
+    if not refs:
+        return
+
+    for ep in eps:
+        need = [k for k in kinds if season_rows[ep].get(k) is None and k in refs]
+        if not need or ep not in season_detect:
+            continue
+        op_r = [refs["op"]] if "op" in need else []
+        ed_r = [refs["ed"]] if "ed" in need else []
+        try:
+            per_host = season_detect[ep](op_r, ed_r, with_pool=False, derived=True)
+        except Exception as exc:
+            print(f"  [self-ref] ep{ep}: detection failed — "
+                  f"{type(exc).__name__}: {exc}")
+            continue
+        inf_op, inf_ed = season_flags.get(ep, (False, False))
+        new_row = build_row(ep, season_streams[ep], per_host, inf_op, inf_ed)
+        # Merge: keep everything the reference pass found, fill only the holes.
+        # per_host is rebuilt from the derived detection, so merge it key by key
+        # rather than overwriting a host's existing (reference-backed) timing.
+        for kind in need:
+            if new_row.get(kind) is not None:
+                season_rows[ep][kind] = new_row[kind]
+            for host, entry in new_row.get("per_host", {}).items():
+                if kind in entry:
+                    season_rows[ep].setdefault("per_host", {}).setdefault(
+                        host, entry
+                    )[kind] = entry[kind]
+
+
 def process_anime(
     anime: dict,
     throttler: HostThrottler,
@@ -188,12 +382,25 @@ def process_anime(
     # 2. PRE-FILTER: resolve to AnimeThemes and check there is anything to do
     #    BEFORE touching any stream. Cached, so cheap on re-runs.
     with tc.span("themes"):
-        at_slug = resolve_slug(mal_id=mal_id) if mal_id else resolve_slug(slug=anime.get("at_slug"))
-        if not at_slug:
-            return Record(key, "skipped", reason="no AnimeThemes entry")
-        themes, refs_by_theme = build_theme_index(at_slug)
+        at_slug = (
+            resolve_slug(mal_id=mal_id) if mal_id else resolve_slug(slug=anime.get("at_slug"))
+        )
+        themes: list[Theme] = []
+        refs_by_theme: dict[str, list[ThemeReference]] = {}
+        if at_slug:
+            themes, refs_by_theme = build_theme_index(at_slug)
     if not refs_by_theme:
-        return Record(key, "skipped", reason="no themes/videos on AnimeThemes")
+        # No usable reference. In multi-host mode that is no longer the end of
+        # the road: the self-reference pass (F1) can still recover the OP/ED from
+        # the repetition ACROSS episodes, which is where the signal lived all
+        # along. Detection below simply produces nothing (no refs = no decode)
+        # and `_self_reference_pass` does the work.
+        if not multi_host:
+            return Record(
+                key, "skipped",
+                reason="no AnimeThemes entry" if not at_slug
+                else "no themes/videos on AnimeThemes",
+            )
 
     op_pool = [r for rs in refs_by_theme.values() for r in rs if r.kind == "op"]
     ed_pool = [r for rs in refs_by_theme.values() for r in rs if r.kind == "ed"]
@@ -237,6 +444,23 @@ def process_anime(
                     hosts=hosts_to_run,
                     mal_id=mal_id, va_slug=va_slug,
                 )
+            # Rows are buffered for the whole season instead of written per
+            # episode: the self-reference pass (F1) below can only decide once it
+            # has seen how many episodes the AnimeThemes refs actually covered,
+            # and it may REPLACE a row's missing kind. Resume granularity is the
+            # anime (the manifest), so nothing is lost by flushing per season.
+            season_rows: dict[int, dict] = {}
+            season_streams: dict[int, list] = {}
+            season_detect: dict[int, object] = {}
+            season_flags: dict[int, tuple[bool, bool]] = {}
+
+            def _build_row(ep: int, streams, per_host, inf_op: bool, inf_ed: bool) -> dict:
+                hits = reconcile_hits(
+                    per_host, inferred_op=inf_op, inferred_ed=inf_ed
+                )
+                return _row_from(ep, season, mal_id, streams, per_host, hits,
+                                 inf_op, inf_ed)
+
             for ep in sorted(by_ep):
                 op_refs, ed_refs, inf_op, inf_ed = refs_for(ep)
 
@@ -261,22 +485,39 @@ def process_anime(
                         except Exception as exc:
                             if is_throttle_error(exc):
                                 slot.throttled()
-                            # Dropping the host is the CORRECT outcome (its
-                            # timings would have no clock to hang on), but a
+                            # No duration = no clock. The host is not dropped
+                            # outright any more (F4): its length is estimated
+                            # from its peers below, which is enough for the OP
+                            # (start-anchored) while its ED is held back. A
                             # silent drop is how megaplay quietly left 4 of 10
-                            # cyberpunk episodes. Say so.
-                            print(f"  [drop] ep{ep} {season['lang']}: {host} "
+                            # cyberpunk episodes — so still say so.
+                            print(f"  [probe-fail] ep{ep} {season['lang']}: {host} "
                                   f"— {type(exc).__name__}: {exc}")
-                            return None
+                            return HostStream(host=host, url=e["url"], duration=0.0,
+                                              referer=referer,
+                                              duration_estimated=True)
                     return HostStream(host=host, url=e["url"], duration=dur,
                                       referer=referer)
 
                 entries = by_ep[ep]
-                streams: list[HostStream] = []
+                probed: list[HostStream] = []
                 with ThreadPoolExecutor(max_workers=max(1, len(entries))) as ppool:
                     for s in ppool.map(_probe_one, entries):
                         if s is not None:
-                            streams.append(s)
+                            probed.append(s)
+                # F4 — lend the median peer duration to hosts whose probe failed.
+                # Encodes differ by seconds, not minutes, so the median is a good
+                # enough clock to FIND the theme; the `duration_estimated` flag is
+                # what keeps its ED out of the consensus and out of serving.
+                known = [s.duration for s in probed if not s.duration_estimated]
+                fallback_dur = statistics.median(known) if known else 0.0
+                streams = []
+                for s in probed:
+                    if s.duration_estimated:
+                        if fallback_dur <= 0:
+                            continue          # nothing to borrow — really drop it
+                        s.duration = fallback_dur
+                    streams.append(s)
                 if not streams:
                     continue
 
@@ -335,105 +576,69 @@ def process_anime(
                         cache_dir="cache/video",
                     )
 
-                try:
-                    with tc.span("detect"):
-                        # Detect each host ON ITS OWN encode, then reconcile. The
-                        # per-host hits are what a player actually needs at runtime
-                        # (each host serves a differently-trimmed stream, so the
-                        # averaged consensus lands on NO real host — e.g. cyberpunk
-                        # OP consensus 1:13 while sibnet is 1:16, vidmoly 1:10). The
-                        # consensus stays as the cross-host confidence check only.
-                        per_host = detect_per_host(
-                            streams, resolve_window_for, op_refs, ed_refs,
-                            resolve_samples_for=resolve_samples_for,
-                            resolve_video_for=resolve_video_for,
-                            resolve_video_dense_for=resolve_video_dense_for,
-                            resolve_audio_abs_for=resolve_audio_abs_for,
-                            resolve_video_abs_for=resolve_video_abs_for,
-                            v2=True,
-                            op_window=OP_WINDOW, ed_window=ED_WINDOW,
-                        )
-                        hits = reconcile_hits(
-                            per_host, inferred_op=inf_op, inferred_ed=inf_ed
-                        )
-                except Exception as exc:
-                    if is_throttle_error(exc):
-                        # Charge the slowest/first host with the throttle signal.
-                        with throttler.slot(streams[0].url) as slot:
-                            slot.throttled()
-                    raise
-
-                row = {
-                    "mal_id": mal_id, "episode": ep, "lang": season["lang"],
-                    "op": None, "ed": None,
-                }
-                for h in hits:
-                    inferred = (h.kind == "op" and inf_op) or (h.kind == "ed" and inf_ed)
-                    row[h.kind] = {
-                        "start": round(h.start, 2), "end": round(h.end, 2),
-                        "theme": h.slug,
-                        "votes": h.votes, "inferred": inferred or h.inferred,
-                        # Cross-host robustness metadata: the duration the times
-                        # are expressed against, the host-independent from-end
-                        # anchor (for re-projection onto the player's real
-                        # duration), and how many hosts agreed.
-                        "canonical_duration": h.canonical_duration,
-                        "from_end_start": h.from_end_start,
-                        "from_end_end": h.from_end_end,
-                        "hosts_agree": h.n_hosts_agree,
-                        "hosts_total": h.n_hosts_total,
-                        "spread": h.spread_s,
-                        # Signal provenance + serve gate for the importer/API:
-                        # "audio"|"video"|"mixed" alignment, how many hosts had
-                        # video confirming, and whether it clears the precision-
-                        # first serve floor (≥2 agree, or 1 + video confirm).
-                        "source": h.source,
-                        "n_video_confirm": h.n_video_confirm,
-                        "serve": h.serve,
-                    }
-                # Per-host delivery: each host's OWN op/ed timing against its OWN
-                # duration, keyed by host. This is the authoritative timing for a
-                # player; `op`/`ed` above are the averaged consensus (cross-check).
-                # Reuses detect_anime._hit_to_dict (handles ED from_end re-projection).
+                # Detect each host ON ITS OWN encode, then reconcile. The per-host
+                # hits are what a player actually needs at runtime (each host
+                # serves a differently-trimmed stream, so the averaged consensus
+                # lands on NO real host — e.g. cyberpunk OP consensus 1:13 while
+                # sibnet is 1:16, vidmoly 1:10). The consensus stays as the
+                # cross-host confidence check only.
                 #
-                # `inferred` is stamped HERE, not by detect_op_ed_v2: refs_for()
-                # owns the knowledge that a theme was borrowed from the cour pool
-                # (same reason reconcile_hits takes it as an argument). Without it
-                # the per-host dicts carry inferred=false and INFERRED_REQUIRES_VIDEO
-                # never bites on the path a player actually consumes — a borrowed ED
-                # matching only the song's reprise ships as a real timing.
-                def _host_entry(stream, host_hits: list) -> dict:
-                    # algo_version stamps WHICH detector version produced this
-                    # host's result, so the importer/coverage can tell a fresh row
-                    # from one predating a host fix (megaplay de-PNG = v2). Present
-                    # even when host_hits is empty: the row still records that this
-                    # host was PROCESSED at this version, so the version-based
-                    # resume won't re-run it until the version moves again.
-                    out = {"duration": round(stream.duration, 2),
-                           "algo_version": version_of(stream.host)}
-                    for h in host_hits:
-                        inferred = inf_op if h.kind == "op" else inf_ed
-                        d = _hit_to_dict(h, stream.duration)
-                        d["inferred"] = d.get("inferred", False) or inferred
-                        # Same precision-first rule as ReconciledHit.serve, applied
-                        # per host: a borrowed theme is only real here if THIS host's
-                        # image backs it. Audio alone can't tell the ED sequence from
-                        # the ED song playing over ordinary end credits.
-                        if (d["inferred"]
-                                and not h.confirmed_by_video
-                                and h.source not in ("credited", "video")):
-                            d["serve"] = False
-                            d["held_reason"] = "inferred theme, no image confirmation"
-                        out[h.kind] = d
-                    return out
+                # Kept as a closure so the F1 self-reference pass can re-run this
+                # episode against a DIFFERENT set of references without
+                # re-resolving or re-probing anything.
+                def _detect(op_r, ed_r, *, with_pool=True, derived=False,
+                            _streams=streams, _ep=ep):
+                    try:
+                        with tc.span("detect"):
+                            return detect_per_host(
+                                _streams, resolve_window_for, op_r, ed_r,
+                                resolve_samples_for=resolve_samples_for,
+                                resolve_video_for=resolve_video_for,
+                                resolve_video_dense_for=resolve_video_dense_for,
+                                resolve_audio_abs_for=resolve_audio_abs_for,
+                                resolve_video_abs_for=resolve_video_abs_for,
+                                v2=True,
+                                # F3 — series-wide fallback when the episode's
+                                # MAPPED theme matches nothing (AnimeThemes'
+                                # `episodes` spec is regularly off by one around an
+                                # OP1→OP2 switch). Only used after the mapped refs
+                                # fail, and the resulting hit is stamped `inferred`.
+                                op_pool_refs=(op_pool if with_pool else None),
+                                ed_pool_refs=(ed_pool if with_pool else None),
+                                mark_derived=derived,
+                                op_window=OP_WINDOW, ed_window=ED_WINDOW,
+                            )
+                    except Exception as exc:
+                        if is_throttle_error(exc):
+                            # Charge the slowest/first host with the throttle signal.
+                            with throttler.slot(_streams[0].url) as slot:
+                                slot.throttled()
+                        raise
 
-                row["per_host"] = {
-                    stream.host: _host_entry(stream, host_hits)
-                    for stream, host_hits in per_host
-                }
-                sink.write(row)
+                per_host = _detect(op_refs, ed_refs)
+
+                season_rows[ep] = _build_row(ep, streams, per_host, inf_op, inf_ed)
+                season_streams[ep] = streams
+                season_detect[ep] = _detect
+                season_flags[ep] = (inf_op, inf_ed)
+
+            # ── F1: self-derived references ─────────────────────────────────
+            # Everything above depends on AnimeThemes having the theme that is
+            # actually in OUR encode. When it doesn't — no entry at all, a dub
+            # with a replaced opening, a streaming cut, an empty mapping — the
+            # season comes back mostly empty. The OP/ED is still there, as the
+            # segment that REPEATS across episodes, so recover it from the
+            # episodes themselves and re-run the affected ones.
+            _self_reference_pass(
+                season_rows, season_streams, season_detect, season_flags,
+                base_prefix, season, mal_id, _build_row,
+            )
+
+            for ep in sorted(season_rows):
+                sink.write(season_rows[ep])
                 written += 1
             continue
+
 
         # ── single-host path (default) ──────────────────────────────────────
         with tc.span("resolve"):

@@ -1,5 +1,75 @@
 # DEVLOG
 
+## 2026-08-04 (suite 4) — OP/ED : couche de replis (F) + garde-fous faux positifs (P)
+
+Demande : « il nous faut énormément de fallback, par ex si l'OP/ED fourni n'est pas
+du tout le même que ce qu'on a ; et des vérifications pour ne pas avoir de faux
+positifs ». Fait : tous les F sauf F6 (AniSkip, écarté), tous les P.
+
+### Les deux principes qui structurent la couche
+- **Rien n'est jamais déplacé.** Un hit douteux est retenu ou signalé, jamais
+  « corrigé » en un timing inventé. Les raisons vivent dans `oped/validate.py` ;
+  celles de `validate.BLOCKING` empêchent de servir, les autres sont consultatives.
+- **L'accord entre lecteurs n'est PAS une preuve d'exactitude.** Tous les hosts
+  passent la MÊME référence dans le MÊME matcher : ils reproduisent la même erreur.
+  C'était le trou central. Les deux preuves réellement indépendantes sont l'IMAGE
+  (par épisode) et la SAISON (par titre).
+
+### Replis
+- **F1 auto-référence ep↔ep** (`oped/self_ref.py`) — le cas « le thème fourni n'est
+  pas le nôtre » : l'OP/ED est récupéré comme le segment qui SE RÉPÈTE entre
+  épisodes, puis découpé du fingerprint déjà calculé (`slice_fingerprint`) → **zéro
+  décodage supplémentaire**, et ça redevient une `ThemeReference` ordinaire que tout
+  le pipeline existant consomme. Anti-recap : échantillonnage **stridé** (ep 1,4,7…)
+  — un recap ne se répète qu'entre épisodes ADJACENTS, il ne peut donc pas voter.
+  Tout hit dérivé est retenu jusqu'à confirmation par la passe saison.
+- **F2** fenêtre ED élargie (240→420 s de fin), **F3** repli sur le pool de thèmes
+  quand le mapping direct échoue (le champ `episodes` d'AnimeThemes est souvent
+  décalé d'un épisode autour d'un OP1→OP2), **F4** durée estimée depuis les pairs
+  quand ffprobe échoue (l'OP est servi, l'ED retenu — son ancre dépend de la durée),
+  **F5** `min_fill` relâché mais seulement si l'image confirme, **F7** prédiction
+  intra-saison des trous.
+- **F6 (AniSkip) volontairement non fait** : écarté comme source, et comme
+  validateur il aurait ajouté une dépendance réseau pour une couverture faible.
+
+### Vérifications
+- **P2 pic rival** : `best_match_ranked` sort le rapport de votes du meilleur offset
+  concurrent dans la MÊME passe (coût nul). Une chanson qui se rejoue produit deux
+  pics — c'est la cause RACINE du faux positif cyberpunk, qui n'était jusqu'ici que
+  mitigé par `inferred`.
+- **P4** : `av_delta` mesuré dès que audio et image ancrent tous les deux
+  (`video_disagreement` était déclaré depuis le début mais **jamais posé en v2**) ;
+  `align_status` distingue enfin « l'image a rejeté » (preuve CONTRE) de « l'image
+  n'a rien dit » (aucune info) — les deux finissaient en `source="audio"`.
+- **P5 cohérence intra-saison** (`season_pass.py`), le plus fort et le plus délicat.
+  **Par clusters, pas par médiane** : la position de l'OP est légitimement bimodale
+  (cold-open ou non selon l'épisode), une médiane tomberait entre les deux modes et
+  signalerait la moitié de la saison. **ep1 et dernier épisode exemptés** (piège
+  signalé par Luc : beaucoup d'animes placent le premier OP très loin dans l'ep1 —
+  c'est normal, jamais une anomalie). Une saison trop dispersée ne rend AUCUN verdict
+  plutôt qu'un faux.
+- **P3, décision assumée** : `low_confidence` est remonté partout mais n'est PAS
+  bloquant. SnK ep1 OP (2:02, correct) est un hit audio-seul : le bloquer coûterait
+  de la couverture réelle. C'est la passe saison qui arbitre les audio-seuls.
+
+### Ordre d'exploitation (la passe saison est OBLIGATOIRE avant import)
+```
+python batch_detect.py … --multi-host --out results.jsonl
+python season_pass.py --in results.jsonl --out results.checked.jsonl --report
+node scripts/import-oped-host-skips.mjs --in=results.checked.jsonl
+```
+Elle promeut les hits `derived` et retire les outliers. L'importeur jetait déjà tout
+`serve:false` : les nouveaux blocages arrivent donc en DB sans le toucher.
+
+### Vérifié / non vérifié
+- `python test_guards.py` : **65 assertions vertes, hors-ligne** (ni réseau ni
+  ffmpeg) — plausibilité, pic rival, slicing, découverte de segment + anti-recap,
+  gate `serve`, passe saison (dont les deux pièges ep1/bimodal), et la cascade v2 de
+  bout en bout sur audio synthétique.
+- **NON vérifié** : aucun run réseau réel depuis ces changements. Les seuils
+  (bandes de longueur, 0.6 de pic rival, 12 s de tolérance de cluster) sont raisonnés,
+  pas calibrés sur des mesures — à confronter à un vrai batch avant backfill.
+
 ## 2026-08-04 (suite 3) — CORRECTION de l'entrée précédente : Vercel va bien, seul le Worker est muet
 
 **L'entrée « suite 2 » ci-dessous est FAUSSE sur son point principal.** Je l'ai

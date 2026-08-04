@@ -47,6 +47,7 @@ import statistics
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
+from . import validate
 from .theme_bank import (
     ThemeHit,
     ThemeReference,
@@ -94,6 +95,14 @@ SERVE_MAX_SPREAD_S = 10.0
 # an inferred hit is served ONLY when at least one host's IMAGE confirmed it.
 # A directly-mapped hit is unaffected: AnimeThemes vouches that it belongs here.
 INFERRED_REQUIRES_VIDEO = True
+# A hit built on a SELF-DERIVED reference (oped/self_ref.py — the repeated
+# segment recovered from the episodes themselves, used when AnimeThemes has no
+# usable theme) has nothing vouching that the segment IS the OP/ED. Cross-host
+# agreement doesn't help: every host carries the same segment, so they agree on
+# a wrong answer just as readily as on a right one. Only the INTRA-SEASON pass
+# (season_pass.py), which checks the segment lands consistently across the whole
+# season, can promote it — so it is never served straight out of detection.
+DERIVED_REQUIRES_SEASON = True
 
 
 @dataclass
@@ -105,6 +114,13 @@ class HostStream:
     duration: float  # seconds — THIS host's encode length (differs across hosts)
     referer: str | None = None  # some hosts (megaplay) validate segment fetches
                                 # by Referer only — must be passed to ffmpeg/probe
+    # True when `duration` could not be probed and was ESTIMATED from the other
+    # hosts of the same episode (F4). The OP is unaffected (its window and its
+    # anchor are measured from the episode start, on the shared absolute clock),
+    # but everything ED is anchored on the END, so an estimated length makes this
+    # host's ED untrustworthy — the caller holds it back rather than dropping the
+    # whole host and losing its OP too.
+    duration_estimated: bool = False
 
 
 @dataclass
@@ -130,6 +146,18 @@ class ReconciledHit:
     inferred: bool = False
     n_video_confirm: int = 0        # agreeing hosts whose video confirmed the audio
     video_disagreement: bool = False  # any agreeing host had audio/video divergence
+    # Plausibility reasons (oped/validate.py) shared by ALL agreeing hosts. Only
+    # unanimous ones land here: a reason raised by a single host is that host's
+    # problem (its own row carries it), while a reason every host raises is a
+    # property of the detection itself and holds the consensus back.
+    anomalies: list = field(default_factory=list)
+    # Every agreeing host fell back to the coarse audio t0 with the image having
+    # RUN and REJECTED the alignment. Not fatal on its own (plenty of correct
+    # hits are audio-only when no landmark survives), but it is the one case
+    # where the picture actively failed to back the audio — reported so the
+    # season pass and the API can rank it last.
+    low_confidence: bool = False
+    derived: bool = False           # built on a self-derived reference (F1)
     # Alignment provenance of the consensus (uniform across agreeing hosts, else
     # "mixed"): "credited" (all matched the with-credits rip — frame-accurate,
     # highest trust), "audio" (all audio-aligned, frame-accurate), "video" (all
@@ -158,7 +186,21 @@ class ReconciledHit:
         An `inferred` hit (theme borrowed from another episode) is served only
         with image confirmation — see INFERRED_REQUIRES_VIDEO. Audio-only
         agreement across hosts is NOT enough for an inferred theme: the song can
-        reprise over the credits without the ED sequence being present."""
+        reprise over the credits without the ED sequence being present.
+
+        A hit carrying a BLOCKING plausibility reason is never served, whatever
+        the host agreement: cross-host agreement measures reproducibility, not
+        correctness, and every host runs the SAME reference through the SAME
+        matcher — they reproduce each other's mistakes. An implausible length, a
+        clamped edge, a contested audio peak or an audio/image divergence are
+        properties of the detection that no amount of agreement fixes.
+
+        A `derived` hit is never served here at all — only the intra-season pass
+        can promote it (DERIVED_REQUIRES_SEASON)."""
+        if self.blocking:
+            return False
+        if DERIVED_REQUIRES_SEASON and self.derived:
+            return False
         if self.n_hosts_agree >= 2 and self.spread_s > SERVE_MAX_SPREAD_S:
             return False
         if INFERRED_REQUIRES_VIDEO and self.inferred and self.n_video_confirm < 1:
@@ -166,6 +208,26 @@ class ReconciledHit:
         return self.n_hosts_agree >= MIN_AGREE_FOR_CONFIDENT or (
             self.n_hosts_agree >= 1 and self.n_video_confirm >= 1
         )
+
+    @property
+    def blocking(self) -> list[str]:
+        """Plausibility reasons that forbid serving (oped/validate.BLOCKING)."""
+        return validate.blocking(self.anomalies)
+
+    @property
+    def held_reason(self) -> str | None:
+        """Why this hit is stored but not served — None when it is served."""
+        if self.serve:
+            return None
+        if self.blocking:
+            return ", ".join(self.blocking)
+        if DERIVED_REQUIRES_SEASON and self.derived:
+            return "self-derived reference, awaiting season confirmation"
+        if self.n_hosts_agree >= 2 and self.spread_s > SERVE_MAX_SPREAD_S:
+            return f"hosts disagree ({self.spread_s:.1f}s spread)"
+        if INFERRED_REQUIRES_VIDEO and self.inferred and self.n_video_confirm < 1:
+            return "inferred theme, no image confirmation"
+        return "single host, no image confirmation"
 
 
 def _anchor_value(hit: ThemeHit, duration: float, kind: str) -> float:
@@ -250,9 +312,15 @@ def reconcile_hits(
         hits: list[ThemeHit] = []
         for stream, host_hits in per_host:
             h = next((x for x in host_hits if x.kind == kind), None)
-            if h is not None:
-                streams.append(stream)
-                hits.append(h)
+            if h is None:
+                continue
+            # An ED anchors on seconds-FROM-END, so a host whose length is an
+            # estimate (F4) would poison the consensus with a shifted anchor.
+            # Its OP is unaffected and still counts.
+            if kind == "ed" and stream.duration_estimated:
+                continue
+            streams.append(stream)
+            hits.append(h)
         if not hits:
             continue
 
@@ -326,6 +394,17 @@ def reconcile_hits(
                 ),
                 video_disagreement=any(hits[i].video_disagreement for i in kept),
                 source=src,
+                # UNANIMOUS plausibility reasons only (see the field comment):
+                # one host raising a reason is a host problem, every host raising
+                # it is a detection problem. Order-stable for readable logs.
+                anomalies=[
+                    r for r in (hits[kept[0]].anomalies if kept else [])
+                    if all(r in hits[i].anomalies for i in kept)
+                ],
+                low_confidence=bool(kept) and all(
+                    hits[i].align_status == "rejected" for i in kept
+                ),
+                derived=bool(kept) and all(hits[i].derived for i in kept),
             )
         )
 
@@ -346,6 +425,9 @@ def detect_per_host(
     resolve_audio_abs_for=None,
     resolve_video_abs_for=None,
     v2: bool = False,
+    op_pool_refs: list[ThemeReference] | None = None,
+    ed_pool_refs: list[ThemeReference] | None = None,
+    mark_derived: bool = False,
     op_window=OP_WINDOW,
     ed_window=ED_WINDOW,
     min_votes: int = 40,
@@ -389,11 +471,18 @@ def detect_per_host(
                     ed_refs,
                     resolve_audio_abs=audio_abs_cb,
                     resolve_video_abs=video_abs_cb,
+                    op_pool_refs=op_pool_refs,
+                    ed_pool_refs=ed_pool_refs,
                     min_votes=min_votes,
                     **kw,
                 )
             except Exception:
                 hits = []
+            if mark_derived:
+                # The refs came from self_ref (no AnimeThemes clip vouches for
+                # them), so every hit inherits the flag the serve gate reads.
+                for h in hits:
+                    h.derived = True
             return stream, hits
 
         samples_cb = (

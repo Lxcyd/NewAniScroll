@@ -57,6 +57,31 @@ class Fingerprint:
         return cls(d["hashes"], d["times"], int(d["n_frames"]))
 
 
+def slice_fingerprint(fp: Fingerprint, t_start: float, t_end: float) -> Fingerprint:
+    """The sub-fingerprint covering [t_start, t_end] seconds, re-based to 0.
+
+    Used to turn a segment DISCOVERED inside an episode (the repeated OP/ED
+    found by episode↔episode self-matching) into a reusable reference, without
+    decoding anything again: the hashes are already computed, we just keep the
+    ones anchored inside the segment and shift their times so the segment starts
+    at t=0 — exactly the layout `build_references` produces from a theme clip.
+
+    Only anchors are filtered; a pair whose TARGET peak fell past `t_end` is
+    kept (its hash is still a property of the segment's audio, within the ~0.46s
+    fan-out). Sorted-by-hash order is preserved, which `matcher` relies on.
+    """
+    if fp.hashes.size == 0 or t_end <= t_start:
+        return Fingerprint(np.empty(0, np.uint64), np.empty(0, np.int32), n_frames=0)
+    f0 = int(round(t_start / HOP_SECONDS))
+    f1 = int(round(t_end / HOP_SECONDS))
+    keep = (fp.times >= f0) & (fp.times <= f1)
+    return Fingerprint(
+        fp.hashes[keep],
+        (fp.times[keep] - f0).astype(np.int32),
+        n_frames=max(0, f1 - f0),
+    )
+
+
 def _spectrogram(samples: np.ndarray) -> np.ndarray:
     """Log-magnitude spectrogram, shape (freq_bins, frames)."""
     _, _, Z = stft(

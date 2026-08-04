@@ -1,7 +1,8 @@
 # RÉCAP — Détecteur d'intro/outro (OP/ED) via AnimeThemes.moe
 
 Doc unique de reprise (remplace l'ancien RECAP + ROADMAP_FRAME_ACCURATE + STAGE4_PLAN).
-Dernière mise à jour : 2026-07-16 (session : garde faux-positif inferred + diag devilman ED + bug sibnet app).
+Dernière mise à jour : 2026-08-04 (session : couche replis F1-F7 + garde-fous faux
+positifs P1-P8 — voir §6bis, c'est la partie la plus récente et la plus structurante).
 
 **En une phrase** : pour chaque épisode d'anime, on récupère l'OP/ED credited
 d'AnimeThemes comme RÉFÉRENCE, on LOCALISE grossièrement le thème dans l'épisode par
@@ -338,6 +339,100 @@ tourné sur PLUS d'animes que JJK/SnK (le filet legacy existe pour ça).
 4. megaplay/VF : `VF_INCOMPATIBLE_HOSTS={"megaplay"}` est une MITIGATION (embed dérivé
    de mal_id+ep, pas de lang) — confirmer/lever en lisant `bridge/resolve.mjs`.
 5. `sendvid` échoue parfois à la résolution (`resolution failed: []`) — non investigué.
+
+---
+
+## 6bis. Replis & garde-fous faux positifs (2026-08-04)
+
+Deux principes, valables partout dans cette couche :
+**(1) rien n'est jamais déplacé** — un hit douteux est retenu ou signalé, jamais
+« corrigé » en un timing inventé ; **(2) l'accord entre lecteurs n'est PAS une
+preuve** — tous les hosts passent la même référence dans le même matcher, donc
+ils reproduisent la même erreur. Les vraies preuves indépendantes sont l'IMAGE
+et la SAISON.
+
+### Le vocabulaire commun : `oped/validate.py`
+Produit des *raisons*, pas des décisions. Celles listées dans `validate.BLOCKING`
+empêchent de SERVIR (`ReconciledHit.serve`, `per_host[…].serve`, et l'importeur
+qui jette déjà tout `serve:false`) ; les autres sont consultatives.
+Raisons : `implausible_length` (25-150 s — attrape un rip « full version » projeté
+en skip de 4 min), `end_clamped` (la ref déborde de l'épisode), `vote_span_too_short`
+(90 s livrés pour 12 s de votes), `av_divergence` (audio et image ont localisé deux
+choses différentes), `ambiguous_audio_peak`, `ambiguous_theme`, `op_ed_overlap`,
+`season_outlier`.
+
+### Replis (F)
+- **F1 — auto-référence épisode↔épisode** (`oped/self_ref.py`) : quand AnimeThemes
+  n'a rien, ou que son thème n'est PAS celui de notre encode (VF à OP remplacé,
+  cut streaming), l'OP/ED est récupéré comme *le segment qui se répète entre
+  épisodes*, puis découpé du fingerprint existant (`slice_fingerprint`, **zéro
+  décodage**) pour devenir une `ThemeReference` normale. Déclenché par
+  `_self_reference_pass` (batch) quand un `kind` couvre < 34 % des épisodes.
+  Anti-faux-positif : échantillonnage **stridé** (ep 1,4,7… → un RECAP, qui ne se
+  répète qu'entre épisodes ADJACENTS, ne peut structurellement pas voter), bande de
+  longueur, support ≥3 épisodes, position cohérente. Tout hit dérivé est
+  `derived=True` → **jamais servi** avant confirmation par la passe saison
+  (`DERIVED_REQUIRES_SEASON`).
+- **F2 — fenêtre ED élargie** (240 s → 420 s de fin), miroir du repli OP, bornée
+  pour ne jamais atteindre la région OP.
+- **F3 — repli sur le pool** : si le thème *directement mappé* ne matche rien, on
+  retente avec TOUS les thèmes de la série (le mapping `episodes` d'AnimeThemes est
+  régulièrement décalé d'un épisode autour d'un OP1→OP2). Le hit récupéré est
+  stampé `inferred` → hérite du gate image.
+- **F4 — durée estimée** : un `_probe_duration` en échec ne fait plus tomber le
+  host ; sa durée est empruntée à la médiane de ses pairs. L'OP (ancré au début,
+  horloge absolue) est servi normalement ; **l'ED est retenu** et le host est exclu
+  du consensus ED (son ancre `from_end` serait fausse).
+- **F5 — `min_fill` relâché** (0.5 → 0.25) en dernier recours, mais le hit n'est
+  gardé **que si l'image le confirme** (un fill faible ressemble aussi à une
+  coïncidence).
+- **F7 — prédiction intra-saison** : un épisode sans hit dont la saison s'accorde
+  fortement (≥70 % des épisodes, spread ≤4 s) reçoit un intervalle marqué
+  `source:"predicted"`. Jamais sur ep1 ni sur le dernier épisode.
+
+### Vérifications (P)
+- **P2 — pic rival** : `best_match_ranked` renvoie, dans la MÊME passe (coût nul),
+  le rapport de votes du meilleur offset *concurrent*. Une chanson qui se rejoue
+  ailleurs (reprise sur générique, insert, preview) produit deux pics ; ≥0.6 sur un
+  hit audio = bloquant. C'est la cause racine du faux positif cyberpunk, jusqu'ici
+  seulement mitigée par `inferred`.
+- **P4 — divergence audio↔image** : `av_delta` est mesuré dès que les deux signaux
+  ancrent ; >4 s = bloquant (`video_disagreement` était déclaré mais jamais posé en
+  v2). `align_status` distingue enfin `ok` / `rejected` (l'image a tourné et n'a PAS
+  confirmé — une preuve CONTRE) / `absent` (aucune info).
+- **P5 — cohérence intra-saison** (`season_pass.py`) : par (mal, langue, host, kind),
+  **clustering** des positions (ancre = start pour l'OP, secondes-depuis-la-fin pour
+  l'ED) + contrôle de longueur. ⚠️ **Volontairement par clusters et non par médiane** :
+  la position de l'OP est légitimement **bimodale** (certains épisodes ouvrent sur un
+  cold-open, d'autres démarrent sur l'OP) — une médiane tomberait entre les deux modes
+  et signalerait la moitié de la saison. **ep1 et le dernier épisode sont exemptés**
+  (un OP tardif à l'ep1 après un long prologue, ou un finale sans OP, sont NORMAUX ;
+  `--strict-first` pour les inspecter quand même). Une saison trop dispersée ne rend
+  **aucun** verdict plutôt qu'un faux.
+- **P3** : `low_confidence` est désormais remonté (consensus + par host) et vaut
+  « toutes les sources d'accord ont vu l'image REJETER l'alignement ». Décision
+  assumée : ce n'est **pas** bloquant en soi — SnK ep1 OP (2:02, correct) est un hit
+  audio-seul ; le tuer coûterait de la couverture réelle. C'est la passe saison qui
+  arbitre les audio-seuls.
+- **P1/P6/P7/P8** : longueur/bord clampé/chevauchement OP-ED/marge entre THÈMES
+  différents (OP1 vs OP2, dont les longueurs diffèrent), tous posés par
+  `validate.annotate` à la fin de `detect_op_ed_v2`.
+
+### Tests
+`python test_guards.py` — 65 assertions, **hors-ligne** (ni réseau ni ffmpeg) :
+plausibilité, pic rival, slicing, découverte de segment répété + anti-recap, gate
+`serve`, passe saison (dont « OP tardif à l'ep1 non signalé » et « saison bimodale
+ne signale rien »), et la cascade v2 de bout en bout sur audio synthétique
+(F2/F3 inclus).
+
+### Ordre d'exploitation
+```
+python batch_detect.py --anime-list … --out results.jsonl --multi-host --resume
+python season_pass.py --in results.jsonl --out results.checked.jsonl --report
+node scripts/import-oped-host-skips.mjs --in=results.checked.jsonl
+```
+La passe saison est **obligatoire** avant import : c'est elle qui promeut les hits
+`derived` et qui retire les outliers.
 
 ---
 

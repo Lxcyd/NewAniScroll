@@ -45,8 +45,9 @@ from . import SAMPLE_RATE
 from .animethemes import Theme
 from .audio import load_audio
 from .fingerprint import Fingerprint, fingerprint
-from .matcher import Match, best_match
+from .matcher import Match, best_match, best_match_ranked
 from .refine import refine_edges_ref_anchored
+from . import validate
 from .video_fingerprint import (
     DENSE_FPS,
     DENSE_HALF_WINDOW_S,
@@ -220,6 +221,34 @@ class ThemeHit:
     # delivered t0 fell back to the coarse AUDIO locate — still shipped (no gap),
     # but flagged low-confidence for multi-host reconciliation.
     low_confidence: bool = False
+    # ── false-positive instrumentation (see oped/validate.py) ────────────────
+    # How contested the winning audio offset was: votes of the strongest RIVAL
+    # placement / votes of the winner (matcher.best_match_ranked). 0.0 = the peak
+    # stood alone. A high value on an audio-sourced hit means the same song
+    # matched somewhere else in the window too (reprise, insert song, preview).
+    peak_margin: float = 0.0
+    # Fill gap between the winning THEME and the best runner-up of a DIFFERENT
+    # slug (OP1 vs OP2 — not versions of the same theme, which are near-identical
+    # audio). None when there was no cross-theme competition. Small = we cannot
+    # tell which theme plays here, and their lengths differ.
+    theme_margin: float | None = None
+    # |image t0 − audio t0| when BOTH signals produced an anchor. None when only
+    # one ran. Large = the two located different events (validate.AV_DIVERGENCE_S).
+    av_delta: float | None = None
+    # What the image aligner concluded: "ok" (anchored, gates cleared, it owns
+    # the t0), "rejected" (it ran but fell below the gates → audio t0 kept),
+    # "absent" (no video resolver / no landmarks / decode failed → no opinion).
+    # "rejected" and "absent" both mean audio-only, but only "rejected" is
+    # evidence AGAINST the hit.
+    align_status: str = "absent"
+    # True when the reference was DERIVED from the series itself (episode↔episode
+    # self-matching, oped/self_ref.py) instead of an AnimeThemes clip. Nothing
+    # vouches that the segment is the OP/ED, so these are held until the
+    # intra-season pass confirms them across the season.
+    derived: bool = False
+    # Plausibility reasons from oped/validate.py (empty = clean). Those in
+    # validate.BLOCKING hold the hit back from being served.
+    anomalies: list = field(default_factory=list)
 
 
 def _window_tag(window: tuple[float | None, float | None] | None) -> str:
@@ -1201,6 +1230,32 @@ ALIGN_NOAUDIO_MIN_LANDMARKS = 6      # of ~19-21 built — a real theme lands mo
 ALIGN_NOAUDIO_MIN_CONSENSUS_FRAC = 0.7  # tighter than the 0.5 audio-guided floor
 ALIGN_NOAUDIO_SEP_MIN = 8            # raised from the default 6: unambiguous only
 
+# ED wide-search fallback (F2). The default 240 s tail misses an ED followed by a
+# long epilogue + next-episode preview + sponsor cards, which together can push
+# the ED's END past 4 minutes from the episode end. Same shape as the OP's
+# widened window and clamped away from the OP region by the caller, so a widened
+# ED can never reach back into the opening.
+ED_SEARCH_FROM_END_FALLBACK = 420.0   # last 7 min
+
+# Relaxed audio fill floor (F5). `min_fill` (0.5) demands that the match cover
+# half the reference — a TV-size sequence matched against a FULL-version rip, or
+# a heavily trimmed broadcast cut, legitimately falls under it. Rather than lose
+# the episode we retry at this floor, but a relaxed-fill locate is NEVER shipped
+# on audio alone: it must be confirmed by the image (see _detect_kind), because a
+# low fill is also exactly what a coincidental match looks like.
+RELAXED_MIN_FILL = 0.25
+
+
+@dataclass
+class _Located:
+    """Outcome of the coarse AUDIO locate, plus its competition metrics."""
+
+    ref: "ThemeReference"
+    theme_t0: float
+    match: Match
+    peak_margin: float = 0.0
+    theme_margin: float | None = None
+
 
 def _ref_is_credited_impl(ref: "ThemeReference") -> bool:
     """True when this ref's image fingerprint came from the credited (with-
@@ -1220,6 +1275,9 @@ def detect_op_ed_v2(
     resolve_video_abs=None,
     op_search: tuple[float, float] = OP_SEARCH,
     ed_search_from_end: float = ED_SEARCH_FROM_END,
+    ed_search_from_end_fallback: float = ED_SEARCH_FROM_END_FALLBACK,
+    op_pool_refs: list[ThemeReference] | None = None,
+    ed_pool_refs: list[ThemeReference] | None = None,
     min_votes: int = 40,
     min_score: float = MIN_SCORE_DEFAULT,
     min_fill: float = 0.5,
@@ -1233,35 +1291,62 @@ def detect_op_ed_v2(
       resolve_video_abs(start_abs, dur, fps) -> VideoFingerprint
           native (fps=None) episode keyframes with ABSOLUTE pts.
 
-    Returns 0..2 ThemeHits in absolute episode time. Runs OP and ED in parallel;
-    logic is identical to sequential.
+    `op_pool_refs`/`ed_pool_refs` (F3): every theme of the SERIES, used only as a
+    last resort when the episode's directly-mapped refs matched nothing —
+    AnimeThemes' per-episode mapping is regularly off by an episode around an
+    OP1→OP2 transition. A hit recovered that way is stamped `inferred`, which
+    carries the stricter serve gate downstream.
+
+    Returns 0..2 ThemeHits in absolute episode time, each annotated with
+    plausibility reasons (`anomalies`, see oped/validate.py) — nothing is
+    filtered here, the serve gate decides. Runs OP and ED in parallel; logic is
+    identical to sequential.
     """
 
-    def _locate_audio(refs, start_abs, dur):
-        """A. Coarse audio locate. Returns (best ThemeReference, theme_t0_abs,
-        Match) or None. theme_t0_abs = abs_start + (q_start - r_start)."""
+    def _locate_audio(refs, start_abs, dur, fill_floor=None):
+        """A. Coarse audio locate. Returns `_Located` or None.
+
+        `fill_floor` overrides `min_fill` for the relaxed retry (F5).
+
+        Beyond the winner it reports two competition metrics the caller turns
+        into false-positive guards (they cost nothing — both fall out of the
+        matching already being done):
+          - `peak_margin`: how strongly a RIVAL placement of the same reference
+            competed inside this window (matcher.best_match_ranked);
+          - `theme_margin`: the fill gap to the best runner-up of a DIFFERENT
+            theme slug. Versions of the SAME slug are near-identical audio and
+            are not competitors; OP1 vs OP2 are, and they have different lengths.
+        """
+        floor = min_fill if fill_floor is None else fill_floor
         try:
             fp, abs_start = resolve_audio_abs(start_abs, dur)
         except Exception:
             return None
         if fp is None:
             return None
-        best = None  # (fill, ref, m)
+        cands = []  # (fill, ref, m, rival)
         for ref in refs:
-            m = best_match(fp, ref.fp, min_votes=min_votes)
+            m, rival = best_match_ranked(fp, ref.fp, min_votes=min_votes)
             if m is None or m.score < min_score:
                 continue
             ref_dur = ref.duration if ref.duration > 0 else max(m.r_end, 1e-6)
             fill = min(1.0, (m.r_end - m.r_start) / max(ref_dur, 1e-6))
-            if fill < min_fill:
+            if fill < floor:
                 continue
-            if best is None or fill > best[0]:
-                best = (fill, ref, m)
-        if best is None:
+            cands.append((fill, ref, m, rival))
+        if not cands:
             return None
-        _fill, ref, m = best
-        theme_t0_abs = abs_start + (m.q_start - m.r_start)
-        return ref, theme_t0_abs, m
+        cands.sort(key=lambda c: (c[0], c[2].n_votes), reverse=True)
+        fill, ref, m, rival = cands[0]
+        other = next((c for c in cands[1:] if c[1].slug != ref.slug), None)
+        theme_margin = None if other is None else round(fill - other[0], 4)
+        return _Located(
+            ref=ref,
+            theme_t0=abs_start + (m.q_start - m.r_start),
+            match=m,
+            peak_margin=round(rival, 3),
+            theme_margin=theme_margin,
+        )
 
     def _align_image(ref, theme_t0_coarse):
         """B. Native landmark anchor around the coarse t0. Returns LandmarkAnchor
@@ -1325,49 +1410,63 @@ def detect_op_ed_v2(
         _frac, ref, anc = best
         return ref, anc.theme_t0, anc
 
-    def _detect_kind(refs, start_abs, dur, fallback_dur=None):
+    def _cascade(refs, start_abs, dur, fallback=None):
         if not refs:
             return None
         loc = _locate_audio(refs, start_abs, dur)
-        if loc is None and fallback_dur is not None and fallback_dur > dur:
+        if loc is None and fallback is not None:
             # The theme wasn't in the default search window — retry over a WIDER
             # one. An OP after a long cold-open can start past OP_SEARCH's 5 min
             # (Bocchi ep6: OP1 at 5:03, just past 300s); the audio match itself is
             # strong (3356 votes) once the window reaches it. This is v2's
             # equivalent of the old full_fallback, but bounded to the widened
-            # window instead of the whole episode.
-            loc = _locate_audio(refs, start_abs, fallback_dur)
+            # window instead of the whole episode. `fallback` is a full
+            # (start, dur) pair because the two kinds widen in OPPOSITE
+            # directions: the OP keeps its start and extends forward, the ED
+            # keeps the episode end and extends BACKWARD (a longer tail).
+            loc = _locate_audio(refs, fallback[0], fallback[1])
+        relaxed = False
         if loc is None:
             # AUDIO GATE BYPASS: the music didn't match (re-dub / translated theme
             # / audio-only trim), but the PICTURE may still be there. Scan the
             # search window by image alone, credited-only + strict gates. If it
-            # anchors, deliver a frame-accurate "video"-sourced hit; else give up.
+            # anchors, deliver a frame-accurate "video"-sourced hit.
             img = _locate_image_noaudio(refs, start_abs, dur)
-            if img is None:
+            if img is not None:
+                ref, theme_t0_img, anc = img
+                ref_dur = ref.ref_native_dur if ref.ref_native_dur > 0 else (
+                    ref.duration if ref.duration > 0 else 90.0
+                )
+                start = float(min(max(theme_t0_img, 0.0), episode_duration))
+                end = float(min(max(theme_t0_img + ref_dur, 0.0), episode_duration))
+                return ThemeHit(
+                    kind=ref.kind, slug=ref.slug, version=ref.version,
+                    start=start, end=end,
+                    votes=0, score=0.0,
+                    vote_start=start, vote_end=end,
+                    r_start=0.0, r_end=ref_dur, ref_duration=ref_dur,
+                    # "video": frame-accurate picture but no audio cross-check, so
+                    # multi_host applies the wider tolerance / down-weight. NOT
+                    # "credited" (that implies the full audio+image agreement).
+                    source="video",
+                    edge_start_source="video", edge_end_source="video",
+                    video_theme_t0=anc.theme_t0,
+                    n_landmarks=anc.n_accepted,
+                    consensus_frac=anc.consensus_frac,
+                    low_confidence=False,
+                    align_status="ok",
+                )
+            # F5 — LAST RESORT: the audio DID match somewhere but covered too
+            # little of the reference to clear `min_fill` (a TV-size broadcast cut
+            # matched against a full-version rip, a trimmed master). Retry at the
+            # relaxed floor. A low fill is also what a coincidence looks like, so
+            # this hit is only kept below if the IMAGE confirms it.
+            loc = _locate_audio(refs, start_abs, dur, fill_floor=RELAXED_MIN_FILL)
+            if loc is None:
                 return None
-            ref, theme_t0_img, anc = img
-            ref_dur = ref.ref_native_dur if ref.ref_native_dur > 0 else (
-                ref.duration if ref.duration > 0 else 90.0
-            )
-            start = float(min(max(theme_t0_img, 0.0), episode_duration))
-            end = float(min(max(theme_t0_img + ref_dur, 0.0), episode_duration))
-            return ThemeHit(
-                kind=ref.kind, slug=ref.slug, version=ref.version,
-                start=start, end=end,
-                votes=0, score=0.0,
-                vote_start=start, vote_end=end,
-                r_start=0.0, r_end=ref_dur, ref_duration=ref_dur,
-                # "video": frame-accurate picture but no audio cross-check, so
-                # multi_host applies the wider tolerance / down-weight. NOT
-                # "credited" (that implies the full audio+image agreement).
-                source="video",
-                edge_start_source="video", edge_end_source="video",
-                video_theme_t0=anc.theme_t0,
-                n_landmarks=anc.n_accepted,
-                consensus_frac=anc.consensus_frac,
-                low_confidence=False,
-            )
-        ref, theme_t0_audio, m = loc
+            relaxed = True
+
+        ref, theme_t0_audio, m = loc.ref, loc.theme_t0, loc.match
 
         ref_dur = ref.ref_native_dur if ref.ref_native_dur > 0 else (
             ref.duration if ref.duration > 0 else m.r_end
@@ -1384,6 +1483,21 @@ def detect_op_ed_v2(
             and anc.n_accepted >= min_lm
             and anc.consensus_frac >= min_frac
         )
+        # P4 — how far apart the two independent signals landed. Only meaningful
+        # when both produced an anchor; `validate` turns a large gap into a
+        # BLOCKING reason, because past a few seconds they are describing
+        # different events and there is no way to tell which one is the theme.
+        av_delta = None if anc is None else round(abs(anc.theme_t0 - theme_t0_audio), 3)
+        # Honest report of what the image concluded — "rejected" (it ran and
+        # fell short) is evidence AGAINST the hit, "absent" (never ran) is merely
+        # no evidence. Both end up audio-aligned, so `source` alone can't tell
+        # them apart.
+        align_status = "ok" if strong else ("rejected" if anc is not None else "absent")
+
+        if relaxed and not strong:
+            # The relaxed-fill locate never ships on audio alone (see above).
+            return None
+
         if strong:
             theme_t0 = anc.theme_t0          # C. image is the authority
             # Honest provenance: "credited" only when the ref WAS the credited rip
@@ -1411,19 +1525,66 @@ def detect_op_ed_v2(
             n_landmarks=(anc.n_accepted if anc is not None else 0),
             consensus_frac=(anc.consensus_frac if anc is not None else 0.0),
             low_confidence=low_conf,
+            peak_margin=loc.peak_margin,
+            theme_margin=loc.theme_margin,
+            av_delta=av_delta,
+            align_status=align_status,
+            video_disagreement=bool(
+                av_delta is not None and av_delta > validate.AV_DIVERGENCE_S
+            ),
+            anomalies=(["relaxed_fill"] if relaxed else []),
         )
+
+    def _detect_kind(refs, start_abs, dur, fallback=None, pool_refs=None):
+        """The cascade against the MAPPED refs, then (F3) against the series-wide
+        POOL if that found nothing.
+
+        AnimeThemes' `episodes` mapping is frequently off by an episode around an
+        OP1→OP2 transition, and a mapping that EXISTS but is wrong used to cost us
+        the episode outright: the pool fallback only triggered when the mapping
+        was ABSENT (batch_detect.refs_for). A pool hit is stamped `inferred`, so
+        it inherits the stricter serve gate (image confirmation required) — the
+        recovery can't smuggle in an unconfirmed guess."""
+        hit = _cascade(refs, start_abs, dur, fallback)
+        if hit is not None or not pool_refs:
+            return hit
+        tried = {(r.slug, r.version) for r in (refs or [])}
+        rest = [r for r in pool_refs if (r.slug, r.version) not in tried]
+        if not rest:
+            return None
+        hit = _cascade(rest, start_abs, dur, fallback)
+        if hit is not None:
+            hit.inferred = True
+        return hit
 
     ed_start = max(0.0, episode_duration - ed_search_from_end)
     # OP wide-fallback window, clamped so it never reaches into the ED search
     # region (a theme match there would be the ED/next-ep preview, not the OP).
-    op_fallback = min(OP_SEARCH_FALLBACK_DUR, max(op_search[1], ed_start - op_search[0]))
+    op_fallback_dur = min(
+        OP_SEARCH_FALLBACK_DUR, max(op_search[1], ed_start - op_search[0])
+    )
+    op_fallback = (op_search[0], op_fallback_dur)
+    # F2 — ED wide-fallback tail (the mirror of the OP's). A long epilogue +
+    # next-episode preview + sponsor cards can push the ED out of the 4 min tail;
+    # a longer tail rescues it. Clamped so it never reaches back into the OP
+    # search region, for the mirror-image reason.
+    ed_tail = min(
+        ed_search_from_end_fallback,
+        max(ed_search_from_end, episode_duration - (op_search[0] + op_search[1])),
+    )
+    ed_fallback = (max(0.0, episode_duration - ed_tail), ed_tail)
     with ThreadPoolExecutor(max_workers=2) as pool:
         futures = [
-            pool.submit(_detect_kind, op_refs, op_search[0], op_search[1], op_fallback),
-            pool.submit(_detect_kind, ed_refs, ed_start, ed_search_from_end),
+            pool.submit(_detect_kind, op_refs, op_search[0], op_search[1],
+                        op_fallback, op_pool_refs),
+            pool.submit(_detect_kind, ed_refs, ed_start, ed_search_from_end,
+                        ed_fallback, ed_pool_refs),
         ]
         hits = [f.result() for f in futures]
 
     kept = [h for h in hits if h is not None]
     kept.sort(key=lambda h: h.start)
+    # P1/P6/P7 — plausibility of what we are about to deliver. Reasons only; the
+    # serve gate (multi_host / batch) is what acts on them. Never moves a value.
+    validate.annotate(kept, episode_duration)
     return kept
