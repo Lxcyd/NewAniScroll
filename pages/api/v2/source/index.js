@@ -2148,7 +2148,17 @@ function titleToSlugVariants(title) {
 function isUsableSlugBase(slug) {
   if (!slug) return false;
   const letters = slug.replace(/[^a-z]/gi, "");
-  return letters.length >= 3;
+  if (letters.length < 3) return false;
+  // …and the ≥3-letter floor is not enough on its own. A non-Latin synonym that
+  // happens to embed a Latin fragment survives it as pure boilerplate: AniList
+  // lists "ผ่าพิภพไททัน Final Season" for Attack on Titan, and titleToSlug
+  // reduces it to the bare word `final-season`. That passes the letter count
+  // and would be probed as a real anime slug, matching whatever unrelated page
+  // voir-anime happens to have there. Reject a base that is nothing BUT season
+  // boilerplate — it never identifies a title.
+  return !/^(?:the-)?(?:final-|\d+(?:st|nd|rd|th)-)?(?:season|saison|part|cour|act)(?:-\d+|-[ivx]+)?$/i.test(
+    slug,
+  );
 }
 
 // Quickly check if /anime/{slug}/ exists. Routed through the CF Worker because
@@ -2267,7 +2277,26 @@ async function findVoiranimeSlug(title, aniId, isVF, seasonNum, mediaOpts = {}) 
   // batches and taking the earliest-listed hit within each batch. A hard cap
   // bounds the total work.
   const ordered = Array.from(slugCandidates).slice(0, 16);
-  const BATCH = 4;
+  // BATCH was 4, which meant only the first EIGHT candidates were ever probed:
+  // each probe allows 3.5 s, batches run back-to-back, and the deadline check
+  // sits between them — so batch 1 ends at ~3.5 s, batch 2 at ~7 s, and batch 3
+  // is refused against the 6 s budget. Everything past position 8 was dead
+  // weight, including the bare base, which is deliberately ordered LAST.
+  //
+  // That is what made voir-anime look missing for anime it carries perfectly
+  // well. Measured on Ace of the Diamond act II (AniList 105749): the title
+  // already encodes its season, so the real page is the bare
+  // `diamond-no-ace-act-ii` (HTTP 200) sitting at position 10 — never reached,
+  // while the season-suffixed forms we did probe (…-s3, -3, -saison-3,
+  // -season-3) are all 404. Same shape for Attack on Titan S2, whose
+  // `shingeki-no-kyojin-2` sits at 13.
+  //
+  // These are I/O-bound Worker fetches, so 8 in flight costs the same
+  // wall-clock as 4. Doubling the batch covers all 16 candidates in two rounds
+  // (~7 s worst case, and the second round is admitted because it starts at
+  // ~3.5 s) WITHOUT touching the priority order — which matters, because that
+  // order is what stops a season ≥2 from falling back onto the season-1 page.
+  const BATCH = 8;
   let sawInconclusive = false;
   for (let i = 0; i < ordered.length; i += BATCH) {
     if (Date.now() > deadline) { sawInconclusive = true; break; } // out of budget
