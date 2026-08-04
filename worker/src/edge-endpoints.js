@@ -4,7 +4,7 @@
  * polling (health/broadcast) or on every navigation (track) — work that doesn't
  * belong on CPU-metered serverless when an edge Worker can do it ~free.
  *
- *   GET  /w/health    → AniList health signal, read from Cloudflare KV.
+ *   GET  /w/status    → config self-check (is analytics wired up?).
  *   GET  /w/broadcast → current site broadcast, read from Cloudflare KV.
  *   POST /w/track     → pageview analytics, written to Turso over HTTP.
  *
@@ -16,7 +16,7 @@
  *   here. KV reads are edge-local and effectively free.
  *
  * Bindings expected in wrangler.toml:
- *   [[kv_namespaces]] binding = "W2G_CACHE"   (health + broadcast values)
+ *   [[kv_namespaces]] binding = "W2G_CACHE"   (broadcast value)
  *   [vars] / secrets: TURSO_ADMIN_URL, TURSO_ADMIN_TOKEN  (for /w/track)
  */
 
@@ -111,7 +111,16 @@ async function handleTrack(request, env, ctx) {
 
   const url = env.TURSO_ADMIN_URL;
   const token = env.TURSO_ADMIN_TOKEN;
-  if (!url || !token) return json({ ok: true }); // analytics disabled → fail open
+  if (!url || !token) {
+    // Analytics disabled → still fail OPEN (never block a page load), but say
+    // so in the body. This used to answer a bare `{ok:true}`, indistinguishable
+    // from a successful write, which is how pageview logging died on
+    // 2026-07-11 and went unnoticed for weeks: the table simply stopped
+    // growing and nothing anywhere said why. `stored` is the signal — see
+    // /w/status, which reports the same thing without writing a row.
+    console.error("[w/track] TURSO_ADMIN_URL / TURSO_ADMIN_TOKEN not configured");
+    return json({ ok: true, stored: false, reason: "unconfigured" });
+  }
 
   const httpUrl =
     url.replace(/^libsql:\/\//, "https://").replace(/\/+$/, "") + "/v2/pipeline";
@@ -132,6 +141,13 @@ async function handleTrack(request, env, ctx) {
 
   // Fire-and-forget the DB write so the response returns immediately; analytics
   // must never delay or fail a page load.
+  //
+  // The `.catch(() => {})` here used to swallow EVERYTHING — including a 401
+  // from a rotated Turso token, which is the most likely way this breaks. A
+  // rejected write and a successful one looked identical from every angle, so
+  // the only symptom was a table that quietly stopped growing. We still never
+  // throw, but we do log: a non-2xx or a network error now shows up in
+  // `wrangler tail` / the Cloudflare dashboard instead of vanishing.
   const write = fetch(httpUrl, {
     method: "POST",
     headers: {
@@ -139,10 +155,20 @@ async function handleTrack(request, env, ctx) {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({ requests: [stmt, { type: "close" }] }),
-  }).catch(() => {});
+  })
+    .then(async (r) => {
+      if (!r.ok) {
+        console.error(
+          `[w/track] Turso write failed: HTTP ${r.status} ${(await r.text().catch(() => "")).slice(0, 200)}`,
+        );
+      }
+    })
+    .catch((e) => {
+      console.error(`[w/track] Turso write threw: ${e?.message || e}`);
+    });
   if (ctx) ctx.waitUntil(write);
 
-  return json({ ok: true });
+  return json({ ok: true, stored: true });
 }
 
 function nullableText(v) {
@@ -166,6 +192,23 @@ export async function handleEdgeEndpoint(request, env, ctx) {
   }
   if (pathname === "/w/track" && request.method === "POST") {
     return handleTrack(request, env, ctx);
+  }
+  if (pathname === "/w/status" && request.method === "GET") {
+    // Read-only self-check. Pageview logging silently stopped on 2026-07-11 and
+    // nobody could tell, because the only way to observe it was to notice a
+    // Turso table had stopped growing. Booleans only — never echo the secrets.
+    return json(
+      {
+        ok: true,
+        analytics: {
+          urlConfigured: Boolean(env.TURSO_ADMIN_URL),
+          tokenConfigured: Boolean(env.TURSO_ADMIN_TOKEN),
+        },
+        kv: { broadcast: Boolean(env.W2G_CACHE) },
+      },
+      200,
+      { "Cache-Control": "no-store" },
+    );
   }
   return json({ error: "Not found" }, 404);
 }
