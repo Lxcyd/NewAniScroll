@@ -242,7 +242,9 @@ a {
   cursor: pointer;
   border-radius: 6px;
   padding: 2px 6px;
-  margin: -2px -6px;
+  /* Vertical pull only. A negative horizontal margin would drag the group back
+     under its neighbours — on the left that's the volume slider's thumb. */
+  margin: -2px 0;
   transition: color 0.15s ease, background-color 0.15s ease;
 }
 .vds-player .vds-time-group:hover,
@@ -297,6 +299,10 @@ a {
 .vds-player .vds-volume-slider:focus-within,
 .vds-player .vds-volume-slider[data-active] {
   margin-left: 9px;
+  /* Vidstack zeroes the base `margin: 0 calc(thumb-size / 2)` and only puts the
+     left half back, so at full volume the thumb overflowed the slider's right
+     edge and sat on top of the time readout. Give that half back. */
+  margin-right: calc(var(--media-slider-thumb-size, 15px) / 2);
   max-width: var(--video-volume-slider-max-width, 72px);
   pointer-events: auto;
 }
