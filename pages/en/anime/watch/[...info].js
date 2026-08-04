@@ -1102,14 +1102,21 @@ export default function Watch({
   // already there, so the chapter pills/skip segments appear the moment the
   // video reports its duration instead of waiting on a fetch that only starts
   // after the player JS downloads. Fire-and-forget: the cache is the channel.
+  // Gated on `serverResolved` for the same reason the source fetch is: until the
+  // saved preference has been read, `activeServer` is still the SSR-safe
+  // "megaplay" placeholder. Since the cache key includes the server (per-host
+  // OP/ED), firing here warmed an entry for a server we were about to leave —
+  // one wasted /api/v2/skip round-trip per page load, thrown away a few ms later
+  // when the preference landed and the effect re-ran with the real server.
   useEffect(() => {
+    if (!serverResolved) return;
     if (!info?.idMal || !epiNumber) return;
     // Pass the active server so the warmed entry is the per-host one SkipOverlay
     // (which keys by server) will read — otherwise it'd warm the lang-keyed
     // reconciled entry and the overlay would still fetch its own.
     prefetchSkips(info.idMal, Number(epiNumber), info.id, { server: activeServer });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [info?.idMal, info?.id, epiNumber, activeServer]);
+  }, [serverResolved, info?.idMal, info?.id, epiNumber, activeServer]);
 
   // ── Fetch stream source when server needs backend (hls or api) ──
   // Tracks the latest in-flight request so server-change / navigation aborts it.
