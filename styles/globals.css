@@ -247,11 +247,41 @@ a {
 }
 .vds-player .vds-time-group:hover,
 .vds-player .vds-time-group:focus-visible {
-  color: var(--brand-primary, #e94560);
   background: rgba(255, 255, 255, 0.1);
+}
+/* `.vds-time` and `.vds-time-divider` each set their own `color`, so tinting
+   only the group leaves the digits white — the children have to be targeted. */
+.vds-player .vds-time-group:hover .vds-time,
+.vds-player .vds-time-group:hover .vds-time-divider,
+.vds-player .vds-time-group:focus-visible .vds-time,
+.vds-player .vds-time-group:focus-visible .vds-time-divider {
+  color: var(--brand-primary, #e94560);
 }
 .vds-player .vds-time-group:focus-visible {
   outline: none;
+}
+
+/* Volume slider — fix the expand/collapse loop on the mute button's right edge.
+   Vidstack expands the slider only while the BUTTON is hovered, and the
+   collapsed slider sits flush against that edge: its box is 0-wide but the thumb
+   still paints (and hit-tests) outside it, so the pointer alternated between
+   button and thumb — expand, collapse, expand… Two halves to the fix: a
+   collapsed slider takes no pointer events at all (only the button can be
+   hovered → it opens), and once open, hovering the slider itself keeps it open
+   (so nothing can pull the hover back off). */
+.vds-player .vds-volume-slider {
+  pointer-events: none;
+}
+.vds-player [data-media-mute-button]:hover ~ .vds-volume-slider,
+/* Vidstack's own trigger (hover OR keyboard focus on the button) — kept so a
+   focus-expanded slider stays interactive despite the pointer-events reset. */
+.vds-player [data-media-mute-button][data-hocus] ~ .vds-volume-slider,
+.vds-player .vds-volume-slider:hover,
+.vds-player .vds-volume-slider:focus-within,
+.vds-player .vds-volume-slider[data-active] {
+  margin-left: 9px;
+  max-width: var(--video-volume-slider-max-width, 72px);
+  pointer-events: auto;
 }
 
 /* Floating Skip Intro / Skip Outro button (dark pill on left of
