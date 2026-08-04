@@ -41,7 +41,7 @@ creds are missing (the run still produces the parts it can).
 | Collector | Env vars | Where to get them |
 |---|---|---|
 | **Census** (required for the useful part) | `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` (or a live `REDIS_URL`) | Upstash console → **aniscroll-cache** → *REST API* tab |
-| **Daily requests** | `UPSTASH_EMAIL` + `UPSTASH_API_KEY` (+ optional `UPSTASH_DATABASE_ID`) | Upstash console → *Account* → **Management API** → create key |
+| **Daily requests** | `UPSTASH_EMAIL` + `UPSTASH_API_KEY` (+ optional `UPSTASH_DATABASE_ID`) | Upstash console → avatar → *Settings* → **Developer API** tab (`console.upstash.com/account/api`) → *Create API key*. Account-wide key, shown once. Not to be confused with the per-database `UPSTASH_REDIS_REST_*` in the DB's *REST API* tab. |
 | **Vercel deploys** | `VERCEL_TOKEN` (+ optional `VERCEL_PROJECT_ID`, `VERCEL_TEAM_ID`) | vercel.com → *Account Settings* → **Tokens** |
 
 > ⚠️ The `REDIS_URL` currently in `.env.local` points at an **old, deleted**
