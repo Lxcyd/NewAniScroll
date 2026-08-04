@@ -1,5 +1,77 @@
 # DEVLOG
 
+## 2026-08-04 (suite 2) — 🔴 La base ADMIN n'est plus écrite depuis la prod (11/07)
+
+Trouvé en cherchant « ce qui reste à faire » : ce n'est pas de la perf, c'est une
+panne de production silencieuse depuis presque quatre semaines.
+
+### Le constat
+Deux chemins d'écriture **indépendants** vers la base Turso ADMIN se sont
+arrêtés à 26 h d'intervalle :
+
+| table | écrite par | dernière écriture |
+|---|---|---|
+| `bug_reports` | route Vercel `/api/v2/admin/bug-report` | **2026-07-10 19:03** |
+| `user_analytics` | Worker Cloudflare `/w/track` | **2026-07-11 21:14** |
+
+`user_analytics` tournait à 50-110 pages vues/jour (12 443 lignes) puis plus rien.
+
+### Le diagnostic
+Le facteur commun n'est ni Vercel ni Cloudflare : c'est le **couple
+TURSO_ADMIN_URL / TURSO_ADMIN_TOKEN**, configuré séparément des deux côtés.
+Éléments qui verrouillent la conclusion :
+
+- La base **MAIN** (`TURSO_DATABASE_URL`, creds différents) est écrite depuis la
+  prod **aujourd'hui** (`player_map.checked_at` = 04/08 06:41). Donc Turso n'est
+  pas en panne et la prod tourne.
+- Le token ADMIN de `.env.local` **lit la base sans problème** → le token a été
+  renouvelé en local lors d'une rotation, mais **ni Vercel ni Cloudflare** n'ont
+  reçu le nouveau.
+- Aucun changement de code sur le chemin de report à cette date. Le seul commit
+  proche (0fc9f23, 07/07, refonte des notices) est écarté : des rapports sont
+  arrivés les 9 et 10 juillet APRÈS lui.
+
+### Ce que ça casse, en silence
+1. **Les rapports de bug ne sont plus enregistrés.** La route renvoie un 500 à
+   l'utilisateur — bruyant pour lui, muet pour nous. Le bouton report est notre
+   seul canal de remontée : on est aveugles depuis un mois.
+2. **Analytics visiteurs mortes.** C'est aussi la seule qui voit l'IP → la
+   modération / le bannissement d'IP travaille à l'aveugle.
+3. `banned_ips` est vide et ne peut pas être écrite.
+
+### À faire (côté dashboards, pas côté code)
+Repousser le token ADMIN courant dans les deux environnements :
+`vercel env` pour `TURSO_ADMIN_URL`/`TURSO_ADMIN_TOKEN`, et
+`wrangler secret put TURSO_ADMIN_TOKEN` pour le Worker. Puis vérifier
+`GET /w/status` (nouveau) et guetter une ligne fraîche dans `user_analytics`.
+
+### Corrigé côté code : la cécité
+Le token, je ne peux pas le voir. Mais la panne était **inobservable**, et c'est
+ça le vrai défaut. Dans le Worker (`worker/src/edge-endpoints.js`) :
+- config absente renvoyait un `{ok:true}` nu, identique à une écriture réussie
+  → `{ok:true, stored:false, reason:"unconfigured"}` + `console.error` ;
+- le `.catch(() => {})` avalait TOUT, y compris le 401 d'un token expiré — le
+  mode de panne exact qu'on vient de vivre. On n'échoue toujours jamais, mais on
+  logge : visible dans `wrangler tail` ;
+- nouveau `GET /w/status`, lecture seule, booléens uniquement (jamais les
+  secrets), constatable d'un `curl`.
+
+**Leçon** : un chemin fail-open sans log est un chemin qui meurt sans témoin.
+Tout `.catch(() => {})` sur une écriture doit au minimum logger.
+
+### Autres tables — état des lieux
+Passe de fraîcheur sur les deux bases :
+- Saines : `anime` (22 533, 0 j), `season_cache` (31 380, 0 j), `player_map`
+  (3 484, 0,3 j), `fribb_map` (20 693, 1,3 j), `anime_fanarts` (123 339, 4,3 j).
+- **`oped_skips` = 0 et `oped_host_skips` = 0**, `skip_episodes` = 1 ligne. Tout
+  le travail du détecteur d'OP/ED n'a **jamais été importé en base** — l'endpoint
+  `/api/v2/skip` (718 invocations/12 h) retombe donc systématiquement sur
+  AniSkip. Le TODO de l'importeur JSONL→DB (noté au 01/07) est toujours ouvert.
+- `tmdb_stills_cache` : 10 lignes, 18 j. Vestige — TMDB est banni comme provider
+  depuis le 03/08, Simkl est la seule source de vignettes. Table à supprimer.
+
+---
+
 ## 2026-08-04 (suite) — Passe de propreté : deps mortes, duplication, pages statiques
 
 Suite de la passe de perf. Cette fois la question était « que reste-t-il de sale,
