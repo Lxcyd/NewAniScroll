@@ -149,7 +149,7 @@
       "autoPausePending": "La mise en pause s'appliquera à vos anime quand vous quitterez ce menu.",
       "days": "jours",
       "threshold": "Seuil de synchronisation",
-      "thresholdDesc": "À partir de quel pourcentage un épisode est considéré comme vu (progression +1, et mise à jour AniList si connecté).",
+      "thresholdDesc": "Un épisode est compté comme vu dès que son générique de fin commence. Ce pourcentage sert de repli quand le générique n'est pas détecté (progression +1, et mise à jour AniList si connecté).",
       "resyncNow": "Resynchroniser maintenant",
       "syncing": "Synchronisation…",
       "synced": "{{count}} entrées synchronisées depuis AniList",

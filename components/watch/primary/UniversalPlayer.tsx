@@ -263,6 +263,30 @@ const HLS_CONFIG_DIRECT = {
 // clean than drop the user onto the end card.
 const END_GUARD = 15;
 
+// An "ed" segment sitting in the first half of an episode is a mis-tagged
+// marker (recap, swapped op/ed), not the real ending — trusting it would
+// declare the episode watched a few minutes in.
+const OUTRO_MIN_FRACTION = 0.5;
+
+/**
+ * Start of the episode's ending (ED), or null when there's no usable one.
+ * Segments arrive already clamped/sanity-filtered from SkipOverlay; we only
+ * add the back-half guard above and take the earliest qualifying ED.
+ */
+function getOutroStart(
+  segments: Array<{ start: number; end: number; type: string }> | undefined,
+  duration: number,
+): number | null {
+  if (!segments?.length || !(duration > 0)) return null;
+  let best: number | null = null;
+  for (const s of segments) {
+    if (s.type !== "ed") continue;
+    if (s.start < duration * OUTRO_MIN_FRACTION) continue;
+    if (best == null || s.start < best) best = s.start;
+  }
+  return best;
+}
+
 function proxied(
   url: string,
   referer?: string | null,
@@ -1665,6 +1689,12 @@ export default function UniversalPlayer({
      mechanic Miruro uses (no overlay hacks, no DOM portaling). */
   const skipTimes: Array<{ start: number; end: number; type: string }> =
     watchCtx.skipTimes || [];
+  // Latest segments in a ref: the (episode-scoped) progress effect reads the ED
+  // start on every timeupdate and must not re-bind when the skip data lands.
+  const skipTimesRef = useRef(skipTimes);
+  useEffect(() => {
+    skipTimesRef.current = skipTimes;
+  }, [skipTimes]);
   // Real video duration drives the trailing "Episode" cue. We read
   // `useMediaState("duration")` (the value Vidstack uses for its own
   // seek bar — same denominator the chapter pills are scaled against)
@@ -2908,8 +2938,8 @@ export default function UniversalPlayer({
     let lastSavedAt = 0;
     let resumeApplied = false;
     // Fire the "episode counts as watched" callback at most once per mount —
-    // either when playback crosses the Sync Threshold (e.g. 80%) or on the
-    // natural end, whichever comes first.
+    // when the ending (ED) starts, or, without ED data, when playback crosses
+    // the Sync Threshold (e.g. 80%) / reaches the natural end.
     let completeFired = false;
     const fireComplete = () => {
       if (completeFired) return;
@@ -2955,12 +2985,19 @@ export default function UniversalPlayer({
       // Count toward the watch streak once the user has genuinely watched a bit
       // (≥2 min) — more reliable than waiting for a full finish. Idempotent/day.
       if (video.currentTime >= 120) recordWatchToday();
-      // Sync Threshold: count the episode as watched once playback passes the
-      // configured fraction (default 80%), without waiting for the very end.
+      // "Watched" trigger. Preferred signal: the ENDING itself — once the ED
+      // starts the episode's story is over, so it counts as finished there
+      // (credits + next-episode preview don't need watching). Only when no ED
+      // is known for this episode do we fall back to the configured Sync
+      // Threshold fraction (default 80%).
       const dur = video.duration || 0;
       if (!completeFired && dur > 0) {
-        const threshold = getSyncPrefs().syncThreshold;
-        if (video.currentTime / dur >= threshold) fireComplete();
+        const outroStart = getOutroStart(skipTimesRef.current, dur);
+        if (outroStart != null) {
+          if (video.currentTime >= outroStart) fireComplete();
+        } else if (video.currentTime / dur >= getSyncPrefs().syncThreshold) {
+          fireComplete();
+        }
       }
     };
 

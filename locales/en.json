@@ -149,7 +149,7 @@
       "autoPausePending": "Pausing will be applied to your anime when you leave this menu.",
       "days": "days",
       "threshold": "Sync threshold",
-      "thresholdDesc": "How far into an episode counts as watched (progress +1, and an AniList update when connected).",
+      "thresholdDesc": "An episode counts as watched as soon as its ending starts. This percentage is the fallback for episodes with no detected ending (progress +1, and an AniList update when connected).",
       "resyncNow": "Resync now",
       "syncing": "Syncing…",
       "synced": "Synced {{count}} entries from AniList",
