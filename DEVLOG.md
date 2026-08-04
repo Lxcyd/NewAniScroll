@@ -1,6 +1,49 @@
 # DEVLOG
 
-## 2026-08-04 (suite 2) — 🔴 La base ADMIN n'est plus écrite depuis la prod (11/07)
+## 2026-08-04 (suite 3) — CORRECTION de l'entrée précédente : Vercel va bien, seul le Worker est muet
+
+**L'entrée « suite 2 » ci-dessous est FAUSSE sur son point principal.** Je l'ai
+laissée telle quelle plutôt que de la réécrire, parce que l'erreur de méthode est
+plus instructive que le diagnostic.
+
+### Ce que j'avais conclu (à tort)
+Que `bug_reports` (écrit par Vercel) et `user_analytics` (écrit par le Worker)
+s'étant arrêtés à 26 h d'intervalle, le facteur commun était forcément le couple
+`TURSO_ADMIN_*`, périmé des deux côtés. J'ai écrit « c'est étanche ».
+
+### Ce que dit le test
+Un POST réel sur `/api/v2/admin/bug-report` en prod : **`{"message":"Report
+received","id":39}` — HTTP 200.** La ligne est apparue dans la base lue en local
+(donc même base), puis supprimée. Vercel écrit parfaitement dans la base ADMIN.
+
+`bug_reports` s'arrêtait au 10/07 pour la raison la plus bête : **personne n'a
+envoyé de rapport depuis**. 38 rapports en six semaines, très irréguliers
+(28/06, 29/06, 07/07, 09/07, 10/07) — un trou de 25 jours n'a rien d'anormal à ce
+rythme. J'ai pris une coïncidence pour une corrélation, sur un échantillon de deux.
+
+### Ce qui reste vrai
+`user_analytics` est bien morte depuis le **11/07 21:14**, et le Worker en est le
+**seul** écrivain depuis le 4-5/07. Le problème est donc entièrement côté
+Cloudflare — secrets propres, configurés par `wrangler secret put`, indépendants
+de ceux de Vercel. Non vérifiable d'ici : wrangler exige un `CLOUDFLARE_API_TOKEN`
+en session non interactive. À faire à la main :
+`wrangler secret list`, puis `wrangler secret put TURSO_ADMIN_TOKEN` /
+`TURSO_ADMIN_URL`, redéployer, et vérifier `GET /w/status`.
+
+Les correctifs d'observabilité du Worker (commit 1dcfb0c) restent entièrement
+valables : c'est justement parce que tout y était muet que j'ai dû deviner.
+
+### La leçon
+Deux séries temporelles qui s'arrêtent en même temps ne partagent pas forcément
+une cause — surtout quand l'une est un flux continu (50-110 lignes/jour) et
+l'autre un événement rare (moins d'un par jour). **Il fallait tester le chemin
+d'écriture avant de conclure**, ce qui coûtait une requête curl. Le DEVLOG du
+01/07 disait déjà « ne pas surinterpréter une capture » ; ici c'était deux dates.
+
+---
+
+
+## 2026-08-04 (suite 2) — ⚠️ ENTRÉE ERRONÉE (voir la correction en suite 3) — la base ADMIN n'est plus écrite depuis la prod (11/07)
 
 Trouvé en cherchant « ce qui reste à faire » : ce n'est pas de la perf, c'est une
 panne de production silencieuse depuis presque quatre semaines.
