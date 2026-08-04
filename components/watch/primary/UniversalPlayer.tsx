@@ -2221,6 +2221,32 @@ export default function UniversalPlayer({
     };
   }, [playerElState, t]);
 
+  // ── Volume bar: drop the focus a click leaves behind ──
+  // The bar is only meant to be open while you're pointing at it, but Vidstack
+  // expands it on `data-active` = dragging || focused || pointing. Setting the
+  // volume with the mouse focuses the slider, so `focused` stayed true and the
+  // bar never closed again. Blur on pointerup — the pointer is done with it by
+  // then, and keyboard users (who tab, never click) keep their focus ring.
+  useEffect(() => {
+    const playerEl = playerElState;
+    if (!playerEl) return;
+    const onPointerUp = (e: PointerEvent) => {
+      if (e.pointerType === "mouse" && e.button !== 0) return;
+      const slider = (e.target as HTMLElement | null)?.closest<HTMLElement>(
+        ".vds-volume-slider",
+      );
+      if (!slider) return;
+      // One frame later: Vidstack finishes its own pointerup work (which can
+      // re-focus the slider) before we take the focus away.
+      requestAnimationFrame(() => {
+        const active = document.activeElement as HTMLElement | null;
+        if (active && slider.contains(active)) active.blur();
+      });
+    };
+    playerEl.addEventListener("pointerup", onPointerUp);
+    return () => playerEl.removeEventListener("pointerup", onPointerUp);
+  }, [playerElState]);
+
   // ── iOS native-player interception ──
   // Safari on iPhone/iPad responds to a fullscreen <video> by handing it off to
   // the system player, which hides every overlay we draw (Skip / Next / custom

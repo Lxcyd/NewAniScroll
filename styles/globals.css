@@ -296,8 +296,12 @@ a {
    focus-expanded slider stays interactive despite the pointer-events reset. */
 .vds-player [data-media-mute-button][data-hocus] ~ .vds-volume-slider,
 .vds-player .vds-volume-slider:hover,
-.vds-player .vds-volume-slider:focus-within,
-.vds-player .vds-volume-slider[data-active] {
+/* Keyboard focus only. Vidstack's own `[data-active]` is `dragging || focused ||
+   pointing`, so after a mouse click the bar stayed open for good — the click's
+   DOM focus is dropped in UniversalPlayer (pointerup → blur) so that state can't
+   linger, and `:focus-visible` keeps the keyboard path working. */
+.vds-player .vds-volume-slider:focus-visible,
+.vds-player .vds-volume-slider[data-dragging] {
   margin-left: 9px;
   /* Vidstack zeroes the base `margin: 0 calc(thumb-size / 2)` and only puts the
      left half back, so at full volume the thumb overflowed the slider's right
