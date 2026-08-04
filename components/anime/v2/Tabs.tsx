@@ -1,31 +1,15 @@
 import { CSSProperties, useEffect, useState } from "react";
-import dynamic from "next/dynamic";
 import { AniListInfoTypes } from "types/info/AnilistInfoTypes";
 import Overview from "./Overview";
+import Episodes from "./Episodes";
+import CharactersTab from "./CharactersTab";
+import Artworks from "./Artworks";
+import ScoresTab from "./ScoresTab";
 import type { FanartsMeta } from "./helpers";
 import type { SeasonEntry } from "@/lib/anilist/seasonChain";
 import type { FilmVariant } from "@/lib/anilist/resolveSeason";
 import { useTranslation } from "react-i18next";
 import { replaceUrlPreservingState } from "@/lib/navigation/replaceUrl";
-
-/* Only Overview renders on first paint (the tab bodies below are mounted on
-   selection, and the hash restore happens after mount). Statically importing
-   the other four still shipped all of their code — Episodes alone is the
-   largest component in the app — to every visitor of every anime page,
-   including the majority who never leave Overview. Each is its own chunk now,
-   fetched when its tab is first opened.
-
-   ssr:true is deliberate: nothing here is browser-only, and a tab restored
-   from the URL hash on a shared link still renders server-side. */
-const tabFallback = () => (
-  <div style={{ padding: "40px 0", textAlign: "center", color: "var(--txt-3)" }}>
-    …
-  </div>
-);
-const Episodes = dynamic(() => import("./Episodes"), { loading: tabFallback });
-const CharactersTab = dynamic(() => import("./CharactersTab"), { loading: tabFallback });
-const Artworks = dynamic(() => import("./Artworks"), { loading: tabFallback });
-const ScoresTab = dynamic(() => import("./ScoresTab"), { loading: tabFallback });
 
 type TabId = "overview" | "episodes" | "scores" | "characters" | "artworks";
 const VALID_TABS: TabId[] = ["overview", "episodes", "scores", "characters", "artworks"];

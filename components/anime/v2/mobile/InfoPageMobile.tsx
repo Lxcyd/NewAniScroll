@@ -13,7 +13,6 @@
  * import noise.
  */
 import Link from "next/link";
-import dynamic from "next/dynamic";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AniListInfoTypes } from "types/info/AnilistInfoTypes";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
@@ -43,23 +42,13 @@ import { useNavBackdrop } from "@/lib/color/navContrast";
 import { useFanartSrc, onFanartError } from "@/lib/images/fanartFallback";
 import type { SeasonEntry } from "@/lib/anilist/seasonChain";
 import type { FilmVariant } from "@/lib/anilist/resolveSeason";
+import CharactersTab from "../CharactersTab";
+import Episodes from "../Episodes";
+import Artworks from "../Artworks";
 import QueueButton from "../QueueButton";
+import ScoresTab from "../ScoresTab";
 import Related from "../Related";
-
-/* Same reasoning as the desktop Tabs component: only Overview paints on load,
-   so the other tab bodies (Episodes is the app's largest component) and the
-   relations overlay ship as their own chunks instead of riding in every anime
-   page's bundle. */
-const tabFallback = () => (
-  <div style={{ padding: "40px 0", textAlign: "center", color: "var(--txt-3)" }}>
-    …
-  </div>
-);
-const Episodes = dynamic(() => import("../Episodes"), { loading: tabFallback });
-const CharactersTab = dynamic(() => import("../CharactersTab"), { loading: tabFallback });
-const Artworks = dynamic(() => import("../Artworks"), { loading: tabFallback });
-const ScoresTab = dynamic(() => import("../ScoresTab"), { loading: tabFallback });
-const RelationsGraph = dynamic(() => import("../RelationsGraph"));
+import RelationsGraph from "../RelationsGraph";
 import { coverUrl } from "@/lib/images/cover";
 
 type Props = {
@@ -770,11 +759,6 @@ function MOverview({
   const { t, i18n } = useTranslation();
   const [exp, setExp] = useState(false);
   const [graphOpen, setGraphOpen] = useState(false);
-  /* Mount the (lazily-chunked) overlay only once it has been opened, so the
-     chunk isn't fetched on page load — it renders null when closed anyway.
-     Sticky rather than tied to `graphOpen` so a reopened graph keeps its
-     pan/zoom, exactly as when it was always mounted. */
-  const [graphMounted, setGraphMounted] = useState(false);
   const description = useTranslatedText(stripHtml(info.description || ""));
   const aired = formatAiredRange(info);
   const premiered = prettySeason(info);
@@ -901,10 +885,7 @@ function MOverview({
             <span>RELATIONS</span>
             <button
               type="button"
-              onClick={() => {
-                  setGraphMounted(true);
-                  setGraphOpen(true);
-                }}
+              onClick={() => setGraphOpen(true)}
               style={{
                 display: "inline-flex",
                 alignItems: "center",
@@ -928,15 +909,13 @@ function MOverview({
               currentId={info.id}
             />
           </div>
-          {graphMounted && (
-            <RelationsGraph
-              open={graphOpen}
-              onClose={() => setGraphOpen(false)}
-              relations={info.relations?.edges || []}
-              seasonList={seasonList}
-              currentId={info.id}
-            />
-          )}
+          <RelationsGraph
+            open={graphOpen}
+            onClose={() => setGraphOpen(false)}
+            relations={info.relations?.edges || []}
+            seasonList={seasonList}
+            currentId={info.id}
+          />
         </section>
       ) : null}
 
