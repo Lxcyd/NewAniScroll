@@ -8,7 +8,14 @@ import {
   upsertLocalEntry,
   removeLocalEntry,
 } from "@/lib/list/localList";
-import { inputToFuzzy as toFuzzy } from "@/lib/list/types";
+/* This file used to import inputToFuzzy under an alias AND define its own
+   identical copy under the real name, so two call sites used one and two used
+   the other. One import, one implementation. */
+import {
+  fuzzyToInput,
+  inputToFuzzy,
+  type FuzzyDate,
+} from "@/lib/list/types";
 import { useSyncPrefs } from "@/lib/prefs/syncPrefs";
 
 /**
@@ -70,19 +77,6 @@ const STATUS_KEY: Record<Status, string> = {
 };
 
 // AniList stores dates as { year, month, day }. Helpers to/from <input type=date>.
-type FuzzyDate = { year: number | null; month: number | null; day: number | null };
-function fuzzyToInput(d?: FuzzyDate | null): string {
-  if (!d?.year || !d?.month || !d?.day) return "";
-  const mm = String(d.month).padStart(2, "0");
-  const dd = String(d.day).padStart(2, "0");
-  return `${d.year}-${mm}-${dd}`;
-}
-function inputToFuzzy(s: string): FuzzyDate | null {
-  if (!s) return null;
-  const [y, m, d] = s.split("-").map((n) => parseInt(n, 10));
-  if (!y || !m || !d) return null;
-  return { year: y, month: m, day: d };
-}
 
 // Score (0-10, step 0.5) → bar colour class. Matches the reference tiers.
 function scoreColorClass(score: number): string {
@@ -422,8 +416,8 @@ const ListEditor: React.FC<ListEditorProps> = ({
           info?.coverImage?.large || info?.coverImage?.extraLarge || null,
         notes: notes || null,
         repeat: rewatches,
-        startedAt: startDate ? toFuzzy(startDate) : null,
-        completedAt: finishDate ? toFuzzy(finishDate) : null,
+        startedAt: startDate ? inputToFuzzy(startDate) : null,
+        completedAt: finishDate ? inputToFuzzy(finishDate) : null,
       });
       onSaved?.({ status, progress, score, removed: false });
       notify.success(t("listEditor.saved"));

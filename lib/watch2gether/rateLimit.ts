@@ -10,12 +10,9 @@ import type { NextApiRequest } from "next";
 import { rateLimiterRedis, rateLimitStrict, rateSuperStrict } from "@/lib/redis";
 
 /** First hop in X-Forwarded-For (the real client on Vercel), else the socket. */
-export function getClientIp(req: NextApiRequest): string {
-  const xff = req.headers["x-forwarded-for"];
-  if (typeof xff === "string" && xff) return xff.split(",")[0].trim();
-  if (Array.isArray(xff) && xff.length) return xff[0];
-  return req.socket?.remoteAddress || "unknown";
-}
+/** Re-exported for the existing callers; the implementation is shared now. */
+export { getClientIp } from "@/lib/net/clientIp";
+import { getClientIp } from "@/lib/net/clientIp";
 
 type Tier = "normal" | "strict" | "superstrict";
 
@@ -31,7 +28,7 @@ export async function allowByIp(
   const limiter =
     tier === "superstrict" ? rateSuperStrict : tier === "normal" ? rateLimiterRedis : rateLimitStrict;
   if (!limiter) return true;
-  const key = `w2g:ip:${tag}:${getClientIp(req)}`;
+  const key = `w2g:ip:${tag}:${getClientIp(req) ?? "unknown"}`;
   try {
     await limiter.consume(key);
     return true;

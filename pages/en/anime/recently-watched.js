@@ -4,17 +4,22 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import Skeleton from "react-loading-skeleton";
 import Footer from "@/components/shared/footer";
-import { getServerSession } from "next-auth";
-import { authOptions } from "../../api/auth/[...nextauth]";
+import { useSession } from "next-auth/react";
 import { ChevronRightIcon, MagnifyingGlassIcon } from "@heroicons/react/24/outline";
 import { useRouter } from "next/router";
-import HistoryOptions from "@/components/home/content/historyOptions";
+import HistoryOptions from "@/components/home/historyOptions";
 import Head from "next/head";
 import MobileNav from "@/components/shared/MobileNav";
 import { notify } from "@/lib/notifications/noticeStore";
 import { useTranslation } from "react-i18next";
 
-export default function PopularAnime({ sessions }) {
+/* No getServerSideProps. The session was fetched server-side and passed down,
+   which made this page dynamic (one serverless invocation per view) — but it is
+   only ever read inside effects that run on the client anyway. useSession()
+   gives the same object from the provider _app already mounts, and the page
+   becomes static. */
+export default function RecentlyWatched() {
+  const { data: sessions } = useSession();
   const { t } = useTranslation();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -216,7 +221,7 @@ export default function PopularAnime({ sessions }) {
       <Head>
         <title>AniScroll • {t("home.recentlyWatched")}</title>
       </Head>
-      <MobileNav sessions={sessions} />
+      <MobileNav />
 
       <div className="min-h-screen w-full relative pb-16">
         {/* ── Hero header ───────────────────────────────────────────────── */}
@@ -522,14 +527,4 @@ function groupByRecency(rows, t) {
     buckets.month,
     buckets.older,
   ].filter((b) => b.items.length > 0);
-}
-
-export async function getServerSideProps(context) {
-  const session = await getServerSession(context.req, context.res, authOptions);
-
-  return {
-    props: {
-      sessions: session,
-    },
-  };
 }

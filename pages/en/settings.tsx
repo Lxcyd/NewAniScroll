@@ -1,7 +1,6 @@
 import Head from "next/head";
 import Image from "next/image";
 import dynamic from "next/dynamic";
-import { motion } from "framer-motion";
 import { Navbar } from "@/components/shared/NavBar";
 import Footer from "@/components/shared/footer";
 import AniListLogo from "@/components/media/aniList";
@@ -728,12 +727,7 @@ export default function Settings() {
           content below is pushed right by a matching margin. */}
       <SettingsNav sections={navSections} active={activeSection} />
 
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        className="min-h-screen py-16 md:py-0"
-      >
+      <div className="as-fade-in min-h-screen py-16 md:py-0">
         <div className="max-w-screen-md w-full mx-auto px-4 pt-28 pb-10">
           <h1 className="text-4xl font-bold mb-2 text-center">{t("settings.title")}</h1>
           <p className="text-white/60 mb-12 text-center">
@@ -1308,7 +1302,7 @@ export default function Settings() {
           </section>
           </div>
         </div>
-      </motion.div>
+      </div>
       <Footer />
       {shortcutEditorOpen && (
         <ShortcutEditor onClose={() => setShortcutEditorOpen(false)} />

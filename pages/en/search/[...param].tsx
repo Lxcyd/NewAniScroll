@@ -1,5 +1,4 @@
 import { Key, useEffect, useRef, useState } from "react";
-import { motion as m } from "framer-motion";
 import Skeleton from "react-loading-skeleton";
 import { useRouter } from "next/router";
 import Link from "next/link";
@@ -33,6 +32,7 @@ import { StaticImport } from "next/dist/shared/lib/get-img-props";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { animeHref, useClickTarget } from "@/lib/prefs/clickTarget";
 import { useTranslation } from "react-i18next";
+import { useInfiniteScroll } from "@/lib/hooks/useInfiniteScroll";
 
 export async function getServerSideProps(context: any) {
   // Search results are public and keyed entirely by the query string, so the
@@ -257,31 +257,14 @@ export default function Card({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, imageSearch]);
 
-  useEffect(() => {
-    function handleScroll() {
-      if (imageSearch) {
-        window.removeEventListener("scroll", handleScroll);
-        return;
-      }
-      if (page > 10 || !nextPage) {
-        window.removeEventListener("scroll", handleScroll);
-        return;
-      }
-
-      if (
-        window.innerHeight + window.pageYOffset >=
-        document.body.offsetHeight - 3
-      ) {
-        if (!loading) {
-          setPage((prevPage) => prevPage + 1);
-        }
-      }
-    }
-
-    window.addEventListener("scroll", handleScroll);
-
-    return () => window.removeEventListener("scroll", handleScroll);
-  }, [page, nextPage, imageSearch, loading]);
+  useInfiniteScroll(
+    () => {
+      // `loading` is checked here rather than in `enabled` so an in-flight page
+      // doesn't tear down and re-arm the listener on every fetch.
+      if (!loading) setPage((prevPage) => prevPage + 1);
+    },
+    !imageSearch && page <= 10 && !!nextPage,
+  );
 
   const handleKeyDown = async (event: any) => {
     if (event.key === "Enter") {
@@ -500,12 +483,7 @@ export default function Card({
                     index: Key | null | undefined
                   ) => {
                     return (
-                      <m.div
-                        initial={{ scale: 0.98 }}
-                        animate={{ scale: 1, transition: { duration: 0.35 } }}
-                        className="w-full"
-                        key={index}
-                      >
+                      <div className="as-pop-in w-full" key={index}>
                         <Link
                           href={
                             anime.format === "MANGA" || anime.format === "NOVEL"
@@ -551,7 +529,7 @@ export default function Card({
                             ? `${anime.episodes || "N/A"} Episodes`
                             : `${anime.chapters || "N/A"} Chapters`}
                         </h2>
-                      </m.div>
+                      </div>
                     );
                   }
                 )}
@@ -585,11 +563,9 @@ export default function Card({
               <div className="grid grid-cols-1 xs:grid-cols-2 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-4 gap-3 md:gap-7 px-5 lg:px-0">
                 {imageSearch.map((a, index) => {
                   return (
-                    <m.div
+                    <div
                       key={index}
-                      initial={{ scale: 0.9 }}
-                      animate={{ scale: 1, transition: { duration: 0.35 } }}
-                      className="flex flex-col gap-2 shrink-0 cursor-pointer relative group/item"
+                      className="as-pop-in-lg flex flex-col gap-2 shrink-0 cursor-pointer relative group/item"
                     >
                       <Link
                         className="relative aspect-video rounded-md overflow-hidden group"
@@ -656,7 +632,7 @@ export default function Card({
                           | Episode {a.episode}
                         </p>
                       </Link>
-                    </m.div>
+                    </div>
                   );
                 })}
               </div>

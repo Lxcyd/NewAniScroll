@@ -4,26 +4,22 @@ import Link from "next/link";
 import { ChevronLeftIcon } from "@heroicons/react/24/outline";
 import Skeleton from "react-loading-skeleton";
 import Footer from "@/components/shared/footer";
-import { getServerSession } from "next-auth";
-import { authOptions } from "../../api/auth/[...nextauth]";
 import Image from "next/image";
 import MobileNav from "@/components/shared/MobileNav";
 import { truncateImgUrl } from "@/utils/imageUtils";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { animeHref, useClickTarget } from "@/lib/prefs/clickTarget";
 import { useTranslation } from "react-i18next";
+import { useInfiniteScroll } from "@/lib/hooks/useInfiniteScroll";
 
-export async function getServerSideProps(context) {
-  const session = await getServerSession(context.req, context.res, authOptions);
 
-  return {
-    props: {
-      sessions: session,
-    },
-  };
-}
-
-export default function Recent({ sessions }) {
+/* No getServerSideProps: this page renders the same markup for everybody. It
+   used to call getServerSession purely to hand a `sessions` prop to
+   <MobileNav>, which doesn't take one — it reads the session itself via
+   useSession(). So every view was paying a serverless invocation to produce a
+   prop nobody read. Without it the page is fully static and served from the
+   CDN. */
+export default function Recent() {
   const titlePref = useTitlePref();
   const clickTarget = useClickTarget();
   const { t } = useTranslation();
@@ -54,25 +50,10 @@ export default function Recent({ sessions }) {
     getRecent();
   }, [page]);
 
-  useEffect(() => {
-    function handleScroll() {
-      if (page > 5 || !nextPage) {
-        window.removeEventListener("scroll", handleScroll);
-        return;
-      }
-
-      if (
-        window.innerHeight + window.pageYOffset >=
-        document.body.offsetHeight - 3
-      ) {
-        setPage((prevPage) => prevPage + 1);
-      }
-    }
-
-    window.addEventListener("scroll", handleScroll);
-
-    return () => window.removeEventListener("scroll", handleScroll);
-  }, [page, nextPage]);
+  useInfiniteScroll(
+    () => setPage((prevPage) => prevPage + 1),
+    page <= 5 && !!nextPage,
+  );
 
   return (
     <Fragment>
@@ -84,7 +65,7 @@ export default function Recent({ sessions }) {
           content="Explore Beloved Classics and Favorites - Dive into a curated collection of timeless anime on AniScroll's New Episodes Page. From iconic classics to all-time favorites, experience the stories that have captured hearts worldwide. Start streaming now and relive the magic of anime!"
         />
       </Head>
-      <MobileNav sessions={sessions} />
+      <MobileNav />
       <main className="flex flex-col gap-2 items-center min-h-screen w-screen px-2 relative pb-10">
         <div className="z-50 bg-primary pt-5 pb-3 shadow-md shadow-primary w-full fixed px-3">
           <Link href="/en" className="flex gap-2 items-center font-karla">

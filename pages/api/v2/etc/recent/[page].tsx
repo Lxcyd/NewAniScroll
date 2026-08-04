@@ -1,6 +1,7 @@
 import { rateLimitStrict, redis } from "@/lib/redis";
 import { NextApiRequest, NextApiResponse } from "next";
 import { anilistFetch } from "@/lib/anilist/anilistFetch";
+import { setEdgeCache } from "@/lib/http/edgeCache";
 
 // Fetches recently updated anime from AniList (replaces dead api.anify.tv).
 // We pull a larger recently-updated pool, then sort it by popularity so the
@@ -58,19 +59,12 @@ export default async function handler(
     // 5 min in the browser, against the same 1 h edge/Redis TTL: the rail sits
     // on the homepage, so a visitor bouncing back to it re-requested it every
     // minute — each one a billed Edge Request for a payload that changes hourly.
-    const setEdgeCache = () => {
-      res.setHeader("Cache-Control", "public, max-age=300");
-      res.setHeader(
-        "CDN-Cache-Control",
-        "public, s-maxage=3600, stale-while-revalidate=86400",
-      );
-    };
 
     if (redis) {
       // A dead Redis must degrade to a live AniList fetch, not 500 the rail.
       const cache = await redis.get(`recent-episode-v2`).catch(() => null);
       if (cache) {
-        setEdgeCache();
+        setEdgeCache(res, 3600);
         return res.status(200).json({ results: JSON.parse(cache) });
       }
     }
@@ -117,7 +111,7 @@ export default async function handler(
         .catch(() => {});
     }
 
-    setEdgeCache();
+    setEdgeCache(res, 3600);
     return res.status(200).json({ results });
   } catch (error) {
     console.error("[recent] error:", error);

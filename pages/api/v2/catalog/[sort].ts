@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { redis } from "@/lib/redis";
 import { anilistFetch } from "@/lib/anilist/anilistFetch";
+import { setEdgeCache } from "@/lib/http/edgeCache";
 
 /**
  * Server-cached catalog list for the /en/anime/popular and /trending
@@ -56,20 +57,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   // an Edge Request is billed on a HIT exactly like a MISS, so the only way to
   // not pay for them is to not send them. 5 min against a 1 h edge/Redis TTL
   // adds no staleness a catalog listing would ever notice.
-  const setEdgeCache = () => {
-    res.setHeader("Cache-Control", "public, max-age=300");
-    res.setHeader(
-      "CDN-Cache-Control",
-      `public, s-maxage=${TTL_S}, stale-while-revalidate=86400`,
-    );
-  };
 
   if (redis) {
     try {
       const cached = await redis.get(cacheKey);
       if (cached) {
         res.setHeader("X-Cache", "HIT");
-        setEdgeCache();
+        setEdgeCache(res, TTL_S);
         return res.status(200).json(JSON.parse(cached));
       }
     } catch {
@@ -100,6 +94,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   res.setHeader("X-Cache", "MISS");
-  setEdgeCache();
+  setEdgeCache(res, TTL_S);
   return res.status(200).json(payload);
 }

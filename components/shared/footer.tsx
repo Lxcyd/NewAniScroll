@@ -2,6 +2,7 @@ import Link from "next/link";
 import { useState } from "react";
 import Logo from "./Logo";
 import { useTranslation } from "react-i18next";
+import { getCurrentSeason } from "@/utils/getTimes";
 
 function Footer() {
   const { t } = useTranslation();
@@ -65,28 +66,3 @@ function Footer() {
 
 export default Footer;
 
-function getCurrentSeason() {
-  const now = new Date();
-  const month = now.getMonth() + 1; // getMonth() returns 0-based index
-
-  switch (month) {
-    case 12:
-    case 1:
-    case 2:
-      return "WINTER";
-    case 3:
-    case 4:
-    case 5:
-      return "SPRING";
-    case 6:
-    case 7:
-    case 8:
-      return "SUMMER";
-    case 9:
-    case 10:
-    case 11:
-      return "FALL";
-    default:
-      return "UNKNOWN SEASON";
-  }
-}

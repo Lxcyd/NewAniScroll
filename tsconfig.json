@@ -29,5 +29,18 @@
     "pages/middleware.js",
     "pages/api/auth/[...nextauth].ts"
   ],
-  "exclude": ["node_modules"]
+  // `"node_modules"` alone only excludes the ROOT one. The Cloudflare Worker
+  // ships its own (worker/node_modules, 125 MB — wrangler + workerd typings),
+  // and `include: **/*.ts` was dragging every one of its .d.ts through tsc:
+  // the build OOM'd past 12 GB of heap during "checking validity of types".
+  // Same story for the scraped player caches saved as .ts under tools/.
+  "exclude": [
+    "node_modules",
+    "**/node_modules",
+    ".next",
+    "worker",
+    "tools",
+    "graphify-out",
+    "public"
+  ]
 }

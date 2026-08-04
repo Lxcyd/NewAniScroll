@@ -99,7 +99,6 @@ export async function getServerSideProps(context) {
 
   let proxy = process.env.PROXY_URI || null;
   if (proxy && proxy.endsWith("/")) proxy = proxy.slice(0, -1);
-  const disqus = process.env.DISQUS_SHORTNAME || null;
 
   const [aniId, provider] = query?.info;
   // The visible `?id=` is now cosmetic only (`{server}-{episode}`, no AniList
@@ -199,7 +198,6 @@ export async function getServerSideProps(context) {
       info:       data?.data?.Media || null,
       aniId:      aniId || null,
       proxy,
-      disqus,
     },
   };
 }
@@ -210,7 +208,6 @@ export async function getServerSideProps(context) {
 export default function Watch({
   info: ssrInfo,
   watchId,
-  disqus,
   proxy,
   dub,
   provider,
@@ -2093,7 +2090,7 @@ export default function Watch({
           shrink={true}
           paddingY={`py-2 ${theaterMode ? "" : "lg:py-4"}`}
         />
-        <MobileNav hideProfile={true} sessions={sessions} />
+        <MobileNav hideProfile={true} />
 
         <div className={`mx-auto pt-16 ${theaterMode ? "lg:pt-16" : "lg:pt-20"}`}>
 

@@ -14,7 +14,7 @@ import { ReactNode, useEffect, useState } from "react";
 import { I18nextProvider } from "react-i18next";
 import { useRouter } from "next/router";
 
-import i18n from "./config";
+import i18n, { ensureLanguage } from "./config";
 import { getLang, LANG_EVENT, Lang } from "./languagePref";
 import { replaceUrlPreservingState } from "@/lib/navigation/replaceUrl";
 
@@ -49,8 +49,14 @@ export default function I18nProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
 
   useEffect(() => {
-    const apply = () => {
+    let cancelled = false;
+    // Only the default locale is bundled (see ./config); a non-default one is
+    // fetched as its own chunk. Await it before switching so we never flip
+    // i18next onto a language whose strings haven't landed yet.
+    const apply = async () => {
       const next = getLang();
+      await ensureLanguage(next);
+      if (cancelled) return;
       if (i18n.language !== next) i18n.changeLanguage(next);
       setLang(next);
       if (typeof document !== "undefined") {
@@ -62,7 +68,10 @@ export default function I18nProvider({ children }: { children: ReactNode }) {
     apply();
     // Re-sync when the user toggles the language anywhere in the app.
     window.addEventListener(LANG_EVENT, apply);
-    return () => window.removeEventListener(LANG_EVENT, apply);
+    return () => {
+      cancelled = true;
+      window.removeEventListener(LANG_EVENT, apply);
+    };
   }, []);
 
   // Re-apply the locale prefix after every client navigation. Pages do their

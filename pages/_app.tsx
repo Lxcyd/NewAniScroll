@@ -2,7 +2,6 @@ import "../styles/globals.css";
 import "react-loading-skeleton/dist/skeleton.css";
 import Script from "next/script";
 import { useRouter } from "next/router";
-import { motion as m } from "framer-motion";
 import NextNProgress from "nextjs-progressbar";
 import { SessionProvider, useSession } from "next-auth/react";
 import { SkeletonTheme } from "react-loading-skeleton";
@@ -450,19 +449,14 @@ export default function App({
                 <ChangeLogs />
                 <AnilistHealthBanner />
                 <SyncBootstrap />
-                {/* Per-route fade-in only. We deliberately do NOT use
-                    <AnimatePresence mode="wait"> here: on browser back/forward
-                    (popstate) the exit animation could stall and leave the new
-                    page pinned at opacity:0 — content "didn't load" until you
-                    navigated again. A keyless mount that simply animates from
-                    0→1 opacity on each render has no exit phase to get stuck on,
-                    so back/forward always paints. */}
-                <m.div
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  transition={{ duration: 0.3 }}
-                  className="z-50 w-full"
-                >
+                {/* App-shell fade-in only (CSS keyframe, see globals.css). We
+                    deliberately do NOT use an enter/exit transition here: on
+                    browser back/forward (popstate) the exit animation could
+                    stall and leave the new page pinned at opacity:0 — content
+                    "didn't load" until you navigated again. A plain 0→1 fade
+                    has no exit phase to get stuck on, so back/forward always
+                    paints. */}
+                <div className="as-fade-in z-50 w-full">
                   <NextNProgress
                     color={BRAND.primary}
                     startPosition={0.3}
@@ -479,7 +473,7 @@ export default function App({
                       alongside our own /api/v2/track (which is the only
                       analytics that sees the visitor IP for moderation). */}
                   <Analytics />
-                </m.div>
+                </div>
               </SkeletonTheme>
           </WatchPageProvider>
         </SearchProvider>

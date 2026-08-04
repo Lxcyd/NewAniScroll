@@ -165,3 +165,18 @@ export function realTimeCountdown(secondsLeft: number): string {
   }, 1000);
   return countdown;
 }
+
+/**
+ * Compact countdown: always the two largest meaningful units ("3d 5h",
+ * "5h 20m"). Distinct from convertSecondsToTime above, which is verbose and
+ * goes down to seconds — the home carousel deliberately wants the short form.
+ * These two lived under the SAME name in two files, which is how you end up
+ * "fixing" one and silently changing the other.
+ */
+export function formatCountdownCompact(sec: number) {
+  const days = Math.floor(sec / (3600 * 24));
+  const hours = Math.floor((sec % (3600 * 24)) / 3600);
+  const minutes = Math.floor((sec % 3600) / 60);
+
+  return (days > 0 ? `${days}d ${hours}h` : `${hours}h ${minutes}m`).trim();
+}

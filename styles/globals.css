@@ -40,6 +40,31 @@ html.tab-hidden *::after {
   animation-play-state: paused !important;
 }
 
+/* Mount-transition utilities. These replace the framer-motion wrappers that
+   several pages used purely for a one-shot "appear" tween. framer-motion is
+   ~30 kB of JS per page that ships it, and on a grid it also ran one animation
+   component PER CARD; a keyframe costs nothing and runs on the compositor.
+   Like the old keyless mounts these have no exit phase that could stall and
+   leave a page pinned at opacity:0 on browser back/forward. */
+@keyframes as-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes as-pop-in {
+  from { transform: scale(var(--as-pop-from, 0.98)); }
+  to   { transform: none; }
+}
+.as-fade-in {
+  animation: as-fade-in 0.3s ease both;
+}
+.as-pop-in {
+  animation: as-pop-in 0.35s ease both;
+}
+.as-pop-in-lg {
+  --as-pop-from: 0.9;
+  animation: as-pop-in 0.35s ease both;
+}
+
 /* Heart "favourite" fill animation — used by the anime info page (desktop
    Hero + mobile header). Defined globally so the inline `animation:
    heart-pop ...` on the heart SVGs resolves whether the desktop or the

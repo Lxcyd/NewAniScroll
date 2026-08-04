@@ -6,6 +6,7 @@ import { animeHref, useClickTarget } from "@/lib/prefs/clickTarget";
 import type { SeasonEntry } from "@/lib/anilist/seasonChain";
 import styles from "./styles.module.css";
 import { useTranslation } from "react-i18next";
+import { coverUrl } from "@/lib/images/cover";
 
 type Props = {
   relations: Edge[];
@@ -201,15 +202,15 @@ export default function Related({ relations, currentId, seasonList }: Props) {
               <div
                 style={{
                   ...rStyles.cover,
-                  background: n.coverImage?.extraLarge
+                  background: coverUrl(n.coverImage, "card")
                     ? "var(--bg-3)"
                     : `linear-gradient(135deg, ${color}33, var(--bg-3))`,
                 }}
               >
-                {n.coverImage?.extraLarge ? (
+                {coverUrl(n.coverImage, "card") ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
-                    src={n.coverImage.extraLarge}
+                    src={coverUrl(n.coverImage, "card")!}
                     alt=""
                     style={{
                       position: "absolute",

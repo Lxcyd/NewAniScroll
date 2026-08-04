@@ -3,6 +3,7 @@ import {
   getAdminTursoClient,
   ensureAdminSchema,
 } from "@/lib/db/turso-admin";
+import { getClientIp } from "@/lib/net/clientIp";
 
 /**
  * Lightweight pageview analytics. Public endpoint — fires once per route
@@ -22,13 +23,6 @@ import {
 export const config = {
   api: { bodyParser: { sizeLimit: "2kb" } },
 };
-
-function getClientIp(req: NextApiRequest): string | null {
-  const xff = req.headers["x-forwarded-for"];
-  if (typeof xff === "string") return xff.split(",")[0].trim();
-  if (Array.isArray(xff) && xff.length) return xff[0];
-  return req.socket?.remoteAddress || null;
-}
 
 /* Drop bots/scrapers/headless before they pollute the visitors stat.
    Two layers:

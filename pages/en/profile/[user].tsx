@@ -2,7 +2,6 @@ import Image from "next/image";
 import Link from "next/link";
 import Head from "next/head";
 import { useMemo, useState } from "react";
-import { motion } from "framer-motion";
 import { SparklesIcon } from "@heroicons/react/24/solid";
 import { getUser } from "@/prisma/user";
 import { Navbar } from "@/components/shared/NavBar";
@@ -149,11 +148,7 @@ export default function MyList({
         <div className="absolute inset-0 bg-gradient-to-b from-transparent to-primary" />
       </div>
 
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        className="w-full max-w-screen-lg mx-auto px-4 pb-16"
-      >
+      <div className="as-fade-in w-full max-w-screen-lg mx-auto px-4 pb-16">
         {/* Avatar + name, pulled up to overlap the banner. `relative z-10`
             keeps it above the banner's absolutely-positioned <Image fill>,
             which otherwise paints over the negative-margin content. */}
@@ -292,7 +287,7 @@ export default function MyList({
             </div>
           </>
         )}
-      </motion.div>
+      </div>
       <Footer />
       {isOwner && (
         <ForYouPanel isVisible={showForYou} onClose={() => setShowForYou(false)} />
