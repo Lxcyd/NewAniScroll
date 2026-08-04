@@ -1050,22 +1050,12 @@ export default function Settings() {
                 checked={syncPrefs.autoProgress}
                 onChange={(v) => setSyncPrefs({ autoProgress: v })}
               />
-              {/* The ACTUAL rule, spelled out so the % slider underneath isn't
-                  mistaken for the trigger: reaching the detected ED marks the
-                  episode watched. Read-only — there's nothing to configure, the
-                  ED comes from the OP/ED detector. */}
-              <div className="py-3">
-                <div className="text-sm font-medium">
-                  {t("settings.sync.endingRule")}
-                </div>
-                <div className="text-white/50 text-xs mt-0.5">
-                  {t("settings.sync.endingRuleDesc")}
-                </div>
-              </div>
-              {/* Fallback threshold — how far into an episode counts as
-                  "watched" when NO ending was detected. Sits right after the
-                  rule above since it's the same decision; applies to the local
-                  list too, so it isn't gated by login. */}
+              {/* ONE row for the whole "when does an episode count as watched"
+                  decision: the description states the real rule (reaching the
+                  detected ED — nothing to configure there, it comes from the
+                  OP/ED detector) and the slider only sets the runtime fallback
+                  used when no ending was found. Applies to the local list too,
+                  so it isn't gated by login. */}
               <div className="flex items-center justify-between gap-4 py-3">
                 <div className="min-w-0">
                   <div className="text-sm font-medium">
