@@ -1,0 +1,32 @@
+{
+  "date": "2026-08-03",
+  "generatedAt": "2026-08-03T17:53:46.482Z",
+  "census": {
+    "dbsize": 5617,
+    "scanned": 5585,
+    "complete": true,
+    "iters": 6,
+    "buckets": {
+      "anime": 3756,
+      "episode": 1669,
+      "tr": 80,
+      "jikan": 41,
+      "anilist": 22,
+      "avail": 15,
+      "index_server_v2": 1,
+      "src": 1
+    },
+    "topTwoSeg": {
+      "anime:v5": 3756,
+      "episode:v3": 1654,
+      "tr:fr": 80,
+      "jikan:eps": 41,
+      "anilist:resp": 22,
+      "avail:v1": 15,
+      "episode:v5": 15,
+      "src:v11": 1
+    }
+  },
+  "upstashStats": null,
+  "vercel": null
+}
