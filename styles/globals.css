@@ -268,9 +268,26 @@ a {
    button and thumb — expand, collapse, expand… Two halves to the fix: a
    collapsed slider takes no pointer events at all (only the button can be
    hovered → it opens), and once open, hovering the slider itself keeps it open
-   (so nothing can pull the hover back off). */
+   (so nothing can pull the hover back off).
+
+   The expanded slider starts 7px right of the button (9px margin, 2px of
+   translate), and that gap is a dead zone: leaving the button collapses the
+   slider before the pointer ever reaches it. The ::before below bridges exactly
+   that gap — it belongs to the slider, so hovering it counts as hovering the
+   slider and the travel from button to slider is continuous. It's inert while
+   collapsed (pointer-events is inherited) and stops short of the button so it
+   can never swallow a click meant for mute. */
 .vds-player .vds-volume-slider {
   pointer-events: none;
+}
+.vds-player .vds-volume-slider::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 100%;
+  width: 7px;
+  pointer-events: inherit;
 }
 .vds-player [data-media-mute-button]:hover ~ .vds-volume-slider,
 /* Vidstack's own trigger (hover OR keyboard focus on the button) — kept so a
