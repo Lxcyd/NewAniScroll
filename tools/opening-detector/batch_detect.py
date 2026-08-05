@@ -300,19 +300,36 @@ def _self_reference_pass(season_rows, season_streams, season_detect, season_flag
     if not kinds:
         return
 
+    # Self-matching compares EPISODES, so it must compare them on the SAME host:
+    # each host serves a differently-trimmed encode, and mixing them turns a
+    # per-host trim difference into apparent position disagreement — exactly the
+    # signal `find_segment` uses to reject a segment. Pick the host present on
+    # the most episodes (the one that gives the largest coherent sample).
+    host_coverage: dict[str, int] = {}
+    for e in eps:
+        for s in season_streams.get(e) or []:
+            host_coverage[s.host] = host_coverage.get(s.host, 0) + 1
+    if not host_coverage:
+        return
+    ref_host = max(host_coverage, key=lambda h: host_coverage[h])
+
+    def _stream_for(ep: int):
+        for s in season_streams.get(ep) or []:
+            if s.host == ref_host:
+                return s
+        return None
+
     duration_by_ep = {
-        e: (season_streams[e][0].duration if season_streams.get(e) else 0.0)
-        for e in eps
+        e: (_stream_for(e).duration if _stream_for(e) else 0.0) for e in eps
     }
 
     def resolve_window_fp(ep: int, kind: str):
-        """The episode's OP or ED search-window fingerprint, from the FIRST host
-        that resolved. Same (start, dur) the detector uses, so this hits the
-        cache whenever the normal pass already ran."""
-        streams = season_streams.get(ep) or []
-        if not streams:
+        """The episode's OP or ED search-window fingerprint, on the reference
+        host. Same (start, dur) the detector uses, so this hits the cache
+        whenever the normal pass already decoded that window."""
+        s = _stream_for(ep)
+        if s is None:
             return None
-        s = streams[0]
         if kind == "op":
             start, dur = OP_SEARCH[0], OP_SEARCH[1]
         else:
