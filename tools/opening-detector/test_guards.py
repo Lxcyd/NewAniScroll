@@ -68,10 +68,18 @@ def test_validate():
           "vote_span_too_short" in hit_anomalies_of(
               hit(vote_start=90.0, vote_end=100.0)))
 
-    check("audio/image divergence rejected",
-          "av_divergence" in hit_anomalies_of(hit(av_delta=9.0)))
+    check("audio/image divergence rejected when the AUDIO value shipped",
+          "av_divergence" in hit_anomalies_of(hit(source="audio", av_delta=9.0)))
     check("small audio/image gap accepted",
-          "av_divergence" not in hit_anomalies_of(hit(av_delta=1.2)))
+          "av_divergence" not in hit_anomalies_of(hit(source="audio", av_delta=1.2)))
+    # Measured on SnK ep1/ansembed: the image anchored 12.6 s from the audio and
+    # three other hosts agreed with the IMAGE to 0.2 s. An image-sourced hit must
+    # not be held back by the signal it just overruled.
+    check("image-sourced divergence is advisory, not blocking",
+          "av_divergence" not in hit_anomalies_of(hit(source="credited", av_delta=12.6))
+          and "audio_diverged" in hit_anomalies_of(hit(source="credited", av_delta=12.6)))
+    check("advisory divergence does not block serving",
+          validate.blocking(["audio_diverged"]) == [])
 
     check("contested audio peak rejected on an audio hit",
           "ambiguous_audio_peak" in hit_anomalies_of(

@@ -555,6 +555,10 @@ const ANIMESAMA_SERVERS = {
   "animesama-sibnet":       { name: "Sibnet",      preferred: ["sibnet.ru"],                              lang: "vf" },
   "animesama-sendvid":      { name: "Sendvid",     preferred: ["sendvid.com"],                            lang: "vf" },
   "animesama-vidmoly":      { name: "Vidmoly",     preferred: ["vidmoly.to", "vidmoly.biz", "vidmoly.net"], lang: "vf" },
+  // Ansembed: Vidmoly white-label domain, listed by anime-sama as its own
+  // player with its own uploads. Matched on the bare domain so it can never
+  // capture a vidmoly.* URL (they are distinct entries in episodes.js).
+  "animesama-ansembed":     { name: "Ansembed",    preferred: ["ansembed."],                              lang: "vf" },
   "animesama-embed4me":     { name: "Embed4Me",    preferred: ["embed4me.com", "lpayer"],                 lang: "vf" },
   "animesama-callistanise": { name: "Player",      preferred: ["callistanise.com", "dingtezuni.com", "movearnpre.com"], lang: "vf" },
   // Fallback only — uqload's stream token is IP/single-use-bound (a concurrent
@@ -565,6 +569,7 @@ const ANIMESAMA_SERVERS = {
   "animesama-sibnet-vo":       { name: "Sibnet",      preferred: ["sibnet.ru"],                              lang: "vostfr" },
   "animesama-sendvid-vo":      { name: "Sendvid",     preferred: ["sendvid.com"],                            lang: "vostfr" },
   "animesama-vidmoly-vo":      { name: "Vidmoly",     preferred: ["vidmoly.to", "vidmoly.biz", "vidmoly.net"], lang: "vostfr" },
+  "animesama-ansembed-vo":     { name: "Ansembed",    preferred: ["ansembed."],                              lang: "vostfr" },
   "animesama-embed4me-vo":     { name: "Embed4Me",    preferred: ["embed4me.com", "lpayer"],                 lang: "vostfr" },
   "animesama-callistanise-vo": { name: "Player",      preferred: ["callistanise.com", "dingtezuni.com", "movearnpre.com"], lang: "vostfr" },
   "animesama-uqload-vo":       { name: "Uqload",      preferred: ["uqload."],                                lang: "vostfr" },

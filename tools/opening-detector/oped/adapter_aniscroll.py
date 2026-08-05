@@ -139,7 +139,11 @@ def resolve_episodes(
 #     which is fine — it never poisons the DB, it just doesn't contribute.
 # This list is the displayed-host allowlist (mirrors host_versions.json keys /
 # lib/hostRegistry.js DISPLAYED_HOSTS). Keep the three in sync.
-MULTI_HOSTS = ["sibnet", "sendvid", "megaplay", "vidmoly", "vidmoly-va", "uqload"]
+MULTI_HOSTS = ["sibnet", "sendvid", "megaplay", "vidmoly", "vidmoly-va",
+               # ansembed = Vidmoly on a white-label domain, but a SEPARATE
+               # anime-sama entry with its own uploads, so its own encode.
+               "ansembed",
+               "uqload"]
 
 
 def resolve_episodes_multi(

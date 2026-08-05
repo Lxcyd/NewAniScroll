@@ -25,7 +25,15 @@ import { getExtractor, extractMegaplay } from "../../../lib/extractors.js";
 const WORKER = "https://aniscroll-proxy.luc-deldem.workers.dev";
 const BASE = "https://anime-sama.to";
 const VOIRANIME_BASE = "https://voir-anime.to";
-const VIDMOLY_DOMAINS = ["vidmoly.net", "vidmoly.to", "vidmoly.biz"];
+// `ansembed.net` is Vidmoly white-labelled: the same embed page (its own
+// <title>, cdn.staticmoly.me assets) serving the same …/hls2/…/master.m3u8.
+// anime-sama lists it as a SEPARATE player, so it is an extra encode per title.
+// It is also reachable where the vidmoly.* domains are DNS-blocked, which makes
+// it the most dependable member of the family — hence first.
+const VIDMOLY_DOMAINS = ["ansembed.net", "vidmoly.net", "vidmoly.to", "vidmoly.biz"];
+// Every domain this family answers on: used to swap domains on retry, and to
+// route an embed to the local Vidmoly extraction instead of the shared lib.
+const VIDMOLY_HOST_RE = /(vidmoly\.(?:to|biz|net)|ansembed\.net)/i;
 const BROWSER_UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
   + "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
@@ -40,7 +48,10 @@ const BROWSER_UA =
 // So we do a local, direct extraction rather than reusing extractVidmoly.
 async function extractVidmolyDirect(embedUrl) {
   for (const domain of VIDMOLY_DOMAINS) {
-    const url = embedUrl.replace(/vidmoly\.(to|biz|net)/, domain);
+    // Swap whichever domain of the family the embed arrived on — matching only
+    // `vidmoly.*` meant an ansembed embed was never retried elsewhere (the URL
+    // went out unchanged, so every "retry" hit the same host).
+    const url = embedUrl.replace(VIDMOLY_HOST_RE, domain);
     let html;
     try {
       const r = await fetch(url, {
@@ -164,7 +175,7 @@ async function extractWithRetry(embed, retries = 3) {
     try {
       // vidmoly is extracted locally (token binds to this IP) — see
       // extractVidmolyDirect. All other hosts go through the shared lib.
-      if (/vidmoly/i.test(embed)) {
+      if (VIDMOLY_HOST_RE.test(embed)) {
         const v = await extractVidmolyDirect(embed);
         if (v.ok) return v;
         lastErr = v.error;

@@ -103,8 +103,20 @@ def hit_anomalies(hit, episode_duration: float) -> list[str]:
             out.append("vote_span_too_short")
 
     # Audio and image located different things (only set when BOTH ran).
+    #
+    # Blocking ONLY when the delivered timing came from the AUDIO. When the hit
+    # is image-sourced the image WON the arbitration — it cleared its own
+    # landmark gates and its t0 is what ships — so a large gap says the AUDIO was
+    # off, which is precisely the failure the image is there to correct.
+    # Measured on SnK ep1/ansembed: audio 12.6 s away from an image anchor that
+    # three other hosts independently agreed with to within 0.2 s. Holding that
+    # back would have discarded a correct, frame-accurate interval on the
+    # strength of the signal it was overruling.
     if getattr(hit, "av_delta", None) is not None and hit.av_delta > AV_DIVERGENCE_S:
-        out.append("av_divergence")
+        if hit.source in ("credited", "video"):
+            out.append("audio_diverged")     # advisory: the audio was the wrong one
+        else:
+            out.append("av_divergence")      # blocking: we shipped the audio value
 
     # A contested audio peak is only blocking when the IMAGE didn't settle it:
     # a credited/video-sourced t0 IS the picture's own answer, so the rival audio
