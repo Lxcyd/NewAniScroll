@@ -675,7 +675,17 @@ async function getAnimeSamaIframe(serverKey, title, episode, aniId) {
     // the heuristic path re-derives the correct panel. Films/OAV dirs (non
     // "saisonN") are exempt — their "season" isn't a number.
     let mapPanelCoherent = true;
-    if (mapRow?.seasonDir && /^saison/i.test(mapRow.seasonDir)) {
+    // A hors-série / recap panel is never the answer to an episode request, and
+    // the numeric check below CANNOT catch it: `/saison\s*(\d+)/` reads
+    // "saison1hs" as season 1, exactly like "saison1", so the row looked
+    // coherent and the fast path served an 11:40 recap for Bungou Stray Dogs
+    // S1 ep1. The heuristic path has always excluded these panels
+    // (`isSideStory`); this path simply never did.
+    if (mapRow?.seasonDir && isSideStoryDir(mapRow.seasonDir, null)) {
+      dlog(`[anime-sama] player_map ${mapRow.seasonDir} is a side-story panel — ignoring poisoned row`);
+      flagPlayerMap(aniId, "animesama", langPath, `side-story dir: ${mapRow.seasonDir}`).catch(() => {});
+      mapPanelCoherent = false;
+    } else if (mapRow?.seasonDir && /^saison/i.test(mapRow.seasonDir)) {
       const dirSeason = Number((mapRow.seasonDir.match(/saison\s*(\d+)/i) || [])[1] || 1);
       const expectedSeason = await detectSeasonNumber(aniId);
       if (dirSeason !== expectedSeason) {
@@ -1684,6 +1694,23 @@ async function findAnimeSamaSlug(title, aniId, mediaOpts = {}) {
  * later seasons ("Final Season") collapse onto saison1. Returns null when
  * nothing scores (caller falls back to ordinal/seasons[0]).
  */
+/**
+ * True for a "hors-série" / recap / log panel — anime-sama parks these under a
+ * `saison*hs` dir (or gives them a Log/Recap/Résumé label). They are NEVER the
+ * answer to a normal episode request.
+ *
+ * Module-level because BOTH resolution paths need it and only one had it. The
+ * player_map fast path checked season coherence with `/saison\s*(\d+)/`, which
+ * reads "saison1hs" as season 1 — identical to "saison1" — so a row pinned to
+ * the hors-série panel passed the guard and was served forever. Symptom:
+ * Bungou Stray Dogs S1 ep1 playing an 11:40 recap short instead of the 23:42
+ * episode, on the main-season URL.
+ */
+function isSideStoryDir(dir, label) {
+  return /hs$/i.test(dir || "") ||
+    /\b(log|recap|r[ée]sum[ée]|digest|special)\b/i.test(label || "");
+}
+
 function pickAnimeSamaSeason(seasons, aniTitles, seasonNum) {
   if (!Array.isArray(seasons) || seasons.length <= 1) return null;
   if (!aniTitles || aniTitles.length === 0) return null;
@@ -1705,8 +1732,7 @@ function pickAnimeSamaSeason(seasons, aniTitles, seasonNum) {
   // Saga"), so the plain title-overlap below would pick it over the real
   // "Saga 1 (East Blue)" panel (whose label shares no token with "One Piece").
   // Exclude them from selection entirely.
-  const isSideStory = (s) =>
-    /hs$/i.test(s.dir || "") || /\b(log|recap|r[ée]sum[ée]|digest|special)\b/i.test(s.label || "");
+  const isSideStory = (s) => isSideStoryDir(s.dir, s.label);
 
   // Case A — cleanly numbered panels and a detected season > 1: target the
   // matching "Saison N", clamping to the max so an overshooting seasonNum lands
