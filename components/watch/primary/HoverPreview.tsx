@@ -17,6 +17,7 @@ export default function HoverPreview({
   src,
   isM3U8,
   lazy = false,
+  direct = false,
 }: {
   playerRef: React.RefObject<MediaPlayerInstance>;
   src: string;
@@ -25,13 +26,26 @@ export default function HoverPreview({
    *  (that stalls + wastes bandwidth on throttled CDNs like sendvid's 250k).
    *  Instead capture the frame at the hovered position on demand. */
   lazy?: boolean;
+  /** Playback goes straight to a fragile third-party CDN (vidmoly & co) with
+   *  no proxy in front. Those cut the connection when hit concurrently — the
+   *  same reason the hover pre-warm in UniversalPlayer skips them — so they
+   *  stay on a single decoder no matter what. */
+  direct?: boolean;
 }) {
   const wrapperRef = useRef<HTMLDivElement>(null);
-  const videoRef = useRef<HTMLVideoElement>(null);
+  const videosRef = useRef<(HTMLVideoElement | null)[]>([]);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const labelRef = useRef<HTMLSpanElement>(null);
-  const hlsRef = useRef<Hls | null>(null);
+  const hlsListRef = useRef<Hls[]>([]);
   const seekRafRef = useRef<number>(0);
+
+  // How many hidden decoders walk the episode at once. A capture is almost
+  // entirely WAITING — request latency for the segment, then decode — so one
+  // element left the pipeline idle between every seek and needed ~1 min to
+  // cover an episode. Four elements overlap those waits and cut it to roughly
+  // a quarter, without changing the number of segments fetched.
+  const PARALLEL_DECODERS = 4;
+  const workerCount = lazy || direct ? 1 : PARALLEL_DECODERS;
   // Pre-cached thumbnails keyed by their timestamp BUCKET (integer seconds,
   // snapped to THUMB_INTERVAL_S). Storing by time — not by percent — lets us
   // pack a thumbnail every few seconds regardless of episode length, instead
@@ -46,18 +60,17 @@ export default function HoverPreview({
   const THUMB_W = 320;
   const THUMB_H = 180;
 
-  // There is exactly ONE hidden <video>, so every capture has to be
-  // serialised. These refs are what let a hover jump the queue: without them
-  // a hover at 15:00 waited for the background walk to crawl there one
-  // 10-second step at a time (~144 sequential seeks for an episode), which is
-  // why the preview sat on a stale frame while the cursor moved.
+  // A hover must never queue behind the background walk: whichever decoder
+  // finishes its current capture first picks the hovered bucket up next.
   //   hoverBucket    — bucket the cursor is over right now (null = not hovering)
   //   priorityBucket — bucket a hover is waiting for; overwritten, never queued,
   //                    so sweeping the bar asks for the LAST spot, not all of them
-  //   seekBusy       — a seek is in flight; whoever holds it serves the priority
+  //   workersActive  — decoders still walking; when 0, a hover pumps one itself
   const hoverBucketRef = useRef<number | null>(null);
   const priorityBucketRef = useRef<number | null>(null);
-  const seekBusyRef = useRef(false);
+  const workersActiveRef = useRef(0);
+  const pumpBusyRef = useRef(false);
+  const runIdRef = useRef(0);
   const redrawRef = useRef<(() => void) | null>(null);
 
   const bucketOf = (t: number) =>
@@ -97,11 +110,14 @@ export default function HoverPreview({
     return true;
   };
 
-  /** Serve pending hover requests. No-op while a seek is already running —
-   *  its owner drains the queue when it finishes. */
-  const pumpPriority = async (video: HTMLVideoElement, timeoutMs: number) => {
-    if (seekBusyRef.current) return;
-    seekBusyRef.current = true;
+  /** Serve pending hover requests when NO walker is running (walk finished, or
+   *  lazy mode where there is no walk at all). While walkers are alive they
+   *  drain the priority slot themselves, one seek of latency at worst. */
+  const pumpPriority = async (timeoutMs: number) => {
+    if (pumpBusyRef.current || workersActiveRef.current > 0) return;
+    const video = videosRef.current[0];
+    if (!video) return;
+    pumpBusyRef.current = true;
     try {
       while (priorityBucketRef.current != null) {
         const b = priorityBucketRef.current;
@@ -113,7 +129,7 @@ export default function HoverPreview({
         }
       }
     } finally {
-      seekBusyRef.current = false;
+      pumpBusyRef.current = false;
     }
   };
 
@@ -124,106 +140,148 @@ export default function HoverPreview({
   // crossOrigin must be set BEFORE src so the browser uses CORS mode and
   // the resulting canvas isn't security-tainted (drawImage would throw).
   useEffect(() => {
-    const video = videoRef.current;
-    if (!video || !src) return;
-
-    video.crossOrigin = "anonymous";
+    const videos = videosRef.current.slice(0, workerCount).filter(Boolean) as
+      HTMLVideoElement[];
+    if (!videos.length || !src) return;
 
     // Reset thumbnail cache on src change
     thumbCacheRef.current.clear();
     cachingActiveRef.current = false;
 
-    if (isM3U8 && Hls.isSupported()) {
-      const hls = new Hls({
-        // Small buffer — we only seek-and-grab single frames, never play.
-        maxBufferLength: 6,
-        maxMaxBufferLength: 12,
-        backBufferLength: 0,
-        // Pick a MID quality level (not the lowest) so the thumbnails are
-        // crisp. startLevel:-1 lets hls.js auto-pick based on bandwidth; we
-        // then cap it to a mid rung below so previews aren't full-HD-heavy.
-        startLevel: -1,
-        capLevelToPlayerSize: false,
-        xhrSetup: (xhr) => {
-          xhr.withCredentials = false;
-        },
-      });
-      // Cap the preview decoder to a middle quality rung once levels are known:
-      // sharp enough for a 192px tooltip, far lighter than the top rung, so the
-      // background thumbnail walk doesn't compete hard with the main player.
-      hls.on(Hls.Events.MANIFEST_PARSED, () => {
-        const n = hls.levels?.length || 0;
-        if (n > 1) {
-          // middle rung (round down), but never the very lowest
-          hls.currentLevel = Math.max(1, Math.floor((n - 1) / 2));
-        }
-      });
-      hls.loadSource(src);
-      hls.attachMedia(video);
-      hlsRef.current = hls;
-      return () => {
-        hls.destroy();
-        hlsRef.current = null;
-      };
-    } else {
-      // For lazy (throttled) MP4 sources, let the element fetch media data on
-      // seek — preload="metadata" alone often refuses to load past the header,
-      // so a seek to mid-episode never decodes a frame (black thumbnail). Force
-      // eager-ish loading and kick a load() so the first hover seek has data.
-      if (lazy) video.preload = "auto";
-      video.src = src;
-      video.load();
-    }
-  }, [src, isM3U8, lazy]);
+    const instances: Hls[] = [];
+    for (const video of videos) {
+      video.crossOrigin = "anonymous";
 
-  // Background thumbnail pre-caching: once metadata is loaded, walk through
-  // the video at fixed percentage intervals (every 5%) seeking the hidden
-  // video, capturing each frame to a small canvas, and storing it. Hovers
-  // then look up the closest cached thumbnail = INSTANT display.
+      if (isM3U8 && Hls.isSupported()) {
+        const hls = new Hls({
+          // Small buffer — we only seek-and-grab single frames, never play.
+          maxBufferLength: 6,
+          maxMaxBufferLength: 12,
+          backBufferLength: 0,
+          startLevel: -1,
+          capLevelToPlayerSize: false,
+          xhrSetup: (xhr) => {
+            xhr.withCredentials = false;
+          },
+        });
+        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+          // Take the SMALLEST rung that still exceeds the 320×180 capture.
+          // The tooltip is 192px wide, so every pixel above ~640×360 is
+          // download and decode time spent on detail nobody can see — and
+          // that time is the whole reason the walk used to take a minute.
+          // (This used to pick the MIDDLE rung, i.e. often 720p.)
+          const levels = hls.levels || [];
+          if (levels.length <= 1) return;
+          let pick = -1;
+          let pickH = Infinity;
+          levels.forEach((l, i) => {
+            const h = l.height || 0;
+            if (h >= 360 && h < pickH) {
+              pickH = h;
+              pick = i;
+            }
+          });
+          if (pick < 0) {
+            // No usable height metadata — fall back to the cheapest rung.
+            pick = levels.reduce(
+              (best, l, i) => (l.bitrate < levels[best].bitrate ? i : best),
+              0,
+            );
+          }
+          hls.currentLevel = pick;
+        });
+        hls.loadSource(src);
+        hls.attachMedia(video);
+        instances.push(hls);
+      } else {
+        // For lazy (throttled) MP4 sources, let the element fetch media data on
+        // seek — preload="metadata" alone often refuses to load past the header,
+        // so a seek to mid-episode never decodes a frame (black thumbnail). Force
+        // eager-ish loading and kick a load() so the first hover seek has data.
+        if (lazy) video.preload = "auto";
+        video.src = src;
+        video.load();
+      }
+    }
+    hlsListRef.current = instances;
+
+    return () => {
+      for (const h of instances) h.destroy();
+      hlsListRef.current = [];
+    };
+  }, [src, isM3U8, lazy, workerCount]);
+
+  // Background thumbnail pre-caching: walk the episode every THUMB_INTERVAL_S
+  // seconds, seeking a hidden video and capturing each frame to a canvas.
+  // Hovers then look up the cached thumbnail = INSTANT display.
+  //
+  // The walk is shared by `workerCount` decoders pulling from ONE cursor, so
+  // they never duplicate a bucket and a slow segment stalls only its own
+  // decoder instead of the whole episode.
   useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
+    const videos = videosRef.current.slice(0, workerCount).filter(Boolean) as
+      HTMLVideoElement[];
+    if (!videos.length) return;
     // Lazy mode: skip the eager full-episode walk entirely. Thumbnails are
-    // captured on demand from the hover handler (see captureAt below).
+    // captured on demand from the hover handler (see pumpPriority).
     if (lazy) return;
 
-    const start = async () => {
-      if (cachingActiveRef.current) return;
-      if (!isFinite(video.duration) || video.duration === 0) return;
-      cachingActiveRef.current = true;
+    // A plain "is the walk active" flag is not enough: on a src change the
+    // effect re-runs and sets it back to true, and the PREVIOUS run's workers
+    // — which are parked inside an await, on the very same <video> elements —
+    // would wake up and resume, doubling the decoders. Each run gets a token
+    // instead, and a worker exits as soon as it is no longer the current one.
+    const myRun = ++runIdRef.current;
+    let cursor = 0; // next bucket index to hand out
+    const nextBucket = (dur: number): number | null => {
+      const last = Math.floor(dur / THUMB_INTERVAL_S);
+      while (cursor <= last) {
+        const b = cursor * THUMB_INTERVAL_S;
+        cursor++;
+        if (!thumbCacheRef.current.has(b)) return b;
+      }
+      return null;
+    };
 
+    const runWorker = async (video: HTMLVideoElement) => {
+      await whenMetadata(video);
       const dur = video.duration;
-      // Walk the episode every THUMB_INTERVAL_S seconds. Keyed by the integer
-      // second bucket so hovers can snap to the nearest captured frame.
-      for (let t = 0; t <= dur; t += THUMB_INTERVAL_S) {
-        if (!cachingActiveRef.current) return; // src changed
-        // Whatever the cursor is pointing at wins over the next step of a walk
-        // nobody is looking at. Worst-case wait for a hover is the tail of the
-        // seek already in flight, not the whole remaining walk.
-        await pumpPriority(video, 3000);
-        if (!cachingActiveRef.current) return;
-        const bucket = bucketOf(t);
-        if (thumbCacheRef.current.has(bucket)) continue;
-
-        seekBusyRef.current = true;
-        try {
-          await captureBucket(video, bucket, 3000);
-        } catch {
-          // Skip failed seeks
-        } finally {
-          seekBusyRef.current = false;
+      if (!isFinite(dur) || dur === 0 || runIdRef.current !== myRun) return;
+      workersActiveRef.current++;
+      try {
+        while (cachingActiveRef.current && runIdRef.current === myRun) {
+          // Whatever the cursor is pointing at wins over the next step of a
+          // walk nobody is looking at. Worst-case wait for a hover is the tail
+          // of one seek, not the rest of the episode.
+          let bucket = priorityBucketRef.current;
+          if (bucket != null) priorityBucketRef.current = null;
+          else bucket = nextBucket(dur);
+          if (bucket == null) break;
+          if (thumbCacheRef.current.has(bucket)) continue;
+          try {
+            await captureBucket(video, bucket, 3000);
+          } catch {
+            // Skip failed seeks
+          }
+        }
+      } finally {
+        workersActiveRef.current--;
+        // Last one out: if a hover asked for a frame just as the walk was
+        // ending, nobody is left to serve it and it would sit there until the
+        // next pointermove. Hand it to the pump instead.
+        if (workersActiveRef.current === 0 && priorityBucketRef.current != null) {
+          void pumpPriority(3000);
         }
       }
     };
 
-    const onLoaded = () => start();
-    video.addEventListener("loadedmetadata", onLoaded);
-    if (video.readyState >= 1) start();
+    cachingActiveRef.current = true;
+    for (const v of videos) void runWorker(v);
+
     return () => {
-      video.removeEventListener("loadedmetadata", onLoaded);
       cachingActiveRef.current = false;
     };
-  }, [src, lazy]);
+  }, [src, lazy, workerCount]);
 
   // Track scrubber hover. We poll for the slider since Vidstack mounts it
   // asynchronously inside the DefaultVideoLayout.
@@ -251,9 +309,8 @@ export default function HoverPreview({
     function attach(playerEl: HTMLElement, slider: HTMLElement): () => void {
       const wrap = wrapperRef.current;
       const canvas = canvasRef.current;
-      const video = videoRef.current;
       const label = labelRef.current;
-      if (!wrap || !canvas || !video || !label) return () => {};
+      if (!wrap || !canvas || !videosRef.current[0] || !label) return () => {};
 
       const ctx = canvas.getContext("2d");
       if (!ctx) return () => {};
@@ -333,10 +390,10 @@ export default function HoverPreview({
       // the cursor actually stopped on.
       const bucket = bucketOf(time);
       hoverBucketRef.current = bucket;
-      const video = videoRef.current;
-      if (video && !thumbCacheRef.current.has(bucket)) {
+      if (!thumbCacheRef.current.has(bucket)) {
         priorityBucketRef.current = bucket;
-        void pumpPriority(video, captureTimeoutMs);
+        // Only acts once the walk is done; while it runs, a walker takes it.
+        void pumpPriority(captureTimeoutMs);
       }
 
       // Position tooltip above the slider, follow the cursor
@@ -421,23 +478,30 @@ export default function HoverPreview({
 
   return (
     <>
-      {/* Hidden source video — never shown, only sampled */}
-      <video
-        ref={videoRef}
-        muted
-        playsInline
-        crossOrigin="anonymous"
-        preload="metadata"
-        style={{
-          position: "absolute",
-          width: "1px",
-          height: "1px",
-          opacity: 0,
-          pointerEvents: "none",
-          top: "-9999px",
-          left: "-9999px",
-        }}
-      />
+      {/* Hidden source videos — never shown, only sampled. Several of them so
+          the thumbnail walk overlaps its seek latencies instead of paying
+          them one after another (see PARALLEL_DECODERS). */}
+      {Array.from({ length: workerCount }).map((_, i) => (
+        <video
+          key={i}
+          ref={(el) => {
+            videosRef.current[i] = el;
+          }}
+          muted
+          playsInline
+          crossOrigin="anonymous"
+          preload="metadata"
+          style={{
+            position: "absolute",
+            width: "1px",
+            height: "1px",
+            opacity: 0,
+            pointerEvents: "none",
+            top: "-9999px",
+            left: "-9999px",
+          }}
+        />
+      ))}
 
       {/* Portal the tooltip into the player root so it stays visible when the
           player enters native fullscreen (the browser hides everything outside
@@ -446,6 +510,20 @@ export default function HoverPreview({
       {playerEl ? createPortal(tooltip, playerEl) : tooltip}
     </>
   );
+}
+
+/** Resolve once the element knows its duration (or after a generous bail-out,
+ *  so a decoder that never reports metadata can't wedge the walk forever). */
+function whenMetadata(video: HTMLVideoElement): Promise<void> {
+  if (video.readyState >= 1) return Promise.resolve();
+  return new Promise((resolve) => {
+    const done = () => {
+      video.removeEventListener("loadedmetadata", done);
+      resolve();
+    };
+    video.addEventListener("loadedmetadata", done);
+    setTimeout(done, 20000);
+  });
 }
 
 function formatTime(t: number): string {

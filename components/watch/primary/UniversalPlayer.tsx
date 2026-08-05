@@ -4924,7 +4924,16 @@ export default function UniversalPlayer({
           Playback of these stays direct & fast; they simply have no scrubber
           preview (same trade-off as sibnet). CORS streams (megaplay HLS) keep it. */}
       {!bestStream!.noCors && (
-        <HoverPreview playerRef={playerRef} src={src} isM3U8={isM3U8} />
+        <HoverPreview
+          playerRef={playerRef}
+          src={src}
+          isM3U8={isM3U8}
+          // Direct CDN (vidmoly & co): keep the preview on ONE decoder. Same
+          // reason warmAt() bails on these — concurrent hits are what trigger
+          // their ERR_EMPTY_RESPONSE cutoff, and killing playback to fill a
+          // thumbnail strip is a terrible trade.
+          direct={bestStream!.directUrl === true}
+        />
       )}
 
       {/* Big centred play button — the MANUAL start affordance, shown only when
