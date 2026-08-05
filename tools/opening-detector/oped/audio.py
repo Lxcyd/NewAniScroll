@@ -22,6 +22,46 @@ from .megaplay import is_megaplay, materialize_window, playlist_duration
 # of output sample 0) to anchor the window on the shared absolute clock.
 _ASHOWINFO_PTS_RE = re.compile(rb"pts_time:([\d.]+)")
 
+# ffmpeg EXITS 0 after a partially-failed HTTP read: it reports the failure on
+# stderr, fills what it could not fetch, and still writes a full-length stream.
+# Checking only the return code and a non-empty buffer therefore accepts a
+# degraded decode — which is then fingerprinted and CACHED, freezing the damage
+# for every later run.
+#
+# Measured on charlotte ep2 / vidmoly-va: the cached 299.5 s window carried
+# 19482 hashes against 23828 for a clean decode of the SAME window, and matched
+# the OP at 563 votes / 42.5 s instead of 3501 votes / 33.1 s. Both decodes
+# reported the full duration, so a length check cannot catch this — the audio
+# was complete in extent and damaged in content. The host was dropped from the
+# consensus and the failure looked like "vidmoly-va can't detect this episode".
+#
+# Raising instead of caching means the next run simply retries, exactly as
+# theme_bank does for a truncated native reference decode. Deliberately narrow:
+# only transport/decode failures, never the ordinary warnings ffmpeg prints on
+# healthy streams.
+_DECODE_ERROR_RE = re.compile(
+    rb"Error in the pull function"
+    rb"|Invalid data found when processing input"
+    rb"|error while decoding"
+    rb"|Connection reset|Broken pipe|Input/output error"
+    rb"|Server returned 4|Server returned 5"
+    rb"|Failed to (?:read|open)",
+    re.IGNORECASE,
+)
+
+
+def _reject_degraded(stderr: bytes, src: str, what: str) -> None:
+    """Raise when ffmpeg logged a transport/decode failure despite exiting 0."""
+    hit = _DECODE_ERROR_RE.search(stderr or b"")
+    if not hit:
+        return
+    err = stderr.decode("utf-8", "replace").strip()
+    raise RuntimeError(
+        f"ffmpeg exited 0 but reported a decode/transport failure for {src!r} "
+        f"({what}) — refusing to cache a degraded decode. "
+        f"Trigger: {hit.group(0).decode('utf-8', 'replace')!r}\nstderr:\n{err[-800:]}"
+    )
+
 
 def _cache_key(src: Path, sample_rate: int) -> str:
     st = src.stat()
@@ -169,6 +209,7 @@ def decode_audio_abs(
             f"ffmpeg returned 0 bytes of audio for {src!r} "
             f"(start_abs={start_abs}, dur={dur}). stderr:\n{err}"
         )
+    _reject_degraded(proc.stderr, str(src), f"start_abs={start_abs}, dur={dur}")
     m = _ASHOWINFO_PTS_RE.search(proc.stderr)
     abs_start = float(m.group(1)) if m else float(start_abs)
     return samples, abs_start
@@ -285,4 +326,5 @@ def _ffmpeg_decode(
             f"ffmpeg returned 0 bytes of audio for {src!r} (window={window!r}) "
             f"— stream likely unreachable/empty for this segment. stderr:\n{err}"
         )
+    _reject_degraded(proc.stderr, str(src), f"window={window!r}")
     return samples
