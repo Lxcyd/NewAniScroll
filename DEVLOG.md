@@ -1,5 +1,61 @@
 # DEVLOG
 
+## 2026-08-05 (3) — Passe large 15 anime : F1 ne recupere jamais l'OP
+
+Lot demande par Luc pour attraper des erreurs : 15 anime varies x eps 2-4, multi-host,
+45 episodes / 90 cellules, 20 min de wall (17.6 s/episode-langue ; ETA backfill complet
+~6.9 j). Outil d'analyse : `_report_audit.py` (ne remonte QUE ce qui cloche).
+
+### Resultat brut
+| | servi | retenu | absent |
+|---|---|---|---|
+| OP | 10 | 8 | **27** |
+| ED | 10 | 26 | 9 |
+
+9 anime sur 15 n'ont AUCUN OP. Deux (anohana, bungou-stray-dogs saison1hs) ne rendent
+rien du tout.
+
+### Cause : le garde-fou de position de F1 rejette le vrai OP
+Sur les 7 anime ou l'ED est recupere en auto-reference mais pas l'OP, le log dit
+`[self-ref] op: no repeated segment across [2, 3, 4]`. C'est FAUX au sens litteral : le
+segment est parfaitement trouve. Mesure sur toradora (fenetre OP, sibnet, cache) :
+
+    ep2 x ep3: 2531 votes, span 86.6s
+    ep2 x ep4: 2533 votes, span 86.6s
+    ep3 x ep4: 2855 votes, span 95.1s
+    positions retenues -> ep2 52.4s | ep3 140.4s | ep4 109.4s (chaque episode
+    parfaitement coherent avec lui-meme : ses 2 observations sont identiques)
+    cluster a +/-25s -> support 1/3, il en faut 3 -> REJET
+
+`self_ref.POSITION_TOLERANCE_S = 25.0` exige que le segment tombe au MEME endroit dans
+>= MIN_SUPPORT episodes. Or la position absolue d'un OP n'est pas stable : elle depend
+du cold-open, qui varie de 88 s entre ep2 et ep3 sur toradora. Le garde-fou est ecrit
+pour rejeter un segment qui « flotte » (BGM recurrent) — il rejette exactement de la
+meme facon un OP legitime. L'ED echappe au probleme parce qu'il est ancre depuis la FIN,
+qui est stable : d'ou l'asymetrie parfaite ED-recupere / OP-jamais.
+
+C'est aussi la meme lecon que le faux positif de mon propre outil d'audit, corrige au
+passage : j'avais mis un controle « drift » sur le debut absolu de l'OP, il signalait
+erased (0:43 / 1:07 / 1:05) alors que ces trois valeurs sont justes. La position absolue
+d'un OP ne peut servir NI de controle de coherence, NI de garde-fou.
+
+Piste (NON implementee, a arbitrer) : pour l'OP, remplacer l'accord de position par un
+accord de LONGUEUR (le meme generique dure la meme chose : 86.6 / 86.6 / 95.1 ici),
+en gardant MIN_SUPPORT, la bande 25-150 s et SELF_MIN_VOTES=150. Toucher a un garde-fou
+anti-faux-positif se decide, ca ne se bricole pas.
+
+### Autre chose a regarder
+- **hyouka ep3 ED** : retenu pour `hosts disagree (22.0s spread)` alors que la meme
+  ligne annonce `4/4 d'accord`. Les deux ne peuvent pas etre vrais — le compteur
+  d'accord et le spread ne mesurent pas la meme population.
+- **anohana / bungou-stray-dogs** : zero absolu, F1 compris. BSD est en `saison1hs`
+  (hors-serie), mapping saison->themes a verifier.
+- Ecarts inter-lecteurs stables et fortement votes (toradora sibnet +14 s sur 3 eps,
+  noragami megaplay -6 s) = vraies differences d'encode, c'est le stockage par lecteur
+  qui les absorbe. En revanche hyouka ep3 fait diverger les 4 hosts dans DEUX sens
+  (-8/-8/+14/+14), ce qui ressemble a une vraie erreur.
+
+
 ## 2026-08-05 (2) — OP/ED : passe sur les 6 lecteurs + megaplay corrige (fenetre ED)
 
 Test demande par Luc : `diag_multi_host.py` sur tous les lecteurs affiches.
