@@ -71,6 +71,12 @@ export default function HoverPreview({
   const workersActiveRef = useRef(0);
   const pumpBusyRef = useRef(false);
   const runIdRef = useRef(0);
+  // How far apart the captured frames currently are, in seconds. Starts at the
+  // coarsest pass and tightens to THUMB_INTERVAL_S as the walk refines. The
+  // tooltip is allowed to stand in a neighbour up to this distance — that is
+  // what makes the whole bar show SOMETHING within the first second instead of
+  // an empty box everywhere the walk hasn't reached.
+  const coverageStepRef = useRef(THUMB_INTERVAL_S);
   const redrawRef = useRef<(() => void) | null>(null);
 
   const bucketOf = (t: number) =>
@@ -147,6 +153,8 @@ export default function HoverPreview({
     // Reset thumbnail cache on src change
     thumbCacheRef.current.clear();
     cachingActiveRef.current = false;
+    // Don't let the previous episode's density claim apply to an empty cache.
+    coverageStepRef.current = THUMB_INTERVAL_S;
 
     const instances: Hls[] = [];
     for (const video of videos) {
@@ -232,13 +240,44 @@ export default function HoverPreview({
     // would wake up and resume, doubling the decoders. Each run gets a token
     // instead, and a worker exits as soon as it is no longer the current one.
     const myRun = ++runIdRef.current;
-    let cursor = 0; // next bucket index to hand out
-    const nextBucket = (dur: number): number | null => {
+
+    // COARSE TO FINE. Walking 0,10,20,… left to right means the right half of
+    // the bar has nothing to show until the walk gets there — which is what
+    // "l'image est vide" actually was, even after the walk got faster. Instead
+    // we sweep the WHOLE episode at 160s first (~9 frames, about a second),
+    // then halve the stride pass after pass. Coverage everywhere immediately,
+    // detail shortly after; and a hover always jumps the queue for its exact
+    // frame anyway.
+    const STRIDE_PASSES = [16, 8, 4, 2, 1]; // in buckets, i.e. 160s → 10s
+    let order: { bucket: number; stride: number }[] | null = null;
+    let orderIdx = 0;
+
+    const buildOrder = (dur: number) => {
       const last = Math.floor(dur / THUMB_INTERVAL_S);
-      while (cursor <= last) {
-        const b = cursor * THUMB_INTERVAL_S;
-        cursor++;
-        if (!thumbCacheRef.current.has(b)) return b;
+      const seen = new Set<number>();
+      const out: { bucket: number; stride: number }[] = [];
+      for (const step of STRIDE_PASSES) {
+        for (let i = 0; i <= last; i += step) {
+          if (seen.has(i)) continue;
+          seen.add(i);
+          out.push({ bucket: i * THUMB_INTERVAL_S, stride: step * THUMB_INTERVAL_S });
+        }
+      }
+      return out;
+    };
+
+    const nextBucket = (dur: number): number | null => {
+      if (!order) {
+        order = buildOrder(dur);
+        coverageStepRef.current = STRIDE_PASSES[0] * THUMB_INTERVAL_S;
+      }
+      while (orderIdx < order.length) {
+        const { bucket, stride } = order[orderIdx++];
+        // Claim the density of the pass we're currently in. It runs a few
+        // buckets ahead of what's actually stored (workers are in flight), but
+        // the slop is a handful of frames and a hover corrects it in one seek.
+        coverageStepRef.current = stride;
+        if (!thumbCacheRef.current.has(bucket)) return bucket;
       }
       return null;
     };
@@ -320,17 +359,21 @@ export default function HoverPreview({
       const cache = thumbCacheRef.current;
       if (cache.size === 0) return false;
       const want = bucketOf(timeSec);
-      // Only this NEIGHBOURHOOD may stand in. The old code took the globally
-      // nearest cached bucket, so while the walk was still near the start,
-      // hovering at 15:00 drew the 3:00 frame — and drew that same frame for
-      // every position past the walk's front. Moving along the bar changed
-      // nothing on screen; that was the stuck preview. One bucket either side
-      // is allowed so the tooltip shows a near-miss instead of flashing a
-      // placeholder while the exact frame is being captured.
+      // Stand in with the nearest frame WITHIN THE CURRENT DENSITY, never the
+      // globally nearest — that was the original bug: while the walk sat near
+      // the start, hovering at 15:00 drew the 3:00 frame, and drew that same
+      // frame for every position further right, so moving changed nothing on
+      // screen. Bounding the search by the coverage the walk actually claims
+      // keeps the stand-in honest: coarse early, exact within a second.
+      const reach = Math.max(THUMB_INTERVAL_S, coverageStepRef.current);
       let best = -1;
-      for (const k of [want, want - THUMB_INTERVAL_S, want + THUMB_INTERVAL_S]) {
-        if (cache.has(k)) {
-          best = k;
+      for (let d = 0; d <= reach; d += THUMB_INTERVAL_S) {
+        if (cache.has(want - d)) {
+          best = want - d;
+          break;
+        }
+        if (cache.has(want + d)) {
+          best = want + d;
           break;
         }
       }
