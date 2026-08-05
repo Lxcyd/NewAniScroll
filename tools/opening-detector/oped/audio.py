@@ -121,7 +121,7 @@ def decode_audio_abs(
     which keeps the same absolute PTS — the `-copyts -ss/-to` below then work on
     it unchanged, so the shared-clock contract still holds.
     """
-    if is_megaplay(src):
+    if is_megaplay(src, referer):
         src = materialize_window(src, start_abs, dur, referer=referer)
         referer = None  # local file: no HTTP headers, no HLS demuxer flags
 

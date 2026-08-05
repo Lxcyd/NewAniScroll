@@ -42,18 +42,35 @@ _LEAD_S = 15.0
 _PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 
 
-def is_megaplay(url: str | None) -> bool:
-    """True for a megaplay HLS URL (its CDN hosts rotate, so match on the known
-    domains rather than a single host)."""
-    if not url:
-        return False
-    u = url.lower()
-    return (
-        "megaplay.buzz" in u
-        or "kotocdn.site" in u
-        or "mewstream.buzz" in u
-        or "lostproject.club" in u
-    )
+# Known megaplay CDN domains. This list is a HINT, never the primary test: the
+# CDN rotates (it has been mewstream.buzz, then kotocdn.site, then shiora.top…)
+# and every rotation silently disables the de-PNG path — the stream then decodes
+# as a lone `Video: png` with no audio and the host contributes nothing, which is
+# exactly how megaplay went from working to 0-hit without any error.
+_MEGAPLAY_DOMAINS = (
+    "megaplay.buzz",
+    "kotocdn.site",
+    "mewstream.buzz",
+    "lostproject.club",
+    "shiora.top",
+)
+
+
+def is_megaplay(url: str | None, referer: str | None = None) -> bool:
+    """True for a megaplay HLS stream.
+
+    The REFERER is the reliable signal: the resolver stamps every megaplay
+    stream with `https://megaplay.buzz/` (the embed validates segment fetches on
+    it), and unlike the CDN hostname it does not rotate. The domain list is kept
+    as a secondary match for callers that have no referer to hand.
+    """
+    for value in (referer, url):
+        if not value:
+            continue
+        v = value.lower()
+        if any(d in v for d in _MEGAPLAY_DOMAINS):
+            return True
+    return False
 
 
 def depng(buf: bytes) -> bytes:

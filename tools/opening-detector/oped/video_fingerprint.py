@@ -288,7 +288,7 @@ def keyframe_hashes_abs(
     # `Video: png`, no real video/audio). Materialise the window as a local,
     # de-PNG'd .ts that keeps the same absolute PTS, so the `-copyts -ss/-to`
     # decode below works on it unchanged. See oped/megaplay.py + audio.py.
-    if is_megaplay(src):
+    if is_megaplay(src, referer):
         src = materialize_window(src, start_abs, dur, referer=referer)
         referer = None
 
