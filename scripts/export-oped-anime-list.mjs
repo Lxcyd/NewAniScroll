@@ -144,23 +144,81 @@ const vaLangs = await db.execute({
            AND status IN ('verified', 'heuristic')`,
   args: [],
 });
-let addedVaOnly = 0;
-for (const row of vaLangs.rows) {
+// ANIME-SAMA LANGUAGES THAT ARE ONLY `heuristic`. The main query demands
+// `verified`, which is right for the slug/season (a wrong one sends ffmpeg at
+// hours of the WRONG stream) — but it also drops languages the seed never
+// covered. VF panels are mostly written at RUNTIME by the app, so they are
+// `heuristic` far more often than VOSTFR: 69 heuristic VF rows against 542
+// verified. Dandadan is the case Luc hit — the app offers Anime-Sama Ansembed
+// in VF, the batch never tried it.
+//
+// Accepted ONLY when the slug AND season_dir match a row already verified for
+// this anime: the risky part is then vouched for, and all that differs is the
+// language sub-path (`…/saison1/vf/` instead of `…/saison1/vostfr/`), which
+// resolves cleanly or 404s.
+const asLangs = await db.execute({
+  sql: `SELECT ani_id, lang, slug, season_dir, episode_count FROM player_map
+         WHERE source = ? AND status = 'heuristic' AND slug IS NOT NULL`,
+  args: [SOURCE],
+});
+let addedHeuristicLang = 0;
+for (const row of asLangs.rows) {
   const entry = byAnime.get(Number(row.ani_id));
   if (!entry) continue;
   const lang = String(row.lang);
   if (entry.seasons.some((s) => s.lang === lang)) continue;
-  const model = entry.seasons[0];
-  if (!model) continue;
+  const dir = row.season_dir ? String(row.season_dir) : "saison1";
+  const twin = entry.seasons.find(
+    (s) => s.season_dir === dir && entry.slug === String(row.slug),
+  );
+  if (!twin) continue;
+  const count = row.episode_count == null ? twin.ep_end : Number(row.episode_count);
   entry.seasons.push({
-    season_dir: model.season_dir,
+    season_dir: dir,
     lang,
-    ep_start: model.ep_start,
-    ep_end: model.ep_end,
-    va_slug: String(row.slug),
-    va_only: true, // anime-sama has no panel for this language
+    ep_start: 1,
+    ep_end: count && count >= MIN_EP ? count : twin.ep_end,
   });
-  addedVaOnly++;
+  addedHeuristicLang++;
+}
+if (addedHeuristicLang) {
+  console.log(
+    `[export-oped] ${addedHeuristicLang} heuristic-language panel(s) added ` +
+      `(slug+season already verified)`,
+  );
+}
+
+// Voir-anime slug per (anime, language). Applied to EVERY season at the end
+// rather than during the main query, so the panels added above get theirs too —
+// the JOIN only ever saw the languages that query returned.
+const vaByKey = new Map();
+for (const row of vaLangs.rows) {
+  vaByKey.set(`${row.ani_id}:${row.lang}`, String(row.slug));
+}
+
+let addedVaOnly = 0;
+for (const [aniId, entry] of byAnime) {
+  for (const s of entry.seasons) {
+    const slug = vaByKey.get(`${aniId}:${s.lang}`);
+    if (slug) s.va_slug = slug;
+  }
+  // …then languages voir-anime has and anime-sama does not.
+  for (const [key, slug] of vaByKey) {
+    const [id, lang] = key.split(":");
+    if (Number(id) !== aniId) continue;
+    if (entry.seasons.some((s) => s.lang === lang)) continue;
+    const model = entry.seasons[0];
+    if (!model) continue;
+    entry.seasons.push({
+      season_dir: model.season_dir,
+      lang,
+      ep_start: model.ep_start,
+      ep_end: model.ep_end,
+      va_slug: slug,
+      va_only: true, // anime-sama has no panel for this language
+    });
+    addedVaOnly++;
+  }
 }
 if (addedVaOnly) {
   console.log(`[export-oped] ${addedVaOnly} voir-anime-only language panel(s) added`);

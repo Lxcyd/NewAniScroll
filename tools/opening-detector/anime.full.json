@@ -65,8 +65,7 @@
         "lang": "vf",
         "ep_start": 1,
         "ep_end": 24,
-        "va_slug": "vinland-saga-vf",
-        "va_only": true
+        "va_slug": "vinland-saga-vf"
       }
     ]
   },
@@ -106,7 +105,8 @@
         "season_dir": "saison1",
         "lang": "vostfr",
         "ep_start": 1,
-        "ep_end": 13
+        "ep_end": 13,
+        "va_slug": "charlotte"
       }
     ]
   },
@@ -185,7 +185,15 @@
         "season_dir": "saison1",
         "lang": "vostfr",
         "ep_start": 1,
-        "ep_end": 12
+        "ep_end": 12,
+        "va_slug": "dandadan"
+      },
+      {
+        "season_dir": "saison1",
+        "lang": "vf",
+        "ep_start": 1,
+        "ep_end": 12,
+        "va_slug": "dandadan-vf"
       }
     ]
   },
@@ -13863,8 +13871,7 @@
         "lang": "vf",
         "ep_start": 1,
         "ep_end": 74,
-        "va_slug": "monster-vf",
-        "va_only": true
+        "va_slug": "monster-vf"
       }
     ]
   },
@@ -17782,8 +17789,7 @@
         "lang": "vf",
         "ep_start": 1,
         "ep_end": 11,
-        "va_slug": "oshi-no-ko-3-vf",
-        "va_only": true
+        "va_slug": "oshi-no-ko-3-vf"
       }
     ]
   },
