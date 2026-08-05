@@ -63,6 +63,22 @@ Consensus OP 3/4 spread 0.77s, ED 2/3 spread 0.17s : les deux servis.
 - `align_status` distinguait mal « l'image n'a rien dit » de « l'image n'a pas
   confirme » (commit b3e7b39) — les deux retombaient sur `absent`.
 
+### 5. DNS corrige (05/08, machine de Luc) — 5 lecteurs
+`Set-DnsClientServerAddress -InterfaceIndex 19 -ServerAddresses ("2606:4700:4700::1111","2606:4700:4700::1001")`
+en PowerShell ADMIN (l'IPv4 etait deja sur 8.8.8.8 ; c'est le resolveur IPv6 de la box
+qui sinkholait vers `::1`/`127.0.0.1`). Verifie au prealable que la box n'intercepte
+PAS le port 53 : une requete explicite vers 8.8.8.8/1.1.1.1 rendait deja les vraies IP.
+
+uqload devient extractible et concorde parfaitement. Etat final SnK ep1 VOSTFR :
+```
+sibnet     OP 2:03.0  ED 23:55.0  image
+ansembed   OP 2:03.2  ED 23:55.2  image
+uqload     OP 2:03.2  ED 23:55.2  image
+vidmoly-va OP 2:03.8  ED 24:05.7  image   <- encode different (ED plus tard)
+megaplay   OP 2:19.6            audio   <- encode +16.6s en tete, pas d'ED
+```
+Consensus OP 4/5 (spread 0.77s) et ED 3/4 (spread 0.17s), les deux SERVIS.
+
 ### A retenir
 Le risque de cette couche n'est pas dans la logique de decision (65 tests hors-ligne
 verte des le depart) mais dans le **cablage** et dans les **listes figees** (domaines
