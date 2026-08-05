@@ -139,10 +139,13 @@ def resolve_episodes(
 #     which is fine — it never poisons the DB, it just doesn't contribute.
 # This list is the displayed-host allowlist (mirrors host_versions.json keys /
 # lib/hostRegistry.js DISPLAYED_HOSTS). Keep the three in sync.
-MULTI_HOSTS = ["sibnet", "sendvid", "megaplay", "vidmoly", "vidmoly-va",
-               # ansembed = Vidmoly on a white-label domain, but a SEPARATE
-               # anime-sama entry with its own uploads, so its own encode.
-               "ansembed",
+# `vidmoly` (the anime-sama entry) is GONE, replaced by `ansembed`: anime-sama
+# migrated its vidmoly uploads to that white-label domain and no longer lists
+# vidmoly.* on any panel, so the host could only ever answer "not offered" —
+# one wasted resolution subprocess per episode over 33k ep-languages. Same
+# reasoning that removed uqload from this list in July. `vidmoly-va` stays: it
+# is voir-anime's own upload, a genuinely different encode.
+MULTI_HOSTS = ["sibnet", "sendvid", "megaplay", "ansembed", "vidmoly-va",
                "uqload"]
 
 
