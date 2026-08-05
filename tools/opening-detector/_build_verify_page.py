@@ -45,84 +45,98 @@ def main() -> None:
     dst = sys.argv[2] if len(sys.argv) > 2 else "out/verify.html"
     rows = [json.loads(l) for l in open(src, encoding="utf-8") if l.strip()]
 
-    by_anime = defaultdict(list)
+    # One block per ANIME; the language rides on the host name ("vidmoly-va
+    # (vf)"), mirroring how the app presents its server chips. Episodes of every
+    # language share one card, keyed by episode number.
+    by_anime = defaultdict(lambda: defaultdict(list))
     for r in rows:
-        # Grouped by (anime, LANGUAGE): VOSTFR and VF are different encodes with
-        # different hosts, and a sheet that merges them reports one unlabelled
-        # "vidmoly-va" row when the app actually offers two — which is exactly
-        # how the VF went unreported on the previous sheet.
-        by_anime[(r["mal_id"], r["lang"])].append(r)
+        by_anime[r["mal_id"]][r["episode"]].append(r)
 
     n_serve = n_held = n_absent = 0
     n_flag = 0
     cards = []
 
-    for mal, lang in sorted(by_anime, key=lambda k: (NAMES.get(k[0], str(k[0])), k[1])):
-        eps = sorted(by_anime[(mal, lang)], key=lambda x: x["episode"])
+    def tag(lang: str) -> str:
+        """Host suffix. VOSTFR is the unmarked default, as in the player."""
+        return "" if lang == "vostfr" else f" ({lang})"
+
+    for mal in sorted(by_anime, key=lambda m: NAMES.get(m, str(m))):
         ep_html = []
         anime_flags = 0
 
-        for r in eps:
-            cons = {}
-            for kind in ("op", "ed"):
-                h = r.get(kind)
-                if h is None:
-                    n_absent += 1
-                    cons[kind] = ("absent", "absent", None)
-                elif h.get("serve"):
-                    n_serve += 1
-                    cons[kind] = ("servi", f"{ms(h['start'])} – {ms(h['end'])}", h)
-                else:
-                    n_held += 1
-                    cons[kind] = ("retenu", f"{ms(h['start'])} – {ms(h['end'])}", h)
-
-            hosts = sorted((r.get("per_host") or {}).items())
-            op_starts = [e["op"]["start"] for _h, e in hosts if e.get("op")]
-            ed_fe = [e["ed"]["from_end_start"] for _h, e in hosts
-                     if e.get("ed") and e["ed"].get("from_end_start") is not None]
-            med_op = statistics.median(op_starts) if op_starts else None
-            med_ed = statistics.median(ed_fe) if ed_fe else None
-
+        for epnum in sorted(by_anime[mal]):
+            langs = sorted(by_anime[mal][epnum], key=lambda r: r["lang"] != "vostfr")
             host_rows = []
-            for host, e in hosts:
-                op, ed = e.get("op"), e.get("ed")
-                dev = []
-                if op and med_op is not None and abs(op["start"] - med_op) > DEV_TOL:
-                    dev.append(("OP", op["start"] - med_op))
-                if (ed and med_ed is not None and ed.get("from_end_start") is not None
-                        and abs(ed["from_end_start"] - med_ed) > DEV_TOL):
-                    dev.append(("ED", ed["from_end_start"] - med_ed))
-                if dev:
-                    n_flag += 1
-                    anime_flags += 1
-                chips = "".join(
-                    f'<span class="dev">{k} {d:+.0f}s</span>' for k, d in dev
-                )
-                host_rows.append(
-                    f'<tr class="{"flag" if dev else ""}">'
-                    f'<th scope="row">{html.escape(host)}</th>'
-                    f'<td class="num">{e.get("duration", 0):.0f}s</td>'
-                    f'<td class="num op">{ms(op["start"]) + " – " + ms(op["end"]) if op else "—"}</td>'
-                    f'<td class="num ed">{ms(ed["start"]) + " – " + ms(ed["end"]) if ed else "—"}</td>'
-                    f'<td class="num">{ms(ed["from_end_start"]) if ed and ed.get("from_end_start") is not None else "—"}</td>'
-                    f'<td class="num quiet">{(op or {}).get("votes", "—")} / {(ed or {}).get("votes", "—")}</td>'
-                    f"<td>{chips}</td></tr>"
-                )
+            badges = []
+            ep_flagged = False
 
-            def badge(kind):
-                state, txt, h = cons[kind]
-                reason = ""
-                if h is not None and not h.get("serve"):
-                    reason = f'<span class="why">{html.escape(h.get("held_reason") or "")}</span>'
-                return (f'<div class="cons {kind}">'
-                        f'<span class="k">{kind.upper()}</span>'
+            for r in langs:
+                lang = r["lang"]
+                for kind in ("op", "ed"):
+                    h = r.get(kind)
+                    if h is None:
+                        n_absent += 1
+                        state, txt = "absent", "absent"
+                    elif h.get("serve"):
+                        n_serve += 1
+                        state, txt = "servi", f"{ms(h['start'])} – {ms(h['end'])}"
+                    else:
+                        n_held += 1
+                        state, txt = "retenu", f"{ms(h['start'])} – {ms(h['end'])}"
+                    reason = ""
+                    if h is not None and not h.get("serve"):
+                        reason = (f'<span class="why">'
+                                  f'{html.escape(h.get("held_reason") or "")}</span>')
+                    badges.append(
+                        f'<div class="cons {kind}"><span class="k">{kind.upper()}'
+                        f'{html.escape(tag(lang))}</span>'
                         f'<span class="t">{txt}</span>'
-                        f'<span class="st s-{state}">{state}</span>{reason}</div>')
+                        f'<span class="st s-{state}">{state}</span>{reason}</div>'
+                    )
+
+                hosts = sorted((r.get("per_host") or {}).items())
+                # Medians are computed WITHIN a language: a VF dub is a different
+                # encode (Ashita no Joe runs 1300 s in VF against ~1420 s in
+                # VOSTFR), so comparing it to the VOSTFR hosts would flag a
+                # legitimate difference as an error.
+                op_starts = [e["op"]["start"] for _h, e in hosts if e.get("op")]
+                ed_fe = [e["ed"]["from_end_start"] for _h, e in hosts
+                         if e.get("ed") and e["ed"].get("from_end_start") is not None]
+                med_op = statistics.median(op_starts) if op_starts else None
+                med_ed = statistics.median(ed_fe) if ed_fe else None
+
+                for host, e in hosts:
+                    op, ed = e.get("op"), e.get("ed")
+                    dev = []
+                    if op and med_op is not None and abs(op["start"] - med_op) > DEV_TOL:
+                        dev.append(("OP", op["start"] - med_op))
+                    if (ed and med_ed is not None
+                            and ed.get("from_end_start") is not None
+                            and abs(ed["from_end_start"] - med_ed) > DEV_TOL):
+                        dev.append(("ED", ed["from_end_start"] - med_ed))
+                    if dev:
+                        n_flag += 1
+                        anime_flags += 1
+                        ep_flagged = True
+                    chips = "".join(
+                        f'<span class="dev">{k} {d:+.0f}s</span>' for k, d in dev
+                    )
+                    label = html.escape(host + tag(lang))
+                    host_rows.append(
+                        f'<tr class="{"flag" if dev else ""}">'
+                        f'<th scope="row">{label}</th>'
+                        f'<td class="num">{e.get("duration", 0):.0f}s</td>'
+                        f'<td class="num op">{ms(op["start"]) + " – " + ms(op["end"]) if op else "—"}</td>'
+                        f'<td class="num ed">{ms(ed["start"]) + " – " + ms(ed["end"]) if ed else "—"}</td>'
+                        f'<td class="num">{ms(ed["from_end_start"]) if ed and ed.get("from_end_start") is not None else "—"}</td>'
+                        f'<td class="num quiet">{(op or {}).get("votes", "—")} / {(ed or {}).get("votes", "—")}</td>'
+                        f"<td>{chips}</td></tr>"
+                    )
 
             ep_html.append(
-                f'<article class="ep" data-flags="{1 if any("flag" in x for x in host_rows) else 0}">'
-                f'<h3>Épisode {r["episode"]}</h3>'
-                f'<div class="consrow">{badge("op")}{badge("ed")}</div>'
+                f'<article class="ep" data-flags="{1 if ep_flagged else 0}">'
+                f"<h3>Épisode {epnum}</h3>"
+                f'<div class="consrow">{"".join(badges)}</div>'
                 f'<div class="tw"><table>'
                 f'<thead><tr><th scope="col">Lecteur</th><th scope="col">Durée</th>'
                 f'<th scope="col">OP</th><th scope="col">ED</th>'
@@ -134,7 +148,6 @@ def main() -> None:
         cards.append(
             f'<section class="anime" data-flags="{anime_flags}">'
             f'<header class="ah"><h2>{html.escape(NAMES.get(mal, str(mal)))}</h2>'
-            f'<span class="lang l-{html.escape(lang)}">{html.escape(lang.upper())}</span>'
             f'<span class="mal">mal {mal}</span>'
             + (f'<span class="fc">{anime_flags} à vérifier</span>' if anime_flags else "")
             + f"</header>{''.join(ep_html)}</section>"
@@ -145,7 +158,7 @@ def main() -> None:
         serve=n_serve, held=n_held, absent=n_absent, total=total,
         flag=n_flag, eps=len(rows), anime=len(by_anime),
         pct=round(100 * n_serve / total) if total else 0,
-        panels=len(by_anime),
+        panels=len({(r["mal_id"], r["lang"]) for r in rows}),
         body="".join(cards),
     )
     with open(dst, "w", encoding="utf-8") as f:
@@ -220,10 +233,6 @@ h1 {{ font-size:26px; letter-spacing:-.02em; margin:0 0 4px; text-wrap:balance; 
   border-bottom:2px solid var(--line); padding-bottom:7px; margin-bottom:14px; }}
 .ah h2 {{ font-size:19px; margin:0; letter-spacing:-.01em; }}
 .mal {{ font-size:12px; color:var(--ink-3); font-variant-numeric:tabular-nums; }}
-.lang {{ font-size:11px; font-weight:700; letter-spacing:.07em; padding:2px 8px;
-  border-radius:4px; border:1px solid var(--line); color:var(--ink-2); }}
-.l-vostfr {{ border-color:var(--ed); color:var(--ed); }}
-.l-vf {{ border-color:var(--op); color:var(--op); }}
 .fc {{ margin-left:auto; font-size:12px; color:var(--warn);
   background:var(--warn-bg); padding:2px 9px; border-radius:999px; }}
 .ep {{ background:var(--surface); border:1px solid var(--line);
@@ -267,10 +276,10 @@ footer {{ margin-top:40px; color:var(--ink-3); font-size:13px;
 </style>
 <div class="wrap">
 <h1>OP/ED — feuille de vérification</h1>
-<p class="sub">{eps} épisodes, {anime} anime, {panels} panneaux langue — VOSTFR et VF
-sont listés <strong>séparément</strong> : ce sont des encodages différents, avec des
-lecteurs différents. Les minutages sont donnés dans l'horloge <strong>propre à chaque
-lecteur</strong>, c'est ce que le player affiche.</p>
+<p class="sub">{eps} épisodes, {anime} anime, {panels} panneaux langue. Un lecteur suffixé
+<strong>(vf)</strong> sert le doublage — sans suffixe, c'est la VOSTFR. Les minutages
+sont donnés dans l'horloge <strong>propre à chaque lecteur</strong>, c'est ce que le
+player affiche.</p>
 
 <div class="stats">
   <div class="stat ok"><b>{serve}</b><span>servi</span></div>
