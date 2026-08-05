@@ -1,6 +1,6 @@
 import { rateLimiterRedis, redis } from "@/lib/redis";
 import * as cheerio from "cheerio";
-import { getExtractor, extractMegaplay } from "@/lib/extractors";
+import { getExtractor, extractMegaplay, VIDMOLY_HOST_RE } from "@/lib/extractors";
 import { getMediaMeta } from "@/lib/anilist/getMediaMeta";
 import { getPlayerMapEntry, upsertPlayerMap, flagPlayerMap } from "@/lib/db/playerMap";
 import { resolveSeasonNumber } from "@/lib/anilist/resolveSeason";
@@ -95,7 +95,13 @@ async function fetchViaWorker(targetUrl, options = {}, timeoutMs = 5000) {
 // multiple network perspectives and the browser fetch in the failing case.
 // Returns true when the slug is reachable, false when it's gone.
 async function isVidmolyEmbedAlive(embedUrl) {
-  const url = embedUrl.replace(/vidmoly\.(to|biz|net)/i, "vidmoly.biz");
+  // ansembed.net slugs are NOT mirrored on vidmoly.biz — they're the same
+  // backend but a distinct slug namespace, so rewriting the domain would probe
+  // a slug that never existed and 404, hiding a perfectly live chip. Probe
+  // ansembed on its own host; only the vidmoly.* variants are interchangeable.
+  const url = /ansembed\.net/i.test(embedUrl)
+    ? embedUrl
+    : embedUrl.replace(/vidmoly\.(to|biz|net)/i, "vidmoly.biz");
   try {
     const res = await fetchWithTimeout(
       url,
@@ -175,11 +181,12 @@ const EXTRACTABLE_HOSTS = [
   // (both = Worker), the IP-bound master token stays valid end-to-end and
   // the user plays in the Universal Player without an iframe.
   "vidmoly",
-  // ansembed.net is that same vidmoly backend on a white-label domain, so it
-  // extracts identically. It MUST be listed here explicitly: this array is
-  // matched on the embed URL, and without the entry an ansembed embed is
-  // treated as non-extractable and degrades to the raw iframe — vidmoly's own
-  // JW Player, losing our controls, subtitles, cast and SkipOverlay.
+  // ansembed.net — same white-label vidmoly backend, so it is listed for the
+  // same reason "vidmoly" is: as a last-resort net. In practice neither is
+  // reached from the anime-sama / voir-anime routes, because the VIDMOLY_HOST_RE
+  // branch above returns a `clientExtract` first. That is deliberate — this
+  // family's master token binds to whoever fetched the embed, so extracting it
+  // HERE yields a stream only our own IP can play.
   "ansembed",
   "embed4me",
   "lpayer",        // lpayer.embed4me.com
@@ -1042,7 +1049,12 @@ async function finalizeAnimeSamaIframe(serverKey, serverDef, iframeUrl) {
     // Origin in Access-Control-Allow-Origin (verified), so the browser fetch
     // succeeds. If client extraction fails (CORS on the CDN, no source in
     // HTML, etc.), UniversalPlayer falls back to the iframe.
-    if (lower.includes("vidmoly")) {
+    // VIDMOLY_HOST_RE, not `includes("vidmoly")`: ansembed.net is the same
+    // backend with the same IP-bound token, so it needs the same
+    // browser-side extraction. Matching on the literal string sent it to the
+    // server-side extractor instead, which either failed (→ raw JW iframe) or
+    // "succeeded" with a token bound to our IP that 410s on every segment.
+    if (VIDMOLY_HOST_RE.test(lower)) {
       // Aniwsama tends to keep dead vidmoly slugs in its catalogue for weeks
       // after the file is deleted. Probe before serving the chip so a dead
       // slug yields "server unavailable" instead of vidmoly's own 404 page.
@@ -2049,7 +2061,7 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId, trace = null
     // Vidmoly: same bypass as anime-sama — hand the embed URL to the browser
     // so the m3u8 token IP-binds to the user instead of any proxy. See the
     // commentary in getAnimeSamaIframe for the full rationale.
-    if (lower.includes("vidmoly")) {
+    if (VIDMOLY_HOST_RE.test(lower)) {
       if (!(await isVidmolyEmbedAlive(iframeUrl))) {
         dlog(`[voiranime] vidmoly slug 404 — hiding chip: ${iframeUrl}`);
         return null;
