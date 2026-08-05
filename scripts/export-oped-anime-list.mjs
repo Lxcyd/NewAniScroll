@@ -110,10 +110,6 @@ for (const row of r.rows) {
       mal_id: malId,
       anilist_id: aniId,
       slug,
-      // Omitted when voir-anime has no row: batch_detect then falls back to the
-      // anime-sama slug, which is right for the ~35% where they coincide and
-      // otherwise just drops the host.
-      ...(row.va_slug ? { va_slug: String(row.va_slug) } : {}),
       seasons: [],
     });
   }
@@ -122,7 +118,52 @@ for (const row of r.rows) {
     lang,
     ep_start: 1,
     ep_end: count,
+    // PER-LANG, not per-anime: voir-anime slugs differ BETWEEN languages, not
+    // just from anime-sama's. Ashita no Joe is `ashita-no-joe` in VOSTFR and
+    // `ashita-no-joe-2-vf` in VF. Hanging one va_slug off the anime meant
+    // whichever lang was read first silently overwrote the other.
+    ...(row.va_slug ? { va_slug: String(row.va_slug) } : {}),
   });
+}
+
+// VOIR-ANIME-ONLY LANGUAGES. The query above is anime-sama-centric, so a
+// language that exists ONLY on voir-anime produced no panel at all and the
+// detector never saw it. Ashita no Joe is the case that surfaced it: anime-sama
+// carries only VOSTFR, while the app offers a VF through Voir-Anime Vidmoly —
+// so every VF run was invisible to the batch, and the audit sheet reported one
+// unlabelled "vidmoly-va" row that was in fact VOSTFR only.
+//
+// Such a panel borrows the anime-sama season_dir and episode range of the
+// anime's other language (voir-anime rows carry no season dir). The anime-sama
+// hosts will simply report "not offered by anime-sama for this season" and be
+// filtered out, exactly as they already are for any host a season lacks —
+// vidmoly-va is the one that can serve it, and it now can.
+const vaLangs = await db.execute({
+  sql: `SELECT ani_id, lang, slug FROM player_map
+         WHERE source = 'voiranime' AND slug IS NOT NULL
+           AND status IN ('verified', 'heuristic')`,
+  args: [],
+});
+let addedVaOnly = 0;
+for (const row of vaLangs.rows) {
+  const entry = byAnime.get(Number(row.ani_id));
+  if (!entry) continue;
+  const lang = String(row.lang);
+  if (entry.seasons.some((s) => s.lang === lang)) continue;
+  const model = entry.seasons[0];
+  if (!model) continue;
+  entry.seasons.push({
+    season_dir: model.season_dir,
+    lang,
+    ep_start: model.ep_start,
+    ep_end: model.ep_end,
+    va_slug: String(row.slug),
+    va_only: true, // anime-sama has no panel for this language
+  });
+  addedVaOnly++;
+}
+if (addedVaOnly) {
+  console.log(`[export-oped] ${addedVaOnly} voir-anime-only language panel(s) added`);
 }
 
 let list = [...byAnime.values()].filter((a) => a.seasons.length > 0);

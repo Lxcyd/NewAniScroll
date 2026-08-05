@@ -497,7 +497,12 @@ def process_anime(
             # from the cross-host consensus. va_slug comes from the anime entry
             # (the DB export owns the mapping); falls back to the anime-sama slug
             # when voir-anime happens to use the same one.
-            va_slug = anime.get("va_slug") or anime.get("slug")
+            # PER-SEASON first: voir-anime uses a different slug per LANGUAGE
+            # (ashita-no-joe in VOSTFR, ashita-no-joe-2-vf in VF), so a single
+            # anime-level slug would serve one language's URL for the other.
+            # The anime-level key stays as a fallback for hand-written lists.
+            va_slug = (season.get("va_slug") or anime.get("va_slug")
+                       or anime.get("slug"))
             # Version-based resume: only (re)resolve the hosts that are missing or
             # stale in the DB coverage. A newly-added or newly-fixed host (bumped
             # in host_versions.json) is the ONLY thing that gets re-run on an anime
