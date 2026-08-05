@@ -69,7 +69,7 @@ for (let i = 0; i < rows.length; i += CONCURRENCY) {
   await Promise.all(rows.slice(i, i + CONCURRENCY).map(probe));
 }
 
-console.log(`\n${dead.length} dead panel(s) of ${rows.length}\n`);
+console.log(`\n${dead.length} unreachable at the constructed URL, of ${rows.length}\n`);
 const byStatus = {};
 for (const d of dead) {
   byStatus[`${d.lang}/${d.status}`] = (byStatus[`${d.lang}/${d.status}`] || 0) + 1;
@@ -80,18 +80,29 @@ for (const d of dead.slice(0, 40)) {
 }
 if (dead.length > 40) console.log(`  … and ${dead.length - 40} more`);
 
-if (!dead.length) process.exit(0);
-if (!purge) {
-  console.log("\n(read-only — re-run with --purge to delete these rows)");
-  process.exit(0);
+// THIS SCRIPT NO LONGER DELETES ANYTHING, and the removal is the whole point.
+//
+// A 404 on the URL above is not proof the panel is dead. That URL is a GUESS at
+// anime-sama's layout, and the site serves some language panels by a path the
+// template does not generate. Measured on Vinland Saga: the constructed VF URL
+// 404s while the app resolves and plays a genuine French track for the same
+// anime — it is still in the list above, and it is a false positive.
+//
+// Acting on that signal cost 4 `verified` VF rows (re-zero, kimi-wa-kanata,
+// asagao-to-kase-san x2). Heuristic rows survive a wrong delete because the
+// runtime rewrites them; verified rows come from the seed and nothing
+// regenerates them, so they were gone until restored by hand. See
+// scripts/repair-purged-player-map.mjs.
+//
+// Restricting --purge to heuristic rows was not enough either: Vinland's row IS
+// heuristic, so the narrower rule still deleted a mapping that works. The
+// missing evidence is not "which rows are safe to delete" but a probe that
+// reflects how the APP resolves a panel. Until this asks the resolver itself,
+// the honest output is a list for a human to confirm in the player.
+if (purge) {
+  console.log(
+    "\n--purge is disabled: a 404 on a hand-built URL is not evidence a panel " +
+      "is dead (proven false on vinland-saga/vf). Confirm in the app first.",
+  );
 }
-
-let n = 0;
-for (const d of dead) {
-  const res = await db.execute({
-    sql: `DELETE FROM player_map WHERE ani_id = ? AND source = 'animesama' AND lang = ?`,
-    args: [d.ani_id, d.lang],
-  });
-  n += res.rowsAffected;
-}
-console.log(`\ndeleted ${n} row(s)`);
+console.log("\n(report only — verify each entry in the player before removing it)");

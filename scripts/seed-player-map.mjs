@@ -176,6 +176,18 @@ const bySrc = {};
 for (const x of rows) bySrc[`${x.source}:${x.lang}`] = (bySrc[`${x.source}:${x.lang}`] || 0) + 1;
 console.log(`[seed] by source/lang: ${JSON.stringify(bySrc)}`);
 
+// `--dump=<path>` writes the gated rows and exits WITHOUT touching Turso. This
+// is what makes a targeted repair possible: the seed's output is the reference
+// set of `verified` mappings, so diffing it against the live table tells you
+// exactly which verified rows have gone missing — without the collateral of
+// re-running the whole upsert, which would overwrite every current value with
+// the audit's (2025-06-11) snapshot.
+if (args.dump) {
+  fs.writeFileSync(args.dump, JSON.stringify(rows, null, 2), "utf8");
+  console.log(`[seed] --dump: wrote ${rows.length} gated rows to ${args.dump} (no DB write)`);
+  process.exit(0);
+}
+
 if (DRY) {
   console.log("[seed] --dry: not writing. Sample rows:");
   for (const x of rows.slice(0, 10)) console.log("  ", JSON.stringify(x));
