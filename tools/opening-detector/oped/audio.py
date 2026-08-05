@@ -15,7 +15,7 @@ from pathlib import Path
 import numpy as np
 
 from . import SAMPLE_RATE
-from .megaplay import is_megaplay, materialize_window
+from .megaplay import is_megaplay, materialize_window, playlist_duration
 
 # ashowinfo prints one `pts_time:<abs seconds>` per audio frame to stderr; with
 # -copyts these are ABSOLUTE episode timestamps. We only need the first (the pts
@@ -121,9 +121,20 @@ def decode_audio_abs(
     which keeps the same absolute PTS — the `-copyts -ss/-to` below then work on
     it unchanged, so the shared-clock contract still holds.
     """
+    seek = start_abs
     if is_megaplay(src, referer):
         src = materialize_window(src, start_abs, dur, referer=referer)
         referer = None  # local file: no HTTP headers, no HLS demuxer flags
+        # ffmpeg's input `-ss` is RELATIVE to the container's start_time (it adds
+        # ic->start_time to the seek target, and `-seek_timestamp 1` does not
+        # override that for mpegts — measured). The materialised .ts starts at the
+        # first picked segment's PTS (~start_abs − _LEAD_S), not at 0, so passing
+        # the absolute time seeks to roughly TWICE it, lands past EOF and decodes
+        # zero frames. This only ever bit windows late in the episode — the ED —
+        # which is why an OP-window materialisation (file starting at ~0) looked
+        # fine. `-copyts` still keeps the OUTPUT pts absolute, so `ashowinfo`
+        # below reports the true absolute anchor and the shared clock holds.
+        seek = max(0.0, start_abs - _container_start(src))
 
     cmd = ["ffmpeg", "-hide_banner", "-loglevel", "info"]
     if referer:
@@ -135,9 +146,9 @@ def decode_audio_abs(
     # absolute, so `-t <dur>` is measured against it and truncates to ~nothing on
     # HLS (megaplay: `-t 113` yielded 2 frames). `-to <start+dur>` gives the full
     # window. None dur → decode to EOF.
-    cmd += ["-copyts", "-ss", str(start_abs)]
+    cmd += ["-copyts", "-ss", str(seek)]
     if dur is not None:
-        cmd += ["-to", str(start_abs + dur)]
+        cmd += ["-to", str(seek + dur)]
     cmd += ["-i", src]
     cmd += [
         "-vn",
@@ -161,6 +172,23 @@ def decode_audio_abs(
     m = _ASHOWINFO_PTS_RE.search(proc.stderr)
     abs_start = float(m.group(1)) if m else float(start_abs)
     return samples, abs_start
+
+
+def _container_start(path: str) -> float:
+    """First timestamp of a LOCAL container, in seconds (0.0 if unknown).
+
+    Only used to turn an absolute seek into the relative one ffmpeg's `-ss`
+    actually wants; the probe is local, so it costs no network.
+    """
+    out = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=start_time",
+         "-of", "default=nk=1:nw=1", path],
+        capture_output=True, text=True,
+    )
+    try:
+        return float(out.stdout.strip())
+    except ValueError:
+        return 0.0
 
 
 def _is_hls_url(src: str) -> bool:
@@ -199,6 +227,30 @@ def _ffmpeg_decode(
     rather than after full decode. A negative `start_s` uses `-sseof` to seek
     relative to end-of-file — the cheap way to grab just the ED tail.
     """
+    # Megaplay's PNG-decoy segments have to be de-wrapped locally (see
+    # oped/megaplay.py) — ffmpeg reads the raw HLS as a lone `Video: png` with no
+    # audio and `-vn` then errors with "Output file does not contain any stream".
+    # `_ffmpeg_decode_abs` already did this; THIS path did not, so every window
+    # decode (which is the one detect_anime actually calls) lost megaplay
+    # whenever its rotating CDN served wrapped segments — silently, as a
+    # per-host fetch failure rather than a wrong result. Measured on
+    # erased/ep3 via megap.norami.top while SnK's CDN happened to serve
+    # unwrapped segments, which is why the host looked healthy.
+    if window is not None and is_megaplay(src, referer):
+        start_s, dur_s = window
+        # A negative start is `-sseof`, resolvable only by the demuxer we are
+        # bypassing — anchor it on the playlist's own EXTINF total instead.
+        if start_s is None:
+            start_abs = 0.0
+        elif start_s < 0:
+            start_abs = max(0.0, playlist_duration(src, referer=referer) + start_s)
+        else:
+            start_abs = float(start_s)
+        samples, _abs = decode_audio_abs(
+            src, start_abs, dur_s, sample_rate=sample_rate, referer=referer
+        )
+        return samples
+
     cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error"]
     if referer:
         cmd += ["-headers", f"Referer: {referer}\r\n"]

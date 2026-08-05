@@ -1,5 +1,56 @@
 # DEVLOG
 
+## 2026-08-05 (2) — OP/ED : passe sur les 6 lecteurs + megaplay corrige (fenetre ED)
+
+Test demande par Luc : `diag_multi_host.py` sur tous les lecteurs affiches.
+Resultat : **6/6 resolvent et detectent**, mais la passe a revele un bug megaplay
+que la passe precedente ne pouvait pas voir.
+
+### Etat par lecteur (SnK ep3 vostfr + erased ep3 vostfr)
+| host | SnK OP | SnK ED | erased ED |
+|---|---|---|---|
+| sibnet | 0:01-1:30 | 22:25-23:53 | non propose |
+| megaplay | 0:17-1:47 | 22:42-24:10 | 21:21-22:46 |
+| ansembed | 0:00-1:30 | 22:24-23:51 | 21:19-22:43 |
+| vidmoly-va | 0:01-1:31 | 22:42-24:10 | — |
+| uqload | 0:00-1:30 | 22:25-23:53 | non propose |
+| sendvid | non propose | non propose | 21:21-22:46 |
+
+« non propose » = anime-sama ne liste pas ce host pour cette saison (pas une panne).
+Les ecarts d'absolu suivent les durees d'encode (megaplay 24:27 vs 24:11) : c'est
+exactement ce que `from_end_*` neutralise cote client.
+
+### Bug corrige : megaplay perdu sur la fenetre ED
+Deux defauts en serie, tous deux invisibles jusqu'ici :
+1. **`_ffmpeg_decode` (chemin fenetre) ne de-PNG-ait pas megaplay** — seul
+   `decode_audio_abs` le faisait. Or c'est le chemin fenetre que `detect_anime`
+   appelle. Quand le CDN rotatif sert des segments PNG-wrappes (mesure sur
+   `megap.norami.top`), ffmpeg lit un `Video: png` sans audio et le host tombe en
+   « fetch failed ». SnK passait parce que SON CDN servait du non-wrappe : le host
+   avait l'air sain.
+2. **`-ss` de ffmpeg est RELATIF au `start_time` du conteneur** (il ajoute
+   `ic->start_time` ; `-seek_timestamp 1` ne l'annule pas en mpegts — mesure). Le
+   .ts materialise commence a `start_abs - _LEAD_S`, pas a 0 : passer l'absolu
+   seekait au double, au-dela de l'EOF, 0 frame. Ne mordait que les fenetres
+   tardives — l'ED. Une fenetre OP (fichier partant de ~0) marchait.
+
+Ajouts : `megaplay.playlist_duration()` (somme des EXTINF) pour ancrer le `-sseof`
+negatif sans demuxer, et `audio._container_start()` pour convertir l'absolu en
+relatif. `-copyts` garde les pts de SORTIE absolus, donc l'horloge partagee tient.
+
+**Effet mesure** : erased ED megaplay passe de « fetch failed » a 21:21-22:46,
+identique a sendvid. Et SnK ED megaplay passe de 22:37 (3162 votes) a **22:42
+(4478 votes)** — soit exactement ce que rapporte vidmoly-va, donc l'ancien chemin
+donnait deja un resultat legerement FAUX sans le signaler.
+
+### Piege releve
+Le slug voir-anime a change : `shingeki-no-kyojin-vostfr` 404, c'est
+`shingeki-no-kyojin` (sans suffixe de langue). Un `--va-slug` perime ressemble a
+un host en panne.
+
+`test_guards.py` : 65 assertions vertes.
+
+
 ## 2026-08-05 — OP/ED : 4 lecteurs au lieu d'1 (megaplay, ansembed, DNS box)
 
 Parti d'une question de Luc (« quel lecteur as-tu mesure ? »), fini sur trois bugs

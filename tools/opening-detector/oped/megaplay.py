@@ -138,6 +138,19 @@ def _segments(variant_url: str, referer: str | None) -> list[tuple[str, float, f
     return out
 
 
+def playlist_duration(master_url: str, *, referer: str | None = None) -> float:
+    """Total stream duration (s) as the EXTINF sum of the variant playlist.
+
+    Needed because the window decode path expresses the ED as a NEGATIVE start
+    (`-sseof`), which only ffmpeg's demuxer can resolve — and megaplay never
+    reaches that demuxer, since its PNG-wrapped segments have to be materialised
+    locally first. Summing EXTINF gives the same anchor without a probe, and it
+    is the very clock `_segments` already uses for the absolute PTS base.
+    """
+    segs = _segments(_variant_url(master_url, referer), referer)
+    return segs[-1][2] if segs else 0.0
+
+
 def materialize_window(
     master_url: str,
     start_abs: float,
