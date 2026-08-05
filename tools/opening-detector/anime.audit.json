@@ -10,7 +10,8 @@
         "ep_start": 2,
         "ep_end": 4
       }
-    ]
+    ],
+    "va_slug": "ashita-no-joe"
   },
   {
     "mal_id": 31043,
@@ -23,7 +24,8 @@
         "ep_start": 2,
         "ep_end": 4
       }
-    ]
+    ],
+    "va_slug": "boku-dake-ga-inai-machi"
   },
   {
     "mal_id": 20507,
@@ -49,7 +51,8 @@
         "ep_start": 2,
         "ep_end": 4
       }
-    ]
+    ],
+    "va_slug": "vinland-saga"
   },
   {
     "mal_id": 4224,
@@ -75,7 +78,8 @@
         "ep_start": 2,
         "ep_end": 4
       }
-    ]
+    ],
+    "va_slug": "akame-ga-kill"
   },
   {
     "mal_id": 28999,
@@ -114,7 +118,8 @@
         "ep_start": 2,
         "ep_end": 4
       }
-    ]
+    ],
+    "va_slug": "bungou-stray-dogs"
   },
   {
     "mal_id": 37520,
@@ -153,7 +158,8 @@
         "ep_start": 2,
         "ep_end": 4
       }
-    ]
+    ],
+    "va_slug": "ano-hi-mita-hana-no-namae-wo-bokutachi-wa-mada-shiranai"
   },
   {
     "mal_id": 14813,
@@ -192,6 +198,7 @@
         "ep_start": 2,
         "ep_end": 4
       }
-    ]
+    ],
+    "va_slug": "hyouka"
   }
 ]

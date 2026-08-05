@@ -14,8 +14,12 @@
  *
  *   [{ "mal_id": 16498, "anilist_id": 16498,
  *      "slug": "shingeki-no-kyojin",
+ *      "va_slug": "shingeki-no-kyojin",
  *      "seasons": [{ "season_dir": "saison1", "lang": "vostfr",
  *                    "ep_start": 1, "ep_end": 25 }] }]
+ *
+ * `va_slug` is voir-anime's slug for the same title (the `vidmoly-va` host);
+ * it differs from anime-sama's for most anime — see the JOIN comment below.
  *
  * We emit anime-sama rows by default: the detector's multi-host resolver bridge
  * is anime-sama-centric (sibnet/vidmoly/megaplay come from that slug). A row is
@@ -43,15 +47,37 @@ const db = createClient({
 
 // Verified mappings only — we never feed the batch a guessed (heuristic) or
 // broken slug/season (it would waste hours of ffmpeg on the wrong stream).
+// The voir-anime slug is joined in as `va_slug`: the detector's `vidmoly-va`
+// host resolves against voir-anime, which uses a DIFFERENT slug from
+// anime-sama's for most titles (anime-sama "anohana" vs voir-anime
+// "ano-hi-mita-hana-no-namae-wo-bokutachi-wa-mada-shiranai"). Without it,
+// batch_detect falls back to the anime-sama slug and vidmoly-va 404s — measured
+// over player_map: of the 411 anime that HAVE a voir-anime row, 265 (64%) use a
+// different slug, so the batch was silently losing that host on two thirds of
+// them while the app played it fine.
+//
+// `heuristic` rows are accepted here, unlike the anime-sama row above. The
+// asymmetry is deliberate: a wrong anime-sama slug/season sends ffmpeg at hours
+// of the WRONG stream, whereas a wrong voir-anime slug simply 404s and the host
+// is cleanly filtered out. These are also the very rows the app already serves
+// to users, and a gross content mismatch would still be caught downstream by
+// multi_host._duration_cohort.
 const r = await db.execute({
   sql: `SELECT pm.ani_id       AS ani_id,
                pm.lang         AS lang,
                pm.slug         AS slug,
                pm.season_dir   AS season_dir,
                pm.episode_count AS episode_count,
-               a.id_mal        AS id_mal
+               a.id_mal        AS id_mal,
+               va.slug         AS va_slug
           FROM player_map pm
           JOIN anime a ON a.id = pm.ani_id
+          LEFT JOIN player_map va
+                 ON va.ani_id = pm.ani_id
+                AND va.lang   = pm.lang
+                AND va.source = 'voiranime'
+                AND va.status IN ('verified', 'heuristic')
+                AND va.slug IS NOT NULL
          WHERE pm.source = ?
            AND pm.status = 'verified'
            AND pm.slug IS NOT NULL
@@ -84,6 +110,10 @@ for (const row of r.rows) {
       mal_id: malId,
       anilist_id: aniId,
       slug,
+      // Omitted when voir-anime has no row: batch_detect then falls back to the
+      // anime-sama slug, which is right for the ~35% where they coincide and
+      // otherwise just drops the host.
+      ...(row.va_slug ? { va_slug: String(row.va_slug) } : {}),
       seasons: [],
     });
   }
