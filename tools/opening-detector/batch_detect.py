@@ -75,7 +75,7 @@ from oped.theme_bank import (
     build_references,
     detect_op_ed,
 )
-from oped import self_ref, theme_bank
+from oped import multipart, self_ref, theme_bank
 from oped.throttle import HostThrottler, is_throttle_error
 from oped.timings import TimingCollector
 from oped.video_fingerprint import extract_keyframe_hashes, keyframe_hashes_abs
@@ -312,6 +312,88 @@ def _row_from(ep: int, season: dict, mal_id, streams, per_host, hits,
 SELF_REF_MIN_HIT_RATE = 0.34
 
 
+def _episode_duration(streams) -> float:
+    """One representative length for an episode: the median MEASURED host length.
+
+    Estimated durations (F4) are excluded — they land on a nominal 24 min, which
+    is precisely the value that would make a double-length episode look normal.
+    """
+    known = [s.duration for s in (streams or [])
+             if s.duration and s.duration > 0 and not s.duration_estimated]
+    return float(statistics.median(known)) if known else 0.0
+
+
+def _multipart_pass(season_rows, season_streams, season_detect, season_flags,
+                    season_refs, build_row) -> None:
+    """Search the LATER parts of an episode that holds several broadcasts.
+
+    A double-length premiere (Re:Zero S1 ep1: 49:10 against ~23:40 for the rest)
+    carries two openings and two endings, and the normal pass can only ever see
+    one of each: OP_WINDOW is anchored on the file's start, ED_WINDOW on its end
+    via -sseof. Everything in between is out of reach by construction, so the
+    interior OP/ED are not "missed" — they were never searched.
+
+    This re-runs the affected episode once per EXTRA part, with that part's own
+    windows. Part 1 is skipped: the normal pass already covered it with the
+    default windows, and re-running it would just spend the decode again.
+
+    The extra hits go to `row["parts"]` and NOTHING in the existing row changes.
+    A consumer that knows nothing about multi-part episodes keeps reading the
+    same `op`/`ed` keys it always did and is unaffected; only a consumer that
+    looks for `parts` gains the interior themes.
+    """
+    eps = sorted(season_rows)
+    durations = {ep: _episode_duration(season_streams.get(ep)) for ep in eps}
+
+    for ep in eps:
+        dur = durations.get(ep) or 0.0
+        # The norm is taken over the OTHER episodes: an episode must not help
+        # decide it is normal. With a 12-episode season the difference is small,
+        # but on a short season a double-length premiere is a big enough share
+        # of the median to hide itself.
+        siblings = [d for e, d in durations.items() if e != ep and d > 0]
+        reference = multipart.reference_duration(siblings)
+        n_parts = multipart.part_count(dur, reference)
+        if n_parts <= 1 or ep not in season_detect or ep not in season_refs:
+            continue
+
+        print(f"  [multipart] ep{ep}: {multipart.describe(dur, n_parts)} "
+              f"(season norm {reference:.0f}s)")
+
+        op_r, ed_r = season_refs[ep]
+        windows = multipart.part_windows(dur, n_parts, OP_WINDOW, ED_WINDOW)
+        inf_op, inf_ed = season_flags.get(ep, (False, False))
+        parts: list[dict] = []
+
+        for idx, (op_win, ed_win) in enumerate(windows):
+            if idx == 0:
+                continue  # already covered by the normal pass
+            try:
+                per_host = season_detect[ep](
+                    op_r, ed_r, with_pool=False,
+                    op_window=op_win, ed_window=ed_win,
+                )
+            except Exception as exc:
+                print(f"  [multipart] ep{ep} part{idx + 1} FAILED — "
+                      f"{type(exc).__name__}: {exc}")
+                continue
+            part_row = build_row(ep, season_streams[ep], per_host, inf_op, inf_ed)
+            parts.append({
+                "part": idx + 1,
+                "window_op": list(op_win),
+                "window_ed": [ed_win[0], ed_win[1]],
+                "op": part_row.get("op"),
+                "ed": part_row.get("ed"),
+            })
+            got = [k for k in ("op", "ed") if part_row.get(k)]
+            print(f"  [multipart] ep{ep} part{idx + 1}: "
+                  f"{', '.join(got) if got else 'nothing found'}")
+
+        if parts:
+            season_rows[ep]["parts"] = parts
+            season_rows[ep]["n_parts"] = n_parts
+
+
 def _self_reference_pass(season_rows, season_streams, season_detect, season_flags,
                          base_prefix: str, season: dict, mal_id, build_row) -> None:
     """F1 — recover the OP/ED from the EPISODES when the reference didn't work.
@@ -526,6 +608,7 @@ def process_anime(
             season_streams: dict[int, list] = {}
             season_detect: dict[int, object] = {}
             season_flags: dict[int, tuple[bool, bool]] = {}
+            season_refs: dict[int, tuple] = {}
 
             def _build_row(ep: int, streams, per_host, inf_op: bool, inf_ed: bool) -> dict:
                 hits = reconcile_hits(
@@ -670,6 +753,7 @@ def process_anime(
                 # resolver NAMES are rebound on every iteration, so this closure
                 # must capture the objects belonging to ITS episode.
                 def _detect(op_r, ed_r, *, with_pool=True, derived=False,
+                            op_window=OP_WINDOW, ed_window=ED_WINDOW,
                             _streams=streams, _ep=ep,
                             _win=resolve_window_for, _samples=resolve_samples_for,
                             _video=resolve_video_for, _dense=resolve_video_dense_for,
@@ -693,7 +777,11 @@ def process_anime(
                                 op_pool_refs=(op_pool if with_pool else None),
                                 ed_pool_refs=(ed_pool if with_pool else None),
                                 mark_derived=derived,
-                                op_window=OP_WINDOW, ed_window=ED_WINDOW,
+                                # Defaults are the whole-file windows. The
+                                # multi-part pass re-runs an episode with a
+                                # LATER part's windows so the second broadcast's
+                                # OP/ED are searched on their own clock.
+                                op_window=op_window, ed_window=ed_window,
                             )
                     except Exception as exc:
                         if is_throttle_error(exc):
@@ -708,6 +796,7 @@ def process_anime(
                 season_streams[ep] = streams
                 season_detect[ep] = _detect
                 season_flags[ep] = (inf_op, inf_ed)
+                season_refs[ep] = (op_refs, ed_refs)
 
             # ── F1: self-derived references ─────────────────────────────────
             # Everything above depends on AnimeThemes having the theme that is
@@ -719,6 +808,16 @@ def process_anime(
             _self_reference_pass(
                 season_rows, season_streams, season_detect, season_flags,
                 base_prefix, season, mal_id, _build_row,
+            )
+
+            # ── Multi-part episodes ─────────────────────────────────────────
+            # Runs LAST, after F1: it needs every episode's duration to know
+            # what this season's normal length is, and it should search the
+            # interior parts with whatever references ended up working —
+            # including any F1 recovered above.
+            _multipart_pass(
+                season_rows, season_streams, season_detect, season_flags,
+                season_refs, _build_row,
             )
 
             for ep in sorted(season_rows):

@@ -18,7 +18,7 @@ import sys
 
 import numpy as np
 
-from oped import validate, self_ref
+from oped import validate, self_ref, multipart
 from oped.fingerprint import Fingerprint, slice_fingerprint
 from oped.matcher import best_match_ranked
 from oped.multi_host import HostStream, ReconciledHit, reconcile_hits
@@ -452,6 +452,59 @@ def _window_resolver(placements: dict[float, ThemeReference], noise_seed: int = 
     return resolve
 
 
+def test_multipart():
+    """Multi-part episodes (Re:Zero S1 ep1 = two broadcasts in one file)."""
+    print("\nmultipart:")
+    ref = multipart.reference_duration([1420.0, 1418.0, 1421.0, 1419.0])
+    check("sibling median is the season norm", ref is not None and abs(ref - 1419.5) < 1.0,
+          f"{ref}")
+
+    # The real numbers: Re:Zero S1 ep1 is 49:10 against ~23:40 for the rest.
+    check("double-length premiere detected",
+          multipart.part_count(2951.0, ref) == 2,
+          f"{multipart.part_count(2951.0, ref)}")
+    check("ordinary episode stays single",
+          multipart.part_count(1425.0, ref) == 1)
+
+    # The guard that matters most: "long" must not imply "multi-part". A
+    # feature-length finale at 1.5x is between the bands and must yield 1,
+    # otherwise we invent an OP in the middle of it.
+    check("1.5x episode is NOT split",
+          multipart.part_count(2130.0, ref) == 1,
+          f"{multipart.part_count(2130.0, ref)}")
+    check("no reference -> never splits",
+          multipart.part_count(2951.0, None) == 1)
+    check("too few siblings -> no reference",
+          multipart.reference_duration([1420.0, 2951.0]) is None)
+
+    # A season whose median is dragged by its own outlier would mis-split
+    # everything; the median (not mean) is what prevents it.
+    noisy = multipart.reference_duration([1420.0, 1420.0, 1420.0, 2951.0])
+    check("median resists one double-length sibling",
+          noisy is not None and abs(noisy - 1420.0) < 1.0, f"{noisy}")
+
+    # Windows: the whole point is that part 2 gets its own clock.
+    wins = multipart.part_windows(2951.0, 2, (0.0, 240.0), (-180.0, None))
+    (op1, ed1), (op2, ed2) = wins
+    check("part 1 OP starts at the file start", op1 == (0.0, 240.0), f"{op1}")
+    check("part 1 ED is INTERIOR, not the file tail",
+          abs(ed1[0] - (1475.5 - 180.0)) < 1.0 and abs(ed1[1] - 1475.5) < 1.0,
+          f"{ed1}")
+    check("part 2 OP sits at the midpoint",
+          abs(op2[0] - 1475.5) < 1.0 and abs(op2[1] - 1715.5) < 1.0, f"{op2}")
+    check("final part keeps the -sseof relative form",
+          ed2 == (-180.0, None), f"{ed2}")
+
+    # Without this the interior ED window would be searched at the file's tail,
+    # which is exactly the bug: both EDs would collapse onto the same span.
+    check("the two ED windows do not overlap",
+          ed1[1] <= 2951.0 - 180.0, f"{ed1}")
+
+    single = multipart.part_windows(1420.0, 1, (0.0, 240.0), (-180.0, None))
+    check("single-part windows are unchanged",
+          single == [((0.0, 240.0), (-180.0, None))], f"{single}")
+
+
 def test_v2_cascade():
     print("detect_op_ed_v2 cascade")
     op = _ref("op", "OP1", seed=1)
@@ -546,6 +599,7 @@ if __name__ == "__main__":
     test_self_ref()
     test_serve_gate()
     test_season_pass()
+    test_multipart()
     test_v2_cascade()
     print()
     if FAILURES:
