@@ -190,6 +190,39 @@ def test_self_ref():
     check("eyecatch-length repeat rejected", seg_short is None,
           f"{seg_short}")
 
+    # An OP at a DIFFERENT absolute position in every episode — the normal case,
+    # since the cold-open sets that position and varies by design. This is the
+    # regression that cost 10 of 15 audited anime their opening: the guard used
+    # to demand agreement on the absolute start, and toradora's 52/140/109 s
+    # placement failed it despite 2500+ votes per pair.
+    drifting = {ep: (_episode_fp(pos, seed=ep), 0.0)
+                for ep, pos in zip((2, 5, 8, 11), (20.0, 108.0, 61.0, 140.0))}
+    seg_drift = self_ref.find_segment("op", drifting)
+    check("OP found despite a 120 s spread in absolute position",
+          seg_drift is not None, f"{seg_drift}")
+    if seg_drift:
+        check("drifting OP keeps a plausible length",
+              85.0 <= seg_drift.length <= 95.0, f"{seg_drift.length}")
+
+    # …but the false positive that guard existed for must STILL be rejected: a
+    # cue that repeats at a different position AND for a different duration each
+    # time (shared BGM) has no length invariant to cluster on.
+    floating = {ep: (_episode_fp(pos, seed=ep, op_len=ln), 0.0)
+                for ep, pos, ln in zip((2, 5, 8, 11), (20.0, 108.0, 61.0, 140.0),
+                                       (30.0, 62.0, 95.0, 140.0))}
+    seg_float = self_ref.find_segment("op", floating)
+    check("floating variable-length repeat still rejected", seg_float is None,
+          f"{seg_float}")
+
+    # An ED keeps its own invariant: constant distance from the END, even when
+    # the episodes have different total durations (differently trimmed encodes).
+    ed_fps = {ep: (_episode_fp(pos, seed=ep), 0.0)
+              for ep, pos in zip((2, 5, 8, 11), (20.0, 60.0, 40.0, 100.0))}
+    durations = {ep: pos + 200.0 for ep, pos in
+                 zip((2, 5, 8, 11), (20.0, 60.0, 40.0, 100.0))}
+    seg_ed = self_ref.find_segment("ed", ed_fps, duration_by_ep=durations)
+    check("ED clusters on distance from the end", seg_ed is not None, f"{seg_ed}")
+
     # The anti-recap guard: sampling is strided, so adjacent episodes (which is
     # where a recap repeats) are never compared.
     picked = self_ref.sample_episodes(list(range(1, 13)))
@@ -224,9 +257,54 @@ def test_serve_gate():
           _reconciled(inferred=True, n_video_confirm=1).serve)
     check("fabricated agreement (huge spread) held",
           not _reconciled(spread_s=87.0).serve)
+
+    # A SPLIT is held whatever the spread. This is the hole the spread ceiling
+    # left open: two pairs of hosts ~10 s apart clear SERVE_MAX_SPREAD_S while
+    # agreeing on nothing, and the stored center is the average of the two
+    # groups — a timecode no host produced.
+    check("split hosts held even under the spread ceiling",
+          not _reconciled(hosts_split=True, spread_s=9.0, n_hosts_agree=2).serve)
+    check("split hit says so", "split" in
+          (_reconciled(hosts_split=True, spread_s=9.0).held_reason or ""))
     check("held_reason explains the hold",
           _reconciled(anomalies=["av_divergence"]).held_reason == "av_divergence")
     check("served hit has no held_reason", _reconciled().held_reason is None)
+
+    # Hosts serving DIFFERENT content (bungou-stray-dogs saison1hs: 700 s
+    # hors-série shorts on anime-sama vs 1420 s main-series episodes on the
+    # MAL-id-keyed hosts). The minority must be dropped before anything is
+    # averaged — the median of the four was 1060 s, a duration no host had.
+    shorts = [HostStream("sibnet", "u1", 700.0), HostStream("ansembed", "u2", 700.0)]
+    fulls = [HostStream("megaplay", "u3", 1420.0)]
+    mixed = [(s, [hit(kind="op", start=30.0, end=120.0)]) for s in shorts + fulls]
+    out_mixed = reconcile_hits(mixed)
+    check("off-cohort host excluded", bool(out_mixed)
+          and out_mixed[0].n_hosts_agree == 2, f"{out_mixed}")
+    if out_mixed:
+        check("canonical duration is a real one, not a cross-cohort average",
+              abs(out_mixed[0].canonical_duration - 700.0) < 1.0,
+              f"{out_mixed[0].canonical_duration}")
+        check("the excluded host is reported",
+              out_mixed[0].hosts_wrong_duration == 1)
+
+    # An EVEN split cannot be arbitrated — reconciling would average two
+    # different works, so nothing is emitted.
+    even = [(s, [hit(kind="op", start=30.0, end=120.0)]) for s in
+            (HostStream("sibnet", "u1", 700.0), HostStream("ansembed", "u2", 700.0),
+             HostStream("megaplay", "u3", 1420.0), HostStream("vidmoly", "u4", 1451.0))]
+    check("even cohort split yields nothing", reconcile_hits(even) == [])
+
+    # An ESTIMATED duration is a guess (F4 lands on a nominal 24 min), not
+    # evidence about what the host serves. It must not form a rival cohort
+    # against a genuine short and wipe the episode out.
+    est_pair = [
+        (HostStream("sibnet", "u1", 700.0), [hit(kind="op", start=30.0, end=120.0)]),
+        (HostStream("megaplay", "u2", 1440.0, duration_estimated=True),
+         [hit(kind="op", start=30.0, end=120.0)]),
+    ]
+    out_est = reconcile_hits(est_pair)
+    check("estimated duration does not manufacture a cohort split",
+          bool(out_est) and out_est[0].hosts_wrong_duration == 0, f"{out_est}")
 
     # An estimated duration keeps the OP but must not poison the ED consensus.
     good = HostStream("sibnet", "u", 1440.0)

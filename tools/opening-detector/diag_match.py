@@ -62,33 +62,52 @@ def _window_offset(win, ep_dur: float, decoded_dur: float) -> float:
     return start_s
 
 
-def _measure_actual_window_start(url: str, window, referer: str | None) -> float | None:
-    """Directly measure where ffmpeg's seek ACTUALLY landed, in the source's
-    own absolute timeline — instead of trusting `ep_dur + start_s`.
+def _measure_actual_window_start(
+    url: str, window, referer: str | None, ep_dur: float | None = None
+) -> float | None:
+    """Directly measure where the seek ACTUALLY lands, in the source's own
+    absolute timeline — instead of trusting `ep_dur + start_s`.
 
-    `-copyts` keeps original timestamps (rather than rebasing to 0), so the
-    first decoded audio frame's `pts_time` after seeking IS the true absolute
-    position ffmpeg used. If this disagrees with the nominal window offset we
-    assumed (ep_dur - 180 etc.), that mismatch is a real, measurable bug in
+    ffprobe does not rebase timestamps, so the first audio frame's `pts_time`
+    after seeking IS the true absolute position. If it disagrees with the
+    nominal window offset we assumed, that mismatch is a real, measurable bug in
     the abs-time conversion — not a matching problem.
+
+    Seeking is expressed with `-read_intervals`, NOT `-ss`/`-sseof`: ffprobe 8
+    dropped both (`-copyts` was never an ffprobe option at all, only ffmpeg's).
+    The previous command carried all three, so ffprobe consumed `-sseof` as
+    `-copyts`'s value and died on "Option not found" — which the bare `except`
+    turned into a silent None on EVERY host. That is why "measured win" read
+    `n/a` across the board and this guard never fired on the 18 s ED anchor
+    error it was written to catch. A diagnostic that cannot fail loudly is worse
+    than no diagnostic.
+
+    `ep_dur` is required to resolve a negative (from-end) start, since there is
+    no `-sseof` to do it for us.
     """
     if window is None:
         return None
     start_s, _dur = window
     if start_s is None:
         return None
+    if start_s < 0:
+        if not ep_dur:
+            return None
+        target = max(0.0, ep_dur + start_s)
+    else:
+        target = float(start_s)
+
     import subprocess
 
-    cmd = ["ffprobe", "-v", "error", "-copyts"]
+    cmd = ["ffprobe", "-v", "error"]
     if referer:
         cmd += ["-headers", f"Referer: {referer}\r\n"]
-    cmd += (["-sseof", str(start_s)] if start_s < 0 else ["-ss", str(start_s)])
     cmd += [
-        "-i", url,
         "-select_streams", "a:0",
-        "-read_intervals", "%+#1",
+        "-read_intervals", f"{target}%+#1",
         "-show_entries", "frame=pts_time",
         "-of", "default=nk=1:nw=1",
+        "-i", url,
     ]
     try:
         out = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
@@ -144,7 +163,7 @@ def main() -> None:
         OP_WINDOW if args.kind == "op" else ED_WINDOW
     )
 
-    measured = _measure_actual_window_start(e["url"], win, e.get("referer"))
+    measured = _measure_actual_window_start(e["url"], win, e.get("referer"), ep_dur)
 
     base_key = f"{args.slug}/{args.season}/{args.lang}/ep{args.ep}"
     samples = load_audio(e["url"], cache_key=base_key, window=win,

@@ -8,8 +8,17 @@ below is a symptom that has actually bitten at least once:
   held       — stored but not servable (validate.py blocking anomaly)
   span       — an OP/ED whose length is implausible for a TV theme (~90s)
   spread     — hosts disagreeing beyond the reconciler's tolerance
+  split      — hosts forming no single cluster (`hosts_agree` is then the
+               largest group, NOT a consensus — read it with `spread`)
+  content    — hosts serving a DIFFERENT episode (duration cohort mismatch)
   outlier    — ONE host far from its own consensus (the erased/vidmoly-va case)
   drift      — the OP start jumping around inside a single season
+
+A `derived` hit held for "awaiting season confirmation" is NOT reported as a
+problem: that is the designed state straight out of detection, and only
+season_pass.py can promote it. Counting those as findings made a clean run look
+broken (26 of 34 "held" cells in the first 15-anime audit were just that). They
+are summarised separately at the end instead.
 
 Usage: python _report_audit.py out/audit.jsonl
 """
@@ -44,6 +53,8 @@ def main() -> None:
     findings: list[tuple[str, str]] = []
     by_anime: dict[tuple, list] = defaultdict(list)
     n_cells = 0
+    n_pending = 0      # derived hits awaiting the season pass — expected
+    n_served = 0
 
     for r in rows:
         key = (r["mal_id"], r["lang"])
@@ -58,21 +69,38 @@ def main() -> None:
                 findings.append(("coverage", f"{tag} {kind}: aucun hit"))
                 continue
 
+            if h.get("serve"):
+                n_served += 1
             span = h["end"] - h["start"]
             if not (SPAN_MIN <= span <= SPAN_MAX):
                 findings.append(
                     ("span", f"{tag} {kind}: duree {span:.0f}s "
                              f"({ms(h['start'])}-{ms(h['end'])})"))
 
+            reason = h.get("held_reason") or ""
             if h.get("serve") is False:
-                findings.append(
-                    ("held", f"{tag} {kind}: non servi — {h.get('held_reason')}"))
+                if "awaiting season confirmation" in reason:
+                    n_pending += 1          # expected, not a finding
+                else:
+                    findings.append(("held", f"{tag} {kind}: non servi — {reason}"))
             elif h.get("anomalies"):
                 findings.append(
                     ("anomaly", f"{tag} {kind}: {','.join(h['anomalies'])}"))
 
+            if h.get("hosts_wrong_duration"):
+                findings.append(
+                    ("content", f"{tag} {kind}: {h['hosts_wrong_duration']} host(s) "
+                                f"sur un autre episode (duree hors cohorte)"))
+
             spread = h.get("spread")
-            if spread is not None and spread > SPREAD_MAX:
+            if h.get("hosts_split"):
+                # Not a spread problem: the hosts formed separate groups, so
+                # `hosts_agree` counts the largest one and is not a consensus.
+                findings.append(
+                    ("split", f"{tag} {kind}: groupes disjoints, plus grand "
+                              f"{h.get('hosts_agree')}/{h.get('hosts_total')}, "
+                              f"spread {spread:.1f}s"))
+            elif spread is not None and spread > SPREAD_MAX:
                 findings.append(
                     ("spread", f"{tag} {kind}: spread {spread:.1f}s "
                                f"({h.get('hosts_agree')}/{h.get('hosts_total')} d'accord)"))
@@ -107,12 +135,14 @@ def main() -> None:
             detail = ", ".join(f"ep{e}={s:.0f}s" for e, s in spans)
             findings.append(("drift", f"mal{mal} {lang} op (duree): {detail}"))
 
-    order = ["coverage", "held", "span", "outlier", "spread", "anomaly", "drift"]
+    order = ["coverage", "held", "span", "content", "split", "outlier", "spread",
+             "anomaly", "drift"]
     grouped: dict[str, list[str]] = defaultdict(list)
     for cat, msg in findings:
         grouped[cat].append(msg)
 
-    print(f"{len(rows)} episodes, {n_cells} cellules (op+ed), "
+    print(f"{len(rows)} episodes, {n_cells} cellules (op+ed) : "
+          f"{n_served} servies, {n_pending} en attente de season_pass, "
           f"{len(findings)} signalements\n")
     for cat in order:
         if not grouped[cat]:

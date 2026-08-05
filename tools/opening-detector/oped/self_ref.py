@@ -36,9 +36,11 @@ episodes — so the guards are deliberately harsh:
     (~5 s) and "the whole episode matched" degenerate cases.
   - **≥ MIN_SUPPORT distinct episodes** must carry the segment: a one-off pair
     is a coincidence, an OP is in every episode.
-  - **position agreement**: the segment must land at a consistent place across
-    the sampled episodes (POSITION_TOLERANCE_S), measured from the start for an
-    OP and from the END for an ED (encodes differ in length).
+  - **cross-episode agreement**, on whichever quantity is actually invariant for
+    that kind: an ED sits a stable distance from the END of the episode
+    (POSITION_TOLERANCE_S, from-end so differing encode lengths don't matter),
+    while an OP holds a stable LENGTH (LENGTH_TOLERANCE_S) — its absolute start
+    moves with the cold-open and is not a usable invariant.
   - and downstream, every hit built on a derived reference is stamped
     `derived=True`, which the serve gate holds until the intra-season pass has
     confirmed it across the season. Nothing derived is ever served on the
@@ -71,11 +73,36 @@ SAMPLE_STRIDE = 3
 # 2-episode coincidence is not enough.
 MIN_SUPPORT = 3
 
-# How far apart the segment may land across episodes and still be "the same
-# place in the episode". Generous because cold-opens genuinely vary by a few
-# seconds between episodes; the point is to reject a segment that floats
-# anywhere (shared BGM), not to police jitter.
+# How far apart an ED may land across episodes, measured from the END, and
+# still be "the same place in the episode". Generous because encodes differ by
+# a few seconds; the point is to reject a segment that floats anywhere (shared
+# BGM), not to police jitter.
+#
+# ED ONLY. This used to gate the OP too, and it was wrong: an OP's absolute
+# position is set by the COLD-OPEN, which is a storytelling choice that varies
+# episode to episode by design. Measured over the 15-anime audit, 10 anime lost
+# a perfectly clean OP to this rule — toradora reported the segment at 52.4 /
+# 140.4 / 109.4 s (an 88 s spread) with 2500+ votes each. The ED escapes because
+# it is anchored from the end, which is stable; that exact asymmetry (every ED
+# recovered, no OP ever) is what exposed the bug.
 POSITION_TOLERANCE_S = 25.0
+
+# Cross-episode agreement on the segment's LENGTH — the OP's stability
+# invariant, standing in for position. An opening is a fixed-length piece of
+# film: it runs the same 88 s wherever the cold-open drops it. Shared BGM, the
+# false positive POSITION_TOLERANCE_S was written to stop, has no such
+# invariant — it matches for however long the two cues happen to overlap, so it
+# still fails to cluster here. The slack is for fade-edge vote noise, not for
+# genuinely different lengths, and it stacks on top of the guards that already
+# applied: MIN_SUPPORT distinct episodes, the 25-150 s band, SELF_MIN_VOTES, and
+# the anti-recap stride.
+#
+# Calibrated by replaying the cached audit (`_replay_selfref.py --tolerance`):
+# 3 s -> 28 OPs recovered, 5 s -> 31, 8 s -> 32, 12 s -> 32. 8 is the knee — it
+# admits noragami (93/88/93 s, one 90 s opening whose fade edge cost a few
+# seconds of votes) and everything past it buys nothing while loosening the
+# guard.
+LENGTH_TOLERANCE_S = 8.0
 
 # Vote floor for a self-match. Higher than the reference matcher's 40: both
 # sides are full episode windows here, so incidental collisions are far more
@@ -124,16 +151,28 @@ def _pairwise_spans(fps: dict[int, tuple[Fingerprint, float]]) -> dict[int, list
     return out
 
 
+def _cluster(values: list[float], tol: float) -> tuple[float, list[int]]:
+    """Largest cluster of `values` within `tol`: (center, member INDICES).
+
+    Indices rather than a count so the caller can tell WHICH episodes agreed —
+    needed to slice the reference from a supporting episode rather than from an
+    outlier that merely took part in many pairs.
+    """
+    if not values:
+        return 0.0, []
+    best_center, best_idx = values[0], []
+    for v in values:
+        near = [i for i, x in enumerate(values) if abs(x - v) <= tol]
+        if len(near) > len(best_idx):
+            best_center = statistics.median([values[i] for i in near])
+            best_idx = near
+    return best_center, best_idx
+
+
 def _agree(values: list[float], tol: float) -> tuple[float, int]:
     """Largest cluster of `values` within `tol`. Returns (center, size)."""
-    if not values:
-        return 0.0, 0
-    best_center, best_n = values[0], 0
-    for v in values:
-        near = [x for x in values if abs(x - v) <= tol]
-        if len(near) > best_n:
-            best_center, best_n = statistics.median(near), len(near)
-    return best_center, best_n
+    center, idx = _cluster(values, tol)
+    return center, len(idx)
 
 
 def find_segment(
@@ -144,10 +183,15 @@ def find_segment(
 ) -> DerivedSegment | None:
     """The repeated OP/ED segment across sampled episodes, or None.
 
-    `fps` = {episode: (window fingerprint, window absolute start)}. For an ED,
-    `duration_by_ep` lets positions be compared from the episode END (encodes
-    differ in total length, so absolute starts legitimately disagree while
-    seconds-from-end agree) — this mirrors multi_host's ED anchoring.
+    `fps` = {episode: (window fingerprint, window absolute start)}.
+
+    The cross-episode agreement runs on whichever quantity is invariant for the
+    kind. For an ED that is the distance from the END, which `duration_by_ep`
+    supplies (encodes differ in total length, so absolute starts legitimately
+    disagree while seconds-from-end agree) — mirroring multi_host's ED
+    anchoring. For an OP — and for an ED with no durations to work from — it is
+    the segment's LENGTH, since an opening's absolute start moves with the
+    cold-open. See POSITION_TOLERANCE_S / LENGTH_TOLERANCE_S.
     """
     if len(fps) < 2:
         return None
@@ -166,30 +210,38 @@ def find_segment(
     if len(per_ep) < MIN_SUPPORT:
         return None
 
-    # Cross-episode position agreement, on the duration-independent anchor.
-    def anchor(ep: int) -> float:
-        start = per_ep[ep][0]
-        if kind == "ed" and duration_by_ep and duration_by_ep.get(ep):
-            return duration_by_ep[ep] - start
-        return start
+    # Cross-episode agreement. Which quantity has to agree depends on the kind:
+    # an ED sits at a stable distance from the END, an OP at a stable LENGTH
+    # (its absolute start moves with the cold-open). See the two tolerance
+    # constants above.
+    eps_order = sorted(per_ep)
+    if kind == "ed" and duration_by_ep and all(duration_by_ep.get(e) for e in eps_order):
+        values = [duration_by_ep[e] - per_ep[e][0] for e in eps_order]
+        tol = POSITION_TOLERANCE_S
+    else:
+        values = [per_ep[e][1] for e in eps_order]
+        tol = LENGTH_TOLERANCE_S
 
-    _center, support = _agree([anchor(e) for e in per_ep], tol=POSITION_TOLERANCE_S)
-    if support < MIN_SUPPORT:
+    _center, members = _cluster(values, tol)
+    if len(members) < MIN_SUPPORT:
         return None
+    agreed = [eps_order[i] for i in members]
 
-    length = statistics.median(ln for _s, ln in per_ep.values())
+    # Length from the AGREEING episodes only — an outlier that was excluded from
+    # the cluster must not drag the delivered length with it.
+    length = statistics.median(per_ep[e][1] for e in agreed)
     if not (validate.MIN_THEME_LEN_S <= length <= validate.MAX_THEME_LEN_S):
         return None
 
-    # Slice the reference from the episode whose observation is most supported
-    # (most pairs agreeing) — the cleanest copy of the segment.
-    ref_ep = max(per_ep, key=lambda e: len(spans[e]))
+    # Slice the reference from a SUPPORTING episode (most pairs agreeing) — the
+    # cleanest copy of the segment.
+    ref_ep = max(agreed, key=lambda e: len(spans[e]))
     return DerivedSegment(
         kind=kind,
         episode=ref_ep,
         start=per_ep[ref_ep][0],
         length=length,
-        support=support,
+        support=len(members),
         positions={e: round(per_ep[e][0], 2) for e in per_ep},
     )
 

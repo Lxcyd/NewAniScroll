@@ -203,6 +203,13 @@ def _row_from(ep: int, season: dict, mal_id, streams, per_host, hits,
             "hosts_agree": h.n_hosts_agree,
             "hosts_total": h.n_hosts_total,
             "spread": h.spread_s,
+            # True when the hosts formed no single cluster: `hosts_agree` then
+            # counts only the largest group, not a consensus. Read the two
+            # together — that pairing is what made hyouka ep3 report "4/4
+            # agreeing, 22.0s spread".
+            "hosts_split": h.hosts_split,
+            # Hosts dropped for serving different content (wrong season/episode).
+            "hosts_wrong_duration": h.hosts_wrong_duration,
             # Signal provenance + serve gate for the importer/API.
             "source": h.source,
             "n_video_confirm": h.n_video_confirm,

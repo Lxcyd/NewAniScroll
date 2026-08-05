@@ -1,5 +1,89 @@
 # DEVLOG
 
+## 2026-08-05 (4) — Audit complet : 4 bugs corriges, dont 2 qui SERVAIENT du faux
+
+Suite directe de la passe (3). Luc : « on devrait avoir au minimum plus de resultat que
+ca et meme si animetheme n'a rien, on peut comparer les episodes donc aucune excuse ».
+Feu vert explicite pour toucher au garde-fou F1. En le corrigeant, 3 autres bugs sont
+tombes, dont deux qui ne cachaient pas des resultats mais en **fabriquaient**.
+
+### Outil : `_replay_selfref.py` (rejeu hors-ligne de F1)
+Le lot ne dit que le verdict (`no repeated segment`), qui confond « rien trouve » et
+« trouve puis jete par un garde-fou ». Ce script rejoue `find_segment` sur les
+`cache/audio/*.fp.npz` (dont le nom porte deja l'offset absolu de la fenetre) : un anime
+deja traite se re-evalue en millisecondes, sans reseau. C'est ce qui a permis d'arbitrer
+sur mesure au lieu d'a l'intuition.
+
+### Bug 1 — F1 : accord de POSITION -> accord de LONGUEUR pour l'OP
+Confirme sur les 15 anime, pas seulement toradora. Les rejets disaient tous la meme
+chose :
+
+    akame-ga-kill  position 2/3 (spread 31s)  MAIS longueur 3/3 [88, 88, 88]
+    oregairu       position 1/3 (spread 96s)  MAIS longueur 3/3 [87, 87, 87]
+    toradora       position 1/3 (spread 88s)  MAIS longueur 3/3 [87, 91, 91]
+    mirai-nikki    position 1/3 (spread 55s)  MAIS longueur 3/3 [87, 87, 87]
+    dororo         position 2/3 (spread 48s)  MAIS longueur 3/3 [88, 88, 88]
+
+Des longueurs de generique canoniques, rejetees sur la position. `POSITION_TOLERANCE_S`
+devient **ED-only** (ancre depuis la fin, ou elle est pertinente) ; l'OP passe sur
+`LENGTH_TOLERANCE_S`. Un OP est un bout de film de longueur fixe : il dure 88 s ou que
+le cold-open le pose. Le BGM partage, le faux positif que la garde visait, n'a PAS cet
+invariant — il matche aussi longtemps que les deux passages se recouvrent, donc il ne
+cluste toujours pas. MIN_SUPPORT, bande 25-150 s, SELF_MIN_VOTES et le stride anti-recap
+sont inchanges.
+
+Seuil **calibre**, pas devine (`--tolerance`) : 3 s -> 28 OP, 5 s -> 31, **8 s -> 32**,
+12 s -> 32. 8 est le coude : il rattrape noragami (93/88/93 s, un seul generique de 90 s
+dont le bord de fondu coute quelques secondes de votes) et au-dela on ne gagne rien.
+
+Rejeu OP : **21 -> 32 recuperes**. ED inchange (42), donc pas de regression.
+
+### Bug 2 — `_consensus` : un « accord » fabrique pouvait etre SERVI
+hyouka ep3 annoncait `4/4 d'accord` ET `22.0s spread` sur la meme ligne. Les deux
+sortent du meme appel : quand rien ne survit au filtre median, la fonction reintegrait
+TOUTES les valeurs et l'appelant stockait `n_hosts_agree = len(values)`. Le commentaire
+d'origine le savait (« ne pas lire n_hosts_agree sans le spread »), mais le champ
+mentait quand meme.
+
+Et surtout le trou : ce centre fabrique n'etait retenu que par `SERVE_MAX_SPREAD_S=10`.
+Deux paires de lecteurs a ~10 s d'ecart (chacune hors de la tolerance de 4 s) passent
+sous le plafond et etaient **SERVIES** — sur un timecode qu'aucun lecteur ne produit.
+Desormais `_consensus` renvoie un flag `split`, `n_hosts_agree` compte le plus grand
+groupe reel, et `hosts_split` interdit le service explicitement. Un 2-contre-2 est une
+vraie ambiguite : on ne choisit pas un camp.
+
+### Bug 3 — cohorte de duree : on reconciliait deux oeuvres differentes
+bungou-stray-dogs `saison1hs`, durees par lecteur : sibnet 700 s, ansembed 700 s,
+megaplay 1451 s, vidmoly-va 1420 s. Anime-sama sert les hors-series de ~12 min ;
+megaplay (embed construit sur malId + NUMERO d'episode, aucun signal de saison) et
+voir-anime servent les episodes de la serie principale. Mediane = **1060 s, une duree
+qu'aucun lecteur n'a**, et toutes les projections ED `from_end` etaient calculees dessus.
+
+`_duration_cohort` ecarte les lecteurs hors cohorte (>15 % d'ecart = autre contenu, pas
+autre montage) AVANT toute moyenne, et refuse de reconcilier sur un partage a egalite.
+Les durees ESTIMEES (repli F4, 24 min nominales) ne votent pas : sinon elles
+fabriqueraient une cohorte rivale contre un vrai court-metrage.
+
+### Bug 4 — `_measure_actual_window_start` etait mort depuis toujours
+Il renvoyait `None` sur tous les hosts (« measured win = n/a »), donc la garde ecrite
+pour attraper l'erreur d'ancrage de 18 s de la passe (2) n'a jamais pu se declencher.
+Cause : `-copyts` n'est pas une option **ffprobe** (c'est ffmpeg), donc ffprobe avalait
+`-sseof` comme sa valeur et mourait sur `Option not found` — que le `except` nu
+convertissait en None silencieux. En prime ffprobe 8 a supprime `-ss`/`-sseof`. Le seek
+passe maintenant par `-read_intervals "<t>%+#1"`, et la conversion d'un depart negatif
+demande `ep_dur` (nouveau parametre). Verifie sur fichier local : ED (-180) sur 300 s ->
+119.98. Lecon : un diagnostic qui ne peut pas echouer bruyamment est pire que pas de
+diagnostic.
+
+### Correctif d'outil
+`_report_audit.py` ne compte plus « self-derived, awaiting season confirmation » comme
+un signalement : c'est l'etat NORMAL en sortie de detection, seul `season_pass.py`
+promeut. 26 des 34 « held » de la passe (3) n'etaient que ca — un run sain paraissait
+casse. Nouvelles categories `split` et `content`.
+
+Tests : 65 -> **81 assertions**, dont le faux positif qui doit RESTER rejete (segment
+flottant a longueur variable) et le trou de service du bug 2.
+
 ## 2026-08-05 (3) — Passe large 15 anime : F1 ne recupere jamais l'OP
 
 Lot demande par Luc pour attraper des erreurs : 15 anime varies x eps 2-4, multi-host,

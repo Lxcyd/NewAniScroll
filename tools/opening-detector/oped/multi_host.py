@@ -103,6 +103,19 @@ INFERRED_REQUIRES_VIDEO = True
 # (season_pass.py), which checks the segment lands consistently across the whole
 # season, can promote it — so it is never served straight out of detection.
 DERIVED_REQUIRES_SEASON = True
+# Hosts whose episode duration differs from the majority by more than this
+# fraction are not serving a differently-trimmed encode — they are serving
+# DIFFERENT CONTENT. Real cross-host trim differences are seconds to tens of
+# seconds (a few percent); anything past 15% is another episode entirely.
+#
+# Measured on bungou-stray-dogs `saison1hs`: anime-sama's hosts served the
+# 700 s hors-série shorts while megaplay (whose embed is built from a MAL id +
+# episode NUMBER, with no season signal — see adapter_aniscroll) and voir-anime
+# served the 1420 s main-series episodes. The median of {700, 700, 1451, 1420}
+# is 1060 s, a duration NO host has, and every ED from-end projection was then
+# computed against it. Same failure shape as the fabricated consensus center in
+# `_consensus`: a plausible-looking average of two incompatible populations.
+DURATION_COHORT_TOL_FRAC = 0.15
 
 
 @dataclass
@@ -143,6 +156,17 @@ class ReconciledHit:
     n_hosts_agree: int              # how many hosts landed within tolerance
     n_hosts_total: int              # how many hosts produced any hit for this kind
     spread_s: float                 # max−min of the agreeing anchor values
+    # The hosts formed no single cluster (see _consensus): they split into
+    # groups further apart than the outlier tolerance. `n_hosts_agree` then
+    # counts only the largest group, and the hit is never served — picking a
+    # side of a genuine disagreement is exactly the guess we refuse to make.
+    hosts_split: bool = False
+    # Hosts excluded before reconciliation because their episode duration put
+    # them outside the majority cohort — they were serving different content
+    # (wrong season, wrong episode). Non-zero means the source catalogues
+    # disagree about what this episode IS, which is worth surfacing even though
+    # the delivered timings are unaffected.
+    hosts_wrong_duration: int = 0
     inferred: bool = False
     n_video_confirm: int = 0        # agreeing hosts whose video confirmed the audio
     video_disagreement: bool = False  # any agreeing host had audio/video divergence
@@ -201,6 +225,8 @@ class ReconciledHit:
             return False
         if DERIVED_REQUIRES_SEASON and self.derived:
             return False
+        if self.hosts_split:
+            return False
         if self.n_hosts_agree >= 2 and self.spread_s > SERVE_MAX_SPREAD_S:
             return False
         if INFERRED_REQUIRES_VIDEO and self.inferred and self.n_video_confirm < 1:
@@ -223,6 +249,10 @@ class ReconciledHit:
             return ", ".join(self.blocking)
         if DERIVED_REQUIRES_SEASON and self.derived:
             return "self-derived reference, awaiting season confirmation"
+        if self.hosts_split:
+            return (f"hosts split into disagreeing groups "
+                    f"(largest {self.n_hosts_agree}/{self.n_hosts_total}, "
+                    f"{self.spread_s:.1f}s spread)")
         if self.n_hosts_agree >= 2 and self.spread_s > SERVE_MAX_SPREAD_S:
             return f"hosts disagree ({self.spread_s:.1f}s spread)"
         if INFERRED_REQUIRES_VIDEO and self.inferred and self.n_video_confirm < 1:
@@ -241,37 +271,100 @@ def _anchor_value(hit: ThemeHit, duration: float, kind: str) -> float:
     return hit.start
 
 
+def _duration_cohort(
+    per_host: list[tuple[HostStream, list[ThemeHit]]],
+) -> tuple[list[tuple[HostStream, list[ThemeHit]]], list[HostStream], bool]:
+    """Keep only the hosts serving the SAME content; report the rest.
+
+    Returns (kept, dropped_streams, ambiguous). `ambiguous` is True when the
+    hosts split into cohorts of equal size — we then cannot tell which one is
+    the requested episode, and the caller must not reconcile at all rather than
+    average two different works together (see DURATION_COHORT_TOL_FRAC).
+    """
+    # Only MEASURED durations are evidence about what the host is serving. An
+    # estimated one (F4 fallback, which lands on a nominal 24 min) is a guess,
+    # and letting it vote would manufacture a rival cohort against a genuine
+    # short — exactly the bungou-stray-dogs shape, but with no real
+    # disagreement behind it. Estimated hosts ride along with whatever the
+    # measured ones decide.
+    known = [(s, h) for s, h in per_host
+             if s.duration > 0 and not s.duration_estimated]
+    if len(known) < 2:
+        return per_host, [], False
+
+    def cohort_of(ref: float) -> list[int]:
+        tol = ref * DURATION_COHORT_TOL_FRAC
+        return [i for i, (s, _) in enumerate(known) if abs(s.duration - ref) <= tol]
+
+    cohorts = [cohort_of(s.duration) for s, _ in known]
+    best = max(cohorts, key=len)
+    if len(best) == len(known):
+        return per_host, [], False
+
+    # A strict majority identifies the episode; an even split does not.
+    rivals = [c for c in cohorts if len(c) == len(best) and set(c) != set(best)]
+    if rivals:
+        return [], [s for s, _ in known], True
+
+    keep_idx = set(best)
+    kept = [known[i] for i in sorted(keep_idx)]
+    dropped = [s for i, (s, _) in enumerate(known) if i not in keep_idx]
+    # Hosts with no measured duration ride along: nothing says they disagree.
+    kept += [(s, h) for s, h in per_host
+             if s.duration <= 0 or s.duration_estimated]
+    return kept, dropped, False
+
+
 def _consensus(
     values: list[float],
     weights: list[float],
     *,
     tolerance: float = OUTLIER_TOLERANCE_S,
-) -> tuple[list[int], float, float]:
+) -> tuple[list[int], float, float, bool]:
     """Cluster values around their median, drop outliers past `tolerance`.
 
-    Returns (kept_indices, weighted_center, spread). The center is the
+    Returns (kept_indices, weighted_center, spread, split). The center is the
     weight-weighted mean of the kept values — weights are our per-host confidence
     (votes, scaled down for coarse video-sourced hits), so a strong match pulls
     the consensus more than a weak one.
+
+    `split` is the honest flag for "the hosts did not form one cluster at all".
+    It used to be silently absent: when nothing survived the median filter the
+    function reintegrated EVERY value and the caller stored `n_hosts_agree =
+    len(values)`, so hyouka ep3 reported `4/4 agreeing` and `22.0s spread` on the
+    same line — both derived from the same call, and the first one false. Worse,
+    the fabricated center was only held back by SERVE_MAX_SPREAD_S, so a split
+    whose halves sit ~10 s apart (two pairs at ±5 around the median, each past
+    the 4 s tolerance) got SERVED as a timecode that exists on no host. `split`
+    now blocks that path explicitly, and `kept` reports the real largest cluster
+    instead of pretending everyone agreed.
     """
     if not values:
-        return [], 0.0, 0.0
+        return [], 0.0, 0.0, False
     med = statistics.median(values)
     kept = [i for i, v in enumerate(values) if abs(v - med) <= tolerance]
+    split = False
     if not kept:
-        # Everything fell outside tolerance (e.g. 2 hosts far apart → their median
-        # is the midpoint, so BOTH are half-the-gap away). We reintegrate all so a
-        # legitimate tight cluster near the tolerance edge isn't lost — but here
-        # `len(kept)` is NOT a measure of agreement. The returned `spread` carries
-        # the truth, and ReconciledHit.serve (SERVE_MAX_SPREAD_S) is what holds
-        # back a fabricated ≥2 "agreement". Do not read n_hosts_agree as consensus
-        # without also checking spread.
-        kept = list(range(len(values)))
+        split = True
+        # Report the LARGEST genuine cluster rather than "everyone". It is the
+        # only honest count, and it keeps the stored center on a timecode some
+        # host actually produced. `split` is what forbids serving it — a 2-vs-2
+        # disagreement is a real ambiguity we must not resolve by picking a side.
+        best: list[int] = []
+        for v in values:
+            near = [i for i, x in enumerate(values) if abs(x - v) <= tolerance]
+            if len(near) > len(best):
+                best = near
+        kept = best or list(range(len(values)))
     kv = [values[i] for i in kept]
     kw = [max(1e-6, weights[i]) for i in kept]
     center = sum(v * w for v, w in zip(kv, kw)) / sum(kw)
-    spread = (max(kv) - min(kv)) if len(kv) > 1 else 0.0
-    return kept, center, spread
+    # The spread that matters is across ALL hosts when they split — the kept
+    # cluster's own spread would be reassuringly small and would hide the very
+    # disagreement being reported.
+    span = values if split else kv
+    spread = (max(span) - min(span)) if len(span) > 1 else 0.0
+    return kept, center, spread, split
 
 
 def reconcile_hits(
@@ -298,6 +391,13 @@ def reconcile_hits(
     knowledge (it chose the pool refs) — so it's threaded in here and set on the
     ReconciledHit, where `serve` reads it (see INFERRED_REQUIRES_VIDEO)."""
     if not per_host:
+        return []
+
+    # Drop hosts that aren't serving this episode at all before ANY averaging —
+    # otherwise both the canonical duration and the anchors are computed across
+    # two different works (see DURATION_COHORT_TOL_FRAC).
+    per_host, off_cohort, ambiguous = _duration_cohort(per_host)
+    if ambiguous:
         return []
 
     durations = [s.duration for s, _ in per_host if s.duration > 0]
@@ -337,7 +437,7 @@ def reconcile_hits(
             for h in hits
         ]
         tol = OUTLIER_TOLERANCE_VIDEO_S if has_video else OUTLIER_TOLERANCE_S
-        kept, center, spread = _consensus(anchors, weights, tolerance=tol)
+        kept, center, spread, split = _consensus(anchors, weights, tolerance=tol)
 
         # Reconcile the interval LENGTH the same way (it's duration-independent
         # for both kinds), so a host that mis-bounded one edge can't stretch it.
@@ -381,6 +481,8 @@ def reconcile_hits(
                 n_hosts_agree=len(kept),
                 n_hosts_total=len(hits),
                 spread_s=round(spread, 3),
+                hosts_split=split,
+                hosts_wrong_duration=len(off_cohort),
                 inferred=(inferred_op if kind == "op" else inferred_ed)
                 or (all(hits[i].inferred for i in kept) if kept else False),
                 # A host counts as image-confirmed when EITHER the legacy pipeline
