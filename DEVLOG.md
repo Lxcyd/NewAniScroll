@@ -43,6 +43,28 @@ identique a sendvid. Et SnK ED megaplay passe de 22:37 (3162 votes) a **22:42
 (4478 votes)** — soit exactement ce que rapporte vidmoly-va, donc l'ancien chemin
 donnait deja un resultat legerement FAUX sans le signaler.
 
+### 2e bug, trouve parce que Luc a dit « il y a clairement une erreur »
+Le tableau ci-dessus annoncait ED 21:42 pour vidmoly-va sur erased. Verification a
+l'image (frames extraites du stream) : derniere scene a 21:19, fondu au noir
+21:21-21:24, premier credit « CAST » a 21:28. Donc 21:42 etait FAUX — et l'app,
+elle, affichait « Outro » a 21:23, c-a-d juste.
+
+Cause : les DEUX outils de diag (`diag_multi_host.py`, `diag_match.py`) ancraient la
+fenetre ED sur le nominal `ep_dur + start_s`. Or `-sseof -180` seeke a la frontiere de
+segment AU PLUS TARD egale a EOF-180, puis decode jusqu'a EOF : mesure 197.8s decodes
+pour 180s demandes sur le HLS vidmoly de voir-anime. L'ancre nominale etait donc 18s
+trop tard, et poussait chaque timestamp ED de +18s. `theme_bank._abs_offset` faisait
+DEJA la correction (ancre = EOF - duree reellement decodee) — c'est le chemin de prod ;
+seuls les outils de diag mentaient. Le matcher n'a jamais ete en cause.
+
+Corrige : `_window_offset()` dans diag_match.py, partage par diag_multi_host.py.
+Apres correction, les 4 hosts d'erased s'accordent (21:21 x3, 21:24 pour vidmoly-va
+dont l'encode a +7s) et SnK ne bouge quasiment pas (ses hosts decodent bien 180s).
+
+A noter : `_measure_actual_window_start`, ecrit exactement pour attraper ce genre
+d'ecart, renvoie None sur tous les hosts (colonne « measured win » = n/a) — le
+garde-fou etait mort, personne ne l'a vu. Reste a reparer.
+
 ### Piege releve
 Le slug voir-anime a change : `shingeki-no-kyojin-vostfr` 404, c'est
 `shingeki-no-kyojin` (sans suffixe de langue). Un `--va-slug` perime ressemble a

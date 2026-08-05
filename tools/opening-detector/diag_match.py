@@ -37,6 +37,31 @@ def ms(s: float) -> str:
     return f"{sign}{s // 60}:{s % 60:02d}"
 
 
+def _window_offset(win, ep_dur: float, decoded_dur: float) -> float:
+    """Absolute episode time of the decoded window's FIRST sample.
+
+    Mirrors `theme_bank._abs_offset`. The nominal `ep_dur + start_s` is a trap
+    for a negative (`-sseof`) start: ffmpeg seeks to the nearest keyframe/segment
+    boundary AT OR BEFORE that point and then decodes to EOF, so the window
+    routinely starts EARLIER than asked — measured at 197.8s for a requested 180s
+    on voir-anime's vidmoly HLS, i.e. an 18s overshoot. Anchoring on the nominal
+    value then pushed every ED timestamp 18s LATE (21:42 reported for a true
+    21:24, contradicted by the frames). The real anchor is EOF minus what was
+    actually decoded. The production detector already did this; these diag tools
+    did not, so THEY were the ones lying, not the matcher.
+    """
+    if win is None:
+        return 0.0
+    start_s, _dur = win
+    if start_s is None:
+        return 0.0
+    if start_s < 0:
+        if decoded_dur > 0:
+            return max(0.0, ep_dur - decoded_dur)
+        return max(0.0, ep_dur + start_s)
+    return start_s
+
+
 def _measure_actual_window_start(url: str, window, referer: str | None) -> float | None:
     """Directly measure where ffmpeg's seek ACTUALLY landed, in the source's
     own absolute timeline — instead of trusting `ep_dur + start_s`.
@@ -115,19 +140,24 @@ def main() -> None:
         raise SystemExit(f"Could not probe the episode's duration: {exc}")
     print(f"  host={e.get('host')}  duration={ep_dur:.1f}s ({ms(ep_dur)})")
 
-    if args.full_episode:
-        win = None
-        win_offset = 0.0
-    else:
-        win = OP_WINDOW if args.kind == "op" else ED_WINDOW
-        start_s, _dur = win
-        win_offset = 0.0 if start_s is None else (
-            ep_dur + start_s if start_s < 0 else start_s
-        )
-    print(f"  window={win}  (nominal window-start in absolute episode time: "
-          f"{ms(win_offset)})")
+    win = None if args.full_episode else (
+        OP_WINDOW if args.kind == "op" else ED_WINDOW
+    )
 
     measured = _measure_actual_window_start(e["url"], win, e.get("referer"))
+
+    base_key = f"{args.slug}/{args.season}/{args.lang}/ep{args.ep}"
+    samples = load_audio(e["url"], cache_key=base_key, window=win,
+                          referer=e.get("referer"))
+    decoded = len(samples) / 11025
+    print(f"  decoded {decoded:.1f}s of audio")
+
+    # The window offset is derived from the DECODED length, not from the nominal
+    # `ep_dur + start_s` — see `_window_offset` above for why the
+    # nominal value silently shifts every ED timestamp late on HLS hosts.
+    win_offset = _window_offset(win, ep_dur, decoded)
+    print(f"  window={win}  (window-start in absolute episode time: "
+          f"{ms(win_offset)})")
     if measured is not None:
         delta = measured - win_offset
         print(f"  MEASURED actual seek landing (ffprobe -copyts): "
@@ -136,11 +166,6 @@ def main() -> None:
             print("  ⚠ mismatch >2s between assumed and measured window start — "
                   "this alone would shift every reported abs timestamp by "
                   f"{delta:+.1f}s")
-
-    base_key = f"{args.slug}/{args.season}/{args.lang}/ep{args.ep}"
-    samples = load_audio(e["url"], cache_key=base_key, window=win,
-                          referer=e.get("referer"))
-    print(f"  decoded {len(samples) / 11025:.1f}s of audio")
     ep_fp = fingerprint(samples)
 
     print(f"\nAll offset-histogram peaks (min_votes={args.min_votes}), "
