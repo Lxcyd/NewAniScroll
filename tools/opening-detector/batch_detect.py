@@ -521,37 +521,43 @@ def process_anime(
                 if not streams:
                     continue
 
-                def resolve_window_for(stream: HostStream, win):
+                # Every resolver binds `ep` as a DEFAULT ARGUMENT rather than
+                # reading it from the enclosing scope. They are stored in
+                # `season_detect` and called again AFTER this loop by the
+                # self-reference pass, at which point a late-bound `ep` would be
+                # the LAST episode of the season — decoding (and cache-keying)
+                # the wrong episode entirely.
+                def resolve_window_for(stream: HostStream, win, _ep=ep):
                     samples = load_audio(
                         stream.url,
-                        cache_key=f"{base_prefix}/ep{ep}/{stream.host}",
+                        cache_key=f"{base_prefix}/ep{_ep}/{stream.host}",
                         window=win, referer=stream.referer,
                     )
                     return fingerprint(samples)
 
-                def resolve_samples_for(stream: HostStream, win):
+                def resolve_samples_for(stream: HostStream, win, _ep=ep):
                     # Same (key, window) as the fingerprint above → load_audio
                     # cache hit, no second decode. Feeds RMS edge-refinement.
                     return load_audio(
                         stream.url,
-                        cache_key=f"{base_prefix}/ep{ep}/{stream.host}",
+                        cache_key=f"{base_prefix}/ep{_ep}/{stream.host}",
                         window=win, referer=stream.referer,
                     )
 
-                def resolve_video_for(stream: HostStream, win):
+                def resolve_video_for(stream: HostStream, win, _ep=ep):
                     return extract_keyframe_hashes(
                         stream.url,
-                        cache_key=f"video/{base_prefix}/ep{ep}/{stream.host}",
+                        cache_key=f"video/{base_prefix}/ep{_ep}/{stream.host}",
                         cache_dir="cache/video",
                         window=win, referer=stream.referer,
                     )
 
-                def resolve_video_dense_for(stream: HostStream, win, fps):
+                def resolve_video_dense_for(stream: HostStream, win, fps, _ep=ep):
                     # Dense edge decode per host; fps in the cache key keeps it
                     # distinct from the 2fps windows for the same stream.
                     return extract_keyframe_hashes(
                         stream.url,
-                        cache_key=f"video/{base_prefix}/ep{ep}/{stream.host}",
+                        cache_key=f"video/{base_prefix}/ep{_ep}/{stream.host}",
                         cache_dir="cache/video",
                         window=win, fps=fps, referer=stream.referer,
                     )
@@ -561,18 +567,19 @@ def process_anime(
                 # so audio and native video carry the same absolute pts and the
                 # image landmark anchor owns the boundary; no -sseof, no dense
                 # cascade. Same absa/absv cache keys as detect_anime.py.
-                def resolve_audio_abs_for(stream: HostStream, start_abs, dur):
+                def resolve_audio_abs_for(stream: HostStream, start_abs, dur, _ep=ep):
                     return _cached_audio_abs(
-                        f"absa/{base_prefix}/ep{ep}/{stream.host}",
+                        f"absa/{base_prefix}/ep{_ep}/{stream.host}",
                         stream.url, start_abs, dur,
                         referer=stream.referer,
                     )
 
-                def resolve_video_abs_for(stream: HostStream, start_abs, dur, fps):
+                def resolve_video_abs_for(stream: HostStream, start_abs, dur, fps,
+                                          _ep=ep):
                     return keyframe_hashes_abs(
                         stream.url, start_abs, dur, fps=fps,
                         referer=stream.referer,
-                        cache_key=f"absv/{base_prefix}/ep{ep}/{stream.host}",
+                        cache_key=f"absv/{base_prefix}/ep{_ep}/{stream.host}",
                         cache_dir="cache/video",
                     )
 
@@ -586,17 +593,24 @@ def process_anime(
                 # Kept as a closure so the F1 self-reference pass can re-run this
                 # episode against a DIFFERENT set of references without
                 # re-resolving or re-probing anything.
+                # Same late-binding hazard as the resolvers, one level up: the
+                # resolver NAMES are rebound on every iteration, so this closure
+                # must capture the objects belonging to ITS episode.
                 def _detect(op_r, ed_r, *, with_pool=True, derived=False,
-                            _streams=streams, _ep=ep):
+                            _streams=streams, _ep=ep,
+                            _win=resolve_window_for, _samples=resolve_samples_for,
+                            _video=resolve_video_for, _dense=resolve_video_dense_for,
+                            _audio_abs=resolve_audio_abs_for,
+                            _video_abs=resolve_video_abs_for):
                     try:
                         with tc.span("detect"):
                             return detect_per_host(
-                                _streams, resolve_window_for, op_r, ed_r,
-                                resolve_samples_for=resolve_samples_for,
-                                resolve_video_for=resolve_video_for,
-                                resolve_video_dense_for=resolve_video_dense_for,
-                                resolve_audio_abs_for=resolve_audio_abs_for,
-                                resolve_video_abs_for=resolve_video_abs_for,
+                                _streams, _win, op_r, ed_r,
+                                resolve_samples_for=_samples,
+                                resolve_video_for=_video,
+                                resolve_video_dense_for=_dense,
+                                resolve_audio_abs_for=_audio_abs,
+                                resolve_video_abs_for=_video_abs,
                                 v2=True,
                                 # F3 — series-wide fallback when the episode's
                                 # MAPPED theme matches nothing (AnimeThemes'
