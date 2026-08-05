@@ -206,8 +206,14 @@ def resolve_episodes_multi(
                 host_pref=host, cache_dir=cache_dir, mal_id=mal_id,
                 va_slug=va_slug,
             )
-        except Exception:
-            eps = []  # this host is down / has no match — its peers cover us
+        except Exception as exc:
+            # Its peers cover us, so a failing host must not sink the episode —
+            # but swallowing the REASON is how "only 2 of 5 hosts resolve" went
+            # undiagnosed for weeks. The bridge now says whether the player is
+            # simply not offered for this season (a data gap, nothing to fix) or
+            # actually failed to extract (a bug, a block, a dead host).
+            print(f"  [no-host] {host}: {exc}")
+            eps = []
         return host, eps
 
     by_ep: dict[int, list[dict]] = {}

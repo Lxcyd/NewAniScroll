@@ -331,6 +331,14 @@ async function main() {
 
   // Try each host in priority order; keep the first that resolves the WHOLE
   // requested range (so the series bank gets a consistent single-host cut).
+  //
+  // Diagnostics rule: `out.errors` ACCUMULATES across hosts and is never
+  // overwritten. It used to be assigned only inside `episodes.length >
+  // out.episodes.length`, so a host that resolved ZERO episodes (0 > 0 is
+  // false) had its collected reasons silently dropped — total failure, the case
+  // that most needs explaining, was the one case that explained nothing. That is
+  // why every failing host reported `resolution failed: []` and nobody could
+  // tell a blocked domain from a host the site simply doesn't offer.
   for (const hostKey of priority) {
     if (hostKey === "megaplay") {
       if (!malId) {
@@ -338,13 +346,14 @@ async function main() {
         continue;
       }
       const { episodes, errors } = await extractMegaplayRange(malId, lang, start, end);
+      out.errors.push(...errors.map((e) => `${hostKey}: ${e}`));
       if (episodes.length === end - start + 1) {
-        out.ok = true; out.host = hostKey; out.episodes = episodes; out.errors = errors;
+        out.ok = true; out.host = hostKey; out.episodes = episodes;
         console.log(JSON.stringify(out));
         return;
       }
       if (episodes.length > out.episodes.length) {
-        out.host = hostKey; out.episodes = episodes; out.errors = errors;
+        out.host = hostKey; out.episodes = episodes;
       }
       continue;
     }
@@ -355,28 +364,37 @@ async function main() {
         continue;
       }
       const { episodes, errors } = await resolveVoiranime(vaSlug, start, end);
+      out.errors.push(...errors.map((e) => `${hostKey}: ${e}`));
       if (episodes.length === end - start + 1) {
-        out.ok = true; out.host = hostKey; out.episodes = episodes; out.errors = errors;
+        out.ok = true; out.host = hostKey; out.episodes = episodes;
         console.log(JSON.stringify(out));
         return;
       }
       if (episodes.length > out.episodes.length) {
-        out.host = hostKey; out.episodes = episodes; out.errors = errors;
+        out.host = hostKey; out.episodes = episodes;
       }
       continue;
     }
 
     const arr = pickArray(arrays, hostKey);
-    if (!arr) continue;
+    if (!arr) {
+      // NOT a failure: anime-sama simply doesn't list this player for this
+      // season (SnK offers sibnet + uqload only, no sendvid/vidmoly). Saying so
+      // distinguishes "nothing to resolve" from "resolution broke", which is the
+      // difference between a data gap and a bug worth chasing.
+      out.errors.push(`${hostKey}: not offered by anime-sama for this season`);
+      continue;
+    }
     const { episodes, errors } = await extractRange(arr, hostKey, start, end);
+    out.errors.push(...errors.map((e) => `${hostKey}: ${e}`));
     if (episodes.length === end - start + 1) {
-      out.ok = true; out.host = hostKey; out.episodes = episodes; out.errors = errors;
+      out.ok = true; out.host = hostKey; out.episodes = episodes;
       console.log(JSON.stringify(out));
       return;
     }
     // Partial: remember the best attempt but keep trying other hosts.
     if (episodes.length > out.episodes.length) {
-      out.host = hostKey; out.episodes = episodes; out.errors = errors;
+      out.host = hostKey; out.episodes = episodes;
     }
   }
   out.ok = out.episodes.length > 0;
