@@ -23,6 +23,7 @@ from oped.fingerprint import Fingerprint, slice_fingerprint
 from oped.matcher import best_match_ranked
 from oped.multi_host import HostStream, ReconciledHit, reconcile_hits
 from oped.theme_bank import ThemeHit, ThemeReference, detect_op_ed_v2
+from oped.video_fingerprint import VideoFingerprint
 from oped import HOP_SECONDS
 import season_pass
 
@@ -412,6 +413,36 @@ def test_v2_cascade():
     # Nothing there → nothing invented.
     empty = detect_op_ed_v2(dur, [op], [ed], resolve_audio_abs=_window_resolver({}))
     check("absent theme yields no hit", empty == [], f"{empty}")
+
+    # align_status must separate "the image had no opinion" from "the image
+    # RAN and did not back the audio" — the second is evidence against the hit,
+    # the first is not, and both otherwise look identical (audio-aligned).
+    # Measured on the real SnK run: the ED reported "absent" while the image had
+    # in fact run and failed to anchor.
+    with_lm = _ref("op", "OP1", seed=1)
+    with_lm.landmarks = [(float(i), int(1 << (i % 63))) for i in range(20)]
+    with_lm.ref_native_dur = 90.0
+    resolver = _window_resolver({120.0: with_lm})
+
+    no_frames = detect_op_ed_v2(dur, [with_lm], [], resolve_audio_abs=resolver,
+                                resolve_video_abs=lambda *a, **k: None)
+    check("empty image decode → align_status absent",
+          no_frames and no_frames[0].align_status == "absent",
+          f"{no_frames[0].align_status if no_frames else None}")
+
+    # Frames that match nothing: the aligner runs and comes back empty-handed.
+    junk = VideoFingerprint(
+        hashes=np.array([0xF0F0F0F0F0F0F0F0] * 40, dtype=np.uint64),
+        times=np.linspace(116.0, 214.0, 40).astype(np.float32),
+        n_frames=40,
+    )
+    rejected = detect_op_ed_v2(dur, [with_lm], [], resolve_audio_abs=resolver,
+                               resolve_video_abs=lambda *a, **k: junk)
+    check("image ran but found nothing → align_status rejected",
+          rejected and rejected[0].align_status == "rejected",
+          f"{rejected[0].align_status if rejected else None}")
+    check("a rejected alignment still ships the audio timing",
+          rejected and abs(rejected[0].start - 120.0) < 1.0 and rejected[0].low_confidence)
 
     # Anomalies are attached by the detector itself.
     long_ref = _ref("op", "OP1", seed=4, dur=260.0)

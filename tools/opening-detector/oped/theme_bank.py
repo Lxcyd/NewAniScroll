@@ -1349,20 +1349,28 @@ def detect_op_ed_v2(
         )
 
     def _align_image(ref, theme_t0_coarse):
-        """B. Native landmark anchor around the coarse t0. Returns LandmarkAnchor
-        or None (no video resolver / no landmarks / no image decode / nothing
-        accepted). None → the caller keeps the coarse audio t0."""
+        """B. Native landmark anchor around the coarse t0.
+
+        Returns `(LandmarkAnchor | None, ran: bool)`. `ran` says whether the
+        image actually got to give an opinion — it is False when there was no
+        video resolver, no landmarks on the reference, or the decode came back
+        empty. That distinction is the whole point: an anchor that RAN and found
+        nothing is evidence AGAINST the audio hit, while one that never ran is
+        merely no evidence, and both otherwise look identical downstream (both
+        fall back to the audio t0). Measured on SnK: the ED reported "absent"
+        while the image had in fact run and failed to anchor.
+        """
         if resolve_video_abs is None or not ref.landmarks:
-            return None
+            return None, False
         span = ref.ref_native_dur if ref.ref_native_dur > 0 else ref.duration
         start_abs = max(0.0, theme_t0_coarse - ALIGN_PAD_S)
         dur = span + 2 * ALIGN_PAD_S
         try:
             ep_vfp = resolve_video_abs(start_abs, dur, None)
         except Exception:
-            return None
+            return None, False
         if ep_vfp is None or ep_vfp.hashes.size == 0:
-            return None
+            return None, False
         # Threshold by provenance: a credited ref matches episode-credited frames
         # (re-encode noise only → tight 8 bits); an NC ref matches episode frames
         # that carry credit text over the same footage → the looser 12-bit
@@ -1370,7 +1378,7 @@ def detect_op_ed_v2(
         # clean clip) are ALWAYS rejected at 8 bits and v2 silently falls back to
         # audio. sep_min stays at its default (one parameter at a time).
         thr = HAMMING_THRESHOLD_CREDITED if _ref_is_credited_impl(ref) else HAMMING_THRESHOLD
-        return anchor_by_landmarks(ep_vfp, ref.landmarks, hamming_max=thr)
+        return anchor_by_landmarks(ep_vfp, ref.landmarks, hamming_max=thr), True
 
     def _locate_image_noaudio(refs, start_abs, dur):
         """A'. IMAGE-ONLY locate when audio LOCATE found nothing (e.g. the theme
@@ -1471,7 +1479,7 @@ def detect_op_ed_v2(
         ref_dur = ref.ref_native_dur if ref.ref_native_dur > 0 else (
             ref.duration if ref.duration > 0 else m.r_end
         )
-        anc = _align_image(ref, theme_t0_audio)
+        anc, image_ran = _align_image(ref, theme_t0_audio)
         # Gates scale with provenance: the NC path used a looser per-landmark
         # Hamming threshold, so it must clear stricter AGGREGATE gates (more
         # accepted landmarks, tighter consensus) before we trust the image t0.
@@ -1489,10 +1497,11 @@ def detect_op_ed_v2(
         # different events and there is no way to tell which one is the theme.
         av_delta = None if anc is None else round(abs(anc.theme_t0 - theme_t0_audio), 3)
         # Honest report of what the image concluded — "rejected" (it ran and
-        # fell short) is evidence AGAINST the hit, "absent" (never ran) is merely
-        # no evidence. Both end up audio-aligned, so `source` alone can't tell
-        # them apart.
-        align_status = "ok" if strong else ("rejected" if anc is not None else "absent")
+        # fell short, whether it produced a weak anchor or none at all) is
+        # evidence AGAINST the hit, "absent" (never ran: no resolver, no
+        # landmarks, empty decode) is merely no evidence. Both end up
+        # audio-aligned, so `source` alone can't tell them apart.
+        align_status = "ok" if strong else ("rejected" if image_ran else "absent")
 
         if relaxed and not strong:
             # The relaxed-fill locate never ships on audio alone (see above).
