@@ -37,9 +37,12 @@ No changes to fingerprint/matcher: `best_match` is already query↔reference.
 
 from __future__ import annotations
 
+import os
 import random
+import tempfile
 import threading
 import time as _time_mod
+import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -355,6 +358,69 @@ def animethemes_slot(url: str | None):
         _ANIMETHEMES_SEM.release()
 
 
+@contextmanager
+def materialized_clip(url: str | None):
+    """Fetch a reference clip ONCE and yield a local path (or the URL on failure).
+
+    What this buys is REQUEST COUNT, not bytes and not wall time. Measured on a
+    quiet origin, the local route is if anything marginally slower per reference
+    (17.2 s vs 16.2 s for download+2fps+native): ffmpeg streams selectively and
+    does not pull the whole 66 MB clip, so "download once instead of three
+    times" is NOT a 3x saving in bytes — an earlier version of this comment
+    claimed that and was wrong.
+
+    The problem it actually solves: ffmpeg streaming a webm issues DOZENS of
+    HTTP range requests per pass, and every reference ran three such passes
+    (audio fp, 2fps keyframes, native decode — the last two on the same clip).
+    animethemes.moe rate-limits on request RATE, so a handful of concurrent
+    ffmpeg pulls trips it even though the concurrency itself is modest. Measured
+    during a batch: 8/8 probes refused with 503 in 0.15 s. With the batch
+    stopped, the same origin served a full clip in 4.8 s and four concurrent
+    range requests in ~1.5 s each — the limiter was reacting to us. One plain
+    streaming GET per clip collapses that request storm to a single request.
+
+    Byte-for-byte identical input, so every fingerprint produced is unchanged:
+    this trades a little per-reference latency for not being throttled.
+
+    The file is deleted on exit rather than kept: a full backfill would pile up
+    tens of GB of clips for nothing, since the derived `.fp.npz`/`.vfp.npz`
+    caches already make a re-run download-free. On any download failure it
+    yields the original URL, so behaviour degrades to exactly what it was.
+    """
+    if not _is_animethemes(url):
+        yield url
+        return
+    tmp = None
+    try:
+        import requests as _rq
+        suffix = Path(urllib.parse.urlparse(url).path).suffix or ".webm"
+        fd, tmp = tempfile.mkstemp(prefix="animethemes_", suffix=suffix)
+        with os.fdopen(fd, "wb") as fh:
+            with _rq.get(url, stream=True, timeout=120) as resp:
+                resp.raise_for_status()
+                for chunk in resp.iter_content(1 << 20):
+                    fh.write(chunk)
+        if os.path.getsize(tmp) <= 0:
+            raise OSError("empty download")
+        yield tmp
+        return
+    except Exception:
+        if tmp and os.path.exists(tmp):
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            tmp = None
+        yield url            # fall back to streaming straight from the origin
+        return
+    finally:
+        if tmp and os.path.exists(tmp):
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+
+
 # Reference fetches that exhausted their retries, as (key, url, last error).
 # A run that loses references silently degrades to F1 without saying so, which
 # is exactly how the vinland/dororo gap went unnoticed — batch_detect prints
@@ -414,9 +480,19 @@ _NATIVE_REF_RETRIES = 6
 _NATIVE_REF_BACKOFF_S = 2.0
 
 
+_NATIVE_REF_BACKOFF_MAX_S = 12.0
+
+
 def _retry_sleep(attempt: int) -> None:
-    """Exponential backoff with jitter: ~2, 4, 8, 16, 32 s (+/-25%)."""
-    delay = _NATIVE_REF_BACKOFF_S * (2 ** attempt)
+    """Exponential backoff with jitter, CAPPED: ~2, 4, 8, 12, 12 s (+/-25%).
+
+    Uncapped doubling (…16, 32) made every lost reference cost a full minute of
+    sleeping, which is how a run spent 23 minutes producing zero episodes once
+    the origin started refusing. The cap keeps retries patient enough to outlast
+    a short throttle without turning a failure into a stall — the real pressure
+    relief is `materialized_clip` cutting the request rate, not longer waits.
+    """
+    delay = min(_NATIVE_REF_BACKOFF_S * (2 ** attempt), _NATIVE_REF_BACKOFF_MAX_S)
     _time_mod.sleep(delay * random.uniform(0.75, 1.25))
 
 # A full-clip native decode is heavy and animethemes.moe rate-limits: when
@@ -429,15 +505,30 @@ def _retry_sleep(attempt: int) -> None:
 _NATIVE_REF_LOCK = __import__("threading").Lock()
 
 
-def _decode_native_ref(url: str) -> VideoFingerprint | None:
-    """Native (fps=None) full-clip decode with a bounded retry, serialised across
-    threads (see `_NATIVE_REF_LOCK`). Returns a VideoFingerprint only when it
-    passes `_native_ref_ok`, else None."""
+def _decode_native_ref(src: str) -> VideoFingerprint | None:
+    """Native (fps=None) full-clip decode with a bounded retry. Returns a
+    VideoFingerprint only when it passes `_native_ref_ok`, else None.
+
+    The global lock applies ONLY to a remote animethemes source. Its whole
+    purpose was to keep simultaneous full-clip pulls off that origin — once the
+    caller has materialised the clip locally (`materialized_clip`), the decode
+    is pure local CPU and serialising it just throws away parallelism for no
+    protection. Retrying a local file is pointless too, so that collapses to a
+    single attempt.
+    """
     import time as _time
+    remote = _is_animethemes(src)
+    if not remote:
+        try:
+            vfp = keyframe_hashes_abs(src, 0.0, None, fps=None)
+        except Exception:
+            return None
+        return vfp if _native_ref_ok(vfp) else None
+
     with _NATIVE_REF_LOCK:
         for attempt in range(_NATIVE_REF_RETRIES):
             try:
-                vfp = keyframe_hashes_abs(url, 0.0, None, fps=None)
+                vfp = keyframe_hashes_abs(src, 0.0, None, fps=None)
             except Exception:
                 vfp = None
             if _native_ref_ok(vfp):
@@ -497,7 +588,8 @@ def build_references(
         for attempt in range(_NATIVE_REF_RETRIES):
             try:
                 with animethemes_slot(entry.video_url):
-                    fp, dur = _fp_cached(key, entry.video_url, cache_dir)
+                    with materialized_clip(entry.video_url) as audio_src:
+                        fp, dur = _fp_cached(key, audio_src, cache_dir)
                 break
             except Exception as exc:
                 last_err = f"{type(exc).__name__}: {exc}"
@@ -522,49 +614,53 @@ def build_references(
         landmarks: list = []
         ref_native_dur = 0.0
         if with_video:
-            try:
-                # 2fps keyframe fingerprint — the coarse cross-confirm signal used
-                # by the current cascade (best_match_video / _video_hit_for).
-                with animethemes_slot(video_ref_url):
+            # ONE fetch of the credited clip for BOTH image passes below — the
+            # 2fps hash and the native decode used to download the very same
+            # file twice (see materialized_clip).
+            with animethemes_slot(video_ref_url), \
+                    materialized_clip(video_ref_url) as video_src:
+                try:
+                    # 2fps keyframe fingerprint — the coarse cross-confirm signal
+                    # used by the cascade (best_match_video / _video_hit_for).
                     vfp = extract_keyframe_hashes(
-                        video_ref_url, cache_key=video_key,
+                        video_src, cache_key=video_key,
                         cache_dir=video_cache_dir,
                     )
-            except Exception:
-                vfp = None  # video is confirmation-only; audio still ships
-            try:
-                # NATIVE decode of the whole credited clip: landmarks with
-                # frame-exact r_time (Stage-3 fix) + the canonical native duration
-                # for the Stage-4 end boundary. Cached under a distinct
-                # `.native.vfp.npz` so it never collides with the 2fps `vfp` above.
-                #
-                # Only a NON-degenerate decode is cached. build_references fetches
-                # every version concurrently, so this native pull races the 2fps
-                # one against animethemes.moe; a rate-limit/reset can return 0-few
-                # frames. Caching that empty result froze the failure permanently
-                # (0-frame OP refs → the image ALIGN always fell back to audio).
-                # Requiring a plausible frame count before saving means a transient
-                # failure is simply RETRIED on the next run instead of persisted.
-                native_file = Path(video_cache_dir) / (
-                    f"{video_key.replace('/', '__')}.native.vfp.npz"
-                )
-                nref = None
-                if native_file.exists():
-                    cached = VideoFingerprint.load(native_file)
-                    if _native_ref_ok(cached):
-                        nref = cached
-                if nref is None:
-                    decoded = _decode_native_ref(video_ref_url)
-                    if decoded is not None:
-                        native_file.parent.mkdir(parents=True, exist_ok=True)
-                        decoded.save(native_file)
-                        nref = decoded
-                if nref is not None:
-                    landmarks = pick_landmarks(nref)
-                    ref_native_dur = float(nref.times.max())
-            except Exception:
-                landmarks = []      # anchoring degrades to audio-only; still ships
-                ref_native_dur = 0.0
+                except Exception:
+                    vfp = None  # video is confirmation-only; audio still ships
+                try:
+                    # NATIVE decode of the whole credited clip: landmarks with
+                    # frame-exact r_time (Stage-3 fix) + the canonical native
+                    # duration for the Stage-4 end boundary. Cached under a
+                    # distinct `.native.vfp.npz` so it never collides with the
+                    # 2fps `vfp` above.
+                    #
+                    # Only a NON-degenerate decode is cached: a rate-limit or
+                    # reset can return 0-few frames, and caching that froze the
+                    # failure permanently (0-frame OP refs → the image ALIGN
+                    # always fell back to audio). Requiring a plausible frame
+                    # count before saving means a transient failure is simply
+                    # RETRIED on the next run instead of persisted.
+                    native_file = Path(video_cache_dir) / (
+                        f"{video_key.replace('/', '__')}.native.vfp.npz"
+                    )
+                    nref = None
+                    if native_file.exists():
+                        cached = VideoFingerprint.load(native_file)
+                        if _native_ref_ok(cached):
+                            nref = cached
+                    if nref is None:
+                        decoded = _decode_native_ref(video_src)
+                        if decoded is not None:
+                            native_file.parent.mkdir(parents=True, exist_ok=True)
+                            decoded.save(native_file)
+                            nref = decoded
+                    if nref is not None:
+                        landmarks = pick_landmarks(nref)
+                        ref_native_dur = float(nref.times.max())
+                except Exception:
+                    landmarks = []  # anchoring degrades to audio-only; still ships
+                    ref_native_dur = 0.0
         return ThemeReference(
             kind=theme.kind,
             slug=theme.slug,

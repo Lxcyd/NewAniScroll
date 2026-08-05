@@ -128,8 +128,15 @@ def _cached_audio_abs(cache_key, url, start_abs, dur, *, referer=None,
     return fp, abs_start
 
 
+# Episodes of slack around the requested range when deciding which themes are
+# worth fingerprinting. F3's whole job is to rescue an OFF-BY-ONE mapping from
+# the cour-wide pool, so the pool must keep its immediate neighbours — but a
+# theme mapped to episodes 13-24 can never rescue episode 3.
+_THEME_RANGE_MARGIN = 3
+
+
 def build_theme_index(
-    at_slug: str, *, with_video: bool = True
+    at_slug: str, *, with_video: bool = True, episodes: range | None = None
 ) -> tuple[list[Theme], dict[str, list[ThemeReference]]]:
     """Fetch themes + fingerprint every version once (cached). Returns
     (themes, refs_by_theme_slug). Empty refs => nothing to detect against.
@@ -137,10 +144,39 @@ def build_theme_index(
     `with_video` (default on): also fingerprint each clean NC clip's keyframes,
     so detection can EXTEND cropped fade edges and fall back to a video-sourced
     alignment when audio is too weak — the image is a first-class signal now,
-    not an optional extra."""
+    not an optional extra.
+
+    `episodes`: only fingerprint themes that could apply to THOSE episodes.
+    Every theme used to be built regardless, so a 3-episode run still downloaded
+    OP2/ED2 — the second-cour themes mapped to episodes 13-24 — plus every one
+    of their versions. Toradora built ~8 references to use 2. That is the bulk
+    of the reference cost, it hammers animethemes.moe for nothing, and it is why
+    6 of the 7 references lost on the last run were themes the run never needed.
+    A full-season backfill asks for every episode, so nothing is skipped there —
+    this only stops partial runs from paying for the whole series.
+    """
     themes = fetch_themes(at_slug)
+
+    def relevant(t: Theme) -> bool:
+        if episodes is None:
+            return True
+        lo = min(episodes) - _THEME_RANGE_MARGIN
+        hi = max(episodes) + _THEME_RANGE_MARGIN
+        for e in t.entries:
+            # An entry with no episode mapping applies everywhere — keep it.
+            if not getattr(e, "episodes_spec", None):
+                return True
+            if any(e.covers(ep) for ep in range(lo, hi + 1)):
+                return True
+        return False
+
+    wanted = [t for t in themes if relevant(t)]
+    skipped = len(themes) - len(wanted)
+    if skipped:
+        print(f"  [theme] {skipped} theme(s) hors plage episodes — non telecharges")
+
     refs_by_theme: dict[str, list[ThemeReference]] = {}
-    for t in themes:
+    for t in wanted:
         rs = build_references(t, slug_prefix=f"animethemes/{at_slug}", with_video=with_video)
         if rs:
             refs_by_theme[t.slug] = rs
@@ -412,7 +448,15 @@ def process_anime(
         themes: list[Theme] = []
         refs_by_theme: dict[str, list[ThemeReference]] = {}
         if at_slug:
-            themes, refs_by_theme = build_theme_index(at_slug)
+            # Union of every season's requested range, so a partial run only
+            # pays for the themes it can actually use (see build_theme_index).
+            spans = [
+                (s.get("ep_start") or 1, s.get("ep_end") or 1)
+                for s in (anime.get("seasons") or [])
+            ]
+            ep_range = (range(min(a for a, _ in spans), max(b for _, b in spans) + 1)
+                        if spans else None)
+            themes, refs_by_theme = build_theme_index(at_slug, episodes=ep_range)
     if not refs_by_theme:
         # No usable reference. In multi-host mode that is no longer the end of
         # the road: the self-reference pass (F1) can still recover the OP/ED from
