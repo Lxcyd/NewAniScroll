@@ -84,6 +84,44 @@ casse. Nouvelles categories `split` et `content`.
 Tests : 65 -> **81 assertions**, dont le faux positif qui doit RESTER rejete (segment
 flottant a longueur variable) et le trou de service du bug 2.
 
+### Verification : re-run complet des 15 anime (`out/audit2.jsonl`)
+| | avant | apres |
+|---|---|---|
+| OP servi / retenu / absent | 10 / 8 / **27** | **25** / 14 / **6** |
+| ED servi / retenu / absent | 10 / 26 / 9 | **22** / 20 / **3** |
+
+**Attribution honnete — le gros du bond N'EST PAS mon correctif.** F1 ne produit que du
+`derived`, or les 47 cellules servies sont TOUTES `credite` (0 derived servi : le gate
+DERIVED_REQUIRES_SEASON tient, rien de non valide n'est parti en service). Le passage
+de 10 a 25 OP servis vient du chemin AnimeThemes normal. Preuve : F1 a ete invoque
+**24 fois au run 1 contre 11 au run 2**, et la phase `themes` est passee de 1183 s a
+**2242 s** — le run 1 n'avait tout simplement pas recupere ses references (echecs reseau
+silencieux), le run 2 les a telechargees. Le cache AnimeThemes tiede explique la
+majorite de l'ecart.
+
+Mesure PROPRE de mon correctif F1, isolee de la variance reseau (rejeu sur cache fige) :
+**21 -> 32 OP recuperes**. Effet visible dans ce run : F1 OP recupere 1 fois -> 3 fois
+(anohana et dororo passent d'absent a derived-retenu).
+
+Les bugs 2 et 3 ne se lisent pas en gain de couverture, c'est le but : hyouka ep3 ED et
+dandadan ep4 OP sont desormais retenus `hosts split into disagreeing groups` au lieu de
+risquer d'etre servis sur un centre fabrique ; BSD rend toujours zero, mais pour la
+bonne raison (cohortes 700 s vs 1420 s a egalite -> refus de reconcilier) au lieu d'une
+moyenne a 1060 s.
+
+ETA backfill : 6.9 -> 6.4 j (16.4 s/episode-lang).
+
+### Reste ouvert
+- **vinland-saga (37521)** : OP absent, longueurs [66, 66, 45] — F1 ne cluste pas. Le
+  seul vrai trou de couverture restant hors BSD.
+- **bungou-stray-dogs (31478)** : probleme de DONNEES, pas de detecteur. `saison1hs`
+  n'est pas la meme oeuvre selon la source ; il faut soit ne pas melanger les hosts
+  MAL-id sur les hors-series, soit corriger le mapping de saison.
+- **18 outliers par lecteur** (jusqu'a +/-45 s sur dandadan) : absorbes par le stockage
+  par lecteur, mais dandadan est franchement instable — a regarder si on l'expose.
+- La passe `season_pass.py` n'a PAS ete lancee sur ce lot : les 24 `derived` retenus
+  restent a promouvoir, c'est la que se joue le reste de la couverture.
+
 ## 2026-08-05 (3) — Passe large 15 anime : F1 ne recupere jamais l'OP
 
 Lot demande par Luc pour attraper des erreurs : 15 anime varies x eps 2-4, multi-host,
