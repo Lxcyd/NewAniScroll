@@ -75,7 +75,7 @@ from oped.theme_bank import (
     build_references,
     detect_op_ed,
 )
-from oped import self_ref
+from oped import self_ref, theme_bank
 from oped.throttle import HostThrottler, is_throttle_error
 from oped.timings import TimingCollector
 from oped.video_fingerprint import extract_keyframe_hashes, keyframe_hashes_abs
@@ -848,6 +848,20 @@ def run(
 
     sink.close()
     print("\nsummary:", manifest.summary())
+
+    # Reference losses are the one failure that does NOT show up as a failed
+    # anime: the run "succeeds", quietly degraded to the F1 self-derived path.
+    # That is how vinland-saga and dororo lost every OP/ED reference on the
+    # 15-anime audit without a single line of output. Surface it loudly — on a
+    # full backfill this is the difference between a real result and a silently
+    # weaker one.
+    if theme_bank.REFERENCE_FAILURES:
+        print(f"\n!! REFERENCES PERDUES ({len(theme_bank.REFERENCE_FAILURES)}) — "
+              f"ces themes ont bascule sur le repli F1 :")
+        for key, url, err in theme_bank.REFERENCE_FAILURES[:40]:
+            print(f"   {key}  {err}  ({url})")
+        if len(theme_bank.REFERENCE_FAILURES) > 40:
+            print(f"   … et {len(theme_bank.REFERENCE_FAILURES) - 40} autres")
     still = manifest.failed_keys()
     if still:
         print(f"still failed after retry ({len(still)}):",

@@ -37,7 +37,11 @@ No changes to fingerprint/matcher: `best_match` is already query↔reference.
 
 from __future__ import annotations
 
+import random
+import threading
+import time as _time_mod
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -311,6 +315,59 @@ def cached_fingerprint(
     return fp, dur
 
 
+# ── animethemes.moe politeness ───────────────────────────────────────────────
+# v.animethemes.moe is one small origin, and the reference fetch fans out
+# MULTIPLICATIVELY with nothing bounding it: batch_detect runs N anime at once
+# (--workers 16), detect_anime opens one thread PER THEME, and build_references
+# opens one PER VERSION. On the 15-anime audit that is ~120 concurrent pulls at
+# a single host, which rate-limits — and the 3 short retries below then ran out
+# and the reference was dropped SILENTLY (`if fp is None: return None`).
+#
+# Measured consequence: vinland-saga and dororo (2 of 15 anime, 13%) lost EVERY
+# OP/ED reference and fell back to the F1 self-derived path. From the outside
+# that looked like "no host found the OP on any episode" — a detector failure —
+# when the reference had simply never been downloaded. Both URLs fetch and
+# fingerprint fine in isolation (90.0 s / 10162 hashes), which is what proved
+# the failure was contention, not a dead link.
+_ANIMETHEMES_MAX_CONCURRENCY = 4
+_ANIMETHEMES_SEM = threading.BoundedSemaphore(_ANIMETHEMES_MAX_CONCURRENCY)
+
+
+def _is_animethemes(url: str | None) -> bool:
+    return "animethemes.moe" in (url or "")
+
+
+@contextmanager
+def animethemes_slot(url: str | None):
+    """Serialise pulls against animethemes.moe to _ANIMETHEMES_MAX_CONCURRENCY.
+
+    Process-wide, so it bounds the product of every fan-out layer above it. A
+    no-op for any other host — episode CDNs have their own AIMD limiter and must
+    not be slowed by this one.
+    """
+    if not _is_animethemes(url):
+        yield
+        return
+    _ANIMETHEMES_SEM.acquire()
+    try:
+        yield
+    finally:
+        _ANIMETHEMES_SEM.release()
+
+
+# Reference fetches that exhausted their retries, as (key, url, last error).
+# A run that loses references silently degrades to F1 without saying so, which
+# is exactly how the vinland/dororo gap went unnoticed — batch_detect prints
+# this at the end of a run.
+REFERENCE_FAILURES: list[tuple[str, str, str]] = []
+_FAILURES_LOCK = threading.Lock()
+
+
+def record_reference_failure(key: str, url: str, err: str) -> None:
+    with _FAILURES_LOCK:
+        REFERENCE_FAILURES.append((key, url, err))
+
+
 def _fp_cached(samples_key: str, url: str, cache_dir: Path, *,
                referer: str | None = None) -> tuple[Fingerprint, float]:
     """Whole-clip fingerprint cache used by `build_references` (reference
@@ -347,8 +404,20 @@ def _native_ref_ok(vfp: VideoFingerprint) -> bool:
 # many others against animethemes.moe and a rate-limit/reset yields a truncated
 # decode. It's a one-time cached cost, so retry a couple of times with a short
 # backoff before giving up (then the ref degrades to audio-only anchoring).
-_NATIVE_REF_RETRIES = 3
+#
+# Raised from 3 to 6 with EXPONENTIAL backoff + jitter (was a flat 2 s/4 s).
+# Under the contention described at _ANIMETHEMES_MAX_CONCURRENCY, three quick
+# tries all landed inside the same rate-limit window and failed together —
+# retrying is only useful if it outlasts the limiter. Jitter stops the threads
+# that were throttled together from retrying in lockstep.
+_NATIVE_REF_RETRIES = 6
 _NATIVE_REF_BACKOFF_S = 2.0
+
+
+def _retry_sleep(attempt: int) -> None:
+    """Exponential backoff with jitter: ~2, 4, 8, 16, 32 s (+/-25%)."""
+    delay = _NATIVE_REF_BACKOFF_S * (2 ** attempt)
+    _time_mod.sleep(delay * random.uniform(0.75, 1.25))
 
 # A full-clip native decode is heavy and animethemes.moe rate-limits: when
 # build_references fans out every (theme, version) — and the caller fans THAT out
@@ -424,14 +493,24 @@ def build_references(
         # (a theme usually has a usable version; a per-episode-ED series has many).
         # Bounded retry first, since a 5XX is often transient under concurrency.
         fp = dur = None
+        last_err = ""
         for attempt in range(_NATIVE_REF_RETRIES):
             try:
-                fp, dur = _fp_cached(key, entry.video_url, cache_dir)
+                with animethemes_slot(entry.video_url):
+                    fp, dur = _fp_cached(key, entry.video_url, cache_dir)
                 break
-            except Exception:
+            except Exception as exc:
+                last_err = f"{type(exc).__name__}: {exc}"
                 if attempt < _NATIVE_REF_RETRIES - 1:
-                    __import__("time").sleep(_NATIVE_REF_BACKOFF_S * (attempt + 1))
+                    _retry_sleep(attempt)
         if fp is None:
+            # NEVER silent. Losing a reference degrades the anime to the F1
+            # self-derived path, which then looks like a detection failure on
+            # every host — see _ANIMETHEMES_MAX_CONCURRENCY for the case that
+            # cost 2 of 15 anime their OP without a single line of output.
+            print(f"  [theme] REFERENCE PERDUE {key} — {last_err or 'echec'} "
+                  f"({entry.video_url})")
+            record_reference_failure(key, entry.video_url, last_err)
             return None
         vfp = None
         # IMAGE reference: prefer the CREDITED clip (its on-screen credits match
@@ -446,9 +525,11 @@ def build_references(
             try:
                 # 2fps keyframe fingerprint — the coarse cross-confirm signal used
                 # by the current cascade (best_match_video / _video_hit_for).
-                vfp = extract_keyframe_hashes(
-                    video_ref_url, cache_key=video_key, cache_dir=video_cache_dir
-                )
+                with animethemes_slot(video_ref_url):
+                    vfp = extract_keyframe_hashes(
+                        video_ref_url, cache_key=video_key,
+                        cache_dir=video_cache_dir,
+                    )
             except Exception:
                 vfp = None  # video is confirmation-only; audio still ships
             try:
@@ -498,7 +579,11 @@ def build_references(
             ref_native_dur=ref_native_dur,
         )
 
-    with ThreadPoolExecutor(max_workers=len(entries)) as pool:
+    # Capped: the animethemes semaphore already bounds the useful parallelism,
+    # so spawning one thread per version only piles up threads waiting on it.
+    with ThreadPoolExecutor(
+        max_workers=min(len(entries), _ANIMETHEMES_MAX_CONCURRENCY * 2)
+    ) as pool:
         built = list(pool.map(_build_one, entries))
     # Drop versions whose audio ref could not be fetched (see _build_one); the
     # anime still ships with the versions that succeeded.
