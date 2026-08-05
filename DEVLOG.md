@@ -1,5 +1,74 @@
 # DEVLOG
 
+## 2026-08-05 — OP/ED : 4 lecteurs au lieu d'1 (megaplay, ansembed, DNS box)
+
+Parti d'une question de Luc (« quel lecteur as-tu mesure ? »), fini sur trois bugs
+distincts qui se masquaient l'un l'autre. Verification de depart : sur sibnet notre
+ED SnK ep1 (23:55 -> 25:24.9) est JUSTE, verifie en extrayant les frames (23:50
+derniere scene, 23:55 fondu au noir, 24:00 visuels de l'ED, 25:20 generique, 25:28
+preview). Le 24:05 observe par Luc venait d'un AUTRE encode (voir-anime/vidmoly).
+
+### 1. Le pont n'expliquait jamais un echec (commit 1e75bf0)
+`out.errors` n'etait affecte que dans `episodes.length > out.episodes.length`. Un
+host resolvant ZERO episode (0 > 0 = faux) voyait ses raisons JETEES : l'echec
+total, le cas qui demande le plus d'etre explique, etait le seul a n'expliquer
+rien. D'ou le `resolution failed: []` uniforme, deja note comme non diagnosticable
+le 29/07. Les erreurs s'accumulent maintenant, prefixees par host, et `pickArray`
+vide dit « not offered by anime-sama for this season » (absence de donnee != panne).
+
+### 2. megaplay muet depuis une rotation de CDN (commit cf6e76c)
+`is_megaplay()` reconnaissait le stream sur une liste FIGEE de domaines CDN ; le CDN
+est passe a `megap.shiora.top`. La branche de-PNG etait donc court-circuitee, ffmpeg
+lisait la playlist brute — dont les premiers segments sont des PUBS au format PNG —
+concluait `Video: png` sans audio, et ne sortait rien. Zero erreur, zero hit. Le
+commentaire du code disait deja « its CDN hosts rotate ». **Le REFERER
+(`https://megaplay.buzz/`) est le signal stable**, pas le hostname du CDN.
+
+### 3. Le DNS de la box bloque en IPv6 seulement
+`uqload.is` et `vidmoly.net` -> `::1` via le resolveur IPv6 de la box Bouygues,
+alors que l'IPv4 (8.8.8.8) rend les vraies IP Cloudflare. Le fichier hosts est vide,
+ce n'est pas un blocage local. L'app n'est pas affectee (Worker + proxy.aniscroll),
+seul l'outil local tape ces domaines en direct. **Non corrige** : changer le DNS
+IPv6 de l'interface demande l'elevation. Commande a passer en admin :
+`Set-DnsClientServerAddress -InterfaceAlias "Ethernet 2" -ServerAddresses ("2606:4700:4700::1111","2606:4700:4700::1001")`.
+
+### 4. Ansembed implemente (commit 3e4db04) — app + detecteur
+anime-sama liste 5 lecteurs pour SnK S1 (sibnet, ansembed, uqload, embed4me,
+minochinos) et on n'en exploitait que 2. **ansembed.net EST vidmoly** sous domaine
+white-label (meme page, meme master.m3u8) mais c'est une entree anime-sama distincte
+avec ses propres uploads -> un encode de plus. Host `ansembed` PROPRE, pas un alias
+de `vidmoly` : partager les lignes servirait le timing d'un encode sur l'autre.
+**Bonus** : ansembed.net n'est pas dans la liste de blocage de la box, donc
+l'extraction vidmoly-va remarche en local via ce miroir.
+
+Resultat SnK ep1 VOSTFR, de 1 lecteur exploitable a 4 :
+```
+sibnet     OP 2:03.0  ED 23:55.0  image
+ansembed   OP 2:03.2  ED 23:55.2  image
+vidmoly-va OP 2:03.8  ED 24:05.7  image   <- l'encode que Luc regardait
+megaplay   OP 2:19.6            audio   <- encode +16.6s en tete
+```
+Consensus OP 3/4 spread 0.77s, ED 2/3 spread 0.17s : les deux servis.
+
+### Calibration corrigee par ces donnees reelles
+- `peak_margin` mesure **0.001-0.005** sur des matches corrects (seuil 0.6) et
+  `av_delta` **4 a 66 ms** quand les deux signaux s'accordent (seuil 4s) : enormement
+  de marge, les gardes ne peuvent pas mordre sur un vrai positif.
+- **`av_divergence` ne bloque plus un hit dont le timing vient de l'IMAGE.** Sur
+  ansembed l'audio etait a 12.6s d'un ancrage image que 3 autres hosts confirment a
+  0.2s pres : bloquer aurait jete un intervalle correct au nom du signal qu'il venait
+  de corriger. Reste rapporte en consultatif (`audio_diverged`).
+- `SERVE_MAX_SPREAD_S` valide sur du reel : megaplay a 16.6s d'ecart en tete est
+  exclu du consensus (3/4) au lieu de le polluer.
+- `align_status` distinguait mal « l'image n'a rien dit » de « l'image n'a pas
+  confirme » (commit b3e7b39) — les deux retombaient sur `absent`.
+
+### A retenir
+Le risque de cette couche n'est pas dans la logique de decision (65 tests hors-ligne
+verte des le depart) mais dans le **cablage** et dans les **listes figees** (domaines
+CDN, listes de hosts) : c'est ce que seul un run reel expose. Trois des quatre bugs
+de cette session sont de cette famille.
+
 ## 2026-08-04 (suite 4) — OP/ED : couche de replis (F) + garde-fous faux positifs (P)
 
 Demande : « il nous faut énormément de fallback, par ex si l'OP/ED fourni n'est pas
