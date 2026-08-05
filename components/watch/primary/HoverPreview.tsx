@@ -44,7 +44,7 @@ export default function HoverPreview({
   // element left the pipeline idle between every seek and needed ~1 min to
   // cover an episode. Four elements overlap those waits and cut it to roughly
   // a quarter, without changing the number of segments fetched.
-  const PARALLEL_DECODERS = 4;
+  const PARALLEL_DECODERS = 6;
   const workerCount = lazy || direct ? 1 : PARALLEL_DECODERS;
   // Pre-cached thumbnails keyed by their timestamp BUCKET (integer seconds,
   // snapped to THUMB_INTERVAL_S). Storing by time — not by percent — lets us
@@ -77,6 +77,9 @@ export default function HoverPreview({
   // what makes the whole bar show SOMETHING within the first second instead of
   // an empty box everywhere the walk hasn't reached.
   const coverageStepRef = useRef(THUMB_INTERVAL_S);
+  // Has the tooltip canvas ever held a real frame? Drives "keep the last image
+  // instead of blanking" — see drawFrame.
+  const paintedRef = useRef(false);
   const redrawRef = useRef<(() => void) | null>(null);
 
   const bucketOf = (t: number) =>
@@ -153,8 +156,10 @@ export default function HoverPreview({
     // Reset thumbnail cache on src change
     thumbCacheRef.current.clear();
     cachingActiveRef.current = false;
-    // Don't let the previous episode's density claim apply to an empty cache.
+    // Don't let the previous episode's density claim apply to an empty cache,
+    // and don't keep showing the previous episode's frame either.
     coverageStepRef.current = THUMB_INTERVAL_S;
+    paintedRef.current = false;
 
     const instances: Hls[] = [];
     for (const video of videos) {
@@ -166,25 +171,32 @@ export default function HoverPreview({
           maxBufferLength: 6,
           maxMaxBufferLength: 12,
           backBufferLength: 0,
-          startLevel: -1,
+          // Start on the CHEAPEST rung (index 0 = lowest bitrate) instead of
+          // letting ABR probe. With -1, hls.js measured bandwidth and often
+          // pulled the first fragment in high quality — pure latency on the
+          // one fragment that decides how fast the first thumbnail appears.
+          startLevel: 0,
+          // Skip the startup bandwidth test for the same reason: we never
+          // stream, we grab single frames, so ABR has nothing to earn here.
+          testBandwidth: false,
           capLevelToPlayerSize: false,
           xhrSetup: (xhr) => {
             xhr.withCredentials = false;
           },
         });
         hls.on(Hls.Events.MANIFEST_PARSED, () => {
-          // Take the SMALLEST rung that still exceeds the 320×180 capture.
-          // The tooltip is 192px wide, so every pixel above ~640×360 is
-          // download and decode time spent on detail nobody can see — and
-          // that time is the whole reason the walk used to take a minute.
-          // (This used to pick the MIDDLE rung, i.e. often 720p.)
+          // Take the SMALLEST rung at or above 240p. The tooltip renders at
+          // 192×108, so anything beyond that is download and decode time spent
+          // on detail nobody can see — and that time is the whole reason the
+          // walk used to take a minute. (This used to pick the MIDDLE rung,
+          // i.e. often 720p.)
           const levels = hls.levels || [];
           if (levels.length <= 1) return;
           let pick = -1;
           let pickH = Infinity;
           levels.forEach((l, i) => {
             const h = l.height || 0;
-            if (h >= 360 && h < pickH) {
+            if (h >= 240 && h < pickH) {
               pickH = h;
               pick = i;
             }
@@ -398,13 +410,19 @@ export default function HoverPreview({
     };
 
     const drawFrame = (timeSec: number) => {
-      // STATIC thumbnail only: show the closest pre-cached frame, or a
-      // placeholder until the background walk reaches this point. We do NOT
-      // draw the hidden video's live frame here — that was the bug: the hidden
-      // video keeps moving (it's mid-seek for the background pre-cache), so the
-      // preview kept "playing" instead of staying on the hovered frame.
-      if (drawCachedAt(timeSec)) return;
-      drawPlaceholder();
+      // STATIC thumbnail only. We do NOT draw the hidden video's live frame
+      // here — it keeps moving (it's mid-seek for the background pre-cache),
+      // so the preview would "play" instead of staying on the hovered frame.
+      if (drawCachedAt(timeSec)) {
+        paintedRef.current = true;
+        return;
+      }
+      // Nothing usable yet: KEEP whatever is already on the canvas rather than
+      // blanking it. An out-of-date frame reads far better than an empty box,
+      // and the exact one is already being fetched at priority — it lands in a
+      // fraction of a second. The placeholder is only for the very first hover,
+      // when there is genuinely nothing to keep.
+      if (!paintedRef.current) drawPlaceholder();
     };
 
     // Let a capture finished elsewhere (background walk or priority seek)
@@ -608,8 +626,11 @@ function seekAndWait(
       if (typeof anyVid.requestVideoFrameCallback === "function") {
         anyVid.requestVideoFrameCallback(() => done(resolve));
         // Guard: rVFC never fires if the video is paused on some browsers —
-        // resolve on the next macrotask as a floor.
-        setTimeout(() => done(resolve), 120);
+        // resolve on the next macrotask as a floor. When rVFC DOES work it
+        // wins the race in ~one frame, so this only costs anything on the
+        // browsers that need it; 60ms rather than 120 because it is paid on
+        // every single capture and there are >100 of them per episode.
+        setTimeout(() => done(resolve), 60);
       } else {
         requestAnimationFrame(() => requestAnimationFrame(() => done(resolve)));
       }
