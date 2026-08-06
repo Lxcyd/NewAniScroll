@@ -1387,10 +1387,20 @@ export default function Watch({
     const SNAPSHOT_ABSENT_REPROBE_P = 0.2;
     let cancelled = false;
 
-    // Session-level probe result cache. When navigating between episodes of
-    // the same anime, server availability barely changes — same upstream
-    // hosts, same catalog presence. Hydrate CONFIRMED probes from
-    // sessionStorage so the green dots appear at first paint.
+    // Session-level probe result cache. Hydrate CONFIRMED probes from
+    // sessionStorage so the green dots appear at first paint on a reload.
+    //
+    // The key is PER EPISODE. It used to be per (anime, lang) on the premise
+    // that "availability barely changes between episodes of the same anime" —
+    // true of catalogue presence, false of the uploads themselves, which die one
+    // episode at a time (Clevatess S2: ep1 and ep3 fine, ep2's vidmoly upload
+    // deleted). Confirmations from ep1 were rehydrated onto ep2 for the whole
+    // 90 s TTL, painting a green chip for a source that does not exist AND —
+    // worse — landing in `cachedConfirmed`, which makes the fan-out skip the
+    // probe that would have caught it. Every other availability store in this
+    // page is keyed by episode; this one was the odd one out.
+    // Cross-episode pre-painting is not lost: the cross-visitor snapshot
+    // (/api/v2/availability, also per episode) still lights the chips at paint.
     //
     // FAILED probes deliberately don't persist: scrapers like sibnet and
     // vidmoly have intermittent anti-bot rejections that flip to OK on the
@@ -1400,7 +1410,7 @@ export default function Watch({
     // in the background. In-memory `cachedFailed` still suppresses re-probes
     // within the SAME mount (episode navigation).
     const PROBE_TTL_MS = 90_000;
-    const probeCacheKey = `aniscroll.probes.${info.id}.${dub ? "dub" : "sub"}`;
+    const probeCacheKey = `aniscroll.probes.${info.id}.${parseInt(epiNumber)}.${dub ? "dub" : "sub"}`;
     let cachedProbes = null;
     try {
       const raw = sessionStorage.getItem(probeCacheKey);

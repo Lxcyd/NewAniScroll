@@ -1,5 +1,36 @@
 # DEVLOG
 
+## 2026-08-06 — Le cache de sondes n'etait pas indexe par EPISODE
+
+Suite du precedent. Le repli marche (ep2 VF bascule bien sur Anime-Sama Sibnet,
+en VF), mais Luc : « il y est toujours, quand je passe de l'ep 1 [ou il existe] a
+l'ep 2 ». Le chip Voir-Anime restait VERT sur un episode dont l'upload est mort.
+
+### La cle oubliait l'episode
+```js
+// avant
+const probeCacheKey = `aniscroll.probes.${info.id}.${dub ? "dub" : "sub"}`;
+```
+Cache sessionStorage, TTL 90 s, sur la premisse ecrite en commentaire : « d'un
+episode a l'autre la disponibilite change a peine ». Vrai de la presence au
+catalogue, **faux des uploads**, qui meurent un episode a la fois. Les
+confirmations de l'ep 1 etaient donc rehydratees sur l'ep 2 — chip vert pour une
+source inexistante, et surtout entree dans `cachedConfirmed`, ce qui fait SAUTER
+la sonde qui l'aurait detectee. Tous les autres stocks de disponibilite de la
+page sont indexes par episode (snapshot Redis `avail:v1:<id>:<ep>:<sub>`, cache
+negatif, cache de source) : celui-la etait le seul a ne pas l'etre.
+
+Le pre-affichage inter-episodes n'est pas perdu : le snapshot inter-visiteurs,
+lui aussi par episode, allume deja les chips au premier rendu.
+
+### Asymetrie restante (non corrigee, assumee)
+Un `ok` du snapshot est TRUSTED et jamais re-sonde pendant 6 h (c'est le gain CPU
+assume de juillet), alors qu'un `absent` est re-sonde sur ~20 % des visites. Un
+hote mort entre-temps reste donc vert jusqu'a ce que quelqu'un le SELECTIONNE —
+la, le chemin clic le rabat (et, depuis `hard`, publie l'absence pour tous).
+Symetriser couterait exactement le trafic Upstash que ce gain protege : a
+arbitrer avec Luc, pas a decider seul.
+
 ## 2026-08-06 — Un upload mort ne doit pas revenir a chaque rechargement
 
 Luc, ep 2 VF de Clevatess S2 (aniId 198946) : « le lecteur vf est mort et a
