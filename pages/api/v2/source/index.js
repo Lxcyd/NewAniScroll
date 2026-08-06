@@ -1971,6 +1971,10 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId, trace = null
     // Try detail page scrape first. Routed via the CF Worker — voir-anime.to
     // 403s direct Vercel fetches (Cloudflare), same as anime-sama.
     let detailDead = false; // 4xx on a mapped slug = the mapping itself is gone
+    // …and the opposite: the detail page never gave a verdict (5xx/429/timeout).
+    // Tracked so a "no episode found" that's really "we never saw the list" is
+    // reported as retryable instead of a 6h absence.
+    let detailInconclusive = false;
     try {
       const detailRes = await fetchViaWorker(`${VOIRANIME_BASE}/anime/${slug}/`);
       if (detailRes.ok) {
@@ -1982,9 +1986,12 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId, trace = null
         }
       } else if (detailRes.status >= 400 && detailRes.status < 500 && detailRes.status !== 429) {
         detailDead = true;
+      } else {
+        detailInconclusive = true;
       }
     } catch (e) {
       console.error(`[voiranime] detail fetch failed for ${slug}:`, e.message);
+      detailInconclusive = true;
     }
 
     // Fallback: try Madara AJAX chapters endpoint. This stays a DIRECT fetch:
@@ -2029,6 +2036,12 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId, trace = null
         flagPlayerMap(aniId, "voiranime", lang, "mapped slug page 4xx");
       }
       dlog(`[voiranime] Episode ${episode} not found in ${slug}`);
+      // "Not in the list" is only a verdict if we actually READ the list. When
+      // the detail page pushed back and the AJAX fallback didn't fill in either,
+      // we know nothing — retry rather than hide the chip for 6h.
+      if (detailInconclusive) {
+        throw new TransientSourceError(`voir-anime episode list unreachable for ${slug}`);
+      }
       return null;
     }
 
@@ -2160,9 +2173,19 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId, trace = null
       }
     }
     return { iframe: iframeUrl, degraded: true, reason: "extraction failed" };
-  } catch (e) {
-    console.error(`voiranime ${serverKey} error:`, e.message);
-    return null;
+  } catch (error) {
+    console.error(`voiranime ${serverKey} error:`, error.message);
+    // Was `return null` — which told the caller "this host genuinely has no
+    // source", so ONE worker hiccup / CF challenge / timeout got negative-cached
+    // (10 min) AND published into the 6h availability snapshot: the chip showed
+    // on the first load and was gone after a reload, for every visitor, until
+    // the TTL expired. Exactly the megaplay "disappeared after a reload" bug
+    // (see its retry-before-declaring-absent comment) — anime-sama already
+    // guards this way; voir-anime never did. A genuine absence always returns
+    // null from the paths above, so a THROW here is by definition transient.
+    throw error instanceof TransientSourceError
+      ? error
+      : new TransientSourceError(error.message);
   }
 }
 
@@ -2172,12 +2195,25 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId, trace = null
  * Split out of getVoiranimeIframe because a multi-part episode has to run it
  * once PER PART (see lib/multipartEpisodes.js) — inlined, the two paths would
  * have drifted apart the first time voir-anime changed its markup.
+ *
+ * null means ONE thing: the page loaded and this host is genuinely not on it.
+ * Everything else throws TransientSourceError — see the contract in
+ * getVoiranimeIframe's catch.
  */
 async function voiranimeEpisodeIframe(episodeUrl, serverDef, serverKey) {
   // Via the Worker — voir-anime.to 403s direct Vercel fetches (Cloudflare).
   const epRes = await fetchViaWorker(episodeUrl);
   if (!epRes.ok) {
     console.error(`[voiranime] ${serverKey} episode page ${epRes.status} for ${episodeUrl}`);
+    // 5xx/429/403 = the Worker or Cloudflare pushed back — that is NOT a verdict
+    // on whether this host carries the episode. Same reasoning as
+    // voiranimeSlugExists's "unknown". A real 404/410 IS a verdict (the page is
+    // gone), so it stays a clean absence.
+    if (epRes.status >= 500 || epRes.status === 429 || epRes.status === 403) {
+      throw new TransientSourceError(
+        `voir-anime episode page ${epRes.status} for ${episodeUrl}`,
+      );
+    }
     return null;
   }
   const epHtml = await epRes.text();
@@ -2185,7 +2221,10 @@ async function voiranimeEpisodeIframe(episodeUrl, serverDef, serverKey) {
   const sourcesMatch = epHtml.match(/thisChapterSources\s*=\s*({[\s\S]*?});/);
   if (!sourcesMatch) {
     dlog(`[voiranime] No thisChapterSources in ${episodeUrl}`);
-    return null;
+    // A real episode page ALWAYS carries this block. Its absence on a 200 means
+    // we got something else — an anti-bot interstitial, a truncated body, a
+    // theme change. Never broadcast that as "this host has no source".
+    throw new TransientSourceError(`voir-anime episode page has no player data: ${episodeUrl}`);
   }
 
   let sources;
@@ -2193,7 +2232,7 @@ async function voiranimeEpisodeIframe(episodeUrl, serverDef, serverKey) {
     sources = JSON.parse(sourcesMatch[1]);
   } catch {
     dlog(`[voiranime] Failed to parse thisChapterSources JSON`);
-    return null;
+    throw new TransientSourceError(`voir-anime player data unparseable: ${episodeUrl}`);
   }
 
   // Find the player whose iframe URL matches one of the host patterns
@@ -2544,6 +2583,15 @@ async function findVoiranimeSlug(title, aniId, isVF, seasonNum, mediaOpts = {}) 
   // probe was inconclusive (Worker/voir-anime 5xx/429/timeout): the slug might
   // be valid, so don't pin a permanent "missing" — let the next request retry.
   if (!sawInconclusive) voirSlugCache.set(cacheKey, null);
+  // The in-memory cache was already careful here, but the VERDICT still left as
+  // a bare null — so the caller reported a clean absence and the chip got buried
+  // in the 6h availability snapshot anyway. An inconclusive search is retryable,
+  // and saying so is the whole point of having tracked it.
+  if (sawInconclusive) {
+    throw new TransientSourceError(
+      `voir-anime slug search inconclusive for ${title} (S${seasonNum}, ${isVF ? "vf" : "vostfr"})`,
+    );
+  }
   return null;
 }
 

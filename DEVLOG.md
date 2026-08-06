@@ -1,5 +1,56 @@
 # DEVLOG
 
+## 2026-08-06 — Le chip Voir-Anime disparait au rechargement (absence fabriquee)
+
+Luc : deux captures de Clevatess S2 (aniId 198946) sur dev, meme page. Avant
+rechargement le chip « Voir-Anime Vidmoly » est la, en vert ; apres, la ligne VF
+n'a plus que les trois anime-sama. Ma premiere hypothese (le snapshot 6h masque
+au premier rendu) etait dans le mauvais sens : ici le chip est present PUIS perdu.
+
+### La cause : `getVoiranimeIframe` renvoyait `null` pour TOUT
+Le contrat du routeur ([pages/api/v2/source/index.js](pages/api/v2/source/index.js)) :
+`null` = « cet hote n'a genuinement pas cet episode » → 404 + cache negatif 10 min
++ publication dans le snapshot de disponibilite **6 h** ; `TransientSourceError` =
+« l'amont a hoquete » → 503, le client retente, rien n'est enterre.
+
+anime-sama respecte ce contrat (son `catch` rethrow en transitoire, sa page detail
+non-200 leve). **voir-anime ne l'a jamais respecte** : `catch (e) { return null }`,
+page episode non-200 → `null`, `thisChapterSources` absent → `null`, recherche de
+slug non concluante → `null`. Donc un seul 429 du Worker, un challenge Cloudflare
+ou un timeout se diffusait comme une absence definitive — pour TOUS les visiteurs,
+pendant 6 h. C'est mot pour mot le bug « megaplay disparait apres un rechargement »
+deja documente dans ce fichier, sur un autre fournisseur.
+
+Mesure : a froid l'appel met **2065 ms** (worker + page detail + page episode +
+sonde HEAD), contre ~100 ms en cache. La marge avant timeout est mince — d'ou le
+caractere intermittent, et d'ou le fait que ca s'est vu maintenant : la migration
+voembed a rallonge le chemin (une famille de domaines de plus a essayer).
+
+### Correctif : classer les echecs au lieu de tous les aplatir
+- page episode 5xx/429/403 → transitoire ; un vrai 404/410 reste une absence.
+- `thisChapterSources` absent ou illisible sur un 200 → transitoire (c'est une
+  interstitielle anti-bot, pas une page sans lecteur).
+- page detail 5xx/429/timeout + fallback AJAX vide → transitoire (`detailInconclusive`).
+- recherche de slug non concluante → transitoire. Le flag `sawInconclusive`
+  existait deja et protegeait le cache memoire, mais le VERDICT sortait quand
+  meme en `null` — la moitie du garde-fou manquait.
+- `catch` final → rethrow en `TransientSourceError`, comme anime-sama.
+
+Seul reste `null` : la page a bien ete lue et l'hote n'y est pas (le cas
+vidmoly/voembed d'hier), ou l'upload est mort (HEAD 404).
+
+### Leçons / pièges
+- **Une capture « avant/apres » donne le SENS de la panne** : chip present puis
+  absent = une absence ecrite pendant la session ; absent puis present = un cache
+  d'affichage perime. J'avais decrit le second, Luc observait le premier.
+- **Un contrat null/throw ne vaut que si chaque fournisseur l'honore.** Le meme
+  bug a ete corrige sur megaplay, puis re-introduit ailleurs par simple omission —
+  rien dans le code ne l'imposait a voir-anime. Le commentaire de `sendRetryable`
+  decrit pourtant exactement le piege.
+- **Ne pas conclure depuis une seule sonde qui passe** : au moment du diagnostic
+  l'API repondait 200 sur les 3 tours. C'est le CHEMIN de code, pas la mesure
+  instantanee, qui prouve le bug.
+
 ## 2026-08-06 — voir-anime migre « LECTEUR myTV » : vidmoly.biz -> voembed.net
 
 Luc signale que certains lecteurs vidmoly de voir-anime ont change. Mesure sur
