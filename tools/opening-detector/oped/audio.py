@@ -177,10 +177,8 @@ def decode_audio_abs(
         seek = max(0.0, start_abs - _container_start(src))
 
     cmd = ["ffmpeg", "-hide_banner", "-loglevel", "info"]
-    if referer:
-        cmd += ["-headers", f"Referer: {referer}\r\n"]
-    if _is_hls_url(src):
-        cmd += ["-allowed_extensions", "ALL", "-allowed_segment_extensions", "ALL", "-extension_picky", "0"]
+    cmd += _input_headers(src, referer)
+    cmd += _hls_flags(src)
     # -copyts + absolute -ss (before -i) → range-limited fetch AND absolute pts.
     # Bound the end with -to (ABSOLUTE, before -i): with -copyts the timeline is
     # absolute, so `-t <dur>` is measured against it and truncates to ~nothing on
@@ -245,6 +243,72 @@ def _is_hls_url(src: str) -> bool:
     return ".m3u8" in src.split("?", 1)[0].lower()
 
 
+def _is_http(src: str) -> bool:
+    return src.lower().startswith(("http://", "https://"))
+
+
+def _input_headers(src: str, referer: str | None) -> list[str]:
+    """`-headers` flags for the input, empty unless it is fetched over http.
+
+    `-headers` belongs to ffmpeg's http protocol. Passing it for a LOCAL input
+    is not merely useless, it is fatal: ffmpeg resolves the option against the
+    file protocol, finds nothing and aborts with "Option headers not found"
+    before it ever opens the input. The megaplay path already worked around
+    this by nulling `referer` by hand after materialising its local .ts; this
+    generalises that rule to every local input, which a split episode also is
+    (bridge/resolve.mjs writes a local .ffconcat whose entries are remote).
+    Those entries are then fetched by the demuxer's own http contexts, and
+    measured against Vidmoly they need no Referer: the token is IP-bound.
+    """
+    if not referer or not _is_http(src):
+        return []
+    return ["-headers", f"Referer: {referer}\r\n"]
+
+
+def _is_ffconcat(src: str) -> bool:
+    """True for the concat list a split episode resolves to.
+
+    See `_hls_flags` for why a split episode is fed through the concat demuxer
+    rather than as one merged playlist.
+    """
+    return src.split("?", 1)[0].lower().endswith(".ffconcat")
+
+
+def _hls_flags(src: str) -> list[str]:
+    """Demuxer-specific input flags — empty for a plain file or MP4 URL.
+
+    Two shapes need them, and their flag sets are mutually exclusive:
+
+    HLS (.m3u8). The extension flags relax ffmpeg's segment allowlist (some
+    hosts serve segments under decoy extensions).
+
+    Concat list (.ffconcat). This is how a SPLIT episode arrives — one broadcast
+    episode the host uploaded as two files (lib/multipartEpisodes.js), written
+    by bridge/resolve.mjs. It is deliberately not a merged .m3u8: ffmpeg's HLS
+    demuxer does not rebase timestamps across an `#EXT-X-DISCONTINUITY`, so on
+    the real Re:Zero streams every seek past the junction (`-ss 1600`, `2000`,
+    `2900`) decoded ZERO bytes, while the concat demuxer returned the full
+    window at each. Passing the HLS flags here would be fatal, not merely
+    useless — the concat demuxer aborts with "Option allowed_extensions not
+    found" — hence the either/or.
+
+    The protocol whitelist covers both: whenever the input is a LOCAL file
+    whose entries are remote, ffmpeg defaults to `file,crypto,data` and refuses
+    the http(s) URIs inside it. Remote inputs keep ffmpeg's own defaults — no
+    behaviour change for any host that was already working.
+    """
+    if _is_ffconcat(src):
+        return ["-f", "concat", "-safe", "0",
+                "-protocol_whitelist", "file,crypto,data,http,https,tcp,tls"]
+    if not _is_hls_url(src):
+        return []
+    flags = ["-allowed_extensions", "ALL", "-allowed_segment_extensions", "ALL",
+             "-extension_picky", "0"]
+    if not _is_http(src):
+        flags += ["-protocol_whitelist", "file,crypto,data,http,https,tcp,tls"]
+    return flags
+
+
 def _ffmpeg_decode(
     src: str,
     sample_rate: int,
@@ -293,10 +357,8 @@ def _ffmpeg_decode(
         return samples
 
     cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error"]
-    if referer:
-        cmd += ["-headers", f"Referer: {referer}\r\n"]
-    if _is_hls_url(src):
-        cmd += ["-allowed_extensions", "ALL", "-allowed_segment_extensions", "ALL", "-extension_picky", "0"]
+    cmd += _input_headers(src, referer)
+    cmd += _hls_flags(src)
     if window is not None:
         start_s, dur_s = window
         if start_s is not None:

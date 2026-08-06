@@ -6,6 +6,7 @@ import { getPlayerMapEntry, upsertPlayerMap, flagPlayerMap } from "@/lib/db/play
 import { resolveSeasonNumber } from "@/lib/anilist/resolveSeason";
 import { resolveSeasonChain } from "@/lib/anilist/seasonChain";
 import { isRecapTitle } from "@/lib/anilist/seasonDetection";
+import { getEpisodeParts } from "@/lib/multipartEpisodes";
 
 /* Per-provider trace logger. Off by default â€” set DEBUG_SOURCE=1 in
    .env.local to see the chatty `[anime-sama]` / `[voiranime]` /
@@ -1883,6 +1884,7 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId, trace = null
     // Fetch the anime detail page to get the full episode list.
     // Some Madara installs require the episode list via admin-ajax (chapters).
     let episodeUrl = null;
+    let partUrls = null; // set only for a split episode — see partLetters below
 
     // Episode URLs may sit under the parent slug OR a short child-slug variant
     // (e.g. tokyo-ghoul-vf → tokyo-ghoul-vf-a) — see buildVoiranimeEpRegex.
@@ -1900,6 +1902,39 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId, trace = null
       `href=["'](${baseEsc}/anime/${slugEsc}(?:-[a-z0-9]{1,3})?/(?:film|movie|ova|oav|special)[^"']*/)["']`,
       "gi"
     );
+
+    // Split-episode opt-in (lib/multipartEpisodes.js). Restricted to the
+    // browser-extracted Vidmoly hosts: the two parts are stitched back together
+    // by merging their HLS playlists in the user's browser (lib/hlsMerge.js),
+    // which only works for a host we hand to the client as an embed URL. On any
+    // other host the lookup below stays the ordinary single-file one and simply
+    // finds nothing — a hidden chip, not a half episode.
+    const partLetters = serverDef.host.some((h) => h.startsWith("vidmoly"))
+      ? getEpisodeParts(aniId, "voiranime", lang, episode)
+      : null;
+    const partRegex = partLetters ? buildVoiranimeEpPartRegex(slug) : null;
+
+    /** The part URLs for `episode`, in playback order — or null if any is missing. */
+    const collectParts = (html) => {
+      const found = new Map();
+      let m;
+      partRegex.lastIndex = 0;
+      while ((m = partRegex.exec(html)) !== null) {
+        if (parseInt(m[2], 10) !== Number(episode)) continue;
+        const letter = m[3].toLowerCase();
+        if (!found.has(letter)) found.set(letter, m[1]);
+      }
+      const urls = partLetters.map((p) => found.get(p));
+      // All or nothing. Serving part A alone as "episode 1" would put every
+      // later timestamp — watch progress, OP/ED skips — half an hour out.
+      if (urls.some((u) => !u)) {
+        dlog(
+          `[voiranime] ep ${episode} parts incomplete: found ${[...found.keys()].join(",") || "none"}, need ${partLetters.join(",")}`,
+        );
+        return null;
+      }
+      return urls;
+    };
 
     const collectEpisodes = (html) => {
       const map = new Map();
@@ -1928,6 +1963,7 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId, trace = null
       const detailRes = await fetchViaWorker(`${VOIRANIME_BASE}/anime/${slug}/`);
       if (detailRes.ok) {
         const html = await detailRes.text();
+        if (partLetters) partUrls = collectParts(html);
         const epMap = collectEpisodes(html);
         if (epMap.has(Number(episode))) {
           episodeUrl = epMap.get(Number(episode));
@@ -1943,7 +1979,7 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId, trace = null
     // the CF Worker only proxies GETs (it drops the method/body), so routing a
     // POST through it would silently become a GET and fail. Best-effort only —
     // the detail-page scrape above (via Worker) is the primary path.
-    if (!episodeUrl) {
+    if (!episodeUrl || (partLetters && !partUrls)) {
       try {
         const ajaxRes = await fetchWithTimeout(
           `${VOIRANIME_BASE}/wp-admin/admin-ajax.php`,
@@ -1958,6 +1994,7 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId, trace = null
         );
         if (ajaxRes.ok) {
           const html = await ajaxRes.text();
+          if (partLetters && !partUrls) partUrls = collectParts(html);
           const epMap = collectEpisodes(html);
           if (epMap.has(Number(episode))) {
             episodeUrl = epMap.get(Number(episode));
@@ -1965,6 +2002,11 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId, trace = null
         }
       } catch {}
     }
+
+    // A split episode has no un-lettered URL of its own: the parts ARE the
+    // episode. Anchor the rest of the function (player_map write-back, the
+    // "not found" strike) on the first part so both shapes share one path.
+    if (partUrls) episodeUrl = partUrls[0];
 
     if (!episodeUrl) {
       // A mapped slug whose page 4xxes is a dead mapping (slug renamed /
@@ -1995,45 +2037,36 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId, trace = null
       }).catch(() => {});
     }
 
-    // Fetch episode page and extract thisChapterSources. Via the Worker —
-    // voir-anime.to 403s direct Vercel fetches (Cloudflare).
-    const epRes = await fetchViaWorker(episodeUrl);
-    if (!epRes.ok) {
-      console.error(`[voiranime] ${serverKey} episode page ${epRes.status} for ${episodeUrl}`);
-      return null;
-    }
-    const epHtml = await epRes.text();
-
-    const sourcesMatch = epHtml.match(/thisChapterSources\s*=\s*({[\s\S]*?});/);
-    if (!sourcesMatch) {
-      dlog(`[voiranime] No thisChapterSources in ${episodeUrl}`);
-      return null;
-    }
-
-    let sources;
-    try {
-      sources = JSON.parse(sourcesMatch[1]);
-    } catch {
-      dlog(`[voiranime] Failed to parse thisChapterSources JSON`);
-      return null;
-    }
-
-    // Find the player whose iframe URL matches one of the host patterns
-    let iframeUrl = null;
-    for (const [_, iframeHtml] of Object.entries(sources)) {
-      const srcMatch = iframeHtml.match(/<iframe\s+src=["']([^"']+)["']/i);
-      if (!srcMatch) continue;
-      const url = srcMatch[1];
-      if (serverDef.host.some((h) => url.toLowerCase().includes(h.toLowerCase()))) {
-        iframeUrl = url;
-        break;
+    // ── Split episode: hand the browser BOTH embeds ───────────────────────
+    // The player extracts each one (binding each token to the user's IP, as
+    // usual) and merges the two HLS playlists into a single continuous stream,
+    // so nothing downstream of this point ever sees two files. Strictly all or
+    // nothing: one dead part means no chip, because a truncated episode would
+    // desynchronise the scrubber, the resume position and the OP/ED skips.
+    if (partUrls) {
+      const embeds = [];
+      for (const url of partUrls) {
+        const embed = await voiranimeEpisodeIframe(url, serverDef, serverKey);
+        if (!embed) {
+          dlog(`[voiranime] ep ${episode} part page has no ${serverDef.name} embed: ${url}`);
+          return null;
+        }
+        if (!(await isVidmolyEmbedAlive(embed))) {
+          dlog(`[voiranime] ep ${episode} part embed is dead — hiding chip: ${embed}`);
+          return null;
+        }
+        embeds.push(embed);
       }
+      dlog(`[voiranime] ep ${episode} resolved as ${embeds.length} parts on ${serverDef.name}`);
+      return {
+        clientExtract: { type: "vidmoly-multipart", embedUrls: embeds },
+        // Fallback only — an iframe can show one part, never the merged whole.
+        iframe: embeds[0],
+      };
     }
 
-    if (!iframeUrl) {
-      dlog(`[voiranime] Host ${serverDef.host[0]} not available for ${episodeUrl}`);
-      return null;
-    }
+    const iframeUrl = await voiranimeEpisodeIframe(episodeUrl, serverDef, serverKey);
+    if (!iframeUrl) return null;
 
     dlog(`[voiranime] Found ep ${episode} on ${serverDef.name}: ${iframeUrl}`);
 
@@ -2122,6 +2155,50 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId, trace = null
 }
 
 /**
+ * The host's iframe URL on one voir-anime episode page, or null.
+ *
+ * Split out of getVoiranimeIframe because a multi-part episode has to run it
+ * once PER PART (see lib/multipartEpisodes.js) — inlined, the two paths would
+ * have drifted apart the first time voir-anime changed its markup.
+ */
+async function voiranimeEpisodeIframe(episodeUrl, serverDef, serverKey) {
+  // Via the Worker — voir-anime.to 403s direct Vercel fetches (Cloudflare).
+  const epRes = await fetchViaWorker(episodeUrl);
+  if (!epRes.ok) {
+    console.error(`[voiranime] ${serverKey} episode page ${epRes.status} for ${episodeUrl}`);
+    return null;
+  }
+  const epHtml = await epRes.text();
+
+  const sourcesMatch = epHtml.match(/thisChapterSources\s*=\s*({[\s\S]*?});/);
+  if (!sourcesMatch) {
+    dlog(`[voiranime] No thisChapterSources in ${episodeUrl}`);
+    return null;
+  }
+
+  let sources;
+  try {
+    sources = JSON.parse(sourcesMatch[1]);
+  } catch {
+    dlog(`[voiranime] Failed to parse thisChapterSources JSON`);
+    return null;
+  }
+
+  // Find the player whose iframe URL matches one of the host patterns
+  for (const [_, iframeHtml] of Object.entries(sources)) {
+    const srcMatch = iframeHtml.match(/<iframe\s+src=["']([^"']+)["']/i);
+    if (!srcMatch) continue;
+    const url = srcMatch[1];
+    if (serverDef.host.some((h) => url.toLowerCase().includes(h.toLowerCase()))) {
+      return url;
+    }
+  }
+
+  dlog(`[voiranime] Host ${serverDef.host[0]} not available for ${episodeUrl}`);
+  return null;
+}
+
+/**
  * Build the regex that finds episode URLs for a voir-anime slug.
  *
  * voir-anime frequently stores a series' episodes under a CHILD slug that's the
@@ -2139,6 +2216,28 @@ function buildVoiranimeEpRegex(slug) {
   const baseEsc = VOIRANIME_BASE.replace(/\./g, "\\.");
   return new RegExp(
     `href=["'](${baseEsc}/anime/${slugEsc}(?:-[a-z0-9]{1,3})?/[^"']+?-(\\d+)(?:-(?:vf|vostfr))?/)["']`,
+    "gi",
+  );
+}
+
+/**
+ * Same as buildVoiranimeEpRegex, but for the LETTERED episode URLs a split
+ * episode produces: `…/re-zero-…-01a-vf/` and `…-01b-vf/`.
+ *
+ * These are deliberately invisible to the ordinary episode regex — it anchors
+ * on `-<digits>` immediately before the trailing slash (or `-vf`), so `01a`
+ * never matches and a lettered URL can't be mistaken for episode 1. That's the
+ * property we want: only the callers that consulted lib/multipartEpisodes.js
+ * and got an opt-in ever look for these, so no other title can accidentally
+ * pick up a `-a`/`-b` page as a regular episode.
+ *
+ * Captures: [1] the URL, [2] the episode number, [3] the part letter.
+ */
+function buildVoiranimeEpPartRegex(slug) {
+  const slugEsc = slug.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
+  const baseEsc = VOIRANIME_BASE.replace(/\./g, "\\.");
+  return new RegExp(
+    `href=["'](${baseEsc}/anime/${slugEsc}(?:-[a-z0-9]{1,3})?/[^"']+?-(\\d+)([a-z])(?:-(?:vf|vostfr))?/)["']`,
     "gi",
   );
 }

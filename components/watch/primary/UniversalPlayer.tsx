@@ -86,6 +86,10 @@ type Stream = {
    *  no shared in-memory state with the extractor) can authenticate against
    *  cloudwindow-route. */
   voeCookie?: string | null;
+  /** The URL is a blob: we built in this document (the merged playlist of a
+   *  split episode). It must never be handed to the proxy or the download
+   *  Worker — they can't resolve a blob from another origin's memory. */
+  localFile?: boolean;
 };
 
 type Subtitle = {
@@ -107,8 +111,15 @@ export type UniversalStreamData = {
   /** Server hands the browser an embed URL to fetch itself, so the IP-bound
    *  master.m3u8 token is issued to the user's IP — segments then stream
    *  straight from the host CDN with no proxy. UniversalPlayer runs the
-   *  extractor on mount; if it fails, falls back to the iframe field. */
-  clientExtract?: { type: "vidmoly"; embedUrl: string };
+   *  extractor on mount; if it fails, falls back to the iframe field.
+   *
+   *  `vidmoly-multipart` is the same deal for an episode the host split across
+   *  several files (lib/multipartEpisodes.js): every part is extracted, then
+   *  their playlists are merged into ONE local blob playlist. Everything below
+   *  this component therefore sees a single stream of the full duration. */
+  clientExtract?:
+    | { type: "vidmoly"; embedUrl: string }
+    | { type: "vidmoly-multipart"; embedUrls: string[] };
 };
 
 type Props = {
@@ -2833,7 +2844,8 @@ export default function UniversalPlayer({
   // extractor module isn't shipped to users of every other server.
   useEffect(() => {
     const ce = streamData?.clientExtract;
-    if (!ce || ce.type !== "vidmoly") {
+    const multipart = ce?.type === "vidmoly-multipart";
+    if (!ce || (ce.type !== "vidmoly" && !multipart)) {
       setClientStatus("idle");
       setClientStream(null);
       return;
@@ -2841,42 +2853,62 @@ export default function UniversalPlayer({
     setClientStatus("pending");
     setClientStream(null);
     const ac = new AbortController();
+    // Blob playlists built by the multipart merge stay alive until revoked;
+    // this holds the revoker so the cleanup below can free them.
+    let revokeMerged: (() => void) | null = null;
     // Hard timeout: the browser fetch to vidmoly can hang on iOS (slow/blocked
     // CORS preflight with no fast rejection), leaving us stuck on "Loading…"
     // forever with no iframe fallback. After 6s we give up and mark the client
     // extraction failed so the iframe path takes over. We track the timeout
     // abort separately from the cleanup abort: only the former should flip to
     // "failed" (a cleanup abort means the component/source went away).
+    //
+    // A split episode does the same work once per part and then reads both
+    // playlists, so its budget scales with the part count instead of firing
+    // mid-merge on a connection that was going to make it.
     let timedOut = false;
+    const budget = multipart ? 6000 * ce.embedUrls.length : 6000;
     const timeout = setTimeout(() => {
       timedOut = true;
       ac.abort();
-    }, 6000);
+    }, budget);
     (async () => {
       try {
         const mod = await import("@/lib/clientVidmoly");
-        const res = await mod.extractVidmolyClient(ce.embedUrl, {
-          signal: ac.signal,
-        });
+        const res = multipart
+          ? await mod.extractVidmolyMultipartClient(ce.embedUrls, {
+              signal: ac.signal,
+            })
+          : await mod.extractVidmolyClient(ce.embedUrl, {
+              signal: ac.signal,
+            });
         // Timeout fired: the extractor resolves with {error:"aborted"} (it
         // swallows the AbortError internally), so we must flip to "failed"
         // HERE — before the generic aborted-guard below — or we'd stay stuck
         // on "pending" and never reach the iframe fallback.
         if (timedOut) {
           dwarn("[UniversalPlayer] client vidmoly timed out → iframe");
+          (res as any)?.revoke?.();
           setClientStatus("failed");
           return;
         }
         // Cleanup abort (unmount / source change): drop the result silently.
-        if (ac.signal.aborted) return;
+        if (ac.signal.aborted) {
+          (res as any)?.revoke?.();
+          return;
+        }
         clearTimeout(timeout);
         if (res.masterUrl) {
+          revokeMerged = (res as any).revoke ?? null;
           setClientStream({
             url: res.masterUrl,
             quality: "auto",
-            isM3U8: res.masterUrl.includes(".m3u8"),
-            // The URL is the raw CDN m3u8 — no extra wrapping needed.
+            // A merged playlist lives at a blob: URL, whose name says nothing
+            // about its content — assert HLS rather than sniffing for ".m3u8".
+            isM3U8: multipart || res.masterUrl.includes(".m3u8"),
+            // The URL is the raw CDN m3u8 (or our own blob) — no wrapping.
             directUrl: true,
+            localFile: multipart,
           });
           setClientStatus("ok");
         } else {
@@ -2903,6 +2935,7 @@ export default function UniversalPlayer({
     return () => {
       clearTimeout(timeout);
       ac.abort();
+      revokeMerged?.();
     };
   }, [streamData]);
 
@@ -3810,7 +3843,7 @@ export default function UniversalPlayer({
     // clientExtract source becomes a real <video> once extraction succeeds, so
     // it must NOT be treated as a pure iframe here.
     const wantsClientExtractAP =
-      streamData?.clientExtract?.type === "vidmoly" && clientStatus !== "failed";
+      !!streamData?.clientExtract && clientStatus !== "failed";
     const isIframeSource = !wantsClientExtractAP && !!streamData?.iframe;
     if (isIframeSource) return;
 
@@ -4142,7 +4175,7 @@ export default function UniversalPlayer({
   // has fired; `pending` while it's fetching; `ok` once we have the URL.
   // Only `failed` falls through to the iframe.
   const wantsClientExtract =
-    streamData?.clientExtract?.type === "vidmoly" && clientStatus !== "failed";
+    !!streamData?.clientExtract && clientStatus !== "failed";
 
   const bestStream = wantsClientExtract
     ? clientStatus === "ok"
@@ -4255,7 +4288,13 @@ export default function UniversalPlayer({
   // Otherwise we fall back to the in-tree Vercel endpoints — these still
   // work but eat Fast Origin Transfer like before.
   const proxyConfigured = PROXY_BASE !== "/api/v2/proxy/m3u8";
-  const downloadUrl = proxyConfigured
+  // A merged split episode is already a local blob playlist whose segment URIs
+  // are absolute CDN URLs, so the blob IS the download: handing it to the
+  // Worker instead would ask it to fetch a blob: URL that only exists in this
+  // tab. Opened in VLC/mpv/ffmpeg it plays the whole episode, both parts.
+  const downloadUrl = bestStream!.localFile
+    ? innerUrl
+    : proxyConfigured
     ? `${PROXY_BASE}?url=${encodeURIComponent(innerUrl)}` +
       `&dl=1&filename=${encodeURIComponent(safeName + "." + ext)}` +
       (refererParam ? `&referer=${encodeURIComponent(refererParam)}` : "") +

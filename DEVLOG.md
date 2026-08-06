@@ -1,5 +1,70 @@
 # DEVLOG
 
+## 2026-08-06 — Episode SPLIT par le lecteur : Re:Zero ep1 VF (01a + 01b -> 49 min)
+
+L'inverse du multi-parties de la veille. Hier : un fichier = plusieurs episodes
+(`oped/multipart.py`). Aujourd'hui : plusieurs fichiers = UN episode. voir-anime
+decoupe la premiere VF de Re:Zero en `…-01a-vf/` (25:07) et `…-01b-vf/` (24:07),
+la VOSTFR non. Luc : « c'est une exception, ce sera le seul ».
+
+### Le chip n'etait pas casse, il etait ABSENT
+`buildVoiranimeEpRegex` ancre sur `-<chiffres>` juste avant le slash final, donc
+`01a` ne matche jamais. Mesure sur la page live : episodes trouves = **2..25**.
+L'episode 1 VF n'a jamais resolu, sur aucun lecteur. Cette invisibilite est aussi
+la garantie qu'on garde : aucun autre titre ne peut ramasser une page `-a`/`-b`
+par accident, seuls les appelants qui ont consulte la table opt-in les cherchent.
+
+### Table d'exceptions, pas de regle generique (`lib/multipartEpisodes.js`)
+Accepter `01a`/`01b` partout recollerait des episodes legitimement separes
+ailleurs (specials, recaps, cours splittes). Recoller deux episodes sans rapport
+est bien pire que d'en rater un : ca corrompt la timeline, la reprise et chaque
+timing OP/ED qui en derive. Une entree = un opt-in a la main.
+
+### Fusion au niveau PLAYLIST, pas dans le lecteur (`lib/hlsMerge.js`)
+Le choix structurant. On concatene les playlists HLS (`#EXT-X-DISCONTINUITY`
+entre les deux) et on sert un blob: unique. En dessous de `<MediaPlayer>` il n'y
+a **rien a savoir** : scrubber, seek, progression, overlay skip voient un fichier
+VOD ordinaire de 49 min. L'alternative (enchainement + timeline virtuelle)
+obligeait a patcher barre, seek, HoverPreview, VideoStats, progress.ts, download.
+L'ABR survit : les variantes sont appariees rang par rang (1080p avec 1080p) et
+un master synthetique les liste toutes.
+
+### Le piege : ffmpeg et hls.js ne lisent PAS la meme discontinuite
+La playlist fusionnee marche pour le navigateur mais **pas** pour le detecteur.
+Le demuxer HLS de ffmpeg ne rebase pas les timestamps de la partie B — mesure sur
+les vrais flux :
+
+    playlist fusionnee + EXT-X-DISCONTINUITY   -ss 1600 / 2000 / 2900 -> 0 octet
+    .ffconcat + `duration` par entree          -ss 1600 / 2000 / 2900 -> fenetre pleine
+
+Donc deux representations du meme episode : m3u8 fusionne pour le navigateur,
+`.ffconcat` pour le bridge. Les directives `duration` sont porteuses deux fois :
+sans elles la duree totale est `N/A` et `-sseof` (l'ancrage de la fenetre ED)
+ne rend **rien du tout**, silencieusement.
+
+### Deux options ffmpeg qui tuent selon la forme de l'entree
+- `-headers` appartient au protocole http. Sur une entree LOCALE ffmpeg la
+  resout contre le protocole file, ne trouve rien et abandonne avant d'ouvrir
+  le fichier (« Option headers not found »). megaplay contournait deja ca en
+  mettant `referer = None` a la main ; c'est generalise (`_input_headers`).
+  Verifie au passage : les segments Vidmoly n'ont pas besoin du Referer, le
+  token est lie a l'IP.
+- Les flags HLS (`-allowed_extensions` …) sont fatals pour le demuxer concat
+  (« Option allowed_extensions not found »). D'ou `_hls_flags` en soit/soit,
+  partage par audio.py, video_fingerprint.py et detect_anime.py — les trois
+  dupliquaient le meme bloc.
+
+### Mesures de bout en bout
+- parties trouvees et ordonnees sur la page live : 01a puis 01b
+- bridge : `2 parts -> 2954s (1507 + 1447)` = 49:14, la duree de la VOSTFR
+- ffprobe a travers le .ffconcat : 2954.106 s ; `multipart.py` en deduit **2 parties**
+- fenetres decodees : OP 240 s, partie B 30 s, ED `-sseof -180` 180 s (pleines)
+- variantes preservees : 1080p + 480p
+
+Non verifie ici : la lecture navigateur (memoire `no-local-player-testing` — il
+faut un vrai flux, donc dev.aniscroll.com). C'est hls.js qui doit avaler la
+discontinuite, ce pour quoi la balise existe, mais ca reste a constater.
+
 ## 2026-08-05 (4) — Audit complet : 4 bugs corriges, dont 2 qui SERVAIENT du faux
 
 Suite directe de la passe (3). Luc : « on devrait avoir au minimum plus de resultat que

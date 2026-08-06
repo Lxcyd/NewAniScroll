@@ -20,7 +20,12 @@
 //
 // Prints ONE JSON line last: { ok, host, episodes:[{ep,url,isM3U8,host}], errors }
 
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join, resolve as resolvePath } from "node:path";
+import { fileURLToPath } from "node:url";
 import { getExtractor, extractMegaplay } from "../../../lib/extractors.js";
+import { getPartsBySlug } from "../../../lib/multipartEpisodes.js";
+import { playlistDurations } from "../../../lib/hlsMerge.js";
 
 const WORKER = "https://aniscroll-proxy.luc-deldem.workers.dev";
 const BASE = "https://anime-sama.to";
@@ -273,6 +278,34 @@ async function voirEpisodeUrl(slug, ep) {
   return null;
 }
 
+/**
+ * The lettered URLs of a split episode (…-01a-vf/, …-01b-vf/), in the order
+ * lib/multipartEpisodes.js declares — or null if any part is missing.
+ *
+ * Mirrors buildVoiranimeEpPartRegex in pages/api/v2/source/index.js. The
+ * ordinary episode regex above cannot match these (it anchors on `-<digits>`
+ * right before the trailing slash), which is exactly why a split episode
+ * resolved to nothing here until now.
+ */
+async function voirEpisodePartUrls(slug, ep, parts) {
+  const slugEsc = slug.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
+  const baseEsc = VOIRANIME_BASE.replace(/\./g, "\\.");
+  const re = new RegExp(
+    `href=["'](${baseEsc}/anime/${slugEsc}(?:-[a-z0-9]{1,3})?/[^"']+?-(\\d+)([a-z])(?:-(?:vf|vostfr))?/)["']`,
+    "gi",
+  );
+  const html = await fetchPage(`${VOIRANIME_BASE}/anime/${slug}/`);
+  const found = new Map();
+  let m;
+  while ((m = re.exec(html)) !== null) {
+    if (parseInt(m[2], 10) !== ep) continue;
+    const letter = m[3].toLowerCase();
+    if (!found.has(letter)) found.set(letter, m[1]);
+  }
+  const urls = parts.map((p) => found.get(p));
+  return urls.every(Boolean) ? urls : null;
+}
+
 async function voirVidmolyEmbed(episodeUrl) {
   const html = await fetchPage(episodeUrl);
   const sm = html.match(/thisChapterSources\s*=\s*({[\s\S]*?});/);
@@ -286,11 +319,100 @@ async function voirVidmolyEmbed(episodeUrl) {
   return null;
 }
 
+// Where merged split-episode playlists are written. Kept under the tool's own
+// cache/ (alongside cache/urls and cache/audio) so a wipe of that directory
+// clears them too — they hold signed segment URLs and go stale on the same
+// clock as the resolved URLs the adapter caches.
+const MERGE_DIR = resolvePath(fileURLToPath(new URL("../cache/merged", import.meta.url)));
+
+/**
+ * Present a split episode to ffmpeg as ONE continuous 49-minute input, so the
+ * detector measures the same timeline the player shows. Without it the OP/ED
+ * timings found here would be relative to a 25-minute part and land nowhere
+ * near the stream users actually watch.
+ *
+ * Uses the `concat` demuxer, NOT the merged HLS playlist the browser gets
+ * (lib/hlsMerge.js). Both were measured on the real Re:Zero streams:
+ *
+ *   merged .m3u8 + #EXT-X-DISCONTINUITY   -ss 1600/2000/2900 → 0 bytes
+ *   .ffconcat + per-entry `duration`      -ss 1600/2000/2900 → full window
+ *
+ * ffmpeg's HLS demuxer does not rebase part B's timestamps across the
+ * discontinuity, so everything past the junction decodes empty; the concat
+ * demuxer shifts each entry onto the previous one's end, which is exactly the
+ * semantics we want. hls.js does handle the discontinuity, hence the split.
+ *
+ * The `duration` directives are load-bearing twice over: they give the input a
+ * total length, without which `-sseof` (how the ED window is anchored) returns
+ * nothing at all.
+ *
+ * Returns the absolute path of the .ffconcat.
+ */
+async function concatVoirParts(vaSlug, ep, masterUrls, referer) {
+  mkdirSync(MERGE_DIR, { recursive: true });
+  const durations = await playlistDurations(masterUrls, {
+    fetchText: async (url) => {
+      const r = await fetch(url, {
+        headers: { "User-Agent": BROWSER_UA, Referer: referer || `${VOIRANIME_BASE}/` },
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status} on ${url}`);
+      return r.text();
+    },
+  });
+  const body = ["ffconcat version 1.0"];
+  masterUrls.forEach((url, i) => {
+    body.push(`file ${url}`, `duration ${durations[i].toFixed(3)}`);
+  });
+  const path = join(MERGE_DIR, `${vaSlug}-ep${String(ep).padStart(2, "0")}.ffconcat`);
+  writeFileSync(path, body.join("\n") + "\n", "utf-8");
+  const total = durations.reduce((a, b) => a + b, 0);
+  console.log(
+    `[vidmoly-va] ep ${ep}: ${masterUrls.length} parts → ${Math.round(total)}s ` +
+      `(${durations.map((d) => Math.round(d)).join(" + ")})`,
+  );
+  return path;
+}
+
 async function resolveVoiranime(vaSlug, start, end) {
   const episodes = [];
   const errors = [];
   for (let ep = start; ep <= end; ep++) {
     try {
+      // Split episode (lib/multipartEpisodes.js): the parts ARE the episode —
+      // there is no un-lettered URL for voirEpisodeUrl to find.
+      const parts = getPartsBySlug(vaSlug, ep);
+      if (parts) {
+        const partUrls = await voirEpisodePartUrls(vaSlug, ep, parts);
+        if (!partUrls) {
+          errors.push(`ep ${ep}: split episode, parts ${parts.join("+")} not all on page`);
+          continue;
+        }
+        const masters = [];
+        let referer = null;
+        let failed = null;
+        for (const url of partUrls) {
+          const embed = await voirVidmolyEmbed(url);
+          if (!embed) { failed = `no vidmoly iframe on ${url}`; break; }
+          const r = await extractVidmolyDirect(embed);
+          if (!r.ok) { failed = r.error; break; }
+          masters.push(r.url);
+          referer = r.referer;
+        }
+        // All or nothing: half an episode would put every timing it produces
+        // ~25 minutes out on the stream the player actually serves.
+        if (failed) { errors.push(`ep ${ep}: ${failed}`); continue; }
+        const list = await concatVoirParts(vaSlug, ep, masters, referer);
+        episodes.push({
+          // `isM3U8: false` — the input is an .ffconcat, not a playlist. The
+          // consumers key their ffmpeg flags off the extension (oped/audio.py),
+          // and passing HLS demuxer options to the concat demuxer is fatal
+          // ("Option allowed_extensions not found"), so this must not lie.
+          ep, url: list, isM3U8: false, host: "vidmoly-va", referer,
+          parts: masters.length,
+        });
+        continue;
+      }
+
       const episodeUrl = await voirEpisodeUrl(vaSlug, ep);
       if (!episodeUrl) { errors.push(`ep ${ep}: not in voir-anime page`); continue; }
       const embed = await voirVidmolyEmbed(episodeUrl);

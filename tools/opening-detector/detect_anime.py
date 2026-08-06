@@ -55,7 +55,7 @@ from oped.adapter_aniscroll import (
 )
 from oped import validate
 from oped.animethemes import fetch_themes, resolve_slug, themes_for_episode
-from oped.audio import _is_hls_url, decode_audio_abs, load_audio
+from oped.audio import _hls_flags, _input_headers, decode_audio_abs, load_audio
 from oped.fingerprint import Fingerprint, fingerprint
 from oped.multi_host import (
     HostStream,
@@ -133,10 +133,8 @@ def _probe_duration(url: str, referer: str | None = None) -> float:
     abs-offset conversion for that host specifically.
     """
     cmd = ["ffprobe", "-v", "error"]
-    if referer:
-        cmd += ["-headers", f"Referer: {referer}\r\n"]
-    if _is_hls_url(url):
-        cmd += ["-allowed_extensions", "ALL", "-allowed_segment_extensions", "ALL", "-extension_picky", "0"]
+    cmd += _input_headers(url, referer)
+    cmd += _hls_flags(url)
     cmd += [
         "-show_entries", "format=duration",
         "-of", "default=noprint_wrappers=1:nokey=1", url,
