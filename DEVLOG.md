@@ -1,5 +1,50 @@
 # DEVLOG
 
+## 2026-08-06 — voir-anime migre « LECTEUR myTV » : vidmoly.biz -> voembed.net
+
+Luc signale que certains lecteurs vidmoly de voir-anime ont change. Mesure sur
+les pages live : le panneau **LECTEUR myTV** sert desormais `voembed.net` sur les
+titres recents, `vidmoly.biz` sur le back-catalogue.
+
+- 25 episodes lies depuis la home : **25/25 sur voembed.net**, 0 vidmoly.
+- 25 slugs `player_map` verifies tires au hasard (VF) : **24/25 encore sur
+  vidmoly.biz**, 1 deja migre (`sousou-no-frieren-2-vf`).
+
+Notre filtre d'hote ne connaissait que `vidmoly.(to|biz|net)` : sur un titre
+migre aucun panneau ne matchait, donc **le chip Voir-Anime disparaissait
+entierement** (pas « casse » : absent, comme le split Re:Zero de la veille).
+
+### C'est un white-label vidmoly, pas un nouvel hote
+La page embed voembed est une page vidmoly : `<meta description>` « VidMoly »,
+favicon `vidmoly.me`, assets `cdn.staticmoly.me`, meme `…/hls2/…/master.m3u8`.
+Le slug resout AUSSI sur `vidmoly.biz/.net` et `ansembed.net` (verifie) — donc
+espace de noms partage, contrairement a ansembed. Ajoute a la famille
+(`VIDMOLY_DOMAINS` / `VIDMOLY_HOST_RE`) plutot que traite comme un hote a part :
+meme backend, meme encode, donc **meme hote de fingerprint OP/ED `vidmoly-va`**,
+aucun ajout dans `lib/hostRegistry.js` ni dans `lib/servers.js` (le chip
+« Voir-Anime Vidmoly » est inchange, il resout juste a nouveau).
+
+Touche : [lib/extractors.js](lib/extractors.js), [lib/clientVidmoly.js](lib/clientVidmoly.js),
+[pages/api/v2/source/index.js](pages/api/v2/source/index.js) (hotes du panneau,
+sonde d'aliveness, `EXTRACTABLE_HOSTS`),
+[components/watch/primary/UniversalPlayer.tsx](components/watch/primary/UniversalPlayer.tsx)
+(`referrerPolicy` no-referrer, qui ne couvrait ni ansembed ni voembed),
+[tools/opening-detector/bridge/resolve.mjs](tools/opening-detector/bridge/resolve.mjs).
+
+### Leçons / pièges
+- **La sonde d'aliveness ne doit pas reecrire le domaine** d'un white-label :
+  `embedUrl.replace(/vidmoly\.(to|biz|net)/, "vidmoly.biz")` sur une URL voembed
+  ne matche rien, mais le reflexe inverse (forcer .biz) 404erait sur un slug qui
+  n'y est pas. On sonde l'hote d'origine, comme pour ansembed.
+- **Verifie de bout en bout** (page episode -> panneau -> HEAD -> m3u8 -> GET du
+  master) sur 3 titres migres : master 200 `#EXTM3U`. Un slug vidmoly.biz mort
+  (Naruto ep1) reste correctement masque : HEAD 404 == GET 404.
+- **Ne pas generaliser depuis la home** : elle ne montre que les sorties recentes.
+  C'est le croisement home (100 % voembed) x `player_map` (96 % vidmoly) qui
+  donne la vraie image — une migration en cours, les deux hotes doivent matcher.
+- Les autres panneaux voir-anime (MOON = miroirs VOE, Stape, FHD1 = mail.ru, YU,
+  SB = streamhide) restent non branches : signales a Luc, pas demandes.
+
 ## 2026-08-06 — Episode SPLIT par le lecteur : Re:Zero ep1 VF (01a + 01b -> 49 min)
 
 L'inverse du multi-parties de la veille. Hier : un fichier = plusieurs episodes

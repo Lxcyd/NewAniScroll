@@ -4205,7 +4205,10 @@ export default function UniversalPlayer({
     // Vidmoly is anti-embed for non-whitelisted domains. Sending no referer
     // sometimes bypasses the check; sandbox grants the JS-redirect chain
     // permissions to actually load the player.
-    const isVidmoly = /vidmoly\.(to|biz|net)/i.test(iframeSrc);
+    // …including the white-label domains of the same backend (ansembed for
+    // anime-sama, voembed for voir-anime's myTV panel) — they embed-gate the
+    // same way, so they need the same no-referrer treatment.
+    const isVidmoly = /(vidmoly\.(to|biz|net)|ansembed\.net|voembed\.net)/i.test(iframeSrc);
     return (
       <div
         className={`relative h-full w-full${

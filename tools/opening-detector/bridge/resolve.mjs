@@ -35,10 +35,19 @@ const VOIRANIME_BASE = "https://voir-anime.to";
 // anime-sama lists it as a SEPARATE player, so it is an extra encode per title.
 // It is also reachable where the vidmoly.* domains are DNS-blocked, which makes
 // it the most dependable member of the family — hence first.
-const VIDMOLY_DOMAINS = ["ansembed.net", "vidmoly.net", "vidmoly.to", "vidmoly.biz"];
+// `voembed.net` is the same story for voir-anime: since ~2026-08 its "LECTEUR
+// myTV" panel serves voembed.net on newly published titles, vidmoly.biz on the
+// back catalogue.
+const VIDMOLY_DOMAINS = [
+  "ansembed.net",
+  "voembed.net",
+  "vidmoly.net",
+  "vidmoly.to",
+  "vidmoly.biz",
+];
 // Every domain this family answers on: used to swap domains on retry, and to
 // route an embed to the local Vidmoly extraction instead of the shared lib.
-const VIDMOLY_HOST_RE = /(vidmoly\.(?:to|biz|net)|ansembed\.net)/i;
+const VIDMOLY_HOST_RE = /(vidmoly\.(?:to|biz|net)|ansembed\.net|voembed\.net)/i;
 const BROWSER_UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
   + "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
@@ -314,7 +323,10 @@ async function voirVidmolyEmbed(episodeUrl) {
   try { sources = JSON.parse(sm[1]); } catch { return null; }
   for (const iframeHtml of Object.values(sources)) {
     const src = String(iframeHtml).match(/<iframe\s+src=["']([^"']+)["']/i);
-    if (src && /vidmoly/i.test(src[1])) return src[1];
+    // voembed.net is the same myTV panel on a white-label domain — see
+    // VIDMOLY_HOST_RE. Matching only "vidmoly" made every migrated title look
+    // like it had no vidmoly-va source at all.
+    if (src && VIDMOLY_HOST_RE.test(src[1])) return src[1];
   }
   return null;
 }

@@ -100,7 +100,9 @@ async function isVidmolyEmbedAlive(embedUrl) {
   // backend but a distinct slug namespace, so rewriting the domain would probe
   // a slug that never existed and 404, hiding a perfectly live chip. Probe
   // ansembed on its own host; only the vidmoly.* variants are interchangeable.
-  const url = /ansembed\.net/i.test(embedUrl)
+  // voembed.net (voir-anime's myTV panel) gets the same treatment: probe where
+  // the embed came from rather than betting on the mirror carrying the slug.
+  const url = /(ansembed|voembed)\.net/i.test(embedUrl)
     ? embedUrl
     : embedUrl.replace(/vidmoly\.(to|biz|net)/i, "vidmoly.biz");
   try {
@@ -189,6 +191,8 @@ const EXTRACTABLE_HOSTS = [
   // family's master token binds to whoever fetched the embed, so extracting it
   // HERE yields a stream only our own IP can play.
   "ansembed",
+  // voembed.net — voir-anime's white-label of the same backend; same reason.
+  "voembed",
   "embed4me",
   "lpayer",        // lpayer.embed4me.com
   "smoothpre",     // hls2 CDN bypass (was TikTok-trapped via /stream/ path)
@@ -1816,8 +1820,16 @@ const VOIRANIME_SERVERS = {
   // Vidmoly — voir-anime tends to carry fresher slugs than anime-sama (their
   // scrape rotates more often), so adding it gives us a separate uploader to
   // try when anime-sama's vidmoly URL is dead.
-  "voiranime-vidmoly":    { name: "Vidmoly", host: ["vidmoly.to", "vidmoly.biz", "vidmoly.net"], lang: "vf" },
-  "voiranime-vidmoly-vo": { name: "Vidmoly", host: ["vidmoly.to", "vidmoly.biz", "vidmoly.net"], lang: "vostfr" },
+  //
+  // `voembed.net` is the SAME panel ("LECTEUR myTV"): since ~2026-08 voir-anime
+  // serves newly published episodes on that white-label domain and keeps
+  // vidmoly.biz only on the back catalogue (surveyed 2026-08-06: all 25 titles
+  // linked from the homepage were on voembed, 24/25 random verified back-cat
+  // slugs still on vidmoly.biz). Both must match or the migrated titles lose
+  // the chip entirely. Same backend, same encode → same `vidmoly-va` OP/ED
+  // fingerprint host, so lib/hostRegistry.js needs no new entry.
+  "voiranime-vidmoly":    { name: "Vidmoly", host: ["vidmoly.to", "vidmoly.biz", "vidmoly.net", "voembed.net"], lang: "vf" },
+  "voiranime-vidmoly-vo": { name: "Vidmoly", host: ["vidmoly.to", "vidmoly.biz", "vidmoly.net", "voembed.net"], lang: "vostfr" },
 };
 
 async function getVoiranimeIframe(serverKey, title, episode, aniId, trace = null) {
