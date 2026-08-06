@@ -24,9 +24,15 @@
  * after a deploy.
  */
 
+/**
+ * `absent.hard` = the route PROVED the absence (the host answered 404 for this
+ * upload) rather than merely failing to find a source. Callers use it to skip
+ * the anti-bot decoy retries — a proven 404 does not become a 200 in 5.6 s —
+ * and to publish the absence, which an ambiguous one must never do.
+ */
 export type SourceOutcome =
   | { kind: "ok"; data: any }
-  | { kind: "absent" }
+  | { kind: "absent"; hard?: boolean }
   | { kind: "retry"; status?: number };
 
 export type SourceParams = {
@@ -79,7 +85,7 @@ export async function requestSource(
     return { kind: "retry", status: res.status };
   }
 
-  if (body?.absent) return { kind: "absent" };
+  if (body?.absent) return { kind: "absent", hard: body.hard === true };
   // The route wraps an extractor failure as `{ error }` — transient, not a
   // verdict on the server (publishing it as "absent" would hide a working host
   // from every visitor for the 6 h of the availability snapshot).

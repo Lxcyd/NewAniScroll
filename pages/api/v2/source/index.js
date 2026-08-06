@@ -33,6 +33,22 @@ class TransientSourceError extends Error {
   }
 }
 
+/* The opposite end of the same contract: an absence we PROVED, deterministically
+   — the host itself answered 404 for this upload (vidmoly's dead-slug probe,
+   verified HEAD 404 == GET 404). A plain `null` absence is only *probably* real:
+   it can be an anti-bot decoy, which is why the click path retries it three
+   times over 5.6 s and then refuses to publish it. Neither is worth doing to a
+   proven 404 — the retries are pure spinner time and the refusal to publish is
+   what made a dead chip come back on every reload (Clevatess S2 ep2 VF).
+   Carried to the client as `{ absent: true, hard: true }`. */
+class HardAbsenceError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "HardAbsenceError";
+    this.hardAbsent = true;
+  }
+}
+
 // Full Chrome desktop UA — anime-sama / voiranime reject the minimal "Mozilla/5.0"
 // string on some endpoints (returns 403 or empty body) and we have no signal
 // in the failure case. Using the same UA the m3u8 proxy already sends avoids
@@ -2148,7 +2164,11 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId, trace = null
     if (VIDMOLY_HOST_RE.test(lower)) {
       if (!(await isVidmolyEmbedAlive(iframeUrl))) {
         dlog(`[voiranime] vidmoly slug 404 — hiding chip: ${iframeUrl}`);
-        return null;
+        // PROVEN gone: the probe only answers false on an explicit 404 (a network
+        // error returns true so we never punish a chip for our own hiccup). Say
+        // so, instead of returning the ambiguous null — the client then stops
+        // re-offering a chip that can only ever spin.
+        throw new HardAbsenceError(`vidmoly upload deleted: ${iframeUrl}`);
       }
       return {
         clientExtract: { type: "vidmoly", embedUrl: iframeUrl },
@@ -2182,7 +2202,9 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId, trace = null
     // the TTL expired. Exactly the megaplay "disappeared after a reload" bug
     // (see its retry-before-declaring-absent comment) — anime-sama already
     // guards this way; voir-anime never did. A genuine absence always returns
-    // null from the paths above, so a THROW here is by definition transient.
+    // null from the paths above, so a THROW here is by definition transient —
+    // except the one absence we can PROVE, which travels as its own type.
+    if (error instanceof HardAbsenceError) throw error;
     throw error instanceof TransientSourceError
       ? error
       : new TransientSourceError(error.message);
@@ -2906,6 +2928,13 @@ const SOURCE_CACHE_TTL_S = 300;
 // the TTL with no user-visible difference (the chip just stays grey until then).
 const SOURCE_NOTFOUND_TTL_S = 600;
 const NOT_FOUND_SENTINEL = '{"__nf":1}';
+// Same sentinel, plus "and we proved it" — so a cache hit (or a follower waiting
+// on the leader) answers with the same `hard` flag the scrape would have. Without
+// this the flag would survive exactly one request out of every ten minutes'
+// worth, which is the same as not having it.
+const HARD_NOT_FOUND_SENTINEL = '{"__nf":1,"hard":1}';
+const isNotFoundSentinel = (v) =>
+  v === NOT_FOUND_SENTINEL || v === HARD_NOT_FOUND_SENTINEL;
 
 // ── Single-flight lock ──────────────────────────────────────────────────
 // On a freshly-released popular episode the cache is cold and dozens of
@@ -3044,9 +3073,12 @@ export default async function handler(req, res) {
   //   - POST → the original contract: 204 with soft404:true, hard 404 without,
   //     which the warmers and audit scripts still read.
   const wantsSoft404 = !isGet && req.body?.soft404 === true;
-  const notFoundStatus = (msg) =>
+  // `hard` = the absence was PROVEN (see HardAbsenceError), not merely observed.
+  // GET-only: the POST contract (warmers, audit scripts) has no use for it and
+  // its 204 carries no body anyway.
+  const notFoundStatus = (msg, { hard = false } = {}) =>
     isGet
-      ? res.status(200).json({ absent: true })
+      ? res.status(200).json(hard ? { absent: true, hard: true } : { absent: true })
       : wantsSoft404
       ? res.status(204).end()
       : res.status(404).json({ error: msg || "Source not found" });
@@ -3094,13 +3126,15 @@ export default async function handler(req, res) {
     try {
       const cached = await redis.get(cacheKey);
       if (cached) {
-        if (cached === NOT_FOUND_SENTINEL) {
+        if (isNotFoundSentinel(cached)) {
           // Negative cache hit — skip the expensive scrape entirely. This is
           // the main CPU win: ~half of probe fan-outs naturally 404, and a
           // popular episode would re-extract the same dead servers for every
           // visitor without this.
           cacheAbsent();
-          return notFoundStatus("Source not found");
+          return notFoundStatus("Source not found", {
+            hard: cached === HARD_NOT_FOUND_SENTINEL,
+          });
         }
         cacheFound();
         return res.status(200).json(JSON.parse(cached));
@@ -3143,9 +3177,11 @@ export default async function handler(req, res) {
     if (!isLeader) {
       const leaderResult = await waitForLeaderResult(cacheKey);
       if (leaderResult) {
-        if (leaderResult === NOT_FOUND_SENTINEL) {
+        if (isNotFoundSentinel(leaderResult)) {
           cacheAbsent();
-          return notFoundStatus("Source not found");
+          return notFoundStatus("Source not found", {
+            hard: leaderResult === HARD_NOT_FOUND_SENTINEL,
+          });
         }
         cacheFound();
         return res.status(200).json(JSON.parse(leaderResult));
@@ -3170,15 +3206,20 @@ export default async function handler(req, res) {
     return res.status(200).json(payload);
   };
 
-  const sendNotFound = (msg) => {
+  const sendNotFound = (msg, { hard = false } = {}) => {
     if (canCache) {
       const write = redis
-        .set(cacheKey, NOT_FOUND_SENTINEL, "EX", SOURCE_NOTFOUND_TTL_S)
+        .set(
+          cacheKey,
+          hard ? HARD_NOT_FOUND_SENTINEL : NOT_FOUND_SENTINEL,
+          "EX",
+          SOURCE_NOTFOUND_TTL_S,
+        )
         .catch(() => {});
       if (isLeader) write.finally(() => releaseScrapeLock(cacheKey));
     }
     cacheAbsent();
-    return notFoundStatus(msg);
+    return notFoundStatus(msg, { hard });
   };
 
   // A TRANSIENT resolve failure (upstream down/slow, anti-bot, timeout) — as
@@ -3313,6 +3354,7 @@ export default async function handler(req, res) {
       return { data: await fn() };
     } catch (error) {
       if (error instanceof TransientSourceError) return { retry: error.message };
+      if (error instanceof HardAbsenceError) return { hardAbsent: error.message };
       throw error; // a genuinely unexpected error keeps the outer 500 handling
     }
   };
@@ -3333,10 +3375,11 @@ export default async function handler(req, res) {
   if (VOIRANIME_SERVERS[server]) {
     const searchTitle = await resolveTitle();
     if (!searchTitle) return sendNotFound("Could not resolve anime title");
-    const { data, retry } = await resolveProvider(() =>
+    const { data, retry, hardAbsent } = await resolveProvider(() =>
       getVoiranimeIframe(server, searchTitle, episode, aniId),
     );
     if (retry) return sendRetryable(retry);
+    if (hardAbsent) return sendNotFound(hardAbsent, { hard: true });
     if (!data) return sendNotFound("Source not found");
     return sendOk(data);
   }

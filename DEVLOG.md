@@ -1,5 +1,64 @@
 # DEVLOG
 
+## 2026-08-06 — Un upload mort ne doit pas revenir a chaque rechargement
+
+Luc, ep 2 VF de Clevatess S2 (aniId 198946) : « le lecteur vf est mort et a
+chaque fois que je reload il reapparait ». Mesure sur voir-anime :
+
+```
+clevatess-2-vf  ep1  voembed.net/embed-giegiymmyrta   HEAD 200  m3u8=true
+clevatess-2-vf  ep2  voembed.net/embed-3mx1x85hof1b   HEAD 404  <-- upload supprime
+clevatess-2-vf  ep3  voembed.net/embed-d92n983p22by   HEAD 200  m3u8=true
+```
+
+L'API repond donc `absent` a juste titre. **Le bug est ce que le lecteur en
+fait.** Deux comportements, tous deux volontaires, tous deux faux ici :
+
+1. Le chemin « clic » retente 3 fois (800/1600/3200 ms) avant de conclure, parce
+   qu'un hote peut servir un leurre anti-bot a froid. Sur un 404 prouve c'est
+   5,6 s de roue qui tourne pour rien — la « mort » du lecteur.
+2. Il refuse ensuite de PUBLIER l'absence (un leurre et un vrai vide se
+   ressemblent, et se tromper masque un hote sain 6 h). Donc le chip n'est jamais
+   masque : il revient a chaque rechargement, mort a chaque fois.
+
+### Le manque : une absence prouvee n'avait pas de nom
+`isVidmolyEmbedAlive` ne renvoie `false` que sur un 404 explicite (une erreur
+reseau renvoie `true`, on ne punit jamais un chip pour notre propre hoquet). On
+SAIT donc que l'upload est supprime — mais l'info se perdait dans un `null`
+indistinguable d'un « pas trouve ». Ajout de `HardAbsenceError`, symetrique de
+`TransientSourceError` : le contrat a maintenant trois etats au lieu de deux.
+
+| Verdict | Sens | Effet |
+|---|---|---|
+| `TransientSourceError` | l'amont a hoquete | 503, on retente, rien n'est enterre |
+| `null` | pas trouve (ambigu) | 404, cache 10 min, publie par la sonde de fond seulement |
+| `HardAbsenceError` | **prouve** (404 de l'hote) | 404 + `{absent, hard}` : pas de retry, chip masque |
+
+Le drapeau traverse tout le chemin, cache compris (`HARD_NOT_FOUND_SENTINEL`) —
+sinon il n'aurait survecu qu'a une requete sur 10 minutes.
+
+### Au passage : le repli changeait de langue
+`PREFERRED_FALLBACK_ORDER` listait 9 serveurs dont **6 n'existent plus** dans
+lib/servers.js (hianime-*, animesama-oneupload, voiranime-streamtape*).
+`isCandidate` les filtrait en silence, la liste valait donc
+`[megaplay, animesama-sibnet, animesama-sibnet-vo]`. Et comme le test acceptait
+`lang === "multi"` au meme rang, perdre un chip VF basculait l'episode sur
+Megaplay — donc en VOSTFR. Repli en deux temps : meme langue STRICTE d'abord
+(liste indicative puis lib/servers.js, deja triee par vitesse), le reste apres.
+
+### Leçons / pièges
+- **« Le lecteur est mort » et « le chip revient » etaient le meme bug**, vu par
+  ses deux bouts : le retry qui fait attendre, le non-publie qui fait revenir.
+- **Un garde-fou anti-leurre applique sans nuance devient une panne** : les 3
+  retries et le refus de publier sont justes pour une absence ambigue, absurdes
+  pour un 404 prouve. Il manquait la distinction, pas la prudence.
+- **Risque assume** : si vidmoly se mettait a 404 des slugs valides depuis les IP
+  Vercel, on publierait desormais une absence de 6 h depuis le chemin clic. La
+  sonde de fond publiait deja sur ce meme signal — le profil de risque ne change
+  pas, seul le chemin s'aligne.
+- **Verifier l'amont avant d'accuser le code** : ici les trois episodes voisins
+  prouvaient en une commande que le probleme etait l'upload, pas la resolution.
+
 ## 2026-08-06 — Le chip Voir-Anime disparait au rechargement (absence fabriquee)
 
 Luc : deux captures de Clevatess S2 (aniId 198946) sur dev, meme page. Avant

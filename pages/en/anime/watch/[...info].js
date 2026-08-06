@@ -347,11 +347,13 @@ export default function Watch({
   // chip. The probe effect reads this ref when publishing so those verdicts make
   // it into the snapshot.
   //
-  // `ok` only. The click path deliberately does NOT publish absences: there, a
-  // cold anti-bot decoy and a genuine soft404 look identical, and guessing wrong
-  // hides a working host for the snapshot's 6h TTL. The background probe, which
-  // retries properly, owns `absent` via confirmedAbsent.
-  const activeVerdictRef = useRef({ ok: new Set() });
+  // `ok` — plus the ONE kind of absence the click path may publish: `hardAbsent`,
+  // where the route proved the upload is gone (404 from the host itself, see the
+  // `hard` flag in lib/watch/sourceRequest). An ordinary absence still never
+  // lands here: a cold anti-bot decoy and a genuine soft404 look identical, and
+  // guessing wrong hides a working host for the snapshot's 6h TTL. The
+  // background probe, which retries properly, owns those via confirmedAbsent.
+  const activeVerdictRef = useRef({ ok: new Set(), hardAbsent: new Set() });
 
   // Mirror of failedServers for sync reads inside markFailed without forcing
   // markFailed to depend on failedServers (which would invalidate fetchStreamSource
@@ -368,17 +370,18 @@ export default function Watch({
     });
   }, []);
 
-  // Track server preference order — favorite working servers come first
+  // Track server preference order — favorite working servers come first.
+  // Six of the nine ids this list used to carry (hianime-*, animesama-oneupload,
+  // voiranime-streamtape*) no longer exist in lib/servers.js. `isCandidate`
+  // filtered them out silently, so the list effectively read
+  // [megaplay, animesama-sibnet, animesama-sibnet-vo] — which is why a dead VF
+  // chip fell back to Megaplay (lang "multi", first in line) instead of another
+  // FRENCH DUB. Kept as a hint for the ids that still exist; anything not listed
+  // is picked up by the lib/servers.js sweep below (already ordered by speed).
   const PREFERRED_FALLBACK_ORDER = [
     "megaplay",
-    "hianime-vidsrc",
-    "hianime-megacloud",
-    "hianime-tcloud",
     "animesama-sibnet",
-    "animesama-oneupload",
-    "voiranime-streamtape",
     "animesama-sibnet-vo",
-    "voiranime-streamtape-vo",
   ];
 
   const markFailed = useCallback((id, reason) => {
@@ -408,17 +411,23 @@ export default function Watch({
         return SERVERS.some((s) => s.id === sid);
       };
 
-      // Try same-lang candidates first
-      let next = PREFERRED_FALLBACK_ORDER.find((sid) => {
-        if (!isCandidate(sid)) return false;
-        const s = SERVERS.find((x) => x.id === sid);
-        return s.lang === failedLang || s.lang === "multi";
-      });
-      // Then any candidate
+      // STRICT same language first — a viewer who picked a French dub wants
+      // another French dub, not Megaplay's subtitles. The old single pass
+      // accepted `lang === "multi"` at the same priority, and since megaplay
+      // heads the list it always won: losing the VF chip silently switched the
+      // episode to VOSTFR.
+      const langOf = (sid) => SERVERS.find((x) => x.id === sid)?.lang;
+      const sameLang = (sid) => failedLang && langOf(sid) === failedLang;
+
+      let next = PREFERRED_FALLBACK_ORDER.find((sid) => isCandidate(sid) && sameLang(sid));
+      // …then any other server of that language (lib order = fastest first).
+      if (!next) {
+        next = SERVERS.find((s) => !failedSet.has(s.id) && s.lang === failedLang)?.id;
+      }
+      // Only once the language is exhausted: the hinted list, then anything left.
       if (!next) {
         next = PREFERRED_FALLBACK_ORDER.find(isCandidate);
       }
-      // Final fallback: any non-failed server in the lib
       if (!next) {
         next = SERVERS.find((s) => !failedSet.has(s.id))?.id;
       }
@@ -1195,7 +1204,16 @@ export default function Watch({
       // so a second decoy still concluded "absent" and hid a WORKING chip for
       // the snapshot's 6h TTL — the user-visible bug is the chip vanishing at
       // the very moment you click it. Back off over a few attempts instead.
-      for (let attempt = 0; out.kind === "absent" && attempt < DECOY_RETRIES; attempt++) {
+      //
+      // A PROVEN absence (`hard`) skips the backoff entirely: the host answered
+      // 404 for this upload, and no amount of waiting turns that into a stream.
+      // Retrying it cost 3 requests and 5.6 s of spinner before the fallback
+      // could even start — that was the "the VF player is dead" wait.
+      for (
+        let attempt = 0;
+        out.kind === "absent" && !out.hard && attempt < DECOY_RETRIES;
+        attempt++
+      ) {
         await new Promise((r) => setTimeout(r, DECOY_BACKOFF_MS[attempt]));
         if (signal?.aborted) return;
         out = await askSource();
@@ -1205,11 +1223,14 @@ export default function Watch({
       if (out.kind === "absent") {
         setHlsData({ error: true });
         markFailed(serverId, "Source not found");
-        // Still 204 after the backoff. Mark the chip failed for THIS session, but
-        // do not publish the absence: on the click path a decoy and a genuine
-        // soft404 are indistinguishable, and publishing loses far more (a working
+        // Mark the chip failed for THIS session. Publishing is reserved for the
+        // proven case: on the click path an ordinary decoy and a genuine soft404
+        // are indistinguishable, and guessing wrong loses far more (a working
         // host hidden for 6h, cross-visitor) than it saves (one re-probe). The
-        // background probe, which can afford to retry properly, owns `absent`.
+        // background probe, which can afford to retry properly, owns those.
+        // A `hard` verdict has no such ambiguity — and NOT publishing it is what
+        // made a dead chip reappear on every single reload.
+        if (out.hard) activeVerdictRef.current.hardAbsent.add(serverId);
       } else if (out.kind === "ok") {
         const data = out.data;
         setHlsData(data);
@@ -1693,7 +1714,14 @@ export default function Watch({
         ...cachedConfirmed,
         ...activeVerdictRef.current.ok,
       ]);
-      const publishAbsent = new Set(confirmedAbsent);
+      // PROVEN absences from the active-source path join them: the host itself
+      // answered 404 for that upload, which is not something a retry or another
+      // visitor will see differently. Ambiguous ones still never get here — see
+      // activeVerdictRef's contract.
+      const publishAbsent = new Set([
+        ...confirmedAbsent,
+        ...activeVerdictRef.current.hardAbsent,
+      ]);
       // A server can't be both — a confirmation always wins over a stale absence.
       for (const id of publishOk) publishAbsent.delete(id);
       if (!cancelled && (publishOk.size > 0 || publishAbsent.size > 0)) {
