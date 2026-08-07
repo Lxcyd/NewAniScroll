@@ -77,6 +77,31 @@ def latest_rows() -> dict[tuple, dict]:
     return rows
 
 
+_REF_CACHE: dict[int, bool] = {}
+
+
+def has_reference(mal_id: int) -> bool:
+    """Une référence de thème existe-t-elle seulement pour cet anime ?
+
+    SANS elle, `detect_op_ed` sort AVANT de récupérer le moindre audio : pas de
+    fenêtre en cache, pas d'exception, cellule vide. Compter ces cas comme des
+    échecs de récupération gonflait le taux du simple au double (15,6 % contre
+    8,1 %). Le slug AnimeThemes n'est pas notre slug (`les-brigades-immunitaires`
+    → `hataraku_saibou`) : passer par `resolve_slug`, jamais par une
+    substitution de tirets.
+    """
+    if mal_id in _REF_CACHE:
+        return _REF_CACHE[mal_id]
+    try:
+        from oped.animethemes import resolve_slug
+        at = resolve_slug(mal_id=mal_id)
+    except Exception:
+        at = None
+    ok = bool(at) and any(CACHE.glob(f"animethemes__{glob.escape(at)}__*.fp.npz"))
+    _REF_CACHE[mal_id] = ok
+    return ok
+
+
 def has_window(slug: str, lang: str, ep: int, host: str) -> bool:
     """Une fenêtre audio a-t-elle été obtenue pour CE couple exact ?"""
     # Slug ancré entre `absa__` et `__` : `charlotte` ne peut pas attraper
@@ -120,7 +145,8 @@ def main() -> int:
 
     # --- Mesure -------------------------------------------------------------
     attempted: dict[str, int] = defaultdict(int)
-    missing: dict[str, int] = defaultdict(int)
+    noref: dict[str, int] = defaultdict(int)     # rien a chercher
+    failed: dict[str, int] = defaultdict(int)    # vrai echec de recuperation
     skipped_no_slug = 0
 
     for (mal_id, ep, lang), r in rows.items():
@@ -130,22 +156,32 @@ def main() -> int:
             continue
         for host in r["per_host"]:
             attempted[host] += 1
-            if not has_window(slug, lang, ep, host):
-                missing[host] += 1
+            if has_window(slug, lang, ep, host):
+                continue
+            # La distinction qui change le chiffre du simple au double.
+            if has_reference(mal_id):
+                failed[host] += 1
+            else:
+                noref[host] += 1
 
     print(f"{len(rows)} cellules a jour, {skipped_no_slug} sans slug connu (ignorees)\n")
-    hdr = f"{'hote':<14}{'tente':>8}{'sans fenetre':>15}{'taux':>9}"
+    hdr = (f"{'hote':<14}{'tente':>8}{'sans ref':>10}{'echec recup':>13}"
+           f"{'taux echec':>12}")
     print(hdr)
     print("-" * len(hdr))
-    tot_a = tot_m = 0
-    for host in sorted(attempted, key=lambda h: -(missing[h] / max(attempted[h], 1))):
-        a, m = attempted[host], missing[host]
+    tot_a = tot_n = tot_f = 0
+    for host in sorted(attempted, key=lambda h: -(failed[h] / max(attempted[h], 1))):
+        a, n, f = attempted[host], noref[host], failed[host]
         tot_a += a
-        tot_m += m
-        print(f"{host:<14}{a:>8}{m:>15}{m / a:>8.1%}")
+        tot_n += n
+        tot_f += f
+        print(f"{host:<14}{a:>8}{n:>10}{f:>13}{f / a:>11.1%}")
     print("-" * len(hdr))
-    print(f"{'TOTAL':<14}{tot_a:>8}{tot_m:>15}{tot_m / max(tot_a, 1):>8.1%}")
-    print("\nBorne HAUTE : un cache purge compte ici comme un echec.")
+    print(f"{'TOTAL':<14}{tot_a:>8}{tot_n:>10}{tot_f:>13}{tot_f / max(tot_a, 1):>11.1%}")
+    print("\n'sans ref' : aucune reference AnimeThemes pour l'anime — aucun audio")
+    print("n'a ete recupere parce qu'il n'y avait RIEN a chercher. Ce n'est pas")
+    print("un echec de recuperation et un reessai n'y changera rien.")
+    print("'echec recup' reste une borne HAUTE : un cache purge y compte.")
     return 0
 
 

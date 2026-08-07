@@ -27,7 +27,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from _measure_fetch_failures import has_window, latest_rows, slug_map  # noqa: E402
+from _measure_fetch_failures import (  # noqa: E402
+    has_reference, has_window, latest_rows, slug_map,
+)
 
 ROOT = Path(__file__).resolve().parent
 
@@ -63,11 +65,25 @@ def main() -> int:
     # (mal_id, lang) -> {episodes} des cellules vides a >=1 hote sans fenetre
     want: dict[tuple[int, str], set[int]] = defaultdict(set)
     missing_by_host: dict[str, int] = defaultdict(int)
+    skipped_noref = 0
     for (mal_id, ep, lang), r in rows.items():
         slug = slugs.get(mal_id)
         if not slug or r.get("op") or r.get("ed"):
             continue
         miss = [h for h in r["per_host"] if not has_window(slug, lang, ep, h)]
+        if not miss:
+            continue
+        # Sans référence de thème il n'y a RIEN à chercher : `detect_op_ed` sort
+        # avant de récupérer le moindre audio, et le réessai ne peut que
+        # redépenser du réseau pour reproduire la même cellule vide. Le premier
+        # run de réessai (07/08) partait sans ce filtre : 21 de ses 41 anime
+        # étaient dans ce cas — c'est en cherchant pourquoi il ne récupérait
+        # rien, et sans lever un seul `detect_error`, qu'on l'a compris.
+        # Le test vient APRÈS `miss` pour que le compte écarté ne parle que de
+        # cellules réellement candidates (sinon il gonfle de 9 à 88).
+        if not has_reference(mal_id):
+            skipped_noref += 1
+            continue
         if miss:
             want[(mal_id, lang)].add(ep)
             for h in miss:
@@ -106,6 +122,9 @@ def main() -> int:
 
     n_eps = sum(len(s["episodes"]) for a in out_list for s in a["seasons"])
     print(f"{len(out_list)} anime, {n_eps} episodes a rejouer -> {args.out}")
+    if skipped_noref:
+        print(f"  {skipped_noref} cellules ecartees : aucune reference "
+              f"AnimeThemes (rien a chercher, un reessai n'y peut rien)")
     if unmatched:
         print(f"  {unmatched} mal_id sans entree source (ignores)")
     print("\nfetches manquants par hote :")

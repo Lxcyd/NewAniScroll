@@ -190,26 +190,33 @@ une liste vide. Aucun run passé ne porte l'information — c'est pour ça que l
 57 % du matin avaient dû être obtenus par un détour (l'absence de fenêtre en
 cache). Corrigé : `HostStream.detect_error` + une ligne `[detect-fail]`.
 
-**La mesure** (`_measure_fetch_failures.py`, 690 cellules à jour, 1492 couples
-hôte-cellule). Approche par l'absence de fenêtre en cache, à lire comme une
-**borne haute** (un cache purgé compte ici comme un échec) :
+**La mesure** (`_measure_fetch_failures.py`, 690 cellules, 1488 couples
+hôte-cellule). ⚠️ **Première version fausse, corrigée le jour même** — voir
+« quatrième falsification » plus bas. Le tableau juste sépare deux choses que
+j'avais additionnées :
 
-| hôte | tenté | sans fenêtre | taux |
-|---|---|---|---|
-| **vidmoly-va** | 441 | 97 | **22,0 %** |
-| **ansembed** | 497 | 99 | **19,9 %** |
-| sendvid | 12 | 1 | 8,3 % |
-| sibnet | 112 | 9 | 8,0 % |
-| megaplay | 414 | 26 | 6,3 % |
-| uqload | 16 | 1 | 6,2 % |
-| **TOTAL** | **1492** | **233** | **15,6 %** |
+| hôte | tenté | sans réf. | échec récup. | taux |
+|---|---|---|---|---|
+| **vidmoly-va** | 441 | 33 | 59 | **13,4 %** |
+| **ansembed** | 497 | 41 | 58 | **11,7 %** |
+| uqload | 16 | 0 | 1 | 6,2 % |
+| sibnet | 108 | 4 | 1 | 0,9 % |
+| megaplay | 414 | 26 | 0 | **0,0 %** |
+| sendvid | 12 | 1 | 0 | 0,0 % |
+| **TOTAL** | **1488** | **105** | **119** | **8,0 %** |
 
-**vidmoly-va n'est pas un cas particulier.** Il est le pire, mais ansembed le
-suit à moins de deux points — et c'est l'hôte le *plus sollicité*. Les 57 % du
-matin étaient un chiffre **conditionnel** : mesuré sur les cellules où vidmoly
-échouait seul, donc sur un sous-ensemble sélectionné pour ça. Sans condition, le
-taux tombe à 22 % et le défaut est **général** : 15,6 % de tous les couples
-hôte-cellule. Chercher « ce qui cloche chez vidmoly » était la mauvaise question.
+*sans réf.* = aucune référence AnimeThemes pour l'anime, donc **aucun audio
+récupéré parce qu'il n'y avait rien à chercher**. Ce n'est pas un échec de
+transport et un réessai n'y changera rien. *échec récup.* reste une borne haute
+(un cache purgé y compte).
+
+**Ce que dit le tableau juste.** megaplay et sibnet sont **irréprochables**
+(0,0 % et 0,9 %) : leurs 6,3 % et 8,0 % de la première version étaient
+*entièrement* l'artefact « pas de référence ». L'échec de récupération est bien
+concentré sur **vidmoly-va (13,4 %) et ansembed (11,7 %)** — à la moitié du taux
+que j'avais annoncé, et à deux hôtes, pas un. Les 57 % du matin restaient un
+chiffre **conditionnel** (mesuré sur les seules cellules où vidmoly échouait
+seul, donc sur un sous-ensemble sélectionné pour ça).
 
 **Le lien causal, vérifié plutôt que supposé** : sans fenêtre → cellule vide dans
 **94 %** des cas (219/233), contre 26,8 % quand la fenêtre existe. Les 14
@@ -232,6 +239,28 @@ Note relevée dès les premières minutes du run : une partie des hôtes « sans
 fenêtre » échouent en réalité à la **résolution** (`not in voir-anime page`, 404
 sur voir-anime), pas au transport. Ce sont deux défauts distincts et le second
 n'est pas réparable par un réessai.
+
+**QUATRIÈME FALSIFICATION — la mienne, encore, mais attrapée avant publication
+d'une décision.** Le run de réessai a rendu 0 récupération sur ses 19 premières
+lignes *et zéro `detect_error`*. Si l'échec avait été le transport, l'instrument
+tout juste posé aurait crié. Il s'est tu — et ce silence était la réponse :
+**sans référence de thème, `detect_op_ed` sort AVANT de récupérer le moindre
+audio.** Pas de fenêtre en cache, pas d'exception, cellule vide. Mon propre test
+d'instrumentation l'avait exhibé une heure plus tôt (il ne levait rien tant que je
+ne lui donnais pas une vraie référence) et je n'en avais pas tiré la conséquence.
+
+Sur les 227 couples sans fenêtre, **47 % appartiennent à des anime sans aucune
+référence** : il n'y avait rien à chercher. C'est le même phénomène que les
+14,2 % de titres hors AnimeThemes mesurés au point 0, vu sous un autre angle.
+
+Au passage, un piège de nommage qui a failli me faire publier « 41 anime sur 41
+sans référence » : **le slug AnimeThemes n'est pas le nôtre**
+(`les-brigades-immunitaires` → `hataraku_saibou`, `aho-girl` → `aho_girl`). Un
+glob sur notre slug ne trouve presque rien. Passer par `resolve_slug(mal_id=…)`,
+jamais par une substitution de tirets. Ce qui m'a arrêté est le contrôle que je
+m'étais imposé : le même glob prétendait que **84 des 94 anime ayant produit un
+résultat** n'avaient pas de référence — Erased compris. Un instrument qui accuse
+les cas connus pour bons s'accuse lui-même.
 
 **Le contrôle du script de mesure a servi le jour même.** Il refuse de publier si
 le cas témoin (Charlotte ep2 vostfr) ne se comporte pas comme établi — et il a
