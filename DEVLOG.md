@@ -5,6 +5,15 @@
 Journée d'audit, sans changement de production hormis un revert. Tout ce qui suit
 est mesuré ; les cas témoins sont nommés pour servir de tests d'acceptation.
 
+> ⚠️ **À LIRE AVANT TOUT CHIFFRE DE COUVERTURE DE CETTE ENTRÉE.** Découvert en
+> fin de journée (§11) : nos 690 cellules couvrent ~131 titres, choisis pour
+> être **difficiles** (`anime.hard.json`), et **2 097 des 2 228 titres jouables
+> n'ont jamais été mesurés** — dont les 20 plus populaires, qui ont zéro
+> cellule. Tous les taux de couverture ci-dessous (48 % servable, 32 % de
+> cellules vides…) décrivent donc un échantillon délibérément défavorable, PAS
+> le catalogue. Les taux d'ERREUR et les mécanismes restent valides ; les taux
+> de COUVERTURE sont à refaire sur un échantillon représentatif.
+
 ### 0. Une régression poussée puis revertée — la leçon d'abord
 
 Commit `4e5567b` (filtrage AniSkip par montage) poussé sur dev après vérification
@@ -551,6 +560,41 @@ avec la porte de non-régression en place.
   conversion points → intervalles ferme chaque marqueur avec le suivant, or un
   ending est presque toujours le **dernier** — donc supprimé. Témoin : Attack on
   Titan ep1, marqueur `Credits` à 1309,3 aujourd'hui jeté.
+
+### 11. Nos mesures portent sur un échantillon défavorable — et personne ne l'avait dit
+
+Découvert en construisant la priorisation du point 4
+(`_prioritise_titles.mjs`) :
+
+```
+2 228 titres jouables (player_map verified/heuristic)
+2 097 jamais mesures                                   (94 %)
+couverture servable des 20 plus populaires : 0/11 cellules
+```
+
+Les vingt titres les plus populaires — Shingeki no Kyojin, Demon Slayer,
+Jujutsu Kaisen, Death Note, One Piece, Hunter x Hunter — **n'ont jamais été
+passés au détecteur**. Nos 690 cellules couvrent ~131 titres, et ces lots ont
+été constitués pour être *difficiles* (`anime.hard.json`), pas représentatifs.
+
+**Conséquence, et elle est large.** Chaque taux de couverture de cette entrée
+décrit les cas durs, pas le catalogue : les 32,6 % de cellules vides, les 48,4 %
+de cellules servables, les 33 % de cellules à un seul hôte. Ces nombres ne sont
+pas faux, ils ne répondent simplement pas à la question qu'on croit leur poser.
+Les taux d'ERREUR et les mécanismes établis (transport, fenêtre aveugle,
+amorçage) ne sont pas touchés — ils portent sur des cas nommés et reproduits.
+
+**Effet direct sur le critère d'arrêt (point 6)** : comparer détecteur et
+participatif sur cet échantillon ferait perdre le détecteur d'avance, puisqu'on
+l'a jugé sur ce qu'on lui a donné de plus dur. Le lot du point 5 doit être
+constitué **par popularité**, pas par difficulté.
+
+**Limite du classement lui-même, assumée** : c'est la popularité AniList, PAS le
+trafic réel demandé par le plan. Le CLI Vercel n'est pas installé et son
+authentification est interactive ; la base Turso ne contient aucune table de
+trafic (`user_analytics` n'existe pas côté prod, et le Worker ne l'alimente plus
+depuis le 11/07). Un titre ancien et célèbre peut n'être presque pas regardé
+chez nous. À refaire sur `vercel logs --json` avant toute décision irréversible.
 
 ### Décisions (Luc, 07/08)
 
