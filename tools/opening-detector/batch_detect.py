@@ -135,6 +135,61 @@ def _cached_audio_abs(cache_key, url, start_abs, dur, *, referer=None,
 _THEME_RANGE_MARGIN = 3
 
 
+def season_episodes(season: dict) -> list[int]:
+    """The episodes a season panel asks for.
+
+    Two forms are accepted. `ep_start`/`ep_end` is the original contiguous
+    range and stays the default. `episodes: [1, 2, 3, 24]` is an explicit,
+    possibly SPARSE list, added so a lot can sample the premiere AND the finale
+    without paying for everything in between — the two episodes least like the
+    rest of a season (a premiere may run double length or hold the OP until
+    after a cold open; a finale often drops the ED, replaces it with the OP, or
+    runs credits over the last scene).
+    """
+    explicit = season.get("episodes")
+    if explicit:
+        return sorted({int(e) for e in explicit if int(e) > 0})
+    return list(range(int(season.get("ep_start") or 1),
+                      int(season.get("ep_end") or 1) + 1))
+
+
+def _kind_absent_by_design(themes, kind: str, ep: int):
+    """Does AnimeThemes say this episode carries NO theme of this kind?
+
+    True  — the source maps every theme of that kind away from this episode, so
+            an empty result is correct and must not read as a failure.
+    False — a theme covers it; an empty result IS a miss worth investigating.
+    None  — no reference at all (no AnimeThemes entry, or none of that kind):
+            undecidable, and deliberately not guessed either way.
+    """
+    if not themes:
+        return None
+    want = kind.upper()
+    saw_kind = False
+    for t in themes:
+        if not str(getattr(t, "slug", "")).upper().startswith(want):
+            continue
+        saw_kind = True
+        for e in t.entries:
+            # An entry with no episode mapping applies to the whole season.
+            if not getattr(e, "episodes_spec", None):
+                return False
+            if e.covers(ep):
+                return False
+    return True if saw_kind else None
+
+
+def contiguous_runs(eps: list[int]) -> list[tuple[int, int]]:
+    """[1,2,3,24] -> [(1,3), (24,24)] — the resolver speaks ranges only."""
+    runs: list[tuple[int, int]] = []
+    for ep in sorted(eps):
+        if runs and ep == runs[-1][1] + 1:
+            runs[-1] = (runs[-1][0], ep)
+        else:
+            runs.append((ep, ep))
+    return runs
+
+
 def build_theme_index(
     at_slug: str, *, with_video: bool = True, episodes: range | None = None
 ) -> tuple[list[Theme], dict[str, list[ThemeReference]]]:
@@ -160,13 +215,21 @@ def build_theme_index(
     def relevant(t: Theme) -> bool:
         if episodes is None:
             return True
-        lo = min(episodes) - _THEME_RANGE_MARGIN
-        hi = max(episodes) + _THEME_RANGE_MARGIN
+        # Widen each REQUESTED episode by the margin, instead of taking one
+        # span from min to max. A sparse request — episodes 1, 2, 3 and the
+        # finale, which is how the hard lot samples a season — has a min/max
+        # span covering the entire series, so a span test would download every
+        # theme of a 100-episode show to use four. Per-episode windows keep the
+        # cost proportional to what was actually asked for.
+        windows = [
+            range(ep - _THEME_RANGE_MARGIN, ep + _THEME_RANGE_MARGIN + 1)
+            for ep in episodes
+        ]
         for e in t.entries:
             # An entry with no episode mapping applies everywhere — keep it.
             if not getattr(e, "episodes_spec", None):
                 return True
-            if any(e.covers(ep) for ep in range(lo, hi + 1)):
+            if any(e.covers(ep) for w in windows for ep in w):
                 return True
         return False
 
@@ -205,7 +268,7 @@ def needed_hosts(mal_id, lang: str, coverage: dict | None) -> list[str]:
 
 
 def _row_from(ep: int, season: dict, mal_id, streams, per_host, hits,
-              inf_op: bool, inf_ed: bool) -> dict:
+              inf_op: bool, inf_ed: bool, themes=None) -> dict:
     """One JSONL row: the cross-host consensus plus the PER-HOST timings.
 
     `op`/`ed` are the averaged consensus and exist as a confidence CHECK — they
@@ -223,6 +286,18 @@ def _row_from(ep: int, season: dict, mal_id, streams, per_host, hits,
     row = {
         "mal_id": mal_id, "episode": ep, "lang": season["lang"],
         "op": None, "ed": None,
+    }
+    # WHY an empty kind is empty. AnimeThemes maps each theme to an episode span
+    # (Erased's ED1 is "2-12" — episode 1 has no ending at all; Re:Zero's OP
+    # skips the premiere). Finding nothing there is the CORRECT answer, but it
+    # was reported as the same `null` as a genuine miss, so neither the audit
+    # sheet nor we could tell a right answer from a failure. Measured on the
+    # 2026-08-07 hard lot: 35% of all "absent" cells were absences the source
+    # had already declared — and on FINALES it was the majority (71 of 117).
+    # Read off the themes already fetched for this anime: no extra request.
+    row["expected_absent"] = {
+        kind: _kind_absent_by_design(themes, kind, ep)
+        for kind in ("op", "ed")
     }
     for h in hits:
         inferred = (h.kind == "op" and inf_op) or (h.kind == "ed" and inf_ed)
@@ -269,6 +344,12 @@ def _row_from(ep: int, season: dict, mal_id, streams, per_host, hits,
                "algo_version": version_of(stream.host)}
         if stream.duration_estimated:
             out["duration_estimated"] = True
+        # Detection RAISED for this host: the empty result below is a transport
+        # failure, not an absence of theme. Recorded so a re-run can target the
+        # cells that were never actually looked at, and so the coverage figures
+        # stop counting a dead stream as a negative answer.
+        if stream.detect_error:
+            out["detect_error"] = stream.detect_error
         for h in host_hits:
             inferred = inf_op if h.kind == "op" else inf_ed
             d = _hit_to_dict(h, stream.duration)
@@ -532,13 +613,12 @@ def process_anime(
         if at_slug:
             # Union of every season's requested range, so a partial run only
             # pays for the themes it can actually use (see build_theme_index).
-            spans = [
-                (s.get("ep_start") or 1, s.get("ep_end") or 1)
-                for s in (anime.get("seasons") or [])
-            ]
-            ep_range = (range(min(a for a, _ in spans), max(b for _, b in spans) + 1)
-                        if spans else None)
-            themes, refs_by_theme = build_theme_index(at_slug, episodes=ep_range)
+            wanted_eps: set[int] = set()
+            for s in (anime.get("seasons") or []):
+                wanted_eps.update(season_episodes(s))
+            themes, refs_by_theme = build_theme_index(
+                at_slug, episodes=sorted(wanted_eps) or None
+            )
     if not refs_by_theme:
         # No usable reference. In multi-host mode that is no longer the end of
         # the road: the self-reference pass (F1) can still recover the OP/ED from
@@ -593,12 +673,18 @@ def process_anime(
             if not hosts_to_run:
                 continue
             with tc.span("resolve"):
-                by_ep = resolve_episodes_multi(
-                    anime["slug"], season["season_dir"], season["lang"],
-                    season["ep_start"], season["ep_end"],
-                    hosts=hosts_to_run,
-                    mal_id=mal_id, va_slug=va_slug,
-                )
+                by_ep = {}
+                # A season may ask for a SPARSE set of episodes (1, 2, 3, last).
+                # The resolver only speaks contiguous ranges, so walk the runs
+                # and merge — resolving 1..last instead would pull every episode
+                # of the series to keep four.
+                for lo, hi in contiguous_runs(season_episodes(season)):
+                    by_ep.update(resolve_episodes_multi(
+                        anime["slug"], season["season_dir"], season["lang"],
+                        lo, hi,
+                        hosts=hosts_to_run,
+                        mal_id=mal_id, va_slug=va_slug,
+                    ))
             # Rows are buffered for the whole season instead of written per
             # episode: the self-reference pass (F1) below can only decide once it
             # has seen how many episodes the AnimeThemes refs actually covered,
@@ -615,7 +701,7 @@ def process_anime(
                     per_host, inferred_op=inf_op, inferred_ed=inf_ed
                 )
                 return _row_from(ep, season, mal_id, streams, per_host, hits,
-                                 inf_op, inf_ed)
+                                 inf_op, inf_ed, themes=themes)
 
             for ep in sorted(by_ep):
                 op_refs, ed_refs, inf_op, inf_ed = refs_for(ep)
@@ -828,10 +914,11 @@ def process_anime(
 
         # ── single-host path (default) ──────────────────────────────────────
         with tc.span("resolve"):
-            eps = resolve_episodes(
-                anime["slug"], season["season_dir"], season["lang"],
-                season["ep_start"], season["ep_end"],
-            )
+            eps = []
+            for lo, hi in contiguous_runs(season_episodes(season)):
+                eps += resolve_episodes(
+                    anime["slug"], season["season_dir"], season["lang"], lo, hi,
+                )
         for e in eps:
             ep = e["ep"]
             url = e["url"]
@@ -1037,7 +1124,7 @@ def _print_eta(tc: TimingCollector, anime_list: list[dict], manifest: Manifest,
     n_detected = detect.n if detect else 0
     # Episode-langs represented by this run's input (what we TRIED to cover).
     sample_eps = sum(
-        s["ep_end"] - s["ep_start"] + 1
+        len(season_episodes(s))
         for a in anime_list for s in a.get("seasons", [])
     )
     summ = manifest.summary()

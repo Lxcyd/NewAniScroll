@@ -134,6 +134,13 @@ class HostStream:
     # host's ED untrustworthy — the caller holds it back rather than dropping the
     # whole host and losing its OP too.
     duration_estimated: bool = False
+    # Set when detection RAISED for this host — a transport failure (ffmpeg
+    # timeout, 404, reset connection), not an absence of theme. Without it the
+    # two are the same object downstream: an empty hit list. That silence is how
+    # vidmoly-va's 57 % of missing audio windows looked exactly like "this
+    # episode has no OP", and it is why the retrieval failure rate could not be
+    # measured on any past run (07/08).
+    detect_error: str | None = None
 
 
 @dataclass
@@ -578,7 +585,10 @@ def detect_per_host(
                     min_votes=min_votes,
                     **kw,
                 )
-            except Exception:
+            except Exception as exc:
+                # Resilient, but no longer silent — see HostStream.detect_error.
+                stream.detect_error = f"{type(exc).__name__}: {exc}"
+                print(f"  [detect-fail] {stream.host}: {stream.detect_error}")
                 hits = []
             if mark_derived:
                 # The refs came from self_ref (no AnimeThemes clip vouches for
@@ -620,8 +630,12 @@ def detect_per_host(
                 full_fallback=full_fallback,
                 **kw,
             )
-        except Exception:
+        except Exception as exc:
             # A single flaky host must not sink the episode — its peers carry it.
+            # But record WHY: an empty list from a dead transport and an empty
+            # list from a themeless episode must not be the same fact.
+            stream.detect_error = f"{type(exc).__name__}: {exc}"
+            print(f"  [detect-fail] {stream.host}: {stream.detect_error}")
             hits = []
         return stream, hits
 

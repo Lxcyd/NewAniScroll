@@ -170,14 +170,74 @@ script qui l'a produit sur un cas dont on connaît la réponse.
 | **vidmoly-va** | **39,6 %** | **36,2 %** |
 | uqload | 44,4 % | 17,4 % |
 
-Même ordre dans les deux colonnes. **vidmoly-va n'est pas un mauvais lecteur** :
-c'est celui qu'on pousse le plus souvent dans une fenêtre cassée. *Pourquoi* il y
-tombe plus reste une hypothèse (encodages décalés : 0,66 s de retard au décodage
-ici, +9 s sur Erased) — non nécessaire au correctif.
+Même ordre dans les deux colonnes — mais l'explication « fenêtre cassée » qui
+accompagnait cette table a été falsifiée par l'hypothèse 1 ci-dessus, et le
+remède « blocs recouvrants » retiré avec elle. La table ne dit plus que ceci :
+vidmoly-va et ansembed sont les deux hôtes qui échouent le plus. La section 4 bis
+donne la vraie raison.
 
-Remède prévu : **blocs de taille fixe, recouvrants** (recouvrement ≥ la durée d'un
-générique). ⚠️ Le remède n'est pas testé : un générique à cheval sur une frontière
-serait coupé en deux. La maladie est prouvée, pas le remède.
+### 4 bis. Le taux d'échec de récupération, mesuré par hôte — et vidmoly n'est pas un cas à part
+
+Suite du point 2b. Deux choses à retenir : **l'instrument n'existait pas**, et
+une fois posé, **le problème s'est révélé général**.
+
+**L'instrument.** `oped/multi_host.py` contenait deux `except Exception: hits =
+[]` — un par branche (cascade et v2). Résilience volontaire et justifiée (« un
+hôte capricieux ne doit pas couler l'épisode »), mais l'exception était **jetée
+sans être ni journalisée ni typée**. Un timeout ffmpeg, un 404, une coupure
+réseau et un épisode réellement sans générique produisaient donc le *même objet* :
+une liste vide. Aucun run passé ne porte l'information — c'est pour ça que les
+57 % du matin avaient dû être obtenus par un détour (l'absence de fenêtre en
+cache). Corrigé : `HostStream.detect_error` + une ligne `[detect-fail]`.
+
+**La mesure** (`_measure_fetch_failures.py`, 690 cellules à jour, 1492 couples
+hôte-cellule). Approche par l'absence de fenêtre en cache, à lire comme une
+**borne haute** (un cache purgé compte ici comme un échec) :
+
+| hôte | tenté | sans fenêtre | taux |
+|---|---|---|---|
+| **vidmoly-va** | 441 | 97 | **22,0 %** |
+| **ansembed** | 497 | 99 | **19,9 %** |
+| sendvid | 12 | 1 | 8,3 % |
+| sibnet | 112 | 9 | 8,0 % |
+| megaplay | 414 | 26 | 6,3 % |
+| uqload | 16 | 1 | 6,2 % |
+| **TOTAL** | **1492** | **233** | **15,6 %** |
+
+**vidmoly-va n'est pas un cas particulier.** Il est le pire, mais ansembed le
+suit à moins de deux points — et c'est l'hôte le *plus sollicité*. Les 57 % du
+matin étaient un chiffre **conditionnel** : mesuré sur les cellules où vidmoly
+échouait seul, donc sur un sous-ensemble sélectionné pour ça. Sans condition, le
+taux tombe à 22 % et le défaut est **général** : 15,6 % de tous les couples
+hôte-cellule. Chercher « ce qui cloche chez vidmoly » était la mauvaise question.
+
+**Le lien causal, vérifié plutôt que supposé** : sans fenêtre → cellule vide dans
+**94 %** des cas (219/233), contre 26,8 % quand la fenêtre existe. Les 14
+exceptions sont cohérentes avec la borne haute (cache purgé après un succès).
+
+**Portée du réessai.** 225 cellules vides sur 690 (32,6 %) ; **97** ont au moins
+un hôte sans fenêtre, soit 142 fetches à rejouer (ansembed 61, vidmoly-va 46,
+megaplay 26, sibnet 8, sendvid 1). ⚠️ **Ne pas annoncer 97 cellules récupérées** :
+91 de ces 97 lignes sont antérieures au champ `expected_absent`, donc on ne peut
+pas savoir combien sont des absences légitimes. Base mesurée le 07/08 : 35 % des
+« absences » étaient déclarées par AnimeThemes. En attendre nettement moins.
+J'avais d'abord écrit « 97 gains réels, 0 absence déclarée » — un comptage vide
+de sens, le champ étant absent de 91 des lignes.
+
+**Le vrai livrable du réessai** n'est pas les cellules récupérées mais le
+diagnostic : c'est le premier run à porter `detect_error`, donc le premier où un
+échec persistant sera nommé au lieu d'être confondu avec une absence.
+
+Note relevée dès les premières minutes du run : une partie des hôtes « sans
+fenêtre » échouent en réalité à la **résolution** (`not in voir-anime page`, 404
+sur voir-anime), pas au transport. Ce sont deux défauts distincts et le second
+n'est pas réparable par un réessai.
+
+**Le contrôle du script de mesure a servi le jour même.** Il refuse de publier si
+le cas témoin (Charlotte ep2 vostfr) ne se comporte pas comme établi — et il a
+bloqué au premier lancement, parce que j'y avais encodé la croyance *périmée*
+(« vidmoly-va n'a pas de fenêtre ») au lieu du fait corrigé la veille (elle en a
+une, et son OP est à 32,21). Exactement le travail attendu de lui.
 
 ### 5. L'ancre `from_end` n'est pas duration-indépendante — 5 % des ED servis
 
