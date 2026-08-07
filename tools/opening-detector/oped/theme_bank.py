@@ -253,6 +253,12 @@ class ThemeHit:
     # vouches that the segment is the OP/ED, so these are held until the
     # intra-season pass confirms them across the season.
     derived: bool = False
+    # True when the theme was found ONLY by the last-resort whole-episode scan,
+    # its mapped window and wide fallback having both come up empty (Erased ep1
+    # ends on the OPENING song, at 1281 s). Un fait de PROVENANCE, pas une
+    # anomalie dérivée : `validate.annotate` réécrit `anomalies` en bloc et
+    # effacerait le marqueur — c'est ce qui est arrivé à la première version.
+    out_of_window: bool = False
     # Plausibility reasons from oped/validate.py (empty = clean). Those in
     # validate.BLOCKING hold the hit back from being served.
     anomalies: list = field(default_factory=list)
@@ -1736,8 +1742,32 @@ def detect_op_ed_v2(
         it inherits the stricter serve gate (image confirmation required) — the
         recovery can't smuggle in an unconfirmed guess."""
         hit = _cascade(refs, start_abs, dur, fallback)
-        if hit is not None or not pool_refs:
+        if hit is not None:
             return hit
+
+        # DERNIER RECOURS — le thème est MAPPÉ sur cet épisode par AnimeThemes,
+        # et il est introuvable dans sa fenêtre comme dans son repli élargi.
+        # C'est un signal fort : la source affirme que le thème est là, donc
+        # c'est notre fenêtre qui est aveugle, pas le catalogue. Erased ep1 en
+        # est le cas témoin — l'épisode se termine sur la CHANSON D'OUVERTURE
+        # (OP1 à 1281,0 → 1371,0, `fill` 0,98 sur trois hôtes), très au-delà des
+        # 720 s du repli, et le clamp anti-région-ED l'excluait par construction.
+        # Balayage de l'épisode entier, réservé aux refs mappées : le pool
+        # (F3) n'a pas ce prior et l'élargir ainsi inventerait des appariements.
+        if refs and (start_abs > 0.0 or dur < episode_duration):
+            hit = _cascade(refs, 0.0, episode_duration)
+            if hit is not None:
+                # Ni le `kind` ni le slug ne changent : l'identité du thème vient
+                # de l'APPARIEMENT, jamais de la position (règle du 07/08, née de
+                # deux versions du plan cassées par ce raccourci). La position
+                # n'est ici qu'une anomalie signalée, que la porte de service lit
+                # pour retenir le hit en attendant une validation.
+                hit.out_of_window = True
+                hit.low_confidence = True
+                return hit
+
+        if not pool_refs:
+            return None
         tried = {(r.slug, r.version) for r in (refs or [])}
         rest = [r for r in pool_refs if (r.slug, r.version) not in tried]
         if not rest:

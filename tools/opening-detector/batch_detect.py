@@ -331,6 +331,8 @@ def _row_from(ep: int, season: dict, mal_id, streams, per_host, hits,
             "anomalies": list(h.anomalies),
             "low_confidence": h.low_confidence,
             "derived": h.derived,
+            # Trouvé hors de sa fenêtre mappée : stocké, jamais servi sans revue.
+            "out_of_window": h.out_of_window,
         }
 
     def _host_entry(stream, host_hits: list) -> dict:
@@ -363,6 +365,17 @@ def _row_from(ep: int, season: dict, mal_id, streams, per_host, hits,
                     and h.source not in ("credited", "video")):
                 d["serve"] = False
                 d["held_reason"] = "inferred theme, no image confirmation"
+            # Thème trouvé HORS de sa fenêtre (balayage de dernier recours,
+            # theme_bank._detect_kind). Le cas est réel — Erased ep1 finit sur
+            # la chanson d'OUVERTURE — mais élargir la recherche à l'épisode
+            # entier élargit aussi la surface de faux positifs (chanson d'insert,
+            # récapitulatif). On stocke le timing, on ne le sert pas : la revue
+            # manuelle du point 5 est ce qui peut le promouvoir. Précision
+            # d'abord, exactement comme pour un thème emprunté.
+            if h.out_of_window:
+                d["out_of_window"] = True
+                d["serve"] = False
+                d["held_reason"] = "theme hors de sa fenetre, revue manuelle requise"
             # A self-derived reference is never served on detection alone —
             # season_pass.py is the only thing that can confirm it
             # (multi_host.DERIVED_REQUIRES_SEASON).

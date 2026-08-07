@@ -189,6 +189,11 @@ class ReconciledHit:
     # season pass and the API can rank it last.
     low_confidence: bool = False
     derived: bool = False           # built on a self-derived reference (F1)
+    # Trouvé seulement par le balayage de dernier recours (hors fenêtre mappée).
+    # L'accord entre hôtes ne suffit PAS à le valider : tous les hôtes passent la
+    # même référence dans le même matcher sur la même région élargie, donc ils
+    # reproduisent la même erreur éventuelle. Retenu jusqu'à revue manuelle.
+    out_of_window: bool = False
     # Alignment provenance of the consensus (uniform across agreeing hosts, else
     # "mixed"): "credited" (all matched the with-credits rip — frame-accurate,
     # highest trust), "audio" (all audio-aligned, frame-accurate), "video" (all
@@ -231,6 +236,8 @@ class ReconciledHit:
         if self.blocking:
             return False
         if DERIVED_REQUIRES_SEASON and self.derived:
+            return False
+        if self.out_of_window:
             return False
         if self.hosts_split:
             return False
@@ -514,6 +521,12 @@ def reconcile_hits(
                     hits[i].align_status == "rejected" for i in kept
                 ),
                 derived=bool(kept) and all(hits[i].derived for i in kept),
+                # ANY, pas ALL : il suffit qu'un hôte l'ait trouvé hors fenêtre
+                # pour que le consensus hérite du doute. `derived` peut se
+                # permettre ALL (la référence est self-dérivée ou elle ne l'est
+                # pas, uniformément) ; ici les hôtes peuvent diverger, et c'est
+                # justement le cas douteux qu'on veut retenir.
+                out_of_window=any(hits[i].out_of_window for i in kept),
             )
         )
 
