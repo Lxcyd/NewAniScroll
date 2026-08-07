@@ -561,6 +561,49 @@ avec la porte de non-régression en place.
   ending est presque toujours le **dernier** — donc supprimé. Témoin : Attack on
   Titan ep1, marqueur `Credits` à 1309,3 aujourd'hui jeté.
 
+### 12. Le lot `seed` — ce que réessai et amorçage rapportent réellement
+
+Lot construit pour ce qu'il peut prouver : les cellules qui n'avaient **qu'UN
+SEUL hôte qui répond** alors qu'un autre était présent et muet, donc à un hôte
+du seuil de service. 29 anime, 60 cellules, état figé avant le run
+(`out/seed_before.json`) pour qu'il y ait un point de comparaison.
+
+```
+hotes EN PLUS (franchissent le seuil) : 42/60   (70 %)
+inchangees                            : 18
+hotes EN MOINS (regression)           :  0
+```
+
+**Et surtout, la précision tient** — c'est la moitié du résultat :
+
+```
+consensus servis : 75 | retenus : 25
+spread MAX des hits servis : 3,67 s   (seuil SERVE_MAX_SPREAD_S = 10,0)
+servis violant le seuil ou marques hosts_split : 0
+```
+
+Sur les 111 paires (hôte déjà présent × hôte nouvellement apparu), 96 s'accordent
+à moins de 10 s. Les 15 désaccords se lisent : la plupart valent ~11,5 s et sont
+**cohérents entre eux** — sur l'anime 60285, ansembed (134,7) et sibnet (134,5)
+s'accordent *contre* megaplay (123,1), donc c'est le décalage d'encodage de
+megaplay, pas une erreur. Un seul vrai désaccord (`50204|2|vf`, ED à 1335,3
+contre 963,8, 371 s d'écart) : il n'a produit **aucun** hit de consensus. Rejeté,
+pas arbitré.
+
+**Le gagnant est sibnet**, présent dans ~35 des 42 gains — l'hôte qui affichait
+62 échecs de résolution (`embed unreachable or decoy`). Le réessai *dans le run*
+le récupère, là où la mesure inter-lots donnait 0/3 : ce motif est réellement
+transitoire à l'échelle de la seconde, pas à celle du jour. C'est la nuance que
+la mesure historique ne pouvait pas voir.
+
+**Coût, après le coupe-circuit** : 87 minutes, contre ~7 heures projetées sans
+lui. Réessais tombés de 64 à 12, circuit déclenché 25 fois, 5 amorçages, aucun
+balayage plein-épisode.
+
+⚠️ **Ne pas généraliser ce 70 %** : le lot a été choisi parce qu'il lui manquait
+un hôte. C'est le rendement du mécanisme *là où il s'applique*, pas un gain de
+couverture sur le catalogue.
+
 ### 11. Nos mesures portent sur un échantillon défavorable — et personne ne l'avait dit
 
 Découvert en construisant la priorisation du point 4
