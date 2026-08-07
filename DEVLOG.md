@@ -111,32 +111,55 @@ les ~10 % de désalignement sont répartis sur tous les hôtes (ansembed 6/67,
 megaplay 7/54, vidmoly-va 8/93). Charlotte ep2 faisait partie des 10 %.
 **J'ai généralisé depuis un seul cas** — la même faute que le matin même.
 
-**Ce qui EST établi, et qui est le vrai point de départ.** Sur les 58 cellules où
-vidmoly-va a raté l'OP seul, 50 ont une fenêtre de 300 s en cache et une
-référence exploitable. Appariement de cette fenêtre contre la référence :
+**Hypothèse 3 — « le pipeline jette des appariements corrects ». FAUSSE AUSSI,
+et c'était une erreur de mesure de ma part.** J'avais annoncé « 45 des 50
+cellules ont un appariement valide ignoré ». Le script globait
+`absa__*__{lang}__ep{N}__vidmoly-va…`, donc il attrapait **n'importe quel anime**
+ayant cet épisode et retenait le premier par ordre alphabétique : j'appariais la
+fenêtre de Charlotte contre les références de Charlotte pour des cellules qui
+n'étaient pas Charlotte. Avec la table `mal_id → slug` correcte, il ne reste que
+**2** appariements valides ignorés sur 58.
+
+**Deuxième erreur de méthode, corrigée dans la foulée** : mon agrégation gardait
+le **premier** lot rencontré par ordre alphabétique (`audit.jsonl` avant
+`audit6.jsonl`), c'est-à-dire le **plus ancien**. Charlotte ep2, mon cas témoin,
+avait été résolu : `op: None` dans `audit`…`audit5` (05/08), puis
+`op = 32.1-123.8` dans `audit6` et `audit7` (06/08). Je diagnostiquais une
+cellule déjà réparée. Recalcul en gardant le lot le plus récent : vidmoly-va
+passe de 36,2 % à **32,9 %** d'échecs en solo — le phénomène tient, mais aucun
+chiffre de la première version n'était fiable.
+
+**CE QUI EST ÉTABLI.** Sur les 58 cellules à jour où vidmoly-va rate l'OP seul,
+contrôle de l'existence même d'une fenêtre audio en cache :
 
 ```
-trouve (fill >= 0.5) : 45 / 50     charlotte ep2 fill=0.959, dandadan ep1 fill=0.988,
-aucun match          :  5 / 50     horimiya ep13 fill=0.987, ...
+vidmoly-va SANS fenetre audio, les autres hotes AVEC :  33   (57 %)
+vidmoly-va AVEC fenetre                              :  25
 ```
 
-**L'audio est là, l'appariement est là, et le pipeline les jette.** La perte
-n'est ni dans le téléchargement, ni dans le décodage, ni dans l'empreinte, ni
-dans le matcher — elle est dans la logique en aval, entre le résultat de
-l'appariement et l'écriture de `per_host[...]["op"]`. Un `op: None` signifie
-qu'aucun hit n'a été construit, pas qu'un hit a été retenu.
+**Dans la majorité des cas, l'audio de vidmoly-va n'a jamais été récupéré**,
+alors que celui des autres hôtes l'a été pour le même épisode. Ce n'est ni un
+problème d'empreinte, ni de matcher, ni de logique de cascade : c'est en amont,
+à la résolution du flux ou au décodage. C'est cohérent avec ce que le projet sait
+déjà de la famille vidmoly (uploads instables, qui meurent) et avec le tout
+premier signalement de Luc — « vidmoly a souvent du mal ». Les timeouts ffmpeg et
+bridge ajoutés le 06/08 transforment un hôte qui cale en fenêtre absente, donc en
+`op: None`.
 
-**Où précisément : inconnu.** La piste des clés de cache `w…` (chemin
-fenêtre-relative) est écartée : 40 fichiers contre 3 021, c'est une voie
-marginale. La cascade `_cascade` (`theme_bank.py:1602`) et le choix de version
-par `fill` restent à instrumenter.
+Le reste (25 cellules) n'est pas expliqué : 2 appariements valides ignorés, 1 sans
+appariement, 22 dont la référence OP n'est plus en cache — donc non testables.
 
 **Conséquence pour le plan** : le correctif « empreinte par blocs recouvrants »
-qui était en position 2 du chemin court **n'a plus de justification** — il
-soignait une maladie qui n'existe pas. Le test contrôlé montre au moins qu'il ne
-nuirait pas, mais on ne code pas un remède sans maladie. Remplacé par : *tracer
-un cas vidmoly-va de bout en bout et identifier la ligne qui écarte un hit à
-4011 votes*.
+est retiré (maladie inexistante), et « trouver la ligne qui jette un hit » aussi
+(le phénomène n'existe qu'à la marge). Ce qu'il reste à faire est plus banal et
+plus utile : **mesurer le taux d'échec de récupération du flux par hôte, et
+réessayer**. Un hôte qui ne répond pas est un problème de transport, pas de
+détection.
+
+**Leçon de méthode, la plus chère de la journée** : trois hypothèses successives,
+trois falsifications, dont deux dues à mes propres scripts de mesure (un glob trop
+large, un tri qui gardait le plus ancien). Avant d'écrire un constat, vérifier le
+script qui l'a produit sur un cas dont on connaît la réponse.
 
 | lecteur | % de replis 720 s | % d'échecs en solo |
 |---|---|---|
