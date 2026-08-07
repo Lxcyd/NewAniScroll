@@ -34,6 +34,7 @@ import fs from "node:fs";
 import readline from "node:readline";
 import { createClient } from "@libsql/client";
 import { DISPLAYED_HOSTS } from "../lib/hostRegistry.js";
+import { implausibleReason } from "./lib/opedPlausibility.mjs";
 
 const args = Object.fromEntries(
   process.argv.slice(2).map((a) => {
@@ -43,8 +44,16 @@ const args = Object.fromEntries(
 );
 const IN = args.in || "tools/opening-detector/results.jsonl";
 const DRY = !!args.dry;
+const REVERT = typeof args.revert === "string" && args.revert !== "1" ? args.revert : null;
+const CONFIRMED = !!args.yes;
+const BATCH_ID =
+  (typeof args.batch === "string" && args.batch !== "1" && args.batch) ||
+  new Date().toISOString().replace(/[-:]/g, "").slice(0, 15) + "Z";
 
-if (!fs.existsSync(IN)) {
+// Un retour arriere ne doit rien exiger d'autre que l'identifiant du lot : le
+// JSONL d'origine peut avoir ete supprime, et c'est justement quand tout va mal
+// qu'on en a besoin.
+if (!REVERT && !fs.existsSync(IN)) {
   console.error(`[import-host] input not found: ${IN}`);
   process.exit(1);
 }
@@ -69,23 +78,43 @@ CREATE TABLE IF NOT EXISTS oped_host_skips (
   algo_version       INTEGER NOT NULL DEFAULT 1,
   serve              INTEGER NOT NULL DEFAULT 0,
   updated_at         INTEGER NOT NULL,
+  batch_id           TEXT,
   PRIMARY KEY (mal_id, episode, lang, host)
 )`;
+
+/** Migration defensive et idempotente (meme motif que player_map.algo_version). */
+async function ensureBatchColumn(db) {
+  try {
+    await db.execute("ALTER TABLE oped_host_skips ADD COLUMN batch_id TEXT");
+  } catch {
+    /* deja presente */
+  }
+}
 
 const allowed = new Set(DISPLAYED_HOSTS);
 const now = Math.floor(Date.now() / 1000);
 
-const servableIv = (h) =>
-  h &&
-  typeof h.start === "number" &&
-  typeof h.end === "number" &&
-  h.end > h.start &&
-  h.serve !== false // a held / low-confidence interval is dropped (precision-first)
-    ? h
-    : null;
+/** Un intervalle servable POUR CE HOTE : la porte du detecteur, plus la
+ *  plausibilite arithmetique contre la duree de cet encodage precis.
+ *
+ *  La duree compte ici plus qu'ailleurs : une ligne par-hote est ce que le
+ *  lecteur recoit quand on connait son serveur, donc une borne au-dela du
+ *  fichier de CE hote est directement une pastille fausse a l'ecran.
+ *  `onBad` remonte la raison pour qu'un rejet ne soit jamais muet. */
+const servableIv = (h, duration, ctx, onBad) => {
+  if (!h || typeof h.start !== "number" || typeof h.end !== "number") return null;
+  if (h.end <= h.start) return null;
+  if (h.serve === false) return null; // tenu par le detecteur (precision-first)
+  const why = implausibleReason(h, duration);
+  if (why) {
+    onBad({ ...ctx, why });
+    return null;
+  }
+  return h;
+};
 
 /** Expand one per-episode record into per-host rows. Returns { rows, rejected }. */
-function rowsFromRecord(rec) {
+function rowsFromRecord(rec, impossible) {
   const malId = Number(rec.mal_id);
   const episode = Number(rec.episode);
   const lang = rec.lang || "vostfr";
@@ -100,8 +129,13 @@ function rowsFromRecord(rec) {
       rejected++;
       continue;
     }
-    const op = servableIv(hd.op);
-    const ed = servableIv(hd.ed);
+    const dur = hd.duration ?? null;
+    const op = servableIv(hd.op, dur, { malId, episode, lang, host, kind: "op" }, (x) =>
+      impossible.push(x),
+    );
+    const ed = servableIv(hd.ed, dur, { malId, episode, lang, host, kind: "ed" }, (x) =>
+      impossible.push(x),
+    );
     const serve = !!(op || ed);
     const confirmed =
       (op && op.confirmed_by_video === true) ||
@@ -119,7 +153,7 @@ function rowsFromRecord(rec) {
       edFromEndStart: ed ? ed.from_end_start ?? null : null,
       edFromEndEnd: ed ? ed.from_end_end ?? null : null,
       edVotes: ed ? ed.votes ?? null : null,
-      duration: hd.duration ?? null,
+      duration: dur,
       source: (op || ed)?.source ?? "audio",
       confirmedByVideo: confirmed ? 1 : 0,
       algoVersion: Number(hd.algo_version ?? 1),
@@ -130,7 +164,43 @@ function rowsFromRecord(rec) {
   return { rows: out, rejected };
 }
 
+// ── Retour arriere ───────────────────────────────────────────────────────────
+if (REVERT) {
+  const db = createClient({
+    url: process.env.TURSO_DATABASE_URL,
+    authToken: process.env.TURSO_AUTH_TOKEN,
+  });
+  await ensureBatchColumn(db);
+  const n = await db.execute({
+    sql: "select count(*) c from oped_host_skips where batch_id = ?",
+    args: [REVERT],
+  });
+  const count = Number(n.rows[0].c);
+  const sample = await db.execute({
+    sql: "select mal_id, episode, lang, host from oped_host_skips where batch_id = ? limit 8",
+    args: [REVERT],
+  });
+  console.log(`[import-host] lot "${REVERT}" : ${count} ligne(s) en base`);
+  for (const r of sample.rows) {
+    console.log(`    mal${r.mal_id} ep${r.episode} ${r.lang} ${r.host}`);
+  }
+  if (!count) process.exit(0);
+  if (!CONFIRMED) {
+    console.log(
+      `[import-host] apercu seulement. Ajouter --yes pour effacer ces ${count} ligne(s).`,
+    );
+    process.exit(0);
+  }
+  await db.execute({
+    sql: "delete from oped_host_skips where batch_id = ?",
+    args: [REVERT],
+  });
+  console.log(`[import-host] ${count} ligne(s) effacee(s) pour le lot "${REVERT}"`);
+  process.exit(0);
+}
+
 const rows = [];
+const impossible = [];
 let lines = 0;
 let bad = 0;
 let rejected = 0;
@@ -150,7 +220,7 @@ for await (const line of rl) {
     bad++;
     continue;
   }
-  const r = rowsFromRecord(rec);
+  const r = rowsFromRecord(rec, impossible);
   rejected += r.rejected;
   if (r.rows.length === 0 && r.rejected === 0) bad++;
   rows.push(...r.rows);
@@ -162,6 +232,19 @@ console.log(
     `(undisplayed host) → ${rows.length} rows (${nServe} servable, ` +
     `${rows.length - nServe} processed-empty). Allowlist: ${[...allowed].join(", ")}`,
 );
+
+if (impossible.length) {
+  console.log(
+    `[import-host] ${impossible.length} interval(s) REJECTED as impossible ` +
+      `(see scripts/lib/opedPlausibility.mjs):`,
+  );
+  for (const r of impossible.slice(0, 20)) {
+    console.log(
+      `    mal${r.malId} ep${r.episode} ${r.lang} ${r.host} ${r.kind} — ${r.why}`,
+    );
+  }
+  if (impossible.length > 20) console.log(`    … and ${impossible.length - 20} more`);
+}
 
 if (DRY) {
   console.log("[import-host] --dry: not writing. Sample rows:");
@@ -175,6 +258,8 @@ const db = createClient({
 });
 
 await db.execute(CREATE_SQL);
+await ensureBatchColumn(db);
+console.log(`[import-host] lot "${BATCH_ID}" — reversible via --revert=${BATCH_ID}`);
 
 let written = 0;
 for (let i = 0; i < rows.length; i += 100) {
@@ -184,8 +269,9 @@ for (let i = 0; i < rows.length; i += 100) {
       sql: `INSERT INTO oped_host_skips
               (mal_id, episode, lang, host, op_start, op_end, op_votes,
                ed_start, ed_end, ed_from_end_start, ed_from_end_end, ed_votes,
-               duration, source, confirmed_by_video, algo_version, serve, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               duration, source, confirmed_by_video, algo_version, serve,
+               updated_at, batch_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(mal_id, episode, lang, host) DO UPDATE SET
               op_start = excluded.op_start,
               op_end = excluded.op_end,
@@ -200,12 +286,13 @@ for (let i = 0; i < rows.length; i += 100) {
               confirmed_by_video = excluded.confirmed_by_video,
               algo_version = excluded.algo_version,
               serve = excluded.serve,
-              updated_at = excluded.updated_at`,
+              updated_at = excluded.updated_at,
+              batch_id = excluded.batch_id`,
       args: [
         r.malId, r.episode, r.lang, r.host, r.opStart, r.opEnd, r.opVotes,
         r.edStart, r.edEnd, r.edFromEndStart, r.edFromEndEnd, r.edVotes,
         r.duration, r.source, r.confirmedByVideo, r.algoVersion, r.serve,
-        r.updatedAt,
+        r.updatedAt, BATCH_ID,
       ],
     })),
     "write",

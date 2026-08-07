@@ -1,5 +1,366 @@
 # DEVLOG
 
+## 2026-08-07 — Audit OP/ED : ce que la nuit de tests a révélé
+
+Journée d'audit, sans changement de production hormis un revert. Tout ce qui suit
+est mesuré ; les cas témoins sont nommés pour servir de tests d'acceptation.
+
+### 0. Une régression poussée puis revertée — la leçon d'abord
+
+Commit `4e5567b` (filtrage AniSkip par montage) poussé sur dev après vérification
+sur **trois titres choisis parce qu'ils illustraient le bug visé**. Luc, en jouant :
+« c'est tout décalé, largement pire qu'avant ». Reverté en `88170c1`.
+
+Trois défauts réels dans ce que j'avais poussé :
+- une règle de cohérence qui validait un montage étranger dès qu'il était **seul**
+  (Dragon Ball ep1 : unique soumission timée sur 1452 s, servie sur notre flux de
+  1244 s) ;
+- « ne jamais remplacer une réponse peuplée par une vide », qui rendait ce mauvais
+  affichage **permanent** en jetant l'information corrective ;
+- un garde `askedWithLength` jamais réinitialisé entre épisodes, donc l'appel
+  correcteur ne partait quasiment jamais.
+
+**Leçon** : vérifier sur les cas qui illustrent le bug ne prouve rien. Aucun
+changement ne part sans **rejeu comparatif sur un lot large**.
+
+### 1. Le détecteur n'a jamais servi personne
+
+`oped_skips` et `oped_host_skips` sont **vides**. Prod et dev interrogés
+directement ne répondent jamais `source: oped`, toujours `aniskip`/`anime_skip`.
+Les ~975 cellules servables (489 OP, 486 ED sur 690 paires) n'existent que dans
+`tools/opening-detector/out/*.jsonl`. Tout le travail de détection est à ce jour
+sans effet sur un seul visiteur.
+
+### 2. Ce qu'on sert aujourd'hui est mesurablement faux
+
+Sur 305 épisodes où le site répond et où nous avons nos propres durées, en ne
+testant qu'une arithmétique (un générique ne peut pas commencer après la fin) :
+
+| | |
+|---|---|
+| faux pour **tous** nos lecteurs | 10 / 305 — **3,3 %** |
+| faux pour **certains** lecteurs | 37 / 305 — 12,1 % |
+| plausible partout | 258 / 305 — 84,6 % |
+
+Sailor Moon ep1 : ED annoncé 1326-1416 sur un fichier de 1263 s. Re:Zero ep3 : ED
+à 2686-2771 sur ~1500 s. Le 12,1 % est en partie gonflé par nos propres sondes
+tronquées (durées à 700 s sur des épisodes de 24 min) — ne pas le citer sans cette
+réserve.
+
+### 3. Erased ep1 : un générique de fin sur la chanson d'*opening*
+
+Cas qui a falsifié deux versions du plan. Mesure sur cache, queue de l'épisode
+(fenêtre 1132 → 1372 s) :
+
+```
+ED1 (Sore wa Chiisana Hikari no You na) : score 0      -> absente
+OP1 (Re:Re:)                            : score 26-41  -> presente
+
+ansembed    fichier 1372.1   OP1 a 1281.50   depuis la fin 90.60
+megaplay    fichier 1372.0   OP1 a 1281.54   depuis la fin 90.46
+vidmoly-va  fichier 1381.2   OP1 a 1288.66   depuis la fin 92.54
+```
+
+Confirmé à l'écran par Luc : crédits défilants de 21:26 à 22:52. **AnimeThemes a
+raison** (ED1 ne couvre pas l'ep1, OP1 est mappé 1-10) ; c'est notre fenêtre de
+recherche qui est aveugle — `OP_SEARCH = (0.0, 300.0)`, repli 720 s
+(`theme_bank.py:1362-1366`), et la chanson est à 21 minutes.
+
+**Conséquences** : le livrable n'est pas « OP » ou « ED » mais **une séquence de
+générique sautable et sa position** ; l'étiquette doit découler du thème apparié,
+jamais de la position. Et « thème mappé mais introuvable dans sa fenêtre » est un
+signal fort qu'on jette au lieu d'élargir la recherche.
+
+**Erreur à ne pas répéter** : j'avais donné cette cellule comme la preuve
+qu'AnimeThemes ment. En mettant au compte du catalogue ce qui venait de nous,
+j'avais fabriqué un « 31 % de contamination » qui ne vaut rien.
+
+### 4. L'empreinte audio n'est pas invariante à la taille de la fenêtre
+
+Trouvé en cherchant pourquoi vidmoly-va échoue si souvent. Charlotte ep2 : il sert
+le **même fichier** que sibnet (1442,04 contre 1442,03) et apparie l'OP **mieux
+que tous** (4011 votes contre 2936 et 2912). Le pipeline a pourtant écrit
+`op: None`.
+
+```
+meme audio (0-300 s), meme hote :
+  empreinte calculee sur 300 s            -> 4011 votes, fill 0.959  ACCEPTE
+  empreinte calculee sur 720 s, tranchee  -> 1227 votes, fill 0.333  REJETE
+```
+
+La sélection des pics est normalisée globalement : décoder 720 s au lieu de 300
+change les hachages du même audio. **Le repli large détruit l'appariement qu'il
+était censé sauver.**
+
+| lecteur | % de replis 720 s | % d'échecs en solo |
+|---|---|---|
+| sibnet | 13,2 % | 1,7 % |
+| megaplay | 15,3 % | 1,9 % |
+| sendvid | 20,0 % | 0,0 % |
+| ansembed | 27,2 % | 16,6 % |
+| **vidmoly-va** | **39,6 %** | **36,2 %** |
+| uqload | 44,4 % | 17,4 % |
+
+Même ordre dans les deux colonnes. **vidmoly-va n'est pas un mauvais lecteur** :
+c'est celui qu'on pousse le plus souvent dans une fenêtre cassée. *Pourquoi* il y
+tombe plus reste une hypothèse (encodages décalés : 0,66 s de retard au décodage
+ici, +9 s sur Erased) — non nécessaire au correctif.
+
+Remède prévu : **blocs de taille fixe, recouvrants** (recouvrement ≥ la durée d'un
+générique). ⚠️ Le remède n'est pas testé : un générique à cheval sur une frontière
+serait coupé en deux. La maladie est prouvée, pas le remède.
+
+### 5. L'ancre `from_end` n'est pas duration-indépendante — 5 % des ED servis
+
+Le mécanisme même du service. Sur **241 cellules ED servies, 12 (5 %)** ont des
+ancres `from_end` dispersées de plus de 10 s entre hôtes :
+
+```
+Erased  ep3   megaplay  90.9  ansembed  90.9  vidmoly-va  75.3    ecart 15.7 s
+Re:Zero ep1   sibnet   147.1  megaplay  96.3  vidmoly-va  95.4    ecart 51.7 s
+Naruto  ep2   megaplay 121.3  ansembed  96.1  vidmoly-va 119.8    ecart 25.2 s
+```
+
+Et le champ `spread` annonce **0,02 s** sur Erased. Il n'est pas faux : il mesure
+la dispersion des positions **absolues**, identiques ici. Mais
+`from_end = durée − début` — deux hôtes qui placent l'ED au même endroit dans des
+fichiers dont les **fins** diffèrent ont des ancres différentes.
+
+La route re-projette exactement cette ancre (`start = episodeLength −
+fromEndStart`), donc le visiteur sur l'hôte minoritaire reçoit un ED décalé de
+tout l'écart — jusqu'à 51 s.
+
+**Ni l'absolu ni le `from_end` n'est un invariant.** L'absolu vaut si le début du
+fichier est identique, le `from_end` si la fin l'est. `SERVE_MAX_SPREAD_S` ne
+contrôle que le premier.
+
+### 6. On allait reconstruire le bug AniSkip sur nous-mêmes
+
+`oped_host_skips.duration` et `oped_skips.canonical_duration` stockent la durée
+contre laquelle la mesure a été faite. `hostRowToSkips` et `opedRowToSkip`
+(`pages/api/v2/skip/[malId]/[episode].ts`) ne les lisent **jamais**. Quand un hôte
+réuploade un **montage différent** — le cache megaplay tourne, des uploads meurent
+— la ligne devient un timing étranger servi avec pleine confiance, **avant** le
+crowdsourcing. La re-projection `from_end` aggrave l'illusion : elle corrige un
+rognage, jamais un remontage.
+
+### 7. Autres incohérences relevées dans les résultats de la nuit
+
+- **Un même segment sous deux étiquettes** :
+  `i-cant-understand-what-my-husband-is-saying` (format court, épisode de 210 s),
+  OP à 180,42→208,60 et ED à 180,46→210,13. Retenus par la porte, mais rien ne
+  l'interdisait.
+- **Étiquette de thème fausse, timing juste** : `100 girlfriends` ep12 — ED2 pour
+  sendvid/megaplay/ansembed, **ED1** pour vidmoly-va, tous à 1324,5→1414,4 dans
+  des fichiers de même durée. ED1 et ED2 se ressemblent trop pour être distingués.
+  Donc « une référence connue s'apparie dans la fenêtre » est une confirmation plus
+  faible qu'elle n'en a l'air.
+- **Reproductibilité** : 54 cellules produites par plusieurs runs, **4 divergent de
+  plus de 5 s** (Hyouka ep3 : 1527,2 vs 1535,2 ; Dandadan ep4 : 386,0 vs 393,1).
+  Selon le run importé, on servait juste ou faux.
+- **Plausibilité arithmétique : zéro violation** sur nos 690 cellules (contre 3,3 %
+  côté AniSkip). Cette porte protège les entrées externes et manuelles, pas notre
+  propre sortie.
+
+### 8. AnimeThemes : trois défaillances distinctes, mesurées sans AniSkip
+
+1. **Trou dans le mapping par épisode** — aucun thème mappé alors que le thème est
+   là. Nos hits `inferred` le mesurent : **85 OP (21 %) et 57 ED (14 %)** des
+   cellules produites, dont 48 OP et 19 ED servies. **Une cellule sur cinq pour
+   l'OP.** C'est ce qui condamne `expected_absent`.
+2. **Aucune référence utilisable** (pas d'entrée, ou thème absent de notre
+   encodage) — 24 cellules sur 6 anime, récupérées en `SELF-OP`/`SELF-ED`, aucune
+   servie (`DERIVED_REQUIRES_SEASON`).
+3. **Ce qui n'en est pas une** — Erased ep1 (§3).
+
+Règle : le catalogue est un **indice de départ**, jamais une borne. Il dit quels
+thèmes existent, jamais où ils sont ni s'ils sont absents d'un épisode.
+
+### 9. Échelle — le chiffre qui contraint tout le reste
+
+```
+anime en base       : 22 547
+entrees player_map  :  3 505  (2 364 verified + 1 131 heuristic)
+debit mesure        : 116 anime x 4 episodes en 7 h -> ~66 episodes/h
+```
+
+| ambition | volume | temps machine continu |
+|---|---|---|
+| 4 épisodes échantillonnés sur tout `player_map` | ~14 000 ép. | **~9 jours** |
+| couverture complète (~12 ép./titre) | ~42 000 ép. | **~26 jours** |
+
+Par langue. **Une passe uniforme n'est pas réaliste** → prioriser par trafic réel.
+Le risque principal n'est pas l'échec technique, c'est de ne jamais aboutir.
+
+### 9 bis. Le plafond adressable — mesuré, et c'est une bonne nouvelle
+
+Point 0 du plan, exécuté le 07/08 (`tools/opening-detector/_measure_ceiling.mjs`,
+lecture seule). L'index AnimeThemes est aspiré une fois (50 pages, 4 910 titres
+avec identifiant AniList) et croisé avec `player_map`.
+
+**Correction au passage** : les 3 505 lignes `player_map` ne font que **2 235
+titres distincts** — une ligne par (titre, source, langue). C'est le bon
+dénominateur ; le chiffre de 3 505 cité plus haut surestime le volume d'environ
+50 %, et donc aussi les 9 à 26 jours du §9.
+
+```
+entree AnimeThemes exploitable :  1915   85.7 %
+entree sans aucune video       :     2    0.1 %
+aucune entree AnimeThemes      :   318   14.2 %
+
+verified    1621 / 1706 exploitables  (95.0 %)
+heuristic    294 /  529 exploitables  (55.6 %)
+```
+
+Profil des classes :
+
+| classe | n | année méd. | popularité méd. |
+|---|---|---|---|
+| exploitables | 1 915 | 2020 | **51 111** |
+| sans entrée | 318 | 2011 | **4 255** |
+
+**Plafond pondéré par la popularité : 97,5 %.** Les titres hors de portée sont
+douze fois moins populaires que les autres — ce sont des obscurités. Le plafond
+vu par un visiteur n'a donc rien à voir avec le plafond compté par titre.
+
+**Ce que ça tranche** : le risque que le plan soit bâti sur du sable est levé. Le
+chemin par référence peut couvrir l'essentiel de ce qui est réellement regardé,
+et les 14 % restants (dont 39 titres d'avant 2000) sont exactement la classe
+destinée au repli auto-dérivé et aux surcharges manuelles. Ça conforte aussi le
+point 4 : prioriser par le trafic est ce qui rend l'objectif atteignable.
+
+Vérifications faites avant de croire le chiffre : la page 51 est vide et `next`
+est nul (aspiration complète, pas tronquée) ; cinq titres témoins sont présents
+avec le bon nombre de thèmes ; et un échantillon des « absents » interrogé par la
+seconde voie (`/resource`) confirme soit l'absence totale, soit une ressource
+orpheline sans anime lié.
+
+### 9 ter. Point 1 exécuté — plausibilité, `batch_id`, garde de péremption
+
+**Ce qui n'était pas à écrire.** Le plan prévoyait un `oped/plausibility.py`.
+`oped/validate.py` fait déjà ce travail côté détecteur, et plus finement : bande
+de longueur 25-150 s, bord rogné, couverture des votes, divergence audio/image,
+chevauchement OP/ED. C'est ce qui explique les zéro violations du §7. En écrire un
+second aurait dupliqué la règle — exactement ce que la docstring de
+`lib/skip/providers.ts` reproche aux contrats réimplémentés.
+
+**Ce qui manquait vraiment : la frontière de la base.** Les deux scripts d'import
+ne vérifiaient que `end <= start`, sans aucune conscience de la durée. Nouveau
+`scripts/lib/opedPlausibility.mjs`, une seule implémentation partagée, règle
+minimale et sans hypothèse sur le contenu (un OP en plein milieu passe, un
+générique de fin sur la chanson d'ouverture passe) :
+
+```
+[import-oped] 5 lines -> 3 intervals
+[import-oped] 4 interval(s) REJECTED as impossible :
+    mal2 ep1 vostfr ed — commence apres la fin (1326.0s >= 1263.0s)   <- le cas Sailor Moon reel
+    mal3 ep1 vostfr op — intervalle degenere (3.0s < 5s)
+    mal4 ep1 vostfr op — debut negatif (-5.0s)
+    mal4 ep1 vostfr ed — finit apres la fin (1500.0s > 1420.0s)
+```
+
+Un intervalle sans durée connue **passe** : rejeter faute d'information
+transformerait une donnée incomplète en donnée perdue. Et les rejets sont
+comptés et affichés — une ligne qui disparaît sans un mot, c'est un mauvais lot
+repéré six semaines trop tard.
+
+**`batch_id` + retour arrière**, sur les deux tables (migration `ALTER TABLE`
+défensive, même motif que `player_map.algo_version`). `--revert=<id>` montre ce
+qui partirait, `--revert=<id> --yes` efface. Le retour arrière ne dépend pas du
+JSONL d'origine : c'est justement quand tout va mal qu'il a disparu.
+
+**Garde de péremption (0.c)** dans `pages/api/v2/skip/[malId]/[episode].ts`. Deux
+seuils, parce que les deux champs ne disent pas la même chose : **10 s** par hôte
+(la durée stockée est celle de cet encodage précis, l'écart attendu se limite au
+bruit ffprobe/lecteur) et **60 s** sur `canonical_duration` (une médiane sur des
+encodages qui diffèrent légitimement — Erased ep1 : 1372 s contre 1381 s). En cas
+de refus on retombe sur le participatif, jamais sur du vide.
+
+Vérifié en local contre une ligne fabriquée sur un `mal_id` inexistant :
+
+```
+reconcilie (canonical 1400, tolerance 60) : 1400/1440/1455 servis, 1465/1500 refuses
+par hote   (duration  1400, tolerance 10) : 1400/1408 -> oped-host,
+                                            1412/1450 -> refuses, repli sur le reconcilie
+```
+
+Puis les lignes de test effacées par `--revert=test-0c --yes`, les deux tables
+revenues à zéro, et la route à `source: none`. Le retour arrière est donc éprouvé
+**avant** d'en avoir besoin, pas pendant un incident.
+
+**Découverte au passage, et elle compte** : *aucun appelant n'envoie
+`episodeLength`*. `lib/skip/prefetchSkips.ts` sait le transmettre, mais aucun de
+ses sites d'appel ne remplit le champ. La route reçoit donc toujours 0, ce qui
+rend **inertes** la re-projection `from_end` de l'ED **et** cette garde. Les faire
+mordre suppose que le client transmette la durée réelle — précisément le
+changement qui a causé la régression revertée en `88170c1`. À refaire au point 5,
+avec la porte de non-régression en place.
+
+### 10. État de l'art (vérifié ce jour)
+
+- **[intro-skipper](https://github.com/intro-skipper/intro-skipper)** (Jellyfin,
+  2 627 étoiles, actif) — Chromaprint sur la répétition inter-épisodes, plus
+  silence et image noire. Valide notre architecture. Mais il ne cherche l'OP que
+  dans les premiers 25 % et l'ED que s'il dure moins de 4 min : les hypothèses de
+  position que ce projet a démontrées fausses en anime.
+- **[open-anime-timestamps](https://github.com/jonbarrow/open-anime-timestamps)** —
+  exactement notre approche (Dejavu), 41 étoiles, mort depuis août 2022.
+- **[arXiv 2504.09738](https://arxiv.org/html/2504.09738v1)** (CLIP + attention,
+  972 épisodes, visuel seul) : exactitude 94,3 %, **précision 89,0 %**, rappel
+  97,0 %. Un segment servi sur neuf est faux → **pas un décideur**, mais un bon
+  générateur de candidats. Ses modes d'échec listés tombent sur l'anime : coupes
+  rapides des intros animées, crédits en surimpression, intros très courtes.
+- **AWS Rekognition** revendique les crédits stylisés d'anime mais est payant
+  (0,05 $/min, S3 obligatoire) → **écarté**. Le besoin réel est une borne exacte :
+  [PySceneDetect](https://www.scenedetect.com/), TransNetV2, AutoShot le font
+  gratuitement.
+- **Netflix** combine algorithme **et curation humaine** — argument en faveur de la
+  file de revue.
+- **Bugs mesurés chez Anime-Skip** : notre table de types contient `Ending`,
+  `New Ending`, `Mixed Ending` **qui n'existent pas** dans leur énumération, et il
+  manque `Credits`, le nom d'ending le plus courant (leurs 15 types réels : Canon,
+  Must Watch, Branding, Intro, Mixed Intro, New Intro, Recap, Filler, Transition,
+  Credits, Mixed Credits, New Credits, Preview, Title Card, Unknown). De plus la
+  conversion points → intervalles ferme chaque marqueur avec le suivant, or un
+  ending est presque toujours le **dernier** — donc supprimé. Témoin : Attack on
+  Titan ep1, marqueur `Credits` à 1309,3 aujourd'hui jeté.
+
+### Décisions (Luc, 07/08)
+
+- **Détecteur d'abord**, assainissement du crowdsourcing ensuite — confirmé **en
+  connaissance des délais** (§9) et des 3,3 % servis faux aujourd'hui.
+- **Aucun import sans validation manuelle.** Flux cible : run local → vérification
+  → dev avec les pastilles → prod → automatisé.
+- **Rien de payant.**
+- **Graduation N = 3** : après 3 lots consécutifs sans erreur, une catégorie passe
+  en import automatique ; une seule erreur la fait retomber.
+- **Cible reformulée** : « zéro erreur **détectable** + résiduel mesuré et
+  publié », le zéro absolu n'étant pas démontrable.
+- **La détection de texte est écartée** (objection de Luc) : nos flux sont en
+  VOSTFR hardsub, il y a du texte à l'écran la moitié de l'épisode.
+- **Le bouton de signalement existe déjà** (`components/shared/ReportModal.tsx`,
+  motif `wrong_skip`) — il faut l'**enrichir** (serveur actif, durée réelle,
+  intervalle servi), pas en construire un.
+
+### Leçons / pièges
+
+- **Un commentaire peut mentir.** `episodeLength=0` ne « désactive pas juste leur
+  départage » chez AniSkip : ça laisse revenir des résultats de montages sans
+  rapport. Et la docstring de SkipOverlay affirmait envoyer un indice que le client
+  n'envoyait jamais.
+- **Ne jamais jeter une information corrective** pour préserver un affichage.
+- **Un garde d'idempotence sur `useRef` doit être réinitialisé** quand ses
+  dépendances changent, sinon il bloque le cas normal.
+- **Mesurer avant de croire** : j'ai déclassé la détection de crédits à l'image sur
+  une intuition, puis dû la remonter. Toute nouvelle nature de preuve doit être
+  mesurée sur les ~975 cellules connues **avant** d'obtenir un droit de vote.
+- **Un appariement guidé n'est pas un témoin indépendant** : si on dit à un hôte où
+  chercher, le trouver ne confirme rien. À marquer `verified_from_peers` — donne la
+  couverture pour cet hôte, jamais une voix.
+- **`_self_reference_pass` (F1) est aveugle à l'échec d'un seul hôte** : il exige
+  que >66 % de la saison soit vide (`SELF_REF_MIN_HIT_RATE = 0.34`) et teste la
+  ligne **réconciliée**, pas les lignes par hôte.
+
 ## 2026-08-06 — Le cache de sondes n'etait pas indexe par EPISODE
 
 Suite du precedent. Le repli marche (ep2 VF bascule bien sur Anime-Sama Sibnet,

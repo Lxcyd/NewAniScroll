@@ -26,6 +26,7 @@
 import fs from "node:fs";
 import readline from "node:readline";
 import { createClient } from "@libsql/client";
+import { implausibleReason } from "./lib/opedPlausibility.mjs";
 
 const args = Object.fromEntries(
   process.argv.slice(2).map((a) => {
@@ -35,8 +36,15 @@ const args = Object.fromEntries(
 );
 const IN = args.in || "tools/opening-detector/results.jsonl";
 const DRY = !!args.dry;
+const REVERT = typeof args.revert === "string" && args.revert !== "1" ? args.revert : null;
+const CONFIRMED = !!args.yes;
+// Un identifiant lisible : on doit pouvoir dire "le lot de ce matin" sans
+// aller le chercher dans un journal.
+const BATCH_ID =
+  (typeof args.batch === "string" && args.batch !== "1" && args.batch) ||
+  new Date().toISOString().replace(/[-:]/g, "").slice(0, 15) + "Z";
 
-if (!fs.existsSync(IN)) {
+if (!REVERT && !fs.existsSync(IN)) {
   console.error(`[import-oped] input not found: ${IN}`);
   process.exit(1);
 }
@@ -57,14 +65,38 @@ CREATE TABLE IF NOT EXISTS oped_skips (
   source             TEXT    NOT NULL DEFAULT 'audio',
   serve              INTEGER NOT NULL DEFAULT 0,
   updated_at         INTEGER NOT NULL,
+  batch_id           TEXT,
   PRIMARY KEY (mal_id, episode, lang, kind)
 )`;
 
+/** Migration defensive et idempotente pour les bases creees avant le batch_id
+ *  (meme motif que la colonne algo_version de player_map). */
+async function ensureBatchColumn(db) {
+  try {
+    await db.execute("ALTER TABLE oped_skips ADD COLUMN batch_id TEXT");
+  } catch {
+    /* deja presente */
+  }
+}
+
 /** Turn one { start, end, ... } theme object into a table row, or null when the
- *  interval is missing/degenerate. `serve` mirrors the detector's own gate. */
-function toRow(malId, episode, lang, kind, h, now) {
+ *  interval is missing/degenerate/impossible. `serve` mirrors the detector's
+ *  own gate.
+ *
+ *  Rejections are COUNTED and REPORTED by the caller, never silent: a line that
+ *  vanishes without a word is how a bad batch gets noticed six weeks late. */
+function toRow(malId, episode, lang, kind, h, now, rejected) {
   if (!h || typeof h.start !== "number" || typeof h.end !== "number") return null;
   if (h.end <= h.start) return null;
+  // Garde de plausibilité — la frontière de la base (scripts/lib/opedPlausibility.mjs).
+  // Le détecteur ne produit pas d'impossibles (mesuré : 0 sur 690 cellules) ;
+  // ce contrôle existe pour ce qui entre AUTREMENT — surcharge manuelle, JSONL
+  // édité, candidat externe. AniSkip, lui, en servait 3,3 %.
+  const why = implausibleReason(h, h.canonical_duration);
+  if (why) {
+    rejected.push({ malId, episode, lang, kind, why });
+    return null;
+  }
   // Prefer the detector's explicit serve flag (multi-host). Fall back to the
   // single-host signal (video confirmed the audio) when it's absent.
   const serve =
@@ -89,8 +121,45 @@ function toRow(malId, episode, lang, kind, h, now) {
   };
 }
 
+// ── Retour arriere ───────────────────────────────────────────────────────────
+// Place AVANT toute lecture du JSONL : reverter ne doit rien exiger d'autre que
+// l'identifiant du lot.
+if (REVERT) {
+  const db = createClient({
+    url: process.env.TURSO_DATABASE_URL,
+    authToken: process.env.TURSO_AUTH_TOKEN,
+  });
+  await ensureBatchColumn(db);
+  const n = await db.execute({
+    sql: "select count(*) c from oped_skips where batch_id = ?",
+    args: [REVERT],
+  });
+  const count = Number(n.rows[0].c);
+  const sample = await db.execute({
+    sql: "select mal_id, episode, lang, kind, start, end from oped_skips where batch_id = ? limit 8",
+    args: [REVERT],
+  });
+  console.log(`[import-oped] lot "${REVERT}" : ${count} ligne(s) en base`);
+  for (const r of sample.rows) {
+    console.log(
+      `    mal${r.mal_id} ep${r.episode} ${r.lang} ${r.kind} ${Number(r.start).toFixed(1)}-${Number(r.end).toFixed(1)}`,
+    );
+  }
+  if (!count) process.exit(0);
+  if (!CONFIRMED) {
+    console.log(
+      `[import-oped] apercu seulement. Ajouter --yes pour effacer ces ${count} ligne(s).`,
+    );
+    process.exit(0);
+  }
+  await db.execute({ sql: "delete from oped_skips where batch_id = ?", args: [REVERT] });
+  console.log(`[import-oped] ${count} ligne(s) effacee(s) pour le lot "${REVERT}"`);
+  process.exit(0);
+}
+
 const now = Math.floor(Date.now() / 1000);
 const rows = [];
+const rejected = [];
 let lines = 0;
 let bad = 0;
 
@@ -117,7 +186,7 @@ for await (const line of rl) {
     continue;
   }
   for (const kind of ["op", "ed"]) {
-    const row = toRow(malId, episode, lang, kind, rec[kind], now);
+    const row = toRow(malId, episode, lang, kind, rec[kind], now, rejected);
     if (row) rows.push(row);
   }
 }
@@ -127,6 +196,19 @@ console.log(
   `[import-oped] ${lines} lines, ${bad} unparseable → ${rows.length} intervals ` +
     `(${nServe} servable, ${rows.length - nServe} held)`,
 );
+
+if (rejected.length) {
+  console.log(
+    `[import-oped] ${rejected.length} interval(s) REJECTED as impossible ` +
+      `(see scripts/lib/opedPlausibility.mjs):`,
+  );
+  for (const r of rejected.slice(0, 20)) {
+    console.log(`    mal${r.malId} ep${r.episode} ${r.lang} ${r.kind} — ${r.why}`);
+  }
+  if (rejected.length > 20) {
+    console.log(`    … and ${rejected.length - 20} more`);
+  }
+}
 
 if (DRY) {
   console.log("[import-oped] --dry: not writing. Sample rows:");
@@ -141,6 +223,8 @@ const db = createClient({
 });
 
 await db.execute(CREATE_SQL);
+await ensureBatchColumn(db);
+console.log(`[import-oped] lot "${BATCH_ID}" — reversible via --revert=${BATCH_ID}`);
 
 let written = 0;
 for (let i = 0; i < rows.length; i += 100) {
@@ -150,8 +234,8 @@ for (let i = 0; i < rows.length; i += 100) {
       sql: `INSERT INTO oped_skips
               (mal_id, episode, lang, kind, start, end, from_end_start,
                from_end_end, canonical_duration, n_hosts_agree, n_video_confirm,
-               source, serve, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               source, serve, updated_at, batch_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(mal_id, episode, lang, kind) DO UPDATE SET
               start = excluded.start,
               end = excluded.end,
@@ -162,11 +246,12 @@ for (let i = 0; i < rows.length; i += 100) {
               n_video_confirm = excluded.n_video_confirm,
               source = excluded.source,
               serve = excluded.serve,
-              updated_at = excluded.updated_at`,
+              updated_at = excluded.updated_at,
+              batch_id = excluded.batch_id`,
       args: [
         r.malId, r.episode, r.lang, r.kind, r.start, r.end, r.fromEndStart,
         r.fromEndEnd, r.canonicalDuration, r.nHostsAgree, r.nVideoConfirm,
-        r.source, r.serve, r.updatedAt,
+        r.source, r.serve, r.updatedAt, BATCH_ID,
       ],
     })),
     "write",
