@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -188,6 +189,31 @@ _PERMANENT_MARKERS = (
 )
 
 
+# COUPE-CIRCUIT PAR HÔTE (07/08, après mesure sur le lot `seed`).
+# Le réessai ci-dessus ne se souvenait de rien : sur 64 réessais du lot, **60
+# portaient sur sendvid**, qui renvoyait `HTTP 502` épisode après épisode. On
+# payait 4 attentes par épisode pour un hôte manifestement mort sur ce lot.
+# Après ce nombre d'échecs TRANSITOIRES consécutifs, l'hôte n'est plus réessayé
+# du reste du processus — sa première tentative reste faite, donc s'il
+# ressuscite on le voit immédiatement et le compteur repart.
+CIRCUIT_BREAKER_FAILS = 3
+_host_fail_streak: dict[str, int] = {}
+_host_fail_lock = threading.Lock()
+
+
+def _circuit_open(host: str) -> bool:
+    with _host_fail_lock:
+        return _host_fail_streak.get(host, 0) >= CIRCUIT_BREAKER_FAILS
+
+
+def _note_host_result(host: str, ok: bool) -> None:
+    with _host_fail_lock:
+        if ok:
+            _host_fail_streak.pop(host, None)
+        else:
+            _host_fail_streak[host] = _host_fail_streak.get(host, 0) + 1
+
+
 def _is_transient(exc: Exception) -> bool:
     """Un nouvel essai a-t-il une chance de changer le résultat ?
 
@@ -260,14 +286,25 @@ def resolve_episodes_multi(
         last: Exception | None = None
         for attempt in range(RESOLVE_ATTEMPTS):
             try:
-                return host, resolve_episodes(
+                eps = resolve_episodes(
                     slug, season_dir, lang, ep_start, ep_end,
                     host_pref=host, cache_dir=cache_dir, mal_id=mal_id,
                     va_slug=va_slug,
                 )
             except Exception as exc:
                 last = exc
-                if attempt + 1 >= RESOLVE_ATTEMPTS or not _is_transient(exc):
+                transient = _is_transient(exc)
+                # Seuls les échecs TRANSITOIRES alimentent le compteur : un
+                # « not offered » est fréquent et n'est pas une panne, le
+                # compter remettrait la série à zéro en permanence et le
+                # coupe-circuit ne se fermerait jamais.
+                if transient:
+                    _note_host_result(host, ok=False)
+                if attempt + 1 >= RESOLVE_ATTEMPTS or not transient:
+                    break
+                if _circuit_open(host):
+                    print(f"  [circuit] {host}: {CIRCUIT_BREAKER_FAILS} echecs "
+                          f"d'affilee — plus de reessai sur ce lot")
                     break
                 # Temporisation croissante : un 502 ou un embed injoignable est
                 # souvent une mauvaise seconde chez l'hôte, pas une absence.
@@ -275,6 +312,9 @@ def resolve_episodes_multi(
                             RESOLVE_BACKOFF_MAX_S)
                 print(f"  [retry] {host}: {exc} — nouvel essai dans {delay:.0f}s")
                 time.sleep(delay)
+            else:
+                _note_host_result(host, ok=True)     # la série repart à zéro
+                return host, eps
         # Its peers cover us, so a failing host must not sink the episode —
         # but swallowing the REASON is how "only 2 of 5 hosts resolve" went
         # undiagnosed for weeks. The bridge now says whether the player is
