@@ -75,22 +75,68 @@ signal fort qu'on jette au lieu d'élargir la recherche.
 qu'AnimeThemes ment. En mettant au compte du catalogue ce qui venait de nous,
 j'avais fabriqué un « 31 % de contamination » qui ne vaut rien.
 
-### 4. L'empreinte audio n'est pas invariante à la taille de la fenêtre
+### 4. vidmoly-va échoue seul dans 36 % des cas — cause NON identifiée
 
-Trouvé en cherchant pourquoi vidmoly-va échoue si souvent. Charlotte ep2 : il sert
-le **même fichier** que sibnet (1442,04 contre 1442,03) et apparie l'OP **mieux
-que tous** (4011 votes contre 2936 et 2912). Le pipeline a pourtant écrit
-`op: None`.
+⚠️ **Deux diagnostics écrits puis falsifiés le même jour. Lire la section
+entière avant de s'appuyer dessus.**
+
+Le fait de départ, solide. Charlotte ep2 : vidmoly-va sert le **même fichier** que
+sibnet (1442,04 contre 1442,03) et apparie l'OP **mieux que tous** (4011 votes
+contre 2936 et 2912). Le pipeline a pourtant écrit `op: None`.
+
+| lecteur | % de replis 720 s | % d'échecs en solo |
+|---|---|---|
+| sibnet | 13,2 % | 1,7 % |
+| megaplay | 15,3 % | 1,9 % |
+| sendvid | 20,0 % | 0,0 % |
+| ansembed | 27,2 % | 16,6 % |
+| **vidmoly-va** | **39,6 %** | **36,2 %** |
+| uqload | 44,4 % | 17,4 % |
+
+**Hypothèse 1 — « l'empreinte n'est pas invariante à la taille de la fenêtre ».
+FAUSSE.** Elle venait d'une comparaison entre deux fichiers de cache de
+Charlotte ep2 : 300 s → 4011 votes / fill 0,959 ; 720 s tranché à 300 s → 1227 /
+0,333. J'en ai conclu que la normalisation globale des pics changeait les hachages
+du même audio. Test contrôlé (`_test_block_fingerprint.py`, 475 références en PCM
+brut, cible noyée dans du vrai contenu à six offsets dont un à cheval sur une
+frontière de bloc) : **fill = 0,959 partout, fenêtre courte comme fenêtre large.**
+Aucune dégradation. Le mécanisme n'existe pas.
+
+**Hypothèse 2 — « le décodage long ramène un audio différent ». VRAIE mais RARE,
+et n'explique pas vidmoly.** Les deux décodages de Charlotte ep2 ne concordent
+effectivement que sur les 63 premières secondes, et le décodage de 720 s est
+décalé de ~85 s par rapport à sibnet. Mais généralisé aux 242 paires
+(fenêtre 720 + fenêtre 300 du même hôte/épisode) : **90 % sont identiques**, et
+les ~10 % de désalignement sont répartis sur tous les hôtes (ansembed 6/67,
+megaplay 7/54, vidmoly-va 8/93). Charlotte ep2 faisait partie des 10 %.
+**J'ai généralisé depuis un seul cas** — la même faute que le matin même.
+
+**Ce qui EST établi, et qui est le vrai point de départ.** Sur les 58 cellules où
+vidmoly-va a raté l'OP seul, 50 ont une fenêtre de 300 s en cache et une
+référence exploitable. Appariement de cette fenêtre contre la référence :
 
 ```
-meme audio (0-300 s), meme hote :
-  empreinte calculee sur 300 s            -> 4011 votes, fill 0.959  ACCEPTE
-  empreinte calculee sur 720 s, tranchee  -> 1227 votes, fill 0.333  REJETE
+trouve (fill >= 0.5) : 45 / 50     charlotte ep2 fill=0.959, dandadan ep1 fill=0.988,
+aucun match          :  5 / 50     horimiya ep13 fill=0.987, ...
 ```
 
-La sélection des pics est normalisée globalement : décoder 720 s au lieu de 300
-change les hachages du même audio. **Le repli large détruit l'appariement qu'il
-était censé sauver.**
+**L'audio est là, l'appariement est là, et le pipeline les jette.** La perte
+n'est ni dans le téléchargement, ni dans le décodage, ni dans l'empreinte, ni
+dans le matcher — elle est dans la logique en aval, entre le résultat de
+l'appariement et l'écriture de `per_host[...]["op"]`. Un `op: None` signifie
+qu'aucun hit n'a été construit, pas qu'un hit a été retenu.
+
+**Où précisément : inconnu.** La piste des clés de cache `w…` (chemin
+fenêtre-relative) est écartée : 40 fichiers contre 3 021, c'est une voie
+marginale. La cascade `_cascade` (`theme_bank.py:1602`) et le choix de version
+par `fill` restent à instrumenter.
+
+**Conséquence pour le plan** : le correctif « empreinte par blocs recouvrants »
+qui était en position 2 du chemin court **n'a plus de justification** — il
+soignait une maladie qui n'existe pas. Le test contrôlé montre au moins qu'il ne
+nuirait pas, mais on ne code pas un remède sans maladie. Remplacé par : *tracer
+un cas vidmoly-va de bout en bout et identifier la ligne qui écarte un hit à
+4011 votes*.
 
 | lecteur | % de replis 720 s | % d'échecs en solo |
 |---|---|---|
