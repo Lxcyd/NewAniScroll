@@ -172,39 +172,6 @@ export default function SkipOverlay({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [malId, aniListId, episode, server]);
 
-  // Ask again once the player reports its real duration.
-  //
-  // The first fetch above fires without one so the chapter pills are instant,
-  // but a crowdsourced timing is only admissible against the rip it was timed
-  // on: AniSkip stores several submissions per episode and, with no duration
-  // to match, the API can only return the ones that agree with each other —
-  // it withholds the rest rather than mix two cuts (see CUT_TOLERANCE_S in
-  // lib/skip/providers.ts). This second call is what recovers them, and it is
-  // also what lets our own detector re-project its ED onto this exact encode.
-  // Memoised per duration, so a server change or remount costs no network.
-  const askedWithLength = useRef(0);
-  useEffect(() => {
-    if (!malId || !episode || duration <= 0) return;
-    const len = Math.round(duration);
-    if (askedWithLength.current === len) return;
-    askedWithLength.current = len;
-    let cancelled = false;
-    (async () => {
-      const arr = await prefetchSkips(malId, episode, aniListId, {
-        server,
-        episodeLength: len,
-      });
-      // Never trade a populated answer for an empty one: if the duration-aware
-      // call finds nothing admissible, keep what the first call gave rather
-      // than blanking pills the viewer can already see.
-      if (!cancelled && arr.length) setRawSkips(arr);
-    })();
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [malId, aniListId, episode, server, duration]);
-
   // Clamp/filter against the real duration once the player reports it.
   // Cheap CPU work — runs in microseconds, so the chapter pills appear
   // the same tick `duration` lands.
