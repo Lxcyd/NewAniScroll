@@ -75,6 +75,31 @@ signal fort qu'on jette au lieu d'élargir la recherche.
 qu'AnimeThemes ment. En mettant au compte du catalogue ce qui venait de nous,
 j'avais fabriqué un « 31 % de contamination » qui ne vaut rien.
 
+**Test d'acceptation du point 3, passé le 07/08 SUR LE CACHE SEUL** — aucune
+modification du détecteur, donc aucun risque pris pour l'établir. Les fenêtres de
+queue déjà en cache (`abs952.1_420.0`) appariées contre les références OP1 :
+
+| hôte | référence | votes | intervalle absolu | fill |
+|---|---|---|---|---|
+| ansembed | OP1 v1/v2/v3 | 2631–2871 | **1281,0 → 1371,0** | 0,977–0,980 |
+| megaplay | OP1 v1/v2/v3 | 2077–3016 | 1281,1 → 1371,1 | 0,976–0,980 |
+| vidmoly-va | OP1 v1/v2/v3 | 1669–2288 | 1286,8 → 1376,9 | 0,976–0,980 |
+
+ED1 dans la même fenêtre : **aucun match**. OP1 dure 90,007 s, d'où la borne de
+fin. Le décalage de vidmoly-va (+5,8 s) est son écart d'encodage connu. Trois
+hôtes, trois versions, `fill ≈ 0,98` : il ne reste aucun doute à lever, seulement
+le code à écrire.
+
+**Conception — et une contradiction que j'ai failli introduire.** Le segment est à
+21:21 d'un épisode de 22:52 ; j'ai d'abord voulu le livrer comme un **ED**, au
+motif que c'est ce que le spectateur vit (« Passer l'outro » sur la capture de
+Luc). C'est précisément le raisonnement par position que cette même section
+interdit deux paragraphes plus haut. Conciliation retenue : **`kind` reste `op`**
+— l'identité du thème vient de l'appariement, jamais de la position — et un champ
+séparé note que le segment tombe en fin d'épisode, ce qui pilote le *libellé
+affiché*. L'identité vient de l'appariement, la présentation de la position. Les
+deux règles tiennent ensemble sans que l'une mente.
+
 ### 4. vidmoly-va échoue seul dans 36 % des cas — cause NON identifiée
 
 ⚠️ **Deux diagnostics écrits puis falsifiés le même jour. Lire la section
