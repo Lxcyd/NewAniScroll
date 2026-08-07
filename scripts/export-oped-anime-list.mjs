@@ -56,12 +56,16 @@ const db = createClient({
 // different slug, so the batch was silently losing that host on two thirds of
 // them while the app played it fine.
 //
-// `heuristic` rows are accepted here, unlike the anime-sama row above. The
-// asymmetry is deliberate: a wrong anime-sama slug/season sends ffmpeg at hours
-// of the WRONG stream, whereas a wrong voir-anime slug simply 404s and the host
-// is cleanly filtered out. These are also the very rows the app already serves
-// to users, and a gross content mismatch would still be caught downstream by
-// multi_host._duration_cohort.
+// `heuristic` rows are accepted here, unlike the anime-sama row above — but
+// only after `vaSlugVerdict()` below vouches for them. The original reasoning
+// ("a wrong voir-anime slug simply 404s and the host is cleanly filtered out")
+// was WRONG, and measurably so: a bad heuristic slug is usually a REAL page for
+// a DIFFERENT work, which resolves 200 and feeds ffmpeg the wrong anime for
+// hours. Measured on the audit lot: `ashita-no-joe-2-vf` is Ashita no Joe *2*,
+// so all three VF episodes were detected against season 1's AnimeThemes
+// references and yielded nothing — 6 of the sheet's 6 "absent" cells, all from
+// this one row. `_duration_cohort` cannot catch it either: a voir-anime-only
+// panel has exactly one host, so there is no cohort to disagree with.
 const r = await db.execute({
   sql: `SELECT pm.ani_id       AS ani_id,
                pm.lang         AS lang,
@@ -69,6 +73,7 @@ const r = await db.execute({
                pm.season_dir   AS season_dir,
                pm.episode_count AS episode_count,
                a.id_mal        AS id_mal,
+               a.popularity    AS popularity,
                va.slug         AS va_slug
           FROM player_map pm
           JOIN anime a ON a.id = pm.ani_id
@@ -110,6 +115,10 @@ for (const row of r.rows) {
       mal_id: malId,
       anilist_id: aniId,
       slug,
+      // Sert UNIQUEMENT au tri ci-dessous, et n'est pas écrit dans le JSON :
+      // le détecteur ne consomme pas ce champ et un contrat qui grossit sans
+      // raison finit par être copié de travers.
+      _popularity: Number(row.popularity) || 0,
       seasons: [],
     });
   }
@@ -188,6 +197,131 @@ if (addedHeuristicLang) {
   );
 }
 
+// ── COHERENCE GATE on voir-anime slugs ───────────────────────────────────────
+// The app already refuses a mapped voir-anime slug whose season contradicts the
+// resolver (see the "COHERENCE GUARD" block in pages/api/v2/source/index.js —
+// written after a Redis-poisoning window wrote a "-2" slug onto a season-1
+// entry). This exporter had no equivalent, so the very rows the app throws away
+// were the ones the detector ran on.
+//
+// Two failure shapes are in the table today, both `heuristic`:
+//   WRONG SEASON  ani 2402  Ashita no Joe          → ashita-no-joe-2-vf
+//                 ani 15809 Hataraku Maou-sama!    → hataraku-maou-sama-2-vf
+//   WRONG WORK    ani 155179 Journey               → sousou-no-frieren-vf
+//                 ani 199411 Yu Ling Shi           → digimon-tamers-vf
+//                 ani 336   Ginyuu Mokushiroku …   → yamada-kun-to-lv999-…-vf
+// Both are decided offline from data we already hold — no worker call, no probe.
+// PAGINÉ (07/08). En un seul appel, cette requête tire le blob JSON complet de
+// chaque anime et Turso refuse la réponse :
+//   LibsqlError: SQLITE_UNKNOWN: Resource exhausted: mem_hrana_response/…
+// L'exporteur — qui produit le contrat consommé par le détecteur — était donc
+// simplement cassé, et le restera silencieusement à chaque fois que la table
+// grossit si on remet un `SELECT` non borné. Des pages de 250 tiennent
+// largement sous la limite ; le coût est quelques appels de plus, une fois.
+const PAGE = 250;
+const titleRowsAll = [];
+for (let offset = 0; ; offset += PAGE) {
+  const page = await db.execute({
+    sql: "SELECT id, data FROM anime WHERE data IS NOT NULL LIMIT ? OFFSET ?",
+    args: [PAGE, offset],
+  });
+  titleRowsAll.push(...page.rows);
+  if (page.rows.length < PAGE) break;
+}
+const titlesById = new Map();
+for (const row of titleRowsAll) {
+  let d;
+  try { d = JSON.parse(String(row.data)); } catch { continue; }
+  const t = d?.title ?? {};
+  const all = [t.romaji, t.english, t.native, ...(d?.synonyms ?? [])];
+  const tokens = new Set();
+  const squashes = new Set();
+  for (const name of all) {
+    if (!name) continue;
+    const toks = slugTokens(String(name));
+    for (const tok of toks) tokens.add(tok);
+    if (toks.length) squashes.add(toks.join(""));
+  }
+  if (tokens.size) titlesById.set(Number(row.id), { tokens, squashes });
+}
+
+/**
+ * A title/slug reduced to comparable lowercase word tokens.
+ *
+ * Slugs arrive percent-encoded for anything non-ASCII (`sk%e2%88%9e` = SK∞,
+ * `space%e2%98%86dandy` = Space☆Dandy). Tokenising the raw form turns the
+ * escape bytes into words (`e2`, `98`, `86`) that match no title and sink the
+ * overlap ratio — decoding first is what keeps those slugs from being rejected.
+ * `×` becomes `x` because that is how the slugs spell it (SPY×FAMILY →
+ * `spyxfamily`).
+ */
+function slugTokens(s) {
+  let str = String(s);
+  try { str = decodeURIComponent(str); } catch { /* keep the raw form */ }
+  return str
+    .toLowerCase()
+    .replace(/[×✕✖]/g, "x")
+    .normalize("NFD").replace(/[̀-ͯ]/g, "") // é → e
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+const seasonOfDir = (dir) => {
+  const m = /saison(\d+)/i.exec(dir || "");
+  return m ? Number(m[1]) : 1;
+};
+
+/**
+ * Is `slug` a believable voir-anime slug for this anime and this season?
+ * Returns null when fine, else a short reason (used for the dropped-rows log).
+ *
+ * The trailing "-N" test only fires when N is NOT part of the anime's own
+ * title: `kaiju-no-8` and `mob-psycho-100` carry their number in every title
+ * variant, so the digits are a name, not a season — reading them as a season
+ * would throw away two perfectly good slugs.
+ */
+function vaSlugVerdict(slug, aniId, panelSeason) {
+  const title = titlesById.get(aniId);
+  const base = String(slug).replace(/-(?:vf|vostfr)$/i, "");
+  const parts = slugTokens(base);
+  if (!parts.length) return "slug vide";
+
+  const last = parts[parts.length - 1];
+  const trailingNum = /^\d{1,2}$/.test(last) && !(title?.tokens.has(last))
+    ? Number(last)
+    : null;
+  const nameParts = trailingNum === null ? parts : parts.slice(0, -1);
+
+  // WRONG WORK — the slug's words are not this anime's words at all. Needs a
+  // title to compare against; without one we cannot judge, so we let it pass.
+  if (title && nameParts.length) {
+    const hit = nameParts.filter((p) => title.tokens.has(p)).length;
+    // Word-for-word overlap misses slugs that run the title together
+    // (`spyxfamily` vs SPY×FAMILY's `spy`/`x`/`family`), so a separator-free
+    // comparison gets the second word: if the squashed forms match, the slug
+    // names this anime whatever the token split says.
+    const squashed = nameParts.join("");
+    const squashOk = [...title.squashes].some(
+      (s) => s === squashed
+        || (s.length >= 6 && squashed.length >= 6
+            && (s.includes(squashed) || squashed.includes(s))),
+    );
+    if (hit / nameParts.length < 0.5 && !squashOk) {
+      return `titre incoherent (${hit}/${nameParts.length} mots en commun)`;
+    }
+  }
+
+  // WRONG SEASON — the app's guard, applied to the panel's own season.
+  if (trailingNum !== null && trailingNum !== panelSeason) {
+    return `saison ${trailingNum} pour un panneau saison ${panelSeason}`;
+  }
+  return null;
+}
+
+const vaDropped = [];
+
 // Voir-anime slug per (anime, language). Applied to EVERY season at the end
 // rather than during the main query, so the panels added above get theirs too —
 // the JOIN only ever saw the languages that query returned.
@@ -200,7 +334,16 @@ let addedVaOnly = 0;
 for (const [aniId, entry] of byAnime) {
   for (const s of entry.seasons) {
     const slug = vaByKey.get(`${aniId}:${s.lang}`);
-    if (slug) s.va_slug = slug;
+    // The JOIN in the main query may already have set a va_slug; re-check it
+    // here (same gate, same panel season) and DELETE it on a bad verdict —
+    // leaving it would let a rejected slug through the back door.
+    const verdict = slug ? vaSlugVerdict(slug, aniId, seasonOfDir(s.season_dir)) : null;
+    if (slug && !verdict) {
+      s.va_slug = slug;
+    } else {
+      if (verdict) vaDropped.push({ aniId, lang: s.lang, slug, verdict });
+      delete s.va_slug;
+    }
   }
   // …then languages voir-anime has and anime-sama does not.
   for (const [key, slug] of vaByKey) {
@@ -209,6 +352,14 @@ for (const [aniId, entry] of byAnime) {
     if (entry.seasons.some((s) => s.lang === lang)) continue;
     const model = entry.seasons[0];
     if (!model) continue;
+    // A voir-anime-only panel is the DANGEROUS case: vidmoly-va is its only
+    // host, so nothing downstream can contradict a wrong slug. Gate it before
+    // creating the panel at all.
+    const verdict = vaSlugVerdict(slug, aniId, seasonOfDir(model.season_dir));
+    if (verdict) {
+      vaDropped.push({ aniId, lang, slug, verdict, vaOnly: true });
+      continue;
+    }
     entry.seasons.push({
       season_dir: model.season_dir,
       lang,
@@ -220,12 +371,88 @@ for (const [aniId, entry] of byAnime) {
     addedVaOnly++;
   }
 }
+if (vaDropped.length) {
+  console.log(
+    `[export-oped] ${vaDropped.length} voir-anime slug(s) rejetes par le garde-fou :`,
+  );
+  for (const d of vaDropped.slice(0, 15)) {
+    console.log(
+      `  ani ${String(d.aniId).padEnd(7)} ${String(d.lang).padEnd(6)} ` +
+        `${String(d.slug).padEnd(44)} ${d.verdict}${d.vaOnly ? " [panneau va-only supprime]" : ""}`,
+    );
+  }
+  if (vaDropped.length > 15) console.log(`  … et ${vaDropped.length - 15} autres`);
+}
 if (addedVaOnly) {
   console.log(`[export-oped] ${addedVaOnly} voir-anime-only language panel(s) added`);
 }
 
+// --include-heuristic : LES TITRES LES PLUS REGARDÉS SONT AUJOURD'HUI EXCLUS.
+// La requête principale exige `status = 'verified'`, et c'est la bonne règle par
+// défaut — un slug faux envoie ffmpeg sur des heures du MAUVAIS flux. Mais
+// mesuré le 07/08 : **36 titres de plus de 400 000 de popularité n'ont AUCUNE
+// ligne verified**, dont Shingeki no Kyojin (1 039 137, le plus populaire de
+// tous), dont les quatre lignes player_map sont `heuristic`. Ils ne sont donc
+// pas « oubliés » par nos lots d'audit : ils en sont FILTRÉS, en silence, et
+// c'est la cause mécanique du biais d'échantillon du DEVLOG §11.
+//
+// L'option les fait entrer, mais seulement à travers `vaSlugVerdict` — le même
+// juge que pour les panneaux voir-anime : le slug doit nommer CETTE œuvre et
+// CETTE saison. Un slug qui échoue est rejeté et listé, jamais exporté en
+// silence. Reste opt-in : le défaut ne change pas.
+if (args["include-heuristic"]) {
+  const heur = await db.execute({
+    sql: `SELECT pm.ani_id, pm.lang, pm.slug, pm.season_dir, pm.episode_count,
+                 a.id_mal, a.popularity
+            FROM player_map pm
+            JOIN anime a ON a.id = pm.ani_id
+           WHERE pm.source = ? AND pm.status = 'heuristic'
+             AND pm.slug IS NOT NULL AND a.id_mal IS NOT NULL`,
+    args: [SOURCE],
+  });
+  let added = 0;
+  const refused = [];
+  for (const row of heur.rows) {
+    const aniId = Number(row.ani_id);
+    const slug = String(row.slug);
+    const dir = row.season_dir ? String(row.season_dir) : "saison1";
+    const lang = String(row.lang);
+    const eps = Number(row.episode_count) || 0;
+    if (!eps) continue;
+    const entry = byAnime.get(aniId);
+    if (entry && entry.seasons.some((s) => s.season_dir === dir && s.lang === lang)) {
+      continue;                       // déjà couvert par une ligne verified
+    }
+    const verdict = vaSlugVerdict(slug, aniId, seasonOfDir(dir));
+    if (verdict) {
+      refused.push(`  ani ${String(aniId).padEnd(7)} ${lang.padEnd(6)} ${slug.padEnd(44)} ${verdict}`);
+      continue;
+    }
+    const target = entry || {
+      mal_id: Number(row.id_mal), anilist_id: aniId, slug,
+      _popularity: Number(row.popularity) || 0, seasons: [],
+    };
+    target.seasons.push({ season_dir: dir, lang, ep_start: 1, ep_end: eps });
+    byAnime.set(aniId, target);
+    added += 1;
+  }
+  console.log(`[export-oped] --include-heuristic : ${added} panneau(x) heuristic ajoute(s), `
+    + `${refused.length} refuse(s) par vaSlugVerdict`);
+  for (const line of refused.slice(0, 15)) console.log(line);
+  if (refused.length > 15) console.log(`  … et ${refused.length - 15} autres`);
+}
+
 let list = [...byAnime.values()].filter((a) => a.seasons.length > 0);
+// TRI PAR POPULARITÉ AVANT DE TRANCHER (07/08). `--limit` découpait jusqu'ici
+// dans l'ordre d'insertion de la Map, donc `--limit=50` rendait 50 titres
+// ARBITRAIRES. C'est ainsi que nos lots d'audit ont fini par ne contenir aucun
+// des 20 titres les plus populaires — SnK, Demon Slayer, One Piece n'ont jamais
+// été passés au détecteur — et que chaque taux de couverture mesuré décrivait
+// un échantillon défavorable sans que rien ne le signale (DEVLOG §11).
+list.sort((a, b) => b._popularity - a._popularity);
 if (LIMIT > 0) list = list.slice(0, LIMIT);
+// Le champ de tri ne sort pas dans le contrat.
+list = list.map(({ _popularity, ...rest }) => rest);
 
 const totalSeasons = list.reduce((n, a) => n + a.seasons.length, 0);
 console.log(
