@@ -287,6 +287,50 @@ m'étais imposé : le même glob prétendait que **84 des 94 anime ayant produit
 résultat** n'avaient pas de référence — Erased compris. Un instrument qui accuse
 les cas connus pour bons s'accuse lui-même.
 
+**RÉSULTAT DU RUN DE RÉESSAI (41 anime, 95 cellules, terminé 16:36).** La
+prédiction tient exactement :
+
+```
+cellules AVEC reference : 11 recuperees / 30   (37 %)
+cellules SANS reference :  0 recuperees / 65
+```
+
+**11 cellules récupérées**, toutes du côté « avec référence » ; zéro du côté
+« sans », sur 65 essais. Et **zéro `detect_error` sur tout le run** : l'échec
+n'est jamais une exception pendant la détection.
+
+**Deux défauts distincts, et ma table du 2b n'en voyait qu'un.** Quand la
+résolution échoue, l'hôte **n'entre jamais dans `per_host`** — il est donc
+invisible dans une table qui ne compte que les hôtes déjà résolus. D'où
+l'apparente perfection de sibnet et megaplay : ils échouent *avant* d'être
+comptés. Ventilation des `[no-host]` du run :
+
+| hôte | non proposé | vraie panne |
+|---|---|---|
+| sibnet | 5 | **62** |
+| sendvid | 19 | **46** |
+| vidmoly-va | 0 | 27 |
+| ansembed | 10 | 7 |
+| uqload | **61** | 5 |
+| megaplay | 0 | 2 |
+| **TOTAL** | **95** | **149** |
+
+*non proposé* = « not offered by anime-sama for this season » : l'hôte ne sert
+pas cette saison, ce n'est pas une panne et aucun réessai n'y peut rien. Les 149
+vraies pannes se répartissent en `embed unreachable or decoy` (57),
+`sendvid HTTP 502` (41), `direct failed` / 404 voir-anime (23), divers.
+⚠️ Lot volontairement difficile (les cellules qui avaient déjà échoué) : ces
+proportions ne valent **pas** pour la base entière.
+
+**La décomposition à retenir**, et elle rend le sujet enfin lisible :
+1. **Non proposé** — l'hôte ne sert pas cette saison. Ni panne ni réessai.
+2. **Panne de résolution** — l'hôte est absent de `per_host`, invisible au 2b.
+3. **Panne de récupération** — l'hôte est dans `per_host` sans fenêtre (table 2b).
+4. **Pas de référence** — rien à chercher ; le détecteur sort avant tout réseau.
+
+Trois des quatre ne sont pas des défauts du détecteur, et aucun ne se répare en
+réessayant. Ce qui reste à traiter est la catégorie 3, sur deux hôtes.
+
 **Le contrôle du script de mesure a servi le jour même.** Il refuse de publier si
 le cas témoin (Charlotte ep2 vostfr) ne se comporte pas comme établi — et il a
 bloqué au premier lancement, parce que j'y avais encodé la croyance *périmée*
