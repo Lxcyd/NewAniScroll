@@ -555,6 +555,8 @@ def detect_per_host(
     min_votes: int = 40,
     min_score: float | None = None,
     full_fallback: bool = True,
+    seed_from_peers: bool = True,
+    full_episode_scan: bool = True,
 ) -> list[tuple[HostStream, list[ThemeHit]]]:
     """Run the full detector once PER HOST (in parallel), returning each host's
     OWN detected hits — WITHOUT reconciling them into a consensus.
@@ -657,7 +659,171 @@ def detect_per_host(
         with ThreadPoolExecutor(max_workers=len(streams)) as pool:
             for stream, hits in pool.map(_run_one, streams):
                 per_host.append((stream, hits))
+
+    kw = {} if min_score is None else {"min_score": min_score}
+
+    # BALAYAGE PLEIN-ÉPISODE : une seule fois, sur UN seul hôte.
+    # Un thème mappé qu'AUCUN hôte n'a trouvé signale une fenêtre aveugle, pas
+    # une absence (Erased ep1 : l'épisode finit sur la chanson d'OUVERTURE, à
+    # 1281 s). Mais le balayage décode le fichier entier : ouvert par hôte, il
+    # rend les lots impraticables. On le paie donc UNE fois, puis l'amorçage
+    # ci-dessous porte le résultat aux autres hôtes pour 90 s de fenêtre chacun.
+    if full_episode_scan and v2 and per_host:
+        found_kinds = {h.kind for _s, hs in per_host for h in hs}
+        want = [k for k, r in (("op", op_refs), ("ed", ed_refs))
+                if r and k not in found_kinds]
+        if want:
+            scout = next((s for s, _h in per_host if not s.detect_error), None)
+            if scout is not None:
+                try:
+                    extra = detect_op_ed_v2(
+                        scout.duration,
+                        op_refs if "op" in want else [],
+                        ed_refs if "ed" in want else [],
+                        resolve_audio_abs=(
+                            lambda s_abs, d, _s=scout: resolve_audio_abs_for(_s, s_abs, d)
+                        ),
+                        min_votes=min_votes, full_episode_scan=True, **kw,
+                    )
+                except Exception as exc:
+                    scout.detect_error = f"{type(exc).__name__}: {exc}"
+                    print(f"  [detect-fail] {scout.host} (balayage): "
+                          f"{scout.detect_error}")
+                    extra = []
+                if extra:
+                    for _s, hs in per_host:
+                        if _s is scout:
+                            hs.extend(extra)
+                            break
+                    for h in extra:
+                        print(f"  [scan] {scout.host}: {h.kind} hors fenetre a "
+                              f"{h.start:.1f}")
+
+    if seed_from_peers:
+
+        def _search(stream: HostStream, kind: str, start: float, dur: float):
+            """Rechercher UN seul kind, dans [start, start+dur], sur l'audio de
+            CET hôte. Les deux branches exposent des résolveurs différents —
+            v2 travaille en temps absolu, la cascade par fenêtres — d'où
+            l'aiguillage ici plutôt qu'en double dans l'appelant."""
+            ops = op_refs if kind == "op" else []
+            eds = ed_refs if kind == "ed" else []
+            if v2:
+                return detect_op_ed_v2(
+                    stream.duration, ops, eds,
+                    resolve_audio_abs=(
+                        lambda s_abs, d, _s=stream: resolve_audio_abs_for(_s, s_abs, d)
+                    ),
+                    resolve_video_abs=(
+                        (lambda s_abs, d, fps, _s=stream:
+                         resolve_video_abs_for(_s, s_abs, d, fps))
+                        if resolve_video_abs_for is not None else None
+                    ),
+                    op_search=(start, dur),
+                    # L'ED se cherche depuis la FIN : on convertit la fenêtre
+                    # absolue en profondeur de queue, sinon on chercherait au
+                    # mauvais endroit sans que rien ne le signale.
+                    # ⚠️ ASYMÉTRIE ASSUMÉE : v2 reconstruit ensuite la fenêtre
+                    # comme [durée − profondeur, FIN]. Côté ED, l'amorce couvre
+                    # donc [start, fin d'épisode] et non [start, start+dur] —
+                    # plus large que ce que `SEED_WINDOW_HALF_S` laisse croire.
+                    # C'est sans effet pratique (une amorce d'ED est déjà près
+                    # de la fin) et v2 n'expose pas de borne de fin, mais le
+                    # dire évite de relire ce code en croyant à une symétrie.
+                    ed_search_from_end=max(stream.duration - start, 0.0),
+                    min_votes=min_votes, **kw,
+                )
+            return detect_op_ed(
+                lambda win, _s=stream: resolve_window_for(_s, win),
+                stream.duration, ops, eds,
+                op_window=(start, start + dur),
+                ed_window=(start, start + dur),
+                min_votes=min_votes,
+                full_fallback=False,       # ciblé : surtout pas de balayage ici
+                **kw,
+            )
+
+        # Longueur du plus long générique de chaque kind : la fenêtre d'amorce
+        # doit ENGLOBER le thème, pas seulement son début. Centrée sur le début
+        # elle n'en couvrait que la moitié, `fill` tombait à ~0,5 et le hit
+        # était rejeté au seuil — c'est ce qui a fait échouer la propagation
+        # sur Erased ep1 au premier essai.
+        _seed_from_peers(
+            per_host, _search,
+            has_refs={"op": bool(op_refs), "ed": bool(ed_refs)},
+            ref_dur={
+                "op": max((r.duration for r in (op_refs or [])), default=0.0),
+                "ed": max((r.duration for r in (ed_refs or [])), default=0.0),
+            },
+        )
     return per_host
+
+
+# Demi-largeur de la fenêtre ouverte autour du timing d'un pair. Assez large
+# pour absorber un montage qui diffère (rappel d'épisode plus long, carton de
+# sponsor), assez étroite pour rester une recherche ciblée et non un balayage.
+SEED_WINDOW_HALF_S = 45.0
+
+
+def _seed_from_peers(per_host, search, *, has_refs: dict[str, bool],
+                     ref_dur: dict[str, float] | None = None) -> None:
+    """Rattraper un hôte muet en cherchant LÀ OÙ un pair a trouvé (07/08).
+
+    CE QUE CETTE FONCTION NE FAIT PAS : copier le timing du pair. C'est
+    l'évidence qu'on croit tenir et elle est fausse — mesuré sur 690 cellules,
+    deux hôtes de durée identique à **0,02 s près** placent quand même l'OP à
+    plus d'une seconde d'écart dans **10,6 %** des cas, et resserrer la
+    tolérance n'améliore rien (le plancher reste ~9 %). Une durée égale ne
+    prouve pas un montage égal. Copier, ce serait se tromper une fois sur dix
+    ET fabriquer un faux accord entre deux hôtes, précisément ce que la porte de
+    service (`MIN_AGREE_FOR_CONFIDENT`) est là pour empêcher.
+
+    Ce qu'elle fait : utiliser le timing du pair comme AMORCE, et rechercher le
+    thème dans l'audio PROPRE de l'hôte muet, sur une fenêtre étroite autour de
+    cette amorce. L'hôte confirme donc sur son propre signal — l'accord reste
+    gagné, jamais recopié — et une recherche ciblée coûte une fraction du
+    balayage complet.
+
+    Gisement mesuré : 82 hôtes muets ont déjà leur audio en cache dans les
+    cellules qui n'ont qu'UN SEUL hôte qui répond, c'est-à-dire à un hôte du
+    seuil de service.
+    """
+    by_kind: dict[str, list[float]] = {}
+    for _s, hits in per_host:
+        for h in hits:
+            by_kind.setdefault(h.kind, []).append(h.start)
+    if not by_kind:
+        return
+
+    for stream, hits in per_host:
+        if stream.detect_error:
+            continue                      # transport mort : rien à interroger
+        have = {h.kind for h in hits}
+        for kind, starts in by_kind.items():
+            if kind in have or not has_refs.get(kind):
+                continue
+            seed = statistics.median(starts)
+            start = max(0.0, seed - SEED_WINDOW_HALF_S)
+            # [amorce − marge, amorce + longueur du thème + marge] : la fenêtre
+            # doit contenir le générique EN ENTIER, sinon `fill` s'effondre.
+            span = 2 * SEED_WINDOW_HALF_S + (ref_dur or {}).get(kind, 0.0)
+            dur = min(span, max(stream.duration - start, 0.0))
+            if dur <= 0:
+                continue
+            try:
+                found = search(stream, kind, start, dur)
+            except Exception as exc:
+                stream.detect_error = f"{type(exc).__name__}: {exc}"
+                print(f"  [detect-fail] {stream.host} (amorce {kind}): "
+                      f"{stream.detect_error}")
+                continue
+            for h in found:
+                if h.kind != kind:
+                    continue
+                h.seeded_by_peer = True
+                hits.append(h)
+                print(f"  [seed] {stream.host}: {kind} retrouve a "
+                      f"{h.start:.1f} (amorce {seed:.1f})")
 
 
 def detect_op_ed_multi(

@@ -259,6 +259,12 @@ class ThemeHit:
     # anomalie dérivée : `validate.annotate` réécrit `anomalies` en bloc et
     # effacerait le marqueur — c'est ce qui est arrivé à la première version.
     out_of_window: bool = False
+    # Retrouvé lors de la passe d'amorçage : un pair avait trouvé le thème, on a
+    # rouvert une fenêtre étroite autour de son timing et CET hôte l'a confirmé
+    # sur son PROPRE audio. Ce n'est donc pas un timing recopié — l'accord reste
+    # gagné — mais la région n'a pas été choisie indépendamment, et un lecteur de
+    # la table doit pouvoir le savoir.
+    seeded_by_peer: bool = False
     # Plausibility reasons from oped/validate.py (empty = clean). Those in
     # validate.BLOCKING hold the hit back from being served.
     anomalies: list = field(default_factory=list)
@@ -1468,6 +1474,7 @@ def detect_op_ed_v2(
     min_votes: int = 40,
     min_score: float = MIN_SCORE_DEFAULT,
     min_fill: float = 0.5,
+    full_episode_scan: bool = False,
 ) -> list[ThemeHit]:
     """Locate OP and ED with the image-credited pipeline (see section banner).
 
@@ -1754,7 +1761,14 @@ def detect_op_ed_v2(
         # 720 s du repli, et le clamp anti-région-ED l'excluait par construction.
         # Balayage de l'épisode entier, réservé aux refs mappées : le pool
         # (F3) n'a pas ce prior et l'élargir ainsi inventerait des appariements.
-        if refs and (start_abs > 0.0 or dur < episode_duration):
+        # ⚠️ COÛTEUX, ET C'EST POURQUOI IL EST FERMÉ PAR DÉFAUT. Le balayage
+        # décode l'épisode ENTIER sous une clé de cache neuve. Activé par hôte,
+        # il a fait passer un lot de 2 épisodes au-delà de 10 minutes sans
+        # produire une seule ligne (mesuré le 07/08) : 4 hôtes × 2 kinds × un
+        # fichier complet. `multi_host` ne l'ouvre donc que pour UN hôte, puis
+        # propage le résultat aux autres par amorçage — une fenêtre de 90 s au
+        # lieu d'un fichier de 22 minutes.
+        if full_episode_scan and refs and (start_abs > 0.0 or dur < episode_duration):
             hit = _cascade(refs, 0.0, episode_duration)
             if hit is not None:
                 # Ni le `kind` ni le slug ne changent : l'identité du thème vient

@@ -372,6 +372,13 @@ def _row_from(ep: int, season: dict, mal_id, streams, per_host, hits,
             # récapitulatif). On stocke le timing, on ne le sert pas : la revue
             # manuelle du point 5 est ce qui peut le promouvoir. Précision
             # d'abord, exactement comme pour un thème emprunté.
+            # Région suggérée par un pair, mais confirmée sur l'audio de CET
+            # hôte (vidmoly-va rend 1287,9 quand l'amorce disait 1281,1 : c'est
+            # son propre décalage d'encodage, donc sa propre mesure). Servable,
+            # mais tracé — un relecteur doit savoir que la région n'a pas été
+            # choisie indépendamment.
+            if h.seeded_by_peer:
+                d["seeded_by_peer"] = True
             if h.out_of_window:
                 d["out_of_window"] = True
                 d["serve"] = False

@@ -13,6 +13,7 @@ so we don't re-hit anime-sama / Sibnet on every run; the URLs carry an expiry
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -98,12 +99,20 @@ def resolve_episodes(
             args.append(str(mal_id) if mal_id else "")
         if va_slug:
             args.append(str(va_slug))
-    proc = subprocess.run(
-        args,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-    )
+    # The bridge does its own network I/O (worker + host pages + HEAD probes)
+    # and had no ceiling, so a hung upstream page pinned a batch worker forever.
+    # Resolution is short-lived by nature — the slowest measured pass was ~52 s —
+    # so 300 s only fires on a stall.
+    try:
+        proc = subprocess.run(
+            args,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=float(os.environ.get("OPED_BRIDGE_TIMEOUT", "300")),
+        )
+    except subprocess.TimeoutExpired:
+        raise RuntimeError("bridge timeout — upstream stalled, host skipped") from None
     if proc.returncode != 0:
         raise RuntimeError(f"bridge failed (rc={proc.returncode}):\n{proc.stderr}")
 
@@ -147,6 +156,47 @@ def resolve_episodes(
 # is voir-anime's own upload, a genuinely different encode.
 MULTI_HOSTS = ["sibnet", "sendvid", "megaplay", "ansembed", "vidmoly-va",
                "uqload"]
+
+# --- Réessai de résolution (07/08) -------------------------------------------
+# MESURÉ AVANT D'ÊTRE ÉCRIT. Sur 8 lots successifs, parmi les couples
+# (cellule, hôte) ayant échoué au premier essai et ayant une référence
+# AnimeThemes : 26 sur 72 (36 %) réussissent à un essai ultérieur — ansembed
+# 40 %, megaplay 55 %, vidmoly-va 29 %. Les deux autres tiers ne reviennent
+# JAMAIS : l'échec n'est pas majoritairement transitoire, et réessayer ne
+# converge PAS vers « l'hôte finit par répondre ». Ce réessai récupère une
+# fraction connue, pas la totalité — ne pas lui prêter davantage.
+#
+# Ce qui rend l'opération rentable malgré tout : 33 % des cellules exploitables
+# n'ont qu'UN SEUL hôte qui répond, à un hôte du seuil de service (≥2). C'est
+# là qu'un hôte récupéré fait basculer une cellule, pas sur celles à zéro hôte.
+RESOLVE_ATTEMPTS = 5
+RESOLVE_BACKOFF_S = 2.0
+# Plafond : sans lui la 5e attente durerait 32 s et un hôte mort tiendrait le
+# lot en otage. 2, 4, 8, 8 s — au total 22 s au pire, uniquement sur les motifs
+# transitoires, et les hôtes se résolvent en parallèle donc l'épisode n'attend
+# que le plus lent.
+RESOLVE_BACKOFF_MAX_S = 8.0
+
+# Motifs DÉFINITIFS : réessayer n'y peut rien et coûte du temps de run.
+# « not offered » est le plus fréquent des échecs (95 sur 244 lors du lot du
+# 07/08) et n'est PAS une panne : l'hôte ne sert simplement pas cette saison.
+_PERMANENT_MARKERS = (
+    "not offered by anime-sama",     # l'hôte ne sert pas cette saison
+    "not in voir-anime page",        # l'épisode n'y est pas
+    "file not found",
+    "404",                           # page/fichier absent, pas une indisponibilité
+)
+
+
+def _is_transient(exc: Exception) -> bool:
+    """Un nouvel essai a-t-il une chance de changer le résultat ?
+
+    Par défaut OUI (timeouts, coupures, 5xx, embed injoignable) : mieux vaut un
+    essai de trop qu'une cellule perdue. Seuls les motifs explicitement
+    définitifs coupent le réessai.
+    """
+    msg = str(exc).lower()
+    return not any(m in msg for m in _PERMANENT_MARKERS)
 
 
 def resolve_episodes_multi(
@@ -207,21 +257,31 @@ def resolve_episodes_multi(
     ]
 
     def _resolve_one(host: str) -> tuple[str, list[dict]]:
-        try:
-            eps = resolve_episodes(
-                slug, season_dir, lang, ep_start, ep_end,
-                host_pref=host, cache_dir=cache_dir, mal_id=mal_id,
-                va_slug=va_slug,
-            )
-        except Exception as exc:
-            # Its peers cover us, so a failing host must not sink the episode —
-            # but swallowing the REASON is how "only 2 of 5 hosts resolve" went
-            # undiagnosed for weeks. The bridge now says whether the player is
-            # simply not offered for this season (a data gap, nothing to fix) or
-            # actually failed to extract (a bug, a block, a dead host).
-            print(f"  [no-host] {host}: {exc}")
-            eps = []
-        return host, eps
+        last: Exception | None = None
+        for attempt in range(RESOLVE_ATTEMPTS):
+            try:
+                return host, resolve_episodes(
+                    slug, season_dir, lang, ep_start, ep_end,
+                    host_pref=host, cache_dir=cache_dir, mal_id=mal_id,
+                    va_slug=va_slug,
+                )
+            except Exception as exc:
+                last = exc
+                if attempt + 1 >= RESOLVE_ATTEMPTS or not _is_transient(exc):
+                    break
+                # Temporisation croissante : un 502 ou un embed injoignable est
+                # souvent une mauvaise seconde chez l'hôte, pas une absence.
+                delay = min(RESOLVE_BACKOFF_S * (2 ** attempt),
+                            RESOLVE_BACKOFF_MAX_S)
+                print(f"  [retry] {host}: {exc} — nouvel essai dans {delay:.0f}s")
+                time.sleep(delay)
+        # Its peers cover us, so a failing host must not sink the episode —
+        # but swallowing the REASON is how "only 2 of 5 hosts resolve" went
+        # undiagnosed for weeks. The bridge now says whether the player is
+        # simply not offered for this season (a data gap, nothing to fix) or
+        # actually failed to extract (a bug, a block, a dead host).
+        print(f"  [no-host] {host}: {last}")
+        return host, []
 
     by_ep: dict[int, list[dict]] = {}
     if eligible:
