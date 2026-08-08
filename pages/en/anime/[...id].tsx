@@ -31,7 +31,7 @@ import { AniListInfoTypes } from "types/info/AnilistInfoTypes";
 import InfoPage from "@/components/anime/v2/InfoPage";
 import InfoPageMobile from "@/components/anime/v2/mobile/InfoPageMobile";
 import { useIsMobile } from "@/lib/hooks/useIsMobile";
-import { pickTitleImage, tmdbTitleImage, collectArtworks, slugifyTitle, SeasonInfo, TitleImage } from "@/components/anime/v2/helpers";
+import { pickTitleImage, collectArtworks, slugifyTitle, SeasonInfo, TitleImage } from "@/components/anime/v2/helpers";
 import { getTmdbAnimeImages } from "@/lib/tmdb/animeImages";
 import { isBannerLowRes } from "@/lib/images/bannerSize";
 
@@ -888,8 +888,7 @@ export async function getServerSideProps(ctx: any) {
       getTmdbAnimeImages(animeIdNum).catch(() => ({ backdrop: null, logo: null })),
     ]);
     timer.mark("fanarts");
-    const initialTitleImage =
-      pickTitleImage(fanarts) ?? tmdbTitleImage(tmdb.logo);
+    const initialTitleImage = pickTitleImage(fanarts, tmdb.logo);
     const fanartsMeta = toFanartsMeta(fanarts);
     const heroBanner = await infoPageBanner(info, tmdb.backdrop);
     if (heroBanner) appendPreloadHeader(ctx.res, heroBanner);
@@ -985,7 +984,7 @@ export async function getServerSideProps(ctx: any) {
     getTmdbAnimeImages(animeIdNum).catch(() => ({ backdrop: null, logo: null })),
   ]);
   timer.mark("fanarts");
-  const initialTitleImage = pickTitleImage(fanarts) ?? tmdbTitleImage(tmdb.logo);
+  const initialTitleImage = pickTitleImage(fanarts, tmdb.logo);
   const fanartsMeta = toFanartsMeta(fanarts);
   const heroBanner = await infoPageBanner(data, tmdb.backdrop);
   if (heroBanner) appendPreloadHeader(ctx.res, heroBanner);

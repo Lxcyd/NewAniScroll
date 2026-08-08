@@ -326,19 +326,32 @@ export type TitleImage = {
   queue: string[];
 };
 
-/* Pick the hero title image with the priority requested by the user:
-   1. random `clearart` (transparent character art) in EN/textless
-   2. most-liked `logo` (stylized title text) in EN/textless
-   3. null (caller falls back to plain title text)
+/* Pick the info page's hero title image, in the order requested by the user
+   (2026-08-08):
+   1. random `clearart` (transparent character art) from fanart.tv, EN/textless
+   2. TMDB logo
+   3. most-liked fanart.tv `logo` (stylized title text), EN/textless
+   4. null (caller falls back to plain title text)
+
+   TMDB sits BETWEEN the two fanart.tv types rather than after both. The split
+   is on kind, not on provider: clearart is the art this hero was designed
+   around (and the only type that cycles), so it stays first whatever else
+   exists — but between two *logos*, TMDB's library is the better and far more
+   complete one, so a fanart.tv logo is now what fills TMDB's gaps rather than
+   the other way round.
 
    When multiple clearart candidates exist, we ship the full list as a
    shuffled queue so the Hero can cycle through them on click without a
    second fanart fetch — same Turso read covers both the initial paint
-   and every subsequent click. */
-export function pickTitleImage(fanarts: FanartResponse | null): TitleImage | null {
-  if (!fanarts) return null;
+   and every subsequent click.
 
-  const clearart = (fanarts.types.clearart || []).filter((a) =>
+   `tmdbLogo` is a plain URL because this file is bundled to the client and
+   lib/tmdb/* is server-only; the SSR call site does the fetch. */
+export function pickTitleImage(
+  fanarts: FanartResponse | null,
+  tmdbLogo?: string | null,
+): TitleImage | null {
+  const clearart = (fanarts?.types.clearart || []).filter((a) =>
     isAcceptableLang(a.language)
   );
   if (clearart.length > 0) {
@@ -348,21 +361,17 @@ export function pickTitleImage(fanarts: FanartResponse | null): TitleImage | nul
     return { url: urls[0], kind: "clearart", queue: urls };
   }
 
-  const logos = (fanarts.types.logo || []).filter((a) =>
-    isAcceptableLang(a.language)
-  );
-  if (logos.length > 0) {
-    // API already orders by likes desc.
-    return { url: logos[0].url, kind: "logo", queue: [] };
-  }
+  const fromTmdb = tmdbTitleImage(tmdbLogo);
+  if (fromTmdb) return fromTmdb;
 
-  return null;
+  return pickHeroLogo(fanarts);
 }
 
-/* Logo-only variant of pickTitleImage. The home hero wants the stylised
-   title TEXT (HD ClearLogo) only — never the transparent character art
-   (clearart), which fights the banner background behind it. Returns the
-   most-liked acceptable-language logo, or null to fall back to text. */
+/* fanart.tv logo only. The home hero wants the stylised title TEXT
+   (HD ClearLogo) and never the transparent character art (clearart), which
+   fights the banner background behind it; the info page uses it as the last
+   image resort, after TMDB. Returns the most-liked acceptable-language logo,
+   or null to fall back to text. */
 export function pickHeroLogo(fanarts: FanartResponse | null): TitleImage | null {
   if (!fanarts) return null;
   const logos = (fanarts.types.logo || []).filter((a) =>
@@ -375,7 +384,7 @@ export function pickHeroLogo(fanarts: FanartResponse | null): TitleImage | null 
 }
 
 /* Wrap a TMDB logo URL (lib/tmdb/animeImages.getTmdbAnimeImages().logo) as a
-   TitleImage, so a caller can use it as the LAST resort before plain text.
+   TitleImage.
 
    Pure and provider-agnostic on purpose: this file is bundled to the client,
    and lib/tmdb/* is server-only (it reads TMDB_API_KEY and hits Turso). The
@@ -396,9 +405,10 @@ export function pickHeroLogo(fanarts: FanartResponse | null): TitleImage | null 
      1-year cache, ~50 ms worldwide, versus an uncached hotlink to
      image.tmdb.org) but it is about the PIPE, not the image, and on a surface
      built to match theirs the image decides. Overruled 2026-08-08.
-   - Info page (pages/en/anime/[...id].tsx): fanart.tv first, and clearart
-     before logo. That hero is ours, not a copy, and its clearart cycle is a
-     feature TMDB has no equivalent for.
+   - Info page (pages/en/anime/[...id].tsx): fanart.tv CLEARART first, then
+     TMDB, then the fanart.tv logo (see pickTitleImage). The clearart cycle is
+     a feature TMDB has no equivalent for, so it keeps the top slot; between
+     two logos TMDB wins on coverage.
 
    Either way TMDB only ever fills what fanart.tv doesn't cover, or vice versa
    — fanart.tv covers a fraction of the catalogue, so both orderings leave the

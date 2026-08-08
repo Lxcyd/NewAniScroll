@@ -1,5 +1,24 @@
 # DEVLOG
 
+## 2026-08-08 (nuit) — Titre de la fiche : TMDB passe devant le logo fanart.tv
+
+Ordre demandé par Luc pour le titre du héros de la page info : clearart → TMDB →
+logo fanart.tv → texte. TMDB s'insère donc **entre les deux types fanart.tv**, et
+non après les deux comme avant.
+
+Le point à retenir : **le départage se fait sur le type d'image, pas sur le
+fournisseur**. Le clearart (art de personnage détouré) est ce autour de quoi ce
+héros a été dessiné, et c'est le seul type qui alimente le cycle au clic — il
+garde donc la première place quoi qu'il arrive. Mais entre deux *logos*, la
+bibliothèque TMDB est nettement plus complète : le logo fanart.tv devient ce qui
+comble les trous de TMDB, et non l'inverse.
+
+`pickTitleImage(fanarts, tmdbLogo)` porte désormais toute la chaîne au lieu de
+la laisser se composer au `??` sur les deux appels SSR, qui pouvaient diverger.
+
+---
+
+
 ## 2026-08-08 (nuit) — Carte de survol avec bande-annonce, portée de Hayase
 
 Carte flottante au survol d'une fiche anime : bande-annonce YouTube, méta,
