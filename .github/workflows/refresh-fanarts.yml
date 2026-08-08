@@ -41,20 +41,20 @@ jobs:
           node-version: "20"
           cache: "npm"
 
-      - name: Install minimal deps
-        run: npm install --no-save @libsql/client@^0.17 dotenv@^17 onnxruntime-node@^1.25 sharp@^0.32
-
-      - name: Cache the WD14 classifier model
-        uses: actions/cache@v4
-        with:
-          path: .cache/models
-          key: wd-swinv2-v3-v1
-
-      - name: Download WD14 model if missing
-        run: |
-          if [ ! -f .cache/models/wd-swinv2-v3.onnx ] || [ ! -f .cache/models/wd-swinv2-v3-tags.csv ]; then
-            node scripts/download-wd14-model.mjs
-          fi
+      # ÉTAPE 1 — seulement ce dont le rafraîchissement a besoin.
+      # `refresh-fanarts.mjs` n'importe que dotenv + @libsql/client, et NI L'UN
+      # NI L'AUTRE n'a de script d'installation (vérifié). `--ignore-scripts`
+      # garantit donc qu'aucun binaire n'est téléchargé ici — c'est ce qui rend
+      # l'isolation réelle : les quatre paquets étant déjà déclarés dans
+      # package.json, un `npm install` nu réconcilie tout l'arbre et rappellerait
+      # le postinstall d'onnxruntime-node malgré la séparation des étapes.
+      #
+      # Le 08/08 ce postinstall (qui télécharge un binaire natif) a expiré sur
+      # ETIMEDOUT et a fait échouer TOUT le workflow — y compris le
+      # rafraîchissement, qui n'en a aucun besoin. Une dépendance du classifieur
+      # ne doit pas coûter la donnée.
+      - name: Install refresh deps
+        run: npm install --no-save --ignore-scripts @libsql/client@^0.17 dotenv@^17
 
       - name: Refresh fanarts (delta)
         env:
@@ -62,6 +62,41 @@ jobs:
           TURSO_AUTH_TOKEN:   ${{ secrets.TURSO_AUTH_TOKEN }}
           FANART_API_KEY:     ${{ secrets.FANART_API_KEY }}
         run: node scripts/refresh-fanarts.mjs
+
+      # ÉTAPE 2 — le classifieur, et lui seul, paie ses dépendances.
+      # Rien de tout ce qui suit ne s'exécute quand skip_classify est demandé.
+      - name: Install classifier deps
+        if: ${{ inputs.skip_classify != true }}
+        # Le téléchargement du binaire natif se fait dans le postinstall du
+        # paquet, hors du contrôle des `fetch-retries` de npm : la seule reprise
+        # possible est de relancer la commande. 3 essais, 15 s puis 30 s.
+        run: |
+          for attempt in 1 2 3; do
+            if npm install --no-save onnxruntime-node@^1.25 sharp@^0.32; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              delay=$((attempt * 15))
+              echo "::warning::install du classifieur echoue (essai $attempt/3) — nouvel essai dans ${delay}s"
+              sleep "$delay"
+            fi
+          done
+          echo "::error::install du classifieur echoue apres 3 essais"
+          exit 1
+
+      - name: Cache the WD14 classifier model
+        if: ${{ inputs.skip_classify != true }}
+        uses: actions/cache@v4
+        with:
+          path: .cache/models
+          key: wd-swinv2-v3-v1
+
+      - name: Download WD14 model if missing
+        if: ${{ inputs.skip_classify != true }}
+        run: |
+          if [ ! -f .cache/models/wd-swinv2-v3.onnx ] || [ ! -f .cache/models/wd-swinv2-v3-tags.csv ]; then
+            node scripts/download-wd14-model.mjs
+          fi
 
       - name: Classify new fanarts
         if: ${{ inputs.skip_classify != true }}
