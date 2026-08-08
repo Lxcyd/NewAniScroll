@@ -508,6 +508,15 @@
     "moveUp": "Monter",
     "moveDown": "Descendre"
   },
+  "preview": {
+    "watchNow": "Regarder",
+    "episodeCount_one": "{{count}} épisode",
+    "episodeCount_other": "{{count}} épisodes",
+    "mute": "Couper le son",
+    "unmute": "Activer le son",
+    "play": "Lire la bande-annonce",
+    "pause": "Mettre en pause"
+  },
   "notifications": {
     "title": "Notifications",
     "empty": "Vous êtes à jour.",

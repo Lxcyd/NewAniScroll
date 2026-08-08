@@ -31,6 +31,7 @@ import { PlayIcon } from "@heroicons/react/24/outline";
 import { StaticImport } from "next/dist/shared/lib/get-img-props";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { animeHref, useClickTarget } from "@/lib/prefs/clickTarget";
+import { previewAnchor } from "@/lib/preview/anchor";
 import { useTranslation } from "react-i18next";
 import { useInfiniteScroll } from "@/lib/hooks/useInfiniteScroll";
 
@@ -483,7 +484,13 @@ export default function Card({
                     index: Key | null | undefined
                   ) => {
                     return (
-                      <div className="as-pop-in w-full" key={index}>
+                      <div
+                        className="as-pop-in w-full"
+                        key={index}
+                        {...(anime.format === "MANGA" || anime.format === "NOVEL"
+                          ? {}
+                          : previewAnchor(anime.id))}
+                      >
                         <Link
                           href={
                             anime.format === "MANGA" || anime.format === "NOVEL"

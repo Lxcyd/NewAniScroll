@@ -19,6 +19,7 @@ import { scheduleQuery } from "@/lib/graphql/query";
 import MobileNav from "@/components/shared/MobileNav";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { animeHref, useClickTarget } from "@/lib/prefs/clickTarget";
+import { previewAnchor } from "@/lib/preview/anchor";
 import { useTranslation } from "react-i18next";
 
 /* Map an English weekday (the logical key used for sections / filtering)
@@ -499,6 +500,9 @@ export default function Schedule({ schedule }: any) {
                               ? animeHref(m.id, clickTarget)
                               : `/en/${(m.type || "ANIME").toLowerCase()}/${m.id}`
                           }
+                          {...((m.type || "ANIME").toLowerCase() === "anime"
+                            ? previewAnchor(m.id)
+                            : {})}
                           className={`flex bg-secondary rounded group cursor-pointer relative ${
                             s.id === nextAiringAnime
                               ? "ring-1 ring-sky-500"

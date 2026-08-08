@@ -9,6 +9,7 @@ import MobileNav from "@/components/shared/MobileNav";
 import { truncateImgUrl } from "@/utils/imageUtils";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { animeHref, useClickTarget } from "@/lib/prefs/clickTarget";
+import { previewAnchor } from "@/lib/preview/anchor";
 import { useTranslation } from "react-i18next";
 import { useInfiniteScroll } from "@/lib/hooks/useInfiniteScroll";
 
@@ -78,6 +79,7 @@ export default function Recent() {
             <div
               key={index}
               className="flex flex-col items-center w-[150px] lg:w-[180px]"
+              {...previewAnchor(i.id)}
             >
               <Link
                 href={animeHref(i.id, clickTarget)}

@@ -1,5 +1,42 @@
 # DEVLOG
 
+## 2026-08-08 (nuit) — Carte de survol avec bande-annonce : un listener, pas un composant
+
+Nouvelle carte flottante au survol d'une fiche anime (trailer YouTube, méta,
+« Regarder », file d'attente). Trois décisions valent d'être notées.
+
+**Le site n'a pas de composant carte.** `components/shared/AnimeCard.tsx` existe
+mais **n'est importé nulle part** : chaque page a son propre markup (carrousels
+accueil, grille catalogue, recherche, planning, recommandations…). Envelopper
+tout ça dans un composant commun aurait été un refactor à part entière. À la
+place, un **listener `pointerover` délégué unique** sur `document` cherche
+l'ancêtre portant `data-anime-preview` : rendre une carte survolable = un spread
+`{...previewAnchor(id)}` sur son élément racine, sans nœud enveloppant, sans
+changement de layout, sans listener par carte (une accueil = 100+ cartes).
+
+**L'iframe YouTube doit être `pointer-events: none`.** Une frame cross-origin
+avale les événements pointeur : sans ça, la carte se ferme dès que le curseur
+entre dans la bande-annonce, puisque le provider ne « voit » plus le survol. Les
+boutons lecture/son sont donc les nôtres, pilotés par le protocole postMessage
+de l'iframe API (`enablejsapi=1`) — aucun SDK à charger.
+
+**Le coût réseau est dans les délais, pas dans le cache.** Une souris qui
+traverse un carrousel touche 15 cartes en une seconde. Trois garde-fous :
+ouverture après 550 ms (200 ms seulement si une carte est déjà ouverte, pour que
+la carte « suive » le curseur), YouTube monté 700 ms plus tard encore, et
+`/api/v2/preview/[id]` en **cache edge 24 h** (payload réduit à ~1 Ko contre
+~40 Ko pour la Media complète). Aucun champ par-utilisateur dedans : en ajouter
+un rendrait la réponse non partageable et tuerait le cache edge — l'état file
+d'attente est lu côté client dans le store local.
+
+**Non couvert volontairement** : les listes denses (my-list, profil, file
+d'attente) où un popup de 360 px recouvrirait les lignes voisines, la recherche
+par image (elle a déjà son propre aperçu vidéo), et le cœur « favori » — il
+demande `isFavourite`, donc un appel AniList par survol.
+
+---
+
+
 ## 2026-08-08 (soir) — Sibnet remarche : deux blocages, et une conclusion fausse en route
 
 Suite du diagnostic du lot `top50` ci-dessous. Sibnet ne rendait que 5 cellules

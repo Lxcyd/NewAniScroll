@@ -3,6 +3,7 @@ import Image from "next/image";
 import { StarIcon, TvIcon } from "@heroicons/react/24/solid";
 import { animeHref, useClickTarget } from "@/lib/prefs/clickTarget";
 import { coverUrl } from "@/lib/images/cover";
+import { previewAnchor } from "@/lib/preview/anchor";
 
 type Anime = {
   id: number | string;
@@ -69,7 +70,7 @@ export default function AnimeCard({
   const { w, h, titleSize } = SIZE[size];
 
   const cardInner = (
-    <div className={`relative shrink-0 ${w} group`}>
+    <div className={`relative shrink-0 ${w} group`} {...previewAnchor(anime.id)}>
       <div
         className={`relative ${w} ${h} overflow-hidden rounded-poster shadow-poster bg-as-card transition-transform duration-300 ease-out group-hover:scale-[1.03]`}
       >

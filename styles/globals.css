@@ -65,6 +65,18 @@ html.tab-hidden *::after {
   animation: as-pop-in 0.35s ease both;
 }
 
+/* Hover preview popup (components/shared/HoverPreview). Short and slightly
+   scaled so the card reads as rising out of the poster it covers rather than
+   blinking into place — but fast enough that sweeping a carousel doesn't feel
+   like waiting on an animation. */
+@keyframes as-preview-in {
+  from { opacity: 0; transform: scale(0.94); }
+  to   { opacity: 1; transform: none; }
+}
+.as-preview-card {
+  animation: as-preview-in 0.18s ease-out both;
+}
+
 /* Heart "favourite" fill animation — used by the anime info page (desktop
    Hero + mobile header). Defined globally so the inline `animation:
    heart-pop ...` on the heart SVGs resolves whether the desktop or the

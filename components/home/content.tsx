@@ -17,6 +17,7 @@ import { coverUrl } from "@/lib/images/cover";
 import { formatCountdownCompact } from "@/utils/getTimes";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { animeHref, useClickTarget } from "@/lib/prefs/clickTarget";
+import { previewAnchor } from "@/lib/preview/anchor";
 import { useTranslation } from "react-i18next";
 import { sectionLabel } from "@/lib/i18n/sectionLabel";
 
@@ -446,6 +447,10 @@ export default function Content({
                   <div
                     key={anime.id}
                     className="flex flex-col gap-3 shrink-0 cursor-pointer"
+                    // Manga rows have no trailer and no watch page — anime only.
+                    {...(ids !== "listManga" && type.toLowerCase() === "anime"
+                      ? previewAnchor(anime.id)
+                      : {})}
                   >
                     <Link
                       href={

@@ -4,6 +4,7 @@ import { MediaRecommendation } from "types/info/AnilistInfoTypes";
 import { useTranslation } from "react-i18next";
 import { animeHref, useClickTarget } from "@/lib/prefs/clickTarget";
 import { coverUrl } from "@/lib/images/cover";
+import { previewAnchor } from "@/lib/preview/anchor";
 
 type Props = {
   items: MediaRecommendation[];
@@ -125,6 +126,7 @@ export default function Recommendations({ items, forTitle }: Props) {
             key={r.id}
             href={animeHref(r.id, clickTarget)}
             draggable={false}
+            {...previewAnchor(r.id)}
             style={{ ...rStyles.cardLink } as CSSProperties}
           >
             <div style={rStyles.cover}>

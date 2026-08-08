@@ -508,6 +508,15 @@
     "moveUp": "Move up",
     "moveDown": "Move down"
   },
+  "preview": {
+    "watchNow": "Watch Now",
+    "episodeCount_one": "{{count}} Episode",
+    "episodeCount_other": "{{count}} Episodes",
+    "mute": "Mute trailer",
+    "unmute": "Unmute trailer",
+    "play": "Play trailer",
+    "pause": "Pause trailer"
+  },
   "notifications": {
     "title": "Notifications",
     "empty": "You're all caught up.",
