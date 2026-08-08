@@ -60,8 +60,28 @@ CREATE TABLE IF NOT EXISTS tmdb_images_cache (
 export const TTL_HIT_S = 30 * 24 * 60 * 60;
 export const TTL_REFUSAL_S = 24 * 60 * 60;
 
-/** Bump when lib/tmdb/pick.ts changes what it would choose. */
-const CACHE_VERSION = "v1";
+/**
+ * Bump whenever a code change would produce a DIFFERENT answer for a title we
+ * have already asked about — that includes RESOLUTION, not just selection.
+ *
+ * v1 → v2 (2026-08-08): the prequel-inheritance fallback shipped. Every title
+ * that had already been refused with `no-tmdb-id` kept answering "no" from
+ * this cache for 24h, so the new code never ran — Hell Mode S2 (AniList
+ * 209983) still showed its AniList banner on dev with a `no-tmdb-id` row
+ * written 16 minutes earlier, while TMDB had the artwork all along.
+ *
+ * That is the general trap and it is worth stating plainly: A CACHED REFUSAL
+ * OUTLIVES THE REASON IT WAS CACHED. Shipping a fix that makes a previously
+ * impossible lookup possible is exactly the case the TTL cannot see, because
+ * from the row's point of view nothing has changed. The same failure is
+ * documented for `tmdb_stills_cache` (a `no-simkl-id` row answering before the
+ * fixed code could run).
+ *
+ * Bumping is the whole migration: old keys are simply never read again. They
+ * are orphaned rather than deleted — a handful of dead cache rows costs
+ * nothing, and a DELETE on a live table to save them is the riskier move.
+ */
+const CACHE_VERSION = "v2";
 
 let ensured = false;
 async function ensureTable(): Promise<void> {
