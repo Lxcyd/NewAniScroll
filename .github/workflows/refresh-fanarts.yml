@@ -67,12 +67,22 @@ jobs:
       # Rien de tout ce qui suit ne s'exécute quand skip_classify est demandé.
       - name: Install classifier deps
         if: ${{ inputs.skip_classify != true }}
-        # Le téléchargement du binaire natif se fait dans le postinstall du
-        # paquet, hors du contrôle des `fetch-retries` de npm : la seule reprise
-        # possible est de relancer la commande. 3 essais, 15 s puis 30 s.
+        # `npm rebuild` EST INDISPENSABLE, ne pas le retirer. Les deux paquets
+        # sont déjà dans package.json, donc l'étape 1 les a installés au passage
+        # — mais avec `--ignore-scripts`, donc SANS leur binaire natif. npm les
+        # voit alors à la bonne version et ne rejoue pas leurs scripts : sharp
+        # reste posé mais infirme et casse à l'exécution sur
+        #   Cannot find module '../build/Release/sharp-linux-x64.node'
+        # (constaté sur le run 31259166354). `npm rebuild` rejoue install/
+        # postinstall pour ces paquets précis, c'est ce qui télécharge le binaire.
+        #
+        # Ce téléchargement vit dans les scripts du paquet, hors du contrôle des
+        # `fetch-retries` de npm : la seule reprise possible est de relancer la
+        # commande. 3 essais, 15 s puis 30 s.
         run: |
           for attempt in 1 2 3; do
-            if npm install --no-save onnxruntime-node@^1.25 sharp@^0.32; then
+            if npm install --no-save onnxruntime-node@^1.25 sharp@^0.32 \
+               && npm rebuild --foreground-scripts onnxruntime-node sharp; then
               exit 0
             fi
             if [ "$attempt" -lt 3 ]; then
