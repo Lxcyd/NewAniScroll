@@ -13,7 +13,7 @@ export default function RemovedPage() {
       <MobileNav hideProfile />
       <div className="flex flex-col items-center justify-center h-dvh font-karla">
         <div className="flex-col flex-center container space-y-2">
-          <div className="size-24 lg:size-32 text-white">
+          <div className="h-24 w-24 lg:h-32 lg:w-32 text-white">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
               <path
                 fill="currentColor"

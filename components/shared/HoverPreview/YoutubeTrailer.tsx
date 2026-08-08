@@ -129,7 +129,9 @@ export default function YoutubeTrailer({
 
   return (
     <>
-      <div className="absolute top-0 size-full overflow-clip rounded-t">
+      {/* h-full w-full, not `size-full`: the project is on Tailwind 3.3 and the
+          `size-*` shorthand only lands in 3.4 — Hayase's classes don't compile here. */}
+      <div className="absolute top-0 h-full w-full overflow-clip rounded-t">
         <button
           type="button"
           onClick={toggleMute}
@@ -192,7 +194,7 @@ export default function YoutubeTrailer({
       {/* Hayase's signature: a second, muted copy of the same frame behind the
           card, blurred and over-saturated, so the trailer casts its own colour
           onto the page. It carries no API handshake — it is pure decoration. */}
-      <div className="absolute top-0 -z-10 size-full overflow-clip rounded-t blur-2xl saturate-200 pointer-events-none">
+      <div className="absolute top-0 -z-10 h-full w-full overflow-clip rounded-t blur-2xl saturate-200 pointer-events-none">
         {src && (
           <iframe
             {...({ credentialless: "true" } as Record<string, string>)}

@@ -186,7 +186,7 @@ export default function PreviewCard({
               src={banner}
               alt=""
               aria-hidden
-              className={`absolute -z-10 size-full object-cover blur-2xl saturate-200 ${
+              className={`absolute -z-10 h-full w-full object-cover blur-2xl saturate-200 ${
                 trailerPlaying ? "hidden" : ""
               }`}
             />
@@ -195,7 +195,8 @@ export default function PreviewCard({
               src={banner}
               alt=""
               draggable={false}
-              className="size-full rounded-t object-cover"
+              // h-full w-full, not `size-full`: Tailwind 3.3 here, `size-*` is 3.4+.
+              className="h-full w-full rounded-t object-cover"
             />
           </>
         )}
@@ -282,7 +283,7 @@ export default function PreviewCard({
           )}
         </div>
 
-        <div className="line-clamp-4 size-full overflow-clip text-[.7rem] leading-snug text-white/55">
+        <div className="line-clamp-4 h-full w-full overflow-clip text-[.7rem] leading-snug text-white/55">
           {data?.description ?? ""}
         </div>
       </div>

@@ -1,5 +1,32 @@
 # DEVLOG
 
+## 2026-08-08 (nuit) — `size-full` n'existe pas en Tailwind 3.3 : la bannière de l'aperçu était vide
+
+Symptôme : la carte de survol s'affichait bien (titre, boutons, méta, résumé)
+mais sa moitié haute restait noire — ni bannière, ni bande-annonce.
+
+Cause : en portant Hayase **à l'identique** j'ai recopié ses classes, or Hayase
+est en Tailwind 4 et ce projet en **3.3.3**. Le raccourci `size-*` (`size-full`
+= `h-full w-full`) n'arrive qu'en **3.4**. Les cinq `size-full` du portage ne
+généraient donc *aucun* CSS : les deux `<img>` de bannière perdaient leur
+contrainte de taille, et surtout le conteneur `absolute` des deux iframes
+YouTube tombait à 0×0 — l'iframe existait, chargeait, mais n'avait pas un pixel
+où se peindre.
+
+**Leçon de portage : les classes utilitaires ne se recopient pas telles quelles
+d'un projet à l'autre — elles dépendent de la version du générateur.** Une
+classe inconnue de Tailwind ne produit ni erreur ni avertissement, elle
+disparaît silencieusement ; c'est le mode d'échec le plus discret qui soit, et
+il ne se voit ni au `tsc` ni au build. Le contrôle qui tranche en une seconde :
+`grep size-full .next/static/css/*.css` → 0 occurrence.
+
+Corrigé partout en `h-full w-full`. Au passage, même défaut préexistant sur
+`/en/removed` (`size-24 lg:size-32`). Reste à vérifier un jour : `h-dvh` sur
+cette même page est aussi une classe 3.4+.
+
+---
+
+
 ## 2026-08-08 (nuit) — Titre de la fiche : TMDB passe devant le logo fanart.tv
 
 Ordre demandé par Luc pour le titre du héros de la page info : clearart → TMDB →
