@@ -70,6 +70,32 @@ export default function HoverPreviewProvider() {
     };
   }, []);
 
+  /**
+   * Warm the connections the trailer will need, at page load rather than at
+   * hover. An embed costs a DNS lookup plus a TLS handshake before the first
+   * byte of player code moves, and on a cold connection that is most of the
+   * delay between the card appearing and the video starting — doing it up front
+   * takes it off the critical path entirely. `googlevideo` only gets a
+   * dns-prefetch: the media host is picked per video (`rr3---sn-…`), so there is
+   * no fixed origin to shake hands with.
+   */
+  useEffect(() => {
+    if (!enabled) return;
+    const links = [
+      ["preconnect", "https://www.youtube-nocookie.com"],
+      ["preconnect", "https://i.ytimg.com"],
+      ["dns-prefetch", "https://googlevideo.com"],
+    ].map(([rel, href]) => {
+      const link = document.createElement("link");
+      link.rel = rel;
+      link.href = href;
+      link.crossOrigin = "";
+      document.head.appendChild(link);
+      return link;
+    });
+    return () => links.forEach((l) => l.remove());
+  }, [enabled]);
+
   useEffect(() => {
     if (!enabled) {
       setOpen(null);
@@ -178,10 +204,21 @@ export default function HoverPreviewProvider() {
       if (e.key === "Escape") close();
     };
 
+    // Clicking a card navigates; dragging a carousel shouldn't drag a popup
+    // along. But a press INSIDE the popup is aimed at the popup — this listener
+    // is on `document` in the capture phase, so without the exemption it tore
+    // the card down before pause / mute / favourite ever saw their own click.
+    const onPointerDown = (e: Event) => {
+      const node = e.target as Element | null;
+      if (node && typeof node.closest === "function" && node.closest("[data-preview-popup]")) {
+        return;
+      }
+      close();
+    };
+
     document.addEventListener("pointerover", onPointerOver, true);
     document.addEventListener("pointermove", onPointerMove, true);
-    // Clicking a card navigates; dragging a carousel shouldn't drag a popup along.
-    document.addEventListener("pointerdown", close, true);
+    document.addEventListener("pointerdown", onPointerDown, true);
     document.addEventListener("scroll", onScroll, true);
     document.addEventListener("keydown", onKey);
     // Pointer left the window entirely — no further pointerover will arrive.
@@ -193,7 +230,7 @@ export default function HoverPreviewProvider() {
       if (raf) cancelAnimationFrame(raf);
       document.removeEventListener("pointerover", onPointerOver, true);
       document.removeEventListener("pointermove", onPointerMove, true);
-      document.removeEventListener("pointerdown", close, true);
+      document.removeEventListener("pointerdown", onPointerDown, true);
       document.removeEventListener("scroll", onScroll, true);
       document.removeEventListener("keydown", onKey);
       document.removeEventListener("mouseleave", close);

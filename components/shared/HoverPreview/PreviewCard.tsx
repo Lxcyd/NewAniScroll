@@ -18,11 +18,18 @@ import YoutubeTrailer from "./YoutubeTrailer";
 
 export type AnchorRect = { top: number; left: number; width: number; height: number };
 
-/** 17.5rem × 20rem — Hayase's preview card, to the pixel. */
-const WIDTH = 280;
-const HEIGHT = 320;
+/**
+ * Wider and taller than Hayase's 17.5rem × 20rem. Ours has to fully cover the
+ * poster it pops over — a preview with the original card peeking out around it
+ * reads as a rendering glitch — and our grids run larger posters than Hayase's.
+ */
+const WIDTH = 364;
+const HEIGHT = 424;
 /** Gap kept between the card and the viewport edges. */
 const MARGIN = 12;
+
+/** Card surface. Kept in sync with the banner gradient in globals.css. */
+const SURFACE = "#1a1a24";
 
 const FORMAT_LABEL: Record<string, string> = {
   TV: "TV Series",
@@ -101,6 +108,7 @@ export default function PreviewCard({
   const title = data ? pickTitle(data.title, titlePref) : "";
   const banner = bannerUrl(data, poster);
   const trailerPlaying = hideFrame === false;
+  const accent = data?.coverImage?.color ?? null;
 
   // "N Episodes" / "3 / 12 Episodes", falling back to the runtime for movies and
   // single-episode entries — Hayase's `of() ?? duration() ?? 'N/A'`.
@@ -158,15 +166,15 @@ export default function PreviewCard({
     await toggleFavourite(id, token);
   };
 
+  const iconButton =
+    "grid h-[34px] w-[34px] shrink-0 place-items-center rounded-md bg-white/[0.06] text-white/75 ring-1 ring-white/10 transition-colors hover:bg-white/[0.12] hover:text-white";
+
   return (
     <div
       ref={cardRef}
       data-preview-popup=""
-      className="as-preview-card fixed z-[80] cursor-pointer overflow-hidden rounded-md bg-[var(--as-preview-bg)] shadow-2xl shadow-black/60"
+      className="as-preview-root fixed z-[80]"
       style={{
-        // The bottom of the banner fades into this, so the gradient and the card
-        // have to read the same value.
-        ["--as-preview-bg" as any]: "#16171b",
         width: WIDTH,
         height: HEIGHT,
         top: pos?.top ?? 0,
@@ -176,115 +184,134 @@ export default function PreviewCard({
         visibility: pos ? "visible" : "hidden",
       }}
     >
-      <div className="as-preview-banner relative h-[45%] rounded-t bg-black">
-        {banner && (
-          <>
-            {/* Blurred, over-saturated copy bleeding out behind the card. Dropped
-                once the trailer plays, because the trailer brings its own. */}
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={banner}
-              alt=""
-              aria-hidden
-              className={`absolute -z-10 h-full w-full object-cover blur-2xl saturate-200 ${
-                trailerPlaying ? "hidden" : ""
-              }`}
-            />
-            {/* eslint-disable-next-line @next/next/no-img-element */}
+      {/* Ambient light: the artwork blown up, blurred and over-saturated behind
+          the card, spilling past its edges. It lives OUTSIDE the card because
+          the card clips its own children, and behind it via z-index because the
+          card surface is opaque. */}
+      {banner && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={banner}
+          alt=""
+          aria-hidden
+          draggable={false}
+          className="as-preview-ambient pointer-events-none absolute -z-10"
+        />
+      )}
+
+      <div
+        className="as-preview-card relative h-full w-full cursor-pointer overflow-hidden rounded-card ring-1 ring-white/10"
+        style={{
+          // The bottom of the banner fades into this, so the gradient and the
+          // card have to read the same value.
+          ["--as-preview-bg" as any]: SURFACE,
+          background: SURFACE,
+          // The anime's own dominant colour, as a halo. AniList ships it in the
+          // payload, so it costs nothing and it ties the card to the artwork.
+          boxShadow: `0 20px 55px rgba(0,0,0,.62)${
+            accent ? `, 0 0 46px -14px ${accent}` : ""
+          }`,
+        }}
+      >
+        <div className="as-preview-banner relative h-[45%] rounded-t-card bg-black">
+          {banner && (
+            // eslint-disable-next-line @next/next/no-img-element
             <img
               src={banner}
               alt=""
               draggable={false}
               // h-full w-full, not `size-full`: Tailwind 3.3 here, `size-*` is 3.4+.
-              className="h-full w-full rounded-t object-cover"
+              className={`h-full w-full rounded-t-card object-cover transition-opacity duration-300 ${
+                trailerPlaying ? "opacity-0" : "opacity-100"
+              }`}
             />
-          </>
-        )}
-        {data?.trailer?.id && !hideFrame && (
-          <YoutubeTrailer id={data.trailer.id} onHide={onHide} />
-        )}
-      </div>
-
-      <div className="w-full bg-[var(--as-preview-bg)] px-4 font-karla">
-        <Link
-          href={`/en/anime/${id}`}
-          title={title}
-          className="inline-block w-full truncate pt-2 text-lg font-bold text-white"
-        >
-          {title || " "}
-        </Link>
-
-        <div className="flex flex-row">
-          <Link
-            href={animeHref(id, "watch")}
-            className="flex grow items-center justify-center gap-2 rounded-md bg-white px-3 py-1.5 text-xs font-bold text-black transition-opacity hover:opacity-90"
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M8 5v14l11-7z" />
-            </svg>
-            {playLabel}
-          </Link>
-
-          <button
-            type="button"
-            onClick={onFav}
-            aria-label={t(fav ? "anime.removeFromFavourites" : "anime.addToFavourites")}
-            title={t(fav ? "anime.removeFromFavourites" : "anime.addToFavourites")}
-            className="ml-2 grid h-[30px] w-[30px] shrink-0 place-items-center rounded-md text-white/80 transition-colors hover:bg-white/10 hover:text-white"
-          >
-            {/* lucide heart */}
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill={fav ? "currentColor" : "transparent"}
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z" />
-            </svg>
-          </button>
-
-          <button
-            type="button"
-            onClick={onBookmark}
-            aria-label={t(entry?.status ? "preview.removeFromList" : "preview.addToPlanning")}
-            title={t(entry?.status ? "preview.removeFromList" : "preview.addToPlanning")}
-            className="ml-2 grid h-[30px] w-[30px] shrink-0 place-items-center rounded-md text-white/80 transition-colors hover:bg-white/10 hover:text-white"
-          >
-            {/* lucide bookmark */}
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill={entry?.status ? "currentColor" : "transparent"}
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z" />
-            </svg>
-          </button>
-        </div>
-
-        <div className="as-preview-details flex overflow-clip text-ellipsis whitespace-nowrap pb-2 pt-3 text-[11px] capitalize text-white">
-          <span className="flex items-center whitespace-nowrap">
-            {data?.format ? FORMAT_LABEL[data.format] ?? data.format : "N/A"}
-          </span>
-          <span className="flex items-center whitespace-nowrap">{episodesCell}</span>
-          {season && <span className="flex items-center whitespace-nowrap">{season}</span>}
-          {data?.averageScore != null && (
-            <span className="flex items-center whitespace-nowrap text-ellipsis">
-              {data.averageScore}%
-            </span>
+          )}
+          {data?.trailer?.id && !hideFrame && (
+            <YoutubeTrailer id={data.trailer.id} onHide={onHide} />
           )}
         </div>
 
-        <div className="line-clamp-4 h-full w-full overflow-clip text-[.7rem] leading-snug text-white/55">
-          {data?.description ?? ""}
+        <div className="w-full px-4 font-karla" style={{ background: SURFACE }}>
+          <Link
+            href={`/en/anime/${id}`}
+            title={title}
+            className="inline-block w-full truncate pt-2.5 font-outfit text-[17px] font-bold leading-tight text-white"
+          >
+            {title || " "}
+          </Link>
+
+          <div className="mt-2.5 flex flex-row">
+            <Link
+              href={animeHref(id, "watch")}
+              className="flex grow items-center justify-center gap-2 rounded-md bg-as-accent px-3 py-2 font-outfit text-[11px] font-bold uppercase tracking-[0.12em] text-white transition-opacity hover:opacity-90"
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M8 5v14l11-7z" />
+              </svg>
+              {playLabel}
+            </Link>
+
+            <button
+              type="button"
+              onClick={onFav}
+              aria-label={t(fav ? "anime.removeFromFavourites" : "anime.addToFavourites")}
+              title={t(fav ? "anime.removeFromFavourites" : "anime.addToFavourites")}
+              className={`ml-2 ${iconButton} ${fav ? "!text-as-accent" : ""}`}
+            >
+              {/* lucide heart */}
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill={fav ? "currentColor" : "transparent"}
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z" />
+              </svg>
+            </button>
+
+            <button
+              type="button"
+              onClick={onBookmark}
+              aria-label={t(entry?.status ? "preview.removeFromList" : "preview.addToPlanning")}
+              title={t(entry?.status ? "preview.removeFromList" : "preview.addToPlanning")}
+              className={`ml-2 ${iconButton} ${entry?.status ? "!text-white" : ""}`}
+            >
+              {/* lucide bookmark */}
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill={entry?.status ? "currentColor" : "transparent"}
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z" />
+              </svg>
+            </button>
+          </div>
+
+          <div className="as-preview-details flex overflow-clip text-ellipsis whitespace-nowrap pb-2 pt-3 text-[11px] capitalize text-white/70">
+            <span className="flex items-center whitespace-nowrap">
+              {data?.format ? FORMAT_LABEL[data.format] ?? data.format : "N/A"}
+            </span>
+            <span className="flex items-center whitespace-nowrap">{episodesCell}</span>
+            {season && <span className="flex items-center whitespace-nowrap">{season}</span>}
+            {data?.averageScore != null && (
+              <span className="flex items-center whitespace-nowrap text-ellipsis text-as-score">
+                {data.averageScore}%
+              </span>
+            )}
+          </div>
+
+          <div className="line-clamp-5 h-full w-full overflow-clip text-[.72rem] leading-relaxed text-white/50">
+            {data?.description ?? ""}
+          </div>
         </div>
       </div>
     </div>

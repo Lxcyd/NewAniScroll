@@ -1,5 +1,48 @@
 # DEVLOG
 
+## 2026-08-09 — Aperçu au survol : commandes, son, lumière d'ambiance
+
+Sept demandes de Luc sur la carte de survol. Trois points valent d'être notés.
+
+**1. Les boutons n'étaient pas cliquables, et ce n'était pas un problème de
+CSS.** Le `pointerdown` en phase de **capture** posé sur `document` par le
+provider (pour fermer la carte quand on clique ailleurs) démolissait la carte
+*avant* que pause / son / favori ne voient leur propre clic. Le bouton était
+parfaitement cliquable ; sa cible disparaissait entre le `pointerdown` et le
+`click`. Exemption ajoutée pour tout ce qui est dans `[data-preview-popup]`.
+À retenir : **un `close()` global en capture est un piège dès qu'on ajoute un
+contrôle interactif dans le contenu qu'il ferme.**
+
+**2. Le son par défaut ne peut pas se demander dans l'URL.** `mute=0` +
+`autoplay=1` est refusé par la politique d'autoplay de Chrome : la vidéo ne
+démarre tout simplement pas. La seule voie fiable est de **charger toujours
+`mute=1`, puis d'appeler `unMute()` une fois l'état `playerState === 1` reçu** —
+démarrer un média audible est interdit, dé-muter un média déjà en lecture ne
+l'est pas. L'icône se resynchronise ensuite sur `infoDelivery.info.muted`, donc
+si un navigateur refuse quand même, l'affichage ne ment pas. Le choix de
+l'utilisateur est mémorisé (`aniscroll.preview.muted`).
+
+**3. La lumière d'ambiance ne peut pas être un enfant de la carte.** La carte
+`overflow-hidden` (pour ses coins arrondis) et son fond est opaque : n'importe
+quel halo posé à l'intérieur est soit rogné, soit masqué. Il est donc sorti dans
+un conteneur racine, en `-z-10`, avec un inset négatif. C'est aussi ce qui a
+permis de **supprimer la seconde iframe YouTube décorative** de Hayase (elle
+servait ce rôle et, chez nous comme chez eux, ne pouvait rien peindre) : deux
+fois moins de travail réseau pour le lecteur. Avec en plus un `preconnect` vers
+`youtube-nocookie.com` posé au chargement de la page, la poignée de main TLS
+sort du chemin critique. Contrepartie assumée : le halo vient de la bannière
+fixe, il ne suit pas les couleurs de la vidéo.
+
+Divers : carte agrandie à 364×424 pour couvrir la vignette (une fiche qui
+dépasse derrière l'aperçu se lit comme un bug d'affichage) ; commandes masquées
+tant que le curseur ne bouge pas sur la vidéo, et maintenues si la vidéo est en
+pause — sinon le seul bouton qui permet de repartir devient invisible ; style
+repris sur les jetons de l'app (`as-card`, `as-accent`, `rounded-card`,
+`font-outfit`).
+
+---
+
+
 ## 2026-08-08 (nuit) — `size-full` n'existe pas en Tailwind 3.3 : la bannière de l'aperçu était vide
 
 Symptôme : la carte de survol s'affichait bien (titre, boutons, méta, résumé)

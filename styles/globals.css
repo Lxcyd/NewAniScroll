@@ -74,9 +74,26 @@ html.tab-hidden *::after {
     transform: translate3d(0, 1.2rem, 0) scale(0.95);
   }
 }
-.as-preview-card {
+.as-preview-root {
   will-change: transform;
   animation: 0.3s ease 0s 1 as-preview-in;
+}
+
+/* Ambient light. The banner artwork, blown past the card's edges, blurred and
+   over-saturated — bias lighting for the popup. It has to live outside the card
+   (which clips) and behind it (whose surface is opaque), hence the negative
+   inset on the root and the -z-10. */
+.as-preview-ambient {
+  top: -9%;
+  left: -9%;
+  width: 118%;
+  height: 118%;
+  object-fit: cover;
+  border-radius: 28px;
+  filter: blur(38px) saturate(220%);
+  opacity: 0.55;
+  /* Its own layer: an animated blur of this radius is expensive to re-raster. */
+  transform: translateZ(0);
 }
 
 /* The banner fades into the card body instead of ending on a hard edge — the
@@ -93,10 +110,10 @@ html.tab-hidden *::after {
   pointer-events: none;
   background: linear-gradient(
     180deg,
-    rgba(22, 23, 27, 0) 0%,
-    rgba(22, 23, 27, 0) 80%,
-    rgba(22, 23, 27, 0.89) 95%,
-    var(--as-preview-bg, #16171b) 100%
+    rgba(26, 26, 36, 0) 0%,
+    rgba(26, 26, 36, 0) 80%,
+    rgba(26, 26, 36, 0.89) 95%,
+    var(--as-preview-bg, #1a1a24) 100%
   );
 }
 
