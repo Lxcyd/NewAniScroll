@@ -134,10 +134,14 @@ export async function getServerSideProps(ctx: any) {
           bannerImage: tmdb.backdrop || it?.bannerImage || null,
           description: it?.description || "",
           status: it?.status || null,
-          // fanart.tv logo first, TMDB logo as the fallback before plain text
-          // — see tmdbTitleImage() for why this ordering differs from the
-          // backdrop's.
-          titleImage: pickHeroLogo(fanarts) ?? tmdbTitleImage(tmdb.logo),
+          /* TMDB logo FIRST, fanart.tv behind it (user decision, 2026-08-08).
+             I had it the other way round and argued for it — fanart.tv is
+             NSFW-filtered, likes-ranked and edge-cached — but that reasoning
+             was about delivery, not about the image. Hayase renders TMDB's
+             logo, this hero is a copy of theirs, and the two must match.
+             fanart.tv still covers everything TMDB has no logo for, which is
+             a lot, so nothing is lost by demoting it to second. */
+          titleImage: tmdbTitleImage(tmdb.logo) ?? pickHeroLogo(fanarts),
         };
       }),
     );

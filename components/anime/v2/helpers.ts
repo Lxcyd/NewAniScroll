@@ -381,14 +381,23 @@ export function pickHeroLogo(fanarts: FanartResponse | null): TitleImage | null 
    and lib/tmdb/* is server-only (it reads TMDB_API_KEY and hits Turso). The
    fetch happens at the SSR call site; only the resulting URL crosses over.
 
-   fanart.tv keeps priority over TMDB for title art, which is the one place we
-   deviate from Hayase's ordering — deliberately. Their app has no fanart.tv,
-   so TMDB is simply all they have. Ours is NSFW-filtered, likes-ranked, and
-   served through fanart-proxy.aniscroll.com with a 1-year edge cache (~50 ms
-   worldwide, see lib/db/fanarts.ts) where a TMDB logo is an uncached hotlink to
-   image.tmdb.org. Downgrading a curated, edge-cached image to an uncurated,
-   uncached one would be a regression dressed as parity. TMDB fills the holes,
-   and there are many — fanart.tv covers a fraction of the catalogue.
+   PRECEDENCE DIFFERS BY SURFACE, and it is a deliberate call each time:
+
+   - Home hero (pages/en/index.tsx): TMDB FIRST. That carousel is a copy of
+     Hayase's and renders the same logo they do. I originally had fanart.tv
+     ahead of it, arguing that our rows are NSFW-filtered, likes-ranked and
+     served through fanart-proxy.aniscroll.com with a 1-year edge cache (~50 ms
+     worldwide) while a TMDB logo is an uncached hotlink. That is a real
+     delivery advantage — but the user's point was about WHICH IMAGE, and on a
+     surface built to match theirs the image wins over the pipe. Overruled
+     2026-08-08.
+   - Info page (pages/en/anime/[...id].tsx): fanart.tv first, and clearart
+     before logo. That hero is ours, not a copy, and its clearart cycle is a
+     feature TMDB has no equivalent for.
+
+   Either way TMDB only ever fills what fanart.tv doesn't cover, or vice versa
+   — fanart.tv covers a fraction of the catalogue, so both orderings leave the
+   other provider plenty to do.
 
    `queue` is always empty: a logo is single-image, only clearart cycles. */
 export function tmdbTitleImage(url: string | null | undefined): TitleImage | null {
