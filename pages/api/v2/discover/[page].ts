@@ -2,7 +2,6 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import { redis } from "@/lib/redis";
 import { anilistFetch } from "@/lib/anilist/anilistFetch";
 import { setEdgeCache } from "@/lib/http/edgeCache";
-import { getTmdbAnimeImagesMany } from "@/lib/tmdb/animeImages";
 
 /**
  * GET /api/v2/discover/<page>
@@ -68,24 +67,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     label: `discover:${page}`,
   });
   const media = json?.data?.Page?.media || [];
-
-  /* Swap in TMDB backdrops before caching, so the 20 lookups happen once per
-     page per 30-minute window rather than per request — and never on the
-     Redis-HIT path above, which returns already-enriched cards.
-
-     ScrollCard blows `bannerImage` up as the full-card background behind the
-     portrait cover, which is the worst possible use of AniList's 1900×400 crop:
-     filling a tall card from it means scaling a 400 px-high strip to ~700 px.
-     A 720 px-high TMDB backdrop is the fix. Falls through to the AniList banner
-     for everything TMDB doesn't have. */
-  const backdrops = await getTmdbAnimeImagesMany(
-    media.map((m: any) => Number(m?.id)),
-  ).catch(() => new Map());
-  const enriched = media.map((m: any) => {
-    const backdrop = backdrops.get(Number(m?.id))?.backdrop;
-    return backdrop ? { ...m, bannerImage: backdrop } : m;
-  });
-  const payload = { media: enriched };
+  /* No TMDB enrichment here, deliberately: TMDB backdrops are scoped to the
+     home page's recommendation hero (user decision, 2026-08-08). The discover
+     deck keeps AniList's banner. */
+  const payload = { media };
 
   if (redis && media.length > 0) {
     try {

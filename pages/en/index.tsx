@@ -31,6 +31,49 @@ import {
 import { getTmdbAnimeImages } from "@/lib/tmdb/animeImages";
 import { useFanartSrc, onFanartError } from "@/lib/images/fanartFallback";
 
+/* Which trending titles get the hero, and in what order — Hayase's algorithm
+   (hayase-app/interface, src/lib/components/ui/banner/full-banner.svelte,
+   `shuffleAndFilter`), extended from their 5 slots to our 8.
+
+   The problem it solves: taking `.slice(0, 8)` off a TRENDING_DESC list pins
+   the same evergreens to the front forever — One Piece was in slot 1 or 2
+   every single day. Hayase sorts by a Knuth multiplicative hash of the id
+   (`id * 2654435761 >>> 0`, the 32-bit golden-ratio constant) instead, which
+   is a stable pseudo-random permutation: unrelated to popularity, identical
+   for every visitor and every render.
+
+   Determinism is the point, not a limitation — SSR and hydration must agree,
+   and a `Math.random()` order would swap the hero under the visitor's cursor
+   on every re-render. Variety comes from the POOL turning over instead: we
+   scramble the whole 20-title trending page and take 8, so which 8 appear
+   shifts as AniList's trending list does, rather than being welded to the top.
+
+   `id * 2654435761` reaches ~5.6e14 for a 6-digit AniList id — comfortably
+   inside 2^53, so the multiplication is exact before `>>> 0` folds it to
+   uint32. No overflow to guard against.
+
+   The `bannerImage ?? trailer?.id` filter is theirs too: an entry with neither
+   has no artwork to put behind the hero. Our homepage query doesn't request
+   `trailer`, so today it reads as "has a banner" — kept in full so it stays
+   correct if that field is ever added. NOT_YET_RELEASED is our own filter and
+   stays: a "BIENTÔT" entry in the hero can't be watched, and the dedicated
+   Upcoming section is where those belong. */
+const HERO_SLOTS = 8;
+
+function heroHash(id: number): number {
+  return (id * 2654435761) >>> 0;
+}
+
+export function pickHeroRotation(items: any[]): any[] {
+  if (!Array.isArray(items)) return [];
+  return items
+    .filter((it) => it?.status !== "NOT_YET_RELEASED")
+    .filter((it) => it?.bannerImage ?? it?.trailer?.id)
+    .slice()
+    .sort((a, b) => heroHash(Number(a?.id)) - heroHash(Number(b?.id)))
+    .slice(0, HERO_SLOTS);
+}
+
 export async function getServerSideProps(ctx: any) {
   // Edge-cache the home page aggressively. The response is identical for
   // every visitor (anonymous AND logged-in — the personalised carousels
@@ -64,13 +107,7 @@ export async function getServerSideProps(ctx: any) {
     items: any[],
   ): Promise<Array<HeroEntry>> => {
     if (!Array.isArray(items)) return [];
-    // Don't recommend anime that hasn't aired yet — a "BIENTÔT" entry in the
-    // hero carousel can't actually be watched. (The dedicated "Upcoming"
-    // section, fed by getUpcomingAnime, is where those belong.) Then take the
-    // top 8 to cycle through the hero carousel (dots + side rail).
-    const slice = items
-      .filter((it) => it?.status !== "NOT_YET_RELEASED")
-      .slice(0, 8);
+    const slice = pickHeroRotation(items);
     return Promise.all(
       slice.map(async (it) => {
         const id = Number(it?.id);

@@ -32,6 +32,8 @@ import {
   type TmdbImagesReason,
 } from "@/lib/db/tmdbImagesCache";
 import { getFribbEntry } from "@/lib/fribb/fribbMap";
+// @ts-ignore — getMediaMeta.js is untyped JS, like its other callers.
+import { getMediaMeta } from "@/lib/anilist/getMediaMeta";
 import {
   getMovieImages,
   getTvImages,
@@ -57,6 +59,67 @@ const EMPTY: TmdbAnimeImages = { backdrop: null, logo: null };
 const BACKDROP_SIZE = "w1280" as const;
 /* Logos render at ~480 CSS px on the hero; w500 is the first size above that. */
 const LOGO_SIZE = "w500" as const;
+
+/* How far back to walk. Two hops covers "S3 is new, S2 is new, S1 has been in
+   Fribb for years", which is the shape of the problem; beyond that we're
+   drifting away from the entry the visitor is looking at. */
+const MAX_PREQUEL_HOPS = 2;
+
+/**
+ * Borrow the franchise's TMDB tv id from an earlier season.
+ *
+ * THE GAP THIS CLOSES, measured 2026-08-08: Hell Mode S2 (AniList 209983) is
+ * in Fribb with every id null — no `tmdb.tv`, no `tvdb_id`, no `simkl_id` —
+ * while S1 (185262) maps cleanly to tv 280049. Fribb is a periodically
+ * regenerated static file and a currently-airing sequel is exactly what it
+ * hasn't caught up with, so the site's most prominent titles were the ones
+ * still showing the old AniList banner.
+ *
+ * WHY THIS IS SAFE HERE AND NOWHERE ELSE. A TMDB *tv* id identifies the SHOW,
+ * and backdrops and logos hang off the show — season 2's key art is the same
+ * artwork as season 1's, which is why sequel entries legitimately share a
+ * `tmdb.tv` in Fribb to begin with. Episode stills are the opposite: they hang
+ * off a season, and inheriting a parent's id there would paste season 1's
+ * frames onto season 2's rows. lib/tmdb/episodeStills.ts must never call this,
+ * and doesn't.
+ *
+ * Cost: `getMediaMeta` is memory-cached for 24h per process and Turso-backed,
+ * and this only runs on a cold TMDB cache miss whose result is then good for
+ * 30 days — so it is not a per-request expense. Returns null on anything
+ * unexpected; the caller then refuses as before.
+ */
+async function inheritTvIdFromPrequel(anilistId: number): Promise<number | null> {
+  let currentId = anilistId;
+
+  for (let hop = 0; hop < MAX_PREQUEL_HOPS; hop++) {
+    const meta = await getMediaMeta(currentId).catch(() => null);
+    const edges: any[] = meta?.relations?.edges ?? [];
+
+    /* TV-like only. A PREQUEL edge frequently points at a movie (Jujutsu
+       Kaisen 0), and a film carries its own TMDB *movie* id, not the series'
+       — following it would land on the wrong kind of record entirely. */
+    const prequel = edges.find(
+      (e) =>
+        e?.relationType === "PREQUEL" &&
+        e?.node?.type === "ANIME" &&
+        ["TV", "TV_SHORT", "ONA"].includes(e?.node?.format || ""),
+    );
+    const prevId = Number(prequel?.node?.id);
+    if (!Number.isFinite(prevId) || prevId <= 0) return null;
+
+    const prev = await getFribbEntry(prevId);
+    if (prev?.tmdbTvId) {
+      console.warn(
+        `[tmdb] ${anilistId}: no tmdb.tv in fribb → inherited ${prev.tmdbTvId} ` +
+          `from prequel ${prevId}`,
+      );
+      return prev.tmdbTvId;
+    }
+    currentId = prevId;
+  }
+
+  return null;
+}
 
 /**
  * The picked TMDB artwork for an AniList id. Never throws.
@@ -103,10 +166,12 @@ export async function getTmdbAnimeImages(
   let tmdbId: number | null = null;
   let kind: "tv" | "movie" | null = null;
 
-  if (entry.tmdbTvId) {
-    tmdbId = entry.tmdbTvId;
+  const tvId = entry.tmdbTvId ?? (await inheritTvIdFromPrequel(anilistId));
+
+  if (tvId) {
+    tmdbId = tvId;
     kind = "tv";
-    images = await getTvImages(entry.tmdbTvId);
+    images = await getTvImages(tvId);
   } else if (entry.tmdbMovieId) {
     tmdbId = entry.tmdbMovieId;
     kind = "movie";

@@ -105,6 +105,59 @@ export async function getCachedTmdbImages(
   }
 }
 
+/**
+ * Generic JSON row in the same table, for small derived facts that share this
+ * cache's profile (per-title, cheap, read on an SSR path, safe to recompute).
+ *
+ * Currently the AniList banner dimension probe (lib/images/bannerSize.ts). It
+ * gets its own key namespace rather than a column on the row above because it
+ * is keyed by IMAGE URL, not by anime id — a title whose banner is replaced
+ * upstream must re-probe, and it would otherwise inherit the old verdict.
+ *
+ * The caller owns the TTL: unlike the artwork rows there is no single sensible
+ * default across future uses.
+ */
+export async function getCachedJson<T>(
+  key: string,
+  ttlSeconds: number,
+): Promise<T | null> {
+  const db = getFanartsClient();
+  if (!db) return null;
+  await ensureTable();
+  try {
+    const r = await db.execute({
+      sql: "SELECT value, updated_at FROM tmdb_images_cache WHERE cache_key = ? LIMIT 1",
+      args: [key],
+    });
+    if (!r.rows.length) return null;
+    const row = r.rows[0] as any;
+    const age = Math.floor(Date.now() / 1000) - Number(row.updated_at);
+    if (age > ttlSeconds) return null;
+    return JSON.parse(String(row.value)) as T;
+  } catch {
+    return null;
+  }
+}
+
+/** Companion writer for getCachedJson. Non-fatal on error. */
+export async function setCachedJson(key: string, value: unknown): Promise<void> {
+  const db = getFanartsClient();
+  if (!db) return;
+  await ensureTable();
+  try {
+    await db.execute({
+      sql: `INSERT INTO tmdb_images_cache (cache_key, value, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(cache_key) DO UPDATE SET
+              value = excluded.value,
+              updated_at = excluded.updated_at`,
+      args: [key, JSON.stringify(value), Math.floor(Date.now() / 1000)],
+    });
+  } catch {
+    /* non-fatal */
+  }
+}
+
 /** Upsert. Non-fatal on error (the cache is an optimization). */
 export async function setCachedTmdbImages(
   anilistId: number,

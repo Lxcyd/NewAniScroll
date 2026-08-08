@@ -61,14 +61,19 @@ async function ensureTable(): Promise<void> {
   }
 }
 
-/** Stills source. Part of the cache key so the two never overwrite each other. */
-export type StillsSource = "tmdb" | "simkl";
+/** Stills source. Part of the cache key so no two overwrite each other. */
+export type StillsSource = "tmdb" | "simkl" | "anizip";
+
+const KEY_PREFIX: Record<StillsSource, string> = {
+  // "tmdbStills:v1:" kept verbatim so rows written before TMDB was dropped —
+  // and by the gap-fill path that succeeded it — stay readable.
+  tmdb: "tmdbStills:v1:",
+  simkl: "simklStills:v1:",
+  anizip: "anizipStills:v1:",
+};
 
 function keyFor(anilistId: number, source: StillsSource): string {
-  // "tmdbStills:v1:" kept verbatim for tmdb so existing rows stay valid.
-  return source === "tmdb"
-    ? `tmdbStills:v1:${anilistId}`
-    : `simklStills:v1:${anilistId}`;
+  return `${KEY_PREFIX[source]}${anilistId}`;
 }
 
 /** Cached value, or null on miss / expiry / DB disabled / error. A stale row is
