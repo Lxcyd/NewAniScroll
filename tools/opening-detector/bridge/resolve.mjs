@@ -20,7 +20,7 @@
 //
 // Prints ONE JSON line last: { ok, host, episodes:[{ep,url,isM3U8,host}], errors }
 
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
 import { getExtractor, extractMegaplay } from "../../../lib/extractors.js";
@@ -186,6 +186,35 @@ function pickArray(arrays, hostKey) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/* Sibnet's rate limit has to be remembered ACROSS processes, and that is not a
+   detail — it is the whole difference between the memo working and not.
+   The batch spawns one `node resolve.mjs` per (title, season, lang, host,
+   episode-range), so a per-process memo is forgotten every few episodes and the
+   run keeps knocking on a door it was just told to stop knocking on. Measured
+   2026-08-08: the throttle answers 429 on every page and had not lifted after
+   40 minutes, so the cost of ignoring it is the rest of the batch.
+
+   A file with an expiry, not a lock: it never blocks anything permanently, and a
+   crashed run leaves at worst a marker that expires on its own. */
+const THROTTLE_FILE = new URL("../cache/sibnet-throttle", import.meta.url);
+const THROTTLE_MS = 10 * 60 * 1000;
+
+function sibnetThrottledUntil() {
+  try {
+    return Number(readFileSync(THROTTLE_FILE, "utf8").trim()) || 0;
+  } catch {
+    return 0;
+  }
+}
+function markSibnetThrottled() {
+  try {
+    mkdirSync(new URL("../cache/", import.meta.url), { recursive: true });
+    writeFileSync(THROTTLE_FILE, String(Date.now() + THROTTLE_MS));
+  } catch {
+    /* Best effort: losing the marker costs requests, never correctness. */
+  }
+}
+
 // Extract one embed with retry+backoff. Transient blocks (host rate-limits,
 // brief 403s, timeouts) often clear within a few seconds; a host is only
 // considered failed after RETRIES exhausted. Backoff: 1s, 3s, 7s.
@@ -203,6 +232,13 @@ async function extractWithRetry(embed, retries = 3) {
         continue;
       }
       const res = await getExtractor(embed)(embed);
+      /* A rate limit is the ONE failure where retrying makes things worse: each
+         attempt extends the window. Bail out immediately and tell the caller
+         why, instead of spending the loop's four attempts on it. */
+      if (res?.throttled) {
+        markSibnetThrottled();
+        return { ok: false, error: res.error || "rate limited", throttled: true };
+      }
       const s = res?.streams?.[0];
       if (s?.url) {
         // referer is needed by hosts like embed4me for ffmpeg to fetch the m3u8.
@@ -220,10 +256,21 @@ async function extractWithRetry(embed, retries = 3) {
 async function extractRange(arr, hostKey, start, end) {
   const episodes = [];
   const errors = [];
+  const throttledUntil = hostKey === "sibnet" ? sibnetThrottledUntil() : 0;
+  if (throttledUntil > Date.now()) {
+    const left = Math.ceil((throttledUntil - Date.now()) / 1000);
+    errors.push(`${hostKey}: debit limite (429), reprise dans ${left}s — aucune requete emise`);
+    return { episodes, errors };
+  }
+
   for (let ep = start; ep <= end; ep++) {
     const embed = arr[ep - 1];
     if (!embed) { errors.push(`ep ${ep}: no embed`); continue; }
     const r = await extractWithRetry(embed);
+    if (r.throttled) {
+      errors.push(`ep ${ep}: ${r.error}`);
+      break; // le reste de la plage est condamne, ne pas le payer
+    }
     if (r.ok) {
       episodes.push({ ep, url: r.url, isM3U8: r.isM3U8, host: hostKey,
                       referer: r.referer });
