@@ -385,10 +385,27 @@ function HeroBanner({
 
   return (
     <div className="hidden lg:block relative w-full overflow-hidden">
-      {/* +100px taller than before (was max-h 680). The extra height plus
-          the tall bottom gradient lets the artwork breathe and dissolve
-          into the page. */}
-      <div className="relative aspect-[21/9] max-h-[780px] min-h-[520px] w-full">
+      {/* Height is tied to the VIEWPORT, not to an aspect ratio, and that is the
+          whole point: the fold has to land between the "Recently Watched"
+          heading and its first row of cards. A fixed 780px box couldn't promise
+          that — on a 900px-tall screen the cards poked above the fold, which is
+          exactly what reads as clutter.
+
+          calc(100svh - 3rem) leaves 48px below the hero, and the next section
+          spends it as `lg:mt-6` (24px) plus its heading (~40px): the heading
+          stays visible as the cue that there IS more page, and the cards start
+          ~16px BELOW the fold. svh, not vh, so a mobile-style collapsing URL bar
+          can't make the hero jump (irrelevant today — this block is lg-only —
+          but vh is the wrong unit to leave behind).
+
+          max-h caps it so an ultra-tall monitor doesn't get a 1400px hero; past
+          ~950px of viewport the cards creep back into view, which is the
+          deliberate trade — a hero taller than that looks worse than a sliver of
+          the next row. min-h keeps a short laptop from crushing the text block.
+
+          NOT measured in a browser: the 3rem comes from the heading's own
+          type scale. If the cards still show, this is the number to raise. */}
+      <div className="relative h-[calc(100svh-3rem)] max-h-[900px] min-h-[520px] w-full">
         {/* Background banner. Keyed on the entry id so React swaps the
             <img> cleanly; framer-motion cross-fades + slow Ken-Burns zoom. */}
         <AnimatePresence mode="popLayout">
