@@ -169,6 +169,27 @@ function filterData(data: any[], type: "sub" | "dub") {
   return filteredData.filter((i) => i !== null);
 }
 
+/**
+ * Redis key for a title's episode list.
+ *
+ * BUMP THE VERSION WHENEVER WHAT FEEDS THIS LIST CHANGES — not only when its
+ * shape does. A cached list is built from whatever providers were wired in at
+ * the time it was written, and it keeps being served afterwards: adding a
+ * better source changes nothing for any title already in Redis, for up to 30
+ * days on a finished show.
+ *
+ * v5 → v6 (2026-08-08): ani.zip joined the chain ahead of Simkl and TMDB. The
+ * symptom was visible and specific — episode rows still read "Episode 1",
+ * "Episode 2" instead of the real titles ani.zip returns, and the thumbnails
+ * were Simkl's rather than the ones the new order picks.
+ *
+ * This is the same trap as CACHE_VERSION in lib/db/tmdbImagesCache.ts, hit
+ * twice in one afternoon: a cache outlives the reason its contents were what
+ * they were, and no TTL can notice.
+ */
+const EPISODE_CACHE_KEY = (id: string | string[] | undefined) =>
+  `episode:v6:${id}`;
+
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse
@@ -207,13 +228,13 @@ export default async function handler(
     }
 
     if (refresh !== null) {
-      await redis.del(`episode:v5:${id}`);
+      await redis.del(EPISODE_CACHE_KEY(id));
     } else {
-      cached = await redis.get(`episode:v5:${id}`);
+      cached = await redis.get(EPISODE_CACHE_KEY(id));
       if (cached) {
         const parsed = JSON.parse(cached);
         if (!parsed || parsed.length === 0) {
-          await redis.del(`episode:v5:${id}`);
+          await redis.del(EPISODE_CACHE_KEY(id));
           cached = null;
         }
       }
@@ -340,7 +361,7 @@ export default async function handler(
   // Cache
   if (redis && cacheTime !== null && rawData.length > 0) {
     await redis.set(
-      `episode:v5:${id}`,
+      EPISODE_CACHE_KEY(id),
       JSON.stringify(rawData),
       "EX",
       cacheTime
