@@ -384,13 +384,18 @@ export function pickHeroLogo(fanarts: FanartResponse | null): TitleImage | null 
    PRECEDENCE DIFFERS BY SURFACE, and it is a deliberate call each time:
 
    - Home hero (pages/en/index.tsx): TMDB FIRST. That carousel is a copy of
-     Hayase's and renders the same logo they do. I originally had fanart.tv
-     ahead of it, arguing that our rows are NSFW-filtered, likes-ranked and
-     served through fanart-proxy.aniscroll.com with a 1-year edge cache (~50 ms
-     worldwide) while a TMDB logo is an uncached hotlink. That is a real
-     delivery advantage — but the user's point was about WHICH IMAGE, and on a
-     surface built to match theirs the image wins over the pipe. Overruled
-     2026-08-08.
+     Hayase's and renders the same logo they do.
+
+     I originally had fanart.tv ahead of it and gave two reasons, only one of
+     which survives. The NSFW filtering does NOT: a logo is title typography,
+     there is nothing to filter, and TMDB's logo library carries no such risk
+     in the first place. Our NSFW pipeline (lib/db/fanarts.ts) exists for
+     BACKGROUNDS and CLEARART — character art, where it is genuinely needed —
+     and citing it for logos was borrowing a justification from the wrong
+     category. The edge-cache advantage is real (fanart-proxy.aniscroll.com,
+     1-year cache, ~50 ms worldwide, versus an uncached hotlink to
+     image.tmdb.org) but it is about the PIPE, not the image, and on a surface
+     built to match theirs the image decides. Overruled 2026-08-08.
    - Info page (pages/en/anime/[...id].tsx): fanart.tv first, and clearart
      before logo. That hero is ours, not a copy, and its clearart cycle is a
      feature TMDB has no equivalent for.
