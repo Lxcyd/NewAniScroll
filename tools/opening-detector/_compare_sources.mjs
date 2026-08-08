@@ -172,8 +172,20 @@ for (const r of rows) {
       if (d <= TOL) stat.agree += 1;
       else {
         stat.disagree += 1;
+        // GÉOMÉTRIE DU DÉSACCORD, et ce n'est pas un raffinement cosmétique :
+        // sans elle, « 39 % de désaccord » se lit comme 39 % d'erreurs. Or
+        // quand leur marqueur commence APRÈS la fin du nôtre, les deux
+        // sources ne parlent pas du même objet. Cas constaté sur mal 31964
+        // ep2 : notre ED fait 1350,2→1439,8 (89,5 s, l'ED entier, 3 hôtes sur
+        // 3 à 1,06 s près contre la référence AnimeThemes) et ils annoncent
+        // 1443 sur un épisode de 1470 — 27 s, soit l'aperçu final. Ce n'est
+        // pas un desaccord sur la position de l'ED, c'est un autre segment.
+        const forme = Number(theirs.start) >= ours.end ? "apres"
+          : Number(theirs.start) + 5 <= ours.start ? "avant"
+          : "chevauche";
+        stat[`d_${forme}`] = (stat[`d_${forme}`] || 0) + 1;
         disagreements.push({
-          mal_id: r.mal_id, episode: r.episode, lang: r.lang, kind,
+          mal_id: r.mal_id, episode: r.episode, lang: r.lang, kind, forme,
           nous: ours.start, eux: Number(theirs.start), ecart: +d.toFixed(2),
           hosts_agree: ours.hosts_agree, spread: ours.spread,
         });
@@ -228,6 +240,11 @@ console.log(`\n3. DESACCORDS (tolerance ${TOL} s)`);
 console.log(`   les deux ont une valeur : ${stat.bothHave}`);
 console.log(`     dont d'accord         : ${stat.agree}  ${pct(stat.agree, stat.bothHave)}`);
 console.log(`     dont en desaccord     : ${stat.disagree}  ${pct(stat.disagree, stat.bothHave)}`);
+console.log(`       leur marqueur APRES la fin du notre : ${stat.d_apres || 0}`
+  + "   <- objets differents, pas un desaccord de valeur");
+console.log(`       leur marqueur AVANT notre debut     : ${stat.d_avant || 0}`);
+console.log(`       chevauchement (meme objet)          : ${stat.d_chevauche || 0}`
+  + "   <- les seuls vrais desaccords de bornes");
 console.log(`   nous seuls              : ${stat.onlyUs}`);
 console.log(`   eux seuls               : ${stat.onlyThem}   <- ce que le detecteur rate`);
 console.log(`   ni l'un ni l'autre      : ${stat.neither}`);
