@@ -77,11 +77,16 @@ export const TTL_REFUSAL_S = 24 * 60 * 60;
  * documented for `tmdb_stills_cache` (a `no-simkl-id` row answering before the
  * fixed code could run).
  *
+ * v2 → v3 (2026-08-08): ani.zip mappings joined the id resolution, ahead of
+ * the prequel walk. Same reasoning as v2 — every title already refused with
+ * `no-tmdb-id` or `no-fribb` would otherwise keep that answer for 24h, and
+ * those are exactly the titles the new lookup exists to rescue.
+ *
  * Bumping is the whole migration: old keys are simply never read again. They
  * are orphaned rather than deleted — a handful of dead cache rows costs
  * nothing, and a DELETE on a live table to save them is the riskier move.
  */
-const CACHE_VERSION = "v2";
+const CACHE_VERSION = "v3";
 
 let ensured = false;
 async function ensureTable(): Promise<void> {
