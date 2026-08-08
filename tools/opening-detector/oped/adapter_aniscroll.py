@@ -30,27 +30,43 @@ URL_CACHE_TTL = 6 * 3600  # signed stream URLs expire within ~a day; refresh bef
 # change what's served — the bridge may silently keep returning the same
 # encode regardless of the requested language.
 #
-# megaplay N'EST PLUS ici, et l'erreur qui l'y avait mis vaut d'être gardée.
+# megaplay reste exclu du VF. La conclusion n'a jamais bougé ; ce sont les DEUX
+# tentatives de la justifier qui étaient fausses, et les deux méritent d'être
+# gardées parce qu'elles ratent la cible de deux façons différentes.
 #
-# Le raisonnement d'origine : sur SnK ep3, `--lang vf` et `--lang vostfr`
-# rendaient une durée sondée IDENTIQUE à la décimale près (1466.5 s), donc
-# megaplay devait resservir l'encode VOSTFR sous une requête VF.
+# **Tentative 1 — la durée.** `--lang vf` et `--lang vostfr` rendaient une durée
+# sondée identique à la décimale (1466.5 s sur SnK ep3), d'où « c'est le même
+# encode ». Sauf qu'un doublage est le même épisode avec une autre piste audio :
+# il a le même métrage par construction. L'égalité était le résultat attendu dans
+# les DEUX hypothèses — une mesure sans pouvoir discriminant.
 #
-# **La durée ne pouvait pas trancher cette question.** Un doublage est le même
-# épisode avec une autre piste audio : il a exactement le même métrage, par
-# construction. Une durée identique était donc le résultat attendu dans les DEUX
-# hypothèses — c'était une mesure sans pouvoir discriminant, présentée comme une
-# confirmation.
+# **Tentative 2 — la corrélation audio brute.** Fenêtre de 20 s à t=600 s sur les
+# deux flux : r = -0.005, donc « deux pistes sans rapport, megaplay sert un vrai
+# doublage français ». Faux aussi, et le contre-exemple est imparable : la MÊME
+# mesure entre `ansembed_vf` et `ansembed_vo` — même épisode, même hôte — donne
+# r = +0.05. Une corrélation à instant fixe ne compare rien dès que les encodes
+# sont décalés, ce qu'ils sont toujours (megaplay est en tête de 16.6 s).
 #
-# Mesuré le 08/08/2026, cette fois sur ce qui distingue réellement les deux cas —
-# l'audio. Fenêtre de 20 s en plein dialogue (t=600 s), décodée des deux flux :
-#   corrélation = -0.005, RMS 0.054 vs 0.038
-# Deux pistes sans aucun rapport. `bridge/resolve.mjs` construit bien
-# `.../mal/<id>/<ep>/<sub|dub>` et megaplay sert un VRAI doublage français.
+# **Ce qui tranche vraiment** (08/08/2026) : corrélation d'ENVELOPPE d'énergie
+# avec recherche de décalage sur ±40 s, fenêtre de 120 s. La méthode se valide
+# d'abord sur un cas connu — `ansembed_vo` vs `megaplay_sub`, deux fois le même
+# audio japonais, donne r = 0.93 à -16.58 s, soit exactement l'avance megaplay
+# documentée ailleurs. Sur cette échelle :
 #
-# Leçon générale : avant de conclure d'une égalité, vérifier que la grandeur
-# mesurée aurait pu être différente si l'hypothèse était fausse.
-VF_INCOMPATIBLE_HOSTS: set[str] = set()
+#     megaplay_dub vs ansembed_vf (français) : r = 0.669
+#     megaplay_dub vs ansembed_vo (japonais) : r = 0.695
+#     ansembed_vf  vs ansembed_vo            : r = 0.717   <- "même épisode,
+#     megaplay_dub vs megaplay_sub           : r = 0.760      langue différente"
+#
+# megaplay_dub ne ressemble NI au français NI au japonais au niveau « même
+# audio » (0.93) : il reste au niveau « même épisode, autre langue » face aux
+# deux. C'est donc une TROISIÈME langue — le doublage anglais, ce que
+# `/<mal>/<ep>/dub` désigne partout ailleurs. megaplay n'a pas de piste FR.
+#
+# Leçon : avant de conclure d'une mesure, la faire tourner sur un cas dont on
+# connaît déjà la réponse. Les deux erreurs ci-dessus auraient sauté
+# immédiatement.
+VF_INCOMPATIBLE_HOSTS = {"megaplay"}
 
 
 def resolve_episodes(
