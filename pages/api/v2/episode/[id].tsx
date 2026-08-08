@@ -8,6 +8,7 @@ import {
   getSimklEpisodeStills,
   type SimklEpisodeData,
 } from "@/lib/simkl/episodeStills";
+import { fillStillGaps } from "@/lib/tmdb/episodeStills";
 
 /**
  * Episode API — generates episode lists from AniList data.
@@ -264,13 +265,14 @@ export default async function handler(
   /* Real per-episode stills, from Simkl. Only on the cache-miss path — a Redis
      hit returns above and never reaches these.
 
-     TMDB used to be merged in on top of this (it won per episode, being
-     validated against an exact episode-count match on a mapped season). It is
-     gone: Simkl is keyed to THIS AniList entry, so it needs no season
-     inference at all, which is what made the TMDB path both fragile and
-     expensive — a mapping to resolve, a validation to refuse on, and an API key
-     to carry. Where Simkl has no image the row falls back to the client's
-     fanart pool, same as it always did past the timeout.
+     Simkl is keyed to THIS AniList entry, so it needs no season inference at
+     all — that is what made it the primary, and what made the old TMDB-only
+     path fragile (a mapping to resolve, a validation to refuse on). TMDB is
+     back only to FILL THE GAPS Simkl leaves, under a rule that keeps the old
+     fragility out: it may write an episode Simkl left empty and nothing else,
+     so a season mis-mapping costs a placeholder, never a wrong frame. See
+     lib/tmdb/episodeStills.ts. Where neither has an image the row still falls
+     back to the client's fanart pool.
 
      Timeboxed: the episode list is the site's hot path and this makes an
      external call. Past the budget we drop the stills and let the pool cover
@@ -286,7 +288,23 @@ export default async function handler(
     ),
   ]);
 
-  const rawData = buildEpisodeList(id as string, media, simkl.stills, simkl.titles);
+  /* Fill Simkl's gaps with TMDB, on its own timebox rather than inside the
+     race above — otherwise a slow Simkl would eat the whole budget and the
+     fill would never get a turn, and a slow TMDB could push the total past
+     what the episode list is allowed to spend. Costs nothing when Simkl came
+     back complete (fillStillGaps returns without a call) or when TMDB_API_KEY
+     is unset. 2s, not 3s: this is strictly a bonus over an answer we already
+     have. */
+  const stills = await Promise.race([
+    fillStillGaps(Number(id), displayed || null, simkl.stills).catch(
+      () => simkl.stills,
+    ),
+    new Promise<Record<number, string>>((r) =>
+      setTimeout(() => r(simkl.stills), 2000),
+    ),
+  ]);
+
+  const rawData = buildEpisodeList(id as string, media, stills, simkl.titles);
 
   // Cache
   if (redis && cacheTime !== null && rawData.length > 0) {

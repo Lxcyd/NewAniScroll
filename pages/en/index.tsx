@@ -23,7 +23,12 @@ import { redis } from "@/lib/redis";
 import { Navbar } from "@/components/shared/NavBar";
 import { useRouter } from "next/router";
 import { loadFanarts } from "@/lib/db/fanarts";
-import { pickHeroLogo, TitleImage } from "@/components/anime/v2/helpers";
+import {
+  pickHeroLogo,
+  tmdbTitleImage,
+  TitleImage,
+} from "@/components/anime/v2/helpers";
+import { getTmdbAnimeImages } from "@/lib/tmdb/animeImages";
 import { useFanartSrc, onFanartError } from "@/lib/images/fanartFallback";
 
 export async function getServerSideProps(ctx: any) {
@@ -68,15 +73,28 @@ export async function getServerSideProps(ctx: any) {
       .slice(0, 8);
     return Promise.all(
       slice.map(async (it) => {
-        const fanarts = await loadFanarts(Number(it?.id)).catch(() => null);
+        const id = Number(it?.id);
+        // Both are per-title lookups with their own cache, so run them
+        // together rather than serially: fanart is one Turso row, TMDB is one
+        // Turso row warm / one HTTP call cold (30-day TTL).
+        const [fanarts, tmdb] = await Promise.all([
+          loadFanarts(id).catch(() => null),
+          getTmdbAnimeImages(id).catch(() => ({ backdrop: null, logo: null })),
+        ]);
         return {
           id: it?.id,
           title: it?.title || { english: null, romaji: null },
           coverImage: it?.coverImage || null,
-          bannerImage: it?.bannerImage || null,
+          // TMDB backdrop FIRST — this is the whole point of the integration.
+          // AniList's bannerImage is a 1900×400 letterbox crop the 21:9 hero
+          // has to stretch; a TMDB backdrop is native 1280×720 key art.
+          bannerImage: tmdb.backdrop || it?.bannerImage || null,
           description: it?.description || "",
           status: it?.status || null,
-          titleImage: pickHeroLogo(fanarts),
+          // fanart.tv logo first, TMDB logo as the fallback before plain text
+          // — see tmdbTitleImage() for why this ordering differs from the
+          // backdrop's.
+          titleImage: pickHeroLogo(fanarts) ?? tmdbTitleImage(tmdb.logo),
         };
       }),
     );

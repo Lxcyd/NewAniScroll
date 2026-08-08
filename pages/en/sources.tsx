@@ -7,10 +7,11 @@ import { useTranslation } from "react-i18next";
 /**
  * Credits page — who supplies the data AniScroll shows.
  *
- * One of these is contractual, not courtesy: Simkl expects attribution under
- * its free tier. The rest are here because they earned it. (TMDB used to be the
- * other one — its terms mandated a verbatim disclaimer — but it is no longer a
- * provider, so both the credit and the disclaimer are gone with it.)
+ * Two of these are contractual, not courtesy: Simkl expects attribution under
+ * its free tier, and TMDB mandates a VERBATIM disclaimer — reproduced below as
+ * `TMDB_DISCLAIMER`, which is why it is a literal and not an i18n key. Do not
+ * translate it, shorten it, or fold it into the generic legal note; its wording
+ * is the term. The rest are here because they earned it.
  *
  * Streaming hosts are deliberately absent: they aren't data sources, and the
  * footer disclaimer already covers them.
@@ -27,6 +28,10 @@ type Source = {
   key: string;
 };
 
+/** TMDB's mandated wording. Verbatim — do not edit or translate. */
+const TMDB_DISCLAIMER =
+  "This product uses the TMDB API but is not endorsed or certified by TMDB.";
+
 const SOURCES: Source[] = [
   { name: "AniList", url: "https://anilist.co", key: "anilist" },
   { name: "fanart.tv", url: "https://fanart.tv", key: "fanart" },
@@ -34,6 +39,7 @@ const SOURCES: Source[] = [
   { name: "MyAnimeList", url: "https://myanimelist.net", key: "mal" },
   { name: "Jikan", url: "https://jikan.moe", key: "jikan" },
   { name: "Simkl", url: "https://simkl.com", key: "simkl" },
+  { name: "TMDB", url: "https://www.themoviedb.org", key: "tmdb" },
   { name: "Fribb/anime-lists", url: "https://github.com/Fribb/anime-lists", key: "fribb" },
   { name: "AniSkip", url: "https://aniskip.com", key: "aniskip" },
   { name: "Anime-Skip", url: "https://anime-skip.com", key: "animeskip" },
@@ -113,6 +119,10 @@ export default function Sources() {
             </h2>
             <div className="font-karla text-white/80 space-y-3 leading-relaxed">
               <p className="text-white/60 text-sm">{t("sources.legalNote")}</p>
+              {/* Verbatim, untranslated, and not behind a t() call on purpose
+                  — see the header note. TMDB requires this exact sentence
+                  wherever its data appears. */}
+              <p className="text-white/60 text-sm">{TMDB_DISCLAIMER}</p>
             </div>
           </section>
         </div>

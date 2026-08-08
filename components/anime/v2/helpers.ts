@@ -374,6 +374,28 @@ export function pickHeroLogo(fanarts: FanartResponse | null): TitleImage | null 
   return null;
 }
 
+/* Wrap a TMDB logo URL (lib/tmdb/animeImages.getTmdbAnimeImages().logo) as a
+   TitleImage, so a caller can use it as the LAST resort before plain text.
+
+   Pure and provider-agnostic on purpose: this file is bundled to the client,
+   and lib/tmdb/* is server-only (it reads TMDB_API_KEY and hits Turso). The
+   fetch happens at the SSR call site; only the resulting URL crosses over.
+
+   fanart.tv keeps priority over TMDB for title art, which is the one place we
+   deviate from Hayase's ordering — deliberately. Their app has no fanart.tv,
+   so TMDB is simply all they have. Ours is NSFW-filtered, likes-ranked, and
+   served through fanart-proxy.aniscroll.com with a 1-year edge cache (~50 ms
+   worldwide, see lib/db/fanarts.ts) where a TMDB logo is an uncached hotlink to
+   image.tmdb.org. Downgrading a curated, edge-cached image to an uncurated,
+   uncached one would be a regression dressed as parity. TMDB fills the holes,
+   and there are many — fanart.tv covers a fraction of the catalogue.
+
+   `queue` is always empty: a logo is single-image, only clearart cycles. */
+export function tmdbTitleImage(url: string | null | undefined): TitleImage | null {
+  if (!url) return null;
+  return { url, kind: "logo", queue: [] };
+}
+
 /* Fisher-Yates shuffle. Used to randomise the clearart cycle order at
    SSR so two visitors see different sequences. */
 function shuffle<T>(arr: T[]): T[] {
