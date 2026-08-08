@@ -1,5 +1,102 @@
 # DEVLOG
 
+## 2026-08-08 — Lot `top50` : le resultat, et pourquoi deux lecteurs sur six n'ont rien rendu
+
+**Le lot est termine** : 50/50 titres, **439 cellules** (441 estimees ; plusieurs
+titres ont moins de 10 episodes). Sortie : `out/top50.jsonl`.
+
+| | servi | retenu | absent |
+|---|---|---|---|
+| OP | 288 | 67 | 84 |
+| ED | 275 | 77 | 87 |
+
+Motifs de retenue (144 au total) : *single host, no image confirmation* 70,
+*inferred theme* 27, *hosts split* 23, *av_divergence* 8, *implausible_length* 8.
+La famille « trouve mais sans second temoin » pese **97/144 (67 %)**.
+
+**Rappel du §top50 precedent : ce chiffre n'est PAS un progres.** Ces 50 titres
+sont les plus populaires, donc les mieux servis et les mieux couverts par
+AnimeThemes. C'est une premiere mesure honnete, un point de depart.
+
+### Le vrai frein est le transport, et il se mesure
+
+Question posee : « est-ce que sendvid et sibnet sont juste des lecteurs rares ? »
+La reponse demandait de separer deux choses que le log confondait — un hote
+**non propose** par le catalogue et un hote **propose et en panne**. Mesure faite
+en relisant `episodes.js` des 92 saisons du lot, directement sur anime-sama :
+
+| hote | propose | apparait dans le lot | verdict |
+|---|---|---|---|
+| ansembed | 92/92 (100 %) | 399/439 | sain |
+| sibnet | **82/92 (89 %)** | **5/439** | **en panne, pas rare** |
+| sendvid | **76/92 (83 %)** | **1/439** | **en panne, pas rare** |
+| uqload | **6/92 (7 %)** | 32/439 | **rare, pas casse** |
+| embed4me / lpayer | 12/92 (13 %) | — | non implemente |
+| minochinos | 6/92 (7 %) | — | non implemente |
+| vidmoly-va | (source voir-anime) | 310/439 | sain |
+| megaplay | (URL construite depuis MAL) | 232/439 | sain |
+
+Donc : **l'intuition « ce sont des lecteurs rares » est juste pour uqload et
+fausse pour sibnet/sendvid.** uqload n'est propose que sur 7 % des saisons — ses
+255 `not offered by anime-sama` sont une absence de donnee, pas un echec, et
+c'etait une erreur de le compter parmi les hotes « utilisables ». sibnet et
+sendvid, eux, etaient proposes sur ~85 % des saisons et n'ont rien rendu.
+
+Le lot a donc tourne sur **trois** hotes reels, pas quatre ni six. Et
+**76 des 144 cellules retenues (53 %) n'avaient qu'un seul hote** : ce sont
+exactement celles qu'un second temoin debloquerait.
+
+### Les trois causes, verifiees une par une (aucune n'est le detecteur)
+
+**1. sendvid est mort a la source.** `https://sendvid.com/` repond **502** sur sa
+propre page d'accueil. Rien a corriger chez nous ; le disjoncteur s'est ouvert
+219 fois, ce qui est le comportement voulu.
+
+**2. sibnet nous refuse, mais seulement sur `shell.php`.** Le site est debout —
+`video.sibnet.ru/` **200**, la page de visionnage `video.sibnet.ru/video<ID>`
+**200** — mais l'endpoint d'embed `shell.php?videoid=<ID>` renvoie **403**, un
+403 nginx nu (pas de page anti-bot, pas de Cloudflare), quel que soit le Referer,
+l'UA ou l'absence d'en-tetes. C'est un refus au niveau IP/endpoint, pas un bug de
+parsing.
+
+⚠️ **Le contournement evident ne marche pas, et il fallait le tester avant de
+l'ecrire.** La page `/video<ID>` contient le meme `player.src` avec le meme
+videoid — un correctif d'une ligne, tentant. Teste bout en bout : la chaine de
+redirection aboutit bien a une URL `noip=1`, mais le CDN (`dv97.sibnet.ru`)
+renvoie **400** sur le media. Recuperer l'embed ne recupere pas le flux, donc
+**rien n'a ete livre pour sibnet.** A retester depuis une autre IP avant de
+conclure que sibnet est perdu : la panne peut etre propre a ce reseau.
+
+**3. Le proxy de secours du bridge n'existait plus — corrige.** Les deux bridges
+pointaient sur `aniscroll-proxy.luc-deldem.workers.dev`. Cette route workers.dev
+a ete retiree quand le proxy est passe sur le domaine personnalise
+(`proxy.aniscroll.com`, requis pour le cache edge). Cloudflare repond a un
+sous-domaine sans worker par **sa propre page 404 « There is nothing here yet »**,
+19 984 octets, HTTP 404, **pour n'importe quelle URL** — verifie sur example.com.
+Donc `viaWorker` ne se degradait pas : il echouait durement a chaque appel, en
+silence, pendant tout le lot. Corrige dans `resolve.mjs` et `resolve_sibnet.mjs`.
+Effet immediat verifie : `episodes.js` se recupere a nouveau via le worker (le
+bridge sibnet atteint desormais l'extraction, la ou il mourait sur `worker fetch
+404`).
+
+**La lecon, et c'est la meme qu'au §cache-refusal.** Une URL d'infrastructure
+codee en dur survit au demenagement de l'infrastructure, et un 404 Cloudflare
+ressemble a une panne d'hote. Le log disait « le repli a echoue » ; personne ne
+pouvait deviner que le repli n'existait plus. **Un repli qui echoue toujours doit
+etre bruyant** — c'est le vrai defaut ici, pas l'URL perimee.
+
+### A savoir pour la suite
+
+- **anime-sama bloque les IP Cloudflare** (erreur 1042, data-center vers
+  data-center). Le worker remis en service n'est donc PAS un repli utile pour
+  anime-sama lui-meme — le chemin direct depuis la machine reste le seul. Le
+  worker sert pour les autres hotes.
+- Les deux hotes non implementes (`embed4me`/`lpayer`, `minochinos`) ne couvrent
+  que 13 % et 7 % des saisons : les implementer ne remplacerait pas sibnet.
+
+---
+
+
 ## 🔄 EN COURS au 08/08 15:50 — lot `top50`, à relire ce soir
 
 Reprise après un `/clear` : tout est ici, rien à redécouvrir.

@@ -27,7 +27,14 @@ import { getExtractor, extractMegaplay } from "../../../lib/extractors.js";
 import { getPartsBySlug } from "../../../lib/multipartEpisodes.js";
 import { playlistDurations } from "../../../lib/hlsMerge.js";
 
-const WORKER = "https://aniscroll-proxy.luc-deldem.workers.dev";
+// proxy.aniscroll.com, NOT aniscroll-proxy.luc-deldem.workers.dev. The
+// workers.dev route was retired when the proxy moved to the custom domain (the
+// domain is required for edge caching), and Cloudflare answers a subdomain with
+// no worker behind it with its own 404 "There is nothing here yet" page — a
+// 19,984-byte HTML body, HTTP 404, for EVERY url. So `viaWorker` didn't degrade,
+// it returned a hard failure on every call, and had been doing so silently for
+// the whole top50 batch. Measured 2026-08-08: this URL 404s example.com.
+const WORKER = "https://proxy.aniscroll.com";
 const BASE = "https://anime-sama.to";
 const VOIRANIME_BASE = "https://voir-anime.to";
 // `ansembed.net` is Vidmoly white-labelled: the same embed page (its own

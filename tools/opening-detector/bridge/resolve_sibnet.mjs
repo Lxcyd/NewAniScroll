@@ -14,7 +14,9 @@
 
 import { extractSibnet } from "../../../lib/extractors.js";
 
-const WORKER = "https://aniscroll-proxy.luc-deldem.workers.dev";
+// See the note in resolve.mjs: the workers.dev route is retired and answers
+// every url with Cloudflare's own 404 page.
+const WORKER = "https://proxy.aniscroll.com";
 const BASE = "https://anime-sama.to";
 
 async function viaWorker(url) {

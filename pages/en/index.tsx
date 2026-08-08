@@ -453,7 +453,7 @@ function HeroBanner({
               band across the middle of a 780px-tall hero and detached the text
               from its controls. Packing to the bottom also lines the block up
               with the cover rail on the right, which is bottom-anchored too
-              (both still share pb-6).
+              (both still share pb-2).
 
               pt-16 stays as a floor, not as a position: it only matters when a
               very long synopsis would otherwise grow up under the navbar.
@@ -476,7 +476,7 @@ function HeroBanner({
               (`text-lg` → 1.75rem). If this still reads unevenly, the value to
               tune is this one, and the reason it isn't a round number is the
               half-leading above. */}
-          <div className="flex w-full xl:w-[60%] lg:w-[65%] flex-col justify-end gap-8 pt-16 pb-6 pl-[7%] pr-8">
+          <div className="flex w-full xl:w-[60%] lg:w-[65%] flex-col justify-end gap-8 pt-16 pb-2 pl-[7%] pr-8">
             <AnimatePresence mode="wait" custom={dir}>
               <motion.div
                 key={`stack-${active.id}`}
@@ -588,7 +588,7 @@ function HeroBanner({
                 a justify-end column, so it sits at the very bottom with the
                 info block resting directly on top of it, and its bottom edge
                 still aligns with the cover thumbnails on the right rail
-                (both share pb-6). */}
+                (both share pb-2). */}
             <div className="flex w-fit gap-2">
               {list.map((_, i) => {
                 const isActive = i === idx % list.length;
@@ -625,7 +625,7 @@ function HeroBanner({
               arrows sitting to their LEFT. Anchored to the lower right
               above the bottom gradient. Clicking a thumb jumps focus in
               the natural direction (right = forward). */}
-          <div className="hidden lg:flex w-[35%] xl:w-[40%] flex-col items-end justify-end pb-6 pr-[5%]">
+          <div className="hidden lg:flex w-[35%] xl:w-[40%] flex-col items-end justify-end pb-2 pr-[5%]">
             {railEntries.length > 0 && (
               <div className="flex items-center gap-3">
                 {/* Prev / next arrows — stacked to the left of the covers. */}
@@ -1052,7 +1052,13 @@ export default function Home({
           </div>
         )}
 
-        <div className="lg:mt-16 mt-5 flex flex-col items-center">
+        {/* lg:mt-6, not mt-16: this wrapper holds EVERY section below the hero,
+            so its top margin is the hero-to-"Recently Watched" gap and nothing
+            else — shrinking it slides the whole column up without touching the
+            spacing BETWEEN sections (that lives in each section's own margins).
+            The hero's own bottom padding (pb-2) is already at its floor, so
+            this is the only remaining lever on that gap. */}
+        <div className="lg:mt-6 mt-5 flex flex-col items-center">
           <motion.div
             className="w-screen flex-none lg:w-[95%] xl:w-[87%]"
             initial={{ opacity: 0 }}
