@@ -48,6 +48,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
 from . import validate
+from .errors import ProcessKilled
 from .theme_bank import (
     ThemeHit,
     ThemeReference,
@@ -600,6 +601,9 @@ def detect_per_host(
                     min_votes=min_votes,
                     **kw,
                 )
+            except ProcessKilled:
+                raise   # cf. errors.ProcessKilled : ne pas maquiller
+                        # une machine qui meurt en absence de generique
             except Exception as exc:
                 # Resilient, but no longer silent — see HostStream.detect_error.
                 stream.detect_error = f"{type(exc).__name__}: {exc}"
@@ -645,6 +649,9 @@ def detect_per_host(
                 full_fallback=full_fallback,
                 **kw,
             )
+        except ProcessKilled:
+            raise   # cf. errors.ProcessKilled : ne pas maquiller
+                    # une machine qui meurt en absence de generique
         except Exception as exc:
             # A single flaky host must not sink the episode — its peers carry it.
             # But record WHY: an empty list from a dead transport and an empty
@@ -685,6 +692,9 @@ def detect_per_host(
                         ),
                         min_votes=min_votes, full_episode_scan=True, **kw,
                     )
+                except ProcessKilled:
+                    raise   # cf. errors.ProcessKilled : ne pas maquiller
+                            # une machine qui meurt en absence de generique
                 except Exception as exc:
                     scout.detect_error = f"{type(exc).__name__}: {exc}"
                     print(f"  [detect-fail] {scout.host} (balayage): "
@@ -812,6 +822,9 @@ def _seed_from_peers(per_host, search, *, has_refs: dict[str, bool],
                 continue
             try:
                 found = search(stream, kind, start, dur)
+            except ProcessKilled:
+                raise   # cf. errors.ProcessKilled : ne pas maquiller
+                        # une machine qui meurt en absence de generique
             except Exception as exc:
                 stream.detect_error = f"{type(exc).__name__}: {exc}"
                 print(f"  [detect-fail] {stream.host} (amorce {kind}): "

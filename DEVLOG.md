@@ -1,5 +1,63 @@
 # DEVLOG
 
+## 2026-08-08 — Une machine qui s'éteint fabriquait des absences de générique
+
+Le lot `top50` lancé à 01:50 était mort à 02:18 sans que rien ne le signale.
+Le diagnostic évident — « les hôtes sont tombés » — était faux, et la façon dont
+il était faux désigne un défaut de sûreté plus grave que la panne elle-même.
+
+**Ce que disaient les logs.** Les 35 dernières lignes montrent les **six** hôtes
+en `bridge failed (rc=3221226091)`, avec un **stderr vide**, au même instant.
+Six hôtes indépendants ne tombent pas à la même seconde en silence.
+
+**Ce que le code d'erreur disait vraiment.** `3221226091` = `0xC000026B` =
+`STATUS_DLL_INIT_FAILED_LOGOFF` : Node n'a pas pu initialiser ses DLL *parce que
+la session Windows se fermait*. Le shell qui portait le lot avait été fermé et
+Windows a démoli tout le groupe de processus. La cause n'est donc pas déduite de
+la simultanéité, elle est écrite dans le code de retour.
+⚠️ J'avais d'abord lu ce code `0xC000041D` de mémoire, ce qui aurait envoyé
+chercher une exception applicative. **Convertir le code AVANT de conclure** —
+c'est un test unitaire qui l'a corrigé, pas une relecture.
+
+**Le vrai défaut, et il n'est pas dans le transport.** Cette mort traversait
+toutes nos résiliences en se faisant passer pour un échec d'hôte :
+
+1. aucun `_PERMANENT_MARKERS` ne correspond → `_is_transient` la dit réessayable ;
+2. le coupe-circuit compte 3 échecs et **ferme l'hôte pour tout le lot** ;
+3. les `except Exception` de `multi_host` la ravalent en `hits = []` ;
+4. le worker de `batch_detect` la marque `failed` et **passe à l'anime suivant**.
+
+Conséquence : le lot **continue d'écrire des lignes**, où des hôtes morts avec la
+machine figurent comme des hôtes n'ayant pas trouvé de générique. Une fois en
+base, cette ligne est **indiscernable d'une vraie absence**. C'est exactement le
+type d'erreur que le plan s'interdit : pas un faux servi, mais une donnée fausse
+et crédible qu'aucun contrôle ultérieur ne peut rattraper.
+
+**Le correctif.** `oped/errors.py` : `ProcessKilled` + `killed_by_os(rc)`, sur
+deux signatures inatteignables par une sortie volontaire (POSIX `rc < 0` ;
+Windows `rc >= 0xC0000000`, quand Node et ffmpeg sortent dans 0-255). Levée au
+point de passage unique de chaque sous-processus — `adapter_aniscroll` pour le
+pont, **`audio._run` pour ffmpeg** (le même défaut y existait : un ffmpeg tué
+rend aussi une fenêtre manquante). Puis re-levée explicitement aux 4 `except`
+de `multi_host` et aux 2 `except … continue` de `batch_detect`. Le worker
+n'écrit **rien** au manifeste — le titre n'a pas échoué, il a été interrompu, il
+est simplement à refaire — et `run` sort **2**, que `_supervise.py` traite en
+arrêt définitif plutôt qu'en relance (relancer sur une machine qui s'éteint
+consommerait le budget de relances réservé aux vraies pannes).
+
+**Vérifié**, pas seulement compilé : le prédicat sur les deux signatures et sur
+les sorties normales (0, 1, 255) ; `audio._run` qui lève sur un ffmpeg tué mais
+laisse passer une sortie 1 ; et le trajet complet `resolve_episodes_multi` →
+**un seul appel de pont, zéro réessai, coupe-circuit intact**.
+
+**La leçon transposable.** Nos résiliences sont écrites pour des pannes *locales*
+(un hôte, un épisode) et transforment toute erreur en « rien trouvé ici ». Une
+panne *globale* les traverse toutes et ressort en donnée. Toute couche qui
+convertit une exception en absence doit d'abord se demander si ce qui a échoué
+est le sujet de la mesure ou son support.
+
+---
+
 ## 2026-08-07 — Audit OP/ED : ce que la nuit de tests a révélé
 
 Journée d'audit, sans changement de production hormis un revert. Tout ce qui suit

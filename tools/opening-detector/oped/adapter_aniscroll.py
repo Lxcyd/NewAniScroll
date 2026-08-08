@@ -20,6 +20,8 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+from .errors import ProcessKilled, killed_by_os
+
 BRIDGE = Path(__file__).resolve().parents[1] / "bridge" / "resolve.mjs"
 URL_CACHE_TTL = 6 * 3600  # signed stream URLs expire within ~a day; refresh before
 
@@ -115,6 +117,13 @@ def resolve_episodes(
     except subprocess.TimeoutExpired:
         raise RuntimeError("bridge timeout — upstream stalled, host skipped") from None
     if proc.returncode != 0:
+        if killed_by_os(proc.returncode):
+            raise ProcessKilled(
+                f"bridge tue par le systeme (rc={proc.returncode} / "
+                f"0x{proc.returncode & 0xFFFFFFFF:08X}), stderr="
+                f"{proc.stderr.strip()!r} — l'environnement s'eteint, "
+                f"ce n'est PAS un echec de {host_pref or 'l hote'}"
+            )
         raise RuntimeError(f"bridge failed (rc={proc.returncode}):\n{proc.stderr}")
 
     # The extractor prints diagnostic [sibnet] lines to stdout too; the JSON is
@@ -291,6 +300,12 @@ def resolve_episodes_multi(
                     host_pref=host, cache_dir=cache_dir, mal_id=mal_id,
                     va_slug=va_slug,
                 )
+            except ProcessKilled:
+                # Ni réessai, ni coupe-circuit, ni `[no-host]` : on remonte.
+                # Réessayer n'a aucun sens (la machine s'éteint) et l'imputer à
+                # l'hôte fabriquerait l'absence fausse que cette classe existe
+                # pour empêcher.
+                raise
             except Exception as exc:
                 last = exc
                 transient = _is_transient(exc)

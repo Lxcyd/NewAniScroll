@@ -8,6 +8,7 @@ is never re-decoded needlessly (spec: never recompute uselessly).
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -15,12 +16,60 @@ from pathlib import Path
 import numpy as np
 
 from . import SAMPLE_RATE
+from .errors import ProcessKilled, killed_by_os
 from .megaplay import is_megaplay, materialize_window, playlist_duration
 
 # ashowinfo prints one `pts_time:<abs seconds>` per audio frame to stderr; with
 # -copyts these are ABSOLUTE episode timestamps. We only need the first (the pts
 # of output sample 0) to anchor the window on the shared absolute clock.
 _ASHOWINFO_PTS_RE = re.compile(rb"pts_time:([\d.]+)")
+
+# WALL-CLOCK CEILING on every ffmpeg/ffprobe call. Without one, a CDN that stops
+# answering mid-segment hangs ffmpeg forever and `subprocess.run` waits with it —
+# no exception, no log, no retry. That is not theoretical: the 2026-08-06 audit
+# lot froze on a cold title with three live ffmpeg processes and the Python
+# parent flat at +0.5 s CPU over 7 minutes, and had to be killed by hand. One
+# stalled segment suspends the WHOLE batch, not just its episode, so on a
+# multi-day backfill it is a near-certainty.
+#
+# The value is a ceiling, not a budget: a legitimate 300 s window decode over
+# HLS measured at most ~94 s on the slowest host, so 480 s only ever fires on a
+# genuine stall. Override with OPED_FFMPEG_TIMEOUT for a slow link.
+FFMPEG_TIMEOUT_S = float(os.environ.get("OPED_FFMPEG_TIMEOUT", "480"))
+# ffprobe on a LOCAL file — no network, so anything beyond a few seconds is a
+# broken file, not a slow one.
+FFPROBE_TIMEOUT_S = float(os.environ.get("OPED_FFPROBE_TIMEOUT", "60"))
+
+
+def _run(cmd, *, timeout, what, text=False):
+    """`subprocess.run` that cannot hang.
+
+    A timeout is reported as RuntimeError — the same type an ffmpeg non-zero
+    exit already raises here — so every existing caller treats a stalled host
+    exactly like a failed one: the host is dropped, the episode keeps its other
+    hosts, and the batch moves on instead of stopping dead.
+
+    Cette tolérance a exactement UNE exception, et c'est le point de passage
+    unique de tous les ffmpeg/ffprobe, donc elle vit ici : un ffmpeg TUÉ par le
+    système n'est pas un hôte défaillant (voir `errors.ProcessKilled`). Le
+    traiter comme tel enregistrerait une absence de générique là où il n'y a
+    qu'une machine qui s'éteint — et cette ligne-là, une fois en base, ne se
+    distingue plus d'une vraie.
+    """
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=text, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(
+            f"ffmpeg timeout after {timeout:.0f}s for {what!r} — host stalled, "
+            f"skipping (see FFMPEG_TIMEOUT_S)"
+        ) from None
+    if killed_by_os(proc.returncode):
+        raise ProcessKilled(
+            f"ffmpeg tue par le systeme (rc={proc.returncode} / "
+            f"0x{proc.returncode & 0xFFFFFFFF:08X}) sur {what!r} — "
+            f"l'environnement s'eteint, ce n'est PAS un echec de l'hote"
+        )
+    return proc
 
 # ffmpeg EXITS 0 after a partially-failed HTTP read: it reports the failure on
 # stderr, fills what it could not fetch, and still writes a full-length stream.
@@ -196,7 +245,7 @@ def decode_audio_abs(
         "-f", "f32le",
         "-",
     ]
-    proc = subprocess.run(cmd, capture_output=True)
+    proc = _run(cmd, timeout=FFMPEG_TIMEOUT_S, what=src)
     if proc.returncode != 0:
         err = proc.stderr.decode("utf-8", "replace").strip()
         raise RuntimeError(f"ffmpeg (abs) failed for {src!r}:\n{err}")
@@ -219,10 +268,10 @@ def _container_start(path: str) -> float:
     Only used to turn an absolute seek into the relative one ffmpeg's `-ss`
     actually wants; the probe is local, so it costs no network.
     """
-    out = subprocess.run(
+    out = _run(
         ["ffprobe", "-v", "error", "-show_entries", "format=start_time",
          "-of", "default=nk=1:nw=1", path],
-        capture_output=True, text=True,
+        timeout=FFPROBE_TIMEOUT_S, what=path, text=True,
     )
     try:
         return float(out.stdout.strip())
@@ -377,7 +426,7 @@ def _ffmpeg_decode(
         "-f", "f32le",              # raw float32 little-endian to stdout
         "-",
     ]
-    proc = subprocess.run(cmd, capture_output=True)
+    proc = _run(cmd, timeout=FFMPEG_TIMEOUT_S, what=src)
     if proc.returncode != 0:
         err = proc.stderr.decode("utf-8", "replace").strip()
         raise RuntimeError(f"ffmpeg failed for {src!r}:\n{err}")

@@ -60,6 +60,7 @@ from oped.adapter_aniscroll import (
     resolve_episodes_multi,
 )
 from oped.animethemes import Theme, fetch_themes, resolve_slug, themes_for_episode
+from oped.errors import ProcessKilled
 from oped.host_registry import version_of
 from oped.audio import decode_audio_abs, load_audio
 from oped.fingerprint import Fingerprint, fingerprint
@@ -474,6 +475,8 @@ def _multipart_pass(season_rows, season_streams, season_detect, season_flags,
                     op_r, ed_r, with_pool=False,
                     op_window=op_win, ed_window=ed_win,
                 )
+            except ProcessKilled:
+                raise   # la machine meurt : ne pas passer au suivant
             except Exception as exc:
                 print(f"  [multipart] ep{ep} part{idx + 1} FAILED — "
                       f"{type(exc).__name__}: {exc}")
@@ -582,6 +585,8 @@ def _self_reference_pass(season_rows, season_streams, season_detect, season_flag
         ed_r = [refs["ed"]] if "ed" in need else []
         try:
             per_host = season_detect[ep](op_r, ed_r, with_pool=False, derived=True)
+        except ProcessKilled:
+            raise   # la machine meurt : ne pas passer au suivant
         except Exception as exc:
             print(f"  [self-ref] ep{ep}: detection failed — "
                   f"{type(exc).__name__}: {exc}")
@@ -1069,11 +1074,29 @@ def run(
         todo = [a for a in todo if not manifest.is_done(key_of(a))]
         print(f"resume: {before - len(todo)} already done/skipped, {len(todo)} to do")
 
+    # Mort imposée par le système (session fermée, arrêt machine) : le lot doit
+    # s'ARRÊTER, pas continuer. Cf. oped/errors.ProcessKilled — sans ça, les 50
+    # titres défileraient en `failed`, seraient réessayés une fois en pure
+    # perte, et surtout chaque anime encore en vol écrirait des lignes où les
+    # hôtes morts avec la machine passent pour des hôtes sans générique.
+    aborted = threading.Event()
+
     def worker(a: dict) -> tuple[str, str]:
         key = key_of(a)
+        if aborted.is_set():
+            return key, "aborted"
         try:
             rec = process_anime(a, throttler, sink, multi_host=multi_host,
                                 coverage=coverage, timings=tc)
+        except ProcessKilled as exc:
+            # Volontairement RIEN au manifeste : ce titre n'a pas été testé, il
+            # a été interrompu. Le marquer `failed` le ferait passer par le
+            # réessai puis compter comme un échec de détection ; ne rien écrire
+            # le laisse simplement à refaire au prochain lancement.
+            aborted.set()
+            print(f"\n!!! ARRET DU LOT — {exc}\n"
+                  f"    {key} et les suivants ne sont PAS marques : a refaire.")
+            return key, "aborted"
         except Exception as exc:  # transient -> failed, requeued at end
             rec = Record(key, "failed", reason=f"{type(exc).__name__}: {exc}")
         manifest.record(rec)
@@ -1094,6 +1117,12 @@ def run(
                           f"hosts={throttler.stats()}")
 
     drain(todo, "main")
+
+    if aborted.is_set():
+        sink.close()
+        print("\nlot INTERROMPU : la machine s'eteignait. Rien de ce qui suit "
+              "n'a ete mesure — relancer, le resume reprendra ou il en est.")
+        return 2
 
     # 5. REQUEUE: one retry pass over transient failures.
     failed = [a for a in anime_list if key_of(a) in set(manifest.failed_keys())]
@@ -1221,7 +1250,10 @@ def main() -> None:
         print(f"loaded coverage for {len(coverage)} (mal:lang) panels "
               f"from {args.coverage}")
 
-    run(
+    # Le code de sortie doit remonter : 2 = lot interrompu par l'extinction de
+    # la machine. Sans ça, `_supervise.py` lit 0, croit le lot terminé et ne
+    # relance rien — ou pire, relance en boucle sur un système qui s'éteint.
+    sys.exit(run(
         anime_list, args.out,
         manifest_path=args.manifest,
         workers=args.workers,
@@ -1231,7 +1263,7 @@ def main() -> None:
         multi_host=args.multi_host,
         coverage=coverage,
         timings=args.timings,
-    )
+    ))
 
 
 if __name__ == "__main__":
