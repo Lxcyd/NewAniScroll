@@ -456,8 +456,16 @@ function HeroBanner({
               (both still share pb-24).
 
               pt-16 stays as a floor, not as a position: it only matters when a
-              very long synopsis would otherwise grow up under the navbar. */}
-          <div className="flex w-full xl:w-[60%] lg:w-[65%] flex-col justify-end gap-5 pt-16 pb-24 pl-[7%] pr-8">
+              very long synopsis would otherwise grow up under the navbar.
+
+              gap-7 (28px), NOT gap-5, and the number is derived rather than
+              eyeballed: inside the stack the CTA row is separated from the
+              synopsis by the stack's own `gap-5` (20px) PLUS its `mt-2` (8px).
+              Matching that below the buttons means 28px, which is exactly
+              gap-7. If either of those two values changes, this one has to
+              follow — they are one visual rhythm, not two independent
+              paddings. */}
+          <div className="flex w-full xl:w-[60%] lg:w-[65%] flex-col justify-end gap-7 pt-16 pb-24 pl-[7%] pr-8">
             <AnimatePresence mode="wait" custom={dir}>
               <motion.div
                 key={`stack-${active.id}`}
