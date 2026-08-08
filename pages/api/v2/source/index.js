@@ -1114,6 +1114,19 @@ async function finalizeAnimeSamaIframe(serverKey, serverDef, iframeUrl) {
         return result;
       }
       dlog(`[anime-sama] Extraction failed for ${serverKey}: ${result.error}`);
+      /* An extractor that never reached the embed knows NOTHING about this
+         episode, so it must not be allowed to publish an absence. Returning
+         null below is a claim ("no source here") that the client caches for 6h;
+         a transport refusal is not evidence for that claim, it is the absence
+         of evidence. Throwing hands the handler a 503 → the chip reads `retry`,
+         and the next visitor asks again instead of inheriting our bad luck.
+         This is the same contract the catalogue/detail-page fetches already
+         follow — see TransientSourceError at the top of this file. */
+      if (result.transient) {
+        throw new TransientSourceError(
+          `${serverKey}: ${result.error || "embed unreachable"}`,
+        );
+      }
       // Sibnet + Sendvid X-Frame-Options DENY → an iframe fallback is a dead
       // "refused to connect" page, so hide the chip instead of degrading it.
       // uqload: same outcome for a different reason — its embed is Referer-gated
@@ -1123,6 +1136,10 @@ async function finalizeAnimeSamaIframe(serverKey, serverDef, iframeUrl) {
     }
     return { iframe: iframeUrl, degraded: true, reason: "extraction failed" };
   } catch (e) {
+    // Rethrow, don't swallow: this catch turns any throw into "no source", which
+    // would undo the transient classification a few lines up the moment it was
+    // made. Only genuinely unknown errors become an absence.
+    if (e instanceof TransientSourceError) throw e;
     console.error(`anime-sama ${serverKey} error:`, e.message);
     return null;
   }
