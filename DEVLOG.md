@@ -1,5 +1,61 @@
 # DEVLOG
 
+## 2026-08-08 (soir) — Sibnet remarche : deux blocages, et une conclusion fausse en route
+
+Suite du diagnostic du lot `top50` ci-dessous. Sibnet ne rendait que 5 cellules
+sur 439 alors qu'anime-sama le propose sur 89 % des saisons. Corrige (commit
+2c5e027, `lib/extractors.js`) — et **la production n'a jamais ete concernee**.
+
+**⚠️ Ma conclusion intermediaire etait fausse, et Luc l'a corrigee.** J'avais
+ecrit que Vercel et Cloudflare etaient bloques comme la ligne de Luc, sur la foi
+d'un `{"absent":true}` renvoye par dev pour SnK ep5. C'etait un episode sans
+upload sibnet, pas un blocage : l'ep11 rend un flux normal depuis Vercel. La
+lecon est petite et couteuse — **ne jamais declarer un hote mort sur un
+environnement a partir d'un seul episode**, la ou l'absence est un resultat
+attendu la moitie du temps. Seules la ligne residentielle de Luc et Cloudflare
+sont filtrees ; un VPN ouest-europeen passe, donc c'est un filtre d'IP/plage
+FAI, pas un geo-blocage.
+
+**Blocage 1 — l'endpoint d'embed.** `shell.php?videoid=` repond 403, sur *tous*
+les videoid, y compris un identifiant inexistant : c'est l'endpoint qui est
+ferme, pas les videos. La page de visionnage `/video<ID>`, elle, repond 200 et
+porte le meme `player.src`. On la lit en dernier recours. `looksGood` valide
+toujours le videoid, donc la porte de secours ne laisse pas passer de leurre.
+
+**Blocage 2 — le shard CDN, et c'est le vrai enseignement.** Le 302 route chaque
+client vers un shard, et certains shards refusent certains reseaux : depuis la
+ligne de Luc toute redirection tombe sur `dv97`, qui refuse ; Vercel est route
+vers `cvs111-2`, qui sert. **La signature n'est pas liee au hostname** — mesure
+sur deux fichiers et deux machines, une requete `st`/`e`/`stor` identique a
+servi un 206 depuis `cvs111-2` et un 400 depuis `dv97`. Un shard qui dit non
+vaut donc la peine d'etre rejoue ailleurs, tel quel.
+
+**Le piege qui a fait echouer le premier correctif.** Le repli ne se declenchait
+jamais. Raison : **un shard qui refuse ne refuse pas vite, il PEND**. Avec
+`redirect: "follow"`, la requete mourait sur le timeout d'abort *sans objet
+reponse*, donc on n'apprenait jamais quel shard reessayer. D'ou la resolution du
+302 en deux temps (`redirect: "manual"`), qui lit le `Location` avant de
+s'engager. Deuxieme piege du meme correctif : le Referer du hop doit etre la
+page **reellement lue** — envoyer un Referer `shell.php` pour une page qu'on n'a
+jamais obtenue fait repondre 403 au lieu de rediriger.
+
+Verifie depuis la machine bloquee : 3/3 episodes resolus ET lus (206, 64 Ko), et
+`bridge/resolve_sibnet.mjs` rend `ok:true` sur SnK 1-3.
+
+**Effet attendu sur le detecteur** : sibnet redevient un second temoin sur ~89 %
+des saisons, et **53 % des cellules retenues (76/144) le sont faute d'un
+deuxieme hote**. C'est le levier principal, pas un gain marginal.
+
+**Corollaire livre au passage** (commit 5dd0306) : un extracteur qui n'a jamais
+atteint la page ne sait rien de l'episode, et ne doit donc pas publier une
+absence que le client met en cache 6 h. `extractSibnet` marque desormais
+`transient: true` dans ce cas, et le resolveur leve une `TransientSourceError`
+-> 503 -> la puce lit `retry`. Une absence de preuve n'est pas une preuve
+d'absence.
+
+---
+
+
 ## 2026-08-08 — Lot `top50` : le resultat, et pourquoi deux lecteurs sur six n'ont rien rendu
 
 **Le lot est termine** : 50/50 titres, **439 cellules** (441 estimees ; plusieurs
