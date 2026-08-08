@@ -1,5 +1,41 @@
 # DEVLOG
 
+## 🔄 EN COURS au 08/08 15:50 — lot `top50`, à relire ce soir
+
+Reprise après un `/clear` : tout est ici, rien à redécouvrir.
+
+**Le lot.** `anime.top50.json`, 50 titres, **441 cellules** attendues. Lancé à
+15:24, ~43 cellules à 15:50, fin estimée **vers 20 h**. Processus détaché
+(superviseur orphelin), il survit à la fermeture du terminal. Sortie :
+`tools/opening-detector/out/top50.jsonl`.
+
+**Pour lire le résultat** — et *seulement* sur ce lot, jamais sur les lots
+d'audit (§11) :
+```
+node tools/opening-detector/_compare_sources.mjs --list=anime.top50.weights.json
+```
+Le fichier de poids est distinct d'`anime.top50.json` à dessein : ce dernier
+est lu par le lot en cours, on n'y touche pas. Un titre diffère entre les deux
+(la 50ᵉ place a bougé), l'outil le signale.
+
+**⚠️ Ne PAS conclure que le détecteur s'est amélioré.** Ces 50 titres sont les
+plus populaires, donc mieux servis par les hôtes, mieux couverts par
+AnimeThemes. Les chiffres seront meilleurs **par construction**. Les comparer
+aux lots durs, c'est refaire l'erreur du §11 dans l'autre sens. Ce lot est la
+**première mesure honnête**, un point de départ — pas un progrès.
+
+**Le levier, lui, est déjà mesuré.** Sur les cellules trouvées puis retenues,
+**84 % le sont pour « un seul hôte, pas de confirmation image »** (le reste :
+hôtes en désaccord franc, 20-40 s). Ce n'est ni l'empreinte, ni le matcher :
+on trouve le générique et on le jette faute d'un second témoin. Les deux voies
+sont un hôte de plus (transport), ou accepter l'hôte unique quand la vidéo
+confirme.
+
+**Ensuite** : revue manuelle par Luc → import avec `batch_id` → vérification
+sur dev. Aucun import sans validation manuelle.
+
+---
+
 ## 2026-08-08 — Une machine qui s'éteint fabriquait des absences de générique
 
 Le lot `top50` lancé à 01:50 était mort à 02:18 sans que rien ne le signale.
