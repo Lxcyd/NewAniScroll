@@ -88,7 +88,17 @@ if (existsSync(listPath)) {
     }
   }
 }
-const weightOf = (mal) => popularity.get(mal) || 1;
+// Un titre du lot absent de la table de poids retomberait à 1 — soit 6 ordres
+// de grandeur sous ses voisins (les popularités vont de ~440k à ~1M), ce qui
+// l'effacerait de la mesure sans rien dire. Les cas sont comptés et affichés.
+// Ça arrive pour de bon : la 50ᵉ place a changé entre l'export du lot et celui
+// des poids, simple dérive de popularité.
+const unweighted = new Set();
+const weightOf = (mal) => {
+  const p = popularity.get(mal);
+  if (!p) { unweighted.add(mal); return 1; }
+  return p;
+};
 // ⚠️ Ce test portait d'abord sur `popularity.size > 0`, et il A MENTI : la
 // liste contenait bien 50 entrées, mais aucune n'avait de champ `popularity`
 // (l'exporteur le supprimait), donc tous les poids valaient 1 et la ligne
@@ -196,6 +206,10 @@ console.log(`   servie (brute)    : ${stat.served}/${stat.cells}  ${pct(stat.ser
 // « pondérée » : c'est la ligne qu'on citerait, et elle serait fausse.
 if (weightsKnown) {
   console.log(`   servie (ponderee) : ${pct(stat.wServed, stat.wSeen)}  [popularite AniList]`);
+  if (unweighted.size) {
+    console.log(`                       !! ${unweighted.size} titre(s) sans poids, `
+      + `comptes a 1 : ${[...unweighted].join(", ")}`);
+  }
 } else {
   console.log("   servie (ponderee) : INDISPONIBLE — la liste ne porte aucune");
   console.log(`                       popularite (${listPath}).`);
