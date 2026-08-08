@@ -73,11 +73,15 @@ export interface TmdbSeasonEpisode {
 export type BackdropSize = "w780" | "w1280";
 export type LogoSize = "w300" | "w500";
 export type StillSize = "w300" | "w500";
+/* `original` is allowed for exactly one caller: the Artworks lightbox, where
+   the visitor asked to see the image full size and the weight is the point.
+   Never use it for a grid tile or a hero. */
+export type ImageSize = BackdropSize | LogoSize | StillSize | "original";
 
 /** Build a displayable URL from TMDB's bare `file_path` ("/abc.jpg"). */
 export function tmdbImageUrl(
   path: string | null | undefined,
-  size: BackdropSize | LogoSize | StillSize,
+  size: ImageSize,
 ): string | null {
   if (!path) return null;
   return `${TMDB_IMAGE_BASE}/${size}${path}`;

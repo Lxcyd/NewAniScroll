@@ -1,6 +1,7 @@
 import { CSSProperties, useEffect, useState } from "react";
 import { collectArtworks } from "./helpers";
 import { useFanarts } from "@/lib/hooks/useFanarts";
+import { useTmdbArtworks } from "@/lib/hooks/useTmdbArtworks";
 import styles from "./styles.module.css";
 import { useTranslation } from "react-i18next";
 import { useFanartProxyDown, resolveFanartSrc, onFanartError } from "@/lib/images/fanartFallback";
@@ -22,7 +23,34 @@ const TYPE_LABEL: Record<string, string> = {
   seasonposter: "Season Poster",
   seasonbanner: "Season Banner",
   seasonthumb: "Season Thumb",
+  logo: "Logo",
 };
+
+/* Merge the two providers into one gallery, keeping a single copy of anything
+   that appears twice.
+
+   TMDB's own duplicates are already collapsed server-side (lib/tmdb/artworks.ts
+   dedupes by file_path, and by dimensions for logos, where TMDB really does
+   host the same asset under two paths). What is left to do here is the merge
+   itself: an exact-URL pass, which is enough because fanart.tv and TMDB live on
+   different hosts and cannot collide by accident — it only guards against the
+   same list being appended twice.
+
+   fanart.tv comes first: its rows are likes-ranked by real votes, edge-cached
+   through fanart-proxy.aniscroll.com, and already NSFW-filtered server-side —
+   which matters here, unlike for logos, because this gallery shows character
+   art and key visuals. TMDB extends the tail, and covers the many titles
+   fanart.tv has nothing for at all. */
+function mergeArtworks<T extends { url: string }>(primary: T[], extra: T[]): T[] {
+  const seen = new Set<string>();
+  const out: T[] = [];
+  for (const a of [...primary, ...extra]) {
+    if (!a?.url || seen.has(a.url)) continue;
+    seen.add(a.url);
+    out.push(a);
+  }
+  return out;
+}
 
 export default function Artworks({
   animeId,
@@ -34,9 +62,13 @@ export default function Artworks({
      IS the lazy load. Shared memo with <Episodes>, so opening both costs one
      request. */
   const { fanarts } = useFanarts(animeId);
+  /* Separate hook, separate endpoint: fanart.tv is a Turso row and TMDB may
+     cost an upstream call, so the gallery paints the first without waiting on
+     the second. See lib/hooks/useTmdbArtworks.ts. */
+  const { tmdbArts } = useTmdbArtworks(animeId);
   const typeLabel = (type: string) =>
     TYPE_LABEL[type] ? t(`anime.artType.${type}`) : type;
-  const arts = collectArtworks(fanarts);
+  const arts = mergeArtworks<any>(collectArtworks(fanarts), tmdbArts);
   const [lightbox, setLightbox] = useState<string | null>(null);
   const [selectedType, setSelectedType] = useState<string>("all");
   // false on SSR + first client render (markup matches), true after mount
@@ -198,7 +230,7 @@ export default function Artworks({
         {visible.map((a, i) => (
           <button
             key={`${a.type}-${a.url}-${i}`}
-            onClick={() => setLightbox(a.url)}
+            onClick={() => setLightbox((a as any).fullUrl || a.url)}
             style={aStyles.card}
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}

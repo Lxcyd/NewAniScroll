@@ -949,7 +949,8 @@
       "thumb": "Thumbnail",
       "seasonposter": "Season Poster",
       "seasonbanner": "Season Banner",
-      "seasonthumb": "Season Thumb"
+      "seasonthumb": "Season Thumb",
+      "logo": "Logo"
     },
     "artFilterAll": "All",
     "fullscreen": "Fullscreen",

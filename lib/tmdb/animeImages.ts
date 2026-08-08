@@ -122,6 +122,53 @@ async function inheritTvIdFromPrequel(anilistId: number): Promise<number | null>
   return null;
 }
 
+export interface TmdbTarget {
+  id: number;
+  kind: "tv" | "movie";
+}
+
+/**
+ * Which TMDB record corresponds to this AniList id, or null.
+ *
+ * THREE WAYS TO FIND IT, cheapest and most reliable first:
+ *
+ *   1. Fribb — one local Turso row, no network. Right whenever it has the
+ *      entry at all.
+ *   2. ani.zip — one HTTP call, but keyed on the AniList id itself, so it
+ *      answers for the NEW titles Fribb systematically lags. That lag is not
+ *      random: it hits exactly the currently-airing shows the hero features.
+ *      Measured 2026-08-08 — Chainsmoker Cat (207141) and Hell Mode S2
+ *      (209983) both had no Fribb tmdb id while ani.zip knew 312949 and
+ *      280049. TMDB had the artwork the whole time.
+ *   3. The prequel's id — for a sequel nobody has mapped yet. Last because it
+ *      borrows another entry's identity, which is only sound for series-level
+ *      art (see inheritTvIdFromPrequel).
+ *
+ * TV before movie: most anime are series, and a sequel's own art lives under
+ * the parent's tv id. A film has its own record and its own art.
+ *
+ * Exported so the Artworks gallery (lib/tmdb/artworks.ts) resolves the same
+ * record the hero does — two different answers for one title would be a bug
+ * nobody would think to look for.
+ */
+export async function resolveTmdbTarget(
+  anilistId: number,
+): Promise<TmdbTarget | null> {
+  const entry = await getFribbEntry(anilistId);
+  const mapping = entry?.tmdbTvId ? null : await getAniZipMapping(anilistId);
+
+  const tvId =
+    entry?.tmdbTvId ??
+    mapping?.tmdbTvId ??
+    (await inheritTvIdFromPrequel(anilistId));
+  if (tvId) return { id: tvId, kind: "tv" };
+
+  const movieId = entry?.tmdbMovieId ?? mapping?.tmdbMovieId;
+  if (movieId) return { id: movieId, kind: "movie" };
+
+  return null;
+}
+
 /**
  * The picked TMDB artwork for an AniList id. Never throws.
  *
@@ -158,46 +205,12 @@ export async function getTmdbAnimeImages(
     return EMPTY;
   };
 
-  /* A missing Fribb row is no longer fatal — ani.zip below is keyed on the
-     AniList id and needs no cross-map at all. */
-  const entry = await getFribbEntry(anilistId);
+  const target = await resolveTmdbTarget(anilistId);
+  if (!target) return await refuse(target === null ? "no-tmdb-id" : "no-fribb");
 
-  /* TV first: most anime are series, and a sequel's own art lives under the
-     parent's tv id. A movie has neither, hence the second branch. */
-  let images: TmdbImages | null = null;
-  let tmdbId: number | null = null;
-  let kind: "tv" | "movie" | null = null;
-
-  /* THREE WAYS TO FIND THE ID, cheapest and most reliable first.
-
-     1. Fribb — one local Turso row, no network. Right whenever it has the
-        entry at all.
-     2. ani.zip — one HTTP call, but keyed on the AniList id itself, so it
-        answers for the NEW titles Fribb systematically lags. That lag is not
-        random: it hits exactly the currently-airing shows the hero features.
-        Measured 2026-08-08 — Chainsmoker Cat (207141) and Hell Mode S2
-        (209983) both had no Fribb tmdb id while ani.zip knew 312949 and
-        280049. TMDB had the artwork the whole time.
-     3. The prequel's id — for a sequel nobody has mapped yet. Last because it
-        borrows another entry's identity, which is only sound for series-level
-        art (see inheritTvIdFromPrequel). */
-  const mapping = entry?.tmdbTvId ? null : await getAniZipMapping(anilistId);
-  const tvId =
-    entry?.tmdbTvId ??
-    mapping?.tmdbTvId ??
-    (await inheritTvIdFromPrequel(anilistId));
-
-  if (tvId) {
-    tmdbId = tvId;
-    kind = "tv";
-    images = await getTvImages(tvId);
-  } else if (entry?.tmdbMovieId ?? mapping?.tmdbMovieId) {
-    tmdbId = (entry?.tmdbMovieId ?? mapping?.tmdbMovieId) as number;
-    kind = "movie";
-    images = await getMovieImages(tmdbId);
-  } else {
-    return await refuse(entry ? "no-tmdb-id" : "no-fribb");
-  }
+  const { id: tmdbId, kind } = target;
+  const images =
+    kind === "tv" ? await getTvImages(tmdbId) : await getMovieImages(tmdbId);
 
   // null from the client is a failed request (or a 404), not "no images" —
   // it must not be cached as a refusal.

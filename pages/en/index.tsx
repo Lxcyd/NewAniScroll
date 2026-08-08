@@ -444,7 +444,20 @@ function HeroBanner({
 
         {/* Content column */}
         <div className="absolute inset-0 flex">
-          <div className="flex w-full xl:w-[60%] lg:w-[65%] flex-col justify-between gap-5 pt-16 pb-24 pl-[7%] pr-8">
+          {/* justify-END, not justify-between: the whole block (logo, tags,
+              synopsis, CTAs) sits at the BOTTOM of the hero, immediately above
+              the progress pills, with `gap-5` as the only space between them.
+
+              justify-between pinned the logo under the navbar and let the
+              column's height push everything apart, which left a large dead
+              band across the middle of a 780px-tall hero and detached the text
+              from its controls. Packing to the bottom also lines the block up
+              with the cover rail on the right, which is bottom-anchored too
+              (both still share pb-24).
+
+              pt-16 stays as a floor, not as a position: it only matters when a
+              very long synopsis would otherwise grow up under the navbar. */}
+          <div className="flex w-full xl:w-[60%] lg:w-[65%] flex-col justify-end gap-5 pt-16 pb-24 pl-[7%] pr-8">
             <AnimatePresence mode="wait" custom={dir}>
               <motion.div
                 key={`stack-${active.id}`}
@@ -552,10 +565,11 @@ function HeroBanner({
 
             {/* Segmented progress bar — outside AnimatePresence so it
                 stays mounted across slide transitions. w-fit matches the
-                CTA button row; flex-1 pills distribute evenly. Placed at
-                the bottom of the column (justify-between) so its bottom
-                edge aligns with the bottom of the cover thumbnails on the
-                right rail (both share pb-24). */}
+                CTA button row; flex-1 pills distribute evenly. Last child of
+                a justify-end column, so it sits at the very bottom with the
+                info block resting directly on top of it, and its bottom edge
+                still aligns with the cover thumbnails on the right rail
+                (both share pb-24). */}
             <div className="flex w-fit gap-2">
               {list.map((_, i) => {
                 const isActive = i === idx % list.length;

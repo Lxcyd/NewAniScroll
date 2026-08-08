@@ -949,7 +949,8 @@
       "thumb": "Miniature",
       "seasonposter": "Affiche de saison",
       "seasonbanner": "Bannière de saison",
-      "seasonthumb": "Miniature de saison"
+      "seasonthumb": "Miniature de saison",
+      "logo": "Logo"
     },
     "artFilterAll": "Toutes",
     "fullscreen": "Plein écran",
