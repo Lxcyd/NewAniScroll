@@ -950,6 +950,9 @@
       "seasonposter": "Season Poster",
       "seasonbanner": "Season Banner",
       "seasonthumb": "Season Thumb",
+      "clearart": "Clear Art",
+      "character": "Character Art",
+      "disc": "Disc",
       "logo": "Logo"
     },
     "artFilterAll": "All",

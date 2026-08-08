@@ -35,6 +35,11 @@ import {
   type TmdbImages,
 } from "./client";
 import { resolveTmdbTarget } from "./animeImages";
+import {
+  DUPLICATE_THRESHOLD,
+  hammingHex,
+  hashMany,
+} from "@/lib/images/perceptualHash";
 
 /** One gallery entry. Shape mirrors FanartItem so the tab can merge the two
  *  lists without a translation layer on the client. */
@@ -53,7 +58,10 @@ export interface TmdbArtwork {
 }
 
 const TTL_S = 30 * 24 * 60 * 60;
-const CACHE_VERSION = "v1";
+/* v1 -> v2 (2026-08-08): cross-provider de-duplication shipped. A v1 row holds
+   the un-deduplicated list, and the duplicates the user reported are exactly
+   what it would keep serving for 30 days. */
+const CACHE_VERSION = "v2";
 
 /* Gallery thumbnails render in a grid at a few hundred px; w780 is sharp there
    without pulling a 3840 px original per tile. The lightbox gets `original`,
@@ -116,11 +124,47 @@ function toArtworks(images: TmdbImages | null): TmdbArtwork[] {
   return out;
 }
 
+/* Hashing means downloading, so hash the smallest variant that still carries
+   the structure dHash reads. w185 is ~8 kB and downscales to 9×8 identically
+   to the full file. The grid URLs are w780/w500, so this is a path swap. */
+function tinyVariant(url: string): string {
+  return url.replace(/\/t\/p\/w\d+\//, "/t/p/w185/");
+}
+
+/* Hash fanart.tv from its ORIGIN, never through fanart-proxy.aniscroll.com.
+   The proxy converts via CF Image Transformations, capped at 5,000 unique
+   transformations/month on the free tier (see lib/images/fanartFallback.ts) —
+   spending that quota on images no visitor will ever see would be a
+   self-inflicted outage of the real gallery. */
+function fanartOrigin(url: string): string {
+  try {
+    const u = new URL(url);
+    return u.pathname.startsWith("/fanart/")
+      ? `https://assets.fanart.tv${u.pathname}${u.search}`
+      : url;
+  } catch {
+    return url;
+  }
+}
+
+/* Ceiling on how many images we're willing to download to compare. Well above
+   a normal title (BLACK TORCH: 13 TMDB + ~20 fanart) and low enough that a
+   One Piece-sized gallery can't turn one cold request into a minute of I/O. */
+const MAX_HASHED = 48;
+
 /**
- * Every TMDB image for an AniList id, de-duplicated and ready to render.
- * Empty on any failure, on a missing key, or on an unmapped title.
+ * Every TMDB image for an AniList id, minus anything fanart.tv already
+ * supplies. Empty on any failure, on a missing key, or on an unmapped title.
+ *
+ * `fanartUrls` are the gallery-eligible fanart.tv images for the same title.
+ * Pass them and the two libraries are compared by CONTENT — which is the only
+ * thing that works, since the same official poster on both hosts shares no
+ * identifier, no URL and not even the same pixel dimensions.
  */
-export async function getTmdbArtworks(anilistId: number): Promise<TmdbArtwork[]> {
+export async function getTmdbArtworks(
+  anilistId: number,
+  fanartUrls: string[] = [],
+): Promise<TmdbArtwork[]> {
   if (!Number.isFinite(anilistId) || anilistId <= 0) return [];
   if (!tmdbEnabled()) return [];
 
@@ -145,6 +189,62 @@ export async function getTmdbArtworks(anilistId: number): Promise<TmdbArtwork[]>
   if (!images) return [];
 
   const arts = toArtworks(images);
-  await setCachedJson(key, { arts });
-  return arts;
+  const deduped = await dropVisualDuplicates(arts, fanartUrls);
+  await setCachedJson(key, { arts: deduped });
+  return deduped;
+}
+
+/**
+ * Drop TMDB images that duplicate a fanart.tv image, or each other.
+ *
+ * Two levels, because URL and dimension equality miss both cases:
+ *   - against fanart.tv — the same official poster on two hosts.
+ *   - within TMDB — the same asset re-uploaded under a second file_path, which
+ *     the dimension pass upstream only catches for logos.
+ *
+ * Returns the input unchanged on any failure. An un-deduplicated gallery is
+ * the status quo; a gallery missing real artwork because a fetch timed out is
+ * a regression, so every uncertain case resolves toward keeping the image.
+ */
+async function dropVisualDuplicates(
+  arts: TmdbArtwork[],
+  fanartUrls: string[],
+): Promise<TmdbArtwork[]> {
+  if (arts.length === 0) return arts;
+
+  const tmdbTargets = arts.slice(0, MAX_HASHED).map((a) => tinyVariant(a.url));
+  const fanartTargets = fanartUrls
+    .slice(0, Math.max(0, MAX_HASHED - tmdbTargets.length))
+    .map(fanartOrigin);
+
+  const hashes = await hashMany([...tmdbTargets, ...fanartTargets]).catch(
+    () => new Map<string, string>(),
+  );
+  if (hashes.size === 0) return arts;
+
+  const fanartHashes = fanartTargets
+    .map((u) => hashes.get(u))
+    .filter((h): h is string => !!h);
+
+  const kept: TmdbArtwork[] = [];
+  const keptHashes: string[] = [];
+
+  for (const art of arts) {
+    const h = hashes.get(tinyVariant(art.url)) ?? null;
+    // Unhashable → keep. Never delete on missing evidence.
+    if (h) {
+      const dupOfFanart = fanartHashes.some(
+        (f) => hammingHex(h, f) <= DUPLICATE_THRESHOLD,
+      );
+      if (dupOfFanart) continue;
+      const dupOfKept = keptHashes.some(
+        (k) => hammingHex(h, k) <= DUPLICATE_THRESHOLD,
+      );
+      if (dupOfKept) continue;
+      keptHashes.push(h);
+    }
+    kept.push(art);
+  }
+
+  return kept;
 }

@@ -24,6 +24,9 @@ const TYPE_LABEL: Record<string, string> = {
   seasonbanner: "Season Banner",
   seasonthumb: "Season Thumb",
   logo: "Logo",
+  clearart: "Clear Art",
+  character: "Character Art",
+  disc: "Disc",
 };
 
 /* Merge the two providers into one gallery, keeping a single copy of anything

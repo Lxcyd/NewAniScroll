@@ -422,9 +422,21 @@ function shuffle<T>(arr: T[]): T[] {
 }
 
 /* Flatten the fanart payload into a single artwork list for the Artworks tab.
-   Excludes types we don't want to gallery (logos / clearart belong to the
-   hero; characters too) and drops anything not in the English/textless
-   bucket. NSFW labels are already filtered server-side by /api/v2/fanarts. */
+   Drops anything outside the English/textless bucket; NSFW labels are already
+   filtered server-side by /api/v2/fanarts.
+
+   EVERY TYPE fanart.tv actually stores is galleried. The list below is not a
+   guess — it is the distinct `type` values present in `anime_fanarts`, counted
+   2026-08-08: logo 26350, poster 19031, background 18523, clearart 15999,
+   character 12259, thumb 10391, banner 8678, seasonposter 7515, seasonthumb
+   1771, seasonbanner 1526, disc 467.
+
+   `logo`, `clearart`, `character` and `disc` used to be excluded on the
+   grounds that "logos and clearart belong to the hero". That stopped holding
+   the moment TMDB logos started appearing in this same gallery: the tab showed
+   a TMDB logo while hiding fanart.tv's, and hid 28,000 clearart/character
+   images that exist for no other surface. Character art in particular has no
+   home anywhere else in the app. */
 export function collectArtworks(
   fanarts: FanartResponse | null
 ): Array<FanartItem & { type: string }> {
@@ -437,6 +449,10 @@ export function collectArtworks(
     "seasonposter",
     "seasonbanner",
     "seasonthumb",
+    "logo",
+    "clearart",
+    "character",
+    "disc",
   ]);
   const out: Array<FanartItem & { type: string }> = [];
   for (const [type, items] of Object.entries(fanarts.types)) {

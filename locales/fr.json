@@ -950,6 +950,9 @@
       "seasonposter": "Affiche de saison",
       "seasonbanner": "Bannière de saison",
       "seasonthumb": "Miniature de saison",
+      "clearart": "Clear art",
+      "character": "Art de personnage",
+      "disc": "Disque",
       "logo": "Logo"
     },
     "artFilterAll": "Toutes",
