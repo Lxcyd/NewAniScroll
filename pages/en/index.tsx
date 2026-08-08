@@ -31,22 +31,28 @@ import {
 import { getTmdbAnimeImages } from "@/lib/tmdb/animeImages";
 import { useFanartSrc, onFanartError } from "@/lib/images/fanartFallback";
 
-/* Which trending titles get the hero, and in what order — Hayase's algorithm
+/* Which titles get the hero, and in what order — Hayase's algorithm
    (hayase-app/interface, src/lib/components/ui/banner/full-banner.svelte,
    `shuffleAndFilter`), extended from their 5 slots to our 8.
 
-   The problem it solves: taking `.slice(0, 8)` off a TRENDING_DESC list pins
-   the same evergreens to the front forever — One Piece was in slot 1 or 2
-   every single day. Hayase sorts by a Knuth multiplicative hash of the id
-   (`id * 2654435761 >>> 0`, the 32-bit golden-ratio constant) instead, which
-   is a stable pseudo-random permutation: unrelated to popularity, identical
-   for every visitor and every render.
+   TWO HALVES, and the pool matters more than the sort. The pool is built by
+   `heroPool` in lib/anilist/AniList.js — the CURRENT SEASON's best-scored
+   titles, which is Hayase's own query, not the trending list. Ranking the
+   trending list is what kept One Piece and Bleach welded to the front; they
+   are permanently trending and never leave. Scoping to the season is what
+   actually rotates the hero, because the season itself rotates.
+
+   Then the sort: a Knuth multiplicative hash of the id
+   (`id * 2654435761 >>> 0`, the 32-bit golden-ratio constant). A stable
+   pseudo-random permutation — unrelated to score, identical for every visitor
+   and every render, so a title ranked 12th by score can open the carousel.
+   Verified 2026-08-08 against Hayase's live output: with this pool and this
+   sort, THE GHOST IN THE SHELL (AniList 177699) lands first, exactly as it
+   does in their app.
 
    Determinism is the point, not a limitation — SSR and hydration must agree,
    and a `Math.random()` order would swap the hero under the visitor's cursor
-   on every re-render. Variety comes from the POOL turning over instead: we
-   scramble the whole 20-title trending page and take 8, so which 8 appear
-   shifts as AniList's trending list does, rather than being welded to the top.
+   on every re-render.
 
    `id * 2654435761` reaches ~5.6e14 for a 6-digit AniList id — comfortably
    inside 2^53, so the multiplication is exact before `>>> 0` folds it to
@@ -93,7 +99,7 @@ export async function getServerSideProps(ctx: any) {
   // never picked up) must NOT take the whole homepage down — swallow the error
   // and treat it as a cache miss so we fall through to a live AniList fetch.
   if (redis) {
-    cachedData = await redis.get("index_server_v2").catch(() => null);
+    cachedData = await redis.get("index_server_v3").catch(() => null);
   }
 
   // Resolve the hero entries (HD logo for the top trending titles) outside
@@ -147,12 +153,15 @@ export async function getServerSideProps(ctx: any) {
     null;
 
   if (cachedData) {
-    const { genre, detail, populars, thisSeason, movies } =
+    const { genre, detail, populars, thisSeason, movies, heroPool } =
       JSON.parse(cachedData);
     const firstTrend = pickFirstTrend(detail?.data || []);
     const [upComing, heroEntries] = await Promise.all([
       getUpcomingAnime(),
-      resolveHeroEntries(detail?.data || []),
+      /* `?? detail` is a safety net, not a design: a blob written by an older
+         deploy has no `heroPool`, and a hero of trending titles beats no hero
+         at all for the few minutes before the key bump takes effect. */
+      resolveHeroEntries(heroPool?.data || detail?.data || []),
     ]);
     return {
       props: {
@@ -186,10 +195,12 @@ export async function getServerSideProps(ctx: any) {
       // Best-effort cache write — a failing Redis must not crash SSR.
       await redis
         .set(
-          // Key bumped — payload now carries thisSeason + movies; the old
-          // `index_server` value would lack them and the sections wouldn't
-          // render until the 2 h TTL expired.
-          "index_server_v2",
+          /* Key bumped whenever the payload gains a field the page reads.
+             v2 → v3 (2026-08-08): `heroPool` joined it. A v2 blob has no such
+             key, so the hero would silently keep falling back to trending for
+             up to 2 h — the same "cache outlives the change" trap already hit
+             three times today (TMDB artwork, episode lists, discover). */
+          "index_server_v3",
           JSON.stringify({
             genre: genreDetail.props,
             detail: trendingDetail.props,
@@ -197,6 +208,7 @@ export async function getServerSideProps(ctx: any) {
             firstTrend: trendingDetail.props.data?.[0] || null,
             thisSeason: seasonDetail.props,
             movies: moviesDetail.props,
+            heroPool: batch.heroPool?.props ?? null,
           }), // set cache for 2 hours
           "EX",
           60 * 60 * 2
@@ -205,7 +217,7 @@ export async function getServerSideProps(ctx: any) {
     }
 
     const heroEntries = await resolveHeroEntries(
-      trendingDetail.props.data || [],
+      batch.heroPool?.props?.data || trendingDetail.props.data || [],
     );
 
     return {
