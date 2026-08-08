@@ -30,18 +30,27 @@ URL_CACHE_TTL = 6 * 3600  # signed stream URLs expire within ~a day; refresh bef
 # change what's served — the bridge may silently keep returning the same
 # encode regardless of the requested language.
 #
-# megaplay: per resolve_episodes' docstring below, its embed URL is built
-# directly from a MAL id + episode number ("it isn't scraped from
-# anime-sama's episodes.js like the other hosts"). There is no `lang` input
-# anywhere in that construction. Confirmed empirically on SnK ep3: a
-# `--lang vf` run against megaplay returned a stream with the EXACT same
-# probed duration (1466.5s, to the decimal) as the `--lang vostfr` run —
-# i.e. the same VOSTFR encode served back under a VF request, not a real
-# French track. Until bridge/resolve.mjs is confirmed to branch on language
-# for this host, treat it as VOSTFR-only and exclude it from VF runs rather
-# than silently poisoning cross-host reconciliation with a mislabeled
-# stream.
-VF_INCOMPATIBLE_HOSTS = {"megaplay"}
+# megaplay N'EST PLUS ici, et l'erreur qui l'y avait mis vaut d'être gardée.
+#
+# Le raisonnement d'origine : sur SnK ep3, `--lang vf` et `--lang vostfr`
+# rendaient une durée sondée IDENTIQUE à la décimale près (1466.5 s), donc
+# megaplay devait resservir l'encode VOSTFR sous une requête VF.
+#
+# **La durée ne pouvait pas trancher cette question.** Un doublage est le même
+# épisode avec une autre piste audio : il a exactement le même métrage, par
+# construction. Une durée identique était donc le résultat attendu dans les DEUX
+# hypothèses — c'était une mesure sans pouvoir discriminant, présentée comme une
+# confirmation.
+#
+# Mesuré le 08/08/2026, cette fois sur ce qui distingue réellement les deux cas —
+# l'audio. Fenêtre de 20 s en plein dialogue (t=600 s), décodée des deux flux :
+#   corrélation = -0.005, RMS 0.054 vs 0.038
+# Deux pistes sans aucun rapport. `bridge/resolve.mjs` construit bien
+# `.../mal/<id>/<ep>/<sub|dub>` et megaplay sert un VRAI doublage français.
+#
+# Leçon générale : avant de conclure d'une égalité, vérifier que la grandeur
+# mesurée aurait pu être différente si l'hypothèse était fausse.
+VF_INCOMPATIBLE_HOSTS: set[str] = set()
 
 
 def resolve_episodes(
