@@ -23,9 +23,17 @@
  *
  * WHAT WE STILL REFUSE. Fribb's `season.tmdb` is its weakest field — it
  * collides and fuses (Bungo Stray Dogs: 1,1,2,3,3) and is null on long sagas
- * (One Piece, Naruto). No season, no fill. `isFribbGroupConsistent()` is not
- * consulted: it arbitrates franchise ORDER, and a null/instinctively-wrong
- * season already fails the floor check below.
+ * (One Piece, Naruto). No season, no fill.
+ *
+ * The floor check alone is NOT enough to catch a fusion, which is why
+ * `isFribbGroupConsistent()` is consulted too. Measured on the live API
+ * (2026-08-08): TMDB's Jujutsu Kaisen season 1 holds **59** episodes — it has
+ * S1 and S2 fused into one. AniList's S2 entry maps to that same season, so a
+ * naive fill would take TMDB episodes 1-23 (which are S1's) and paste them onto
+ * S2's rows: a "more episodes than we display" pass, and every single image
+ * wrong. That is precisely the undercut case the guard detects (fewer distinct
+ * TMDB seasons than TV-like entries in the franchise). It costs one extra Turso
+ * read and buys the difference between a missing image and a lying one.
  *
  * Fail-soft throughout; nothing throws.
  */
@@ -35,7 +43,11 @@ import {
   setCachedStills,
   type StillsCacheValue,
 } from "@/lib/db/tmdbStillsCache";
-import { getFribbEntry } from "@/lib/fribb/fribbMap";
+import {
+  getFribbEntry,
+  getFribbFranchise,
+  isFribbGroupConsistent,
+} from "@/lib/fribb/fribbMap";
 import { getSeasonEpisodes, tmdbEnabled, tmdbImageUrl } from "./client";
 
 /** episode number → still URL. */
@@ -54,6 +66,7 @@ type Reason =
   | "no-fribb"
   | "no-tmdb-id"
   | "no-season"
+  | "fribb-inconsistent"
   | "unknown-episode-count"
   | "too-few-episodes"
   | "no-images"
@@ -106,6 +119,15 @@ export async function getTmdbEpisodeStills(
   if (!entry.tmdbTvId) return await refuse("no-tmdb-id");
   if (entry.tmdbSeason == null) {
     return await refuse("no-season", entry.tmdbTvId);
+  }
+
+  /* Fusion guard — see the header. Without it, a franchise TMDB merged into one
+     season hands every sequel entry the FIRST season's frames, and the floor
+     check below waves it through because a fused season is longer, not shorter.
+     Wrong images are worse than no images, so an inconsistent group refuses. */
+  const franchise = await getFribbFranchise(entry.tmdbTvId);
+  if (franchise.length > 1 && !isFribbGroupConsistent(franchise)) {
+    return await refuse("fribb-inconsistent", entry.tmdbTvId, entry.tmdbSeason);
   }
 
   const episodes = await getSeasonEpisodes(entry.tmdbTvId, entry.tmdbSeason);
