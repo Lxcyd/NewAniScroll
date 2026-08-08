@@ -451,8 +451,13 @@ let list = [...byAnime.values()].filter((a) => a.seasons.length > 0);
 // un échantillon défavorable sans que rien ne le signale (DEVLOG §11).
 list.sort((a, b) => b._popularity - a._popularity);
 if (LIMIT > 0) list = list.slice(0, LIMIT);
-// Le champ de tri ne sort pas dans le contrat.
-list = list.map(({ _popularity, ...rest }) => rest);
+// La popularité SORT désormais dans le contrat, sous son vrai nom (08/08).
+// Elle était jetée ici parce qu'elle n'avait servi qu'au tri — mais elle est
+// aussi le poids du point 6 : « couverture pondérée par le trafic » n'a aucun
+// sens sans elle. `_compare_sources.mjs` lisait un fichier qui n'en portait
+// pas, prenait 1 partout, et annonçait quand même un chiffre « pondéré ».
+// `batch_detect` ignore les clés qu'il ne connaît pas, la sortir ne coûte rien.
+list = list.map(({ _popularity, ...rest }) => ({ ...rest, popularity: _popularity }));
 
 const totalSeasons = list.reduce((n, a) => n + a.seasons.length, 0);
 console.log(
