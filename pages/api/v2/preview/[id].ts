@@ -24,25 +24,31 @@ import { setEdgeCache } from "@/lib/http/edgeCache";
  */
 
 const TTL_S = 24 * 60 * 60;
-/** Long enough for three clamped lines at the card's width. */
-const DESC_MAX = 360;
+/** Comfortably past the four lines the card clamps to; caps the payload. */
+const DESC_MAX = 600;
 
-/** AniList's `asHtml: false` description still carries <br>, <i> and entities. */
+/**
+ * AniList's `asHtml: false` description still carries <br>, <i> and entities.
+ * The trailing "(Source: …)" / "Notes: …" blocks are stripped for the same
+ * reason Hayase's `desc()` strips them: on a four-line clamp they are pure
+ * noise, and they are often the only thing that fits.
+ */
 function plainText(raw?: string | null): string | null {
   if (!raw) return null;
   const text = raw
-    .replace(/<br\s*\/?>/gi, " ")
+    .replace(/<br\s*\/?>/gi, "\n")
     .replace(/<[^>]+>/g, "")
     .replace(/&quot;/g, '"')
     .replace(/&#0?39;/g, "'")
     .replace(/&amp;/g, "&")
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
+    .replace(/\n?\(?Source: [^)]+\)?\n?/m, "")
+    .replace(/\n?Notes?:[ |\n][^\n]+\n?/m, "")
     .replace(/\s+/g, " ")
     .trim();
   if (!text) return null;
-  if (text.length <= DESC_MAX) return text;
-  return text.slice(0, DESC_MAX).replace(/\s+\S*$/, "") + "…";
+  return text.length <= DESC_MAX ? text : text.slice(0, DESC_MAX).replace(/\s+\S*$/, "");
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {

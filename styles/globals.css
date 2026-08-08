@@ -65,16 +65,50 @@ html.tab-hidden *::after {
   animation: as-pop-in 0.35s ease both;
 }
 
-/* Hover preview popup (components/shared/HoverPreview). Short and slightly
-   scaled so the card reads as rising out of the poster it covers rather than
-   blinking into place — but fast enough that sweeping a carousel doesn't feel
-   like waiting on an animation. */
+/* Hover preview popup (components/shared/HoverPreview) — Hayase's `load-in`,
+   same 0.3s ease, same 1.2rem rise and 0.95 scale. Ours is portalled and
+   already positioned in px, so there is no -50% translate to carry through. */
 @keyframes as-preview-in {
-  from { opacity: 0; transform: scale(0.94); }
-  to   { opacity: 1; transform: none; }
+  from {
+    opacity: 0;
+    transform: translate3d(0, 1.2rem, 0) scale(0.95);
+  }
 }
 .as-preview-card {
-  animation: as-preview-in 0.18s ease-out both;
+  will-change: transform;
+  animation: 0.3s ease 0s 1 as-preview-in;
+}
+
+/* The banner fades into the card body instead of ending on a hard edge — the
+   stops are Hayase's (nothing until 80%, then a fast ramp to solid). */
+.as-preview-banner::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  /* The video can leak a pixel or two under the gradient while it settles. */
+  margin-bottom: -2px;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  background: linear-gradient(
+    180deg,
+    rgba(22, 23, 27, 0) 0%,
+    rgba(22, 23, 27, 0) 80%,
+    rgba(22, 23, 27, 0.89) 95%,
+    var(--as-preview-bg, #16171b) 100%
+  );
+}
+
+/* Bullet separators between the preview's meta cells, so no cell has to know
+   whether it is first. */
+.as-preview-details span + span::before {
+  content: '•';
+  padding: 0 0.3rem;
+  font-size: 0.4rem;
+  align-self: center;
+  white-space: normal;
+  color: #737373;
 }
 
 /* Heart "favourite" fill animation — used by the anime info page (desktop

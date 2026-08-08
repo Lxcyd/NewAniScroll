@@ -7,37 +7,44 @@ import { fetchPreview } from "@/lib/preview/previewStore";
 import PreviewCard, { type AnchorRect } from "./PreviewCard";
 
 /**
- * Site-wide anime hover preview — mounted once in _app.
+ * Site-wide anime hover preview — a port of Hayase's card preview
+ * (`ui/cards/small.svelte` + the `hover` action in `modules/navigate.ts`),
+ * mounted once in _app.
  *
- * Hovering any element marked with `previewAnchor(id)` (lib/preview/anchor.ts)
- * pops a floating card with the trailer, the meta line and the quick actions.
+ * Two deliberate departures from the original, both forced by this codebase:
  *
- * Why one delegated listener instead of per-card handlers: a home page carries
- * 100+ cards across a dozen unrelated layouts. Two `document` listeners cost
- * nothing and mean a new card type becomes previewable by adding an attribute,
- * with no React tree in common.
+ *  1. Hayase renders the preview as an absolutely-positioned CHILD of the card.
+ *     Our carousels are `overflow-x-scroll`, which would clip it, so the card is
+ *     portalled to <body> and positioned against the anchor's rect. Same
+ *     geometry — centred on the card, spilling over its neighbours.
+ *  2. Hayase attaches the hover action per card. We have no shared card
+ *     component (see lib/preview/anchor.ts), so one delegated `pointerover`
+ *     listener on `document` finds the nearest `data-anime-preview` ancestor.
  *
- * The delays are the whole UX. Opening after {@link OPEN_DELAY} means a mouse
- * crossing a row on its way somewhere else never triggers anything, and the
- * shorter {@link SWITCH_DELAY} means that once a card IS open, moving along the
- * row feels like the card follows the pointer rather than re-arming each time.
- * {@link CLOSE_DELAY} is the grace period for crossing the gap between the card
- * and the popup that covers it.
+ * The timing is Hayase's, and it is much more aggressive than it looks:
+ * {@link HOVER_TIME} is 30 ms, re-armed on every `pointermove` while pending.
+ * The effect is that the card appears the instant the pointer STOPS on a
+ * poster, and never while it is travelling across one.
  */
 
-const OPEN_DELAY = 550;
-const SWITCH_DELAY = 200;
-const CLOSE_DELAY = 140;
+/** Hayase's HOVER_TIME. */
+const HOVER_TIME = 30;
 
 /** Below this the popup would cover most of the viewport — not worth showing. */
 const MIN_VIEWPORT_WIDTH = 1024;
 
 type OpenState = {
   id: number;
+  el: HTMLElement;
   rect: AnchorRect;
-  /** The card's own poster, painted behind the trailer while it loads. */
+  /** The card's own poster, painted until the real banner arrives. */
   poster: string | null;
 };
+
+function rectOf(el: HTMLElement): AnchorRect {
+  const r = el.getBoundingClientRect();
+  return { top: r.top, left: r.left, width: r.width, height: r.height };
+}
 
 export default function HoverPreviewProvider() {
   const router = useRouter();
@@ -69,86 +76,110 @@ export default function HoverPreviewProvider() {
       return;
     }
 
-    let openTimer: ReturnType<typeof setTimeout> | null = null;
-    let closeTimer: ReturnType<typeof setTimeout> | null = null;
-    // The id an open timer is currently counting down for. Without it, moving
-    // the pointer from the poster to a badge inside the SAME card would re-arm
-    // the delay and the card would never appear.
-    let pendingId: number | null = null;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let pendingEl: HTMLElement | null = null;
 
-    const cancelOpen = () => {
-      if (openTimer) clearTimeout(openTimer);
-      openTimer = null;
-      pendingId = null;
-    };
-    const cancelClose = () => {
-      if (closeTimer) clearTimeout(closeTimer);
-      closeTimer = null;
+    const cancel = () => {
+      if (timer) clearTimeout(timer);
+      timer = null;
+      pendingEl = null;
     };
 
     const close = () => {
-      cancelOpen();
-      cancelClose();
+      cancel();
       if (openRef.current) setOpen(null);
     };
 
-    const scheduleOpen = (el: HTMLElement) => {
+    const show = (el: HTMLElement) => {
       const id = Number(el.getAttribute(PREVIEW_ATTR));
-      if (!Number.isFinite(id) || id <= 0) return;
-      cancelClose();
-      if (openRef.current?.id === id) return; // already showing this one
-      if (pendingId === id) return; // same card, timer already running
-      cancelOpen();
-      pendingId = id;
-      // Start the fetch now rather than at open time: the request overlaps the
-      // delay, so a warm edge hit lands before the card is even mounted.
-      void fetchPreview(id);
-      openTimer = setTimeout(() => {
-        openTimer = null;
-        pendingId = null;
-        // Re-measure at fire time — the carousel may have scrolled under the
-        // pointer during the delay.
-        const r = el.getBoundingClientRect();
-        if (!r.width || !r.height || !el.isConnected) return;
-        setOpen({
-          id,
-          rect: { top: r.top, left: r.left, width: r.width, height: r.height },
-          poster: el.querySelector("img")?.getAttribute("src") || null,
-        });
-      }, openRef.current ? SWITCH_DELAY : OPEN_DELAY);
+      if (!Number.isFinite(id) || id <= 0 || !el.isConnected) return;
+      const rect = rectOf(el);
+      if (!rect.width || !rect.height) return;
+      setOpen({
+        id,
+        el,
+        rect,
+        poster: el.querySelector("img")?.getAttribute("src") || null,
+      });
     };
 
-    const scheduleClose = () => {
-      cancelOpen();
-      if (!openRef.current || closeTimer) return;
-      closeTimer = setTimeout(() => {
-        closeTimer = null;
-        setOpen(null);
-      }, CLOSE_DELAY);
+    const arm = (el: HTMLElement) => {
+      // Already showing this card — nothing to do.
+      if (openRef.current?.el === el) return;
+      pendingEl = el;
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        timer = null;
+        pendingEl = null;
+        show(el);
+      }, HOVER_TIME);
+      // Start the fetch immediately: 30 ms of delay buys nothing, but the card
+      // is mounted before the response lands either way.
+      const id = Number(el.getAttribute(PREVIEW_ATTR));
+      if (Number.isFinite(id) && id > 0) void fetchPreview(id);
+    };
+
+    const anchorAt = (target: EventTarget | null): HTMLElement | null => {
+      const node = target as Element | null;
+      if (!node || typeof node.closest !== "function") return null;
+      return node.closest(`[${PREVIEW_ATTR}]`) as HTMLElement | null;
     };
 
     const onPointerOver = (e: Event) => {
-      const target = e.target as Element | null;
-      if (!target || typeof target.closest !== "function") return;
+      const node = e.target as Element | null;
+      if (!node || typeof node.closest !== "function") return;
       // Inside the popup itself — that's still "hovering the preview".
-      if (target.closest("[data-preview-popup]")) {
-        cancelOpen();
-        cancelClose();
+      if (node.closest("[data-preview-popup]")) {
+        cancel();
         return;
       }
-      const anchor = target.closest(`[${PREVIEW_ATTR}]`) as HTMLElement | null;
-      if (anchor) scheduleOpen(anchor);
-      else scheduleClose();
+      const anchor = anchorAt(e.target);
+      if (anchor) arm(anchor);
+      else close();
     };
 
-    // Any scroll invalidates the anchor rect we positioned against, and the
-    // capture phase is what catches the carousels' own overflow scrolling.
-    const onScroll = () => close();
+    // Hayase re-arms the timer on every pointermove, so the card only opens once
+    // the pointer settles. Without it, sweeping a row would flash a card per
+    // poster crossed.
+    const onPointerMove = (e: Event) => {
+      if (!pendingEl) return;
+      if (anchorAt(e.target) !== pendingEl) return;
+      if (timer) clearTimeout(timer);
+      const el = pendingEl;
+      timer = setTimeout(() => {
+        timer = null;
+        pendingEl = null;
+        show(el);
+      }, HOVER_TIME);
+    };
+
+    // Scrolling doesn't dismiss the card in Hayase (the popup is a child of the
+    // card and moves with it). Ours is portalled, so we follow the anchor
+    // instead — one rAF per scroll frame, and we give up if the card scrolled
+    // out of view.
+    let raf = 0;
+    const onScroll = () => {
+      const current = openRef.current;
+      if (!current) return;
+      if (raf) return;
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        const live = openRef.current;
+        if (!live) return;
+        if (!live.el.isConnected) return close();
+        const rect = rectOf(live.el);
+        // Anchor scrolled clean out of the viewport — nothing to point at.
+        if (rect.top + rect.height < 0 || rect.top > window.innerHeight) return close();
+        setOpen({ ...live, rect });
+      });
+    };
+
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") close();
     };
 
     document.addEventListener("pointerover", onPointerOver, true);
+    document.addEventListener("pointermove", onPointerMove, true);
     // Clicking a card navigates; dragging a carousel shouldn't drag a popup along.
     document.addEventListener("pointerdown", close, true);
     document.addEventListener("scroll", onScroll, true);
@@ -158,9 +189,10 @@ export default function HoverPreviewProvider() {
     window.addEventListener("blur", close);
 
     return () => {
-      cancelOpen();
-      cancelClose();
+      cancel();
+      if (raf) cancelAnimationFrame(raf);
       document.removeEventListener("pointerover", onPointerOver, true);
+      document.removeEventListener("pointermove", onPointerMove, true);
       document.removeEventListener("pointerdown", close, true);
       document.removeEventListener("scroll", onScroll, true);
       document.removeEventListener("keydown", onKey);

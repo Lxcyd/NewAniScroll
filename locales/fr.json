@@ -510,12 +510,18 @@
   },
   "preview": {
     "watchNow": "Regarder",
+    "continue": "Reprendre",
+    "rewatch": "Revoir",
     "episodeCount_one": "{{count}} épisode",
     "episodeCount_other": "{{count}} épisodes",
-    "mute": "Couper le son",
-    "unmute": "Activer le son",
-    "play": "Lire la bande-annonce",
-    "pause": "Mettre en pause"
+    "episodeProgress": "{{progress}} / {{count}} épisodes",
+    "minutes_one": "{{count}} minute",
+    "minutes_other": "{{count}} minutes",
+    "addToPlanning": "À regarder",
+    "removeFromList": "Retirer de la liste",
+    "addedToPlanning": "Ajouté à « À regarder »",
+    "removedFromList": "Retiré de votre liste",
+    "signInForFavourites": "Connectez AniList pour les favoris"
   },
   "notifications": {
     "title": "Notifications",

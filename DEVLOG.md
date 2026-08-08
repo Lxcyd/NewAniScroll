@@ -1,38 +1,59 @@
 # DEVLOG
 
-## 2026-08-08 (nuit) — Carte de survol avec bande-annonce : un listener, pas un composant
+## 2026-08-08 (nuit) — Carte de survol avec bande-annonce, portée de Hayase
 
-Nouvelle carte flottante au survol d'une fiche anime (trailer YouTube, méta,
-« Regarder », file d'attente). Trois décisions valent d'être notées.
+Carte flottante au survol d'une fiche anime : bande-annonce YouTube, méta,
+Regarder / favori / à-regarder. Portage de `hayase-app/interface`
+(`src/lib/components/ui/cards/preview.svelte`, `YoutubeIframe.svelte` et
+l'action `hover` de `src/lib/modules/navigate.ts`).
 
-**Le site n'a pas de composant carte.** `components/shared/AnimeCard.tsx` existe
-mais **n'est importé nulle part** : chaque page a son propre markup (carrousels
-accueil, grille catalogue, recherche, planning, recommandations…). Envelopper
-tout ça dans un composant commun aurait été un refactor à part entière. À la
-place, un **listener `pointerover` délégué unique** sur `document` cherche
-l'ancêtre portant `data-anime-preview` : rendre une carte survolable = un spread
-`{...previewAnchor(id)}` sur son élément racine, sans nœud enveloppant, sans
-changement de layout, sans listener par carte (une accueil = 100+ cartes).
+**⚠️ Le dépôt de référence n'est pas celui qu'on croit.** `hayase-app/ui` est en
+**takedown DMCA depuis le 22/10/2025** (Crunchyroll) : l'API GitHub le liste
+encore, mais tout `git clone` renvoie 403. Le code vit dans
+`hayase-app/interface`, qui se clone normalement.
 
-**L'iframe YouTube doit être `pointer-events: none`.** Une frame cross-origin
-avale les événements pointeur : sans ça, la carte se ferme dès que le curseur
-entre dans la bande-annonce, puisque le provider ne « voit » plus le survol. Les
-boutons lecture/son sont donc les nôtres, pilotés par le protocole postMessage
-de l'iframe API (`enablejsapi=1`) — aucun SDK à charger.
+**La poignée de main YouTube est la partie non documentée.** Pour recevoir les
+événements du lecteur sans charger le SDK, il faut poster
+`{"event":"listening","id":1,"channel":"widget"}` **dans** la frame — et elle
+n'écoute pas encore quand `load` se déclenche, d'où l'intervalle de 100 ms qui
+réessaie jusqu'au premier message. Ce qu'on en tire : `onReady` → volume à 30,
+`initialDelivery` avec `isPlayable: false` → vidéo bloquée, on retire la frame et
+on garde la bannière, `infoDelivery` playerState 1 → on révèle enfin l'iframe
+(jamais de carré noir pendant le chargement), playerState 0 → boucle **manuelle**
+(remontage de l'iframe), parce que `loop=1` exige `playlist=<id>` et que YouTube
+affiche alors des boutons en plus.
 
-**Le coût réseau est dans les délais, pas dans le cache.** Une souris qui
-traverse un carrousel touche 15 cartes en une seconde. Trois garde-fous :
-ouverture après 550 ms (200 ms seulement si une carte est déjà ouverte, pour que
-la carte « suive » le curseur), YouTube monté 700 ms plus tard encore, et
-`/api/v2/preview/[id]` en **cache edge 24 h** (payload réduit à ~1 Ko contre
-~40 Ko pour la Media complète). Aucun champ par-utilisateur dedans : en ajouter
-un rendrait la réponse non partageable et tuerait le cache edge — l'état file
-d'attente est lu côté client dans le store local.
+**L'iframe doit être `pointer-events: none`.** Une frame cross-origin avale les
+événements pointeur : sans ça la carte se ferme dès que le curseur entre dans la
+vidéo. Le bouton son est donc le nôtre, au-dessus de la frame.
+
+**HOVER_TIME = 30 ms, pas 550.** J'avais d'abord mis un délai long « pour ne pas
+déclencher au passage ». Hayase fait l'inverse et c'est meilleur : 30 ms, mais le
+minuteur est **réarmé à chaque `pointermove`**. La carte apparaît donc à l'instant
+où le curseur *s'arrête*, et jamais pendant qu'il traverse. Le délai ne sert pas
+à filtrer le temps, il sert à filtrer le mouvement.
+
+**Deux écarts assumés avec l'original**, imposés par ce dépôt : Hayase rend la
+carte comme enfant absolu de la vignette — nos carrousels sont
+`overflow-x-scroll` et la découperaient, donc portail vers `<body>` et
+positionnement sur le rect de l'ancre (recalé en rAF au scroll, pas fermé) ; et
+Hayase attache l'action par carte alors que nous n'avons **aucun composant carte
+partagé** (`components/shared/AnimeCard.tsx` existe mais n'est importé nulle
+part). D'où un **listener `pointerover` délégué unique** qui cherche l'ancêtre
+portant `data-anime-preview` : rendre une vignette survolable = un spread
+`{...previewAnchor(id)}`, sans nœud enveloppant ni listener par carte.
+
+**Le cœur a fini par coûter un cache.** `isFavourite` est par-utilisateur, donc
+impossible à mettre dans `/api/v2/preview/[id]` (cache edge 24 h, ~1 Ko contre
+~40 Ko pour la Media complète) sans le tuer, et impossible à interroger par
+survol sans brûler le quota AniList. Solution, la même que `userListCache` :
+`lib/anilist/favouritesCache.ts` tire **toute** la liste de favoris une fois par
+session (ids seuls) et répond depuis un Set. Le signet, lui, écrit PLANNING dans
+la liste locale — c'est exactement ce que fait `authAggregator.entry` chez eux.
 
 **Non couvert volontairement** : les listes denses (my-list, profil, file
-d'attente) où un popup de 360 px recouvrirait les lignes voisines, la recherche
-par image (elle a déjà son propre aperçu vidéo), et le cœur « favori » — il
-demande `isFavourite`, donc un appel AniList par survol.
+d'attente) où le popup recouvrirait les lignes voisines, et la recherche par
+image (elle a déjà son propre aperçu vidéo).
 
 ---
 
