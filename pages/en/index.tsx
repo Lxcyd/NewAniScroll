@@ -458,14 +458,25 @@ function HeroBanner({
               pt-16 stays as a floor, not as a position: it only matters when a
               very long synopsis would otherwise grow up under the navbar.
 
-              gap-7 (28px), NOT gap-5, and the number is derived rather than
-              eyeballed: inside the stack the CTA row is separated from the
-              synopsis by the stack's own `gap-5` (20px) PLUS its `mt-2` (8px).
-              Matching that below the buttons means 28px, which is exactly
-              gap-7. If either of those two values changes, this one has to
-              follow — they are one visual rhythm, not two independent
-              paddings. */}
-          <div className="flex w-full xl:w-[60%] lg:w-[65%] flex-col justify-end gap-7 pt-16 pb-24 pl-[7%] pr-8">
+              gap-8 (32px), and the number accounts for something a purely
+              structural reading misses. Above the buttons the boxes are 28px
+              apart (the stack's `gap-5` = 20px, plus the CTA block's `mt-2` =
+              8px) — but the synopsis is a PARAGRAPH, and its line box is taller
+              than its glyphs: `text-lg` is an 18px font in a 28px line, so ~5px
+              of half-leading sits below the last line, INSIDE the box. The
+              visible gap under the text is therefore ~33px, not 28px.
+
+              Below the buttons there is no such phantom space: a button's box
+              ends where its background ends. So matching the two structurally
+              (gap-7) left the lower gap looking tighter, which is exactly what
+              it looked like. gap-8 (32px) matches the ~33px the eye actually
+              sees, to within a pixel.
+
+              NOT measured in a browser — derived from the Tailwind line-height
+              (`text-lg` → 1.75rem). If this still reads unevenly, the value to
+              tune is this one, and the reason it isn't a round number is the
+              half-leading above. */}
+          <div className="flex w-full xl:w-[60%] lg:w-[65%] flex-col justify-end gap-8 pt-16 pb-24 pl-[7%] pr-8">
             <AnimatePresence mode="wait" custom={dir}>
               <motion.div
                 key={`stack-${active.id}`}
