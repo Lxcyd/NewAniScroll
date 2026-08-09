@@ -82,6 +82,23 @@ const PLAYING_TTL_MS = 2200;
  */
 const MAX_RESUMES = 3;
 
+/**
+ * Opt-in trace of the transport, off unless someone asks for it:
+ *   localStorage.setItem("as-trailer-debug", "1")
+ *
+ * Here because YouTube's centre button is only ever a SYMPTOM — it means the
+ * frame was on screen in a state that draws it — and the state that let that
+ * happen is invisible from the outside. Guessing at it from a screenshot is how
+ * this bug survived several fixes.
+ */
+const debugOn = () => {
+  try {
+    return window.localStorage.getItem("as-trailer-debug") === "1";
+  } catch {
+    return false;
+  }
+};
+
 export default function YoutubeTrailer({
   id,
   onHide,
@@ -114,6 +131,15 @@ export default function YoutubeTrailer({
   const resumesRef = useRef(0);
   /** Highest playback clock seen so far; the only honest proof of life. */
   const lastTimeRef = useRef(-1);
+  const debugRef = useRef(false);
+  /** Last playerState logged, so the trace carries transitions only. */
+  const lastStateRef = useRef<number | null>(null);
+
+  const dbg = useCallback((...args: unknown[]) => {
+    if (!debugRef.current) return;
+    // eslint-disable-next-line no-console
+    console.log("[trailer]", ...args);
+  }, []);
   const trackRef = useRef<HTMLDivElement>(null);
   const volCloseRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -146,6 +172,7 @@ export default function YoutubeTrailer({
   const resume = useCallback(() => {
     if (resumesRef.current >= MAX_RESUMES) return;
     resumesRef.current += 1;
+    dbg(`resume #${resumesRef.current}${resumesRef.current === MAX_RESUMES ? " (muted)" : ""}`);
     if (resumesRef.current === MAX_RESUMES) {
       // Not written to prefs: this is us conceding to the browser, not the user
       // changing their mind. Their standing choice in wantMutedRef is untouched.
@@ -158,6 +185,7 @@ export default function YoutubeTrailer({
   // Seed from the app-wide setting, not from a preview-only one: turning the
   // volume down here turns it down in the watch player too, and vice versa.
   useEffect(() => {
+    debugRef.current = debugOn();
     const pref = readMuted();
     wantMutedRef.current = pref;
     setMuted(pref);
@@ -205,6 +233,13 @@ export default function YoutubeTrailer({
           // `<` covers the loop and any seek: the baseline follows the clock
           // wherever it goes, it just doesn't count backwards as progress.
           lastTimeRef.current = t;
+        }
+
+        // Only transitions, never the progress ticks — a line per tick would
+        // bury the one line that matters.
+        if (typeof info.playerState === "number" && info.playerState !== lastStateRef.current) {
+          dbg(`state ${lastStateRef.current} → ${info.playerState}`, `t=${info.currentTime}`);
+          lastStateRef.current = info.playerState;
         }
 
         if (info.playerState === 1) {
@@ -279,6 +314,7 @@ export default function YoutubeTrailer({
     const t = setInterval(() => {
       if (lastTimeRef.current < 0) return;
       if (Date.now() - aliveAtRef.current > PLAYING_TTL_MS) {
+        dbg(`clock frozen at ${lastTimeRef.current} — hiding the frame`);
         setPlaying(false);
         onPlayingChange(false);
         resume();
