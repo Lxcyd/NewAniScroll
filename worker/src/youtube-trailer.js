@@ -81,7 +81,7 @@ function fail(status, error) {
  * age-gated, region-locked, deleted, embed-disabled all land here, and they all
  * mean the same thing to the caller: keep the artwork.
  */
-async function resolveMuxedUrl(videoId) {
+async function resolveMuxedUrl(videoId, diag) {
   const res = await fetch(
     `https://www.youtube.com/youtubei/v1/player?key=${INNERTUBE_KEY}&prettyPrint=false`,
     {
@@ -112,15 +112,27 @@ async function resolveMuxedUrl(videoId) {
       }),
     },
   );
-  if (!res.ok) return null;
+  if (!res.ok) {
+    if (diag) diag.push(`http ${res.status}`);
+    return null;
+  }
   const json = await res.json();
-  if (json?.playabilityStatus?.status !== "OK") return null;
+  const status = json?.playabilityStatus?.status;
+  if (status !== "OK") {
+    // Carried back to the caller because the difference matters: UNPLAYABLE and
+    // LOGIN_REQUIRED are YouTube refusing US (a retry may work, another client
+    // may be needed), while ERROR is usually a video that no longer exists (a
+    // retry never will).
+    if (diag) diag.push(`${status}: ${json?.playabilityStatus?.reason || "no reason"}`);
+    return null;
+  }
 
   const formats = json?.streamingData?.formats || [];
   const muxed =
     formats.find((f) => f.itag === 18 && f.url) ||
     // Any other muxed mp4 with a plain url, should YouTube ever renumber.
     formats.find((f) => f.url && (f.mimeType || "").startsWith("video/mp4") && f.audioQuality);
+  if (!muxed?.url && diag) diag.push(`OK but no muxed format (${formats.length} progressive)`);
   return muxed?.url || null;
 }
 
@@ -163,23 +175,35 @@ export async function handleTrailer(request, env, ctx) {
   }
 
   /**
-   * Resolve, then fetch. Retried once on a 403, and the retry re-resolves from
-   * scratch rather than reusing the URL: a 403 here means the link was rejected
-   * (expired, or minted from a different egress IP than the one now fetching —
-   * Cloudflare does not promise one address per colo), and only a fresh link
-   * can fix either.
+   * Resolve, then fetch, and retry BOTH.
+   *
+   * Measured on the first deploy: the first request for a cold video answered
+   * 404 after ~7 s and the very next one succeeded, on two different videos.
+   * YouTube treats a datacentre IP with suspicion, and a Worker's egress is
+   * about as datacentre as it gets — so a refusal here says nothing durable
+   * about the video, and giving up after one attempt turned an intermittent
+   * upstream mood into "this card has no trailer".
+   *
+   * The 403 case retries too, and re-resolves rather than reusing the URL: a
+   * rejected link is either expired or was minted from a different egress
+   * address than the one now fetching (Cloudflare promises no such stability),
+   * and only a fresh link fixes either.
    */
+  const diag = [];
   let upstream = null;
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    const url = await resolveMuxedUrl(videoId);
-    if (!url) return fail(404, "No muxed format for this video");
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const url = await resolveMuxedUrl(videoId, diag);
+    if (!url) continue;
     const headers = { "User-Agent": ANDROID_UA, Accept: "*/*" };
     if (rangeHeader && !isOpeningRange) headers.Range = rangeHeader;
     upstream = await fetch(url, { headers });
     if (upstream.status !== 403) break;
+    diag.push("upstream 403");
+    upstream = null;
   }
-  if (!upstream || (!upstream.ok && upstream.status !== 206)) {
-    return fail(502, `Upstream ${upstream ? upstream.status : "unreachable"}`);
+  if (!upstream) return fail(404, `Unresolvable: ${diag.join(" | ") || "unknown"}`);
+  if (!upstream.ok && upstream.status !== 206) {
+    return fail(502, `Upstream ${upstream.status}`);
   }
 
   const headers = cors({
