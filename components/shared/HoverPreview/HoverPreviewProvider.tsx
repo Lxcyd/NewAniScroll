@@ -5,6 +5,7 @@ import { useRouter } from "next/router";
 import { PREVIEW_ATTR } from "@/lib/preview/anchor";
 import { fetchPreview } from "@/lib/preview/previewStore";
 import { startViewportPrefetch } from "@/lib/preview/viewportPrefetch";
+import { trailerSrc } from "@/lib/preview/trailerCrop";
 import PreviewCard, { type AnchorRect } from "./PreviewCard";
 
 /**
@@ -72,21 +73,20 @@ export default function HoverPreviewProvider() {
   }, []);
 
   /**
-   * Warm the connections the trailer will need, at page load rather than at
-   * hover. An embed costs a DNS lookup plus a TLS handshake before the first
-   * byte of player code moves, and on a cold connection that is most of the
-   * delay between the card appearing and the video starting — doing it up front
-   * takes it off the critical path entirely. `googlevideo` only gets a
-   * dns-prefetch: the media host is picked per video (`rr3---sn-…`), so there is
-   * no fixed origin to shake hands with.
+   * Warm the connection the trailer will need, at page load rather than at
+   * hover. A cold origin costs a DNS lookup plus a TLS handshake before the
+   * first byte of video moves, and that is most of the delay between the card
+   * appearing and the picture starting — doing it up front takes it off the
+   * critical path entirely.
+   *
+   * One origin now, and it is ours. Trailers used to be YouTube embeds, so this
+   * warmed youtube-nocookie, ytimg and googlevideo; they are MP4s served by the
+   * Worker since (see lib/preview/trailerCrop), and none of those hosts is
+   * contacted by a preview any more.
    */
   useEffect(() => {
     if (!enabled) return;
-    const links = [
-      ["preconnect", "https://www.youtube-nocookie.com"],
-      ["preconnect", "https://i.ytimg.com"],
-      ["dns-prefetch", "https://googlevideo.com"],
-    ].map(([rel, href]) => {
+    const links = [["preconnect", new URL(trailerSrc("x")).origin]].map(([rel, href]) => {
       const link = document.createElement("link");
       link.rel = rel;
       link.href = href;

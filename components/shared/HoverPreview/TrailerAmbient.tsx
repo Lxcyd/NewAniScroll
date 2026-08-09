@@ -1,43 +1,71 @@
+import { useEffect, useRef } from "react";
+
+import { trailerSrc } from "@/lib/preview/trailerCrop";
+
 /**
  * The ambient light behind the preview card, once the trailer is running.
  *
- * WHY A SECOND IFRAME. There is no way to read a frame out of a cross-origin
- * YouTube embed — no canvas, no pixels, nothing. So a glow that follows the
- * video cannot be computed; it has to be a second copy of the video, blurred out
+ * WHY A SECOND COPY OF THE VIDEO. A glow that follows the picture cannot be
+ * computed from a still, so it has to be the moving picture itself, blurred out
  * of recognition. That is Hayase's trick and there is no cheaper one.
  *
- * It is not free, so it is kept as small as the effect allows:
- *   - it mounts at the SAME moment as the real player. An earlier version waited
- *     for the real one to report PLAYING, to keep it off the critical path — but
- *     starting a second copy of a video two seconds late means it stays two
- *     seconds behind forever, and a glow that lags the picture is worse than one
- *     that costs a little. Both frames now start together and drift only by
- *     their own buffering;
- *   - it is muted for life and carries no API handshake — it is decoration, it
- *     has no state anyone reads;
- *   - it loops the same way the real player does: PreviewCard remounts it on the
- *     loop counter. `loop=1&playlist=<id>` would have been simpler, but a
- *     playlist makes YouTube draw extra chrome, and remounting keeps the two
- *     copies restarting together anyway.
+ * It used to be a second YouTube iframe, for a reason that no longer holds:
+ * nothing could read a frame out of a cross-origin embed. Now that the trailer
+ * is an MP4 we serve, a second <video> costs almost nothing — the file is in
+ * the browser's cache from the first element, so this is a cache read rather
+ * than a second download — and it can be kept in step with the real player,
+ * which an iframe never could.
+ *
+ * It stays decoration: muted for life, no controls, no state anyone reads.
  *
  * Being outside the card is what makes it an ambient light rather than a
  * background: the card clips its children and paints an opaque surface, so
  * anything inside it can neither spill past the edges nor sit behind them.
  */
 
-const ORIGIN = "https://www.youtube-nocookie.com";
-
 /** Matches PreviewCard's still-artwork stage, so the hand-off is invisible. */
 const AMBIENT_OPACITY = 0.85;
+/** Past this much drift from the real player, snap back. */
+const MAX_DRIFT_S = 0.35;
+const SYNC_EVERY_MS = 2000;
 
 export default function TrailerAmbient({
   id,
   playing,
+  sourceRef,
+  zoom,
 }: {
   id: string;
-  /** Faded out while the real player is paused, so the two agree. */
+  /** Faded out while the real player is stopped, so the two agree. */
   playing: boolean;
+  /** The real player, whose clock this one follows. */
+  sourceRef: React.RefObject<HTMLVideoElement>;
+  /** The crop measured for the picture — the glow has to be framed like it. */
+  zoom: number;
 }) {
+  const ref = useRef<HTMLVideoElement>(null);
+
+  /**
+   * Follow the real player's clock.
+   *
+   * Both copies start together and read the same bytes, so they only drift by
+   * their own buffering — but a glow that lags across a scene cut shows the
+   * previous shot's colour, which reads as a rendering fault. Correcting on a
+   * threshold rather than continuously keeps the seeks rare: a video that is
+   * merely a few frames behind is not worth interrupting.
+   */
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const mine = ref.current;
+      const theirs = sourceRef.current;
+      if (!mine || !theirs || theirs.paused || mine.seeking) return;
+      if (Math.abs(mine.currentTime - theirs.currentTime) > MAX_DRIFT_S) {
+        mine.currentTime = theirs.currentTime;
+      }
+    }, SYNC_EVERY_MS);
+    return () => clearInterval(timer);
+  }, [sourceRef]);
+
   return (
     // blur + saturate on THIS element, not in the stylesheet: overflow-hidden
     // clips the video to the box, then the filter blurs the clipped result, so
@@ -47,16 +75,17 @@ export default function TrailerAmbient({
       className="as-preview-ambient pointer-events-none absolute -z-10 overflow-hidden blur-2xl saturate-200 transition-opacity duration-700"
       style={{ opacity: playing ? AMBIENT_OPACITY : 0 }}
     >
-      <iframe
-        {...({ credentialless: "true" } as Record<string, string>)}
-        title=""
+      <video
+        ref={ref}
+        src={trailerSrc(id)}
+        autoPlay
+        loop
+        muted
+        playsInline
         aria-hidden
         tabIndex={-1}
-        allow="autoplay"
-        // Overscanned vertically so the player's own letterboxing never shows up
-        // as two dark bands in the glow.
-        className="pointer-events-none absolute left-0 top-1/2 h-[calc(100%+160px)] w-full -translate-y-1/2 transform-gpu border-0"
-        src={`${ORIGIN}/embed/${id}?autoplay=1&mute=1&controls=0&disablekb=1&rel=0&playsinline=1&fs=0`}
+        className="pointer-events-none absolute inset-0 h-full w-full transform-gpu object-cover"
+        style={{ transform: `scale(${zoom})` }}
       />
     </div>
   );

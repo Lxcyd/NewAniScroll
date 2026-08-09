@@ -16,7 +16,7 @@ import { notify } from "@/lib/notifications/noticeStore";
 import { fetchPreview, peekPreview, type PreviewData } from "@/lib/preview/previewStore";
 import { useTranslatedText } from "@/lib/i18n/useTranslatedText";
 import { MdPlayArrow } from "react-icons/md";
-import YoutubeTrailer from "./YoutubeTrailer";
+import NativeTrailer from "./NativeTrailer";
 import TrailerAmbient from "./TrailerAmbient";
 
 export type AnchorRect = { top: number; left: number; width: number; height: number };
@@ -87,8 +87,18 @@ export default function PreviewCard({
   const [bannerReady, setBannerReady] = useState(false);
   /** Live transport state from the trailer. Artwork shows whenever it's false. */
   const [playing, setPlaying] = useState(false);
-  /** Bumped when the trailer loops, so the ambient copy restarts alongside it. */
-  const [cycle, setCycle] = useState(0);
+  /** The crop measured for this trailer, shared so the glow is framed like the picture. */
+  const [crop, setCrop] = useState(1);
+  /**
+   * The playing trailer, read by the ambient copy so it can follow its clock.
+   *
+   * Lives here rather than inside the trailer because two siblings need it. It
+   * also replaces the old loop counter: looping used to mean remounting the
+   * ambient iframe on every cycle, since a decorative embed had no channel to
+   * be told anything. A <video> loops by itself and can simply be asked what
+   * time it is.
+   */
+  const trailerVideoRef = useRef<HTMLVideoElement>(null);
 
   // Local list state drives the play-button label and the bookmark fill, the
   // same way Hayase reads its auth aggregator.
@@ -122,7 +132,7 @@ export default function PreviewCard({
 
   const onHide = useCallback((hidden: boolean) => setHideFrame(hidden), []);
   const onPlayingChange = useCallback((next: boolean) => setPlaying(next), []);
-  const onCycle = useCallback(() => setCycle((n) => n + 1), []);
+  const onCrop = useCallback((zoom: number) => setCrop(zoom), []);
 
   const title = data ? pickTitle(data.title, titlePref) : "";
   // Same treatment the info page gives its synopsis: translated on demand and
@@ -234,9 +244,12 @@ export default function PreviewCard({
           />
         )}
         {trailerMounted && data?.trailer?.id && (
-          // `key` on the loop counter: the ambient copy has no API channel, so
-          // the only way to restart it with the real player is to remount it.
-          <TrailerAmbient key={cycle} id={data.trailer.id} playing={playing} />
+          <TrailerAmbient
+            id={data.trailer.id}
+            playing={playing}
+            sourceRef={trailerVideoRef}
+            zoom={crop}
+          />
         )}
       </div>
 
@@ -283,11 +296,12 @@ export default function PreviewCard({
             />
           )}
           {data?.trailer?.id && !hideFrame && (
-            <YoutubeTrailer
+            <NativeTrailer
               id={data.trailer.id}
+              videoRef={trailerVideoRef}
               onHide={onHide}
               onPlayingChange={onPlayingChange}
-              onCycle={onCycle}
+              onCrop={onCrop}
             />
           )}
         </div>
