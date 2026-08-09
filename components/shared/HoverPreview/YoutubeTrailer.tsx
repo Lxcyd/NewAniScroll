@@ -55,6 +55,15 @@ const HANDSHAKE_MS = 100;
 const HANDSHAKE_WINDOW_MS = 3000;
 /** Then a slow poll, purely so our transport state can't drift out of date. */
 const HEARTBEAT_MS = 1500;
+/**
+ * How long a "playing" claim survives without being re-confirmed by the player.
+ *
+ * The heartbeat answers every HEARTBEAT_MS with a full state dump, so anything
+ * past two missed beats means we are no longer being told the truth — and a
+ * `playing` that has quietly gone stale is precisely what leaves the frame on
+ * screen for YouTube to draw its own centre button over. When in doubt, hide.
+ */
+const PLAYING_TTL_MS = HEARTBEAT_MS * 2 + 500;
 
 export default function YoutubeTrailer({
   id,
@@ -82,6 +91,8 @@ export default function YoutubeTrailer({
   /** Read in the postMessage handler, which is bound once and would go stale. */
   const volumeRef = useRef(FALLBACK_VOLUME);
   const mountedAtRef = useRef(Date.now());
+  /** Last moment the player itself said "playing" — see PLAYING_TTL_MS. */
+  const aliveAtRef = useRef(0);
   const trackRef = useRef<HTMLDivElement>(null);
   const volCloseRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -141,6 +152,7 @@ export default function YoutubeTrailer({
         const info = json.info ?? {};
 
         if (info.playerState === 1) {
+          aliveAtRef.current = Date.now();
           setHidden(false);
           setPlaying(true);
           onPlayingChange(true);
@@ -163,7 +175,14 @@ export default function YoutubeTrailer({
           onCycle();
           setSrc("");
           setTimeout(() => setSrc(id), 0);
+        } else if (info.playerState === -1 || info.playerState === 5) {
+          // Unstarted and cued are the two states YouTube greets with its big
+          // centre play button. Nothing of the frame may be on screen in either.
+          setPlaying(false);
+          onPlayingChange(false);
         }
+        // 3 (buffering) is deliberately not listed: it is a normal blip inside a
+        // running trailer, and PLAYING_TTL_MS already covers one that never ends.
 
         // YouTube echoes the real mute state back; trust it over our intent, so
         // a browser that refuses the unmute doesn't leave a lying icon.
@@ -181,6 +200,27 @@ export default function YoutubeTrailer({
   }, [id, onHide, onPlayingChange, onCycle, call]);
 
   /**
+   * The watchdog behind PLAYING_TTL_MS.
+   *
+   * Every rule that keeps YouTube's own chrome off the screen hangs on `playing`
+   * being true only while the video really runs — the frame is opacity-0
+   * otherwise, and the card paints its artwork instead. So `playing` must never
+   * be able to stay true on its own inertia: it is re-armed by each state-1 ping
+   * and expires if the pings stop, whatever the reason (a state we never got, a
+   * frame that stopped answering, a tab the browser throttled).
+   */
+  useEffect(() => {
+    if (!playing) return;
+    const t = setInterval(() => {
+      if (Date.now() - aliveAtRef.current > PLAYING_TTL_MS) {
+        setPlaying(false);
+        onPlayingChange(false);
+      }
+    }, 500);
+    return () => clearInterval(t);
+  }, [playing, onPlayingChange]);
+
+  /**
    * The `listening` handshake, then a heartbeat.
    *
    * The handshake has to be repeated because the frame isn't listening the
@@ -191,8 +231,8 @@ export default function YoutubeTrailer({
    *
    * That matters because the alternative is unbounded. If our `playing` says
    * true while the player has actually stopped, the frame stays visible and
-   * YouTube draws its own big centre button under ours — two pause buttons on
-   * top of each other, and nothing to ever correct it.
+   * YouTube draws its own big centre button on it — the one thing this card must
+   * never show — with nothing to ever correct it.
    */
   const initFrame = () => {
     const ping = () =>
@@ -346,12 +386,13 @@ export default function YoutubeTrailer({
           title="trailer"
           allow="autoplay"
           // h-full w-full, not `size-full`: Tailwind 3.3 here, `size-*` is 3.4+.
-          // Visible ONLY while playing. YouTube draws its own big center button
-          // over a paused embed and `controls=0` does not remove it; there is no
-          // parameter that does. So a paused trailer is not a dimmed video with
-          // two pause buttons on it — it is hidden outright, and PreviewCard
-          // fades its artwork back in underneath. Our control is then the only
-          // one on screen, which is the whole point.
+          // Visible ONLY while playing. YouTube draws its own big centre button
+          // over an embed that is paused, unstarted or cued, and `controls=0`
+          // does not remove it; there is no parameter that does, and the frame is
+          // cross-origin so it cannot be reached from here. Hiding the frame is
+          // therefore the ONLY way to guarantee that button is never seen — so a
+          // trailer that isn't running is not a dimmed video with a glyph on it,
+          // it is gone, and PreviewCard fades its artwork back in underneath.
           className={`pointer-events-none absolute left-0 top-1/2 h-[calc(100%+200px)] w-full -translate-y-1/2 transform-gpu border-0 transition-opacity duration-300 ${
             hidden || !playing ? "opacity-0" : "opacity-100"
           }`}
