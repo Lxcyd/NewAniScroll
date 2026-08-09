@@ -73,6 +73,14 @@ const HEARTBEAT_MS = 600;
  */
 const PLAYING_TTL_MS = 2200;
 /**
+ * How long a player may claim to be playing without ever sending a clock.
+ *
+ * A frame that says "playing" and then goes silent is unsupervisable: nothing
+ * will ever contradict it, so the frame would stay on screen for good. Long
+ * enough that a slow first tick isn't mistaken for silence.
+ */
+const NO_CLOCK_MS = 3000;
+/**
  * How many times a pause we never asked for is answered with `playVideo`.
  *
  * Nothing on this card can pause a trailer — there is no control for it — so a
@@ -305,14 +313,30 @@ export default function YoutubeTrailer({
    * clock keeps moving, whatever stopped it (a state change we never got, a
    * frame that went quiet, a tab the browser throttled).
    *
-   * It arms itself only once a clock has actually been seen. Silence on the
-   * channel is not evidence of a stall, and treating it as one is what put the
-   * artwork back over a running trailer with the sound still going.
+   * Two arms, because "no clock at all" and "a clock that stopped" are different
+   * failures and only one of them is safe to treat as a stall:
+   *
+   *   - a clock that froze → the player stopped. Hide; the sound stopped with it.
+   *   - no clock EVER, seconds after the player said it was playing → we are
+   *     flying blind. This one used to `return` and wait for a tick that was
+   *     never coming, which is exactly how a frame stayed up indefinitely for
+   *     YouTube to stamp its button on. We now stop the player before hiding it,
+   *     because a frame we cannot supervise is also one we cannot let keep
+   *     playing behind the artwork — that was the other half of the same bug.
    */
   useEffect(() => {
     if (!playing) return;
+    const startedAt = Date.now();
     const t = setInterval(() => {
-      if (lastTimeRef.current < 0) return;
+      if (lastTimeRef.current < 0) {
+        if (Date.now() - startedAt > NO_CLOCK_MS) {
+          dbg("playing but no clock ever — stopping and hiding the frame");
+          call("pauseVideo");
+          setPlaying(false);
+          onPlayingChange(false);
+        }
+        return;
+      }
       if (Date.now() - aliveAtRef.current > PLAYING_TTL_MS) {
         dbg(`clock frozen at ${lastTimeRef.current} — hiding the frame`);
         setPlaying(false);
@@ -321,7 +345,7 @@ export default function YoutubeTrailer({
       }
     }, 200);
     return () => clearInterval(t);
-  }, [playing, onPlayingChange, resume]);
+  }, [playing, onPlayingChange, resume, call, dbg]);
 
   /**
    * The `listening` handshake, then a heartbeat.
