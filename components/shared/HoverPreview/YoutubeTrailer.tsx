@@ -178,7 +178,17 @@ export default function YoutubeTrailer({
    * with YouTube's pause button stamped on it.
    */
   const resume = useCallback(() => {
-    if (resumesRef.current >= MAX_RESUMES) return;
+    // Out of attempts: give the frame up for good rather than leave a dead one
+    // on screen. `onHide(true)` unmounts the trailer entirely, so the card falls
+    // back to its artwork — no iframe, therefore no button YouTube could ever
+    // paint on it, and no sound left running behind the picture. A card without
+    // a trailer is a small loss; a card with YouTube's chrome frozen on it is
+    // the bug we are here to kill.
+    if (resumesRef.current >= MAX_RESUMES) {
+      dbg("out of resumes — dropping the trailer, artwork takes over");
+      onHide(true);
+      return;
+    }
     resumesRef.current += 1;
     dbg(`resume #${resumesRef.current}${resumesRef.current === MAX_RESUMES ? " (muted)" : ""}`);
     if (resumesRef.current === MAX_RESUMES) {
@@ -188,7 +198,7 @@ export default function YoutubeTrailer({
       setMuted(true);
     }
     call("playVideo");
-  }, [call]);
+  }, [call, dbg, onHide]);
 
   // Seed from the app-wide setting, not from a preview-only one: turning the
   // volume down here turns it down in the watch player too, and vice versa.
