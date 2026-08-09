@@ -84,19 +84,25 @@ html.tab-hidden *::after {
    (which clips) and behind it (whose surface is opaque), hence the negative
    inset on the root and the -z-10. */
 .as-preview-ambient {
-  top: -9%;
-  left: -9%;
-  width: 118%;
-  height: 118%;
+  /* Fixed px, not a percentage: the spill has to stay wide relative to the blur
+     radius, otherwise almost all of the glow lands behind the (opaque) card and
+     only a rim escapes — which is what "barely visible" looked like. */
+  top: -60px;
+  left: -60px;
+  width: calc(100% + 120px);
+  height: calc(100% + 120px);
   object-fit: cover;
-  border-radius: 28px;
-  filter: blur(38px) saturate(220%);
-  /* Its own layer: an animated blur of this radius is expensive to re-raster,
-     and the trailer variant re-rasters it on every video frame. */
-  transform: translateZ(0);
-  /* Opacity is set inline, NOT here: the two stages cross-fade, and a value in
-     this rule would win over Tailwind's opacity utilities (plain CSS declared
-     after @tailwind utilities). */
+  border-radius: 34px;
+  /* No `filter` and no `transform` here on purpose:
+     - the blur/saturate are Tailwind classes on the element itself, which is
+       Hayase's arrangement — content is clipped first, then blurred, so the
+       glow escapes the box it was clipped to;
+     - `translateZ(0)` used to be here to force a layer. It also lets the
+       compositor keep a cached raster of the blurred subtree, and a cross-origin
+       iframe changing behind that filter does not reliably invalidate it. That
+       is a live video whose glow never changed colour.
+     Opacity is inline for the same class of reason: a value here would sit after
+     @tailwind utilities and beat the opacity-* classes. */
 }
 
 /* Placeholder for the preview banner while its URL is still in flight. A calm

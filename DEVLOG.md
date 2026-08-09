@@ -1,5 +1,38 @@
 # DEVLOG
 
+## 2026-08-09 — Le halo qui ne changeait pas de couleur, et le volume partagé
+
+**Un `filter` + `translateZ(0)` au-dessus d'une iframe cross-origin fige le
+rendu.** Le halo animé était bien une seconde iframe qui jouait la vidéo, mais sa
+couleur ne bougeait pas. `.as-preview-ambient` portait `transform: translateZ(0)`
+(posé pour forcer une couche et rendre le flou moins coûteux) : le compositeur
+garde alors un raster du sous-arbre flouté, et **le contenu d'une iframe
+cross-origin qui change derrière ce filtre n'invalide pas ce cache de façon
+fiable**. Retiré.
+
+Le flou est passé sur l'élément lui-même, comme chez Hayase, et l'ordre compte :
+`overflow-hidden` clippe d'abord la vidéo à la boîte, puis `filter` floute le
+résultat — c'est **le flou qui fait déborder la lumière hors de la boîte**. C'est
+aussi pour ça qu'il était « à peine visible » : le débord était de 9 % (33 px)
+pour un flou de 38 px, donc l'essentiel du halo tombait derrière la carte opaque.
+Passé à 60 px fixes, opacité 0.85, et l'ombre portée noire de la carte réduite —
+elle atterrissait exactement là où la lumière essayait de se poser et l'annulait.
+
+**Le volume est celui de l'app.** `lib/prefs/playerVolume.ts` sort les clés que
+`UniversalPlayer` persistait déjà (`aniscroll:volume`, `aniscroll:muted`) ; la
+bande-annonce lit et écrit les mêmes. Un niveau réglé sur un aperçu est celui du
+prochain épisode. Seule réserve, notée dans le module : quand rien n'a jamais été
+enregistré, l'aperçu démarre à 40 % (le défaut du lecteur est 1, inacceptable pour
+un son déclenché par un survol) **sans écrire cette valeur** — le partage commence
+au premier réglage délibéré.
+
+Aussi : commandes sans `backdrop-blur` (demande de Luc), synopsis cliquable vers
+la fiche, et une garde de 350 ms après ouverture en plus du seuil de 8 px avant
+que les commandes ne puissent apparaître.
+
+---
+
+
 ## 2026-08-09 — Le bouton pause qui s'affichait tout seul, et la lumière qui suit la vidéo
 
 **Le pointeur n'avait pas bougé — c'est la carte qui est venue à lui.** Les

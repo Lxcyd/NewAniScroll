@@ -31,8 +31,8 @@ const MARGIN = 12;
 
 /** Card surface. Kept in sync with the banner gradient in globals.css. */
 const SURFACE = "#1a1a24";
-/** Strength of the glow. Enough to read as light, not enough to read as a halo. */
-const AMBIENT_OPACITY = 0.55;
+/** Strength of the glow. Matched in TrailerAmbient so the hand-off is invisible. */
+const AMBIENT_OPACITY = 0.85;
 
 const FORMAT_LABEL: Record<string, string> = {
   TV: "TV Series",
@@ -211,7 +211,7 @@ export default function PreviewCard({
           alt=""
           aria-hidden
           draggable={false}
-          className="as-preview-ambient pointer-events-none absolute -z-10 transition-opacity duration-700"
+          className="as-preview-ambient pointer-events-none absolute -z-10 blur-2xl saturate-200 transition-opacity duration-700"
           style={{ opacity: trailerPlaying ? 0 : AMBIENT_OPACITY }}
         />
       )}
@@ -224,10 +224,11 @@ export default function PreviewCard({
           // card have to read the same value.
           ["--as-preview-bg" as any]: SURFACE,
           background: SURFACE,
-          // The anime's own dominant colour, as a halo. AniList ships it in the
-          // payload, so it costs nothing and it ties the card to the artwork.
-          boxShadow: `0 20px 55px rgba(0,0,0,.62)${
-            accent ? `, 0 0 46px -14px ${accent}` : ""
+          // Kept deliberately tight. A wide black drop shadow sits exactly where
+          // the ambient light is trying to land and cancels it — the card needs
+          // separation from the page, not a pool of shade around it.
+          boxShadow: `0 14px 34px rgba(0,0,0,.5)${
+            accent ? `, 0 0 40px -16px ${accent}` : ""
           }`,
         }}
       >
@@ -338,9 +339,14 @@ export default function PreviewCard({
             )}
           </div>
 
-          <div className="line-clamp-5 h-full w-full overflow-clip text-[.72rem] leading-relaxed text-white/50">
+          {/* The synopsis is the biggest target on the card and it was inert;
+              it goes where the title goes. */}
+          <Link
+            href={`/en/anime/${id}`}
+            className="line-clamp-5 block h-full w-full overflow-clip text-[.72rem] leading-relaxed text-white/50 transition-colors hover:text-white/75"
+          >
             {data?.description ?? ""}
-          </div>
+          </Link>
         </div>
       </div>
     </div>

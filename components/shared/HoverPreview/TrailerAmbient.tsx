@@ -24,12 +24,16 @@
 const ORIGIN = "https://www.youtube-nocookie.com";
 
 /** Matches PreviewCard's still-artwork stage, so the hand-off is invisible. */
-const AMBIENT_OPACITY = 0.55;
+const AMBIENT_OPACITY = 0.85;
 
 export default function TrailerAmbient({ id }: { id: string }) {
   return (
+    // blur + saturate on THIS element, not in the stylesheet: overflow-hidden
+    // clips the video to the box, then the filter blurs the clipped result, so
+    // the glow spills past the edges. That order is what makes it a light rather
+    // than a background.
     <div
-      className="as-preview-ambient pointer-events-none absolute -z-10 overflow-hidden"
+      className="as-preview-ambient pointer-events-none absolute -z-10 overflow-hidden blur-2xl saturate-200"
       style={{ opacity: AMBIENT_OPACITY }}
     >
       <iframe

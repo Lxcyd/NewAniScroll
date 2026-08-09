@@ -1,5 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import {
+  PREVIEW_DEFAULT_VOLUME,
+  readMuted,
+  readVolume,
+  writeMuted,
+  writeVolume,
+} from "@/lib/prefs/playerVolume";
+
 /**
  * The trailer frame of the hover preview — descended from Hayase's
  * `ui/cards/YoutubeIframe.svelte`, with our own transport controls.
@@ -33,30 +41,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 const ORIGIN = "https://www.youtube-nocookie.com";
 
-/** Remembered across hovers, so muting once mutes for the whole session. */
-const MUTE_KEY = "aniscroll.preview.muted";
 /** Sound is ON by default; a trailer at full blast on hover is not. */
-const DEFAULT_VOLUME = 40;
+const FALLBACK_VOLUME = PREVIEW_DEFAULT_VOLUME;
 /** Controls fade this long after the pointer stops moving over the video. */
 const IDLE_MS = 1600;
 /** Travel, in px, before a pointermove counts as the user reaching for a control. */
-const MOVE_SLOP = 6;
-
-function readMutedPref(): boolean {
-  try {
-    return localStorage.getItem(MUTE_KEY) === "1";
-  } catch {
-    return false;
-  }
-}
-
-function writeMutedPref(muted: boolean): void {
-  try {
-    localStorage.setItem(MUTE_KEY, muted ? "1" : "0");
-  } catch {
-    /* private mode — the in-memory state still holds for this page */
-  }
-}
+const MOVE_SLOP = 8;
+/** No controls at all for this long after the card opens, movement or not. */
+const OPEN_GRACE_MS = 350;
 
 export default function YoutubeTrailer({
   id,
@@ -75,8 +67,15 @@ export default function YoutubeTrailer({
   const wantMutedRef = useRef(true);
   /** Guards the one-shot unmute, which must not re-fire on every state ping. */
   const unmutedRef = useRef(false);
+  /** Read in the postMessage handler, which is bound once and would go stale. */
+  const volumeRef = useRef(FALLBACK_VOLUME);
+  const mountedAtRef = useRef(Date.now());
+  const trackRef = useRef<HTMLDivElement>(null);
+  const volCloseRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [muted, setMuted] = useState(true);
+  const [volume, setVolume] = useState(FALLBACK_VOLUME);
+  const [volOpen, setVolOpen] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [hidden, setHidden] = useState(true);
   const [showControls, setShowControls] = useState(false);
@@ -90,10 +89,17 @@ export default function YoutubeTrailer({
     );
   }, []);
 
+  // Seed from the app-wide setting, not from a preview-only one: turning the
+  // volume down here turns it down in the watch player too, and vice versa.
   useEffect(() => {
-    const pref = readMutedPref();
+    const pref = readMuted();
     wantMutedRef.current = pref;
     setMuted(pref);
+    const stored = readVolume();
+    if (stored != null) {
+      volumeRef.current = stored;
+      setVolume(stored);
+    }
   }, []);
 
   useEffect(() => {
@@ -110,7 +116,7 @@ export default function YoutubeTrailer({
         return;
       }
 
-      if (json.event === "onReady") call("setVolume", `[${DEFAULT_VOLUME}]`);
+      if (json.event === "onReady") call("setVolume", `[${Math.round(volumeRef.current * 100)}]`);
 
       if (json.event === "initialDelivery" && json.info?.videoData?.isPlayable === false) {
         onHide(true);
@@ -130,7 +136,7 @@ export default function YoutubeTrailer({
           if (!wantMutedRef.current && !unmutedRef.current) {
             unmutedRef.current = true;
             call("unMute");
-            call("setVolume", `[${DEFAULT_VOLUME}]`);
+            call("setVolume", `[${Math.round(volumeRef.current * 100)}]`);
           }
         } else if (info.playerState === 2) {
           setPlaying(false);
@@ -151,6 +157,7 @@ export default function YoutubeTrailer({
       window.removeEventListener("message", onMessage);
       if (pollRef.current) clearInterval(pollRef.current);
       if (idleRef.current) clearTimeout(idleRef.current);
+      if (volCloseRef.current) clearTimeout(volCloseRef.current);
     };
   }, [id, onHide, call]);
 
@@ -170,15 +177,71 @@ export default function YoutubeTrailer({
     e.stopPropagation();
   };
 
+  const applyMuted = (next: boolean) => {
+    wantMutedRef.current = next;
+    unmutedRef.current = true;
+    writeMuted(next);
+    setMuted(next);
+    call(next ? "mute" : "unMute");
+  };
+
   const toggleMute = (e: React.MouseEvent) => {
     stop(e);
     const next = !muted;
-    wantMutedRef.current = next;
-    unmutedRef.current = true;
-    writeMutedPref(next);
-    setMuted(next);
-    call(next ? "mute" : "unMute");
-    if (!next) call("setVolume", `[${DEFAULT_VOLUME}]`);
+    applyMuted(next);
+    // Un-muting a slider that sits at zero would look broken: give it something
+    // to be un-muted TO.
+    if (!next && volumeRef.current <= 0) applyVolume(FALLBACK_VOLUME);
+    else if (!next) call("setVolume", `[${Math.round(volumeRef.current * 100)}]`);
+  };
+
+  /**
+   * The volume is the app's, not the preview's: same localStorage keys as the
+   * watch player (lib/prefs/playerVolume), so a level set on a trailer is the
+   * level the next episode starts at.
+   */
+  const applyVolume = (raw: number) => {
+    const v = Math.min(1, Math.max(0, raw));
+    volumeRef.current = v;
+    setVolume(v);
+    writeVolume(v);
+    call("setVolume", `[${Math.round(v * 100)}]`);
+    // Dragging to the bottom IS muting, and dragging back up IS unmuting —
+    // a slider at zero next to an unmuted icon is a lie.
+    if (v === 0 && !muted) applyMuted(true);
+    if (v > 0 && muted) applyMuted(false);
+  };
+
+  const volumeFromEvent = (e: React.PointerEvent) => {
+    const track = trackRef.current;
+    if (!track) return;
+    const rect = track.getBoundingClientRect();
+    // The bar fills upward, so the TOP of the track is 100 %.
+    applyVolume(1 - (e.clientY - rect.top) / rect.height);
+  };
+
+  const onTrackDown = (e: React.PointerEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    volumeFromEvent(e);
+  };
+
+  const onTrackMove = (e: React.PointerEvent) => {
+    if (!(e.currentTarget as HTMLElement).hasPointerCapture(e.pointerId)) return;
+    volumeFromEvent(e);
+  };
+
+  const openVolume = () => {
+    if (volCloseRef.current) clearTimeout(volCloseRef.current);
+    setVolOpen(true);
+  };
+
+  // A small grace on the way out: the pointer crosses a gap between the button
+  // and the track, and a slider that vanishes mid-reach is unusable.
+  const closeVolume = () => {
+    if (volCloseRef.current) clearTimeout(volCloseRef.current);
+    volCloseRef.current = setTimeout(() => setVolOpen(false), 260);
   };
 
   const togglePlay = (e: React.MouseEvent) => {
@@ -197,6 +260,9 @@ export default function YoutubeTrailer({
   // the trailer started. So the first move only records a baseline, and nothing
   // shows until the pointer has travelled past MOVE_SLOP from it.
   const wake = (e: React.PointerEvent) => {
+    // Belt and braces on top of the baseline: nothing at all during the opening
+    // moments, whatever the browser claims about the pointer.
+    if (Date.now() - mountedAtRef.current < OPEN_GRACE_MS) return;
     const origin = originRef.current;
     if (!origin) {
       originRef.current = { x: e.clientX, y: e.clientY };
@@ -222,7 +288,9 @@ export default function YoutubeTrailer({
   // paused, on the theory that it is the only way to resume. It isn't — moving
   // the pointer brings it straight back, which is the gesture that got you
   // there in the first place.)
-  const controlsVisible = !hidden && showControls;
+  // `volOpen` is the one exception, and it is not really one: the slider can
+  // only be open because the pointer is already on the volume button.
+  const controlsVisible = !hidden && (showControls || volOpen);
   const chrome = `transition-opacity duration-200 ${
     controlsVisible ? "opacity-100" : "pointer-events-none opacity-0"
   }`;
@@ -265,7 +333,7 @@ export default function YoutubeTrailer({
         type="button"
         onClick={togglePlay}
         aria-label={playing ? "Pause" : "Play"}
-        className={`absolute left-1/2 top-1/2 grid h-11 w-11 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full bg-black/45 text-white backdrop-blur-sm transition-colors hover:bg-black/65 ${chrome}`}
+        className={`absolute left-1/2 top-1/2 grid h-11 w-11 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full bg-black/50 text-white transition-colors hover:bg-black/70 ${chrome}`}
       >
         {playing ? (
           <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
@@ -279,11 +347,19 @@ export default function YoutubeTrailer({
         )}
       </button>
 
+      {/* Volume: the button, and the track that drops out of it on hover. Both
+          live in one wrapper so the pointer can travel from one to the other
+          without the group ever being "left". */}
+      <div
+        className={`absolute right-1.5 top-1.5 flex flex-col items-center ${chrome}`}
+        onPointerEnter={openVolume}
+        onPointerLeave={closeVolume}
+      >
       <button
         type="button"
         onClick={toggleMute}
         aria-label={muted ? "Unmute" : "Mute"}
-        className={`absolute right-1.5 top-1.5 grid h-8 w-8 place-items-center rounded-full bg-black/45 text-white backdrop-blur-sm transition-colors hover:bg-black/65 ${chrome}`}
+        className="grid h-8 w-8 place-items-center rounded-full bg-black/50 text-white transition-colors hover:bg-black/70"
       >
         {muted ? (
           // lucide volume-x
@@ -321,6 +397,37 @@ export default function YoutubeTrailer({
           </svg>
         )}
       </button>
+
+        <div
+          className={`mt-1 flex justify-center rounded-full bg-black/50 px-1.5 py-2 transition-opacity duration-150 ${
+            volOpen ? "opacity-100" : "pointer-events-none opacity-0"
+          }`}
+        >
+          <div
+            ref={trackRef}
+            role="slider"
+            aria-label="Volume"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.round((muted ? 0 : volume) * 100)}
+            tabIndex={0}
+            onPointerDown={onTrackDown}
+            onPointerMove={onTrackMove}
+            // A 5 px bar is a 5 px target: the padding above widens the hit area
+            // without widening the bar.
+            className="relative h-20 w-[5px] cursor-pointer rounded-full bg-white/25"
+          >
+            <div
+              className="absolute bottom-0 left-0 w-full rounded-full bg-white"
+              style={{ height: `${(muted ? 0 : volume) * 100}%` }}
+            />
+            <div
+              className="pointer-events-none absolute left-1/2 h-2.5 w-2.5 -translate-x-1/2 translate-y-1/2 rounded-full bg-white shadow"
+              style={{ bottom: `${(muted ? 0 : volume) * 100}%` }}
+            />
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
