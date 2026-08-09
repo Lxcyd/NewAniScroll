@@ -53,8 +53,14 @@ const OPEN_GRACE_MS = 350;
 /** Handshake retry, until the frame starts answering. */
 const HANDSHAKE_MS = 100;
 const HANDSHAKE_WINDOW_MS = 3000;
-/** Then a slow poll, purely so our transport state can't drift out of date. */
-const HEARTBEAT_MS = 1500;
+/**
+ * Then a steady poll, purely so our transport state can't drift out of date.
+ *
+ * Deliberately brisk. Every second this is wrong is a second of YouTube's own
+ * centre button on screen, and the ping is one postMessage into a frame that is
+ * already running a video — the cost is nil next to what it buys.
+ */
+const HEARTBEAT_MS = 600;
 /**
  * How long a "playing" claim survives without being re-confirmed by the player.
  *
@@ -63,7 +69,16 @@ const HEARTBEAT_MS = 1500;
  * `playing` that has quietly gone stale is precisely what leaves the frame on
  * screen for YouTube to draw its own centre button over. When in doubt, hide.
  */
-const PLAYING_TTL_MS = HEARTBEAT_MS * 2 + 500;
+const PLAYING_TTL_MS = HEARTBEAT_MS * 2 + 300;
+/**
+ * How many times a pause we never asked for is answered with `playVideo`.
+ *
+ * Nothing on this card can pause a trailer — there is no control for it — so a
+ * pause is always the browser's doing (an unmute that autoplay policy refused,
+ * a throttled frame). Bounded, because a player that refuses three times is
+ * telling us something, and an unbounded retry against YouTube is a loop.
+ */
+const MAX_RESUMES = 3;
 
 export default function YoutubeTrailer({
   id,
@@ -93,6 +108,8 @@ export default function YoutubeTrailer({
   const mountedAtRef = useRef(Date.now());
   /** Last moment the player itself said "playing" — see PLAYING_TTL_MS. */
   const aliveAtRef = useRef(0);
+  /** Spent attempts at reviving a pause we never asked for — see MAX_RESUMES. */
+  const resumesRef = useRef(0);
   const trackRef = useRef<HTMLDivElement>(null);
   const volCloseRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -111,6 +128,28 @@ export default function YoutubeTrailer({
       "*",
     );
   }, []);
+
+  /**
+   * Answer an unrequested pause by starting the video again.
+   *
+   * The card has no pause control, so nobody asked for this state — it is the
+   * browser's. The overwhelmingly likely cause is the unmute: autoplay policy
+   * tolerates a muted video that starts by itself and can stop one that turns
+   * its sound on. Hence the last attempt going out muted, which is the one form
+   * of playback no policy refuses: a silent trailer still beats a still frame
+   * with YouTube's pause button stamped on it.
+   */
+  const resume = useCallback(() => {
+    if (resumesRef.current >= MAX_RESUMES) return;
+    resumesRef.current += 1;
+    if (resumesRef.current === MAX_RESUMES) {
+      // Not written to prefs: this is us conceding to the browser, not the user
+      // changing their mind. Their standing choice in wantMutedRef is untouched.
+      call("mute");
+      setMuted(true);
+    }
+    call("playVideo");
+  }, [call]);
 
   // Seed from the app-wide setting, not from a preview-only one: turning the
   // volume down here turns it down in the watch player too, and vice versa.
@@ -167,11 +206,15 @@ export default function YoutubeTrailer({
             call("setVolume", `[${Math.round(volumeRef.current * 100)}]`);
           }
         } else if (info.playerState === 2) {
+          // Hide FIRST, ask questions after: the frame must be off the screen
+          // before YouTube gets to paint its pause button on it.
           setPlaying(false);
           onPlayingChange(false);
+          resume();
         } else if (info.playerState === 0) {
           setPlaying(false);
           onPlayingChange(false);
+          resumesRef.current = 0;
           onCycle();
           setSrc("");
           setTimeout(() => setSrc(id), 0);
@@ -197,7 +240,7 @@ export default function YoutubeTrailer({
       if (idleRef.current) clearTimeout(idleRef.current);
       if (volCloseRef.current) clearTimeout(volCloseRef.current);
     };
-  }, [id, onHide, onPlayingChange, onCycle, call]);
+  }, [id, onHide, onPlayingChange, onCycle, call, resume]);
 
   /**
    * The watchdog behind PLAYING_TTL_MS.
@@ -215,10 +258,11 @@ export default function YoutubeTrailer({
       if (Date.now() - aliveAtRef.current > PLAYING_TTL_MS) {
         setPlaying(false);
         onPlayingChange(false);
+        resume();
       }
-    }, 500);
+    }, 200);
     return () => clearInterval(t);
-  }, [playing, onPlayingChange]);
+  }, [playing, onPlayingChange, resume]);
 
   /**
    * The `listening` handshake, then a heartbeat.
