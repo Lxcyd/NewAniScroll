@@ -33,8 +33,6 @@ const DESC_LINES = 5;
 
 /** Card surface. Kept in sync with the banner gradient in globals.css. */
 const SURFACE = "#1a1a24";
-/** Strength of the glow. Matched in TrailerAmbient so the hand-off is invisible. */
-const AMBIENT_OPACITY = 0.85;
 
 const FORMAT_LABEL: Record<string, string> = {
   TV: "TV Series",
@@ -235,29 +233,23 @@ export default function PreviewCard({
         visibility: pos ? "visible" : "hidden",
       }}
     >
-      {/* Ambient light, in two stages: the artwork holds the glow from the first
-          frame, then the trailer takes over and the light follows the video. A
-          still image can't do that and a cross-origin embed can't be sampled, so
-          the second stage is a second copy of the video (see TrailerAmbient).
+      {/* Ambient light, in two stages through ONE component: the artwork holds
+          the glow from the first frame, then the trailer takes over and the
+          light follows the video. Both stages go through the same projector
+          stack, so the hand-off is a dissolve rather than one layer swapping
+          for another.
 
           The clip box is the VIDEO's box, cut open on three sides: the glow may
           spill left, right and above as far as the blur reaches, and is cut dead
           at the bottom of the picture. Light coming off a screen doesn't wrap
           around to backlight the text under it. */}
       <div className="as-preview-ambient-clip pointer-events-none absolute -z-10" aria-hidden>
-        {banner && (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={banner}
-            alt=""
-            draggable={false}
-            className="as-preview-ambient absolute blur-2xl saturate-200 transition-opacity duration-700"
-            style={{ opacity: playing ? 0 : AMBIENT_OPACITY }}
-          />
-        )}
-        {trailerMounted && data?.trailer?.id && (
-          <TrailerAmbient playing={playing} sourceRef={trailerVideoRef} zoom={crop} />
-        )}
+        <TrailerAmbient
+          banner={banner}
+          sourceRef={trailerVideoRef}
+          playing={playing && trailerMounted}
+          zoom={crop}
+        />
       </div>
 
       <div

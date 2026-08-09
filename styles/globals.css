@@ -139,68 +139,14 @@ html.tab-hidden *::after {
   clip-path: inset(-400px -400px 0 -400px);
 }
 
-.as-preview-ambient {
-  /* Fixed px, not a percentage: the spill has to stay wide relative to the blur
-     radius, otherwise almost all of the glow lands behind the (opaque) card and
-     only a rim escapes — which is what "barely visible" looked like. */
-  top: -60px;
-  left: -60px;
-  width: calc(100% + 120px);
-  height: calc(100% + 60px);
-  /* Tailwind's preflight declares `img, video { max-width: 100% }`, and nothing
-     here contradicted it — so on the <img> stage of the glow the width above was
-     silently clamped back to the card's own width while `left: -60px` kept
-     applying. The layer ended up correctly sized but shifted 60 px left, which
-     is why the light looked like a rectangle hanging off the top-left corner
-     instead of surrounding the picture. The <canvas> stage never showed it: the
-     rule only reaches images and videos. */
-  max-width: none;
-  max-height: none;
-  /* The blur alone leaves a visible straight edge where the picture stops: a
-     40 px ramp at 85 % opacity still reads as a border. This fades the layer out
-     towards the top and the two sides, opaque along the bottom where the picture
-     actually is, so the light dies out instead of ending.
-     The shape of the ramp is the whole effect. Real light is brightest where it
-     leaves the screen and dies with distance, so the mask holds FULL opacity
-     across the picture and spends its entire falloff in the outer band — the
-     ~60 px of spill that is the only part of this layer the card does not
-     cover.
-     A ramp that starts early (tried at 18 %) fades the glow at the edge of the
-     picture as much as far from it, which is what makes it read as an even haze
-     around the card rather than as light coming off the video. */
-  -webkit-mask-image: radial-gradient(
-    78% 116% at 50% 100%,
-    #000 0%,
-    #000 70%,
-    rgba(0, 0, 0, 0.55) 86%,
-    rgba(0, 0, 0, 0.16) 95%,
-    transparent 100%
-  );
-  mask-image: radial-gradient(
-    78% 116% at 50% 100%,
-    #000 0%,
-    #000 70%,
-    rgba(0, 0, 0, 0.55) 86%,
-    rgba(0, 0, 0, 0.16) 95%,
-    transparent 100%
-  );
-  object-fit: cover;
-  /* No rounded corners. A radius is a shape, and the whole point is that this
-     layer has none — a 34 px corner survives the blur as a recognisable curve,
-     which is half of what made it read as a rectangle. The mask above is what
-     ends the layer now. */
-  border-radius: 0;
-  /* No `filter` and no `transform` here on purpose:
-     - the blur/saturate are Tailwind classes on the element itself, which is
-       Hayase's arrangement — content is clipped first, then blurred, so the
-       glow escapes the box it was clipped to;
-     - `translateZ(0)` used to be here to force a layer. It also lets the
-       compositor keep a cached raster of the blurred subtree, and a cross-origin
-       iframe changing behind that filter does not reliably invalidate it. That
-       is a live video whose glow never changed colour.
-     Opacity is inline for the same class of reason: a value here would sit after
-     @tailwind utilities and beat the opacity-* classes. */
-}
+/* The single-layer glow that used to live here is gone, and with it a long tail
+   of geometry: a hand-placed -60px offset, a `max-width: none` to undo
+   Tailwind's preflight, and a radial mask that could never behave like light —
+   fade it early and the glow is an even haze up against the picture, fade it
+   late and it meets its own edge as a visible rectangle. TrailerAmbient now
+   uses the watch player's projector stack instead (concentric copies, each
+   larger and fainter), where the falloff is a property of the stack and needs
+   no mask at all. */
 
 /* Placeholder for the preview banner while its URL is still in flight. A calm
    sweep, not a spinner: it is on screen for a fraction of a second at most. */
