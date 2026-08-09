@@ -185,8 +185,12 @@ html.tab-hidden *::after {
   animation: as-preview-shimmer 1.4s linear infinite;
 }
 
-/* The banner fades into the card body instead of ending on a hard edge — the
-   stops are Hayase's (nothing until 80%, then a fast ramp to solid). */
+/* The banner fades into the card body instead of ending on a hard edge.
+   Hayase's stops were nothing until 80%, then a ramp to solid — but trailers
+   carry burnt-in subtitles, which sit right in that band and came out
+   half-dissolved. The ramp is later and lighter now: it still has to reach
+   solid at the very bottom, or the banner would end on a visible seam against
+   the card, but it no longer starts eating the picture a fifth of the way up. */
 .as-preview-banner::after {
   content: '';
   position: absolute;
@@ -200,8 +204,8 @@ html.tab-hidden *::after {
   background: linear-gradient(
     180deg,
     rgba(26, 26, 36, 0) 0%,
-    rgba(26, 26, 36, 0) 80%,
-    rgba(26, 26, 36, 0.89) 95%,
+    rgba(26, 26, 36, 0) 90%,
+    rgba(26, 26, 36, 0.45) 97%,
     var(--as-preview-bg, #1a1a24) 100%
   );
 }

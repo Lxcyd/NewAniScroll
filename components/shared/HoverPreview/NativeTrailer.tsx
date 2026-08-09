@@ -387,16 +387,21 @@ export default function NativeTrailer({
         className={`absolute inset-0 bg-gradient-to-b from-black/45 via-transparent to-transparent ${chrome}`}
       />
 
-      {/* Play/pause. Impossible until now — pausing a YouTube embed is exactly
-          what made it paint its own button over the picture. */}
-      <div className={`absolute left-2 top-2 ${chrome}`}>
+      {/* Play/pause, centred over the picture.
+          There is an irony worth naming: this is the same place, and roughly the
+          same size, as the YouTube button this whole rewrite existed to banish.
+          The difference is not cosmetic — that one appeared on its own, whenever
+          the embed felt like it, and could not be removed. This one appears only
+          while the pointer is moving over the video, and disappears with the
+          rest of the chrome. It is a control, not an intrusion. */}
+      <div className={`pointer-events-none absolute inset-0 grid place-items-center ${chrome}`}>
         <button
           type="button"
           onClick={togglePlay}
           aria-label={paused ? "Play" : "Pause"}
-          className="as-preview-videobtn h-7 w-7"
+          className="as-preview-videobtn pointer-events-auto h-14 w-14"
         >
-          {paused ? <MdPlayArrow size={21} /> : <MdPause size={21} />}
+          {paused ? <MdPlayArrow size={52} /> : <MdPause size={52} />}
         </button>
       </div>
 
