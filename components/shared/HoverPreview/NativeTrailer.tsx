@@ -57,7 +57,6 @@ export default function NativeTrailer({
   onHide,
   onPlayingChange,
   onCrop,
-  onReady,
 }: {
   id: string;
   /** Shared with TrailerAmbient, which follows this element's clock. */
@@ -68,8 +67,6 @@ export default function NativeTrailer({
   onPlayingChange: (playing: boolean) => void;
   /** The measured crop, so the ambient copy is framed like the picture. */
   onCrop: (zoom: number) => void;
-  /** The picture is running and buffered — decoration may start now. */
-  onReady: () => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const idleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -90,9 +87,9 @@ export default function NativeTrailer({
   const [playing, setPlaying] = useState(false);
   const [paused, setPaused] = useState(false);
   /**
-   * Enough of the file is in hand that extra work no longer competes with
-   * playback. Gates both the crop probe and the ambient copy — everything that
-   * is not the picture the visitor asked for waits behind this.
+   * Enough of the file is in hand that measuring no longer competes with
+   * playing. Gates the crop probe — the one piece of work that can wait, and
+   * the one that was demonstrably slowing down what it measured.
    */
   const [ready, setReady] = useState(false);
   const [showControls, setShowControls] = useState(false);
@@ -126,10 +123,6 @@ export default function NativeTrailer({
   useEffect(() => {
     onCrop(zoom);
   }, [zoom, onCrop]);
-
-  useEffect(() => {
-    if (ready) onReady();
-  }, [ready, onReady]);
 
   /**
    * Backstop for `canplaythrough`, which a browser is free never to fire — on a

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { trailerSrc } from "@/lib/preview/trailerCrop";
 
@@ -27,7 +27,9 @@ import { trailerSrc } from "@/lib/preview/trailerCrop";
 const AMBIENT_OPACITY = 0.85;
 /** Past this much drift from the real player, snap back. */
 const MAX_DRIFT_S = 0.35;
-const SYNC_EVERY_MS = 2000;
+
+/** How often to check the glow hasn't drifted from the picture. */
+const SYNC_EVERY_MS_ACTIVE = 1000;
 
 export default function TrailerAmbient({
   id,
@@ -44,6 +46,15 @@ export default function TrailerAmbient({
   zoom: number;
 }) {
   const ref = useRef<HTMLVideoElement>(null);
+  /**
+   * Has this copy decoded anything yet.
+   *
+   * A <video> with no frame is a black rectangle, and this one is blurred and
+   * scaled up — so showing it early does not read as "the glow hasn't started",
+   * it reads as a black smear appearing beside the card. It stays at zero
+   * opacity until there are real pixels in it.
+   */
+  const [decoded, setDecoded] = useState(false);
 
   /**
    * Follow the real player's clock.
@@ -55,16 +66,18 @@ export default function TrailerAmbient({
    * merely a few frames behind is not worth interrupting.
    */
   useEffect(() => {
-    const timer = setInterval(() => {
+    const sync = () => {
       const mine = ref.current;
       const theirs = sourceRef.current;
       if (!mine || !theirs || theirs.paused || mine.seeking) return;
       if (Math.abs(mine.currentTime - theirs.currentTime) > MAX_DRIFT_S) {
         mine.currentTime = theirs.currentTime;
       }
-    }, SYNC_EVERY_MS);
+    };
+    sync();
+    const timer = setInterval(sync, SYNC_EVERY_MS_ACTIVE);
     return () => clearInterval(timer);
-  }, [sourceRef]);
+  }, [sourceRef, decoded]);
 
   return (
     // blur + saturate on THIS element, not in the stylesheet: overflow-hidden
@@ -73,7 +86,7 @@ export default function TrailerAmbient({
     // than a background.
     <div
       className="as-preview-ambient pointer-events-none absolute -z-10 overflow-hidden blur-2xl saturate-200 transition-opacity duration-700"
-      style={{ opacity: playing ? AMBIENT_OPACITY : 0 }}
+      style={{ opacity: playing && decoded ? AMBIENT_OPACITY : 0 }}
     >
       <video
         ref={ref}
@@ -84,13 +97,15 @@ export default function TrailerAmbient({
         playsInline
         aria-hidden
         tabIndex={-1}
-        // Mounted after the player, so it starts where the player already is
-        // rather than from zero — the glow must never show a shot the picture
-        // has left behind.
+        // Land on the player's clock as soon as this copy can be positioned at
+        // all, and again once it has pixels. The two copies start together, so
+        // this is usually a no-op — but a glow showing a shot the picture has
+        // already left reads as a fault, and correcting it costs nothing.
         onLoadedMetadata={(e) => {
           const source = sourceRef.current;
           if (source) e.currentTarget.currentTime = source.currentTime;
         }}
+        onLoadedData={() => setDecoded(true)}
         className="pointer-events-none absolute inset-0 h-full w-full transform-gpu object-cover"
         style={{ transform: `scale(${zoom})` }}
       />

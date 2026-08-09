@@ -89,17 +89,18 @@ export default function PreviewCard({
   const [playing, setPlaying] = useState(false);
   /** The crop measured for this trailer, shared so the glow is framed like the picture. */
   const [crop, setCrop] = useState(1);
-  /**
-   * The trailer is running and buffered. Gates the ambient copy.
+  /*
+   * The glow mounts WITH the player, not after it.
    *
-   * Mounting the glow at the same instant as the player meant two elements
-   * pulling the same file at once, and the one nobody looks at directly was
-   * taking bandwidth from the one they do. It waits its turn now — and can,
-   * because it no longer has to start in step: it syncs to the real player's
-   * clock instead (see TrailerAmbient), which the old decorative iframe could
-   * never do.
+   * Deferring it until the player was buffered looked like the obvious saving —
+   * two elements pulling one file, and the one nobody looks at directly was
+   * taking bandwidth from the one they do. It was a bad trade. A layer that
+   * mounts while `playing` is already true is born at full opacity, because a
+   * CSS transition does not run on the initial render, and it is born before it
+   * has decoded a frame: a black blurred rectangle appearing in one step,
+   * off-register with the card and behind the picture's clock. Starting both
+   * together is what makes the fade-in a fade and the two copies agree.
    */
-  const [trailerReady, setTrailerReady] = useState(false);
   /**
    * The playing trailer, read by the ambient copy so it can follow its clock.
    *
@@ -144,7 +145,6 @@ export default function PreviewCard({
   const onHide = useCallback((hidden: boolean) => setHideFrame(hidden), []);
   const onPlayingChange = useCallback((next: boolean) => setPlaying(next), []);
   const onCrop = useCallback((zoom: number) => setCrop(zoom), []);
-  const onTrailerReady = useCallback(() => setTrailerReady(true), []);
 
   const title = data ? pickTitle(data.title, titlePref) : "";
   // Same treatment the info page gives its synopsis: translated on demand and
@@ -255,7 +255,7 @@ export default function PreviewCard({
             style={{ opacity: playing ? 0 : AMBIENT_OPACITY }}
           />
         )}
-        {trailerMounted && trailerReady && data?.trailer?.id && (
+        {trailerMounted && data?.trailer?.id && (
           <TrailerAmbient
             id={data.trailer.id}
             playing={playing}
@@ -314,7 +314,6 @@ export default function PreviewCard({
               onHide={onHide}
               onPlayingChange={onPlayingChange}
               onCrop={onCrop}
-              onReady={onTrailerReady}
             />
           )}
         </div>

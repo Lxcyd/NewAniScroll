@@ -185,16 +185,13 @@ html.tab-hidden *::after {
   animation: as-preview-shimmer 1.4s linear infinite;
 }
 
-/* The banner fades into the card body instead of ending on a hard edge.
-   Two constraints pull against each other here. The fade has to be LONG, or it
-   stops being a fade: pushed to the last few percent it collapses into a hard
-   line a handful of pixels tall, which is the seam it exists to hide. But it
-   also crosses the band where trailers carry their burnt-in subtitles (around
-   85-90% of the height), and Hayase's stops were already at 0.4 there, which
-   half-dissolved them.
-   So it stays long and goes shallow instead: barely present through the subtitle
-   band, and doing nearly all of its work in the last few percent, where there is
-   never anything to read. */
+/* The banner fades into the card body instead of ending on a hard edge — the
+   stops are Hayase's (nothing until 80%, then a fast ramp to solid).
+   Tried and reverted: pushing the ramp later and flattening it, to stop it
+   washing out the subtitles some trailers carry burnt into the picture. Later
+   collapsed the fade into a hard line, and flatter was judged worse than the
+   problem — a gradient that never commits reads as a mistake, and the subtitles
+   are only on some trailers while this seam is on every card. */
 .as-preview-banner::after {
   content: '';
   position: absolute;
@@ -208,10 +205,8 @@ html.tab-hidden *::after {
   background: linear-gradient(
     180deg,
     rgba(26, 26, 36, 0) 0%,
-    rgba(26, 26, 36, 0) 76%,
-    rgba(26, 26, 36, 0.14) 86%,
-    rgba(26, 26, 36, 0.34) 92%,
-    rgba(26, 26, 36, 0.72) 96.5%,
+    rgba(26, 26, 36, 0) 80%,
+    rgba(26, 26, 36, 0.89) 95%,
     var(--as-preview-bg, #1a1a24) 100%
   );
 }
