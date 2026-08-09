@@ -42,15 +42,21 @@ const FORMAT_LABEL: Record<string, string> = {
 };
 
 /**
- * Poster for the top 45 % of the card. Hayase's `banner()`: the AniList banner
- * first, then YouTube's own thumbnail for the trailer (which is a real 16:9
- * still, unlike the portrait cover), then the cover as a last resort.
+ * Artwork for the top 45 % of the card, and it is the INFO PAGE's chain, not
+ * Hayase's: `bannerImage` already arrives resolved from /api/v2/preview (see
+ * lib/images/heroBanner), and the cover stretches behind it when nothing wide
+ * exists — exactly what the info page does.
+ *
+ * Two things deliberately absent. Hayase inserts the YouTube trailer thumbnail
+ * between the two; it is a fine picture but it is not the one the info page
+ * shows, and the card is a preview OF that page. And the grid poster we hover is
+ * NOT used as a stand-in while the payload flies: it is a portrait cover in a
+ * 16:9 slot, so painting it meant every card visibly swapped its banner a
+ * fraction of a second after opening. Better to show nothing for that instant.
  */
-function bannerUrl(data: PreviewData | null, poster: string | null): string | null {
-  if (!data) return poster;
-  if (data.bannerImage) return data.bannerImage;
-  if (data.trailer?.id) return `https://i.ytimg.com/vi/${data.trailer.id}/maxresdefault.jpg`;
-  return data.coverImage?.large ?? poster;
+function bannerUrl(data: PreviewData | null): string | null {
+  if (!data) return null;
+  return data.bannerImage ?? data.coverImage?.large ?? null;
 }
 
 export default function PreviewCard({
@@ -72,6 +78,8 @@ export default function PreviewCard({
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
   /** null = trailer not started, true = unplayable (keep the banner), false = playing. */
   const [hideFrame, setHideFrame] = useState<boolean | null>(null);
+  /** Fade in on decode rather than on mount — a half-painted banner is a flash too. */
+  const [bannerReady, setBannerReady] = useState(false);
 
   // Local list state drives the play-button label and the bookmark fill, the
   // same way Hayase reads its auth aggregator.
@@ -106,7 +114,7 @@ export default function PreviewCard({
   const onHide = useCallback((hidden: boolean) => setHideFrame(hidden), []);
 
   const title = data ? pickTitle(data.title, titlePref) : "";
-  const banner = bannerUrl(data, poster);
+  const banner = bannerUrl(data);
   const trailerPlaying = hideFrame === false;
   const accent = data?.coverImage?.color ?? null;
 
@@ -214,15 +222,20 @@ export default function PreviewCard({
         }}
       >
         <div className="as-preview-banner relative h-[45%] rounded-t-card bg-black">
+          {/* Holds the slot while the payload is in flight. The endpoint is
+              prefetched 30 ms before the card mounts and edge-cached for a day,
+              so on a warm id this is never seen. */}
+          {!banner && <div className="as-preview-skeleton h-full w-full rounded-t-card" />}
           {banner && (
             // eslint-disable-next-line @next/next/no-img-element
             <img
               src={banner}
               alt=""
               draggable={false}
+              onLoad={() => setBannerReady(true)}
               // h-full w-full, not `size-full`: Tailwind 3.3 here, `size-*` is 3.4+.
               className={`h-full w-full rounded-t-card object-cover transition-opacity duration-300 ${
-                trailerPlaying ? "opacity-0" : "opacity-100"
+                bannerReady && !trailerPlaying ? "opacity-100" : "opacity-0"
               }`}
             />
           )}

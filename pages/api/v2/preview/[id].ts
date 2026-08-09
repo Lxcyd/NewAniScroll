@@ -1,6 +1,8 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { getMediaMeta } from "@/lib/anilist/getMediaMeta";
 import { setEdgeCache } from "@/lib/http/edgeCache";
+import { getTmdbAnimeImages } from "@/lib/tmdb/animeImages";
+import { resolveHeroBanner } from "@/lib/images/heroBanner";
 
 /**
  * GET /api/v2/preview/[id]
@@ -71,6 +73,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(404).json({ error: "Anime not found" });
   }
 
+  // The SAME banner the info page will show, resolved by the SAME function —
+  // otherwise a title whose AniList banner the info page swaps for a TMDB
+  // backdrop appears as two different pictures depending on where you look.
+  // Both lookups are themselves cached (Turso row for TMDB, 24 h at the edge for
+  // this response), so a warm id costs neither.
+  const tmdb = await getTmdbAnimeImages(id).catch(() => ({ backdrop: null, logo: null }));
+  const bannerImage = await resolveHeroBanner(media.bannerImage, tmdb.backdrop).catch(
+    () => media.bannerImage ?? null,
+  );
+
   // YouTube is the only site we can embed; AniList also returns dailymotion
   // entries, which the card has no player for.
   const trailer =
@@ -85,7 +97,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     coverImage: media.coverImage
       ? { large: media.coverImage.large ?? null, color: media.coverImage.color ?? null }
       : null,
-    bannerImage: media.bannerImage ?? null,
+    bannerImage,
     description: plainText(media.description),
     format: media.format ?? null,
     status: media.status ?? null,

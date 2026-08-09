@@ -96,6 +96,24 @@ html.tab-hidden *::after {
   transform: translateZ(0);
 }
 
+/* Placeholder for the preview banner while its URL is still in flight. A calm
+   sweep, not a spinner: it is on screen for a fraction of a second at most. */
+@keyframes as-preview-shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+.as-preview-skeleton {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.03) 0%,
+    rgba(255, 255, 255, 0.07) 50%,
+    rgba(255, 255, 255, 0.03) 100%
+  );
+  background-size: 200% 100%;
+  animation: as-preview-shimmer 1.4s linear infinite;
+}
+
 /* The banner fades into the card body instead of ending on a hard edge — the
    stops are Hayase's (nothing until 80%, then a fast ramp to solid). */
 .as-preview-banner::after {

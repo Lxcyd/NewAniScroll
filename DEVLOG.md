@@ -1,5 +1,40 @@
 # DEVLOG
 
+## 2026-08-09 — L'aperçu et la page info doivent montrer la MÊME bannière
+
+Luc : « la première bannière affichée est changée en une fraction de seconde ».
+Deux causes distinctes derrière un seul symptôme.
+
+**1. Une image provisoire volontairement fausse.** La carte peignait d'abord la
+vignette survolée (`poster`) en attendant la réponse de `/api/v2/preview`. C'est
+une jaquette **portrait** posée dans un emplacement 16:9 : elle ne pouvait que
+sauter au remplacement. Elle est supprimée — un squelette tient l'emplacement, et
+la vraie bannière apparaît en fondu **au `onLoad`**, pas au montage (une image à
+moitié décodée est un clignotement de plus). L'endpoint étant préchargé 30 ms
+avant l'ouverture et mis en cache 24 h au CDN, ce squelette est invisible sur un
+id chaud.
+
+**2. Les deux surfaces ne suivaient pas la même règle.** La page info applique
+`bannerImage` AniList, remplacée par le backdrop TMDB quand elle est absente ou
+mesurée basse résolution. L'aperçu, lui, avait hérité la chaîne de Hayase
+(bannière → miniature YouTube du trailer → jaquette). Un titre dont la page info
+avait basculé sur TMDB montrait donc **deux images différentes selon l'endroit
+où on le regardait**.
+
+La règle est sortie dans `lib/images/heroBanner.ts` (`resolveHeroBanner`) et
+appelée par la page info **et** par `/api/v2/preview`. Ce n'est pas de la
+factorisation cosmétique : tant que deux surfaces recopient une même règle, elles
+divergent au premier changement — c'est exactement le même piège que la chaîne
+du titre au `??` sur les deux chemins SSR, corrigée la veille. La miniature
+YouTube a disparu de la chaîne : jolie, mais ce n'est pas l'image de la page
+dont la carte est l'aperçu.
+
+Coût : un `getTmdbAnimeImages` de plus sur un aperçu froid — une ligne Turso,
+sous une réponse déjà cachée 24 h au CDN.
+
+---
+
+
 ## 2026-08-09 — Aperçu au survol : commandes, son, lumière d'ambiance
 
 Sept demandes de Luc sur la carte de survol. Trois points valent d'être notés.
