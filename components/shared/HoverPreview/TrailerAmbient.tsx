@@ -45,6 +45,14 @@ const SRC_W = 160;
 const SRC_H = 90;
 /** A glow is read as light, not as motion. 30 fps is already generous. */
 const SAMPLE_INTERVAL_MS = 1000 / 30;
+/**
+ * Where the light starts dying, as a fraction of the frame's height.
+ *
+ * It has to be well above the bottom: the layers are scaled up, so each one's
+ * ramp lands lower on screen than the last, and all of them must be spent
+ * before the card's clip box cuts at the bottom of the picture.
+ */
+const FADE_FROM = 0.55;
 
 export default function TrailerAmbient({
   banner,
@@ -64,13 +72,38 @@ export default function TrailerAmbient({
   const sourceCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const prevRef = useRef<HTMLCanvasElement | null>(null);
 
-  /** Push whatever has just been composed onto every visible layer. */
+  /**
+   * Push whatever has just been composed onto every visible layer, erasing the
+   * bottom of each as it goes.
+   *
+   * The erase is why this is done per layer rather than once on the source. The
+   * card's clip box ends the glow at the bottom of the picture — light off a
+   * screen doesn't wrap around to backlight the text below it — and a clip is a
+   * straight cut, so the spill running down either side of the card ended on a
+   * visible horizontal line.
+   *
+   * Two CSS masks were tried to soften that and both deleted the glow outright:
+   * a mask is sized to its element's box and TILES over everything outside it,
+   * and the tile landing above the box is the transparent end of the gradient —
+   * which is precisely where the visible glow lives. Doing it in the canvas has
+   * no such rules. `destination-out` with a vertical ramp takes the alpha down
+   * to nothing before the clip is ever reached, so there is nothing left at the
+   * cut to draw a line with.
+   */
   const publish = (source: HTMLCanvasElement) => {
     for (const layer of layerRefs.current) {
       const ctx = layer?.getContext("2d");
       if (!ctx) continue;
+      ctx.globalCompositeOperation = "source-over";
       ctx.clearRect(0, 0, SRC_W, SRC_H);
       ctx.drawImage(source, 0, 0);
+      const ramp = ctx.createLinearGradient(0, SRC_H * FADE_FROM, 0, SRC_H);
+      ramp.addColorStop(0, "rgba(0,0,0,0)");
+      ramp.addColorStop(1, "rgba(0,0,0,1)");
+      ctx.globalCompositeOperation = "destination-out";
+      ctx.fillStyle = ramp;
+      ctx.fillRect(0, 0, SRC_W, SRC_H);
+      ctx.globalCompositeOperation = "source-over";
     }
   };
 
@@ -175,37 +208,7 @@ export default function TrailerAmbient({
   }, [playing, sourceRef]);
 
   return (
-    <div
-      className="pointer-events-none absolute inset-0"
-      aria-hidden
-      /**
-       * Fade the light out as it reaches the bottom of the picture.
-       *
-       * The card's clip box cut it there instead, and a cut is a line: the spill
-       * running down either side of the card ended on a visible horizontal edge.
-       *
-       * The mask is deliberately THREE TIMES the height of this box, centred.
-       * A mask sized to the box tiles over everything outside it, so the tile
-       * landing above the box is the gradient's transparent end — which deletes
-       * the upward spill, i.e. most of the glow. At 300 % the box occupies the
-       * middle third (33 %–67 %), the overflow the layers actually reach falls
-       * inside the mask, and the stops below are expressed in that frame:
-       * opaque through everything above and across the picture, gone by the
-       * time it reaches the picture's bottom edge at 67 %.
-       */
-      style={{
-        WebkitMaskImage:
-          "linear-gradient(to bottom, #000 0%, #000 56%, rgba(0,0,0,.5) 63%, transparent 68%)",
-        maskImage:
-          "linear-gradient(to bottom, #000 0%, #000 56%, rgba(0,0,0,.5) 63%, transparent 68%)",
-        WebkitMaskSize: "100% 300%",
-        maskSize: "100% 300%",
-        WebkitMaskPosition: "center",
-        maskPosition: "center",
-        WebkitMaskRepeat: "no-repeat",
-        maskRepeat: "no-repeat",
-      }}
-    >
+    <div className="pointer-events-none absolute inset-0" aria-hidden>
       {Array.from({ length: LAYERS }).map((_, i) => (
         <div
           key={i}
