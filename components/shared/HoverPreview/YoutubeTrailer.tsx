@@ -91,10 +91,11 @@ const NO_CLOCK_MS = 3000;
  *
  * So the reveal is deferred past the fade. Nothing is lost by waiting: the card
  * is already showing its artwork, which is what the visitor keeps looking at.
- * Slightly over the ~3 s observed, because being early costs the whole bug and
- * being late costs a few hundred milliseconds of a still image.
+ * Comfortably over the ~3 s observed, because the two errors are not
+ * symmetrical: too early brings back the whole bug, too late costs a few tenths
+ * of a second more of a picture that is already on screen.
  */
-const REVEAL_DELAY_MS = 3400;
+const REVEAL_DELAY_MS = 4200;
 /**
  * How many times a pause we never asked for is answered with `playVideo`.
  *
@@ -198,9 +199,17 @@ export default function YoutubeTrailer({
       revealedRef.current = true;
       setPlaying(true);
       onPlayingChange(true);
+      // Sound arrives WITH the picture, not before it. Unmuting at playback
+      // start meant a still artwork playing a soundtrack for four seconds —
+      // which reads as a frozen video, not as a card warming up.
+      if (!wantMutedRef.current && !unmutedRef.current) {
+        unmutedRef.current = true;
+        call("unMute");
+        call("setVolume", `[${Math.round(volumeRef.current * 100)}]`);
+      }
       dbg("revealed");
     }, REVEAL_DELAY_MS);
-  }, [onPlayingChange, dbg]);
+  }, [onPlayingChange, dbg, call]);
 
   /** Anything that stops playback puts the frame back behind the artwork. */
   const cancelReveal = useCallback(() => {
@@ -309,16 +318,11 @@ export default function YoutubeTrailer({
           onHide(false);
           // NOT revealed here — see scheduleReveal. State 1 is the exact instant
           // YouTube paints its own start-up chrome.
-          scheduleReveal();
           // The frame always LOADS muted — that is the only way Chrome lets it
-          // autoplay at all. Sound is restored here instead, once playback is
-          // under way, because unmuting a video that is already running is
-          // allowed where starting an audible one is not.
-          if (!wantMutedRef.current && !unmutedRef.current) {
-            unmutedRef.current = true;
-            call("unMute");
-            call("setVolume", `[${Math.round(volumeRef.current * 100)}]`);
-          }
+          // autoplay at all. The unmute rides along with the reveal, and is
+          // legal there for the same reason it was legal here: turning the sound
+          // on mid-playback is allowed where starting an audible video is not.
+          scheduleReveal();
         } else if (info.playerState === 2) {
           // Hide FIRST, ask questions after: the frame must be off the screen
           // before YouTube gets to paint its pause button on it.
