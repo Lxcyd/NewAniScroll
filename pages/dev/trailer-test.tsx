@@ -12,8 +12,22 @@
  */
 import { useEffect, useRef, useState } from "react";
 
-const WORKER_BASE =
+const DEFAULT_BASE =
   (process.env.NEXT_PUBLIC_PROXY_BASE as string | undefined) || "https://proxy.aniscroll.com";
+
+/**
+ * Worker origin, overridable with `?base=`.
+ *
+ * So this page can be judged WITHOUT deploying to proxy.aniscroll.com, which
+ * serves production playback: run `wrangler dev` in worker/ and open
+ * /dev/trailer-test?base=http://127.0.0.1:8788. Read once at module scope
+ * because it must not change under a playing <video>.
+ */
+function workerBase() {
+  if (typeof window === "undefined") return DEFAULT_BASE;
+  const q = new URLSearchParams(window.location.search).get("base");
+  return q ? q.replace(/\/$/, "") : DEFAULT_BASE;
+}
 
 /** The preview card's real video box, so the test isn't flattered by size. */
 const WIDTH = 364;
@@ -26,7 +40,7 @@ const SAMPLES = [
   { label: "My Hero Academia", id: "AhqVltWDqFA" },
 ];
 
-function NativeTrailer({ id }: { id: string }) {
+function NativeTrailer({ id, base }: { id: string; base: string }) {
   const ref = useRef<HTMLVideoElement>(null);
   const [t0] = useState(() => Date.now());
   const [firstFrameMs, setFirstFrameMs] = useState<number | null>(null);
@@ -48,7 +62,7 @@ function NativeTrailer({ id }: { id: string }) {
       >
         <video
           ref={ref}
-          src={`${WORKER_BASE}/w/trailer/${id}.mp4`}
+          src={`${base}/w/trailer/${id}.mp4`}
           autoPlay
           loop
           muted
@@ -139,12 +153,17 @@ export default function TrailerTest() {
   const [id, setId] = useState(SAMPLES[0].id);
   const [nonce, setNonce] = useState(0);
   const [head, setHead] = useState<string>("");
+  // Resolved on the client only (it can depend on the query string), so the
+  // players wait for it rather than mount against the server's guess and then
+  // reload with a different src.
+  const [base, setBase] = useState<string | null>(null);
+  useEffect(() => setBase(workerBase()), []);
 
   // Cold vs warm edge cache, straight from the response header — the number
   // that decides whether this costs anything at scale.
   const probe = async () => {
     const started = Date.now();
-    const res = await fetch(`${WORKER_BASE}/w/trailer/${id}.mp4`, {
+    const res = await fetch(`${base}/w/trailer/${id}.mp4`, {
       method: "GET",
       headers: { Range: "bytes=0-1023" },
     });
@@ -159,7 +178,9 @@ export default function TrailerTest() {
       <h1 className="mb-1 text-xl font-bold">Trailer : &lt;video&gt; natif vs iframe YouTube</h1>
       <p className="mb-6 text-sm text-white/50">
         Page de test jetable. Gauche = nouveau (proxy worker, aucun chrome possible), droite =
-        production actuelle.
+        production actuelle. Worker : <code className="text-white/70">{base ?? "…"}</code> —
+        surchargeable avec <code className="text-white/70">?base=http://127.0.0.1:8788</code> pour
+        juger sans deployer sur la prod.
       </p>
 
       <div className="mb-6 flex flex-wrap items-center gap-2">
@@ -200,7 +221,11 @@ export default function TrailerTest() {
           <div className="mb-2 text-xs uppercase tracking-widest text-white/40">
             &lt;video&gt; natif
           </div>
-          <NativeTrailer key={`n${nonce}${id}`} id={id} />
+          {base ? (
+            <NativeTrailer key={`n${nonce}${id}${base}`} id={id} base={base} />
+          ) : (
+            <div className="rounded-lg bg-black" style={{ width: WIDTH, height: HEIGHT }} />
+          )}
         </div>
         <div>
           <div className="mb-2 text-xs uppercase tracking-widest text-white/40">
