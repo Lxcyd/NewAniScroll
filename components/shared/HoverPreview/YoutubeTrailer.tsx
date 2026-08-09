@@ -81,36 +81,21 @@ const PLAYING_TTL_MS = 2200;
  */
 const NO_CLOCK_MS = 3000;
 /**
- * How long the frame stays framed OFF-CENTRE after playback starts.
+ * How long the frame stays hidden AFTER the player reports playing.
  *
- * A starting embed paints a big button over its first seconds and fades it out
- * on its own. Nothing suppresses it: no URL parameter (`controls=0` does not,
- * and `controls=1` merely adds a timer to it), no CSS (the frame is
- * cross-origin), and no start mode — measured identical whether the video
- * autoplays or is started through the API after `onReady`. Measured lifetime:
- * still solid at 3.1 s, gone by 4.2 s.
+ * THE reason this card ever showed YouTube's chrome. A starting embed paints a
+ * big centre button over its first seconds and fades it out on its own; there is
+ * no parameter that suppresses it and no message that announces it. Revealing
+ * the frame on `playerState 1` therefore revealed it at the precise instant that
+ * button is at full opacity.
  *
- * What CAN be done is not show the part of the picture it occupies. The button
- * is centred in the IFRAME, so an iframe far wider than its window has its
- * centre — and the button with it — outside the visible box entirely. The
- * trailer therefore opens on a zoomed, left-anchored crop, and eases back to
- * its true framing once the button is gone.
- *
- * The alternative was keeping the frame hidden for these seconds and showing the
- * artwork, which is honest but is not what a hover preview is for: the visitor
- * pointed at the card to see the trailer move.
+ * So the reveal is deferred past the fade. Nothing is lost by waiting: the card
+ * is already showing its artwork, which is what the visitor keeps looking at.
+ * Comfortably over the ~3 s observed, because the two errors are not
+ * symmetrical: too early brings back the whole bug, too late costs a few tenths
+ * of a second more of a picture that is already on screen.
  */
-const SETTLE_DELAY_MS = 4200;
-/**
- * Iframe width, as a multiple of the visible box.
- *
- * The floor is geometric: the button sits at the iframe's centre, so the centre
- * must clear the window's right edge — `width / 2 > window + buttonRadius`, i.e.
- * a little over 2×. The button also grows with the player, so the margin has to
- * grow with it. 2.8 is the measured-good value; below ~2.4 the glyph creeps back
- * into the corner of the frame.
- */
-const ZOOM = 2.8;
+const REVEAL_DELAY_MS = 4200;
 /**
  * How many times a pause we never asked for is answered with `playVideo`.
  *
@@ -173,8 +158,9 @@ export default function YoutubeTrailer({
   const debugRef = useRef(false);
   /** Last playerState logged, so the trace carries transitions only. */
   const lastStateRef = useRef<number | null>(null);
-  /** Pending return to the true framing — see SETTLE_DELAY_MS. */
-  const settleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Pending reveal, and whether it already happened — see REVEAL_DELAY_MS. */
+  const revealRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const revealedRef = useRef(false);
 
   const dbg = useCallback((...args: unknown[]) => {
     if (!debugRef.current) return;
@@ -188,8 +174,6 @@ export default function YoutubeTrailer({
   const [volume, setVolume] = useState(FALLBACK_VOLUME);
   const [volOpen, setVolOpen] = useState(false);
   const [playing, setPlaying] = useState(false);
-  /** false = zoomed past YouTube's start-up button, true = the real framing. */
-  const [settled, setSettled] = useState(false);
   const [hidden, setHidden] = useState(true);
   const [showControls, setShowControls] = useState(false);
   // Blanked for one tick to force a remount when the video ends (manual loop).
@@ -203,42 +187,35 @@ export default function YoutubeTrailer({
   }, []);
 
   /**
-   * Show the video at once, zoomed past the button, and ease back to the real
-   * framing once the button has burnt out.
+   * Reveal the frame once YouTube's start-up chrome has faded, not before.
    *
    * Idempotent: the state feed repeats `playerState 1` for as long as the video
-   * runs, and each repeat must not restart the countdown or stack timers.
+   * runs, and each repeat must not push the reveal further away or stack timers.
    */
-  const startPlayback = useCallback(() => {
-    setPlaying(true);
-    onPlayingChange(true);
-    // Sound with the picture, both immediately. Unmuting is legal here — and
-    // only here — because playback is already under way: browsers refuse an
-    // audible start, not an audible continuation.
-    if (!wantMutedRef.current && !unmutedRef.current) {
-      unmutedRef.current = true;
-      call("unMute");
-      call("setVolume", `[${Math.round(volumeRef.current * 100)}]`);
-    }
-    if (settleRef.current || settled) return;
-    settleRef.current = setTimeout(() => {
-      settleRef.current = null;
-      setSettled(true);
-      dbg("settled into true framing");
-    }, SETTLE_DELAY_MS);
-  }, [onPlayingChange, dbg, call, settled]);
+  const scheduleReveal = useCallback(() => {
+    if (revealRef.current || revealedRef.current) return;
+    revealRef.current = setTimeout(() => {
+      revealRef.current = null;
+      revealedRef.current = true;
+      setPlaying(true);
+      onPlayingChange(true);
+      // Sound arrives WITH the picture, not before it. Unmuting at playback
+      // start meant a still artwork playing a soundtrack for four seconds —
+      // which reads as a frozen video, not as a card warming up.
+      if (!wantMutedRef.current && !unmutedRef.current) {
+        unmutedRef.current = true;
+        call("unMute");
+        call("setVolume", `[${Math.round(volumeRef.current * 100)}]`);
+      }
+      dbg("revealed");
+    }, REVEAL_DELAY_MS);
+  }, [onPlayingChange, dbg, call]);
 
-  /**
-   * Anything that stops playback puts the artwork back — and re-arms the zoom.
-   *
-   * The zoom has to come back with it: a player that stops and starts again
-   * paints its button again, so the next start needs the same cover the first
-   * one had.
-   */
-  const stopPlayback = useCallback(() => {
-    if (settleRef.current) clearTimeout(settleRef.current);
-    settleRef.current = null;
-    setSettled(false);
+  /** Anything that stops playback puts the frame back behind the artwork. */
+  const cancelReveal = useCallback(() => {
+    if (revealRef.current) clearTimeout(revealRef.current);
+    revealRef.current = null;
+    revealedRef.current = false;
     setPlaying(false);
   }, []);
 
@@ -339,18 +316,21 @@ export default function YoutubeTrailer({
           aliveAtRef.current = Date.now();
           setHidden(false);
           onHide(false);
-          // Shown at once, zoomed past the start-up button, and unmuted here —
-          // the frame always LOADS muted because that is the only way a browser
-          // lets it autoplay at all.
-          startPlayback();
+          // NOT revealed here — see scheduleReveal. State 1 is the exact instant
+          // YouTube paints its own start-up chrome.
+          // The frame always LOADS muted — that is the only way Chrome lets it
+          // autoplay at all. The unmute rides along with the reveal, and is
+          // legal there for the same reason it was legal here: turning the sound
+          // on mid-playback is allowed where starting an audible video is not.
+          scheduleReveal();
         } else if (info.playerState === 2) {
           // Hide FIRST, ask questions after: the frame must be off the screen
           // before YouTube gets to paint its pause button on it.
-          stopPlayback();
+          cancelReveal();
           onPlayingChange(false);
           resume();
         } else if (info.playerState === 0) {
-          stopPlayback();
+          cancelReveal();
           onPlayingChange(false);
           resumesRef.current = 0;
           lastTimeRef.current = -1;
@@ -360,7 +340,7 @@ export default function YoutubeTrailer({
         } else if (info.playerState === -1 || info.playerState === 5) {
           // Unstarted and cued are the two states YouTube greets with its big
           // centre play button. Nothing of the frame may be on screen in either.
-          stopPlayback();
+          cancelReveal();
           onPlayingChange(false);
         }
         // 3 (buffering) is deliberately not listed: it is a normal blip inside a
@@ -378,9 +358,9 @@ export default function YoutubeTrailer({
       if (pollRef.current) clearInterval(pollRef.current);
       if (idleRef.current) clearTimeout(idleRef.current);
       if (volCloseRef.current) clearTimeout(volCloseRef.current);
-      if (settleRef.current) clearTimeout(settleRef.current);
+      if (revealRef.current) clearTimeout(revealRef.current);
     };
-  }, [id, onHide, onPlayingChange, onCycle, call, resume, startPlayback, stopPlayback]);
+  }, [id, onHide, onPlayingChange, onCycle, call, resume, scheduleReveal, cancelReveal]);
 
   /**
    * The watchdog behind PLAYING_TTL_MS.
@@ -411,20 +391,20 @@ export default function YoutubeTrailer({
         if (Date.now() - startedAt > NO_CLOCK_MS) {
           dbg("playing but no clock ever — stopping and hiding the frame");
           call("pauseVideo");
-          stopPlayback();
+          cancelReveal();
           onPlayingChange(false);
         }
         return;
       }
       if (Date.now() - aliveAtRef.current > PLAYING_TTL_MS) {
         dbg(`clock frozen at ${lastTimeRef.current} — hiding the frame`);
-        stopPlayback();
+        cancelReveal();
         onPlayingChange(false);
         resume();
       }
     }, 200);
     return () => clearInterval(t);
-  }, [playing, onPlayingChange, resume, call, dbg, stopPlayback]);
+  }, [playing, onPlayingChange, resume, call, dbg, cancelReveal]);
 
   /**
    * The `listening` handshake, then a heartbeat.
@@ -591,33 +571,15 @@ export default function YoutubeTrailer({
           {...({ credentialless: "true" } as Record<string, string>)}
           title="trailer"
           allow="autoplay"
-          // The geometry carries the whole anti-button trick — see SETTLE_DELAY_MS
-          // and ZOOM. The frame is laid out ZOOM times too wide and anchored to
-          // the left edge, which puts its centre, and YouTube's button with it,
-          // out past the right edge of the visible box. Settling scales it back
-          // down by exactly 1/ZOOM about that same left edge, so the end state is
-          // pixel-for-pixel the old full-width framing.
-          //
-          // Scale, not width, for the settle: changing the layout size would make
-          // YouTube re-lay-out its player, and a player that re-lays-out repaints
-          // its chrome — which is the button, back again, at the worst moment. A
-          // transform never touches the frame's own layout.
-          //
-          // Still invisible whenever playback isn't live: an embed that is paused,
-          // unstarted or cued paints that button too, and no zoom saves us there
-          // because it is drawn at rest, not at start. PreviewCard fades its
-          // artwork back in underneath.
-          style={{
-            width: `${ZOOM * 100}%`,
-            height: `calc((100% + 200px) * ${ZOOM})`,
-            transformOrigin: "0 50%",
-            transform: `translateY(-50%) scale(${settled ? 1 / ZOOM : 1})`,
-            // Both transitions inline: an inline `transition` overrides the
-            // utility class outright, so declaring transform here would silently
-            // drop the opacity fade if it were left to Tailwind.
-            transition: "transform 900ms cubic-bezier(0.4, 0, 0.2, 1), opacity 300ms ease",
-          }}
-          className={`pointer-events-none absolute left-0 top-1/2 transform-gpu border-0 ${
+          // h-full w-full, not `size-full`: Tailwind 3.3 here, `size-*` is 3.4+.
+          // Visible ONLY while playing. YouTube draws its own big centre button
+          // over an embed that is paused, unstarted or cued, and `controls=0`
+          // does not remove it; there is no parameter that does, and the frame is
+          // cross-origin so it cannot be reached from here. Hiding the frame is
+          // therefore the ONLY way to guarantee that button is never seen — so a
+          // trailer that isn't running is not a dimmed video with a glyph on it,
+          // it is gone, and PreviewCard fades its artwork back in underneath.
+          className={`pointer-events-none absolute left-0 top-1/2 h-[calc(100%+200px)] w-full -translate-y-1/2 transform-gpu border-0 transition-opacity duration-300 ${
             hidden || !playing ? "opacity-0" : "opacity-100"
           }`}
           onLoad={initFrame}
