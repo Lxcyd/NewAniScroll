@@ -128,15 +128,35 @@ html.tab-hidden *::after {
 
 /* The glow belongs to the VIDEO, not to the card. This box IS the video's box
    (the card's top 45%), cut open on three sides: `clip-path` with negative
-   insets lets the blur run as far as it likes left, right and up, and cuts it
-   dead at the bottom of the picture. Light off a screen doesn't wrap around to
-   backlight the text below it. */
+   insets lets the blur run as far as it likes left, right and up, and stops it
+   at the bottom of the picture. Light off a screen doesn't wrap around to
+   backlight the text below it.
+   But `clip-path` alone STOPS it rather than ending it: the spill running down
+   the left and right of the card met that bottom inset and terminated on a
+   horizontal line, visible against the page on both sides. So the cut is now a
+   fade — opaque across the picture, gone by the time it reaches the bottom
+   edge. The clip-path stays for the three open sides and as the hard backstop
+   below; the mask is what makes the light die instead of being severed. */
 .as-preview-ambient-clip {
   top: 0;
   left: 0;
   width: 100%;
   height: 45%;
   clip-path: inset(-400px -400px 0 -400px);
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    #000 0%,
+    #000 62%,
+    rgba(0, 0, 0, 0.55) 84%,
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    #000 0%,
+    #000 62%,
+    rgba(0, 0, 0, 0.55) 84%,
+    transparent 100%
+  );
 }
 
 /* The single-layer glow that used to live here is gone, and with it a long tail
