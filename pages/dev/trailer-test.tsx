@@ -43,8 +43,24 @@ const SAMPLES = [
 /** Sampling grid for the bar detector. Small on purpose — see detectBars. */
 const PROBE_W = 96;
 const PROBE_H = 54;
-/** Luma below this counts as "black bar", not "dark scene". */
-const BLACK_LUMA = 18;
+/**
+ * Luma below this counts as "black bar", not "dark scene".
+ *
+ * Not 18. A bar's edge is never a clean step in a compressed 360p frame: the
+ * block boundary bleeds a few levels of grey outward, and the encoder leaves
+ * ringing along the high-contrast seam. Scanning for near-absolute black stops
+ * one or two columns short of the true edge, which is not a rounding error — it
+ * is precisely the leftover sliver of black that survived the crop.
+ */
+const BLACK_LUMA = 30;
+/**
+ * Extra crop past what was measured, as a fraction of the frame.
+ *
+ * The two errors are not symmetrical. Overshooting eats ~1 % of a picture
+ * nobody is inspecting at 364 px wide; undershooting leaves a black line along
+ * the edge, which is the one artefact the eye catches instantly.
+ */
+const BAR_MARGIN = 0.012;
 /**
  * Never zoom past this, whatever the pixels say.
  *
@@ -53,7 +69,7 @@ const BLACK_LUMA = 18;
  * pathological case (a video that is dark in every sample) from blowing the
  * picture up to nothing.
  */
-const MAX_ZOOM = 1.34;
+const MAX_ZOOM = 1.39;
 /**
  * Widest bar we will believe, as a fraction of the frame.
  *
@@ -79,7 +95,7 @@ const MIN_VALID_SAMPLES = 2;
  * question before the picture is ever shown, and costs one range request
  * against a file the edge already holds.
  */
-const PROBE_AT = [0.35, 0.5, 0.65];
+const PROBE_AT = [0.2, 0.35, 0.5, 0.65, 0.8];
 /** Give up probing after this and fall back to watching the live frames. */
 const PROBE_TIMEOUT_MS = 2500;
 /**
@@ -90,7 +106,7 @@ const PROBE_TIMEOUT_MS = 2500;
  * version prefix is there so a change to the detector invalidates what an older
  * one wrote rather than inheriting its mistakes.
  */
-const CROP_STORE_KEY = "as-trailer-crop-v1";
+const CROP_STORE_KEY = "as-trailer-crop-v2";
 
 function readCrop(id: string): number | null {
   try {
@@ -111,10 +127,19 @@ function writeCrop(id: string, zoom: number) {
   }
 }
 
-/** Bars → the uniform scale that pushes them out of the box. */
+/**
+ * Bars → the uniform scale that pushes them out of the box.
+ *
+ * The margin is added BEFORE the cap, so MAX_BAR stays the single ceiling on
+ * how much of a picture this is ever allowed to eat.
+ */
 function zoomForBars(bars: { x: number; y: number }) {
-  const worst = Math.min(MAX_BAR, Math.max(bars.x, bars.y));
-  return worst > 0.015 ? Math.min(MAX_ZOOM, 1 / (1 - 2 * worst)) : 1;
+  const measured = Math.max(bars.x, bars.y);
+  // Under ~1.5 % is measurement noise, and a noise-sized bar must not collect
+  // the safety margin and become a real crop.
+  if (measured <= 0.015) return 1;
+  const worst = Math.min(MAX_BAR, measured + BAR_MARGIN);
+  return Math.min(MAX_ZOOM, 1 / (1 - 2 * worst));
 }
 
 /**
@@ -223,11 +248,15 @@ function probeCrop(src: string, canvas: HTMLCanvasElement): Promise<number | nul
     const timeout = setTimeout(() => finish(null), PROBE_TIMEOUT_MS);
 
     let index = 0;
+    let valid = 0;
     let best: { x: number; y: number } | null = null;
 
     const seekNext = () => {
       if (index >= PROBE_AT.length || !probe.duration || !Number.isFinite(probe.duration)) {
-        finish(best ? zoomForBars(best) : null);
+        // Two readable frames minimum. One frame agreeing with itself is not a
+        // measurement, and the fallback that runs on null is the slower path,
+        // not a wrong one.
+        finish(best && valid >= MIN_VALID_SAMPLES ? zoomForBars(best) : null);
         return;
       }
       probe.currentTime = probe.duration * PROBE_AT[index];
@@ -237,7 +266,14 @@ function probeCrop(src: string, canvas: HTMLCanvasElement): Promise<number | nul
     probe.addEventListener("loadedmetadata", seekNext);
     probe.addEventListener("seeked", () => {
       const found = detectBars(probe, canvas);
-      if (found) best = best ? { x: Math.min(best.x, found.x), y: Math.min(best.y, found.y) } : found;
+      if (found) {
+        valid += 1;
+        // The MINIMUM, spread across the whole timeline — which is what makes a
+        // trailer that is boxed only at its start safe: one readable frame
+        // without bars anywhere in it drags the estimate to zero and no crop is
+        // applied. A bar has to survive EVERY probed moment to be believed.
+        best = best ? { x: Math.min(best.x, found.x), y: Math.min(best.y, found.y) } : found;
+      }
       seekNext();
     });
     probe.addEventListener("error", () => finish(null));
