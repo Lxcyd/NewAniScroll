@@ -46,13 +46,16 @@ const SRC_H = 90;
 /** A glow is read as light, not as motion. 30 fps is already generous. */
 const SAMPLE_INTERVAL_MS = 1000 / 30;
 /**
- * Where the light starts dying, as a fraction of the frame's height.
+ * Length of the extinction ramp, in canvas heights.
  *
- * It has to be well above the bottom: the layers are scaled up, so each one's
- * ramp lands lower on screen than the last, and all of them must be spent
- * before the card's clip box cuts at the bottom of the picture.
+ * Where it ENDS is computed per layer rather than fixed — see publish. A single
+ * shared value cannot work: the ramp lives in canvas coordinates and every
+ * layer is then scaled about its centre, so the same stop lands further down
+ * the screen the wider the layer is. With a fixed ramp ending at the canvas
+ * bottom, the outermost layer still carried ~27 % alpha where the card clips —
+ * and that remainder is precisely the horizontal line at the foot of the glow.
  */
-const FADE_FROM = 0.55;
+const FADE_LENGTH = 0.34;
 
 export default function TrailerAmbient({
   banner,
@@ -71,6 +74,15 @@ export default function TrailerAmbient({
   const layerRefs = useRef<(HTMLCanvasElement | null)[]>([]);
   const sourceCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const prevRef = useRef<HTMLCanvasElement | null>(null);
+  /**
+   * The crop, readable from inside the sampling loop.
+   *
+   * The loop is started once and must not be torn down and rebuilt when the
+   * crop lands a second or two in — restarting it would drop the temporal blend
+   * and blink the glow. A ref lets the running loop see the new value.
+   */
+  const zoomRef = useRef(zoom);
+  zoomRef.current = zoom;
 
   /**
    * Push whatever has just been composed onto every visible layer, erasing the
@@ -91,20 +103,42 @@ export default function TrailerAmbient({
    * cut to draw a line with.
    */
   const publish = (source: HTMLCanvasElement) => {
-    for (const layer of layerRefs.current) {
+    layerRefs.current.forEach((layer, i) => {
       const ctx = layer?.getContext("2d");
-      if (!ctx) continue;
+      if (!ctx || !layer) return;
       ctx.globalCompositeOperation = "source-over";
       ctx.clearRect(0, 0, SRC_W, SRC_H);
       ctx.drawImage(source, 0, 0);
-      const ramp = ctx.createLinearGradient(0, SRC_H * FADE_FROM, 0, SRC_H);
+
+      /*
+       * Find, in this layer's own canvas coordinates, the point that lands on
+       * the card's clip line — then finish the ramp exactly there.
+       *
+       * Two transforms sit between the canvas and the screen. `object-fit:
+       * cover` crops it to the box's aspect, so the box bottom is already short
+       * of the canvas bottom; then `scale()` about the centre pushes that point
+       * further up the canvas the larger the layer. Both are undone here rather
+       * than approximated, because being a few percent short is not a subtle
+       * error — it is the visible line this exists to remove.
+       */
+      const boxW = layer.clientWidth || SRC_W;
+      const boxH = layer.clientHeight || SRC_H;
+      const cover = Math.max(boxW / SRC_W, boxH / SRC_H);
+      const visibleHalf = boxH / cover / SRC_H / 2;
+      const scale = (1 + i * SCALE_STEP) * (zoomRef.current || 1);
+      const end = Math.min(1, 0.5 + visibleHalf / scale);
+      const start = Math.max(0.15, end - FADE_LENGTH);
+
+      const ramp = ctx.createLinearGradient(0, SRC_H * start, 0, SRC_H * end);
       ramp.addColorStop(0, "rgba(0,0,0,0)");
       ramp.addColorStop(1, "rgba(0,0,0,1)");
       ctx.globalCompositeOperation = "destination-out";
       ctx.fillStyle = ramp;
+      // Past the ramp's end the gradient keeps its last stop, so everything
+      // below the clip line is erased outright rather than merely faded.
       ctx.fillRect(0, 0, SRC_W, SRC_H);
       ctx.globalCompositeOperation = "source-over";
-    }
+    });
   };
 
   const ensureCanvases = () => {
