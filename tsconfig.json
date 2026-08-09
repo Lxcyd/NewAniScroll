@@ -6,6 +6,8 @@
     "strict": true,
     "noEmit": true,
     "incremental": true,
+    // Hors de la racine : c'est un cache de build, pas un fichier de projet.
+    "tsBuildInfoFile": "node_modules/.cache/tsconfig.tsbuildinfo",
     "esModuleInterop": true,
     "module": "esnext",
     "moduleResolution": "Bundler",
