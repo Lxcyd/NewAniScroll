@@ -126,6 +126,11 @@ export default function TrailerAmbient({
       const cover = Math.max(boxW / SRC_W, boxH / SRC_H);
       const visibleHalf = boxH / cover / SRC_H / 2;
       const scale = (1 + i * SCALE_STEP) * (zoomRef.current || 1);
+      // Ends at the foot of the picture, not at the card's clip line — the two
+      // used to be the same place, and the clip has since been moved down to
+      // leave the blur room to die (see .as-preview-ambient-clip). What matters
+      // here is that the LIGHT stops where the picture stops; the blur's tail
+      // below that is the soft ending, not a defect.
       const end = Math.min(1, 0.5 + visibleHalf / scale);
       const start = Math.max(0.15, end - FADE_LENGTH);
 
