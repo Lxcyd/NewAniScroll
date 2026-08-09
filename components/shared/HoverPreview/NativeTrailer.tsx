@@ -330,7 +330,15 @@ export default function NativeTrailer({
       // No z-index on purpose: the banner's ::after gradient is a positioned
       // pseudo-element that must keep painting over the video's bottom edge, and
       // it only can while this layer stays at `z-index: auto`.
-      className="absolute inset-0 overflow-hidden rounded-t-card"
+      // Rectangular clip, deliberately: the corners are the CARD's job. Two
+      // rounded clips at the same radius do not give one clean curve, they give
+      // two antialiased ones multiplied together — and a doubly-softened edge
+      // leaves enough of the surface showing between the picture and the page
+      // to read as a dark line following the corner. Only the outermost clip
+      // curves; everything under it is a rectangle. This one still has work to
+      // do, though: the video is scaled up by the crop and would otherwise
+      // spill over the card's straight edges.
+      className="absolute inset-0 overflow-hidden"
       onPointerMove={wake}
       onPointerLeave={sleep}
     >

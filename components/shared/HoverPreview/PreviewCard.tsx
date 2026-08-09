@@ -282,13 +282,16 @@ export default function PreviewCard({
             rounded clip meets it, and against black that edge was a visible
             dark outline. Matching the card makes the seam the card. */}
         <div
-          className="as-preview-banner relative h-[45%] rounded-t-card"
+          className="as-preview-banner relative h-[45%]"
           style={{ background: SURFACE }}
         >
           {/* Holds the slot while the payload is in flight. The endpoint is
               prefetched 30 ms before the card mounts and edge-cached for a day,
               so on a warm id this is never seen. */}
-          {!banner && <div className="as-preview-skeleton h-full w-full rounded-t-card" />}
+          {/* No radius on any of these: see the note in NativeTrailer — the card
+              owns the corners, and a second curve at the same radius only draws
+              a seam. */}
+          {!banner && <div className="as-preview-skeleton h-full w-full" />}
           {banner && (
             // eslint-disable-next-line @next/next/no-img-element
             <img
@@ -303,7 +306,7 @@ export default function PreviewCard({
               }}
               onLoad={() => setBannerReady(true)}
               // h-full w-full, not `size-full`: Tailwind 3.3 here, `size-*` is 3.4+.
-              className={`h-full w-full rounded-t-card object-cover transition-opacity duration-300 ${
+              className={`h-full w-full object-cover transition-opacity duration-300 ${
                 bannerReady && !playing ? "opacity-100" : "opacity-0"
               }`}
             />
