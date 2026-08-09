@@ -133,10 +133,16 @@ export default function PreviewCard({
   // anchored to the card, and pulling it back in would make it point at a
   // neighbour instead. `rect` is refreshed by the provider on scroll, so this
   // re-runs and the card travels with the page like any other element.
+  //
+  // Rounded to whole pixels, which is not cosmetic bookkeeping: a poster is
+  // rarely at an integer offset, so centring on it lands the card on half
+  // pixels. Everything the card clips — the rounded corners, the video's box —
+  // is then antialiased against whatever sits behind it, and a half-covered row
+  // of pixels along the top of the picture reads as a one-pixel outline.
   useLayoutEffect(() => {
     setPos({
-      left: rect.left + rect.width / 2 - WIDTH / 2,
-      top: rect.top + rect.height / 2 - HEIGHT / 2,
+      left: Math.round(rect.left + rect.width / 2 - WIDTH / 2),
+      top: Math.round(rect.top + rect.height / 2 - HEIGHT / 2),
     });
   }, [rect]);
 
@@ -270,7 +276,15 @@ export default function PreviewCard({
           boxShadow: "0 14px 34px rgba(0,0,0,.5)",
         }}
       >
-        <div className="as-preview-banner relative h-[45%] rounded-t-card bg-black">
+        {/* The surface, not black, behind the picture. Nothing legitimately
+            shows through here — banner and trailer both cover the box — so the
+            only thing this colour ever paints is the antialiased edge where the
+            rounded clip meets it, and against black that edge was a visible
+            dark outline. Matching the card makes the seam the card. */}
+        <div
+          className="as-preview-banner relative h-[45%] rounded-t-card"
+          style={{ background: SURFACE }}
+        >
           {/* Holds the slot while the payload is in flight. The endpoint is
               prefetched 30 ms before the card mounts and edge-cached for a day,
               so on a warm id this is never seen. */}
