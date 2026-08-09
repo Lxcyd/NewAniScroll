@@ -4,6 +4,7 @@ import { useRouter } from "next/router";
 
 import { PREVIEW_ATTR } from "@/lib/preview/anchor";
 import { fetchPreview } from "@/lib/preview/previewStore";
+import { startViewportPrefetch } from "@/lib/preview/viewportPrefetch";
 import PreviewCard, { type AnchorRect } from "./PreviewCard";
 
 /**
@@ -94,6 +95,13 @@ export default function HoverPreviewProvider() {
       return link;
     });
     return () => links.forEach((l) => l.remove());
+  }, [enabled]);
+
+  // Payloads and banners for the cards already on screen, so a hover finds the
+  // artwork in cache instead of starting its download. See viewportPrefetch.
+  useEffect(() => {
+    if (!enabled) return;
+    return startViewportPrefetch();
   }, [enabled]);
 
   useEffect(() => {

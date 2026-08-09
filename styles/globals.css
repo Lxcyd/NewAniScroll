@@ -91,9 +91,12 @@ html.tab-hidden *::after {
   object-fit: cover;
   border-radius: 28px;
   filter: blur(38px) saturate(220%);
-  opacity: 0.55;
-  /* Its own layer: an animated blur of this radius is expensive to re-raster. */
+  /* Its own layer: an animated blur of this radius is expensive to re-raster,
+     and the trailer variant re-rasters it on every video frame. */
   transform: translateZ(0);
+  /* Opacity is set inline, NOT here: the two stages cross-fade, and a value in
+     this rule would win over Tailwind's opacity utilities (plain CSS declared
+     after @tailwind utilities). */
 }
 
 /* Placeholder for the preview banner while its URL is still in flight. A calm

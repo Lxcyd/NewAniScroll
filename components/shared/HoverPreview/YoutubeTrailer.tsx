@@ -39,6 +39,8 @@ const MUTE_KEY = "aniscroll.preview.muted";
 const DEFAULT_VOLUME = 40;
 /** Controls fade this long after the pointer stops moving over the video. */
 const IDLE_MS = 1600;
+/** Travel, in px, before a pointermove counts as the user reaching for a control. */
+const MOVE_SLOP = 6;
 
 function readMutedPref(): boolean {
   try {
@@ -67,6 +69,8 @@ export default function YoutubeTrailer({
   const frameRef = useRef<HTMLIFrameElement>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const idleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Where the pointer was when it first met the video — see `wake`. */
+  const originRef = useRef<{ x: number; y: number } | null>(null);
   /** The user's standing choice; the live `muted` state can lag behind it. */
   const wantMutedRef = useRef(true);
   /** Guards the one-shot unmute, which must not re-fire on every state ping. */
@@ -185,7 +189,22 @@ export default function YoutubeTrailer({
 
   // Controls are invisible until the pointer actually moves over the video, and
   // fade again once it settles — the trailer is the content, not the chrome.
-  const wake = () => {
+  //
+  // "Actually moves" is the whole difficulty. The card opens UNDER the pointer,
+  // so the browser fires a pointermove against it immediately even though the
+  // hand never moved: the card came to the cursor, not the reverse. Taking that
+  // first event at face value is what put the pause button on screen the moment
+  // the trailer started. So the first move only records a baseline, and nothing
+  // shows until the pointer has travelled past MOVE_SLOP from it.
+  const wake = (e: React.PointerEvent) => {
+    const origin = originRef.current;
+    if (!origin) {
+      originRef.current = { x: e.clientX, y: e.clientY };
+      return;
+    }
+    if (Math.abs(e.clientX - origin.x) < MOVE_SLOP && Math.abs(e.clientY - origin.y) < MOVE_SLOP) {
+      return;
+    }
     setShowControls(true);
     if (idleRef.current) clearTimeout(idleRef.current);
     idleRef.current = setTimeout(() => setShowControls(false), IDLE_MS);
@@ -193,11 +212,17 @@ export default function YoutubeTrailer({
 
   const sleep = () => {
     if (idleRef.current) clearTimeout(idleRef.current);
+    originRef.current = null;
     setShowControls(false);
   };
 
-  // A paused trailer keeps its controls up: they are the only way back.
-  const controlsVisible = !hidden && (showControls || !playing);
+  // Pause and volume share ONE rule, deliberately: two controls in the same
+  // corner of the same surface that appear under different conditions read as a
+  // glitch. (An earlier version kept the pause button up whenever the video was
+  // paused, on the theory that it is the only way to resume. It isn't — moving
+  // the pointer brings it straight back, which is the gesture that got you
+  // there in the first place.)
+  const controlsVisible = !hidden && showControls;
   const chrome = `transition-opacity duration-200 ${
     controlsVisible ? "opacity-100" : "pointer-events-none opacity-0"
   }`;

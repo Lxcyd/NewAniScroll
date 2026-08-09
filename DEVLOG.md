@@ -1,5 +1,48 @@
 # DEVLOG
 
+## 2026-08-09 — Le bouton pause qui s'affichait tout seul, et la lumière qui suit la vidéo
+
+**Le pointeur n'avait pas bougé — c'est la carte qui est venue à lui.** Les
+commandes devaient n'apparaître qu'au mouvement du curseur sur la vidéo ; le
+bouton pause se montrait dès le démarrage. Cause : la carte s'ouvre **sous** le
+pointeur, donc le navigateur émet aussitôt un `pointermove` contre elle alors que
+la main n'a pas bougé d'un pixel. Le premier mouvement ne fait plus qu'enregistrer
+une origine, et rien ne s'affiche tant que le pointeur n'a pas parcouru 6 px.
+**Un `pointermove` ne prouve pas que le pointeur a bougé** dès qu'un élément peut
+apparaître sous lui.
+
+Au passage, la règle `|| !playing` qui gardait la pause visible sur vidéo en pause
+est supprimée : deux commandes du même bandeau qui apparaissent à des conditions
+différentes se lisent comme un bug. Bouger le curseur les ramène — c'est le geste
+qui a mis la vidéo en pause au départ.
+
+**La lumière d'ambiance ne pouvait pas suivre la vidéo sans une seconde iframe.**
+Un embed YouTube est cross-origin : aucun accès aux pixels, ni canvas ni rien. Un
+halo qui suit le trailer ne se *calcule* donc pas, il se *rejoue* — c'est le
+truc de Hayase et il n'y en a pas de moins cher. Décision de Luc après que
+j'ai exposé le compromis. Réduit au minimum : la copie ne se monte **qu'une fois
+le vrai lecteur en lecture** (elle ne dispute donc jamais la bande passante au
+démarrage, seul moment où l'utilisateur attend), muette à vie, sans handshake API,
+et bouclée en `loop=1&playlist=` — la chrome supplémentaire que YouTube dessine
+alors ne survit pas à un flou de 38 px. L'artwork tient le halo avant, fondu de
+700 ms entre les deux étapes.
+
+Piège CSS rencontré : `.as-preview-ambient` fixait `opacity` en CSS simple, donc
+**après** `@tailwind utilities` — les classes `opacity-*` de Tailwind ne pouvaient
+pas gagner. L'opacité est passée inline.
+
+**Préchargement des cartes visibles** (`lib/preview/viewportPrefetch.ts`). Le noir
+au premier instant d'une carte est un téléchargement qui n'a commencé qu'à
+l'arrivée du pointeur : rien fait *au survol* ne peut le supprimer, il faut que le
+travail ait eu lieu avant. IntersectionObserver + MutationObserver (les carrousels
+et les grilles infinies ajoutent des ancres après coup), drain sur
+`requestIdleCallback` 3 par 3, sortie immédiate sur Save-Data / 2g. Reste
+soutenable parce que l'endpoint est anonyme et caché 24 h au CDN : un id chaud est
+un hit CDN, ni invocation ni commande Upstash.
+
+---
+
+
 ## 2026-08-09 — L'aperçu et la page info doivent montrer la MÊME bannière
 
 Luc : « la première bannière affichée est changée en une fraction de seconde ».

@@ -15,6 +15,7 @@ import { toggleFavourite, useIsFavourite } from "@/lib/anilist/favouritesCache";
 import { notify } from "@/lib/notifications/noticeStore";
 import { fetchPreview, peekPreview, type PreviewData } from "@/lib/preview/previewStore";
 import YoutubeTrailer from "./YoutubeTrailer";
+import TrailerAmbient from "./TrailerAmbient";
 
 export type AnchorRect = { top: number; left: number; width: number; height: number };
 
@@ -30,6 +31,8 @@ const MARGIN = 12;
 
 /** Card surface. Kept in sync with the banner gradient in globals.css. */
 const SURFACE = "#1a1a24";
+/** Strength of the glow. Enough to read as light, not enough to read as a halo. */
+const AMBIENT_OPACITY = 0.55;
 
 const FORMAT_LABEL: Record<string, string> = {
   TV: "TV Series",
@@ -195,7 +198,12 @@ export default function PreviewCard({
       {/* Ambient light: the artwork blown up, blurred and over-saturated behind
           the card, spilling past its edges. It lives OUTSIDE the card because
           the card clips its own children, and behind it via z-index because the
-          card surface is opaque. */}
+          card surface is opaque.
+
+          Two stages. The artwork holds the glow from the first frame, then the
+          trailer takes over and the light starts following the video — a still
+          image can't do that, and a cross-origin embed can't be sampled, so the
+          only way is a second copy of the video (see TrailerAmbient). */}
       {banner && (
         // eslint-disable-next-line @next/next/no-img-element
         <img
@@ -203,9 +211,11 @@ export default function PreviewCard({
           alt=""
           aria-hidden
           draggable={false}
-          className="as-preview-ambient pointer-events-none absolute -z-10"
+          className="as-preview-ambient pointer-events-none absolute -z-10 transition-opacity duration-700"
+          style={{ opacity: trailerPlaying ? 0 : AMBIENT_OPACITY }}
         />
       )}
+      {trailerPlaying && data?.trailer?.id && <TrailerAmbient id={data.trailer.id} />}
 
       <div
         className="as-preview-card relative h-full w-full cursor-pointer overflow-hidden rounded-card ring-1 ring-white/10"
