@@ -62,14 +62,16 @@ const HANDSHAKE_WINDOW_MS = 3000;
  */
 const HEARTBEAT_MS = 600;
 /**
- * How long a "playing" claim survives without being re-confirmed by the player.
+ * How long the playback clock may stand still before we call it stopped.
  *
- * The heartbeat answers every HEARTBEAT_MS with a full state dump, so anything
- * past two missed beats means we are no longer being told the truth — and a
- * `playing` that has quietly gone stale is precisely what leaves the frame on
- * screen for YouTube to draw its own centre button over. When in doubt, hide.
+ * Generous on purpose. This is the last line of defence against a `playing` that
+ * has gone stale — the state that leaves the frame up for YouTube to paint its
+ * centre button on — but it is also the only rule here that can be WRONG about a
+ * healthy video, and being wrong means hiding the picture while the sound plays
+ * on. Progress messages arrive several times a second; anything past two seconds
+ * of a frozen clock is a real stall, not a slow beat.
  */
-const PLAYING_TTL_MS = HEARTBEAT_MS * 2 + 300;
+const PLAYING_TTL_MS = 2200;
 /**
  * How many times a pause we never asked for is answered with `playVideo`.
  *
@@ -110,6 +112,8 @@ export default function YoutubeTrailer({
   const aliveAtRef = useRef(0);
   /** Spent attempts at reviving a pause we never asked for — see MAX_RESUMES. */
   const resumesRef = useRef(0);
+  /** Highest playback clock seen so far; the only honest proof of life. */
+  const lastTimeRef = useRef(-1);
   const trackRef = useRef<HTMLDivElement>(null);
   const volCloseRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -190,6 +194,19 @@ export default function YoutubeTrailer({
       if (json.event === "infoDelivery" || json.event === "initialDelivery") {
         const info = json.info ?? {};
 
+        // THE liveness signal. `playerState` is sent on transitions, not on a
+        // schedule, so a trailer three seconds into a steady playback sends none
+        // — reading liveness from it declares a perfectly healthy video dead.
+        // A clock that advances cannot lie: it is the one thing a paused player
+        // cannot produce and a playing one cannot withhold.
+        if (typeof info.currentTime === "number") {
+          const t = info.currentTime;
+          if (t > lastTimeRef.current + 0.05) aliveAtRef.current = Date.now();
+          // `<` covers the loop and any seek: the baseline follows the clock
+          // wherever it goes, it just doesn't count backwards as progress.
+          lastTimeRef.current = t;
+        }
+
         if (info.playerState === 1) {
           aliveAtRef.current = Date.now();
           setHidden(false);
@@ -215,6 +232,7 @@ export default function YoutubeTrailer({
           setPlaying(false);
           onPlayingChange(false);
           resumesRef.current = 0;
+          lastTimeRef.current = -1;
           onCycle();
           setSrc("");
           setTimeout(() => setSrc(id), 0);
@@ -248,13 +266,18 @@ export default function YoutubeTrailer({
    * Every rule that keeps YouTube's own chrome off the screen hangs on `playing`
    * being true only while the video really runs — the frame is opacity-0
    * otherwise, and the card paints its artwork instead. So `playing` must never
-   * be able to stay true on its own inertia: it is re-armed by each state-1 ping
-   * and expires if the pings stop, whatever the reason (a state we never got, a
-   * frame that stopped answering, a tab the browser throttled).
+   * be able to stay true on its own inertia: it expires unless the playback
+   * clock keeps moving, whatever stopped it (a state change we never got, a
+   * frame that went quiet, a tab the browser throttled).
+   *
+   * It arms itself only once a clock has actually been seen. Silence on the
+   * channel is not evidence of a stall, and treating it as one is what put the
+   * artwork back over a running trailer with the sound still going.
    */
   useEffect(() => {
     if (!playing) return;
     const t = setInterval(() => {
+      if (lastTimeRef.current < 0) return;
       if (Date.now() - aliveAtRef.current > PLAYING_TTL_MS) {
         setPlaying(false);
         onPlayingChange(false);
