@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { MdPause, MdPlayArrow, MdVolumeOff, MdVolumeUp } from "react-icons/md";
+import { MdVolumeOff, MdVolumeUp } from "react-icons/md";
 
 import {
   PREVIEW_DEFAULT_VOLUME,
@@ -286,13 +286,6 @@ export default function YoutubeTrailer({
     volCloseRef.current = setTimeout(() => setVolOpen(false), 260);
   };
 
-  const togglePlay = (e: React.MouseEvent) => {
-    stop(e);
-    call(playing ? "pauseVideo" : "playVideo");
-    setPlaying(!playing);
-    onPlayingChange(!playing);
-  };
-
   // Controls are invisible until the pointer actually moves over the video, and
   // fade again once it settles — the trailer is the content, not the chrome.
   //
@@ -325,14 +318,11 @@ export default function YoutubeTrailer({
     setShowControls(false);
   };
 
-  // Pause and volume share ONE rule, deliberately: two controls in the same
-  // corner of the same surface that appear under different conditions read as a
-  // glitch. (An earlier version kept the pause button up whenever the video was
-  // paused, on the theory that it is the only way to resume. It isn't — moving
-  // the pointer brings it straight back, which is the gesture that got you
-  // there in the first place.)
-  // `volOpen` is the one exception, and it is not really one: the slider can
-  // only be open because the pointer is already on the volume button.
+  // Volume is the ONLY control on this surface — no play/pause icon is ever
+  // drawn, in any state. The preview is a trailer that plays itself; the single
+  // thing a visitor wants to reach for is the sound.
+  // `volOpen` keeps the chrome up while the slider is out: it can only be open
+  // because the pointer is already on the volume button.
   const controlsVisible = !hidden && (showControls || volOpen);
   const chrome = `transition-opacity duration-200 ${
     controlsVisible ? "opacity-100" : "pointer-events-none opacity-0"
@@ -377,15 +367,6 @@ export default function YoutubeTrailer({
         aria-hidden
         className={`absolute inset-0 bg-gradient-to-b from-black/45 via-transparent to-transparent ${chrome}`}
       />
-
-      <button
-        type="button"
-        onClick={togglePlay}
-        aria-label={playing ? "Pause" : "Play"}
-        className={`as-preview-videobtn absolute left-1/2 top-1/2 h-10 w-10 -translate-x-1/2 -translate-y-1/2 ${chrome}`}
-      >
-        {playing ? <MdPause size={36} /> : <MdPlayArrow size={38} />}
-      </button>
 
       {/* Volume: the button, and the track that drops out of it on hover. Both
           live in one wrapper so the pointer can travel from one to the other
