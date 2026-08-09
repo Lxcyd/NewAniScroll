@@ -64,11 +64,58 @@ const MAX_ZOOM = 1.34;
 const MAX_BAR = 0.14;
 /** How bright the middle of a frame must be for that frame to prove anything. */
 const MIN_CENTRE_LUMA = 34;
-/** Frames to sample before settling, and how often. */
+/** Frames to sample before settling, and how often (the live fallback only). */
 const PROBE_EVERY_MS = 700;
 const PROBE_SAMPLES = 8;
 /** Never crop on a single frame's word. */
 const MIN_VALID_SAMPLES = 2;
+/**
+ * Where the off-screen probe looks, as fractions of the duration.
+ *
+ * The middle of a trailer is real footage; the beginning is the studio card
+ * that no detector can read. Watching the visible video meant waiting for it to
+ * play out of its own intro — about a second of a visibly wrong frame, then a
+ * zoom. Seeking a second, hidden element straight to the middle answers the
+ * question before the picture is ever shown, and costs one range request
+ * against a file the edge already holds.
+ */
+const PROBE_AT = [0.35, 0.5, 0.65];
+/** Give up probing after this and fall back to watching the live frames. */
+const PROBE_TIMEOUT_MS = 2500;
+/**
+ * Decisions, kept for the session and across reloads.
+ *
+ * A trailer's framing is a property of the file — it cannot change between two
+ * hovers — so the second view of a card should never re-measure anything. The
+ * version prefix is there so a change to the detector invalidates what an older
+ * one wrote rather than inheriting its mistakes.
+ */
+const CROP_STORE_KEY = "as-trailer-crop-v1";
+
+function readCrop(id: string): number | null {
+  try {
+    const raw = window.localStorage.getItem(`${CROP_STORE_KEY}:${id}`);
+    if (!raw) return null;
+    const v = Number(raw);
+    return Number.isFinite(v) && v >= 1 && v <= MAX_ZOOM ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeCrop(id: string, zoom: number) {
+  try {
+    window.localStorage.setItem(`${CROP_STORE_KEY}:${id}`, String(zoom));
+  } catch {
+    /* private mode — the probe just runs again next time */
+  }
+}
+
+/** Bars → the uniform scale that pushes them out of the box. */
+function zoomForBars(bars: { x: number; y: number }) {
+  const worst = Math.min(MAX_BAR, Math.max(bars.x, bars.y));
+  return worst > 0.015 ? Math.min(MAX_ZOOM, 1 / (1 - 2 * worst)) : 1;
+}
 
 /**
  * Measure the black bars baked into the picture.
@@ -145,6 +192,58 @@ function detectBars(video: HTMLVideoElement, canvas: HTMLCanvasElement) {
   };
 }
 
+/**
+ * Measure a trailer's bars WITHOUT waiting for the visible copy to get past its
+ * intro: load a second, hidden element, jump it to the middle, read three
+ * frames, throw it away.
+ *
+ * Resolves to null when nothing conclusive came back (every probed frame dark,
+ * a seek that never landed, CORS lost) — the caller then falls back to watching
+ * the live video, which is slower but cannot be fooled by an empty answer.
+ */
+function probeCrop(src: string, canvas: HTMLCanvasElement): Promise<number | null> {
+  return new Promise((resolve) => {
+    const probe = document.createElement("video");
+    probe.src = src;
+    probe.crossOrigin = "anonymous";
+    probe.muted = true;
+    probe.preload = "auto";
+    probe.playsInline = true;
+
+    let done = false;
+    const finish = (value: number | null) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timeout);
+      // Detach the source or the element keeps its buffer alive for a while.
+      probe.removeAttribute("src");
+      probe.load();
+      resolve(value);
+    };
+    const timeout = setTimeout(() => finish(null), PROBE_TIMEOUT_MS);
+
+    let index = 0;
+    let best: { x: number; y: number } | null = null;
+
+    const seekNext = () => {
+      if (index >= PROBE_AT.length || !probe.duration || !Number.isFinite(probe.duration)) {
+        finish(best ? zoomForBars(best) : null);
+        return;
+      }
+      probe.currentTime = probe.duration * PROBE_AT[index];
+      index += 1;
+    };
+
+    probe.addEventListener("loadedmetadata", seekNext);
+    probe.addEventListener("seeked", () => {
+      const found = detectBars(probe, canvas);
+      if (found) best = best ? { x: Math.min(best.x, found.x), y: Math.min(best.y, found.y) } : found;
+      seekNext();
+    });
+    probe.addEventListener("error", () => finish(null));
+  });
+}
+
 function NativeTrailer({ id, base, autoCrop }: { id: string; base: string; autoCrop: boolean }) {
   const ref = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -185,36 +284,68 @@ function NativeTrailer({ id, base, autoCrop }: { id: string; base: string; autoC
       canvasRef.current.width = PROBE_W;
       canvasRef.current.height = PROBE_H;
     }
-    let best: { x: number; y: number } | null = null;
-    let valid = 0;
-    let seen = 0;
-    const timer = setInterval(() => {
-      const video = ref.current;
-      if (!video || video.readyState < 2 || video.paused || !canvasRef.current) return;
-      seen += 1;
-      const found = detectBars(video, canvasRef.current);
-      if (found) {
-        valid += 1;
-        best = best ? { x: Math.min(best.x, found.x), y: Math.min(best.y, found.y) } : found;
+    const canvas = canvasRef.current;
+    const src = `${base}/w/trailer/${id}.mp4`;
+
+    // Already known: crop on the first painted frame, measure nothing.
+    const remembered = readCrop(id);
+    if (remembered != null) {
+      setZoom(remembered);
+      setBars(`memorise → ×${remembered.toFixed(3)}`);
+      return;
+    }
+
+    let cancelled = false;
+    const startedAt = Date.now();
+    let liveTimer: ReturnType<typeof setInterval> | null = null;
+
+    probeCrop(src, canvas).then((value) => {
+      if (cancelled) return;
+      if (value != null) {
+        setZoom(value);
+        setBars(`sonde ${Date.now() - startedAt} ms → ×${value.toFixed(3)}`);
+        writeCrop(id, value);
+        return;
       }
-      if (best && valid >= MIN_VALID_SAMPLES) {
-        // A uniform scale crops one axis, so the worse one decides — killing the
-        // pillarbox pushes any letterbox out with it. Clamped to MAX_BAR: past
-        // that we are not looking at a bar.
-        const worst = Math.min(MAX_BAR, Math.max(best.x, best.y));
-        // Under ~1.5 % is measurement noise, not a bar.
-        const next = worst > 0.015 ? Math.min(MAX_ZOOM, 1 / (1 - 2 * worst)) : 1;
-        setZoom(next);
-        setBars(
-          `x ${(best.x * 100).toFixed(1)}% · y ${(best.y * 100).toFixed(1)}% (${valid}/${seen} utiles)`,
-        );
-      } else {
-        setBars(`aucune frame exploitable (0/${seen})`);
-      }
-      if (seen >= PROBE_SAMPLES) clearInterval(timer);
-    }, PROBE_EVERY_MS);
-    return () => clearInterval(timer);
-  }, [autoCrop, id]);
+      // The probe came back empty. Watch the live frames instead — slower, but
+      // it eventually sees real content.
+      setBars("sonde non concluante, mesure en direct…");
+      liveTimer = startLiveSampling();
+    });
+
+    return () => {
+      cancelled = true;
+      if (liveTimer) clearInterval(liveTimer);
+    };
+
+    function startLiveSampling() {
+      let best: { x: number; y: number } | null = null;
+      let valid = 0;
+      let seen = 0;
+      const timer: ReturnType<typeof setInterval> = setInterval(() => {
+        const video = ref.current;
+        if (!video || video.readyState < 2 || video.paused) return;
+        seen += 1;
+        const found = detectBars(video, canvas);
+        if (found) {
+          valid += 1;
+          best = best ? { x: Math.min(best.x, found.x), y: Math.min(best.y, found.y) } : found;
+        }
+        if (best && valid >= MIN_VALID_SAMPLES) {
+          const next = zoomForBars(best);
+          setZoom(next);
+          setBars(
+            `direct: x ${(best.x * 100).toFixed(1)}% · y ${(best.y * 100).toFixed(1)}% (${valid}/${seen})`,
+          );
+          writeCrop(id, next);
+        } else {
+          setBars(`aucune frame exploitable (0/${seen})`);
+        }
+        if (seen >= PROBE_SAMPLES) clearInterval(timer);
+      }, PROBE_EVERY_MS);
+      return timer;
+    }
+  }, [autoCrop, id, base]);
 
   return (
     <div>
@@ -396,6 +527,20 @@ export default function TrailerTest() {
           }`}
         >
           Auto-crop {autoCrop ? "ON" : "OFF"}
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            // Otherwise the second run only ever tests the memory, never the
+            // detector — which is the part under judgement.
+            Object.keys(window.localStorage)
+              .filter((k) => k.startsWith(CROP_STORE_KEY))
+              .forEach((k) => window.localStorage.removeItem(k));
+            setNonce((n) => n + 1);
+          }}
+          className="rounded bg-white/10 px-3 py-1.5 text-sm hover:bg-white/20"
+        >
+          Oublier les mesures
         </button>
         {head && <span className="text-xs text-white/60">{head}</span>}
       </div>
