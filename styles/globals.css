@@ -147,6 +147,15 @@ html.tab-hidden *::after {
   left: -60px;
   width: calc(100% + 120px);
   height: calc(100% + 60px);
+  /* Tailwind's preflight declares `img, video { max-width: 100% }`, and nothing
+     here contradicted it — so on the <img> stage of the glow the width above was
+     silently clamped back to the card's own width while `left: -60px` kept
+     applying. The layer ended up correctly sized but shifted 60 px left, which
+     is why the light looked like a rectangle hanging off the top-left corner
+     instead of surrounding the picture. The <canvas> stage never showed it: the
+     rule only reaches images and videos. */
+  max-width: none;
+  max-height: none;
   /* The blur alone leaves a visible straight edge where the picture stops: a
      40 px ramp at 85 % opacity still reads as a border. This fades the layer out
      towards the top and the two sides, opaque along the bottom where the picture
