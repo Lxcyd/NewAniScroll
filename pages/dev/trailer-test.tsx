@@ -53,9 +53,22 @@ const BLACK_LUMA = 18;
  * pathological case (a video that is dark in every sample) from blowing the
  * picture up to nothing.
  */
-const MAX_ZOOM = 1.6;
-/** When to sample. Not 0 — trailers fade in from black, which reads as bars. */
-const PROBE_TIMES_MS = [1200, 2600, 4200, 6000];
+const MAX_ZOOM = 1.34;
+/**
+ * Widest bar we will believe, as a fraction of the frame.
+ *
+ * 4:3 inside 16:9 — the case this exists for — puts 12.5 % on each side. There
+ * is no standard framing that bars more than that, so a larger reading is
+ * evidence the detector is looking at something other than a bar.
+ */
+const MAX_BAR = 0.14;
+/** How bright the middle of a frame must be for that frame to prove anything. */
+const MIN_CENTRE_LUMA = 34;
+/** Frames to sample before settling, and how often. */
+const PROBE_EVERY_MS = 700;
+const PROBE_SAMPLES = 8;
+/** Never crop on a single frame's word. */
+const MIN_VALID_SAMPLES = 2;
 
 /**
  * Measure the black bars baked into the picture.
@@ -67,7 +80,8 @@ const PROBE_TIMES_MS = [1200, 2600, 4200, 6000];
  * `Access-Control-Allow-Origin: *`, which (with crossOrigin="anonymous") leaves
  * the canvas untainted.
  *
- * Returns the bar thickness on each axis as a fraction of the frame.
+ * Returns the bar thickness on each axis as a fraction of the frame, or null
+ * when the frame cannot testify — see the centre-luma gate below.
  */
 function detectBars(video: HTMLVideoElement, canvas: HTMLCanvasElement) {
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
@@ -84,6 +98,29 @@ function detectBars(video: HTMLVideoElement, canvas: HTMLCanvasElement) {
     const i = (y * PROBE_W + x) * 4;
     return 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
   };
+
+  /**
+   * THE gate. A studio logo on black — which is how nearly every anime trailer
+   * opens — is a dark frame with a small bright centre, and that is pixel-for-
+   * pixel what a pillarboxed frame looks like. Such a frame cannot tell the two
+   * apart, so it does not get a vote.
+   *
+   * Averaging over bad samples does not rescue this: the first measured attempt
+   * sampled only the opening seconds, every sample was the logo card, and the
+   * "safe" minimum-across-samples still reported 29 % × 41 % on a trailer with
+   * no bars at all. The fix is to throw the uninformative frames away, not to
+   * combine them more cleverly.
+   */
+  let centreSum = 0;
+  let centreCount = 0;
+  for (let y = Math.floor(PROBE_H * 0.25); y < PROBE_H * 0.75; y += 1) {
+    for (let x = Math.floor(PROBE_W * 0.25); x < PROBE_W * 0.75; x += 1) {
+      centreSum += luma(x, y);
+      centreCount += 1;
+    }
+  }
+  if (centreCount === 0 || centreSum / centreCount < MIN_CENTRE_LUMA) return null;
+
   // A column/row is a bar only if EVERY pixel in it is black. One bright pixel
   // means real picture, so the scan stops there.
   const colBlack = (x: number) => {
@@ -128,13 +165,18 @@ function NativeTrailer({ id, base, autoCrop }: { id: string; base: string; autoC
   }, [id]);
 
   /**
-   * Sample a few times and keep the SMALLEST bars seen.
+   * Sample as the trailer plays, ignore the frames that can't testify, and keep
+   * the SMALLEST bars among those that can.
    *
-   * One sample is not evidence: a shot that happens to be dark at the edges
-   * looks exactly like a pillarbox. Bars that are real are present in every
-   * frame, so the minimum across samples converges on them and a dark scene
-   * only ever pulls the estimate down — the safe direction, since under-zooming
-   * leaves a thin band and over-zooming eats the picture.
+   * Sampling over time rather than over a fixed early window is the other half
+   * of the fix: the opening seconds of an anime trailer are its studio card, so
+   * a detector that only looks there only ever sees the one frame shape it
+   * cannot read. Real content arrives a few seconds in and settles the question
+   * immediately.
+   *
+   * The minimum is still the rule among valid samples — a real bar survives
+   * every frame, so a shot that is merely dark at one edge can only pull the
+   * estimate down, which is the harmless direction.
    */
   useEffect(() => {
     if (!autoCrop) return;
@@ -144,25 +186,34 @@ function NativeTrailer({ id, base, autoCrop }: { id: string; base: string; autoC
       canvasRef.current.height = PROBE_H;
     }
     let best: { x: number; y: number } | null = null;
-    const timers = PROBE_TIMES_MS.map((at) =>
-      setTimeout(() => {
-        const video = ref.current;
-        if (!video || video.readyState < 2 || !canvasRef.current) return;
-        const found = detectBars(video, canvasRef.current);
-        if (!found) return;
-        best = best
-          ? { x: Math.min(best.x, found.x), y: Math.min(best.y, found.y) }
-          : found;
-        // Only one axis can be cropped by a uniform scale, so take the worse
-        // one — zooming to kill the pillarbox also pushes the letterbox out.
-        const worst = Math.max(best.x, best.y);
-        // A bar under ~1.5 % is measurement noise, not a bar.
+    let valid = 0;
+    let seen = 0;
+    const timer = setInterval(() => {
+      const video = ref.current;
+      if (!video || video.readyState < 2 || video.paused || !canvasRef.current) return;
+      seen += 1;
+      const found = detectBars(video, canvasRef.current);
+      if (found) {
+        valid += 1;
+        best = best ? { x: Math.min(best.x, found.x), y: Math.min(best.y, found.y) } : found;
+      }
+      if (best && valid >= MIN_VALID_SAMPLES) {
+        // A uniform scale crops one axis, so the worse one decides — killing the
+        // pillarbox pushes any letterbox out with it. Clamped to MAX_BAR: past
+        // that we are not looking at a bar.
+        const worst = Math.min(MAX_BAR, Math.max(best.x, best.y));
+        // Under ~1.5 % is measurement noise, not a bar.
         const next = worst > 0.015 ? Math.min(MAX_ZOOM, 1 / (1 - 2 * worst)) : 1;
         setZoom(next);
-        setBars(`x ${(best.x * 100).toFixed(1)}% · y ${(best.y * 100).toFixed(1)}%`);
-      }, at),
-    );
-    return () => timers.forEach(clearTimeout);
+        setBars(
+          `x ${(best.x * 100).toFixed(1)}% · y ${(best.y * 100).toFixed(1)}% (${valid}/${seen} utiles)`,
+        );
+      } else {
+        setBars(`aucune frame exploitable (0/${seen})`);
+      }
+      if (seen >= PROBE_SAMPLES) clearInterval(timer);
+    }, PROBE_EVERY_MS);
+    return () => clearInterval(timer);
   }, [autoCrop, id]);
 
   return (
