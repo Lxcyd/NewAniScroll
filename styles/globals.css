@@ -150,11 +150,32 @@ html.tab-hidden *::after {
   /* The blur alone leaves a visible straight edge where the picture stops: a
      40 px ramp at 85 % opacity still reads as a border. This fades the layer out
      towards the top and the two sides, opaque along the bottom where the picture
-     actually is, so the light dies out instead of ending. */
-  -webkit-mask-image: radial-gradient(88% 128% at 50% 100%, #000 52%, transparent 100%);
-  mask-image: radial-gradient(88% 128% at 50% 100%, #000 52%, transparent 100%);
+     actually is, so the light dies out instead of ending.
+     The falloff starts at 18 %, not 52 %. Held at full opacity across half its
+     radius, the layer still met the mask's edge with enough alpha to draw a
+     line — which is why the glow read as a floating rectangle sitting up and to
+     the left of the card rather than as light coming off it. Light has no
+     border; the ramp has to begin almost immediately and be long. */
+  -webkit-mask-image: radial-gradient(
+    82% 122% at 50% 100%,
+    #000 18%,
+    rgba(0, 0, 0, 0.6) 55%,
+    rgba(0, 0, 0, 0.18) 82%,
+    transparent 100%
+  );
+  mask-image: radial-gradient(
+    82% 122% at 50% 100%,
+    #000 18%,
+    rgba(0, 0, 0, 0.6) 55%,
+    rgba(0, 0, 0, 0.18) 82%,
+    transparent 100%
+  );
   object-fit: cover;
-  border-radius: 34px;
+  /* No rounded corners. A radius is a shape, and the whole point is that this
+     layer has none — a 34 px corner survives the blur as a recognisable curve,
+     which is half of what made it read as a rectangle. The mask above is what
+     ends the layer now. */
+  border-radius: 0;
   /* No `filter` and no `transform` here on purpose:
      - the blur/saturate are Tailwind classes on the element itself, which is
        Hayase's arrangement — content is clipped first, then blurred, so the
