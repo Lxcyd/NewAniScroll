@@ -289,13 +289,22 @@ function NativeTrailer({ id, base, autoCrop }: { id: string; base: string; autoC
   const [paused, setPaused] = useState(false);
   const [muted, setMuted] = useState(true);
   const [progress, setProgress] = useState(0);
-  const [zoom, setZoom] = useState(1);
+  /**
+   * Seeded from the store during the FIRST render, not in an effect.
+   *
+   * An effect runs after the browser has already painted, so setting the crop
+   * there meant the element existed at scale 1 for a frame and then moved — the
+   * visible zoom animation. A remembered trailer must be correctly framed in the
+   * very first frame it paints, which means the value has to exist before React
+   * ever builds the element. Safe to touch localStorage here: this component is
+   * only ever mounted on the client (its parent waits for `base`).
+   */
+  const [zoom, setZoom] = useState(() => (autoCrop ? readCrop(id) ?? 1 : 1));
   const [bars, setBars] = useState<string>("");
 
   useEffect(() => {
     setFirstFrameMs(null);
     setError(null);
-    setZoom(1);
     setBars("");
   }, [id]);
 
@@ -400,7 +409,12 @@ function NativeTrailer({ id, base, autoCrop }: { id: string; base: string; autoC
           // The reason the bars can be measured at all: without this the canvas
           // is tainted and getImageData throws. The worker sends ACAO: *.
           crossOrigin="anonymous"
-          className="h-full w-full object-cover transition-transform duration-500"
+          // No transition. The crop is not a state change worth animating: on a
+          // remembered trailer it is already correct at the first painted frame,
+          // and on a fresh one it lands while the studio card is still black, so
+          // there is nothing to ease between. Animating it only ever drew
+          // attention to a correction the viewer had no reason to notice.
+          className="h-full w-full object-cover"
           style={{ transform: `scale(${zoom})` }}
           // `loadeddata` is the honest "there are pixels now" event — the one
           // the iframe never had an equivalent for.
