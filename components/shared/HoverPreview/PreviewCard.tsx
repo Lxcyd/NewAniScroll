@@ -232,6 +232,12 @@ export default function PreviewCard({
               src={banner}
               alt=""
               draggable={false}
+              // Both paths matter: `complete` covers the warm case, where the
+              // banner is already in the HTTP cache (see warmImage) and the load
+              // event fired before React attached a handler.
+              ref={(node) => {
+                if (node?.complete) setBannerReady(true);
+              }}
               onLoad={() => setBannerReady(true)}
               // h-full w-full, not `size-full`: Tailwind 3.3 here, `size-*` is 3.4+.
               className={`h-full w-full rounded-t-card object-cover transition-opacity duration-300 ${

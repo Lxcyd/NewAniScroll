@@ -37,6 +37,30 @@ export type PreviewData = {
 
 const cache = new Map<number, PreviewData | null>();
 const inFlight = new Map<number, Promise<PreviewData | null>>();
+/** URLs already handed to the browser — a second Image() would be wasted work. */
+const warmed = new Set<string>();
+
+/**
+ * Pull the banner into the HTTP cache the moment its URL is known, which is
+ * still before the card has finished opening.
+ *
+ * Without this the card renders, THEN starts downloading its banner, and for a
+ * few hundred milliseconds it has nothing wide to show — the visible symptom
+ * being a card that pops up bare and fills in late. The payload request is
+ * already started 30 ms ahead of the card by the provider; this extends the same
+ * head start to the image, which is by far the heavier of the two.
+ *
+ * `decode()` matters as much as the download: an image that is fetched but not
+ * yet decoded still paints on a later frame.
+ */
+export function warmImage(url: string | null | undefined): void {
+  if (!url || typeof window === "undefined" || warmed.has(url)) return;
+  warmed.add(url);
+  const img = new Image();
+  img.src = url;
+  // Older Safari has no decode(); the plain fetch above is still the win.
+  void img.decode?.().catch(() => {});
+}
 
 /** Synchronous read — what the card can paint on its very first render. */
 export function peekPreview(id: number): PreviewData | null | undefined {
@@ -59,6 +83,7 @@ export function fetchPreview(id: number): Promise<PreviewData | null> {
       }
       const json = (await res.json()) as PreviewData;
       cache.set(id, json);
+      warmImage(json.bannerImage ?? json.coverImage?.large);
       return json;
     } catch {
       return null;

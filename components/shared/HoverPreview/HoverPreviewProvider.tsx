@@ -143,6 +143,32 @@ export default function HoverPreviewProvider() {
       // is mounted before the response lands either way.
       const id = Number(el.getAttribute(PREVIEW_ATTR));
       if (Number.isFinite(id) && id > 0) void fetchPreview(id);
+      prefetchNeighbours(el);
+    };
+
+    /**
+     * Warm the two cards on either side of the one under the pointer.
+     *
+     * Hovering a card is almost never the first thing that happens to it — the
+     * pointer arrives along a row. By the time it settles on the next poster,
+     * that poster's payload (and, through previewStore, its banner) is already
+     * in hand, so the card opens filled instead of opening bare and catching up
+     * half a second later.
+     *
+     * This costs nothing in a sweep: every card crossed would have been fetched
+     * on its own hover anyway, and previewStore dedupes for the life of the
+     * page. It only moves the work earlier.
+     */
+    const prefetchNeighbours = (el: HTMLElement) => {
+      const all = Array.from(
+        document.querySelectorAll<HTMLElement>(`[${PREVIEW_ATTR}]`),
+      );
+      const i = all.indexOf(el);
+      if (i < 0) return;
+      for (const sibling of [all[i - 1], all[i + 1]]) {
+        const id = Number(sibling?.getAttribute(PREVIEW_ATTR));
+        if (Number.isFinite(id) && id > 0) void fetchPreview(id);
+      }
     };
 
     const anchorAt = (target: EventTarget | null): HTMLElement | null => {
