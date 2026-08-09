@@ -102,13 +102,13 @@ export default function PreviewCard({
    * together is what makes the fade-in a fade and the two copies agree.
    */
   /**
-   * The playing trailer, read by the ambient copy so it can follow its clock.
+   * The playing trailer. The ambient glow paints its frames straight out of it.
    *
    * Lives here rather than inside the trailer because two siblings need it. It
    * also replaces the old loop counter: looping used to mean remounting the
    * ambient iframe on every cycle, since a decorative embed had no channel to
-   * be told anything. A <video> loops by itself and can simply be asked what
-   * time it is.
+   * be told anything — and a second copy of a video is exactly what could fall
+   * out of step with the first. There is one video now, read twice.
    */
   const trailerVideoRef = useRef<HTMLVideoElement>(null);
 
@@ -256,12 +256,7 @@ export default function PreviewCard({
           />
         )}
         {trailerMounted && data?.trailer?.id && (
-          <TrailerAmbient
-            id={data.trailer.id}
-            playing={playing}
-            sourceRef={trailerVideoRef}
-            zoom={crop}
-          />
+          <TrailerAmbient playing={playing} sourceRef={trailerVideoRef} zoom={crop} />
         )}
       </div>
 
