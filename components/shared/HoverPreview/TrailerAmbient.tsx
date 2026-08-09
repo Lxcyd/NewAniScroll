@@ -175,7 +175,37 @@ export default function TrailerAmbient({
   }, [playing, sourceRef]);
 
   return (
-    <div className="pointer-events-none absolute inset-0" aria-hidden>
+    <div
+      className="pointer-events-none absolute inset-0"
+      aria-hidden
+      /**
+       * Fade the light out as it reaches the bottom of the picture.
+       *
+       * The card's clip box cut it there instead, and a cut is a line: the spill
+       * running down either side of the card ended on a visible horizontal edge.
+       *
+       * The mask is deliberately THREE TIMES the height of this box, centred.
+       * A mask sized to the box tiles over everything outside it, so the tile
+       * landing above the box is the gradient's transparent end — which deletes
+       * the upward spill, i.e. most of the glow. At 300 % the box occupies the
+       * middle third (33 %–67 %), the overflow the layers actually reach falls
+       * inside the mask, and the stops below are expressed in that frame:
+       * opaque through everything above and across the picture, gone by the
+       * time it reaches the picture's bottom edge at 67 %.
+       */
+      style={{
+        WebkitMaskImage:
+          "linear-gradient(to bottom, #000 0%, #000 56%, rgba(0,0,0,.5) 63%, transparent 68%)",
+        maskImage:
+          "linear-gradient(to bottom, #000 0%, #000 56%, rgba(0,0,0,.5) 63%, transparent 68%)",
+        WebkitMaskSize: "100% 300%",
+        maskSize: "100% 300%",
+        WebkitMaskPosition: "center",
+        maskPosition: "center",
+        WebkitMaskRepeat: "no-repeat",
+        maskRepeat: "no-repeat",
+      }}
+    >
       {Array.from({ length: LAYERS }).map((_, i) => (
         <div
           key={i}
