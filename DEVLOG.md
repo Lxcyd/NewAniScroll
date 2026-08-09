@@ -1,5 +1,46 @@
 # DEVLOG
 
+## 2026-08-09 — Le bouton de YouTube qu'on ne peut pas enlever, et le halo en retard
+
+**`controls=0` ne supprime pas le gros bouton central de YouTube.** Il reste un
+bouton qui n'est pas le nôtre sur une vidéo en pause, et le nôtre se dessine
+par-dessus : deux boutons pause superposés. Aucun paramètre d'embed ne l'enlève
+et le contenu est cross-origin, donc on ne peut ni le masquer ni le styler.
+Solution : **une bande-annonce en pause n'est plus affichée du tout** — l'iframe
+passe à `opacity: 0` et PreviewCard refait apparaître son artwork dessous, avec
+notre seul bouton par-dessus. On perd l'image figée, on gagne une surface dont
+on contrôle chaque pixel.
+
+**Le halo était en retard parce que je l'avais optimisé.** La copie décorative ne
+se montait qu'une fois le vrai lecteur en lecture, pour ne pas disputer la bande
+passante au démarrage. Mais **démarrer une seconde copie deux secondes plus tard,
+c'est un décalage de deux secondes pour toujours** : les deux instances n'ont
+aucun canal de synchronisation. Elles démarrent maintenant ensemble, et la boucle
+se fait par remontage sur un compteur partagé (`key={cycle}`) plutôt qu'avec
+`loop=1&playlist=`, qui faisait dessiner à YouTube la chrome supplémentaire dont
+Hayase se plaint déjà en commentaire.
+
+Le halo est aussi recadré sur les 45 % du haut : étendu à toute la carte il
+éclairait le synopsis par derrière, ce qui se lit comme un panneau rétroéclairé
+et non comme de la lumière qui sort de l'image.
+
+**La carte ne suit plus le scroll.** Elle suivait son ancre, au motif qu'une
+bulle qui désigne une vignette devrait continuer à la désigner. En pratique le
+pointeur ne bouge pas pendant qu'on tourne la molette : la carte glissait de
+sous le curseur et le texte qu'on lisait partait tout seul. Fixée au viewport,
+elle reste là où on regarde.
+
+Aussi : synopsis traduit via `useTranslatedText` (même chemin que la page info) ;
+troncature explicite en `-webkit-line-clamp` + `max-height` — sans hauteur
+imposée le texte était coupé au ciseau par l'`overflow: hidden` de la carte et
+**aucun « … » n'était jamais dessiné**, l'ellipse n'apparaît que si c'est le clamp
+qui tronque ; icônes passées à `react-icons/md` comme le reste de l'app ; et le
+recadrage viewport tient compte du débord du halo, sinon la lumière se fait
+trancher par le bord de l'écran.
+
+---
+
+
 ## 2026-08-09 — Le halo qui ne changeait pas de couleur, et le volume partagé
 
 **Un `filter` + `translateZ(0)` au-dessus d'une iframe cross-origin fige le

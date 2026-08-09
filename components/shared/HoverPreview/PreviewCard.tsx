@@ -14,6 +14,7 @@ import {
 import { toggleFavourite, useIsFavourite } from "@/lib/anilist/favouritesCache";
 import { notify } from "@/lib/notifications/noticeStore";
 import { fetchPreview, peekPreview, type PreviewData } from "@/lib/preview/previewStore";
+import { useTranslatedText } from "@/lib/i18n/useTranslatedText";
 import YoutubeTrailer from "./YoutubeTrailer";
 import TrailerAmbient from "./TrailerAmbient";
 
@@ -28,6 +29,11 @@ const WIDTH = 364;
 const HEIGHT = 424;
 /** Gap kept between the card and the viewport edges. */
 const MARGIN = 12;
+
+/** Lines of synopsis that fit under the meta row at HEIGHT. */
+const DESC_LINES = 5;
+/** How far the ambient glow spills past the card; kept out of the viewport clamp. */
+const AMBIENT_SPILL = 60;
 
 /** Card surface. Kept in sync with the banner gradient in globals.css. */
 const SURFACE = "#1a1a24";
@@ -83,6 +89,10 @@ export default function PreviewCard({
   const [hideFrame, setHideFrame] = useState<boolean | null>(null);
   /** Fade in on decode rather than on mount — a half-painted banner is a flash too. */
   const [bannerReady, setBannerReady] = useState(false);
+  /** Live transport state from the trailer. Artwork shows whenever it's false. */
+  const [playing, setPlaying] = useState(false);
+  /** Bumped when the trailer loops, so the ambient copy restarts alongside it. */
+  const [cycle, setCycle] = useState(0);
 
   // Local list state drives the play-button label and the bookmark fill, the
   // same way Hayase reads its auth aggregator.
@@ -102,23 +112,42 @@ export default function PreviewCard({
 
   // Centred on the hovered card, clamped inside the viewport. The card has a
   // fixed size, so this never needs to re-run for content.
+  // Centred on the hovered card, then pulled back inside the viewport. Hovering
+  // a poster that is itself half off-screen (the ends of a carousel) must not
+  // put half the preview off-screen with it — the card moves, the anchor
+  // doesn't. `clientWidth` rather than `innerWidth`: the latter counts the
+  // scrollbar, which is not somewhere the card can be seen.
+  //
+  // Runs once per open. It deliberately does NOT re-run on scroll: see the
+  // provider — the card stays where it was put.
   useLayoutEffect(() => {
-    const left = Math.max(
-      MARGIN,
-      Math.min(rect.left + rect.width / 2 - WIDTH / 2, window.innerWidth - WIDTH - MARGIN),
-    );
-    const top = Math.max(
-      MARGIN,
-      Math.min(rect.top + rect.height / 2 - HEIGHT / 2, window.innerHeight - HEIGHT - MARGIN),
-    );
-    setPos({ top, left });
+    const vw = document.documentElement.clientWidth;
+    const vh = document.documentElement.clientHeight;
+    // The glow reaches AMBIENT_SPILL past every edge; clamping the card alone
+    // would let the light get sliced by the viewport.
+    const edge = MARGIN + AMBIENT_SPILL;
+    const fit = (want: number, size: number, viewport: number) =>
+      viewport < size + 2 * edge
+        ? Math.max(MARGIN, (viewport - size) / 2)
+        : Math.max(edge, Math.min(want, viewport - size - edge));
+    setPos({
+      left: fit(rect.left + rect.width / 2 - WIDTH / 2, WIDTH, vw),
+      top: fit(rect.top + rect.height / 2 - HEIGHT / 2, HEIGHT, vh),
+    });
   }, [rect]);
 
   const onHide = useCallback((hidden: boolean) => setHideFrame(hidden), []);
+  const onPlayingChange = useCallback((next: boolean) => setPlaying(next), []);
+  const onCycle = useCallback(() => setCycle((n) => n + 1), []);
 
   const title = data ? pickTitle(data.title, titlePref) : "";
+  // Same treatment the info page gives its synopsis: translated on demand and
+  // cached server-side, because AniList only ever ships English.
+  const description = useTranslatedText(data?.description ?? "");
   const banner = bannerUrl(data);
-  const trailerPlaying = hideFrame === false;
+  // The trailer element is mounted as soon as we have an id and it hasn't been
+  // ruled unplayable; `playing` is the finer, live state.
+  const trailerMounted = Boolean(data?.trailer?.id) && !hideFrame;
   const accent = data?.coverImage?.color ?? null;
 
   // "N Episodes" / "3 / 12 Episodes", falling back to the runtime for movies and
@@ -212,10 +241,14 @@ export default function PreviewCard({
           aria-hidden
           draggable={false}
           className="as-preview-ambient pointer-events-none absolute -z-10 blur-2xl saturate-200 transition-opacity duration-700"
-          style={{ opacity: trailerPlaying ? 0 : AMBIENT_OPACITY }}
+          style={{ opacity: playing ? 0 : AMBIENT_OPACITY }}
         />
       )}
-      {trailerPlaying && data?.trailer?.id && <TrailerAmbient id={data.trailer.id} />}
+      {trailerMounted && data?.trailer?.id && (
+        // `key` on the loop counter: the ambient copy has no API channel, so the
+        // only way to restart it with the real player is to remount it.
+        <TrailerAmbient key={cycle} id={data.trailer.id} playing={playing} />
+      )}
 
       <div
         className="as-preview-card relative h-full w-full cursor-pointer overflow-hidden rounded-card ring-1 ring-white/10"
@@ -252,16 +285,21 @@ export default function PreviewCard({
               onLoad={() => setBannerReady(true)}
               // h-full w-full, not `size-full`: Tailwind 3.3 here, `size-*` is 3.4+.
               className={`h-full w-full rounded-t-card object-cover transition-opacity duration-300 ${
-                bannerReady && !trailerPlaying ? "opacity-100" : "opacity-0"
+                bannerReady && !playing ? "opacity-100" : "opacity-0"
               }`}
             />
           )}
           {data?.trailer?.id && !hideFrame && (
-            <YoutubeTrailer id={data.trailer.id} onHide={onHide} />
+            <YoutubeTrailer
+              id={data.trailer.id}
+              onHide={onHide}
+              onPlayingChange={onPlayingChange}
+              onCycle={onCycle}
+            />
           )}
         </div>
 
-        <div className="w-full px-4 font-karla" style={{ background: SURFACE }}>
+        <div className="w-full px-4 pb-4 font-karla" style={{ background: SURFACE }}>
           <Link
             href={`/en/anime/${id}`}
             title={title}
@@ -343,9 +381,20 @@ export default function PreviewCard({
               it goes where the title goes. */}
           <Link
             href={`/en/anime/${id}`}
-            className="line-clamp-5 block h-full w-full overflow-clip text-[.72rem] leading-relaxed text-white/50 transition-colors hover:text-white/75"
+            // DESC_LINES, not a bare line-clamp: the ellipsis only appears when
+            // the clamp is what truncates. Left to overflow the card's fixed
+            // height instead, the text was simply sliced mid-word by
+            // `overflow: hidden` and no "…" was ever drawn. The explicit height
+            // makes the clamp the binding constraint.
+            className="block w-full overflow-hidden text-[.72rem] leading-[1.45] text-white/50 transition-colors hover:text-white/75"
+            style={{
+              display: "-webkit-box",
+              WebkitBoxOrient: "vertical",
+              WebkitLineClamp: DESC_LINES,
+              maxHeight: `calc(${DESC_LINES} * 1.45 * .72rem)`,
+            } as any}
           >
-            {data?.description ?? ""}
+            {description}
           </Link>
         </div>
       </div>

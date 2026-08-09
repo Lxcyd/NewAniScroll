@@ -90,7 +90,10 @@ html.tab-hidden *::after {
   top: -60px;
   left: -60px;
   width: calc(100% + 120px);
-  height: calc(100% + 120px);
+  /* 45% is the banner. The glow belongs to the VIDEO, not to the card: extended
+     over the whole height it lit up the synopsis from behind, which reads as a
+     backlit panel rather than as light coming off the picture. */
+  height: calc(45% + 120px);
   object-fit: cover;
   border-radius: 34px;
   /* No `filter` and no `transform` here on purpose:

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { MdPause, MdPlayArrow, MdVolumeOff, MdVolumeUp } from "react-icons/md";
 
 import {
   PREVIEW_DEFAULT_VOLUME,
@@ -53,10 +54,16 @@ const OPEN_GRACE_MS = 350;
 export default function YoutubeTrailer({
   id,
   onHide,
+  onPlayingChange,
+  onCycle,
 }: {
   id: string;
-  /** true = unplayable, drop the frame; false = playing, the banner can go. */
+  /** true = unplayable, drop the frame for good. */
   onHide: (hidden: boolean) => void;
+  /** Live transport state. The card paints its artwork whenever this is false. */
+  onPlayingChange: (playing: boolean) => void;
+  /** Bumped each time the video loops, so the ambient copy restarts with it. */
+  onCycle: () => void;
 }) {
   const frameRef = useRef<HTMLIFrameElement>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -128,6 +135,7 @@ export default function YoutubeTrailer({
         if (info.playerState === 1) {
           setHidden(false);
           setPlaying(true);
+          onPlayingChange(true);
           onHide(false);
           // The frame always LOADS muted — that is the only way Chrome lets it
           // autoplay at all. Sound is restored here instead, once playback is
@@ -140,8 +148,11 @@ export default function YoutubeTrailer({
           }
         } else if (info.playerState === 2) {
           setPlaying(false);
+          onPlayingChange(false);
         } else if (info.playerState === 0) {
           setPlaying(false);
+          onPlayingChange(false);
+          onCycle();
           setSrc("");
           setTimeout(() => setSrc(id), 0);
         }
@@ -159,7 +170,7 @@ export default function YoutubeTrailer({
       if (idleRef.current) clearTimeout(idleRef.current);
       if (volCloseRef.current) clearTimeout(volCloseRef.current);
     };
-  }, [id, onHide, call]);
+  }, [id, onHide, onPlayingChange, onCycle, call]);
 
   const initFrame = () => {
     const ping = () =>
@@ -248,6 +259,7 @@ export default function YoutubeTrailer({
     stop(e);
     call(playing ? "pauseVideo" : "playVideo");
     setPlaying(!playing);
+    onPlayingChange(!playing);
   };
 
   // Controls are invisible until the pointer actually moves over the video, and
@@ -313,8 +325,14 @@ export default function YoutubeTrailer({
           title="trailer"
           allow="autoplay"
           // h-full w-full, not `size-full`: Tailwind 3.3 here, `size-*` is 3.4+.
+          // Visible ONLY while playing. YouTube draws its own big center button
+          // over a paused embed and `controls=0` does not remove it; there is no
+          // parameter that does. So a paused trailer is not a dimmed video with
+          // two pause buttons on it — it is hidden outright, and PreviewCard
+          // fades its artwork back in underneath. Our control is then the only
+          // one on screen, which is the whole point.
           className={`pointer-events-none absolute left-0 top-1/2 h-[calc(100%+200px)] w-full -translate-y-1/2 transform-gpu border-0 transition-opacity duration-300 ${
-            hidden ? "opacity-0" : "opacity-100"
+            hidden || !playing ? "opacity-0" : "opacity-100"
           }`}
           onLoad={initFrame}
           // Always mute=1 at load: an audible autoplay is refused outright, a
@@ -333,18 +351,9 @@ export default function YoutubeTrailer({
         type="button"
         onClick={togglePlay}
         aria-label={playing ? "Pause" : "Play"}
-        className={`absolute left-1/2 top-1/2 grid h-11 w-11 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full bg-black/50 text-white transition-colors hover:bg-black/70 ${chrome}`}
+        className={`absolute left-1/2 top-1/2 grid h-10 w-10 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-md bg-black/55 text-white ring-1 ring-white/15 transition-colors hover:bg-black/75 ${chrome}`}
       >
-        {playing ? (
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-            <rect x="6" y="5" width="4" height="14" rx="1" />
-            <rect x="14" y="5" width="4" height="14" rx="1" />
-          </svg>
-        ) : (
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M8 5v14l11-7z" />
-          </svg>
-        )}
+        {playing ? <MdPause size={20} /> : <MdPlayArrow size={22} />}
       </button>
 
       {/* Volume: the button, and the track that drops out of it on hover. Both
@@ -355,51 +364,17 @@ export default function YoutubeTrailer({
         onPointerEnter={openVolume}
         onPointerLeave={closeVolume}
       >
-      <button
-        type="button"
-        onClick={toggleMute}
-        aria-label={muted ? "Unmute" : "Mute"}
-        className="grid h-8 w-8 place-items-center rounded-full bg-black/50 text-white transition-colors hover:bg-black/70"
-      >
-        {muted ? (
-          // lucide volume-x
-          <svg
-            width="15"
-            height="15"
-            viewBox="0 0 24 24"
-            fill="currentColor"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className="pointer-events-none"
-          >
-            <path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z" />
-            <line x1="22" x2="16" y1="9" y2="15" fill="none" />
-            <line x1="16" x2="22" y1="9" y2="15" fill="none" />
-          </svg>
-        ) : (
-          // lucide volume-2
-          <svg
-            width="15"
-            height="15"
-            viewBox="0 0 24 24"
-            fill="currentColor"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className="pointer-events-none"
-          >
-            <path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z" />
-            <path d="M16 9a5 5 0 0 1 0 6" fill="none" />
-            <path d="M19.364 18.364a9 9 0 0 0 0-12.728" fill="none" />
-          </svg>
-        )}
-      </button>
+        <button
+          type="button"
+          onClick={toggleMute}
+          aria-label={muted ? "Unmute" : "Mute"}
+          className="grid h-8 w-8 place-items-center rounded-md bg-black/55 text-white ring-1 ring-white/15 transition-colors hover:bg-black/75"
+        >
+          {muted ? <MdVolumeOff size={17} /> : <MdVolumeUp size={17} />}
+        </button>
 
         <div
-          className={`mt-1 flex justify-center rounded-full bg-black/50 px-1.5 py-2 transition-opacity duration-150 ${
+          className={`mt-1 flex justify-center rounded-md bg-black/55 px-1.5 py-2 ring-1 ring-white/15 transition-opacity duration-150 ${
             volOpen ? "opacity-100" : "pointer-events-none opacity-0"
           }`}
         >
