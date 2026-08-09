@@ -81,6 +81,21 @@ const PLAYING_TTL_MS = 2200;
  */
 const NO_CLOCK_MS = 3000;
 /**
+ * How long the frame stays hidden AFTER the player reports playing.
+ *
+ * THE reason this card ever showed YouTube's chrome. A starting embed paints a
+ * big centre button over its first seconds and fades it out on its own; there is
+ * no parameter that suppresses it and no message that announces it. Revealing
+ * the frame on `playerState 1` therefore revealed it at the precise instant that
+ * button is at full opacity.
+ *
+ * So the reveal is deferred past the fade. Nothing is lost by waiting: the card
+ * is already showing its artwork, which is what the visitor keeps looking at.
+ * Slightly over the ~3 s observed, because being early costs the whole bug and
+ * being late costs a few hundred milliseconds of a still image.
+ */
+const REVEAL_DELAY_MS = 3400;
+/**
  * How many times a pause we never asked for is answered with `playVideo`.
  *
  * Nothing on this card can pause a trailer — there is no control for it — so a
@@ -142,6 +157,9 @@ export default function YoutubeTrailer({
   const debugRef = useRef(false);
   /** Last playerState logged, so the trace carries transitions only. */
   const lastStateRef = useRef<number | null>(null);
+  /** Pending reveal, and whether it already happened — see REVEAL_DELAY_MS. */
+  const revealRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const revealedRef = useRef(false);
 
   const dbg = useCallback((...args: unknown[]) => {
     if (!debugRef.current) return;
@@ -165,6 +183,31 @@ export default function YoutubeTrailer({
       `{"event":"command", "func":"${func}", "args":${args}}`,
       "*",
     );
+  }, []);
+
+  /**
+   * Reveal the frame once YouTube's start-up chrome has faded, not before.
+   *
+   * Idempotent: the state feed repeats `playerState 1` for as long as the video
+   * runs, and each repeat must not push the reveal further away or stack timers.
+   */
+  const scheduleReveal = useCallback(() => {
+    if (revealRef.current || revealedRef.current) return;
+    revealRef.current = setTimeout(() => {
+      revealRef.current = null;
+      revealedRef.current = true;
+      setPlaying(true);
+      onPlayingChange(true);
+      dbg("revealed");
+    }, REVEAL_DELAY_MS);
+  }, [onPlayingChange, dbg]);
+
+  /** Anything that stops playback puts the frame back behind the artwork. */
+  const cancelReveal = useCallback(() => {
+    if (revealRef.current) clearTimeout(revealRef.current);
+    revealRef.current = null;
+    revealedRef.current = false;
+    setPlaying(false);
   }, []);
 
   /**
@@ -263,9 +306,10 @@ export default function YoutubeTrailer({
         if (info.playerState === 1) {
           aliveAtRef.current = Date.now();
           setHidden(false);
-          setPlaying(true);
-          onPlayingChange(true);
           onHide(false);
+          // NOT revealed here — see scheduleReveal. State 1 is the exact instant
+          // YouTube paints its own start-up chrome.
+          scheduleReveal();
           // The frame always LOADS muted — that is the only way Chrome lets it
           // autoplay at all. Sound is restored here instead, once playback is
           // under way, because unmuting a video that is already running is
@@ -278,11 +322,11 @@ export default function YoutubeTrailer({
         } else if (info.playerState === 2) {
           // Hide FIRST, ask questions after: the frame must be off the screen
           // before YouTube gets to paint its pause button on it.
-          setPlaying(false);
+          cancelReveal();
           onPlayingChange(false);
           resume();
         } else if (info.playerState === 0) {
-          setPlaying(false);
+          cancelReveal();
           onPlayingChange(false);
           resumesRef.current = 0;
           lastTimeRef.current = -1;
@@ -292,7 +336,7 @@ export default function YoutubeTrailer({
         } else if (info.playerState === -1 || info.playerState === 5) {
           // Unstarted and cued are the two states YouTube greets with its big
           // centre play button. Nothing of the frame may be on screen in either.
-          setPlaying(false);
+          cancelReveal();
           onPlayingChange(false);
         }
         // 3 (buffering) is deliberately not listed: it is a normal blip inside a
@@ -310,8 +354,9 @@ export default function YoutubeTrailer({
       if (pollRef.current) clearInterval(pollRef.current);
       if (idleRef.current) clearTimeout(idleRef.current);
       if (volCloseRef.current) clearTimeout(volCloseRef.current);
+      if (revealRef.current) clearTimeout(revealRef.current);
     };
-  }, [id, onHide, onPlayingChange, onCycle, call, resume]);
+  }, [id, onHide, onPlayingChange, onCycle, call, resume, scheduleReveal, cancelReveal]);
 
   /**
    * The watchdog behind PLAYING_TTL_MS.
@@ -342,20 +387,20 @@ export default function YoutubeTrailer({
         if (Date.now() - startedAt > NO_CLOCK_MS) {
           dbg("playing but no clock ever — stopping and hiding the frame");
           call("pauseVideo");
-          setPlaying(false);
+          cancelReveal();
           onPlayingChange(false);
         }
         return;
       }
       if (Date.now() - aliveAtRef.current > PLAYING_TTL_MS) {
         dbg(`clock frozen at ${lastTimeRef.current} — hiding the frame`);
-        setPlaying(false);
+        cancelReveal();
         onPlayingChange(false);
         resume();
       }
     }, 200);
     return () => clearInterval(t);
-  }, [playing, onPlayingChange, resume, call, dbg]);
+  }, [playing, onPlayingChange, resume, call, dbg, cancelReveal]);
 
   /**
    * The `listening` handshake, then a heartbeat.
