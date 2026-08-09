@@ -136,6 +136,13 @@ enregistré, l'aperçu démarre à 40 % (le défaut du lecteur est 1, inacceptab
 un son déclenché par un survol) **sans écrire cette valeur** — le partage commence
 au premier réglage délibéré.
 
+> **Annulé le 09/08/2026.** Le module est devenu `lib/prefs/previewVolume.ts` et
+> l'aperçu a ses propres clés (`aniscroll:preview:volume` / `:muted`). Le
+> raisonnement « le volume est une propriété de la personne, pas de la surface »
+> ne tient pas à l'usage : on coupe le son du survol *parce qu'*on n'a rien
+> demandé, et couper ce bruit-là coupait aussi l'épisode suivant. Le lecteur n'a
+> pas bougé, il lit toujours ses clés en direct.
+
 Aussi : commandes sans `backdrop-blur` (demande de Luc), synopsis cliquable vers
 la fiche, et une garde de 350 ms après ouverture en plus du seuil de 8 px avant
 que les commandes ne puissent apparaître.

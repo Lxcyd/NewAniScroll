@@ -23,14 +23,23 @@ import PreviewCard, { type AnchorRect } from "./PreviewCard";
  *     component (see lib/preview/anchor.ts), so one delegated `pointerover`
  *     listener on `document` finds the nearest `data-anime-preview` ancestor.
  *
- * The timing is Hayase's, and it is much more aggressive than it looks:
- * {@link HOVER_TIME} is 30 ms, re-armed on every `pointermove` while pending.
- * The effect is that the card appears the instant the pointer STOPS on a
- * poster, and never while it is travelling across one.
+ * The timing is Hayase's in shape — a delay re-armed on every `pointermove`, so
+ * the card appears when the pointer STOPS on a poster and never while it is
+ * travelling across one — but not in length. See {@link STILL_TIME}.
  */
 
-/** Hayase's HOVER_TIME. */
-const HOVER_TIME = 30;
+/**
+ * How long the pointer must hold still before a card opens.
+ *
+ * Hayase uses 30 ms. That is short enough to be beaten by a hand that is still
+ * moving: micro-adjustments over a small area are not a smooth stream of events
+ * but bursts separated by pauses, and any pause longer than the delay opens the
+ * card. The observed result was backwards — sweeping fast across a row showed
+ * nothing, while fidgeting in one spot popped a card the user had not settled
+ * on. A window wider than the gaps in a moving hand is what makes "static"
+ * actually mean static; the cost is that a deliberate stop waits this long.
+ */
+const STILL_TIME = 200;
 
 /** Below this the popup would cover most of the viewport — not worth showing. */
 const MIN_VIEWPORT_WIDTH = 1024;
@@ -112,12 +121,15 @@ export default function HoverPreviewProvider() {
 
     let timer: ReturnType<typeof setTimeout> | null = null;
     let pendingEl: HTMLElement | null = null;
+    /** Last pointer position seen, so a re-fired event at rest isn't movement. */
+    let lastPos: { x: number; y: number } | null = null;
 
     const cancel = () => {
       if (timer) clearTimeout(timer);
       timer = null;
       pendingEl = null;
     };
+
 
     const close = () => {
       cancel();
@@ -137,18 +149,23 @@ export default function HoverPreviewProvider() {
       });
     };
 
-    const arm = (el: HTMLElement) => {
-      // Already showing this card — nothing to do.
-      if (openRef.current?.el === el) return;
-      pendingEl = el;
+    /** (Re)start the countdown for `el`. Called on arrival and on every move. */
+    const armCountdown = (el: HTMLElement) => {
       if (timer) clearTimeout(timer);
+      pendingEl = el;
       timer = setTimeout(() => {
         timer = null;
         pendingEl = null;
         show(el);
-      }, HOVER_TIME);
-      // Start the fetch immediately: 30 ms of delay buys nothing, but the card
-      // is mounted before the response lands either way.
+      }, STILL_TIME);
+    };
+
+    const arm = (el: HTMLElement) => {
+      // Already showing this card — nothing to do.
+      if (openRef.current?.el === el) return;
+      armCountdown(el);
+      // Start the fetch immediately: the wait for stillness buys nothing here,
+      // and the card is mounted before the response lands either way.
       const id = Number(el.getAttribute(PREVIEW_ATTR));
       if (Number.isFinite(id) && id > 0) void fetchPreview(id);
       prefetchNeighbours(el);
@@ -198,19 +215,22 @@ export default function HoverPreviewProvider() {
       else close();
     };
 
-    // Hayase re-arms the timer on every pointermove, so the card only opens once
-    // the pointer settles. Without it, sweeping a row would flash a card per
-    // poster crossed.
+    // Every move restarts the countdown, so the card only opens once the pointer
+    // settles. Without it, sweeping a row would flash a card per poster crossed.
+    //
+    // "Every move" is meant literally: no slop, no threshold. A single pixel of
+    // drift is the hand still choosing, and letting small displacements through
+    // is exactly what let a fidgeting pointer open cards it never stopped on.
+    // Only a position that has not changed at all counts as at rest — which is
+    // why the previous coordinates are compared rather than just counting the
+    // event: browsers do emit pointermove without displacement.
     const onPointerMove = (e: Event) => {
-      if (!pendingEl) return;
+      const p = e as PointerEvent;
+      const moved = !lastPos || lastPos.x !== p.clientX || lastPos.y !== p.clientY;
+      lastPos = { x: p.clientX, y: p.clientY };
+      if (!pendingEl || !moved) return;
       if (anchorAt(e.target) !== pendingEl) return;
-      if (timer) clearTimeout(timer);
-      const el = pendingEl;
-      timer = setTimeout(() => {
-        timer = null;
-        pendingEl = null;
-        show(el);
-      }, HOVER_TIME);
+      armCountdown(pendingEl);
     };
 
     // The card travels with the page.

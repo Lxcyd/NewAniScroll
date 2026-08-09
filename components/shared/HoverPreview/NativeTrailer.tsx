@@ -7,7 +7,7 @@ import {
   readVolume,
   writeMuted,
   writeVolume,
-} from "@/lib/prefs/playerVolume";
+} from "@/lib/prefs/previewVolume";
 import {
   makeProbeCanvas,
   probeCrop,
@@ -107,8 +107,9 @@ export default function NativeTrailer({
 
   const src = trailerSrc(id);
 
-  // Seed from the app-wide setting, not a preview-only one: turning the volume
-  // down here turns it down in the watch player too, and vice versa.
+  // Seed from the PREVIEW's own setting. These controls no longer touch the
+  // watch player's volume: muting the browsing noise used to mute the next
+  // episode as well, which is not what "mute this trailer" means.
   useEffect(() => {
     const pref = readMuted();
     wantMutedRef.current = pref;
@@ -221,11 +222,7 @@ export default function NativeTrailer({
     if (video) video.muted = next;
   };
 
-  /**
-   * The volume is the app's, not the preview's: same localStorage keys as the
-   * watch player, so a level set on a trailer is the level the next episode
-   * starts at.
-   */
+  /** The preview's own level, persisted under its own key. */
   const applyVolume = (raw: number) => {
     const v = Math.min(1, Math.max(0, raw));
     volumeRef.current = v;
