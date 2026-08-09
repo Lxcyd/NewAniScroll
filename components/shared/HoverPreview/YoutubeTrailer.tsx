@@ -423,13 +423,21 @@ export default function YoutubeTrailer({
             // without widening the bar.
             className="relative h-20 w-[5px] cursor-pointer rounded-full bg-white/25"
           >
+            {/* Filled part in the brand colour, like every other slider in the
+                app; the knob stays white so it reads against it. */}
             <div
-              className="absolute bottom-0 left-0 w-full rounded-full bg-white"
-              style={{ height: `${(muted ? 0 : volume) * 100}%` }}
+              className="absolute bottom-0 left-0 w-full rounded-full"
+              style={{
+                height: `${(muted ? 0 : volume) * 100}%`,
+                background: "var(--brand-primary, #ff3b5c)",
+              }}
             />
             <div
-              className="pointer-events-none absolute left-1/2 h-2.5 w-2.5 -translate-x-1/2 translate-y-1/2 rounded-full bg-white shadow"
-              style={{ bottom: `${(muted ? 0 : volume) * 100}%` }}
+              className="pointer-events-none absolute left-1/2 h-3 w-3 -translate-x-1/2 translate-y-1/2 rounded-full bg-white"
+              style={{
+                bottom: `${(muted ? 0 : volume) * 100}%`,
+                boxShadow: "0 1px 4px rgba(0,0,0,.6)",
+              }}
             />
           </div>
         </div>

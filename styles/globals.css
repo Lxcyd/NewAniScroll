@@ -147,6 +147,12 @@ html.tab-hidden *::after {
   left: -60px;
   width: calc(100% + 120px);
   height: calc(100% + 60px);
+  /* The blur alone leaves a visible straight edge where the picture stops: a
+     40 px ramp at 85 % opacity still reads as a border. This fades the layer out
+     towards the top and the two sides, opaque along the bottom where the picture
+     actually is, so the light dies out instead of ending. */
+  -webkit-mask-image: radial-gradient(88% 128% at 50% 100%, #000 52%, transparent 100%);
+  mask-image: radial-gradient(88% 128% at 50% 100%, #000 52%, transparent 100%);
   object-fit: cover;
   border-radius: 34px;
   /* No `filter` and no `transform` here on purpose:
