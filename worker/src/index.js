@@ -22,6 +22,7 @@
  */
 
 import { handleEdgeEndpoint } from "./edge-endpoints.js";
+import { handleTrailer } from "./youtube-trailer.js";
 
 // CDNs that genuinely need single-flight requests per IP. Keep this list short
 // — every entry slows down playback for that host. Only VOE's
@@ -551,6 +552,10 @@ async function handle(request, env, ctx) {
 export default {
   async fetch(request, env, ctx) {
     try {
+      // Trailer MP4s (/w/trailer/<id>.mp4) go first: handleEdgeEndpoint claims
+      // the whole /w/ prefix and would 404 them.
+      const trailer = await handleTrailer(request, env, ctx);
+      if (trailer) return trailer;
       // Offloaded-from-Vercel endpoints (/w/status, /w/broadcast, /w/track) are
       // routed first; everything else is the HLS/scrape proxy.
       const edge = await handleEdgeEndpoint(request, env, ctx);
