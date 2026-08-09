@@ -4647,9 +4647,12 @@ export default function UniversalPlayer({
         ref={playerRef}
         // Note: overflow-visible (not hidden) so portaled menus (subtitles
         // settings, etc.) can extend slightly past the bottom edge of the
-        // player without being clipped. The bg-black still draws the player
-        // box; only stray child elements can now overflow.
-        className="vds-player relative z-10 h-full w-full overflow-visible bg-black"
+        // player without being clipped.
+        //
+        // No bg-black here, deliberately — see the `.vds-player` background
+        // rule in globals.css. The picture already paints its own black box;
+        // a second one behind it only showed through the rounded corners.
+        className="vds-player relative z-10 h-full w-full overflow-visible"
         src={playerSrc}
         // Bigger buffers + fast-fail segment loading so seeking lands in
         // already-buffered data instead of a slow proxy→CDN round-trip.

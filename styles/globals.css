@@ -334,6 +334,24 @@ a {
   --video-border-radius: 12px;
 }
 
+/* The player's own box paints nothing.
+ *
+ * Vidstack's default layout gives BOTH the player and the picture inside it the
+ * same 12px radius and the same black background, and the player additionally
+ * carries a 1px border — so the picture sits one pixel inside a black box cut to
+ * the same curve as itself. A rounded edge is antialiased by definition: its
+ * outermost pixels are half-covered, and whatever is behind shows through them.
+ * Here that was black, against a bright picture, which is how the dark outline
+ * around the corners was drawn.
+ *
+ * The picture needs no help: `[data-media-provider], video, .vds-poster` keep
+ * their own black background, so letterbox bars are still black and nothing is
+ * transparent while a source loads. Only the box BEHIND the picture is cleared.
+ */
+.vds-player {
+  background-color: transparent;
+}
+
 /* No rounded corners in fullscreen — the player fills the whole screen, so a
    12px radius just leaves black wedges at the corners. Covers native
    fullscreen (Vidstack sets [data-fullscreen]) and our iOS CSS pseudo-
