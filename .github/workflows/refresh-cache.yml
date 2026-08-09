@@ -1,6 +1,6 @@
 # Daily refresh of the Turso anime cache.
 #
-# Runs scripts/refresh-cache.mjs which:
+# Runs scripts/cache/refresh-cache.mjs which:
 #   1. Re-fetches every RELEASING anime (TTL 1h on those rows).
 #   2. Walks AniList sort:UPDATED_AT_DESC to pick up edits since last run.
 #   3. Discovers AniList IDs higher than what's in our DB.
@@ -59,7 +59,7 @@ jobs:
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN:   ${{ secrets.TURSO_AUTH_TOKEN }}
         run: |
-          node scripts/refresh-cache.mjs \
+          node scripts/cache/refresh-cache.mjs \
             ${{ inputs.skip_releasing == true && '--skip-releasing' || '' }} \
             ${{ inputs.skip_delta     == true && '--skip-delta'     || '' }} \
             ${{ inputs.skip_discovery == true && '--skip-discovery' || '' }}
