@@ -273,7 +273,17 @@ export default function PreviewCard({
           // synopsis as much as from behind the video — which is exactly the
           // "glow all around the window" that the real ambient layer is clipped
           // to avoid. One source of light per card.
-          boxShadow: "0 14px 34px rgba(0,0,0,.5)",
+          //
+          // The negative spread is what removes the dark outline that used to
+          // trace the rounded corners. A rounded edge is antialiased — its
+          // outermost pixels are half-covered by definition, at any position and
+          // any zoom — so whatever sits directly BEHIND the card shows through
+          // them. With the shadow reaching the corners, that was 50 % black
+          // between a bright picture and a bright page, which is exactly how a
+          // one-pixel line is drawn. Pulled 12 px inside the box, the shadow no
+          // longer touches any edge the eye follows; it still falls below the
+          // card, which is all it was ever for.
+          boxShadow: "0 18px 38px -12px rgba(0,0,0,.62)",
         }}
       >
         {/* The surface, not black, behind the picture. Nothing legitimately
