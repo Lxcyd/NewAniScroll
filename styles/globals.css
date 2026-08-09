@@ -83,43 +83,47 @@ html.tab-hidden *::after {
    over-saturated — bias lighting for the popup. It has to live outside the card
    (which clips) and behind it (whose surface is opaque), hence the negative
    inset on the root and the -z-10. */
-/* Secondary action button, lifted from the info page's Hero (`hStyles`) so the
-   preview reads as the same app: a barely-there white wash on a #2f3447
-   hairline at radius 11. `--line-2` isn't usable here — it's declared inside
-   components/anime/v2/styles.module.css and the popup is portalled to <body>. */
+/* Bare glyphs, no chrome. The card's own actions carry no plate or outline —
+   only the icon, in the app's body colour (`--text-body`), lifting to full
+   white or to the brand colour when they're on. */
 .as-preview-iconbtn {
-  width: 36px;
-  height: 36px;
+  width: 34px;
+  height: 34px;
   flex-shrink: 0;
   display: grid;
   place-items: center;
-  border-radius: 11px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid #2f3447;
+  background: none;
+  border: 0;
   cursor: pointer;
-  transition: background 0.18s ease, color 0.18s ease;
+  color: var(--text-body, #dbdcdd);
+  transition: color 0.18s ease, transform 0.18s ease;
 }
 .as-preview-iconbtn:hover {
-  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+  transform: translateY(-1px);
+}
+.as-preview-iconbtn[data-on='true'] {
+  color: var(--brand-primary, #ff3b5c);
 }
 
-/* Same shape over the video, where the surface has to be dark enough to survive
-   a bright frame behind it. */
-.as-preview-videobtn,
-.as-preview-voltrack {
-  border-radius: 11px;
-  background: rgba(10, 11, 16, 0.62);
-  border: 1px solid #2f3447;
-  color: #ffffff;
-}
+/* Same, over the video. Nothing behind the glyph either — a shadow does the
+   work a plate used to do, so the icon stays readable on a bright frame without
+   putting a second button-looking shape on screen. */
 .as-preview-videobtn {
   display: grid;
   place-items: center;
+  background: none;
+  border: 0;
   cursor: pointer;
-  transition: background 0.18s ease;
+  color: #ffffff;
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.85)) drop-shadow(0 0 10px rgba(0, 0, 0, 0.55));
+  transition: transform 0.18s ease, opacity 0.18s ease;
 }
 .as-preview-videobtn:hover {
-  background: rgba(10, 11, 16, 0.82);
+  transform: scale(1.08);
+}
+.as-preview-voltrack {
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.85));
 }
 
 /* The glow belongs to the VIDEO, not to the card. This box IS the video's box

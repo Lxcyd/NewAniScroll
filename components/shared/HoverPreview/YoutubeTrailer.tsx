@@ -50,6 +50,11 @@ const IDLE_MS = 1600;
 const MOVE_SLOP = 8;
 /** No controls at all for this long after the card opens, movement or not. */
 const OPEN_GRACE_MS = 350;
+/** Handshake retry, until the frame starts answering. */
+const HANDSHAKE_MS = 100;
+const HANDSHAKE_WINDOW_MS = 3000;
+/** Then a slow poll, purely so our transport state can't drift out of date. */
+const HEARTBEAT_MS = 1500;
 
 export default function YoutubeTrailer({
   id,
@@ -116,10 +121,6 @@ export default function YoutubeTrailer({
       // decorative copy) and both post from this origin. Without this check a
       // message from the wrong frame drives the wrong state machine.
       if (e.source && e.source !== frameRef.current?.contentWindow) return;
-      if (pollRef.current) {
-        clearInterval(pollRef.current);
-        pollRef.current = null;
-      }
       let json: any;
       try {
         json = JSON.parse(e.data as string);
@@ -133,7 +134,10 @@ export default function YoutubeTrailer({
         onHide(true);
       }
 
-      if (json.event === "infoDelivery") {
+      // `initialDelivery` carries a full state dump, which is exactly what the
+      // heartbeat below is asking for — so it is read the same way as the
+      // running feed.
+      if (json.event === "infoDelivery" || json.event === "initialDelivery") {
         const info = json.info ?? {};
 
         if (info.playerState === 1) {
@@ -176,15 +180,38 @@ export default function YoutubeTrailer({
     };
   }, [id, onHide, onPlayingChange, onCycle, call]);
 
+  /**
+   * The `listening` handshake, then a heartbeat.
+   *
+   * The handshake has to be repeated because the frame isn't listening the
+   * instant `load` fires. The heartbeat that follows is the important half: each
+   * ping makes YouTube answer with a full `initialDelivery` state dump, so a
+   * transport change we somehow missed can leave our UI wrong for a couple of
+   * seconds at most.
+   *
+   * That matters because the alternative is unbounded. If our `playing` says
+   * true while the player has actually stopped, the frame stays visible and
+   * YouTube draws its own big centre button under ours — two pause buttons on
+   * top of each other, and nothing to ever correct it.
+   */
   const initFrame = () => {
     const ping = () =>
       frameRef.current?.contentWindow?.postMessage(
         '{"event":"listening","id":1,"channel":"widget"}',
         "*",
       );
+    let elapsed = 0;
     ping();
     if (pollRef.current) clearInterval(pollRef.current);
-    pollRef.current = setInterval(ping, 100);
+    pollRef.current = setInterval(() => {
+      elapsed += HANDSHAKE_MS;
+      ping();
+      // Once the player is talking to us, drop to a slow heartbeat.
+      if (elapsed >= HANDSHAKE_WINDOW_MS && pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = setInterval(ping, HEARTBEAT_MS);
+      }
+    }, HANDSHAKE_MS);
   };
 
   const stop = (e: React.MouseEvent) => {
@@ -355,16 +382,16 @@ export default function YoutubeTrailer({
         type="button"
         onClick={togglePlay}
         aria-label={playing ? "Pause" : "Play"}
-        className={`as-preview-videobtn absolute left-1/2 top-1/2 h-11 w-11 -translate-x-1/2 -translate-y-1/2 ${chrome}`}
+        className={`as-preview-videobtn absolute left-1/2 top-1/2 h-10 w-10 -translate-x-1/2 -translate-y-1/2 ${chrome}`}
       >
-        {playing ? <MdPause size={20} /> : <MdPlayArrow size={22} />}
+        {playing ? <MdPause size={36} /> : <MdPlayArrow size={38} />}
       </button>
 
       {/* Volume: the button, and the track that drops out of it on hover. Both
           live in one wrapper so the pointer can travel from one to the other
           without the group ever being "left". */}
       <div
-        className={`absolute right-1.5 top-1.5 flex flex-col items-center ${chrome}`}
+        className={`absolute right-2 top-2 flex flex-col items-center ${chrome}`}
         onPointerEnter={openVolume}
         onPointerLeave={closeVolume}
       >
@@ -372,9 +399,9 @@ export default function YoutubeTrailer({
           type="button"
           onClick={toggleMute}
           aria-label={muted ? "Unmute" : "Mute"}
-          className="as-preview-videobtn h-8 w-8"
+          className="as-preview-videobtn h-7 w-7"
         >
-          {muted ? <MdVolumeOff size={17} /> : <MdVolumeUp size={17} />}
+          {muted ? <MdVolumeOff size={21} /> : <MdVolumeUp size={21} />}
         </button>
 
         <div

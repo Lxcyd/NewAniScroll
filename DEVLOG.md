@@ -1,5 +1,33 @@
 # DEVLOG
 
+## 2026-08-09 (soir 2) — Le halo « tout autour » n'était pas le halo
+
+Luc signalait encore une lumière sur les quatre côtés de la carte alors que le
+calque d'ambiance est découpé sur la zone vidéo depuis deux commits. Ce n'était
+pas lui : c'était une **seconde ombre portée**, dans la couleur dominante de
+l'anime, que j'avais ajoutée au `box-shadow` de la carte. Un `box-shadow`
+enveloppe les quatre côtés par construction — il éclairait donc le synopsis par
+en dessous autant que la vidéo par derrière, c'est-à-dire précisément l'effet que
+le `clip-path` du vrai halo sert à empêcher. Supprimée. **Une seule source de
+lumière par carte**, sinon on débogue la mauvaise.
+
+**Les deux boutons superposés : une garantie plutôt qu'un diagnostic.** Aucun
+paramètre d'embed ne retire le gros bouton central de YouTube, et notre parade
+(iframe invisible dès que la vidéo n'est pas en lecture) ne vaut que si notre
+état de lecture est juste. Il pouvait rester périmé indéfiniment : on coupait le
+ping `listening` au premier message reçu, donc une transition manquée ne se
+rattrapait jamais. Le ping devient un **battement lent (1,5 s)** qui ne s'arrête
+plus, et `initialDelivery` — la réponse complète à ce ping — est désormais lu
+comme le flux courant. Notre état ne peut plus être faux plus de 1,5 s.
+
+Icônes sans fond, en `--text-body`, `--brand-primary` à l'état actif, et une
+`drop-shadow` à la place de la plaque sur la vidéo : une plaque sombre derrière
+un glyphe ressemble à un bouton, et c'est cette ressemblance qui faisait lire
+« deux boutons » quand celui de YouTube apparaissait dessous.
+
+---
+
+
 ## 2026-08-09 (soir) — Deux frames YouTube, un seul état : le bug du bouton fantôme
 
 **Le vrai suspect du « bouton qui n'est pas le nôtre ».** Depuis qu'il y a une

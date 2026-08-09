@@ -132,7 +132,6 @@ export default function PreviewCard({
   // The trailer element is mounted as soon as we have an id and it hasn't been
   // ruled unplayable; `playing` is the finer, live state.
   const trailerMounted = Boolean(data?.trailer?.id) && !hideFrame;
-  const accent = data?.coverImage?.color ?? null;
 
   // "N Episodes" / "3 / 12 Episodes", falling back to the runtime for movies and
   // single-episode entries — Hayase's `of() ?? duration() ?? 'N/A'`.
@@ -195,9 +194,9 @@ export default function PreviewCard({
   // CTA is the brand gradient with its own glow. Hard-coded rather than read
   // from `--line-2`, which is declared inside the info page's CSS module and so
   // doesn't exist for a popup portalled to <body>.
-  // The shape lives in globals.css (`.as-preview-iconbtn`) rather than inline:
-  // an inline `background` would beat any hover rule, and these buttons need
-  // one. Only the state-dependent colour stays here.
+  // The shape lives in globals.css (`.as-preview-iconbtn`): an inline
+  // `background` beats any `:hover` rule, and these need one. The "on" state
+  // travels as a data attribute for the same reason.
 
   return (
     <div
@@ -248,12 +247,15 @@ export default function PreviewCard({
           // card have to read the same value.
           ["--as-preview-bg" as any]: SURFACE,
           background: SURFACE,
-          // Kept deliberately tight. A wide black drop shadow sits exactly where
-          // the ambient light is trying to land and cancels it — the card needs
-          // separation from the page, not a pool of shade around it.
-          boxShadow: `0 14px 34px rgba(0,0,0,.5)${
-            accent ? `, 0 0 40px -16px ${accent}` : ""
-          }`,
+          // Drop shadow ONLY, and a tight one.
+          //
+          // There used to be a second shadow here in the anime's dominant
+          // colour. It looked like ambient light and it was not: a box-shadow
+          // wraps all four sides, so it lit the card from underneath the
+          // synopsis as much as from behind the video — which is exactly the
+          // "glow all around the window" that the real ambient layer is clipped
+          // to avoid. One source of light per card.
+          boxShadow: "0 14px 34px rgba(0,0,0,.5)",
         }}
       >
         <div className="as-preview-banner relative h-[45%] rounded-t-card bg-black">
@@ -322,7 +324,7 @@ export default function PreviewCard({
               aria-label={t(fav ? "anime.removeFromFavourites" : "anime.addToFavourites")}
               title={t(fav ? "anime.removeFromFavourites" : "anime.addToFavourites")}
               className="as-preview-iconbtn ml-2"
-              style={{ color: fav ? "var(--brand-primary, #ff3b5c)" : "#dbdcdd" }}
+              data-on={fav ? "true" : "false"}
             >
               {/* The info page's heart, path for path — same silhouette in both
                   places or the same action reads as two different features. */}
@@ -344,8 +346,8 @@ export default function PreviewCard({
               onClick={onBookmark}
               aria-label={t(entry?.status ? "preview.removeFromList" : "preview.addToPlanning")}
               title={t(entry?.status ? "preview.removeFromList" : "preview.addToPlanning")}
-              className="as-preview-iconbtn ml-2"
-              style={{ color: entry?.status ? "#ffffff" : "#dbdcdd" }}
+              className="as-preview-iconbtn ml-1"
+              style={entry?.status ? { color: "#ffffff" } : undefined}
             >
               {/* QueueButton's playlist glyphs (components/anime/v2/QueueButton):
                   this button does the same thing, so it wears the same icon. */}
