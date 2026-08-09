@@ -194,9 +194,9 @@ export async function handleTrailer(request, env, ctx) {
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const url = await resolveMuxedUrl(videoId, diag);
     if (!url) continue;
-    const headers = { "User-Agent": ANDROID_UA, Accept: "*/*" };
-    if (rangeHeader && !isOpeningRange) headers.Range = rangeHeader;
-    upstream = await fetch(url, { headers });
+    // Deliberately NOT forwarding the client's Range — see below. We always
+    // pull the whole file so there is always something worth storing.
+    upstream = await fetch(url, { headers: { "User-Agent": ANDROID_UA, Accept: "*/*" } });
     if (upstream.status !== 403) break;
     diag.push("upstream 403");
     upstream = null;
@@ -221,9 +221,47 @@ export async function handleTrailer(request, env, ctx) {
     return new Response(null, { status: upstream.status, headers });
   }
 
+  /**
+   * A mid-file range on a cold key is served by fetching the WHOLE file, storing
+   * it, and slicing here.
+   *
+   * This is the difference between a preview that starts in half a second and
+   * one that takes five. The Cache API refuses to store a 206, so an earlier
+   * version forwarded the client's Range upstream, got a 206 back, and cached
+   * nothing — which meant the crop probe's five seeks each missed cache and
+   * each paid a fresh InnerTube resolve, five sequential round trips to YouTube
+   * for one hover. Pulling the whole file once turns all of them but the first
+   * into edge hits, and the file is 3-4 MB.
+   */
+  if (rangeHeader && !isOpeningRange) {
+    const buffer = await upstream.arrayBuffer();
+    if (ctx) {
+      ctx.waitUntil(
+        cache.put(
+          new Request(cacheKeyUrl, { method: "GET" }),
+          new Response(buffer, { status: 200, headers }),
+        ),
+      );
+    }
+    const match = /bytes=(\d*)-(\d*)/i.exec(rangeHeader);
+    const total = buffer.byteLength;
+    const start = match && match[1] ? Math.min(Number(match[1]), total - 1) : 0;
+    const end = match && match[2] ? Math.min(Number(match[2]), total - 1) : total - 1;
+    if (!Number.isFinite(start) || !Number.isFinite(end) || start > end) {
+      return fail(416, "Bad range");
+    }
+    const slice = buffer.slice(start, end + 1);
+    return new Response(slice, {
+      status: 206,
+      headers: {
+        ...headers,
+        "Content-Range": `bytes ${start}-${end}/${total}`,
+        "Content-Length": String(slice.byteLength),
+      },
+    });
+  }
+
   const response = new Response(upstream.body, { status: upstream.status, headers });
-  // Only the full 200 is worth storing — a 206 is a slice, and the Cache API
-  // refuses it anyway.
   if (ctx && upstream.status === 200) {
     ctx.waitUntil(cache.put(new Request(cacheKeyUrl, { method: "GET" }), response.clone()));
   }

@@ -90,6 +90,17 @@ export default function PreviewCard({
   /** The crop measured for this trailer, shared so the glow is framed like the picture. */
   const [crop, setCrop] = useState(1);
   /**
+   * The trailer is running and buffered. Gates the ambient copy.
+   *
+   * Mounting the glow at the same instant as the player meant two elements
+   * pulling the same file at once, and the one nobody looks at directly was
+   * taking bandwidth from the one they do. It waits its turn now — and can,
+   * because it no longer has to start in step: it syncs to the real player's
+   * clock instead (see TrailerAmbient), which the old decorative iframe could
+   * never do.
+   */
+  const [trailerReady, setTrailerReady] = useState(false);
+  /**
    * The playing trailer, read by the ambient copy so it can follow its clock.
    *
    * Lives here rather than inside the trailer because two siblings need it. It
@@ -133,6 +144,7 @@ export default function PreviewCard({
   const onHide = useCallback((hidden: boolean) => setHideFrame(hidden), []);
   const onPlayingChange = useCallback((next: boolean) => setPlaying(next), []);
   const onCrop = useCallback((zoom: number) => setCrop(zoom), []);
+  const onTrailerReady = useCallback(() => setTrailerReady(true), []);
 
   const title = data ? pickTitle(data.title, titlePref) : "";
   // Same treatment the info page gives its synopsis: translated on demand and
@@ -243,7 +255,7 @@ export default function PreviewCard({
             style={{ opacity: playing ? 0 : AMBIENT_OPACITY }}
           />
         )}
-        {trailerMounted && data?.trailer?.id && (
+        {trailerMounted && trailerReady && data?.trailer?.id && (
           <TrailerAmbient
             id={data.trailer.id}
             playing={playing}
@@ -302,6 +314,7 @@ export default function PreviewCard({
               onHide={onHide}
               onPlayingChange={onPlayingChange}
               onCrop={onCrop}
+              onReady={onTrailerReady}
             />
           )}
         </div>

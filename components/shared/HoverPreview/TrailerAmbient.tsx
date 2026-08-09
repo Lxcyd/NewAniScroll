@@ -84,6 +84,13 @@ export default function TrailerAmbient({
         playsInline
         aria-hidden
         tabIndex={-1}
+        // Mounted after the player, so it starts where the player already is
+        // rather than from zero — the glow must never show a shot the picture
+        // has left behind.
+        onLoadedMetadata={(e) => {
+          const source = sourceRef.current;
+          if (source) e.currentTarget.currentTime = source.currentTime;
+        }}
         className="pointer-events-none absolute inset-0 h-full w-full transform-gpu object-cover"
         style={{ transform: `scale(${zoom})` }}
       />

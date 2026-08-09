@@ -57,6 +57,7 @@ export default function NativeTrailer({
   onHide,
   onPlayingChange,
   onCrop,
+  onReady,
 }: {
   id: string;
   /** Shared with TrailerAmbient, which follows this element's clock. */
@@ -67,6 +68,8 @@ export default function NativeTrailer({
   onPlayingChange: (playing: boolean) => void;
   /** The measured crop, so the ambient copy is framed like the picture. */
   onCrop: (zoom: number) => void;
+  /** The picture is running and buffered — decoration may start now. */
+  onReady: () => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const idleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -86,6 +89,12 @@ export default function NativeTrailer({
   const [volOpen, setVolOpen] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [paused, setPaused] = useState(false);
+  /**
+   * Enough of the file is in hand that extra work no longer competes with
+   * playback. Gates both the crop probe and the ambient copy — everything that
+   * is not the picture the visitor asked for waits behind this.
+   */
+  const [ready, setReady] = useState(false);
   const [showControls, setShowControls] = useState(false);
   /**
    * Seeded from the store during the FIRST render, not in an effect.
@@ -118,6 +127,23 @@ export default function NativeTrailer({
     onCrop(zoom);
   }, [zoom, onCrop]);
 
+  useEffect(() => {
+    if (ready) onReady();
+  }, [ready, onReady]);
+
+  /**
+   * Backstop for `canplaythrough`, which a browser is free never to fire — on a
+   * throttled tab, or when it decides the network is too slow to promise
+   * uninterrupted playback. Without this, a trailer that plays perfectly well
+   * would simply never get its crop measured and never light the card, because
+   * both wait on an event that isn't coming.
+   */
+  useEffect(() => {
+    if (!playing || ready) return;
+    const t = setTimeout(() => setReady(true), 2500);
+    return () => clearTimeout(t);
+  }, [playing, ready]);
+
   /**
    * Decide the crop before the picture is shown, and remember it.
    *
@@ -126,6 +152,17 @@ export default function NativeTrailer({
    */
   useEffect(() => {
     if (readCrop(id) != null) return;
+    // Wait for the picture to be running and comfortably buffered before
+    // measuring anything.
+    //
+    // The probe is a second element seeking around the same file, and a seek is
+    // a range request. Started too early, on a file the edge has not stored
+    // yet, each of those went all the way back to YouTube — and they queued
+    // ahead of the bytes the visible video was waiting for, so measuring the
+    // crop actively delayed the thing being measured. Once the file is fully
+    // buffered here, every one of the probe's seeks is answered by the
+    // browser's own cache and costs nothing at all.
+    if (!ready) return;
     if (!canvasRef.current) canvasRef.current = makeProbeCanvas();
     const canvas = canvasRef.current;
     let cancelled = false;
@@ -152,7 +189,7 @@ export default function NativeTrailer({
       cancelled = true;
       if (stopLive) stopLive();
     };
-  }, [id, src, videoRef]);
+  }, [id, src, videoRef, ready]);
 
   useEffect(
     () => () => {
@@ -338,6 +375,7 @@ export default function NativeTrailer({
           onPlayingChange(false);
         }}
         onWaiting={() => onPlayingChange(false)}
+        onCanPlayThrough={() => setReady(true)}
         // Nothing to salvage: no source, no picture. The card falls back to its
         // artwork, which is what the visitor was already looking at.
         onError={() => onHide(true)}
