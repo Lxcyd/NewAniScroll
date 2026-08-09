@@ -83,6 +83,16 @@ export default function TrailerAmbient({
    */
   const zoomRef = useRef(zoom);
   zoomRef.current = zoom;
+  /**
+   * Has the trailer ever put a frame on these canvases.
+   *
+   * The artwork stage is a one-way door. `playing` goes false on every pause,
+   * and without this the artwork stage simply ran again and repainted the
+   * poster over the frames — so pausing threw the glow back to the card's still
+   * image instead of holding the colour that was on screen. A pause should
+   * freeze the light, not rewind it.
+   */
+  const everDrewFrameRef = useRef(false);
 
   /**
    * Push whatever has just been composed onto every visible layer, erasing the
@@ -171,7 +181,7 @@ export default function TrailerAmbient({
    * same pixels going through the same layers.
    */
   useEffect(() => {
-    if (!banner || playing) return;
+    if (!banner || playing || everDrewFrameRef.current) return;
     const { source } = ensureCanvases();
     const ctx = source.getContext("2d");
     if (!ctx) return;
@@ -237,6 +247,7 @@ export default function TrailerAmbient({
         pctx.clearRect(0, 0, SRC_W, SRC_H);
         pctx.drawImage(source, 0, 0);
         publish(source);
+        everDrewFrameRef.current = true;
       } catch {
         /* a frame that can't be drawn is skipped; the next is 33 ms away */
       }
