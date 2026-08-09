@@ -213,14 +213,24 @@ export default function HoverPreviewProvider() {
       }, HOVER_TIME);
     };
 
-    // Scrolling does NOT move the card.
+    // The card travels with the page.
     //
-    // It used to follow its anchor, on the reasoning that a popup pointing at a
-    // poster should keep pointing at it. In practice the pointer stays still
-    // while the wheel turns, so the card slid out from under the cursor and the
-    // thing you were reading walked off on its own. Fixed to the viewport, it
-    // stays where you are looking; the anchor moves behind it and that is fine,
-    // because the next pointer event over anything else closes it anyway.
+    // Hayase gets this for free: its popup is a CHILD of the poster, so it
+    // scrolls because the poster does. Ours is portalled to <body> and
+    // positioned, so "moves with the page" has to be re-created — one rAF per
+    // scroll frame, re-measuring the anchor and handing the new rect down.
+    let raf = 0;
+    const onScroll = () => {
+      if (raf || !openRef.current) return;
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        const live = openRef.current;
+        if (!live) return;
+        if (!live.el.isConnected) return close();
+        setOpen({ ...live, rect: rectOf(live.el) });
+      });
+    };
+
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") close();
     };
@@ -240,6 +250,7 @@ export default function HoverPreviewProvider() {
     document.addEventListener("pointerover", onPointerOver, true);
     document.addEventListener("pointermove", onPointerMove, true);
     document.addEventListener("pointerdown", onPointerDown, true);
+    document.addEventListener("scroll", onScroll, true);
     document.addEventListener("keydown", onKey);
     // Pointer left the window entirely — no further pointerover will arrive.
     document.addEventListener("mouseleave", close);
@@ -250,6 +261,8 @@ export default function HoverPreviewProvider() {
       document.removeEventListener("pointerover", onPointerOver, true);
       document.removeEventListener("pointermove", onPointerMove, true);
       document.removeEventListener("pointerdown", onPointerDown, true);
+      document.removeEventListener("scroll", onScroll, true);
+      if (raf) cancelAnimationFrame(raf);
       document.removeEventListener("keydown", onKey);
       document.removeEventListener("mouseleave", close);
       window.removeEventListener("blur", close);

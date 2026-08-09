@@ -15,6 +15,7 @@ import { toggleFavourite, useIsFavourite } from "@/lib/anilist/favouritesCache";
 import { notify } from "@/lib/notifications/noticeStore";
 import { fetchPreview, peekPreview, type PreviewData } from "@/lib/preview/previewStore";
 import { useTranslatedText } from "@/lib/i18n/useTranslatedText";
+import { MdPlayArrow } from "react-icons/md";
 import YoutubeTrailer from "./YoutubeTrailer";
 import TrailerAmbient from "./TrailerAmbient";
 
@@ -27,13 +28,8 @@ export type AnchorRect = { top: number; left: number; width: number; height: num
  */
 const WIDTH = 364;
 const HEIGHT = 424;
-/** Gap kept between the card and the viewport edges. */
-const MARGIN = 12;
-
 /** Lines of synopsis that fit under the meta row at HEIGHT. */
 const DESC_LINES = 5;
-/** How far the ambient glow spills past the card; kept out of the viewport clamp. */
-const AMBIENT_SPILL = 60;
 
 /** Card surface. Kept in sync with the banner gradient in globals.css. */
 const SURFACE = "#1a1a24";
@@ -110,29 +106,17 @@ export default function PreviewCard({
     };
   }, [id]);
 
-  // Centred on the hovered card, clamped inside the viewport. The card has a
-  // fixed size, so this never needs to re-run for content.
-  // Centred on the hovered card, then pulled back inside the viewport. Hovering
-  // a poster that is itself half off-screen (the ends of a carousel) must not
-  // put half the preview off-screen with it — the card moves, the anchor
-  // doesn't. `clientWidth` rather than `innerWidth`: the latter counts the
-  // scrollbar, which is not somewhere the card can be seen.
+  // Centred on the hovered card, and that is all.
   //
-  // Runs once per open. It deliberately does NOT re-run on scroll: see the
-  // provider — the card stays where it was put.
+  // No viewport clamping: a poster half off the edge of a carousel gets a
+  // preview half off the edge too. That is what Hayase does — the popup is
+  // anchored to the card, and pulling it back in would make it point at a
+  // neighbour instead. `rect` is refreshed by the provider on scroll, so this
+  // re-runs and the card travels with the page like any other element.
   useLayoutEffect(() => {
-    const vw = document.documentElement.clientWidth;
-    const vh = document.documentElement.clientHeight;
-    // The glow reaches AMBIENT_SPILL past every edge; clamping the card alone
-    // would let the light get sliced by the viewport.
-    const edge = MARGIN + AMBIENT_SPILL;
-    const fit = (want: number, size: number, viewport: number) =>
-      viewport < size + 2 * edge
-        ? Math.max(MARGIN, (viewport - size) / 2)
-        : Math.max(edge, Math.min(want, viewport - size - edge));
     setPos({
-      left: fit(rect.left + rect.width / 2 - WIDTH / 2, WIDTH, vw),
-      top: fit(rect.top + rect.height / 2 - HEIGHT / 2, HEIGHT, vh),
+      left: rect.left + rect.width / 2 - WIDTH / 2,
+      top: rect.top + rect.height / 2 - HEIGHT / 2,
     });
   }, [rect]);
 
@@ -206,8 +190,14 @@ export default function PreviewCard({
     await toggleFavourite(id, token);
   };
 
-  const iconButton =
-    "grid h-[34px] w-[34px] shrink-0 place-items-center rounded-md bg-white/[0.06] text-white/75 ring-1 ring-white/10 transition-colors hover:bg-white/[0.12] hover:text-white";
+  // Lifted from components/anime/v2/Hero.tsx (`hStyles`): the secondary action
+  // there is rgba(255,255,255,.04) on a #2f3447 hairline at radius 11, and the
+  // CTA is the brand gradient with its own glow. Hard-coded rather than read
+  // from `--line-2`, which is declared inside the info page's CSS module and so
+  // doesn't exist for a popup portalled to <body>.
+  // The shape lives in globals.css (`.as-preview-iconbtn`) rather than inline:
+  // an inline `background` would beat any hover rule, and these buttons need
+  // one. Only the state-dependent colour stays here.
 
   return (
     <div
@@ -224,31 +214,32 @@ export default function PreviewCard({
         visibility: pos ? "visible" : "hidden",
       }}
     >
-      {/* Ambient light: the artwork blown up, blurred and over-saturated behind
-          the card, spilling past its edges. It lives OUTSIDE the card because
-          the card clips its own children, and behind it via z-index because the
-          card surface is opaque.
+      {/* Ambient light, in two stages: the artwork holds the glow from the first
+          frame, then the trailer takes over and the light follows the video. A
+          still image can't do that and a cross-origin embed can't be sampled, so
+          the second stage is a second copy of the video (see TrailerAmbient).
 
-          Two stages. The artwork holds the glow from the first frame, then the
-          trailer takes over and the light starts following the video — a still
-          image can't do that, and a cross-origin embed can't be sampled, so the
-          only way is a second copy of the video (see TrailerAmbient). */}
-      {banner && (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={banner}
-          alt=""
-          aria-hidden
-          draggable={false}
-          className="as-preview-ambient pointer-events-none absolute -z-10 blur-2xl saturate-200 transition-opacity duration-700"
-          style={{ opacity: playing ? 0 : AMBIENT_OPACITY }}
-        />
-      )}
-      {trailerMounted && data?.trailer?.id && (
-        // `key` on the loop counter: the ambient copy has no API channel, so the
-        // only way to restart it with the real player is to remount it.
-        <TrailerAmbient key={cycle} id={data.trailer.id} playing={playing} />
-      )}
+          The clip box is the VIDEO's box, cut open on three sides: the glow may
+          spill left, right and above as far as the blur reaches, and is cut dead
+          at the bottom of the picture. Light coming off a screen doesn't wrap
+          around to backlight the text under it. */}
+      <div className="as-preview-ambient-clip pointer-events-none absolute -z-10" aria-hidden>
+        {banner && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={banner}
+            alt=""
+            draggable={false}
+            className="as-preview-ambient absolute blur-2xl saturate-200 transition-opacity duration-700"
+            style={{ opacity: playing ? 0 : AMBIENT_OPACITY }}
+          />
+        )}
+        {trailerMounted && data?.trailer?.id && (
+          // `key` on the loop counter: the ambient copy has no API channel, so
+          // the only way to restart it with the real player is to remount it.
+          <TrailerAmbient key={cycle} id={data.trailer.id} playing={playing} />
+        )}
+      </div>
 
       <div
         className="as-preview-card relative h-full w-full cursor-pointer overflow-hidden rounded-card ring-1 ring-white/10"
@@ -311,11 +302,17 @@ export default function PreviewCard({
           <div className="mt-2.5 flex flex-row">
             <Link
               href={animeHref(id, "watch")}
-              className="flex grow items-center justify-center gap-2 rounded-md bg-as-accent px-3 py-2 font-outfit text-[11px] font-bold uppercase tracking-[0.12em] text-white transition-opacity hover:opacity-90"
+              className="flex grow items-center justify-center gap-2 font-outfit text-[11px] font-bold uppercase tracking-[0.12em] text-white transition-opacity hover:opacity-90"
+              style={{
+                borderRadius: 11,
+                padding: "9px 14px",
+                background:
+                  "linear-gradient(135deg, var(--brand-primary, #ff3b5c) 0%, color-mix(in srgb, var(--brand-primary, #e8294b) 82%, #000) 100%)",
+                boxShadow:
+                  "0 10px 24px -12px color-mix(in srgb, var(--brand-primary, #ff3b5c) 70%, transparent), inset 0 1px 0 rgba(255,255,255,0.2)",
+              }}
             >
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M8 5v14l11-7z" />
-              </svg>
+              <MdPlayArrow size={16} />
               {playLabel}
             </Link>
 
@@ -324,20 +321,21 @@ export default function PreviewCard({
               onClick={onFav}
               aria-label={t(fav ? "anime.removeFromFavourites" : "anime.addToFavourites")}
               title={t(fav ? "anime.removeFromFavourites" : "anime.addToFavourites")}
-              className={`ml-2 ${iconButton} ${fav ? "!text-as-accent" : ""}`}
+              className="as-preview-iconbtn ml-2"
+              style={{ color: fav ? "var(--brand-primary, #ff3b5c)" : "#dbdcdd" }}
             >
-              {/* lucide heart */}
+              {/* The info page's heart, path for path — same silhouette in both
+                  places or the same action reads as two different features. */}
               <svg
-                width="16"
-                height="16"
+                width="17"
+                height="17"
                 viewBox="0 0 24 24"
-                fill={fav ? "currentColor" : "transparent"}
+                fill={fav ? "currentColor" : "none"}
                 stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
+                strokeWidth={2}
+                style={{ transition: "fill .2s ease" }}
               >
-                <path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z" />
+                <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
               </svg>
             </button>
 
@@ -346,20 +344,17 @@ export default function PreviewCard({
               onClick={onBookmark}
               aria-label={t(entry?.status ? "preview.removeFromList" : "preview.addToPlanning")}
               title={t(entry?.status ? "preview.removeFromList" : "preview.addToPlanning")}
-              className={`ml-2 ${iconButton} ${entry?.status ? "!text-white" : ""}`}
+              className="as-preview-iconbtn ml-2"
+              style={{ color: entry?.status ? "#ffffff" : "#dbdcdd" }}
             >
-              {/* lucide bookmark */}
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill={entry?.status ? "currentColor" : "transparent"}
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z" />
+              {/* QueueButton's playlist glyphs (components/anime/v2/QueueButton):
+                  this button does the same thing, so it wears the same icon. */}
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor">
+                {entry?.status ? (
+                  <path d="M14 10H2v2h12v-2zm0-4H2v2h12V6zM2 16h8v-2H2v2zm19.5-4.5L23 13l-6.99 7-4.51-4.5L13 14l3.01 3 5.49-5.5z" />
+                ) : (
+                  <path d="M14 10H2v2h12v-2zm0-4H2v2h12V6zM2 16h8v-2H2v2zm15-2v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4z" />
+                )}
               </svg>
             </button>
           </div>

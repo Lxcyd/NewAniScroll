@@ -1,5 +1,46 @@
 # DEVLOG
 
+## 2026-08-09 (soir) — Deux frames YouTube, un seul état : le bug du bouton fantôme
+
+**Le vrai suspect du « bouton qui n'est pas le nôtre ».** Depuis qu'il y a une
+seconde iframe (le halo animé), **deux lecteurs postent depuis
+`www.youtube-nocookie.com`** et notre `window.addEventListener("message")` ne
+filtrait que sur l'origine. Un `infoDelivery` venu de la copie décorative
+pilotait donc la machine à états du vrai lecteur — de quoi laisser `playing` à
+`true` alors que YouTube a mis sa vidéo en pause et dessine son gros bouton
+central. Filtre ajouté sur `e.source`.
+
+**À retenir : `e.origin` n'identifie pas un émetteur dès qu'il y a deux frames
+du même site.** Le bug n'existait pas hier ; il est né de l'ajout du halo, sans
+que rien dans le code du halo ne le laisse deviner.
+
+Aucun paramètre d'embed ne supprime ce bouton (`controls=0` ne couvre pas
+l'overlay de pause), donc la parade structurelle reste : iframe invisible dès
+que la vidéo n'est pas en lecture, artwork dessous.
+
+**Deux demandes qui reviennent en arrière**, notées pour éviter le ping-pong :
+- la carte **suit à nouveau le scroll** (elle doit se déplacer comme le reste de
+  la page ; hier on l'avait fixée au viewport) ;
+- **plus de recadrage viewport** : une vignette à moitié hors écran donne un
+  aperçu à moitié hors écran, comme chez Hayase. La carte est ancrée à sa
+  vignette, la ramener dans l'écran la ferait désigner une voisine.
+
+**Halo sur trois bords.** `clip-path: inset(-400px -400px 0 -400px)` sur une
+boîte calée sur la vidéo : le flou court librement à gauche, à droite et en haut,
+et se coupe net au bas de l'image.
+
+**Style.** Boutons repris de `hStyles` dans Hero : dégradé de marque + lueur pour
+le CTA, `rgba(255,255,255,.04)` sur un liseré `#2f3447` en rayon 11 pour les
+secondaires, cœur au tracé identique à celui de la fiche, icône de file d'attente
+identique à `QueueButton`. Piège au passage : un `background` **inline** bat
+toujours une règle `:hover` de feuille de style — la forme est donc dans
+`globals.css`, seule la couleur d'état reste inline. `--line-2` n'est pas
+utilisable ici, il est déclaré dans le module CSS de la fiche et l'aperçu est
+portalé dans `<body>`.
+
+---
+
+
 ## 2026-08-09 — Le bouton de YouTube qu'on ne peut pas enlever, et le halo en retard
 
 **`controls=0` ne supprime pas le gros bouton central de YouTube.** Il reste un

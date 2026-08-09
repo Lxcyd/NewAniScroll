@@ -112,6 +112,10 @@ export default function YoutubeTrailer({
   useEffect(() => {
     const onMessage = (e: MessageEvent) => {
       if (e.origin !== ORIGIN) return;
+      // Two YouTube frames are on screen (the player and TrailerAmbient's
+      // decorative copy) and both post from this origin. Without this check a
+      // message from the wrong frame drives the wrong state machine.
+      if (e.source && e.source !== frameRef.current?.contentWindow) return;
       if (pollRef.current) {
         clearInterval(pollRef.current);
         pollRef.current = null;
@@ -337,7 +341,7 @@ export default function YoutubeTrailer({
           onLoad={initFrame}
           // Always mute=1 at load: an audible autoplay is refused outright, a
           // muted one is not. The unmute happens once playback is live.
-          src={`${ORIGIN}/embed/${src}?autoplay=1&mute=1&controls=0&disablekb=1&cc_lang_pref=ja&rel=0&playsinline=1&fs=0&enablejsapi=1`}
+          src={`${ORIGIN}/embed/${src}?autoplay=1&mute=1&controls=0&disablekb=1&cc_lang_pref=ja&rel=0&playsinline=1&fs=0&modestbranding=1&iv_load_policy=3&enablejsapi=1`}
         />
       )}
 
@@ -351,7 +355,7 @@ export default function YoutubeTrailer({
         type="button"
         onClick={togglePlay}
         aria-label={playing ? "Pause" : "Play"}
-        className={`absolute left-1/2 top-1/2 grid h-10 w-10 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-md bg-black/55 text-white ring-1 ring-white/15 transition-colors hover:bg-black/75 ${chrome}`}
+        className={`as-preview-videobtn absolute left-1/2 top-1/2 h-11 w-11 -translate-x-1/2 -translate-y-1/2 ${chrome}`}
       >
         {playing ? <MdPause size={20} /> : <MdPlayArrow size={22} />}
       </button>
@@ -368,13 +372,13 @@ export default function YoutubeTrailer({
           type="button"
           onClick={toggleMute}
           aria-label={muted ? "Unmute" : "Mute"}
-          className="grid h-8 w-8 place-items-center rounded-md bg-black/55 text-white ring-1 ring-white/15 transition-colors hover:bg-black/75"
+          className="as-preview-videobtn h-8 w-8"
         >
           {muted ? <MdVolumeOff size={17} /> : <MdVolumeUp size={17} />}
         </button>
 
         <div
-          className={`mt-1 flex justify-center rounded-md bg-black/55 px-1.5 py-2 ring-1 ring-white/15 transition-opacity duration-150 ${
+          className={`as-preview-voltrack mt-1.5 flex justify-center px-1.5 py-2 transition-opacity duration-150 ${
             volOpen ? "opacity-100" : "pointer-events-none opacity-0"
           }`}
         >

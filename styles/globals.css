@@ -83,6 +83,58 @@ html.tab-hidden *::after {
    over-saturated — bias lighting for the popup. It has to live outside the card
    (which clips) and behind it (whose surface is opaque), hence the negative
    inset on the root and the -z-10. */
+/* Secondary action button, lifted from the info page's Hero (`hStyles`) so the
+   preview reads as the same app: a barely-there white wash on a #2f3447
+   hairline at radius 11. `--line-2` isn't usable here — it's declared inside
+   components/anime/v2/styles.module.css and the popup is portalled to <body>. */
+.as-preview-iconbtn {
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid #2f3447;
+  cursor: pointer;
+  transition: background 0.18s ease, color 0.18s ease;
+}
+.as-preview-iconbtn:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* Same shape over the video, where the surface has to be dark enough to survive
+   a bright frame behind it. */
+.as-preview-videobtn,
+.as-preview-voltrack {
+  border-radius: 11px;
+  background: rgba(10, 11, 16, 0.62);
+  border: 1px solid #2f3447;
+  color: #ffffff;
+}
+.as-preview-videobtn {
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: background 0.18s ease;
+}
+.as-preview-videobtn:hover {
+  background: rgba(10, 11, 16, 0.82);
+}
+
+/* The glow belongs to the VIDEO, not to the card. This box IS the video's box
+   (the card's top 45%), cut open on three sides: `clip-path` with negative
+   insets lets the blur run as far as it likes left, right and up, and cuts it
+   dead at the bottom of the picture. Light off a screen doesn't wrap around to
+   backlight the text below it. */
+.as-preview-ambient-clip {
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 45%;
+  clip-path: inset(-400px -400px 0 -400px);
+}
+
 .as-preview-ambient {
   /* Fixed px, not a percentage: the spill has to stay wide relative to the blur
      radius, otherwise almost all of the glow lands behind the (opaque) card and
@@ -90,10 +142,7 @@ html.tab-hidden *::after {
   top: -60px;
   left: -60px;
   width: calc(100% + 120px);
-  /* 45% is the banner. The glow belongs to the VIDEO, not to the card: extended
-     over the whole height it lit up the synopsis from behind, which reads as a
-     backlit panel rather than as light coming off the picture. */
-  height: calc(45% + 120px);
+  height: calc(100% + 60px);
   object-fit: cover;
   border-radius: 34px;
   /* No `filter` and no `transform` here on purpose:
