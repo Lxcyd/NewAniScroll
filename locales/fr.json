@@ -521,7 +521,10 @@
     "removeFromList": "Retirer de la liste",
     "addedToPlanning": "Ajouté à « À regarder »",
     "removedFromList": "Retiré de votre liste",
-    "signInForFavourites": "Connectez AniList pour les favoris"
+    "signInForFavourites": "Connectez AniList pour les favoris",
+    "moreInfo": "Plus d'infos",
+    "editList": "Ajouter à une liste",
+    "favourites": "FAVORIS"
   },
   "notifications": {
     "title": "Notifications",

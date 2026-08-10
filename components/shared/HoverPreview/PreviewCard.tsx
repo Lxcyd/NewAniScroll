@@ -1,21 +1,21 @@
 import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 
 import { animeHref } from "@/lib/prefs/clickTarget";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
-import {
-  peekLocalEntry,
-  removeLocalEntry,
-  upsertLocalEntry,
-  useLocalList,
-} from "@/lib/list/localList";
+import { peekLocalEntry, useLocalList } from "@/lib/list/localList";
 import { toggleFavourite, useIsFavourite } from "@/lib/anilist/favouritesCache";
 import { notify } from "@/lib/notifications/noticeStore";
 import { fetchPreview, peekPreview, type PreviewData } from "@/lib/preview/previewStore";
 import { useTranslatedText } from "@/lib/i18n/useTranslatedText";
-import { MdPlayArrow } from "react-icons/md";
+import { genreLabel } from "@/lib/i18n/genreLabel";
+import { statusLabel } from "@/components/anime/v2/helpers";
+import { lockPreview, unlockPreview } from "@/lib/preview/previewLock";
+import { MdInfoOutline, MdPlayArrow } from "react-icons/md";
+import ListEditor from "@/components/listEditor";
 import NativeTrailer from "./NativeTrailer";
 import TrailerAmbient from "./TrailerAmbient";
 
@@ -27,22 +27,25 @@ export type AnchorRect = { top: number; left: number; width: number; height: num
  * reads as a rendering glitch — and our grids run larger posters than Hayase's.
  */
 const WIDTH = 364;
-const HEIGHT = 424;
-/** Lines of synopsis that fit under the meta row at HEIGHT. */
-const DESC_LINES = 5;
+/**
+ * Taller than it was (424) because the meta row is now the info page's — score
+ * with its rank, favourites, episodes with runtime and status — plus a chips
+ * row. Those replaced a single line of "TV · 12 Episodes · Summer 2026 · 74%",
+ * and they need the room.
+ */
+const HEIGHT = 476;
+/**
+ * Lines of synopsis that fit under the meta row at HEIGHT.
+ *
+ * Down from 5: the stats and chips took the space, and they earn it. A synopsis
+ * is truncated either way on a card this size — the first three lines say what
+ * the show is about about as well as five do — while the meta row is the part
+ * you scan to decide, and it now says the same things the info page says.
+ */
+const DESC_LINES = 3;
 
 /** Card surface. Kept in sync with the banner gradient in globals.css. */
 const SURFACE = "#1a1a24";
-
-const FORMAT_LABEL: Record<string, string> = {
-  TV: "TV Series",
-  TV_SHORT: "TV Short",
-  MOVIE: "Movie",
-  SPECIAL: "Special",
-  OVA: "OVA",
-  ONA: "ONA",
-  MUSIC: "Music",
-};
 
 /**
  * Artwork for the top 45 % of the card, and it is the INFO PAGE's chain, not
@@ -109,6 +112,15 @@ export default function PreviewCard({
    * out of step with the first. There is one video now, read twice.
    */
   const trailerVideoRef = useRef<HTMLVideoElement>(null);
+  /**
+   * The list editor, opened from the card and rendered over everything.
+   *
+   * While it is open the card holds a preview lock (see lib/preview/previewLock):
+   * without it, moving the pointer toward the dialog would leave the card, the
+   * provider would close the card, and the dialog — a child of the card — would
+   * be unmounted mid-reach.
+   */
+  const [listOpen, setListOpen] = useState(false);
 
   // Local list state drives the play-button label and the bookmark fill, the
   // same way Hayase reads its auth aggregator.
@@ -159,25 +171,20 @@ export default function PreviewCard({
   // ruled unplayable; `playing` is the finer, live state.
   const trailerMounted = Boolean(data?.trailer?.id) && !hideFrame;
 
-  // "N Episodes" / "3 / 12 Episodes", falling back to the runtime for movies and
-  // single-episode entries — Hayase's `of() ?? duration() ?? 'N/A'`.
+  /*
+   * The info page's episode cell: "5/12 EP", or just "12 EP", with the runtime
+   * beside it. The card used to phrase this its own way ("12 Episodes",
+   * "3 / 12 Episodes") — two vocabularies for one fact, on two surfaces the
+   * visitor moves between in one click.
+   */
   const count = data?.episodes ?? null;
   const progress = entry?.progress ?? 0;
-  const episodesCell =
-    count && count > 1
-      ? progress && progress !== count
-        ? t("preview.episodeProgress", { progress, count })
-        : t("preview.episodeCount", { count })
-      : data?.duration
-      ? t("preview.minutes", { count: data.duration })
-      : "N/A";
-
-  const season = [
-    data?.season?.toLowerCase(),
-    data?.seasonYear ?? undefined,
-  ]
-    .filter(Boolean)
-    .join(" ");
+  const epLabel = count
+    ? progress && progress !== count
+      ? `${progress}/${count} EP`
+      : `${count} EP`
+    : "? EP";
+  const durLabel = data?.duration ? `· ${data.duration}min` : "";
 
   const playLabel =
     entry?.status === "COMPLETED"
@@ -188,22 +195,39 @@ export default function PreviewCard({
       ? t("preview.continue")
       : t("preview.watchNow");
 
-  const onBookmark = (e: React.MouseEvent) => {
+  /*
+   * Open the real list editor rather than silently filing the anime under
+   * "Planning".
+   *
+   * The button used to be a one-click toggle into PLANNING, which is a guess:
+   * most of the time the thing you want from a card you are hovering is
+   * "watching, episode 4" or a score. This is the same editor the info page
+   * opens, so the choice is the same choice in both places — and it works
+   * signed out too, editing the local list.
+   */
+  const onOpenList = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    if (entry?.status) {
-      removeLocalEntry(id);
-      notify.success(t("preview.removedFromList"));
-    } else {
-      upsertLocalEntry(id, {
-        status: "PLANNING",
-        title: data?.title ?? undefined,
-        coverImage: data?.coverImage?.large ?? poster ?? null,
-        total: data?.episodes ?? null,
-      });
-      notify.success(t("preview.addedToPlanning"));
-    }
+    lockPreview();
+    setListOpen(true);
   };
+
+  const closeList = useCallback(() => {
+    setListOpen(false);
+    // Releasing is what lets the provider close the card again — and it closes
+    // it, since the pointer left long ago. See lib/preview/previewLock.
+    unlockPreview();
+  }, []);
+
+  // A card torn down while the editor is open (route change, Escape handled
+  // upstream) must not leave the lock held — nothing would ever release it and
+  // every later hover would refuse to close.
+  useEffect(
+    () => () => {
+      if (listOpen) unlockPreview();
+    },
+    [listOpen],
+  );
 
   const onFav = async (e: React.MouseEvent) => {
     e.preventDefault();
@@ -383,36 +407,145 @@ export default function PreviewCard({
 
             <button
               type="button"
-              onClick={onBookmark}
-              aria-label={t(entry?.status ? "preview.removeFromList" : "preview.addToPlanning")}
-              title={t(entry?.status ? "preview.removeFromList" : "preview.addToPlanning")}
+              onClick={onOpenList}
+              aria-label={t("preview.editList")}
+              title={t("preview.editList")}
               className="as-preview-iconbtn ml-1"
+              // Filled while the anime IS on a list, hollow otherwise — the
+              // bookmark says its own state, so the button needs no label.
               style={entry?.status ? { color: "#ffffff" } : undefined}
             >
-              {/* QueueButton's playlist glyphs (components/anime/v2/QueueButton):
-                  this button does the same thing, so it wears the same icon. */}
-              <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor">
+              {/* Material "bookmark" / "bookmark_border", 24px grid. */}
+              <svg width="18" height="18" viewBox="0 -960 960 960" fill="currentColor">
                 {entry?.status ? (
-                  <path d="M14 10H2v2h12v-2zm0-4H2v2h12V6zM2 16h8v-2H2v2zm19.5-4.5L23 13l-6.99 7-4.51-4.5L13 14l3.01 3 5.49-5.5z" />
+                  <path d="M200-120v-640q0-33 23.5-56.5T280-840h400q33 0 56.5 23.5T760-760v640L480-240 200-120Z" />
                 ) : (
-                  <path d="M14 10H2v2h12v-2zm0-4H2v2h12V6zM2 16h8v-2H2v2zm15-2v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4z" />
+                  <path d="M200-120v-640q0-33 23.5-56.5T280-840h400q33 0 56.5 23.5T760-760v640L480-240 200-120Zm80-122 200-86 200 86v-518H280v518Zm0-518h400-400Z" />
                 )}
               </svg>
             </button>
+
+            <Link
+              href={`/en/anime/${id}`}
+              aria-label={t("preview.moreInfo")}
+              title={t("preview.moreInfo")}
+              className="as-preview-iconbtn ml-1"
+            >
+              <MdInfoOutline size={19} />
+            </Link>
           </div>
 
-          <div className="as-preview-details flex overflow-clip text-ellipsis whitespace-nowrap pb-2 pt-3 text-[11px] capitalize text-white/70">
-            <span className="flex items-center whitespace-nowrap">
-              {data?.format ? FORMAT_LABEL[data.format] ?? data.format : "N/A"}
-            </span>
-            <span className="flex items-center whitespace-nowrap">{episodesCell}</span>
-            {season && <span className="flex items-center whitespace-nowrap">{season}</span>}
-            {data?.averageScore != null && (
-              <span className="flex items-center whitespace-nowrap text-ellipsis text-as-score">
-                {data.averageScore}%
-              </span>
+          {/* The info page's stats row and chips, at card scale — same icons,
+              same colours, same wording, and the same order (score, favourites,
+              episodes). A preview OF a page that phrases its facts differently
+              is two designs for one thing.
+
+              The whole block is one link to that page: these are the numbers
+              you read to decide, so reading them is the moment you'd want more,
+              and a 300 px strip is a far easier target than any button on it. */}
+          <Link
+            href={`/en/anime/${id}`}
+            title={t("preview.moreInfo")}
+            className="block pb-1 pt-3 transition-opacity hover:opacity-90"
+          >
+            <div className="flex items-center justify-center gap-4">
+              {data?.averageScore != null && (
+                <>
+                  <div className="flex flex-col items-center gap-1 text-center">
+                    <div className="flex items-center gap-1.5">
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="#f6c544">
+                        <polygon points="12 2 15 9 22 9 17 14 19 21 12 17 5 21 7 14 2 9 9 9" />
+                      </svg>
+                      {/* AniList scores out of 100, the info page shows /10. */}
+                      <span className="display text-[15px] font-bold leading-none text-[#f6c544]">
+                        {(data.averageScore / 10).toFixed(2)}
+                      </span>
+                      <span className="text-[10px] font-medium text-white/45">/10</span>
+                    </div>
+                    <div className="text-[8.5px] font-semibold tracking-[0.1em] text-white/40">
+                      {data.ratingRank
+                        ? t("anime.rated", { rank: data.ratingRank }).toUpperCase()
+                        : t("anime.average").toUpperCase()}
+                    </div>
+                  </div>
+                  <div className="h-7 w-px bg-white/10" />
+                </>
+              )}
+
+              {data?.favourites != null && (
+                <>
+                  <div className="flex flex-col items-center gap-1 text-center">
+                    <div className="flex items-center gap-1.5">
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="#ff3b5c">
+                        <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
+                      </svg>
+                      <span className="display text-[15px] font-bold leading-none text-white">
+                        {data.favourites.toLocaleString()}
+                      </span>
+                    </div>
+                    <div className="text-[8.5px] font-semibold tracking-[0.1em] text-white/40">
+                      {t("preview.favourites")}
+                    </div>
+                  </div>
+                  <div className="h-7 w-px bg-white/10" />
+                </>
+              )}
+
+              <div className="flex flex-col items-center gap-1 text-center">
+                <div className="flex items-center gap-1.5 text-white">
+                  <svg
+                    width="15"
+                    height="15"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                  >
+                    <rect x="3" y="5" width="18" height="14" rx="2" />
+                    <path d="m10 9 5 3-5 3z" fill="currentColor" />
+                  </svg>
+                  <span className="display text-[15px] font-bold leading-none">{epLabel}</span>
+                  <span className="text-[10px] font-medium text-white/45">{durLabel}</span>
+                </div>
+                <div className="text-[8.5px] font-semibold tracking-[0.1em] text-white/40">
+                  {statusLabel(t, data?.status ?? null).toUpperCase()}
+                </div>
+              </div>
+            </div>
+
+            {(data?.genres?.length || data?.studios?.length) && (
+              <div className="mt-2.5 flex flex-wrap items-center justify-center gap-1.5">
+                {(data?.genres || []).slice(0, 3).map((g) => (
+                  <span
+                    key={g}
+                    className="rounded-full px-2 py-[3px] text-[10px] font-semibold"
+                    style={{
+                      background:
+                        "color-mix(in srgb, var(--brand-primary, #ff3b5c) 12%, transparent)",
+                      border:
+                        "1px solid color-mix(in srgb, var(--brand-primary, #ff3b5c) 35%, transparent)",
+                      color: "color-mix(in srgb, var(--brand-primary, #ff7a91) 75%, #fff)",
+                    }}
+                  >
+                    {genreLabel(t, g)}
+                  </span>
+                ))}
+                {(data?.studios || []).slice(0, 1).map((s) => (
+                  <span
+                    key={s}
+                    className="max-w-[46%] truncate rounded-full px-2 py-[3px] text-[10px] font-semibold"
+                    style={{
+                      background: "rgba(74,143,255,0.1)",
+                      border: "1px solid rgba(74,143,255,0.3)",
+                      color: "#7ec8ff",
+                    }}
+                  >
+                    {s}
+                  </span>
+                ))}
+              </div>
             )}
-          </div>
+          </Link>
 
           {/* The synopsis is the biggest target on the card and it was inert;
               it goes where the title goes. */}
@@ -435,6 +568,29 @@ export default function PreviewCard({
           </Link>
         </div>
       </div>
+
+      {/* The list editor, portalled to <body> rather than left inside the card.
+          Inside, it would inherit the card's stacking context and its clipping,
+          and a full-screen dialog cannot live inside a 364 px box that hides its
+          overflow. The card still owns it — it mounts and unmounts with the
+          card, and holds the preview lock for as long as it is open. */}
+      {listOpen &&
+        data &&
+        createPortal(
+          <ListEditor
+            animeId={id}
+            session={session}
+            stats={entry?.status || undefined}
+            prg={entry?.progress ?? 0}
+            max={data.episodes ?? undefined}
+            // The editor wants the info page's full media object; the preview
+            // payload is a slice of the same AniList entry, and the fields it
+            // reads (id, title, episodes, cover) are all in it.
+            info={data as any}
+            close={closeList}
+          />,
+          document.body,
+        )}
     </div>
   );
 }

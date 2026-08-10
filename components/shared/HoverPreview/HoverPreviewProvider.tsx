@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { useRouter } from "next/router";
 
 import { PREVIEW_ATTR } from "@/lib/preview/anchor";
+import { isPreviewLocked, onPreviewUnlocked } from "@/lib/preview/previewLock";
 import { fetchPreview } from "@/lib/preview/previewStore";
 import { startViewportPrefetch } from "@/lib/preview/viewportPrefetch";
 import { trailerSrc } from "@/lib/preview/trailerCrop";
@@ -133,6 +134,9 @@ export default function HoverPreviewProvider() {
 
     const close = () => {
       cancel();
+      // The card has a dialog of its own open — reaching for it means leaving
+      // the card, and that must not be read as "done with the preview".
+      if (isPreviewLocked()) return;
       if (openRef.current) setOpen(null);
     };
 
@@ -267,6 +271,10 @@ export default function HoverPreviewProvider() {
       close();
     };
 
+    // Dialog dismissed: the pointer is long gone from the card by then, so the
+    // card goes too rather than lingering as a ghost.
+    const unsubscribe = onPreviewUnlocked(() => setOpen(null));
+
     document.addEventListener("pointerover", onPointerOver, true);
     document.addEventListener("pointermove", onPointerMove, true);
     document.addEventListener("pointerdown", onPointerDown, true);
@@ -278,6 +286,7 @@ export default function HoverPreviewProvider() {
 
     return () => {
       cancel();
+      unsubscribe();
       document.removeEventListener("pointerover", onPointerOver, true);
       document.removeEventListener("pointermove", onPointerMove, true);
       document.removeEventListener("pointerdown", onPointerDown, true);

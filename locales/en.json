@@ -521,7 +521,10 @@
     "removeFromList": "Remove from list",
     "addedToPlanning": "Added to Plan to Watch",
     "removedFromList": "Removed from your list",
-    "signInForFavourites": "Connect AniList to use favourites"
+    "signInForFavourites": "Connect AniList to use favourites",
+    "moreInfo": "More info",
+    "editList": "Add to list",
+    "favourites": "FAVORITES"
   },
   "notifications": {
     "title": "Notifications",

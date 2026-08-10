@@ -106,6 +106,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     season: media.season ?? null,
     seasonYear: media.seasonYear ?? null,
     averageScore: media.averageScore ?? null,
+    // The card's meta row is the info page's, so it needs the info page's
+    // numbers. All of these already ride along in FULL_MEDIA_QUERY — the
+    // payload simply never forwarded them, and the card was showing a thinner
+    // set of facts than the page it previews.
+    favourites: media.favourites ?? null,
+    genres: Array.isArray(media.genres) ? media.genres.slice(0, 4) : [],
+    // Main studios first, then producers as a stand-in — the same fallback the
+    // Hero applies, resolved here so the card doesn't carry the whole edge list.
+    studios: (() => {
+      const edges = media.studios?.edges || [];
+      const main = edges.filter((e: any) => e?.isMain).map((e: any) => e?.node?.name);
+      const rest = edges.filter((e: any) => !e?.isMain).map((e: any) => e?.node?.name);
+      return [...main, ...rest].filter(Boolean).slice(0, 2);
+    })(),
+    // Same derivation as InfoPage: the all-time RATED ranking, or nothing.
+    ratingRank:
+      (media.rankings || []).find((r: any) => r?.type === "RATED" && r?.allTime)?.rank ?? null,
     nextAiringEpisode: media.nextAiringEpisode
       ? {
           episode: media.nextAiringEpisode.episode ?? null,

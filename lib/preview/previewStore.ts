@@ -31,6 +31,11 @@ export type PreviewData = {
   season: string | null;
   seasonYear: number | null;
   averageScore: number | null;
+  /** The info page's meta row, mirrored onto the card. */
+  favourites: number | null;
+  genres: string[];
+  studios: string[];
+  ratingRank: number | null;
   nextAiringEpisode: { episode: number | null; timeUntilAiring: number | null } | null;
   trailer: { id: string } | null;
 };
