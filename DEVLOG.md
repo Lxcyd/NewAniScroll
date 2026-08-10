@@ -1,5 +1,50 @@
 # DEVLOG
 
+## 2026-08-10 — Graphe de franchise : le reste du chantier
+
+Fin des cinq points laissés ouverts sur `RelationsGraph`, plus un bug de calque.
+
+### Décisions
+- **Le graphe passe en portail vers `<body>`.** Rendu en place il s'empilait
+  dans la page d'info, donc **sous** la barre de navigation (`fixed`, `z-[9999]`) :
+  son propre titre et ses filtres sortaient dessinés à travers le menu. Portail
+  + `zIndex: 10000`, comme `OpEdPanel`. Un `position: fixed` ne garantit rien
+  tant qu'un ancêtre peut créer un contexte d'empilement.
+- **Une requête par VAGUE, pas par nœud** (`/api/v2/relations/batch?ids=`). Le
+  parcours demande les relations d'un niveau entier en une rafale synchrone ;
+  les demandes sont enregistrées puis vidées sur la microtâche suivante. Sword
+  Art Online : 19 allers-retours → 3. L'ordre de visite est inchangé, chaque
+  appelant garde sa propre promesse. Les ids sont triés dans l'URL pour que le
+  même niveau demandé deux fois soit une seule clé de cache.
+- **La mise en forme est partagée** (`lib/anilist/relationsPayload.ts`) entre la
+  route unitaire et la route groupée : elles avaient déjà divergé sur
+  `coverImage`, et une fiche tirée d'un fetch isolé sortait sans jaquette.
+- **« Trame canon » est une accessibilité, pas un test par fiche.** Gun Gale
+  Online II est une suite directe : jugée seule elle restait, alors que sa
+  propre saison 1 (spin-off) partait. On coupe le fil au spin-off et tout ce qui
+  pend derrière s'en va avec.
+- **Le survol ne touche pas à la sélection.** Lire le plateau, c'est demander
+  « celle-ci tient à quoi ? » d'une dizaine de fiches d'affilée ; le faire au
+  clic renumérote l'ordre de visionnage à chaque fois — on perd le fil qu'on
+  suit. Le survol éclaire le voisinage, la fenêtre en bas à droite nomme la
+  précédente et la suivante.
+- **Verticale sous 820 px** : la direction de rang suit le côté long de la
+  fenêtre. Les extrémités d'arête doivent suivre la même bascule (bas → haut),
+  sinon chaque trait traverse une carte au lieu de la contourner.
+
+### Leçons / pièges
+- **Ne pas mettre `query` dans les dépendances de l'effet Échap** : il possède
+  aussi le verrou de défilement, et le relancer à chaque frappe lui ferait
+  capturer `hidden` comme valeur à restaurer — la page resterait bloquée après
+  fermeture. Lecture par `ref`.
+- **La barre de recherche vue sur la capture n'était pas celle du graphe** :
+  c'était celle du site, visible à travers le bug de superposition. Une
+  fonctionnalité « déjà là » peut n'être qu'un calque mal empilé.
+- Vignette absente ≠ pas de vignette : la hauteur de carte est réservée par la
+  mise en page, donc on dessine un bandeau vide plutôt qu'un trou sous le titre.
+- `next build` propre ; aucune version de cache saisons touchée (logique
+  inchangée).
+
 ## 2026-08-09 (soir 2) — Le halo « tout autour » n'était pas le halo
 
 Luc signalait encore une lumière sur les quatre côtés de la carte alors que le
