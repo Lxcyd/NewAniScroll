@@ -47,6 +47,17 @@ type Props = {
   relations: Edge[];
   seasonList?: SeasonEntry[];
   currentId: number;
+  /**
+   * Render in the page instead of over it.
+   *
+   * The graph IS the relations section now, not a place you go to look at it:
+   * a franchise's shape is what you want while reading the page, and putting it
+   * behind a button meant most visitors never saw it. Inline drops the
+   * backdrop, the header and the close button, and fills its container; the
+   * modal is kept for the mobile layout, where a pannable canvas needs the
+   * whole screen to be usable at all.
+   */
+  inline?: boolean;
 };
 
 const SEASON_FORMATS = new Set(["TV", "TV_SHORT", "ONA"]);
@@ -57,6 +68,7 @@ export default function RelationsGraph({
   relations,
   seasonList,
   currentId,
+  inline = false,
 }: Props) {
   const { t } = useTranslation();
   const titlePref = useTitlePref();
@@ -70,7 +82,7 @@ export default function RelationsGraph({
 
   // Escape to close + lock page scroll while open (same approach as Artworks).
   useEffect(() => {
-    if (!open) return;
+    if (!open || inline) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
     };
@@ -85,7 +97,7 @@ export default function RelationsGraph({
       html.style.overflow = prev.htmlOverflow;
       body.style.overflow = prev.bodyOverflow;
     };
-  }, [open, onClose]);
+  }, [open, onClose, inline]);
 
   // Reset view each time the modal opens.
   useEffect(() => {
@@ -159,29 +171,8 @@ export default function RelationsGraph({
     setScale((s) => Math.min(2.5, Math.max(0.35, s * factor)));
   };
 
-  return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label={t("anime.relationsGraphTitle", { defaultValue: "Franchise timeline" })}
-      style={gStyles.overlay}
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
-      <div style={gStyles.header}>
-        <span style={gStyles.title}>
-          {t("anime.relationsGraphTitle", { defaultValue: "Franchise timeline" })}
-        </span>
-        <button
-          onClick={onClose}
-          aria-label={t("anime.relationsGraphClose", { defaultValue: "Close" })}
-          style={gStyles.closeBtn}
-        >
-          ✕
-        </button>
-      </div>
-
+  const canvas = (
+    <>
       <div
         style={{ ...gStyles.canvas, cursor: dragging ? "grabbing" : "grab" }}
         onPointerDown={onPointerDown}
@@ -228,6 +219,38 @@ export default function RelationsGraph({
       <div style={gStyles.hint}>
         {t("anime.graphHint", { defaultValue: "Drag to pan · scroll to zoom" })}
       </div>
+    </>
+  );
+
+  // In the page: no backdrop, no header, no way to close something that was
+  // never opened. Just the board, filling the section it was given.
+  if (inline) {
+    return <div style={gStyles.inlineShell}>{canvas}</div>;
+  }
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={t("anime.relationsGraphTitle", { defaultValue: "Franchise timeline" })}
+      style={gStyles.overlay}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div style={gStyles.header}>
+        <span style={gStyles.title}>
+          {t("anime.relationsGraphTitle", { defaultValue: "Franchise timeline" })}
+        </span>
+        <button
+          onClick={onClose}
+          aria-label={t("anime.relationsGraphClose", { defaultValue: "Close" })}
+          style={gStyles.closeBtn}
+        >
+          ✕
+        </button>
+      </div>
+      {canvas}
     </div>
   );
 }
@@ -300,6 +323,20 @@ function Row({
 }
 
 const gStyles: Record<string, CSSProperties> = {
+  /* The in-page board. Same rounded, hair-lined panel the other Overview
+     sections use, so it reads as part of the page rather than a widget dropped
+     into it. A minimum height because a pannable canvas that is 120 px tall is
+     not pannable — the graph needs room to be a graph. */
+  inlineShell: {
+    flex: 1,
+    minHeight: 380,
+    display: "flex",
+    flexDirection: "column",
+    background: "var(--bg-2)",
+    border: "1px solid var(--line)",
+    borderRadius: 14,
+    overflow: "hidden",
+  },
   overlay: {
     position: "fixed",
     inset: 0,

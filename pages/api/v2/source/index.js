@@ -1930,6 +1930,67 @@ const VOIRANIME_SERVERS = {
   "voiranime-vidmoly-vo": { name: "Vidmoly", host: ["vidmoly.to", "vidmoly.biz", "vidmoly.net", "voembed.net", "ansembed.net"], lang: "vostfr" },
 };
 
+/**
+ * Walk the PREQUEL chain until a season that voir-anime actually has a page for,
+ * and shift the episode number by everything that came before.
+ *
+ * This is Hayase's `resolveSeason` (hayase-app/interface,
+ * src/lib/components/ui/player/resolver.ts) reduced to what voir-anime needs.
+ * The idea is theirs and it is the right one: a season is a NODE IN A CHAIN,
+ * not a number to be guessed out of a title. Their version walks PREQUEL edges
+ * accumulating each ancestor's episode count until the requested episode falls
+ * inside the current entry; ours stops as soon as a slug resolves, because the
+ * page — not the entry — is what carries the episodes.
+ *
+ * What it fixes: "Shingeki no Kyojin: The Final Season Part 2" has NO page of
+ * its own. Its episodes are the tail of the season-4 page, starting at 17,
+ * because voir-anime kept one page for a season AniList splits into parts. No
+ * slug pattern can find a page that does not exist — the only way through is to
+ * ask the prequel and carry the offset (16 episodes) along.
+ *
+ * `findEdge`'s format filter is Hayase's too, and load-bearing: an unfiltered
+ * PREQUEL walk wanders into recap films and OVAs, which have episode counts of
+ * their own and would poison the offset.
+ */
+// Reuses PREQUEL_FORMATS (declared above for the season walk) rather than
+// keeping a second, subtly different list — two definitions of "what counts as
+// a previous season" is how the two paths drift apart.
+const MAX_PREQUEL_HOPS = 4;
+
+async function voiranimePrequelChain(aniId, isVF, episode, trace = null) {
+  let media = await getMediaMeta(aniId).catch(() => null);
+  let offset = 0;
+
+  for (let hop = 0; hop < MAX_PREQUEL_HOPS; hop += 1) {
+    const edge = (media?.relations?.edges || []).find(
+      (e) => e?.relationType === "PREQUEL" && PREQUEL_FORMATS.has(e?.node?.format || ""),
+    );
+    if (!edge?.node?.id) return null;
+
+    // Everything the prequel aired sits ahead of us on the shared page.
+    offset += Number(media?.episodes) || 0;
+    const prevId = Number(edge.node.id);
+    media = await getMediaMeta(prevId).catch(() => null);
+    if (!media) return null;
+
+    const prevSeason = await detectSeasonNumber(prevId);
+    const prevTitle = media.title?.romaji || media.title?.english || "";
+    const slug = await findVoiranimeSlug(prevTitle, prevId, isVF, prevSeason);
+    if (!slug) continue;
+
+    // The offset counts what came BEFORE us, so our episode 1 is the prequel's
+    // last + 1. Guard against a chain that would place us before its own start.
+    const shifted = episode + offset;
+    if (!Number.isFinite(shifted) || shifted < 1) return null;
+    if (trace) trace.prequelChain = { slug, offset, hop: hop + 1, viaId: prevId };
+    dlog(
+      `[voiranime] no page for ${aniId}; using prequel ${prevId} (${slug}) with ep ${episode} → ${shifted}`,
+    );
+    return { slug, episode: shifted };
+  }
+  return null;
+}
+
 async function getVoiranimeIframe(serverKey, title, episode, aniId, trace = null) {
   try {
     const serverDef = VOIRANIME_SERVERS[serverKey];
@@ -1984,8 +2045,16 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId, trace = null
       slug = await findVoiranimeSlug(title, aniId, isVF, seasonNum);
       if (trace) trace.resolvedSlug = { seasonNum, slug };
       if (!slug) {
-        dlog(`[voiranime] No slug found for ${title} (${lang}, S${seasonNum})`);
-        return null;
+        // No page of its own — try the season it continues. See
+        // voiranimePrequelChain.
+        const viaPrequel = await voiranimePrequelChain(aniId, isVF, episode, trace);
+        if (viaPrequel) {
+          slug = viaPrequel.slug;
+          episode = viaPrequel.episode;
+        } else {
+          dlog(`[voiranime] No slug found for ${title} (${lang}, S${seasonNum})`);
+          return null;
+        }
       }
     }
     if (trace) trace.finalSlug = slug;
