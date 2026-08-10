@@ -296,8 +296,6 @@ export default function RelationsGraph({
       ranksep: RANK_SEP,
       ranker: RANKER,
     });
-    // Array.from, not for…of on the iterator: this project's tsconfig targets
-    // ES5, where iterating a Map directly needs downlevelIteration.
     const allNodes = Array.from(seen.values());
     for (const n of allNodes) g.setNode(String(n.id), { width: n.w, height: n.h });
     for (const e of list) g.setEdge(String(e.from), String(e.to));
