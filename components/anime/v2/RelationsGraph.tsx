@@ -1817,10 +1817,14 @@ const gStyles: Record<string, CSSProperties> = {
    */
   nodeClose: {
     position: "absolute",
-    top: 3,
-    right: 3,
-    width: 16,
-    height: 16,
+    // The glyph is centred in its hit box, so the box's height is half of what
+    // decides where the bar lands: a 16px box at top 3 put the stroke 11px
+    // down, well below the corner. Shorter box, higher anchor — the bar sits
+    // at 8px, level with the corner radius.
+    top: 1,
+    right: 4,
+    width: 18,
+    height: 14,
     display: "grid",
     placeItems: "center",
     borderRadius: 4,
