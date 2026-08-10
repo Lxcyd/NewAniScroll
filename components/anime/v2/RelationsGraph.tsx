@@ -100,8 +100,6 @@ type NodeMeta = {
  */
 const MAX_NODES = 60;
 const MAX_ROUNDS = 8;
-/** Frontier fetches in flight at once. */
-const FETCH_BATCH = 6;
 
 const FORMAT_LABEL: Record<string, string> = {
   TV: "TV Series",
@@ -169,25 +167,36 @@ export default function RelationsGraph({
 
 
   /**
-   * The walk. Runs once when the graph opens — not before, since the info page
-   * should not pay for a view nobody opened.
+   * The walk — `_generateRelationsTree`, transcribed.
    *
-   * A port of `_generateRelationsTree`, with its three rules that matter:
+   * Not paraphrased: the ORDER of this traversal decides the picture, so an
+   * equivalent-looking rewrite lands somewhere else. Two ends of a relation
+   * disagree often (Sword Art Online II calls Fatal Bullet's pilot a PARENT,
+   * the pilot calls II an OTHER), and whichever end is visited first sets the
+   * arrow's direction — which is what dagre ranks on. A breadth-first version
+   * of this produced the same 19 nodes and the same 23 edges with two arrows
+   * reversed, and that alone moved a node four columns.
    *
-   *  - Only ANIME nodes, never a CHARACTER relation. Both are exclusions on the
-   *    EDGE, so the manga a series adapts and the unrelated show that happens
-   *    to share a voice character never enter the graph — and, crucially, never
-   *    get expanded either. Expanding them is what put Alicization and an
-   *    Eromanga Sensei OVA on the board as islands: the light novel is the hub
-   *    of the whole franchise, so pulling ITS relations dragged in entries
-   *    whose only link ran through a node we had (rightly) refused to draw.
+   * Their rules, in their order:
    *
-   *  - One edge per PAIR, since a relation is reported from both ends, with
-   *    PARENT overridable — it means little next to SIDE STORY or ALTERNATIVE.
+   *  - Only ANIME nodes, never a CHARACTER relation. Both exclusions sit on the
+   *    EDGE, so the manga a series adapts and the unrelated show sharing a voice
+   *    character never enter the graph — and, crucially, never get expanded
+   *    either. Expanding them is what put Alicization and an Eromanga Sensei OVA
+   *    on the board as islands: the light novel is the franchise hub, so pulling
+   *    ITS relations dragged in entries whose only link ran through a node we
+   *    had (rightly) refused to draw.
    *
-   *  - PREQUEL is drawn reversed and relabelled SEQUEL, so every chain points
-   *    the same way. dagre ranks by edge direction: leave the prequel edges as
-   *    they come and a season chain lays itself out backwards.
+   *  - One edge per PAIR. A pair already drawn is skipped whole — no second
+   *    edge AND no recursion through it — unless it is a PARENT, which is a
+   *    broad term worth replacing by any more specific relation that turns up.
+   *
+   *  - PREQUEL is drawn reversed and relabelled SEQUEL, so chains point one way.
+   *
+   * Depth 2 ends a pass, not the walk: nodes reached at that limit are queued,
+   * re-fetched, and processed as new roots until nothing new appears. Theirs
+   * nests two levels per query; ours returns one, so a node at depth 1 fetches
+   * its own relations — same tree, same order, one more round trip.
    */
   useEffect(() => {
     if (!open) return;
@@ -195,113 +204,118 @@ export default function RelationsGraph({
     let cancelled = false;
     const nodes = new Map<number, NodeMeta>();
     const edges = new Map<string, GEdge>();
-    const expanded = new Set<number>();
     const frontier = new Set<number>();
+    const relCache = new Map<number, Promise<any>>();
 
-    const addNode = (m: NodeMeta) => {
-      const id = Number(m?.id);
-      if (!Number.isFinite(id) || id <= 0) return;
-      if (nodes.has(id)) return;
-      if (nodes.size >= MAX_NODES) return;
-      nodes.set(id, m);
-      if (!expanded.has(id)) frontier.add(id);
+    const getRelations = (id: number) => {
+      let p = relCache.get(id);
+      if (!p) {
+        p = fetch(`/api/v2/relations/${id}`)
+          .then((r) => (r.ok ? r.json() : null))
+          .catch(() => null);
+        relCache.set(id, p);
+      }
+      return p;
     };
 
-    const processEdges = (fromId: number, list: any[]) => {
-      expanded.add(fromId);
-      frontier.delete(fromId);
-      for (const e of list || []) {
+    const isAnime = (m: any) => (m?.type ?? "ANIME") === "ANIME";
+
+    /** A node's own relation edges, and the fuller metadata that comes with them. */
+    const edgesOf = async (id: number): Promise<any[]> => {
+      if (id === currentId) return (relations as any[]) || [];
+      const data = await getRelations(id);
+      if (!data) return [];
+      const known = nodes.get(id);
+      if (known) {
+        // The fetch knows more than the edge did — status, episode count.
+        nodes.set(id, {
+          ...known,
+          title: data.title ?? known.title,
+          format: data.format ?? known.format,
+          status: data.status ?? known.status,
+          episodes: data.episodes ?? known.episodes,
+        });
+      }
+      return data.edges || [];
+    };
+
+    const processEdges = async (m: any, depth = 0): Promise<void> => {
+      if (!m || cancelled) return;
+      if (!isAnime(m)) return;
+      const id = Number(m.id);
+      if (!Number.isFinite(id) || id <= 0) return;
+
+      if (!nodes.has(id)) {
+        if (nodes.size >= MAX_NODES) return;
+        if (depth >= 2) frontier.add(id);
+        nodes.set(id, m);
+      }
+      if (depth >= 2) return;
+
+      const list = await edgesOf(id);
+      if (cancelled) return;
+
+      // Every child we are about to walk into needs its own relations. Asking
+      // for them together turns a level of the walk into one wave of requests
+      // instead of a queue of them — the traversal order is untouched.
+      if (depth + 1 < 2) {
+        for (const e of list) {
+          const n = e?.node;
+          if (n?.id && isAnime(n) && !EXCLUDED_RELATIONS.has(e.relationType)) {
+            getRelations(Number(n.id));
+          }
+        }
+      }
+
+      for (const e of list) {
         const node = e?.node;
         if (!node?.id) continue;
-        // Absent type means an older cached row; those are anime entries.
-        if ((node.type ?? "ANIME") !== "ANIME") continue;
-        if (EXCLUDED_RELATIONS.has(e.relationType)) continue;
-        const id = Number(node.id);
-        addNode(node);
-        if (!nodes.has(id)) continue; // refused by the node cap
+        if (!isAnime(node) || EXCLUDED_RELATIONS.has(e.relationType)) continue;
+        const nid = Number(node.id);
 
-        const key = [id, fromId].sort((a, b) => a - b).join("-");
+        const key = [nid, id].sort((a, b) => a - b).join("-");
         const existing = edges.get(key);
-        if (existing && existing.label !== "PARENT") continue;
-        const isPrequel = e.relationType === "PREQUEL";
-        const label = isPrequel ? "SEQUEL" : e.relationType || "OTHER";
-        // Upgrading a PARENT changes the LABEL, never the direction. The two
-        // ends of a relation can disagree — Fatal Bullet's pilot calls Sword
-        // Art Online II an OTHER while II calls it a PARENT — and letting the
-        // upgrade re-point the arrow flips a node to the far side of the
-        // centre: the pilot landed in the first column, next to season 1,
-        // instead of beside the episode it is a pilot for. Keeping the first
-        // orientation keeps the graph reading outward from the entry you are
-        // on, which is the direction the whole board is laid out in.
         if (existing) {
-          edges.set(key, { ...existing, label });
-          continue;
+          if (existing.label === "PARENT") edges.delete(key);
+          else continue;
         }
+        const isPrequel = e.relationType === "PREQUEL";
         edges.set(key, {
-          from: isPrequel ? id : fromId,
-          to: isPrequel ? fromId : id,
-          label,
+          from: isPrequel ? nid : id,
+          to: isPrequel ? id : nid,
+          label: isPrequel ? "SEQUEL" : e.relationType || "OTHER",
         });
+
+        await processEdges(node, depth + 1);
+        if (cancelled) return;
       }
     };
 
     const publish = () =>
       setTree({ nodes: Array.from(nodes.values()), edges: Array.from(edges.values()) });
 
-    // The centre, and the relations the page already holds — drawn immediately,
-    // so the graph is never blank while the walk runs.
-    nodes.set(currentId, {
-      id: currentId,
-      title: currentTitle,
-      format: currentFormat,
-      episodes: currentEpisodes,
-    });
-    processEdges(currentId, relations as any[]);
-    publish();
-
     (async () => {
+      await processEdges({
+        id: currentId,
+        type: "ANIME",
+        title: currentTitle,
+        format: currentFormat,
+        episodes: currentEpisodes,
+      });
+      if (cancelled) return;
+      publish();
+
       for (let round = 0; round < MAX_ROUNDS && frontier.size > 0; round++) {
-        const ids = Array.from(frontier);
-        for (let i = 0; i < ids.length; i += FETCH_BATCH) {
+        // AniList returns their batched Page in id order; same order here, so
+        // the same end of a disputed pair is the one that gets visited first.
+        const ids = Array.from(frontier).sort((a, b) => a - b);
+        frontier.clear();
+        for (const id of ids) getRelations(id);
+        for (const id of ids) {
           if (cancelled) return;
-          const results = await Promise.all(
-            ids.slice(i, i + FETCH_BATCH).map(async (id) => {
-              try {
-                const res = await fetch(`/api/v2/relations/${id}`);
-                if (!res.ok) return null;
-                return await res.json();
-              } catch {
-                return null;
-              }
-            }),
-          );
-          if (cancelled) return;
-          for (let k = 0; k < results.length; k++) {
-            const id = ids[i + k];
-            const data = results[k];
-            // A failed fetch still counts as expanded: retrying it next round
-            // would spin forever on a permanently missing id.
-            if (!data) {
-              expanded.add(id);
-              frontier.delete(id);
-              continue;
-            }
-            // The fetch carries fuller metadata than the edge did (status,
-            // episode count), so let it refine the node we drew from the edge.
-            const known = nodes.get(id);
-            if (known) {
-              nodes.set(id, {
-                ...known,
-                title: data.title ?? known.title,
-                format: data.format ?? known.format,
-                status: data.status ?? known.status,
-                episodes: data.episodes ?? known.episodes,
-              });
-            }
-            processEdges(id, data.edges);
-          }
-          publish();
+          await processEdges(nodes.get(id) ?? { id, type: "ANIME" });
         }
+        publish();
       }
     })();
 
