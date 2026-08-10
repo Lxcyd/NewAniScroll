@@ -1,80 +1,104 @@
-import { CSSProperties, useEffect, useRef, useState } from "react";
+import { CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import dagre from "@dagrejs/dagre";
 import { Edge } from "types/info/AnilistInfoTypes";
 import type { SeasonEntry } from "@/lib/anilist/seasonChain";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { animeHref, useClickTarget } from "@/lib/prefs/clickTarget";
 import { useTranslation } from "react-i18next";
-import { coverUrl } from "@/lib/images/cover";
 
 /**
- * Interactive, pan-with-mouse franchise map.
+ * Franchise graph — a port of Hayase's relations view.
  *
- * Opened from the "Relations" section. Reuses the SAME data the info page
- * already has (info.relations.edges + the server-resolved seasonList) — no new
- * request. Lays the franchise out as a chronological timeline:
- *   • Main row  — the real seasons (seasonList), left→right by air year.
- *   • Side rows — movies / OVA / specials / alternate versions, attached near
- *     their closest season, colour-coded by relationType.
- * The whole board pans on drag and zooms on wheel (lightweight CSS transform —
- * no graph library). Clicking a node navigates to its page.
+ * Theirs is `src/lib/components/ui/relations/` in hayase-app/interface:
+ * `@dagrejs/dagre` computes the layout, `@xyflow/svelte` draws it, and
+ * `TextNode.svelte` is the node. This is the same graph with the same
+ * proportions, drawn without the flow library — dagre returns coordinates, and
+ * coordinates are all that a few absolutely-positioned divs and one SVG need.
+ *
+ * What was here before was a timeline: seasons in a row, everything else in a
+ * row below, order standing in for relationship. It could not say what a graph
+ * says — that Gun Gale is a SPIN OFF rather than a continuation, that
+ * Progressive is an ALTERNATIVE of season 1 and not a sequel to anything.
+ * Those are the facts you open a franchise map for, and only labelled edges
+ * carry them.
+ *
+ * Faithful except in reach: Hayase walks relations two levels deep, fetching
+ * each neighbour's own relations. We draw the level the info page already
+ * holds — see the note on depth in the layout memo.
  */
 
-const RELATION_COLORS: Record<string, string> = {
-  PREQUEL: "#2dd47a",
-  SEQUEL: "#ff3b5c",
-  SIDE_STORY: "#4a8fff",
-  PARENT: "#b07cff",
-  ALTERNATIVE: "#f6c544",
-  ADAPTATION: "#b07cff",
-  SPIN_OFF: "#4a8fff",
-  OTHER: "#8a8fa3",
-};
+/** Hayase's dagre settings, unchanged — Relations.svelte#getLayoutedElements. */
+const RANK_DIR = "LR";
+const NODE_SEP = 50;
+const EDGE_SEP = 50;
+const RANK_SEP = 120;
+const RANKER = "tight-tree";
 
-type GraphNode = {
-  id: number;
-  title: any;
-  format: string;
-  year: number | null;
-  cover: string | null;
-  relationType: string;
-  isSeason: boolean; // main-row season vs side entry
-};
+/** TextNode.svelte is `w-[150px]`; the height follows its two stacked rows. */
+const NODE_W = 150;
+const NODE_BASE_H = 49;
+const NODE_LINE_H = 19;
+const CHARS_PER_LINE = 20;
+/** Board margin, so the outermost nodes aren't flush against the edge. */
+const PAD = 40;
+
+/** Hayase's own exclusion: a character is not a work. */
+const EXCLUDED_RELATIONS = new Set(["CHARACTER"]);
+
+const nodeHeight = (title: string) =>
+  NODE_BASE_H + Math.ceil((title.length || 1) / CHARS_PER_LINE) * NODE_LINE_H;
 
 type Props = {
   open: boolean;
   onClose: () => void;
   relations: Edge[];
+  /** Unused by the graph now; kept so the callers' props still typecheck. */
   seasonList?: SeasonEntry[];
   currentId: number;
-  /**
-   * Render in the page instead of over it.
-   *
-   * The graph IS the relations section now, not a place you go to look at it:
-   * a franchise's shape is what you want while reading the page, and putting it
-   * behind a button meant most visitors never saw it. Inline drops the
-   * backdrop, the header and the close button, and fills its container; the
-   * modal is kept for the mobile layout, where a pannable canvas needs the
-   * whole screen to be usable at all.
-   */
-  inline?: boolean;
+  currentTitle?: any;
+  currentFormat?: string | null;
+  currentEpisodes?: number | null;
 };
 
-const SEASON_FORMATS = new Set(["TV", "TV_SHORT", "ONA"]);
+type GNode = {
+  id: number;
+  title: string;
+  format: string;
+  episodes: number | null;
+  status: string | null;
+  current: boolean;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+};
+
+type GEdge = { from: number; to: number; label: string };
+
+const FORMAT_LABEL: Record<string, string> = {
+  TV: "TV Series",
+  TV_SHORT: "TV Short",
+  MOVIE: "Movie",
+  SPECIAL: "Special",
+  OVA: "OVA",
+  ONA: "ONA",
+  MUSIC: "Music",
+};
 
 export default function RelationsGraph({
   open,
   onClose,
   relations,
-  seasonList,
   currentId,
-  inline = false,
+  currentTitle,
+  currentFormat,
+  currentEpisodes,
 }: Props) {
   const { t } = useTranslation();
   const titlePref = useTitlePref();
   const clickTarget = useClickTarget();
 
-  // Pan/zoom state.
   const [scale, setScale] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const drag = useRef<{ x: number; y: number; ox: number; oy: number } | null>(null);
@@ -82,7 +106,7 @@ export default function RelationsGraph({
 
   // Escape to close + lock page scroll while open (same approach as Artworks).
   useEffect(() => {
-    if (!open || inline) return;
+    if (!open) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
     };
@@ -97,60 +121,105 @@ export default function RelationsGraph({
       html.style.overflow = prev.htmlOverflow;
       body.style.overflow = prev.bodyOverflow;
     };
-  }, [open, onClose, inline]);
+  }, [open, onClose]);
 
-  // Reset view each time the modal opens.
-  useEffect(() => {
-    if (open) {
-      setScale(1);
-      setOffset({ x: 0, y: 0 });
+  /**
+   * Nodes and edges, positioned by dagre.
+   *
+   * Depth 1 — the centre and its direct relations. Hayase goes to 2, which is
+   * what fills their board with a whole franchise, but every node at that level
+   * costs an AniList query for ITS relations, and this graph opens from a page
+   * that has already paid for its own. Level 1 is free and already answers what
+   * the old timeline could not.
+   */
+  const { nodes, edges, width, height } = useMemo(() => {
+    const centreTitle = pickTitle(currentTitle, titlePref) || "";
+    const seen = new Map<number, GNode>();
+    const list: GEdge[] = [];
+
+    seen.set(currentId, {
+      id: currentId,
+      title: centreTitle,
+      format: currentFormat || "TV",
+      episodes: currentEpisodes ?? null,
+      status: null,
+      current: true,
+      x: 0,
+      y: 0,
+      w: NODE_W,
+      h: nodeHeight(centreTitle),
+    });
+
+    for (const e of relations || []) {
+      const node = e?.node as any;
+      if (!node?.id) continue;
+      if (node.type && node.type !== "ANIME") continue;
+      if (EXCLUDED_RELATIONS.has(e.relationType)) continue;
+      const id = Number(node.id);
+      if (!seen.has(id)) {
+        const title = pickTitle(node.title, titlePref) || "TBA";
+        seen.set(id, {
+          id,
+          title,
+          format: node.format || "TV",
+          episodes: node.episodes ?? null,
+          status: node.status ?? null,
+          current: false,
+          x: 0,
+          y: 0,
+          w: NODE_W,
+          h: nodeHeight(title),
+        });
+      }
+      list.push({ from: currentId, to: id, label: e.relationType || "OTHER" });
     }
-  }, [open]);
 
-  if (!open) return null;
+    const g = new dagre.graphlib.Graph().setDefaultEdgeLabel(() => ({}));
+    g.setGraph({
+      rankdir: RANK_DIR,
+      edgesep: EDGE_SEP,
+      nodesep: NODE_SEP,
+      ranksep: RANK_SEP,
+      ranker: RANKER,
+    });
+    // Array.from, not for…of on the iterator: this project's tsconfig targets
+    // ES5, where iterating a Map directly needs downlevelIteration.
+    const allNodes = Array.from(seen.values());
+    for (const n of allNodes) g.setNode(String(n.id), { width: n.w, height: n.h });
+    for (const e of list) g.setEdge(String(e.from), String(e.to));
+    dagre.layout(g);
 
-  // ── Build nodes from the data we already have ──────────────────────────────
-  const seasonNodes: GraphNode[] = (seasonList || [])
-    .slice()
-    .sort((a, b) => (a.year ?? Infinity) - (b.year ?? Infinity))
-    .map((s) => ({
-      id: s.id,
-      title: s.title || { romaji: s.label },
-      format: s.format || "TV",
-      year: s.year ?? null,
-      cover: coverUrl(s.coverImage, "tiny"),
-      relationType: "SEQUEL",
-      isSeason: true,
-    }));
+    let maxX = 0;
+    let maxY = 0;
+    for (const n of allNodes) {
+      const pos = g.node(String(n.id));
+      if (!pos) continue;
+      // dagre anchors on the centre; the DOM anchors on the top-left.
+      n.x = pos.x - n.w / 2;
+      n.y = pos.y - n.h / 2;
+      maxX = Math.max(maxX, n.x + n.w);
+      maxY = Math.max(maxY, n.y + n.h);
+    }
 
-  const seasonIds = new Set(seasonNodes.map((n) => n.id));
+    return { nodes: allNodes, edges: list, width: maxX, height: maxY };
+  }, [relations, currentId, currentTitle, currentFormat, currentEpisodes, titlePref]);
 
-  const sideNodes: GraphNode[] = (relations || [])
-    .filter(
-      (e) =>
-        e.node?.id != null &&
-        !seasonIds.has(Number(e.node.id)) &&
-        e.node.type !== "MANGA" &&
-        e.relationType !== "CHARACTER" &&
-        e.relationType !== "SUMMARY"
-    )
-    .map((e) => ({
-      id: Number(e.node.id),
-      title: e.node.title,
-      format: e.node.format || "OVA",
-      year: e.node.seasonYear ?? null,
-      cover: coverUrl(e.node.coverImage as any, "tiny"),
-      relationType: e.relationType,
-      isSeason: SEASON_FORMATS.has(e.node.format || ""),
-    }))
-    .sort((a, b) => (a.year ?? Infinity) - (b.year ?? Infinity));
+  const byId = useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes]);
 
-  const hasAny = seasonNodes.length + sideNodes.length > 0;
+  /** Both ends of an edge, in board coordinates. */
+  const endpoints = (e: GEdge) => {
+    const a = byId.get(e.from);
+    const b = byId.get(e.to);
+    if (!a || !b) return null;
+    return {
+      x1: a.x + a.w + PAD,
+      y1: a.y + a.h / 2 + PAD,
+      x2: b.x + PAD,
+      y2: b.y + b.h / 2 + PAD,
+    };
+  };
 
-  // ── Pointer handlers (pan + zoom) ──────────────────────────────────────────
   const onPointerDown = (e: React.PointerEvent) => {
-    // Don't start a pan when the click lands on a node link.
-    if ((e.target as HTMLElement).closest("a")) return;
     drag.current = { x: e.clientX, y: e.clientY, ox: offset.x, oy: offset.y };
     setDragging(true);
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
@@ -171,62 +240,7 @@ export default function RelationsGraph({
     setScale((s) => Math.min(2.5, Math.max(0.35, s * factor)));
   };
 
-  const canvas = (
-    <>
-      <div
-        style={{ ...gStyles.canvas, cursor: dragging ? "grabbing" : "grab" }}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onPointerLeave={onPointerUp}
-        onWheel={onWheel}
-      >
-        {!hasAny ? (
-          <div style={gStyles.empty}>{t("anime.noRelated")}</div>
-        ) : (
-          <div
-            style={{
-              transform: `translate(${offset.x}px, ${offset.y}px) scale(${scale})`,
-              transformOrigin: "0 0",
-              padding: 40,
-              display: "inline-flex",
-              flexDirection: "column",
-              gap: 40,
-            }}
-          >
-            {/* Main row — seasons in chronological order */}
-            <Row
-              label={t("anime.graphSeasons", { defaultValue: "Seasons" })}
-              nodes={seasonNodes}
-              currentId={currentId}
-              titlePref={titlePref}
-              clickTarget={clickTarget}
-              connected
-            />
-            {/* Side row — movies / OVA / specials / alternate versions */}
-            {sideNodes.length > 0 && (
-              <Row
-                label={t("anime.graphOther", { defaultValue: "Movies & others" })}
-                nodes={sideNodes}
-                currentId={currentId}
-                titlePref={titlePref}
-                clickTarget={clickTarget}
-              />
-            )}
-          </div>
-        )}
-      </div>
-      <div style={gStyles.hint}>
-        {t("anime.graphHint", { defaultValue: "Drag to pan · scroll to zoom" })}
-      </div>
-    </>
-  );
-
-  // In the page: no backdrop, no header, no way to close something that was
-  // never opened. Just the board, filling the section it was given.
-  if (inline) {
-    return <div style={gStyles.inlineShell}>{canvas}</div>;
-  }
+  if (!open) return null;
 
   return (
     <div
@@ -250,93 +264,107 @@ export default function RelationsGraph({
           ✕
         </button>
       </div>
-      {canvas}
-    </div>
-  );
-}
 
-function Row({
-  label,
-  nodes,
-  currentId,
-  titlePref,
-  clickTarget,
-  connected,
-}: {
-  label: string;
-  nodes: GraphNode[];
-  currentId: number;
-  titlePref: any;
-  clickTarget: any;
-  connected?: boolean;
-}) {
-  if (nodes.length === 0) return null;
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-      <span style={gStyles.rowLabel}>{label}</span>
-      <div style={{ display: "flex", alignItems: "center", gap: 0 }}>
-        {nodes.map((n, i) => {
-          const color = RELATION_COLORS[n.relationType] || "#8a8fa3";
-          const isCurrent = n.id === currentId;
-          return (
-            <span key={n.id} style={{ display: "flex", alignItems: "center" }}>
+      <div
+        style={{ ...gStyles.canvas, cursor: dragging ? "grabbing" : "grab" }}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerLeave={onPointerUp}
+        onWheel={onWheel}
+      >
+        {nodes.length <= 1 ? (
+          <div style={gStyles.empty}>{t("anime.noRelated")}</div>
+        ) : (
+          <div
+            style={{
+              transform: `translate(${offset.x}px, ${offset.y}px) scale(${scale})`,
+              transformOrigin: "0 0",
+              position: "relative",
+              width: width + PAD * 2,
+              height: height + PAD * 2,
+            }}
+          >
+            {/* Edges under the nodes, so a line reaching a card disappears
+                behind it rather than crossing it. Dashed, like Hayase's. */}
+            <svg
+              width={width + PAD * 2}
+              height={height + PAD * 2}
+              style={{ position: "absolute", inset: 0, pointerEvents: "none", overflow: "visible" }}
+            >
+              {edges.map((e, i) => {
+                const p = endpoints(e);
+                if (!p) return null;
+                // Left-to-right ranks: lines leave the right edge and arrive at
+                // the left one, with horizontal control points for the same
+                // lazy S-curve the flow library draws.
+                const dx = Math.max(40, (p.x2 - p.x1) / 2);
+                return (
+                  <path
+                    key={i}
+                    d={`M ${p.x1} ${p.y1} C ${p.x1 + dx} ${p.y1}, ${p.x2 - dx} ${p.y2}, ${p.x2} ${p.y2}`}
+                    fill="none"
+                    stroke="#4a4a52"
+                    strokeWidth={1.5}
+                    strokeDasharray="5 5"
+                  />
+                );
+              })}
+            </svg>
+
+            {/* The relation names, on the lines. This is the whole point of the
+                view: an unlabelled edge says two things are related, which the
+                list already said. */}
+            {edges.map((e, i) => {
+              const p = endpoints(e);
+              if (!p) return null;
+              return (
+                <span
+                  key={`l${i}`}
+                  style={{
+                    ...gStyles.edgeLabel,
+                    left: (p.x1 + p.x2) / 2,
+                    top: (p.y1 + p.y2) / 2,
+                  }}
+                >
+                  {e.label.replace(/_/g, " ")}
+                </span>
+              );
+            })}
+
+            {nodes.map((n) => (
               <Link
+                key={n.id}
                 href={animeHref(n.id, clickTarget)}
                 style={{
                   ...gStyles.node,
-                  borderColor: isCurrent ? color : "var(--line)",
-                  boxShadow: isCurrent ? `0 0 0 2px ${color}66` : "none",
+                  left: n.x + PAD,
+                  top: n.y + PAD,
+                  width: n.w,
+                  borderColor: n.current ? "var(--brand-primary, #ff3b5c)" : "#111",
+                  color: n.current ? "var(--brand-primary, #ff3b5c)" : "var(--txt-0)",
                 }}
               >
-                <div style={gStyles.nodeCover}>
-                  {n.cover ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={n.cover} alt="" style={gStyles.nodeImg} />
-                  ) : (
-                    <div style={{ ...gStyles.nodeImg, background: `${color}33` }} />
-                  )}
-                </div>
-                <div style={gStyles.nodeBody}>
-                  <span style={{ ...gStyles.nodeTag, color, borderColor: `${color}55` }}>
-                    {n.format}
+                <div style={gStyles.nodeTitle}>{n.title}</div>
+                <div style={gStyles.nodeMeta}>
+                  <span>{FORMAT_LABEL[n.format] ?? n.format}</span>
+                  <span>
+                    {n.episodes ? t("preview.episodeCount", { count: n.episodes }) : n.status || ""}
                   </span>
-                  <span style={gStyles.nodeTitle} title={pickTitle(n.title, titlePref)}>
-                    {pickTitle(n.title, titlePref)}
-                  </span>
-                  {n.year != null && <span style={gStyles.nodeYear}>{n.year}</span>}
                 </div>
               </Link>
-              {connected && i < nodes.length - 1 && (
-                <div style={gStyles.connector}>
-                  <svg width="20" height="12" viewBox="0 0 24 12" stroke="var(--txt-3)" strokeWidth={2} fill="none">
-                    <line x1="0" y1="6" x2="20" y2="6" />
-                    <polyline points="15 2 21 6 15 10" />
-                  </svg>
-                </div>
-              )}
-            </span>
-          );
-        })}
+            ))}
+          </div>
+        )}
+      </div>
+      <div style={gStyles.hint}>
+        {t("anime.graphHint", { defaultValue: "Drag to pan · scroll to zoom" })}
       </div>
     </div>
   );
 }
 
 const gStyles: Record<string, CSSProperties> = {
-  /* The in-page board. Same rounded, hair-lined panel the other Overview
-     sections use, so it reads as part of the page rather than a widget dropped
-     into it. A minimum height because a pannable canvas that is 120 px tall is
-     not pannable — the graph needs room to be a graph. */
-  inlineShell: {
-    flex: 1,
-    minHeight: 380,
-    display: "flex",
-    flexDirection: "column",
-    background: "var(--bg-2)",
-    border: "1px solid var(--line)",
-    borderRadius: 14,
-    overflow: "hidden",
-  },
   overlay: {
     position: "fixed",
     inset: 0,
@@ -378,59 +406,53 @@ const gStyles: Record<string, CSSProperties> = {
     color: "var(--txt-3)",
     fontSize: 13,
   },
-  rowLabel: {
-    fontSize: 10,
-    fontWeight: 700,
-    letterSpacing: "0.1em",
-    textTransform: "uppercase",
-    color: "var(--txt-3)",
-  },
+  /* TextNode.svelte: 150px wide, bordered, #111 body under a #1e1e1e header. */
   node: {
-    flex: "0 0 168px",
-    width: 168,
-    display: "flex",
-    flexDirection: "column",
-    gap: 6,
-    padding: 8,
-    borderRadius: 10,
-    border: "1px solid",
-    background: "var(--bg-2)",
-    textDecoration: "none",
-    color: "inherit",
-  },
-  nodeCover: {
-    width: "100%",
-    aspectRatio: "3 / 4",
-    borderRadius: 6,
+    position: "absolute",
+    display: "block",
+    background: "#111",
+    border: "1px solid #111",
+    borderRadius: 3,
     overflow: "hidden",
-    background: "var(--bg-3)",
-  },
-  nodeImg: { width: "100%", height: "100%", objectFit: "cover" },
-  nodeBody: { display: "flex", flexDirection: "column", gap: 3, minWidth: 0 },
-  nodeTag: {
-    alignSelf: "flex-start",
-    fontSize: 9,
-    fontWeight: 700,
-    letterSpacing: "0.06em",
-    padding: "1px 5px",
-    border: "1px solid",
-    borderRadius: 4,
-  },
-  nodeTitle: {
     fontSize: 12,
     fontWeight: 600,
-    lineHeight: 1.3,
-    whiteSpace: "nowrap",
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-  },
-  nodeYear: { fontSize: 10.5, color: "var(--txt-3)" },
-  connector: { display: "grid", placeItems: "center", width: 24, flexShrink: 0 },
-  hint: {
     textAlign: "center",
-    padding: "10px",
+    textDecoration: "none",
+    transition: "border-color .2s ease",
+  },
+  nodeTitle: {
+    background: "#1e1e1e",
+    fontWeight: 700,
+    padding: "10px 10px 8px",
+    lineHeight: 1.25,
+  },
+  nodeMeta: {
+    display: "flex",
+    justifyContent: "space-between",
+    gap: 6,
+    fontSize: 8.5,
+    lineHeight: 1,
+    padding: "6px 8px",
+    color: "var(--txt-2)",
+  },
+  edgeLabel: {
+    position: "absolute",
+    transform: "translate(-50%, -50%)",
+    background: "#0d0d12",
+    border: "1px solid var(--line)",
+    borderRadius: 3,
+    padding: "2px 5px",
+    fontSize: 8.5,
+    fontWeight: 700,
+    letterSpacing: "0.04em",
+    color: "#7ec8ff",
+    whiteSpace: "nowrap",
+    pointerEvents: "none",
+  },
+  hint: {
+    padding: "10px 0 14px",
+    textAlign: "center",
     fontSize: 11,
     color: "var(--txt-3)",
-    borderTop: "1px solid var(--line)",
   },
 };

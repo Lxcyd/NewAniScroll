@@ -10,6 +10,7 @@ import {
   countryLabel,
   capitalize,
 } from "./helpers";
+import Related from "./Related";
 import RelationsGraph from "./RelationsGraph";
 import styles from "./styles.module.css";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
@@ -33,6 +34,7 @@ export default function Overview({ info, seasonList }: Props) {
   const titlePref = useTitlePref();
   const { t, i18n } = useTranslation();
   const [spoilers, setSpoilers] = useState(false);
+  const [graphOpen, setGraphOpen] = useState(false);
 
   const details = useMemo(() => buildDetails(info, t), [info, t]);
   const allTags = info.tags || [];
@@ -177,26 +179,30 @@ export default function Overview({ info, seasonList }: Props) {
               }}
             >
               <div style={tStyles.secKicker}>{t("anime.sectionRelations")}</div>
+              <button
+                type="button"
+                onClick={() => setGraphOpen(true)}
+                style={relMapBtnStyle}
+                title={t("anime.relationsMap", { defaultValue: "View timeline" })}
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                  <circle cx="5" cy="12" r="2.5" />
+                  <circle cx="19" cy="6" r="2.5" />
+                  <circle cx="19" cy="18" r="2.5" />
+                  <line x1="7.2" y1="11" x2="16.8" y2="7" />
+                  <line x1="7.2" y1="13" x2="16.8" y2="17" />
+                </svg>
+                {t("anime.relationsMap", { defaultValue: "View timeline" })}
+              </button>
             </div>
-            {/* The graph IS the section now.
-                It used to sit behind a "View timeline" button next to a flat
-                list of related entries, which is two representations of one
-                thing and a click between the reader and the better one. A
-                franchise's shape — which entry is a sequel, which is a side
-                story, where this one sits — is exactly what the relations
-                section is for, and a list cannot show it. */}
             <div
               style={{
                 flex: 1,
                 minHeight: 0,
                 display: "flex",
-                marginTop: 10,
               }}
             >
-              <RelationsGraph
-                inline
-                open
-                onClose={() => undefined}
+              <Related
                 relations={info.relations?.edges || []}
                 seasonList={seasonList}
                 currentId={info.id}
@@ -204,6 +210,17 @@ export default function Overview({ info, seasonList }: Props) {
             </div>
           </section>
         </div>
+
+        <RelationsGraph
+          open={graphOpen}
+          onClose={() => setGraphOpen(false)}
+          relations={info.relations?.edges || []}
+          seasonList={seasonList}
+          currentId={info.id}
+          currentTitle={info.title}
+          currentFormat={info.format}
+          currentEpisodes={info.episodes}
+        />
 
         {/* Row 2 col 1 — Tags + External Sites (absolutely positioned trick
              so the sidebar height tracks the main column). */}
@@ -766,6 +783,20 @@ function buildPopularity(
     ],
   ];
 }
+
+const relMapBtnStyle: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 6,
+  padding: "5px 10px",
+  fontSize: 11.5,
+  fontWeight: 600,
+  color: "var(--txt-2)",
+  background: "var(--bg-2)",
+  border: "1px solid var(--line)",
+  borderRadius: 8,
+  cursor: "pointer",
+};
 
 const tStyles: Record<string, CSSProperties> = {
   overviewWrap: { display: "flex", flexDirection: "column", gap: 28 },
