@@ -76,6 +76,20 @@ type GNode = {
 
 type GEdge = { from: number; to: number; label: string };
 
+type ExpandedNode = {
+  id: number;
+  format: string | null;
+  status: string | null;
+  episodes: number | null;
+  title: any;
+  edges: { relationType: string; node: any }[];
+};
+
+/** Hayase stops expanding at depth 2; so the fan-out is one level, bounded. */
+const MAX_EXPANDED = 24;
+/** Parallel fetches. Enough to feel instant, few enough to stay polite. */
+const FETCH_BATCH = 6;
+
 const FORMAT_LABEL: Record<string, string> = {
   TV: "TV Series",
   TV_SHORT: "TV Short",
@@ -99,10 +113,25 @@ export default function RelationsGraph({
   const titlePref = useTitlePref();
   const clickTarget = useClickTarget();
 
+  /**
+   * The second level of the tree, fetched when the graph opens.
+   *
+   * The info page carries THIS entry's relations, which is enough to draw its
+   * neighbours but not to connect them to each other — so Sword Art Online
+   * stopped at five nodes and never reached Alicization or Gun Gale, which is
+   * most of the franchise. Hayase walks two levels for exactly this reason
+   * (`_generateRelationsTree`, depth >= 2 stops expanding), and so do we: one
+   * request per neighbour against an endpoint that caches for a day.
+   */
+  const [expansion, setExpansion] = useState<Map<number, ExpandedNode>>(new Map());
+
   const [scale, setScale] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const drag = useRef<{ x: number; y: number; ox: number; oy: number } | null>(null);
   const [dragging, setDragging] = useState(false);
+  const canvasRef = useRef<HTMLDivElement>(null);
+  /** Cleared whenever the board changes size, so the fit runs again. */
+  const fittedFor = useRef<string>("");
 
   // Escape to close + lock page scroll while open (same approach as Artworks).
   useEffect(() => {
@@ -122,6 +151,47 @@ export default function RelationsGraph({
       body.style.overflow = prev.bodyOverflow;
     };
   }, [open, onClose]);
+
+
+  // Pull the neighbours' own relations once the graph is open. Not before: the
+  // info page should not pay for a view nobody opened.
+  useEffect(() => {
+    if (!open) return;
+    const ids = (relations || [])
+      .map((e: any) => Number(e?.node?.id))
+      .filter((id) => Number.isFinite(id) && id > 0)
+      .slice(0, MAX_EXPANDED);
+    if (ids.length === 0) return;
+
+    let cancelled = false;
+    (async () => {
+      for (let i = 0; i < ids.length; i += FETCH_BATCH) {
+        if (cancelled) return;
+        const slice = ids.slice(i, i + FETCH_BATCH);
+        const results = await Promise.all(
+          slice.map(async (id) => {
+            try {
+              const res = await fetch(`/api/v2/relations/${id}`);
+              if (!res.ok) return null;
+              return (await res.json()) as ExpandedNode;
+            } catch {
+              return null;
+            }
+          }),
+        );
+        if (cancelled) return;
+        setExpansion((prev) => {
+          const next = new Map(prev);
+          for (const r of results) if (r?.id) next.set(r.id, r);
+          return next;
+        });
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [open, relations]);
 
   /**
    * Nodes and edges, positioned by dagre.
@@ -150,29 +220,73 @@ export default function RelationsGraph({
       h: nodeHeight(centreTitle),
     });
 
-    for (const e of relations || []) {
-      const node = e?.node as any;
-      if (!node?.id) continue;
-      if (node.type && node.type !== "ANIME") continue;
-      if (EXCLUDED_RELATIONS.has(e.relationType)) continue;
-      const id = Number(node.id);
-      if (!seen.has(id)) {
-        const title = pickTitle(node.title, titlePref) || "TBA";
-        seen.set(id, {
-          id,
-          title,
-          format: node.format || "TV",
-          episodes: node.episodes ?? null,
-          status: node.status ?? null,
-          current: false,
-          x: 0,
-          y: 0,
-          w: NODE_W,
-          h: nodeHeight(title),
-        });
+    const addNode = (node: any) => {
+      const id = Number(node?.id);
+      if (!Number.isFinite(id) || seen.has(id)) return id;
+      const title = pickTitle(node.title, titlePref) || "TBA";
+      seen.set(id, {
+        id,
+        title,
+        format: node.format || "TV",
+        episodes: node.episodes ?? null,
+        status: node.status ?? null,
+        current: false,
+        x: 0,
+        y: 0,
+        w: NODE_W,
+        h: nodeHeight(title),
+      });
+      return id;
+    };
+
+    /*
+     * One edge per PAIR, keyed on the sorted ids — the same relation is
+     * reported from both ends (A SEQUEL B, B PREQUEL A) and drawing both would
+     * double every line. Hayase keys theirs the same way, with one refinement
+     * worth keeping: PARENT is the weakest label ("related to", roughly), so a
+     * pair that also has a specific relation keeps the specific one.
+     */
+    const edgeByPair = new Map<string, GEdge>();
+    const addEdge = (from: number, to: number, label: string) => {
+      if (!Number.isFinite(from) || !Number.isFinite(to) || from === to) return;
+      const key = [from, to].sort((a, b) => a - b).join("-");
+      const existing = edgeByPair.get(key);
+      if (existing && existing.label !== "PARENT") return;
+      edgeByPair.set(key, { from, to, label: label || "OTHER" });
+    };
+
+    const consider = (fromId: number, edge: any) => {
+      const node = edge?.node;
+      if (!node?.id) return;
+      if (node.type && node.type !== "ANIME") return;
+      if (EXCLUDED_RELATIONS.has(edge.relationType)) return;
+      const id = addNode(node);
+      addEdge(fromId, id, edge.relationType);
+    };
+
+    for (const e of relations || []) consider(currentId, e);
+
+    // Level two: the neighbours' own relations. Only edges BETWEEN nodes we
+    // already know are drawn — otherwise each neighbour would drag in its own
+    // unrelated tree and the board would grow without end.
+    for (const exp of Array.from(expansion.values())) {
+      for (const e of exp.edges || []) {
+        const node = e?.node;
+        if (!node?.id) continue;
+        if (node.type && node.type !== "ANIME") continue;
+        if (EXCLUDED_RELATIONS.has(e.relationType)) continue;
+        const id = Number(node.id);
+        if (!seen.has(id)) {
+          // A node one hop further out: draw it, but it is a leaf — we never
+          // fetched ITS relations, so nothing hangs off it. This is Hayase's
+          // `depth >= 2` boundary.
+          addNode(node);
+        }
+        addEdge(exp.id, id, e.relationType);
       }
-      list.push({ from: currentId, to: id, label: e.relationType || "OTHER" });
     }
+
+    list.push(...Array.from(edgeByPair.values()));
 
     const g = new dagre.graphlib.Graph().setDefaultEdgeLabel(() => ({}));
     g.setGraph({
@@ -202,9 +316,37 @@ export default function RelationsGraph({
     }
 
     return { nodes: allNodes, edges: list, width: maxX, height: maxY };
-  }, [relations, currentId, currentTitle, currentFormat, currentEpisodes, titlePref]);
+  }, [relations, expansion, currentId, currentTitle, currentFormat, currentEpisodes, titlePref]);
 
   const byId = useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes]);
+
+  /**
+   * Frame the whole board when it changes, the way Hayase calls `fitView`.
+   *
+   * Without it a two-level graph opens at scale 1 anchored top-left, which for
+   * a large franchise means looking at one corner of it and having to hunt for
+   * the rest — and the second level arrives a moment after the first, so the
+   * board grows under the viewer. Re-fitting on each size change is what makes
+   * that growth read as the picture settling rather than running away.
+   */
+  useEffect(() => {
+    if (!open) return;
+    const box = canvasRef.current;
+    if (!box || width === 0 || height === 0) return;
+    const key = `${Math.round(width)}x${Math.round(height)}`;
+    if (fittedFor.current === key) return;
+    fittedFor.current = key;
+
+    const boardW = width + PAD * 2;
+    const boardH = height + PAD * 2;
+    const next = Math.min(1, box.clientWidth / boardW, box.clientHeight / boardH);
+    setScale(next);
+    setOffset({
+      x: (box.clientWidth - boardW * next) / 2,
+      y: (box.clientHeight - boardH * next) / 2,
+    });
+  }, [open, width, height]);
+
 
   /** Both ends of an edge, in board coordinates. */
   const endpoints = (e: GEdge) => {
@@ -266,6 +408,7 @@ export default function RelationsGraph({
       </div>
 
       <div
+        ref={canvasRef}
         style={{ ...gStyles.canvas, cursor: dragging ? "grabbing" : "grab" }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
