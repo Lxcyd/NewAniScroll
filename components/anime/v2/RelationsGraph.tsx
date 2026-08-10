@@ -211,7 +211,6 @@ const ICON = {
     "M480-160q-134 0-227-93t-93-227q0-134 93-227t227-93q69 0 132 28.5T720-690v-110h80v280H520v-80h168q-32-56-87.5-88T480-720q-100 0-170 70t-70 170q0 100 70 170t170 70q77 0 139-44t87-116h84q-28 106-114 173t-196 67Z",
   close:
     "m256-200-56-56 224-224-224-224 56-56 224 224 224-224 56 56-224 224 224 224-56 56-224-224-224 224Z",
-  check: "M382-240 154-468l57-57 171 171 367-367 57 57-424 424Z",
   search:
     "M784-120 532-372q-30 24-69 38t-83 14q-109 0-184.5-75.5T120-580q0-109 75.5-184.5T380-840q109 0 184.5 75.5T640-580q0 44-14 83t-38 69l252 252-56 56ZM380-420q67 0 113.5-46.5T540-580q0-67-46.5-113.5T380-740q-67 0-113.5 46.5T220-580q0 67 46.5 113.5T380-420Z",
 };
@@ -1309,22 +1308,32 @@ export default function RelationsGraph({
                     left: posOf(n).x + PAD,
                     top: posOf(n).y + PAD,
                     width: n.w,
+                    // Finished beats the running order: green wins over pink,
+                    // even on the selected card. A search hit still beats both
+                    // — it answers a question the viewer asked one second ago,
+                    // where the other two are standing facts.
                     borderColor: isMatch
                       ? "#ffd166"
-                      : isSelected
-                        ? "var(--brand-primary, #ff3b5c)"
-                        : lit
-                          ? "rgba(255,59,92,.5)"
-                          : "#26262d",
+                      : done
+                        ? DONE_GREEN
+                        : isSelected
+                          ? "var(--brand-primary, #ff3b5c)"
+                          : lit
+                            ? "rgba(255,59,92,.5)"
+                            : "#26262d",
+                    // The text still names the selection, so a finished card
+                    // that is also selected doesn't lose that.
                     color: isSelected ? "var(--brand-primary, #ff3b5c)" : "var(--txt-0)",
                     // Dimming the rest is what makes a chain readable at all:
                     // the board is otherwise a uniform field of nineteen cards.
                     // A search result is never dimmed — it is what you asked for.
                     opacity: isMatch || !isDim(n.id) ? 1 : 0.62,
+                    // The selection ring follows whatever colour the border
+                    // ended up being, or a green card would wear a pink halo.
                     boxShadow: isMatch
                       ? "0 0 0 2px #ffd166"
                       : isSelected
-                        ? "0 0 0 1px var(--brand-primary, #ff3b5c)"
+                        ? `0 0 0 1px ${done ? DONE_GREEN : "var(--brand-primary, #ff3b5c)"}`
                         : undefined,
                   }}
                 >
@@ -1377,7 +1386,7 @@ export default function RelationsGraph({
                           {n.title}
                         </div>
                         <div
-                          style={{ ...gStyles.nodeMeta, ...(done ? gStyles.nodeMetaDone : null) }}
+                          style={{ ...gStyles.nodeMeta }}
                         >
                           <span>{FORMAT_LABEL[n.format] ?? n.format}</span>
                           <span>
@@ -1391,7 +1400,7 @@ export default function RelationsGraph({
                   ) : (
                     <>
                       <div style={gStyles.nodeTitle}>{n.title}</div>
-                      <div style={{ ...gStyles.nodeMeta, ...(done ? gStyles.nodeMetaDone : null) }}>
+                      <div style={{ ...gStyles.nodeMeta }}>
                         <span>{FORMAT_LABEL[n.format] ?? n.format}</span>
                         <span>
                           {n.episodes
@@ -1400,17 +1409,6 @@ export default function RelationsGraph({
                         </span>
                       </div>
                     </>
-                  )}
-                  {/* Finished — the one watch state worth drawing. Bottom-right
-                      and inside the card, clear of the step badge and the
-                      dismiss cross, which both sit OUTSIDE the top corners. */}
-                  {done && (
-                    <span
-                      style={gStyles.doneBadge}
-                      title={t("anime.graphFinished", { defaultValue: "Watched" })}
-                    >
-                      <Icon d={ICON.check} size={11} />
-                    </span>
                   )}
                 </Link>
               );
@@ -1718,22 +1716,6 @@ const gStyles: Record<string, CSSProperties> = {
     placeItems: "center",
     padding: "10px 12px",
   },
-  /** The finished tick, in the bottom-right corner of a card. */
-  doneBadge: {
-    position: "absolute",
-    right: 5,
-    bottom: 5,
-    width: 17,
-    height: 17,
-    display: "grid",
-    placeItems: "center",
-    borderRadius: 9,
-    background: DONE_GREEN,
-    color: "#06210f",
-    boxShadow: "0 1px 4px rgba(0,0,0,.5)",
-  },
-  /** Room for the tick, so the episode count never slides under it. */
-  nodeMetaDone: { paddingRight: 26 },
   edgeLabel: {
     position: "absolute",
     transform: "translate(-50%, -50%)",
