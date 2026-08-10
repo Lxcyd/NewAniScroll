@@ -114,10 +114,24 @@ const nodeHeight = (title: string, withCover: boolean) => {
   return withCover ? Math.max(COVER_H, text) : text;
 };
 
-/** Watched progress. The brand pink is the colour of the running order here, so
- *  a pink bar on a lit card is invisible — this is the blue the list editor
- *  already uses for a completed entry (.le-dd-dot-completed). */
-const PROGRESS_BLUE = "#3b82f6";
+/**
+ * "Finished", the only watch state the board shows.
+ *
+ * A partial count is the rare case in a franchise — an entry is nearly always
+ * either done or never started — and a bar that spends most of its life at 0%
+ * or 100% is an interface element earning nothing. So: a tick when it's
+ * finished, and nothing at all otherwise.
+ *
+ * REPEATING counts: you are rewatching something you completed.
+ */
+const isFinished = (entry: UserListEntry | undefined, episodes: number | null) => {
+  if (!entry) return false;
+  if (entry.status === "COMPLETED" || entry.status === "REPEATING") return true;
+  return !!episodes && entry.progress >= episodes;
+};
+
+/** The green the list editor uses for a watched entry (.le-dd-dot-current). */
+const DONE_GREEN = "#22c55e";
 
 type Props = {
   open: boolean;
@@ -197,6 +211,7 @@ const ICON = {
     "M480-160q-134 0-227-93t-93-227q0-134 93-227t227-93q69 0 132 28.5T720-690v-110h80v280H520v-80h168q-32-56-87.5-88T480-720q-100 0-170 70t-70 170q0 100 70 170t170 70q77 0 139-44t87-116h84q-28 106-114 173t-196 67Z",
   close:
     "m256-200-56-56 224-224-224-224 56-56 224 224 224-224 56 56-224 224 224 224-56 56-224-224-224 224Z",
+  check: "M382-240 154-468l57-57 171 171 367-367 57 57-424 424Z",
   search:
     "M784-120 532-372q-30 24-69 38t-83 14q-109 0-184.5-75.5T120-580q0-109 75.5-184.5T380-840q109 0 184.5 75.5T640-580q0 44-14 83t-38 69l252 252-56 56ZM380-420q67 0 113.5-46.5T540-580q0-67-46.5-113.5T380-740q-67 0-113.5 46.5T220-580q0 67 46.5 113.5T380-420Z",
 };
@@ -1369,12 +1384,7 @@ export default function RelationsGraph({
               const lit = step !== undefined;
               const isSelected = n.id === selected;
               const isMatch = !!matches?.has(n.id);
-              const entry = listMap?.get(n.id);
-              // Progress only means something against a known episode count —
-              // an airing season's count is the planned total, which is the
-              // right denominator anyway.
-              const seen = entry?.progress ?? 0;
-              const pct = n.episodes && seen > 0 ? Math.min(100, (seen / n.episodes) * 100) : 0;
+              const done = isFinished(listMap?.get(n.id), n.episodes);
               return (
                 <Link
                   key={n.id}
@@ -1477,7 +1487,9 @@ export default function RelationsGraph({
                         <div style={{ ...gStyles.nodeTitle, ...gStyles.nodeTitleSide }}>
                           {n.title}
                         </div>
-                        <div style={gStyles.nodeMeta}>
+                        <div
+                          style={{ ...gStyles.nodeMeta, ...(done ? gStyles.nodeMetaDone : null) }}
+                        >
                           <span>{FORMAT_LABEL[n.format] ?? n.format}</span>
                           <span>
                             {n.episodes
@@ -1490,7 +1502,7 @@ export default function RelationsGraph({
                   ) : (
                     <>
                       <div style={gStyles.nodeTitle}>{n.title}</div>
-                      <div style={gStyles.nodeMeta}>
+                      <div style={{ ...gStyles.nodeMeta, ...(done ? gStyles.nodeMetaDone : null) }}>
                         <span>{FORMAT_LABEL[n.format] ?? n.format}</span>
                         <span>
                           {n.episodes
@@ -1500,12 +1512,15 @@ export default function RelationsGraph({
                       </div>
                     </>
                   )}
-                  {/* Watched progress, along the bottom edge. A full bar is the
-                      fastest way to read "this part of the franchise is done"
-                      off a board of twenty cards. */}
-                  {pct > 0 && (
-                    <span style={gStyles.progressTrack}>
-                      <span style={{ ...gStyles.progressFill, width: `${pct}%` }} />
+                  {/* Finished — the one watch state worth drawing. Bottom-right
+                      and inside the card, clear of the step badge and the
+                      dismiss cross, which both sit OUTSIDE the top corners. */}
+                  {done && (
+                    <span
+                      style={gStyles.doneBadge}
+                      title={t("anime.graphFinished", { defaultValue: "Watched" })}
+                    >
+                      <Icon d={ICON.check} size={11} />
                     </span>
                   )}
                 </Link>
@@ -1830,23 +1845,22 @@ const gStyles: Record<string, CSSProperties> = {
   },
   /** Beside the art the title is no longer a header band across the top. */
   nodeTitleSide: { background: "transparent", padding: "8px 10px 4px" },
-  /** Watched progress, hugging the bottom edge of a card. */
-  progressTrack: {
+  /** The finished tick, in the bottom-right corner of a card. */
+  doneBadge: {
     position: "absolute",
-    left: 0,
-    right: 0,
-    bottom: 0,
-    height: 3,
-    background: "rgba(255,255,255,.10)",
-    borderBottomLeftRadius: 3,
-    borderBottomRightRadius: 3,
-    overflow: "hidden",
+    right: 5,
+    bottom: 5,
+    width: 17,
+    height: 17,
+    display: "grid",
+    placeItems: "center",
+    borderRadius: 9,
+    background: DONE_GREEN,
+    color: "#06210f",
+    boxShadow: "0 1px 4px rgba(0,0,0,.5)",
   },
-  progressFill: {
-    display: "block",
-    height: "100%",
-    background: PROGRESS_BLUE,
-  },
+  /** Room for the tick, so the episode count never slides under it. */
+  nodeMetaDone: { paddingRight: 26 },
   edgeLabel: {
     position: "absolute",
     transform: "translate(-50%, -50%)",

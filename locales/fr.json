@@ -892,6 +892,7 @@
     "graphRelations": "Relations",
     "graphFormats": "Formats",
     "graphAll": "Tout",
+    "graphFinished": "Terminé",
     "graphGroup": "Grouper les branches",
     "graphMainThread": "Trame principale",
     "graphShowOrder": "Voir ce qui suit",

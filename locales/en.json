@@ -892,6 +892,7 @@
     "graphRelations": "Relations",
     "graphFormats": "Formats",
     "graphAll": "All",
+    "graphFinished": "Watched",
     "graphGroup": "Group branches",
     "graphMainThread": "Main thread",
     "graphShowOrder": "Show what follows",
