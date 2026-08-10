@@ -883,6 +883,8 @@
     "graphHintOrder": "Click a title to light up what follows · click it again to open it · drag to pan, scroll to zoom",
     "graphFit": "Fit to screen",
     "graphReset": "Reset layout",
+    "graphFullscreen": "Fullscreen",
+    "graphHideNode": "Hide this entry",
     "graphShowOrder": "Show what follows",
     "graphOpenEntry": "Open this entry",
     "formatEpisodes": "Episodes",

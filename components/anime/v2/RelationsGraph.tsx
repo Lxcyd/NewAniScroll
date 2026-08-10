@@ -110,6 +110,33 @@ type NodeMeta = {
 const MAX_NODES = 60;
 const MAX_ROUNDS = 8;
 
+/**
+ * Material Symbols Outlined, drawn inline.
+ *
+ * The set the app already uses, at its own weight — pulling the icon font in
+ * for six glyphs would cost a webfont on a view most visitors never open, and
+ * the paths are the same shapes.
+ */
+const Icon = ({ d, size = 18 }: { d: string; size?: number }) => (
+  <svg width={size} height={size} viewBox="0 -960 960 960" fill="currentColor" aria-hidden="true">
+    <path d={d} />
+  </svg>
+);
+const ICON = {
+  add: "M440-440H200v-80h240v-240h80v240h240v80H520v240h-80v-240Z",
+  remove: "M200-440v-80h560v80H200Z",
+  fitScreen:
+    "M80-160v-240h80v160h160v80H80Zm0-400v-240h240v80H160v160H80Zm560 400v-80h160v-160h80v240H640Zm160-400v-160H640v-80h240v240h-80Z",
+  fullscreen:
+    "M120-120v-200h80v120h120v80H120Zm520 0v-80h120v-120h80v200H640ZM120-640v-200h200v80H200v120h-80Zm640 0v-120H640v-80h200v200h-80Z",
+  fullscreenExit:
+    "M240-120v-120H120v-80h200v200h-80Zm400 0v-200h200v80H720v120h-80ZM120-640v-80h120v-120h80v200H120Zm520 0v-200h80v120h120v80H640Z",
+  refresh:
+    "M480-160q-134 0-227-93t-93-227q0-134 93-227t227-93q69 0 132 28.5T720-690v-110h80v280H520v-80h168q-32-56-87.5-88T480-720q-100 0-170 70t-70 170q0 100 70 170t170 70q77 0 139-44t87-116h84q-28 106-114 173t-196 67Z",
+  close:
+    "m256-200-56-56 224-224-224-224 56-56 224 224 224-224 56 56-224 224 224 224-56 56-224-224-224 224Z",
+};
+
 const FORMAT_LABEL: Record<string, string> = {
   TV: "TV Series",
   TV_SHORT: "TV Short",
@@ -165,6 +192,9 @@ export default function RelationsGraph({
    * leaves the automatic layout intact underneath.
    */
   const [moved, setMoved] = useState<Map<number, { dx: number; dy: number }>>(new Map());
+  /** Cards the viewer has dismissed. Cleared by the reset button. */
+  const [hidden, setHidden] = useState<Set<number>>(new Set());
+  const [isFull, setIsFull] = useState(false);
   const nodeDrag = useRef<{ id: number; x: number; y: number; dx: number; dy: number; moved: boolean } | null>(null);
 
   const [scale, setScale] = useState(1);
@@ -172,6 +202,7 @@ export default function RelationsGraph({
   const drag = useRef<{ x: number; y: number; ox: number; oy: number } | null>(null);
   const [dragging, setDragging] = useState(false);
   const canvasRef = useRef<HTMLDivElement>(null);
+  const overlayRef = useRef<HTMLDivElement>(null);
   /** Cleared whenever the board changes size, so the fit runs again. */
   const fittedFor = useRef<string>("");
 
@@ -372,8 +403,11 @@ export default function RelationsGraph({
       });
     }
 
-    // An edge whose other end was refused by the node cap has nothing to
-    // connect to; drawing it would leave a line running off into nothing.
+    for (const id of Array.from(hidden)) seen.delete(id);
+
+    // An edge whose other end was refused by the node cap — or dismissed by
+    // the viewer — has nothing to connect to; drawing it would leave a line
+    // running off into nothing.
     const list = tree.edges.filter((e) => seen.has(e.from) && seen.has(e.to));
 
     const g = new dagre.graphlib.Graph().setDefaultEdgeLabel(() => ({}));
@@ -402,7 +436,7 @@ export default function RelationsGraph({
     }
 
     return { nodes: allNodes, edges: list, width: maxX, height: maxY };
-  }, [tree, currentId, titlePref]);
+  }, [tree, currentId, titlePref, hidden]);
 
   const byId = useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes]);
 
@@ -559,6 +593,23 @@ export default function RelationsGraph({
     }, 0);
   };
 
+  /** Real fullscreen on the overlay — the ⤢ button only re-framed the board. */
+  const toggleFullscreen = () => {
+    const el = overlayRef.current;
+    if (!el) return;
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => undefined);
+    else el.requestFullscreen?.().catch(() => undefined);
+  };
+  useEffect(() => {
+    const onChange = () => {
+      setIsFull(!!document.fullscreenElement);
+      // The viewport just changed size; let the fit effect run again.
+      fittedFor.current = "";
+    };
+    document.addEventListener("fullscreenchange", onChange);
+    return () => document.removeEventListener("fullscreenchange", onChange);
+  }, []);
+
   const zoomBy = (f: number) => setScale((s) => Math.min(2.5, Math.max(0.35, s * f)));
   const fitBoard = () => {
     const box = canvasRef.current;
@@ -598,6 +649,7 @@ export default function RelationsGraph({
 
   return (
     <div
+      ref={overlayRef}
       role="dialog"
       aria-modal="true"
       aria-label={t("anime.relationsGraphTitle", { defaultValue: "Franchise timeline" })}
@@ -752,6 +804,25 @@ export default function RelationsGraph({
                   {/* `chain` is already 1-based — the selected entry is step 1.
                       Adding one here made the whole order start at 2. */}
                   {lit && <span style={gStyles.stepBadge}>{step}</span>}
+                  {/* Dismiss a card you don't care about; the reset button in
+                      the control bar brings every dismissed one back. */}
+                  <button
+                    style={gStyles.nodeClose}
+                    onPointerDown={(ev) => ev.stopPropagation()}
+                    onClick={(ev) => {
+                      ev.preventDefault();
+                      ev.stopPropagation();
+                      setHidden((prev) => {
+                        const next = new Set(prev);
+                        next.add(n.id);
+                        return next;
+                      });
+                    }}
+                    aria-label={t("anime.graphHideNode", { defaultValue: "Hide this entry" })}
+                    title={t("anime.graphHideNode", { defaultValue: "Hide this entry" })}
+                  >
+                    <Icon d={ICON.close} size={11} />
+                  </button>
                   <div style={gStyles.nodeTitle}>{n.title}</div>
                   <div style={gStyles.nodeMeta}>
                     <span>{FORMAT_LABEL[n.format] ?? n.format}</span>
@@ -765,13 +836,13 @@ export default function RelationsGraph({
           </div>
         )}
 
-        {/* Zoom, fit, and a reset that undoes every hand-moved card. */}
+        {/* Zoom, fit, real fullscreen, reset, and a way out. */}
         <div style={gStyles.controls} onPointerDown={(e) => e.stopPropagation()}>
           <button style={gStyles.ctrlBtn} onClick={() => zoomBy(1.2)} aria-label="Zoom +" title="Zoom +">
-            +
+            <Icon d={ICON.add} />
           </button>
           <button style={gStyles.ctrlBtn} onClick={() => zoomBy(1 / 1.2)} aria-label="Zoom −" title="Zoom −">
-            −
+            <Icon d={ICON.remove} />
           </button>
           <button
             style={gStyles.ctrlBtn}
@@ -779,19 +850,36 @@ export default function RelationsGraph({
             aria-label={t("anime.graphFit", { defaultValue: "Fit to screen" })}
             title={t("anime.graphFit", { defaultValue: "Fit to screen" })}
           >
-            ⤢
+            <Icon d={ICON.fitScreen} />
+          </button>
+          <button
+            style={gStyles.ctrlBtn}
+            onClick={toggleFullscreen}
+            aria-label={t("anime.graphFullscreen", { defaultValue: "Fullscreen" })}
+            title={t("anime.graphFullscreen", { defaultValue: "Fullscreen" })}
+          >
+            <Icon d={isFull ? ICON.fullscreenExit : ICON.fullscreen} />
           </button>
           <button
             style={gStyles.ctrlBtn}
             onClick={() => {
               setMoved(new Map());
+              setHidden(new Set());
               fittedFor.current = "";
               fitBoard();
             }}
             aria-label={t("anime.graphReset", { defaultValue: "Reset layout" })}
             title={t("anime.graphReset", { defaultValue: "Reset layout" })}
           >
-            ⟳
+            <Icon d={ICON.refresh} />
+          </button>
+          <button
+            style={{ ...gStyles.ctrlBtn, color: "var(--brand-primary, #ff3b5c)" }}
+            onClick={onClose}
+            aria-label={t("anime.relationsGraphClose", { defaultValue: "Close" })}
+            title={t("anime.relationsGraphClose", { defaultValue: "Close" })}
+          >
+            <Icon d={ICON.close} />
           </button>
         </div>
       </div>
@@ -809,8 +897,7 @@ const gStyles: Record<string, CSSProperties> = {
   overlay: {
     position: "fixed",
     inset: 0,
-    background: "rgba(0,0,0,0.82)",
-    backdropFilter: "blur(18px)",
+    background: "#000",
     zIndex: 200,
     display: "flex",
     flexDirection: "column",
@@ -838,6 +925,12 @@ const gStyles: Record<string, CSSProperties> = {
     overflow: "hidden",
     position: "relative",
     touchAction: "none",
+    // Hayase's board: one flat colour under a dot grid. The grid gives the pan
+    // and zoom something to move against — without it, dragging an all-black
+    // background reads as nothing happening.
+    background: "#000",
+    backgroundImage: "radial-gradient(circle, #2a2a30 1px, transparent 1px)",
+    backgroundSize: "22px 22px",
     // Dragging the board would otherwise sweep a text selection across every
     // card it crosses, leaving the graph highlighted in blue.
     userSelect: "none",
@@ -921,6 +1014,22 @@ const gStyles: Record<string, CSSProperties> = {
     lineHeight: "18px",
     textAlign: "center",
     boxShadow: "0 2px 6px rgba(0,0,0,.55)",
+  },
+  nodeClose: {
+    position: "absolute",
+    top: -8,
+    right: -8,
+    width: 18,
+    height: 18,
+    display: "grid",
+    placeItems: "center",
+    borderRadius: 9,
+    border: "1px solid var(--line)",
+    background: "#1e1e1e",
+    color: "var(--txt-2)",
+    cursor: "pointer",
+    padding: 0,
+    opacity: 0.55,
   },
   edgeLabel: {
     position: "absolute",

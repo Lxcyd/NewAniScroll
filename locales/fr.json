@@ -883,6 +883,8 @@
     "graphHintOrder": "Cliquez un titre pour éclairer sa suite · recliquez pour l'ouvrir · glisser pour déplacer, molette pour zoomer",
     "graphFit": "Ajuster à l'écran",
     "graphReset": "Réinitialiser la disposition",
+    "graphFullscreen": "Plein écran",
+    "graphHideNode": "Masquer cette fiche",
     "graphShowOrder": "Voir ce qui suit",
     "graphOpenEntry": "Ouvrir cette fiche",
     "formatEpisodes": "Épisodes",
