@@ -386,6 +386,10 @@ export default function RelationsGraph({
   /** Rank axis, following the long side of the window. */
   const [rankDir, setRankDir] = useState<"LR" | "TB">("LR");
   const nodeDrag = useRef<{ id: number; x: number; y: number; dx: number; dy: number; moved: boolean } | null>(null);
+  /** The card under the hand. A ref alone can't raise it — the board only
+   *  repaints on state, and a card dragged under its neighbours is a card you
+   *  are moving blind. */
+  const [dragId, setDragId] = useState<number | null>(null);
 
   const [scale, setScale] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
@@ -1073,6 +1077,7 @@ export default function RelationsGraph({
       dy: m?.dy ?? 0,
       moved: false,
     };
+    setDragId(id);
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   };
   const onNodePointerMove = (e: React.PointerEvent) => {
@@ -1090,6 +1095,7 @@ export default function RelationsGraph({
   };
   const onNodePointerUp = (e: React.PointerEvent) => {
     if (nodeDrag.current?.moved) e.preventDefault();
+    setDragId(null);
     // Cleared on the next tick so the click handler can still see `moved`.
     const d = nodeDrag.current;
     setTimeout(() => {
@@ -1407,6 +1413,10 @@ export default function RelationsGraph({
                     left: posOf(n).x + PAD,
                     top: posOf(n).y + PAD,
                     width: n.w,
+                    // The card in hand rides above everything; one you have
+                    // already placed stays above the untouched ones, so
+                    // dropping it onto a neighbour doesn't bury it.
+                    zIndex: dragId === n.id ? 4 : moved.has(n.id) ? 3 : 2,
                     // Finished beats the running order: green wins over pink,
                     // even on the selected card. A search hit still beats both
                     // — it answers a question the viewer asked one second ago,
