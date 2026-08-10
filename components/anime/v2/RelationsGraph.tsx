@@ -1,5 +1,6 @@
 import { CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { createPortal } from "react-dom";
 import dagre from "@dagrejs/dagre";
 import { Edge } from "types/info/AnilistInfoTypes";
 import type { SeasonEntry } from "@/lib/anilist/seasonChain";
@@ -750,8 +751,14 @@ export default function RelationsGraph({
   };
 
   if (!open) return null;
+  if (typeof document === "undefined") return null;
 
-  return (
+  // Portalled to <body>, like OpEdPanel: the graph is a full-screen dialog, and
+  // rendered in place it stacks inside the info page, UNDER the site navbar
+  // (z-[9999], fixed) — the board's own title and filter chips came out drawn
+  // through the menu. A portal plus a z-index above the navbar's is what puts
+  // it on top, and keeps any ancestor transform from trapping `position: fixed`.
+  return createPortal(
     <div
       ref={overlayRef}
       role="dialog"
@@ -1042,7 +1049,8 @@ export default function RelationsGraph({
             "Click a title to light up what follows · click it again to open it · drag to pan, scroll to zoom",
         })}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
@@ -1051,7 +1059,8 @@ const gStyles: Record<string, CSSProperties> = {
     position: "fixed",
     inset: 0,
     background: "#000",
-    zIndex: 200,
+    // Above the navbar's z-[9999] — see the portal note on the return.
+    zIndex: 10000,
     display: "flex",
     flexDirection: "column",
   },
