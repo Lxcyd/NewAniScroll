@@ -67,6 +67,9 @@ const NODE_W_COVER = NODE_W + COVER_W;
 /** Board margin, so the outermost nodes aren't flush against the edge. */
 const PAD = 40;
 
+/** How far a relation name sits off its own line — half a label plus air. */
+const LABEL_LIFT = 14;
+
 /**
  * Zoom range. The floor used to be 0.35, which on a wide franchise (or with
  * covers on, where a card is half as wide again) stopped well before the whole
@@ -1299,8 +1302,13 @@ export default function RelationsGraph({
               // can put its name over the card in between; that is accepted,
               // because a name that hunts for a free spot is a name you can no
               // longer attribute to a line.
-              const x = (p.x1 + p.x2) / 2;
-              const y = (p.y1 + p.y2) / 2;
+              // Lifted clear of the line rather than sitting astride it: the
+              // stroke ran straight through the middle of the word, and a
+              // label the line cuts in half reads as part of the drawing. A
+              // fixed offset, the same for every edge — the name still belongs
+              // unmistakably to the trait just below it.
+              const x = (p.x1 + p.x2) / 2 + (rankDir === "TB" ? LABEL_LIFT : 0);
+              const y = (p.y1 + p.y2) / 2 - (rankDir === "TB" ? 0 : LABEL_LIFT);
               const touches = near ? e.from === hover || e.to === hover : null;
               const lit = touches !== null ? touches : isChainEdge(e);
               const dim = touches !== null ? !touches : !!chain && !isChainEdge(e);
