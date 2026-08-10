@@ -369,6 +369,10 @@ export default function RelationsGraph({
    *  board back into plain text cards. */
   const [covers, setCovers] = useState(true);
   const [isFull, setIsFull] = useState(false);
+  /** True while the franchise is still being walked. The first pass paints
+   *  almost at once and the rest arrives after; saying so is what turns "the
+   *  graph is broken" into "the graph is still counting". */
+  const [walking, setWalking] = useState(false);
   const [query, setQuery] = useState("");
   const queryRef = useRef("");
   queryRef.current = query;
@@ -489,6 +493,7 @@ export default function RelationsGraph({
     if (!open) return;
 
     let cancelled = false;
+    setWalking(true);
     const nodes = new Map<number, NodeMeta>();
     const edges = new Map<string, GEdge>();
     const frontier = new Set<number>();
@@ -644,13 +649,39 @@ export default function RelationsGraph({
         // the same end of a disputed pair is the one that gets visited first.
         const ids = Array.from(frontier).sort((a, b) => a - b);
         frontier.clear();
-        for (const id of ids) getRelations(id);
+
+        // TWO requests for the whole round, not two per node.
+        //
+        // Registering the round's own ids batches them, but each node's
+        // CHILDREN were only discovered when its turn came round — and its
+        // turn came after the previous node had been awaited. So a round of
+        // twelve nodes serialised into twelve requests, one behind the other,
+        // which is the trickle you see: a few cards, a pause, a few more.
+        //
+        // Awaiting the round's payloads up front lets us register everything
+        // they point at in one further burst, so by the time the sequential
+        // walk starts, every fetch it needs is already in flight. The walk
+        // itself is untouched — prefetching decides nothing about order.
+        const payloads = await Promise.all(ids.map((id) => getRelations(id)));
+        if (cancelled) return;
+        for (const data of payloads) {
+          for (const e of data?.edges || []) {
+            const n = e?.node;
+            if (n?.id && isAnime(n) && !EXCLUDED_RELATIONS.has(e.relationType)) {
+              getRelations(Number(n.id));
+            }
+          }
+        }
+
         for (const id of ids) {
           if (cancelled) return;
           await processEdges(nodes.get(id) ?? { id, type: "ANIME" });
         }
-        publish();
+        // Only the last round repaints. Publishing every round made the board
+        // grow four or five times under the viewer, each growth re-framing it.
+        if (frontier.size === 0 || round === MAX_ROUNDS - 1) publish();
       }
+      if (!cancelled) setWalking(false);
     })();
 
     return () => {
@@ -1078,6 +1109,11 @@ export default function RelationsGraph({
       <div style={gStyles.header}>
         <span style={gStyles.title}>
           {t("anime.relationsGraphTitle", { defaultValue: "Franchise timeline" })}
+          {walking && (
+            <span style={gStyles.walking}>
+              {t("anime.graphWalking", { defaultValue: "still loading…" })}
+            </span>
+          )}
         </span>
 
         <div style={gStyles.filters}>
@@ -1475,7 +1511,16 @@ const gStyles: Record<string, CSSProperties> = {
     padding: "16px 20px",
     borderBottom: "1px solid var(--line)",
   },
-  title: { fontSize: 15, fontWeight: 700, letterSpacing: "0.02em", whiteSpace: "nowrap" },
+  title: {
+    display: "flex",
+    alignItems: "baseline",
+    gap: 8,
+    fontSize: 15,
+    fontWeight: 700,
+    letterSpacing: "0.02em",
+    whiteSpace: "nowrap",
+  },
+  walking: { fontSize: 11, fontWeight: 600, color: "var(--txt-3)" },
   filters: {
     display: "flex",
     flexWrap: "wrap",

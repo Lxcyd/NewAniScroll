@@ -885,6 +885,7 @@
     "graphReset": "Reset layout",
     "graphFullscreen": "Fullscreen",
     "graphHideNode": "Hide this entry",
+    "graphWalking": "still loading…",
     "graphSearch": "Search the graph",
     "graphSearchClear": "Clear search",
     "graphMainStory": "Main story",
