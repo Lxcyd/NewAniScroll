@@ -220,6 +220,7 @@ export default function Overview({ info, seasonList }: Props) {
           currentTitle={info.title}
           currentFormat={info.format}
           currentEpisodes={info.episodes}
+          currentCover={info.coverImage?.large || info.coverImage?.extraLarge || null}
         />
 
         {/* Row 2 col 1 — Tags + External Sites (absolutely positioned trick

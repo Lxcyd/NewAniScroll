@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { getMediaMeta } from "@/lib/anilist/getMediaMeta";
+import { toRelationsPayload } from "@/lib/anilist/relationsPayload";
 
 /**
  * GET /api/v2/relations/[id]
@@ -45,28 +46,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(404).json({ error: "Anime not found" });
   }
 
-  const edges = (media.relations?.edges || [])
-    .filter((e: any) => e?.node?.id && e.node.type !== "MANGA")
-    .map((e: any) => ({
-      relationType: e.relationType,
-      node: {
-        id: Number(e.node.id),
-        type: e.node.type ?? null,
-        format: e.node.format ?? null,
-        status: e.node.status ?? null,
-        episodes: e.node.episodes ?? null,
-        title: e.node.title ?? null,
-      },
-    }));
-
   res.setHeader("Cache-Control", "public, max-age=600");
   res.setHeader("CDN-Cache-Control", `public, s-maxage=${TTL_S}, stale-while-revalidate=86400`);
-  return res.status(200).json({
-    id: media.id,
-    format: media.format ?? null,
-    status: media.status ?? null,
-    episodes: media.episodes ?? null,
-    title: media.title ?? null,
-    edges,
-  });
+  return res.status(200).json(toRelationsPayload(media));
 }

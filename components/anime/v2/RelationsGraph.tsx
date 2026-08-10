@@ -7,6 +7,8 @@ import type { SeasonEntry } from "@/lib/anilist/seasonChain";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { animeHref, useClickTarget } from "@/lib/prefs/clickTarget";
 import { useTranslation } from "react-i18next";
+import { useSession } from "next-auth/react";
+import { getUserList, type UserListEntry } from "@/lib/anilist/userListCache";
 
 /**
  * Franchise graph — a port of Hayase's relations view.
@@ -35,7 +37,6 @@ import { useTranslation } from "react-i18next";
  */
 
 /** Hayase's dagre settings, unchanged — Relations.svelte#getLayoutedElements. */
-const RANK_DIR = "LR";
 const NODE_SEP = 50;
 const EDGE_SEP = 50;
 const RANK_SEP = 120;
@@ -46,8 +47,17 @@ const NODE_W = 150;
 const NODE_BASE_H = 49;
 const NODE_LINE_H = 19;
 const CHARS_PER_LINE = 20;
+/** Cover strip on top of a card, when thumbnails are on. */
+const COVER_H = 84;
 /** Board margin, so the outermost nodes aren't flush against the edge. */
 const PAD = 40;
+
+/**
+ * Below this, a left-to-right board is a strip narrower than one card and taller
+ * than the screen — the rank axis has to follow the long side of the window, so
+ * a phone (and a split-screen desktop) lays the franchise out top-to-bottom.
+ */
+const VERTICAL_UNDER_PX = 820;
 
 /** Hayase's own exclusion: a character is not a work. */
 const EXCLUDED_RELATIONS = new Set(["CHARACTER"]);
@@ -61,8 +71,30 @@ const EXCLUDED_RELATIONS = new Set(["CHARACTER"]);
  */
 const MAIN_FORMATS = new Set(["TV", "TV_SHORT", "MOVIE", "ONA"]);
 
-const nodeHeight = (title: string) =>
-  NODE_BASE_H + Math.ceil((title.length || 1) / CHARS_PER_LINE) * NODE_LINE_H;
+/**
+ * Relations that do not carry the story forward.
+ *
+ * "Canon only" drops an entry when NOTHING but these reaches it: a recap of a
+ * season you have already seen (SUMMARY / COMPILATION), a parallel retelling
+ * (ALTERNATIVE — Progressive), a series about other people (SPIN_OFF — Gun
+ * Gale), and AniList's dustbin label (OTHER). An entry that also hangs off a
+ * SEQUEL or a SIDE_STORY stays: those are the franchise's own thread.
+ *
+ * Distinct from "sequels only", which is stricter — it keeps the continuation
+ * line and nothing else, side stories included.
+ */
+const SIDE_RELATIONS = new Set([
+  "SUMMARY",
+  "COMPILATION",
+  "ALTERNATIVE",
+  "SPIN_OFF",
+  "OTHER",
+]);
+
+const nodeHeight = (title: string, withCover: boolean) =>
+  NODE_BASE_H +
+  Math.ceil((title.length || 1) / CHARS_PER_LINE) * NODE_LINE_H +
+  (withCover ? COVER_H : 0);
 
 type Props = {
   open: boolean;
@@ -74,6 +106,8 @@ type Props = {
   currentTitle?: any;
   currentFormat?: string | null;
   currentEpisodes?: number | null;
+  /** The page already has it; the walk never fetches this node's own payload. */
+  currentCover?: string | null;
 };
 
 type GNode = {
@@ -82,6 +116,7 @@ type GNode = {
   format: string;
   episodes: number | null;
   status: string | null;
+  cover: string | null;
   current: boolean;
   x: number;
   y: number;
@@ -99,6 +134,7 @@ type NodeMeta = {
   status?: string | null;
   episodes?: number | null;
   title?: any;
+  cover?: string | null;
 };
 
 /**
@@ -110,6 +146,8 @@ type NodeMeta = {
  */
 const MAX_NODES = 60;
 const MAX_ROUNDS = 8;
+/** Must match MAX_IDS in the batch route, or the tail of a wave is dropped. */
+const BATCH_MAX = 30;
 
 /**
  * Material Symbols Outlined, drawn inline.
@@ -136,6 +174,8 @@ const ICON = {
     "M480-160q-134 0-227-93t-93-227q0-134 93-227t227-93q69 0 132 28.5T720-690v-110h80v280H520v-80h168q-32-56-87.5-88T480-720q-100 0-170 70t-70 170q0 100 70 170t170 70q77 0 139-44t87-116h84q-28 106-114 173t-196 67Z",
   close:
     "m256-200-56-56 224-224-224-224 56-56 224 224 224-224 56 56-224 224 224 224-56 56-224-224-224 224Z",
+  search:
+    "M784-120 532-372q-30 24-69 38t-83 14q-109 0-184.5-75.5T120-580q0-109 75.5-184.5T380-840q109 0 184.5 75.5T640-580q0 44-14 83t-38 69l252 252-56 56ZM380-420q67 0 113.5-46.5T540-580q0-67-46.5-113.5T380-740q-67 0-113.5 46.5T220-580q0 67 46.5 113.5T380-420Z",
 };
 
 const FORMAT_LABEL: Record<string, string> = {
@@ -156,10 +196,16 @@ export default function RelationsGraph({
   currentTitle,
   currentFormat,
   currentEpisodes,
+  currentCover,
 }: Props) {
   const { t } = useTranslation();
   const titlePref = useTitlePref();
   const clickTarget = useClickTarget();
+  const { data: session }: any = useSession();
+
+  /** The signed-in viewer's AniList list, for the per-card progress bar. Null
+   *  when signed out — the bars simply don't appear. */
+  const [listMap, setListMap] = useState<Map<number, UserListEntry> | null>(null);
 
   /**
    * The franchise, walked breadth-first from this entry when the graph opens.
@@ -203,8 +249,25 @@ export default function RelationsGraph({
    */
   const [onlyFormats, setOnlyFormats] = useState<Set<string>>(new Set());
   const [onlySequels, setOnlySequels] = useState(false);
+  /** Hide recaps, retellings and spin-offs — see SIDE_RELATIONS. */
+  const [canonOnly, setCanonOnly] = useState(false);
+  /** Cover thumbnails on the cards. Off by default: it is one image request per
+   *  node, on a view that already spends its budget walking the franchise. */
+  const [covers, setCovers] = useState(false);
   const [grouped, setGrouped] = useState(true);
   const [isFull, setIsFull] = useState(false);
+  const [query, setQuery] = useState("");
+  const queryRef = useRef("");
+  queryRef.current = query;
+  /**
+   * The card under the pointer. Deliberately NOT the selection: reading the
+   * board means asking "what is this one attached to?" of a dozen cards in a
+   * row, and doing that by clicking would renumber the running order every
+   * time — you would lose the thread you are trying to follow.
+   */
+  const [hover, setHover] = useState<number | null>(null);
+  /** Rank axis, following the long side of the window. */
+  const [rankDir, setRankDir] = useState<"LR" | "TB">("LR");
   const nodeDrag = useRef<{ id: number; x: number; y: number; dx: number; dy: number; moved: boolean } | null>(null);
 
   const [scale, setScale] = useState(1);
@@ -220,7 +283,17 @@ export default function RelationsGraph({
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key !== "Escape") return;
+      // Escape backs out one step at a time: it empties the search box before
+      // it closes the graph, or typing a query and changing your mind would
+      // throw away the whole board. Read through a ref so this effect isn't
+      // re-subscribed on every keystroke — it also owns the scroll lock, and
+      // re-running it would capture "hidden" as the value to restore.
+      if (queryRef.current) {
+        setQuery("");
+        return;
+      }
+      onClose();
     };
     window.addEventListener("keydown", onKey);
     const html = document.documentElement;
@@ -234,6 +307,37 @@ export default function RelationsGraph({
       body.style.overflow = prev.bodyOverflow;
     };
   }, [open, onClose]);
+
+  /**
+   * The viewer's list, read once per opening from the session-wide cache —
+   * usually a map lookup with no network at all, since the info page under this
+   * overlay has already paid for it.
+   */
+  useEffect(() => {
+    if (!open) return;
+    const userName = session?.user?.name;
+    const token = session?.user?.token;
+    if (!userName || !token) {
+      setListMap(null);
+      return;
+    }
+    let cancelled = false;
+    getUserList(userName, token).then((m) => {
+      if (!cancelled) setListMap(m);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, session]);
+
+  /** Rank axis follows the window: a narrow one gets a top-to-bottom board. */
+  useEffect(() => {
+    if (!open) return;
+    const apply = () => setRankDir(window.innerWidth < VERTICAL_UNDER_PX ? "TB" : "LR");
+    apply();
+    window.addEventListener("resize", apply);
+    return () => window.removeEventListener("resize", apply);
+  }, [open]);
 
 
   /**
@@ -277,12 +381,51 @@ export default function RelationsGraph({
     const frontier = new Set<number>();
     const relCache = new Map<number, Promise<any>>();
 
+    /**
+     * One request per WAVE, not per node.
+     *
+     * The walk asks for a whole level's relations in one synchronous burst
+     * (the prefetch loop below, and the round loop at the end), then awaits
+     * them one by one. Registering each id and flushing on the microtask that
+     * follows the burst turns that level into a single `?ids=` call — Sword Art
+     * Online went from 19 round trips to 3 — while every caller still gets its
+     * own promise, so the traversal order is untouched.
+     */
+    const waiting = new Map<number, (v: any) => void>();
+    let flushQueued = false;
+
+    const flush = () => {
+      flushQueued = false;
+      const wave = Array.from(waiting.entries());
+      waiting.clear();
+      for (let i = 0; i < wave.length; i += BATCH_MAX) {
+        const slice = wave.slice(i, i + BATCH_MAX);
+        const ids = slice.map(([id]) => id);
+        fetch(`/api/v2/relations/batch?ids=${ids.join(",")}`)
+          .then((r) => (r.ok ? r.json() : null))
+          .then((data) => {
+            const byId = new Map<number, any>();
+            for (const item of data?.items || []) byId.set(Number(item?.id), item);
+            // An id the route couldn't resolve resolves to null, which the
+            // caller already treats as "no relations".
+            for (const [id, resolve] of slice) resolve(byId.get(id) ?? null);
+          })
+          .catch(() => {
+            for (const [, resolve] of slice) resolve(null);
+          });
+      }
+    };
+
     const getRelations = (id: number) => {
       let p = relCache.get(id);
       if (!p) {
-        p = fetch(`/api/v2/relations/${id}`)
-          .then((r) => (r.ok ? r.json() : null))
-          .catch(() => null);
+        p = new Promise((resolve) => {
+          waiting.set(id, resolve);
+          if (!flushQueued) {
+            flushQueued = true;
+            Promise.resolve().then(flush);
+          }
+        });
         relCache.set(id, p);
       }
       return p;
@@ -304,6 +447,7 @@ export default function RelationsGraph({
           format: data.format ?? known.format,
           status: data.status ?? known.status,
           episodes: data.episodes ?? known.episodes,
+          cover: data.cover ?? known.cover ?? null,
         });
       }
       return data.edges || [];
@@ -318,7 +462,13 @@ export default function RelationsGraph({
       if (!nodes.has(id)) {
         if (nodes.size >= MAX_NODES) return;
         if (depth >= 2) frontier.add(id);
-        nodes.set(id, m);
+        // The info page's own relation edges carry AniList's `coverImage`
+        // object; the API flattens it to `cover`. Normalised here so a card
+        // drawn from either source finds its thumbnail in the same place.
+        nodes.set(id, {
+          ...m,
+          cover: m.cover ?? m.coverImage?.large ?? m.coverImage?.extraLarge ?? null,
+        });
       }
       if (depth >= 2) return;
 
@@ -371,6 +521,7 @@ export default function RelationsGraph({
         title: currentTitle,
         format: currentFormat,
         episodes: currentEpisodes,
+        cover: currentCover ?? null,
       });
       if (cancelled) return;
       publish();
@@ -392,7 +543,7 @@ export default function RelationsGraph({
     return () => {
       cancelled = true;
     };
-  }, [open, relations, currentId, currentTitle, currentFormat, currentEpisodes]);
+  }, [open, relations, currentId, currentTitle, currentFormat, currentEpisodes, currentCover]);
 
   /** The walked franchise, laid out by dagre. */
   const { nodes, edges, width, height } = useMemo(() => {
@@ -405,15 +556,49 @@ export default function RelationsGraph({
         format: m.format || "TV",
         episodes: m.episodes ?? null,
         status: m.status ?? null,
+        cover: m.cover ?? null,
         current: m.id === currentId,
         x: 0,
         y: 0,
         w: NODE_W,
-        h: nodeHeight(title),
+        h: nodeHeight(title, covers),
       });
     }
 
     for (const id of Array.from(hidden)) seen.delete(id);
+
+    /**
+     * Canon only — what remains when you walk out from this entry WITHOUT ever
+     * crossing a recap, a retelling or a spin-off.
+     *
+     * Reachability, not a per-node test: Gun Gale Online II is a straight
+     * SEQUEL of Gun Gale Online, so judging it on its own edges would keep it
+     * while its own first season went. The thread has to be cut at the
+     * spin-off, and everything hanging off it goes with it.
+     */
+    if (canonOnly) {
+      const adj = new Map<number, number[]>();
+      const link = (a: number, b: number) => {
+        if (!adj.has(a)) adj.set(a, []);
+        adj.get(a)!.push(b);
+      };
+      for (const e of tree.edges) {
+        if (SIDE_RELATIONS.has(e.label)) continue;
+        link(e.from, e.to);
+        link(e.to, e.from);
+      }
+      const keep = new Set<number>([currentId]);
+      const stack = [currentId];
+      while (stack.length) {
+        const cur = stack.pop()!;
+        for (const nx of adj.get(cur) || []) {
+          if (keep.has(nx)) continue;
+          keep.add(nx);
+          stack.push(nx);
+        }
+      }
+      for (const n of Array.from(seen.values())) if (!keep.has(n.id)) seen.delete(n.id);
+    }
 
     // Format filter — the current entry always stays, or the board could end
     // up empty with no way back to what you were looking at.
@@ -440,7 +625,7 @@ export default function RelationsGraph({
 
     const g = new dagre.graphlib.Graph().setDefaultEdgeLabel(() => ({}));
     g.setGraph({
-      rankdir: RANK_DIR,
+      rankdir: rankDir,
       edgesep: EDGE_SEP,
       nodesep: NODE_SEP,
       ranksep: RANK_SEP,
@@ -464,7 +649,7 @@ export default function RelationsGraph({
     }
 
     return { nodes: allNodes, edges: list, width: maxX, height: maxY };
-  }, [tree, currentId, titlePref, hidden, onlyFormats, onlySequels]);
+  }, [tree, currentId, titlePref, hidden, onlyFormats, onlySequels, canonOnly, covers, rankDir]);
 
   const byId = useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes]);
 
@@ -570,6 +755,77 @@ export default function RelationsGraph({
     return { x: n.x + (m?.dx ?? 0), y: n.y + (m?.dy ?? 0) };
   };
 
+  /** Put a card in the middle of the viewport, at the current zoom. */
+  const centreOn = (n: GNode) => {
+    const box = canvasRef.current;
+    if (!box) return;
+    const p = posOf(n);
+    setOffset({
+      x: box.clientWidth / 2 - (p.x + PAD + n.w / 2) * scale,
+      y: box.clientHeight / 2 - (p.y + PAD + n.h / 2) * scale,
+    });
+  };
+
+  /**
+   * Titles matching the search box. Null when the box is empty — the board is
+   * then in its normal state, with nothing marked.
+   */
+  const matches = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return null;
+    return new Set(nodes.filter((n) => n.title.toLowerCase().includes(q)).map((n) => n.id));
+  }, [query, nodes]);
+
+  /**
+   * Searching a board you cannot see the whole of has to MOVE it: on a big
+   * franchise the match is usually off-screen, and marking it in place would
+   * leave the viewer typing into a picture that never changes.
+   */
+  const centredFor = useRef("");
+  useEffect(() => {
+    if (!open || !matches || matches.size === 0) return;
+    // Re-centre when the query changes, not on every node the walk adds.
+    const key = query.trim().toLowerCase();
+    if (centredFor.current === key) return;
+    centredFor.current = key;
+    const first = nodes.find((n) => matches.has(n.id));
+    if (first) centreOn(first);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, query, matches, nodes]);
+
+  /**
+   * The hovered card and whatever it touches directly.
+   *
+   * The one question a franchise map is bad at answering is "what is THIS one
+   * attached to" — twenty-three dashed lines cross each other and the eye
+   * cannot follow one. Lighting the immediate neighbourhood on hover answers it
+   * without a click, so the running order you selected stays where it is.
+   */
+  const near = useMemo(() => {
+    if (hover == null) return null;
+    const s = new Set<number>([hover]);
+    for (const e of edges) {
+      if (e.from === hover) s.add(e.to);
+      if (e.to === hover) s.add(e.from);
+    }
+    return s;
+  }, [hover, edges]);
+
+  /** Previous → hovered → next along the continuation line, for the peek card. */
+  const peek = useMemo(() => {
+    if (hover == null) return null;
+    const node = byId.get(hover);
+    if (!node) return null;
+    const before = edges.find((e) => e.label === "SEQUEL" && e.to === hover);
+    const after = edges.find((e) => e.label === "SEQUEL" && e.from === hover);
+    return {
+      node,
+      prev: before ? byId.get(before.from) ?? null : null,
+      next: after ? byId.get(after.to) ?? null : null,
+      entry: listMap?.get(hover) ?? null,
+    };
+  }, [hover, edges, byId, listMap]);
+
   /**
    * Sub-series, framed.
    *
@@ -654,6 +910,18 @@ export default function RelationsGraph({
     if (!a || !b) return null;
     const pa = posOf(a);
     const pb = posOf(b);
+    // A line leaves the face that points down the rank axis: the right edge
+    // when ranks run left-to-right, the bottom edge when they run downwards.
+    // Getting this wrong doesn't move a card, it just draws every line through
+    // the middle of one.
+    if (rankDir === "TB") {
+      return {
+        x1: pa.x + a.w / 2 + PAD,
+        y1: pa.y + a.h + PAD,
+        x2: pb.x + b.w / 2 + PAD,
+        y2: pb.y + PAD,
+      };
+    }
     return {
       x1: pa.x + a.w + PAD,
       y1: pa.y + a.h / 2 + PAD,
@@ -661,6 +929,10 @@ export default function RelationsGraph({
       y2: pb.y + b.h / 2 + PAD,
     };
   };
+
+  /** True when a card should read as background right now. Hover wins over the
+   *  running order: it answers the question the viewer just asked. */
+  const isDim = (id: number) => (near ? !near.has(id) : chain ? !chain.has(id) : false);
 
   /** Drag a single card. A drag must not also count as a click. */
   const onNodePointerDown = (e: React.PointerEvent, id: number) => {
@@ -775,6 +1047,40 @@ export default function RelationsGraph({
         </span>
 
         <div style={gStyles.filters}>
+          <label style={gStyles.searchBox}>
+            <Icon d={ICON.search} size={13} />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder={t("anime.graphSearch", { defaultValue: "Search the graph" })}
+              style={gStyles.searchInput}
+              spellCheck={false}
+            />
+            {query && (
+              <button
+                type="button"
+                onClick={() => setQuery("")}
+                style={gStyles.searchClear}
+                aria-label={t("anime.graphSearchClear", { defaultValue: "Clear search" })}
+              >
+                <Icon d={ICON.close} size={11} />
+              </button>
+            )}
+          </label>
+          <button
+            type="button"
+            onClick={() => setCanonOnly((v) => !v)}
+            style={{ ...gStyles.chip, ...(canonOnly ? gStyles.chipOn : null) }}
+          >
+            {t("anime.graphCanonOnly", { defaultValue: "Canon only" })}
+          </button>
+          <button
+            type="button"
+            onClick={() => setCovers((v) => !v)}
+            style={{ ...gStyles.chip, ...(covers ? gStyles.chipOn : null) }}
+          >
+            {t("anime.graphCovers", { defaultValue: "Covers" })}
+          </button>
           <button
             type="button"
             onClick={() => setGrouped((v) => !v)}
@@ -878,15 +1184,24 @@ export default function RelationsGraph({
               {edges.map((e, i) => {
                 const p = endpoints(e);
                 if (!p) return null;
-                // Left-to-right ranks: lines leave the right edge and arrive at
-                // the left one, with horizontal control points for the same
-                // lazy S-curve the flow library draws.
-                const dx = Math.max(40, (p.x2 - p.x1) / 2);
-                const lit = isChainEdge(e);
+                // Control points run along the rank axis, for the same lazy
+                // S-curve the flow library draws — horizontal in LR, vertical
+                // in TB.
+                const off = Math.max(
+                  40,
+                  (rankDir === "TB" ? p.y2 - p.y1 : p.x2 - p.x1) / 2
+                );
+                const d =
+                  rankDir === "TB"
+                    ? `M ${p.x1} ${p.y1} C ${p.x1} ${p.y1 + off}, ${p.x2} ${p.y2 - off}, ${p.x2} ${p.y2}`
+                    : `M ${p.x1} ${p.y1} C ${p.x1 + off} ${p.y1}, ${p.x2 - off} ${p.y2}, ${p.x2} ${p.y2}`;
+                const touches = near ? e.from === hover || e.to === hover : null;
+                const lit = touches !== null ? touches : isChainEdge(e);
+                const dim = touches !== null ? !touches : !!chain && !isChainEdge(e);
                 return (
                   <path
                     key={i}
-                    d={`M ${p.x1} ${p.y1} C ${p.x1 + dx} ${p.y1}, ${p.x2 - dx} ${p.y2}, ${p.x2} ${p.y2}`}
+                    d={d}
                     fill="none"
                     // The running order is drawn solid and bright, everything
                     // else stays a faint dashed hint — the eye follows one line
@@ -894,7 +1209,7 @@ export default function RelationsGraph({
                     stroke={lit ? "var(--brand-primary, #ff3b5c)" : "#4a4a52"}
                     strokeWidth={lit ? 2.4 : 1.5}
                     strokeDasharray={lit ? undefined : "5 5"}
-                    opacity={chain && !lit ? 0.42 : 1}
+                    opacity={dim ? 0.42 : 1}
                   />
                 );
               })}
@@ -906,7 +1221,9 @@ export default function RelationsGraph({
             {edges.map((e, i) => {
               const p = endpoints(e);
               if (!p) return null;
-              const lit = isChainEdge(e);
+              const touches = near ? e.from === hover || e.to === hover : null;
+              const lit = touches !== null ? touches : isChainEdge(e);
+              const dim = touches !== null ? !touches : !!chain && !isChainEdge(e);
               return (
                 <span
                   key={`l${i}`}
@@ -920,7 +1237,7 @@ export default function RelationsGraph({
                           borderColor: "var(--brand-primary, #ff3b5c)",
                         }
                       : null),
-                    opacity: chain && !lit ? 0.5 : 1,
+                    opacity: dim ? 0.5 : 1,
                   }}
                 >
                   {e.label.replace(/_/g, " ")}
@@ -932,10 +1249,19 @@ export default function RelationsGraph({
               const step = chain?.get(n.id);
               const lit = step !== undefined;
               const isSelected = n.id === selected;
+              const isMatch = !!matches?.has(n.id);
+              const entry = listMap?.get(n.id);
+              // Progress only means something against a known episode count —
+              // an airing season's count is the planned total, which is the
+              // right denominator anyway.
+              const seen = entry?.progress ?? 0;
+              const pct = n.episodes && seen > 0 ? Math.min(100, (seen / n.episodes) * 100) : 0;
               return (
                 <Link
                   key={n.id}
                   href={animeHref(n.id, clickTarget)}
+                  onMouseEnter={() => setHover(n.id)}
+                  onMouseLeave={() => setHover((h) => (h === n.id ? null : h))}
                   // First click lights the running order from this entry; a
                   // click on the one already lit opens its page. Navigating on
                   // the first click would make the order unreadable — you would
@@ -965,16 +1291,23 @@ export default function RelationsGraph({
                     left: posOf(n).x + PAD,
                     top: posOf(n).y + PAD,
                     width: n.w,
-                    borderColor: isSelected
-                      ? "var(--brand-primary, #ff3b5c)"
-                      : lit
-                        ? "rgba(255,59,92,.5)"
-                        : "#26262d",
+                    borderColor: isMatch
+                      ? "#ffd166"
+                      : isSelected
+                        ? "var(--brand-primary, #ff3b5c)"
+                        : lit
+                          ? "rgba(255,59,92,.5)"
+                          : "#26262d",
                     color: isSelected ? "var(--brand-primary, #ff3b5c)" : "var(--txt-0)",
                     // Dimming the rest is what makes a chain readable at all:
                     // the board is otherwise a uniform field of nineteen cards.
-                    opacity: chain && !lit ? 0.62 : 1,
-                    boxShadow: isSelected ? "0 0 0 1px var(--brand-primary, #ff3b5c)" : undefined,
+                    // A search result is never dimmed — it is what you asked for.
+                    opacity: isMatch || !isDim(n.id) ? 1 : 0.62,
+                    boxShadow: isMatch
+                      ? "0 0 0 2px #ffd166"
+                      : isSelected
+                        ? "0 0 0 1px var(--brand-primary, #ff3b5c)"
+                        : undefined,
                   }}
                 >
                   {/* `chain` is already 1-based — the selected entry is step 1.
@@ -999,6 +1332,26 @@ export default function RelationsGraph({
                   >
                     <Icon d={ICON.close} size={11} />
                   </button>
+                  {covers &&
+                    // The strip is drawn whether or not the art resolved: the
+                    // layout already reserved its height, so skipping it would
+                    // leave a gap under the title on exactly the cards that
+                    // came back without a cover.
+                    (n.cover ? (
+                      // Plain <img>: next/image would want a configured loader
+                      // for AniList's CDN and a layout box, and this is a fixed
+                      // 150px strip inside a transformed board.
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={n.cover}
+                        alt=""
+                        loading="lazy"
+                        draggable={false}
+                        style={{ ...gStyles.nodeCover, height: COVER_H }}
+                      />
+                    ) : (
+                      <div style={{ ...gStyles.nodeCover, height: COVER_H }} />
+                    ))}
                   <div style={gStyles.nodeTitle}>{n.title}</div>
                   <div style={gStyles.nodeMeta}>
                     <span>{FORMAT_LABEL[n.format] ?? n.format}</span>
@@ -1006,9 +1359,55 @@ export default function RelationsGraph({
                       {n.episodes ? t("preview.episodeCount", { count: n.episodes }) : n.status || ""}
                     </span>
                   </div>
+                  {/* Watched progress, along the bottom edge. A full bar is the
+                      fastest way to read "this part of the franchise is done"
+                      off a board of twenty cards. */}
+                  {pct > 0 && (
+                    <span style={gStyles.progressTrack}>
+                      <span style={{ ...gStyles.progressFill, width: `${pct}%` }} />
+                    </span>
+                  )}
                 </Link>
               );
             })}
+          </div>
+        )}
+
+        {/* The hovered entry, with what comes immediately before and after it.
+            The board can only show the neighbourhood by lighting it, and a lit
+            card twelve columns away is still unreadable — this states the two
+            answers in words, in a fixed place, so the eye doesn't travel. */}
+        {peek && (
+          <div style={gStyles.peek}>
+            <div style={gStyles.peekRow}>
+              <span style={gStyles.peekLabel}>
+                {t("anime.graphPrevious", { defaultValue: "Before" })}
+              </span>
+              <span style={gStyles.peekTitle}>{peek.prev?.title || "—"}</span>
+            </div>
+            <div style={{ ...gStyles.peekRow, ...gStyles.peekRowNow }}>
+              <span style={gStyles.peekLabel}>
+                {t("anime.graphCurrent", { defaultValue: "This one" })}
+              </span>
+              <span style={{ ...gStyles.peekTitle, color: "var(--brand-primary, #ff3b5c)" }}>
+                {peek.node.title}
+              </span>
+            </div>
+            <div style={gStyles.peekRow}>
+              <span style={gStyles.peekLabel}>
+                {t("anime.graphNext", { defaultValue: "After" })}
+              </span>
+              <span style={gStyles.peekTitle}>{peek.next?.title || "—"}</span>
+            </div>
+            {peek.entry && peek.node.episodes ? (
+              <div style={gStyles.peekProgress}>
+                {t("anime.graphWatched", {
+                  defaultValue: "{{seen}} / {{total}} watched",
+                  seen: peek.entry.progress,
+                  total: peek.node.episodes,
+                })}
+              </div>
+            ) : null}
           </div>
         )}
 
@@ -1093,6 +1492,34 @@ const gStyles: Record<string, CSSProperties> = {
     borderColor: "var(--brand-primary, #ff3b5c)",
     color: "var(--brand-primary, #ff3b5c)",
     background: "rgba(255,59,92,.12)",
+  },
+  searchBox: {
+    display: "flex",
+    alignItems: "center",
+    gap: 5,
+    padding: "3px 8px",
+    borderRadius: 999,
+    border: "1px solid var(--line)",
+    background: "var(--bg-2)",
+    color: "var(--txt-3)",
+  },
+  searchInput: {
+    width: 130,
+    border: "none",
+    outline: "none",
+    background: "transparent",
+    color: "var(--txt-1)",
+    fontSize: 11,
+    fontWeight: 600,
+  },
+  searchClear: {
+    display: "grid",
+    placeItems: "center",
+    border: "none",
+    background: "transparent",
+    color: "var(--txt-3)",
+    cursor: "pointer",
+    padding: 0,
   },
   closeBtn: {
     width: 34,
@@ -1237,6 +1664,62 @@ const gStyles: Record<string, CSSProperties> = {
     padding: 0,
     opacity: 0.55,
   },
+  nodeCover: {
+    display: "block",
+    width: "100%",
+    objectFit: "cover",
+    background: "#1a1a1f",
+    borderTopLeftRadius: 2,
+    borderTopRightRadius: 2,
+  },
+  /** Watched progress, hugging the bottom edge of a card. */
+  progressTrack: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: 3,
+    background: "rgba(255,255,255,.10)",
+    borderBottomLeftRadius: 3,
+    borderBottomRightRadius: 3,
+    overflow: "hidden",
+  },
+  progressFill: {
+    display: "block",
+    height: "100%",
+    background: "var(--brand-primary, #ff3b5c)",
+  },
+  /** The hover peek, bottom-right and click-through. */
+  peek: {
+    position: "absolute",
+    right: 14,
+    bottom: 14,
+    width: 240,
+    padding: "10px 12px",
+    borderRadius: 10,
+    border: "1px solid var(--line)",
+    background: "rgba(16,16,20,.95)",
+    zIndex: 3,
+    // Never steal the pointer: the card it describes is under the cursor, and
+    // a panel that swallows the hover would flicker itself in and out.
+    pointerEvents: "none",
+  },
+  peekRow: { display: "flex", flexDirection: "column", gap: 1, padding: "3px 0" },
+  peekRowNow: {
+    borderTop: "1px solid var(--line)",
+    borderBottom: "1px solid var(--line)",
+    margin: "2px 0",
+    padding: "5px 0",
+  },
+  peekLabel: {
+    fontSize: 8.5,
+    fontWeight: 800,
+    letterSpacing: "0.08em",
+    textTransform: "uppercase",
+    color: "var(--txt-3)",
+  },
+  peekTitle: { fontSize: 11.5, fontWeight: 700, color: "var(--txt-1)", lineHeight: 1.3 },
+  peekProgress: { marginTop: 6, fontSize: 10, fontWeight: 600, color: "var(--txt-3)" },
   edgeLabel: {
     position: "absolute",
     transform: "translate(-50%, -50%)",
