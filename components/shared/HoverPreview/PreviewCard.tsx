@@ -32,18 +32,12 @@ const WIDTH = 364;
  * with its rank, favourites, episodes with runtime and status — plus a chips
  * row. Those replaced a single line of "TV · 12 Episodes · Summer 2026 · 74%",
  * and they need the room.
- */
-const HEIGHT = 476;
-/**
- * Lines of synopsis that fit under the meta row at HEIGHT.
  *
- * Down from 5: the stats and chips took the space, and they earn it. A synopsis
- * is truncated either way on a card this size — the first three lines say what
- * the show is about about as well as five do — while the meta row is the part
- * you scan to decide, and it now says the same things the info page says.
+ * Nothing below the banner is a fixed height any more: the text column grows to
+ * whatever is left and the synopsis takes the remainder, so this number decides
+ * how much synopsis there is rather than leaving a gap under a clamped one.
  */
-const DESC_LINES = 3;
-
+const HEIGHT = 468;
 /** Card surface. Kept in sync with the banner gradient in globals.css. */
 const SURFACE = "#1a1a24";
 
@@ -177,14 +171,26 @@ export default function PreviewCard({
    * "3 / 12 Episodes") — two vocabularies for one fact, on two surfaces the
    * visitor moves between in one click.
    */
-  const count = data?.episodes ?? null;
-  const progress = entry?.progress ?? 0;
-  const epLabel = count
-    ? progress && progress !== count
-      ? `${progress}/${count} EP`
-      : `${count} EP`
-    : "? EP";
-  const durLabel = data?.duration ? `· ${data.duration}min` : "";
+  // Copied from Hero, deliberately, rather than approximated: while a show is
+  // airing the total is often unknown, and the honest count is what HAS aired —
+  // "1173+", not "? EP". `nextAiringEpisode.episode` is the NEXT one, so aired
+  // so far is that minus one.
+  const airedSoFar = data?.nextAiringEpisode?.episode
+    ? Math.max(0, data.nextAiringEpisode.episode - 1)
+    : null;
+  const isAiring = data?.status === "RELEASING";
+  const epLabel = isAiring
+    ? airedSoFar != null && data?.episodes
+      ? `${airedSoFar}/${data.episodes}`
+      : airedSoFar != null
+      ? `${airedSoFar}+`
+      : data?.episodes
+      ? `${data.episodes}`
+      : "N/A"
+    : data?.episodes
+    ? `${data.episodes}`
+    : "N/A";
+  const durLabel = data?.duration ? `EP · ${data.duration}min` : "EP";
 
   const playLabel =
     entry?.status === "COMPLETED"
@@ -205,15 +211,33 @@ export default function PreviewCard({
    * opens, so the choice is the same choice in both places — and it works
    * signed out too, editing the local list.
    */
+  /**
+   * Silence the trailer while the dialog is up, and resume it after.
+   *
+   * A trailer is ambience for a card you are glancing at; it is noise over a
+   * form you are filling in. Paused rather than muted, so it doesn't run on
+   * silently and come back thirty seconds further along than the picture you
+   * left. `wasPlayingRef` is what makes the resume honest: a trailer you had
+   * paused yourself must stay paused when the dialog closes.
+   */
+  const wasPlayingRef = useRef(false);
+
   const onOpenList = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
+    const video = trailerVideoRef.current;
+    wasPlayingRef.current = Boolean(video && !video.paused);
+    video?.pause();
     lockPreview();
     setListOpen(true);
   };
 
   const closeList = useCallback(() => {
     setListOpen(false);
+    if (wasPlayingRef.current) {
+      trailerVideoRef.current?.play().catch(() => undefined);
+      wasPlayingRef.current = false;
+    }
     // Releasing is what lets the provider close the card again — and it closes
     // it, since the pointer left long ago. See lib/preview/previewLock.
     unlockPreview();
@@ -283,7 +307,7 @@ export default function PreviewCard({
       </div>
 
       <div
-        className="as-preview-card relative h-full w-full cursor-pointer overflow-hidden rounded-card ring-1 ring-white/10"
+        className="as-preview-card relative flex h-full w-full cursor-pointer flex-col overflow-hidden rounded-card ring-1 ring-white/10"
         style={{
           // The bottom of the banner fades into this, so the gradient and the
           // card have to read the same value.
@@ -316,7 +340,7 @@ export default function PreviewCard({
             rounded clip meets it, and against black that edge was a visible
             dark outline. Matching the card makes the seam the card. */}
         <div
-          className="as-preview-banner relative h-[45%]"
+          className="as-preview-banner relative h-[45%] shrink-0"
           style={{ background: SURFACE }}
         >
           {/* Holds the slot while the payload is in flight. The endpoint is
@@ -356,7 +380,10 @@ export default function PreviewCard({
           )}
         </div>
 
-        <div className="w-full px-4 pb-4 font-karla" style={{ background: SURFACE }}>
+        <div
+          className="flex min-h-0 w-full flex-1 flex-col px-4 pb-4 font-karla"
+          style={{ background: SURFACE }}
+        >
           <Link
             href={`/en/anime/${id}`}
             title={title}
@@ -380,6 +407,27 @@ export default function PreviewCard({
             >
               <MdPlayArrow size={16} />
               {playLabel}
+            </Link>
+
+            {/* Left of the heart and wearing a real button's outline, unlike the
+                two bare glyphs after it. It leads somewhere — a whole page —
+                while they toggle a state in place, and a control that navigates
+                should not look like a control that ticks a box. Same radius and
+                padding as the CTA beside it, in the neutral treatment the info
+                page gives its secondary actions. */}
+            <Link
+              href={`/en/anime/${id}`}
+              aria-label={t("preview.moreInfo")}
+              title={t("preview.moreInfo")}
+              className="ml-2 flex items-center justify-center text-white/85 transition-colors hover:text-white"
+              style={{
+                borderRadius: 11,
+                padding: "9px 11px",
+                background: "rgba(255,255,255,0.05)",
+                border: "1px solid rgba(255,255,255,0.14)",
+              }}
+            >
+              <MdInfoOutline size={18} />
             </Link>
 
             <button
@@ -425,14 +473,6 @@ export default function PreviewCard({
               </svg>
             </button>
 
-            <Link
-              href={`/en/anime/${id}`}
-              aria-label={t("preview.moreInfo")}
-              title={t("preview.moreInfo")}
-              className="as-preview-iconbtn ml-1"
-            >
-              <MdInfoOutline size={19} />
-            </Link>
           </div>
 
           {/* The info page's stats row and chips, at card scale — same icons,
@@ -547,22 +587,24 @@ export default function PreviewCard({
             )}
           </Link>
 
-          {/* The synopsis is the biggest target on the card and it was inert;
-              it goes where the title goes. */}
+          {/* The synopsis fills whatever the rest of the card left it, and fades
+              out where it runs out of room.
+
+              It used to be a three-line clamp with a matching max-height, and
+              that is what put an ellipsis on a card with empty space under it:
+              a clamp counts LINES, so it cuts at three whether the box had room
+              for four or for eight. Since the block now grows (`flex-1`), the
+              honest instruction is "use the space you have" — overflow hidden
+              does the cutting and a mask dissolves the last line instead of
+              stamping a "…" that claims more was left out than there was. */}
           <Link
             href={`/en/anime/${id}`}
-            // DESC_LINES, not a bare line-clamp: the ellipsis only appears when
-            // the clamp is what truncates. Left to overflow the card's fixed
-            // height instead, the text was simply sliced mid-word by
-            // `overflow: hidden` and no "…" was ever drawn. The explicit height
-            // makes the clamp the binding constraint.
-            className="block w-full overflow-hidden text-[.72rem] leading-[1.45] text-white/50 transition-colors hover:text-white/75"
+            className="block min-h-0 w-full flex-1 overflow-hidden text-[.72rem] leading-[1.45] text-white/50 transition-colors hover:text-white/75"
             style={{
-              display: "-webkit-box",
-              WebkitBoxOrient: "vertical",
-              WebkitLineClamp: DESC_LINES,
-              maxHeight: `calc(${DESC_LINES} * 1.45 * .72rem)`,
-            } as any}
+              maskImage: "linear-gradient(to bottom, #000 calc(100% - 18px), transparent 100%)",
+              WebkitMaskImage:
+                "linear-gradient(to bottom, #000 calc(100% - 18px), transparent 100%)",
+            }}
           >
             {description}
           </Link>

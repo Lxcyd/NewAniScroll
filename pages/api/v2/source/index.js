@@ -3093,7 +3093,13 @@ function sourceCacheKey({ server, aniId, episode, sub }) {
   // every hit). Bumping the version orphans every v10 entry so the next
   // probe re-resolves from the (now-correct) resolver. See the season-cache
   // Redis->Turso migration + player_map purge for the upstream fix.
-  return `src:v11:${server}:${aniId}:${episode}:${sub || "sub"}`;
+  // v12: EVICT the absences recorded before the anime-sama slug fix. A title
+  // indexed under its franchise name (see the pre-colon query in
+  // findAnimeSamaSlug) resolved to nothing, and "nothing" is cached for 6 h
+  // like any other answer — so every host stayed missing on a build that could
+  // serve them, and the negative entry was rewritten on each probe. Bumping
+  // orphans the v11 absences so the next probe asks the fixed resolver.
+  return `src:v12:${server}:${aniId}:${episode}:${sub || "sub"}`;
 }
 
 // ── Handler ─────────────────────────────────────────────────────────────

@@ -79,7 +79,12 @@ export function fetchPreview(id: number): Promise<PreviewData | null> {
 
   const p = (async () => {
     try {
-      const res = await fetch(`/api/v2/preview/${id}`);
+      // `v` is the PAYLOAD's shape, not a cache-buster to keep bumping. The
+      // response is edge-cached for a day, so a payload that gains fields
+      // serves the old shape to every warm id until that day is up — the card
+      // renders a build's worth of missing numbers and looks broken. Bump when
+      // fields are added; v2 = favourites, genres, studios, ratingRank.
+      const res = await fetch(`/api/v2/preview/${id}?v=2`);
       if (!res.ok) {
         // 404 is a real answer (cache it); a 5xx is not — leave the slot empty
         // so the next hover retries instead of showing an empty card forever.

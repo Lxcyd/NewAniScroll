@@ -34,9 +34,22 @@ import { redis } from "@/lib/redis";
 const TTL_S = 6 * 60 * 60;        // 6h — host availability drifts slowly
 const WRITE_GUARD_S = 10 * 60;    // collapse the write storm: 1 write / 10 min
 
+/**
+ * Bump this whenever source RESOLUTION changes, not just when this file does.
+ *
+ * A snapshot records which hosts answered, so it inherits every limitation the
+ * resolver had at the time — including titles it could not resolve at all. When
+ * a resolver fix makes new hosts reachable, the old snapshots keep saying
+ * "absent" for six more hours and the chips stay missing on a build that can
+ * serve them. Bumped 2026-08-10 with the anime-sama slug fix (franchise-name
+ * search + hors-série panels), which turned four hosts from absent to live on
+ * every title indexed that way.
+ */
+const CACHE_VERSION = "v2";
+
 function key(aniId, episode, sub) {
   const s = sub === "dub" ? "dub" : "sub";
-  return `avail:v1:${aniId}:${episode}:${s}`;
+  return `avail:${CACHE_VERSION}:${aniId}:${episode}:${s}`;
 }
 
 // Parse a stored snapshot into { ok, absent }. Two on-disk shapes coexist:
