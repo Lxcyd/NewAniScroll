@@ -67,8 +67,17 @@ const NODE_W_COVER = NODE_W + COVER_W;
 /** Board margin, so the outermost nodes aren't flush against the edge. */
 const PAD = 40;
 
-/** How far a relation name sits off its own line — half a label plus air. */
-const LABEL_LIFT = 14;
+/**
+ * How far a relation name sits off its own line.
+ *
+ * Measured from the label's CENTRE, which is the trap: a lift of 14 with a
+ * 15px-tall label leaves six pixels of actual air, and the word still looks
+ * stuck to the stroke. Stated as "half the label, plus the air I want", so the
+ * number means what it says.
+ */
+const LABEL_H = 15;
+const LABEL_AIR = 15;
+const LABEL_LIFT = LABEL_H / 2 + LABEL_AIR;
 
 /**
  * Zoom range. The floor used to be 0.35, which on a wide franchise (or with
