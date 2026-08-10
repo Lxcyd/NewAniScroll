@@ -885,6 +885,7 @@
     "graphReset": "Reset layout",
     "graphFullscreen": "Fullscreen",
     "graphHideNode": "Hide this entry",
+    "graphOnlySequels": "Sequels only",
     "graphShowOrder": "Show what follows",
     "graphOpenEntry": "Open this entry",
     "formatEpisodes": "Episodes",

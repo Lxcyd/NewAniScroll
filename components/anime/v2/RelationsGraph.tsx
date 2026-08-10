@@ -194,6 +194,14 @@ export default function RelationsGraph({
   const [moved, setMoved] = useState<Map<number, { dx: number; dy: number }>>(new Map());
   /** Cards the viewer has dismissed. Cleared by the reset button. */
   const [hidden, setHidden] = useState<Set<number>>(new Set());
+  /**
+   * Filters. Empty format set means "everything"; `onlySequels` keeps only the
+   * continuation thread. A franchise map is unreadable when you are looking
+   * for one thing in it — nineteen cards, five relation kinds — and filtering
+   * is the cheapest way to ask a precise question of it.
+   */
+  const [onlyFormats, setOnlyFormats] = useState<Set<string>>(new Set());
+  const [onlySequels, setOnlySequels] = useState(false);
   const [isFull, setIsFull] = useState(false);
   const nodeDrag = useRef<{ id: number; x: number; y: number; dx: number; dy: number; moved: boolean } | null>(null);
 
@@ -405,10 +413,28 @@ export default function RelationsGraph({
 
     for (const id of Array.from(hidden)) seen.delete(id);
 
+    // Format filter — the current entry always stays, or the board could end
+    // up empty with no way back to what you were looking at.
+    if (onlyFormats.size > 0) {
+      for (const n of Array.from(seen.values())) {
+        if (n.id !== currentId && !onlyFormats.has(n.format)) seen.delete(n.id);
+      }
+    }
+
     // An edge whose other end was refused by the node cap — or dismissed by
     // the viewer — has nothing to connect to; drawing it would leave a line
     // running off into nothing.
-    const list = tree.edges.filter((e) => seen.has(e.from) && seen.has(e.to));
+    let list = tree.edges.filter((e) => seen.has(e.from) && seen.has(e.to));
+    if (onlySequels) {
+      list = list.filter((e) => e.label === "SEQUEL");
+      // Drop whatever the continuation thread no longer touches.
+      const linked = new Set<number>([currentId]);
+      for (const e of list) {
+        linked.add(e.from);
+        linked.add(e.to);
+      }
+      for (const n of Array.from(seen.values())) if (!linked.has(n.id)) seen.delete(n.id);
+    }
 
     const g = new dagre.graphlib.Graph().setDefaultEdgeLabel(() => ({}));
     g.setGraph({
@@ -436,7 +462,7 @@ export default function RelationsGraph({
     }
 
     return { nodes: allNodes, edges: list, width: maxX, height: maxY };
-  }, [tree, currentId, titlePref, hidden]);
+  }, [tree, currentId, titlePref, hidden, onlyFormats, onlySequels]);
 
   const byId = useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes]);
 
@@ -662,12 +688,44 @@ export default function RelationsGraph({
         <span style={gStyles.title}>
           {t("anime.relationsGraphTitle", { defaultValue: "Franchise timeline" })}
         </span>
+
+        <div style={gStyles.filters}>
+          <button
+            type="button"
+            onClick={() => setOnlySequels((v) => !v)}
+            style={{ ...gStyles.chip, ...(onlySequels ? gStyles.chipOn : null) }}
+          >
+            {t("anime.graphOnlySequels", { defaultValue: "Sequels only" })}
+          </button>
+          {(["TV", "MOVIE", "OVA", "SPECIAL", "ONA"] as const).map((f) => {
+            const on = onlyFormats.has(f);
+            return (
+              <button
+                key={f}
+                type="button"
+                onClick={() =>
+                  setOnlyFormats((prev) => {
+                    const next = new Set(prev);
+                    if (next.has(f)) next.delete(f);
+                    else next.add(f);
+                    return next;
+                  })
+                }
+                style={{ ...gStyles.chip, ...(on ? gStyles.chipOn : null) }}
+              >
+                {FORMAT_LABEL[f]}
+              </button>
+            );
+          })}
+        </div>
+
         <button
           onClick={onClose}
           aria-label={t("anime.relationsGraphClose", { defaultValue: "Close" })}
+          title={t("anime.relationsGraphClose", { defaultValue: "Close" })}
           style={gStyles.closeBtn}
         >
-          ✕
+          <Icon d={ICON.close} size={16} />
         </button>
       </div>
 
@@ -718,7 +776,7 @@ export default function RelationsGraph({
                     stroke={lit ? "var(--brand-primary, #ff3b5c)" : "#4a4a52"}
                     strokeWidth={lit ? 2.4 : 1.5}
                     strokeDasharray={lit ? undefined : "5 5"}
-                    opacity={chain && !lit ? 0.28 : 1}
+                    opacity={chain && !lit ? 0.42 : 1}
                   />
                 );
               })}
@@ -744,7 +802,7 @@ export default function RelationsGraph({
                           borderColor: "var(--brand-primary, #ff3b5c)",
                         }
                       : null),
-                    opacity: chain && !lit ? 0.3 : 1,
+                    opacity: chain && !lit ? 0.5 : 1,
                   }}
                 >
                   {e.label.replace(/_/g, " ")}
@@ -797,7 +855,7 @@ export default function RelationsGraph({
                     color: isSelected ? "var(--brand-primary, #ff3b5c)" : "var(--txt-0)",
                     // Dimming the rest is what makes a chain readable at all:
                     // the board is otherwise a uniform field of nineteen cards.
-                    opacity: chain && !lit ? 0.28 : 1,
+                    opacity: chain && !lit ? 0.62 : 1,
                     boxShadow: isSelected ? "0 0 0 1px var(--brand-primary, #ff3b5c)" : undefined,
                   }}
                 >
@@ -846,14 +904,6 @@ export default function RelationsGraph({
           </button>
           <button
             style={gStyles.ctrlBtn}
-            onClick={fitBoard}
-            aria-label={t("anime.graphFit", { defaultValue: "Fit to screen" })}
-            title={t("anime.graphFit", { defaultValue: "Fit to screen" })}
-          >
-            <Icon d={ICON.fitScreen} />
-          </button>
-          <button
-            style={gStyles.ctrlBtn}
             onClick={toggleFullscreen}
             aria-label={t("anime.graphFullscreen", { defaultValue: "Fullscreen" })}
             title={t("anime.graphFullscreen", { defaultValue: "Fullscreen" })}
@@ -872,14 +922,6 @@ export default function RelationsGraph({
             title={t("anime.graphReset", { defaultValue: "Reset layout" })}
           >
             <Icon d={ICON.refresh} />
-          </button>
-          <button
-            style={{ ...gStyles.ctrlBtn, color: "var(--brand-primary, #ff3b5c)" }}
-            onClick={onClose}
-            aria-label={t("anime.relationsGraphClose", { defaultValue: "Close" })}
-            title={t("anime.relationsGraphClose", { defaultValue: "Close" })}
-          >
-            <Icon d={ICON.close} />
           </button>
         </div>
       </div>
@@ -909,7 +951,29 @@ const gStyles: Record<string, CSSProperties> = {
     padding: "16px 20px",
     borderBottom: "1px solid var(--line)",
   },
-  title: { fontSize: 15, fontWeight: 700, letterSpacing: "0.02em" },
+  title: { fontSize: 15, fontWeight: 700, letterSpacing: "0.02em", whiteSpace: "nowrap" },
+  filters: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: 6,
+    justifyContent: "center",
+    flex: 1,
+  },
+  chip: {
+    padding: "4px 10px",
+    borderRadius: 999,
+    border: "1px solid var(--line)",
+    background: "var(--bg-2)",
+    color: "var(--txt-2)",
+    fontSize: 11,
+    fontWeight: 600,
+    cursor: "pointer",
+  },
+  chipOn: {
+    borderColor: "var(--brand-primary, #ff3b5c)",
+    color: "var(--brand-primary, #ff3b5c)",
+    background: "rgba(255,59,92,.12)",
+  },
   closeBtn: {
     width: 34,
     height: 34,
