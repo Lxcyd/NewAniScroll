@@ -133,6 +133,11 @@ function numberByChronology(
   let startNumber: number | null = null;
   for (let i = 0; i < seasons.length; i++) {
     const m = seasons[i];
+    // Films in the chain don't take a season number (see resolveFranchiseSeasons).
+    if ((m as any)?.format === "MOVIE") {
+      if (Number(m.id) === startId) startNumber = Math.max(1, running);
+      continue;
+    }
     const fromTitle = extractSeasonFromTitle(m.title as any);
     // See seasonChain: a title's number only anchors the franchise counter
     // when the entry is a new work, not when it continues the previous one.
@@ -785,6 +790,19 @@ export async function resolveFranchiseSeasons(
 
   let running = 0;
   return seasonLike.map((m: any, i: number) => {
+    // A film that sits in the chain belongs in the chronology at its date, but
+    // it is not a season: Ordinal Scale (2017) comes between seasons 2 and 3
+    // without being "Season 3". It keeps the number of the season it follows,
+    // so the count of real seasons is unaffected, and carries its own title as
+    // its label.
+    if (m?.format === "MOVIE") {
+      return toSeasonEntry(
+        m,
+        Math.max(1, running),
+        m.title?.english || m.title?.romaji || "Film",
+        excludeVariantIds
+      );
+    }
     const fromTitle = extractSeasonFromTitle(m.title);
     if (i > 0 && continuesSameWork(seasonLike[i - 1]?.title, m.title)) {
       running = Math.max(1, running);
