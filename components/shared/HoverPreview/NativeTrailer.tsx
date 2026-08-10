@@ -80,6 +80,9 @@ export default function NativeTrailer({
   const unmutedRef = useRef(false);
   const mountedAtRef = useRef(Date.now());
   const volumeRef = useRef(FALLBACK_VOLUME);
+  /** Failed loads so far. See `onError`. */
+  const retriesRef = useRef(0);
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [muted, setMuted] = useState(true);
   const [volume, setVolume] = useState(FALLBACK_VOLUME);
@@ -189,9 +192,37 @@ export default function NativeTrailer({
     () => () => {
       if (idleRef.current) clearTimeout(idleRef.current);
       if (volCloseRef.current) clearTimeout(volCloseRef.current);
+      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
     },
     [],
   );
+
+  /**
+   * A failed load is not a verdict on the trailer.
+   *
+   * Measured over 14 cold trailers through the proxy: one answered 404, and the
+   * same id fetched again immediately after was fine. YouTube stalls or refuses
+   * a datacentre caller now and then, and the worker's own retries can still
+   * come up empty. Giving up on the first error meant a card that would never
+   * show its trailer no matter how long you waited — while hovering it again a
+   * minute later worked, which is exactly the behaviour that got reported.
+   *
+   * Two more goes, half a second apart. Beyond that the answer is probably real
+   * (a deleted video, an embed ban) and the artwork is a perfectly good card.
+   */
+  const MAX_RETRIES = 2;
+  const onLoadError = () => {
+    if (retriesRef.current >= MAX_RETRIES) {
+      onHide(true);
+      return;
+    }
+    retriesRef.current += 1;
+    retryTimerRef.current = setTimeout(() => {
+      // Same src: load() re-requests it, and by now the worker may well have
+      // the file cached from its own successful retry.
+      videoRef.current?.load();
+    }, 500);
+  };
 
   /**
    * Turn the sound on once playback is under way.
@@ -374,9 +405,7 @@ export default function NativeTrailer({
         }}
         onWaiting={() => onPlayingChange(false)}
         onCanPlayThrough={() => setReady(true)}
-        // Nothing to salvage: no source, no picture. The card falls back to its
-        // artwork, which is what the visitor was already looking at.
-        onError={() => onHide(true)}
+        onError={onLoadError}
       />
 
       {/* Scrim so the icons stay legible over a bright frame. */}

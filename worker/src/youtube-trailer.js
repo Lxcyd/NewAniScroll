@@ -81,11 +81,12 @@ function fail(status, error) {
  * age-gated, region-locked, deleted, embed-disabled all land here, and they all
  * mean the same thing to the caller: keep the artwork.
  */
-async function resolveMuxedUrl(videoId, diag) {
+async function resolveMuxedUrl(videoId, diag, signal) {
   const res = await fetch(
     `https://www.youtube.com/youtubei/v1/player?key=${INNERTUBE_KEY}&prettyPrint=false`,
     {
       method: "POST",
+      signal,
       headers: {
         "Content-Type": "application/json",
         "User-Agent": ANDROID_UA,
@@ -134,6 +135,39 @@ async function resolveMuxedUrl(videoId, diag) {
     formats.find((f) => f.url && (f.mimeType || "").startsWith("video/mp4") && f.audioQuality);
   if (!muxed?.url && diag) diag.push(`OK but no muxed format (${formats.length} progressive)`);
   return muxed?.url || null;
+}
+
+/**
+ * Two resolves at once, first usable answer wins.
+ *
+ * Measured over 14 cold trailers: most answered in 300-600 ms, but one took
+ * 5.6 s, another 7 s, and one spent 22 s failing — three sequential attempts of
+ * seven seconds each. The slowness is not the video and not the colo: the same
+ * id fetched again straight after is fast. It is a per-REQUEST mood, YouTube
+ * stalling a datacentre caller, so the useful move is not to wait longer but to
+ * ask twice and take whichever answers.
+ *
+ * Cheap on the only meter that counts: this happens on a cache miss, and the
+ * miss is once per colo per day. Both calls are capped so a stalled one cannot
+ * hold the whole request hostage — a hover that gets nothing for eight seconds
+ * has already failed, however good the answer eventually is.
+ */
+const RESOLVE_TIMEOUT_MS = 4000;
+
+async function resolveRacing(videoId, diag) {
+  const one = async () => {
+    const url = await resolveMuxedUrl(videoId, diag, AbortSignal.timeout(RESOLVE_TIMEOUT_MS));
+    // Promise.any settles on the first FULFILLED promise, so "no url" has to
+    // reject or an early refusal would win the race against a good answer.
+    if (!url) throw new Error("no url");
+    return url;
+  };
+  try {
+    return await Promise.any([one(), one()]);
+  } catch (err) {
+    if (diag && err?.name === "TimeoutError") diag.push("resolve timed out");
+    return null;
+  }
 }
 
 export async function handleTrailer(request, env, ctx) {
@@ -191,8 +225,10 @@ export async function handleTrailer(request, env, ctx) {
    */
   const diag = [];
   let upstream = null;
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    const url = await resolveMuxedUrl(videoId, diag);
+  // Two ROUNDS of a two-way race, so at worst this spends ~8 s on resolving
+  // rather than the 22 s that three sequential slow attempts could reach.
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const url = await resolveRacing(videoId, diag);
     if (!url) continue;
     // Deliberately NOT forwarding the client's Range — see below. We always
     // pull the whole file so there is always something worth storing.
