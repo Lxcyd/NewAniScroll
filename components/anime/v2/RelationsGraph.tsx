@@ -202,6 +202,7 @@ export default function RelationsGraph({
    */
   const [onlyFormats, setOnlyFormats] = useState<Set<string>>(new Set());
   const [onlySequels, setOnlySequels] = useState(false);
+  const [grouped, setGrouped] = useState(true);
   const [isFull, setIsFull] = useState(false);
   const nodeDrag = useRef<{ id: number; x: number; y: number; dx: number; dy: number; moved: boolean } | null>(null);
 
@@ -568,6 +569,83 @@ export default function RelationsGraph({
     return { x: n.x + (m?.dx ?? 0), y: n.y + (m?.dy ?? 0) };
   };
 
+  /**
+   * Sub-series, framed.
+   *
+   * Nineteen cards on one board read as a single cloud: nothing says that
+   * Sword Art Offline and its sequels are a run of bonuses on their own, or
+   * that the two Progressive films are a parallel adaptation. A branch is
+   * simply a connected component over SEQUEL edges — the relation that means
+   * "same series, next entry" — so the grouping falls out of the data rather
+   * than a hand-kept list. Components of one card are not framed: a lone entry
+   * is not a series.
+   *
+   * This is a reading layer over the existing layout. It moves nothing.
+   */
+  const groups = useMemo(() => {
+    if (!grouped || nodes.length === 0) return [];
+    const parent = new Map<number, number>();
+    const find = (a: number): number => {
+      let r = a;
+      while (parent.get(r) !== r) r = parent.get(r) ?? r;
+      return r;
+    };
+    for (const n of nodes) parent.set(n.id, n.id);
+    for (const e of edges) {
+      if (e.label !== "SEQUEL") continue;
+      const a = find(e.from);
+      const b = find(e.to);
+      if (a !== b) parent.set(a, b);
+    }
+    const byRoot = new Map<number, GNode[]>();
+    for (const n of nodes) {
+      const r = find(n.id);
+      if (!byRoot.has(r)) byRoot.set(r, []);
+      byRoot.get(r)!.push(n);
+    }
+
+    // The name is the longest word-prefix the members share — "Sword Art
+    // Offline" for that run — falling back to the first entry's own title.
+    const nameOf = (members: GNode[]) => {
+      const words = members.map((m) => m.title.split(/\s+/));
+      const head: string[] = [];
+      for (let i = 0; i < words[0].length; i++) {
+        const w = words[0][i];
+        if (words.every((ws) => ws[i] === w)) head.push(w);
+        else break;
+      }
+      const joined = head.join(" ").replace(/[\s:\-–—]+$/, "");
+      return joined.length >= 4 ? joined : members[0].title;
+    };
+
+    const out: { key: number; name: string; main: boolean; x: number; y: number; w: number; h: number }[] = [];
+    for (const [root, members] of Array.from(byRoot.entries())) {
+      if (members.length < 2) continue;
+      let x0 = Infinity;
+      let y0 = Infinity;
+      let x1 = -Infinity;
+      let y1 = -Infinity;
+      for (const m of members) {
+        const p = posOf(m);
+        x0 = Math.min(x0, p.x);
+        y0 = Math.min(y0, p.y);
+        x1 = Math.max(x1, p.x + m.w);
+        y1 = Math.max(y1, p.y + m.h);
+      }
+      const pad = 16;
+      out.push({
+        key: root,
+        name: nameOf(members),
+        main: members.some((m) => m.id === currentId),
+        x: x0 - pad + PAD,
+        y: y0 - pad + PAD,
+        w: x1 - x0 + pad * 2,
+        h: y1 - y0 + pad * 2,
+      });
+    }
+    return out;
+  }, [grouped, nodes, edges, moved, currentId]);
+
   /** Both ends of an edge, in board coordinates. */
   const endpoints = (e: GEdge) => {
     const a = byId.get(e.from);
@@ -692,6 +770,13 @@ export default function RelationsGraph({
         <div style={gStyles.filters}>
           <button
             type="button"
+            onClick={() => setGrouped((v) => !v)}
+            style={{ ...gStyles.chip, ...(grouped ? gStyles.chipOn : null) }}
+          >
+            {t("anime.graphGroup", { defaultValue: "Group branches" })}
+          </button>
+          <button
+            type="button"
             onClick={() => setOnlySequels((v) => !v)}
             style={{ ...gStyles.chip, ...(onlySequels ? gStyles.chipOn : null) }}
           >
@@ -750,6 +835,32 @@ export default function RelationsGraph({
               height: height + PAD * 2,
             }}
           >
+            {/* Branch frames, behind everything: a reading layer, never a
+                layout change. */}
+            {groups.map((g) => (
+              <div
+                key={g.key}
+                style={{
+                  ...gStyles.group,
+                  left: g.x,
+                  top: g.y,
+                  width: g.w,
+                  height: g.h,
+                  borderColor: g.main ? "rgba(255,59,92,.45)" : "var(--line)",
+                }}
+              >
+                <span
+                  style={{
+                    ...gStyles.groupName,
+                    color: g.main ? "var(--brand-primary, #ff3b5c)" : "var(--txt-3)",
+                    borderColor: g.main ? "rgba(255,59,92,.45)" : "var(--line)",
+                  }}
+                >
+                  {g.main ? t("anime.graphMainThread", { defaultValue: "Main thread" }) : g.name}
+                </span>
+              </div>
+            ))}
+
             {/* Edges under the nodes, so a line reaching a card disappears
                 behind it rather than crossing it. Dashed, like Hayase's. */}
             <svg
@@ -1078,6 +1189,28 @@ const gStyles: Record<string, CSSProperties> = {
     lineHeight: "18px",
     textAlign: "center",
     boxShadow: "0 2px 6px rgba(0,0,0,.55)",
+  },
+  group: {
+    position: "absolute",
+    border: "1px dashed var(--line)",
+    borderRadius: 12,
+    background: "rgba(255,255,255,.022)",
+    pointerEvents: "none",
+    zIndex: 0,
+  },
+  groupName: {
+    position: "absolute",
+    top: -9,
+    left: 12,
+    padding: "1px 8px",
+    borderRadius: 999,
+    border: "1px solid var(--line)",
+    background: "#000",
+    fontSize: 10,
+    fontWeight: 700,
+    letterSpacing: "0.06em",
+    textTransform: "uppercase",
+    whiteSpace: "nowrap",
   },
   nodeClose: {
     position: "absolute",

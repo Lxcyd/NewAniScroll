@@ -886,6 +886,8 @@
     "graphFullscreen": "Fullscreen",
     "graphHideNode": "Hide this entry",
     "graphOnlySequels": "Sequels only",
+    "graphGroup": "Group branches",
+    "graphMainThread": "Main thread",
     "graphShowOrder": "Show what follows",
     "graphOpenEntry": "Open this entry",
     "formatEpisodes": "Episodes",
