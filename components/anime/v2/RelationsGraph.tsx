@@ -51,6 +51,15 @@ const PAD = 40;
 /** Hayase's own exclusion: a character is not a work. */
 const EXCLUDED_RELATIONS = new Set(["CHARACTER"]);
 
+/**
+ * What counts as a step in the running order. Specials and OVAs are bonuses —
+ * Sword Art Online's Extra Edition is a one-hour recap sitting on the sequel
+ * edge between seasons 1 and 2, and numbering it as step 2 tells you to watch
+ * a recap before season 2. Films stay in: Ordinal Scale and Integral Domain
+ * carry the story between seasons.
+ */
+const MAIN_FORMATS = new Set(["TV", "TV_SHORT", "MOVIE", "ONA"]);
+
 const nodeHeight = (title: string) =>
   NODE_BASE_H + Math.ceil((title.length || 1) / CHARS_PER_LINE) * NODE_LINE_H;
 
@@ -409,31 +418,49 @@ export default function RelationsGraph({
       if (!next.has(e.from)) next.set(e.from, []);
       next.get(e.from)!.push(e.to);
     }
-    const depth = new Map<number, number>([[selected, 0]]);
-    // Relax until stable. The guard is for safety only: AniList occasionally
-    // reports a mutual prequel/sequel pair, which would otherwise loop here.
+    const isMain = (id: number) =>
+      id === selected || MAIN_FORMATS.has(byId.get(id)?.format || "");
+
+    // Distance in MAIN entries. A special sitting on the chain is walked
+    // THROUGH without taking a number — Sword Art Online's sequel edge runs
+    // into Extra Edition and on to season 2, and the running order must read
+    // 1, 2 across that bridge rather than counting the bonus as a step.
+    const dist = new Map<number, number>([[selected, 1]]);
+    // Relax until stable. The pass guard is for safety only: AniList
+    // occasionally reports a mutual prequel/sequel pair, which would loop.
     for (let pass = 0; pass < nodes.length + 2; pass++) {
       let changed = false;
       for (const [from, tos] of Array.from(next.entries())) {
-        const d = depth.get(from);
+        const d = dist.get(from);
         if (d === undefined) continue;
         for (const to of tos) {
-          if ((depth.get(to) ?? -1) < d + 1) {
-            depth.set(to, d + 1);
+          const cand = d + (isMain(to) ? 1 : 0);
+          if ((dist.get(to) ?? -1) < cand) {
+            dist.set(to, cand);
             changed = true;
           }
         }
       }
       if (!changed) break;
     }
-    return depth.size > 1 ? depth : null;
+
+    // Only the main line is lit. The bonuses stay on the board, dimmed like
+    // every other relation — they are not what you watch next.
+    const main = new Map<number, number>();
+    for (const [id, d] of Array.from(dist.entries())) if (isMain(id)) main.set(id, d);
+    return main.size > 1 ? main : null;
   }, [selected, edges, nodes.length, byId]);
 
-  /** An edge is part of the running order if it advances it by one step. */
+  /**
+   * An edge belongs to the running order when it links two lit entries one
+   * step apart. An edge ending on a bonus is never lit, even though the walk
+   * passed through it — the line has to show the main thread, not its detours.
+   */
   const isChainEdge = (e: GEdge) =>
     !!chain &&
     e.label === "SEQUEL" &&
     chain.has(e.from) &&
+    chain.has(e.to) &&
     chain.get(e.to) === (chain.get(e.from) ?? -99) + 1;
 
   /**
