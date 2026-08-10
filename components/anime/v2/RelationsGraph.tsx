@@ -224,10 +224,23 @@ export default function RelationsGraph({
         const existing = edges.get(key);
         if (existing && existing.label !== "PARENT") continue;
         const isPrequel = e.relationType === "PREQUEL";
+        const label = isPrequel ? "SEQUEL" : e.relationType || "OTHER";
+        // Upgrading a PARENT changes the LABEL, never the direction. The two
+        // ends of a relation can disagree — Fatal Bullet's pilot calls Sword
+        // Art Online II an OTHER while II calls it a PARENT — and letting the
+        // upgrade re-point the arrow flips a node to the far side of the
+        // centre: the pilot landed in the first column, next to season 1,
+        // instead of beside the episode it is a pilot for. Keeping the first
+        // orientation keeps the graph reading outward from the entry you are
+        // on, which is the direction the whole board is laid out in.
+        if (existing) {
+          edges.set(key, { ...existing, label });
+          continue;
+        }
         edges.set(key, {
           from: isPrequel ? id : fromId,
           to: isPrequel ? fromId : id,
-          label: isPrequel ? "SEQUEL" : e.relationType || "OTHER",
+          label,
         });
       }
     };
