@@ -1861,8 +1861,16 @@ const VOIRANIME_SERVERS = {
   // slugs still on vidmoly.biz). Both must match or the migrated titles lose
   // the chip entirely. Same backend, same encode → same `vidmoly-va` OP/ED
   // fingerprint host, so lib/hostRegistry.js needs no new entry.
-  "voiranime-vidmoly":    { name: "Vidmoly", host: ["vidmoly.to", "vidmoly.biz", "vidmoly.net", "voembed.net"], lang: "vf" },
-  "voiranime-vidmoly-vo": { name: "Vidmoly", host: ["vidmoly.to", "vidmoly.biz", "vidmoly.net", "voembed.net"], lang: "vostfr" },
+  // `ansembed.net` is the THIRD domain of that same white-label network, and it
+  // was the only one of the three this list did not know: lib/extractors.js and
+  // lib/clientVidmoly.js both match it, and anime-sama has ansembed servers of
+  // its own. Added for consistency, not to fix an observed failure — surveyed
+  // 2026-08-10, voir-anime links voembed.net on the new titles and vidmoly.biz
+  // on the back catalogue, and none of the pages checked linked ansembed
+  // directly. If that changes, the chip keeps working instead of quietly
+  // resolving to nothing. Same backend, so no registry entry of its own.
+  "voiranime-vidmoly":    { name: "Vidmoly", host: ["vidmoly.to", "vidmoly.biz", "vidmoly.net", "voembed.net", "ansembed.net"], lang: "vf" },
+  "voiranime-vidmoly-vo": { name: "Vidmoly", host: ["vidmoly.to", "vidmoly.biz", "vidmoly.net", "voembed.net", "ansembed.net"], lang: "vostfr" },
 };
 
 async function getVoiranimeIframe(serverKey, title, episode, aniId, trace = null) {
