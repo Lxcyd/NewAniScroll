@@ -1967,11 +1967,15 @@ async function voiranimePrequelChain(aniId, isVF, episode, trace = null) {
     );
     if (!edge?.node?.id) return null;
 
-    // Everything the prequel aired sits ahead of us on the shared page.
-    offset += Number(media?.episodes) || 0;
     const prevId = Number(edge.node.id);
     media = await getMediaMeta(prevId).catch(() => null);
     if (!media) return null;
+    // The offset is what the PREQUEL aired, not what we air. Adding our own
+    // count instead put Final Season Part 2 episode 1 at 13 (1 + our 12) rather
+    // than 17 (1 + the prequel's 16) — a number the page has, belonging to the
+    // previous part, so the mistake would have played the wrong episode rather
+    // than failing loudly. Hayase's resolveSeason accumulates the same way.
+    offset += Number(media?.episodes) || 0;
 
     const prevSeason = await detectSeasonNumber(prevId);
     const prevTitle = media.title?.romaji || media.title?.english || "";
@@ -2994,7 +2998,18 @@ export async function inspectVoiranime(aniId, lang = "vostfr") {
     if (!title) return out;
 
     out.seasonNum = await detectSeasonNumber(aniId, RO);
-    const slug = await findVoiranimeSlug(title, aniId, isVF, out.seasonNum, RO);
+    let slug = await findVoiranimeSlug(title, aniId, isVF, out.seasonNum, RO);
+    if (!slug) {
+      // Mirror the player's prequel-chain fallback, or the audit reports
+      // "missing" for every entry the player can actually serve through its
+      // previous season — an instrument that disagrees with the thing it
+      // measures is worse than none.
+      const viaPrequel = await voiranimePrequelChain(aniId, isVF, 1);
+      if (viaPrequel) {
+        slug = viaPrequel.slug;
+        out.viaPrequel = { slug, episodeOffset: viaPrequel.episode - 1 };
+      }
+    }
     if (!slug) return out;
     out.slug = slug;
 
