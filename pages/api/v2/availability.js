@@ -45,7 +45,7 @@ const WRITE_GUARD_S = 10 * 60;    // collapse the write storm: 1 write / 10 min
  * search + hors-série panels), which turned four hosts from absent to live on
  * every title indexed that way.
  */
-const CACHE_VERSION = "v2";
+const CACHE_VERSION = "v3";
 
 function key(aniId, episode, sub) {
   const s = sub === "dub" ? "dub" : "sub";

@@ -2419,6 +2419,20 @@ function titleToSlug(title) {
  * punctuation is DROPPED (letters joined). Returns a de-duped array, primary
  * (hyphenated) form first. Cheap — used only to widen direct slug guessing.
  */
+/**
+ * The part of a title that follows its colon, slugified — "Shingeki no Kyojin:
+ * The Final Season" → "the-final-season".
+ *
+ * Returns null when there is no subtitle, or when what follows the colon is too
+ * short to identify anything ("Re:Zero" must not yield "zero").
+ */
+function subtitleSlugOf(title) {
+  const idx = (title || "").search(/[:：]/);
+  if (idx < 0) return null;
+  const sub = titleToSlug(title.slice(idx + 1));
+  return sub && sub.length >= 4 ? sub : null;
+}
+
 function titleToSlugVariants(title) {
   const out = new Set();
   const add = (s) => { if (isUsableSlugBase(s)) out.add(s); };
@@ -2556,6 +2570,26 @@ async function findVoiranimeSlug(title, aniId, isVF, seasonNum, mediaOpts = {}) 
           `${base}-season-${seasonNum}`,
         ]) {
           slugCandidates.add(isVF ? `${form}-vf` : form);
+        }
+        /*
+         * The number goes BETWEEN the base and the subtitle, not after it.
+         *
+         * Measured on voir-anime 2026-08-10, Attack on Titan season 4:
+         *   shingeki-no-kyojin-4-the-final-season-vf  200   ← the real page
+         *   shingeki-no-kyojin-4-vf                   404
+         *   shingeki-no-kyojin-s4-vf                  404
+         *   shingeki-no-kyojin-the-final-season-vf    404
+         * Not one of the forms above can reach it, and neither can the bare
+         * base: the site numbers the season AND keeps the subtitle. The four
+         * numbered forms only ever work for a title that has no subtitle
+         * (shingeki-no-kyojin-2, -3 are both 200), which is why this went
+         * unnoticed until a season whose name is its subtitle.
+         */
+        const sub = subtitleSlugOf(t);
+        if (sub) {
+          for (const form of [`${base}-${seasonNum}-${sub}`, `${base}-${sub}`]) {
+            slugCandidates.add(isVF ? `${form}-vf` : form);
+          }
         }
       }
     }
@@ -3099,7 +3133,10 @@ function sourceCacheKey({ server, aniId, episode, sub }) {
   // like any other answer — so every host stayed missing on a build that could
   // serve them, and the negative entry was rewritten on each probe. Bumping
   // orphans the v11 absences so the next probe asks the fixed resolver.
-  return `src:v12:${server}:${aniId}:${episode}:${sub || "sub"}`;
+  // v13: same again for the voir-anime slug forms ({base}-{N}-{subtitle}).
+  // A resolver that reaches pages it could not reach before must not be read
+  // through absences recorded by the one that could not.
+  return `src:v13:${server}:${aniId}:${episode}:${sub || "sub"}`;
 }
 
 // ── Handler ─────────────────────────────────────────────────────────────
