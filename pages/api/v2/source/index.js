@@ -702,7 +702,11 @@ async function getAnimeSamaIframe(serverKey, title, episode, aniId) {
     // coherent and the fast path served an 11:40 recap for Bungou Stray Dogs
     // S1 ep1. The heuristic path has always excluded these panels
     // (`isSideStory`); this path simply never did.
-    if (mapRow?.seasonDir && isSideStoryDir(mapRow.seasonDir, null)) {
+    if (
+      mapRow?.seasonDir &&
+      isSideStoryDir(mapRow.seasonDir, null) &&
+      !(mapRow.note || "").includes(HS_BY_YEAR)
+    ) {
       dlog(`[anime-sama] player_map ${mapRow.seasonDir} is a side-story panel — ignoring poisoned row`);
       flagPlayerMap(aniId, "animesama", langPath, `side-story dir: ${mapRow.seasonDir}`).catch(() => {});
       mapPanelCoherent = false;
@@ -956,7 +960,13 @@ async function resolveAnimeSamaHeuristically(
                 epOffset: useIndex - episodeIndex,
                 episodeCount: canonicalLen,
                 animeStatus: meta?.status ?? null,
-                note: "runtime resolution",
+                // Stamp the one case where a `saison*hs` panel is legitimate —
+                // see HS_BY_YEAR. Without it the row we are writing here would
+                // be rejected as poisoned on the very next request.
+                note:
+                  targetSeason === yearMatchedSeason && isSideStoryDir(targetSeason.dir, null)
+                    ? `runtime resolution (${HS_BY_YEAR} ${aniYear})`
+                    : "runtime resolution",
               }).catch(() => {});
             }
           }
@@ -1590,6 +1600,29 @@ async function findAnimeSamaSlug(title, aniId, mediaOpts = {}) {
     }
   }
 
+  /*
+   * Also search the FRANCHISE name — everything before the colon.
+   *
+   * anime-sama's catalogue search does not cope with a full subtitled title.
+   * Measured 2026-08-10 on AniList 177699:
+   *
+   *   "Koukaku Kidoutai: THE GHOST IN THE SHELL"  (romaji)  → no results
+   *   "THE GHOST IN THE SHELL"                    (english) → no results
+   *   "Koukaku Kidoutai"                                    → ghost-in-the-shell
+   *
+   * Every query we had was one of the first two, so the slug came back null and
+   * the title had no anime-sama player at all — while the catalogue carried it,
+   * with four hosts. `stripSeason` doesn't help: this is a subtitle, not a
+   * season marker. The 4-character floor keeps a stray prefix ("Re:", "K:")
+   * from turning into a search for nothing in particular.
+   */
+  for (const q of [...queries]) {
+    const head = q?.split(/\s*[:：]/)[0]?.trim();
+    if (head && head.length >= 4 && head !== q && !queries.includes(head)) {
+      queries.push(head);
+    }
+  }
+
   // Build the set of titles we'll score candidates against. We don't strip
   // here â€” we want "Hanma Baki" to match "baki" via token overlap, not via
   // string equality.
@@ -1744,6 +1777,30 @@ async function findAnimeSamaSlug(title, aniId, mediaOpts = {}) {
  * Bungou Stray Dogs S1 ep1 playing an 11:40 recap short instead of the 23:42
  * episode, on the main-season URL.
  */
+/**
+ * Marker written into a player_map note when a `saison*hs` panel was chosen
+ * because its label carries the AniList year — the one case where such a panel
+ * IS the answer.
+ *
+ * anime-sama parks two different things under `saison*hs`: recap/log shorts,
+ * and standalone hors-série SERIES that have their own AniList entry. The
+ * blanket refusal below is right for the first and wrong for the second, and
+ * the fast path cannot tell them apart on its own: it holds a dir name, not the
+ * catalogue page, so it has neither the label nor the year to judge by.
+ *
+ * The heuristic path does have both — `seasons[].year` is parsed from the label
+ * and matched against AniList's seasonYear, and that year match already
+ * outranks every other signal. So it decides, and records that it decided.
+ * A year in the label is a strong discriminator by construction: a recap panel
+ * is titled "One Piece Log…" or "… Recap", never "Ghost in the Shell (2026)".
+ *
+ * Found on AniList 177699 — anime-sama carries THE GHOST IN THE SHELL (2026)
+ * under `ghost-in-the-shell/saison1hs`, with four hosts, and we offered none of
+ * them. Without this marker the row the resolver writes back would be rejected
+ * and flagged as poisoned on the next request, then rewritten, forever.
+ */
+const HS_BY_YEAR = "hs panel matched by year";
+
 function isSideStoryDir(dir, label) {
   return /hs$/i.test(dir || "") ||
     /\b(log|recap|r[ée]sum[ée]|digest|special)\b/i.test(label || "");
