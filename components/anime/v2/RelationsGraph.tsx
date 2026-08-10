@@ -1008,71 +1008,6 @@ export default function RelationsGraph({
    *  running order: it answers the question the viewer just asked. */
   const isDim = (id: number) => (near ? !near.has(id) : chain ? !chain.has(id) : false);
 
-  /**
-   * Where each relation name sits on its line.
-   *
-   * The midpoint of an edge is the obvious place and the wrong one. An edge
-   * spanning more than one rank passes OVER the cards in between, so its
-   * midpoint lands on top of one — "SEQUEL" printed across the corner of an
-   * entry it has nothing to do with, which reads as that card's own label.
-   *
-   * The answer is not to let the name run away looking for a gap: a label that
-   * moves is a label you can no longer attribute to an edge. It is to put every
-   * name in the ONE place that is card-free by construction — the band dagre
-   * leaves between two columns of cards. The label goes in the middle of the
-   * band immediately after its source, at the height its own curve crosses
-   * there, so it always sits on its line and never on a card.
-   */
-  const labelSpots = useMemo(() => {
-    // Left edge of every card, to find where the next column starts.
-    const lefts = nodes.map((n) => posOf(n).x + PAD);
-    const tops = nodes.map((n) => posOf(n).y + PAD);
-
-    const out: { e: GEdge; x: number; y: number }[] = [];
-    for (const e of edges) {
-      const p = endpoints(e);
-      if (!p) continue;
-      // The same control points the path uses, or the label would sit beside
-      // its own line rather than on it.
-      const off = Math.max(40, (rankDir === "TB" ? p.y2 - p.y1 : p.x2 - p.x1) / 2);
-      const c1 = rankDir === "TB" ? { x: p.x1, y: p.y1 + off } : { x: p.x1 + off, y: p.y1 };
-      const c2 = rankDir === "TB" ? { x: p.x2, y: p.y2 - off } : { x: p.x2 - off, y: p.y2 };
-      const at = (t: number) => {
-        const u = 1 - t;
-        return {
-          x: u * u * u * p.x1 + 3 * u * u * t * c1.x + 3 * u * t * t * c2.x + t * t * t * p.x2,
-          y: u * u * u * p.y1 + 3 * u * u * t * c1.y + 3 * u * t * t * c2.y + t * t * t * p.y2,
-        };
-      };
-
-      // The start of the next column of cards, which is where the empty band
-      // ends. Cards are all one width, so a column is a clean vertical strip
-      // and the space before it is free over its whole height.
-      const start = rankDir === "TB" ? p.y1 : p.x1;
-      const finish = rankDir === "TB" ? p.y2 : p.x2;
-      const nextEdgeOf = rankDir === "TB" ? tops : lefts;
-      let band = Infinity;
-      for (const v of nextEdgeOf) if (v > start && v < band) band = v;
-      // Halfway across the band; the far end of the edge when there is none.
-      const target = band === Infinity ? (start + finish) / 2 : (start + band) / 2;
-
-      // Which point of the curve is at that height / abscissa. The coordinate
-      // along the rank axis grows with t, so a bisection lands on it.
-      let lo = 0;
-      let hi = 1;
-      for (let i = 0; i < 22; i++) {
-        const mid = (lo + hi) / 2;
-        const v = rankDir === "TB" ? at(mid).y : at(mid).x;
-        if (v < target) lo = mid;
-        else hi = mid;
-      }
-      const spot = at((lo + hi) / 2);
-      out.push({ e, x: spot.x, y: spot.y });
-    }
-    return out;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [edges, nodes, moved, rankDir]);
-
   /** Drag a single card. A drag must not also count as a click. */
   const onNodePointerDown = (e: React.PointerEvent, id: number) => {
     e.stopPropagation();
@@ -1355,7 +1290,17 @@ export default function RelationsGraph({
             {/* The relation names, on the lines. This is the whole point of the
                 view: an unlabelled edge says two things are related, which the
                 list already said. */}
-            {labelSpots.map(({ e, x, y }, i) => {
+            {edges.map((e, i) => {
+              const p = endpoints(e);
+              if (!p) return null;
+              // The middle of the line, always. The control points sit level
+              // with their own ends, so the curve's midpoint IS the midpoint of
+              // the segment — no bezier maths needed. An edge that skips a rank
+              // can put its name over the card in between; that is accepted,
+              // because a name that hunts for a free spot is a name you can no
+              // longer attribute to a line.
+              const x = (p.x1 + p.x2) / 2;
+              const y = (p.y1 + p.y2) / 2;
               const touches = near ? e.from === hover || e.to === hover : null;
               const lit = touches !== null ? touches : isChainEdge(e);
               const dim = touches !== null ? !touches : !!chain && !isChainEdge(e);
