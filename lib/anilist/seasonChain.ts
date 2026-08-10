@@ -11,6 +11,7 @@ import {
   computeSeasonInfo,
   extractSeasonFromTitle,
   isSeasonContinuation,
+  continuesSameWork,
   isSeasonLike,
   sharesFranchise,
   SeasonInfo,
@@ -42,7 +43,10 @@ import {
 // v5: SIDE_STORY bonus films (HxH: Phantom Rouge) are excluded from season
 //     numbering, so the "· S<n>" badge no longer over-counts them. Bumped to
 //     drop pre-fix cached numbers (Phantom Rouge was cached as S2).
-const REDIS_KEY_CHAIN = (id: number) => `seasonChain:v5:${id}`;
+// v6: le numero d'une saison ne se lit plus dans un titre qui continue le
+//     precedent (le titre natif de War of Underworld Part 2 dit "(2nd Season)",
+//     ce qui ramenait le compteur de 4 a 2).
+const REDIS_KEY_CHAIN = (id: number) => `seasonChain:v6:${id}`;
 // v3: SeasonEntry gained `idMal` (feeds Jikan per-episode score lookups).
 // v4: numbering now uses a running counter so split-cours + unnumbered
 //     "Final Season" entries get the right S<n> (AoT Final Season = S4, not S5).
@@ -71,7 +75,9 @@ const REDIS_KEY_CHAIN = (id: number) => `seasonChain:v5:${id}`;
 //      real seasons instead of the lone movie. Changes the list for those ids.
 // v14: PREQUEL movies (Jujutsu Kaisen 0) no longer counted as a numbered season
 //      — they're bonus films now. Bump to evict lists that had them as "Season N".
-const REDIS_KEY_LIST = (id: number) => `seasonList:v14:${id}`;
+// v15: meme correction que seasonChain v6 — "Season 2 Part 2" s'affichait
+//      apres "Season 4" sur Sword Art Online.
+const REDIS_KEY_LIST = (id: number) => `seasonList:v15:${id}`;
 
 // Cache accessors now hit Turso (see lib/db/seasonCache.ts) instead of Redis.
 // The cache_key strings keep their version tag, so a version bump still evicts
@@ -415,10 +421,18 @@ async function resolveSeasonListUncached(
   //   - otherwise (a fresh, unnumbered season like "The Final Season")
   //                                    → previous distinct season + 1.
   let running = 0;
-  return seasonLike.map((m) => {
+  return seasonLike.map((m, i) => {
     const fromTitle = extractSeasonFromTitle(m.title);
     const continuation = isSeasonContinuation(m.title);
-    if (fromTitle != null) {
+    // A number in the title anchors the counter only for a NEW work. When the
+    // entry continues the previous one, that number counts within THAT work:
+    // "War of Underworld Part 2" is titled "(2nd Season)" natively — the second
+    // season of War of Underworld — and anchoring on it reset the franchise
+    // counter from 4 to 2, listing "Season 2 Part 2" after "Season 4".
+    const continuesPrev = i > 0 && continuesSameWork(seasonLike[i - 1]?.title, m.title);
+    if (continuesPrev) {
+      running = Math.max(1, running);
+    } else if (fromTitle != null) {
       running = fromTitle;
     } else if (continuation) {
       running = Math.max(1, running); // inherit current season (don't bump)

@@ -138,6 +138,15 @@ export default function RelationsGraph({
     edges: [],
   });
 
+  /**
+   * The entry whose continuation is lit. Starts on the anime whose page this
+   * is — the graph then opens already answering "what comes after this one".
+   */
+  const [selected, setSelected] = useState<number | null>(null);
+  useEffect(() => {
+    if (open) setSelected(currentId);
+  }, [open, currentId]);
+
   const [scale, setScale] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const drag = useRef<{ x: number; y: number; ox: number; oy: number } | null>(null);
@@ -378,6 +387,56 @@ export default function RelationsGraph({
   const byId = useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes]);
 
   /**
+   * The watch order starting from the selected entry.
+   *
+   * A franchise map answers "what is related"; it does not answer the question
+   * people actually open it with — what do I watch after this. So clicking an
+   * entry lights the chain that CONTINUES it and numbers each step, and dims
+   * everything else. Only SEQUEL edges count: following every relation from
+   * Sword Art Online lights the whole board (nearly everything descends from
+   * it) and says nothing, while its sequel chain is exactly the running order.
+   *
+   * The number is the LONGEST path from the selection, not the shortest, so a
+   * work never gets a number lower than something it follows. Sword Art Online
+   * II is reachable directly (2 hops) and through Extra Edition (3): it must
+   * read 3, or Extra Edition would appear to come after it.
+   */
+  const chain = useMemo(() => {
+    if (!selected || !byId.has(selected)) return null;
+    const next = new Map<number, number[]>();
+    for (const e of edges) {
+      if (e.label !== "SEQUEL") continue;
+      if (!next.has(e.from)) next.set(e.from, []);
+      next.get(e.from)!.push(e.to);
+    }
+    const depth = new Map<number, number>([[selected, 0]]);
+    // Relax until stable. The guard is for safety only: AniList occasionally
+    // reports a mutual prequel/sequel pair, which would otherwise loop here.
+    for (let pass = 0; pass < nodes.length + 2; pass++) {
+      let changed = false;
+      for (const [from, tos] of Array.from(next.entries())) {
+        const d = depth.get(from);
+        if (d === undefined) continue;
+        for (const to of tos) {
+          if ((depth.get(to) ?? -1) < d + 1) {
+            depth.set(to, d + 1);
+            changed = true;
+          }
+        }
+      }
+      if (!changed) break;
+    }
+    return depth.size > 1 ? depth : null;
+  }, [selected, edges, nodes.length, byId]);
+
+  /** An edge is part of the running order if it advances it by one step. */
+  const isChainEdge = (e: GEdge) =>
+    !!chain &&
+    e.label === "SEQUEL" &&
+    chain.has(e.from) &&
+    chain.get(e.to) === (chain.get(e.from) ?? -99) + 1;
+
+  /**
    * Frame the whole board when it changes, the way Hayase calls `fitView`.
    *
    * Without it the graph opens at scale 1 anchored top-left, which for a large
@@ -499,14 +558,19 @@ export default function RelationsGraph({
                 // the left one, with horizontal control points for the same
                 // lazy S-curve the flow library draws.
                 const dx = Math.max(40, (p.x2 - p.x1) / 2);
+                const lit = isChainEdge(e);
                 return (
                   <path
                     key={i}
                     d={`M ${p.x1} ${p.y1} C ${p.x1 + dx} ${p.y1}, ${p.x2 - dx} ${p.y2}, ${p.x2} ${p.y2}`}
                     fill="none"
-                    stroke="#4a4a52"
-                    strokeWidth={1.5}
-                    strokeDasharray="5 5"
+                    // The running order is drawn solid and bright, everything
+                    // else stays a faint dashed hint — the eye follows one line
+                    // through the board instead of reading twenty-three.
+                    stroke={lit ? "var(--brand-primary, #ff3b5c)" : "#4a4a52"}
+                    strokeWidth={lit ? 2.4 : 1.5}
+                    strokeDasharray={lit ? undefined : "5 5"}
+                    opacity={chain && !lit ? 0.28 : 1}
                   />
                 );
               })}
@@ -518,6 +582,7 @@ export default function RelationsGraph({
             {edges.map((e, i) => {
               const p = endpoints(e);
               if (!p) return null;
+              const lit = isChainEdge(e);
               return (
                 <span
                   key={`l${i}`}
@@ -525,6 +590,13 @@ export default function RelationsGraph({
                     ...gStyles.edgeLabel,
                     left: (p.x1 + p.x2) / 2,
                     top: (p.y1 + p.y2) / 2,
+                    ...(lit
+                      ? {
+                          color: "var(--brand-primary, #ff3b5c)",
+                          borderColor: "var(--brand-primary, #ff3b5c)",
+                        }
+                      : null),
+                    opacity: chain && !lit ? 0.3 : 1,
                   }}
                 >
                   {e.label.replace(/_/g, " ")}
@@ -532,33 +604,65 @@ export default function RelationsGraph({
               );
             })}
 
-            {nodes.map((n) => (
-              <Link
-                key={n.id}
-                href={animeHref(n.id, clickTarget)}
-                style={{
-                  ...gStyles.node,
-                  left: n.x + PAD,
-                  top: n.y + PAD,
-                  width: n.w,
-                  borderColor: n.current ? "var(--brand-primary, #ff3b5c)" : "#111",
-                  color: n.current ? "var(--brand-primary, #ff3b5c)" : "var(--txt-0)",
-                }}
-              >
-                <div style={gStyles.nodeTitle}>{n.title}</div>
-                <div style={gStyles.nodeMeta}>
-                  <span>{FORMAT_LABEL[n.format] ?? n.format}</span>
-                  <span>
-                    {n.episodes ? t("preview.episodeCount", { count: n.episodes }) : n.status || ""}
-                  </span>
-                </div>
-              </Link>
-            ))}
+            {nodes.map((n) => {
+              const step = chain?.get(n.id);
+              const lit = step !== undefined;
+              const isSelected = n.id === selected;
+              return (
+                <Link
+                  key={n.id}
+                  href={animeHref(n.id, clickTarget)}
+                  // First click lights the running order from this entry; a
+                  // click on the one already lit opens its page. Navigating on
+                  // the first click would make the order unreadable — you would
+                  // leave the graph every time you tried to follow it.
+                  onClick={(ev) => {
+                    if (isSelected) return;
+                    ev.preventDefault();
+                    ev.stopPropagation();
+                    setSelected(n.id);
+                  }}
+                  title={
+                    isSelected
+                      ? t("anime.graphOpenEntry", { defaultValue: "Open this entry" })
+                      : t("anime.graphShowOrder", { defaultValue: "Show what follows" })
+                  }
+                  style={{
+                    ...gStyles.node,
+                    left: n.x + PAD,
+                    top: n.y + PAD,
+                    width: n.w,
+                    borderColor: isSelected
+                      ? "var(--brand-primary, #ff3b5c)"
+                      : lit
+                        ? "rgba(255,59,92,.5)"
+                        : "#26262d",
+                    color: isSelected ? "var(--brand-primary, #ff3b5c)" : "var(--txt-0)",
+                    // Dimming the rest is what makes a chain readable at all:
+                    // the board is otherwise a uniform field of nineteen cards.
+                    opacity: chain && !lit ? 0.28 : 1,
+                    boxShadow: isSelected ? "0 0 0 1px var(--brand-primary, #ff3b5c)" : undefined,
+                  }}
+                >
+                  {lit && <span style={gStyles.stepBadge}>{(step ?? 0) + 1}</span>}
+                  <div style={gStyles.nodeTitle}>{n.title}</div>
+                  <div style={gStyles.nodeMeta}>
+                    <span>{FORMAT_LABEL[n.format] ?? n.format}</span>
+                    <span>
+                      {n.episodes ? t("preview.episodeCount", { count: n.episodes }) : n.status || ""}
+                    </span>
+                  </div>
+                </Link>
+              );
+            })}
           </div>
         )}
       </div>
       <div style={gStyles.hint}>
-        {t("anime.graphHint", { defaultValue: "Drag to pan · scroll to zoom" })}
+        {t("anime.graphHintOrder", {
+          defaultValue:
+            "Click a title to light up what follows · click it again to open it · drag to pan, scroll to zoom",
+        })}
       </div>
     </div>
   );
@@ -611,9 +715,8 @@ const gStyles: Record<string, CSSProperties> = {
     position: "absolute",
     display: "block",
     background: "#111",
-    border: "1px solid #111",
+    border: "1px solid #26262d",
     borderRadius: 3,
-    overflow: "hidden",
     fontSize: 12,
     fontWeight: 600,
     textAlign: "center",
@@ -634,6 +737,23 @@ const gStyles: Record<string, CSSProperties> = {
     lineHeight: 1,
     padding: "6px 8px",
     color: "var(--txt-2)",
+  },
+  /** The running-order number, on the corner of a lit card. */
+  stepBadge: {
+    position: "absolute",
+    top: -8,
+    left: -8,
+    minWidth: 18,
+    height: 18,
+    padding: "0 5px",
+    borderRadius: 9,
+    background: "var(--brand-primary, #ff3b5c)",
+    color: "#fff",
+    fontSize: 10,
+    fontWeight: 800,
+    lineHeight: "18px",
+    textAlign: "center",
+    boxShadow: "0 2px 6px rgba(0,0,0,.55)",
   },
   edgeLabel: {
     position: "absolute",

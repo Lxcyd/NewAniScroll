@@ -815,6 +815,48 @@ function parseRomanOrInt(s: string): number | null {
   return r || null;
 }
 
+/**
+ * The title with every season/part marker stripped — what's left is the work
+ * itself. Used to tell a continuation of the SAME work from a new one.
+ *
+ * A number in a title only means "franchise season N" when the entry is a new
+ * work. When it continues the previous one, the number counts within THAT
+ * work, and trusting it corrupts the whole chain: the native title of
+ * "Alicization - War of Underworld Part 2" is "… War of Underworld (2nd
+ * Season)" — the second season *of War of Underworld* — which reset the
+ * franchise counter from 4 back to 2 and labelled the entry "Season 2 Part 2",
+ * after "Season 4". Comparing the stripped titles catches it: both entries
+ * reduce to the same work, so the second one continues the first.
+ */
+export function seasonTitleBase(
+  title:
+    | { english?: string | null; romaji?: string | null; native?: string | null }
+    | null
+    | undefined
+): string {
+  const raw = String(title?.english || title?.romaji || "").trim();
+  return raw
+    .replace(/\b(?:Part|Cour)\s+(?:\d+|[IVX]+)\b/gi, "")
+    .replace(/\b(?:\d+(?:st|nd|rd|th)|first|second|third|fourth|fifth)\s+Season\b/gi, "")
+    .replace(/\bSeason\s+(?:\d+|[IVX]+)\b/gi, "")
+    .replace(/\bFinal\s+(?:Season|Chapters?)\b/gi, "")
+    .replace(/[\s:\-–—,.]+$/g, "")
+    .replace(/\s{2,}/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+/** Do two entries reduce to the same work, one continuing the other? */
+export function continuesSameWork(
+  prev: Parameters<typeof seasonTitleBase>[0],
+  next: Parameters<typeof seasonTitleBase>[0]
+): boolean {
+  const a = seasonTitleBase(prev);
+  const b = seasonTitleBase(next);
+  // Short bases collide too easily ("SAO" vs "SAO"); require some substance.
+  return a.length >= 6 && a === b;
+}
+
 /* Does a title read like a *continuation* of the previous season rather than
    a brand-new one? "Part 2", "Cour 2", "2nd Cour", "The Final Chapters", and a
    trailing "Part N" all denote a split of one season across multiple broadcast

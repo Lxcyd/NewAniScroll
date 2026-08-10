@@ -8,6 +8,7 @@ import {
   sharesFranchise,
   extractSeasonFromTitle,
   isSeasonContinuation,
+  continuesSameWork,
   type SeasonNode,
 } from "./seasonDetection";
 import {
@@ -130,9 +131,14 @@ function numberByChronology(
 
   let running = 0;
   let startNumber: number | null = null;
-  for (const m of seasons) {
+  for (let i = 0; i < seasons.length; i++) {
+    const m = seasons[i];
     const fromTitle = extractSeasonFromTitle(m.title as any);
-    if (fromTitle != null) running = fromTitle;
+    // See seasonChain: a title's number only anchors the franchise counter
+    // when the entry is a new work, not when it continues the previous one.
+    if (i > 0 && continuesSameWork(seasons[i - 1]?.title as any, m.title as any)) {
+      running = Math.max(1, running);
+    } else if (fromTitle != null) running = fromTitle;
     else if (isSeasonContinuation(m.title as any)) running = Math.max(1, running);
     else running = running + 1;
     if (Number(m.id) === startId) startNumber = running;
@@ -750,9 +756,11 @@ export async function resolveFranchiseSeasons(
   }
 
   let running = 0;
-  return seasonLike.map((m: any) => {
+  return seasonLike.map((m: any, i: number) => {
     const fromTitle = extractSeasonFromTitle(m.title);
-    if (fromTitle != null) running = fromTitle;
+    if (i > 0 && continuesSameWork(seasonLike[i - 1]?.title, m.title)) {
+      running = Math.max(1, running);
+    } else if (fromTitle != null) running = fromTitle;
     else if (isSeasonContinuation(m.title)) running = Math.max(1, running);
     else running = running + 1;
     const partMatch = String(m.title?.english || m.title?.romaji || "").match(
