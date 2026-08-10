@@ -37,8 +37,20 @@ import { getUserList, type UserListEntry } from "@/lib/anilist/userListCache";
  */
 
 /** Hayase's dagre settings, unchanged — Relations.svelte#getLayoutedElements. */
-const NODE_SEP = 50;
-const EDGE_SEP = 50;
+/**
+ * Space across the ranks — between two cards of the same column, and between a
+ * card and an edge passing through that column.
+ *
+ * Hayase's 50 assumed their own routing: dagre returns a polyline that bends
+ * around the cards in the way, and we throw it away, drawing a straight curve
+ * from one card's edge to the other's. A relation that skips a rank therefore
+ * cuts straight across the column in between, and at 50 it grazed the top of
+ * whatever sat there — Sword Art Online's direct sequel edge shaving Extra
+ * Edition's border. Widening the across-axis is the lever that leaves the
+ * straight line its room.
+ */
+const NODE_SEP = 95;
+const EDGE_SEP = 95;
 /**
  * Gap between columns. Hayase's 120 was set for a 150px card; ours is 226 with
  * cover art, and the relation name has to sit INSIDE that gap — at 120 a
