@@ -352,6 +352,27 @@ a {
   background-color: transparent;
 }
 
+/* One rounded clip, and one black box, for the whole player.
+ *
+ * Clearing the player's background was not enough because Vidstack repeats the
+ * pair — radius AND black — on every element down the stack: the provider, the
+ * <video>, the poster. Nested curves at the same radius do not compose into one
+ * clean edge; each is antialiased separately and the black under them shows
+ * through what none of them fully covers, which leaves the same hairline one
+ * level further in.
+ *
+ * So the provider keeps the radius (it is the one with `overflow: hidden`, so it
+ * is the one actually clipping) and keeps the black (it is what letterbox bars
+ * are made of). Everything inside it is square-cornered and transparent, and is
+ * cut by that single clip.
+ */
+.vds-player video,
+.vds-player .vds-poster,
+.vds-player iframe {
+  border-radius: 0;
+  background-color: transparent;
+}
+
 /* No rounded corners in fullscreen — the player fills the whole screen, so a
    12px radius just leaves black wedges at the corners. Covers native
    fullscreen (Vidstack sets [data-fullscreen]) and our iOS CSS pseudo-
