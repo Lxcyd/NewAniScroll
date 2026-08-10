@@ -1822,7 +1822,11 @@ const gStyles: Record<string, CSSProperties> = {
     minWidth: 0,
     display: "flex",
     flexDirection: "column",
-    justifyContent: "center",
+    // Title at the top, format and episode count pinned to the BOTTOM edge —
+    // the same place they sit on a text-only card. Centring the pair made the
+    // meta line float at a different height on every card, depending on how
+    // many lines the title took.
+    justifyContent: "space-between",
   },
   /** Beside the art the title is no longer a header band across the top. */
   nodeTitleSide: { background: "transparent", padding: "8px 10px 4px" },
