@@ -75,8 +75,15 @@ const PAD = 40;
  * stuck to the stroke. Stated as "half the label, plus the air I want", so the
  * number means what it says.
  */
-const LABEL_H = 15;
-const LABEL_AIR = 15;
+const LABEL_H = 16;
+/**
+ * Air between the bottom of the word and the stroke. Fifteen board units read
+ * as touching once the board is zoomed out — the label shrinks with the zoom
+ * and so does the gap, but the eye judges the gap against the STROKE, whose
+ * width does not shrink with it. Doubled so the separation survives the zoom
+ * levels a long chain is actually looked at.
+ */
+const LABEL_AIR = 30;
 const LABEL_LIFT = LABEL_H / 2 + LABEL_AIR;
 
 /**
