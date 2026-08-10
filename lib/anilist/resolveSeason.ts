@@ -422,6 +422,27 @@ export interface FilmVariant {
 export function findBonusFilms(nodes: any[]): FilmVariant[] {
   const seen = new Set<number>();
   const films: any[] = [];
+
+  /**
+   * Films the franchise itself continues INTO — some earlier entry names them
+   * as its sequel. Those are mid-chain canonical content, never a bonus.
+   *
+   * The PREQUEL rule below exists for Jujutsu Kaisen 0, a standalone film that
+   * precedes its series. But being someone's prequel is not enough: Ordinal
+   * Scale is the SEQUEL of Sword Art Online II *and* the PREQUEL of
+   * Alicization, and the PREQUEL edge alone had it pulled out of the season
+   * list — the 2017 film vanished from the chronology, which jumped from 2014
+   * straight to 2018 while the franchise graph still numbered it step 3.
+   * Jujutsu Kaisen 0 has no entry pointing at it as a sequel, so it stays a
+   * bonus.
+   */
+  const chained = new Set<number>();
+  for (const m of nodes) {
+    for (const e of m?.relations?.edges || []) {
+      if (e.relationType === "SEQUEL" && e.node?.id) chained.add(Number(e.node.id));
+    }
+  }
+
   for (const m of nodes) {
     const franchiseTitle = m?.title;
     for (const e of m?.relations?.edges || []) {
@@ -443,6 +464,8 @@ export function findBonusFilms(nodes: any[]): FilmVariant[] {
         sharesFranchise(franchiseTitle, e.node?.title)
       ) {
         const id = Number(e.node.id);
+        // Mid-chain film — the franchise continues into it, so it is a season.
+        if (e.relationType === "PREQUEL" && chained.has(id)) continue;
         if (seen.has(id)) continue;
         seen.add(id);
         films.push(e.node);
