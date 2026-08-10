@@ -47,10 +47,27 @@ const NODE_W = 150;
 const NODE_BASE_H = 49;
 const NODE_LINE_H = 19;
 const CHARS_PER_LINE = 20;
-/** Cover strip on top of a card, when thumbnails are on. */
-const COVER_H = 84;
+/**
+ * With covers on, the art sits to the LEFT of the text and is shown WHOLE — a
+ * cover is a 2:3 portrait, and cropping it to a strip cuts the title lettering
+ * off the artwork, which is most of what makes one recognisable at a glance.
+ * The text column keeps its 150px, so line wrapping is unchanged either way.
+ */
+const COVER_W = 76;
+const COVER_H = 114;
+const NODE_W_COVER = NODE_W + COVER_W;
 /** Board margin, so the outermost nodes aren't flush against the edge. */
 const PAD = 40;
+
+/**
+ * Zoom range. The floor used to be 0.35, which on a wide franchise (or with
+ * covers on, where a card is half as wide again) stopped well before the whole
+ * board fitted — you could see the picture the fit gave you and never pull back
+ * from it. Cards are unreadable down there, and that is the point: what you are
+ * reading at 0.12 is the SHAPE of the franchise.
+ */
+const MIN_SCALE = 0.12;
+const MAX_SCALE = 2.5;
 
 /**
  * Below this, a left-to-right board is a strip narrower than one card and taller
@@ -91,10 +108,16 @@ const SIDE_RELATIONS = new Set([
   "OTHER",
 ]);
 
-const nodeHeight = (title: string, withCover: boolean) =>
-  NODE_BASE_H +
-  Math.ceil((title.length || 1) / CHARS_PER_LINE) * NODE_LINE_H +
-  (withCover ? COVER_H : 0);
+const nodeHeight = (title: string, withCover: boolean) => {
+  const text = NODE_BASE_H + Math.ceil((title.length || 1) / CHARS_PER_LINE) * NODE_LINE_H;
+  // Side by side, the card is as tall as the taller column.
+  return withCover ? Math.max(COVER_H, text) : text;
+};
+
+/** Watched progress. The brand pink is the colour of the running order here, so
+ *  a pink bar on a lit card is invisible — this is the blue the list editor
+ *  already uses for a completed entry (.le-dd-dot-completed). */
+const PROGRESS_BLUE = "#3b82f6";
 
 type Props = {
   open: boolean;
@@ -188,6 +211,75 @@ const FORMAT_LABEL: Record<string, string> = {
   MUSIC: "Music",
 };
 
+/**
+ * A chip that opens a checklist of values.
+ *
+ * Empty selection means "all", which is why there is an explicit "All" row:
+ * unticking the last value and "showing everything" are the same state, and
+ * without a row to press you can only reach it by unticking one by one.
+ */
+function FilterMenu({
+  label,
+  open,
+  onToggle,
+  options,
+  selected,
+  onPick,
+  onClear,
+  allLabel,
+}: {
+  label: string;
+  open: boolean;
+  onToggle: () => void;
+  options: { value: string; label: string }[];
+  selected: Set<string>;
+  onPick: (v: string) => void;
+  onClear: () => void;
+  allLabel: string;
+}) {
+  return (
+    <div style={gStyles.menuWrap}>
+      <button
+        type="button"
+        onClick={onToggle}
+        style={{ ...gStyles.chip, ...(selected.size > 0 ? gStyles.chipOn : null) }}
+      >
+        {label}
+        {selected.size > 0 ? ` · ${selected.size}` : ""} ▾
+      </button>
+      {open && (
+        <div style={gStyles.menu}>
+          <button
+            type="button"
+            onClick={onClear}
+            style={{
+              ...gStyles.menuItem,
+              ...(selected.size === 0 ? gStyles.menuItemOn : null),
+            }}
+          >
+            <span style={gStyles.tick}>{selected.size === 0 ? "✓" : ""}</span>
+            {allLabel}
+          </button>
+          {options.map((o) => (
+            <button
+              key={o.value}
+              type="button"
+              onClick={() => onPick(o.value)}
+              style={{
+                ...gStyles.menuItem,
+                ...(selected.has(o.value) ? gStyles.menuItemOn : null),
+              }}
+            >
+              <span style={gStyles.tick}>{selected.has(o.value) ? "✓" : ""}</span>
+              {o.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function RelationsGraph({
   open,
   onClose,
@@ -242,18 +334,26 @@ export default function RelationsGraph({
   /** Cards the viewer has dismissed. Cleared by the reset button. */
   const [hidden, setHidden] = useState<Set<number>>(new Set());
   /**
-   * Filters. Empty format set means "everything"; `onlySequels` keeps only the
-   * continuation thread. A franchise map is unreadable when you are looking
-   * for one thing in it — nineteen cards, five relation kinds — and filtering
-   * is the cheapest way to ask a precise question of it.
+   * Filters. An empty set means "everything". A franchise map is unreadable
+   * when you are looking for one thing in it — nineteen cards, five relation
+   * kinds — and filtering is the cheapest way to ask a precise question of it.
    */
   const [onlyFormats, setOnlyFormats] = useState<Set<string>>(new Set());
-  const [onlySequels, setOnlySequels] = useState(false);
+  /**
+   * Relation kinds to keep. Empty means "all" — as with formats. This replaced
+   * the old "sequels only" switch, which was this same filter with one value
+   * hard-coded: asking for side stories, or for everything except recaps, was
+   * impossible.
+   */
+  const [onlyRelations, setOnlyRelations] = useState<Set<string>>(new Set());
+  /** Which filter menu is open, if any. */
+  const [openMenu, setOpenMenu] = useState<null | "rel" | "fmt">(null);
   /** Hide recaps, retellings and spin-offs — see SIDE_RELATIONS. */
   const [canonOnly, setCanonOnly] = useState(false);
-  /** Cover thumbnails on the cards. Off by default: it is one image request per
-   *  node, on a view that already spends its budget walking the franchise. */
-  const [covers, setCovers] = useState(false);
+  /** Cover art on the cards, on by default — a franchise is far easier to read
+   *  by its art than by twenty near-identical titles. The switch turns the
+   *  board back into plain text cards. */
+  const [covers, setCovers] = useState(true);
   const [grouped, setGrouped] = useState(true);
   const [isFull, setIsFull] = useState(false);
   const [query, setQuery] = useState("");
@@ -560,7 +660,7 @@ export default function RelationsGraph({
         current: m.id === currentId,
         x: 0,
         y: 0,
-        w: NODE_W,
+        w: covers ? NODE_W_COVER : NODE_W,
         h: nodeHeight(title, covers),
       });
     }
@@ -612,9 +712,10 @@ export default function RelationsGraph({
     // the viewer — has nothing to connect to; drawing it would leave a line
     // running off into nothing.
     let list = tree.edges.filter((e) => seen.has(e.from) && seen.has(e.to));
-    if (onlySequels) {
-      list = list.filter((e) => e.label === "SEQUEL");
-      // Drop whatever the continuation thread no longer touches.
+    if (onlyRelations.size > 0) {
+      list = list.filter((e) => onlyRelations.has(e.label));
+      // Drop whatever the kept relations no longer touch — an entry reachable
+      // only through a relation you filtered out has nothing to say here.
       const linked = new Set<number>([currentId]);
       for (const e of list) {
         linked.add(e.from);
@@ -649,7 +750,15 @@ export default function RelationsGraph({
     }
 
     return { nodes: allNodes, edges: list, width: maxX, height: maxY };
-  }, [tree, currentId, titlePref, hidden, onlyFormats, onlySequels, canonOnly, covers, rankDir]);
+  }, [tree, currentId, titlePref, hidden, onlyFormats, onlyRelations, canonOnly, covers, rankDir]);
+
+  /** Relation kinds actually on this board, for the filter menu — offering
+   *  "compilation" on a franchise that has none is noise. */
+  const relationKinds = useMemo(() => {
+    const s = new Set<string>();
+    for (const e of tree.edges) s.add(e.label);
+    return Array.from(s).sort();
+  }, [tree.edges]);
 
   const byId = useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes]);
 
@@ -811,20 +920,6 @@ export default function RelationsGraph({
     return s;
   }, [hover, edges]);
 
-  /** Previous → hovered → next along the continuation line, for the peek card. */
-  const peek = useMemo(() => {
-    if (hover == null) return null;
-    const node = byId.get(hover);
-    if (!node) return null;
-    const before = edges.find((e) => e.label === "SEQUEL" && e.to === hover);
-    const after = edges.find((e) => e.label === "SEQUEL" && e.from === hover);
-    return {
-      node,
-      prev: before ? byId.get(before.from) ?? null : null,
-      next: after ? byId.get(after.to) ?? null : null,
-      entry: listMap?.get(hover) ?? null,
-    };
-  }, [hover, edges, byId, listMap]);
 
   /**
    * Sub-series, framed.
@@ -987,7 +1082,7 @@ export default function RelationsGraph({
     return () => document.removeEventListener("fullscreenchange", onChange);
   }, []);
 
-  const zoomBy = (f: number) => setScale((s) => Math.min(2.5, Math.max(0.35, s * f)));
+  const zoomBy = (f: number) => setScale((s) => Math.min(MAX_SCALE, Math.max(MIN_SCALE, s * f)));
   const fitBoard = () => {
     const box = canvasRef.current;
     if (!box || !width || !height) return;
@@ -1002,6 +1097,9 @@ export default function RelationsGraph({
   };
 
   const onPointerDown = (e: React.PointerEvent) => {
+    // Touching the board dismisses an open filter menu, the way a menu anywhere
+    // else closes when you click past it.
+    setOpenMenu(null);
     drag.current = { x: e.clientX, y: e.clientY, ox: offset.x, oy: offset.y };
     setDragging(true);
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
@@ -1019,7 +1117,7 @@ export default function RelationsGraph({
   };
   const onWheel = (e: React.WheelEvent) => {
     const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
-    setScale((s) => Math.min(2.5, Math.max(0.35, s * factor)));
+    setScale((s) => Math.min(MAX_SCALE, Math.max(MIN_SCALE, s * factor)));
   };
 
   if (!open) return null;
@@ -1074,12 +1172,16 @@ export default function RelationsGraph({
           >
             {t("anime.graphCanonOnly", { defaultValue: "Canon only" })}
           </button>
+          {/* The switch reads as the MODE it turns on, so its label has to be
+              what you get by pressing it — covers are the default now, and a
+              lit chip called "Covers" while covers were already showing said
+              nothing. */}
           <button
             type="button"
             onClick={() => setCovers((v) => !v)}
-            style={{ ...gStyles.chip, ...(covers ? gStyles.chipOn : null) }}
+            style={{ ...gStyles.chip, ...(!covers ? gStyles.chipOn : null) }}
           >
-            {t("anime.graphCovers", { defaultValue: "Covers" })}
+            {t("anime.graphCompact", { defaultValue: "Text only" })}
           </button>
           <button
             type="button"
@@ -1088,33 +1190,50 @@ export default function RelationsGraph({
           >
             {t("anime.graphGroup", { defaultValue: "Group branches" })}
           </button>
-          <button
-            type="button"
-            onClick={() => setOnlySequels((v) => !v)}
-            style={{ ...gStyles.chip, ...(onlySequels ? gStyles.chipOn : null) }}
-          >
-            {t("anime.graphOnlySequels", { defaultValue: "Sequels only" })}
-          </button>
-          {(["TV", "MOVIE", "OVA", "SPECIAL", "ONA"] as const).map((f) => {
-            const on = onlyFormats.has(f);
-            return (
-              <button
-                key={f}
-                type="button"
-                onClick={() =>
-                  setOnlyFormats((prev) => {
-                    const next = new Set(prev);
-                    if (next.has(f)) next.delete(f);
-                    else next.add(f);
-                    return next;
-                  })
-                }
-                style={{ ...gStyles.chip, ...(on ? gStyles.chipOn : null) }}
-              >
-                {FORMAT_LABEL[f]}
-              </button>
-            );
-          })}
+
+          {/* Two menus rather than a row of chips: eleven of them wrapped onto
+              a second line and pushed the board down, and nothing told you
+              which chip filtered WHAT — a relation and a format look alike. */}
+          <FilterMenu
+            label={t("anime.graphRelations", { defaultValue: "Relations" })}
+            open={openMenu === "rel"}
+            onToggle={() => setOpenMenu((m) => (m === "rel" ? null : "rel"))}
+            options={relationKinds.map((r) => ({
+              value: r,
+              label: r.replace(/_/g, " ").toLowerCase(),
+            }))}
+            selected={onlyRelations}
+            onPick={(v) =>
+              setOnlyRelations((prev) => {
+                const next = new Set(prev);
+                if (next.has(v)) next.delete(v);
+                else next.add(v);
+                return next;
+              })
+            }
+            onClear={() => setOnlyRelations(new Set())}
+            allLabel={t("anime.graphAll", { defaultValue: "All" })}
+          />
+          <FilterMenu
+            label={t("anime.graphFormats", { defaultValue: "Formats" })}
+            open={openMenu === "fmt"}
+            onToggle={() => setOpenMenu((m) => (m === "fmt" ? null : "fmt"))}
+            options={["TV", "TV_SHORT", "MOVIE", "OVA", "SPECIAL", "ONA"].map((f) => ({
+              value: f,
+              label: FORMAT_LABEL[f] ?? f,
+            }))}
+            selected={onlyFormats}
+            onPick={(v) =>
+              setOnlyFormats((prev) => {
+                const next = new Set(prev);
+                if (next.has(v)) next.delete(v);
+                else next.add(v);
+                return next;
+              })
+            }
+            onClear={() => setOnlyFormats(new Set())}
+            allLabel={t("anime.graphAll", { defaultValue: "All" })}
+          />
         </div>
 
         <button
@@ -1332,33 +1451,55 @@ export default function RelationsGraph({
                   >
                     <Icon d={ICON.close} size={11} />
                   </button>
-                  {covers &&
-                    // The strip is drawn whether or not the art resolved: the
-                    // layout already reserved its height, so skipping it would
-                    // leave a gap under the title on exactly the cards that
-                    // came back without a cover.
-                    (n.cover ? (
-                      // Plain <img>: next/image would want a configured loader
-                      // for AniList's CDN and a layout box, and this is a fixed
-                      // 150px strip inside a transformed board.
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={n.cover}
-                        alt=""
-                        loading="lazy"
-                        draggable={false}
-                        style={{ ...gStyles.nodeCover, height: COVER_H }}
-                      />
-                    ) : (
-                      <div style={{ ...gStyles.nodeCover, height: COVER_H }} />
-                    ))}
-                  <div style={gStyles.nodeTitle}>{n.title}</div>
-                  <div style={gStyles.nodeMeta}>
-                    <span>{FORMAT_LABEL[n.format] ?? n.format}</span>
-                    <span>
-                      {n.episodes ? t("preview.episodeCount", { count: n.episodes }) : n.status || ""}
-                    </span>
-                  </div>
+                  {covers ? (
+                    <div style={{ ...gStyles.nodeRow, minHeight: COVER_H }}>
+                      {/* The box is drawn whether or not the art resolved: the
+                          layout already reserved its width, so skipping it
+                          would shift the text of exactly the cards that came
+                          back without a cover. `contain` keeps the whole
+                          poster, letterboxed rather than cropped. */}
+                      {n.cover ? (
+                        // Plain <img>: next/image would want a configured loader
+                        // for AniList's CDN and a layout box, and this sits
+                        // inside a transformed board at a fixed size.
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={n.cover}
+                          alt=""
+                          loading="lazy"
+                          draggable={false}
+                          style={gStyles.nodeCover}
+                        />
+                      ) : (
+                        <div style={gStyles.nodeCover} />
+                      )}
+                      <div style={gStyles.nodeBody}>
+                        <div style={{ ...gStyles.nodeTitle, ...gStyles.nodeTitleSide }}>
+                          {n.title}
+                        </div>
+                        <div style={gStyles.nodeMeta}>
+                          <span>{FORMAT_LABEL[n.format] ?? n.format}</span>
+                          <span>
+                            {n.episodes
+                              ? t("preview.episodeCount", { count: n.episodes })
+                              : n.status || ""}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <div style={gStyles.nodeTitle}>{n.title}</div>
+                      <div style={gStyles.nodeMeta}>
+                        <span>{FORMAT_LABEL[n.format] ?? n.format}</span>
+                        <span>
+                          {n.episodes
+                            ? t("preview.episodeCount", { count: n.episodes })
+                            : n.status || ""}
+                        </span>
+                      </div>
+                    </>
+                  )}
                   {/* Watched progress, along the bottom edge. A full bar is the
                       fastest way to read "this part of the franchise is done"
                       off a board of twenty cards. */}
@@ -1370,44 +1511,6 @@ export default function RelationsGraph({
                 </Link>
               );
             })}
-          </div>
-        )}
-
-        {/* The hovered entry, with what comes immediately before and after it.
-            The board can only show the neighbourhood by lighting it, and a lit
-            card twelve columns away is still unreadable — this states the two
-            answers in words, in a fixed place, so the eye doesn't travel. */}
-        {peek && (
-          <div style={gStyles.peek}>
-            <div style={gStyles.peekRow}>
-              <span style={gStyles.peekLabel}>
-                {t("anime.graphPrevious", { defaultValue: "Before" })}
-              </span>
-              <span style={gStyles.peekTitle}>{peek.prev?.title || "—"}</span>
-            </div>
-            <div style={{ ...gStyles.peekRow, ...gStyles.peekRowNow }}>
-              <span style={gStyles.peekLabel}>
-                {t("anime.graphCurrent", { defaultValue: "This one" })}
-              </span>
-              <span style={{ ...gStyles.peekTitle, color: "var(--brand-primary, #ff3b5c)" }}>
-                {peek.node.title}
-              </span>
-            </div>
-            <div style={gStyles.peekRow}>
-              <span style={gStyles.peekLabel}>
-                {t("anime.graphNext", { defaultValue: "After" })}
-              </span>
-              <span style={gStyles.peekTitle}>{peek.next?.title || "—"}</span>
-            </div>
-            {peek.entry && peek.node.episodes ? (
-              <div style={gStyles.peekProgress}>
-                {t("anime.graphWatched", {
-                  defaultValue: "{{seen}} / {{total}} watched",
-                  seen: peek.entry.progress,
-                  total: peek.node.episodes,
-                })}
-              </div>
-            ) : null}
           </div>
         )}
 
@@ -1493,6 +1596,44 @@ const gStyles: Record<string, CSSProperties> = {
     color: "var(--brand-primary, #ff3b5c)",
     background: "rgba(255,59,92,.12)",
   },
+  menuWrap: { position: "relative" },
+  menu: {
+    position: "absolute",
+    top: "calc(100% + 6px)",
+    left: 0,
+    minWidth: 150,
+    padding: 4,
+    borderRadius: 8,
+    border: "1px solid var(--line)",
+    background: "rgba(16,16,20,.98)",
+    boxShadow: "0 10px 24px rgba(0,0,0,.55)",
+    // Above the board, which draws its own stacking contexts.
+    zIndex: 5,
+    display: "flex",
+    flexDirection: "column",
+    gap: 1,
+  },
+  menuItem: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    width: "100%",
+    padding: "5px 8px",
+    borderRadius: 5,
+    border: "none",
+    background: "transparent",
+    color: "var(--txt-2)",
+    fontSize: 11,
+    fontWeight: 600,
+    textAlign: "left",
+    textTransform: "capitalize",
+    cursor: "pointer",
+  },
+  menuItemOn: {
+    background: "rgba(255,59,92,.14)",
+    color: "var(--brand-primary, #ff3b5c)",
+  },
+  tick: { width: 10, fontSize: 10, lineHeight: 1 },
   searchBox: {
     display: "flex",
     alignItems: "center",
@@ -1664,14 +1805,27 @@ const gStyles: Record<string, CSSProperties> = {
     padding: 0,
     opacity: 0.55,
   },
+  nodeRow: { display: "flex", alignItems: "stretch" },
   nodeCover: {
     display: "block",
-    width: "100%",
-    objectFit: "cover",
-    background: "#1a1a1f",
+    flex: "0 0 auto",
+    width: COVER_W,
+    height: COVER_H,
+    // The whole poster, letterboxed — never cropped. See COVER_W's note.
+    objectFit: "contain",
+    background: "#0b0b0e",
     borderTopLeftRadius: 2,
-    borderTopRightRadius: 2,
+    borderBottomLeftRadius: 2,
   },
+  nodeBody: {
+    flex: 1,
+    minWidth: 0,
+    display: "flex",
+    flexDirection: "column",
+    justifyContent: "center",
+  },
+  /** Beside the art the title is no longer a header band across the top. */
+  nodeTitleSide: { background: "transparent", padding: "8px 10px 4px" },
   /** Watched progress, hugging the bottom edge of a card. */
   progressTrack: {
     position: "absolute",
@@ -1687,39 +1841,8 @@ const gStyles: Record<string, CSSProperties> = {
   progressFill: {
     display: "block",
     height: "100%",
-    background: "var(--brand-primary, #ff3b5c)",
+    background: PROGRESS_BLUE,
   },
-  /** The hover peek, bottom-right and click-through. */
-  peek: {
-    position: "absolute",
-    right: 14,
-    bottom: 14,
-    width: 240,
-    padding: "10px 12px",
-    borderRadius: 10,
-    border: "1px solid var(--line)",
-    background: "rgba(16,16,20,.95)",
-    zIndex: 3,
-    // Never steal the pointer: the card it describes is under the cursor, and
-    // a panel that swallows the hover would flicker itself in and out.
-    pointerEvents: "none",
-  },
-  peekRow: { display: "flex", flexDirection: "column", gap: 1, padding: "3px 0" },
-  peekRowNow: {
-    borderTop: "1px solid var(--line)",
-    borderBottom: "1px solid var(--line)",
-    margin: "2px 0",
-    padding: "5px 0",
-  },
-  peekLabel: {
-    fontSize: 8.5,
-    fontWeight: 800,
-    letterSpacing: "0.08em",
-    textTransform: "uppercase",
-    color: "var(--txt-3)",
-  },
-  peekTitle: { fontSize: 11.5, fontWeight: 700, color: "var(--txt-1)", lineHeight: 1.3 },
-  peekProgress: { marginTop: 6, fontSize: 10, fontWeight: 600, color: "var(--txt-3)" },
   edgeLabel: {
     position: "absolute",
     transform: "translate(-50%, -50%)",
