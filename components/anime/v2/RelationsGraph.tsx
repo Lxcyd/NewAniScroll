@@ -156,6 +156,17 @@ export default function RelationsGraph({
     if (open) setSelected(currentId);
   }, [open, currentId]);
 
+  /**
+   * Cards the viewer has moved by hand, as offsets from their dagre position.
+   *
+   * A layout engine places nineteen cards well on average and badly in one or
+   * two spots — a label sitting under a line, two chains crossing where you
+   * want to read them. Letting a card be nudged costs one offset per node and
+   * leaves the automatic layout intact underneath.
+   */
+  const [moved, setMoved] = useState<Map<number, { dx: number; dy: number }>>(new Map());
+  const nodeDrag = useRef<{ id: number; x: number; y: number; dx: number; dy: number; moved: boolean } | null>(null);
+
   const [scale, setScale] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const drag = useRef<{ x: number; y: number; ox: number; oy: number } | null>(null);
@@ -491,17 +502,75 @@ export default function RelationsGraph({
   }, [open, width, height]);
 
 
+  /** Where a card actually sits: its layout position plus any hand nudge. */
+  const posOf = (n: GNode) => {
+    const m = moved.get(n.id);
+    return { x: n.x + (m?.dx ?? 0), y: n.y + (m?.dy ?? 0) };
+  };
+
   /** Both ends of an edge, in board coordinates. */
   const endpoints = (e: GEdge) => {
     const a = byId.get(e.from);
     const b = byId.get(e.to);
     if (!a || !b) return null;
+    const pa = posOf(a);
+    const pb = posOf(b);
     return {
-      x1: a.x + a.w + PAD,
-      y1: a.y + a.h / 2 + PAD,
-      x2: b.x + PAD,
-      y2: b.y + b.h / 2 + PAD,
+      x1: pa.x + a.w + PAD,
+      y1: pa.y + a.h / 2 + PAD,
+      x2: pb.x + PAD,
+      y2: pb.y + b.h / 2 + PAD,
     };
+  };
+
+  /** Drag a single card. A drag must not also count as a click. */
+  const onNodePointerDown = (e: React.PointerEvent, id: number) => {
+    e.stopPropagation();
+    const m = moved.get(id);
+    nodeDrag.current = {
+      id,
+      x: e.clientX,
+      y: e.clientY,
+      dx: m?.dx ?? 0,
+      dy: m?.dy ?? 0,
+      moved: false,
+    };
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  };
+  const onNodePointerMove = (e: React.PointerEvent) => {
+    const d = nodeDrag.current;
+    if (!d) return;
+    const dx = (e.clientX - d.x) / scale;
+    const dy = (e.clientY - d.y) / scale;
+    if (!d.moved && Math.abs(dx) < 3 && Math.abs(dy) < 3) return;
+    d.moved = true;
+    setMoved((prev) => {
+      const next = new Map(prev);
+      next.set(d.id, { dx: d.dx + dx, dy: d.dy + dy });
+      return next;
+    });
+  };
+  const onNodePointerUp = (e: React.PointerEvent) => {
+    if (nodeDrag.current?.moved) e.preventDefault();
+    // Cleared on the next tick so the click handler can still see `moved`.
+    const d = nodeDrag.current;
+    setTimeout(() => {
+      if (nodeDrag.current === d) nodeDrag.current = null;
+    }, 0);
+  };
+
+  const zoomBy = (f: number) => setScale((s) => Math.min(2.5, Math.max(0.35, s * f)));
+  const fitBoard = () => {
+    const box = canvasRef.current;
+    if (!box || !width || !height) return;
+    const boardW = width + PAD * 2;
+    const boardH = height + PAD * 2;
+    const next = Math.min(1, box.clientWidth / boardW, box.clientHeight / boardH);
+    setScale(next);
+    setOffset({
+      x: (box.clientWidth - boardW * next) / 2,
+      y: (box.clientHeight - boardH * next) / 2,
+    });
   };
 
   const onPointerDown = (e: React.PointerEvent) => {
@@ -643,7 +712,16 @@ export default function RelationsGraph({
                   // click on the one already lit opens its page. Navigating on
                   // the first click would make the order unreadable — you would
                   // leave the graph every time you tried to follow it.
+                  onPointerDown={(ev) => onNodePointerDown(ev, n.id)}
+                  onPointerMove={onNodePointerMove}
+                  onPointerUp={onNodePointerUp}
                   onClick={(ev) => {
+                    // A card that was just dragged must not navigate or select.
+                    if (nodeDrag.current?.moved) {
+                      ev.preventDefault();
+                      ev.stopPropagation();
+                      return;
+                    }
                     if (isSelected) return;
                     ev.preventDefault();
                     ev.stopPropagation();
@@ -656,8 +734,8 @@ export default function RelationsGraph({
                   }
                   style={{
                     ...gStyles.node,
-                    left: n.x + PAD,
-                    top: n.y + PAD,
+                    left: posOf(n).x + PAD,
+                    top: posOf(n).y + PAD,
                     width: n.w,
                     borderColor: isSelected
                       ? "var(--brand-primary, #ff3b5c)"
@@ -671,7 +749,9 @@ export default function RelationsGraph({
                     boxShadow: isSelected ? "0 0 0 1px var(--brand-primary, #ff3b5c)" : undefined,
                   }}
                 >
-                  {lit && <span style={gStyles.stepBadge}>{(step ?? 0) + 1}</span>}
+                  {/* `chain` is already 1-based — the selected entry is step 1.
+                      Adding one here made the whole order start at 2. */}
+                  {lit && <span style={gStyles.stepBadge}>{step}</span>}
                   <div style={gStyles.nodeTitle}>{n.title}</div>
                   <div style={gStyles.nodeMeta}>
                     <span>{FORMAT_LABEL[n.format] ?? n.format}</span>
@@ -684,6 +764,36 @@ export default function RelationsGraph({
             })}
           </div>
         )}
+
+        {/* Zoom, fit, and a reset that undoes every hand-moved card. */}
+        <div style={gStyles.controls} onPointerDown={(e) => e.stopPropagation()}>
+          <button style={gStyles.ctrlBtn} onClick={() => zoomBy(1.2)} aria-label="Zoom +" title="Zoom +">
+            +
+          </button>
+          <button style={gStyles.ctrlBtn} onClick={() => zoomBy(1 / 1.2)} aria-label="Zoom −" title="Zoom −">
+            −
+          </button>
+          <button
+            style={gStyles.ctrlBtn}
+            onClick={fitBoard}
+            aria-label={t("anime.graphFit", { defaultValue: "Fit to screen" })}
+            title={t("anime.graphFit", { defaultValue: "Fit to screen" })}
+          >
+            ⤢
+          </button>
+          <button
+            style={gStyles.ctrlBtn}
+            onClick={() => {
+              setMoved(new Map());
+              fittedFor.current = "";
+              fitBoard();
+            }}
+            aria-label={t("anime.graphReset", { defaultValue: "Reset layout" })}
+            title={t("anime.graphReset", { defaultValue: "Reset layout" })}
+          >
+            ⟳
+          </button>
+        </div>
       </div>
       <div style={gStyles.hint}>
         {t("anime.graphHintOrder", {
@@ -728,6 +838,36 @@ const gStyles: Record<string, CSSProperties> = {
     overflow: "hidden",
     position: "relative",
     touchAction: "none",
+    // Dragging the board would otherwise sweep a text selection across every
+    // card it crosses, leaving the graph highlighted in blue.
+    userSelect: "none",
+    WebkitUserSelect: "none",
+  },
+  /** Zoom / fit / reset, bottom-left, out of the graph's way. */
+  controls: {
+    position: "absolute",
+    left: 14,
+    bottom: 14,
+    display: "flex",
+    gap: 6,
+    padding: 5,
+    borderRadius: 8,
+    background: "rgba(20,20,24,.92)",
+    border: "1px solid var(--line)",
+    zIndex: 3,
+  },
+  ctrlBtn: {
+    width: 28,
+    height: 28,
+    display: "grid",
+    placeItems: "center",
+    borderRadius: 6,
+    border: "1px solid var(--line)",
+    background: "var(--bg-2)",
+    color: "var(--txt-1)",
+    cursor: "pointer",
+    fontSize: 13,
+    lineHeight: 1,
   },
   empty: {
     position: "absolute",
