@@ -2420,6 +2420,18 @@ function titleToSlug(title) {
  * (hyphenated) form first. Cheap — used only to widen direct slug guessing.
  */
 /**
+ * The part of a title BEFORE its colon, slugified — "Shingeki no Kyojin: The
+ * Final Season" → "shingeki-no-kyojin". Null when there is no colon or the head
+ * is too short to identify a franchise.
+ */
+function headSlugOf(title) {
+  const idx = (title || "").search(/[:：]/);
+  if (idx < 0) return null;
+  const head = titleToSlug(title.slice(0, idx));
+  return head && head.length >= 3 ? head : null;
+}
+
+/**
  * The part of a title that follows its colon, slugified — "Shingeki no Kyojin:
  * The Final Season" → "the-final-season".
  *
@@ -2586,8 +2598,14 @@ async function findVoiranimeSlug(title, aniId, isVF, seasonNum, mediaOpts = {}) 
          * unnoticed until a season whose name is its subtitle.
          */
         const sub = subtitleSlugOf(t);
-        if (sub) {
-          for (const form of [`${base}-${seasonNum}-${sub}`, `${base}-${sub}`]) {
+        // `base` is the slug of the WHOLE title, subtitle included, so it must
+        // not be reused here — pairing it with the subtitle again produced
+        // `shingeki-no-kyojin-the-final-season-4-the-final-season`. The head is
+        // what goes before the colon, and it is the only part the number
+        // attaches to.
+        const head = headSlugOf(t);
+        if (sub && head) {
+          for (const form of [`${head}-${seasonNum}-${sub}`, `${head}-${sub}`]) {
             slugCandidates.add(isVF ? `${form}-vf` : form);
           }
         }
