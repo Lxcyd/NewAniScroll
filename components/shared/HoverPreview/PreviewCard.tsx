@@ -594,17 +594,18 @@ export default function PreviewCard({
               that is what put an ellipsis on a card with empty space under it:
               a clamp counts LINES, so it cuts at three whether the box had room
               for four or for eight. Since the block now grows (`flex-1`), the
-              honest instruction is "use the space you have" — overflow hidden
-              does the cutting and a mask dissolves the last line instead of
-              stamping a "…" that claims more was left out than there was. */}
+              honest instruction is "use the space you have".
+
+              `safe center` is what lets it be centred without that costing
+              anything when it doesn't fit: a short synopsis sits in the middle
+              of the space it was given instead of hanging off the chips with a
+              gap under it, and a long one falls back to starting at the top —
+              plain `center` would push its first lines out of the box, hiding
+              the beginning of the text to keep it symmetrical. */}
           <Link
             href={`/en/anime/${id}`}
-            className="block min-h-0 w-full flex-1 overflow-hidden text-[.72rem] leading-[1.45] text-white/50 transition-colors hover:text-white/75"
-            style={{
-              maskImage: "linear-gradient(to bottom, #000 calc(100% - 18px), transparent 100%)",
-              WebkitMaskImage:
-                "linear-gradient(to bottom, #000 calc(100% - 18px), transparent 100%)",
-            }}
+            className="flex min-h-0 w-full flex-1 overflow-hidden text-[.72rem] leading-[1.45] text-white/50 transition-colors hover:text-white/75"
+            style={{ alignItems: "safe center" }}
           >
             {description}
           </Link>
