@@ -996,6 +996,65 @@ export default function RelationsGraph({
    *  running order: it answers the question the viewer just asked. */
   const isDim = (id: number) => (near ? !near.has(id) : chain ? !chain.has(id) : false);
 
+  /**
+   * Where each relation name sits on its line.
+   *
+   * The midpoint of an edge is the obvious place and the wrong one. An edge
+   * spanning more than one rank passes OVER the cards in between, so its
+   * midpoint lands on top of one — "SEQUEL" printed across the corner of an OVA
+   * it has nothing to do with, which reads as a label belonging to that card.
+   *
+   * So: walk the curve and take the first point whose label box is clear of
+   * every card AND of every label already placed. Boxes accumulate as we go,
+   * which is also what stops two edges leaving the same card from stacking
+   * their names on the same pixel. Falling back to the midpoint when nothing is
+   * free is fine — a crowded board is better labelled badly than not at all.
+   */
+  const labelSpots = useMemo(() => {
+    type Box = { x: number; y: number; w: number; h: number };
+    const taken: Box[] = nodes.map((n) => {
+      const p = posOf(n);
+      // A few pixels of margin, so a name never touches a border either.
+      return { x: p.x + PAD - 4, y: p.y + PAD - 4, w: n.w + 8, h: n.h + 8 };
+    });
+    const overlaps = (a: Box, b: Box) =>
+      a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+
+    const out: { e: GEdge; x: number; y: number }[] = [];
+    for (const e of edges) {
+      const p = endpoints(e);
+      if (!p) continue;
+      // The same control points the path uses, or the label would sit beside
+      // its own line rather than on it.
+      const off = Math.max(40, (rankDir === "TB" ? p.y2 - p.y1 : p.x2 - p.x1) / 2);
+      const c1 = rankDir === "TB" ? { x: p.x1, y: p.y1 + off } : { x: p.x1 + off, y: p.y1 };
+      const c2 = rankDir === "TB" ? { x: p.x2, y: p.y2 - off } : { x: p.x2 - off, y: p.y2 };
+      const at = (t: number) => {
+        const u = 1 - t;
+        return {
+          x: u * u * u * p.x1 + 3 * u * u * t * c1.x + 3 * u * t * t * c2.x + t * t * t * p.x2,
+          y: u * u * u * p.y1 + 3 * u * u * t * c1.y + 3 * u * t * t * c2.y + t * t * t * p.y2,
+        };
+      };
+
+      // Matches gStyles.edgeLabel: 8.5px bold, letter-spaced, 5px padding.
+      const w = e.label.replace(/_/g, " ").length * 5.4 + 12;
+      const h = 15;
+      let spot = at(0.5);
+      for (const t of [0.5, 0.38, 0.62, 0.26, 0.74, 0.16, 0.84]) {
+        const pt = at(t);
+        const box = { x: pt.x - w / 2, y: pt.y - h / 2, w, h };
+        if (taken.some((b) => overlaps(box, b))) continue;
+        taken.push(box);
+        spot = pt;
+        break;
+      }
+      out.push({ e, x: spot.x, y: spot.y });
+    }
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [edges, nodes, moved, rankDir]);
+
   /** Drag a single card. A drag must not also count as a click. */
   const onNodePointerDown = (e: React.PointerEvent, id: number) => {
     e.stopPropagation();
@@ -1276,9 +1335,7 @@ export default function RelationsGraph({
             {/* The relation names, on the lines. This is the whole point of the
                 view: an unlabelled edge says two things are related, which the
                 list already said. */}
-            {edges.map((e, i) => {
-              const p = endpoints(e);
-              if (!p) return null;
+            {labelSpots.map(({ e, x, y }, i) => {
               const touches = near ? e.from === hover || e.to === hover : null;
               const lit = touches !== null ? touches : isChainEdge(e);
               const dim = touches !== null ? !touches : !!chain && !isChainEdge(e);
@@ -1287,8 +1344,8 @@ export default function RelationsGraph({
                   key={`l${i}`}
                   style={{
                     ...gStyles.edgeLabel,
-                    left: (p.x1 + p.x2) / 2,
-                    top: (p.y1 + p.y2) / 2,
+                    left: x,
+                    top: y,
                     ...(lit
                       ? {
                           color: "var(--brand-primary, #ff3b5c)",
@@ -1741,7 +1798,11 @@ const gStyles: Record<string, CSSProperties> = {
     // letterboxes inside a taller box instead of stopping short of the edge.
     alignSelf: "stretch",
     height: "auto",
-    objectFit: "contain",
+    // `cover`, not `contain`: the card is as tall as its text, so a long title
+    // makes it taller than a 2:3 poster and `contain` letterboxed the art —
+    // black bands above and below, which is the gap this replaces. Filling the
+    // box costs a few pixels off the sides of the widest cards.
+    objectFit: "cover",
     background: "#0b0b0e",
     borderTopLeftRadius: 2,
     borderBottomLeftRadius: 2,
