@@ -1001,24 +1001,20 @@ export default function RelationsGraph({
    *
    * The midpoint of an edge is the obvious place and the wrong one. An edge
    * spanning more than one rank passes OVER the cards in between, so its
-   * midpoint lands on top of one — "SEQUEL" printed across the corner of an OVA
-   * it has nothing to do with, which reads as a label belonging to that card.
+   * midpoint lands on top of one — "SEQUEL" printed across the corner of an
+   * entry it has nothing to do with, which reads as that card's own label.
    *
-   * So: walk the curve and take the first point whose label box is clear of
-   * every card AND of every label already placed. Boxes accumulate as we go,
-   * which is also what stops two edges leaving the same card from stacking
-   * their names on the same pixel. Falling back to the midpoint when nothing is
-   * free is fine — a crowded board is better labelled badly than not at all.
+   * The answer is not to let the name run away looking for a gap: a label that
+   * moves is a label you can no longer attribute to an edge. It is to put every
+   * name in the ONE place that is card-free by construction — the band dagre
+   * leaves between two columns of cards. The label goes in the middle of the
+   * band immediately after its source, at the height its own curve crosses
+   * there, so it always sits on its line and never on a card.
    */
   const labelSpots = useMemo(() => {
-    type Box = { x: number; y: number; w: number; h: number };
-    const taken: Box[] = nodes.map((n) => {
-      const p = posOf(n);
-      // A few pixels of margin, so a name never touches a border either.
-      return { x: p.x + PAD - 4, y: p.y + PAD - 4, w: n.w + 8, h: n.h + 8 };
-    });
-    const overlaps = (a: Box, b: Box) =>
-      a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+    // Left edge of every card, to find where the next column starts.
+    const lefts = nodes.map((n) => posOf(n).x + PAD);
+    const tops = nodes.map((n) => posOf(n).y + PAD);
 
     const out: { e: GEdge; x: number; y: number }[] = [];
     for (const e of edges) {
@@ -1037,31 +1033,28 @@ export default function RelationsGraph({
         };
       };
 
-      // Matches gStyles.edgeLabel: 8.5px bold, letter-spaced, 5px padding.
-      const w = e.label.replace(/_/g, " ").length * 5.4 + 12;
-      const h = 15;
-      let spot = at(0.5);
-      let placed = false;
-      // Sliding along the curve is not always enough: an edge that skips a rank
-      // runs the WHOLE way across the card in between, so every point of it is
-      // blocked — Sword Art Online's direct sequel edge to season 2 passes over
-      // Extra Edition end to end. When that happens the name has to step off
-      // the line, perpendicular to it, until it clears. Kept short so it still
-      // reads as belonging to its own edge.
-      for (const t of [0.5, 0.38, 0.62, 0.26, 0.74, 0.16, 0.84]) {
-        const pt = at(t);
-        for (const away of [0, -20, 20, -38, 38, -58, 58]) {
-          const cx = pt.x + (rankDir === "TB" ? away : 0);
-          const cy = pt.y + (rankDir === "TB" ? 0 : away);
-          const box = { x: cx - w / 2, y: cy - h / 2, w, h };
-          if (taken.some((b) => overlaps(box, b))) continue;
-          taken.push(box);
-          spot = { x: cx, y: cy };
-          placed = true;
-          break;
-        }
-        if (placed) break;
+      // The start of the next column of cards, which is where the empty band
+      // ends. Cards are all one width, so a column is a clean vertical strip
+      // and the space before it is free over its whole height.
+      const start = rankDir === "TB" ? p.y1 : p.x1;
+      const finish = rankDir === "TB" ? p.y2 : p.x2;
+      const nextEdgeOf = rankDir === "TB" ? tops : lefts;
+      let band = Infinity;
+      for (const v of nextEdgeOf) if (v > start && v < band) band = v;
+      // Halfway across the band; the far end of the edge when there is none.
+      const target = band === Infinity ? (start + finish) / 2 : (start + band) / 2;
+
+      // Which point of the curve is at that height / abscissa. The coordinate
+      // along the rank axis grows with t, so a bisection lands on it.
+      let lo = 0;
+      let hi = 1;
+      for (let i = 0; i < 22; i++) {
+        const mid = (lo + hi) / 2;
+        const v = rankDir === "TB" ? at(mid).y : at(mid).x;
+        if (v < target) lo = mid;
+        else hi = mid;
       }
+      const spot = at((lo + hi) / 2);
       out.push({ e, x: spot.x, y: spot.y });
     }
     return out;
