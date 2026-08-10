@@ -1931,6 +1931,55 @@ const VOIRANIME_SERVERS = {
 };
 
 /**
+ * How many episodes of this entry's own chain aired BEFORE it, when the site
+ * keeps them all on one page.
+ *
+ * voir-anime keeps one page per SEASON; AniList splits some seasons into parts
+ * with their own entries. "Shingeki no Kyojin: The Final Season Part 2" is
+ * entry #131681 with 12 episodes, but on voir-anime its first episode is number
+ * 17 of the season-4 page, behind the 16 of Part 1.
+ *
+ * That mattered more than it looks. The slug for Part 2 now resolves — the
+ * subtitle forms find the season-4 page — so the prequel FALLBACK never runs,
+ * and without this the resolver served page episode 3 for Part 2 episode 3:
+ * the wrong episode, silently, which is worse than the missing chip it
+ * replaced. Hayase's resolveSeason carries the offset whatever route found the
+ * media; ours has to do the same rather than treat it as a repair for failure.
+ */
+async function voiranimeChainOffset(aniId) {
+  let media = await getMediaMeta(aniId).catch(() => null);
+  let offset = 0;
+  for (let hop = 0; hop < MAX_PREQUEL_HOPS && media; hop += 1) {
+    const edge = (media.relations?.edges || []).find(
+      (e) => e?.relationType === "PREQUEL" && PREQUEL_FORMATS.has(e?.node?.format),
+    );
+    if (!edge?.node?.id) break;
+    const prev = await getMediaMeta(Number(edge.node.id)).catch(() => null);
+    if (!prev) break;
+    // Only entries the SITE would have merged onto one page count: a previous
+    // SEASON has its own page, a previous PART does not. We cannot see the
+    // site's grouping from here, so we stop at the first ancestor whose own
+    // title is not a part of the same season name.
+    if (!sharesSeasonName(media, prev)) break;
+    offset += Number(prev.episodes) || 0;
+    media = prev;
+  }
+  return offset;
+}
+
+/** True when two entries are parts of one season — same title up to "Part N". */
+function sharesSeasonName(a, b) {
+  const strip = (m) =>
+    (m?.title?.romaji || m?.title?.english || "")
+      .replace(/\s*(Part|Cour)\s*\d+\s*$/i, "")
+      .trim()
+      .toLowerCase();
+  const sa = strip(a);
+  const sb = strip(b);
+  return Boolean(sa) && sa === sb;
+}
+
+/**
  * Walk the PREQUEL chain until a season that voir-anime actually has a page for,
  * and shift the episode number by everything that came before.
  *
@@ -2044,6 +2093,7 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId, trace = null
     }
 
     let slug = mappedSlug;
+    let viaPrequelOffset = 0;
     if (!slug) {
       const seasonNum = await detectSeasonNumber(aniId);
       slug = await findVoiranimeSlug(title, aniId, isVF, seasonNum);
@@ -2054,7 +2104,9 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId, trace = null
         const viaPrequel = await voiranimePrequelChain(aniId, isVF, episode, trace);
         if (viaPrequel) {
           slug = viaPrequel.slug;
-          episode = viaPrequel.episode;
+          // It resolved the shift itself, so the offset below must not add a
+          // second one.
+          viaPrequelOffset = viaPrequel.episode - Number(episode);
         } else {
           dlog(`[voiranime] No slug found for ${title} (${lang}, S${seasonNum})`);
           return null;
@@ -2067,6 +2119,17 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId, trace = null
     // Fetch the anime detail page to get the full episode list.
     // Some Madara installs require the episode list via admin-ajax (chapters).
     let episodeUrl = null;
+    /*
+     * Shift into the page's numbering when this entry is a later PART of a
+     * season the site keeps on one page. Zero for everything else, so the
+     * ordinary case is untouched. See voiranimeChainOffset.
+     */
+    const chainOffset = viaPrequelOffset || (await voiranimeChainOffset(aniId));
+    const wantedEpisode = Number(episode) + chainOffset;
+    if (chainOffset > 0) {
+      dlog(`[voiranime] ${aniId} is a later part: ep ${episode} → ${wantedEpisode}`);
+      if (trace) trace.chainOffset = chainOffset;
+    }
     let partUrls = null; // set only for a split episode — see partLetters below
 
     // Episode URLs may sit under the parent slug OR a short child-slug variant
@@ -2152,8 +2215,8 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId, trace = null
         const html = await detailRes.text();
         if (partLetters) partUrls = collectParts(html);
         const epMap = collectEpisodes(html);
-        if (epMap.has(Number(episode))) {
-          episodeUrl = epMap.get(Number(episode));
+        if (epMap.has(wantedEpisode)) {
+          episodeUrl = epMap.get(wantedEpisode);
         }
       } else if (detailRes.status >= 400 && detailRes.status < 500 && detailRes.status !== 429) {
         detailDead = true;
@@ -2186,8 +2249,8 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId, trace = null
           const html = await ajaxRes.text();
           if (partLetters && !partUrls) partUrls = collectParts(html);
           const epMap = collectEpisodes(html);
-          if (epMap.has(Number(episode))) {
-            episodeUrl = epMap.get(Number(episode));
+          if (epMap.has(wantedEpisode)) {
+            episodeUrl = epMap.get(wantedEpisode);
           }
         }
       } catch {}
