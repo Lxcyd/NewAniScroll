@@ -1486,7 +1486,7 @@ export default function RelationsGraph({
                     aria-label={t("anime.graphHideNode", { defaultValue: "Hide this entry" })}
                     title={t("anime.graphHideNode", { defaultValue: "Hide this entry" })}
                   >
-                    <Icon d={ICON.close} size={11} />
+                    <Icon d={ICON.remove} size={11} />
                   </button>
                   {covers ? (
                     <div style={{ ...gStyles.nodeRow, minHeight: COVER_H }}>
@@ -1807,21 +1807,29 @@ const gStyles: Record<string, CSSProperties> = {
     textAlign: "center",
     boxShadow: "0 2px 6px rgba(0,0,0,.55)",
   },
+  /**
+   * Dismiss, tucked INSIDE the top-right corner.
+   *
+   * It used to hang outside the card as a bordered cross, which put a second
+   * round badge on a card that already carries the step number and read as
+   * part of the diagram rather than as a control. A minus, inside the frame
+   * and unboxed, says "take this one out" without competing with anything.
+   */
   nodeClose: {
     position: "absolute",
-    top: -8,
-    right: -8,
-    width: 18,
-    height: 18,
+    top: 3,
+    right: 3,
+    width: 16,
+    height: 16,
     display: "grid",
     placeItems: "center",
-    borderRadius: 9,
-    border: "1px solid var(--line)",
-    background: "#1e1e1e",
+    borderRadius: 4,
+    border: "none",
+    background: "transparent",
     color: "var(--txt-2)",
     cursor: "pointer",
     padding: 0,
-    opacity: 0.55,
+    opacity: 0.5,
   },
   nodeRow: { display: "flex", alignItems: "stretch" },
   nodeCover: {
