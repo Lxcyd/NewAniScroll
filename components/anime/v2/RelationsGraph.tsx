@@ -80,25 +80,6 @@ const NODE_W_COVER = NODE_W + COVER_W;
 const PAD = 40;
 
 /**
- * How far a relation name sits off its own line.
- *
- * Measured from the label's CENTRE, which is the trap: a lift of 14 with a
- * 15px-tall label leaves six pixels of actual air, and the word still looks
- * stuck to the stroke. Stated as "half the label, plus the air I want", so the
- * number means what it says.
- */
-const LABEL_H = 16;
-/**
- * Air between the bottom of the word and the stroke. Fifteen board units read
- * as touching once the board is zoomed out — the label shrinks with the zoom
- * and so does the gap, but the eye judges the gap against the STROKE, whose
- * width does not shrink with it. Doubled so the separation survives the zoom
- * levels a long chain is actually looked at.
- */
-const LABEL_AIR = 30;
-const LABEL_LIFT = LABEL_H / 2 + LABEL_AIR;
-
-/**
  * Zoom range. The floor used to be 0.35, which on a wide franchise (or with
  * covers on, where a card is half as wide again) stopped well before the whole
  * board fitted — you could see the picture the fit gave you and never pull back
@@ -1376,13 +1357,12 @@ export default function RelationsGraph({
               // can put its name over the card in between; that is accepted,
               // because a name that hunts for a free spot is a name you can no
               // longer attribute to a line.
-              // Lifted clear of the line rather than sitting astride it: the
-              // stroke ran straight through the middle of the word, and a
-              // label the line cuts in half reads as part of the drawing. A
-              // fixed offset, the same for every edge — the name still belongs
-              // unmistakably to the trait just below it.
-              const x = (p.x1 + p.x2) / 2 + (rankDir === "TB" ? LABEL_LIFT : 0);
-              const y = (p.y1 + p.y2) / 2 - (rankDir === "TB" ? 0 : LABEL_LIFT);
+              // Astride the line, dead centre. The chip is opaque and
+              // bordered, so it masks the stroke behind it instead of being
+              // cut in half by it — which is why lifting it off was solving a
+              // problem it never had.
+              const x = (p.x1 + p.x2) / 2;
+              const y = (p.y1 + p.y2) / 2;
               const touches = near ? e.from === hover || e.to === hover : null;
               const lit = touches !== null ? touches : isChainEdge(e);
               const dim = touches !== null ? !touches : !!chain && !isChainEdge(e);
