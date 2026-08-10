@@ -23,9 +23,14 @@ import { useTranslation } from "react-i18next";
  * Those are the facts you open a franchise map for, and only labelled edges
  * carry them.
  *
- * Faithful except in reach: Hayase walks relations two levels deep, fetching
- * each neighbour's own relations. We draw the level the info page already
- * holds — see the note on depth in the layout memo.
+ * Reach: Hayase walks the WHOLE franchise, not two levels. Their
+ * `_generateRelationsTree` recurses to depth 2, collects the nodes it had to
+ * stop at, re-queries those, and repeats until nothing new appears — the
+ * `while (lastEdgeMedia.size)` loop in their anilist client. The depth-2 bound
+ * inside one pass is only the shape of their query (which nests relations two
+ * levels), not the reach of the walk. Ours does the same breadth-first, one
+ * level per round since our endpoint returns one level, and stops on the same
+ * condition: no unexpanded node left.
  */
 
 /** Hayase's dagre settings, unchanged — Relations.svelte#getLayoutedElements. */
@@ -76,18 +81,26 @@ type GNode = {
 
 type GEdge = { from: number; to: number; label: string };
 
-type ExpandedNode = {
+/** What a node needs to be drawn — the shape both the prop and the API give. */
+type NodeMeta = {
   id: number;
-  format: string | null;
-  status: string | null;
-  episodes: number | null;
-  title: any;
-  edges: { relationType: string; node: any }[];
+  type?: string | null;
+  format?: string | null;
+  status?: string | null;
+  episodes?: number | null;
+  title?: any;
 };
 
-/** Hayase stops expanding at depth 2; so the fan-out is one level, bounded. */
-const MAX_EXPANDED = 24;
-/** Parallel fetches. Enough to feel instant, few enough to stay polite. */
+/**
+ * Walk bounds. Hayase has none — a desktop app can afford to pull a hundred
+ * nodes. A franchise like Gundam or Fate is a web of that size, and here every
+ * node is an HTTP round trip, so the walk stops rather than crawling forever.
+ * Sixty covers every ordinary franchise (Sword Art Online is ~22) and the cap
+ * only ever removes the outermost, least relevant entries.
+ */
+const MAX_NODES = 60;
+const MAX_ROUNDS = 8;
+/** Frontier fetches in flight at once. */
 const FETCH_BATCH = 6;
 
 const FORMAT_LABEL: Record<string, string> = {
@@ -114,16 +127,18 @@ export default function RelationsGraph({
   const clickTarget = useClickTarget();
 
   /**
-   * The second level of the tree, fetched when the graph opens.
+   * The franchise, walked breadth-first from this entry when the graph opens.
    *
-   * The info page carries THIS entry's relations, which is enough to draw its
-   * neighbours but not to connect them to each other — so Sword Art Online
-   * stopped at five nodes and never reached Alicization or Gun Gale, which is
-   * most of the franchise. Hayase walks two levels for exactly this reason
-   * (`_generateRelationsTree`, depth >= 2 stops expanding), and so do we: one
-   * request per neighbour against an endpoint that caches for a day.
+   * The info page carries THIS entry's relations, which draws its neighbours
+   * but cannot connect them to each other: Sword Art Online stopped at five
+   * nodes and never reached Alicization, Gun Gale or Progressive's sequel —
+   * most of the franchise. So each node we draw gets expanded in turn, exactly
+   * as Hayase does, against an endpoint that caches for a day.
    */
-  const [expansion, setExpansion] = useState<Map<number, ExpandedNode>>(new Map());
+  const [tree, setTree] = useState<{ nodes: NodeMeta[]; edges: GEdge[] }>({
+    nodes: [],
+    edges: [],
+  });
 
   const [scale, setScale] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
@@ -153,140 +168,157 @@ export default function RelationsGraph({
   }, [open, onClose]);
 
 
-  // Pull the neighbours' own relations once the graph is open. Not before: the
-  // info page should not pay for a view nobody opened.
+  /**
+   * The walk. Runs once when the graph opens — not before, since the info page
+   * should not pay for a view nobody opened.
+   *
+   * A port of `_generateRelationsTree`, with its three rules that matter:
+   *
+   *  - Only ANIME nodes, never a CHARACTER relation. Both are exclusions on the
+   *    EDGE, so the manga a series adapts and the unrelated show that happens
+   *    to share a voice character never enter the graph — and, crucially, never
+   *    get expanded either. Expanding them is what put Alicization and an
+   *    Eromanga Sensei OVA on the board as islands: the light novel is the hub
+   *    of the whole franchise, so pulling ITS relations dragged in entries
+   *    whose only link ran through a node we had (rightly) refused to draw.
+   *
+   *  - One edge per PAIR, since a relation is reported from both ends, with
+   *    PARENT overridable — it means little next to SIDE STORY or ALTERNATIVE.
+   *
+   *  - PREQUEL is drawn reversed and relabelled SEQUEL, so every chain points
+   *    the same way. dagre ranks by edge direction: leave the prequel edges as
+   *    they come and a season chain lays itself out backwards.
+   */
   useEffect(() => {
     if (!open) return;
-    const ids = (relations || [])
-      .map((e: any) => Number(e?.node?.id))
-      .filter((id) => Number.isFinite(id) && id > 0)
-      .slice(0, MAX_EXPANDED);
-    if (ids.length === 0) return;
 
     let cancelled = false;
-    (async () => {
-      for (let i = 0; i < ids.length; i += FETCH_BATCH) {
-        if (cancelled) return;
-        const slice = ids.slice(i, i + FETCH_BATCH);
-        const results = await Promise.all(
-          slice.map(async (id) => {
-            try {
-              const res = await fetch(`/api/v2/relations/${id}`);
-              if (!res.ok) return null;
-              return (await res.json()) as ExpandedNode;
-            } catch {
-              return null;
-            }
-          }),
-        );
-        if (cancelled) return;
-        setExpansion((prev) => {
-          const next = new Map(prev);
-          for (const r of results) if (r?.id) next.set(r.id, r);
-          return next;
+    const nodes = new Map<number, NodeMeta>();
+    const edges = new Map<string, GEdge>();
+    const expanded = new Set<number>();
+    const frontier = new Set<number>();
+
+    const addNode = (m: NodeMeta) => {
+      const id = Number(m?.id);
+      if (!Number.isFinite(id) || id <= 0) return;
+      if (nodes.has(id)) return;
+      if (nodes.size >= MAX_NODES) return;
+      nodes.set(id, m);
+      if (!expanded.has(id)) frontier.add(id);
+    };
+
+    const processEdges = (fromId: number, list: any[]) => {
+      expanded.add(fromId);
+      frontier.delete(fromId);
+      for (const e of list || []) {
+        const node = e?.node;
+        if (!node?.id) continue;
+        // Absent type means an older cached row; those are anime entries.
+        if ((node.type ?? "ANIME") !== "ANIME") continue;
+        if (EXCLUDED_RELATIONS.has(e.relationType)) continue;
+        const id = Number(node.id);
+        addNode(node);
+        if (!nodes.has(id)) continue; // refused by the node cap
+
+        const key = [id, fromId].sort((a, b) => a - b).join("-");
+        const existing = edges.get(key);
+        if (existing && existing.label !== "PARENT") continue;
+        const isPrequel = e.relationType === "PREQUEL";
+        edges.set(key, {
+          from: isPrequel ? id : fromId,
+          to: isPrequel ? fromId : id,
+          label: isPrequel ? "SEQUEL" : e.relationType || "OTHER",
         });
+      }
+    };
+
+    const publish = () =>
+      setTree({ nodes: Array.from(nodes.values()), edges: Array.from(edges.values()) });
+
+    // The centre, and the relations the page already holds — drawn immediately,
+    // so the graph is never blank while the walk runs.
+    nodes.set(currentId, {
+      id: currentId,
+      title: currentTitle,
+      format: currentFormat,
+      episodes: currentEpisodes,
+    });
+    processEdges(currentId, relations as any[]);
+    publish();
+
+    (async () => {
+      for (let round = 0; round < MAX_ROUNDS && frontier.size > 0; round++) {
+        const ids = Array.from(frontier);
+        for (let i = 0; i < ids.length; i += FETCH_BATCH) {
+          if (cancelled) return;
+          const results = await Promise.all(
+            ids.slice(i, i + FETCH_BATCH).map(async (id) => {
+              try {
+                const res = await fetch(`/api/v2/relations/${id}`);
+                if (!res.ok) return null;
+                return await res.json();
+              } catch {
+                return null;
+              }
+            }),
+          );
+          if (cancelled) return;
+          for (let k = 0; k < results.length; k++) {
+            const id = ids[i + k];
+            const data = results[k];
+            // A failed fetch still counts as expanded: retrying it next round
+            // would spin forever on a permanently missing id.
+            if (!data) {
+              expanded.add(id);
+              frontier.delete(id);
+              continue;
+            }
+            // The fetch carries fuller metadata than the edge did (status,
+            // episode count), so let it refine the node we drew from the edge.
+            const known = nodes.get(id);
+            if (known) {
+              nodes.set(id, {
+                ...known,
+                title: data.title ?? known.title,
+                format: data.format ?? known.format,
+                status: data.status ?? known.status,
+                episodes: data.episodes ?? known.episodes,
+              });
+            }
+            processEdges(id, data.edges);
+          }
+          publish();
+        }
       }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [open, relations]);
+  }, [open, relations, currentId, currentTitle, currentFormat, currentEpisodes]);
 
-  /**
-   * Nodes and edges, positioned by dagre.
-   *
-   * Depth 1 — the centre and its direct relations. Hayase goes to 2, which is
-   * what fills their board with a whole franchise, but every node at that level
-   * costs an AniList query for ITS relations, and this graph opens from a page
-   * that has already paid for its own. Level 1 is free and already answers what
-   * the old timeline could not.
-   */
+  /** The walked franchise, laid out by dagre. */
   const { nodes, edges, width, height } = useMemo(() => {
-    const centreTitle = pickTitle(currentTitle, titlePref) || "";
     const seen = new Map<number, GNode>();
-    const list: GEdge[] = [];
-
-    seen.set(currentId, {
-      id: currentId,
-      title: centreTitle,
-      format: currentFormat || "TV",
-      episodes: currentEpisodes ?? null,
-      status: null,
-      current: true,
-      x: 0,
-      y: 0,
-      w: NODE_W,
-      h: nodeHeight(centreTitle),
-    });
-
-    const addNode = (node: any) => {
-      const id = Number(node?.id);
-      if (!Number.isFinite(id) || seen.has(id)) return id;
-      const title = pickTitle(node.title, titlePref) || "TBA";
-      seen.set(id, {
-        id,
+    for (const m of tree.nodes) {
+      const title = pickTitle(m.title, titlePref) || "TBA";
+      seen.set(m.id, {
+        id: m.id,
         title,
-        format: node.format || "TV",
-        episodes: node.episodes ?? null,
-        status: node.status ?? null,
-        current: false,
+        format: m.format || "TV",
+        episodes: m.episodes ?? null,
+        status: m.status ?? null,
+        current: m.id === currentId,
         x: 0,
         y: 0,
         w: NODE_W,
         h: nodeHeight(title),
       });
-      return id;
-    };
-
-    /*
-     * One edge per PAIR, keyed on the sorted ids — the same relation is
-     * reported from both ends (A SEQUEL B, B PREQUEL A) and drawing both would
-     * double every line. Hayase keys theirs the same way, with one refinement
-     * worth keeping: PARENT is the weakest label ("related to", roughly), so a
-     * pair that also has a specific relation keeps the specific one.
-     */
-    const edgeByPair = new Map<string, GEdge>();
-    const addEdge = (from: number, to: number, label: string) => {
-      if (!Number.isFinite(from) || !Number.isFinite(to) || from === to) return;
-      const key = [from, to].sort((a, b) => a - b).join("-");
-      const existing = edgeByPair.get(key);
-      if (existing && existing.label !== "PARENT") return;
-      edgeByPair.set(key, { from, to, label: label || "OTHER" });
-    };
-
-    const consider = (fromId: number, edge: any) => {
-      const node = edge?.node;
-      if (!node?.id) return;
-      if (node.type && node.type !== "ANIME") return;
-      if (EXCLUDED_RELATIONS.has(edge.relationType)) return;
-      const id = addNode(node);
-      addEdge(fromId, id, edge.relationType);
-    };
-
-    for (const e of relations || []) consider(currentId, e);
-
-    // Level two: the neighbours' own relations. Only edges BETWEEN nodes we
-    // already know are drawn — otherwise each neighbour would drag in its own
-    // unrelated tree and the board would grow without end.
-    for (const exp of Array.from(expansion.values())) {
-      for (const e of exp.edges || []) {
-        const node = e?.node;
-        if (!node?.id) continue;
-        if (node.type && node.type !== "ANIME") continue;
-        if (EXCLUDED_RELATIONS.has(e.relationType)) continue;
-        const id = Number(node.id);
-        if (!seen.has(id)) {
-          // A node one hop further out: draw it, but it is a leaf — we never
-          // fetched ITS relations, so nothing hangs off it. This is Hayase's
-          // `depth >= 2` boundary.
-          addNode(node);
-        }
-        addEdge(exp.id, id, e.relationType);
-      }
     }
 
-    list.push(...Array.from(edgeByPair.values()));
+    // An edge whose other end was refused by the node cap has nothing to
+    // connect to; drawing it would leave a line running off into nothing.
+    const list = tree.edges.filter((e) => seen.has(e.from) && seen.has(e.to));
 
     const g = new dagre.graphlib.Graph().setDefaultEdgeLabel(() => ({}));
     g.setGraph({
@@ -314,18 +346,18 @@ export default function RelationsGraph({
     }
 
     return { nodes: allNodes, edges: list, width: maxX, height: maxY };
-  }, [relations, expansion, currentId, currentTitle, currentFormat, currentEpisodes, titlePref]);
+  }, [tree, currentId, titlePref]);
 
   const byId = useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes]);
 
   /**
    * Frame the whole board when it changes, the way Hayase calls `fitView`.
    *
-   * Without it a two-level graph opens at scale 1 anchored top-left, which for
-   * a large franchise means looking at one corner of it and having to hunt for
-   * the rest — and the second level arrives a moment after the first, so the
-   * board grows under the viewer. Re-fitting on each size change is what makes
-   * that growth read as the picture settling rather than running away.
+   * Without it the graph opens at scale 1 anchored top-left, which for a large
+   * franchise means looking at one corner of it and having to hunt for the
+   * rest — and the walk delivers its rounds one after another, so the board
+   * keeps growing under the viewer. Re-fitting on each size change is what
+   * makes that growth read as the picture settling rather than running away.
    */
   useEffect(() => {
     if (!open) return;
