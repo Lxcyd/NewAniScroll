@@ -77,7 +77,11 @@ const REDIS_KEY_CHAIN = (id: number) => `seasonChain:v6:${id}`;
 //      — they're bonus films now. Bump to evict lists that had them as "Season N".
 // v15: meme correction que seasonChain v6 — "Season 2 Part 2" s'affichait
 //      apres "Season 4" sur Sword Art Online.
-const REDIS_KEY_LIST = (id: number) => `seasonList:v15:${id}`;
+// v16: une variante "film" d'une saison n'accepte plus que les aretes de
+//      digest (SUMMARY, COMPILATION). ALTERNATIVE presentait Progressive -
+//      Aria of a Starless Night comme "saison 1, en film" alors que c'est
+//      une re-adaptation ; elle passe dans le panneau Films.
+const REDIS_KEY_LIST = (id: number) => `seasonList:v16:${id}`;
 
 // Cache accessors now hit Turso (see lib/db/seasonCache.ts) instead of Redis.
 // The cache_key strings keep their version tag, so a version bump still evicts

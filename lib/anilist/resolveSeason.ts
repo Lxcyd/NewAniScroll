@@ -343,16 +343,21 @@ export function findFilmVariants(
     .filter(
       (e: any) =>
         !(excludeIds && excludeIds.has(Number(e.node?.id))) &&
-        // SUMMARY = an AniList recap-film edge (Attack on Titan: The Roar of
-        // Awakening recaps S2). It's the same content as the season re-cut into a
-        // film — exactly a dual-format variant — but was previously matched by no
-        // helper, so recap films silently vanished. A whole-franchise digest
-        // (~Chronicle~, SUMMARY of 4 seasons) is filtered out downstream by the
-        // multi-season guard in resolveFranchiseSeasons and shown as a bonus film.
-        (e.relationType === "COMPILATION" ||
-          e.relationType === "ALTERNATIVE" ||
-          e.relationType === "PARENT" ||
-          e.relationType === "SUMMARY") &&
+        // A dual-format variant claims "this season, re-cut as a film" — so
+        // only AniList's two digest edges qualify. SUMMARY is the recap film
+        // (Attack on Titan: The Roar of Awakening recaps S2), COMPILATION the
+        // assembled one. A whole-franchise digest (~Chronicle~, SUMMARY of 4
+        // seasons) is filtered out downstream by the multi-season guard in
+        // resolveFranchiseSeasons and shown as a bonus film.
+        //
+        // ALTERNATIVE and PARENT used to be accepted too, and that is wrong:
+        // ALTERNATIVE means a different adaptation, not the same one re-cut.
+        // It presented Progressive - Aria of a Starless Night as "Season 1,
+        // watch as a film" — a 2021 re-adaptation with its own continuity and
+        // its own sequels, offered in place of the 2012 season. Those films
+        // are not lost: they surface in the franchise Films panel, which is
+        // where a separate work belongs.
+        (e.relationType === "COMPILATION" || e.relationType === "SUMMARY") &&
         e.node?.type === "ANIME" &&
         e.node?.format === "MOVIE" &&
         sharesFranchise(media?.title, e.node?.title)
