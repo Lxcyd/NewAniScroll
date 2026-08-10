@@ -1041,13 +1041,26 @@ export default function RelationsGraph({
       const w = e.label.replace(/_/g, " ").length * 5.4 + 12;
       const h = 15;
       let spot = at(0.5);
+      let placed = false;
+      // Sliding along the curve is not always enough: an edge that skips a rank
+      // runs the WHOLE way across the card in between, so every point of it is
+      // blocked — Sword Art Online's direct sequel edge to season 2 passes over
+      // Extra Edition end to end. When that happens the name has to step off
+      // the line, perpendicular to it, until it clears. Kept short so it still
+      // reads as belonging to its own edge.
       for (const t of [0.5, 0.38, 0.62, 0.26, 0.74, 0.16, 0.84]) {
         const pt = at(t);
-        const box = { x: pt.x - w / 2, y: pt.y - h / 2, w, h };
-        if (taken.some((b) => overlaps(box, b))) continue;
-        taken.push(box);
-        spot = pt;
-        break;
+        for (const away of [0, -20, 20, -38, 38, -58, 58]) {
+          const cx = pt.x + (rankDir === "TB" ? away : 0);
+          const cy = pt.y + (rankDir === "TB" ? 0 : away);
+          const box = { x: cx - w / 2, y: cy - h / 2, w, h };
+          if (taken.some((b) => overlaps(box, b))) continue;
+          taken.push(box);
+          spot = { x: cx, y: cy };
+          placed = true;
+          break;
+        }
+        if (placed) break;
       }
       out.push({ e, x: spot.x, y: spot.y });
     }
