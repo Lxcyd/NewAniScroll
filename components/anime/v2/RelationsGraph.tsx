@@ -39,7 +39,15 @@ import { getUserList, type UserListEntry } from "@/lib/anilist/userListCache";
 /** Hayase's dagre settings, unchanged — Relations.svelte#getLayoutedElements. */
 const NODE_SEP = 50;
 const EDGE_SEP = 50;
-const RANK_SEP = 120;
+/**
+ * Gap between columns. Hayase's 120 was set for a 150px card; ours is 226 with
+ * cover art, and the relation name has to sit INSIDE that gap — at 120 a
+ * "SIDE STORY" left barely twenty pixels of air on each side and read as
+ * belonging to the card it was leaning against. Widened so the label is
+ * unmistakably between two cards rather than next to one.
+ */
+const RANK_SEP_TEXT = 120;
+const RANK_SEP_COVER = 210;
 const RANKER = "tight-tree";
 
 /** TextNode.svelte is `w-[150px]`; the height follows its two stacked rows. */
@@ -777,7 +785,7 @@ export default function RelationsGraph({
       rankdir: rankDir,
       edgesep: EDGE_SEP,
       nodesep: NODE_SEP,
-      ranksep: RANK_SEP,
+      ranksep: covers ? RANK_SEP_COVER : RANK_SEP_TEXT,
       ranker: RANKER,
     });
     const allNodes = Array.from(seen.values());
