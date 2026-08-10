@@ -880,7 +880,7 @@
     "graphSeasons": "Seasons",
     "graphOther": "Movies & others",
     "graphHint": "Drag to pan · scroll to zoom",
-    "graphHintOrder": "Click a title to light up what follows · click it again to open it · drag to pan, scroll to zoom",
+    "graphHintOrder": "Click a title to light up what follows · click it again to open it · drag to pan, hold Ctrl to align, scroll to zoom",
     "graphFit": "Fit to screen",
     "graphReset": "Reset layout",
     "graphFullscreen": "Fullscreen",

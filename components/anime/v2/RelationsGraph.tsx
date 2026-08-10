@@ -1035,6 +1035,50 @@ export default function RelationsGraph({
     setDragId(id);
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   };
+  /**
+   * Hold Ctrl while dragging to line a card up with its neighbour.
+   *
+   * Placing a card by eye is what you do to untangle a knot, and by eye you
+   * land a few pixels off — which is exactly enough for the line between two
+   * cards to slope, and a sloping line reads as a relation going somewhere
+   * else. Snapping to the nearest card ALONG the rank axis (left or right in a
+   * horizontal board, above or below in a vertical one) makes the connection
+   * run flat.
+   *
+   * Centres, not tops: an edge leaves a card at its middle, so it is the
+   * middles that must agree for the stroke to come out straight.
+   */
+  const alignToNeighbour = (id: number, off: { dx: number; dy: number }) => {
+    const me = byId.get(id);
+    if (!me) return off;
+    const myCx = me.x + off.dx + me.w / 2;
+    const myCy = me.y + off.dy + me.h / 2;
+
+    let best: { cx: number; cy: number } | null = null;
+    let bestScore = Infinity;
+    for (const n of nodes) {
+      if (n.id === id) continue;
+      const p = posOf(n);
+      const cx = p.x + n.w / 2;
+      const cy = p.y + n.h / 2;
+      const along = rankDir === "TB" ? Math.abs(cy - myCy) : Math.abs(cx - myCx);
+      // A card in the same column is not the one to the left or the right.
+      if (along < 4) continue;
+      const across = rankDir === "TB" ? Math.abs(cx - myCx) : Math.abs(cy - myCy);
+      // Nearest along the axis wins; the across distance only breaks ties
+      // between two columns at a similar distance.
+      const score = along + across * 0.35;
+      if (score < bestScore) {
+        bestScore = score;
+        best = { cx, cy };
+      }
+    }
+    if (!best) return off;
+    return rankDir === "TB"
+      ? { dx: off.dx + (best.cx - myCx), dy: off.dy }
+      : { dx: off.dx, dy: off.dy + (best.cy - myCy) };
+  };
+
   const onNodePointerMove = (e: React.PointerEvent) => {
     const d = nodeDrag.current;
     if (!d) return;
@@ -1042,10 +1086,12 @@ export default function RelationsGraph({
     const dy = (e.clientY - d.y) / scale;
     if (!d.moved && Math.abs(dx) < 3 && Math.abs(dy) < 3) return;
     d.moved = true;
+    const raw = { dx: d.dx + dx, dy: d.dy + dy };
+    const next = e.ctrlKey ? alignToNeighbour(d.id, raw) : raw;
     setMoved((prev) => {
-      const next = new Map(prev);
-      next.set(d.id, { dx: d.dx + dx, dy: d.dy + dy });
-      return next;
+      const m = new Map(prev);
+      m.set(d.id, next);
+      return m;
     });
   };
   const onNodePointerUp = (e: React.PointerEvent) => {
@@ -1534,7 +1580,7 @@ export default function RelationsGraph({
       <div style={gStyles.hint}>
         {t("anime.graphHintOrder", {
           defaultValue:
-            "Click a title to light up what follows · click it again to open it · drag to pan, scroll to zoom",
+            "Click a title to light up what follows · click it again to open it · drag to pan, hold Ctrl to align, scroll to zoom",
         })}
       </div>
     </div>,
