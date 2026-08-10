@@ -1443,8 +1443,13 @@ export default function RelationsGraph({
                     color: isSelected ? "var(--brand-primary, #ff3b5c)" : "var(--txt-0)",
                     // Dimming the rest is what makes a chain readable at all:
                     // the board is otherwise a uniform field of nineteen cards.
-                    // A search result is never dimmed — it is what you asked for.
-                    opacity: isMatch || !isDim(n.id) ? 1 : 0.62,
+                    // A search result is never dimmed — it is what you asked
+                    // for — and neither is a card you moved by hand: dimming is
+                    // TRANSPARENCY, so a dimmed card dropped on a neighbour
+                    // shows it through and reads as being underneath, however
+                    // high it is stacked.
+                    opacity:
+                      isMatch || dragId === n.id || moved.has(n.id) || !isDim(n.id) ? 1 : 0.62,
                     // The selection ring follows whatever colour the border
                     // ended up being, or a green card would wear a pink halo.
                     boxShadow: isMatch
