@@ -350,6 +350,16 @@ a {
  */
 .vds-player {
   background-color: transparent;
+  /* And no frame at all.
+   *
+   * Vidstack draws `1px solid rgb(255 255 255 / 0.1)` around the player. On the
+   * black box it used to sit on, that pixel read as very dark grey — the outline
+   * that kept surviving every other fix, because it is not an artefact of
+   * clipping or of subpixel layout: it is a border, deliberately drawn, on all
+   * four sides, following the radius. Nothing else in the app frames its media,
+   * so it goes. */
+  --video-border: none;
+  border: none;
 }
 
 /* One rounded clip, and one black box, for the whole player.
