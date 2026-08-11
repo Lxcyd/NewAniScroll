@@ -1014,9 +1014,15 @@ export default function RelationsGraph({
    * numbering does. An edge onto a bonus that continues nothing stays dim: the
    * line shows the main thread, not its detours.
    */
+  /**
+   * On the lit thread — numbered step or crossed bonus alike. A bridge reads as
+   * part of the order because the line runs through it; it simply doesn't take
+   * a number, which is what says "you don't have to watch this one".
+   */
+  const onThread = (id: number) => !!chain && (chain.main.has(id) || chain.bridge.has(id));
+
   const isChainEdge = (e: GEdge) => {
     if (!chain || e.label !== "SEQUEL") return false;
-    const onThread = (id: number) => chain.main.has(id) || chain.bridge.has(id);
     if (!onThread(e.from) || !onThread(e.to)) return false;
     return chain.dist.get(e.to) === (chain.dist.get(e.from) ?? -99) + (chain.main.has(e.to) ? 1 : 0);
   };
@@ -1204,7 +1210,7 @@ export default function RelationsGraph({
 
   /** True when a card should read as background right now. Hover wins over the
    *  running order: it answers the question the viewer just asked. */
-  const isDim = (id: number) => (near ? !near.has(id) : chain ? !chain.main.has(id) : false);
+  const isDim = (id: number) => (near ? !near.has(id) : chain ? !onThread(id) : false);
 
   /** Drag a single card. A drag must not also count as a click. */
   const onNodePointerDown = (e: React.PointerEvent, id: number) => {
@@ -1599,7 +1605,10 @@ export default function RelationsGraph({
 
             {nodes.map((n) => {
               const step = chain?.main.get(n.id);
-              const lit = step !== undefined;
+              // Numbered vs merely on the thread: a crossed bonus wears the
+              // border and the full opacity, not the badge.
+              const lit = onThread(n.id);
+              const numbered = step !== undefined;
               const isSelected = n.id === selected;
               const isMatch = !!matches?.has(n.id);
               const done = isFinished(listMap?.get(n.id), n.episodes);
@@ -1671,7 +1680,7 @@ export default function RelationsGraph({
                 >
                   {/* `chain` is already 1-based — the selected entry is step 1.
                       Adding one here made the whole order start at 2. */}
-                  {lit && <span style={gStyles.stepBadge}>{step}</span>}
+                  {numbered && <span style={gStyles.stepBadge}>{step}</span>}
                   {/* Dismiss a card you don't care about; the reset button in
                       the control bar brings every dismissed one back. */}
                   <button
@@ -2019,6 +2028,13 @@ const gStyles: Record<string, CSSProperties> = {
     background: "#000",
     backgroundImage: "radial-gradient(circle, #2a2a30 1px, transparent 1px)",
     backgroundSize: "22px 22px",
+    // Anchored bottom-left, not top-left. The tile carries its dot in the
+    // middle, so tiling from a corner leaves exactly half a tile of margin on
+    // the two sides it starts from and whatever the height happens to leave
+    // over on the others — a wide empty band under the last row. From the
+    // bottom-left, the margin under the last row is the same 11px as the one
+    // left of the first column.
+    backgroundPosition: "left bottom",
     // Dragging the board would otherwise sweep a text selection across every
     // card it crosses, leaving the graph highlighted in blue.
     userSelect: "none",
