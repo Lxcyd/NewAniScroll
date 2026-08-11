@@ -1,5 +1,6 @@
 import { CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/router";
 import { createPortal } from "react-dom";
 import dagre from "@dagrejs/dagre";
 import { Edge } from "types/info/AnilistInfoTypes";
@@ -447,6 +448,29 @@ export default function RelationsGraph({
    *  repaints on state, and a card dragged under its neighbours is a card you
    *  are moving blind. */
   const [dragId, setDragId] = useState<number | null>(null);
+
+  /**
+   * A page is being opened from the board.
+   *
+   * Full screen, a card click gives NO feedback at all: the overlay covers the
+   * page, so the navigation it starts happens entirely out of sight and the
+   * board just sits there for as long as the next page takes to answer. Read as
+   * a dead click, it gets clicked again — and every one of those is another
+   * route change queued behind the first.
+   */
+  const [navigating, setNavigating] = useState(false);
+  const router = useRouter();
+  useEffect(() => {
+    // The overlay outlives the navigation when it fails or the viewer goes
+    // back, so the shield has to come down on its own.
+    const done = () => setNavigating(false);
+    router.events.on("routeChangeComplete", done);
+    router.events.on("routeChangeError", done);
+    return () => {
+      router.events.off("routeChangeComplete", done);
+      router.events.off("routeChangeError", done);
+    };
+  }, [router.events]);
 
   const [scale, setScale] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
@@ -1649,7 +1673,12 @@ export default function RelationsGraph({
                     if (nodeDrag.current?.moved) {
                       ev.preventDefault();
                       ev.stopPropagation();
+                      return;
                     }
+                    // Modified clicks open elsewhere and leave this page alone,
+                    // so they must not lock the board down.
+                    if (ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.button !== 0) return;
+                    if (open) setNavigating(true);
                   }}
                   title={t("anime.graphOpenEntry", { defaultValue: "Open this entry" })}
                   style={{
@@ -1836,6 +1865,15 @@ export default function RelationsGraph({
     >
       {header}
       {board}
+      {/* Opening a page from the board: a pink bar says the click landed, and
+          the sheet under it swallows every further one until the next page
+          arrives — a second click is a second route change, not a faster one. */}
+      {navigating && (
+        <div style={gStyles.navShield} aria-hidden="true">
+          <style>{NAV_KEYFRAMES}</style>
+          <div style={gStyles.navBar} />
+        </div>
+      )}
     </div>,
     document.body
   );
@@ -1856,6 +1894,13 @@ export default function RelationsGraph({
   );
 }
 
+/** Inline because the overlay is portalled to <body>, outside any stylesheet
+ *  the component owns — and a keyframe cannot be written as a style object. */
+const NAV_KEYFRAMES = `@keyframes anig-nav {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(250%); }
+}`;
+
 const gStyles: Record<string, CSSProperties> = {
   overlay: {
     position: "fixed",
@@ -1865,6 +1910,26 @@ const gStyles: Record<string, CSSProperties> = {
     zIndex: 10000,
     display: "flex",
     flexDirection: "column",
+  },
+  /** Over everything the overlay draws, controls and cards included. */
+  navShield: {
+    position: "absolute",
+    inset: 0,
+    zIndex: 20,
+    overflow: "hidden",
+    background: "rgba(0,0,0,.2)",
+    cursor: "progress",
+  },
+  navBar: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    height: 3,
+    width: "40%",
+    borderRadius: 2,
+    background:
+      "linear-gradient(90deg, transparent, var(--brand-primary, #ff3b5c) 40%, var(--brand-primary, #ff3b5c) 60%, transparent)",
+    animation: "anig-nav 1.05s ease-in-out infinite",
   },
   header: {
     display: "flex",
