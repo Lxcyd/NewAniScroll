@@ -995,9 +995,13 @@ export default function RelationsGraph({
    * it) and says nothing, while its sequel chain is exactly the running order.
    *
    * The number is the LONGEST path from the selection, not the shortest, so a
-   * work never gets a number lower than something it follows. Sword Art Online
-   * II is reachable directly (2 hops) and through Extra Edition (3): it must
-   * read 3, or Extra Edition would appear to come after it.
+   * work never gets a number lower than something it follows: where the thread
+   * both runs straight to an entry and reaches it again through a step that
+   * comes in between, the longer count is the one that reads as an order.
+   *
+   * That is a rule about the thread, not about what the thread is made of —
+   * which bonuses it goes through at all is decided further down, and the
+   * answer there is "only the ones it cannot go around".
    */
   const chain = useMemo(() => {
     if (!selected || !byId.has(selected)) return null;
@@ -1039,25 +1043,73 @@ export default function RelationsGraph({
     if (main.size <= 1) return null;
 
     /**
-     * The bonuses the thread CROSSES, as opposed to the ones hanging off it.
+     * The bonuses the thread has NO WAY around, as opposed to the ones it can
+     * simply go past.
      *
      * Stand Alone Complex reaches SAC_2045 through Solid State Society, a
-     * Special: the line has to go through it or the running order reads as two
-     * disconnected halves. Marked by walking backwards — a bonus is a bridge
-     * when a sequel of its own is lit, which leaves a dead-end bonus (a recap
-     * that continues nothing) out of the thread.
+     * Special, and through nothing else: drop it and the running order reads as
+     * two disconnected halves, so the line has to go through it. Sword Art
+     * Online reaches its second season both directly and through Extra Edition
+     * — there the special is a detour, and a rule that bridged every bonus with
+     * a lit sequel took it, numbering a side story as step 2 of the run and
+     * pushing the season everyone means to watch next to 3.
+     *
+     * So necessity is the test, and it is asked in that order: grow the thread
+     * through main entries alone, and only then open a detour, towards a main
+     * entry nothing else reaches. Each detour is the shortest one available, so
+     * a two-special path is never taken where one special joins the same pair.
      */
     const bridge = new Set<number>();
-    for (let pass = 0; pass < nodes.length + 2; pass++) {
-      let changed = false;
-      for (const [from, tos] of Array.from(next.entries())) {
-        if (dist.get(from) === undefined || isMain(from) || bridge.has(from)) continue;
-        if (tos.some((to) => (isMain(to) ? main.has(to) : bridge.has(to)))) {
-          bridge.add(from);
-          changed = true;
+    /** What the thread reaches with the detours opened so far. */
+    const reach = new Set<number>([selected]);
+    /** Follow the thread as far as it goes over what is currently open. */
+    const flood = () => {
+      const queue = Array.from(reach);
+      while (queue.length) {
+        const from = queue.shift()!;
+        for (const to of next.get(from) || []) {
+          if (reach.has(to) || !(isMain(to) || bridge.has(to))) continue;
+          reach.add(to);
+          queue.push(to);
         }
       }
-      if (!changed) break;
+    };
+    flood();
+    for (let pass = 0; pass < nodes.length + 2; pass++) {
+      if (Array.from(main.keys()).every((id) => reach.has(id))) break;
+      /*
+       * Breadth-first out of the thread and through the bonuses, stopping at
+       * the first main entry still out of reach — the nearest one, so the
+       * detour opened is the shortest. Main entries are not walked THROUGH:
+       * anything behind one is the thread's own business, reached by flooding
+       * once this gap is closed.
+       */
+      const parent = new Map<number, number>();
+      const queue = Array.from(reach);
+      const seen = new Set(reach);
+      let landed: number | null = null;
+      while (queue.length && landed === null) {
+        const from = queue.shift()!;
+        for (const to of next.get(from) || []) {
+          if (seen.has(to)) continue;
+          seen.add(to);
+          parent.set(to, from);
+          if (isMain(to)) {
+            landed = to;
+            break;
+          }
+          queue.push(to);
+        }
+      }
+      // Nothing reachable at all: the rest of `main` hangs off the selection by
+      // some other kind of relation, and the thread simply ends here.
+      if (landed === null) break;
+      // Everything between the thread and where we landed is, by construction,
+      // a bonus — main entries end the search rather than continue it.
+      for (let at = parent.get(landed); at !== undefined && !reach.has(at); at = parent.get(at)) {
+        bridge.add(at);
+      }
+      flood();
     }
 
     /**
