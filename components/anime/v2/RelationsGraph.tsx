@@ -172,6 +172,15 @@ type Props = {
   embedded?: boolean;
   /** Press on the preview's ⤢ — the caller is the one that owns `open`. */
   onExpand?: () => void;
+  /**
+   * The section's own heading, drawn at the left of the inline controls row.
+   *
+   * It belongs to the caller — it is the page's section title, not the graph's
+   * — but it has to sit on the same line as the controls, and only the row can
+   * put it there. Passing it in beats having the caller draw it above and hope
+   * the two lines look like one.
+   */
+  heading?: React.ReactNode;
   relations: Edge[];
   /** Unused by the graph now; kept so the callers' props still typecheck. */
   seasonList?: SeasonEntry[];
@@ -344,6 +353,7 @@ export default function RelationsGraph({
   currentCover,
   embedded,
   onExpand,
+  heading,
 }: Props) {
   const { t } = useTranslation();
   /**
@@ -1331,8 +1341,9 @@ export default function RelationsGraph({
    *  window onto the board, not a place to run a query from. */
   const header = (
     <div style={{ ...gStyles.header, ...(open ? null : gStyles.headerEmbedded) }}>
-        {/* In the page the section already carries the name, and there is
-            nothing to close — the row is the controls and nothing else. */}
+        {/* In the page the section's own heading takes the left, and the
+            controls are pushed to the right of it — one line, not two. */}
+        {!open && heading}
         {open && (
         <span style={gStyles.title}>
           {t("anime.relationsGraphTitle", { defaultValue: "Franchise timeline" })}
@@ -1888,18 +1899,28 @@ const gStyles: Record<string, CSSProperties> = {
     color: "var(--brand-primary, #ff3b5c)",
   },
   tick: { width: 10, fontSize: 10, lineHeight: 1 },
+  /**
+   * A field, not a sixth chip.
+   *
+   * It was the same pill, the same border, the same fill and the same height as
+   * the buttons beside it, so the row read as five buttons of which one
+   * happened to contain a cursor. A text field says what it is by being
+   * rectangular and sunken — the shape every other input on the site has — and
+   * a wider gap keeps it from being read as part of the group it precedes.
+   */
   searchBox: {
     display: "flex",
     alignItems: "center",
-    gap: 5,
-    padding: "3px 8px",
-    borderRadius: 999,
+    gap: 6,
+    padding: "4px 9px",
+    marginRight: 10,
+    borderRadius: 7,
     border: "1px solid var(--line)",
-    background: "var(--bg-2)",
+    background: "rgba(0,0,0,.35)",
     color: "var(--txt-3)",
   },
   searchInput: {
-    width: 130,
+    width: 140,
     border: "none",
     outline: "none",
     background: "transparent",
@@ -1945,7 +1966,8 @@ const gStyles: Record<string, CSSProperties> = {
     position: "relative",
     zIndex: 2,
   },
-  filtersEmbedded: { justifyContent: "flex-start" },
+  /** Hard right, so the heading keeps the left of the line to itself. */
+  filtersEmbedded: { justifyContent: "flex-end" },
   /**
    * The inline box, at a HEIGHT OF ITS OWN rather than filling its column.
    *

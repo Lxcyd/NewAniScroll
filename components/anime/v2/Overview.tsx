@@ -169,10 +169,9 @@ export default function Overview({ info, seasonList }: Props) {
               paddingBottom: 6,
             }}
           >
-            {/* No button beside the kicker any more: the board below IS the
-                timeline, and the ⤢ in its own controls is what expands it —
-                a second way in, one line above, named something else. */}
-            <div style={tStyles.secKicker}>{t("anime.sectionRelations")}</div>
+            {/* The heading is handed to the graph so it can draw it on the same
+                line as its own controls; the ⤢ in the board's controls is what
+                expands the view now. */}
             <div
               style={{
                 flex: 1,
@@ -190,6 +189,13 @@ export default function Overview({ info, seasonList }: Props) {
                   come with it. */}
               <RelationsGraph
                 embedded
+                heading={
+                  // Without the kicker's bottom margin: on a row whose items
+                  // are centred, it would push the word off the line.
+                  <div style={{ ...tStyles.secKicker, marginBottom: 0 }}>
+                    {t("anime.sectionRelations")}
+                  </div>
+                }
                 open={graphOpen}
                 onExpand={() => setGraphOpen(true)}
                 onClose={() => setGraphOpen(false)}
