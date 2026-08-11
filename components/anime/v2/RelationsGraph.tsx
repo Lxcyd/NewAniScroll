@@ -474,9 +474,40 @@ export default function RelationsGraph({
 
   const [scale, setScale] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
+  /**
+   * The zoom, readable from a handler that must not be rebuilt when it changes.
+   *
+   * Dragging a card divides the pointer's travel by the zoom. That handler now
+   * lives inside the memoised board (see boardContent), and listing `scale`
+   * among its dependencies would rebuild all sixty cards on every zoom notch —
+   * exactly the cost the memo exists to remove. Reading it through a ref keeps
+   * the handler correct at any zoom without tying the tree to it.
+   */
+  const scaleRef = useRef(scale);
+  scaleRef.current = scale;
   const drag = useRef<{ x: number; y: number; ox: number; oy: number } | null>(null);
   const [dragging, setDragging] = useState(false);
   const canvasRef = useRef<HTMLDivElement>(null);
+  /**
+   * The board itself — the one element a pan actually moves.
+   *
+   * Panning used to run through `setOffset`, which re-rendered every card,
+   * every curve and every relation label for each pointer event: sixty cards
+   * meant a full React pass per pixel of travel, and on a modest machine the
+   * board visibly lagged the cursor. The gesture writes this element's
+   * transform directly instead and commits the final position to state when the
+   * hand lets go, so the board tracks the pointer at compositor speed and the
+   * rest of the component still reads `offset` exactly as before.
+   */
+  const boardRef = useRef<HTMLDivElement>(null);
+  /** Where the board is RIGHT NOW, including a pan still in progress. */
+  const liveOffset = useRef(offset);
+  const boardTransform = (o: { x: number; y: number }, s: number) =>
+    `translate(${o.x}px, ${o.y}px) scale(${s})`;
+  // Every other way the view moves — the fit, a search re-centring, a resize —
+  // still goes through state, and the live position follows it. Only a pan in
+  // progress owns this ref, so its own writes are not overwritten mid-gesture.
+  if (!drag.current) liveOffset.current = offset;
   const overlayRef = useRef<HTMLDivElement>(null);
   /** Cleared whenever the board changes size, so the fit runs again. */
   const fittedFor = useRef<string>("");
@@ -1331,7 +1362,7 @@ export default function RelationsGraph({
     const sy = e.clientY - d.y;
     if (!d.moved && Math.abs(sx) < 3 && Math.abs(sy) < 3) return;
     d.moved = true;
-    const raw = { dx: d.dx + sx / scale, dy: d.dy + sy / scale };
+    const raw = { dx: d.dx + sx / scaleRef.current, dy: d.dy + sy / scaleRef.current };
     const next = e.ctrlKey ? alignToNeighbour(d.id, raw) : raw;
     setMoved((prev) => {
       const m = new Map(prev);
@@ -1392,21 +1423,310 @@ export default function RelationsGraph({
     // Touching the board dismisses an open filter menu, the way a menu anywhere
     // else closes when you click past it.
     setOpenMenu(null);
-    drag.current = { x: e.clientX, y: e.clientY, ox: offset.x, oy: offset.y };
+    drag.current = {
+      x: e.clientX,
+      y: e.clientY,
+      ox: liveOffset.current.x,
+      oy: liveOffset.current.y,
+    };
     setDragging(true);
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   };
   const onPointerMove = (e: React.PointerEvent) => {
     if (!drag.current) return;
-    setOffset({
+    const next = {
       x: drag.current.ox + (e.clientX - drag.current.x),
       y: drag.current.oy + (e.clientY - drag.current.y),
-    });
+    };
+    liveOffset.current = next;
+    // Straight to the element. The board is one transformed div, so this is the
+    // whole of what a pan changes — see boardRef.
+    if (boardRef.current) boardRef.current.style.transform = boardTransform(next, scale);
   };
   const onPointerUp = () => {
+    const panned = !!drag.current;
     drag.current = null;
     setDragging(false);
+    // Publish where the hand left the board, so everything that reads `offset`
+    // (centring, the resize handler, the next pan's origin) sees the truth.
+    if (panned) setOffset(liveOffset.current);
   };
+
+  /**
+   * The board's contents, rebuilt only when what they DRAW changes.
+   *
+   * Panning and zooming move one transform; they do not change a single
+   * card, curve or label. Leaving this inline meant React reconciled sixty
+   * cards, sixty curves and sixty labels on every zoom notch and on every
+   * unrelated re-render the component had — the walk delivering a round, a
+   * menu opening, the navigation flag. Holding the tree in a memo lets React
+   * skip the whole subtree when none of its inputs moved, which is most of
+   * the time. Everything the tree reads is a dependency below; a value
+   * missing from that list would freeze the picture it belongs to.
+   */
+  const boardContent = useMemo(
+    () => (
+      <>
+        {/* Edges under the nodes, so a line reaching a card disappears
+            behind it rather than crossing it. Dashed, like Hayase's. */}
+        <svg
+          width={width + PAD * 2}
+          height={height + PAD * 2}
+          style={{ position: "absolute", inset: 0, pointerEvents: "none", overflow: "visible" }}
+        >
+          {edges.map((e, i) => {
+            const p = endpoints(e);
+            if (!p) return null;
+            // Control points run along the rank axis, for the same lazy
+            // S-curve the flow library draws — horizontal in LR, vertical
+            // in TB.
+            const off = Math.max(
+              40,
+              (rankDir === "TB" ? p.y2 - p.y1 : p.x2 - p.x1) / 2
+            );
+            const d =
+              rankDir === "TB"
+                ? `M ${p.x1} ${p.y1} C ${p.x1} ${p.y1 + off}, ${p.x2} ${p.y2 - off}, ${p.x2} ${p.y2}`
+                : `M ${p.x1} ${p.y1} C ${p.x1 + off} ${p.y1}, ${p.x2 - off} ${p.y2}, ${p.x2} ${p.y2}`;
+            const touches = near ? e.from === hover || e.to === hover : null;
+            const lit = touches !== null ? touches : isChainEdge(e);
+            const dim = touches !== null ? !touches : !!chain && !isChainEdge(e);
+            return (
+              <path
+                key={i}
+                d={d}
+                fill="none"
+                // The running order is drawn solid and bright, everything
+                // else stays a faint dashed hint — the eye follows one line
+                // through the board instead of reading twenty-three.
+                stroke={lit ? "var(--brand-primary, #ff3b5c)" : "#4a4a52"}
+                strokeWidth={lit ? 2.4 : 1.5}
+                strokeDasharray={lit ? undefined : "5 5"}
+                opacity={dim ? 0.42 : 1}
+              />
+            );
+          })}
+        </svg>
+
+        {/* The relation names, on the lines. This is the whole point of the
+            view: an unlabelled edge says two things are related, which the
+            list already said. */}
+        {edges.map((e, i) => {
+          const p = endpoints(e);
+          if (!p) return null;
+          // The middle of the line, always. The control points sit level
+          // with their own ends, so the curve's midpoint IS the midpoint of
+          // the segment — no bezier maths needed. An edge that skips a rank
+          // can put its name over the card in between; that is accepted,
+          // because a name that hunts for a free spot is a name you can no
+          // longer attribute to a line.
+          // Astride the line, dead centre. The chip is opaque and
+          // bordered, so it masks the stroke behind it instead of being
+          // cut in half by it — which is why lifting it off was solving a
+          // problem it never had.
+          const x = (p.x1 + p.x2) / 2;
+          const y = (p.y1 + p.y2) / 2;
+          const touches = near ? e.from === hover || e.to === hover : null;
+          const lit = touches !== null ? touches : isChainEdge(e);
+          const dim = touches !== null ? !touches : !!chain && !isChainEdge(e);
+          return (
+            <span
+              key={`l${i}`}
+              style={{
+                ...gStyles.edgeLabel,
+                left: x,
+                top: y,
+                ...(lit
+                  ? {
+                      color: "var(--brand-primary, #ff3b5c)",
+                      borderColor: "var(--brand-primary, #ff3b5c)",
+                    }
+                  : null),
+                opacity: dim ? 0.5 : 1,
+              }}
+            >
+              {e.label.replace(/_/g, " ")}
+            </span>
+          );
+        })}
+
+        {nodes.map((n) => {
+          const step = chain?.order.get(n.id);
+          const lit = step !== undefined;
+          const isSelected = n.id === selected;
+          const isMatch = !!matches?.has(n.id);
+          const done = isFinished(listMap?.get(n.id), n.episodes);
+          return (
+            <Link
+              key={n.id}
+              href={animeHref(n.id, clickTarget)}
+              onMouseEnter={() => setHover(n.id)}
+              onMouseLeave={() => setHover((h) => (h === n.id ? null : h))}
+              // A card is a link, first press. The two-step it replaced —
+              // one click to light the running order, another to open —
+              // made every card need to be told twice, and the order it
+              // lit is already what the board shows from the entry you
+              // came from. Hovering still lights a card's neighbourhood,
+              // which is the reading the click was standing in for.
+              onPointerDown={(ev) => onNodePointerDown(ev, n.id)}
+              onPointerMove={onNodePointerMove}
+              onPointerUp={onNodePointerUp}
+              onClick={(ev) => {
+                // A card that was just dragged must not navigate.
+                if (nodeDrag.current?.moved) {
+                  ev.preventDefault();
+                  ev.stopPropagation();
+                  return;
+                }
+                // Modified clicks open elsewhere and leave this page alone,
+                // so they must not lock the board down.
+                if (ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.button !== 0) return;
+                if (open) setNavigating(true);
+              }}
+              title={t("anime.graphOpenEntry", { defaultValue: "Open this entry" })}
+              style={{
+                ...gStyles.node,
+                left: posOf(n).x + PAD,
+                top: posOf(n).y + PAD,
+                width: n.w,
+                // The card in hand rides above everything; one you have
+                // already placed stays above the untouched ones, so
+                // dropping it onto a neighbour doesn't bury it.
+                zIndex: dragId === n.id ? 4 : moved.has(n.id) ? 3 : 2,
+                // Finished beats the running order: green wins over pink,
+                // even on the selected card. A search hit still beats both
+                // — it answers a question the viewer asked one second ago,
+                // where the other two are standing facts.
+                borderColor: isMatch
+                  ? "#ffd166"
+                  : done
+                    ? DONE_GREEN
+                    : isSelected
+                      ? "var(--brand-primary, #ff3b5c)"
+                      : lit
+                        ? "rgba(255,59,92,.5)"
+                        : "#26262d",
+                // The text still names the selection, so a finished card
+                // that is also selected doesn't lose that.
+                color: isSelected ? "var(--brand-primary, #ff3b5c)" : "var(--txt-0)",
+                // Dimming the rest is what makes a chain readable at all:
+                // the board is otherwise a uniform field of nineteen cards.
+                // A search result is never dimmed — it is what you asked
+                // for — and neither is a card you moved by hand: dimming is
+                // TRANSPARENCY, so a dimmed card dropped on a neighbour
+                // shows it through and reads as being underneath, however
+                // high it is stacked.
+                opacity:
+                  isMatch || dragId === n.id || moved.has(n.id) || !isDim(n.id) ? 1 : 0.62,
+                // The selection ring follows whatever colour the border
+                // ended up being, or a green card would wear a pink halo.
+                boxShadow: isMatch
+                  ? "0 0 0 2px #ffd166"
+                  : isSelected
+                    ? `0 0 0 1px ${done ? DONE_GREEN : "var(--brand-primary, #ff3b5c)"}`
+                    : undefined,
+              }}
+            >
+              {/* `chain` is already 1-based — the selected entry is step 1.
+                  Adding one here made the whole order start at 2. */}
+              {lit && <span style={gStyles.stepBadge}>{step}</span>}
+              {/* Dismiss a card you don't care about; the reset button in
+                  the control bar brings every dismissed one back. */}
+              <button
+                style={gStyles.nodeClose}
+                onPointerDown={(ev) => ev.stopPropagation()}
+                onClick={(ev) => {
+                  ev.preventDefault();
+                  ev.stopPropagation();
+                  setHidden((prev) => {
+                    const next = new Set(prev);
+                    next.add(n.id);
+                    return next;
+                  });
+                }}
+                aria-label={t("anime.graphHideNode", { defaultValue: "Hide this entry" })}
+                title={t("anime.graphHideNode", { defaultValue: "Hide this entry" })}
+              >
+                <Icon d={ICON.remove} size={11} />
+              </button>
+              {covers ? (
+                <div style={{ ...gStyles.nodeRow, minHeight: COVER_H }}>
+                  {/* The box is drawn whether or not the art resolved: the
+                      layout already reserved its width, so skipping it
+                      would shift the text of exactly the cards that came
+                      back without a cover. `contain` keeps the whole
+                      poster, letterboxed rather than cropped. */}
+                  {n.cover ? (
+                    // Plain <img>: next/image would want a configured loader
+                    // for AniList's CDN and a layout box, and this sits
+                    // inside a transformed board at a fixed size.
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={n.cover}
+                      alt=""
+                      loading="lazy"
+                      draggable={false}
+                      style={gStyles.nodeCover}
+                    />
+                  ) : (
+                    <div style={gStyles.nodeCover} />
+                  )}
+                  <div style={gStyles.nodeBody}>
+                    <div style={{ ...gStyles.nodeTitle, ...gStyles.nodeTitleSide }}>
+                      {n.title}
+                    </div>
+                    <div
+                      style={{ ...gStyles.nodeMeta }}
+                    >
+                      <span>{FORMAT_LABEL[n.format] ?? n.format}</span>
+                      <span>
+                        {n.episodes
+                          ? t("preview.episodeCount", { count: n.episodes })
+                          : n.status || ""}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div style={gStyles.nodeTitle}>{n.title}</div>
+                  <div style={{ ...gStyles.nodeMeta }}>
+                    <span>{FORMAT_LABEL[n.format] ?? n.format}</span>
+                    <span>
+                      {n.episodes
+                        ? t("preview.episodeCount", { count: n.episodes })
+                        : n.status || ""}
+                    </span>
+                  </div>
+                </>
+              )}
+            </Link>
+          );
+        })}
+      </>
+    ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [
+      nodes,
+      edges,
+      byId,
+      moved,
+      rankDir,
+      near,
+      hover,
+      chain,
+      selected,
+      matches,
+      listMap,
+      dragId,
+      covers,
+      clickTarget,
+      open,
+      width,
+      height,
+      t,
+    ],
+  );
 
   if (!active) return null;
   if (typeof document === "undefined") return null;
@@ -1556,250 +1876,19 @@ export default function RelationsGraph({
           <div style={gStyles.empty}>{t("anime.noRelated")}</div>
         ) : (
           <div
+            ref={boardRef}
             style={{
-              transform: `translate(${offset.x}px, ${offset.y}px) scale(${scale})`,
+              // The live position, not the committed one: a render landing mid-
+              // pan (a hover, a search keystroke) must not snap the board back
+              // to where the gesture started.
+              transform: boardTransform(liveOffset.current, scale),
               transformOrigin: "0 0",
               position: "relative",
               width: width + PAD * 2,
               height: height + PAD * 2,
             }}
           >
-            {/* Edges under the nodes, so a line reaching a card disappears
-                behind it rather than crossing it. Dashed, like Hayase's. */}
-            <svg
-              width={width + PAD * 2}
-              height={height + PAD * 2}
-              style={{ position: "absolute", inset: 0, pointerEvents: "none", overflow: "visible" }}
-            >
-              {edges.map((e, i) => {
-                const p = endpoints(e);
-                if (!p) return null;
-                // Control points run along the rank axis, for the same lazy
-                // S-curve the flow library draws — horizontal in LR, vertical
-                // in TB.
-                const off = Math.max(
-                  40,
-                  (rankDir === "TB" ? p.y2 - p.y1 : p.x2 - p.x1) / 2
-                );
-                const d =
-                  rankDir === "TB"
-                    ? `M ${p.x1} ${p.y1} C ${p.x1} ${p.y1 + off}, ${p.x2} ${p.y2 - off}, ${p.x2} ${p.y2}`
-                    : `M ${p.x1} ${p.y1} C ${p.x1 + off} ${p.y1}, ${p.x2 - off} ${p.y2}, ${p.x2} ${p.y2}`;
-                const touches = near ? e.from === hover || e.to === hover : null;
-                const lit = touches !== null ? touches : isChainEdge(e);
-                const dim = touches !== null ? !touches : !!chain && !isChainEdge(e);
-                return (
-                  <path
-                    key={i}
-                    d={d}
-                    fill="none"
-                    // The running order is drawn solid and bright, everything
-                    // else stays a faint dashed hint — the eye follows one line
-                    // through the board instead of reading twenty-three.
-                    stroke={lit ? "var(--brand-primary, #ff3b5c)" : "#4a4a52"}
-                    strokeWidth={lit ? 2.4 : 1.5}
-                    strokeDasharray={lit ? undefined : "5 5"}
-                    opacity={dim ? 0.42 : 1}
-                  />
-                );
-              })}
-            </svg>
-
-            {/* The relation names, on the lines. This is the whole point of the
-                view: an unlabelled edge says two things are related, which the
-                list already said. */}
-            {edges.map((e, i) => {
-              const p = endpoints(e);
-              if (!p) return null;
-              // The middle of the line, always. The control points sit level
-              // with their own ends, so the curve's midpoint IS the midpoint of
-              // the segment — no bezier maths needed. An edge that skips a rank
-              // can put its name over the card in between; that is accepted,
-              // because a name that hunts for a free spot is a name you can no
-              // longer attribute to a line.
-              // Astride the line, dead centre. The chip is opaque and
-              // bordered, so it masks the stroke behind it instead of being
-              // cut in half by it — which is why lifting it off was solving a
-              // problem it never had.
-              const x = (p.x1 + p.x2) / 2;
-              const y = (p.y1 + p.y2) / 2;
-              const touches = near ? e.from === hover || e.to === hover : null;
-              const lit = touches !== null ? touches : isChainEdge(e);
-              const dim = touches !== null ? !touches : !!chain && !isChainEdge(e);
-              return (
-                <span
-                  key={`l${i}`}
-                  style={{
-                    ...gStyles.edgeLabel,
-                    left: x,
-                    top: y,
-                    ...(lit
-                      ? {
-                          color: "var(--brand-primary, #ff3b5c)",
-                          borderColor: "var(--brand-primary, #ff3b5c)",
-                        }
-                      : null),
-                    opacity: dim ? 0.5 : 1,
-                  }}
-                >
-                  {e.label.replace(/_/g, " ")}
-                </span>
-              );
-            })}
-
-            {nodes.map((n) => {
-              const step = chain?.order.get(n.id);
-              const lit = step !== undefined;
-              const isSelected = n.id === selected;
-              const isMatch = !!matches?.has(n.id);
-              const done = isFinished(listMap?.get(n.id), n.episodes);
-              return (
-                <Link
-                  key={n.id}
-                  href={animeHref(n.id, clickTarget)}
-                  onMouseEnter={() => setHover(n.id)}
-                  onMouseLeave={() => setHover((h) => (h === n.id ? null : h))}
-                  // A card is a link, first press. The two-step it replaced —
-                  // one click to light the running order, another to open —
-                  // made every card need to be told twice, and the order it
-                  // lit is already what the board shows from the entry you
-                  // came from. Hovering still lights a card's neighbourhood,
-                  // which is the reading the click was standing in for.
-                  onPointerDown={(ev) => onNodePointerDown(ev, n.id)}
-                  onPointerMove={onNodePointerMove}
-                  onPointerUp={onNodePointerUp}
-                  onClick={(ev) => {
-                    // A card that was just dragged must not navigate.
-                    if (nodeDrag.current?.moved) {
-                      ev.preventDefault();
-                      ev.stopPropagation();
-                      return;
-                    }
-                    // Modified clicks open elsewhere and leave this page alone,
-                    // so they must not lock the board down.
-                    if (ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.button !== 0) return;
-                    if (open) setNavigating(true);
-                  }}
-                  title={t("anime.graphOpenEntry", { defaultValue: "Open this entry" })}
-                  style={{
-                    ...gStyles.node,
-                    left: posOf(n).x + PAD,
-                    top: posOf(n).y + PAD,
-                    width: n.w,
-                    // The card in hand rides above everything; one you have
-                    // already placed stays above the untouched ones, so
-                    // dropping it onto a neighbour doesn't bury it.
-                    zIndex: dragId === n.id ? 4 : moved.has(n.id) ? 3 : 2,
-                    // Finished beats the running order: green wins over pink,
-                    // even on the selected card. A search hit still beats both
-                    // — it answers a question the viewer asked one second ago,
-                    // where the other two are standing facts.
-                    borderColor: isMatch
-                      ? "#ffd166"
-                      : done
-                        ? DONE_GREEN
-                        : isSelected
-                          ? "var(--brand-primary, #ff3b5c)"
-                          : lit
-                            ? "rgba(255,59,92,.5)"
-                            : "#26262d",
-                    // The text still names the selection, so a finished card
-                    // that is also selected doesn't lose that.
-                    color: isSelected ? "var(--brand-primary, #ff3b5c)" : "var(--txt-0)",
-                    // Dimming the rest is what makes a chain readable at all:
-                    // the board is otherwise a uniform field of nineteen cards.
-                    // A search result is never dimmed — it is what you asked
-                    // for — and neither is a card you moved by hand: dimming is
-                    // TRANSPARENCY, so a dimmed card dropped on a neighbour
-                    // shows it through and reads as being underneath, however
-                    // high it is stacked.
-                    opacity:
-                      isMatch || dragId === n.id || moved.has(n.id) || !isDim(n.id) ? 1 : 0.62,
-                    // The selection ring follows whatever colour the border
-                    // ended up being, or a green card would wear a pink halo.
-                    boxShadow: isMatch
-                      ? "0 0 0 2px #ffd166"
-                      : isSelected
-                        ? `0 0 0 1px ${done ? DONE_GREEN : "var(--brand-primary, #ff3b5c)"}`
-                        : undefined,
-                  }}
-                >
-                  {/* `chain` is already 1-based — the selected entry is step 1.
-                      Adding one here made the whole order start at 2. */}
-                  {lit && <span style={gStyles.stepBadge}>{step}</span>}
-                  {/* Dismiss a card you don't care about; the reset button in
-                      the control bar brings every dismissed one back. */}
-                  <button
-                    style={gStyles.nodeClose}
-                    onPointerDown={(ev) => ev.stopPropagation()}
-                    onClick={(ev) => {
-                      ev.preventDefault();
-                      ev.stopPropagation();
-                      setHidden((prev) => {
-                        const next = new Set(prev);
-                        next.add(n.id);
-                        return next;
-                      });
-                    }}
-                    aria-label={t("anime.graphHideNode", { defaultValue: "Hide this entry" })}
-                    title={t("anime.graphHideNode", { defaultValue: "Hide this entry" })}
-                  >
-                    <Icon d={ICON.remove} size={11} />
-                  </button>
-                  {covers ? (
-                    <div style={{ ...gStyles.nodeRow, minHeight: COVER_H }}>
-                      {/* The box is drawn whether or not the art resolved: the
-                          layout already reserved its width, so skipping it
-                          would shift the text of exactly the cards that came
-                          back without a cover. `contain` keeps the whole
-                          poster, letterboxed rather than cropped. */}
-                      {n.cover ? (
-                        // Plain <img>: next/image would want a configured loader
-                        // for AniList's CDN and a layout box, and this sits
-                        // inside a transformed board at a fixed size.
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={n.cover}
-                          alt=""
-                          loading="lazy"
-                          draggable={false}
-                          style={gStyles.nodeCover}
-                        />
-                      ) : (
-                        <div style={gStyles.nodeCover} />
-                      )}
-                      <div style={gStyles.nodeBody}>
-                        <div style={{ ...gStyles.nodeTitle, ...gStyles.nodeTitleSide }}>
-                          {n.title}
-                        </div>
-                        <div
-                          style={{ ...gStyles.nodeMeta }}
-                        >
-                          <span>{FORMAT_LABEL[n.format] ?? n.format}</span>
-                          <span>
-                            {n.episodes
-                              ? t("preview.episodeCount", { count: n.episodes })
-                              : n.status || ""}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    <>
-                      <div style={gStyles.nodeTitle}>{n.title}</div>
-                      <div style={{ ...gStyles.nodeMeta }}>
-                        <span>{FORMAT_LABEL[n.format] ?? n.format}</span>
-                        <span>
-                          {n.episodes
-                            ? t("preview.episodeCount", { count: n.episodes })
-                            : n.status || ""}
-                        </span>
-                      </div>
-                    </>
-                  )}
-                </Link>
-              );
-            })}
+            {boardContent}
           </div>
         )}
 

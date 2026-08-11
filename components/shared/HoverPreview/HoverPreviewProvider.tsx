@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/router";
 
@@ -67,6 +67,21 @@ export default function HoverPreviewProvider() {
   // a stale `open`.
   const openRef = useRef<OpenState | null>(null);
   openRef.current = open;
+
+  /**
+   * The open card's own "you moved" handler, while it is mounted.
+   *
+   * One card exists at a time, so this is a single slot rather than a list. The
+   * identity of {@link subscribeRect} never changes, so subscribing costs the
+   * card one effect for its whole life.
+   */
+  const rectListener = useRef<((rect: AnchorRect) => void) | null>(null);
+  const subscribeRect = useCallback((cb: (rect: AnchorRect) => void) => {
+    rectListener.current = cb;
+    return () => {
+      if (rectListener.current === cb) rectListener.current = null;
+    };
+  }, []);
 
   // Only on a real pointer: a touch device fires a synthetic hover on tap, which
   // would pop the card over the link the user just pressed.
@@ -243,6 +258,14 @@ export default function HoverPreviewProvider() {
     // scrolls because the poster does. Ours is portalled to <body> and
     // positioned, so "moves with the page" has to be re-created — one rAF per
     // scroll frame, re-measuring the anchor and handing the new rect down.
+    //
+    // Handed down through a subscription rather than through state. Publishing
+    // a new `open` object per scroll frame re-rendered the whole card — the
+    // trailer, the ambient stack, the synopsis — and its own layout effect then
+    // re-rendered it a second time to apply the position: two full React passes
+    // per frame, during a scroll, which is exactly when the browser has the
+    // least to spare. The card moves itself now (see PreviewCard), and `rect` is
+    // kept in step for whatever renders next.
     let raf = 0;
     const onScroll = () => {
       if (raf || !openRef.current) return;
@@ -251,7 +274,8 @@ export default function HoverPreviewProvider() {
         const live = openRef.current;
         if (!live) return;
         if (!live.el.isConnected) return close();
-        setOpen({ ...live, rect: rectOf(live.el) });
+        live.rect = rectOf(live.el);
+        rectListener.current?.(live.rect);
       });
     };
 
@@ -315,6 +339,7 @@ export default function HoverPreviewProvider() {
       id={open.id}
       rect={open.rect}
       poster={open.poster}
+      subscribeRect={subscribeRect}
     />,
     document.body,
   );

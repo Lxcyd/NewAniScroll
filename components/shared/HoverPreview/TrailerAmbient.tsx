@@ -258,7 +258,23 @@ export default function TrailerAmbient({
   }, [playing, sourceRef]);
 
   return (
-    <div className="pointer-events-none absolute inset-0" aria-hidden>
+    /*
+     * The blur is ONE pass over the whole stack, not one per layer.
+     *
+     * A Gaussian blur is linear and so is an opacity multiply, so
+     * `blur(Σ opacityᵢ·layerᵢ)` and `Σ opacityᵢ·blur(layerᵢ)` are the same
+     * picture — the falloff still comes from the stack, exactly as described
+     * above. What changes is the cost: five blurred surfaces meant the
+     * compositor ran a 34 px blur five times for every sampled frame, thirty
+     * times a second, which is what made a hovered card crawl on an integrated
+     * GPU. The scales stay per layer (they are what the stack IS); only the
+     * filter moves up, so the GPU work drops to a fifth.
+     */
+    <div
+      className="pointer-events-none absolute inset-0"
+      aria-hidden
+      style={{ filter: `blur(${BLUR_PX}px) saturate(1.8)` }}
+    >
       {Array.from({ length: LAYERS }).map((_, i) => (
         <div
           key={i}
@@ -266,7 +282,6 @@ export default function TrailerAmbient({
           style={{
             transform: `scale(${(1 + i * SCALE_STEP) * zoom})`,
             transformOrigin: "center",
-            filter: `blur(${BLUR_PX}px) saturate(1.8)`,
             opacity: BASE_OPACITY * Math.pow(OPACITY_DECAY, i),
             willChange: "transform",
           }}

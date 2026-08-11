@@ -63,10 +63,17 @@ export default function PreviewCard({
   id,
   rect,
   poster,
+  subscribeRect,
 }: {
   id: number;
   rect: AnchorRect;
   poster: string | null;
+  /**
+   * Register for the anchor's position while the page scrolls. See the provider:
+   * the updates arrive outside React so that a scroll moves this card without
+   * rebuilding it, trailer and glow included.
+   */
+  subscribeRect?: (cb: (rect: AnchorRect) => void) => () => void;
 }) {
   const { t } = useTranslation();
   const { data: session } = useSession();
@@ -76,6 +83,8 @@ export default function PreviewCard({
   const cardRef = useRef<HTMLDivElement>(null);
   const [data, setData] = useState<PreviewData | null>(() => peekPreview(id) ?? null);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  /** The live position — ahead of `pos` whenever the page is scrolling. */
+  const posRef = useRef<{ top: number; left: number } | null>(null);
   /** null = trailer not started, true = unplayable (keep the banner), false = playing. */
   const [hideFrame, setHideFrame] = useState<boolean | null>(null);
   /** Fade in on decode rather than on mount — a half-painted banner is a flash too. */
@@ -145,12 +154,40 @@ export default function PreviewCard({
   // pixels. Everything the card clips — the rounded corners, the video's box —
   // is then antialiased against whatever sits behind it, and a half-covered row
   // of pixels along the top of the picture reads as a one-pixel outline.
+  const placeAt = (r: AnchorRect) => ({
+    left: Math.round(r.left + r.width / 2 - WIDTH / 2),
+    top: Math.round(r.top + r.height / 2 - HEIGHT / 2),
+  });
   useLayoutEffect(() => {
-    setPos({
-      left: Math.round(rect.left + rect.width / 2 - WIDTH / 2),
-      top: Math.round(rect.top + rect.height / 2 - HEIGHT / 2),
-    });
+    const p = placeAt(rect);
+    posRef.current = p;
+    setPos(p);
+    // `placeAt` is pure and reads nothing but its argument.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rect]);
+
+  /**
+   * Follow the anchor down the page without a render.
+   *
+   * The measurement still happens once per scroll frame in the provider; what
+   * changes is where it lands. Writing the two offsets onto the element skips
+   * the render entirely, and `posRef` keeps the value the next real render will
+   * paint with — without it, any re-render for another reason (the payload
+   * arriving, the trailer starting) would reassert the position the card had
+   * when it opened and snap it back up the page.
+   */
+  useEffect(() => {
+    if (!subscribeRect) return;
+    return subscribeRect((r) => {
+      const p = placeAt(r);
+      posRef.current = p;
+      const el = cardRef.current;
+      if (!el) return;
+      el.style.left = `${p.left}px`;
+      el.style.top = `${p.top}px`;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [subscribeRect]);
 
   const onHide = useCallback((hidden: boolean) => setHideFrame(hidden), []);
   const onPlayingChange = useCallback((next: boolean) => setPlaying(next), []);
@@ -280,8 +317,10 @@ export default function PreviewCard({
       style={{
         width: WIDTH,
         height: HEIGHT,
-        top: pos?.top ?? 0,
-        left: pos?.left ?? 0,
+        // The live position, so a render triggered while the page scrolls
+        // paints where the card actually is rather than where it opened.
+        top: posRef.current?.top ?? pos?.top ?? 0,
+        left: posRef.current?.left ?? pos?.left ?? 0,
         // Painted off-screen for one frame while we measure — otherwise the card
         // flashes at (0,0) before the layout effect places it.
         visibility: pos ? "visible" : "hidden",
