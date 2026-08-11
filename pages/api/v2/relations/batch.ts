@@ -1,6 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { getMediaMeta } from "@/lib/anilist/getMediaMeta";
-import { toRelationsPayload } from "@/lib/anilist/relationsPayload";
+import { fetchRelationsBatch } from "@/lib/anilist/relationsBatch";
 
 /**
  * GET /api/v2/relations/batch?ids=1,2,3
@@ -14,6 +13,10 @@ import { toRelationsPayload } from "@/lib/anilist/relationsPayload";
  *
  * Static file beats the sibling dynamic route in Next's resolution, so "batch"
  * never lands in `[id].ts` as an id.
+ *
+ * One request in, one AniList query out: `fetchRelationsBatch` resolves the
+ * whole wave together rather than fanning out per id, which is what made the
+ * first opening of a franchise take seconds.
  *
  * A missing or failing id yields no entry rather than a 500 — one dead node
  * must not cost the caller its whole level. The caller reads the map by id and
@@ -45,18 +48,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(400).json({ error: "Missing or invalid ids" });
   }
 
-  const settled = await Promise.all(
-    ids.map(async (id) => {
-      try {
-        const media = await getMediaMeta(id);
-        return media ? toRelationsPayload(media) : null;
-      } catch {
-        return null;
-      }
-    })
-  );
-
-  const items = settled.filter(Boolean);
+  // ONE upstream query for the wave, not one per id — see `fetchRelationsBatch`.
+  const items = await fetchRelationsBatch(ids);
 
   // Every id missing means the upstream is unreachable, not that all of them
   // are unknown — don't let that answer sit in a cache for a day.
