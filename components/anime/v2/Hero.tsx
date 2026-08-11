@@ -65,7 +65,7 @@ export default function Hero({
   favRank,
 }: HeroProps) {
   const titlePref = useTitlePref();
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const router = useRouter();
   const title = pickTitle(info.title, titlePref);
   const seasonPill = prettySeason(info);
@@ -569,7 +569,27 @@ export default function Hero({
                         <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
                       </svg>
                       <span style={hStyles.statBig} className="display">
-                        {info.favourites.toLocaleString()}
+                        {/*
+                          Formatted against the ACTIVE UI language, never the
+                          ambient one.
+
+                          A bare toLocaleString() asks the environment, and the
+                          two environments disagree: Node on Vercel resolves
+                          en-US and writes "1,604", a French browser writes
+                          "1 604". React sees the text it hydrates differ from
+                          the text the server sent — error #425 — and its cure
+                          is to discard the whole server HTML and re-render the
+                          page on the client (#418, #423). Every French visitor
+                          was paying that on any anime with a four-figure
+                          favourite count; below a thousand there is no
+                          separator, which is why it looked page-dependent.
+
+                          `i18n.language` is "en" on the server AND on the
+                          client's first render (see lib/i18n/I18nProvider), so
+                          hydration matches; the French formatting arrives with
+                          the language switch, after.
+                        */}
+                        {info.favourites.toLocaleString(i18n.language)}
                       </span>
                     </div>
                     <div style={hStyles.statLabel}>
