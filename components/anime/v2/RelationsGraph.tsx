@@ -197,7 +197,13 @@ type GNode = {
   h: number;
 };
 
-type GEdge = { from: number; to: number; label: string };
+type GEdge = {
+  from: number;
+  to: number;
+  label: string;
+  /** dagre's route, board coordinates, bending around the cards in the way. */
+  points?: { x: number; y: number }[];
+};
 
 /** What one walk of the franchise comes back with. */
 type Walked = { nodes: Map<number, NodeMeta>; edges: Map<string, GEdge> };
@@ -906,7 +912,23 @@ export default function RelationsGraph({
       maxY = Math.max(maxY, n.y + n.h);
     }
 
-    return { nodes: allNodes, edges: list, width: maxX, height: maxY };
+    /**
+     * dagre's own routing, kept this time.
+     *
+     * The note at the top of this file explains that we used to throw the
+     * polyline away and draw a straight curve between two card edges. That is
+     * what put lines through cards: a relation skipping a rank cuts across the
+     * column in between, and no amount of extra separation fixes the case where
+     * the card it crosses is the one directly in the way. dagre routes around
+     * them — it reserves the lanes between cards for exactly this — so the
+     * bends it computed are the answer, and the curve below just smooths them.
+     */
+    const routed = list.map((e) => {
+      const ge = g.edge(String(e.from), String(e.to)) as { points?: { x: number; y: number }[] };
+      return ge?.points && ge.points.length >= 2 ? { ...e, points: ge.points } : e;
+    });
+
+    return { nodes: allNodes, edges: routed, width: maxX, height: maxY };
   }, [tree, currentId, titlePref, hidden, onlyFormats, onlyRelations, canonOnly, covers, rankDir]);
 
   /** Relation kinds actually on this board, for the filter menu — offering
@@ -1166,6 +1188,52 @@ export default function RelationsGraph({
       x2: pb.x + PAD,
       y2: pb.y + b.h / 2 + PAD,
     };
+  };
+
+  /**
+   * What to draw for one relation: the path, and where its name goes.
+   *
+   * Two sources, in order. dagre's route is used whenever it is still true —
+   * it is the one that stays out of the cards. A card the viewer has dragged
+   * invalidates the route it was computed against, so that edge falls back to
+   * the straight S-curve between the two cards' facing edges, which follows
+   * the card wherever it was dropped.
+   */
+  const geometry = (e: GEdge) => {
+    const a = byId.get(e.from);
+    const b = byId.get(e.to);
+    if (!a || !b) return null;
+
+    if (e.points && !moved.has(e.from) && !moved.has(e.to)) {
+      const pts = e.points.map((p) => ({ x: p.x + PAD, y: p.y + PAD }));
+      // A polyline drawn as-is has visible corners; each segment's midpoint
+      // becomes an on-curve point and the original vertices become the control
+      // points, which rounds the bends without moving the line off its lane.
+      let d = `M ${pts[0].x} ${pts[0].y}`;
+      for (let i = 1; i < pts.length - 1; i++) {
+        const mx = (pts[i].x + pts[i + 1].x) / 2;
+        const my = (pts[i].y + pts[i + 1].y) / 2;
+        d += ` Q ${pts[i].x} ${pts[i].y}, ${mx} ${my}`;
+      }
+      d += ` L ${pts[pts.length - 1].x} ${pts[pts.length - 1].y}`;
+      // The name sits at the middle of the ROUTE, so it follows the line into
+      // the lane it was routed through instead of hanging over a card.
+      const h = (pts.length - 1) / 2;
+      const lo = pts[Math.floor(h)];
+      const hi = pts[Math.ceil(h)];
+      return { d, x: (lo.x + hi.x) / 2, y: (lo.y + hi.y) / 2 };
+    }
+
+    const p = endpoints(e);
+    if (!p) return null;
+    const off = Math.max(40, (rankDir === "TB" ? p.y2 - p.y1 : p.x2 - p.x1) / 2);
+    const d =
+      rankDir === "TB"
+        ? `M ${p.x1} ${p.y1} C ${p.x1} ${p.y1 + off}, ${p.x2} ${p.y2 - off}, ${p.x2} ${p.y2}`
+        : `M ${p.x1} ${p.y1} C ${p.x1 + off} ${p.y1}, ${p.x2 - off} ${p.y2}, ${p.x2} ${p.y2}`;
+    // The control points sit level with their own ends, so the curve's midpoint
+    // IS the midpoint of the segment — no bezier maths needed.
+    return { d, x: (p.x1 + p.x2) / 2, y: (p.y1 + p.y2) / 2 };
   };
 
   /** True when a card should read as background right now. Hover wins over the
@@ -1474,26 +1542,15 @@ export default function RelationsGraph({
               style={{ position: "absolute", inset: 0, pointerEvents: "none", overflow: "visible" }}
             >
               {edges.map((e, i) => {
-                const p = endpoints(e);
-                if (!p) return null;
-                // Control points run along the rank axis, for the same lazy
-                // S-curve the flow library draws — horizontal in LR, vertical
-                // in TB.
-                const off = Math.max(
-                  40,
-                  (rankDir === "TB" ? p.y2 - p.y1 : p.x2 - p.x1) / 2
-                );
-                const d =
-                  rankDir === "TB"
-                    ? `M ${p.x1} ${p.y1} C ${p.x1} ${p.y1 + off}, ${p.x2} ${p.y2 - off}, ${p.x2} ${p.y2}`
-                    : `M ${p.x1} ${p.y1} C ${p.x1 + off} ${p.y1}, ${p.x2 - off} ${p.y2}, ${p.x2} ${p.y2}`;
+                const geo = geometry(e);
+                if (!geo) return null;
                 const touches = near ? e.from === hover || e.to === hover : null;
                 const lit = touches !== null ? touches : isChainEdge(e);
                 const dim = touches !== null ? !touches : !!chain && !isChainEdge(e);
                 return (
                   <path
                     key={i}
-                    d={d}
+                    d={geo.d}
                     fill="none"
                     // The running order is drawn solid and bright, everything
                     // else stays a faint dashed hint — the eye follows one line
@@ -1511,20 +1568,14 @@ export default function RelationsGraph({
                 view: an unlabelled edge says two things are related, which the
                 list already said. */}
             {edges.map((e, i) => {
-              const p = endpoints(e);
-              if (!p) return null;
-              // The middle of the line, always. The control points sit level
-              // with their own ends, so the curve's midpoint IS the midpoint of
-              // the segment — no bezier maths needed. An edge that skips a rank
-              // can put its name over the card in between; that is accepted,
-              // because a name that hunts for a free spot is a name you can no
-              // longer attribute to a line.
-              // Astride the line, dead centre. The chip is opaque and
-              // bordered, so it masks the stroke behind it instead of being
-              // cut in half by it — which is why lifting it off was solving a
-              // problem it never had.
-              const x = (p.x1 + p.x2) / 2;
-              const y = (p.y1 + p.y2) / 2;
+              const geo = geometry(e);
+              if (!geo) return null;
+              // Astride the line, at the middle of the ROUTE. The chip is
+              // opaque and bordered, so it masks the stroke behind it instead
+              // of being cut in half by it — which is why lifting it off was
+              // solving a problem it never had.
+              const x = geo.x;
+              const y = geo.y;
               const touches = near ? e.from === hover || e.to === hover : null;
               const lit = touches !== null ? touches : isChainEdge(e);
               const dim = touches !== null ? !touches : !!chain && !isChainEdge(e);
