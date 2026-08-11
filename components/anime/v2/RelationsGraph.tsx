@@ -1897,8 +1897,12 @@ export default function RelationsGraph({
 /** Inline because the overlay is portalled to <body>, outside any stylesheet
  *  the component owns — and a keyframe cannot be written as a style object. */
 const NAV_KEYFRAMES = `@keyframes anig-nav {
-  0%   { transform: translateX(-100%); }
-  100% { transform: translateX(250%); }
+  0%   { width: 0%; }
+  15%  { width: 38%; }
+  40%  { width: 66%; }
+  70%  { width: 85%; }
+  90%  { width: 95%; }
+  100% { width: 100%; }
 }`;
 
 const gStyles: Record<string, CSSProperties> = {
@@ -1925,11 +1929,15 @@ const gStyles: Record<string, CSSProperties> = {
     top: 0,
     left: 0,
     height: 3,
-    width: "40%",
-    borderRadius: 2,
-    background:
-      "linear-gradient(90deg, transparent, var(--brand-primary, #ff3b5c) 40%, var(--brand-primary, #ff3b5c) 60%, transparent)",
-    animation: "anig-nav 1.05s ease-in-out infinite",
+    width: 0,
+    borderRadius: "0 2px 2px 0",
+    background: "var(--brand-primary, #ff3b5c)",
+    boxShadow: "0 0 8px rgba(255,59,92,.55)",
+    /* Fills once and stays full — it never loops back to zero, which would
+       read as a load starting over. The steps slow down as they climb: a bar
+       that ran at a constant rate would hit the end and sit there, and the
+       next page rarely arrives on the beat. */
+    animation: "anig-nav 2.6s ease-out forwards",
   },
   header: {
     display: "flex",
