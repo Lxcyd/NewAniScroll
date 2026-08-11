@@ -92,7 +92,10 @@ const REDIS_KEY_CHAIN = (id: number) => `seasonChain:v9:${id}`;
 // v19: idem seasonChain v9 — un film classe en saison 0 d'une fiche TV ne
 //      recupere plus les saisons de cette fiche, et un film de la fiche
 //      n'apparait plus comme saison. Change la liste de ces pages.
-const REDIS_KEY_LIST = (id: number) => `seasonList:v19:${id}`;
+// v20: dans une franchise qui n'est faite QUE de films, un film prequel n'est
+//      plus un film bonus — Ghost in the Shell (1995) redevient une entree de
+//      la chronologie devant Innocence. Jujutsu Kaisen 0 garde sa regle.
+const REDIS_KEY_LIST = (id: number) => `seasonList:v20:${id}`;
 
 // Cache accessors now hit Turso (see lib/db/seasonCache.ts) instead of Redis.
 // The cache_key strings keep their version tag, so a version bump still evicts

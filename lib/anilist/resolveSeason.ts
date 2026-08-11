@@ -464,6 +464,22 @@ export function findBonusFilms(nodes: any[]): FilmVariant[] {
     }
   }
 
+  /**
+   * A franchise made only of films has no series for a film to be a bonus OF —
+   * its films ARE its chronology.
+   *
+   * Ghost in the Shell (1995) → Innocence is a two-film chain. Pulling the
+   * first out as a "bonus" left Innocence's page with a season list of one and
+   * no way back to the film it continues, and the 1995 film's own page opening
+   * on the Films panel as if it were an extra of itself. Jujutsu Kaisen 0, the
+   * case the PREQUEL rule was written for, is untouched: it precedes a TV
+   * series, so its franchise has real seasons and the film is genuinely beside
+   * them.
+   */
+  const filmsOnly = !nodes.some(
+    (m: any) => isSeasonLike(m) && m?.format !== "MOVIE"
+  );
+
   for (const m of nodes) {
     const franchiseTitle = m?.title;
     for (const e of m?.relations?.edges || []) {
@@ -477,7 +493,8 @@ export function findBonusFilms(nodes: any[]): FilmVariant[] {
       // to format === "MOVIE" means a PREQUEL edge to a real TV season is never
       // pulled in by mistake.
       const isBonusRelation =
-        e.relationType === "SIDE_STORY" || e.relationType === "PREQUEL";
+        e.relationType === "SIDE_STORY" ||
+        (e.relationType === "PREQUEL" && !filmsOnly);
       if (
         isBonusRelation &&
         e.node?.type === "ANIME" &&
