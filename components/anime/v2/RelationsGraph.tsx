@@ -905,44 +905,10 @@ export default function RelationsGraph({
       ranksep: covers ? RANK_SEP_COVER : RANK_SEP_TEXT,
       ranker: RANKER,
     });
-    /**
-     * How far the graph still runs on from each entry — the length of the
-     * longest chain of relations leaving it.
-     *
-     * dagre places the nodes of a rank in the order it was handed them, so this
-     * is the lever that decides which branch sits at the top. Sorting by reach
-     * puts the long line — the franchise's own spine, the one that carries on
-     * for six more columns — along the top edge, and leaves the dead ends
-     * (recaps, one-off specials, a spin-off that never got a sequel) collecting
-     * at the bottom. Read top-down, the board now goes from "the story" to "the
-     * extras" instead of interleaving them.
-     *
-     * Ties break on the id, so the order stays the same from every page of the
-     * franchise — that is what the canonical edges above bought.
-     */
-    const nextOf = new Map<number, number[]>();
-    for (const e of list) {
-      if (!nextOf.has(e.from)) nextOf.set(e.from, []);
-      nextOf.get(e.from)!.push(e.to);
-    }
-    const reachMemo = new Map<number, number>();
-    const reach = (id: number, seenOnPath: Set<number>): number => {
-      const memo = reachMemo.get(id);
-      if (memo !== undefined) return memo;
-      // AniList does report the occasional mutual prequel/sequel pair; a cycle
-      // must stop rather than recurse forever.
-      if (seenOnPath.has(id)) return 0;
-      seenOnPath.add(id);
-      let best = 0;
-      for (const to of nextOf.get(id) || []) best = Math.max(best, 1 + reach(to, seenOnPath));
-      seenOnPath.delete(id);
-      reachMemo.set(id, best);
-      return best;
-    };
-
-    const allNodes = Array.from(seen.values()).sort(
-      (a, b) => reach(b.id, new Set()) - reach(a.id, new Set()) || a.id - b.id
-    );
+    // By id, so dagre is handed the same graph in the same order from every
+    // page of the franchise. Which card sits at the top of a column is decided
+    // after the layout, below — dagre's own ordering pass would undo it here.
+    const allNodes = Array.from(seen.values()).sort((a, b) => a.id - b.id);
     for (const n of allNodes) g.setNode(String(n.id), { width: n.w, height: n.h });
     for (const e of list) g.setEdge(String(e.from), String(e.to));
     dagre.layout(g);
@@ -959,6 +925,33 @@ export default function RelationsGraph({
       n.y = pos.y - n.h / 2;
       rank.set(n.id, Math.round(rankDir === "TB" ? pos.y : pos.x));
     }
+
+    /**
+     * How far the board still runs on from each card — the LAST rank its
+     * chains of relations can reach, minus its own.
+     *
+     * Measured on the ranks dagre just assigned rather than by counting hops:
+     * a relation that skips a rank counts for what it skips, and a franchise
+     * where AniList reports a mutual prequel/sequel pair (it happens) can't
+     * send a recursive walk round in circles. Relaxation until stable, which
+     * for a graph of twenty nodes is two or three passes.
+     */
+    const far = new Map<number, number>();
+    for (const n of allNodes) far.set(n.id, rank.get(n.id) ?? 0);
+    for (let pass = 0; pass < allNodes.length; pass++) {
+      let changed = false;
+      for (const e of list) {
+        const from = far.get(e.from);
+        const to = far.get(e.to);
+        if (from === undefined || to === undefined) continue;
+        if (to > from) {
+          far.set(e.from, to);
+          changed = true;
+        }
+      }
+      if (!changed) break;
+    }
+    const reach = (n: GNode) => (far.get(n.id) ?? 0) - (rank.get(n.id) ?? 0);
 
     /**
      * Re-stack each column so the entry that leads furthest is at the top.
@@ -988,9 +981,7 @@ export default function RelationsGraph({
       const slots = column
         .map((n) => ({ at: acrossOf(n), size: acrossSize(n) }))
         .sort((a, b) => a.at - b.at);
-      const ordered = column
-        .slice()
-        .sort((a, b) => reach(b.id, new Set()) - reach(a.id, new Set()) || a.id - b.id);
+      const ordered = column.slice().sort((a, b) => reach(b) - reach(a) || a.id - b.id);
       ordered.forEach((n, i) => {
         // Centred in the slot it takes over, so a short card doesn't sit hard
         // against the top of a gap sized for a tall one.
