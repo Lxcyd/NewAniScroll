@@ -1330,7 +1330,10 @@ export default function RelationsGraph({
   /** Title, search and filters. The expanded view only — the preview is a
    *  window onto the board, not a place to run a query from. */
   const header = (
-    <div style={gStyles.header}>
+    <div style={{ ...gStyles.header, ...(open ? null : gStyles.headerEmbedded) }}>
+        {/* In the page the section already carries the name, and there is
+            nothing to close — the row is the controls and nothing else. */}
+        {open && (
         <span style={gStyles.title}>
           {t("anime.relationsGraphTitle", { defaultValue: "Franchise timeline" })}
           {walking && (
@@ -1339,8 +1342,16 @@ export default function RelationsGraph({
             </span>
           )}
         </span>
+        )}
 
-        <div style={gStyles.filters}>
+        <div style={{ ...gStyles.filters, ...(open ? null : gStyles.filtersEmbedded) }}>
+          {/* The overlay says this next to its title; in the page the row is
+              all there is, so it says it here. */}
+          {!open && walking && (
+            <span style={{ ...gStyles.walking, alignSelf: "center" }}>
+              {t("anime.graphWalking", { defaultValue: "still loading…" })}
+            </span>
+          )}
           <label style={gStyles.searchBox}>
             <Icon d={ICON.search} size={13} />
             <input
@@ -1425,6 +1436,7 @@ export default function RelationsGraph({
           />
         </div>
 
+        {open && (
         <button
           onClick={onClose}
           aria-label={t("anime.relationsGraphClose", { defaultValue: "Close" })}
@@ -1433,6 +1445,7 @@ export default function RelationsGraph({
         >
           <Icon d={ICON.close} size={16} />
         </button>
+        )}
     </div>
   );
 
@@ -1736,7 +1749,12 @@ export default function RelationsGraph({
   // The preview: the board in the page, with its own controls and nothing
   // else. Expanding is the ⤢ in those controls, or the caller's own button.
   if (!open) {
-    return <div style={gStyles.embedWrap}>{board}</div>;
+    return (
+      <div style={gStyles.embedShell}>
+        {header}
+        <div style={gStyles.embedWrap}>{board}</div>
+      </div>
+    );
   }
 
   // Portalled to <body>, like OpEdPanel: the graph is a full-screen dialog, and
@@ -1908,6 +1926,26 @@ const gStyles: Record<string, CSSProperties> = {
     cursor: "pointer",
     fontSize: 14,
   },
+  /** The controls row and the board under it, as one block in the page. */
+  embedShell: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 8,
+    width: "100%",
+  },
+  /**
+   * The same row as the overlay's, minus its frame: in the page it is a strip
+   * of controls under the section's own heading, not the top of a dialog.
+   * Raised above the board so a filter menu drops OVER it — the board comes
+   * later in the document and would otherwise paint on top of it.
+   */
+  headerEmbedded: {
+    padding: 0,
+    borderBottom: "none",
+    position: "relative",
+    zIndex: 2,
+  },
+  filtersEmbedded: { justifyContent: "flex-start" },
   /**
    * The inline box, at a HEIGHT OF ITS OWN rather than filling its column.
    *
