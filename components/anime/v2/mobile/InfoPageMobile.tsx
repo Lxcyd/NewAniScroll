@@ -35,6 +35,7 @@ import {
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { genreLabel } from "@/lib/i18n/genreLabel";
+import { fetchVerdict, peekVerdict } from "@/lib/preview/trailerVerdict";
 import { useTranslatedText } from "@/lib/i18n/useTranslatedText";
 import { translateTag } from "@/lib/i18n/animeTags";
 import { hexToCssFilter } from "@/lib/color/hexToCssFilter";
@@ -1226,7 +1227,26 @@ function MTrailer({
   bannerFallback?: string | null;
 }) {
   const [playing, setPlaying] = useState(false);
-  if (!trailer.id || !trailer.site) return null;
+  /**
+   * Same rule as the desktop overview: a video that cannot be watched from this
+   * region makes this block a tile that opens onto an error. Only a `gone`
+   * verdict hides it — a refusal aimed at our own proxy says nothing about the
+   * video. See lib/preview/trailerVerdict.
+   */
+  const ytId = trailer.site === "youtube" && trailer.id ? String(trailer.id) : null;
+  const [gone, setGone] = useState(() => (ytId ? peekVerdict(ytId) === "gone" : false));
+  useEffect(() => {
+    if (!ytId) return;
+    let cancelled = false;
+    fetchVerdict(ytId).then((v) => {
+      if (!cancelled) setGone(v === "gone");
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [ytId]);
+
+  if (!trailer.id || !trailer.site || gone) return null;
   const embed =
     trailer.site === "youtube"
       ? `https://www.youtube-nocookie.com/embed/${trailer.id}?autoplay=1`

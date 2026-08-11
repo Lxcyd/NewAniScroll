@@ -16,6 +16,7 @@ import { statusLabel } from "@/components/anime/v2/helpers";
 import { lockPreview, unlockPreview } from "@/lib/preview/previewLock";
 import { MdInfoOutline, MdPlayArrow } from "react-icons/md";
 import ListEditor from "@/components/listEditor";
+import { peekVerdict } from "@/lib/preview/trailerVerdict";
 import NativeTrailer from "./NativeTrailer";
 import TrailerAmbient from "./TrailerAmbient";
 
@@ -200,7 +201,13 @@ export default function PreviewCard({
   const banner = bannerUrl(data);
   // The trailer element is mounted as soon as we have an id and it hasn't been
   // ruled unplayable; `playing` is the finer, live state.
-  const trailerMounted = Boolean(data?.trailer?.id) && !hideFrame;
+  // A trailer already known to be unwatchable from here is not mounted at all:
+  // no element, no request, no black box while it fails. The verdict was
+  // written by whichever card discovered it first (see lib/preview/trailerVerdict).
+  const trailerMounted =
+    Boolean(data?.trailer?.id) &&
+    !hideFrame &&
+    peekVerdict(String(data?.trailer?.id)) !== "gone";
 
   /*
    * The info page's episode cell: "5/12 EP", or just "12 EP", with the runtime

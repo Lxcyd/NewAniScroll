@@ -18,6 +18,7 @@ import type { TFunction } from "i18next";
 import { useTranslatedText } from "@/lib/i18n/useTranslatedText";
 import { translateTag } from "@/lib/i18n/animeTags";
 import { hexToCssFilter } from "@/lib/color/hexToCssFilter";
+import { fetchVerdict, peekVerdict } from "@/lib/preview/trailerVerdict";
 
 type Props = {
   info: AniListInfoTypes;
@@ -58,12 +59,42 @@ export default function Overview({ info, seasonList }: Props) {
   // server-side). Falls back to the English original while loading / on error.
   const synopsis = useTranslatedText(synopsisRaw);
 
-  const trailerUrl =
+  const rawTrailerUrl =
     info.trailer && info.trailer.site === "youtube" && info.trailer.id
       ? `https://www.youtube.com/watch?v=${info.trailer.id}`
       : info.trailer && info.trailer.site === "dailymotion" && info.trailer.id
       ? `https://www.dailymotion.com/video/${info.trailer.id}`
       : null;
+
+  /**
+   * Drop the trailer block when the video cannot be watched from here.
+   *
+   * This section is a link out to YouTube, so an unavailable video makes it a
+   * button that leads to an error page — worse than no button. The verdict is
+   * three-way on purpose (see lib/preview/trailerVerdict): only `gone` hides
+   * anything. A refusal aimed at our own proxy must never remove a trailer that
+   * plays perfectly well in the visitor's country.
+   *
+   * YouTube only: Dailymotion doesn't go through the worker, and AniList lists
+   * exactly zero Dailymotion trailers across its 22 037 dated anime.
+   */
+  const ytId =
+    info.trailer?.site === "youtube" && info.trailer?.id ? String(info.trailer.id) : null;
+  const [trailerGone, setTrailerGone] = useState(
+    () => (ytId ? peekVerdict(ytId) === "gone" : false),
+  );
+  useEffect(() => {
+    if (!ytId) return;
+    let cancelled = false;
+    fetchVerdict(ytId).then((v) => {
+      if (!cancelled) setTrailerGone(v === "gone");
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [ytId]);
+
+  const trailerUrl = trailerGone ? null : rawTrailerUrl;
 
   return (
     <div style={tStyles.overviewWrap}>

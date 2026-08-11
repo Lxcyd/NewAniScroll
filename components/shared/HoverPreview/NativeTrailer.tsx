@@ -16,6 +16,7 @@ import {
   trailerSrc,
   writeCrop,
 } from "@/lib/preview/trailerCrop";
+import { fetchVerdict } from "@/lib/preview/trailerVerdict";
 
 /**
  * The trailer frame of the hover preview.
@@ -222,6 +223,27 @@ export default function NativeTrailer({
   const MAX_RETRIES = 2;
   const RETRY_DELAYS_MS = [500, 2500];
   const onLoadError = () => {
+    /*
+     * Ask WHY before trying again.
+     *
+     * A <video> error carries no HTTP status, so this element cannot tell "the
+     * video is unavailable in this country" from "YouTube refused our proxy for
+     * a minute" — and it used to answer both with three attempts and several
+     * seconds of black box. The worker knows the difference and answers it from
+     * its own cache, so this costs one small request on failure and usually
+     * lands as an edge hit.
+     *
+     * Only a definitive answer stops the retries; anything else keeps them,
+     * because a trailer that plays fine here must not be dropped over a refusal
+     * that was aimed at us.
+     */
+    fetchVerdict(id).then((v) => {
+      if (v !== "gone") return;
+      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+      retriesRef.current = MAX_RETRIES;
+      onHide(true);
+    });
+
     if (retriesRef.current >= MAX_RETRIES) {
       onHide(true);
       return;

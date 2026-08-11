@@ -44,8 +44,13 @@ const INNERTUBE_KEY = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8";
 const ANDROID_VERSION = "20.10.38";
 const ANDROID_UA = `com.google.android.youtube/${ANDROID_VERSION} (Linux; U; Android 15) gzip`;
 
-/** YouTube ids are exactly 11 url-safe base64 characters. */
-const ID_RE = /^\/w\/trailer\/([A-Za-z0-9_-]{11})\.mp4$/;
+/**
+ * YouTube ids are exactly 11 url-safe base64 characters.
+ *
+ * `.mp4` serves the bytes. `.json` answers the cheaper question the info page
+ * asks — "is this video watchable from here at all?" — without moving any.
+ */
+const ID_RE = /^\/w\/trailer\/([A-Za-z0-9_-]{11})\.(mp4|json)$/;
 
 /**
  * A day, matching the binary policy of the main proxy.
@@ -258,11 +263,90 @@ async function resolveRacing(videoId, diag) {
   }
 }
 
+/**
+ * `GET /w/trailer/<id>.json` — is this video watchable from here, and if not,
+ * is that about the video or about us?
+ *
+ *   { verdict: "ok" }                      → play it
+ *   { verdict: "gone", reason: "…" }       → the video is unavailable HERE, and
+ *                                            will stay so: deleted, private,
+ *                                            age-gated, or not released in this
+ *                                            region. Worth hiding the trailer.
+ *   { verdict: "unknown" }                 → YouTube refused US (the bot block)
+ *                                            or timed out. Says NOTHING about
+ *                                            the video: never hide on this.
+ *
+ * The three-way answer is the whole point. A binary available/unavailable would
+ * hide a perfectly good trailer every time our egress got refused — which is
+ * about half of cold lookups (measured: 4 failures out of 8 trailers), and it
+ * is exactly what "Death Note worked yesterday and not today" was.
+ *
+ * "Here" is the colo answering, which sits in the visitor's region — so a
+ * regional block reads the same way for them as for us. That is as close to
+ * "the user's own country" as this can get without asking their browser, which
+ * cannot call InnerTube (no CORS).
+ *
+ * Costs nothing for anything already known: a trailer whose bytes are in the
+ * edge cache, or whose refusal was already recorded, is answered from that
+ * without touching YouTube.
+ */
+async function trailerVerdict(videoId, reqUrl, bytesKeyUrl, cache, ctx) {
+  const reply = (body, ttl) =>
+    new Response(JSON.stringify(body), {
+      status: 200,
+      headers: cors({
+        "Content-Type": "application/json",
+        "Cache-Control": ttl ? `public, s-maxage=${ttl}` : "no-store",
+      }),
+    });
+
+  // Already answered once, in either currency: the bytes themselves, or a
+  // refusal recorded by the .mp4 route.
+  const known = await cache.match(new Request(bytesKeyUrl, { method: "GET" }));
+  if (known) {
+    if (known.status === 410) {
+      const body = await known.json().catch(() => ({}));
+      return reply({ verdict: "gone", reason: body?.error || "unavailable" }, GONE_TTL);
+    }
+    if (known.ok) return reply({ verdict: "ok" }, EDGE_TTL);
+  }
+
+  const verdictKeyUrl = `${reqUrl.origin}/w/trailer/${videoId}.json`;
+  const cachedVerdict = await cache.match(new Request(verdictKeyUrl, { method: "GET" }));
+  if (cachedVerdict) return cachedVerdict;
+
+  const diag = [];
+  let answer;
+  let ttl;
+  try {
+    const url = await resolveRacing(videoId, diag);
+    // A resolve that came back with a URL proves the video plays from this
+    // region. The bytes are left alone — the card will ask for them when it
+    // actually wants to play, and that request caches them properly.
+    answer = url ? { verdict: "ok" } : { verdict: "unknown", diag: diag.join(" | ") };
+    ttl = url ? EDGE_TTL : 0;
+  } catch (err) {
+    if (!(err instanceof DurableRefusal)) throw err;
+    answer = { verdict: "gone", reason: err.message };
+    ttl = GONE_TTL;
+  }
+
+  const response = reply(answer, ttl);
+  // `unknown` is never remembered: it is a statement about one moment of our
+  // own reputation, and caching it would freeze a working trailer out for
+  // hours over a refusal that had nothing to do with it.
+  if (ttl) {
+    return storeVerdict(verdictKeyUrl, cache, ctx, response);
+  }
+  return response;
+}
+
 export async function handleTrailer(request, env, ctx) {
   const reqUrl = new URL(request.url);
   const match = reqUrl.pathname.match(ID_RE);
   if (!match) return null;
   const videoId = match[1];
+  const wantsVerdict = match[2] === "json";
 
   if (request.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: cors() });
@@ -286,6 +370,8 @@ export async function handleTrailer(request, env, ctx) {
     rangeHeader && !isOpeningRange
       ? new Request(cacheKeyUrl, { method: "GET", headers: { Range: rangeHeader } })
       : new Request(cacheKeyUrl, { method: "GET" });
+
+  if (wantsVerdict) return trailerVerdict(videoId, reqUrl, cacheKeyUrl, cache, ctx);
 
   if (request.method === "GET") {
     const cached = await cache.match(cacheLookup);
