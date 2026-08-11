@@ -1,5 +1,49 @@
 # DEVLOG
 
+## 2026-08-11 — Trailers : le refus de YouTube ne se combat pas dans la requête
+
+Les cartes de survol pleuvaient en `404` sur `/w/trailer/<id>.mp4`. Le corps de
+la réponse disait déjà tout : `Unresolvable: LOGIN_REQUIRED: Sign in to confirm
+you're not a bot`, quatre fois — YouTube refusant l'egress datacentre de
+Cloudflare, pas la vidéo. Le même payload ANDROID depuis une connexion
+résidentielle résolvait les mêmes ids instantanément.
+
+### Décisions
+- **Deuxième client InnerTube (ANDROID_VR), gardé comme assurance et pas comme
+  correctif.** Le PO Token Guide de yt-dlp classe désormais `android` parmi les
+  clients exigeant un GVS PO token et `android_vr` parmi ceux qui n'en
+  demandent aucun ; le seul format que VR sert encore sans token est l'itag 18,
+  c'est-à-dire exactement et uniquement celui dont ce worker a besoin. Coût
+  nul : la course tirait déjà deux appels.
+- **Réchauffage hors bande (`warmLater`)**, la vraie correction : après avoir
+  répondu 404, le worker attend 4 s dans un `ctx.waitUntil`, retente la
+  résolution et **pose les octets dans le cache**. La carte qui a échoué est
+  prête au survol suivant, pour tout le colo, pendant 24 h.
+- **Un refus « durable » n'est plus cru que s'il est UNANIME.** Avec deux
+  clients différents dans la course, un `UNPLAYABLE` isolé à côté d'un blocage
+  bot ne prouve rien sur la vidéo, et le croire cacherait un bon trailer six
+  heures. Un 410 mérité (supprimé, géobloqué) est dit par tous les clients.
+
+### Leçons / pièges
+- **Le blocage vise l'adresse et la MINUTE, pas le client.** Mesuré depuis
+  l'edge sur 16 ids froids : deux clients + trois manches = 9 échecs, un client
+  + deux manches = 8 — et **les mêmes ids** échouaient dans les deux passes. La
+  troisième manche a donc été retirée : ajouter des tentatives dans la même
+  seconde, c'est échantillonner deux fois le même instant.
+- **Ce qui marche, c'est d'attendre — mais hors de la requête.** Trois passes
+  successives en prod : `404 404 404 404`, puis `404 206 206 206`, puis tout en
+  cache. La vague dure des secondes. Mesuré après déploiement : sur 7 échecs à
+  froid, 4 revenaient **`X-Aniscroll-Cache: HIT` en ~55 ms** quinze secondes
+  plus tard, un 5ᵉ se résolvait de lui-même.
+- **`wrangler dev --remote` a refusé la session** (KV sans `preview_id`, puis
+  « Could not create remote preview session ») ; le banc utile a été un worker
+  jetable sur `workers.dev` — en sachant que `caches.default` y est inerte,
+  donc que seul le prod peut valider le chemin de cache.
+- **Le front n'a pas été touché** : ses reprises sont à 500 ms et 2500 ms, donc
+  elles passent AVANT que le réchauffage n'ait posé les octets. Le gain se
+  matérialise au survol suivant. Un essai supplémentaire vers 7 s le capterait
+  dans le même survol — à décider.
+
 ## 2026-08-10 — Graphe de franchise : le reste du chantier
 
 Fin des cinq points laissés ouverts sur `RelationsGraph`, plus un bug de calque.

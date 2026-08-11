@@ -25,11 +25,11 @@
  * audio-only streams that would need MSE, i.e. the CORS problem again. 360p is
  * not a compromise here: the preview card's video box is 364 px wide.
  *
- * WHY THE ANDROID CLIENT. Measured against the alternatives on the same video:
+ * WHY THE ANDROID CLIENTS. Measured against the alternatives on the same video:
  * IOS returns adaptive formats only (no muxed), WEB and MWEB return
- * UNPLAYABLE without a PO token, TVHTML5_SIMPLY_EMBEDDED_PLAYER errors,
- * ANDROID_VR wants a login. ANDROID is the one that still returns itag 18 with
- * a plain `url` and no `signatureCipher` to decipher.
+ * UNPLAYABLE without a PO token, TVHTML5_SIMPLY_EMBEDDED_PLAYER errors. The two
+ * android clients are the ones that still return itag 18 with a plain `url` and
+ * no `signatureCipher` to decipher — see CLIENTS for why there are two.
  *
  * THE COST MODEL. Workers bandwidth is unmetered; the meter is requests. So the
  * edge cache is the whole design: the key is OUR url (the video id), never the
@@ -43,6 +43,65 @@ const INNERTUBE_KEY = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8";
 
 const ANDROID_VERSION = "20.10.38";
 const ANDROID_UA = `com.google.android.youtube/${ANDROID_VERSION} (Linux; U; Android 15) gzip`;
+
+const VR_VERSION = "1.65.10";
+const VR_UA = `com.google.android.apps.youtube.vr.oculus/${VR_VERSION} (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip`;
+
+/**
+ * TWO clients — as insurance, NOT as a fix. Be clear about which, because the
+ * measurement was not what the reasoning predicted.
+ *
+ * The reasoning: from a home connection the block is drawn per client (same four
+ * trailers, same minute — ANDROID served all four, ANDROID_VR was refused all
+ * four; on another video the reverse), so racing two clients should buy two
+ * verdicts where racing one twice buys one verdict sampled twice. The
+ * measurement from the EDGE says otherwise: 16 cold ids, two clients and three
+ * rounds failed 9, one client and two rounds failed 8, and the same ids failed
+ * in both runs. Out here the refusal is aimed at the address, not the client,
+ * and it lifts on its own schedule — which is what warmLater is for.
+ *
+ * What keeps the second client is provenance rather than yield: yt-dlp's PO
+ * Token Guide lists ANDROID as now requiring a GVS PO token and ANDROID_VR as
+ * requiring none, and the single format VR still hands out untokened is itag 18
+ * — precisely and only what this worker wants. It costs nothing (the race was
+ * always two calls) and it is the client left standing if ANDROID goes. Should
+ * that change, the diag says `OK but no muxed format` rather than going quiet.
+ *
+ * The device fields are not decoration: ANDROID_VR without the Oculus/Quest 3
+ * pair is a different, less trusted caller.
+ */
+const CLIENTS = [
+  {
+    name: "android",
+    ua: ANDROID_UA,
+    header: "3",
+    context: {
+      clientName: "ANDROID",
+      clientVersion: ANDROID_VERSION,
+      androidSdkVersion: 35,
+      osName: "Android",
+      osVersion: "15",
+      hl: "en",
+      gl: "US",
+    },
+  },
+  {
+    name: "android_vr",
+    ua: VR_UA,
+    header: "28",
+    context: {
+      clientName: "ANDROID_VR",
+      clientVersion: VR_VERSION,
+      deviceMake: "Oculus",
+      deviceModel: "Quest 3",
+      androidSdkVersion: 32,
+      osName: "Android",
+      osVersion: "12L",
+      hl: "en",
+      gl: "US",
+    },
+  },
+];
 
 /**
  * YouTube ids are exactly 11 url-safe base64 characters.
@@ -165,7 +224,12 @@ function isDurableRefusal(status, reason) {
  * Returns null on a refusal a retry might survive, and THROWS DurableRefusal on
  * one it cannot — embed-disabled, deleted, region-locked, age-gated.
  */
-async function resolveMuxedUrl(videoId, diag, signal) {
+async function resolveMuxedUrl(videoId, client, diag, signal) {
+  const note = (text) => {
+    // Which client paid for what: with two of them in the race, an undecorated
+    // `LOGIN_REQUIRED` no longer says whether one was refused or both were.
+    if (diag) diag.push(`${client.name}: ${text}`);
+  };
   const res = await fetch(
     `https://www.youtube.com/youtubei/v1/player?key=${INNERTUBE_KEY}&prettyPrint=false`,
     {
@@ -173,22 +237,12 @@ async function resolveMuxedUrl(videoId, diag, signal) {
       signal,
       headers: {
         "Content-Type": "application/json",
-        "User-Agent": ANDROID_UA,
-        "X-Youtube-Client-Name": "3",
-        "X-Youtube-Client-Version": ANDROID_VERSION,
+        "User-Agent": client.ua,
+        "X-Youtube-Client-Name": client.header,
+        "X-Youtube-Client-Version": client.context.clientVersion,
       },
       body: JSON.stringify({
-        context: {
-          client: {
-            clientName: "ANDROID",
-            clientVersion: ANDROID_VERSION,
-            androidSdkVersion: 35,
-            osName: "Android",
-            osVersion: "15",
-            hl: "en",
-            gl: "US",
-          },
-        },
+        context: { client: client.context },
         videoId,
         // Both needed or a trailer carrying a content warning comes back as
         // unplayable — several anime trailers do.
@@ -198,14 +252,14 @@ async function resolveMuxedUrl(videoId, diag, signal) {
     },
   );
   if (!res.ok) {
-    if (diag) diag.push(`http ${res.status}`);
+    note(`http ${res.status}`);
     return null;
   }
   const json = await res.json();
   const status = json?.playabilityStatus?.status;
   if (status !== "OK") {
     const reason = json?.playabilityStatus?.reason || "no reason";
-    if (diag) diag.push(`${status}: ${reason}`);
+    note(`${status}: ${reason}`);
     if (isDurableRefusal(status, reason)) throw new DurableRefusal(`${status}: ${reason}`);
     return null;
   }
@@ -215,12 +269,12 @@ async function resolveMuxedUrl(videoId, diag, signal) {
     formats.find((f) => f.itag === 18 && f.url) ||
     // Any other muxed mp4 with a plain url, should YouTube ever renumber.
     formats.find((f) => f.url && (f.mimeType || "").startsWith("video/mp4") && f.audioQuality);
-  if (!muxed?.url && diag) diag.push(`OK but no muxed format (${formats.length} progressive)`);
+  if (!muxed?.url) note(`OK but no muxed format (${formats.length} progressive)`);
   return muxed?.url || null;
 }
 
 /**
- * Two resolves at once, first usable answer wins.
+ * Two resolves at once — one per client — first usable answer wins.
  *
  * Measured over 14 cold trailers: most answered in 300-600 ms, but one took
  * 5.6 s, another 7 s, and one spent 22 s failing — three sequential attempts of
@@ -237,25 +291,43 @@ async function resolveMuxedUrl(videoId, diag, signal) {
 const RESOLVE_TIMEOUT_MS = 4000;
 
 async function resolveRacing(videoId, diag) {
-  const one = async () => {
-    const url = await resolveMuxedUrl(videoId, diag, AbortSignal.timeout(RESOLVE_TIMEOUT_MS));
+  const one = async (client) => {
+    const url = await resolveMuxedUrl(
+      videoId,
+      client,
+      diag,
+      AbortSignal.timeout(RESOLVE_TIMEOUT_MS),
+    );
     // Promise.any settles on the first FULFILLED promise, so "no url" has to
     // reject or an early refusal would win the race against a good answer.
     if (!url) throw new Error("no url");
-    return url;
+    // The winner's UA travels with its url: googlevideo minted that link for a
+    // Quest or for a phone, and the fetch that redeems it should say the same.
+    return { url, ua: client.ua };
   };
   try {
-    return await Promise.any([one(), one()]);
+    return await Promise.any(CLIENTS.map(one));
   } catch (err) {
     // Promise.any rejects with an AggregateError, so testing `err.name` against
     // TimeoutError never matched and a resolve that simply timed out was
     // reported as `Unresolvable: unknown` — the one failure mode the message
     // could not name, and half of what the 404s actually were.
     const causes = err?.errors || [err];
-    // One racer proving the video itself is unavailable settles it: its twin
-    // asking the same question of the same video cannot come back with more.
-    const durable = causes.find((e) => e instanceof DurableRefusal);
-    if (durable) throw durable;
+    /*
+     * "Unavailable" is only believed UNANIMOUSLY.
+     *
+     * When both racers were the same client, one of them saying the video is
+     * gone settled it — its twin could not come back with more. Two different
+     * clients can: they do not see the same catalogue (ANDROID_VR declines
+     * material ANDROID serves), so a lone durable refusal beside a bot block
+     * is not proof about the video, and believing it would hide a good trailer
+     * for six hours. Requiring agreement costs a retry round in the rare split
+     * case and keeps the 410 exactly where it was earned — a deleted or
+     * region-locked video answers the same way to every client, which is what
+     * the measurements showed.
+     */
+    const durable = causes.filter((e) => e instanceof DurableRefusal);
+    if (durable.length === causes.length) throw durable[0];
     if (diag && causes.some((e) => e?.name === "TimeoutError")) {
       diag.push(`resolve timed out (${RESOLVE_TIMEOUT_MS} ms)`);
     }
@@ -319,12 +391,12 @@ async function trailerVerdict(videoId, reqUrl, bytesKeyUrl, cache, ctx) {
   let answer;
   let ttl;
   try {
-    const url = await resolveRacing(videoId, diag);
+    const won = await resolveRacing(videoId, diag);
     // A resolve that came back with a URL proves the video plays from this
     // region. The bytes are left alone — the card will ask for them when it
     // actually wants to play, and that request caches them properly.
-    answer = url ? { verdict: "ok" } : { verdict: "unknown", diag: diag.join(" | ") };
-    ttl = url ? EDGE_TTL : 0;
+    answer = won ? { verdict: "ok" } : { verdict: "unknown", diag: diag.join(" | ") };
+    ttl = won ? EDGE_TTL : 0;
   } catch (err) {
     if (!(err instanceof DurableRefusal)) throw err;
     answer = { verdict: "gone", reason: err.message };
@@ -339,6 +411,69 @@ async function trailerVerdict(videoId, reqUrl, bytesKeyUrl, cache, ctx) {
     return storeVerdict(verdictKeyUrl, cache, ctx, response);
   }
   return response;
+}
+
+/** The headers the stored bytes carry, wherever they were fetched from. */
+function mp4Headers() {
+  return cors({
+    "Content-Type": "video/mp4",
+    "Accept-Ranges": "bytes",
+    "Cache-Control": `public, s-maxage=${EDGE_TTL}, max-age=3600, immutable`,
+    "X-Aniscroll-Cache": "MISS",
+  });
+}
+
+/**
+ * How long to wait before trying a refused video again, out of band.
+ *
+ * The refusal comes in WAVES, and the wave is what has to pass. Measured on the
+ * live worker: four ids refused four-for-four in one pass, three of the same
+ * four served seconds later, everything cached from then on. Two more attempts
+ * crowded into the same second are two samples of one moment — which is exactly
+ * why adding rounds to the foreground loop changed nothing measurable (9 of 16
+ * cold ids failed with three rounds and two clients, 8 of 16 with two rounds and
+ * one; the same ids failed in both, so the variable was the minute, not us).
+ */
+const WARM_DELAY_MS = 4000;
+
+/** One warm-up per video per isolate: the browser's own retries must not each start one. */
+const warming = new Set();
+
+/**
+ * Fetch a refused trailer AFTER answering, and leave the bytes in the cache.
+ *
+ * The visitor who met the refusal is not the one this helps, and that is the
+ * point: nothing here is on their clock, so it can afford the one thing the
+ * request path cannot — waiting for the wave to pass. What it buys is that a
+ * card which failed is ready the next time ANY visitor in this colo hovers it,
+ * instead of staying broken until someone happens to catch a good minute.
+ *
+ * Deliberately silent on failure. A refusal here is the same refusal the
+ * foreground already reported, and a durable one is recorded by the next real
+ * request through the path that knows how to cache it.
+ */
+function warmLater(videoId, cacheKeyUrl, cache, ctx) {
+  if (!ctx || warming.has(videoId)) return;
+  warming.add(videoId);
+  ctx.waitUntil(
+    (async () => {
+      try {
+        await new Promise((resolve) => setTimeout(resolve, WARM_DELAY_MS));
+        const won = await resolveRacing(videoId, null);
+        if (!won) return;
+        const res = await fetch(won.url, { headers: { "User-Agent": won.ua, Accept: "*/*" } });
+        if (!res.ok) return;
+        await cache.put(
+          new Request(cacheKeyUrl, { method: "GET" }),
+          new Response(res.body, { status: 200, headers: mp4Headers() }),
+        );
+      } catch {
+        /* including a DurableRefusal: not ours to record from out here */
+      } finally {
+        warming.delete(videoId);
+      }
+    })(),
+  );
 }
 
 export async function handleTrailer(request, env, ctx) {
@@ -401,10 +536,12 @@ export async function handleTrailer(request, env, ctx) {
   let upstream = null;
   // Two ROUNDS of a two-way race, so at worst this spends ~8 s on resolving
   // rather than the 22 s that three sequential slow attempts could reach.
+  // Adding rounds here was tried and measured worthless — see warmLater, which
+  // does the waiting where nobody is watching the clock.
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    let url;
+    let won;
     try {
-      url = await resolveRacing(videoId, diag);
+      won = await resolveRacing(videoId, diag);
     } catch (err) {
       if (!(err instanceof DurableRefusal)) throw err;
       /*
@@ -421,25 +558,23 @@ export async function handleTrailer(request, env, ctx) {
        */
       return storeVerdict(cacheKeyUrl, cache, ctx, gone(err.message));
     }
-    if (!url) continue;
+    if (!won) continue;
     // Deliberately NOT forwarding the client's Range — see below. We always
     // pull the whole file so there is always something worth storing.
-    upstream = await fetch(url, { headers: { "User-Agent": ANDROID_UA, Accept: "*/*" } });
+    upstream = await fetch(won.url, { headers: { "User-Agent": won.ua, Accept: "*/*" } });
     if (upstream.status !== 403) break;
     diag.push("upstream 403");
     upstream = null;
   }
-  if (!upstream) return fail(404, `Unresolvable: ${diag.join(" | ") || "unknown"}`);
+  if (!upstream) {
+    warmLater(videoId, cacheKeyUrl, cache, ctx);
+    return fail(404, `Unresolvable: ${diag.join(" | ") || "unknown"}`);
+  }
   if (!upstream.ok && upstream.status !== 206) {
     return fail(502, `Upstream ${upstream.status}`);
   }
 
-  const headers = cors({
-    "Content-Type": "video/mp4",
-    "Accept-Ranges": "bytes",
-    "Cache-Control": `public, s-maxage=${EDGE_TTL}, max-age=3600, immutable`,
-    "X-Aniscroll-Cache": "MISS",
-  });
+  const headers = mp4Headers();
   const contentRange = upstream.headers.get("content-range");
   const contentLength = upstream.headers.get("content-length");
   if (contentRange) headers["Content-Range"] = contentRange;
