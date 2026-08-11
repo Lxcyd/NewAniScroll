@@ -199,78 +199,6 @@ type GNode = {
 
 type GEdge = { from: number; to: number; label: string };
 
-/**
- * Relations reported the other way round.
- *
- * Both ends of a pair describe the same link, and only one of the two
- * descriptions can be drawn. Reversing these two makes the two ends agree:
- * B saying "A is my PREQUEL" and A saying "B is my SEQUEL" both become A→B,
- * and B saying "A is my PARENT" and A saying "B is my SIDE STORY" both become
- * A→B. Every other relation already points from the work to what hangs off it.
- */
-const REVERSED_RELATIONS = new Set(["PREQUEL", "PARENT"]);
-
-/**
- * Which description of a pair wins, most specific first.
- *
- * AniList's two ends disagree constantly — Sword Art Online II calls Fatal
- * Bullet's pilot an OTHER, the pilot calls II a PARENT — and the one that used
- * to win was simply whichever the walk reached first. That is what made the
- * board a different shape on every page of the same franchise: the arrow's
- * direction is what dagre ranks on, so one flipped arrow moves a column.
- */
-const RELATION_PRIORITY = [
-  "SEQUEL",
-  "SIDE_STORY",
-  "SPIN_OFF",
-  "ALTERNATIVE",
-  "SUMMARY",
-  "COMPILATION",
-  "ADAPTATION",
-  "PARENT",
-  "OTHER",
-];
-const relationRank = (label: string) => {
-  const i = RELATION_PRIORITY.indexOf(label);
-  // An unknown label is worth more than AniList's two catch-alls, less than
-  // anything named.
-  return i < 0 ? RELATION_PRIORITY.length - 2.5 : i;
-};
-
-/**
- * One drawn edge per pair, chosen the same way from wherever you started.
- *
- * The walk's reading order decides nothing here: direction comes from the
- * relation's own meaning, the label from the priority above, and ties from the
- * ids. Same franchise, same picture — which is the whole point of a map.
- */
-const canonicalEdges = (obs: GEdge[]): GEdge[] => {
-  const best = new Map<string, GEdge>();
-  for (const o of obs) {
-    const rev = REVERSED_RELATIONS.has(o.label);
-    const cand: GEdge = {
-      from: rev ? o.to : o.from,
-      to: rev ? o.from : o.to,
-      label: o.label === "PREQUEL" ? "SEQUEL" : o.label,
-    };
-    const key = [o.from, o.to].sort((a, b) => a - b).join("-");
-    const cur = best.get(key);
-    if (!cur) {
-      best.set(key, cand);
-      continue;
-    }
-    const d = relationRank(cand.label) - relationRank(cur.label);
-    // A genuinely symmetric pair — both ends saying ALTERNATIVE — has no
-    // meaning to take a direction from, so the lower id leads.
-    if (d < 0 || (d === 0 && cand.from < cur.from)) best.set(key, cand);
-  }
-  // dagre orders within a rank by insertion, so the list it is handed has to be
-  // sorted too, or the same edges in a different order still shuffle a column.
-  return Array.from(best.values()).sort(
-    (a, b) => a.from - b.from || a.to - b.to || a.label.localeCompare(b.label)
-  );
-};
-
 /** What a node needs to be drawn — the shape both the prop and the API give. */
 type NodeMeta = {
   id: number;
@@ -618,8 +546,6 @@ export default function RelationsGraph({
     setWalking(true);
     const nodes = new Map<number, NodeMeta>();
     const edges = new Map<string, GEdge>();
-    /** Every relation the walk saw, both ends of a pair included. */
-    const obs: GEdge[] = [];
     const frontier = new Set<number>();
     const relCache = new Map<number, Promise<any>>();
 
@@ -735,11 +661,6 @@ export default function RelationsGraph({
         if (!isAnime(node) || EXCLUDED_RELATIONS.has(e.relationType)) continue;
         const nid = Number(node.id);
 
-        // Every relation as it was REPORTED, before the walk's own bookkeeping
-        // gets an opinion about it. The drawn edges are derived from this list
-        // and from nothing else — see canonicalEdges.
-        obs.push({ from: id, to: nid, label: e.relationType || "OTHER" });
-
         const key = [nid, id].sort((a, b) => a - b).join("-");
         const existing = edges.get(key);
         if (existing) {
@@ -759,7 +680,7 @@ export default function RelationsGraph({
     };
 
     const publish = () =>
-      setTree({ nodes: Array.from(nodes.values()), edges: canonicalEdges(obs) });
+      setTree({ nodes: Array.from(nodes.values()), edges: Array.from(edges.values()) });
 
     (async () => {
       await processEdges({
@@ -905,95 +826,19 @@ export default function RelationsGraph({
       ranksep: covers ? RANK_SEP_COVER : RANK_SEP_TEXT,
       ranker: RANKER,
     });
-    // By id, so dagre is handed the same graph in the same order from every
-    // page of the franchise. Which card sits at the top of a column is decided
-    // after the layout, below — dagre's own ordering pass would undo it here.
-    const allNodes = Array.from(seen.values()).sort((a, b) => a.id - b.id);
+    const allNodes = Array.from(seen.values());
     for (const n of allNodes) g.setNode(String(n.id), { width: n.w, height: n.h });
     for (const e of list) g.setEdge(String(e.from), String(e.to));
     dagre.layout(g);
 
-    /** The rank each card landed in, as dagre's own centre along the rank axis
-     *  — cards of one rank share it exactly, where their top-left corners do
-     *  not (a taller card starts higher). */
-    const rank = new Map<number, number>();
+    let maxX = 0;
+    let maxY = 0;
     for (const n of allNodes) {
       const pos = g.node(String(n.id));
       if (!pos) continue;
       // dagre anchors on the centre; the DOM anchors on the top-left.
       n.x = pos.x - n.w / 2;
       n.y = pos.y - n.h / 2;
-      rank.set(n.id, Math.round(rankDir === "TB" ? pos.y : pos.x));
-    }
-
-    /**
-     * How far the board still runs on from each card — the LAST rank its
-     * chains of relations can reach, minus its own.
-     *
-     * Measured on the ranks dagre just assigned rather than by counting hops:
-     * a relation that skips a rank counts for what it skips, and a franchise
-     * where AniList reports a mutual prequel/sequel pair (it happens) can't
-     * send a recursive walk round in circles. Relaxation until stable, which
-     * for a graph of twenty nodes is two or three passes.
-     */
-    const far = new Map<number, number>();
-    for (const n of allNodes) far.set(n.id, rank.get(n.id) ?? 0);
-    for (let pass = 0; pass < allNodes.length; pass++) {
-      let changed = false;
-      for (const e of list) {
-        const from = far.get(e.from);
-        const to = far.get(e.to);
-        if (from === undefined || to === undefined) continue;
-        if (to > from) {
-          far.set(e.from, to);
-          changed = true;
-        }
-      }
-      if (!changed) break;
-    }
-    const reach = (n: GNode) => (far.get(n.id) ?? 0) - (rank.get(n.id) ?? 0);
-
-    /**
-     * Re-stack each column so the entry that leads furthest is at the top.
-     *
-     * Handing dagre a sorted node list only SUGGESTS this — its ordering pass
-     * then spends four rounds swapping neighbours to reduce crossings, and the
-     * spine ends up wherever that leaves it, which on Sword Art Online was the
-     * bottom. So the order is imposed afterwards instead: the slots a column
-     * occupies are kept exactly as dagre computed them (same gaps, same
-     * extent), and the cards are dealt into them by reach.
-     *
-     * The cost is crossings — this is deliberately overruling the algorithm
-     * whose whole job is to avoid them. The trade is that the long line reads
-     * as a line along the top edge instead of zig-zagging through the middle.
-     */
-    const acrossOf = (n: GNode) => (rankDir === "TB" ? n.x : n.y);
-    const acrossSize = (n: GNode) => (rankDir === "TB" ? n.w : n.h);
-    const columns = new Map<number, GNode[]>();
-    for (const n of allNodes) {
-      const k = rank.get(n.id);
-      if (k === undefined) continue;
-      if (!columns.has(k)) columns.set(k, []);
-      columns.get(k)!.push(n);
-    }
-    for (const column of Array.from(columns.values())) {
-      if (column.length < 2) continue;
-      const slots = column
-        .map((n) => ({ at: acrossOf(n), size: acrossSize(n) }))
-        .sort((a, b) => a.at - b.at);
-      const ordered = column.slice().sort((a, b) => reach(b) - reach(a) || a.id - b.id);
-      ordered.forEach((n, i) => {
-        // Centred in the slot it takes over, so a short card doesn't sit hard
-        // against the top of a gap sized for a tall one.
-        const at = slots[i].at + (slots[i].size - acrossSize(n)) / 2;
-        if (rankDir === "TB") n.x = at;
-        else n.y = at;
-      });
-    }
-
-    let maxX = 0;
-    let maxY = 0;
-    for (const n of allNodes) {
       maxX = Math.max(maxX, n.x + n.w);
       maxY = Math.max(maxY, n.y + n.h);
     }
