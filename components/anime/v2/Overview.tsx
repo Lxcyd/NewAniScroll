@@ -169,31 +169,10 @@ export default function Overview({ info, seasonList }: Props) {
               paddingBottom: 6,
             }}
           >
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: 8,
-              }}
-            >
-              <div style={tStyles.secKicker}>{t("anime.sectionRelations")}</div>
-              <button
-                type="button"
-                onClick={() => setGraphOpen(true)}
-                style={relMapBtnStyle}
-                title={t("anime.relationsMap", { defaultValue: "View timeline" })}
-              >
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                  <circle cx="5" cy="12" r="2.5" />
-                  <circle cx="19" cy="6" r="2.5" />
-                  <circle cx="19" cy="18" r="2.5" />
-                  <line x1="7.2" y1="11" x2="16.8" y2="7" />
-                  <line x1="7.2" y1="13" x2="16.8" y2="17" />
-                </svg>
-                {t("anime.relationsMap", { defaultValue: "View timeline" })}
-              </button>
-            </div>
+            {/* No button beside the kicker any more: the board below IS the
+                timeline, and the ⤢ in its own controls is what expands it —
+                a second way in, one line above, named something else. */}
+            <div style={tStyles.secKicker}>{t("anime.sectionRelations")}</div>
             <div
               style={{
                 flex: 1,
@@ -787,20 +766,6 @@ function buildPopularity(
     ],
   ];
 }
-
-const relMapBtnStyle: CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  gap: 6,
-  padding: "5px 10px",
-  fontSize: 11.5,
-  fontWeight: 600,
-  color: "var(--txt-2)",
-  background: "var(--bg-2)",
-  border: "1px solid var(--line)",
-  borderRadius: 8,
-  cursor: "pointer",
-};
 
 const tStyles: Record<string, CSSProperties> = {
   overviewWrap: { display: "flex", flexDirection: "column", gap: 28 },

@@ -1953,10 +1953,10 @@ const gStyles: Record<string, CSSProperties> = {
     background: "#08080b",
     backgroundImage: "radial-gradient(circle, #24242a 1px, transparent 1px)",
   },
-  /** Zoom / fit / reset, bottom-left, out of the graph's way. */
+  /** Zoom / fit / reset, bottom-right, out of the graph's way. */
   controls: {
     position: "absolute",
-    left: 14,
+    right: 14,
     bottom: 14,
     display: "flex",
     gap: 6,
