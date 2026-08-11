@@ -947,14 +947,62 @@ export default function RelationsGraph({
     for (const e of list) g.setEdge(String(e.from), String(e.to));
     dagre.layout(g);
 
-    let maxX = 0;
-    let maxY = 0;
+    /** The rank each card landed in, as dagre's own centre along the rank axis
+     *  — cards of one rank share it exactly, where their top-left corners do
+     *  not (a taller card starts higher). */
+    const rank = new Map<number, number>();
     for (const n of allNodes) {
       const pos = g.node(String(n.id));
       if (!pos) continue;
       // dagre anchors on the centre; the DOM anchors on the top-left.
       n.x = pos.x - n.w / 2;
       n.y = pos.y - n.h / 2;
+      rank.set(n.id, Math.round(rankDir === "TB" ? pos.y : pos.x));
+    }
+
+    /**
+     * Re-stack each column so the entry that leads furthest is at the top.
+     *
+     * Handing dagre a sorted node list only SUGGESTS this — its ordering pass
+     * then spends four rounds swapping neighbours to reduce crossings, and the
+     * spine ends up wherever that leaves it, which on Sword Art Online was the
+     * bottom. So the order is imposed afterwards instead: the slots a column
+     * occupies are kept exactly as dagre computed them (same gaps, same
+     * extent), and the cards are dealt into them by reach.
+     *
+     * The cost is crossings — this is deliberately overruling the algorithm
+     * whose whole job is to avoid them. The trade is that the long line reads
+     * as a line along the top edge instead of zig-zagging through the middle.
+     */
+    const acrossOf = (n: GNode) => (rankDir === "TB" ? n.x : n.y);
+    const acrossSize = (n: GNode) => (rankDir === "TB" ? n.w : n.h);
+    const columns = new Map<number, GNode[]>();
+    for (const n of allNodes) {
+      const k = rank.get(n.id);
+      if (k === undefined) continue;
+      if (!columns.has(k)) columns.set(k, []);
+      columns.get(k)!.push(n);
+    }
+    for (const column of Array.from(columns.values())) {
+      if (column.length < 2) continue;
+      const slots = column
+        .map((n) => ({ at: acrossOf(n), size: acrossSize(n) }))
+        .sort((a, b) => a.at - b.at);
+      const ordered = column
+        .slice()
+        .sort((a, b) => reach(b.id, new Set()) - reach(a.id, new Set()) || a.id - b.id);
+      ordered.forEach((n, i) => {
+        // Centred in the slot it takes over, so a short card doesn't sit hard
+        // against the top of a gap sized for a tall one.
+        const at = slots[i].at + (slots[i].size - acrossSize(n)) / 2;
+        if (rankDir === "TB") n.x = at;
+        else n.y = at;
+      });
+    }
+
+    let maxX = 0;
+    let maxY = 0;
+    for (const n of allNodes) {
       maxX = Math.max(maxX, n.x + n.w);
       maxY = Math.max(maxY, n.y + n.h);
     }
