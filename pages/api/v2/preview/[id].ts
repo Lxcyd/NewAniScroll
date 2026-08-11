@@ -29,6 +29,36 @@ const TTL_S = 24 * 60 * 60;
 /** Comfortably past the four lines the card clamps to; caps the payload. */
 const DESC_MAX = 600;
 
+const PROXY_BASE =
+  process.env.NEXT_PUBLIC_PROXY_BASE || "https://proxy.aniscroll.com";
+/**
+ * The card is what matters, not the trailer. If the worker is slow to answer
+ * we ship the trailer and let the player find out — the old behaviour, and a
+ * far better failure than a preview that waits on a decoration.
+ */
+const VERDICT_TIMEOUT_MS = 1200;
+
+/**
+ * Can this trailer actually be watched from here?
+ *
+ * False ONLY for a durable refusal (`gone`): deleted, private, age-gated, or
+ * not released in this region. Anything else — including the worker being
+ * refused by YouTube, a timeout, or a network error — answers true, because
+ * none of those is a statement about the video.
+ */
+async function isPlayable(videoId: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${PROXY_BASE}/w/trailer/${videoId}.json`, {
+      signal: AbortSignal.timeout(VERDICT_TIMEOUT_MS),
+    });
+    if (!res.ok) return true;
+    const body = (await res.json()) as { verdict?: string };
+    return body?.verdict !== "gone";
+  } catch {
+    return true;
+  }
+}
+
 /**
  * AniList's `asHtml: false` description still carries <br>, <i> and entities.
  * The trailing "(Source: …)" / "Notes: …" blocks are stripped for the same
@@ -85,10 +115,28 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   // YouTube is the only site we can embed; AniList also returns dailymotion
   // entries, which the card has no player for.
-  const trailer =
+  const rawTrailer =
     media.trailer?.site === "youtube" && media.trailer?.id
       ? { id: String(media.trailer.id) }
       : null;
+
+  /*
+   * A trailer nobody can watch is not sent at all.
+   *
+   * The card used to find that out the hard way: it mounted a <video>, the
+   * proxy answered 410 Gone (the uploader blocked the video in this country),
+   * and the console filled with failed requests before the artwork came back.
+   * Asking here instead means the card never learns of a trailer it could not
+   * have played — no element, no request, no error.
+   *
+   * Cheap on both sides. This response is edge-cached for a day, and the
+   * worker answers verdicts from its own cache, so the question is asked once
+   * per anime per day at most. `unknown` — the worker being refused by YouTube
+   * rather than the video being unavailable — deliberately keeps the trailer:
+   * that refusal says nothing about the video, and hiding on it would drop a
+   * trailer that plays perfectly well.
+   */
+  const trailer = rawTrailer && (await isPlayable(rawTrailer.id)) ? rawTrailer : null;
 
   setEdgeCache(res, TTL_S);
   return res.status(200).json({
