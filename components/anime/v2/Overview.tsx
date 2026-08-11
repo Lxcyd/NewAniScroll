@@ -18,7 +18,7 @@ import type { TFunction } from "i18next";
 import { useTranslatedText } from "@/lib/i18n/useTranslatedText";
 import { translateTag } from "@/lib/i18n/animeTags";
 import { hexToCssFilter } from "@/lib/color/hexToCssFilter";
-import { fetchVerdict, peekVerdict } from "@/lib/preview/trailerVerdict";
+import { fetchVerdict } from "@/lib/preview/trailerVerdict";
 
 type Props = {
   info: AniListInfoTypes;
@@ -80,9 +80,17 @@ export default function Overview({ info, seasonList }: Props) {
    */
   const ytId =
     info.trailer?.site === "youtube" && info.trailer?.id ? String(info.trailer.id) : null;
-  const [trailerGone, setTrailerGone] = useState(
-    () => (ytId ? peekVerdict(ytId) === "gone" : false),
-  );
+  /*
+   * Starts false on BOTH sides, never from storage.
+   *
+   * Seeding this from localStorage read the verdict during the first client
+   * render, where the server — which has no storage — had just rendered the
+   * trailer block. That is a hydration mismatch, and React answers one by
+   * re-rendering the whole page on the client. `fetchVerdict` returns a stored
+   * verdict immediately anyway, so the effect below hides the block on the very
+   * next render with no request and no flash worth the name.
+   */
+  const [trailerGone, setTrailerGone] = useState(false);
   useEffect(() => {
     if (!ytId) return;
     let cancelled = false;

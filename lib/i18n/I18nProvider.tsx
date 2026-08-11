@@ -64,8 +64,38 @@ export default function I18nProvider({ children }: { children: ReactNode }) {
       }
       syncUrlLocale(next);
     };
-    // Initial detection on mount (browser language or stored override).
-    apply();
+    /*
+     * The FIRST switch waits for a painted frame. Every later one does not.
+     *
+     * `apply` is async — it awaits the locale chunk — so on a French browser it
+     * resolved in a microtask, right in the middle of React hydrating the page.
+     * An update landing there makes React compare freshly-translated text
+     * against the English markup the server sent, which is a hydration mismatch
+     * (#425), and React's cure for one is to throw away the ENTIRE server HTML
+     * and re-render the whole page on the client (#418, #423). Measured on
+     * dev.aniscroll.com with a clean browser: seven mismatches per page load,
+     * the first rewrites being `lang` en→fr, "Season"→"Saison", "WATCH
+     * NOW"→"REGARDER". Every French visitor was rendering each page twice.
+     *
+     * Two animation frames guarantee a commit and a paint have happened, so
+     * hydration is over and the language change is an ordinary re-render. The
+     * cost is ~30 ms of English before the switch — the same flash that was
+     * already there, moved a frame later. `load` would have been the obvious
+     * signal and is the wrong one: it waits for every image on the page.
+     *
+     * This does not make the server render French — that is the real fix and a
+     * larger piece of work (i18next is a singleton, so a per-request language
+     * needs a per-request instance or it leaks between concurrent SSR requests;
+     * and the French bundle would have to reach the client synchronously for
+     * hydration). This removes the damage in the meantime.
+     */
+    const afterPaint = (fn: () => void) => {
+      if (typeof requestAnimationFrame !== "function") return void fn();
+      requestAnimationFrame(() => requestAnimationFrame(fn));
+    };
+    afterPaint(() => {
+      if (!cancelled) void apply();
+    });
     // Re-sync when the user toggles the language anywhere in the app.
     window.addEventListener(LANG_EVENT, apply);
     return () => {

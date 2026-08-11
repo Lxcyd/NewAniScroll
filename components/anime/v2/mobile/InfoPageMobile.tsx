@@ -35,7 +35,7 @@ import {
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { genreLabel } from "@/lib/i18n/genreLabel";
-import { fetchVerdict, peekVerdict } from "@/lib/preview/trailerVerdict";
+import { fetchVerdict } from "@/lib/preview/trailerVerdict";
 import { useTranslatedText } from "@/lib/i18n/useTranslatedText";
 import { translateTag } from "@/lib/i18n/animeTags";
 import { hexToCssFilter } from "@/lib/color/hexToCssFilter";
@@ -1234,7 +1234,10 @@ function MTrailer({
    * video. See lib/preview/trailerVerdict.
    */
   const ytId = trailer.site === "youtube" && trailer.id ? String(trailer.id) : null;
-  const [gone, setGone] = useState(() => (ytId ? peekVerdict(ytId) === "gone" : false));
+  // Never seeded from storage — see the same guard in Overview: the server has
+  // no localStorage, so reading it during the first client render is a
+  // hydration mismatch, and `fetchVerdict` answers from storage anyway.
+  const [gone, setGone] = useState(false);
   useEffect(() => {
     if (!ytId) return;
     let cancelled = false;
