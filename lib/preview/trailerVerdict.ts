@@ -76,6 +76,18 @@ export function noteVerdict(id: string, v: Verdict) {
 const pending = new Map<string, Promise<Verdict>>();
 
 /**
+ * Set when the worker turns out not to serve verdicts at all.
+ *
+ * The site can ship ahead of the worker — it did, and the result was one dead
+ * `.json` request per failed trailer, doubling the console noise while teaching
+ * nobody anything. One 404 is enough to learn that this deployment has no
+ * verdict route; every later trailer skips the question until the page is
+ * reloaded. Costs one request per session in the worst case, and none once the
+ * worker catches up.
+ */
+let endpointMissing = false;
+
+/**
  * Ask the worker, at most once per id per session, and remember the answer.
  *
  * Cheap by construction: the worker answers from its own cache for any trailer
@@ -83,14 +95,19 @@ const pending = new Map<string, Promise<Verdict>>();
  * for a video nobody has looked at yet.
  */
 export function fetchVerdict(id: string): Promise<Verdict> {
-  if (typeof window === "undefined") return Promise.resolve("unknown");
+  if (typeof window === "undefined" || endpointMissing) return Promise.resolve("unknown");
   const known = read(id);
   if (known) return Promise.resolve(known);
   const inFlight = pending.get(id);
   if (inFlight) return inFlight;
 
   const request = fetch(trailerSrc(id).replace(/\.mp4$/, ".json"))
-    .then((r) => (r.ok ? r.json() : null))
+    .then((r) => {
+      // 404 here is the route itself missing, not the video: a worker that
+      // knows about verdicts answers 200 with `unknown` when it cannot tell.
+      if (r.status === 404) endpointMissing = true;
+      return r.ok ? r.json() : null;
+    })
     .then((body: any) => {
       const v: Verdict =
         body?.verdict === "ok" || body?.verdict === "gone" ? body.verdict : "unknown";
