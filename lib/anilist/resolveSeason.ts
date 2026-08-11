@@ -199,10 +199,26 @@ async function buildFranchise(
 
   // Pull in any Fribb-group members the AniList walk missed (a member on a
   // divergent TMDB fiche still belongs to the franchise chronologically).
+  //
+  // Except when the entry is season 0 of that fiche. TMDB parks a franchise's
+  // films, OVAs and specials in "Specials", and that is what Fribb reports as
+  // season 0 — "attached to this show", not "a season of it". Ghost in the
+  // Shell (1995) is season 0 of the Stand Alone Complex fiche (tmdb.tv 1095,
+  // shared by the 1995 film, Innocence, 2.0, SAC, 2nd GIG and both 2045s), so
+  // unioning the group put four TV seasons of a DIFFERENT continuity into the
+  // film's own season dropdown — the very nodes the AniList walk had refused,
+  // since it only chains PREQUEL/SEQUEL and SAC hangs off the film as an
+  // ALTERNATIVE. 693 films sit on a tv fiche at season 0 in Fribb's list; this
+  // was every one of their pages.
+  const selfIsFicheExtra = fribbSelf?.tmdbSeason === 0;
   let fribbGroup: FribbEntry[] = [];
-  if (fribbSelf?.tmdbTvId) {
+  if (fribbSelf?.tmdbTvId && !selfIsFicheExtra) {
     fribbGroup = await getFribbFranchise(fribbSelf.tmdbTvId);
     for (const e of fribbGroup) {
+      // Same rule for the members: a film parked on the fiche's specials is not
+      // a season of it either. One that genuinely continues the story is on the
+      // PREQUEL/SEQUEL chain, so the walk above has already brought it in.
+      if (e.tmdbSeason === 0) continue;
       if (!byId.has(e.anilistId)) {
         const m = await load(e.anilistId);
         if (m) byId.set(e.anilistId, m);

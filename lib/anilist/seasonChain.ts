@@ -48,7 +48,10 @@ import {
 //     ce qui ramenait le compteur de 4 a 2).
 // v7: le film enchaine compte desormais comme une saison, donc le numero et
 //     le total changent (Alicization passe de S3 a S4).
-const REDIS_KEY_CHAIN = (id: number) => `seasonChain:v8:${id}`;
+// v9: le groupe TMDB n'est plus fusionne quand la fiche classe l'entree en
+//     saison 0 ("Specials") — Ghost in the Shell (1995) heritait des saisons
+//     de Stand Alone Complex, une autre continuite.
+const REDIS_KEY_CHAIN = (id: number) => `seasonChain:v9:${id}`;
 // v3: SeasonEntry gained `idMal` (feeds Jikan per-episode score lookups).
 // v4: numbering now uses a running counter so split-cours + unnumbered
 //     "Final Season" entries get the right S<n> (AoT Final Season = S4, not S5).
@@ -86,7 +89,10 @@ const REDIS_KEY_CHAIN = (id: number) => `seasonChain:v8:${id}`;
 // v17: un film au milieu de la chaine n'est plus classe en film bonus. La
 //      regle PREQUEL (pour Jujutsu Kaisen 0) sortait Ordinal Scale de la
 //      chronologie, qui sautait de 2014 a 2018.
-const REDIS_KEY_LIST = (id: number) => `seasonList:v18:${id}`;
+// v19: idem seasonChain v9 — un film classe en saison 0 d'une fiche TV ne
+//      recupere plus les saisons de cette fiche, et un film de la fiche
+//      n'apparait plus comme saison. Change la liste de ces pages.
+const REDIS_KEY_LIST = (id: number) => `seasonList:v19:${id}`;
 
 // Cache accessors now hit Turso (see lib/db/seasonCache.ts) instead of Redis.
 // The cache_key strings keep their version tag, so a version bump still evicts
