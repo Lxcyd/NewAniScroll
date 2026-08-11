@@ -982,20 +982,44 @@ export default function RelationsGraph({
     // every other relation — they are not what you watch next.
     const main = new Map<number, number>();
     for (const [id, d] of Array.from(dist.entries())) if (isMain(id)) main.set(id, d);
-    return main.size > 1 ? main : null;
+    if (main.size <= 1) return null;
+
+    /**
+     * The bonuses the thread CROSSES, as opposed to the ones hanging off it.
+     *
+     * Stand Alone Complex reaches SAC_2045 through Solid State Society, a
+     * Special: numbering steps over it, but the line has to go through it or
+     * the running order reads as two disconnected halves. Marked by walking
+     * backwards — a bonus is a bridge when a sequel of its own is lit, which
+     * leaves a dead-end bonus (a recap that continues nothing) unlit.
+     */
+    const bridge = new Set<number>();
+    for (let pass = 0; pass < nodes.length + 2; pass++) {
+      let changed = false;
+      for (const [from, tos] of Array.from(next.entries())) {
+        if (dist.get(from) === undefined || isMain(from) || bridge.has(from)) continue;
+        if (tos.some((to) => (isMain(to) ? main.has(to) : bridge.has(to)))) {
+          bridge.add(from);
+          changed = true;
+        }
+      }
+      if (!changed) break;
+    }
+    return { main, dist, bridge };
   }, [selected, edges, nodes.length, byId]);
 
   /**
-   * An edge belongs to the running order when it links two lit entries one
-   * step apart. An edge ending on a bonus is never lit, even though the walk
-   * passed through it — the line has to show the main thread, not its detours.
+   * An edge belongs to the running order when it links two steps of the thread,
+   * one step apart — counting a crossed bonus as no step, exactly as the
+   * numbering does. An edge onto a bonus that continues nothing stays dim: the
+   * line shows the main thread, not its detours.
    */
-  const isChainEdge = (e: GEdge) =>
-    !!chain &&
-    e.label === "SEQUEL" &&
-    chain.has(e.from) &&
-    chain.has(e.to) &&
-    chain.get(e.to) === (chain.get(e.from) ?? -99) + 1;
+  const isChainEdge = (e: GEdge) => {
+    if (!chain || e.label !== "SEQUEL") return false;
+    const onThread = (id: number) => chain.main.has(id) || chain.bridge.has(id);
+    if (!onThread(e.from) || !onThread(e.to)) return false;
+    return chain.dist.get(e.to) === (chain.dist.get(e.from) ?? -99) + (chain.main.has(e.to) ? 1 : 0);
+  };
 
   /**
    * Frame the whole board when it changes, the way Hayase calls `fitView`.
@@ -1180,7 +1204,7 @@ export default function RelationsGraph({
 
   /** True when a card should read as background right now. Hover wins over the
    *  running order: it answers the question the viewer just asked. */
-  const isDim = (id: number) => (near ? !near.has(id) : chain ? !chain.has(id) : false);
+  const isDim = (id: number) => (near ? !near.has(id) : chain ? !chain.main.has(id) : false);
 
   /** Drag a single card. A drag must not also count as a click. */
   const onNodePointerDown = (e: React.PointerEvent, id: number) => {
@@ -1574,7 +1598,7 @@ export default function RelationsGraph({
             })}
 
             {nodes.map((n) => {
-              const step = chain?.get(n.id);
+              const step = chain?.main.get(n.id);
               const lit = step !== undefined;
               const isSelected = n.id === selected;
               const isMatch = !!matches?.has(n.id);
