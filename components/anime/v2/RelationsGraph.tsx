@@ -66,7 +66,6 @@ const RANKER = "tight-tree";
 const NODE_W = 150;
 const NODE_BASE_H = 49;
 const NODE_LINE_H = 19;
-const CHARS_PER_LINE = 20;
 /**
  * With covers on, the art sits to the LEFT of the text and is shown WHOLE — a
  * cover is a 2:3 portrait, and cropping it to a strip cuts the title lettering
@@ -128,11 +127,22 @@ const SIDE_RELATIONS = new Set([
   "OTHER",
 ]);
 
-const nodeHeight = (title: string, withCover: boolean) => {
-  const text = NODE_BASE_H + Math.ceil((title.length || 1) / CHARS_PER_LINE) * NODE_LINE_H;
-  // Side by side, the card is as tall as the taller column.
-  return withCover ? Math.max(COVER_H, text) : text;
-};
+/**
+ * Every card the same height — the board is a grid, not a brick wall.
+ *
+ * It used to be measured from the title's length, so a three-line title made a
+ * card half as tall again as its neighbour. dagre centres the cards of a rank
+ * on their own slots, so no two of them started at the same height: a column
+ * read as a ragged pile, and nothing lined up with the column beside it. A
+ * fixed height is what makes rows exist at all, and it costs an ellipsis on the
+ * handful of titles that run past three lines.
+ *
+ * Three lines, because that is what "Sword Art Online: Alicization - War of
+ * Underworld Part 2" needs, and a franchise is mostly made of titles like it.
+ */
+const NODE_TEXT_LINES = 3;
+const nodeHeight = (withCover: boolean) =>
+  withCover ? COVER_H : NODE_BASE_H + NODE_TEXT_LINES * NODE_LINE_H;
 
 /**
  * "Finished", the only watch state the board shows.
@@ -824,7 +834,7 @@ export default function RelationsGraph({
         x: 0,
         y: 0,
         w: covers ? NODE_W_COVER : NODE_W,
-        h: nodeHeight(title, covers),
+        h: nodeHeight(covers),
       });
     }
 
@@ -1634,6 +1644,10 @@ export default function RelationsGraph({
                     left: posOf(n).x + PAD,
                     top: posOf(n).y + PAD,
                     width: n.w,
+                    // The box dagre was given, to the pixel — a card taller
+                    // than its slot is a card that no longer lines up with the
+                    // one beside it, and that the routed edges miss.
+                    height: n.h,
                     // The card in hand rides above everything; one you have
                     // already placed stays above the untouched ones, so
                     // dropping it onto a neighbour doesn't bury it.
@@ -1718,7 +1732,7 @@ export default function RelationsGraph({
                       )}
                       <div style={gStyles.nodeBody}>
                         <div style={{ ...gStyles.nodeTitle, ...gStyles.nodeTitleSide }}>
-                          {n.title}
+                          <span style={gStyles.nodeTitleClamp}>{n.title}</span>
                         </div>
                         <div
                           style={{ ...gStyles.nodeMeta }}
@@ -1734,7 +1748,9 @@ export default function RelationsGraph({
                     </div>
                   ) : (
                     <>
-                      <div style={gStyles.nodeTitle}>{n.title}</div>
+                      <div style={{ ...gStyles.nodeTitle, ...gStyles.nodeTitleTop }}>
+                        <span style={gStyles.nodeTitleClamp}>{n.title}</span>
+                      </div>
                       <div style={{ ...gStyles.nodeMeta }}>
                         <span>{FORMAT_LABEL[n.format] ?? n.format}</span>
                         <span>
@@ -2041,7 +2057,11 @@ const gStyles: Record<string, CSSProperties> = {
   /* TextNode.svelte: 150px wide, bordered, #111 body under a #1e1e1e header. */
   node: {
     position: "absolute",
-    display: "block",
+    display: "flex",
+    flexDirection: "column",
+    // The height is the layout's, so the border has to live inside it.
+    boxSizing: "border-box",
+    overflow: "hidden",
     background: "#111",
     border: "1px solid #26262d",
     borderRadius: 3,
@@ -2142,10 +2162,30 @@ const gStyles: Record<string, CSSProperties> = {
   nodeTitleSide: {
     background: "transparent",
     flex: 1,
+    minHeight: 0,
     display: "grid",
     placeItems: "center",
     padding: "10px 12px",
   },
+  /** Text-only cards: the title band takes the room the meta line leaves. */
+  nodeTitleTop: {
+    flex: 1,
+    minHeight: 0,
+    display: "grid",
+    placeItems: "center",
+  },
+  /**
+   * A title longer than the card gets an ellipsis rather than a taller card.
+   * Fixed heights are what put the cards in rows; one title in ten losing its
+   * last three words is the price, and the card is a link to the page that
+   * spells it out in full.
+   */
+  nodeTitleClamp: {
+    display: "-webkit-box",
+    WebkitBoxOrient: "vertical",
+    WebkitLineClamp: NODE_TEXT_LINES,
+    overflow: "hidden",
+  } as CSSProperties,
   edgeLabel: {
     position: "absolute",
     transform: "translate(-50%, -50%)",
