@@ -75,11 +75,90 @@ function fail(status, error) {
 }
 
 /**
+ * How long a "this video is unavailable" answer is trusted.
+ *
+ * Shorter than the day a trailer's BYTES are held, because this verdict can
+ * expire on its own: an uploader lifts a regional block or a video comes back
+ * from private. Six hours is long enough that nobody pays for the same dead
+ * video twice in a session, short enough that a fixed one returns the same day.
+ */
+const GONE_TTL = 21600;
+
+/** A refusal worth remembering. 410 rather than 404: it names the difference. */
+function gone(error) {
+  return new Response(JSON.stringify({ error, durable: true }), {
+    status: 410,
+    headers: cors({
+      "Content-Type": "application/json",
+      "Cache-Control": `public, s-maxage=${GONE_TTL}`,
+    }),
+  });
+}
+
+/**
+ * Put a verdict in the edge cache under the same key the bytes would have used,
+ * so the next request for this video is answered without touching YouTube.
+ *
+ * Defensive on purpose: the Cache API refuses some responses, and a refusal to
+ * remember a refusal must not turn into a 500 on the visitor's card.
+ */
+function storeVerdict(cacheKeyUrl, cache, ctx, response) {
+  if (ctx) {
+    try {
+      ctx.waitUntil(
+        cache
+          .put(new Request(cacheKeyUrl, { method: "GET" }), response.clone())
+          .catch(() => {}),
+      );
+    } catch {
+      /* not cached — the only cost is asking YouTube again next time */
+    }
+  }
+  return response;
+}
+
+/**
+ * A refusal that no retry can lift: the video is gone, geo-fenced, or behind a
+ * sign-in we will never have. Distinguished from the bot block because the two
+ * deserve opposite treatment — see handleTrailer.
+ */
+class DurableRefusal extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "DurableRefusal";
+  }
+}
+
+/**
+ * Is this refusal about the VIDEO, or about US?
+ *
+ * `LOGIN_REQUIRED: Sign in to confirm you're not a bot` is about us — YouTube
+ * declining a datacentre caller, measured at four failures out of eight
+ * trailers, and a different colo or a different minute answers differently. It
+ * must stay retryable.
+ *
+ * Everything else in this list is about the video and is the same answer from
+ * anywhere, for as long as the uploader leaves it that way: deleted, private,
+ * geo-fenced (`0c4IoCA5fY0`, an anime trailer on our own home page: "The
+ * uploader has not made this video available in your country"), or age-gated
+ * behind an account we do not have.
+ */
+const DURABLE_STATUSES = new Set(["UNPLAYABLE", "ERROR", "AGE_VERIFICATION_REQUIRED"]);
+
+function isDurableRefusal(status, reason) {
+  if (DURABLE_STATUSES.has(status)) return true;
+  // LOGIN_REQUIRED covers both "prove you're human" (ours, retryable) and
+  // "prove your age" (the video's, permanent). The reason string is what tells
+  // them apart, so only the bot flavour keeps its retries.
+  if (status === "LOGIN_REQUIRED") return !/\bbot\b/i.test(reason || "");
+  return false;
+}
+
+/**
  * Ask InnerTube for the video and pull the muxed progressive stream out of it.
  *
- * Returns null rather than throwing on any "this video won't play" answer —
- * age-gated, region-locked, deleted, embed-disabled all land here, and they all
- * mean the same thing to the caller: keep the artwork.
+ * Returns null on a refusal a retry might survive, and THROWS DurableRefusal on
+ * one it cannot — embed-disabled, deleted, region-locked, age-gated.
  */
 async function resolveMuxedUrl(videoId, diag, signal) {
   const res = await fetch(
@@ -120,11 +199,9 @@ async function resolveMuxedUrl(videoId, diag, signal) {
   const json = await res.json();
   const status = json?.playabilityStatus?.status;
   if (status !== "OK") {
-    // Carried back to the caller because the difference matters: UNPLAYABLE and
-    // LOGIN_REQUIRED are YouTube refusing US (a retry may work, another client
-    // may be needed), while ERROR is usually a video that no longer exists (a
-    // retry never will).
-    if (diag) diag.push(`${status}: ${json?.playabilityStatus?.reason || "no reason"}`);
+    const reason = json?.playabilityStatus?.reason || "no reason";
+    if (diag) diag.push(`${status}: ${reason}`);
+    if (isDurableRefusal(status, reason)) throw new DurableRefusal(`${status}: ${reason}`);
     return null;
   }
 
@@ -170,6 +247,10 @@ async function resolveRacing(videoId, diag) {
     // reported as `Unresolvable: unknown` — the one failure mode the message
     // could not name, and half of what the 404s actually were.
     const causes = err?.errors || [err];
+    // One racer proving the video itself is unavailable settles it: its twin
+    // asking the same question of the same video cannot come back with more.
+    const durable = causes.find((e) => e instanceof DurableRefusal);
+    if (durable) throw durable;
     if (diag && causes.some((e) => e?.name === "TimeoutError")) {
       diag.push(`resolve timed out (${RESOLVE_TIMEOUT_MS} ms)`);
     }
@@ -235,7 +316,25 @@ export async function handleTrailer(request, env, ctx) {
   // Two ROUNDS of a two-way race, so at worst this spends ~8 s on resolving
   // rather than the 22 s that three sequential slow attempts could reach.
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    const url = await resolveRacing(videoId, diag);
+    let url;
+    try {
+      url = await resolveRacing(videoId, diag);
+    } catch (err) {
+      if (!(err instanceof DurableRefusal)) throw err;
+      /*
+       * The video is unavailable, and will be from every later attempt too.
+       *
+       * Retrying it is not merely useless, it is expensive in the one currency
+       * that counts here: the browser gives a failed trailer three goes, and
+       * each of those spent four InnerTube calls inside this worker — twelve
+       * round trips to YouTube, and several seconds of the card sitting on a
+       * black box, for a video that was never going to play. Answering with a
+       * CACHEABLE refusal ends all of it: the browser's own retries become edge
+       * hits that fail in milliseconds, and the card falls back to its artwork
+       * at once, which is the right picture anyway.
+       */
+      return storeVerdict(cacheKeyUrl, cache, ctx, gone(err.message));
+    }
     if (!url) continue;
     // Deliberately NOT forwarding the client's Range — see below. We always
     // pull the whole file so there is always something worth storing.
