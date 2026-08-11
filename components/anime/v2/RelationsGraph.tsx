@@ -363,6 +363,25 @@ export default function RelationsGraph({
    * belong to a dialog (Escape, the page scroll lock).
    */
   const active = open || !!embedded;
+  /**
+   * Whether the client has taken over from the server-rendered HTML.
+   *
+   * The board is client-only — it needs `document` for the portal, and its
+   * franchise walk cannot run during SSR. Expressing that as
+   * `typeof document === "undefined" && return null` looked equivalent and was
+   * not: the info page IS server-rendered and Overview sits on its default tab,
+   * so the server sent no board while the very first client render drew one.
+   * React calls that a hydration mismatch (#418/#423/#425) and its recovery is
+   * to throw away the server HTML and re-render the WHOLE page on the client —
+   * the entire info page paying for one component's honesty about `document`.
+   *
+   * A mount flag says the same thing without lying to the hydration: the first
+   * client render matches the server exactly (nothing), and the board arrives on
+   * the render straight after. Nothing is visible a frame later than before —
+   * the walk that fills the board is asynchronous anyway.
+   */
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
   const titlePref = useTitlePref();
   const clickTarget = useClickTarget();
   const { data: session }: any = useSession();
@@ -1780,8 +1799,7 @@ export default function RelationsGraph({
     ],
   );
 
-  if (!active) return null;
-  if (typeof document === "undefined") return null;
+  if (!active || !mounted) return null;
 
   /** Title, search and filters. The expanded view only — the preview is a
    *  window onto the board, not a place to run a query from. */

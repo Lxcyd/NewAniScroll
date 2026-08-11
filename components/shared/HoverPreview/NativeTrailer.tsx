@@ -207,21 +207,32 @@ export default function NativeTrailer({
    * show its trailer no matter how long you waited — while hovering it again a
    * minute later worked, which is exactly the behaviour that got reported.
    *
-   * Two more goes, half a second apart. Beyond that the answer is probably real
-   * (a deleted video, an embed ban) and the artwork is a perfectly good card.
+   * Two more goes. Beyond that the answer is probably real (a deleted video, an
+   * embed ban) and the artwork is a perfectly good card.
+   *
+   * Spaced out rather than both at half a second. Measured against the live
+   * worker: the refusal is `LOGIN_REQUIRED: Sign in to confirm you're not a
+   * bot`, YouTube declining a datacentre caller — and the worker has already
+   * spent four InnerTube calls inside one request by the time we see it. Three
+   * client attempts crowded into one second are three samples of the same
+   * moment; giving the second one a couple of seconds is what makes it a
+   * different sample. It does not fix the refusal, it only stops us from
+   * throwing away two of our three chances on a mood that has not passed.
    */
   const MAX_RETRIES = 2;
+  const RETRY_DELAYS_MS = [500, 2500];
   const onLoadError = () => {
     if (retriesRef.current >= MAX_RETRIES) {
       onHide(true);
       return;
     }
+    const wait = RETRY_DELAYS_MS[retriesRef.current] ?? 2500;
     retriesRef.current += 1;
     retryTimerRef.current = setTimeout(() => {
       // Same src: load() re-requests it, and by now the worker may well have
       // the file cached from its own successful retry.
       videoRef.current?.load();
-    }, 500);
+    }, wait);
   };
 
   /**

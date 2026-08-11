@@ -165,7 +165,14 @@ async function resolveRacing(videoId, diag) {
   try {
     return await Promise.any([one(), one()]);
   } catch (err) {
-    if (diag && err?.name === "TimeoutError") diag.push("resolve timed out");
+    // Promise.any rejects with an AggregateError, so testing `err.name` against
+    // TimeoutError never matched and a resolve that simply timed out was
+    // reported as `Unresolvable: unknown` — the one failure mode the message
+    // could not name, and half of what the 404s actually were.
+    const causes = err?.errors || [err];
+    if (diag && causes.some((e) => e?.name === "TimeoutError")) {
+      diag.push(`resolve timed out (${RESOLVE_TIMEOUT_MS} ms)`);
+    }
     return null;
   }
 }
