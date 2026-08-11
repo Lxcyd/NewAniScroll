@@ -1171,11 +1171,20 @@ export default function RelationsGraph({
   const onNodePointerMove = (e: React.PointerEvent) => {
     const d = nodeDrag.current;
     if (!d) return;
-    const dx = (e.clientX - d.x) / scale;
-    const dy = (e.clientY - d.y) / scale;
-    if (!d.moved && Math.abs(dx) < 3 && Math.abs(dy) < 3) return;
+    /**
+     * The dead zone is measured on the SCREEN, before the zoom is divided out.
+     *
+     * Dividing first made the threshold mean "3 board pixels", which at the
+     * preview's zoom (~0.3) is one pixel of finger travel — so an ordinary
+     * click on a card nudged it, marked it as hand-placed, and swallowed the
+     * navigation. The lower the zoom, the worse it got, which is exactly
+     * backwards: a click is a click at any zoom.
+     */
+    const sx = e.clientX - d.x;
+    const sy = e.clientY - d.y;
+    if (!d.moved && Math.abs(sx) < 3 && Math.abs(sy) < 3) return;
     d.moved = true;
-    const raw = { dx: d.dx + dx, dy: d.dy + dy };
+    const raw = { dx: d.dx + sx / scale, dy: d.dy + sy / scale };
     const next = e.ctrlKey ? alignToNeighbour(d.id, raw) : raw;
     setMoved((prev) => {
       const m = new Map(prev);
@@ -1489,30 +1498,23 @@ export default function RelationsGraph({
                   href={animeHref(n.id, clickTarget)}
                   onMouseEnter={() => setHover(n.id)}
                   onMouseLeave={() => setHover((h) => (h === n.id ? null : h))}
-                  // First click lights the running order from this entry; a
-                  // click on the one already lit opens its page. Navigating on
-                  // the first click would make the order unreadable — you would
-                  // leave the graph every time you tried to follow it.
+                  // A card is a link, first press. The two-step it replaced —
+                  // one click to light the running order, another to open —
+                  // made every card need to be told twice, and the order it
+                  // lit is already what the board shows from the entry you
+                  // came from. Hovering still lights a card's neighbourhood,
+                  // which is the reading the click was standing in for.
                   onPointerDown={(ev) => onNodePointerDown(ev, n.id)}
                   onPointerMove={onNodePointerMove}
                   onPointerUp={onNodePointerUp}
                   onClick={(ev) => {
-                    // A card that was just dragged must not navigate or select.
+                    // A card that was just dragged must not navigate.
                     if (nodeDrag.current?.moved) {
                       ev.preventDefault();
                       ev.stopPropagation();
-                      return;
                     }
-                    if (isSelected) return;
-                    ev.preventDefault();
-                    ev.stopPropagation();
-                    setSelected(n.id);
                   }}
-                  title={
-                    isSelected
-                      ? t("anime.graphOpenEntry", { defaultValue: "Open this entry" })
-                      : t("anime.graphShowOrder", { defaultValue: "Show what follows" })
-                  }
+                  title={t("anime.graphOpenEntry", { defaultValue: "Open this entry" })}
                   style={{
                     ...gStyles.node,
                     left: posOf(n).x + PAD,
@@ -1695,7 +1697,7 @@ export default function RelationsGraph({
       <div style={gStyles.hint}>
         {t("anime.graphHintOrder", {
           defaultValue:
-            "Click a title to light up what follows · click it again to open it · drag to pan, hold Ctrl to align, scroll to zoom",
+            "Click a title to open it · hover to light up what it is attached to · drag to pan, hold Ctrl to align, scroll to zoom",
         })}
       </div>
     </div>,
