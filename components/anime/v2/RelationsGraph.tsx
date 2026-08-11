@@ -156,6 +156,22 @@ const DONE_GREEN = "#22c55e";
 type Props = {
   open: boolean;
   onClose: () => void;
+  /**
+   * Draw the board in place, as a preview, instead of only as an overlay.
+   *
+   * Same component, same instance: the preview and the full view are two sizes
+   * of ONE graph, so the walk is paid for once and the viewer's work on it —
+   * the entry they selected, the cards they moved, the filters, the pan and the
+   * zoom — survives the switch. Two instances would have re-walked the
+   * franchise and dropped all of that on the floor the moment you expanded.
+   *
+   * With `embedded`, `open` stops meaning "exists" and starts meaning "is
+   * expanded": the inline box hands its board to the overlay and holds its
+   * place in the layout until it comes back.
+   */
+  embedded?: boolean;
+  /** Press on the preview's ⤢ — the caller is the one that owns `open`. */
+  onExpand?: () => void;
   relations: Edge[];
   /** Unused by the graph now; kept so the callers' props still typecheck. */
   seasonList?: SeasonEntry[];
@@ -323,8 +339,16 @@ export default function RelationsGraph({
   currentFormat,
   currentEpisodes,
   currentCover,
+  embedded,
+  onExpand,
 }: Props) {
   const { t } = useTranslation();
+  /**
+   * The graph is alive whenever it is on screen at all — inline or expanded.
+   * Everything below keys off this rather than `open`, except the things that
+   * belong to a dialog (Escape, the page scroll lock).
+   */
+  const active = open || !!embedded;
   const titlePref = useTitlePref();
   const clickTarget = useClickTarget();
   const { data: session }: any = useSession();
@@ -353,8 +377,8 @@ export default function RelationsGraph({
    */
   const [selected, setSelected] = useState<number | null>(null);
   useEffect(() => {
-    if (open) setSelected(currentId);
-  }, [open, currentId]);
+    if (active) setSelected(currentId);
+  }, [active, currentId]);
 
   /**
    * Cards the viewer has moved by hand, as offsets from their dagre position.
@@ -419,6 +443,8 @@ export default function RelationsGraph({
   const overlayRef = useRef<HTMLDivElement>(null);
   /** Cleared whenever the board changes size, so the fit runs again. */
   const fittedFor = useRef<string>("");
+  /** Last known canvas size, to carry the view across a change of window. */
+  const viewport = useRef<{ w: number; h: number } | null>(null);
 
   // Escape to close + lock page scroll while open (same approach as Artworks).
   useEffect(() => {
@@ -455,7 +481,7 @@ export default function RelationsGraph({
    * overlay has already paid for it.
    */
   useEffect(() => {
-    if (!open) return;
+    if (!active) return;
     const userName = session?.user?.name;
     const token = session?.user?.token;
     if (!userName || !token) {
@@ -469,16 +495,16 @@ export default function RelationsGraph({
     return () => {
       cancelled = true;
     };
-  }, [open, session]);
+  }, [active, session]);
 
   /** Rank axis follows the window: a narrow one gets a top-to-bottom board. */
   useEffect(() => {
-    if (!open) return;
+    if (!active) return;
     const apply = () => setRankDir(window.innerWidth < VERTICAL_UNDER_PX ? "TB" : "LR");
     apply();
     window.addEventListener("resize", apply);
     return () => window.removeEventListener("resize", apply);
-  }, [open]);
+  }, [active]);
 
 
   /**
@@ -514,7 +540,7 @@ export default function RelationsGraph({
    * its own relations — same tree, same order, one more round trip.
    */
   useEffect(() => {
-    if (!open) return;
+    if (!active) return;
 
     let cancelled = false;
     setWalking(true);
@@ -711,7 +737,7 @@ export default function RelationsGraph({
     return () => {
       cancelled = true;
     };
-  }, [open, relations, currentId, currentTitle, currentFormat, currentEpisodes, currentCover]);
+  }, [active, relations, currentId, currentTitle, currentFormat, currentEpisodes, currentCover]);
 
   /** The walked franchise, laid out by dagre. */
   const { nodes, edges, width, height } = useMemo(() => {
@@ -908,7 +934,7 @@ export default function RelationsGraph({
    * makes that growth read as the picture settling rather than running away.
    */
   useEffect(() => {
-    if (!open) return;
+    if (!active) return;
     const box = canvasRef.current;
     if (!box || width === 0 || height === 0) return;
     const key = `${Math.round(width)}x${Math.round(height)}`;
@@ -923,7 +949,67 @@ export default function RelationsGraph({
       x: (box.clientWidth - boardW * next) / 2,
       y: (box.clientHeight - boardH * next) / 2,
     });
-  }, [open, width, height]);
+    viewport.current = { w: box.clientWidth, h: box.clientHeight };
+  }, [active, width, height]);
+
+  /**
+   * Keep what you were looking at when the viewport changes size.
+   *
+   * The preview is a small window onto the same board, and expanding it is a
+   * change of window, not a change of subject — refitting on the way in would
+   * throw away the part of the franchise you had just panned to. So the board
+   * point at the centre stays at the centre, and the zoom grows by exactly the
+   * factor the box grew by: a preview showing the whole graph expands to the
+   * whole graph, and a preview zoomed in on Alicization expands onto
+   * Alicization.
+   *
+   * Runs on any resize of the canvas — the expand, the browser's own
+   * fullscreen, and a window drag all take the same path.
+   */
+  useEffect(() => {
+    const box = canvasRef.current;
+    if (!box || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => {
+      const w = box.clientWidth;
+      const h = box.clientHeight;
+      if (!w || !h) return;
+      const prev = viewport.current;
+      viewport.current = { w, h };
+      // Nothing to preserve before the first fit has framed the board.
+      if (!prev || !prev.w || !prev.h || !fittedFor.current) return;
+      if (prev.w === w && prev.h === h) return;
+      const k = Math.min(w / prev.w, h / prev.h);
+      setScale((s) => Math.min(MAX_SCALE, Math.max(MIN_SCALE, s * k)));
+      setOffset((o) => ({
+        x: w / 2 - (prev.w / 2 - o.x) * k,
+        y: h / 2 - (prev.h / 2 - o.y) * k,
+      }));
+    });
+    ro.observe(box);
+    return () => ro.disconnect();
+    // The canvas node itself is swapped when the board moves between the inline
+    // box and the overlay, so the observer has to follow that move.
+  }, [active, open]);
+
+  /**
+   * Wheel-to-zoom, bound by hand so it can refuse the page its scroll.
+   *
+   * React's onWheel lands on a passive listener, which cannot preventDefault —
+   * harmless in the overlay (there is nothing behind it to scroll), but in the
+   * inline preview every zoom would also scroll the info page out from under
+   * the graph.
+   */
+  useEffect(() => {
+    const box = canvasRef.current;
+    if (!box) return;
+    const onWheelNative = (e: WheelEvent) => {
+      e.preventDefault();
+      const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
+      setScale((s) => Math.min(MAX_SCALE, Math.max(MIN_SCALE, s * factor)));
+    };
+    box.addEventListener("wheel", onWheelNative, { passive: false });
+    return () => box.removeEventListener("wheel", onWheelNative);
+  }, [active, open]);
 
 
   /** Where a card actually sits: its layout position plus any hand nudge. */
@@ -960,7 +1046,7 @@ export default function RelationsGraph({
    */
   const centredFor = useRef("");
   useEffect(() => {
-    if (!open || !matches || matches.size === 0) return;
+    if (!active || !matches || matches.size === 0) return;
     // Re-centre when the query changes, not on every node the walk adds.
     const key = query.trim().toLowerCase();
     if (centredFor.current === key) return;
@@ -968,7 +1054,7 @@ export default function RelationsGraph({
     const first = nodes.find((n) => matches.has(n.id));
     if (first) centreOn(first);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, query, matches, nodes]);
+  }, [active, query, matches, nodes]);
 
   /**
    * The hovered card and whatever it touches directly.
@@ -1104,19 +1190,27 @@ export default function RelationsGraph({
     }, 0);
   };
 
-  /** Real fullscreen on the overlay — the ⤢ button only re-framed the board. */
+  /**
+   * Real fullscreen on the overlay — the ⤢ button only re-framed the board.
+   *
+   * From the inline preview the same button means one step less: expand to the
+   * overlay. Asking the browser for fullscreen on a box inside the page would
+   * blow up the info page around it, which is not what "see this bigger" means.
+   */
   const toggleFullscreen = () => {
+    if (embedded && !open) {
+      onExpand?.();
+      return;
+    }
     const el = overlayRef.current;
     if (!el) return;
     if (document.fullscreenElement) document.exitFullscreen().catch(() => undefined);
     else el.requestFullscreen?.().catch(() => undefined);
   };
   useEffect(() => {
-    const onChange = () => {
-      setIsFull(!!document.fullscreenElement);
-      // The viewport just changed size; let the fit effect run again.
-      fittedFor.current = "";
-    };
+    // The board itself needs nothing here: the resize observer above carries
+    // the view across the size change, in or out.
+    const onChange = () => setIsFull(!!document.fullscreenElement);
     document.addEventListener("fullscreenchange", onChange);
     return () => document.removeEventListener("fullscreenchange", onChange);
   }, []);
@@ -1154,31 +1248,14 @@ export default function RelationsGraph({
     drag.current = null;
     setDragging(false);
   };
-  const onWheel = (e: React.WheelEvent) => {
-    const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
-    setScale((s) => Math.min(MAX_SCALE, Math.max(MIN_SCALE, s * factor)));
-  };
 
-  if (!open) return null;
+  if (!active) return null;
   if (typeof document === "undefined") return null;
 
-  // Portalled to <body>, like OpEdPanel: the graph is a full-screen dialog, and
-  // rendered in place it stacks inside the info page, UNDER the site navbar
-  // (z-[9999], fixed) — the board's own title and filter chips came out drawn
-  // through the menu. A portal plus a z-index above the navbar's is what puts
-  // it on top, and keeps any ancestor transform from trapping `position: fixed`.
-  return createPortal(
-    <div
-      ref={overlayRef}
-      role="dialog"
-      aria-modal="true"
-      aria-label={t("anime.relationsGraphTitle", { defaultValue: "Franchise timeline" })}
-      style={gStyles.overlay}
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
-      <div style={gStyles.header}>
+  /** Title, search and filters. The expanded view only — the preview is a
+   *  window onto the board, not a place to run a query from. */
+  const header = (
+    <div style={gStyles.header}>
         <span style={gStyles.title}>
           {t("anime.relationsGraphTitle", { defaultValue: "Franchise timeline" })}
           {walking && (
@@ -1281,16 +1358,26 @@ export default function RelationsGraph({
         >
           <Icon d={ICON.close} size={16} />
         </button>
-      </div>
+    </div>
+  );
 
+  /**
+   * The board — the same element whether it is sitting in the page or filling
+   * the screen. Only its container changes, which is what lets the view, the
+   * selection and the hand-placed cards survive the switch.
+   */
+  const board = (
       <div
         ref={canvasRef}
-        style={{ ...gStyles.canvas, cursor: dragging ? "grabbing" : "grab" }}
+        style={{
+          ...gStyles.canvas,
+          cursor: dragging ? "grabbing" : "grab",
+          ...(embedded && !open ? gStyles.canvasEmbedded : null),
+        }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerLeave={onPointerUp}
-        onWheel={onWheel}
       >
         {nodes.length <= 1 ? (
           <div style={gStyles.empty}>{t("anime.noRelated")}</div>
@@ -1576,6 +1663,32 @@ export default function RelationsGraph({
           </button>
         </div>
       </div>
+  );
+
+  // The preview: the board in the page, with its own controls and nothing
+  // else. Expanding is the ⤢ in those controls, or the caller's own button.
+  if (!open) {
+    return <div style={gStyles.embedWrap}>{board}</div>;
+  }
+
+  // Portalled to <body>, like OpEdPanel: the graph is a full-screen dialog, and
+  // rendered in place it stacks inside the info page, UNDER the site navbar
+  // (z-[9999], fixed) — the board's own title and filter chips came out drawn
+  // through the menu. A portal plus a z-index above the navbar's is what puts
+  // it on top, and keeps any ancestor transform from trapping `position: fixed`.
+  const overlay = createPortal(
+    <div
+      ref={overlayRef}
+      role="dialog"
+      aria-modal="true"
+      aria-label={t("anime.relationsGraphTitle", { defaultValue: "Franchise timeline" })}
+      style={gStyles.overlay}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      {header}
+      {board}
       <div style={gStyles.hint}>
         {t("anime.graphHintOrder", {
           defaultValue:
@@ -1584,6 +1697,21 @@ export default function RelationsGraph({
       </div>
     </div>,
     document.body
+  );
+
+  // Expanded from the page: the inline box keeps its place in the layout while
+  // the board is away, so closing the overlay doesn't drop the info page back
+  // by four hundred pixels under the reader.
+  if (!embedded) return overlay;
+  return (
+    <>
+      <div style={gStyles.embedWrap}>
+        <div style={gStyles.empty}>
+          {t("anime.graphExpanded", { defaultValue: "Opened in full screen" })}
+        </div>
+      </div>
+      {overlay}
+    </>
   );
 }
 
@@ -1712,6 +1840,23 @@ const gStyles: Record<string, CSSProperties> = {
     cursor: "pointer",
     fontSize: 14,
   },
+  /**
+   * The inline box. Fills whatever the caller's column gives it, with a floor:
+   * a franchise map under ~340px is a row of unreadable stamps, and the point
+   * of putting it in the page is that you can already read the shape there.
+   */
+  embedWrap: {
+    position: "relative",
+    display: "flex",
+    flexDirection: "column",
+    flex: 1,
+    minHeight: 360,
+    width: "100%",
+    borderRadius: 12,
+    border: "1px solid var(--line)",
+    overflow: "hidden",
+    background: "#000",
+  },
   canvas: {
     flex: 1,
     overflow: "hidden",
@@ -1727,6 +1872,13 @@ const gStyles: Record<string, CSSProperties> = {
     // card it crosses, leaving the graph highlighted in blue.
     userSelect: "none",
     WebkitUserSelect: "none",
+  },
+  /** Inside the page the board is a card, not a screen: the dot grid stays
+   *  (it is what makes panning legible) but it gets a lighter ground so it
+   *  doesn't read as a hole cut in the page. */
+  canvasEmbedded: {
+    background: "#08080b",
+    backgroundImage: "radial-gradient(circle, #24242a 1px, transparent 1px)",
   },
   /** Zoom / fit / reset, bottom-left, out of the graph's way. */
   controls: {

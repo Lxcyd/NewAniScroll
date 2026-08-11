@@ -10,7 +10,6 @@ import {
   countryLabel,
   capitalize,
 } from "./helpers";
-import Related from "./Related";
 import RelationsGraph from "./RelationsGraph";
 import styles from "./styles.module.css";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
@@ -202,26 +201,30 @@ export default function Overview({ info, seasonList }: Props) {
                 display: "flex",
               }}
             >
-              <Related
+              {/* The franchise map itself, in the page — the same board the
+                  overlay shows, at the size this column has. It replaces the
+                  card carousel that used to sit here: the carousel listed the
+                  direct neighbours in no particular order, which is the one
+                  thing a franchise map makes plain. Pressing ⤢ (or the button
+                  above) hands this exact view to the full-screen view — same
+                  instance, so the zoom, the selection and anything you moved
+                  come with it. */}
+              <RelationsGraph
+                embedded
+                open={graphOpen}
+                onExpand={() => setGraphOpen(true)}
+                onClose={() => setGraphOpen(false)}
                 relations={info.relations?.edges || []}
                 seasonList={seasonList}
                 currentId={info.id}
+                currentTitle={info.title}
+                currentFormat={info.format}
+                currentEpisodes={info.episodes}
+                currentCover={info.coverImage?.large || info.coverImage?.extraLarge || null}
               />
             </div>
           </section>
         </div>
-
-        <RelationsGraph
-          open={graphOpen}
-          onClose={() => setGraphOpen(false)}
-          relations={info.relations?.edges || []}
-          seasonList={seasonList}
-          currentId={info.id}
-          currentTitle={info.title}
-          currentFormat={info.format}
-          currentEpisodes={info.episodes}
-          currentCover={info.coverImage?.large || info.coverImage?.extraLarge || null}
-        />
 
         {/* Row 2 col 1 — Tags + External Sites (absolutely positioned trick
              so the sidebar height tracks the main column). */}
