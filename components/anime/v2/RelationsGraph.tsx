@@ -905,10 +905,44 @@ export default function RelationsGraph({
       ranksep: covers ? RANK_SEP_COVER : RANK_SEP_TEXT,
       ranker: RANKER,
     });
-    // By id, not by the order the walk happened to meet them: dagre places the
-    // nodes of a rank in the order it was given them, so an identical graph
-    // handed over in a different order comes out stacked differently.
-    const allNodes = Array.from(seen.values()).sort((a, b) => a.id - b.id);
+    /**
+     * How far the graph still runs on from each entry — the length of the
+     * longest chain of relations leaving it.
+     *
+     * dagre places the nodes of a rank in the order it was handed them, so this
+     * is the lever that decides which branch sits at the top. Sorting by reach
+     * puts the long line — the franchise's own spine, the one that carries on
+     * for six more columns — along the top edge, and leaves the dead ends
+     * (recaps, one-off specials, a spin-off that never got a sequel) collecting
+     * at the bottom. Read top-down, the board now goes from "the story" to "the
+     * extras" instead of interleaving them.
+     *
+     * Ties break on the id, so the order stays the same from every page of the
+     * franchise — that is what the canonical edges above bought.
+     */
+    const nextOf = new Map<number, number[]>();
+    for (const e of list) {
+      if (!nextOf.has(e.from)) nextOf.set(e.from, []);
+      nextOf.get(e.from)!.push(e.to);
+    }
+    const reachMemo = new Map<number, number>();
+    const reach = (id: number, seenOnPath: Set<number>): number => {
+      const memo = reachMemo.get(id);
+      if (memo !== undefined) return memo;
+      // AniList does report the occasional mutual prequel/sequel pair; a cycle
+      // must stop rather than recurse forever.
+      if (seenOnPath.has(id)) return 0;
+      seenOnPath.add(id);
+      let best = 0;
+      for (const to of nextOf.get(id) || []) best = Math.max(best, 1 + reach(to, seenOnPath));
+      seenOnPath.delete(id);
+      reachMemo.set(id, best);
+      return best;
+    };
+
+    const allNodes = Array.from(seen.values()).sort(
+      (a, b) => reach(b.id, new Set()) - reach(a.id, new Set()) || a.id - b.id
+    );
     for (const n of allNodes) g.setNode(String(n.id), { width: n.w, height: n.h });
     for (const e of list) g.setEdge(String(e.from), String(e.to));
     dagre.layout(g);
