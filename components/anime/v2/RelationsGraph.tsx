@@ -1810,12 +1810,6 @@ export default function RelationsGraph({
     >
       {header}
       {board}
-      <div style={gStyles.hint}>
-        {t("anime.graphHintOrder", {
-          defaultValue:
-            "Click a title to open it · hover to light up what it is attached to · drag to pan, hold Ctrl to align, scroll to zoom",
-        })}
-      </div>
     </div>,
     document.body
   );
@@ -2192,11 +2186,5 @@ const gStyles: Record<string, CSSProperties> = {
     color: "#7ec8ff",
     whiteSpace: "nowrap",
     pointerEvents: "none",
-  },
-  hint: {
-    padding: "10px 0 14px",
-    textAlign: "center",
-    fontSize: 11,
-    color: "var(--txt-3)",
   },
 };
