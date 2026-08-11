@@ -937,6 +937,9 @@ export default function RelationsGraph({
     if (!active) return;
     const box = canvasRef.current;
     if (!box || width === 0 || height === 0) return;
+    // A box with no size yet would "fit" the board to nothing and then be
+    // remembered as fitted; let the next pass do it.
+    if (!box.clientWidth || !box.clientHeight) return;
     const key = `${Math.round(width)}x${Math.round(height)}`;
     if (fittedFor.current === key) return;
     fittedFor.current = key;
@@ -1841,16 +1844,21 @@ const gStyles: Record<string, CSSProperties> = {
     fontSize: 14,
   },
   /**
-   * The inline box. Fills whatever the caller's column gives it, with a floor:
-   * a franchise map under ~340px is a row of unreadable stamps, and the point
-   * of putting it in the page is that you can already read the shape there.
+   * The inline box, at a HEIGHT OF ITS OWN rather than filling its column.
+   *
+   * Stretching read as "the graph is the page": the column it sits in is the
+   * one the Details card mirrors, so a board that grows to fill drags a column
+   * of six labels out to the same height and leaves them floating in space.
+   * A fixed 380 is about what the card carousel it replaces occupied, so the
+   * row keeps the proportions the rest of the page was built around — and the
+   * full view is one press away for anything that needs room.
    */
   embedWrap: {
     position: "relative",
     display: "flex",
     flexDirection: "column",
-    flex: 1,
-    minHeight: 360,
+    flex: "0 0 auto",
+    height: 380,
     width: "100%",
     borderRadius: 12,
     border: "1px solid var(--line)",
