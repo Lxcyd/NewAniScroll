@@ -955,10 +955,9 @@ export default function RelationsGraph({
     const isMain = (id: number) =>
       id === selected || MAIN_FORMATS.has(byId.get(id)?.format || "");
 
-    // Distance in MAIN entries. A special sitting on the chain is walked
-    // THROUGH without taking a number — Sword Art Online's sequel edge runs
-    // into Extra Edition and on to season 2, and the running order must read
-    // 1, 2 across that bridge rather than counting the bonus as a step.
+    // Distance in MAIN entries, used only to find the thread: a bonus takes the
+    // rank of the entry before it, so a special sitting between two seasons is
+    // reachable without shifting them.
     const dist = new Map<number, number>([[selected, 1]]);
     // Relax until stable. The pass guard is for safety only: AniList
     // occasionally reports a mutual prequel/sequel pair, which would loop.
@@ -988,10 +987,10 @@ export default function RelationsGraph({
      * The bonuses the thread CROSSES, as opposed to the ones hanging off it.
      *
      * Stand Alone Complex reaches SAC_2045 through Solid State Society, a
-     * Special: numbering steps over it, but the line has to go through it or
-     * the running order reads as two disconnected halves. Marked by walking
-     * backwards — a bonus is a bridge when a sequel of its own is lit, which
-     * leaves a dead-end bonus (a recap that continues nothing) unlit.
+     * Special: the line has to go through it or the running order reads as two
+     * disconnected halves. Marked by walking backwards — a bonus is a bridge
+     * when a sequel of its own is lit, which leaves a dead-end bonus (a recap
+     * that continues nothing) out of the thread.
      */
     const bridge = new Set<number>();
     for (let pass = 0; pass < nodes.length + 2; pass++) {
@@ -1005,27 +1004,48 @@ export default function RelationsGraph({
       }
       if (!changed) break;
     }
-    return { main, dist, bridge };
+
+    /**
+     * The numbers, over the thread as it is DRAWN — every card the lit line
+     * touches counts, bridges included.
+     *
+     * They used to count main entries only, so a crossed special was a lit card
+     * with no number in the middle of the run and the order looked like it had
+     * skipped one. A step is a thing you sit through; if the line goes through
+     * it, it has a number.
+     */
+    const order = new Map<number, number>([[selected, 1]]);
+    for (let pass = 0; pass < nodes.length + 2; pass++) {
+      let changed = false;
+      for (const [from, tos] of Array.from(next.entries())) {
+        const d = order.get(from);
+        if (d === undefined) continue;
+        for (const to of tos) {
+          if (!main.has(to) && !bridge.has(to)) continue;
+          if ((order.get(to) ?? -1) < d + 1) {
+            order.set(to, d + 1);
+            changed = true;
+          }
+        }
+      }
+      if (!changed) break;
+    }
+    return { order, bridge, main };
   }, [selected, edges, nodes.length, byId]);
 
-  /**
-   * An edge belongs to the running order when it links two steps of the thread,
-   * one step apart — counting a crossed bonus as no step, exactly as the
-   * numbering does. An edge onto a bonus that continues nothing stays dim: the
-   * line shows the main thread, not its detours.
-   */
-  /**
-   * On the lit thread — numbered step or crossed bonus alike. A bridge reads as
-   * part of the order because the line runs through it; it simply doesn't take
-   * a number, which is what says "you don't have to watch this one".
-   */
-  const onThread = (id: number) => !!chain && (chain.main.has(id) || chain.bridge.has(id));
+  /** On the lit thread — every card the running order passes through. */
+  const onThread = (id: number) => !!chain && chain.order.has(id);
 
-  const isChainEdge = (e: GEdge) => {
-    if (!chain || e.label !== "SEQUEL") return false;
-    if (!onThread(e.from) || !onThread(e.to)) return false;
-    return chain.dist.get(e.to) === (chain.dist.get(e.from) ?? -99) + (chain.main.has(e.to) ? 1 : 0);
-  };
+  /**
+   * An edge belongs to the running order when it links two consecutive steps of
+   * it. An edge onto a bonus that continues nothing stays dim: the line shows
+   * the main thread, not its detours.
+   */
+  const isChainEdge = (e: GEdge) =>
+    !!chain &&
+    e.label === "SEQUEL" &&
+    chain.order.has(e.from) &&
+    chain.order.get(e.to) === (chain.order.get(e.from) ?? -99) + 1;
 
   /**
    * Frame the whole board when it changes, the way Hayase calls `fitView`.
@@ -1604,11 +1624,8 @@ export default function RelationsGraph({
             })}
 
             {nodes.map((n) => {
-              const step = chain?.main.get(n.id);
-              // Numbered vs merely on the thread: a crossed bonus wears the
-              // border and the full opacity, not the badge.
-              const lit = onThread(n.id);
-              const numbered = step !== undefined;
+              const step = chain?.order.get(n.id);
+              const lit = step !== undefined;
               const isSelected = n.id === selected;
               const isMatch = !!matches?.has(n.id);
               const done = isFinished(listMap?.get(n.id), n.episodes);
@@ -1680,7 +1697,7 @@ export default function RelationsGraph({
                 >
                   {/* `chain` is already 1-based — the selected entry is step 1.
                       Adding one here made the whole order start at 2. */}
-                  {numbered && <span style={gStyles.stepBadge}>{step}</span>}
+                  {lit && <span style={gStyles.stepBadge}>{step}</span>}
                   {/* Dismiss a card you don't care about; the reset button in
                       the control bar brings every dismissed one back. */}
                   <button
@@ -2028,13 +2045,13 @@ const gStyles: Record<string, CSSProperties> = {
     background: "#000",
     backgroundImage: "radial-gradient(circle, #2a2a30 1px, transparent 1px)",
     backgroundSize: "22px 22px",
-    // Anchored bottom-left, not top-left. The tile carries its dot in the
-    // middle, so tiling from a corner leaves exactly half a tile of margin on
-    // the two sides it starts from and whatever the height happens to leave
-    // over on the others — a wide empty band under the last row. From the
-    // bottom-left, the margin under the last row is the same 11px as the one
-    // left of the first column.
-    backgroundPosition: "left bottom",
+    // The tile carries its dot in the middle, so tiling from a corner leaves
+    // half a tile of margin on the two sides it starts from and whatever the
+    // box happens to leave over on the others — a wide empty band on one edge.
+    // Left for the columns (11px, half a tile, from the frame) and centred for
+    // the rows, which splits the leftover evenly: the first row sits as far
+    // under the header as the last one sits above the bottom edge.
+    backgroundPosition: "left center",
     // Dragging the board would otherwise sweep a text selection across every
     // card it crosses, leaving the graph highlighted in blue.
     userSelect: "none",
