@@ -208,20 +208,26 @@ export default function NativeTrailer({
    * show its trailer no matter how long you waited — while hovering it again a
    * minute later worked, which is exactly the behaviour that got reported.
    *
-   * Two more goes. Beyond that the answer is probably real (a deleted video, an
-   * embed ban) and the artwork is a perfectly good card.
+   * Three more goes. Beyond that the answer is probably real (a deleted video,
+   * an embed ban) and the artwork is a perfectly good card.
    *
-   * Spaced out rather than both at half a second. Measured against the live
+   * Spaced out rather than crowded at half a second. Measured against the live
    * worker: the refusal is `LOGIN_REQUIRED: Sign in to confirm you're not a
    * bot`, YouTube declining a datacentre caller — and the worker has already
    * spent four InnerTube calls inside one request by the time we see it. Three
    * client attempts crowded into one second are three samples of the same
-   * moment; giving the second one a couple of seconds is what makes it a
-   * different sample. It does not fix the refusal, it only stops us from
-   * throwing away two of our three chances on a mood that has not passed.
+   * moment; spacing them is what makes them different samples.
+   *
+   * The last one is not a sample at all, it is an APPOINTMENT. A refused
+   * request leaves the worker warming that video out of band — it waits for the
+   * wave to pass, fetches the file and puts it in the edge cache (warmLater,
+   * first rung at 4 s, plus a second or two to pull 3 MB). Coming back at 7 s
+   * is what turns that into a trailer the visitor actually sees, instead of one
+   * that is merely ready for whoever hovers the card next. It costs nothing
+   * when it lands: the answer is a cache hit in tens of milliseconds.
    */
-  const MAX_RETRIES = 2;
-  const RETRY_DELAYS_MS = [500, 2500];
+  const MAX_RETRIES = 3;
+  const RETRY_DELAYS_MS = [500, 2500, 7000];
   const onLoadError = () => {
     /*
      * Ask WHY before trying again.
@@ -236,13 +242,23 @@ export default function NativeTrailer({
      * Only a definitive answer stops the retries; anything else keeps them,
      * because a trailer that plays fine here must not be dropped over a refusal
      * that was aimed at us.
+     *
+     * Not on the FIRST failure, though. A verdict the worker has not already
+     * cached costs it a full resolve round, and asking for one at the exact
+     * moment YouTube is refusing us adds load to the refusal rather than
+     * information: the answer would be `unknown`, which changes nothing here.
+     * From the second failure on, the question is worth its price — and for a
+     * genuinely dead video the .mp4 route has by then cached a 410, so the
+     * answer comes back in milliseconds.
      */
-    fetchVerdict(id).then((v) => {
-      if (v !== "gone") return;
-      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
-      retriesRef.current = MAX_RETRIES;
-      onHide(true);
-    });
+    if (retriesRef.current >= 1) {
+      fetchVerdict(id).then((v) => {
+        if (v !== "gone") return;
+        if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+        retriesRef.current = MAX_RETRIES;
+        onHide(true);
+      });
+    }
 
     if (retriesRef.current >= MAX_RETRIES) {
       onHide(true);

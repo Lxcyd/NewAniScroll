@@ -433,8 +433,15 @@ function mp4Headers() {
  * why adding rounds to the foreground loop changed nothing measurable (9 of 16
  * cold ids failed with three rounds and two clients, 8 of 16 with two rounds and
  * one; the same ids failed in both, so the variable was the minute, not us).
+ *
+ * A LADDER rather than one shot, because one shot only cleared 4 of 7 refused
+ * ids: the second attempt is aimed at a wave that outlasted the first. The last
+ * rung stays under the ~30 s a `waitUntil` task is given after the response.
+ *
+ * The first rung is also what the card's own last retry is timed against — see
+ * RETRY_DELAYS_MS in NativeTrailer.
  */
-const WARM_DELAY_MS = 4000;
+const WARM_SCHEDULE_MS = [4000, 11000, 21000];
 
 /** One warm-up per video per isolate: the browser's own retries must not each start one. */
 const warming = new Set();
@@ -455,20 +462,26 @@ const warming = new Set();
 function warmLater(videoId, cacheKeyUrl, cache, ctx) {
   if (!ctx || warming.has(videoId)) return;
   warming.add(videoId);
+  const key = new Request(cacheKeyUrl, { method: "GET" });
   ctx.waitUntil(
     (async () => {
       try {
-        await new Promise((resolve) => setTimeout(resolve, WARM_DELAY_MS));
-        const won = await resolveRacing(videoId, null);
-        if (!won) return;
-        const res = await fetch(won.url, { headers: { "User-Agent": won.ua, Accept: "*/*" } });
-        if (!res.ok) return;
-        await cache.put(
-          new Request(cacheKeyUrl, { method: "GET" }),
-          new Response(res.body, { status: 200, headers: mp4Headers() }),
-        );
+        let waited = 0;
+        for (const rung of WARM_SCHEDULE_MS) {
+          await new Promise((resolve) => setTimeout(resolve, rung - waited));
+          waited = rung;
+          // Another isolate, or the visitor's own retry, may have won already.
+          if (await cache.match(key)) return;
+          const won = await resolveRacing(videoId, null);
+          if (!won) continue;
+          const res = await fetch(won.url, { headers: { "User-Agent": won.ua, Accept: "*/*" } });
+          if (!res.ok) continue;
+          await cache.put(key, new Response(res.body, { status: 200, headers: mp4Headers() }));
+          return;
+        }
       } catch {
-        /* including a DurableRefusal: not ours to record from out here */
+        /* including a DurableRefusal: the video is gone, and the next real
+           request records that through the path that knows how to cache it */
       } finally {
         warming.delete(videoId);
       }
