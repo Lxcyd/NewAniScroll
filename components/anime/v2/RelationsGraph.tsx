@@ -199,6 +199,9 @@ type GNode = {
 
 type GEdge = { from: number; to: number; label: string };
 
+/** What one walk of the franchise comes back with. */
+type Walked = { nodes: Map<number, NodeMeta>; edges: Map<string, GEdge> };
+
 /** What a node needs to be drawn — the shape both the prop and the API give. */
 type NodeMeta = {
   id: number;
@@ -544,9 +547,7 @@ export default function RelationsGraph({
 
     let cancelled = false;
     setWalking(true);
-    const nodes = new Map<number, NodeMeta>();
-    const edges = new Map<string, GEdge>();
-    const frontier = new Set<number>();
+    /** Shared by both walks, so the second one costs nothing. */
     const relCache = new Map<number, Promise<any>>();
 
     /**
@@ -600,6 +601,25 @@ export default function RelationsGraph({
     };
 
     const isAnime = (m: any) => (m?.type ?? "ANIME") === "ANIME";
+
+    /**
+     * ONE walk, from one root — the whole traversal, its node map and its edge
+     * map local to the call.
+     *
+     * It used to be inlined here and run once, from the page you were on, and
+     * that is precisely what made the board a different picture on every page
+     * of the same franchise: the traversal order decides the direction of a
+     * disputed pair, and dagre ranks on direction. Nothing about the walk is
+     * changed — it is only made re-runnable, so it can be run from the
+     * franchise's own root instead of from wherever you happen to be standing.
+     */
+    const walkFrom = async (
+      root: NodeMeta,
+      onFirstPass?: (r: Walked) => void
+    ): Promise<Walked | null> => {
+    const nodes = new Map<number, NodeMeta>();
+    const edges = new Map<string, GEdge>();
+    const frontier = new Set<number>();
 
     /** A node's own relation edges, and the fuller metadata that comes with them. */
     const edgesOf = async (id: number): Promise<any[]> => {
@@ -679,20 +699,9 @@ export default function RelationsGraph({
       }
     };
 
-    const publish = () =>
-      setTree({ nodes: Array.from(nodes.values()), edges: Array.from(edges.values()) });
-
-    (async () => {
-      await processEdges({
-        id: currentId,
-        type: "ANIME",
-        title: currentTitle,
-        format: currentFormat,
-        episodes: currentEpisodes,
-        cover: currentCover ?? null,
-      });
-      if (cancelled) return;
-      publish();
+      await processEdges(root);
+      if (cancelled) return null;
+      onFirstPass?.({ nodes, edges });
 
       for (let round = 0; round < MAX_ROUNDS && frontier.size > 0; round++) {
         // AniList returns their batched Page in id order; same order here, so
@@ -713,7 +722,7 @@ export default function RelationsGraph({
         // walk starts, every fetch it needs is already in flight. The walk
         // itself is untouched — prefetching decides nothing about order.
         const payloads = await Promise.all(ids.map((id) => getRelations(id)));
-        if (cancelled) return;
+        if (cancelled) return null;
         for (const data of payloads) {
           for (const e of data?.edges || []) {
             const n = e?.node;
@@ -724,13 +733,67 @@ export default function RelationsGraph({
         }
 
         for (const id of ids) {
-          if (cancelled) return;
+          if (cancelled) return null;
           await processEdges(nodes.get(id) ?? { id, type: "ANIME" });
         }
         // Only the last round repaints. Publishing every round made the board
         // grow four or five times under the viewer, each growth re-framing it.
-        if (frontier.size === 0 || round === MAX_ROUNDS - 1) publish();
+        if (frontier.size === 0 || round === MAX_ROUNDS - 1) onFirstPass?.({ nodes, edges });
       }
+      return { nodes, edges };
+    };
+
+    const publish = (r: Walked) =>
+      setTree({ nodes: Array.from(r.nodes.values()), edges: Array.from(r.edges.values()) });
+
+    /**
+     * The franchise's own starting point: its oldest entry, by AniList id.
+     *
+     * Any rule would do as long as it names the SAME node from every page —
+     * that is the whole job. The oldest is the one that also gives the walk the
+     * picture it was designed for, a franchise read outwards from where it
+     * began, which is the board this view has always drawn on the first
+     * season's page.
+     */
+    const rootOf = (walked: Walked) =>
+      Array.from(walked.nodes.keys()).reduce((a, b) => (b < a ? b : a), Infinity);
+
+    (async () => {
+      // First pass from here, because this page already holds its relations —
+      // it paints the neighbourhood immediately and, on the way, discovers who
+      // the franchise's root is.
+      let result = await walkFrom(
+        {
+          id: currentId,
+          type: "ANIME",
+          title: currentTitle,
+          format: currentFormat,
+          episodes: currentEpisodes,
+          cover: currentCover ?? null,
+        },
+        publish
+      );
+      if (!result || cancelled) return;
+
+      /**
+       * Then the same walk again from the root, and THAT is what stays on
+       * screen — the identical board from every page of the franchise.
+       *
+       * It costs no request: the first walk has already pulled every node's
+       * relations into `relCache`, so the second reads them from memory. The
+       * loop is for the case where re-rooting brings in an older entry the
+       * first walk never reached; it settles in one round in practice.
+       */
+      let usedRoot = currentId;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const root = rootOf(result);
+        if (!Number.isFinite(root) || root === usedRoot) break;
+        const again = await walkFrom(result.nodes.get(root) ?? { id: root, type: "ANIME" });
+        if (!again || cancelled) return;
+        usedRoot = root;
+        result = again;
+      }
+      publish(result);
       if (!cancelled) setWalking(false);
     })();
 
