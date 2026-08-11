@@ -61,6 +61,21 @@ const EDGE_SEP = 95;
 const RANK_SEP_TEXT = 120;
 const RANK_SEP_COVER = 210;
 const RANKER = "tight-tree";
+/**
+ * Line the cards up instead of splitting the difference.
+ *
+ * dagre's coordinate pass computes FOUR candidate positions for every node —
+ * biased up-left, up-right, down-left, down-right — and by default returns
+ * their balanced average. That average is why two cards that could sit on the
+ * same line don't: a sequel whose four candidates disagree by twenty pixels
+ * lands twenty pixels off its own predecessor, for no reason the picture can
+ * show. Naming one alignment gives that alignment exactly, so a chain of cards
+ * comes out on one line and the relation between them reads as a straight run.
+ *
+ * "UL" — the first card of a run anchors the ones that follow it, which for a
+ * franchise read left to right is the season that started the chain.
+ */
+const ALIGN = "UL";
 
 /** TextNode.svelte is `w-[150px]`; the height follows its two stacked rows. */
 const NODE_W = 150;
@@ -888,6 +903,7 @@ export default function RelationsGraph({
       nodesep: NODE_SEP,
       ranksep: covers ? RANK_SEP_COVER : RANK_SEP_TEXT,
       ranker: RANKER,
+      align: ALIGN,
     });
     const allNodes = Array.from(seen.values());
     for (const n of allNodes) g.setNode(String(n.id), { width: n.w, height: n.h });
