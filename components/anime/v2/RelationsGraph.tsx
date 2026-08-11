@@ -66,6 +66,7 @@ const RANKER = "tight-tree";
 const NODE_W = 150;
 const NODE_BASE_H = 49;
 const NODE_LINE_H = 19;
+const CHARS_PER_LINE = 20;
 /**
  * With covers on, the art sits to the LEFT of the text and is shown WHOLE — a
  * cover is a 2:3 portrait, and cropping it to a strip cuts the title lettering
@@ -127,22 +128,11 @@ const SIDE_RELATIONS = new Set([
   "OTHER",
 ]);
 
-/**
- * Every card the same height — the board is a grid, not a brick wall.
- *
- * It used to be measured from the title's length, so a three-line title made a
- * card half as tall again as its neighbour. dagre centres the cards of a rank
- * on their own slots, so no two of them started at the same height: a column
- * read as a ragged pile, and nothing lined up with the column beside it. A
- * fixed height is what makes rows exist at all, and it costs an ellipsis on the
- * handful of titles that run past three lines.
- *
- * Three lines, because that is what "Sword Art Online: Alicization - War of
- * Underworld Part 2" needs, and a franchise is mostly made of titles like it.
- */
-const NODE_TEXT_LINES = 3;
-const nodeHeight = (withCover: boolean) =>
-  withCover ? COVER_H : NODE_BASE_H + NODE_TEXT_LINES * NODE_LINE_H;
+const nodeHeight = (title: string, withCover: boolean) => {
+  const text = NODE_BASE_H + Math.ceil((title.length || 1) / CHARS_PER_LINE) * NODE_LINE_H;
+  // Side by side, the card is as tall as the taller column.
+  return withCover ? Math.max(COVER_H, text) : text;
+};
 
 /**
  * "Finished", the only watch state the board shows.
@@ -207,13 +197,7 @@ type GNode = {
   h: number;
 };
 
-type GEdge = {
-  from: number;
-  to: number;
-  label: string;
-  /** dagre's route, board coordinates, bending around the cards in the way. */
-  points?: { x: number; y: number }[];
-};
+type GEdge = { from: number; to: number; label: string };
 
 /** What one walk of the franchise comes back with. */
 type Walked = { nodes: Map<number, NodeMeta>; edges: Map<string, GEdge> };
@@ -834,7 +818,7 @@ export default function RelationsGraph({
         x: 0,
         y: 0,
         w: covers ? NODE_W_COVER : NODE_W,
-        h: nodeHeight(covers),
+        h: nodeHeight(title, covers),
       });
     }
 
@@ -922,23 +906,7 @@ export default function RelationsGraph({
       maxY = Math.max(maxY, n.y + n.h);
     }
 
-    /**
-     * dagre's own routing, kept this time.
-     *
-     * The note at the top of this file explains that we used to throw the
-     * polyline away and draw a straight curve between two card edges. That is
-     * what put lines through cards: a relation skipping a rank cuts across the
-     * column in between, and no amount of extra separation fixes the case where
-     * the card it crosses is the one directly in the way. dagre routes around
-     * them — it reserves the lanes between cards for exactly this — so the
-     * bends it computed are the answer, and the curve below just smooths them.
-     */
-    const routed = list.map((e) => {
-      const ge = g.edge(String(e.from), String(e.to)) as { points?: { x: number; y: number }[] };
-      return ge?.points && ge.points.length >= 2 ? { ...e, points: ge.points } : e;
-    });
-
-    return { nodes: allNodes, edges: routed, width: maxX, height: maxY };
+    return { nodes: allNodes, edges: list, width: maxX, height: maxY };
   }, [tree, currentId, titlePref, hidden, onlyFormats, onlyRelations, canonOnly, covers, rankDir]);
 
   /** Relation kinds actually on this board, for the filter menu — offering
@@ -1198,52 +1166,6 @@ export default function RelationsGraph({
       x2: pb.x + PAD,
       y2: pb.y + b.h / 2 + PAD,
     };
-  };
-
-  /**
-   * What to draw for one relation: the path, and where its name goes.
-   *
-   * Two sources, in order. dagre's route is used whenever it is still true —
-   * it is the one that stays out of the cards. A card the viewer has dragged
-   * invalidates the route it was computed against, so that edge falls back to
-   * the straight S-curve between the two cards' facing edges, which follows
-   * the card wherever it was dropped.
-   */
-  const geometry = (e: GEdge) => {
-    const a = byId.get(e.from);
-    const b = byId.get(e.to);
-    if (!a || !b) return null;
-
-    if (e.points && !moved.has(e.from) && !moved.has(e.to)) {
-      const pts = e.points.map((p) => ({ x: p.x + PAD, y: p.y + PAD }));
-      // A polyline drawn as-is has visible corners; each segment's midpoint
-      // becomes an on-curve point and the original vertices become the control
-      // points, which rounds the bends without moving the line off its lane.
-      let d = `M ${pts[0].x} ${pts[0].y}`;
-      for (let i = 1; i < pts.length - 1; i++) {
-        const mx = (pts[i].x + pts[i + 1].x) / 2;
-        const my = (pts[i].y + pts[i + 1].y) / 2;
-        d += ` Q ${pts[i].x} ${pts[i].y}, ${mx} ${my}`;
-      }
-      d += ` L ${pts[pts.length - 1].x} ${pts[pts.length - 1].y}`;
-      // The name sits at the middle of the ROUTE, so it follows the line into
-      // the lane it was routed through instead of hanging over a card.
-      const h = (pts.length - 1) / 2;
-      const lo = pts[Math.floor(h)];
-      const hi = pts[Math.ceil(h)];
-      return { d, x: (lo.x + hi.x) / 2, y: (lo.y + hi.y) / 2 };
-    }
-
-    const p = endpoints(e);
-    if (!p) return null;
-    const off = Math.max(40, (rankDir === "TB" ? p.y2 - p.y1 : p.x2 - p.x1) / 2);
-    const d =
-      rankDir === "TB"
-        ? `M ${p.x1} ${p.y1} C ${p.x1} ${p.y1 + off}, ${p.x2} ${p.y2 - off}, ${p.x2} ${p.y2}`
-        : `M ${p.x1} ${p.y1} C ${p.x1 + off} ${p.y1}, ${p.x2 - off} ${p.y2}, ${p.x2} ${p.y2}`;
-    // The control points sit level with their own ends, so the curve's midpoint
-    // IS the midpoint of the segment — no bezier maths needed.
-    return { d, x: (p.x1 + p.x2) / 2, y: (p.y1 + p.y2) / 2 };
   };
 
   /** True when a card should read as background right now. Hover wins over the
@@ -1552,15 +1474,26 @@ export default function RelationsGraph({
               style={{ position: "absolute", inset: 0, pointerEvents: "none", overflow: "visible" }}
             >
               {edges.map((e, i) => {
-                const geo = geometry(e);
-                if (!geo) return null;
+                const p = endpoints(e);
+                if (!p) return null;
+                // Control points run along the rank axis, for the same lazy
+                // S-curve the flow library draws — horizontal in LR, vertical
+                // in TB.
+                const off = Math.max(
+                  40,
+                  (rankDir === "TB" ? p.y2 - p.y1 : p.x2 - p.x1) / 2
+                );
+                const d =
+                  rankDir === "TB"
+                    ? `M ${p.x1} ${p.y1} C ${p.x1} ${p.y1 + off}, ${p.x2} ${p.y2 - off}, ${p.x2} ${p.y2}`
+                    : `M ${p.x1} ${p.y1} C ${p.x1 + off} ${p.y1}, ${p.x2 - off} ${p.y2}, ${p.x2} ${p.y2}`;
                 const touches = near ? e.from === hover || e.to === hover : null;
                 const lit = touches !== null ? touches : isChainEdge(e);
                 const dim = touches !== null ? !touches : !!chain && !isChainEdge(e);
                 return (
                   <path
                     key={i}
-                    d={geo.d}
+                    d={d}
                     fill="none"
                     // The running order is drawn solid and bright, everything
                     // else stays a faint dashed hint — the eye follows one line
@@ -1578,14 +1511,20 @@ export default function RelationsGraph({
                 view: an unlabelled edge says two things are related, which the
                 list already said. */}
             {edges.map((e, i) => {
-              const geo = geometry(e);
-              if (!geo) return null;
-              // Astride the line, at the middle of the ROUTE. The chip is
-              // opaque and bordered, so it masks the stroke behind it instead
-              // of being cut in half by it — which is why lifting it off was
-              // solving a problem it never had.
-              const x = geo.x;
-              const y = geo.y;
+              const p = endpoints(e);
+              if (!p) return null;
+              // The middle of the line, always. The control points sit level
+              // with their own ends, so the curve's midpoint IS the midpoint of
+              // the segment — no bezier maths needed. An edge that skips a rank
+              // can put its name over the card in between; that is accepted,
+              // because a name that hunts for a free spot is a name you can no
+              // longer attribute to a line.
+              // Astride the line, dead centre. The chip is opaque and
+              // bordered, so it masks the stroke behind it instead of being
+              // cut in half by it — which is why lifting it off was solving a
+              // problem it never had.
+              const x = (p.x1 + p.x2) / 2;
+              const y = (p.y1 + p.y2) / 2;
               const touches = near ? e.from === hover || e.to === hover : null;
               const lit = touches !== null ? touches : isChainEdge(e);
               const dim = touches !== null ? !touches : !!chain && !isChainEdge(e);
@@ -1644,10 +1583,6 @@ export default function RelationsGraph({
                     left: posOf(n).x + PAD,
                     top: posOf(n).y + PAD,
                     width: n.w,
-                    // The box dagre was given, to the pixel — a card taller
-                    // than its slot is a card that no longer lines up with the
-                    // one beside it, and that the routed edges miss.
-                    height: n.h,
                     // The card in hand rides above everything; one you have
                     // already placed stays above the untouched ones, so
                     // dropping it onto a neighbour doesn't bury it.
@@ -1732,7 +1667,7 @@ export default function RelationsGraph({
                       )}
                       <div style={gStyles.nodeBody}>
                         <div style={{ ...gStyles.nodeTitle, ...gStyles.nodeTitleSide }}>
-                          <span style={gStyles.nodeTitleClamp}>{n.title}</span>
+                          {n.title}
                         </div>
                         <div
                           style={{ ...gStyles.nodeMeta }}
@@ -1748,9 +1683,7 @@ export default function RelationsGraph({
                     </div>
                   ) : (
                     <>
-                      <div style={{ ...gStyles.nodeTitle, ...gStyles.nodeTitleTop }}>
-                        <span style={gStyles.nodeTitleClamp}>{n.title}</span>
-                      </div>
+                      <div style={gStyles.nodeTitle}>{n.title}</div>
                       <div style={{ ...gStyles.nodeMeta }}>
                         <span>{FORMAT_LABEL[n.format] ?? n.format}</span>
                         <span>
@@ -2057,11 +1990,7 @@ const gStyles: Record<string, CSSProperties> = {
   /* TextNode.svelte: 150px wide, bordered, #111 body under a #1e1e1e header. */
   node: {
     position: "absolute",
-    display: "flex",
-    flexDirection: "column",
-    // The height is the layout's, so the border has to live inside it.
-    boxSizing: "border-box",
-    overflow: "hidden",
+    display: "block",
     background: "#111",
     border: "1px solid #26262d",
     borderRadius: 3,
@@ -2162,30 +2091,10 @@ const gStyles: Record<string, CSSProperties> = {
   nodeTitleSide: {
     background: "transparent",
     flex: 1,
-    minHeight: 0,
     display: "grid",
     placeItems: "center",
     padding: "10px 12px",
   },
-  /** Text-only cards: the title band takes the room the meta line leaves. */
-  nodeTitleTop: {
-    flex: 1,
-    minHeight: 0,
-    display: "grid",
-    placeItems: "center",
-  },
-  /**
-   * A title longer than the card gets an ellipsis rather than a taller card.
-   * Fixed heights are what put the cards in rows; one title in ten losing its
-   * last three words is the price, and the card is a link to the page that
-   * spells it out in full.
-   */
-  nodeTitleClamp: {
-    display: "-webkit-box",
-    WebkitBoxOrient: "vertical",
-    WebkitLineClamp: NODE_TEXT_LINES,
-    overflow: "hidden",
-  } as CSSProperties,
   edgeLabel: {
     position: "absolute",
     transform: "translate(-50%, -50%)",
