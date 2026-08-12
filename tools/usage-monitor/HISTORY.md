@@ -1,5 +1,6 @@
 # Usage Monitor — history
 
+- **2026-08-12** — Upstash today 841 (proj 50% cap), DBSIZE 11,461, top prefix `anime:` 9,212
 - **2026-08-11** — Upstash today 2,611 (proj 63% cap), DBSIZE 11,363, top prefix `anime:` 9,163
 - **2026-08-10** — Upstash today 4,043 (proj 68% cap), DBSIZE 11,275, top prefix `anime:` 9,102
 - **2026-08-09** — Upstash today 2,370 (proj 74% cap), DBSIZE 11,070, top prefix `anime:` 8,992
