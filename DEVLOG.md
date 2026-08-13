@@ -98,11 +98,33 @@ Deux corrections :
   (`fetchTrailer` résout et redeem dans la même boucle). L'ancienne boucle
   rejouait exactement le même échec : c'est ce que disait le `403 | 403`.
 
-Cas résiduel, désormais nommé sans ambiguïté :
-`android_vr: LOGIN_REQUIRED … | android: upstream 403 on the link` — VR bloqué
-bot ET le lien d'ANDROID refusé. C'est **le seul cas où un PO token GVS serait
-la réponse**, et il reste hors d'atteinte (DroidGuard). Le réchauffage est la
-seule prise qu'on ait dessus.
+### Troisième temps : « aucun lien encaissable » n'est pas une vague
+
+Restaient deux ids qui échouaient à chaque survol (`KYGgyQtSAdI`,
+`5JpTU6wj_-g`). Matrice complète des clients, mesurée depuis la connexion
+résidentielle :
+
+| Client | Réponse |
+| --- | --- |
+| `ANDROID_VR`, `TVHTML5`, `ANDROID_UNPLUGGED` | `LOGIN_REQUIRED` **même depuis chez soi** |
+| `TVHTML5_SIMPLY_EMBEDDED`, `WEB_EMBEDDED_PLAYER` | `ERROR` |
+| `IOS` | `OK` mais **aucun format progressif** |
+| `ANDROID` | `OK` + itag 18, dont le lien est refusé depuis l'edge |
+
+Donc pour ces vidéos, **aucun client ne donne un itag 18 encaissable depuis un
+datacentre**. C'est un état **stable**, pas une vague : le réchauffage n'y peut
+rien, et le traiter comme un échec passager coûtait 3 reprises + une échelle de
+réchauffage à chaque survol, indéfiniment.
+
+- Nouveau cas `unredeemable` : un client a bien donné un lien et le lien a été
+  refusé → 404 mémorisé **6 h** (`UNREDEEMABLE_TTL`) et **aucun réchauffage**.
+  Distinct du 404 de 6 s, qui reste pour les vraies vagues.
+- C'est **le seul cas où un PO token GVS serait la réponse**, et il reste hors
+  d'atteinte (DroidGuard). Le noter plutôt que le combattre.
+
+Attention au piège rencontré en l'écrivant : `UNREDEEMABLE_TTL = GONE_TTL`
+plantait au chargement du module (TDZ, `GONE_TTL` est déclaré plus bas). La
+valeur est écrite en clair.
 
 ### Leçons / pièges
 

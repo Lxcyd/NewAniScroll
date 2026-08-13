@@ -234,13 +234,35 @@ function fail(status, error) {
  */
 const UNRESOLVED_TTL = 6;
 
-function unresolved(error) {
-  return new Response(JSON.stringify({ error }), {
+/**
+ * How long "no client here can give us a playable link" is remembered.
+ *
+ * A DIFFERENT failure from the bot wave, and it took a second deploy to see it.
+ * Measured 13/08 on `KYGgyQtSAdI` and `5JpTU6wj_-g`: ANDROID_VR, TVHTML5 and
+ * ANDROID_UNPLUGGED answer LOGIN_REQUIRED *even from a residential connection*,
+ * TVHTML5_SIMPLY_EMBEDDED and WEB_EMBEDDED error, IOS is OK but hands out no
+ * progressive format at all, and ANDROID is OK with itag 18 whose link is then
+ * refused (the GVS PO token it requires and we cannot mint — that would need
+ * DroidGuard). No client left. That is a property of the video, stable for as
+ * long as YouTube keeps it that way — nothing like a wave that lifts in seconds.
+ *
+ * Treating it as a wave is what the card was doing: three retries and a fresh
+ * warm-up ladder on every single hover, forever, for a video that will never
+ * play. Six hours (GONE_TTL) turns all of that into edge hits and stops asking
+ * YouTube entirely, while staying short enough that a video which becomes
+ * proxyable again comes back the same day.
+ */
+// The same six hours as GONE_TTL, spelled out rather than borrowed: that
+// constant is declared further down, and a `const` cannot be read before it.
+const UNREDEEMABLE_TTL = 21600;
+
+function unresolved(error, ttl = UNRESOLVED_TTL, unredeemable = false) {
+  return new Response(JSON.stringify({ error, unredeemable }), {
     status: 404,
     headers: cors(
       instrument({
         "Content-Type": "application/json",
-        "Cache-Control": `public, s-maxage=${UNRESOLVED_TTL}`,
+        "Cache-Control": `public, s-maxage=${ttl}`,
       }),
     ),
   });
@@ -454,7 +476,11 @@ function resolveShared(videoId, client, diag) {
  * with the SAME client instead of trying the other one. A 403 must fall THROUGH
  * to the next client — that is the whole reason there are two.
  *
- * Returns the upstream Response, or null on a refusal a retry might survive.
+ * Returns `{ upstream, unredeemable }`. `upstream` is null on any failure;
+ * `unredeemable` marks the specific, STABLE failure where a client did hand us a
+ * link and the link was refused — see UNREDEEMABLE_TTL for why that deserves a
+ * different answer from a passing bot wave.
+ *
  * THROWS DurableRefusal only when every client asked agreed the video itself is
  * unavailable (the unanimity invariant from 11/08). A 403 is never durable: it
  * says the link was bad, not the video.
@@ -463,6 +489,7 @@ async function fetchTrailer(videoId, diag) {
   let asked = 0;
   let durableCount = 0;
   let firstDurable = null;
+  let unredeemable = false;
 
   for (const client of CLIENTS) {
     // Re-checked between clients, not just at entry: the first call is exactly
@@ -500,12 +527,13 @@ async function fetchTrailer(videoId, diag) {
     const upstream = await fetch(url, {
       headers: { "User-Agent": client.ua, Accept: "*/*" },
     });
-    if (upstream.status !== 403) return upstream;
+    if (upstream.status !== 403) return { upstream, unredeemable: false };
+    unredeemable = true;
     if (diag) diag.push(`${client.name}: upstream 403 on the link`);
   }
 
   if (firstDurable && durableCount === asked) throw firstDurable;
-  return null;
+  return { upstream: null, unredeemable };
 }
 
 /**
@@ -651,7 +679,7 @@ function warmLater(videoId, cacheKeyUrl, cache, ctx) {
           // The wave is what we are waiting out, so asking during one is the one
           // thing this must not do. Skip the rung and let the next find it lifted.
           if (breakerOpen()) continue;
-          const res = await fetchTrailer(videoId, null);
+          const { upstream: res } = await fetchTrailer(videoId, null);
           if (!res?.ok) continue;
           await cache.put(key, new Response(res.body, { status: 200, headers: mp4Headers() }));
           return;
@@ -743,8 +771,9 @@ export async function handleTrailer(request, env, ctx) {
    */
   const diag = [];
   let upstream = null;
+  let unredeemable = false;
   try {
-    upstream = await fetchTrailer(videoId, diag);
+    ({ upstream, unredeemable } = await fetchTrailer(videoId, diag));
   } catch (err) {
     if (!(err instanceof DurableRefusal)) throw err;
     /*
@@ -762,6 +791,16 @@ export async function handleTrailer(request, env, ctx) {
     return storeVerdict(cacheKeyUrl, cache, ctx, gone(err.message));
   }
   if (!upstream) {
+    // A link we could not redeem is a STANDING condition, not a wave: no amount
+    // of warming fixes it, so it is remembered for hours and no warm-up is booked.
+    if (unredeemable) {
+      return storeVerdict(
+        cacheKeyUrl,
+        cache,
+        ctx,
+        unresolved(`Unredeemable: ${diag.join(" | ")}`, UNREDEEMABLE_TTL, true),
+      );
+    }
     warmLater(videoId, cacheKeyUrl, cache, ctx);
     return storeVerdict(
       cacheKeyUrl,
