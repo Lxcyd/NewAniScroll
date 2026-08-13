@@ -48,7 +48,7 @@ const VR_VERSION = "1.65.10";
 const VR_UA = `com.google.android.apps.youtube.vr.oculus/${VR_VERSION} (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip`;
 
 /**
- * TWO clients, asked ONE AT A TIME. Order matters: ANDROID first, ANDROID_VR as
+ * TWO clients, asked ONE AT A TIME. Order matters: ANDROID_VR first, ANDROID as
  * the fallback.
  *
  * WHY TWO. The refusal is drawn per CLIENT and per VIDEO, not only per address.
@@ -73,32 +73,24 @@ const VR_UA = `com.google.android.apps.youtube.vr.oculus/${VR_VERSION} (Linux; U
  * 11/08 for free: a durable refusal is believed only if EVERY client asked said
  * so, because the two do not see the same catalogue.
  *
- * WHY ANDROID LEADS. It is the one that answered on the hard case above, and
- * both clients' itag 18 URLs downloaded untokened (206) in the same measurement
- * — so the PO Token Guide's note that ANDROID now wants a GVS PO token is not,
- * today, something this worker pays for. ANDROID_VR stays as the client that
- * needs none by the book, i.e. the one left standing should that change; if it
- * ever stops handing out itag 18, the diag says `OK but no muxed format` rather
- * than going quiet.
+ * WHY ANDROID_VR LEADS — and this is the correction that cost a deploy. From a
+ * RESIDENTIAL connection both clients' itag 18 links downloaded fine (206), so
+ * ANDROID looked like the better leader: it answered on the hard case above.
+ * From the EDGE it is the opposite. ANDROID resolves cleanly and then its link
+ * is refused: `Unresolvable: upstream 403 | upstream 403`, on trailer after
+ * trailer, which is exactly the GVS PO token requirement the PO Token Guide
+ * attributes to ANDROID and NOT to ANDROID_VR. Enforcement evidently tracks the
+ * caller's reputation, so it bites a datacentre egress and not a home one — and
+ * measuring this from home is what got the order wrong the first time.
+ *
+ * So the leader is the client whose links we can actually redeem, and ANDROID is
+ * the fallback for the videos VR declines. If VR ever stops handing out itag 18,
+ * the diag says `OK but no muxed format` rather than going quiet.
  *
  * The device fields are not decoration: ANDROID_VR without the Oculus/Quest 3
  * pair is a different, less trusted caller.
  */
 const CLIENTS = [
-  {
-    name: "android",
-    ua: ANDROID_UA,
-    header: "3",
-    context: {
-      clientName: "ANDROID",
-      clientVersion: ANDROID_VERSION,
-      androidSdkVersion: 35,
-      osName: "Android",
-      osVersion: "15",
-      hl: "en",
-      gl: "US",
-    },
-  },
   {
     name: "android_vr",
     ua: VR_UA,
@@ -111,6 +103,20 @@ const CLIENTS = [
       androidSdkVersion: 32,
       osName: "Android",
       osVersion: "12L",
+      hl: "en",
+      gl: "US",
+    },
+  },
+  {
+    name: "android",
+    ua: ANDROID_UA,
+    header: "3",
+    context: {
+      clientName: "ANDROID",
+      clientVersion: ANDROID_VERSION,
+      androidSdkVersion: 35,
+      osName: "Android",
+      osVersion: "15",
       hl: "en",
       gl: "US",
     },
@@ -405,7 +411,55 @@ const RESOLVE_TIMEOUT_MS = 4000;
  * nothing about the video (the two clients do not see the same catalogue) and
  * believing it would hide a good trailer for six hours.
  */
-async function resolveSequential(videoId, diag) {
+/**
+ * One resolve per video PER CLIENT at a time, shared by everyone who asks.
+ *
+ * The card's three retries, a second visitor hovering the same poster, the info
+ * page's verdict and the warm-up could each start their own resolve for the same
+ * id, seconds apart, and every one of them cost InnerTube calls we are being
+ * rationed on. They now all await the same promise.
+ *
+ * Keyed per client, not per video, because the link a client mints is only good
+ * for that client's UA — sharing ANDROID's answer with a caller about to ask
+ * ANDROID_VR would hand it a link it cannot redeem.
+ *
+ * Joiners get no diag lines of their own — the notes belong to the caller that
+ * actually made the calls. That is a fair trade for not making them twice.
+ */
+const inFlight = new Map();
+
+function resolveShared(videoId, client, diag) {
+  const key = `${videoId}:${client.name}`;
+  const existing = inFlight.get(key);
+  if (existing) {
+    if (diag) diag.push(`${client.name}: joined an in-flight resolve`);
+    return existing;
+  }
+  const attempt = resolveMuxedUrl(videoId, client, diag, AbortSignal.timeout(RESOLVE_TIMEOUT_MS))
+    .finally(() => inFlight.delete(key));
+  inFlight.set(key, attempt);
+  return attempt;
+}
+
+/**
+ * Walk the clients in order: resolve a link, then REDEEM it, and only move on
+ * when this client has failed at both.
+ *
+ * WHY RESOLVING AND FETCHING BELONG IN THE SAME LOOP. A googlevideo link can be
+ * refused (403) even though the player response was a clean OK, and that refusal
+ * is a fact about the CLIENT, not the video: the PO Token Guide lists ANDROID as
+ * requiring a GVS PO token for exactly this step, and ANDROID_VR as requiring
+ * none. Measured 13/08 from the edge: ANDROID resolved fine and then took
+ * `upstream 403 | upstream 403`, twice in a row, because the code re-resolved
+ * with the SAME client instead of trying the other one. A 403 must fall THROUGH
+ * to the next client — that is the whole reason there are two.
+ *
+ * Returns the upstream Response, or null on a refusal a retry might survive.
+ * THROWS DurableRefusal only when every client asked agreed the video itself is
+ * unavailable (the unanimity invariant from 11/08). A 403 is never durable: it
+ * says the link was bad, not the video.
+ */
+async function fetchTrailer(videoId, diag) {
   let asked = 0;
   let durableCount = 0;
   let firstDurable = null;
@@ -415,19 +469,13 @@ async function resolveSequential(videoId, diag) {
     // what may have tripped it.
     if (breakerOpen()) {
       if (diag) diag.push("breaker open — not asking");
-      return null;
+      break;
     }
     asked += 1;
+
+    let url = null;
     try {
-      const url = await resolveMuxedUrl(
-        videoId,
-        client,
-        diag,
-        AbortSignal.timeout(RESOLVE_TIMEOUT_MS),
-      );
-      // The winner's UA travels with its url: googlevideo minted that link for a
-      // Quest or for a phone, and the fetch that redeems it should say the same.
-      if (url) return { url, ua: client.ua };
+      url = await resolveShared(videoId, client, diag);
     } catch (err) {
       if (err instanceof DurableRefusal) {
         durableCount += 1;
@@ -435,8 +483,7 @@ async function resolveSequential(videoId, diag) {
         continue;
       }
       // A timeout or a network blip is this client's bad luck, not the video's,
-      // and must not take the whole request down with it — the old code let it
-      // escape as a 500 in every path but the race's.
+      // and must not take the whole request down with it.
       if (diag) {
         diag.push(
           err?.name === "TimeoutError"
@@ -444,35 +491,21 @@ async function resolveSequential(videoId, diag) {
             : `${client.name}: ${err?.name || "error"}`,
         );
       }
+      continue;
     }
+    if (!url) continue;
+
+    // The client's UA travels with its url: googlevideo minted that link for a
+    // Quest or for a phone, and the fetch that redeems it should say the same.
+    const upstream = await fetch(url, {
+      headers: { "User-Agent": client.ua, Accept: "*/*" },
+    });
+    if (upstream.status !== 403) return upstream;
+    if (diag) diag.push(`${client.name}: upstream 403 on the link`);
   }
 
   if (firstDurable && durableCount === asked) throw firstDurable;
   return null;
-}
-
-/**
- * One resolve per video at a time, shared by everyone who asks.
- *
- * The card's three retries, a second visitor hovering the same poster, the info
- * page's verdict and the warm-up could each start their own resolve for the same
- * id, seconds apart, and every one of them cost InnerTube calls we are being
- * rationed on. They now all await the same promise.
- *
- * Joiners get no diag lines of their own — the notes belong to the caller that
- * actually made the calls. That is a fair trade for not making them twice.
- */
-const inFlight = new Map();
-
-function resolveShared(videoId, diag) {
-  const existing = inFlight.get(videoId);
-  if (existing) {
-    if (diag) diag.push("joined an in-flight resolve");
-    return existing;
-  }
-  const attempt = resolveSequential(videoId, diag).finally(() => inFlight.delete(videoId));
-  inFlight.set(videoId, attempt);
-  return attempt;
 }
 
 /**
@@ -618,10 +651,8 @@ function warmLater(videoId, cacheKeyUrl, cache, ctx) {
           // The wave is what we are waiting out, so asking during one is the one
           // thing this must not do. Skip the rung and let the next find it lifted.
           if (breakerOpen()) continue;
-          const won = await resolveShared(videoId, null);
-          if (!won) continue;
-          const res = await fetch(won.url, { headers: { "User-Agent": won.ua, Accept: "*/*" } });
-          if (!res.ok) continue;
+          const res = await fetchTrailer(videoId, null);
+          if (!res?.ok) continue;
           await cache.put(key, new Response(res.body, { status: 200, headers: mp4Headers() }));
           return;
         }
@@ -698,52 +729,37 @@ export async function handleTrailer(request, env, ctx) {
   }
 
   /**
-   * Resolve ONCE, then fetch, and retry only the fetch.
+   * ONE pass over the clients — see fetchTrailer, which resolves and redeems in
+   * the same loop so a refused link falls through to the other client.
    *
-   * This used to run two rounds of a two-way race: four InnerTube calls for one
-   * cold trailer, on top of the warm-up's six and the browser's three retries.
-   * Two attempts crowded into the same second are two samples of one moment —
-   * this file already says so about warmLater, and the edge measurement backed
-   * it (16 cold ids: two clients and three rounds failed 9, one client and two
-   * rounds failed 8, the same ids both times). Waiting is what works, and
-   * warmLater is where waiting is free because nobody is watching the clock.
+   * No second round here. Two attempts crowded into the same second are two
+   * samples of one moment: this file already says so about warmLater, and the
+   * edge measurement backed it (16 cold ids: two clients and three rounds failed
+   * 9, one client and two rounds failed 8, the same ids both times). Waiting is
+   * what works, and warmLater is where waiting is free.
    *
-   * The 403 case is different and keeps its second go, re-resolving rather than
-   * reusing the URL: a rejected link is either expired or was minted from a
-   * different egress address than the one now fetching (Cloudflare promises no
-   * such stability), and only a fresh link fixes either.
+   * Deliberately NOT forwarding the client's Range — see below. We always pull
+   * the whole file so there is always something worth storing.
    */
   const diag = [];
   let upstream = null;
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    let won;
-    try {
-      won = await resolveShared(videoId, diag);
-    } catch (err) {
-      if (!(err instanceof DurableRefusal)) throw err;
-      /*
-       * The video is unavailable, and will be from every later attempt too.
-       *
-       * Retrying it is not merely useless, it is expensive in the one currency
-       * that counts here: the browser gives a failed trailer three goes, and
-       * each of those spent four InnerTube calls inside this worker — twelve
-       * round trips to YouTube, and several seconds of the card sitting on a
-       * black box, for a video that was never going to play. Answering with a
-       * CACHEABLE refusal ends all of it: the browser's own retries become edge
-       * hits that fail in milliseconds, and the card falls back to its artwork
-       * at once, which is the right picture anyway.
-       */
-      return storeVerdict(cacheKeyUrl, cache, ctx, gone(err.message));
-    }
-    // Refused. Do NOT loop: a second resolve in the same second samples the
-    // same moment, and the waiting belongs to warmLater.
-    if (!won) break;
-    // Deliberately NOT forwarding the client's Range — see below. We always
-    // pull the whole file so there is always something worth storing.
-    upstream = await fetch(won.url, { headers: { "User-Agent": won.ua, Accept: "*/*" } });
-    if (upstream.status !== 403) break;
-    diag.push("upstream 403");
-    upstream = null;
+  try {
+    upstream = await fetchTrailer(videoId, diag);
+  } catch (err) {
+    if (!(err instanceof DurableRefusal)) throw err;
+    /*
+     * The video is unavailable, and will be from every later attempt too.
+     *
+     * Retrying it is not merely useless, it is expensive in the one currency
+     * that counts here: the browser gives a failed trailer three goes, and each
+     * of those spent four InnerTube calls inside this worker — twelve round
+     * trips to YouTube, and several seconds of the card sitting on a black box,
+     * for a video that was never going to play. Answering with a CACHEABLE
+     * refusal ends all of it: the browser's own retries become edge hits that
+     * fail in milliseconds, and the card falls back to its artwork at once,
+     * which is the right picture anyway.
+     */
+    return storeVerdict(cacheKeyUrl, cache, ctx, gone(err.message));
   }
   if (!upstream) {
     warmLater(videoId, cacheKeyUrl, cache, ctx);

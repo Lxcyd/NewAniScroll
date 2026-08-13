@@ -80,8 +80,41 @@ WEB -> UNPLAYABLE   WEB_EMBEDDED_PLAYER -> ERROR   TVHTML5 -> LOGIN_REQUIRED
   jour était un alignement sur le proxy principal, pas une contrainte. Reste du
   cache (éviction LRU), pas du stockage — R2 a été écarté explicitement.
 
+### Correctif du même jour : l'ordre des clients, et le 403 GVS
+
+Le premier déploiement a fait apparaître un refus **différent**, invisible depuis
+la maison : `Unresolvable: upstream 403 | upstream 403`. La résolution
+réussissait, c'est le **lien** qui était refusé — le PO token **GVS**, que la
+guide attribue à `ANDROID` et pas à `ANDROID_VR`. L'application suit
+manifestement la réputation de l'appelant : elle mord un egress datacentre et
+pas une connexion résidentielle. **Mesurer depuis chez soi a donc donné le
+mauvais ordre de clients.**
+
+Deux corrections :
+
+- **`ANDROID_VR` passe en tête** — le client dont les liens sont redeemables
+  depuis l'edge. `ANDROID` devient le repli pour les vidéos que VR refuse.
+- **Un 403 bascule sur le client SUIVANT** au lieu de re-résoudre le même
+  (`fetchTrailer` résout et redeem dans la même boucle). L'ancienne boucle
+  rejouait exactement le même échec : c'est ce que disait le `403 | 403`.
+
+Cas résiduel, désormais nommé sans ambiguïté :
+`android_vr: LOGIN_REQUIRED … | android: upstream 403 on the link` — VR bloqué
+bot ET le lien d'ANDROID refusé. C'est **le seul cas où un PO token GVS serait
+la réponse**, et il reste hors d'atteinte (DroidGuard). Le réchauffage est la
+seule prise qu'on ait dessus.
+
 ### Leçons / pièges
 
+- **Un refus de RÉSOLUTION et un refus de LIEN ne se soignent pas pareil**, et
+  le diag doit les distinguer : `LOGIN_REQUIRED` = le client n'a rien obtenu ;
+  `upstream 403` = il a obtenu un lien qu'on ne peut pas encaisser. Tant que le
+  diag disait `upstream 403 | upstream 403` sans nommer le client, le bug était
+  invisible.
+- **Ce qui se mesure depuis une connexion résidentielle ne vaut pas pour
+  l'edge.** Les deux clients servaient leurs octets en 206 depuis la maison ;
+  depuis Cloudflare, seul VR y arrive. Toute mesure de réputation doit être
+  refaite depuis l'egress réel.
 - **Sous rate-limit, insister est la seule chose à ne pas faire.** Tout le
   chantier consiste à retirer des tentatives, pas à en ajouter. Le plan initial
   proposait l'inverse et il a fallu la mesure pour le corriger.
