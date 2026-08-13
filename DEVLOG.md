@@ -43,13 +43,55 @@ central) on croyait voir « un A dans un carré + un bouton pause ». Le « A »
 central appartient à YouTube. Deux vidéos valent mieux qu'une pour trancher ce
 genre de chose : ce qui bouge d'une vidéo à l'autre est du contenu.
 
+**Deux canaux de plus, testés après coup** (« avoir essayé N choses n'est pas une
+preuve » — Luc, et il avait raison de pousser) :
+- *Le pont `postMessage`*. Il relaie `{event:'command', func}` ; le player HTML5
+  expose historiquement `hideControls()`. Envoyés en boucle : `hideControls`,
+  `showControls`, `hideVideoInfo`, `setControlsVisibility`, `hideTitle`,
+  `hideOverlay`, `setOption`. **Captures identiques au pixel** — le pont n'a
+  qu'une liste blanche, le reste tombe en silence.
+- *`embed_config`*, le JSON de configuration des intégrations maison de YouTube.
+  Trois jeux de clés (`hideControls`, `showTitle`, `hideInfoBar`, `unbranded`,
+  `disableRelatedVideos`…) : **aucun effet**, captures identiques.
+
+### Ce qui MARCHE, et qui n'avait jamais été tenté : masquer par position
+
+La chrome n'est pas la vidéo, et surtout elle est peinte à des positions FIXES du
+player. Cette régularité est exploitable — on n'a pas besoin de l'atteindre, il
+suffit de savoir où elle tombe :
+- bandeaux haut et bas → **sortis du cadre** en faisant déborder l'iframe.
+  Mesuré au palier : garder 0,80 de la hauteur ne suffit pas (titre + barre du
+  bas visibles), 0,72 laisse dépasser la pastille « Plus de vidéos », **0,64 est
+  propre** — soit un zoom de 1,56 ;
+- le glyphe central → il reste **un seul endroit**, le centre exact, ~10 % de la
+  largeur du player (≈ 57 px sur notre carte de 364 px). Une pastille à nous le
+  couvre.
+- au-delà d'un zoom de ~2,1 le centre du player sort lui-même du cadre : plus
+  aucun calque, mais on ne voit plus que la moitié de l'image, décentrée.
+
+Le prix passe donc de **4 s d'image entièrement cachée** à **un zoom de ~1,6 plus
+une pastille de 57 px pendant ~4 s**. Banc de démonstration :
+[public/embed-mask-lab.html](public/embed-mask-lab.html), embed nu et embed
+masqué côte à côte, réglages en direct.
+
+Un raffinement non cosmétique y est câblé : la pastille **suit l'état** au lieu
+de suivre un chronomètre. La chrome revient à chaque sortie de `PLAYING` (pause →
+gros ▶ ; mise en tampon → roue, au centre elle aussi), et ces transitions sont
+ANNONCÉES par l'API. Une durée seule serait un pari, l'état est une observation.
+
 ### Leçon
 
-Le proxy n'est pas un contournement du bouton, il est la seule façon d'avoir
-l'image **tout de suite**. Contre un embed, la meilleure parade possible coûte
-~4 s d'attente avant de montrer quoi que ce soit — et laisse toujours la pause
-interdite (état 2 = gros bouton ▶ permanent, revérifié). Question close ; qu'on
-n'y revienne pas sans un nouvel appareil photo.
+Le bouton n'est ni supprimable ni atteignable — mais « on ne peut pas l'enlever »
+n'impliquait pas « on ne peut pas s'en débarrasser », et j'ai tenu les deux pour
+équivalents pendant une semaine. Ce qui a débloqué, c'est d'arrêter de chercher
+un canal vers le DOM de YouTube pour regarder la seule propriété qu'on possède
+déjà : **il peint toujours au même endroit.**
+
+Ce que ça ne rend pas : la pause (état 2 = gros ▶ permanent), et l'image
+immédiate — il reste ~4 s pendant lesquelles quelque chose couvre le centre.
+Le proxy garde donc l'avantage sur les deux ; le masquage est une porte de
+sortie si le proxy devient trop cher, plus l'aveu que le dossier n'était pas
+clos.
 
 ## 2026-08-13 (fin) — Copier la requête de référence valait tous les réglages
 
