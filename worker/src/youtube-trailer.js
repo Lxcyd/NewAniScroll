@@ -521,6 +521,19 @@ async function resolveMuxedUrl(videoId, client, diag, signal, identity) {
 const RESOLVE_TIMEOUT_MS = 4000;
 
 /**
+ * The warm-up is allowed to be patient, because nobody is waiting on it.
+ *
+ * Measured 13/08: a refusal comes back in ~100 ms — YouTube says no quickly. A
+ * TIMEOUT is therefore not a refusal at all, it is a stall, YouTube accepting a
+ * datacentre caller's connection and simply not answering. The 4 s cap is the
+ * right answer on the request path (a hover with nothing after eight seconds has
+ * already failed) and the wrong one here, where the only cost of waiting is
+ * waiting. Earlier measurements in this file saw honest resolves take 5.6 s and
+ * 7 s; those are exactly the ones the warm-up should be able to collect.
+ */
+const WARM_RESOLVE_TIMEOUT_MS = 12000;
+
+/**
  * Ask the clients IN TURN and stop at the first usable answer.
  *
  * See CLIENTS for why the order is ANDROID then ANDROID_VR, and why this is a
@@ -552,14 +565,14 @@ const RESOLVE_TIMEOUT_MS = 4000;
  */
 const inFlight = new Map();
 
-function resolveShared(videoId, client, diag, identity) {
-  const key = `${videoId}:${client.name}:${identity ? "id" : "anon"}`;
+function resolveShared(videoId, client, diag, identity, timeoutMs) {
+  const key = `${videoId}:${client.name}:${identity ? "id" : "anon"}:${timeoutMs}`;
   const existing = inFlight.get(key);
   if (existing) {
     if (diag) diag.push(`${client.name}: joined an in-flight resolve`);
     return existing;
   }
-  const attempt = resolveMuxedUrl(videoId, client, diag, AbortSignal.timeout(RESOLVE_TIMEOUT_MS), identity)
+  const attempt = resolveMuxedUrl(videoId, client, diag, AbortSignal.timeout(timeoutMs), identity)
     .finally(() => inFlight.delete(key));
   inFlight.set(key, attempt);
   return attempt;
@@ -586,7 +599,7 @@ function resolveShared(videoId, client, diag, identity) {
  * unavailable (the unanimity invariant from 11/08). A 403 is never durable: it
  * says the link was bad, not the video.
  */
-async function fetchTrailer(videoId, diag, env) {
+async function fetchTrailer(videoId, diag, env, timeoutMs = RESOLVE_TIMEOUT_MS) {
   let asked = 0;
   let durableCount = 0;
   let firstDurable = null;
@@ -614,7 +627,7 @@ async function fetchTrailer(videoId, diag, env) {
 
     let url = null;
     try {
-      url = await resolveShared(videoId, client, diag, null);
+      url = await resolveShared(videoId, client, diag, null, timeoutMs);
       /*
        * ESCALATION, not a default.
        *
@@ -633,7 +646,7 @@ async function fetchTrailer(videoId, diag, env) {
        */
       if (!url && !throttled && !breakerOpen()) {
         const identity = await getVisitorData();
-        if (identity) url = await resolveShared(videoId, client, diag, identity);
+        if (identity) url = await resolveShared(videoId, client, diag, identity, timeoutMs);
       }
     } catch (err) {
       if (err instanceof DurableRefusal) {
@@ -646,7 +659,7 @@ async function fetchTrailer(videoId, diag, env) {
       if (diag) {
         diag.push(
           err?.name === "TimeoutError"
-            ? `${client.name}: timed out (${RESOLVE_TIMEOUT_MS} ms)`
+            ? `${client.name}: timed out (${timeoutMs} ms)`
             : `${client.name}: ${err?.name || "error"}`,
         );
       }
@@ -810,7 +823,7 @@ function warmLater(videoId, cacheKeyUrl, cache, ctx, env) {
           // The wave is what we are waiting out, so asking during one is the one
           // thing this must not do. Skip the rung and let the next find it lifted.
           if (breakerOpen()) continue;
-          const res = await fetchTrailer(videoId, null, env);
+          const res = await fetchTrailer(videoId, null, env, WARM_RESOLVE_TIMEOUT_MS);
           if (!res?.ok) continue;
           await cache.put(key, new Response(res.body, { status: 200, headers: mp4Headers() }));
           return;
