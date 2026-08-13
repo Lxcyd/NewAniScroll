@@ -51,6 +51,24 @@ const IDLE_MS = 1600;
 const MOVE_SLOP = 8;
 /** No controls at all for this long after the card opens, movement or not. */
 const OPEN_GRACE_MS = 350;
+/**
+ * How still the pointer must be before movement is read as intent.
+ *
+ * THE CARD OPENS UNDER A MOVING HAND. You reach for a poster, the card appears
+ * where the cursor already is, and the last centimetres of that same gesture
+ * land on the video — 8 px of MOVE_SLOP is nothing against a hand still in
+ * flight. So the controls lit themselves on arrival and sat there for
+ * IDLE_MS afterwards: a pause button nobody asked for, in the exact place and
+ * the exact size of the YouTube button this whole rewrite existed to banish.
+ * It was reported as "a weird iframe over the video for three seconds", which
+ * is precisely how our own chrome looks when it appears on its own.
+ *
+ * A gesture that has ENDED is the only honest signal of intent. So nothing is
+ * armed until the pointer has held still this long; only then does further
+ * movement mean "I am reaching for a control" rather than "I am still
+ * arriving".
+ */
+const SETTLE_MS = 400;
 
 export default function NativeTrailer({
   id,
@@ -75,6 +93,9 @@ export default function NativeTrailer({
   const trackRef = useRef<HTMLDivElement>(null);
   /** Where the pointer was when it first met the video — see `wake`. */
   const originRef = useRef<{ x: number; y: number } | null>(null);
+  /** Has the pointer come to rest here? Until it has, movement is arrival. */
+  const armedRef = useRef(false);
+  const settleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** The user's standing choice; the live `muted` state can lag behind it. */
   const wantMutedRef = useRef(true);
   /** Guards the one-shot unmute, which must not re-fire on every play event. */
@@ -194,6 +215,7 @@ export default function NativeTrailer({
       if (idleRef.current) clearTimeout(idleRef.current);
       if (volCloseRef.current) clearTimeout(volCloseRef.current);
       if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+      if (settleRef.current) clearTimeout(settleRef.current);
     },
     [],
   );
@@ -374,11 +396,23 @@ export default function NativeTrailer({
   //
   // "Actually moves" is the whole difficulty. The card opens UNDER the pointer,
   // so the browser fires a pointermove against it immediately even though the
-  // hand never moved: the card came to the cursor, not the reverse. So the
-  // first move only records a baseline, and nothing shows until the pointer has
-  // travelled past MOVE_SLOP from it.
+  // hand never moved: the card came to the cursor, not the reverse. Recording a
+  // baseline on the first move was not enough — the hand is still ARRIVING, and
+  // the rest of that gesture clears MOVE_SLOP on its own. So we wait for the
+  // pointer to hold still (see SETTLE_MS) before arming at all, and only then
+  // does travelling past MOVE_SLOP count as reaching for a control.
   const wake = (e: React.PointerEvent) => {
     if (Date.now() - mountedAtRef.current < OPEN_GRACE_MS) return;
+    if (!armedRef.current) {
+      if (settleRef.current) clearTimeout(settleRef.current);
+      settleRef.current = setTimeout(() => {
+        armedRef.current = true;
+        // Baseline captured on the next move, i.e. from where the hand came to
+        // rest — not from wherever it happened to be mid-flight.
+        originRef.current = null;
+      }, SETTLE_MS);
+      return;
+    }
     const origin = originRef.current;
     if (!origin) {
       originRef.current = { x: e.clientX, y: e.clientY };
@@ -394,6 +428,8 @@ export default function NativeTrailer({
 
   const sleep = () => {
     if (idleRef.current) clearTimeout(idleRef.current);
+    if (settleRef.current) clearTimeout(settleRef.current);
+    armedRef.current = false;
     originRef.current = null;
     setShowControls(false);
   };
