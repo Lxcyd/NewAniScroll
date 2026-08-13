@@ -1,5 +1,56 @@
 # DEVLOG
 
+## 2026-08-14 — Le bouton de l'embed, enfin PHOTOGRAPHIÉ
+
+Question rouverte : le proxy existe parce que l'embed peint son bouton pendant
+les premières secondes ; peut-on retirer ce bouton et se passer du proxy ? Jusqu'ici
+on répondait par déduction. Cette fois on a REGARDÉ : Playwright + Chrome, capture
+de la zone toutes les 250 ms — un screenshot composite inclut le contenu
+cross-origin, donc ce que le raisonnement ne peut pas atteindre, l'appareil photo
+le peut. (Banc jetable, hors dépôt.)
+
+**Ce qui est peint, mesuré sur deux vidéos différentes** (`6vMuWuWlW4I` et
+`dQw4w9WgXcQ`, `controls=0&autoplay=1&mute=1&disablekb=1&fs=0&iv_load_policy=3`) :
+un même décor apparaît au même instant et au même pixel sur les deux, donc il
+n'appartient pas au film — barre de titre + avatar de chaîne en haut, icône de
+partage en bas à gauche, pastille « Plus de vidéos » en bas au centre, logo
+YouTube en bas à droite, et **le glyphe pause ‖ exactement au centre**.
+
+**Le point neuf, et il est décisif : cette chrome est peinte PENDANT `PLAYING`,
+horloge qui avance.** Ce n'est pas un écran d'avant-lecture qu'un seuil sur
+`currentTime` laisserait passer : elle s'efface **~4 s après le début réel de la
+lecture** (rick : présente à t=3,14 s, partie à t=3,94 s ; DS : présente à
+t=3,89 s, partie avant t=5,2 s). Le seuil réglable du banc `trailer-lab.html`
+devrait donc valoir ~4 s — quatre secondes de jaquette sur une carte de survol,
+c'est-à-dire pas d'aperçu du tout.
+
+**Trois échappatoires, testées, toutes mortes.**
+- *Paramètres* : `youtube-nocookie`, `modestbranding`, `showinfo`, `autohide`,
+  `color`, `loop`+`playlist`, sans `enablejsapi` — captures **identiques au pixel**
+  à la base. Aucun n'a d'effet, ce qui reconfirme l'entrée du 09/08 par la mesure.
+- *Taille* : espoir que YouTube renonce à sa chrome sur un player étroit (on
+  aurait rendu petit puis agrandi en `scale`). Mesuré à 120/160/200/240/320/480 px :
+  **c'est l'inverse**, à 120 px la chrome MANGE l'image, le bouton reste.
+- *Géométrie* : le `width:300%; margin-left:-100%` du codepen coupe bien le titre
+  et le logo — mais le bouton est au centre du player, donc au centre du recadrage.
+  Il existe bien deux zones propres (deux bandes verticales à mi-hauteur, ~25 %
+  de large sur ~48 % de haut) : les viser demande un zoom ~4×. On échange un
+  bouton contre une bouillie.
+
+**Piège de diagnostic à noter.** Sur la capture d'origine (Demon Slayer, recadrage
+central) on croyait voir « un A dans un carré + un bouton pause ». Le « A » est le
+**logo Aniplex du trailer lui-même**, qui s'anime à cet instant précis ; seul le ‖
+central appartient à YouTube. Deux vidéos valent mieux qu'une pour trancher ce
+genre de chose : ce qui bouge d'une vidéo à l'autre est du contenu.
+
+### Leçon
+
+Le proxy n'est pas un contournement du bouton, il est la seule façon d'avoir
+l'image **tout de suite**. Contre un embed, la meilleure parade possible coûte
+~4 s d'attente avant de montrer quoi que ce soit — et laisse toujours la pause
+interdite (état 2 = gros bouton ▶ permanent, revérifié). Question close ; qu'on
+n'y revienne pas sans un nouvel appareil photo.
+
 ## 2026-08-13 (fin) — Copier la requête de référence valait tous les réglages
 
 Après une soirée à régler le disjoncteur au gramme près (43 %, 72 %, 79 %), le
