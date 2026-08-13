@@ -431,15 +431,33 @@ async function resolveMuxedUrl(videoId, client, diag, signal, identity) {
     {
       method: "POST",
       signal,
+      /*
+       * Shaped after yt-dlp's `generate_api_headers`, because a request missing
+       * half of what a real client sends is a request that stands out. We were
+       * sending four headers; the reference sends Origin and X-Origin, and
+       * repeats the visitor id as `X-Goog-Visitor-Id` rather than leaving it in
+       * the body alone.
+       */
       headers: {
         "Content-Type": "application/json",
         "User-Agent": client.ua,
         "X-Youtube-Client-Name": client.header,
         "X-Youtube-Client-Version": client.context.clientVersion,
+        Origin: "https://www.youtube.com",
+        "X-Origin": "https://www.youtube.com",
+        ...(identity ? { "X-Goog-Visitor-Id": identity } : {}),
       },
       body: JSON.stringify({
         context: {
-          client: identity ? { ...client.context, visitorData: identity } : client.context,
+          client: {
+            ...client.context,
+            // The reference implementation fills these in; an empty locale and a
+            // missing userAgent are two more ways of not looking like a client.
+            userAgent: client.ua,
+            timeZone: "UTC",
+            utcOffsetMinutes: 0,
+            ...(identity ? { visitorData: identity } : {}),
+          },
         },
         videoId,
         // Both needed or a trailer carrying a content warning comes back as

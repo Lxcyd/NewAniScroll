@@ -1,5 +1,28 @@
 # DEVLOG
 
+## 2026-08-13 (fin) — Copier la requête de référence valait tous les réglages
+
+Après une soirée à régler le disjoncteur au gramme près (43 %, 72 %, 79 %), le
+gain décisif est venu d'ailleurs : **aligner la requête sur celle de yt-dlp**
+(`generate_api_headers` dans `yt_dlp/extractor/youtube/_base.py`).
+
+Nous envoyions quatre en-têtes. La référence en envoie plus :
+
+- `Origin` et `X-Origin` — nous n'en envoyions aucun ;
+- `X-Goog-Visitor-Id` : l'identité voyage AUSSI en en-tête, pas seulement dans
+  le corps ;
+- `context.client` : `userAgent`, `timeZone`, `utcOffsetMinutes`, que nous
+  laissions vides.
+
+**Mesure sur 25 titres froids : 1re passe 12/25 → 17/25, total 19 → 24/25.**
+
+### Leçon
+
+Une requête incomplète est une requête atypique, et l'atypique est ce qui se
+fait rationner. J'ai passé la soirée à optimiser *quand* réessayer au lieu de
+regarder *à quoi ressemble* ce qu'on envoie. Avant de régler une politique de
+reprise, comparer sa requête à celle d'une implémentation de référence.
+
 ## 2026-08-13 (nuit) — Le 403 n'était pas un token, c'était du rationnement
 
 Sonde temporaire posée DANS le worker (`/w/trailer-diag`, retirée depuis) pour
