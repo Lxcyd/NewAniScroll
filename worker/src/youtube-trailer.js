@@ -182,18 +182,22 @@ function breakerOpen() {
 /**
  * Record a sign that we are being rationed, and trip the breaker if they pile up.
  *
- * COUNTS EVERY SHAPE OF RATIONING, not just the bot message — that was a bug
- * measured 13/08 with an in-worker probe. Asking for the same video six times in
- * a row walks through the whole vocabulary: 200 on a fresh isolate, then
- * timeouts, then 403 on the media link, then HTTP 403 on the InnerTube call
- * itself, then 403 everywhere. Same video, same client, same identity — only the
- * volume changed. So a media 403 and a timeout are the same event as
- * `LOGIN_REQUIRED`, arriving at a different door, and a breaker that only
- * watched one door stayed shut while we kept knocking.
+ * COUNTS ONLY HARD REFUSALS: HTTP 403/429 from InnerTube itself, and a bot
+ * message that survived the identity escalation. Both are YouTube saying no
+ * after we have already tried everything we have.
  *
- * Still NOT counted: a video that is deleted or geo-fenced. That says nothing
- * about our standing, and tripping on it would silence the worker over answers
- * it was right to get.
+ * NOT timeouts, and NOT a 403 on the media link — and that distinction was paid
+ * for. An in-worker probe showed both of those DO track volume (a tired isolate
+ * walks from 200 to timeouts to 403s), so counting them looked obviously right.
+ * Measured on 25 cold ids it halved the service rate: timeouts are common enough
+ * that the breaker sat open permanently, and an open breaker removes the second
+ * client and the identity escalation — the two things doing the work. 43% served
+ * with them counted, 83% without. A signal can be real and still be too noisy to
+ * act on; a stalled call is answered by trying the other client, not by muting
+ * the worker for a minute.
+ *
+ * Still NOT counted either: a video that is deleted or geo-fenced. That says
+ * nothing about our standing.
  */
 function noteRationed() {
   botRefusals += 1;
@@ -248,38 +252,14 @@ function fail(status, error) {
  */
 const UNRESOLVED_TTL = 6;
 
-/**
- * How long "no client here could give us a playable link" is remembered.
- *
- * A DIFFERENT failure from the bot wave: a client did hand us a link and the
- * link was refused. Measured 13/08 on `KYGgyQtSAdI` and `5JpTU6wj_-g`, where
- * ANDROID_VR, TVHTML5 and ANDROID_UNPLUGGED answer LOGIN_REQUIRED *even from a
- * residential connection*, TVHTML5_SIMPLY_EMBEDDED and WEB_EMBEDDED error, IOS
- * is OK but hands out no progressive format, and ANDROID is OK with an itag 18
- * whose link is then refused — the GVS PO token it requires and we cannot mint
- * (that would need DroidGuard). On those two, nothing was left to try.
- *
- * TEN MINUTES, NOT SIX HOURS — and the difference is a correction. The first
- * version read that matrix as proof the condition was permanent, cached the
- * refusal for six hours and cancelled the warm-up. Then both ids started
- * serving on their own, which proves the same signature is ALSO transient: a
- * refused link can simply be a refused link. We cannot tell the two apart from
- * one attempt, so the honest reading is "unlikely to fix itself in the next
- * minute", not "never". Ten minutes is long enough that a hover storm costs one
- * attempt instead of one per card, short enough that a video which was only
- * unlucky is back within the same browsing session.
- *
- * The warm-up stays booked for the same reason: it is what recovered those two.
- */
-const UNREDEEMABLE_TTL = 600;
 
-function unresolved(error, ttl = UNRESOLVED_TTL, unredeemable = false) {
-  return new Response(JSON.stringify({ error, unredeemable }), {
+function unresolved(error) {
+  return new Response(JSON.stringify({ error }), {
     status: 404,
     headers: cors(
       instrument({
         "Content-Type": "application/json",
-        "Cache-Control": `public, s-maxage=${ttl}`,
+        "Cache-Control": `public, s-maxage=${UNRESOLVED_TTL}`,
       }),
     ),
   });
@@ -481,11 +461,23 @@ async function resolveMuxedUrl(videoId, client, diag, signal, identity) {
     const reason = json?.playabilityStatus?.reason || "no reason";
     note(`${status}: ${reason}${identity ? " (with identity)" : ""}`);
     if (isDurableRefusal(status, reason)) throw new DurableRefusal(`${status}: ${reason}`);
-    // Not durable — so it is us being refused, which is what the breaker counts.
-    // An identity that is itself being refused is spent, so it is dropped and
-    // the next escalation mints a fresh one rather than insisting with it.
-    noteRationed();
-    if (identity) dropVisitorData();
+    /*
+     * A refusal only counts against us once the CURE has failed too.
+     *
+     * An anonymous `LOGIN_REQUIRED` is not evidence of rationing, it is the
+     * ordinary prompt to escalate — and escalating cures it (0/25 after
+     * identity, measured). Counting it tripped the breaker, and an open breaker
+     * disables the escalation: the worker was amputating the arm that heals it.
+     * Measured on 25 cold ids, that self-defeat cost ~10 points of service rate.
+     *
+     * So only the refusal that survives an identity counts. An identity that is
+     * itself being refused is also spent, so it is dropped and the next
+     * escalation mints a fresh one rather than insisting with it.
+     */
+    if (identity) {
+      noteRationed();
+      dropVisitorData();
+    }
     return null;
   }
 
@@ -568,10 +560,9 @@ function resolveShared(videoId, client, diag, identity) {
  * with the SAME client instead of trying the other one. A 403 must fall THROUGH
  * to the next client — that is the whole reason there are two.
  *
- * Returns `{ upstream, unredeemable }`. `upstream` is null on any failure;
- * `unredeemable` marks the specific, STABLE failure where a client did hand us a
- * link and the link was refused — see UNREDEEMABLE_TTL for why that deserves a
- * different answer from a passing bot wave.
+ * Returns the upstream Response, or null on a failure a later attempt may
+ * survive — which, measured, is ALL of them bar the durable ones: a refused link
+ * is rationing, not a property of the video (see noteRationed).
  *
  * THROWS DurableRefusal only when every client asked agreed the video itself is
  * unavailable (the unanimity invariant from 11/08). A 403 is never durable: it
@@ -581,13 +572,24 @@ async function fetchTrailer(videoId, diag, env) {
   let asked = 0;
   let durableCount = 0;
   let firstDurable = null;
-  let unredeemable = false;
+
+  /*
+   * The breaker THROTTLES, it does not mute.
+   *
+   * Measured 13/08 on a 25-id burst: once it was allowed to answer "not asking",
+   * nine cards in a row failed outright — it had turned a maybe into a certain
+   * no, which is the one thing it must never do. Its job is to cut amplification
+   * (up to four calls per cold video: two clients x anonymous-then-identity),
+   * not to cut service. So while it is open every request still gets ONE shot,
+   * with the leading client, anonymously — a quarter of the fuel and most of the
+   * chance. Only warmLater goes fully silent, because nobody is waiting on it.
+   */
+  const throttled = breakerOpen();
 
   for (const client of CLIENTS) {
-    // Re-checked between clients, not just at entry: the first call is exactly
-    // what may have tripped it.
-    if (breakerOpen()) {
-      if (diag) diag.push("breaker open — not asking");
+    // Re-checked per client: the first call is exactly what may have tripped it.
+    if (asked >= 1 && (throttled || breakerOpen())) {
+      if (diag) diag.push("rationed — one attempt only");
       break;
     }
     asked += 1;
@@ -611,7 +613,7 @@ async function fetchTrailer(videoId, diag, env) {
        * redeemable answers redeemable, and escalating costs a call only where
        * there was no answer at all.
        */
-      if (!url && !breakerOpen()) {
+      if (!url && !throttled && !breakerOpen()) {
         const identity = await getVisitorData();
         if (identity) url = await resolveShared(videoId, client, diag, identity);
       }
@@ -623,9 +625,6 @@ async function fetchTrailer(videoId, diag, env) {
       }
       // A timeout or a network blip is this client's bad luck, not the video's,
       // and must not take the whole request down with it.
-      // A stall is YouTube declining to answer us, which is rationing wearing
-      // another coat — the probe watched it precede the 403s every time.
-      if (err?.name === "TimeoutError") noteRationed();
       if (diag) {
         diag.push(
           err?.name === "TimeoutError"
@@ -642,15 +641,12 @@ async function fetchTrailer(videoId, diag, env) {
     const upstream = await fetch(url, {
       headers: { "User-Agent": client.ua, Accept: "*/*" },
     });
-    if (upstream.status !== 403) return { upstream, unredeemable: false };
-    // A refused link is rationing too — see noteRationed.
-    noteRationed();
-    unredeemable = true;
+    if (upstream.status !== 403) return upstream;
     if (diag) diag.push(`${client.name}: upstream 403 on the link`);
   }
 
   if (firstDurable && durableCount === asked) throw firstDurable;
-  return { upstream: null, unredeemable };
+  return null;
 }
 
 /**
@@ -694,7 +690,7 @@ async function trailerVerdict(videoId, bytesKeyUrl, cache, ctx, env) {
       status: 200,
       headers: cors({
         "Content-Type": "application/json",
-        "Cache-Control": ttl ? `public, s-maxage=${ttl}` : "no-store",
+        "Cache-Control": ttl ? `public, s-maxage=${UNRESOLVED_TTL}` : "no-store",
       }),
     });
 
@@ -796,7 +792,7 @@ function warmLater(videoId, cacheKeyUrl, cache, ctx, env) {
           // The wave is what we are waiting out, so asking during one is the one
           // thing this must not do. Skip the rung and let the next find it lifted.
           if (breakerOpen()) continue;
-          const { upstream: res } = await fetchTrailer(videoId, null, env);
+          const res = await fetchTrailer(videoId, null, env);
           if (!res?.ok) continue;
           await cache.put(key, new Response(res.body, { status: 200, headers: mp4Headers() }));
           return;
@@ -857,22 +853,6 @@ export async function handleTrailer(request, env, ctx) {
     }
   }
 
-  // Being rationed right now: answer instantly and spend nothing. The card
-  // falls back to its artwork, the warm-up picks the video up once the wave has
-  // passed, and — the whole point — we stop adding to what is refusing us.
-  if (breakerOpen()) {
-    warmLater(videoId, cacheKeyUrl, cache, ctx, env);
-    // Parked in the cache like any other refusal: a Worker's own response is
-    // not stored at the edge on its own, and the whole value of the 6 s TTL is
-    // that the card's next two retries never reach this function again.
-    return storeVerdict(
-      cacheKeyUrl,
-      cache,
-      ctx,
-      unresolved("Refused upstream — sitting out the wave"),
-    );
-  }
-
   /**
    * ONE pass over the clients — see fetchTrailer, which resolves and redeems in
    * the same loop so a refused link falls through to the other client.
@@ -888,9 +868,8 @@ export async function handleTrailer(request, env, ctx) {
    */
   const diag = [];
   let upstream = null;
-  let unredeemable = false;
   try {
-    ({ upstream, unredeemable } = await fetchTrailer(videoId, diag, env));
+    upstream = await fetchTrailer(videoId, diag, env);
   } catch (err) {
     if (!(err instanceof DurableRefusal)) throw err;
     /*
@@ -908,18 +887,16 @@ export async function handleTrailer(request, env, ctx) {
     return storeVerdict(cacheKeyUrl, cache, ctx, gone(err.message));
   }
   if (!upstream) {
-    // A link we could not redeem is remembered longer than a bot wave — it is
-    // less likely to lift in the next few seconds — but it is still warmed, and
-    // still forgotten within the session. See UNREDEEMABLE_TTL.
+    /*
+     * ONE failure mode, one short memory.
+     *
+     * There used to be a second, `unredeemable`, holding a refused link for ten
+     * minutes on the theory that no client could ever serve that video. The
+     * in-worker probe killed the theory: the same call returns 200 on a fresh
+     * isolate and 403 on a tired one. A refused link is a rationed link, so it
+     * gets the same six seconds as everything else, and the same warm-up.
+     */
     warmLater(videoId, cacheKeyUrl, cache, ctx, env);
-    if (unredeemable) {
-      return storeVerdict(
-        cacheKeyUrl,
-        cache,
-        ctx,
-        unresolved(`Unredeemable: ${diag.join(" | ")}`, UNREDEEMABLE_TTL, true),
-      );
-    }
     return storeVerdict(
       cacheKeyUrl,
       cache,
