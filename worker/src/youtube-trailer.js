@@ -180,13 +180,22 @@ function breakerOpen() {
 }
 
 /**
- * Record a "prove you're not a bot" and trip the breaker if they are piling up.
+ * Record a sign that we are being rationed, and trip the breaker if they pile up.
  *
- * Counted only for the bot flavour: a video that is deleted or geo-fenced says
- * nothing about our standing, and tripping on those would silence the worker
- * over answers it was right to get.
+ * COUNTS EVERY SHAPE OF RATIONING, not just the bot message — that was a bug
+ * measured 13/08 with an in-worker probe. Asking for the same video six times in
+ * a row walks through the whole vocabulary: 200 on a fresh isolate, then
+ * timeouts, then 403 on the media link, then HTTP 403 on the InnerTube call
+ * itself, then 403 everywhere. Same video, same client, same identity — only the
+ * volume changed. So a media 403 and a timeout are the same event as
+ * `LOGIN_REQUIRED`, arriving at a different door, and a breaker that only
+ * watched one door stayed shut while we kept knocking.
+ *
+ * Still NOT counted: a video that is deleted or geo-fenced. That says nothing
+ * about our standing, and tripping on it would silence the worker over answers
+ * it was right to get.
  */
-function noteBotRefusal() {
+function noteRationed() {
   botRefusals += 1;
   if (botRefusals >= BREAKER_THRESHOLD) {
     breakerUntil = Date.now() + BREAKER_WINDOW_MS;
@@ -462,6 +471,8 @@ async function resolveMuxedUrl(videoId, client, diag, signal, identity) {
   );
   if (!res.ok) {
     note(`http ${res.status}`);
+    // InnerTube refusing outright is the hardest rationing signal there is.
+    if (res.status === 403 || res.status === 429) noteRationed();
     return null;
   }
   const json = await res.json();
@@ -473,7 +484,7 @@ async function resolveMuxedUrl(videoId, client, diag, signal, identity) {
     // Not durable — so it is us being refused, which is what the breaker counts.
     // An identity that is itself being refused is spent, so it is dropped and
     // the next escalation mints a fresh one rather than insisting with it.
-    noteBotRefusal();
+    noteRationed();
     if (identity) dropVisitorData();
     return null;
   }
@@ -612,6 +623,9 @@ async function fetchTrailer(videoId, diag, env) {
       }
       // A timeout or a network blip is this client's bad luck, not the video's,
       // and must not take the whole request down with it.
+      // A stall is YouTube declining to answer us, which is rationing wearing
+      // another coat — the probe watched it precede the 403s every time.
+      if (err?.name === "TimeoutError") noteRationed();
       if (diag) {
         diag.push(
           err?.name === "TimeoutError"
@@ -629,6 +643,8 @@ async function fetchTrailer(videoId, diag, env) {
       headers: { "User-Agent": client.ua, Accept: "*/*" },
     });
     if (upstream.status !== 403) return { upstream, unredeemable: false };
+    // A refused link is rationing too — see noteRationed.
+    noteRationed();
     unredeemable = true;
     if (diag) diag.push(`${client.name}: upstream 403 on the link`);
   }

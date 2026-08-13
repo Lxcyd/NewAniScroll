@@ -1,5 +1,47 @@
 # DEVLOG
 
+## 2026-08-13 (nuit) — Le 403 n'était pas un token, c'était du rationnement
+
+Sonde temporaire posée DANS le worker (`/w/trailer-diag`, retirée depuis) pour
+trancher une question que je traitais par déduction : quand googlevideo répond
+403, est-ce le PO token ou l'adresse ?
+
+Réponse : **ni l'un ni l'autre**. La même vidéo, demandée six fois de suite :
+
+| Passe | Résultat |
+| --- | --- |
+| 1 (isolate frais) | **200 partout**, tous clients, avec et sans identité |
+| 2 | timeouts |
+| 3 | premiers 403 sur le média |
+| 4 | `http 403` **sur l'appel InnerTube lui-même** |
+| 6 | 403 partout |
+
+Même vidéo, même client, même identité — **seul le volume change**. Le 403 média
+n'est donc pas une exigence de token, c'est le rationnement qui frappe à une
+autre porte. La sonde a aussi montré que le `ip=` du lien change d'une
+sous-requête à l'autre (`162.159.122.192` puis `.193`) **sans empêcher le
+téléchargement** : l'instabilité d'egress de Cloudflare n'est pas le problème
+non plus.
+
+### Décision
+
+- **Le disjoncteur compte désormais TOUT le rationnement** (`noteRationed`) :
+  refus bot, 403/429 sur InnerTube, 403 sur le lien média, et les timeouts. Il ne
+  regardait qu'une seule porte et restait fermé pendant qu'on continuait à
+  frapper.
+
+### Leçons / pièges
+
+- **J'ai attribué ces 403 au PO token GVS sur la foi du PO Token Guide, sans
+  mesurer.** C'était faux, et deux entrées de ce DEVLOG le disent encore. Un
+  token n'aurait rien changé : le même appel réussit sur un isolate frais.
+- **La bonne sonde est celle qui tourne à l'endroit où le problème se produit.**
+  Toutes mes mesures depuis la connexion résidentielle étaient justes et
+  inutiles : elles ne pouvaient pas voir un effet de volume propre à l'edge.
+- **Corollaire pour la suite : le seul levier réel est de moins demander.** Ni
+  client, ni token, ni identité ne relèvent une limite de débit. C'est ce qui
+  justifie le stockage persistant — rendre chaque succès définitif.
+
 ## 2026-08-13 (soir) — Trailers : l'identité de session, et pourquoi elle ne doit servir qu'en secours
 
 `visitorData` était le §8 jamais livré du plan. C'est le correctif le plus
