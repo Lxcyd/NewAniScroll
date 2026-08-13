@@ -235,26 +235,29 @@ function fail(status, error) {
 const UNRESOLVED_TTL = 6;
 
 /**
- * How long "no client here can give us a playable link" is remembered.
+ * How long "no client here could give us a playable link" is remembered.
  *
- * A DIFFERENT failure from the bot wave, and it took a second deploy to see it.
- * Measured 13/08 on `KYGgyQtSAdI` and `5JpTU6wj_-g`: ANDROID_VR, TVHTML5 and
- * ANDROID_UNPLUGGED answer LOGIN_REQUIRED *even from a residential connection*,
- * TVHTML5_SIMPLY_EMBEDDED and WEB_EMBEDDED error, IOS is OK but hands out no
- * progressive format at all, and ANDROID is OK with itag 18 whose link is then
- * refused (the GVS PO token it requires and we cannot mint — that would need
- * DroidGuard). No client left. That is a property of the video, stable for as
- * long as YouTube keeps it that way — nothing like a wave that lifts in seconds.
+ * A DIFFERENT failure from the bot wave: a client did hand us a link and the
+ * link was refused. Measured 13/08 on `KYGgyQtSAdI` and `5JpTU6wj_-g`, where
+ * ANDROID_VR, TVHTML5 and ANDROID_UNPLUGGED answer LOGIN_REQUIRED *even from a
+ * residential connection*, TVHTML5_SIMPLY_EMBEDDED and WEB_EMBEDDED error, IOS
+ * is OK but hands out no progressive format, and ANDROID is OK with an itag 18
+ * whose link is then refused — the GVS PO token it requires and we cannot mint
+ * (that would need DroidGuard). On those two, nothing was left to try.
  *
- * Treating it as a wave is what the card was doing: three retries and a fresh
- * warm-up ladder on every single hover, forever, for a video that will never
- * play. Six hours (GONE_TTL) turns all of that into edge hits and stops asking
- * YouTube entirely, while staying short enough that a video which becomes
- * proxyable again comes back the same day.
+ * TEN MINUTES, NOT SIX HOURS — and the difference is a correction. The first
+ * version read that matrix as proof the condition was permanent, cached the
+ * refusal for six hours and cancelled the warm-up. Then both ids started
+ * serving on their own, which proves the same signature is ALSO transient: a
+ * refused link can simply be a refused link. We cannot tell the two apart from
+ * one attempt, so the honest reading is "unlikely to fix itself in the next
+ * minute", not "never". Ten minutes is long enough that a hover storm costs one
+ * attempt instead of one per card, short enough that a video which was only
+ * unlucky is back within the same browsing session.
+ *
+ * The warm-up stays booked for the same reason: it is what recovered those two.
  */
-// The same six hours as GONE_TTL, spelled out rather than borrowed: that
-// constant is declared further down, and a `const` cannot be read before it.
-const UNREDEEMABLE_TTL = 21600;
+const UNREDEEMABLE_TTL = 600;
 
 function unresolved(error, ttl = UNRESOLVED_TTL, unredeemable = false) {
   return new Response(JSON.stringify({ error, unredeemable }), {
@@ -791,8 +794,10 @@ export async function handleTrailer(request, env, ctx) {
     return storeVerdict(cacheKeyUrl, cache, ctx, gone(err.message));
   }
   if (!upstream) {
-    // A link we could not redeem is a STANDING condition, not a wave: no amount
-    // of warming fixes it, so it is remembered for hours and no warm-up is booked.
+    // A link we could not redeem is remembered longer than a bot wave — it is
+    // less likely to lift in the next few seconds — but it is still warmed, and
+    // still forgotten within the session. See UNREDEEMABLE_TTL.
+    warmLater(videoId, cacheKeyUrl, cache, ctx);
     if (unredeemable) {
       return storeVerdict(
         cacheKeyUrl,
@@ -801,7 +806,6 @@ export async function handleTrailer(request, env, ctx) {
         unresolved(`Unredeemable: ${diag.join(" | ")}`, UNREDEEMABLE_TTL, true),
       );
     }
-    warmLater(videoId, cacheKeyUrl, cache, ctx);
     return storeVerdict(
       cacheKeyUrl,
       cache,

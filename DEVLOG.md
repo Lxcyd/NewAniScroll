@@ -117,8 +117,15 @@ rien, et le traiter comme un échec passager coûtait 3 reprises + une échelle 
 réchauffage à chaque survol, indéfiniment.
 
 - Nouveau cas `unredeemable` : un client a bien donné un lien et le lien a été
-  refusé → 404 mémorisé **6 h** (`UNREDEEMABLE_TTL`) et **aucun réchauffage**.
+  refusé → 404 mémorisé **10 min** (`UNREDEEMABLE_TTL`), réchauffage **conservé**.
   Distinct du 404 de 6 s, qui reste pour les vraies vagues.
+- **Correction dans la foulée, et c'est la leçon du jour.** La première version
+  lisait ce tableau comme une preuve de permanence : 6 h de mémorisation et
+  réchauffage coupé. Puis **les deux ids se sont mis à marcher tout seuls** —
+  donc la même signature est AUSSI transitoire. On ne peut pas distinguer les
+  deux sur une tentative : la lecture honnête est « peu susceptible de se
+  résoudre dans la minute », pas « jamais ». D'où 10 min, et le réchauffage
+  gardé — c'est précisément lui qui les a rattrapés.
 - C'est **le seul cas où un PO token GVS serait la réponse**, et il reste hors
   d'atteinte (DroidGuard). Le noter plutôt que le combattre.
 
