@@ -1,5 +1,104 @@
 # DEVLOG
 
+## 2026-08-13 — Trailers : c'est notre propre machinerie de reprise qui nourrissait le blocage
+
+Symptôme rapporté : **le taux de refus est faible en début de session et monte à
+mesure qu'on survole des animes**. Ce n'est donc ni une vague aléatoire ni une
+question d'adresse seule — c'est un compteur, et c'est nous qui le remplissions.
+
+Coût d'UN trailer froid et refusé, avant ce chantier : 2 manches × 2 clients (4
+appels InnerTube) + réchauffage 3 paliers × 2 clients (6) + les 3 reprises du
+front retombant chacune sur une clé froide (12) + le verdict demandé à la 2ᵉ
+erreur (2) = **~24 appels**. Chaque étage multipliait le précédent, au moment
+précis où YouTube nous rationnait. La reprise creusait le refus qu'elle
+essayait d'attendre.
+
+### Mesures (connexion résidentielle, InnerTube en direct)
+
+```
+dQw4w9WgXcQ   ANDROID -> OK itag18   ANDROID_VR -> OK itag18
+6vMuWuWlW4I   ANDROID -> OK itag18   ANDROID_VR -> LOGIN_REQUIRED
+                                     "Sign in to confirm you're not a bot"
+téléchargement itag18, sans aucun PO token : 206 pour les deux clients
+WEB -> UNPLAYABLE   WEB_EMBEDDED_PLAYER -> ERROR   TVHTML5 -> LOGIN_REQUIRED
+```
+
+- **La conclusion du 11/08 (« le blocage vise l'adresse et la MINUTE, pas le
+  client ») est FALSIFIÉE.** `ANDROID_VR` refusé et `ANDROID` servi sur la même
+  vidéo, la même IP résidentielle, la même seconde. Le refus est aussi par
+  client et par vidéo. La mesure du 11/08 passait par un cache froid, où les
+  deux effets sont indiscernables. **Conséquence : les deux clients doivent
+  rester** — n'en garder qu'un aurait purement supprimé les trailers que son
+  jumeau se fait refuser.
+
+### La question PO token, close (ne pas la rouvrir)
+
+- Le PO token **GVS** (celui du téléchargement) : **inutile ici**, rien ne 403,
+  les deux clients servent leurs octets sans token.
+- Le PO token **Player** (le seul qui pourrait lever le `LOGIN_REQUIRED`) :
+  **hors d'atteinte**. Il est spécifique à la plateforme — BotGuard pour `web`,
+  **DroidGuard** pour `android`/`android_vr`, ce qui suppose l'attestation
+  Android réelle (émulateur), impossible depuis un Worker. Et la famille `web`,
+  seule à portée de BotGuard, répond `UNPLAYABLE`/`ERROR` **même depuis une
+  connexion résidentielle**.
+- **yt-dlp** ne change rien : c'est du Python, ça ne tourne pas dans un Worker,
+  et il émet exactement les mêmes appels InnerTube. Utile comme oracle, pas
+  comme runtime.
+- **`web_safari` + HLS** : le refus tombe dans `playabilityStatus`, donc *avant*
+  les formats — l'exemption HLS ne s'y applique pas. Et HLS = N segments
+  IP-bound sans CORS à faire transiter, alors que **la requête est la seule
+  unité facturée** : on échangerait un fichier de 3 Mo caché une fois contre des
+  centaines de requêtes par lecture.
+
+### Décisions
+
+- **La course à deux clients devient une SÉQUENCE**, ANDROID d'abord. 1 appel
+  dans le cas courant au lieu de 2, 2 seulement en cas de refus : même
+  couverture, moitié moins de carburant. Le repli séquentiel *est* la
+  confirmation par le second client, donc l'invariant du 11/08 (« un refus
+  durable n'est cru que s'il est unanime ») tient gratuitement.
+- **Une seule manche en avant-plan.** Deux tentatives dans la même seconde
+  échantillonnent le même instant — ce fichier le disait déjà de `warmLater`.
+  Seul le `403` upstream garde sa reprise (lien expiré ou minté depuis une autre
+  adresse : seul un lien frais corrige ça).
+- **Cache négatif de 6 s sur le 404** (`unresolved()`), déposé explicitement dans
+  `caches.default` — la réponse d'un Worker n'y va pas toute seule. Le 6 est
+  calé entre `RETRY_DELAYS_MS = [500, 2500, 7000]` et `WARM_SCHEDULE_MS[0] =
+  4000` : les deux premières reprises du front deviennent des hits gratuits, la
+  troisième tombe après le premier palier de réchauffage et voit les octets.
+- **Disjoncteur par isolate** : au-delà de 3 refus bot, plus AUCUN appel pendant
+  60 s. Sous rationnement, le worker arrête de cogner au lieu de cogner plus
+  fort.
+- **Déduplication en vol** (`inFlight`) : reprises du front, survols concurrents,
+  verdict et réchauffage partagent une seule résolution par id.
+- **Le verdict `.json` ne résout plus jamais.** `Overview.tsx` et
+  `InfoPageMobile.tsx` l'appellent à chaque visite de page info ; une page vue ne
+  doit pas pouvoir dépenser un appel InnerTube. Il lit le cache, sinon répond
+  `unknown` + réchauffage. Le front ne mémorise jamais `unknown`, donc rien de
+  valide n'est caché.
+- **`EDGE_TTL` : 1 jour → 30 jours.** Le contenu d'un trailer ne change pas ; le
+  jour était un alignement sur le proxy principal, pas une contrainte. Reste du
+  cache (éviction LRU), pas du stockage — R2 a été écarté explicitement.
+
+### Leçons / pièges
+
+- **Sous rate-limit, insister est la seule chose à ne pas faire.** Tout le
+  chantier consiste à retirer des tentatives, pas à en ajouter. Le plan initial
+  proposait l'inverse et il a fallu la mesure pour le corriger.
+- **Le 404 court est posé sous la clé des OCTETS**, donc le garde-fou de
+  `warmLater` (« quelqu'un a déjà gagné ») devait passer de `if (cached)` à
+  `if (cached?.ok)` — sans quoi le réchauffage s'annulait exactement dans le cas
+  où il servait à quelque chose. Attrapé au banc, pas en prod.
+- **Un commentaire est un journal de mesures : il périme.** Le bloc `CLIENTS`
+  justifiait `android_vr` par une exemption de PO token que la mesure ne montre
+  plus, et concluait sur une course que les chiffres condamnaient déjà. Les deux
+  ont été réécrits plutôt que contournés.
+- **Banc local possible pour la LOGIQUE** (`fetch` et `caches.default`
+  bouchonnés, réimport du module par scénario pour repartir d'un isolate neuf) :
+  9 scénarios couvrent séquence, unanimité, disjoncteur, dédup, cache négatif et
+  rendez-vous du réchauffage. Le chemin de cache réel, lui, ne se valide toujours
+  qu'en prod (`caches.default` est inerte hors domaine personnalisé).
+
 ## 2026-08-11 — Trailers : le refus de YouTube ne se combat pas dans la requête
 
 Les cartes de survol pleuvaient en `404` sur `/w/trailer/<id>.mp4`. Le corps de
@@ -25,7 +124,11 @@ résidentielle résolvait les mêmes ids instantanément.
   heures. Un 410 mérité (supprimé, géobloqué) est dit par tous les clients.
 
 ### Leçons / pièges
-- **Le blocage vise l'adresse et la MINUTE, pas le client.** Mesuré depuis
+- ~~**Le blocage vise l'adresse et la MINUTE, pas le client.**~~ **FALSIFIÉ le
+  13/08** — voir l'entrée de cette date : `ANDROID_VR` refusé et `ANDROID` servi
+  sur la même vidéo, même IP, même seconde. Le refus est AUSSI par client et par
+  vidéo ; cette mesure-ci passait par un cache froid, où les deux effets sont
+  indiscernables. Le paragraphe est conservé pour l'historique. Mesuré depuis
   l'edge sur 16 ids froids : deux clients + trois manches = 9 échecs, un client
   + deux manches = 8 — et **les mêmes ids** échouaient dans les deux passes. La
   troisième manche a donc été retirée : ajouter des tentatives dans la même
