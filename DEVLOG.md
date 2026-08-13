@@ -1,5 +1,56 @@
 # DEVLOG
 
+## 2026-08-13 (soir) — Trailers : l'identité de session, et pourquoi elle ne doit servir qu'en secours
+
+`visitorData` était le §8 jamais livré du plan. C'est le correctif le plus
+rentable du fichier — et il a fallu trois essais pour le poser au bon endroit.
+
+### Ce que ça change
+
+Mesuré sur les trois ids qui avaient résisté à tout (`1hYWc5MCIPk`,
+`5JpTU6wj_-g`, `KYGgyQtSAdI`) : `ANDROID_VR` répond `LOGIN_REQUIRED` aux trois
+depuis une connexion **résidentielle**, et `OK` + itag 18 aux trois dès que la
+même requête porte un `visitorData`. **3 sur 3.** Le blocage bot n'était donc
+pas d'abord une affaire d'adresse : un appel sans session est un appel anonyme,
+et c'est l'anonyme que YouTube refuse.
+
+Ce n'est **pas** un PO token : c'est une chaîne opaque prise sur youtube.com,
+sans BotGuard ni DroidGuard, rien à forger.
+
+### Les deux pièges, dans l'ordre où je suis tombé dedans
+
+1. **Ne PAS partager l'identité entre colos.** Première version : cachée en KV
+   pour qu'un isolate froid en hérite. Résultat mesuré : `LOGIN_REQUIRED`
+   disparaît de tous les diags — exactement l'effet voulu — et est remplacé par
+   `upstream 403 on the link`, `ANDROID_VR` se faisant refuser des liens qu'il
+   encaissait avant. Une identité n'est crédible que là où elle vit : via KV,
+   une seule session émettait depuis des centaines d'adresses, ce qui est le
+   profil d'une session volée. La doc Invidious dit la même chose — le token
+   doit être généré depuis l'IP qui l'utilise. **Portée module, jamais partagée.**
+2. **Anonyme d'abord, identité en ESCALADE.** Les deux modes échouent de façon
+   **disjointe**, mesuré sur 25 ids froids chacun : l'anonyme se fait bloquer à
+   la résolution mais ses liens s'encaissent ; avec identité, `LOGIN_REQUIRED`
+   tombe à **0/25** mais googlevideo refuse les liens (un Worker ne tient pas une
+   même adresse sur deux sous-requêtes). Toujours envoyer l'identité échangeait
+   donc un problème contre un autre. On demande anonymement, et on n'escalade
+   que sur un refus bot — là où il n'y avait de toute façon aucune réponse.
+
+### Résultat
+
+**19/23 servis (83 %)** hors géoblocages légitimes, contre **7/14 (50 %)** avant
+le chantier du jour.
+
+### Leçons / pièges
+
+- **Le seuil du disjoncteur est couplé au nombre de tentatives par vidéo.**
+  L'escalade porte une vidéo froide à 4 refus possibles (2 clients × anonyme puis
+  identité) ; avec un seuil à 3, le disjoncteur se déclenchait sur **un seul**
+  échec et muselait le réchauffage pendant une minute — il tirait précisément sur
+  ce qui devait rattraper l'échec. Passé à 6. Attrapé par le banc, pas en prod.
+- **Ce qui reste** est exclusivement le refus de LIEN (`upstream 403`, le token
+  GVS) et des timeouts. C'est le seul endroit où un PO token servirait, et il
+  reste hors d'atteinte (DroidGuard, plus une IP stable qu'un Worker n'a pas).
+
 ## 2026-08-13 — Trailers : c'est notre propre machinerie de reprise qui nourrissait le blocage
 
 Symptôme rapporté : **le taux de refus est faible en début de session et monte à

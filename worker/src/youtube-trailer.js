@@ -162,7 +162,12 @@ const EDGE_TTL = 30 * 86400;
  * an isolate is roughly one colo's run of traffic, and the colo is what YouTube
  * is rationing.
  */
-const BREAKER_THRESHOLD = 3;
+// SIX, not three. One cold video can now spend up to four refusals of its own
+// (two clients x anonymous-then-identity), so a threshold of three tripped on a
+// SINGLE failed video and then muted the warm-up for a minute — the breaker was
+// firing at the very failure it exists to recover from. Six means "several
+// videos in a row", which is what a wave actually looks like.
+const BREAKER_THRESHOLD = 6;
 const BREAKER_WINDOW_MS = 60000;
 
 let innertubeCalls = 0;
@@ -352,12 +357,80 @@ function isDurableRefusal(status, reason) {
 }
 
 /**
+ * A SESSION IDENTITY for our InnerTube calls — the single highest-yield thing
+ * in this file.
+ *
+ * Measured 13/08 on the three ids that had defeated everything else
+ * (`1hYWc5MCIPk`, `5JpTU6wj_-g`, `KYGgyQtSAdI`): ANDROID_VR answered
+ * `LOGIN_REQUIRED: Sign in to confirm you're not a bot` for all three, from a
+ * RESIDENTIAL connection, and answered `OK` with itag 18 for all three the
+ * moment the same request carried a `visitorData`. Three out of three, and the
+ * links redeem (206). The refusal was never really about the address: a call
+ * with no session attached is an anonymous call, and an anonymous call is what
+ * YouTube declines.
+ *
+ * It is a plain opaque string lifted from youtube.com — no BotGuard, no
+ * DroidGuard, no PO token, nothing to mint. It is emphatically NOT a PO token
+ * and does not replace one; it simply gives our calls somewhere to belong.
+ *
+ * ONE PER ISOLATE, AND DELIBERATELY NOT SHARED. The first version cached it in
+ * KV so a cold isolate could inherit it, and that made things worse in a way
+ * worth writing down: `LOGIN_REQUIRED` vanished from every diag, exactly as
+ * hoped, and was replaced by `upstream 403 on the link` — ANDROID_VR resolving
+ * happily and then having its link refused, which it had never done before.
+ *
+ * The reason is that an identity is only credible where it lives. Measured
+ * 13/08: from a residential connection the very same call resolves AND redeems
+ * (302/206). Through KV, one identity was being used from every colo at once —
+ * a single session emitting from hundreds of addresses, which is what a stolen
+ * session looks like, so googlevideo declined its links.
+ *
+ * So it stays in module scope, which is roughly "this colo's run of traffic",
+ * and each isolate mints its own. Rotated on a bot refusal (an identity that
+ * starts being refused is spent) and every VISITOR_TTL_S.
+ */
+const VISITOR_TTL_S = 6 * 3600;
+
+let visitorData = null;
+let visitorDataAt = 0;
+
+async function getVisitorData() {
+  if (visitorData && Date.now() - visitorDataAt < VISITOR_TTL_S * 1000) return visitorData;
+
+  try {
+    const res = await fetch("https://www.youtube.com/", {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
+        "Accept-Language": "en-US,en;q=0.9",
+      },
+      signal: AbortSignal.timeout(4000),
+    });
+    const html = await res.text();
+    const found = html.match(/"visitorData":"([^"]+)"/);
+    if (!found) return null;
+    visitorData = found[1];
+    visitorDataAt = Date.now();
+    return visitorData;
+  } catch {
+    // No identity is survivable: the call goes out as it always used to.
+    return null;
+  }
+}
+
+/** An identity that starts getting refused is spent — drop it and re-mint. */
+function dropVisitorData() {
+  visitorData = null;
+  visitorDataAt = 0;
+}
+
+/**
  * Ask InnerTube for the video and pull the muxed progressive stream out of it.
  *
  * Returns null on a refusal a retry might survive, and THROWS DurableRefusal on
  * one it cannot — embed-disabled, deleted, region-locked, age-gated.
  */
-async function resolveMuxedUrl(videoId, client, diag, signal) {
+async function resolveMuxedUrl(videoId, client, diag, signal, identity) {
   const note = (text) => {
     // Which client paid for what: with two of them in the race, an undecorated
     // `LOGIN_REQUIRED` no longer says whether one was refused or both were.
@@ -376,7 +449,9 @@ async function resolveMuxedUrl(videoId, client, diag, signal) {
         "X-Youtube-Client-Version": client.context.clientVersion,
       },
       body: JSON.stringify({
-        context: { client: client.context },
+        context: {
+          client: identity ? { ...client.context, visitorData: identity } : client.context,
+        },
         videoId,
         // Both needed or a trailer carrying a content warning comes back as
         // unplayable — several anime trailers do.
@@ -393,10 +468,13 @@ async function resolveMuxedUrl(videoId, client, diag, signal) {
   const status = json?.playabilityStatus?.status;
   if (status !== "OK") {
     const reason = json?.playabilityStatus?.reason || "no reason";
-    note(`${status}: ${reason}`);
+    note(`${status}: ${reason}${identity ? " (with identity)" : ""}`);
     if (isDurableRefusal(status, reason)) throw new DurableRefusal(`${status}: ${reason}`);
     // Not durable — so it is us being refused, which is what the breaker counts.
+    // An identity that is itself being refused is spent, so it is dropped and
+    // the next escalation mints a fresh one rather than insisting with it.
     noteBotRefusal();
+    if (identity) dropVisitorData();
     return null;
   }
 
@@ -453,14 +531,14 @@ const RESOLVE_TIMEOUT_MS = 4000;
  */
 const inFlight = new Map();
 
-function resolveShared(videoId, client, diag) {
-  const key = `${videoId}:${client.name}`;
+function resolveShared(videoId, client, diag, identity) {
+  const key = `${videoId}:${client.name}:${identity ? "id" : "anon"}`;
   const existing = inFlight.get(key);
   if (existing) {
     if (diag) diag.push(`${client.name}: joined an in-flight resolve`);
     return existing;
   }
-  const attempt = resolveMuxedUrl(videoId, client, diag, AbortSignal.timeout(RESOLVE_TIMEOUT_MS))
+  const attempt = resolveMuxedUrl(videoId, client, diag, AbortSignal.timeout(RESOLVE_TIMEOUT_MS), identity)
     .finally(() => inFlight.delete(key));
   inFlight.set(key, attempt);
   return attempt;
@@ -488,7 +566,7 @@ function resolveShared(videoId, client, diag) {
  * unavailable (the unanimity invariant from 11/08). A 403 is never durable: it
  * says the link was bad, not the video.
  */
-async function fetchTrailer(videoId, diag) {
+async function fetchTrailer(videoId, diag, env) {
   let asked = 0;
   let durableCount = 0;
   let firstDurable = null;
@@ -505,7 +583,27 @@ async function fetchTrailer(videoId, diag) {
 
     let url = null;
     try {
-      url = await resolveShared(videoId, client, diag);
+      url = await resolveShared(videoId, client, diag, null);
+      /*
+       * ESCALATION, not a default.
+       *
+       * The two modes fail in DISJOINT ways, measured 13/08 over 25 cold ids
+       * each. Anonymous: the resolve gets bot-blocked (`LOGIN_REQUIRED`) but the
+       * links it does get redeem cleanly. With a visitorData: `LOGIN_REQUIRED`
+       * disappears completely — 0 out of 25 — but googlevideo then refuses the
+       * links, because a session's token is only trusted from the address that
+       * minted it (Invidious documents the same constraint) and a Worker cannot
+       * hold one address across two subrequests.
+       *
+       * So the identity is worth exactly one thing: a second opinion on a video
+       * the anonymous call was refused. Asking anonymously first keeps the
+       * redeemable answers redeemable, and escalating costs a call only where
+       * there was no answer at all.
+       */
+      if (!url && !breakerOpen()) {
+        const identity = await getVisitorData();
+        if (identity) url = await resolveShared(videoId, client, diag, identity);
+      }
     } catch (err) {
       if (err instanceof DurableRefusal) {
         durableCount += 1;
@@ -574,7 +672,7 @@ async function fetchTrailer(videoId, diag) {
  * spend two InnerTube calls per info page on top of everything the hover cards
  * were already spending.
  */
-async function trailerVerdict(videoId, bytesKeyUrl, cache, ctx) {
+async function trailerVerdict(videoId, bytesKeyUrl, cache, ctx, env) {
   const reply = (body, ttl) =>
     new Response(JSON.stringify(body), {
       status: 200,
@@ -602,7 +700,7 @@ async function trailerVerdict(videoId, bytesKeyUrl, cache, ctx) {
   // Nothing known, and asking is not this route's job. Book a warm-up so the
   // NEXT question — from this visitor's hover or anyone else's — is answered
   // from the cache, and say so honestly in the meantime.
-  warmLater(videoId, bytesKeyUrl, cache, ctx);
+  warmLater(videoId, bytesKeyUrl, cache, ctx, env);
   return reply({ verdict: "unknown", diag: "not cached — warming" }, 0);
 }
 
@@ -661,7 +759,7 @@ const warming = new Set();
  * foreground already reported, and a durable one is recorded by the next real
  * request through the path that knows how to cache it.
  */
-function warmLater(videoId, cacheKeyUrl, cache, ctx) {
+function warmLater(videoId, cacheKeyUrl, cache, ctx, env) {
   if (!ctx || warming.has(videoId)) return;
   warming.add(videoId);
   const key = new Request(cacheKeyUrl, { method: "GET" });
@@ -682,7 +780,7 @@ function warmLater(videoId, cacheKeyUrl, cache, ctx) {
           // The wave is what we are waiting out, so asking during one is the one
           // thing this must not do. Skip the rung and let the next find it lifted.
           if (breakerOpen()) continue;
-          const { upstream: res } = await fetchTrailer(videoId, null);
+          const { upstream: res } = await fetchTrailer(videoId, null, env);
           if (!res?.ok) continue;
           await cache.put(key, new Response(res.body, { status: 200, headers: mp4Headers() }));
           return;
@@ -727,7 +825,7 @@ export async function handleTrailer(request, env, ctx) {
       ? new Request(cacheKeyUrl, { method: "GET", headers: { Range: rangeHeader } })
       : new Request(cacheKeyUrl, { method: "GET" });
 
-  if (wantsVerdict) return trailerVerdict(videoId, cacheKeyUrl, cache, ctx);
+  if (wantsVerdict) return trailerVerdict(videoId, cacheKeyUrl, cache, ctx, env);
 
   if (request.method === "GET") {
     const cached = await cache.match(cacheLookup);
@@ -747,7 +845,7 @@ export async function handleTrailer(request, env, ctx) {
   // falls back to its artwork, the warm-up picks the video up once the wave has
   // passed, and — the whole point — we stop adding to what is refusing us.
   if (breakerOpen()) {
-    warmLater(videoId, cacheKeyUrl, cache, ctx);
+    warmLater(videoId, cacheKeyUrl, cache, ctx, env);
     // Parked in the cache like any other refusal: a Worker's own response is
     // not stored at the edge on its own, and the whole value of the 6 s TTL is
     // that the card's next two retries never reach this function again.
@@ -776,7 +874,7 @@ export async function handleTrailer(request, env, ctx) {
   let upstream = null;
   let unredeemable = false;
   try {
-    ({ upstream, unredeemable } = await fetchTrailer(videoId, diag));
+    ({ upstream, unredeemable } = await fetchTrailer(videoId, diag, env));
   } catch (err) {
     if (!(err instanceof DurableRefusal)) throw err;
     /*
@@ -797,7 +895,7 @@ export async function handleTrailer(request, env, ctx) {
     // A link we could not redeem is remembered longer than a bot wave — it is
     // less likely to lift in the next few seconds — but it is still warmed, and
     // still forgotten within the session. See UNREDEEMABLE_TTL.
-    warmLater(videoId, cacheKeyUrl, cache, ctx);
+    warmLater(videoId, cacheKeyUrl, cache, ctx, env);
     if (unredeemable) {
       return storeVerdict(
         cacheKeyUrl,
