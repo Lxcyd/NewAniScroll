@@ -30,11 +30,18 @@ const STORE_KEY = "as-trailer-verdict-v1";
 /**
  * How long a verdict is trusted locally.
  *
- * A week for `gone`, not forever: a regional block gets lifted, a private video
- * comes back. Long enough that a visitor never re-asks about the same dead
- * trailer, short enough that a resurrected one returns on its own.
+ * SIX HOURS, and the number is not free: it is GONE_TTL from the worker, to the
+ * second. It used to be a week, and that asymmetry is what turned a transient
+ * refusal into a permanent one — the browser believed for seven days a verdict
+ * the worker itself only trusts for six hours, so a video that came back the
+ * same afternoon stayed hidden on that machine until the following week. The
+ * bug reported it plainly: `5JpTU6wj_-g` served 200 from the edge, `verdict:ok`
+ * from the worker, and no trailer on hover, on one browser only.
+ *
+ * Whoever changes GONE_TTL changes this. A client may never remember a refusal
+ * for longer than the origin that issued it.
  */
-const TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const TTL_MS = 6 * 60 * 60 * 1000;
 
 type Stored = { v: Verdict; at: number };
 

@@ -676,7 +676,22 @@ async function fetchTrailer(videoId, diag, env, timeoutMs = RESOLVE_TIMEOUT_MS) 
     if (diag) diag.push(`${client.name}: upstream 403 on the link`);
   }
 
-  if (firstDurable && durableCount === asked) throw firstDurable;
+  /*
+   * Unanimity is counted against the ROSTER, not against how many we got round
+   * to asking — and that distinction is the whole fix.
+   *
+   * `durableCount === asked` reads as "everyone agreed", and it does, until the
+   * breaker cuts the loop short: throttled, exactly one client is asked, so a
+   * single UNPLAYABLE from a rationed isolate satisfied 1 === 1 and was promoted
+   * to a fact about the video. It was then cached as a 410 for six hours here
+   * and remembered for a week by the browser. The two clients do not see the
+   * same catalogue (see CLIENTS) — one voice is not a quorum, least of all the
+   * one voice we allow ourselves precisely when YouTube is refusing us.
+   *
+   * A short pass now yields `unresolved` instead: six seconds, plus a warm-up.
+   * The cost of being wrong that way is one hover; the other way it was a week.
+   */
+  if (firstDurable && durableCount === CLIENTS.length) throw firstDurable;
   return null;
 }
 
