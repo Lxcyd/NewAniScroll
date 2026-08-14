@@ -4906,3 +4906,28 @@ formes (`unloadModule` + `setOption(track,{})`), mirroité vers la copie.
 mesure pas le halo — le carrousel d'accueil défile derrière à peu près au rythme
 des cartons de crédits d'un trailer. Lire les deux régions dans **une seule et
 même capture**, et corréler, est la seule méthode qui tienne. Sondes : `--mute-audio`.
+
+### Suite — le chrome de YouTube s'allumait DANS la lumière
+
+Le décalage persistait après la resynchro des horloges. Il n'était pas temporel :
+mesuré à ~130 ms de résolution, l'image et le halo changent **au même échantillon**
+(dV 20,9 / dH 20,0 sur la même frame). C'est le *contenu* de la copie qui était faux.
+
+Photographié à la sonde : la copie floutée peignait **la barre de progression et
+le titre** (« Saga of… », lisibles). Elle était montée à ×1, sans la réduction ×200
+du lecteur visible — au motif, écrit dans le code, que « le flou cache le chrome
+mieux que n'importe quelle réduction ». Faux : un flou de 34 px cache la FORME du
+chrome, pas sa **lumière**. La barre de progression est un trait blanc de 530 px ;
+floutée, c'est une bande claire en travers du halo. Et ce chrome apparaît/disparaît
+sur l'horloge du lecteur → **le halo changeait d'un coup alors que l'image ne
+bougeait pas**, ce qui était le tout premier symptôme rapporté (« deux images
+identiques, deux ambient lights différentes »).
+
+Correctif : la copie est montée ×200 et rapetissée comme l'autre. Le chrome est
+dimensionné en pixels, il ne survit pas à la réduction ; la vidéo remplit toujours
+le cadre.
+
+**Leçon de méthode** : trois symptômes différents (« figée », « en retard », « change
+d'un coup ») avaient la même cause matérielle visible sur UNE capture de la couche
+elle-même. J'ai mesuré des séries statistiques avant d'avoir simplement REGARDÉ ce
+que peignait le calque incriminé.
