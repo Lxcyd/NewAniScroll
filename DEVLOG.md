@@ -4988,6 +4988,19 @@ par git**, donc il n'est ni déployé ni précaché — il n'existe que dans la 
 travail locale. Aucun effet en production ; le supprimer serait en revanche
 irréversible (aucune trace dans l'historique). À trancher par Luc.
 
+**Composants orphelins supprimés** — vérifiés deux fois (aucun import par chemin,
+aucune référence à leur symbole exporté dans le code suivi ; seul le DEVLOG les
+citait en prose) :
+`components/anime/viewMode/{listMode,thumbnailDetail,thumbnailOnly}.js`,
+`components/anime/viewSelector.js`, `components/shared/{AnimeCard,GenrePills,
+RankingBadge,StatusPill}.tsx`. `AnimeCard.tsx` datait du 08/08, remplacé pendant
+le travail sur l'aperçu au survol sans être retiré.
+
+Gardés malgré une première alerte du scan : `lib/hlsMerge.js` (importé par symbole,
+`mergeHlsPlaylists`, depuis `lib/clientVidmoly.js`) et `lib/nsfw/*.mjs` (utilisés par
+`scripts/fanarts/classify-fanarts.mjs` et le workflow `refresh-fanarts.yml`). Un scan
+par nom de fichier seul les aurait supprimés à tort — d'où la double vérification.
+
 Rappel au passage : `public/sw.js`, `public/workbox-*.js` et `public/fallback-*.js`
 sont **générés par next-pwa** à chaque build et déjà ignorés par git — ce ne sont
 pas des résidus du dépôt, les effacer les fait juste revenir au build suivant.
