@@ -67,18 +67,16 @@ const ORIGIN = "https://www.youtube-nocookie.com";
  * faded. Past ×8 the button gains nothing more; what keeps shrinking is the
  * CORNERS, which the centre counter never saw.
  *
- * WHY NOT ×200, WHICH THE BENCH SAID WAS SPOTLESS. Because the bench was wrong
- * about the real page, and this is worth writing down rather than re-trying. In
- * a standalone 364 px stage the browser CLAMPS a 72800 px layer and rasterises
- * it sensibly. Inside the actual card it does not: the player falls back to its
- * SMALL-player layout and that layout is then magnified, so the centre button
- * comes back the size of a fist with a white block in the corner — the exact
- * opposite of the intent. A bench is a claim about the bench until it has been
- * seen in the product; ×200 was measured, photographed, and still shipped broken.
+ * THE FIRST FRAME IS THE WHOLE DIFFICULTY, and it is a TRANSIENT, not a broken
+ * end state. Before the player has measured itself it paints its small-player
+ * layout once; magnified ×200 that single frame is a fist-sized centre button
+ * and a white block in the corner. A moment later it re-lays-out and the frame
+ * is spotless. So the fix is not a smaller factor — it is never showing that
+ * frame, which is what the reveal rule below exists for.
  *
- * ×8 is where the measurement and the real page agree: enough to zero the centre
- * glyph, small enough (2912 px across a 364 px box) that nothing exotic happens
- * to the compositor.
+ * (Written down because the obvious reading of that screenshot is "×200 is
+ * broken, drop to ×8", and it was mine for one commit. The end state was never
+ * broken; only the instant we chose to reveal was wrong.)
  *
  * THE COST THAT REMAINS. A dark veil survives at any factor (red channel on a
  * flat red field: 219 at ×1, 231.5 at ×8, against 249 with no chrome at all):
@@ -88,7 +86,7 @@ const ORIGIN = "https://www.youtube-nocookie.com";
  * Expressed as a percentage below, so the factor is independent of the card's
  * real pixel size. Bench: public/embed-scale-lab.html.
  */
-const SCALE = 8;
+const SCALE = 200;
 
 /**
  * How far the player overflows its box, so the picture COVERS instead of FITS.
@@ -108,15 +106,26 @@ const SCALE = 8;
 const OVERSCAN = 1.12;
 
 /**
- * A beat between "the player says it is playing" and showing it.
+ * How far into the video the player must be before we show it.
  *
- * The player finishes positioning its video AFTER it reports PLAYING — a
- * reflow that is invisible at ×1 and impossible to miss at ×200, where it reads
- * as the picture sliding into place. Revealing on the message alone put that
- * settling on screen. Waiting a moment lets it happen behind the banner, which
- * is a finished picture and costs nothing to keep a fraction longer.
+ * EVIDENCE RATHER THAN A GUESS. The bad first frame is painted before the
+ * player has measured itself; it is gone once the thing is genuinely running.
+ * A fixed delay after PLAYING was a bet on how long that takes (220 ms lost
+ * it), so instead we wait for the player to tell us its clock has moved. A
+ * `currentTime` past this mark cannot be the boot frame — that frame is at 0.
+ *
+ * The player volunteers `currentTime` in every `infoDelivery`, so this costs no
+ * extra machinery, and the banner covers the wait with a finished picture.
  */
-const SETTLE_AFTER_PLAY_MS = 220;
+const REVEAL_AFTER_SECONDS = 0.4;
+
+/**
+ * Backstop for the rule above, in case `currentTime` never arrives.
+ *
+ * Only a safety net: it must be long enough to outlast the boot frame, since
+ * firing early is exactly the bug it is meant to avoid.
+ */
+const SETTLE_AFTER_PLAY_MS = 900;
 
 /** Sound is ON by default; a trailer at full blast on hover is not. */
 const FALLBACK_VOLUME = PREVIEW_DEFAULT_VOLUME;
@@ -189,10 +198,19 @@ export default function EmbedTrailer({
 
   /** Has the frame actually navigated to YouTube yet? See `post`. */
   const loadedRef = useRef(false);
-  /** The settle timer, so a card torn down mid-wait doesn't set state after. */
+  /** The backstop timer, so a card torn down mid-wait doesn't set state after. */
   const revealRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  /** One reveal per mount: PLAYING fires again on every loop of the trailer. */
-  const settleShownRef = useRef(false);
+  /**
+   * Has the picture actually been revealed yet?
+   *
+   * Kept separate from "the backstop is armed" on purpose. Merging the two —
+   * which the first version did — meant arming the timer marked the frame as
+   * shown, so the clock-based rule saw it as done and never fired early. The
+   * evidence path has to be able to beat the timer, which is its whole point.
+   */
+  const shownRef = useRef(false);
+  /** Backstop already scheduled — don't stack one per PLAYING message. */
+  const backstopArmedRef = useRef(false);
 
   /**
    * `loop` needs `playlist` set to the same id — on its own it does nothing for
@@ -272,27 +290,44 @@ export default function EmbedTrailer({
        * since the frame's opacity was tied to it, a trailer that was loaded,
        * running and audible-if-unmuted sat at opacity 0 behind the banner.
        */
-      const state =
-        data?.event === "onStateChange"
-          ? data.info
-          : data?.event === "infoDelivery"
-            ? (data.info as { playerState?: unknown } | null)?.playerState
-            : undefined;
+      const info = data?.info as
+        | { playerState?: unknown; currentTime?: unknown }
+        | null
+        | undefined;
+      const state = data?.event === "onStateChange" ? data.info : info?.playerState;
+
+      /*
+       * The clock is the evidence that the boot frame is behind us — see
+       * REVEAL_AFTER_SECONDS. Checked before the state, because `infoDelivery`
+       * often carries a moving `currentTime` without repeating `playerState`.
+       */
+      if (
+        !shownRef.current &&
+        typeof info?.currentTime === "number" &&
+        info.currentTime >= REVEAL_AFTER_SECONDS
+      ) {
+        shownRef.current = true;
+        if (revealRef.current) clearTimeout(revealRef.current);
+        setPlaying(true);
+        onPlayingChange(true);
+      }
+
       if (state === undefined) return;
       if (state === PLAYING) {
         setPaused(false);
-        if (settleShownRef.current) {
-          // Already settled once — a loop, or a resume after our own pause.
-          // Announce immediately: the player is long since in position, and
-          // waiting again would blink the banner back over a running picture.
+        if (shownRef.current) {
+          // Already revealed — a loop, or a resume after our own pause. Announce
+          // at once: the player is long since in position, and waiting again
+          // would blink the banner back over a running picture.
           setPlaying(true);
           onPlayingChange(true);
-        } else {
-          // FIRST play. The player is still moving its video into place at this
-          // instant — invisible at ×1, impossible to miss at ×200 — so let that
-          // happen behind the banner. See SETTLE_AFTER_PLAY_MS.
-          settleShownRef.current = true;
+        } else if (!backstopArmedRef.current) {
+          // FIRST play, and the clock has not moved far enough yet. Arm the
+          // backstop ONLY — deliberately without marking the frame as shown, so
+          // the clock rule above can still beat it. See SETTLE_AFTER_PLAY_MS.
+          backstopArmedRef.current = true;
           revealRef.current = setTimeout(() => {
+            shownRef.current = true;
             setPlaying(true);
             onPlayingChange(true);
           }, SETTLE_AFTER_PLAY_MS);
