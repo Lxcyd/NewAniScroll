@@ -1,5 +1,36 @@
 # DEVLOG
 
+## 2026-08-14 — Le lecteur est préchauffé au repos ; deux fautes du commit d'avant
+
+**La première carte restait noire.** Faute à moi, et précise : l'effet qui
+dimensionne la couche mesurait `boxRef` alors que le composant renvoyait encore
+`null` — l'iframe n'existait pas. L'effet ne se rejouait jamais (seul
+`attachment` était en dépendance, et il ne changeait plus), donc le lecteur
+gardait une taille nulle. `bootId` est maintenant en dépendance. À retenir : un
+effet de mesure qui ne dépend pas de l'existence de ce qu'il mesure est un bug
+qui attend son tour.
+
+**Le son partait avant l'image**, et c'est ce design qui l'a introduit : un
+lecteur qui meurt avec sa carte ne peut rien laisser fuiter dans la suivante, un
+lecteur qui SURVIT transporte le volume de la carte d'avant. `loadVideoById`
+démarrant aussitôt, le nouveau trailer était audible dès sa première frame
+pendant que l'image attendait encore que l'horloge bouge. Silence imposé avant
+chaque chargement, levé dans `reveal`, au même instant que l'image. Le fondu
+passe aussi de 300 à 140 ms — l'oreille recevait un trailer fini pendant que
+l'œil en recevait encore un.
+
+**« On ne peut pas warm les trailers ? »** Ce qui se préchauffe, c'est le BOOT
+(~450 ms), pas la vidéo — `cueVideoById` ne précharge rien, c'est mesuré (voir
+plus bas). Le lecteur est donc booté à `requestIdleCallback`, sur le premier id
+de trailer que les payloads déjà préchargés annoncent (`onFirstTrailer` dans
+`previewStore`). Rien n'est fetché pour ça, aucune vidéo ne joue avant qu'une
+carte le demande, et la première carte de la session ne paie plus le boot.
+
+Le seul vrai warm de la vidéo elle-même serait de la JOUER d'avance, cachée et
+muette, dans un second lecteur — ce qui consomme de la bande passante pour des
+cartes que le visiteur n'ouvrira peut-être jamais. Non fait : c'est un arbitrage
+qui appartient à Luc, pas une évidence technique.
+
 ## 2026-08-14 — Un seul lecteur pour toute la session
 
 Deux symptômes signalés — « beaucoup trop long à charger » et « on voit toujours

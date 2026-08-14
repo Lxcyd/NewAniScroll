@@ -15,6 +15,7 @@ import {
   writeMuted,
   writeVolume,
 } from "@/lib/prefs/previewVolume";
+import { onFirstTrailer } from "@/lib/preview/previewStore";
 import { getStage, subscribeStage } from "./stageStore";
 
 /**
@@ -170,10 +171,12 @@ export default function TrailerStage() {
    * The id the iframe was BORN with — set once, never again.
    *
    * Changing it would re-navigate the frame, which is the boot we are avoiding.
-   * Every later video arrives through `loadVideoById` instead. It is null until
-   * the first card opens: booting the player at page load would spend a video
-   * load on visitors who never hover, and booting it with a throwaway video
-   * would spend one on everybody. The first card pays what it used to pay.
+   * Every later video arrives through `loadVideoById` instead.
+   *
+   * WHICH id barely matters: the point is to have YouTube's player alive and
+   * measured before anybody hovers, and the video it happens to be cued on is
+   * replaced by the first card anyway. So the first trailer the page hears about
+   * is used, and the boot is spent at idle rather than on the first card's back.
    */
   const [bootId, setBootId] = useState<string | null>(null);
 
@@ -183,8 +186,18 @@ export default function TrailerStage() {
   const loadedIdRef = useRef<string | null>(null);
   /** Asked for while the frame was still booting; sent as soon as it can be. */
   const pendingIdRef = useRef<string | null>(null);
-  /** Have we started the very first video? Only the boot needs an explicit play. */
-  const startedRef = useRef(false);
+  /**
+   * A card is waiting on the video the frame was BORN with — play it as soon as
+   * the player speaks.
+   *
+   * Only the boot video needs this. Everything after it arrives through
+   * `loadVideoById`, which starts playing on its own. The play is deferred to
+   * the first message rather than sent from `onLoad` because a command aimed at
+   * a player that has not finished waking is simply dropped.
+   */
+  const wantPlayRef = useRef(false);
+  /** Has the boot video ever been started? It is cued, not playing, until asked. */
+  const playedRef = useRef(false);
   /** Seen the clock at the start of the CURRENT video — see ADVANCED. */
   const rewoundRef = useRef(false);
   /** Already revealed for the current attachment. */
@@ -193,6 +206,7 @@ export default function TrailerStage() {
   const handlersRef = useRef(attachment?.handlers ?? null);
   handlersRef.current = attachment?.handlers ?? null;
   const revealTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const forceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   /**
    * Fire a command at the player.
@@ -244,10 +258,50 @@ export default function TrailerStage() {
   }, []);
 
   /**
+   * WARM THE PLAYER WHILE NOTHING IS HAPPENING.
+   *
+   * The boot is ~450 ms and it is ours, not YouTube's. Reusing one player
+   * already removed it from every card but the first; this removes it from the
+   * first one too, by spending it before anybody hovers.
+   *
+   * AT IDLE, and not at page load: the boot pulls YouTube's player script, which
+   * is not small, and a preview nobody has asked for yet has no business
+   * competing with the page the visitor is actually reading. `requestIdleCallback`
+   * with a timeout means "when there is room, but do not put it off for ever".
+   *
+   * It waits for a trailer id from the payloads the page is already prefetching,
+   * so nothing is fetched on this account and a visitor who never hovers still
+   * pays only for a cued player — no video plays until a card asks (see
+   * wantPlayRef).
+   */
+  useEffect(() => {
+    if (bootId !== null) return;
+    let release: (() => void) | null = null;
+    const claim = () => {
+      release = onFirstTrailer((id) => setBootId((cur) => cur ?? id));
+    };
+    const idle = window.requestIdleCallback;
+    if (typeof idle === "function") {
+      const handle = idle(claim, { timeout: 3000 });
+      return () => {
+        window.cancelIdleCallback?.(handle);
+        release?.();
+      };
+    }
+    // Safari has no idle callback; a plain delay is the same intent, coarser.
+    const timer = setTimeout(claim, 1500);
+    return () => {
+      clearTimeout(timer);
+      release?.();
+    };
+  }, [bootId]);
+
+  /**
    * Point the player at the newly opened card — or park it when none is open.
    */
   useEffect(() => {
     if (revealTimerRef.current) clearTimeout(revealTimerRef.current);
+    if (forceTimerRef.current) clearTimeout(forceTimerRef.current);
     shownRef.current = false;
     rewoundRef.current = false;
     setVisible(false);
@@ -265,7 +319,8 @@ export default function TrailerStage() {
     openedAtRef.current = Date.now();
 
     if (bootId === null) {
-      // First card of the session: the iframe is about to be born on this video.
+      // Nobody warmed us in time — this card pays the boot, as every card used
+      // to. See onFirstTrailer below for the path that normally gets here first.
       loadedIdRef.current = attachment.id;
       setBootId(attachment.id);
       return;
@@ -273,8 +328,26 @@ export default function TrailerStage() {
 
     if (!loadedRef.current) {
       pendingIdRef.current = attachment.id;
+    } else if (attachment.id === loadedIdRef.current && !playedRef.current) {
+      // The warm boot happens to be cued on exactly this video and has never
+      // run: start it rather than reloading it, which would throw away the one
+      // video that is already fetched.
+      post("mute");
+      wantPlayRef.current = true;
     } else {
       loadedIdRef.current = attachment.id;
+      /*
+       * MUTE FIRST — this is the sound-before-image fix, and it is a fault this
+       * design introduced by itself.
+       *
+       * A player that dies with its card cannot leak anything into the next one.
+       * A player that SURVIVES carries the last card's volume, and
+       * `loadVideoById` starts playing at once: the new trailer was therefore
+       * audible from its first frame while the picture was still hidden waiting
+       * for the clock to move. Silence is asserted before every load and lifted
+       * again in `reveal`, on the same instant as the picture.
+       */
+      post("mute");
       // `loadVideoById` starts playing on its own — measured, and the reason
       // there is no play call here. Sending one immediately after would be
       // dropped anyway: the player ignores commands aimed at a video it has not
@@ -282,7 +355,23 @@ export default function TrailerStage() {
       post("loadVideoById", [attachment.id]);
     }
 
-    // Never let the banner hold for ever because one message went missing.
+    /*
+     * The two backstops, armed PER CARD rather than once at boot.
+     *
+     * Armed once, they would only ever have protected the first card — and the
+     * failure they exist for (a message that never arrives) is not one that only
+     * happens once. Without `autoplay` in the URL a player that is never told to
+     * play never plays, so a lost message would leave a card on its banner for
+     * good; this file has shipped that failure once already.
+     */
+    if (wantPlayRef.current) {
+      forceTimerRef.current = setTimeout(() => {
+        if (playedRef.current) return;
+        wantPlayRef.current = false;
+        playedRef.current = true;
+        post("playVideo");
+      }, FORCE_PLAY_MS);
+    }
     revealTimerRef.current = setTimeout(reveal, REVEAL_ANYWAY_MS);
   }, [attachment, bootId, post, reveal]);
 
@@ -303,6 +392,11 @@ export default function TrailerStage() {
   useLayoutEffect(() => {
     const box = boxRef.current;
     if (!attachment || !box) return;
+    // `bootId` is in the deps and it is NOT decoration. On the very first card
+    // this component still returns null when the attachment arrives — the box
+    // does not exist yet — so the run that matters is the one AFTER the iframe
+    // is born. Without it the first card of the session was measured against
+    // nothing, kept a zero-sized player, and showed a black rectangle for ever.
     const el = attachment.el;
     let raf = 0;
     let last = "";
@@ -320,7 +414,7 @@ export default function TrailerStage() {
     };
     tick();
     return () => cancelAnimationFrame(raf);
-  }, [attachment]);
+  }, [attachment, bootId]);
 
   /**
    * Subscribe to the player's events, then listen.
@@ -361,9 +455,11 @@ export default function TrailerStage() {
 
       // The boot video is cued, not playing — `autoplay` is deliberately absent
       // from the URL, since a muted player told to play by script is allowed by
-      // every autoplay policy and this way nothing runs before we ask.
-      if (state !== undefined && !startedRef.current) {
-        startedRef.current = true;
+      // every autoplay policy and this way a player warmed at idle sits silent
+      // and still until a card actually asks for it.
+      if (state !== undefined && wantPlayRef.current) {
+        wantPlayRef.current = false;
+        playedRef.current = true;
         post("playVideo");
       }
 
@@ -399,17 +495,11 @@ export default function TrailerStage() {
       );
     }, 150);
     const stopHandshake = setTimeout(() => clearInterval(handshake), 4000);
-    const force = setTimeout(() => {
-      if (startedRef.current) return;
-      startedRef.current = true;
-      post("playVideo");
-    }, FORCE_PLAY_MS);
 
     return () => {
       window.removeEventListener("message", onMessage);
       clearInterval(handshake);
       clearTimeout(stopHandshake);
-      clearTimeout(force);
     };
   }, [bootId, post, reveal]);
 
@@ -419,6 +509,7 @@ export default function TrailerStage() {
       if (volCloseRef.current) clearTimeout(volCloseRef.current);
       if (settleRef.current) clearTimeout(settleRef.current);
       if (revealTimerRef.current) clearTimeout(revealTimerRef.current);
+      if (forceTimerRef.current) clearTimeout(forceTimerRef.current);
     },
     [],
   );
@@ -598,7 +689,14 @@ export default function TrailerStage() {
          * by the browser, and this one staying alive IS the feature.
          */
         opacity: visible && attachment ? 1 : 0,
-        transition: "opacity 300ms",
+        /*
+         * Short, because this fade is the last of the sound-before-image gap.
+         * Sound and picture are released on the same instant, but a 300 ms
+         * dissolve means the ear gets a finished trailer while the eye is still
+         * being handed one. Long enough not to be a hard cut, short enough that
+         * they arrive together.
+         */
+        transition: "opacity 140ms",
       }}
     >
       <iframe
@@ -639,9 +737,15 @@ export default function TrailerStage() {
            */
           post("unloadModule", ["captions"]);
           post("unloadModule", ["cc"]);
+          // A card claimed the stage while the frame was still booting.
           const pending = pendingIdRef.current;
-          if (pending && pending !== loadedIdRef.current) {
-            pendingIdRef.current = null;
+          if (!pending) return;
+          pendingIdRef.current = null;
+          post("mute");
+          if (pending === loadedIdRef.current) {
+            // It wants the video we were born with: start it, don't reload it.
+            wantPlayRef.current = true;
+          } else {
             loadedIdRef.current = pending;
             post("loadVideoById", [pending]);
           }

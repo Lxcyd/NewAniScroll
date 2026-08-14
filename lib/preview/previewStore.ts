@@ -67,6 +67,35 @@ export function warmImage(url: string | null | undefined): void {
   void img.decode?.().catch(() => {});
 }
 
+/**
+ * The first trailer id this page has heard of, announced once.
+ *
+ * TrailerStage needs a video id to be born with, and it does not care WHICH —
+ * it only needs the player booted before somebody hovers, since that boot is
+ * ~450 ms it would otherwise pay on the first card. Any real trailer will do,
+ * so the cheapest one is whichever payload lands first.
+ */
+let firstTrailer: string | null = null;
+const trailerWaiters = new Set<(id: string) => void>();
+
+export function onFirstTrailer(cb: (id: string) => void): () => void {
+  if (firstTrailer) {
+    cb(firstTrailer);
+    return () => {};
+  }
+  trailerWaiters.add(cb);
+  return () => {
+    trailerWaiters.delete(cb);
+  };
+}
+
+function announceTrailer(id: string | undefined) {
+  if (!id || firstTrailer) return;
+  firstTrailer = id;
+  for (const w of trailerWaiters) w(id);
+  trailerWaiters.clear();
+}
+
 /** Synchronous read — what the card can paint on its very first render. */
 export function peekPreview(id: number): PreviewData | null | undefined {
   return cache.get(id);
@@ -94,6 +123,7 @@ export function fetchPreview(id: number): Promise<PreviewData | null> {
       const json = (await res.json()) as PreviewData;
       cache.set(id, json);
       warmImage(json.bannerImage ?? json.coverImage?.large);
+      announceTrailer(json.trailer?.id);
       return json;
     } catch {
       return null;
