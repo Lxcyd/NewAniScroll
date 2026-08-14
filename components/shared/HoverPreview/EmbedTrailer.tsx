@@ -75,30 +75,32 @@ const OPEN_GRACE_MS = 350;
 /** How still the pointer must be before movement is read as intent — see NativeTrailer. */
 const SETTLE_MS = 400;
 
-/** YouTube's player states this cares about. */
+/** YouTube's player states, the only two this cares about. */
 const PLAYING = 1;
 const PAUSED = 2;
-/**
- * BUFFERING is what makes the picture appear SOONER.
+/*
+ * BUFFERING (3) is deliberately NOT a reveal, and that is a correction.
  *
- * The player paints its poster frame the moment it starts fetching media, well
- * before it reaches PLAYING. Waiting for PLAYING meant holding the banner over
- * a frame that already had something to show — a black-box delay we were adding
- * ourselves on top of YouTube's own boot time. Revealing here hands the viewer
- * a picture at the earliest instant there is one.
+ * Revealing on it looked like free speed — the player is fetching media, so
+ * surely there is something to show. What it actually shows is YouTube's
+ * LOADING SPINNER over a black frame. Swapping the card's own artwork for a
+ * spinner is not a faster preview, it is a worse one: the banner is a finished
+ * picture, and it should hold the frame until there are real moving pixels
+ * behind it.
  */
-const BUFFERING = 3;
 
 /**
  * How long to wait for the player to announce itself before showing the frame
  * anyway.
  *
- * A backstop, not the normal path: when the handshake works — which it now does
- * — the first `infoDelivery` beats this comfortably and the picture appears as
- * soon as there is one. It matters only when nothing answers, and there the
- * choice is between a short black box and a long one. Short.
+ * A BACKSTOP against a broken handshake, nothing more — it exists so a silent
+ * player cannot leave the trailer invisible forever, which it once did. It is
+ * deliberately LONG. A short one fires while the player is still buffering and
+ * swaps the card's finished artwork for a loading spinner, which is the very
+ * thing the banner is there to prevent. In the normal case a real PLAYING
+ * message arrives long before this and the timer never matters.
  */
-const REVEAL_MS = 700;
+const REVEAL_MS = 6000;
 
 export default function EmbedTrailer({
   id,
@@ -219,13 +221,6 @@ export default function EmbedTrailer({
             ? (data.info as { playerState?: unknown } | null)?.playerState
             : undefined;
       if (state === undefined) return;
-      // BUFFERING only reveals; it never claims playback has begun, so the
-      // play/pause button is not told anything it would have to take back.
-      if (state === BUFFERING) {
-        setPlaying(true);
-        onPlayingChange(true);
-        return;
-      }
       if (state === PLAYING) {
         setPlaying(true);
         setPaused(false);
