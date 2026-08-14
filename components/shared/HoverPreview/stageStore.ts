@@ -21,6 +21,14 @@ export type StageHandlers = {
   onPlaying: (playing: boolean) => void;
   /** true = this video is unplayable, drop the frame for good. */
   onHide: (hidden: boolean) => void;
+  /**
+   * How far through the trailer we are, 0 to 1.
+   *
+   * Only the ambient light wants this, and only because it cannot read the
+   * picture: it lights the card from the three still frames YouTube publishes,
+   * and this is what tells it which one the video is near.
+   */
+  onProgress: (p: number) => void;
 };
 
 export type StageAttachment = {

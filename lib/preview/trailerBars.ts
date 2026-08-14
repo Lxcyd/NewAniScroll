@@ -56,6 +56,19 @@ const MAX_SIDE = 0.3;
 /** Below this, it is JPEG noise on the edge rather than a bar. */
 const MIN_BAR = 0.02;
 
+/**
+ * The three frames YouTube publishes for a video, at ~25/50/75 % through it.
+ *
+ * Exported because they are useful twice: this file reads them for black bars,
+ * and TrailerAmbient paints the card's glow with them. They are the only frames
+ * of the video reachable from a browser — the real storyboard sheets under
+ * i.ytimg.com/sb/ are signed and answer 403 without the token from the player
+ * response, which a cross-origin page cannot have. Checked, so nobody tries.
+ */
+export function storyboardFrames(id: string): string[] {
+  return ["mq1", "mq2", "mq3"].map((n) => `https://i.ytimg.com/vi/${id}/${n}.jpg`);
+}
+
 export type TrailerBars = {
   /** Fraction of the height that is bar, top AND bottom (symmetric). */
   tb: number;
@@ -153,9 +166,7 @@ export function detectBars(id: string): Promise<TrailerBars> {
 
   const p = (async () => {
     try {
-      const frames = await Promise.all(
-        ["mq1", "mq2", "mq3"].map((n) => frameBars(`https://i.ytimg.com/vi/${id}/${n}.jpg`)),
-      );
+      const frames = await Promise.all(storyboardFrames(id).map(frameBars));
       const median = (side: Side) =>
         frames.map((f) => f[side]).sort((a, b) => a - b)[1];
       const tb = Math.min(median("top"), median("bottom"));

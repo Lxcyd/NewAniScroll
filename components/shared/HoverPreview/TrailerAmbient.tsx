@@ -57,11 +57,22 @@ const SAMPLE_INTERVAL_MS = 1000 / 30;
  */
 const FADE_LENGTH = 0.34;
 
+/**
+ * How often the storyboard blend is recomposed, in ms.
+ *
+ * The glow drifts between two stills; there is nothing here that needs a frame
+ * rate. Slower than the video loop above on purpose — this costs three image
+ * draws and a publish, and it is buying a colour, not motion.
+ */
+const BLEND_INTERVAL_MS = 120;
+
 export default function TrailerAmbient({
   banner,
   sourceRef,
   playing,
   zoom,
+  frames,
+  progress,
 }: {
   /** Painted before the trailer runs, so the card is lit from its first frame. */
   banner: string | null;
@@ -77,6 +88,13 @@ export default function TrailerAmbient({
   playing: boolean;
   /** The crop measured for the picture — the glow has to be framed like it. */
   zoom: number;
+  /**
+   * The video's own published stills, in order, when there is no readable
+   * element. See the storyboard effect below for what is and is not possible.
+   */
+  frames?: string[] | null;
+  /** How far through the trailer the player says it is, 0 to 1. */
+  progress?: number | null;
 }) {
   const layerRefs = useRef<(HTMLCanvasElement | null)[]>([]);
   const sourceCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -90,6 +108,9 @@ export default function TrailerAmbient({
    */
   const zoomRef = useRef(zoom);
   zoomRef.current = zoom;
+  /** Same reason as zoomRef: the blend loop must survive a new position. */
+  const progressRef = useRef<number | null | undefined>(progress);
+  progressRef.current = progress;
   /**
    * Has the trailer ever put a frame on these canvases.
    *
@@ -215,9 +236,94 @@ export default function TrailerAmbient({
     };
   }, [banner, playing]);
 
+  /**
+   * The glow from a video we are not allowed to look at.
+   *
+   * WHY THIS IS NOT THE LOOP BELOW. That one reads the playing element 30 times
+   * a second, which is only possible when we own the element. The preview is a
+   * cross-origin YouTube embed: its pixels are unreachable, and the glow was
+   * therefore frozen on the banner from the first frame to the last — lit, but
+   * dead.
+   *
+   * WHAT IS REACHABLE. Exactly three stills, at ~25/50/75 % through the video
+   * (see storyboardFrames — the real per-second storyboard sheets are signed and
+   * answer 403 to anyone but the player). Three colours would be three jumps, so
+   * they are not switched between: the light sits CONTINUOUSLY between the two
+   * stills the playhead is currently between, weighted by how far along it is.
+   * The colour then drifts the whole way through the trailer instead of stepping.
+   *
+   * Honest about what this is: the glow follows the video's broad colour arc, not
+   * its cuts. A flash of fire between two samples never reaches the card. That is
+   * the ceiling of what a cross-origin embed allows, and it is a great deal
+   * better than a still that never changes at all.
+   */
+  useEffect(() => {
+    if (!playing || !frames?.length || progress == null || sourceRef?.current) return;
+    const { source } = ensureCanvases();
+    const ctx = source.getContext("2d");
+    if (!ctx) return;
+
+    let cancelled = false;
+    const images: (HTMLImageElement | null)[] = frames.map(() => null);
+    frames.forEach((url, i) => {
+      const img = new Image();
+      // Never read back — only drawn — so a taint would cost nothing. Asked for
+      // anyway because these are the same URLs the bar detector already fetched
+      // WITH it, and a second request under different rules would miss that
+      // cache entirely.
+      img.crossOrigin = "anonymous";
+      img.decoding = "async";
+      img.src = url;
+      img
+        .decode()
+        .then(() => {
+          if (!cancelled) images[i] = img;
+        })
+        .catch(() => {});
+    });
+
+    const timer = setInterval(() => {
+      if (cancelled || document.hidden) return;
+      const p = progressRef.current;
+      if (p == null) return;
+      // Where the stills actually sit: 1/6, 3/6, 5/6 of the video — the middle
+      // of each third, not its edges. Placing them at 0, 0.5 and 1 would make
+      // the light lead the picture at the start and lag it at the end.
+      const pos = Math.min(images.length - 1, Math.max(0, p * images.length - 0.5));
+      const i = Math.min(images.length - 2, Math.floor(pos));
+      const w = Math.min(1, Math.max(0, pos - i));
+      const a = images[i];
+      const b = images[i + 1] ?? a;
+      if (!a && !b) return;
+      try {
+        ctx.globalAlpha = 1;
+        ctx.clearRect(0, 0, SRC_W, SRC_H);
+        if (a) ctx.drawImage(a, 0, 0, SRC_W, SRC_H);
+        if (b && w > 0) {
+          ctx.globalAlpha = a ? w : 1;
+          ctx.drawImage(b, 0, 0, SRC_W, SRC_H);
+          ctx.globalAlpha = 1;
+        }
+        publish(source);
+        everDrewFrameRef.current = true;
+      } catch {
+        /* a still that will not draw is skipped; the next tick is 120 ms away */
+      }
+    }, BLEND_INTERVAL_MS);
+
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+    // `progress` is read through a ref inside the interval — see progressRef —
+    // so that a new value does not tear down and rebuild the whole blend.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playing, frames, sourceRef]);
+
   /** Once the trailer runs, the glow is its frames. */
   useEffect(() => {
-    if (!playing) return;
+    // No element to read means no loop to run: the embed path is handled above.
+    if (!playing || !sourceRef) return;
     const { source, prev } = ensureCanvases();
     const sctx = source.getContext("2d");
     const pctx = prev.getContext("2d");

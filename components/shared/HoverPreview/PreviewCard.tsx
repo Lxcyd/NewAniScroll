@@ -4,6 +4,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
@@ -26,6 +27,7 @@ import ListEditor from "@/components/listEditor";
 import TrailerAmbient from "./TrailerAmbient";
 import { attachStage, detachStage } from "./stageStore";
 import { isTrailerBlocked, subscribeBlocked } from "@/lib/preview/trailerBlocked";
+import { storyboardFrames } from "@/lib/preview/trailerBars";
 
 export type AnchorRect = { top: number; left: number; width: number; height: number };
 
@@ -213,6 +215,15 @@ export default function PreviewCard({
 
   const onHide = useCallback((hidden: boolean) => setHideFrame(hidden), []);
   const onPlayingChange = useCallback((next: boolean) => setPlaying(next), []);
+  /**
+   * How far through the trailer the shared player says it is.
+   *
+   * Only the ambient light uses it, and only because it cannot read the picture:
+   * a cross-origin embed cannot be sampled, so the glow is composed from the
+   * video's three published stills and this says which two to sit between.
+   */
+  const [progress, setProgress] = useState<number | null>(null);
+  const onProgress = useCallback((p: number) => setProgress(p), []);
 
   /** The box the shared player draws over. It stays empty; it is only measured. */
   const slotRef = useRef<HTMLDivElement>(null);
@@ -243,6 +254,16 @@ export default function PreviewCard({
    */
   const trailerId = data?.trailer?.id ?? null;
   /*
+   * Memoised, and not for tidiness: TrailerAmbient keys its blend loop on this
+   * array, so a fresh one on every render would tear the loop down and rebuild
+   * it several times a second — and the glow would restart from its first still
+   * each time instead of drifting.
+   */
+  const ambientFrames = useMemo(
+    () => (trailerId ? storyboardFrames(trailerId) : null),
+    [trailerId],
+  );
+  /*
    * A trailer already known to be unwatchable from here is never mounted again.
    *
    * The first hover of the session still mounts it and finds out — that is the
@@ -262,14 +283,19 @@ export default function PreviewCard({
   useEffect(() => {
     const el = slotRef.current;
     if (!el || !trailerId || hideFrame || listOpen || blocked) return;
-    attachStage({ el, id: trailerId, handlers: { onPlaying: onPlayingChange, onHide } });
+    setProgress(null);
+    attachStage({
+      el,
+      id: trailerId,
+      handlers: { onPlaying: onPlayingChange, onHide, onProgress },
+    });
     return () => {
       detachStage(el);
       // The player is shared, so it does not tell this card it has stopped — it
       // has already moved on. Put the artwork back ourselves.
       onPlayingChange(false);
     };
-  }, [trailerId, hideFrame, listOpen, blocked, onPlayingChange, onHide]);
+  }, [trailerId, hideFrame, listOpen, blocked, onPlayingChange, onHide, onProgress]);
 
   /*
    * The info page's episode cell: "5/12 EP", or just "12 EP", with the runtime
@@ -397,10 +423,16 @@ export default function PreviewCard({
           at the bottom of the picture. Light coming off a screen doesn't wrap
           around to backlight the text under it. */}
       <div className="as-preview-ambient-clip pointer-events-none absolute -z-10" aria-hidden>
+        {/* `playing` is the card's own transport state, so the glow starts
+            drifting exactly when the picture appears — and falls back to the
+            banner when it does not. The frames are the video's own; see
+            TrailerAmbient for why there are only three of them. */}
         <TrailerAmbient
           banner={banner}
-          playing={false}
+          playing={playing}
           zoom={1}
+          frames={ambientFrames}
+          progress={progress}
         />
       </div>
 

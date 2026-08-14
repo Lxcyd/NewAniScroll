@@ -545,6 +545,13 @@ export default function TrailerStage() {
       if (typeof at === "number") {
         if (at < REWOUND) rewoundRef.current = true;
         else if (rewoundRef.current && at > ADVANCED) reveal();
+        // Told to the card, which passes it to the ambient light: it cannot read
+        // the picture, so this is how it knows which of the video's three
+        // published frames to light the card with.
+        const total = (info as { duration?: unknown })?.duration;
+        if (typeof total === "number" && total > 0) {
+          handlersRef.current?.onProgress(Math.min(1, Math.max(0, at / total)));
+        }
       }
 
       if (state === undefined) return;
