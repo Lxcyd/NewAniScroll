@@ -1,5 +1,38 @@
 # DEVLOG
 
+## 2026-08-14 — Le Worker déployé et mesuré : rien n'a changé, et c'était prévisible
+
+Le Worker ne se déploie par aucun CI (pas de `wrangler` dans les workflows) : il
+part d'un `wrangler deploy` à la main, donc **git ne dit pas quelle génération
+tourne**. `youtube-trailer.js` apparaît en 1080 lignes ajoutées face à `main`
+alors qu'il sert en production — la comparaison avec `main` ne renseigne sur rien.
+Il fallait donc mesurer avant, déployer, remesurer.
+
+**Avant** (AniList page 8, 14 trailers froids) : **8/14 servis**, 0 en cache,
+disjoncteur fermé de bout en bout, refus uniformément
+`LOGIN_REQUIRED: Sign in to confirm you're not a bot`.
+
+**Après** (`wrangler deploy`, version `5719cb65`, puis page 12) : **10/14 dont 3
+déjà en cache**, soit **7/11 à froid**. Sondage de contrôle page 20 : 7/8, et
+l'unique échec est un `410 UNPLAYABLE / not available in your country` — un
+verdict géographique correct, pas un refus.
+
+**Verdict : aucun écart mesurable.** 57 % contre 64 % sur des échantillons de
+onze à quatorze, ce sont des vidéos différentes et une vidéo d'écart ; seul un
+grand écart aurait voulu dire quelque chose, et il n'y en a pas. Le déploiement
+n'a d'ailleurs probablement rien apporté parce que la version en ligne était déjà
+récente : elle estampillait déjà `X-Aniscroll-Cache` / `Breaker` / `It-Calls`.
+
+**Ce que ça confirme** : le blocage ne vient pas d'un correctif qui manquait au
+déploiement. Il est là où les trois culs-de-sac de la journée l'ont déjà situé —
+l'egress.
+
+*Sous-question laissée ouverte, honnêtement* : mon banc tronquait le diag à 90
+caractères, et `android` n'y apparaissait jamais derrière `android_vr`. Relancé
+sans troncature, aucun cas en échec ne s'est représenté (7/8, l'échec étant
+géographique), donc **je n'ai ni confirmé ni infirmé** que le repli sur le second
+client s'exécute. À revérifier quand une vague de refus se présentera.
+
 ## 2026-08-14 — PO token : la porte s'ouvre, la pièce est vide
 
 Exécution du plan en cinq étapes. **Arrêté à la porte 1, comme prévu** — c'était
