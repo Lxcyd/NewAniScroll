@@ -16,8 +16,9 @@ import { statusLabel } from "@/components/anime/v2/helpers";
 import { lockPreview, unlockPreview } from "@/lib/preview/previewLock";
 import { MdInfoOutline, MdPlayArrow } from "react-icons/md";
 import ListEditor from "@/components/listEditor";
-import EmbedTrailer from "./EmbedTrailer";
 import TrailerAmbient from "./TrailerAmbient";
+import { attachStage, detachStage } from "./stageStore";
+import { stagePointerLeave, stagePointerMove } from "./TrailerStage";
 
 export type AnchorRect = { top: number; left: number; width: number; height: number };
 
@@ -180,21 +181,45 @@ export default function PreviewCard({
   const onHide = useCallback((hidden: boolean) => setHideFrame(hidden), []);
   const onPlayingChange = useCallback((next: boolean) => setPlaying(next), []);
 
+  /** The box the shared player draws over. It stays empty; it is only measured. */
+  const slotRef = useRef<HTMLDivElement>(null);
+
   const title = data ? pickTitle(data.title, titlePref) : "";
   // Same treatment the info page gives its synopsis: translated on demand and
   // cached server-side, because AniList only ever ships English.
   const description = useTranslatedText(data?.description ?? "");
   const banner = bannerUrl(data);
-  // The trailer element is mounted as soon as we have an id and it hasn't been
-  // ruled unplayable; `playing` is the finer, live state.
-  //
-  // There used to be a third condition: a cached verdict from our proxy, which
-  // could say a video was region-blocked or deleted before we mounted anything.
-  // That verdict came from an endpoint the proxy served, and the proxy is gone.
-  // The embed now reports its own failure through `onError`, which is later —
-  // the frame mounts and then hides — but it is YouTube's own answer about the
-  // visitor's own region rather than ours about our datacentre's.
-  const trailerMounted = Boolean(data?.trailer?.id) && !hideFrame;
+  /**
+   * Claim the shared player for this card, and give it back on the way out.
+   *
+   * The claim holds as soon as we have an id and the video hasn't been ruled
+   * unplayable; `playing` is the finer, live state.
+   *
+   * There used to be a third condition: a cached verdict from our proxy, which
+   * could say a video was region-blocked or deleted before we mounted anything.
+   * That verdict came from an endpoint the proxy served, and the proxy is gone.
+   * The embed now reports its own failure through `onError`, which is later —
+   * the frame shows and then hides — but it is YouTube's own answer about the
+   * visitor's own region rather than ours about our datacentre's.
+   *
+   * `listOpen` is a condition and not an oversight: the trailer used to be
+   * paused while the list dialog was up — ambience for a card you glance at is
+   * noise over a form you fill in — and that behaviour was lost when the preview
+   * became a cross-origin embed with no element to pause. Releasing the stage
+   * pauses the player and puts the artwork back, which is what it did before.
+   */
+  const trailerId = data?.trailer?.id ?? null;
+  useEffect(() => {
+    const el = slotRef.current;
+    if (!el || !trailerId || hideFrame || listOpen) return;
+    attachStage({ el, id: trailerId, handlers: { onPlaying: onPlayingChange, onHide } });
+    return () => {
+      detachStage(el);
+      // The player is shared, so it does not tell this card it has stopped — it
+      // has already moved on. Put the artwork back ourselves.
+      onPlayingChange(false);
+    };
+  }, [trailerId, hideFrame, listOpen, onPlayingChange, onHide]);
 
   /*
    * The info page's episode cell: "5/12 EP", or just "12 EP", with the runtime
@@ -392,13 +417,21 @@ export default function PreviewCard({
               }`}
             />
           )}
-          {data?.trailer?.id && !hideFrame && (
-            <EmbedTrailer
-              id={data.trailer.id}
-              onHide={onHide}
-              onPlayingChange={onPlayingChange}
-            />
-          )}
+          {/* The slot the shared player draws over — see TrailerStage. It holds
+              no picture of its own; it exists to be MEASURED, so the player can
+              sit exactly here without ever being moved into the card (which
+              would reload its iframe and undo the whole point). */}
+          {/* It also reports the pointer: the player's layer is
+              pointer-transparent so that hovering the picture still counts as
+              hovering the card, which means the movement that wakes the
+              controls arrives HERE. */}
+          <div
+            ref={slotRef}
+            className="absolute inset-0"
+            aria-hidden
+            onPointerMove={stagePointerMove}
+            onPointerLeave={stagePointerLeave}
+          />
         </div>
 
         <div

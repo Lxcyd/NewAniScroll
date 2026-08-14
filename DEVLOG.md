@@ -1,5 +1,61 @@
 # DEVLOG
 
+## 2026-08-14 — Un seul lecteur pour toute la session
+
+Deux symptômes signalés — « beaucoup trop long à charger » et « on voit toujours
+le zoom avec le carré en haut à gauche » — une seule cause : **chaque survol
+faisait naître un lecteur YouTube complet, de zéro**.
+
+**Le budget, mesuré** (banc `bench23.js`, boîte de la taille de la carte, ×200) :
+
+| poste | coût | à qui |
+|---|---|---|
+| naissance de l'iframe + boot du lecteur | ~450 ms | nous |
+| le repos de 350 ms qui cachait la frame de démarrage | 350 ms | nous |
+| `playVideo` → image qui avance | **~800 ms** | YouTube |
+
+Les deux premières lignes étaient repayées à chaque poster. La troisième est
+incompressible.
+
+**Deux mesures qui ont changé le plan en cours de route :**
+
+1. **`cueVideoById` ne précharge pas** (`bench24.js`). Cuer 200, 400, 800 ou
+   1500 ms à l'avance donne la même médiane de démarrage (~600–1000 ms, aucune
+   tendance). Le levier « précharger pendant les 200 ms d'immobilité du
+   pointeur » — que j'allais construire — **n'existe pas**. Consigné dans
+   l'en-tête de `TrailerStage` pour qu'il ne soit pas rebâti.
+2. **Réemployer un lecteur chaud supprime la frame moche.** Photographié : un
+   `loadVideoById` sur un lecteur déjà posé passe du noir à l'image, sans bouton
+   géant ni carré blanc. Le carré n'était donc pas un défaut du ×200 mais du
+   BOOT, que le ×200 se contentait d'agrandir.
+
+**Piège de mesure, noté parce qu'il a menti pendant deux passes** : la vidéo
+précédente continue d'annoncer son `currentTime` pendant que la suivante charge,
+donc un simple « `currentTime` > 0,2 s » est satisfait instantanément — d'où une
+colonne à 2 ms qui ne mesurait rien. Il faut avoir vu le compteur **redescendre**
+avant d'accepter qu'il remonte. La même précaution est dans le code de prod
+(`REWOUND`), pour la même raison.
+
+**Ce qui a été fait** : le lecteur sort de la carte. `TrailerStage` est un
+lecteur unique, monté au premier survol de la session et gardé vivant, dessiné
+par-dessus l'emplacement vidéo de la carte ouverte. Il ne peut pas être
+*déplacé* dans la carte — reparenter une iframe la recharge, ce qui détruirait
+justement le boot qu'on garde — donc il reste en place et **mesure** la carte
+(`stageStore.ts` : la carte prête un élément, pas un rectangle, sinon la position
+dériverait du défilement).
+
+**Le repos de 350 ms disparaît**, remplacé par une règle qui n'est pas une
+horloge : on révèle quand le `currentTime` a bougé. Une constante ne peut pas
+gagner une course dont la longueur appartient à la machine du visiteur ; c'est
+pour ça que le carré revenait chez Luc et pas chez moi.
+
+**Récupéré au passage** : le trailer se remet en pause derrière l'éditeur de
+liste — la carte rend la scène quand le dialogue s'ouvre. C'était une régression
+consignée le jour même, plus bas.
+
+**Reste, honnêtement** : la première carte de la session paie toujours le boot.
+Et les ~800 ms de YouTube ne bougent pas.
+
 ## 2026-08-14 — Le proxy trailer est supprimé, retour à l'embed nu
 
 Décision prise après la journée de mesures : le proxy achetait une première

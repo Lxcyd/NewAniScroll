@@ -7,6 +7,7 @@ import { isPreviewLocked, onPreviewUnlocked } from "@/lib/preview/previewLock";
 import { fetchPreview } from "@/lib/preview/previewStore";
 import { startViewportPrefetch } from "@/lib/preview/viewportPrefetch";
 import PreviewCard, { type AnchorRect } from "./PreviewCard";
+import TrailerStage from "./TrailerStage";
 
 /**
  * Site-wide anime hover preview — a port of Hayase's card preview
@@ -337,18 +338,33 @@ export default function HoverPreviewProvider() {
     return () => router.events.off("routeChangeStart", hide);
   }, [router]);
 
-  if (!enabled || !open || typeof document === "undefined") return null;
+  if (!enabled || typeof document === "undefined") return null;
 
   return createPortal(
-    <PreviewCard
-      // Remount on id change: the card owns its fetch, its trailer iframe and
-      // its position, and all three are per-anime.
-      key={open.id}
-      id={open.id}
-      rect={open.rect}
-      poster={open.poster}
-      subscribeRect={subscribeRect}
-    />,
+    <>
+      {/*
+        The trailer player, and it is rendered whether or not a card is open —
+        that is the entire reason it lives here rather than in the card.
+        Mounting it per card meant booting YouTube's player from nothing on
+        every poster: ~450 ms of iframe birth plus a settle delay to hide the
+        boot's first, ugly layout, both paid again each time. One player that
+        outlives the cards pays that once a session. It renders nothing at all
+        until the first card claims it, so a visitor who never hovers never
+        loads it.
+      */}
+      <TrailerStage />
+      {open && (
+        <PreviewCard
+          // Remount on id change: the card owns its fetch and its position, and
+          // both are per-anime. The trailer is no longer among them.
+          key={open.id}
+          id={open.id}
+          rect={open.rect}
+          poster={open.poster}
+          subscribeRect={subscribeRect}
+        />
+      )}
+    </>,
     document.body,
   );
 }
