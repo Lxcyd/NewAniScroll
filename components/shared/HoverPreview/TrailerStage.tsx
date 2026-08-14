@@ -151,9 +151,21 @@ const MOVE_SLOP = 8;
 /** No controls at all for this long after the card opens, movement or not. */
 const OPEN_GRACE_MS = 350;
 
-/** YouTube's player states, the only two this cares about. */
+/** YouTube's player states. ENDED matters only to stop the clock below. */
 const PLAYING = 1;
 const PAUSED = 2;
+const ENDED = 0;
+
+/**
+ * How often the glow is told where the trailer is.
+ *
+ * Fast enough that the light drifts rather than steps — the ambient recomposes
+ * every 120 ms and can only be as smooth as what it is told — and slow enough
+ * that it is not a per-frame re-render of the open card.
+ */
+const PROGRESS_TICK_MS = 200;
+/** Give up re-asking for the video's length after this. */
+const DURATION_ASK_MS = 12000;
 
 export default function TrailerStage() {
   const attachment = useSyncExternalStore(subscribeStage, getStage, () => null);
@@ -221,6 +233,20 @@ export default function TrailerStage() {
   const playedRef = useRef(false);
   /** This video's length, kept because it is not on the messages that tick. */
   const durationRef = useRef<number | null>(null);
+  /**
+   * The last position the player reported, and the instant we heard it.
+   *
+   * Kept as a PAIR because the second half is what makes the glow move. The
+   * player's updates are not a metronome — they arrive when it feels like it,
+   * and after a load it can go quiet for seconds at a time — so a light driven
+   * message by message stops dead between them. With the timestamp beside it,
+   * the position at any moment is arithmetic (see the ticker below) and the
+   * messages become corrections rather than the only source of motion.
+   */
+  const atRef = useRef(0);
+  const atSeenRef = useRef(0);
+  /** Is the picture actually advancing — i.e. may the extrapolation run. */
+  const runningRef = useRef(false);
   /** Seen the clock at the start of the CURRENT video — see ADVANCED. */
   const rewoundRef = useRef(false);
   /** Already revealed for the current attachment. */
@@ -265,6 +291,12 @@ export default function TrailerStage() {
      * starting later. The trailer is watched from its first frame again.
      */
     post("seekTo", [0, true]);
+    // The clock is back at zero as of NOW, and the ticker must not spend the
+    // next message-less second extrapolating from the position the seek just
+    // threw away — which is the whole of the trailer's hidden head start.
+    atRef.current = 0;
+    atSeenRef.current = performance.now();
+    runningRef.current = true;
     setVisible(true);
     setPaused(false);
     handlersRef.current?.onPlaying(true);
@@ -343,6 +375,9 @@ export default function TrailerStage() {
     shownRef.current = false;
     rewoundRef.current = false;
     durationRef.current = null;
+    atRef.current = 0;
+    atSeenRef.current = 0;
+    runningRef.current = false;
     setVisible(false);
     setShowControls(false);
     setCursorOn(false);
@@ -546,44 +581,33 @@ export default function TrailerStage() {
        * this behaviour read 2 ms.
        */
       if (typeof at === "number") {
+        atRef.current = at;
+        atSeenRef.current = performance.now();
         if (at < REWOUND) rewoundRef.current = true;
         else if (rewoundRef.current && at > ADVANCED) reveal();
-        /*
-         * Told to the card, which passes it to the ambient light: it cannot read
-         * the picture, so this is how it knows which of the video's three
-         * published frames to light the card with.
-         *
-         * THE DURATION HAS TO BE REMEMBERED, and assuming otherwise is what kept
-         * the glow frozen after the first attempt at this. `duration` is NOT on
-         * the messages that carry `currentTime`: the ticking updates put it
-         * inside `progressState`, and a bare `info.duration` only turns up on
-         * some earlier message. Read on the same tick it is simply undefined,
-         * every time, so the progress was never published at all.
-         */
-        const prog = (info as { progressState?: { duration?: unknown } })?.progressState;
-        const seen =
-          typeof (info as { duration?: unknown })?.duration === "number"
-            ? ((info as { duration: number }).duration)
-            : typeof prog?.duration === "number"
-            ? prog.duration
-            : null;
-        if (seen && seen > 0) durationRef.current = seen;
-        const total = durationRef.current;
-        /*
-         * Only once the clock has been seen at the start of THIS video — the
-         * same proof the reveal waits for, and for the same reason.
-         *
-         * Between `loadVideoById` and the new video's first messages, the player
-         * is still reporting the OLD one: its clock AND its duration. Publishing
-         * that ratio meant a long trailer following a short one opened on
-         * `at / total` well past 1, which clamps to 1 — the far end of the
-         * storyboard, i.e. the publisher's end card. The glow lit the whole
-         * trailer with it.
-         */
-        if (total && rewoundRef.current) {
-          handlersRef.current?.onProgress(Math.min(1, Math.max(0, at / total)));
-        }
       }
+
+      /*
+       * The video's length, wherever this particular message happens to carry
+       * it — and NOT only alongside `currentTime`, which is what the reading
+       * above assumed.
+       *
+       * `duration` travels on its own schedule: inside `progressState` on the
+       * updates that carry one, bare on `initialDelivery`, and on neither for
+       * long stretches of the plain position ticks. Reading it only on the
+       * messages that also carry a position meant a video whose length happened
+       * to be announced on a message of its own was never measured at all —
+       * and without a length there is no progress, so the light never moved.
+       * See the ticker below for what happens when it still does not turn up.
+       */
+      const prog = (info as { progressState?: { duration?: unknown } })?.progressState;
+      const seen =
+        typeof (info as { duration?: unknown })?.duration === "number"
+          ? (info as { duration: number }).duration
+          : typeof prog?.duration === "number"
+          ? prog.duration
+          : null;
+      if (seen && seen > 0) durationRef.current = seen;
 
       if (state === undefined) return;
       if (state === PLAYING) {
@@ -610,9 +634,15 @@ export default function TrailerStage() {
          * would leave a blank card for as long as the reveal takes.
          */
         if (shownRef.current) handlersRef.current?.onPlaying(true);
+        // The picture is moving, so the local clock may run between messages.
+        runningRef.current = true;
       } else if (state === PAUSED) {
         setPaused(true);
         if (shownRef.current) handlersRef.current?.onPlaying(false);
+        runningRef.current = false;
+      } else if (state === ENDED) {
+        // The position stops here rather than being extrapolated past the end.
+        runningRef.current = false;
       }
     };
 
@@ -634,6 +664,51 @@ export default function TrailerStage() {
       clearTimeout(stopHandshake);
     };
   }, [bootId, post, reveal]);
+
+  /**
+   * WHERE THE TRAILER IS, ON OUR OWN CLOCK — the glow's only source of motion.
+   *
+   * WHY THE MESSAGES ARE NOT ENOUGH, which is the mistake this replaces. The
+   * position used to be forwarded straight from the player's updates, on the
+   * assumption that they tick. They do not, reliably: the embed volunteers a
+   * position when it feels like it, goes quiet for long stretches after a load,
+   * and can spend a whole short trailer without announcing its length at all.
+   * A light relayed from that stream lit one still and held it — exactly the
+   * complaint. Here the messages only ever CORRECT `atRef`; the movement in
+   * between is arithmetic on a timestamp, so a silent player costs accuracy,
+   * never motion.
+   *
+   * AND IT ASKS AGAIN FOR THE LENGTH. `listening` is what makes the embed
+   * answer with `initialDelivery`, the message a bare `duration` rides on. The
+   * boot handshake stops after four seconds — long before a card that opens a
+   * minute later loads its own video — so without re-asking, a video whose
+   * length was never volunteered has no denominator and no glow. It stops as
+   * soon as an answer lands, and gives up rather than asking for ever.
+   */
+  useEffect(() => {
+    if (!attachment) return;
+    const startedAt = Date.now();
+    const timer = setInterval(() => {
+      const total = durationRef.current;
+      if (total == null) {
+        if (!loadedRef.current || Date.now() - startedAt > DURATION_ASK_MS) return;
+        frameRef.current?.contentWindow?.postMessage(
+          JSON.stringify({ event: "listening", id: 1, channel: "widget" }),
+          ORIGIN,
+        );
+        return;
+      }
+      // The same proof the reveal waits for: until the clock has been seen at
+      // the start of THIS video, both halves of the ratio still belong to the
+      // previous one, and that ratio lands past 1 — on the storyboard's last
+      // still, the publisher's end card, which is where the glow used to stick.
+      if (!shownRef.current || !rewoundRef.current) return;
+      const elapsed = runningRef.current ? (performance.now() - atSeenRef.current) / 1000 : 0;
+      const t = atRef.current + elapsed;
+      handlersRef.current?.onProgress(Math.min(1, Math.max(0, t / total)));
+    }, PROGRESS_TICK_MS);
+    return () => clearInterval(timer);
+  }, [attachment]);
 
   useEffect(
     () => () => {
@@ -680,12 +755,18 @@ export default function TrailerStage() {
     stop(e);
     // Optimistic: the embed confirms via onStateChange, but the button must not
     // wait a round trip to look pressed.
+    // The local clock follows the button for the same reason the icon does: the
+    // player's confirmation is a round trip, and until it lands the glow would
+    // otherwise keep drifting through a trailer that has stopped.
     if (paused) {
       post("playVideo");
       setPaused(false);
+      atSeenRef.current = performance.now();
+      runningRef.current = true;
     } else {
       post("pauseVideo");
       setPaused(true);
+      runningRef.current = false;
     }
   };
 
