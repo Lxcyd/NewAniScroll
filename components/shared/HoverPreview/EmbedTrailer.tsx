@@ -23,24 +23,14 @@ import {
  * InnerTube, proxying the bytes, a circuit breaker, a warm-up ladder — cost more
  * than it was worth: it bought a clean first frame at the price of being
  * rationed by YouTube, which refused a datacentre caller roughly a third of the
- * time no matter how the request was dressed. All of it is now deleted, and this
- * is deliberately the PLAIN embed: autoplay, muted, our own controls over it.
+ * time no matter how the request was dressed. All of it is deleted.
  *
- * So YouTube's centre button is back for the first ~4 s. That is a known,
- * accepted state and not an oversight — the point of starting from the plain
- * embed is to have a base that is simple and correct before optimising it away.
- *
- * THE LEAD WORTH FOLLOWING, recorded here so it is not rediscovered from
- * scratch: the chrome is fixed in PIXELS (measured 09/08 as "at 120 px the
- * chrome eats the image"), so it does not survive being scaled. Mounting the
- * player far larger than its box and scaling it back down shrinks the button
- * while the video still fills the frame. Glyph pixels in the centre disc with
- * the chrome up: 360 at ×1, 77 at ×2, 10 at ×4, 0 at ×8; at ×200 the frame is
- * visually spotless. Two caveats came with it — a ~7 % dark veil survives at any
- * factor (red channel on a flat red field: 219 at ×1, 231.5 at ×8, 249 with no
- * chrome at all), and the composited surface grows quadratically, so it depends
- * on the browser clamping rather than allocating it. There is a bench at
- * public/embed-scale-lab.html.
+ * What replaces it is not a better request but a different question. Nobody had
+ * tried moving the PLAYER; every earlier attempt moved the FRAME around a button
+ * of constant size. The chrome is sized in pixels, so it does not survive being
+ * scaled down — see SCALE, which is where that measurement and its two costs
+ * live. The bytes now travel from YouTube to the visitor directly, which is also
+ * the one arrangement YouTube has no reason to refuse.
  *
  * `playing` is INFERRED over postMessage rather than being an event on an
  * element we own, and that inference must never be load-bearing. It was once,
@@ -63,6 +53,34 @@ import {
  * block and less noise to read past. Same player, same API.
  */
 const ORIGIN = "https://www.youtube-nocookie.com";
+
+/**
+ * How much bigger the player is mounted than the box it is shown in.
+ *
+ * THE POINT OF THE WHOLE THING. YouTube's chrome — the centre button, the title
+ * bar, the logo — is sized in PIXELS, not in proportion to the player. So it
+ * does not survive a reduction: mount the player enormous, scale it back down,
+ * and the button shrinks with the player while the video still fills the frame.
+ *
+ * Measured, glyph pixels in the centre disc with the chrome still up: 360 at ×1,
+ * 77 at ×2, 10 at ×4, 0 at ×8 — the count of a witness whose chrome has already
+ * faded. Past ×8 the button gains nothing more; what keeps shrinking is the
+ * CORNERS, which the centre counter never saw. At ×200 the frame reads as
+ * completely clean to the eye.
+ *
+ * TWO COSTS, both measured, neither hidden. A dark veil survives at any factor
+ * (red channel on a flat red field: 219 at ×1, 231.5 at ×8, against 249 with no
+ * chrome at all) — scaling recovers ~40 % of it and then plateaus, because part
+ * is a fixed-size gradient and part is a layer proportional to the player. And
+ * the composited surface grows quadratically: ×200 of a 364 px box is 72800 px
+ * wide, which only works because the browser CLAMPS the layer rather than
+ * allocating it. That is an implementation detail we do not control, so Safari,
+ * Firefox and phones are where this has to be checked.
+ *
+ * Expressed as a percentage below, so the factor is independent of the card's
+ * real pixel size. Bench: public/embed-scale-lab.html.
+ */
+const SCALE = 200;
 
 /** Sound is ON by default; a trailer at full blast on hover is not. */
 const FALLBACK_VOLUME = PREVIEW_DEFAULT_VOLUME;
@@ -415,14 +433,28 @@ export default function EmbedTrailer({
         ref={frameRef}
         src={src}
         title=""
-        allow="autoplay; encrypted-media"
+        /*
+         * `compute-pressure` is not decoration: without it the player logs
+         * "Permissions policy violation: compute-pressure is not allowed in this
+         * document" on every card. The feature lets it read how loaded the CPU
+         * is and drop quality rather than stutter — which is exactly what a
+         * preview scaled ×200 wants it to be able to do. Delegating a feature
+         * the frame asks for is the fix; silencing the console is not.
+         */
+        allow="autoplay; encrypted-media; compute-pressure"
+        // Sized in PERCENT, not pixels, so the factor holds whatever the card's
+        // real width turns out to be: 20000 % of the box, scaled back by 1/200,
+        // lands exactly on the box again.
         style={{
           position: "absolute",
           top: 0,
           left: 0,
           border: 0,
-          width: "100%",
-          height: "100%",
+          width: `${SCALE * 100}%`,
+          height: `${SCALE * 100}%`,
+          transform: `scale(${1 / SCALE})`,
+          // Top-left, otherwise the reduction re-centres and shifts the picture.
+          transformOrigin: "0 0",
         }}
         onLoad={() => {
           // Only NOW is the frame on YouTube's origin and safe to talk to.
@@ -450,11 +482,11 @@ export default function EmbedTrailer({
         className={`absolute inset-0 bg-gradient-to-b from-black/45 via-transparent to-transparent ${chrome}`}
       />
 
-      {/* Play/pause, OFF TO THE SIDE rather than centred.
-          Centred is where it belonged when we owned the picture — but the embed
-          paints its own button dead centre for the first seconds, and stacking
-          ours on top of it gives two buttons in one place. Top-left keeps them
-          apart while the question of removing YouTube's is still open. */}
+      {/* Play/pause, off to the side rather than centred.
+          It was moved here when the embed still painted its own button dead
+          centre, to avoid two buttons in one place. SCALE has since removed
+          that one, so the centre is free again — this stays put because that is
+          how it was asked for, not because it is still forced. */}
       <div className={`absolute left-2 top-2 ${chrome}`}>
         <button
           type="button"
