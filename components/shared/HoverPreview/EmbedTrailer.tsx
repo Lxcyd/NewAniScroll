@@ -19,61 +19,39 @@ import {
  * from outside, and eventually proxy the bytes ourselves so there would be no
  * embed at all.
  *
- * The premise was true and the conclusion was wrong, because we only ever tried
- * to move the FRAME around a button of constant size. The chrome is fixed in
- * PIXELS — measured on 09/08 as "at 120 px the chrome eats the image", an
- * observation nobody followed up. So it does not survive being scaled: mount the
- * player enormous, scale it back down, and the button shrinks with the player
- * while the video still fills the frame.
+ * The premise was true, and the whole apparatus built on it — resolving through
+ * InnerTube, proxying the bytes, a circuit breaker, a warm-up ladder — cost more
+ * than it was worth: it bought a clean first frame at the price of being
+ * rationed by YouTube, which refused a datacentre caller roughly a third of the
+ * time no matter how the request was dressed. All of it is now deleted, and this
+ * is deliberately the PLAIN embed: autoplay, muted, our own controls over it.
  *
- * MEASURED, glyph pixels in the centre disc with the chrome still up: 360 at
- * ×1, 77 at ×2, 10 at ×4, 0 at ×8 — the same count as a witness whose chrome
- * has already faded. At ×200 the frame is visually spotless: no title bar, no
- * avatar, no share icon, no thumbnail, no logo. Verified by photograph on a real
- * trailer and not only by the counter, and playback confirmed by frame
- * differencing (a still frame would have looked identical on the flat-red test
- * video that first suggested this, which is why it was re-tested on moving
- * material).
+ * So YouTube's centre button is back for the first ~4 s. That is a known,
+ * accepted state and not an oversight — the point of starting from the plain
+ * embed is to have a base that is simple and correct before optimising it away.
  *
- * WHAT THIS BUYS. The proxy exists only to be rid of that button. Without it
- * there is no proxy, no InnerTube call, no bot block, no breaker, no warm-up
- * ladder — and the bytes travel from YouTube to the visitor directly, which is
- * also the only arrangement YouTube has no reason to refuse.
+ * THE LEAD WORTH FOLLOWING, recorded here so it is not rediscovered from
+ * scratch: the chrome is fixed in PIXELS (measured 09/08 as "at 120 px the
+ * chrome eats the image"), so it does not survive being scaled. Mounting the
+ * player far larger than its box and scaling it back down shrinks the button
+ * while the video still fills the frame. Glyph pixels in the centre disc with
+ * the chrome up: 360 at ×1, 77 at ×2, 10 at ×4, 0 at ×8; at ×200 the frame is
+ * visually spotless. Two caveats came with it — a ~7 % dark veil survives at any
+ * factor (red channel on a flat red field: 219 at ×1, 231.5 at ×8, 249 with no
+ * chrome at all), and the composited surface grows quadratically, so it depends
+ * on the browser clamping rather than allocating it. There is a bench at
+ * public/embed-scale-lab.html.
  *
- * WHAT IT COSTS, stated plainly:
- *   - a dark veil survives. Measured on a flat red field, red channel at the
- *     centre: 219 with chrome at ×1, 231.5 at ×8, 231.5 at ×16, against 249 with
- *     no chrome at all. Scaling recovers ~40 % of the veil and then plateaus,
- *     because part of it is a fixed-size gradient (which shrinks) and part is a
- *     layer proportional to the player (which does not). ~7 % dimming remains
- *     for the first four seconds;
- *   - the composited surface is huge and its cost is quadratic. ×200 of a 364 px
- *     box is 72800 px wide. Chrome evidently clamps rather than allocating it,
- *     which is why this works at all — but that is a browser implementation
- *     detail we do not control, and it is the first thing to check on Safari,
- *     Firefox and on a phone;
- *   - `playing` goes back to being INFERRED over postMessage rather than being
- *     an event on an element we own. The difference from the 655-line version
- *     NativeTrailer replaced is that none of it is load-bearing any more: that
- *     machine existed to keep the frame HIDDEN until the button had gone. Here
- *     there is no button to wait out, so a late or missing message costs a
- *     slightly late fade-in, not a visible intrusion.
+ * `playing` is INFERRED over postMessage rather than being an event on an
+ * element we own. Unlike the 655-line version this replaces, none of it is
+ * load-bearing: that machine existed to keep the frame HIDDEN until the button
+ * had gone, so a late message meant a visible intrusion. Here a late message
+ * only means a slightly late fade-in.
  *
- * `pointer-events: none` on the iframe is load-bearing for the same reason as in
- * NativeTrailer: HoverPreviewProvider needs the pointer events to know the card
- * is still hovered, so every control lives in a layer above the picture.
+ * `pointer-events: none` on the iframe is load-bearing: HoverPreviewProvider
+ * needs the pointer events to know the card is still hovered, so every control
+ * lives in a layer above the picture.
  */
-
-/**
- * How much bigger the player is mounted than the box it is shown in.
- *
- * ×8 already zeroes the centre glyph; what keeps improving past it is the
- * CORNERS — the title top-left and the logo bottom-right, which the centre
- * counter never saw. ×200 is where the frame reads as completely clean to the
- * eye. It is deliberately expressed as a percentage below so the factor is
- * independent of the card's actual pixel size.
- */
-const SCALE = 200;
 
 /** Sound is ON by default; a trailer at full blast on hover is not. */
 const FALLBACK_VOLUME = PREVIEW_DEFAULT_VOLUME;
@@ -345,19 +323,13 @@ export default function EmbedTrailer({
         src={src}
         title=""
         allow="autoplay; encrypted-media"
-        // Sized in PERCENT, not pixels, so the factor holds whatever the card's
-        // real width turns out to be: 20000 % of the box, scaled back by 1/200,
-        // lands exactly on the box again.
         style={{
           position: "absolute",
           top: 0,
           left: 0,
           border: 0,
-          width: `${SCALE * 100}%`,
-          height: `${SCALE * 100}%`,
-          transform: `scale(${1 / SCALE})`,
-          // Top-left, otherwise the reduction re-centres and shifts the picture.
-          transformOrigin: "0 0",
+          width: "100%",
+          height: "100%",
         }}
         className={`pointer-events-none transition-opacity duration-300 ${
           playing ? "opacity-100" : "opacity-0"
@@ -370,18 +342,19 @@ export default function EmbedTrailer({
         className={`absolute inset-0 bg-gradient-to-b from-black/45 via-transparent to-transparent ${chrome}`}
       />
 
-      {/* Play/pause, centred. Same place as the button this whole approach
-          removes — but this one appears only while the pointer is moving over
-          the video, which is the entire difference between a control and an
-          intrusion. */}
-      <div className={`pointer-events-none absolute inset-0 grid place-items-center ${chrome}`}>
+      {/* Play/pause, OFF TO THE SIDE rather than centred.
+          Centred is where it belonged when we owned the picture — but the embed
+          paints its own button dead centre for the first seconds, and stacking
+          ours on top of it gives two buttons in one place. Top-left keeps them
+          apart while the question of removing YouTube's is still open. */}
+      <div className={`absolute left-2 top-2 ${chrome}`}>
         <button
           type="button"
           onClick={togglePlay}
           aria-label={paused ? "Play" : "Pause"}
-          className="as-preview-videobtn pointer-events-auto h-14 w-14"
+          className="as-preview-videobtn h-7 w-7"
         >
-          {paused ? <MdPlayArrow size={52} /> : <MdPause size={52} />}
+          {paused ? <MdPlayArrow size={21} /> : <MdPause size={21} />}
         </button>
       </div>
 

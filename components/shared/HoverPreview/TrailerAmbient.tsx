@@ -66,7 +66,14 @@ export default function TrailerAmbient({
   /** Painted before the trailer runs, so the card is lit from its first frame. */
   banner: string | null;
   /** The player whose frames this paints once it is running. */
-  sourceRef: React.RefObject<HTMLVideoElement>;
+  /**
+   * The playing trailer, when there is an element we can read.
+   *
+   * Optional since the preview went back to a YouTube embed: a cross-origin
+   * frame cannot be sampled, so there is nothing to hand over and the glow
+   * falls back to the blurred banner below.
+   */
+  sourceRef?: React.RefObject<HTMLVideoElement>;
   playing: boolean;
   /** The crop measured for the picture — the glow has to be framed like it. */
   zoom: number;
@@ -228,7 +235,7 @@ export default function TrailerAmbient({
       if (now - lastSampleAt < SAMPLE_INTERVAL_MS) return;
       lastSampleAt = now;
 
-      const video = sourceRef.current;
+      const video = sourceRef?.current;
       // readyState 2 = HAVE_CURRENT_DATA: there is a frame to copy. Drawing
       // before that paints black, and a black glow reads as a smear beside the
       // card rather than as "nothing yet".

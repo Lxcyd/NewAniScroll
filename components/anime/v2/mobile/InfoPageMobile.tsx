@@ -35,7 +35,6 @@ import {
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { genreLabel } from "@/lib/i18n/genreLabel";
-import { fetchVerdict } from "@/lib/preview/trailerVerdict";
 import { useTranslatedText } from "@/lib/i18n/useTranslatedText";
 import { translateTag } from "@/lib/i18n/animeTags";
 import { hexToCssFilter } from "@/lib/color/hexToCssFilter";
@@ -1237,19 +1236,7 @@ function MTrailer({
   // Never seeded from storage — see the same guard in Overview: the server has
   // no localStorage, so reading it during the first client render is a
   // hydration mismatch, and `fetchVerdict` answers from storage anyway.
-  const [gone, setGone] = useState(false);
-  useEffect(() => {
-    if (!ytId) return;
-    let cancelled = false;
-    fetchVerdict(ytId).then((v) => {
-      if (!cancelled) setGone(v === "gone");
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [ytId]);
-
-  if (!trailer.id || !trailer.site || gone) return null;
+  if (!trailer.id || !trailer.site) return null;
   const embed =
     trailer.site === "youtube"
       ? `https://www.youtube-nocookie.com/embed/${trailer.id}?autoplay=1`

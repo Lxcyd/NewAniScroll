@@ -16,9 +16,7 @@ import { statusLabel } from "@/components/anime/v2/helpers";
 import { lockPreview, unlockPreview } from "@/lib/preview/previewLock";
 import { MdInfoOutline, MdPlayArrow } from "react-icons/md";
 import ListEditor from "@/components/listEditor";
-import { peekVerdict } from "@/lib/preview/trailerVerdict";
 import EmbedTrailer from "./EmbedTrailer";
-import NativeTrailer from "./NativeTrailer";
 import TrailerAmbient from "./TrailerAmbient";
 
 export type AnchorRect = { top: number; left: number; width: number; height: number };
@@ -42,23 +40,6 @@ const WIDTH = 364;
 const HEIGHT = 468;
 /** Card surface. Kept in sync with the banner gradient in globals.css. */
 const SURFACE = "#1a1a24";
-
-/**
- * Play the trailer with a scaled-up YouTube embed rather than our proxied MP4.
- *
- * ON TRIAL, and the switch is here so reverting is one word. The embed's centre
- * button — the sole reason the proxy was ever built — disappears when the player
- * is mounted enormous and scaled back down, because the chrome is fixed in
- * pixels and does not survive the reduction. See EmbedTrailer for the
- * measurements and, more importantly, for what it costs.
- *
- * Two things are knowingly given up while this is on: TrailerAmbient gets no
- * source to sample (a cross-origin frame cannot be read), and the crop probe
- * cannot run for the same reason, so `onCrop` is never called and old material
- * with baked-in bars will show them. Both are recoverable; neither is worth
- * solving before the approach has survived a real browser other than Chrome.
- */
-const USE_EMBED = true;
 
 /**
  * Artwork for the top 45 % of the card, and it is the INFO PAGE's chain, not
@@ -110,8 +91,6 @@ export default function PreviewCard({
   const [bannerReady, setBannerReady] = useState(false);
   /** Live transport state from the trailer. Artwork shows whenever it's false. */
   const [playing, setPlaying] = useState(false);
-  /** The crop measured for this trailer, shared so the glow is framed like the picture. */
-  const [crop, setCrop] = useState(1);
   /*
    * The glow mounts WITH the player, not after it.
    *
@@ -124,16 +103,6 @@ export default function PreviewCard({
    * off-register with the card and behind the picture's clock. Starting both
    * together is what makes the fade-in a fade and the two copies agree.
    */
-  /**
-   * The playing trailer. The ambient glow paints its frames straight out of it.
-   *
-   * Lives here rather than inside the trailer because two siblings need it. It
-   * also replaces the old loop counter: looping used to mean remounting the
-   * ambient iframe on every cycle, since a decorative embed had no channel to
-   * be told anything — and a second copy of a video is exactly what could fall
-   * out of step with the first. There is one video now, read twice.
-   */
-  const trailerVideoRef = useRef<HTMLVideoElement>(null);
   /**
    * The list editor, opened from the card and rendered over everything.
    *
@@ -210,7 +179,6 @@ export default function PreviewCard({
 
   const onHide = useCallback((hidden: boolean) => setHideFrame(hidden), []);
   const onPlayingChange = useCallback((next: boolean) => setPlaying(next), []);
-  const onCrop = useCallback((zoom: number) => setCrop(zoom), []);
 
   const title = data ? pickTitle(data.title, titlePref) : "";
   // Same treatment the info page gives its synopsis: translated on demand and
@@ -219,13 +187,14 @@ export default function PreviewCard({
   const banner = bannerUrl(data);
   // The trailer element is mounted as soon as we have an id and it hasn't been
   // ruled unplayable; `playing` is the finer, live state.
-  // A trailer already known to be unwatchable from here is not mounted at all:
-  // no element, no request, no black box while it fails. The verdict was
-  // written by whichever card discovered it first (see lib/preview/trailerVerdict).
-  const trailerMounted =
-    Boolean(data?.trailer?.id) &&
-    !hideFrame &&
-    peekVerdict(String(data?.trailer?.id)) !== "gone";
+  //
+  // There used to be a third condition: a cached verdict from our proxy, which
+  // could say a video was region-blocked or deleted before we mounted anything.
+  // That verdict came from an endpoint the proxy served, and the proxy is gone.
+  // The embed now reports its own failure through `onError`, which is later —
+  // the frame mounts and then hides — but it is YouTube's own answer about the
+  // visitor's own region rather than ours about our datacentre's.
+  const trailerMounted = Boolean(data?.trailer?.id) && !hideFrame;
 
   /*
    * The info page's episode cell: "5/12 EP", or just "12 EP", with the runtime
@@ -274,32 +243,23 @@ export default function PreviewCard({
    * signed out too, editing the local list.
    */
   /**
-   * Silence the trailer while the dialog is up, and resume it after.
+   * The trailer used to be PAUSED while the list dialog was up — ambience for a
+   * card you glance at is noise over a form you fill in — and resumed after,
+   * with a flag so a trailer you had paused yourself stayed paused.
    *
-   * A trailer is ambience for a card you are glancing at; it is noise over a
-   * form you are filling in. Paused rather than muted, so it doesn't run on
-   * silently and come back thirty seconds further along than the picture you
-   * left. `wasPlayingRef` is what makes the resume honest: a trailer you had
-   * paused yourself must stay paused when the dialog closes.
+   * That went through the <video> element, which no longer exists: the preview
+   * is a cross-origin embed again. It is rebuildable over postMessage, and is
+   * written down here rather than quietly dropped.
    */
-  const wasPlayingRef = useRef(false);
-
   const onOpenList = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    const video = trailerVideoRef.current;
-    wasPlayingRef.current = Boolean(video && !video.paused);
-    video?.pause();
     lockPreview();
     setListOpen(true);
   };
 
   const closeList = useCallback(() => {
     setListOpen(false);
-    if (wasPlayingRef.current) {
-      trailerVideoRef.current?.play().catch(() => undefined);
-      wasPlayingRef.current = false;
-    }
     // Releasing is what lets the provider close the card again — and it closes
     // it, since the pointer left long ago. See lib/preview/previewLock.
     unlockPreview();
@@ -364,9 +324,8 @@ export default function PreviewCard({
       <div className="as-preview-ambient-clip pointer-events-none absolute -z-10" aria-hidden>
         <TrailerAmbient
           banner={banner}
-          sourceRef={trailerVideoRef}
-          playing={playing && trailerMounted}
-          zoom={crop}
+          playing={false}
+          zoom={1}
         />
       </div>
 
@@ -433,23 +392,13 @@ export default function PreviewCard({
               }`}
             />
           )}
-          {data?.trailer?.id &&
-            !hideFrame &&
-            (USE_EMBED ? (
-              <EmbedTrailer
-                id={data.trailer.id}
-                onHide={onHide}
-                onPlayingChange={onPlayingChange}
-              />
-            ) : (
-              <NativeTrailer
-                id={data.trailer.id}
-                videoRef={trailerVideoRef}
-                onHide={onHide}
-                onPlayingChange={onPlayingChange}
-                onCrop={onCrop}
-              />
-            ))}
+          {data?.trailer?.id && !hideFrame && (
+            <EmbedTrailer
+              id={data.trailer.id}
+              onHide={onHide}
+              onPlayingChange={onPlayingChange}
+            />
+          )}
         </div>
 
         <div

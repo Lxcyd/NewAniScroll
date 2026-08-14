@@ -18,7 +18,6 @@ import type { TFunction } from "i18next";
 import { useTranslatedText } from "@/lib/i18n/useTranslatedText";
 import { translateTag } from "@/lib/i18n/animeTags";
 import { hexToCssFilter } from "@/lib/color/hexToCssFilter";
-import { fetchVerdict } from "@/lib/preview/trailerVerdict";
 
 type Props = {
   info: AniListInfoTypes;
@@ -90,19 +89,7 @@ export default function Overview({ info, seasonList }: Props) {
    * verdict immediately anyway, so the effect below hides the block on the very
    * next render with no request and no flash worth the name.
    */
-  const [trailerGone, setTrailerGone] = useState(false);
-  useEffect(() => {
-    if (!ytId) return;
-    let cancelled = false;
-    fetchVerdict(ytId).then((v) => {
-      if (!cancelled) setTrailerGone(v === "gone");
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [ytId]);
-
-  const trailerUrl = trailerGone ? null : rawTrailerUrl;
+  const trailerUrl = rawTrailerUrl;
 
   return (
     <div style={tStyles.overviewWrap}>

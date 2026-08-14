@@ -6,7 +6,6 @@ import { PREVIEW_ATTR } from "@/lib/preview/anchor";
 import { isPreviewLocked, onPreviewUnlocked } from "@/lib/preview/previewLock";
 import { fetchPreview } from "@/lib/preview/previewStore";
 import { startViewportPrefetch } from "@/lib/preview/viewportPrefetch";
-import { trailerSrc } from "@/lib/preview/trailerCrop";
 import PreviewCard, { type AnchorRect } from "./PreviewCard";
 
 /**
@@ -104,14 +103,16 @@ export default function HoverPreviewProvider() {
    * appearing and the picture starting — doing it up front takes it off the
    * critical path entirely.
    *
-   * One origin now, and it is ours. Trailers used to be YouTube embeds, so this
-   * warmed youtube-nocookie, ytimg and googlevideo; they are MP4s served by the
-   * Worker since (see lib/preview/trailerCrop), and none of those hosts is
-   * contacted by a preview any more.
+   * Back to YouTube's own hosts. This warmed our Worker while trailers were
+   * proxied MP4s; the proxy is gone and the preview is an embed again, so the
+   * origins that matter are the embed document, its images and the media host.
    */
   useEffect(() => {
     if (!enabled) return;
-    const links = [["preconnect", new URL(trailerSrc("x")).origin]].map(([rel, href]) => {
+    const links = [
+      ["preconnect", "https://www.youtube.com"],
+      ["preconnect", "https://i.ytimg.com"],
+    ].map(([rel, href]) => {
       const link = document.createElement("link");
       link.rel = rel;
       link.href = href;
