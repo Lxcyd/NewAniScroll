@@ -18,10 +18,12 @@ import { useEffect, useRef } from "react";
  * rectangle. There is no setting between those two that behaves like light. The
  * stack has no such dilemma.
  *
- * It also draws from the player's OWN element rather than from a second copy of
- * the video. A second <video> brought its own decoder, buffer and clock, and so
- * its own drift — it would show a dark shot while the card showed fire. There is
- * one decoder now, read twice.
+ * WHAT THIS IS NOW, and it is a demotion. While the trailer plays, the light
+ * comes from a blurred copy of the PLAYER itself (see TrailerStage) — the real
+ * moving picture. This stack is what remains for the two cases that copy cannot
+ * serve: the artwork before playback, and Data Saver, where a second decoder is
+ * exactly what the visitor asked us not to spend. It lights those from the
+ * trailer's three published stills.
  *
  * Being outside the card is what makes it an ambient light rather than a
  * background: the card clips its children and paints an opaque surface, so
@@ -43,8 +45,6 @@ const BLUR_PX = 34;
 /** Sampling canvas. Small — the result is blurred beyond any detail it holds. */
 const SRC_W = 160;
 const SRC_H = 90;
-/** A glow is read as light, not as motion. 30 fps is already generous. */
-const SAMPLE_INTERVAL_MS = 1000 / 30;
 /**
  * Length of the extinction ramp, in canvas heights.
  *
@@ -68,26 +68,13 @@ const BLEND_INTERVAL_MS = 120;
 
 export default function TrailerAmbient({
   banner,
-  sourceRef,
   playing,
-  zoom,
   frames,
   progress,
 }: {
   /** Painted before the trailer runs, so the card is lit from its first frame. */
   banner: string | null;
-  /** The player whose frames this paints once it is running. */
-  /**
-   * The playing trailer, when there is an element we can read.
-   *
-   * Optional since the preview went back to a YouTube embed: a cross-origin
-   * frame cannot be sampled, so there is nothing to hand over and the glow
-   * falls back to the blurred banner below.
-   */
-  sourceRef?: React.RefObject<HTMLVideoElement>;
   playing: boolean;
-  /** The crop measured for the picture — the glow has to be framed like it. */
-  zoom: number;
   /**
    * The video's own published stills, in order, when there is no readable
    * element. See the storyboard effect below for what is and is not possible.
@@ -98,17 +85,7 @@ export default function TrailerAmbient({
 }) {
   const layerRefs = useRef<(HTMLCanvasElement | null)[]>([]);
   const sourceCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const prevRef = useRef<HTMLCanvasElement | null>(null);
-  /**
-   * The crop, readable from inside the sampling loop.
-   *
-   * The loop is started once and must not be torn down and rebuilt when the
-   * crop lands a second or two in — restarting it would drop the temporal blend
-   * and blink the glow. A ref lets the running loop see the new value.
-   */
-  const zoomRef = useRef(zoom);
-  zoomRef.current = zoom;
-  /** Same reason as zoomRef: the blend loop must survive a new position. */
+  /** The blend loop is started once and must survive a new position. */
   const progressRef = useRef<number | null | undefined>(progress);
   progressRef.current = progress;
   /**
@@ -163,7 +140,7 @@ export default function TrailerAmbient({
       const boxH = layer.clientHeight || SRC_H;
       const cover = Math.max(boxW / SRC_W, boxH / SRC_H);
       const visibleHalf = boxH / cover / SRC_H / 2;
-      const scale = (1 + i * SCALE_STEP) * (zoomRef.current || 1);
+      const scale = 1 + i * SCALE_STEP;
       // Ends at the foot of the picture, not at the card's clip line — the two
       // used to be the same place, and the clip has since been moved down to
       // leave the blur room to die (see .as-preview-ambient-clip). What matters
@@ -184,20 +161,14 @@ export default function TrailerAmbient({
     });
   };
 
-  const ensureCanvases = () => {
+  const ensureCanvas = () => {
     if (!sourceCanvasRef.current) {
       const c = document.createElement("canvas");
       c.width = SRC_W;
       c.height = SRC_H;
       sourceCanvasRef.current = c;
     }
-    if (!prevRef.current) {
-      const c = document.createElement("canvas");
-      c.width = SRC_W;
-      c.height = SRC_H;
-      prevRef.current = c;
-    }
-    return { source: sourceCanvasRef.current, prev: prevRef.current };
+    return sourceCanvasRef.current;
   };
 
   /**
@@ -210,7 +181,7 @@ export default function TrailerAmbient({
    */
   useEffect(() => {
     if (!banner || playing || everDrewFrameRef.current) return;
-    const { source } = ensureCanvases();
+    const source = ensureCanvas();
     const ctx = source.getContext("2d");
     if (!ctx) return;
     const img = new Image();
@@ -267,8 +238,8 @@ export default function TrailerAmbient({
      * returned early on the one render that mattered and never ran again, which
      * is the second reason the glow stayed on the banner.
      */
-    if (!playing || !frames?.length || sourceRef?.current) return;
-    const { source } = ensureCanvases();
+    if (!playing || !frames?.length) return;
+    const source = ensureCanvas();
     const ctx = source.getContext("2d");
     if (!ctx) return;
 
@@ -337,57 +308,8 @@ export default function TrailerAmbient({
     // `progress` is read through a ref inside the interval — see progressRef —
     // so that a new value does not tear down and rebuild the whole blend.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [playing, frames, sourceRef]);
+  }, [playing, frames]);
 
-  /** Once the trailer runs, the glow is its frames. */
-  useEffect(() => {
-    // No element to read means no loop to run: the embed path is handled above.
-    if (!playing || !sourceRef) return;
-    const { source, prev } = ensureCanvases();
-    const sctx = source.getContext("2d");
-    const pctx = prev.getContext("2d");
-    if (!sctx || !pctx) return;
-    sctx.imageSmoothingEnabled = true;
-    sctx.imageSmoothingQuality = "high";
-
-    let raf = 0;
-    let lastSampleAt = 0;
-    let lastFrameTime = -1;
-
-    const tick = (now: number) => {
-      raf = requestAnimationFrame(tick);
-      if (document.hidden) return;
-      if (now - lastSampleAt < SAMPLE_INTERVAL_MS) return;
-      lastSampleAt = now;
-
-      const video = sourceRef?.current;
-      // readyState 2 = HAVE_CURRENT_DATA: there is a frame to copy. Drawing
-      // before that paints black, and a black glow reads as a smear beside the
-      // card rather than as "nothing yet".
-      if (!video || video.readyState < 2 || video.videoWidth === 0) return;
-      if (video.currentTime === lastFrameTime) return;
-      lastFrameTime = video.currentTime;
-
-      try {
-        sctx.drawImage(video, 0, 0, SRC_W, SRC_H);
-        // Pairwise blend with the previous sample. Softens scene cuts — and,
-        // at the very start, blends out of the banner still that was already on
-        // these canvases, so the hand-off is a dissolve rather than a jump.
-        sctx.globalAlpha = 0.5;
-        sctx.drawImage(prev, 0, 0);
-        sctx.globalAlpha = 1;
-        pctx.clearRect(0, 0, SRC_W, SRC_H);
-        pctx.drawImage(source, 0, 0);
-        publish(source);
-        everDrewFrameRef.current = true;
-      } catch {
-        /* a frame that can't be drawn is skipped; the next is 33 ms away */
-      }
-    };
-
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [playing, sourceRef]);
 
   return (
     /*
@@ -412,7 +334,7 @@ export default function TrailerAmbient({
           key={i}
           className="absolute inset-0"
           style={{
-            transform: `scale(${(1 + i * SCALE_STEP) * zoom})`,
+            transform: `scale(${1 + i * SCALE_STEP})`,
             transformOrigin: "center",
             opacity: BASE_OPACITY * Math.pow(OPACITY_DECAY, i),
             willChange: "transform",

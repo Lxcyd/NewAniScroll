@@ -49,8 +49,6 @@ type OpenState = {
   id: number;
   el: HTMLElement;
   rect: AnchorRect;
-  /** The card's own poster, painted until the real banner arrives. */
-  poster: string | null;
 };
 
 function rectOf(el: HTMLElement): AnchorRect {
@@ -184,7 +182,6 @@ export default function HoverPreviewProvider() {
         id,
         el,
         rect,
-        poster: el.querySelector("img")?.getAttribute("src") || null,
       });
     };
 
@@ -371,7 +368,6 @@ export default function HoverPreviewProvider() {
           key={open.id}
           id={open.id}
           rect={open.rect}
-          poster={open.poster}
           subscribeRect={subscribeRect}
         />
       )}

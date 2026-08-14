@@ -28,7 +28,7 @@ import ListEditor from "@/components/listEditor";
 import TrailerAmbient from "./TrailerAmbient";
 import { attachStage, detachStage } from "./stageStore";
 import { isTrailerBlocked, subscribeBlocked } from "@/lib/preview/trailerBlocked";
-import { ambientFrames } from "@/lib/preview/trailerBars";
+import { storyboardFrames } from "@/lib/preview/trailerBars";
 
 export type AnchorRect = { top: number; left: number; width: number; height: number };
 
@@ -82,12 +82,10 @@ function bannerUrl(data: PreviewData | null): string | null {
 export default function PreviewCard({
   id,
   rect,
-  poster,
   subscribeRect,
 }: {
   id: number;
   rect: AnchorRect;
-  poster: string | null;
   /**
    * Register for the anchor's position while the page scrolls. See the provider:
    * the updates arrive outside React so that a scroll moves this card without
@@ -269,7 +267,7 @@ export default function PreviewCard({
    * each time instead of drifting.
    */
   const glowFrames = useMemo(
-    () => (trailerId ? ambientFrames(trailerId) : null),
+    () => (trailerId ? storyboardFrames(trailerId) : null),
     [trailerId],
   );
   /*
@@ -456,7 +454,6 @@ export default function PreviewCard({
         <TrailerAmbient
           banner={banner}
           playing={playing}
-          zoom={1}
           frames={liveGlow ? null : glowFrames}
           progress={progress}
         />

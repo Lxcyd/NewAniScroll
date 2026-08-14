@@ -60,40 +60,16 @@ const MIN_BAR = 0.02;
  * The three frames YouTube publishes for a video, at ~25/50/75 % through it.
  *
  * Exported because they are useful twice: this file reads them for black bars,
- * and TrailerAmbient paints the card's glow with them. They are the only frames
+ * and TrailerAmbient lights the card with them when the live glow is off (Data
+ * Saver) or the trailer has not started. There used to be a second exported
+ * name for that second use, returning this very list unchanged — one name is
+ * enough for one list of URLs. They are the only frames
  * of the video reachable from a browser — the real storyboard sheets under
  * i.ytimg.com/sb/ are signed and answer 403 without the token from the player
  * response, which a cross-origin page cannot have. Checked, so nobody tries.
  */
 export function storyboardFrames(id: string): string[] {
   return ["mq1", "mq2", "mq3"].map((n) => `https://i.ytimg.com/vi/${id}/${n}.jpg`);
-}
-
-/**
- * The frames used to light the card. All three of them.
- *
- * A CORRECTION, kept because the reasoning that removed the third one was
- * plausible and wrong. Measured across 24 trailers, the frame at ~83 % is
- * red-dominant in 6 of them against 1 for each of the others — publisher logos
- * and broadcast cards, which trailers put in their last fifth. That statistic is
- * real. The conclusion drawn from it was not: the glow was turning orange over
- * footage that was still blue, and the cause of THAT was a mapping bug, not the
- * frame. The stills sit at 1/6, 3/6 and 5/6 of the video, and the code was
- * spacing them evenly instead — so the third one took over from two thirds of
- * the way through rather than from five sixths.
- *
- * With the spacing fixed, the third frame only lights the card near the end,
- * which is exactly when an end card is actually on screen. An orange glow under
- * an orange logo is right.
- *
- * And dropping it cost far more than it saved: with two samples the light
- * stopped moving at the halfway mark and held one colour to the end. On the
- * trailer that exposed this, the first frame is a deep red scene and the third
- * is a bright green one — removing the third froze the whole second half red,
- * which is the very complaint it was meant to fix.
- */
-export function ambientFrames(id: string): string[] {
-  return storyboardFrames(id);
 }
 
 export type TrailerBars = {
