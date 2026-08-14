@@ -43,10 +43,11 @@ import {
  * public/embed-scale-lab.html.
  *
  * `playing` is INFERRED over postMessage rather than being an event on an
- * element we own. Unlike the 655-line version this replaces, none of it is
- * load-bearing: that machine existed to keep the frame HIDDEN until the button
- * had gone, so a late message meant a visible intrusion. Here a late message
- * only means a slightly late fade-in.
+ * element we own, and that inference must never be load-bearing. It was once,
+ * for exactly one deploy: the frame's opacity hung on a message from the player,
+ * so when the message did not come the trailer played invisibly behind the
+ * banner and looked broken. The fade-in is on a timer now and a real message
+ * only beats it — see the reveal timeout below.
  *
  * `pointer-events: none` on the iframe is load-bearing: HoverPreviewProvider
  * needs the pointer events to know the card is still hovered, so every control
@@ -154,8 +155,24 @@ export default function EmbedTrailer({
         onHide(true);
         return;
       }
-      if (data?.event !== "onStateChange") return;
-      const state = data.info;
+      /*
+       * TWO shapes carry the same fact, and only listening for one of them is
+       * what made the picture invisible the first time this shipped.
+       *
+       * `onStateChange` arrives with the state as `info` directly. But the
+       * player also volunteers `infoDelivery`, whose `info` is an object with a
+       * `playerState` inside — and in practice that is the one that turns up.
+       * Subscribing to the first alone meant `playing` never became true, and
+       * since the frame's opacity was tied to it, a trailer that was loaded,
+       * running and audible-if-unmuted sat at opacity 0 behind the banner.
+       */
+      const state =
+        data?.event === "onStateChange"
+          ? data.info
+          : data?.event === "infoDelivery"
+            ? (data.info as { playerState?: unknown } | null)?.playerState
+            : undefined;
+      if (state === undefined) return;
       if (state === PLAYING) {
         setPlaying(true);
         setPaused(false);
@@ -178,17 +195,41 @@ export default function EmbedTrailer({
 
     window.addEventListener("message", onMessage);
     const handshake = setInterval(() => {
+      // The API's own shape: `id` and `channel` alongside the event. A bare
+      // `{event:"listening"}` is accepted by some builds and ignored by others,
+      // which is not a coin worth flipping for a subscription this depends on.
       frameRef.current?.contentWindow?.postMessage(
-        JSON.stringify({ event: "listening" }),
+        JSON.stringify({ event: "listening", id: 1, channel: "widget" }),
         "https://www.youtube.com",
       );
     }, 250);
     const stopHandshake = setTimeout(() => clearInterval(handshake), 4000);
 
+    /*
+     * SHOW THE PICTURE EVEN IF NOTHING EVER ANSWERS.
+     *
+     * The header of this file claims a late message costs "a slightly late
+     * fade-in". That was wrong as written: a MISSING message cost the whole
+     * frame, because opacity was gated on a state only the player could grant.
+     * A silent player and a broken one were indistinguishable, and both looked
+     * like "the trailer doesn't work".
+     *
+     * So the fade-in now happens on a timer regardless, and any real message
+     * simply beats it. Autoplaying muted video is allowed by every browser we
+     * support, so "assume it is playing" is the safe assumption rather than the
+     * optimistic one — and if it truly is not, the viewer sees YouTube's own
+     * poster frame, which is a perfectly good picture.
+     */
+    const reveal = setTimeout(() => {
+      setPlaying(true);
+      onPlayingChange(true);
+    }, 1500);
+
     return () => {
       window.removeEventListener("message", onMessage);
       clearInterval(handshake);
       clearTimeout(stopHandshake);
+      clearTimeout(reveal);
     };
   }, [onHide, onPlayingChange, post]);
 
