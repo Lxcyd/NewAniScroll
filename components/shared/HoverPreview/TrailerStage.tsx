@@ -569,12 +569,48 @@ export default function TrailerStage() {
             : null;
         if (seen && seen > 0) durationRef.current = seen;
         const total = durationRef.current;
-        if (total) handlersRef.current?.onProgress(Math.min(1, Math.max(0, at / total)));
+        /*
+         * Only once the clock has been seen at the start of THIS video — the
+         * same proof the reveal waits for, and for the same reason.
+         *
+         * Between `loadVideoById` and the new video's first messages, the player
+         * is still reporting the OLD one: its clock AND its duration. Publishing
+         * that ratio meant a long trailer following a short one opened on
+         * `at / total` well past 1, which clamps to 1 — the far end of the
+         * storyboard, i.e. the publisher's end card. The glow lit the whole
+         * trailer with it.
+         */
+        if (total && rewoundRef.current) {
+          handlersRef.current?.onProgress(Math.min(1, Math.max(0, at / total)));
+        }
       }
 
       if (state === undefined) return;
-      if (state === PLAYING) setPaused(false);
-      else if (state === PAUSED) {
+      if (state === PLAYING) {
+        setPaused(false);
+        /*
+         * SAID AGAIN, not just recorded locally — and its absence is what froze
+         * the ambient light.
+         *
+         * `onPlaying(true)` was sent exactly once, from `reveal`. `false` on the
+         * other hand is sent on every PAUSED the player reports — and it reports
+         * one for things the viewer never did: the seek back to 0 that the
+         * reveal performs, a buffering hiccup, a quality switch. Nothing ever
+         * put the card back into the playing state, so a single blip left it
+         * believing the trailer had stopped while the picture ran on.
+         *
+         * The card's transport state is what mounts the glow's blend loop (see
+         * TrailerAmbient): torn down there, it is never rebuilt, and the light
+         * holds whichever still was last composed for the rest of the trailer.
+         * A pause SHOULD freeze the light — that part is deliberate — which is
+         * why a resume has to unfreeze it.
+         *
+         * Guarded on `shownRef`, like the `false` below: the card hides its
+         * banner while `playing`, so claiming it before the frame is revealed
+         * would leave a blank card for as long as the reveal takes.
+         */
+        if (shownRef.current) handlersRef.current?.onPlaying(true);
+      } else if (state === PAUSED) {
         setPaused(true);
         if (shownRef.current) handlersRef.current?.onPlaying(false);
       }
