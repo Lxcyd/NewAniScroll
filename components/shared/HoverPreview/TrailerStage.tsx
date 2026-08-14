@@ -15,6 +15,7 @@ import {
   writeMuted,
   writeVolume,
 } from "@/lib/prefs/previewVolume";
+import { useDataSaver } from "@/lib/prefs/dataSaver";
 import { onFirstTrailer } from "@/lib/preview/previewStore";
 import { detectBars, peekBars, type TrailerBars } from "@/lib/preview/trailerBars";
 import { isFatalTrailerError, markTrailerBlocked } from "@/lib/preview/trailerBlocked";
@@ -157,6 +158,36 @@ const PAUSED = 2;
 const ENDED = 0;
 
 /**
+ * THE AMBIENT LIGHT IS A SECOND PLAYER, and the idea is Hayase's (see
+ * hayase-app/interface, ui/cards/YoutubeIframe.svelte). It is worth spelling out
+ * because this file spent a long time trying to solve the wrong problem.
+ *
+ * We could not read the trailer's pixels: the embed is cross-origin, so
+ * `drawImage(iframe)` does not exist and there is nothing to sample — which is
+ * why the glow fell back to the three published stills, and why it could not
+ * follow the picture. All of that took "the light must be COMPUTED from the
+ * video" for granted.
+ *
+ * It does not have to be. A blurred copy of the video IS the light. Mount the
+ * same embed a second time behind the card, blur it into oblivion, over-saturate
+ * it, and every frame lights the card by itself — no pixel is ever read, so the
+ * cross-origin rule has nothing to say about it.
+ *
+ * WHAT IT COSTS, honestly: a second decoder and a second stream of the same
+ * video. That is why it is skipped under Data Saver, the same preference that
+ * already turns off the watch player's ambient sampling.
+ *
+ * WHAT IT GIVES UP: the two players have their own clocks, so they drift by a
+ * fraction of a second. Through a 34 px blur that is invisible — the light is a
+ * colour, not a picture.
+ */
+const MIRRORED = new Set(["loadVideoById", "playVideo", "pauseVideo", "seekTo"]);
+/** Blur radius of the glow copy. The card's own stack used the same figure. */
+const GLOW_BLUR_PX = 34;
+/** How far past the video's box the glow copy is drawn, so light escapes it. */
+const GLOW_SPREAD = 1.22;
+
+/**
  * How often the glow is told where the trailer is.
  *
  * Fast enough that the light drifts rather than steps — the ambient recomposes
@@ -176,9 +207,22 @@ const GLOW_SWEEP_S = 9;
 
 export default function TrailerStage() {
   const attachment = useSyncExternalStore(subscribeStage, getStage, () => null);
+  /**
+   * No second decoder on a device whose owner asked us to spare it.
+   *
+   * The same preference already turns off the watch player's ambient sampling,
+   * so "Data Saver means no ambient light" is a rule the app already has. The
+   * card is not left dark: PreviewCard falls back to the storyboard glow, which
+   * costs three 4 KB JPEGs it has already fetched to measure the black bars.
+   */
+  const dataSaver = useDataSaver();
 
   const boxRef = useRef<HTMLDivElement>(null);
   const frameRef = useRef<HTMLIFrameElement>(null);
+  /** The blurred copy of the player that lights the card. See the render. */
+  const glowBoxRef = useRef<HTMLDivElement>(null);
+  const glowFrameRef = useRef<HTMLIFrameElement>(null);
+  const glowLoadedRef = useRef(false);
   const idleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const volCloseRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const trackRef = useRef<HTMLDivElement>(null);
@@ -284,6 +328,19 @@ export default function TrailerStage() {
       JSON.stringify({ event: "command", func, args }),
       ORIGIN,
     );
+    /*
+     * Transport commands go to BOTH players — see the glow frame below.
+     *
+     * Only these four. Sound is emphatically not mirrored: the second player
+     * exists to be looked at through a heavy blur and must never be heard, and
+     * it is born muted so there is nothing to undo.
+     */
+    if (glowLoadedRef.current && MIRRORED.has(func)) {
+      glowFrameRef.current?.contentWindow?.postMessage(
+        JSON.stringify({ event: "command", func, args }),
+        ORIGIN,
+      );
+    }
   }, []);
 
   const reveal = useCallback(() => {
@@ -552,6 +609,17 @@ export default function TrailerStage() {
         box.style.top = `${r.top}px`;
         box.style.width = `${r.width}px`;
         box.style.height = `${r.height}px`;
+        // The glow copy follows the same slot, drawn larger about its centre:
+        // a light source exactly the size of the card cannot spill past it.
+        const glow = glowBoxRef.current;
+        if (glow) {
+          const dx = (r.width * (GLOW_SPREAD - 1)) / 2;
+          const dy = (r.height * (GLOW_SPREAD - 1)) / 2;
+          glow.style.left = `${r.left - dx}px`;
+          glow.style.top = `${r.top - dy}px`;
+          glow.style.width = `${r.width * GLOW_SPREAD}px`;
+          glow.style.height = `${r.height * GLOW_SPREAD}px`;
+        }
       }
       raf = requestAnimationFrame(tick);
     };
@@ -945,8 +1013,76 @@ export default function TrailerStage() {
   if (src === undefined) return null;
 
   return (
-    <div
-      ref={boxRef}
+    <>
+      {/*
+       * The ambient light: the same trailer, drawn behind the card and blurred
+       * out of legibility. See MIRRORED above for why this is a second player
+       * rather than a reading of the first one.
+       *
+       * BELOW the card (z-79 against the card's z-80) and pointer-transparent:
+       * it is light, so nothing about it may be clickable, and the card's opaque
+       * surface is what keeps it a halo instead of a second picture.
+       *
+       * The clip is the card's own rule, repeated here because this layer is not
+       * inside the card: light may spill left, right and up as far as the blur
+       * carries it, and is cut short below the picture — light off a screen does
+       * not wrap round to backlight the text under it.
+       */}
+      {!dataSaver && (
+        <div
+          className="pointer-events-none fixed z-[79]"
+          aria-hidden
+          style={{ clipPath: "inset(-400px -400px -150px -400px)", left: 0, top: 0 }}
+          ref={glowBoxRef}
+        >
+          <div
+            className="h-full w-full overflow-hidden"
+            style={{
+              // The blur is applied to the BOX, not to the frame inside it: the
+              // box clips the oversized player first, and the filter then
+              // carries that clipped picture out past its own edges. That
+              // outward bleed is the halo.
+              filter: `blur(${GLOW_BLUR_PX}px) saturate(1.8)`,
+              opacity: visible && attachment ? 1 : 0,
+              transition: "opacity 240ms",
+            }}
+          >
+            <iframe
+              ref={glowFrameRef}
+              src={src}
+              title=""
+              allow="autoplay; encrypted-media; compute-pressure"
+              tabIndex={-1}
+              // Cover, exactly like the visible copy — a letterboxed source
+              // would otherwise ring the halo with its black bands. No ×200
+              // reduction here though: that trick exists to hide YouTube's
+              // chrome, and a 34 px blur hides it far more thoroughly than any
+              // scaling could.
+              style={{
+                position: "absolute",
+                border: 0,
+                width: `${zoom * 100}%`,
+                height: `${zoom * 100}%`,
+                left: `${(-(zoom - 1) / 2) * 100}%`,
+                top: `${(-(zoom - 1) / 2) * 100}%`,
+              }}
+              onLoad={() => {
+                glowLoadedRef.current = true;
+                // It boots on the same video as the visible player but silent,
+                // and every transport command since is mirrored to it.
+                glowFrameRef.current?.contentWindow?.postMessage(
+                  JSON.stringify({ event: "command", func: "mute", args: [] }),
+                  ORIGIN,
+                );
+              }}
+              className="pointer-events-none"
+            />
+          </div>
+        </div>
+      )}
+
+      <div
+        ref={boxRef}
       // Marked as part of the preview so that reaching for a control is not read
       // as leaving the card — the provider closes on any pointerover outside.
       data-preview-popup=""
@@ -1137,6 +1273,7 @@ export default function TrailerStage() {
           </div>
         </div>
       </div>
-    </div>
+      </div>
+    </>
   );
 }

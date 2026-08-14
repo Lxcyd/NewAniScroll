@@ -13,6 +13,7 @@ import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 
 import { animeHref } from "@/lib/prefs/clickTarget";
+import { useDataSaver } from "@/lib/prefs/dataSaver";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { peekLocalEntry, useLocalList } from "@/lib/list/localList";
 import { toggleFavourite, useIsFavourite } from "@/lib/anilist/favouritesCache";
@@ -95,6 +96,14 @@ export default function PreviewCard({
   subscribeRect?: (cb: (rect: AnchorRect) => void) => () => void;
 }) {
   const { t } = useTranslation();
+  /**
+   * Is the light coming from the player itself.
+   *
+   * The same condition TrailerStage mounts its blurred copy on — kept in step
+   * by reading the same preference rather than by passing a flag through the
+   * stage store, which would have to travel outside React to get here.
+   */
+  const liveGlow = !useDataSaver();
   const { data: session } = useSession();
   const token = (session as any)?.user?.token ?? null;
   const titlePref = useTitlePref();
@@ -422,7 +431,24 @@ export default function PreviewCard({
           spill left, right and above as far as the blur reaches, and is cut dead
           at the bottom of the picture. Light coming off a screen doesn't wrap
           around to backlight the text under it. */}
-      <div className="as-preview-ambient-clip pointer-events-none absolute -z-10" aria-hidden>
+      <div
+        className="as-preview-ambient-clip pointer-events-none absolute -z-10"
+        aria-hidden
+        style={{
+          /*
+           * It steps aside for the real thing.
+           *
+           * While the trailer runs, the light comes from a blurred copy of the
+           * PLAYER (see TrailerStage) — the actual moving picture, not an
+           * interpolation between three stills. Two glows stacked would read as
+           * one muddy one, so this fades out as that one fades in, on the same
+           * 240 ms. Under Data Saver there is no second player, so this stays
+           * and keeps doing the job.
+           */
+          opacity: playing && liveGlow ? 0 : 1,
+          transition: "opacity 240ms",
+        }}
+      >
         {/* `playing` is the card's own transport state, so the glow starts
             drifting exactly when the picture appears — and falls back to the
             banner when it does not. The frames are the video's own; see
@@ -431,7 +457,7 @@ export default function PreviewCard({
           banner={banner}
           playing={playing}
           zoom={1}
-          frames={glowFrames}
+          frames={liveGlow ? null : glowFrames}
           progress={progress}
         />
       </div>
