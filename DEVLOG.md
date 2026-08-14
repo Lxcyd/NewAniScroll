@@ -1,5 +1,55 @@
 # DEVLOG
 
+## 2026-08-14 — Bandes noires, curseur, et un coût Vercel qui ne servait plus
+
+**Un appel Worker inutile sur chaque payload d'aperçu.** `/api/v2/preview/[id]`
+demandait encore à notre Worker Cloudflare `/w/trailer/<id>.json` si la vidéo
+était supprimée ou bloquée — un aller-retour **bloquant, jusqu'à 1,2 s de temps
+de fonction Vercel**, sur chaque payload qui rate le cache edge, pour un verdict
+que plus personne ne lit depuis que la carte joue l'embed (qui rapporte ses
+propres erreurs par `onError`). Pire : l'endpoint appelé a été supprimé de la
+source du Worker, donc au prochain déploiement c'était un aller-retour vers un
+404. Supprimé.
+
+**Le chemin trailer ne touche plus rien à nous** : `youtube-nocookie` pour le
+lecteur, `i.ytimg` pour les images, `google.com` en préconnexion. Aucun Worker,
+aucun proxy, aucun Upstash. (`/api/v2/preview` sert toute la carte et
+préexistait au trailer.)
+
+**Bandes noires — ce qui est mesurable quand on ne peut pas lire la vidéo.**
+L'iframe est cross-origin, donc ses pixels sont hors d'atteinte : c'est pour ça
+que l'ancienne sonde de recadrage était morte avec le proxy. Mais YouTube publie
+`mq1/mq2/mq3.jpg`, trois images prises à ~25/50/75 % de la vidéo, en **vrai
+16:9** (320×180) et servies en `Access-Control-Allow-Origin: *` — donc lisibles
+dans un canvas. (Les `1/2/3.jpg` sont en 4:3 : ils portent le letterbox de
+YouTube lui-même et déclareraient 12,5 % de bande sur toute vidéo 16:9. Vérifié.)
+
+**La médiane, pas le minimum.** Premier essai : minimum par côté sur les trois
+images — trop sévère, une seule image discordante (un logo de fin qui remplit le
+cadre) annulait une bande présente partout ailleurs. Blue Exorcist, réellement
+encadré de noir sur quatre côtés, passait à travers. La médiane demande que
+**deux images sur trois** soient d'accord, ce qui est la définition utile de « la
+bande est là pendant la vidéo ». Puis symétrie forcée entre côtés opposés : une
+asymétrie veut dire qu'on regarde une scène sombre, pas une bande — et ça garde
+le recadrage centré, donc rien à réaligner.
+
+**Mesuré sur 140 trailers populaires : 1 recadrage, 0 faux positif.** C'est rare,
+et c'est la forme honnête du problème. Death Note — le cas signalé — n'est **pas**
+recadré, à raison : ses trois images montrent des cadrages différents et un écran
+de fin plein cadre. Ses bandes sont par plan, et aucun recadrage statique ne peut
+les enlever sans massacrer les plans qui vont bien.
+
+Garde-fous : bord net exigé (la ligne juste après la bande doit être nettement
+plus claire, sinon un ciel nocturne se fait recadrer), plafond à 30 % par côté,
+zoom plafonné à 1,6, et une détection qui arrive après la révélation est
+**ignorée** — redimensionner une iframe ×200 sous une vidéo en cours échange une
+bordure noire contre une secousse. Le résultat est mis en cache, donc le survol
+suivant est correct d'emblée.
+
+**Le curseur** disparaît quand le trailer apparaît et revient au premier
+mouvement — même règle que les boutons, parce que c'est la même question : le
+visiteur regarde-t-il, ou cherche-t-il un contrôle ?
+
 ## 2026-08-14 — Le lecteur est préchauffé au repos ; deux fautes du commit d'avant
 
 **La première carte restait noire.** Faute à moi, et précise : l'effet qui

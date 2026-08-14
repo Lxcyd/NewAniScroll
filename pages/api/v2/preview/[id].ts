@@ -29,36 +29,6 @@ const TTL_S = 24 * 60 * 60;
 /** Comfortably past the four lines the card clamps to; caps the payload. */
 const DESC_MAX = 600;
 
-const PROXY_BASE =
-  process.env.NEXT_PUBLIC_PROXY_BASE || "https://proxy.aniscroll.com";
-/**
- * The card is what matters, not the trailer. If the worker is slow to answer
- * we ship the trailer and let the player find out — the old behaviour, and a
- * far better failure than a preview that waits on a decoration.
- */
-const VERDICT_TIMEOUT_MS = 1200;
-
-/**
- * Can this trailer actually be watched from here?
- *
- * False ONLY for a durable refusal (`gone`): deleted, private, age-gated, or
- * not released in this region. Anything else — including the worker being
- * refused by YouTube, a timeout, or a network error — answers true, because
- * none of those is a statement about the video.
- */
-async function isPlayable(videoId: string): Promise<boolean> {
-  try {
-    const res = await fetch(`${PROXY_BASE}/w/trailer/${videoId}.json`, {
-      signal: AbortSignal.timeout(VERDICT_TIMEOUT_MS),
-    });
-    if (!res.ok) return true;
-    const body = (await res.json()) as { verdict?: string };
-    return body?.verdict !== "gone";
-  } catch {
-    return true;
-  }
-}
-
 /**
  * AniList's `asHtml: false` description still carries <br>, <i> and entities.
  * The trailing "(Source: …)" / "Notes: …" blocks are stripped for the same
@@ -121,22 +91,28 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       : null;
 
   /*
-   * A trailer nobody can watch is not sent at all.
+   * NO PLAYABILITY CHECK ANY MORE, and removing it is the point.
    *
-   * The card used to find that out the hard way: it mounted a <video>, the
-   * proxy answered 410 Gone (the uploader blocked the video in this country),
-   * and the console filled with failed requests before the artwork came back.
-   * Asking here instead means the card never learns of a trailer it could not
-   * have played — no element, no request, no error.
+   * This used to ask our Cloudflare Worker `/w/trailer/<id>.json` whether the
+   * video was deleted, private or region-blocked, so the card would never mount
+   * a trailer it could not play. That made sense when the card played PROXIED
+   * bytes: the failure was ours, it was noisy, and it came from an endpoint we
+   * were already paying for.
    *
-   * Cheap on both sides. This response is edge-cached for a day, and the
-   * worker answers verdicts from its own cache, so the question is asked once
-   * per anime per day at most. `unknown` — the worker being refused by YouTube
-   * rather than the video being unavailable — deliberately keeps the trailer:
-   * that refusal says nothing about the video, and hiding on it would drop a
-   * trailer that plays perfectly well.
+   * None of that is true now. The card plays YouTube's own embed, which reports
+   * its own failure through `onError` — YouTube's answer about this visitor's
+   * region rather than ours about a datacentre's. So the check bought nothing,
+   * while costing a blocking round trip to the Worker (up to 1.2 s of Vercel
+   * function time) on every payload that missed the edge cache — for a verdict
+   * nobody read. Worse, the endpoint it called has since been deleted from the
+   * Worker's source, so once that Worker is redeployed this would have been a
+   * round trip to a 404.
+   *
+   * The trailer path is now entirely YouTube's: the embed loads from
+   * youtube-nocookie, the bar detection reads i.ytimg, and neither touches
+   * anything of ours.
    */
-  const trailer = rawTrailer && (await isPlayable(rawTrailer.id)) ? rawTrailer : null;
+  const trailer = rawTrailer;
 
   setEdgeCache(res, TTL_S);
   return res.status(200).json({

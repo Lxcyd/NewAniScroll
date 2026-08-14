@@ -16,6 +16,7 @@ import {
   writeVolume,
 } from "@/lib/prefs/previewVolume";
 import { onFirstTrailer } from "@/lib/preview/previewStore";
+import { detectBars, peekBars, type TrailerBars } from "@/lib/preview/trailerBars";
 import { getStage, subscribeStage } from "./stageStore";
 
 /**
@@ -103,6 +104,16 @@ const SCALE = 200;
  */
 const OVERSCAN = 1.12;
 
+/**
+ * A ceiling on the crop, however convincing the measurement.
+ *
+ * Past this the picture is being destroyed to hide a border, and a wrong
+ * measurement should cost a black edge rather than a trailer shown at double
+ * size. 1.6 clears the two shapes that actually turn up — 4:3 in 16:9 needs
+ * 1.333, a windowed master a little more — with room to spare.
+ */
+const MAX_ZOOM = 1.6;
+
 /** The card's own top corners, which a layer drawn above it has to repeat. */
 const RADIUS = "12px 12px 0 0";
 
@@ -162,6 +173,8 @@ export default function TrailerStage() {
   const [visible, setVisible] = useState(false);
   const [paused, setPaused] = useState(false);
   const [showControls, setShowControls] = useState(false);
+  /** Baked-in black bars in THIS trailer, if it has any. See trailerBars.ts. */
+  const [bars, setBars] = useState<TrailerBars>({ tb: 0, lr: 0 });
 
   /**
    * The id the iframe was BORN with — set once, never again.
@@ -327,6 +340,31 @@ export default function TrailerStage() {
     }
 
     openedAtRef.current = Date.now();
+
+    /*
+     * Ask what this trailer's own black bars are, if any.
+     *
+     * Started here rather than at reveal so it races the ~800 ms the video takes
+     * to start: three 4 KB images off a host we already preconnect nearly always
+     * land first, and the frame is shown already cropped. `peekBars` fills in
+     * synchronously for a trailer seen before, so a second hover never re-crops
+     * in front of the viewer.
+     */
+    setBars(peekBars(attachment.id));
+    const wanted = attachment.id;
+    void detectBars(wanted).then((b) => {
+      // The pointer may have moved on to another card while those loaded.
+      if (getStage()?.id !== wanted) return;
+      /*
+       * Too late to crop THIS showing, and that is deliberate. Changing the
+       * player's size resizes a ×200 iframe and makes it lay itself out again;
+       * doing that under a trailer the visitor is already watching trades a
+       * black edge for a jolt in the middle of the picture. The answer is
+       * cached, so the next hover on this trailer is cropped from the start.
+       */
+      if (shownRef.current) return;
+      setBars(b);
+    });
 
     if (bootId === null) {
       // Nobody warmed us in time — this card pays the boot, as every card used
@@ -651,6 +689,19 @@ export default function TrailerStage() {
         `?enablejsapi=1&controls=0&mute=1&playsinline=1&rel=0` +
         `&iv_load_policy=3&disablekb=1&fs=0&cc_load_policy=0`;
 
+  /*
+   * How far the player really overflows, once this trailer's own bars are known.
+   *
+   * OVERSCAN is the floor — it covers the slot not being exactly 16:9 and eats
+   * bars up to ~6 % on its own. A measured bar only matters when it is bigger
+   * than that, which is why this is a max and not a product: a 12.5 % pillarbox
+   * (4:3 in a 16:9 frame) wants 1.333, not 1.12 x 1.333.
+   */
+  const zoom = Math.min(
+    MAX_ZOOM,
+    Math.max(OVERSCAN, 1 / (1 - 2 * bars.tb), 1 / (1 - 2 * bars.lr)),
+  );
+
   const controlsVisible = visible && (showControls || volOpen);
   const chrome = `transition-opacity duration-200 ${
     controlsVisible ? "opacity-100" : "pointer-events-none opacity-0"
@@ -696,6 +747,14 @@ export default function TrailerStage() {
         opacity: visible && attachment ? 1 : 0,
         pointerEvents: attachment ? "auto" : "none",
         /*
+         * The pointer gets out of the way of the picture it just summoned, and
+         * comes back the moment the hand moves — the same rule as the controls,
+         * because it is the same question: is the visitor watching, or reaching
+         * for something? A cursor parked in the middle of a three-second trailer
+         * is the one thing on the card nobody put there on purpose.
+         */
+        cursor: visible && !controlsVisible ? "none" : "default",
+        /*
          * Short, because this fade is the last of the sound-before-image gap.
          * Sound and picture are released on the same instant, but a 300 ms
          * dissolve means the ear gets a finished trailer while the eye is still
@@ -724,10 +783,10 @@ export default function TrailerStage() {
         style={{
           position: "absolute",
           border: 0,
-          width: `${SCALE * OVERSCAN * 100}%`,
-          height: `${SCALE * OVERSCAN * 100}%`,
-          left: `${(-(OVERSCAN - 1) / 2) * 100}%`,
-          top: `${(-(OVERSCAN - 1) / 2) * 100}%`,
+          width: `${SCALE * zoom * 100}%`,
+          height: `${SCALE * zoom * 100}%`,
+          left: `${(-(zoom - 1) / 2) * 100}%`,
+          top: `${(-(zoom - 1) / 2) * 100}%`,
           transform: `scale(${1 / SCALE})`,
           // Top-left, otherwise the reduction re-centres and shifts the picture.
           transformOrigin: "0 0",
