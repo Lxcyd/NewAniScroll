@@ -5056,3 +5056,68 @@ avance se lit comme la coupe ; en retard, comme un défaut).
 l'image à un halo qui, lui, montre le cadre **entier** flouté — toute coupe
 commençant par les bords donnait au halo une avance apparente. Les deux séries
 intègrent désormais la même surface.
+
+---
+
+## 2026-08-15 — Le fondu bas de la carte, et le rail du hero rendu survolable
+
+### Le dégradé arrivait en deux marches
+
+Constat de Luc : le fondu entre le trailer et le corps de la carte se fait « en
+deux étapes ». Mesuré sur dev avant correction, sur les stops réellement servis :
+
+| segment | pente d'alpha | cassure vs. segment précédent |
+|---|---|---|
+| 80 % → 95 % | 0,0593 /% | (départ depuis 0) |
+| 95 % → 100 % | 0,0220 /% | **−0,0373** |
+
+Deux ruptures, donc deux marches : l'entrée brutale à 80 % et le changement de
+pente d'un facteur 2,7 à 95 %.
+
+**Ce que j'ai compris en le mesurant** : un `linear-gradient` interpole en
+DROITE entre deux stops consécutifs. Chaque stop est donc un angle dans la
+courbe d'alpha, et l'œil lit un angle comme un bord. Moins de stops ne veut pas
+dire plus doux — c'est même l'inverse : trois stops, c'est deux segments, donc
+au mieux une cassure bien visible.
+
+Remplacés par neuf stops qui échantillonnent un smoothstep (3t²−2t³) de 58 % à
+100 % : pente nulle aux deux extrémités (ni bord de départ ni bord d'arrivée) et
+plus aucun couple de segments assez dissemblable pour se voir. Cassure maximale
+mesurée après déploiement : **0,0120 /%**, contre 0,0373 avant.
+
+À ne pas « simplifier » plus tard : la liste est longue parce qu'elle
+échantillonne une courbe. La raccourcir remet les marches. Et *doux* n'est pas
+*plat* — le fondu tenté en 2025 qui n'arrivait jamais au plein avait été jugé
+pire que le problème ; celui-ci atteint le plein, juste sans angle.
+
+### Les affiches du rail du hero sont survolables
+
+Ce qui l'empêchait n'était pas le markup mais la **rotation** : un auto-next
+pendant un preview réordonne le rail SOUS le pointeur, donc l'affiche inspectée
+est remplacée par un autre titre en pleine ouverture, et l'ancre du preview
+disparaît du DOM. `previewAnchor(e.id)` sur chaque couverture + un maintien de
+la rotation tant que le pointeur travaille le rail.
+
+**Le piège, et il aurait suffi à rendre le correctif inopérant** : `onPointerLeave`
+sur le rail ne marche pas. La carte de preview est portalisée dans `<body>` et
+s'ouvre **centrée sur l'affiche**, donc elle recouvre l'élément même que le
+pointeur survole : le rail voit un `leave` à l'instant précis où le preview
+qu'il a causé apparaît, et la rotation repartirait exactement quand il ne faut
+pas. Le maintien s'arrête donc sur un pointeur qui n'est **ni** sur le rail
+(`[data-hero-rail]`) **ni** sur un popup (`[data-preview-popup]`) — les deux
+forment une seule région, quoi qu'en dise le DOM.
+
+La pilule de progression est l'autre moitié visible du compte à rebours : mise
+en pause avec lui (`animationPlayState`), et **remontée à la relance** — son
+remplissage est une animation CSS qui reprend là où elle s'était arrêtée, alors
+que le timer, lui, est un `setTimeout` neuf ; sans le remount elle afficherait
+un remplissage aux trois quarts avec huit secondes encore à courir.
+
+Ce n'est **pas** une pause au survol du hero, toujours refusée pour la même
+raison : le hero fait la taille du viewport, le curseur s'y pose par défaut, et
+la rotation serait gelée en permanence. Le rail est une cible de 126 px qu'il
+faut viser.
+
+Vérifié sur dev : preview ouvert sur une couverture du rail, ordre du rail
+**inchangé sur 16 s** (soit deux avances manquées, intervalle = 8 s), puis
+rotation reprise après le départ du pointeur.
