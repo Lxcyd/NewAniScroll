@@ -1,0 +1,160 @@
+<!--
+  Banc : faire disparaitre le bouton en AGRANDISSANT le player.
+
+  L'IDEE, qui vient d'une intuition geometrique. Toutes nos tentatives
+  precedentes deplacaient le cadre autour d'un bouton de taille constante :
+  recadrage, decentrage, calque. Mais si la chrome de YouTube est de taille
+  FIXE en pixels — et la passe 3 en donnait deja l'indice, « a 120 px la chrome
+  MANGE l'image » — alors il ne faut pas deplacer le cadre : il faut agrandir
+  le player, puis le reduire.
+
+  A x8, le player fait 2912 px de large et l'iframe est ramenee a 364 px par un
+  transform:scale(0.125). La video occupe toujours tout le cadre, mais le
+  bouton, lui, a ete divise par huit. Mesure Playwright : 360 pixels de glyphe
+  au centre a x1, 0 a x8 — soit exactement le niveau du temoin sans chrome.
+
+  CE QU'IL FAUT REGARDER ICI, parce que la mesure ne le dit pas :
+   - le bouton a-t-il vraiment disparu, ou reste-t-il un fantome ?
+   - que reste-t-il du titre en haut a gauche et du logo en bas a droite ?
+     (a x8 ce sont des taches de quelques pixels, illisibles mais presentes)
+   - l'image est-elle nette ? Reduire un grand rendu SUPERECHANTILLONNE, donc
+     ca devrait etre plus net qu'a x1, pas moins.
+   - est-ce que ca rame ? Composer une iframe de 2912x1640 par carte a un cout,
+     et une grille de survol en affiche plusieurs.
+
+  Le facteur 4 ne suffit PAS (glyphe encore visible), 8 oui. Le curseur est la
+  pour trouver le minimum viable, pas pour confirmer 8.
+-->
+<title>Banc d'echelle</title>
+<style>
+  :root {
+    --fond: #f6f6f7; --texte: #16161a; --carte: #fff;
+    --trait: #d9d9de; --doux: #6b6b76;
+  }
+  :root:not([data-theme="light"]) { }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --fond: #0e0e11; --texte: #f2f2f4; --carte: #17171c;
+      --trait: #2c2c34; --doux: #9a9aa6;
+    }
+  }
+  :root[data-theme="dark"] {
+    --fond: #0e0e11; --texte: #f2f2f4; --carte: #17171c;
+    --trait: #2c2c34; --doux: #9a9aa6;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 24px; background: var(--fond); color: var(--texte);
+    font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  h1 { font-size: 19px; margin: 0 0 4px; }
+  p.sous { margin: 0 0 20px; color: var(--doux); font-size: 13.5px; }
+  .reglages {
+    display: flex; flex-wrap: wrap; gap: 18px; align-items: center;
+    background: var(--carte); border: 1px solid var(--trait);
+    border-radius: 10px; padding: 14px 16px; margin-bottom: 22px;
+  }
+  label { display: flex; align-items: center; gap: 8px; font-size: 13.5px; }
+  input[type="text"] { width: 132px; }
+  input[type="text"], button {
+    font: inherit; font-size: 13px; padding: 5px 9px;
+    border: 1px solid var(--trait); border-radius: 7px;
+    background: var(--fond); color: var(--texte);
+  }
+  button { cursor: pointer; }
+  output { font-variant-numeric: tabular-nums; font-weight: 600; min-width: 68px; }
+  .duo { display: flex; flex-wrap: wrap; gap: 28px; }
+  .col h2 { font-size: 13px; margin: 0 0 8px; color: var(--doux); font-weight: 600; }
+  /* 364 px : la vraie largeur de la carte de survol. Tout se juge a cette
+     taille — un seuil mesure a 480 px ne s'y transpose pas, on l'a paye. */
+  .stage {
+    position: relative; width: 364px; height: 205px;
+    overflow: hidden; background: #000; border-radius: 8px;
+  }
+  .stage iframe { position: absolute; top: 0; left: 0; border: 0; transform-origin: 0 0; }
+  .note { margin-top: 10px; font-size: 12.5px; color: var(--doux); max-width: 364px; }
+  .rappel {
+    margin-top: 26px; padding: 12px 14px; font-size: 13px; color: var(--doux);
+    border-left: 3px solid var(--trait); max-width: 720px;
+  }
+</style>
+
+<h1>Le bouton disparait-il si on agrandit le player&nbsp;?</h1>
+<p class="sous">
+  A gauche le player monte a la taille de la carte, comme aujourd'hui. A droite,
+  monte &times;N puis ramene au meme cadre. Meme video, meme instant.
+</p>
+
+<div class="reglages">
+  <label>video
+    <input type="text" id="vid" value="6vMuWuWlW4I">
+  </label>
+  <label>facteur
+    <input type="range" id="f" min="1" max="12" step="1" value="8">
+    <output id="fOut"></output>
+  </label>
+  <button id="rejouer">rejouer les deux</button>
+</div>
+
+<div class="duo">
+  <div class="col">
+    <h2>&times;1 &mdash; ce qu'on a aujourd'hui</h2>
+    <div class="stage" id="s1"></div>
+    <p class="note">Le glyphe est peint pendant <code>PLAYING</code> et s'efface ~4&nbsp;s
+      apres le debut reel de la lecture.</p>
+  </div>
+  <div class="col">
+    <h2 id="t2"></h2>
+    <div class="stage" id="s2"></div>
+    <p class="note" id="n2"></p>
+  </div>
+</div>
+
+<div class="rappel">
+  Mesure Playwright, pixels de glyphe au centre&nbsp;: <strong>360 a &times;1</strong>,
+  77 a &times;2, 10 a &times;4, <strong>0 a &times;8</strong> &mdash; le meme compte
+  que le temoin dont la chrome est deja partie. A &times;4 le glyphe est encore
+  visible a l'oeil&nbsp;; c'est &times;8 qui le fait disparaitre.
+  Cout en octets sur les 6 premieres secondes&nbsp;: meme ordre de grandeur qu'a
+  &times;1 (1,05&nbsp;Mo contre 1,15&nbsp;Mo sur une video, 1,19 contre 0,48 sur
+  une autre) &mdash; l'ABR n'a pas le temps de monter pendant un survol.
+</div>
+
+<script>
+  const BASE = "controls=0&autoplay=1&mute=1&playsinline=1&rel=0" +
+               "&iv_load_policy=3&disablekb=1&fs=0";
+  const L = 364, H = 205;
+
+  const $ = (id) => document.getElementById(id);
+
+  function monter(hote, facteur) {
+    hote.innerHTML = "";
+    const f = document.createElement("iframe");
+    f.allow = "autoplay";
+    f.width = L * facteur;
+    f.height = H * facteur;
+    f.style.width = (L * facteur) + "px";
+    f.style.height = (H * facteur) + "px";
+    // L'echelle ramene le grand player dans le cadre. transform-origin en haut
+    // a gauche, sinon la reduction recentre l'image et decale tout.
+    f.style.transform = "scale(" + (1 / facteur) + ")";
+    f.src = "https://www.youtube.com/embed/" + $("vid").value.trim() + "?" + BASE;
+    hote.appendChild(f);
+  }
+
+  function rejouer() {
+    const facteur = Number($("f").value);
+    $("fOut").textContent = "×" + facteur;
+    $("t2").textContent = "×" + facteur + " — player " + (L * facteur) + " px, ramene a 364";
+    $("n2").textContent = facteur === 1
+      ? "A ×1 les deux colonnes sont identiques : c'est le temoin."
+      : "Le bouton a ete divise par " + facteur + ". Regardez aussi le titre en haut a gauche et le logo en bas a droite : ils retrecissent, mais ne disparaissent pas.";
+    monter($("s1"), 1);
+    monter($("s2"), facteur);
+  }
+
+  $("rejouer").addEventListener("click", rejouer);
+  $("f").addEventListener("input", rejouer);
+  $("vid").addEventListener("change", rejouer);
+  rejouer();
+</script>

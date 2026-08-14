@@ -1,5 +1,58 @@
 # DEVLOG
 
+## 2026-08-14 — Ne pas déplacer le cadre : AGRANDIR le player
+
+Idée venue d'une intuition géométrique — « et si on décalait l'iframe ? ». Le
+décalage lui-même avait déjà été essayé et échoue par construction : le bouton
+est **au centre du player**, donc tout recadrage qui l'exclut exclut le centre de
+l'image. Mais la question rouvre un indice mesuré le 09/08 et jamais exploité :
+**à 120 px « la chrome MANGE l'image »**. Si elle mange l'image à 120 px, c'est
+qu'elle ne rétrécit pas avec le player — donc elle est de **taille fixe en
+pixels**.
+
+Conséquence directe : il ne faut pas déplacer le cadre autour d'un bouton
+constant, il faut **agrandir le player puis le réduire**. Une iframe montée à
+2912 px et ramenée à 364 px par `transform: scale(0.125)` garde la vidéo
+plein cadre et divise le bouton par huit.
+
+**Mesuré** (pixels quasi-blancs dans le disque central, chrome encore présente à
+t≈2,1 s, deux vidéos) :
+
+| facteur | player | pixels de glyphe |
+|---|---|---|
+| ×1 | 364 px | **360** |
+| ×2 | 728 px | 77 |
+| ×4 | 1456 px | 10 — *encore visible à l'œil* |
+| ×8 | 2912 px | **0** — le compte du témoin sans chrome |
+
+Vérifié à l'image et pas seulement au compteur : à ×8 le bouton a disparu, le
+titre en haut à gauche est une trace illisible de quelques pixels, le logo en bas
+à droite idem. Sur la seconde vidéo les 118 pixels clairs restants à ×8 sont la
+scène (le témoin en compte 80), pas le glyphe.
+
+**Le coût en octets ne s'envole pas**, contre toute attente : sur les 6 premières
+secondes — la durée d'un survol — 1,05 Mo à ×8 contre 1,15 Mo à ×1 sur une vidéo,
+1,19 contre 0,48 sur l'autre. Même ordre de grandeur. L'ABR de YouTube n'a pas le
+temps de monter. *Deux vidéos, variance forte : c'est un ordre de grandeur, pas
+un chiffre.*
+
+**Ce que ça remettrait en cause si ça tient.** Le proxy existe UNIQUEMENT pour se
+débarrasser de ce bouton (première ligne de `youtube-trailer.js`). S'il tombe par
+la géométrie, alors tombent avec lui : la bande passante du Worker, les appels
+InnerTube, le blocage bot, le disjoncteur, l'échelle de réchauffage, et le projet
+d'ingestion R2. Et les octets viendraient de la connexion du visiteur en direct —
+c'est-à-dire la réponse à « comment paraître légitime aux yeux de YouTube ».
+
+**Ce qui n'est PAS encore vérifié, et qui décide** :
+- le coût de composition d'une iframe 2912×1640 **par carte**, sur une grille de
+  survol qui en affiche plusieurs, et sur mobile ;
+- la tenue sur beaucoup plus que deux vidéos ;
+- ce que deviennent les traces résiduelles (titre, logo) à l'œil sur du contenu
+  clair plutôt que sur ces deux-là.
+
+Banc pour juger à l'œil : `public/embed-scale-lab.html`, curseur de facteur, ×1
+contre ×N côte à côte à la vraie largeur de carte. **Le facteur 4 ne suffit pas.**
+
 ## 2026-08-14 — Existe-t-il un dépôt qui n'est PAS bloqué ? Non — et cobalt le prouve
 
 Recherche de l'état de l'art plutôt que de nouvelles mesures.
