@@ -64,8 +64,10 @@
   .toolbar { display:flex; flex-wrap:wrap; gap:18px; align-items:center; padding:12px 14px;
              background:var(--surface); border:1px solid var(--line); border-radius:10px; margin-bottom:22px; }
   .toolbar label { display:flex; align-items:center; gap:7px; user-select:none; }
-  .toolbar input[type=text] { background:#0e111b; border:1px solid var(--line); color:var(--text);
-                              border-radius:6px; padding:6px 9px; width:150px; font:inherit; }
+  .toolbar input[type=text], .toolbar select {
+    background:#0e111b; border:1px solid var(--line); color:var(--text);
+    border-radius:6px; padding:6px 9px; font:inherit; }
+  .toolbar input[type=text] { width:150px; }
   .toolbar button { background:var(--brand); border:0; color:#fff; font:inherit; font-weight:600;
                     padding:7px 14px; border-radius:6px; cursor:pointer; }
   .val { color:var(--brand); font-variant-numeric:tabular-nums; min-width:3.4em; }
@@ -76,8 +78,9 @@
   .stage { position:relative; width:364px; aspect-ratio:16/9; overflow:hidden;
            background:#000; border-radius:10px; }
   .stage iframe { position:absolute; border:0; }
+  /* Le remplissage est posé par layout() : voir FILLS. */
   .patch { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
-           border-radius:50%; background:#000; transition:opacity .25s; }
+           border-radius:50%; transition:opacity .25s; }
   /* Le repère montre où YouTube peint, pour qu'on voie ce qu'on couvre. */
   .guide { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
            outline:1px dashed #0ff; opacity:.55; pointer-events:none; }
@@ -109,6 +112,12 @@
     <span class="val" id="patchv"></span></label>
   <label>durée <input type="range" id="dur" min="0" max="8000" step="250" value="4500" />
     <span class="val" id="durv"></span></label>
+  <label>remplissage
+    <select id="fill">
+      <option value="flou" selected>flou (pixels de la vidéo)</option>
+      <option value="fondu">noir fondu</option>
+      <option value="dur">noir franc</option>
+    </select></label>
   <label><input type="checkbox" id="perm" checked /> pastille permanente</label>
   <label><input type="checkbox" id="off" /> décentré (aucun calque)</label>
   <label><input type="checkbox" id="guide" checked /> repère</label>
@@ -142,6 +151,46 @@ const log = (m) => { out.textContent += `+${Date.now()-t0}ms  ${m}\n`; out.scrol
  * suit le même facteur, sinon le player change de ratio et letterboxe.
  */
 /**
+ * TROIS REMPLISSAGES, et le troisième ne retire rien à l'image.
+ *
+ * Idée de Luc : plutôt que masquer le bouton, redessiner par-dessus les pixels
+ * de la vidéo. LIRE ces pixels est interdit — une iframe cross-origin ne se
+ * photographie pas, et ce n'est pas un oubli : c'est la règle qui empêche une
+ * page de capturer l'iframe de votre banque.
+ *
+ * Mais `backdrop-filter` ne passe pas par JS : il demande au COMPOSITEUR de
+ * filtrer ce qui est derrière l'élément. Le navigateur l'autorise sur du
+ * cross-origin précisément parce que le script n'en apprend rien. Le bouton est
+ * donc remplacé par la vidéo elle-même, floutée, vivante, aux bonnes couleurs.
+ *
+ * Deux réglages viennent de la mesure :
+ *  - le flou s'applique 2,4× PLUS LARGE que le glyphe. C'est l'étalement qui
+ *    dilue sa luminance ; à la taille du glyphe, le blanc reste une tache.
+ *  - masque radial à bord doux, sinon le disque flouté a un contour net, aussi
+ *    visible que ce qu'il cache.
+ * Vérifié aussi : contrairement au `filter` du 09/08 (halo animé), celui-ci ne
+ * fige pas le rendu de l'iframe — deux clichés espacés diffèrent bien.
+ */
+function applyFill(el, p) {
+  const fill = $("fill").value;
+  const scale = fill === "flou" ? 2.4 : 1;
+  const w = p * scale;
+  el.style.width = w + "%";
+  el.style.height = (w * 16 / 9) + "%"; // % vertical = % de la HAUTEUR du cadre
+  const blur = fill === "flou" ? "blur(60px) brightness(.88)" : "";
+  el.style.backdropFilter = blur;
+  el.style.webkitBackdropFilter = blur;
+  el.style.background =
+    fill === "dur" ? "#000"
+    : fill === "fondu" ? "radial-gradient(closest-side, #000 55%, rgba(0,0,0,0) 100%)"
+    : "transparent";
+  const mask = fill === "flou"
+    ? "radial-gradient(closest-side, #000 17%, transparent 100%)" : "";
+  el.style.maskImage = mask;
+  el.style.webkitMaskImage = mask;
+}
+
+/**
  * Le mode « décentré » : la fenêtre est calée APRÈS le centre du player, qui
  * n'est donc plus dans le cadre. Contrainte, en % de la largeur du cadre :
  *   x0 > 50·Z  (le centre est derrière nous)  et  x0 + 100 ≤ 100·Z  (on reste
@@ -163,7 +212,7 @@ function layout() {
   // Le glyphe grandit avec le player : mesuré ~48 px pour un player de 480 px,
   // donc on dimensionne la pastille en proportion du PLAYER, pas du cadre.
   const p = Number($("patch").value) * z;
-  $("patchEl").style.width = $("patchEl").style.height = p + "%";
+  applyFill($("patchEl"), p);
   const g = $("guideEl");
   g.style.width = g.style.height = (p * 1.25) + "%";
   g.style.display = $("guide").checked ? "" : "none";
@@ -239,7 +288,7 @@ setInterval(() => {
   $("patchEl").style.opacity = ($("perm").checked || !expired) ? "1" : "0";
 }, 100);
 
-for (const id of ["keep", "patch", "guide", "dur", "off"]) {
+for (const id of ["keep", "patch", "guide", "dur", "off", "fill"]) {
   $(id).addEventListener("input", layout);
   $(id).addEventListener("change", layout);
 }

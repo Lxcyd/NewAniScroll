@@ -167,6 +167,39 @@ exactement ce que le cahier des charges refuse.
 **Le proxy n'est donc pas la solution la moins mauvaise : c'est la seule qui
 satisfait les trois contraintes, et elle est déjà en production.**
 
+### Post-scriptum : le calque qui ne retire rien à l'image
+
+Idée de Luc, annoncée comme « vraiment stupide » : au lieu de masquer le bouton,
+**redessiner par-dessus les pixels de la vidéo**. LIRE ces pixels est interdit —
+et ce n'est pas un oubli, c'est la règle qui empêche une page de photographier
+l'iframe de votre banque.
+
+Mais `backdrop-filter` ne passe pas par JS : il demande au COMPOSITEUR de filtrer
+ce qui est derrière l'élément, et le navigateur l'autorise sur du cross-origin
+précisément parce que le script n'en apprend rien. **Le bouton est donc remplacé
+par la vidéo elle-même**, floutée, vivante, aux bonnes couleurs.
+
+Deux réglages viennent de la mesure, et ils font toute la différence :
+- le flou doit s'appliquer **2,4× plus large que le glyphe**. À sa taille, le
+  blanc n'est pas dilué, il est ÉTALÉ : on remplace un bouton net par une tache
+  claire. C'est l'étalement large qui le noie.
+- **masque radial à bord doux**, sinon le disque flouté a un contour net, aussi
+  visible que ce qu'il cache.
+
+Résultat mesuré : sur fond sombre (le cas le plus dur, glyphe blanc très
+contrasté) **il disparaît entièrement** ; sur fond clair il reste un voile à
+peine perceptible. Et contrairement au `filter` du 09/08 qui avait figé le rendu
+d'une iframe cross-origin, celui-ci ne gèle rien — deux clichés espacés diffèrent.
+
+Ça ne change pas la conclusion (il reste le zoom de 1,67, que le cahier des
+charges refuse), mais ça règle le seul reproche qu'on pouvait faire au calque :
+il ne coûte plus un morceau d'image. Réglage `remplissage: flou` dans le banc.
+
+Leçon : la meilleure idée de ces deux jours est arrivée précédée de « c'est
+vraiment stupide ». La question à se poser n'était pas « peut-on lire les pixels »
+(non, et c'est définitif) mais « qui d'autre y a accès » — le compositeur, lui,
+les manipule en permanence sans jamais les montrer à personne.
+
 ## 2026-08-13 (fin) — Copier la requête de référence valait tous les réglages
 
 Après une soirée à régler le disjoncteur au gramme près (43 %, 72 %, 79 %), le
