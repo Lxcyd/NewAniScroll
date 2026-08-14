@@ -85,7 +85,10 @@ const ORIGIN = "https://www.youtube-nocookie.com";
  * gradient and part is a layer proportional to the player.
  *
  * Expressed as a percentage below, so the factor is independent of the card's
- * real pixel size. Bench: public/embed-scale-lab.html.
+ * real pixel size. The bench that produced those counts lived in public/ and has
+ * been removed — next-pwa precaches everything there, so every visitor was
+ * downloading it. It is in the history if it is ever needed again (see the
+ * DEVLOG entry of 2026-08-15); the numbers it established are above.
  */
 const SCALE = 200;
 

@@ -4957,3 +4957,37 @@ rebuffer ne se voit pas) et tenu par le correcteur, qui vise cet écart au lieu 
 zéro. **On ne peut pas affirmer mieux que |décalage| ≤ 50 ms** : le pas de mesure
 vaut 50 ms et une image de la vidéo dure 33 à 42 ms. Descendre plus bas serait
 ajuster du bruit.
+
+## 2026-08-15 — Nettoyage de l'aperçu au survol
+
+Rien de fonctionnel : uniquement du code et des fichiers sans appelant.
+
+**Code mort retiré** (`TrailerAmbient` / `PreviewCard` / provider / `trailerBars`)
+- La boucle `requestAnimationFrame` qui échantillonnait un `<video>` : plus personne
+  ne passe `sourceRef` depuis le retour à l'embed YouTube. ~90 lignes, avec son
+  canvas `prev` et `SAMPLE_INTERVAL_MS`.
+- `zoom` : paramètre dont l'unique appelant passait toujours `1`.
+- `poster` : traversait le provider et la carte sans jamais être peint (la carte
+  documente même pourquoi elle ne l'utilise pas) — supprimé avec la requête DOM
+  faite à chaque survol pour le lire.
+- `ambientFrames` : renvoyait `storyboardFrames(id)` inchangé.
+
+**Bancs d'essai supprimés de `public/`** — `embed-mask-lab.html` et
+`embed-scale-lab.html`. Raison concrète, pas cosmétique : **next-pwa précache tout
+ce qui est sous `public/`** (sauf `emojis/`, déjà exclu), donc ces 24 Ko étaient
+téléchargés par chaque visiteur. Leurs conclusions sont dans les commentaires du
+code et ici ; les fichiers restent dans l'historique git.
+
+**Vérifié après coup sur dev, les deux chemins** :
+`défaut` → 2 iframes, calque glow présent, ambient canvas à opacity 0 ;
+`Data Saver` → 1 iframe, pas de calque glow, ambient canvas à opacity 1 et peint.
+Aucune erreur console dans les deux cas.
+
+**Non supprimé, à décider** : `public/trailer-lab.html` (31 Ko) n'est **pas suivi
+par git**, donc il n'est ni déployé ni précaché — il n'existe que dans la copie de
+travail locale. Aucun effet en production ; le supprimer serait en revanche
+irréversible (aucune trace dans l'historique). À trancher par Luc.
+
+Rappel au passage : `public/sw.js`, `public/workbox-*.js` et `public/fallback-*.js`
+sont **générés par next-pwa** à chaque build et déjà ignorés par git — ce ne sont
+pas des résidus du dépôt, les effacer les fait juste revenir au build suivant.
