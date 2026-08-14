@@ -256,6 +256,14 @@ export default function TrailerStage() {
   const rewoundRef = useRef(false);
   /** Already revealed for the current attachment. */
   const shownRef = useRef(false);
+  /**
+   * Has the player ever spoken to us.
+   *
+   * The difference between "not awake yet" and "awake but stopped": a command
+   * sent to the first is dropped, a command sent to the second is obeyed. Only
+   * the first is worth deferring for.
+   */
+  const aliveRef = useRef(false);
   /** Handlers of the live attachment, read from inside the message listener. */
   const handlersRef = useRef(attachment?.handlers ?? null);
   handlersRef.current = attachment?.handlers ?? null;
@@ -383,6 +391,9 @@ export default function TrailerStage() {
     atSeenRef.current = 0;
     runningRef.current = false;
     setVisible(false);
+    // The button must not open on the pause icon because the LAST card was left
+    // paused — the state belongs to the showing, not to the player.
+    setPaused(false);
     setShowControls(false);
     setCursorOn(false);
     originRef.current = null;
@@ -431,12 +442,41 @@ export default function TrailerStage() {
 
     if (!loadedRef.current) {
       pendingIdRef.current = attachment.id;
-    } else if (attachment.id === loadedIdRef.current && !playedRef.current) {
-      // The warm boot happens to be cued on exactly this video and has never
-      // run: start it rather than reloading it, which would throw away the one
-      // video that is already fetched.
+    } else if (attachment.id === loadedIdRef.current) {
+      /*
+       * The player is already on this video: start it where it stands rather
+       * than reloading, which would throw away the one video already fetched.
+       *
+       * AND IT IS PROBABLY PAUSED, which is the whole of a reported bug. Every
+       * close parks the player with `pauseVideo`, and the viewer can pause it
+       * themselves; coming back to the same card therefore lands on a stopped
+       * player. Two things then went wrong at once, and both are asked for
+       * here instead of being waited for:
+       *
+       *  - The play was deferred to the next message from the player, which
+       *    only ever helps a player still waking up. A paused, idle one says
+       *    nothing at all, so nothing arrived to trigger it and the trailer sat
+       *    there until the 1.8 s backstop fired.
+       *  - The reveal waits for the clock to be seen at the START of the video
+       *    and then to move. Resumed at eight seconds in, that proof can never
+       *    be met, so the picture stayed hidden behind the banner for the full
+       *    4 s of the other backstop. Measured on dev, both delays in series.
+       *
+       * Seeking to zero is not a workaround for the second: the reveal seeks
+       * there anyway, on purpose (see `reveal`), so the trailer is meant to be
+       * watched from its first frame. Doing it now simply makes the rewind real
+       * before the proof is asked for.
+       */
       post("mute");
-      wantPlayRef.current = true;
+      if (aliveRef.current) {
+        playedRef.current = true;
+        post("seekTo", [0, true]);
+        post("playVideo");
+      } else {
+        // Still booting: a command now would be dropped, so the first message
+        // it sends carries the play instead.
+        wantPlayRef.current = true;
+      }
     } else {
       loadedIdRef.current = attachment.id;
       /*
@@ -537,6 +577,9 @@ export default function TrailerStage() {
       } catch {
         return;
       }
+      // Anything at all from the player means it is past its boot and will obey
+      // a command sent right now. See the attach effect.
+      aliveRef.current = true;
       /*
        * The player says this video cannot be watched HERE.
        *
