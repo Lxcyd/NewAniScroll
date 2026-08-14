@@ -1,6 +1,13 @@
 import Link from "next/link";
 import { useSession } from "next-auth/react";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 
@@ -18,6 +25,7 @@ import { MdInfoOutline, MdPlayArrow } from "react-icons/md";
 import ListEditor from "@/components/listEditor";
 import TrailerAmbient from "./TrailerAmbient";
 import { attachStage, detachStage } from "./stageStore";
+import { isTrailerBlocked, subscribeBlocked } from "@/lib/preview/trailerBlocked";
 
 export type AnchorRect = { top: number; left: number; width: number; height: number };
 
@@ -208,9 +216,26 @@ export default function PreviewCard({
    * pauses the player and puts the artwork back, which is what it did before.
    */
   const trailerId = data?.trailer?.id ?? null;
+  /*
+   * A trailer already known to be unwatchable from here is never mounted again.
+   *
+   * The first hover of the session still mounts it and finds out — that is the
+   * only way to learn, now that the answer comes from the player rather than
+   * from a server that was guessing on the visitor's behalf. Every hover after
+   * that keeps the artwork and asks nothing.
+   *
+   * Subscribed rather than read once: the verdict usually lands WHILE this very
+   * card is open, and a card that only checked at mount would sit on a dead
+   * frame until the pointer left.
+   */
+  const blocked = useSyncExternalStore(
+    subscribeBlocked,
+    () => isTrailerBlocked(trailerId),
+    () => false,
+  );
   useEffect(() => {
     const el = slotRef.current;
-    if (!el || !trailerId || hideFrame || listOpen) return;
+    if (!el || !trailerId || hideFrame || listOpen || blocked) return;
     attachStage({ el, id: trailerId, handlers: { onPlaying: onPlayingChange, onHide } });
     return () => {
       detachStage(el);
@@ -218,7 +243,7 @@ export default function PreviewCard({
       // has already moved on. Put the artwork back ourselves.
       onPlayingChange(false);
     };
-  }, [trailerId, hideFrame, listOpen, onPlayingChange, onHide]);
+  }, [trailerId, hideFrame, listOpen, blocked, onPlayingChange, onHide]);
 
   /*
    * The info page's episode cell: "5/12 EP", or just "12 EP", with the runtime

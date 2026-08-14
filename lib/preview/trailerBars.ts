@@ -26,6 +26,17 @@
  * MEASURED on 140 popular trailers: one crop, no false positives. This is a rare
  * fix, not a common one — which is the honest shape of the problem rather than a
  * disappointment.
+ *
+ * A LIMIT THAT CANNOT BE ENGINEERED AWAY FROM HERE. Some videos are pillarboxed
+ * in playback while YouTube's stills of them are not. Naruto (-G9BqkgZXRA) is
+ * one: the played frame carries a constant ~10 % bar on each side — measured on
+ * 19 screenshots of the real card, present in every one — and NONE of mq1/mq2/
+ * mq3/mqdefault/maxresdefault/hqdefault/sddefault shows a single black column at
+ * any threshold up to 64. The stills are simply not the same picture as the
+ * stream, and since the stream is cross-origin there is nothing else to look at.
+ * Those trailers keep their bars. Written down so the next person does not spend
+ * an afternoon loosening thresholds against an image that never had the evidence
+ * in it.
  */
 
 /** A pixel is "black" if its brightest channel is under this. */

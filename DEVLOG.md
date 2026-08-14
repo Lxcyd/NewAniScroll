@@ -1,5 +1,47 @@
 # DEVLOG
 
+## 2026-08-14 — Le géo-blocage revient, par le lecteur cette fois
+
+**Régression réparée, mieux qu'avant.** En supprimant l'appel Worker de
+`/api/v2/preview`, j'ai supprimé avec lui la capacité de cacher un trailer
+injouable — Bleach jouait donc dans le vide. Mais l'ancien verdict répondait à la
+mauvaise question : il parlait de la région d'un **datacentre**, pas de celle du
+visiteur.
+
+**La bonne réponse arrivait déjà et on la jetait.** Mesuré depuis la France :
+
+| vidéo | messages du lecteur |
+|---|---|
+| Bleach `0c4IoCA5fY0` | `etat -1` puis **`onError 150`** |
+| témoin jouable | `etat 5, -1, 3, 1` — aucune erreur |
+| vidéo supprimée | `onError 150` |
+
+Ce qui manquait n'était pas le signal, c'était la **mémoire** : sans elle la
+carte monte le lecteur, apprend que c'est bloqué, se cache — et recommence à
+chaque survol. `lib/preview/trailerBlocked.ts` retient les codes 100/101/150 pour
+la session. Les codes 2 (mauvais paramètre) et 5 (erreur HTML5) sont exclus : le
+premier est notre bug, le second est passager, et cacher un trailer là-dessus
+supprimerait des aperçus qui marchent.
+
+**Pas persisté volontairement** : la disponibilité dépend d'où l'on est, et
+quelqu'un qui voyage — ou qui coupe un VPN — ne doit pas se voir refuser pendant
+des semaines un trailer qu'il peut désormais regarder.
+
+**oembed ne sert à rien pour ça** : `youtube.com/oembed` est bien lisible en CORS
+(il renvoie l'`Origin` demandé), mais répond **200** pour Bleach. Il détecte le
+supprimé et le privé, pas le blocage régional. Vérifié avant de bâtir dessus.
+
+**Naruto : un faux négatif que l'instrument ne peut pas voir.** Le trailer
+`-G9BqkgZXRA` porte des bandes latérales constantes — mesurées sur 19 captures
+de la carte réelle, présentes sur les 19, ~5,8 % de la boîte après notre débord,
+soit ~10 % dans la vidéo. Et **aucune** des images publiées par YouTube (mq1,
+mq2, mq3, mqdefault, maxresdefault, hqdefault, sddefault) ne montre une seule
+colonne noire, à aucun seuil jusqu'à 64. Les vignettes ne sont pas la même image
+que le flux. Comme le flux est cross-origin, il n'y a rien d'autre à regarder :
+ces trailers gardent leurs bandes. Consigné dans l'en-tête de `trailerBars.ts`
+pour que personne ne passe un après-midi à desserrer des seuils contre une image
+qui n'a jamais porté la preuve.
+
 ## 2026-08-14 — Bandes noires, curseur, et un coût Vercel qui ne servait plus
 
 **Un appel Worker inutile sur chaque payload d'aperçu.** `/api/v2/preview/[id]`

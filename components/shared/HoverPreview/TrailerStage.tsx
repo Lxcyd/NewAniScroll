@@ -17,6 +17,7 @@ import {
 } from "@/lib/prefs/previewVolume";
 import { onFirstTrailer } from "@/lib/preview/previewStore";
 import { detectBars, peekBars, type TrailerBars } from "@/lib/preview/trailerBars";
+import { isFatalTrailerError, markTrailerBlocked } from "@/lib/preview/trailerBlocked";
 import { getStage, subscribeStage } from "./stageStore";
 
 /**
@@ -494,7 +495,17 @@ export default function TrailerStage() {
       } catch {
         return;
       }
+      /*
+       * The player says this video cannot be watched HERE.
+       *
+       * Written down for the session, not just acted on: without the memory the
+       * card mounts the player, learns it is blocked, hides — and repeats the
+       * whole performance on the next hover, for ever. Only the codes that mean
+       * a durable refusal count; see trailerBlocked.ts.
+       */
       if (data?.event === "onError") {
+        const code = data.info;
+        if (isFatalTrailerError(code)) markTrailerBlocked(loadedIdRef.current ?? "");
         handlersRef.current?.onHide(true);
         return;
       }
