@@ -18,7 +18,6 @@ import { MdInfoOutline, MdPlayArrow } from "react-icons/md";
 import ListEditor from "@/components/listEditor";
 import TrailerAmbient from "./TrailerAmbient";
 import { attachStage, detachStage } from "./stageStore";
-import { stagePointerLeave, stagePointerMove } from "./TrailerStage";
 
 export type AnchorRect = { top: number; left: number; width: number; height: number };
 
@@ -421,17 +420,7 @@ export default function PreviewCard({
               no picture of its own; it exists to be MEASURED, so the player can
               sit exactly here without ever being moved into the card (which
               would reload its iframe and undo the whole point). */}
-          {/* It also reports the pointer: the player's layer is
-              pointer-transparent so that hovering the picture still counts as
-              hovering the card, which means the movement that wakes the
-              controls arrives HERE. */}
-          <div
-            ref={slotRef}
-            className="absolute inset-0"
-            aria-hidden
-            onPointerMove={stagePointerMove}
-            onPointerLeave={stagePointerLeave}
-          />
+          <div ref={slotRef} className="absolute inset-0" aria-hidden />
         </div>
 
         <div

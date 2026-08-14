@@ -227,6 +227,21 @@ export default function TrailerStage() {
   const reveal = useCallback(() => {
     if (shownRef.current) return;
     shownRef.current = true;
+    /*
+     * BACK TO THE BEGINNING — the price of waiting for proof, refunded.
+     *
+     * The reveal waits for the clock to move, because a clock that moves is the
+     * only honest evidence that the player has finished laying itself out. But
+     * the video has been RUNNING during that wait, hidden: whatever it took to
+     * get here — the load, the first frames, a slow tick of the player's own
+     * reporting — was played to nobody, and the trailer opened somewhere in its
+     * second second.
+     *
+     * The seek costs nothing to fetch: those seconds are the ones already in the
+     * buffer, which is exactly why this is done at the reveal rather than by
+     * starting later. The trailer is watched from its first frame again.
+     */
+    post("seekTo", [0, true]);
     setVisible(true);
     setPaused(false);
     handlersRef.current?.onPlaying(true);
@@ -588,9 +603,7 @@ export default function TrailerStage() {
 
   /*
    * The card opens UNDER the pointer, so movement only means intent once the
-   * hand has come to rest. The events arrive on the CARD, not here — this layer
-   * is pointer-transparent so that hovering the picture is still hovering the
-   * card — and PreviewCard forwards them.
+   * hand has come to rest.
    */
   const wake = useCallback((e: { clientX: number; clientY: number }) => {
     if (Date.now() - openedAtRef.current < OPEN_GRACE_MS) return;
@@ -623,12 +636,6 @@ export default function TrailerStage() {
     setShowControls(false);
   }, []);
 
-  // The card drives the controls' visibility, since the pointer is over IT.
-  useEffect(() => {
-    stageWake = wake;
-    stageSleep = sleep;
-  }, [wake, sleep]);
-
   /**
    * `loop` needs `playlist` set to the same id — but a preview is a few seconds
    * of moving artwork that nobody watches to the end, and a playlist costs the
@@ -651,14 +658,6 @@ export default function TrailerStage() {
   const chrome = `transition-opacity duration-200 ${
     controlsVisible ? "opacity-100" : "pointer-events-none opacity-0"
   }`;
-  /*
-   * `pointer-events` is INHERITED, so a control inside this pointer-transparent
-   * layer is dead until it takes the pointer back — which is why the buttons
-   * need this and the scrim deliberately does not. A scrim that took the pointer
-   * would cover the whole picture and cut the card off from the movement that
-   * wakes the controls in the first place.
-   */
-  const chromeUI = `${chrome} ${controlsVisible ? "pointer-events-auto" : ""}`;
 
   if (src === undefined) return null;
 
@@ -669,12 +668,21 @@ export default function TrailerStage() {
       // as leaving the card — the provider closes on any pointerover outside.
       data-preview-popup=""
       /*
-       * Pointer-TRANSPARENT, deliberately. The card underneath must keep
-       * receiving the hover, or the provider would think the pointer had left
-       * and close it. Only the controls take the pointer back, and only while
-       * they are shown.
+       * IT TAKES THE POINTER, and that is a correction.
+       *
+       * It used to be pointer-transparent so the card underneath kept receiving
+       * the hover — with the movement that wakes the controls forwarded from the
+       * card through a module-level pair of functions. That relay was fragile
+       * for nothing: `data-preview-popup` above already tells the provider that
+       * this layer IS the preview, so hovering it keeps the card open exactly
+       * like hovering the card. The events belong where the controls are.
+       *
+       * Transparent again the moment no card is open — otherwise the parked
+       * layer would sit over the grid swallowing hovers meant for posters.
        */
-      className="pointer-events-none fixed z-[81] overflow-hidden"
+      className="fixed z-[81] overflow-hidden"
+      onPointerMove={wake}
+      onPointerLeave={sleep}
       style={{
         borderRadius: RADIUS,
         /*
@@ -689,6 +697,7 @@ export default function TrailerStage() {
          * by the browser, and this one staying alive IS the feature.
          */
         opacity: visible && attachment ? 1 : 0,
+        pointerEvents: attachment ? "auto" : "none",
         /*
          * Short, because this fade is the last of the sound-before-image gap.
          * Sound and picture are released on the same instant, but a 300 ms
@@ -756,13 +765,13 @@ export default function TrailerStage() {
       {/* Scrim so the icons stay legible over a bright frame. */}
       <div
         aria-hidden
-        className={`absolute inset-0 bg-gradient-to-b from-black/45 via-transparent to-transparent ${chrome}`}
+        className={`pointer-events-none absolute inset-0 bg-gradient-to-b from-black/45 via-transparent to-transparent ${chrome}`}
       />
 
       {/* `onPointerMove` here as well as on the card: while the pointer is over
           a control it is no longer over the card, so without this the control
           under the hand would fade out from under it. */}
-      <div className={`absolute left-2 top-2 ${chromeUI}`} onPointerMove={wake}>
+      <div className={`absolute left-2 top-2 ${chrome}`} onPointerMove={wake}>
         <button
           type="button"
           onClick={togglePlay}
@@ -774,7 +783,7 @@ export default function TrailerStage() {
       </div>
 
       <div
-        className={`absolute right-2 top-2 flex flex-col items-center ${chromeUI}`}
+        className={`absolute right-2 top-2 flex flex-col items-center ${chrome}`}
         onPointerMove={wake}
         onPointerEnter={openVolume}
         onPointerLeave={closeVolume}
@@ -824,21 +833,4 @@ export default function TrailerStage() {
       </div>
     </div>
   );
-}
-
-/*
- * The card's pointer, handed to the stage.
- *
- * Module-level rather than a context: the card that reports the movement and the
- * stage that reacts to it are siblings under different portals, and threading a
- * provider through both to carry two functions that only ever have one owner
- * would be more machinery than the fact deserves.
- */
-let stageWake: ((e: { clientX: number; clientY: number }) => void) | null = null;
-let stageSleep: (() => void) | null = null;
-export function stagePointerMove(e: { clientX: number; clientY: number }) {
-  stageWake?.(e);
-}
-export function stagePointerLeave() {
-  stageSleep?.();
 }
