@@ -1032,7 +1032,18 @@ export default function TrailerStage() {
         <div
           className="pointer-events-none fixed z-[79]"
           aria-hidden
-          style={{ clipPath: "inset(-400px -400px -150px -400px)", left: 0, top: 0 }}
+          style={{
+            clipPath: "inset(-400px -400px -150px -400px)",
+            left: 0,
+            top: 0,
+            // A size to be born with, overwritten by the follow effect on the
+            // first card. Without it this player would boot into a 0 × 0 box
+            // and pick the layout a tiny player deserves — the same trap the
+            // visible frame avoids with SCALE, and one the browser is entitled
+            // to answer by never starting the video at all.
+            width: 364,
+            height: 205,
+          }}
           ref={glowBoxRef}
         >
           <div

@@ -4851,3 +4851,24 @@ la boucle de fondu **définitivement**.
   en-têtes CORS). Sans ça on mesure le fond de page, pas la lumière.
 - Mesurer une bande **à côté** de la carte ne mesure pas le glow : le carrousel
   d'accueil défile derrière et fabrique de fausses variations toutes les ~6 s.
+
+### Suite (même jour) — la lumière n'avait pas à être calculée
+
+Piste donnée par Luc : Hayase utilise les embeds YouTube ET a des ambient lights.
+Vérifié dans `hayase-app/interface`, `src/lib/components/ui/cards/YoutubeIframe.svelte` :
+ils montent **une seconde iframe** derrière la carte avec `blur-2xl saturate-200 -z-10`.
+
+**Le renversement** : on ne peut pas *lire* les pixels d'un embed cross-origin —
+vrai, et sans issue. Mais une copie floutée de la vidéo **EST** la lumière. Aucun
+pixel n'est lu, donc la règle cross-origin n'a rien à dire. Tout le travail
+précédent (3 images, balayage, courbe de couleurs envisagée) partait du postulat
+implicite que la lumière devait être CALCULÉE à partir de la vidéo.
+
+Implémenté dans `TrailerStage` : second iframe, commandes de transport mirroitées
+(`MIRRORED`), jamais le son (elle naît muette), dessinée 22 % plus grande et
+découpée comme l'ancienne couche canvas. Coupée sous **Data Saver** (second
+décodeur + second flux) — la carte y garde le glow storyboard.
+
+Restant assumé : deux lecteurs = deux horloges, dérive d'une fraction de seconde,
+invisible à 34 px de flou. Le balayage storyboard reste comme repli, pas comme
+chemin principal.
