@@ -1,5 +1,5 @@
 import { aniListData, aniListHomepageBatch } from "@/lib/anilist/AniList";
-import { useState, useEffect, useCallback, Fragment } from "react";
+import { useState, useEffect, useCallback, useRef, Fragment } from "react";
 import Head from "next/head";
 import Link from "next/link";
 import Footer from "@/components/shared/footer";
@@ -337,20 +337,26 @@ function HeroBanner({
    * the carousel for good. The rail is a 126px target that has to be aimed at.
    */
   const [railHeld, setRailHeld] = useState(false);
+  const releaseRail = useCallback(() => setRailHeld(false), []);
   /**
-   * Bumped on RELEASE only, and it is what keeps the pill honest.
+   * What is LEFT of the current slide's time, so a hold suspends the countdown
+   * instead of resetting it.
    *
-   * The pill's fill is a CSS animation: pausing it resumes mid-fill, while the
-   * timer below is a fresh setTimeout every time the effect re-runs. Left
-   * alone, a released hold would show a pill three-quarters full with eight
-   * seconds still to run. Remounting the pill restarts its fill on the same
-   * instant the new timer starts, so the two say the same thing.
+   * A setTimeout cannot be paused, and re-running the effect on release with
+   * the full interval is the same as restarting the slide — six seconds of
+   * waiting thrown away because the pointer passed over a poster. So the
+   * deadline is tracked in wall-clock time: entering the hold freezes whatever
+   * remains of it, leaving it arms a timer for exactly that much.
+   *
+   * The pill needs no equivalent: its fill is a CSS animation and
+   * `animation-play-state` resumes it where it stopped, which is the behaviour
+   * this ref reproduces for the timer. The two are paused and resumed in the
+   * same render, so they stay on the same clock.
    */
-  const [holdSeq, setHoldSeq] = useState(0);
-  const releaseRail = useCallback(() => {
-    setRailHeld(false);
-    setHoldSeq((s) => s + 1);
-  }, []);
+  const remainingRef = useRef(HERO_AUTO_INTERVAL_MS);
+  const deadlineRef = useRef(0);
+  /** Distinguishes "the slide changed" (full interval) from "the hold ended". */
+  const timedIdxRef = useRef(idx);
 
   /**
    * What ENDS the hold, and why it isn't `onPointerLeave` on the rail.
@@ -382,18 +388,30 @@ function HeroBanner({
     };
   }, [railHeld, releaseRail]);
 
-  // Auto-advance. `idx` is in the deps so the timer restarts from zero
-  // whenever the slide changes — manual prev/next/dot clicks included —
-  // keeping the cadence in sync with the progress-pill fill animation
-  // (which also restarts each slide). `railHeld` is in there for the same
-  // reason: leaving the rail starts a whole fresh interval rather than
-  // resuming a stub of one, which is what the remounted pill draws.
+  // Auto-advance. `idx` is in the deps so the countdown restarts from the full
+  // interval whenever the slide changes — manual prev/next/dot clicks included
+  // — keeping the cadence in sync with the progress-pill fill animation (which
+  // also restarts each slide). `railHeld` is in there to suspend and RESUME it;
+  // see remainingRef for why that is not the same as re-arming it.
   useEffect(() => {
-    if (list.length < 2 || railHeld) return;
+    if (list.length < 2) return;
+    // A new slide gets its whole interval; a released hold gets what was left.
+    if (timedIdxRef.current !== idx) {
+      timedIdxRef.current = idx;
+      remainingRef.current = HERO_AUTO_INTERVAL_MS;
+    }
+    if (railHeld) {
+      // The previous run's cleanup has already cleared the timer, so all that
+      // is left to do is remember how much of it had not elapsed.
+      remainingRef.current = Math.max(0, deadlineRef.current - Date.now());
+      return;
+    }
+    const wait = remainingRef.current;
+    deadlineRef.current = Date.now() + wait;
     const t = window.setTimeout(() => {
       setDir(1);
       setIdx((i) => (i + 1) % list.length);
-    }, HERO_AUTO_INTERVAL_MS);
+    }, wait);
     return () => window.clearTimeout(t);
   }, [list.length, idx, railHeld]);
 
@@ -682,9 +700,6 @@ function HeroBanner({
                   >
                     {isActive && (
                       <span
-                        // Remounts on release (see holdSeq) so the fill and the
-                        // timer restart together.
-                        key={`fill-${holdSeq}`}
                         className="absolute inset-y-0 left-0 w-full rounded-full bg-action"
                         style={{
                           transformOrigin: "left",
@@ -695,7 +710,10 @@ function HeroBanner({
                               : undefined,
                           // The pill is the visible half of the countdown, so it
                           // stops when the countdown does — a bar still filling
-                          // with no advance behind it is a broken promise.
+                          // with no advance behind it is a broken promise. And
+                          // it RESUMES where it stopped, which is the whole
+                          // point: `paused` freezes the fill, it never rewinds
+                          // it, and the timer is made to match (remainingRef).
                           animationPlayState: railHeld ? "paused" : "running",
                         }}
                       />
