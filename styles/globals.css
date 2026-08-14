@@ -180,13 +180,24 @@ html.tab-hidden *::after {
   animation: as-preview-shimmer 1.4s linear infinite;
 }
 
-/* The banner fades into the card body instead of ending on a hard edge — the
-   stops are Hayase's (nothing until 80%, then a fast ramp to solid).
-   Tried and reverted: pushing the ramp later and flattening it, to stop it
-   washing out the subtitles some trailers carry burnt into the picture. Later
-   collapsed the fade into a hard line, and flatter was judged worse than the
-   problem — a gradient that never commits reads as a mistake, and the subtitles
-   are only on some trailers while this seam is on every card. */
+/* The banner fades into the card body instead of ending on a hard edge.
+
+   NINE STOPS, AND THE COUNT IS THE POINT. A linear-gradient interpolates
+   STRAIGHT between consecutive stops, so every stop is a kink in the alpha
+   curve and the eye reads a kink as an edge. The previous stops were Hayase's
+   — flat to 80%, then 0.89 by 95%, then solid — which is two segments of very
+   different slope meeting at 95%: the fade arrived in two visible steps, a band
+   and then a second darker band. Fewer stops did not mean softer.
+
+   These nine sample a smoothstep (3t²−2t³) across 58%→100%. It leaves zero
+   slope at BOTH ends, so the fade has no start edge and no finish edge, and
+   between them no two segments differ enough in slope to show a seam. Sampling
+   a curve is why the stop list is long; shortening it puts the steps back.
+
+   Tried and reverted earlier: pushing the ramp later and FLATTENING it, to stop
+   it washing out the subtitles some trailers carry burnt into the picture. That
+   ended in a fade that never commits, which reads as a mistake. Smooth is not
+   flat — this one still reaches solid, it just gets there without a corner. */
 /* TWO selectors, one rule, and the sharing is the point.
 
    The card owns this fade, but the trailer is no longer inside the card: it is
@@ -213,8 +224,15 @@ html.tab-hidden *::after {
   background: linear-gradient(
     180deg,
     rgba(26, 26, 36, 0) 0%,
-    rgba(26, 26, 36, 0) 80%,
-    rgba(26, 26, 36, 0.89) 95%,
+    rgba(26, 26, 36, 0) 58%,
+    rgba(26, 26, 36, 0.039) 63%,
+    rgba(26, 26, 36, 0.143) 68%,
+    rgba(26, 26, 36, 0.291) 73%,
+    rgba(26, 26, 36, 0.464) 78%,
+    rgba(26, 26, 36, 0.641) 83%,
+    rgba(26, 26, 36, 0.801) 88%,
+    rgba(26, 26, 36, 0.905) 92%,
+    rgba(26, 26, 36, 0.975) 96%,
     var(--as-preview-bg, #1a1a24) 100%
   );
 }
