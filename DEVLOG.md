@@ -1,5 +1,49 @@
 # DEVLOG
 
+## 2026-08-14 — Existe-t-il un dépôt qui n'est PAS bloqué ? Non — et cobalt le prouve
+
+Recherche de l'état de l'art plutôt que de nouvelles mesures.
+
+**cobalt (imputnet)**, le téléchargeur le mieux tenu du domaine : son **instance
+publique ne télécharge plus rien depuis YouTube** en 2026, et les contournements
+réseau d'avant ne fonctionnent plus. Leur réponse officielle est **« auto-
+hébergez »**, c'est-à-dire : utilisez votre propre adresse. Un projet actif et
+bien doté n'arrive pas à servir YouTube depuis une infrastructure partagée. C'est
+exactement notre situation, et c'est le meilleur argument qu'on ait que le
+problème n'est pas notre code.
+
+**Invidious** a déprécié `youtube-trusted-session-generator` au profit de
+`invidious-companion`. Leur doc d'erreurs dit que YouTube bloque les adresses de
+datacentre **et de VPN**, et leur conseil de dépannage n'est pas un meilleur
+token : c'est de **faire tourner l'adresse**, en IPv6 quand la machine en a.
+
+**Ce qui marche réellement, dans tout l'écosystème**, se réduit à quatre choses,
+et aucune n'est une requête mieux formée :
+1. proxies **résidentiels** (payants) ;
+2. egress via **Cloudflare WARP** — YouTube ne traite apparemment pas les IP WARP
+   comme du datacentre. Gratuit. Demande wireguard/wgcf sur une machine, donc
+   **impossible depuis un Worker**, dont on ne choisit pas l'egress ;
+3. tourner **sur la machine de l'utilisateur** (yt-dlp, cobalt auto-hébergé) ;
+4. **cookies / OAuth** d'un vrai compte.
+
+**La piste WARP est la seule nouveauté actionnable.** Elle ne change pas le plan
+du 13/08 — sortir le résolveur du datacentre — mais elle en change le **prix** :
+une source d'adresses gratuite au lieu de proxies résidentiels payants. Son
+auteur prévient lui-même qu'il ne sait pas si ça tient dans le temps, et il
+surveille la liaison toutes les 30 s.
+
+**Correction que je dois à l'entrée précédente.** J'y ai écrit qu'un minteur de
+POT pouvait vivre n'importe où, le lien étant `visitor_data` et jamais l'IP. Une
+recherche affirme au contraire que le générateur doit tourner **sur la même IP
+publique** que le serveur. Vérification faite dans la doc Invidious elle-même :
+**elle ne dit ni l'un ni l'autre**. Donc mon affirmation reposait sur la lecture
+du code de yt-dlp seule, la contradiction sur un résumé de moteur de recherche,
+et **aucune des deux n'est mesurée**. Point laissé ouvert — sans conséquence, la
+piste POT étant morte sur le catalogue.
+
+*À noter aussi, contre l'enthousiasme d'aujourd'hui pour l'IPv6 : plusieurs
+signalements décrivent YouTube prenant justement des adresses IPv6 pour des bots.*
+
 ## 2026-08-14 — « Et si c'était le navigateur du visiteur qui demandait ? »
 
 Bonne idée, et elle oblige à séparer deux choses que ce dépôt confondait : la
