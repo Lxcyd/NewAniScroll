@@ -214,6 +214,29 @@ const SYNC_TOLERANCE_S = 0.3;
 /** And never two corrections in a row without giving the first one time to land. */
 const SYNC_COOLDOWN_MS = 2500;
 
+/**
+ * The head start the copy is given, in seconds.
+ *
+ * MEASURED, and only measurable once the capture method was fixed: a screenshot
+ * taken with a `clip` does not composite a CSS filter over a cross-origin
+ * iframe — it hands back the raw player — so every earlier reading of the halo
+ * was of the video itself, and dutifully reported no lag at all. Taken full
+ * page, where the filter is really applied, the cross-correlation between the
+ * picture's changes and the halo's peaks one sample late and nowhere else:
+ * 0.0069 against 0.0009 everywhere around it, at 51 ms per sample.
+ *
+ * WHERE IT COMES FROM. Not the clocks — those hold to ±0.05 s. It is the second
+ * player's own pipeline: its frames go through a blur pass before they reach the
+ * screen, and that pass costs a compositor frame the visible copy does not pay.
+ *
+ * So the copy is set slightly ahead, and its light lands with the picture rather
+ * than after it. One sample is also the measurement's resolution, so the real
+ * figure is somewhere between 25 and 75 ms — 50 is inside that band, and being
+ * a little early is the safer side of it: a light that arrives with the cut
+ * reads as the cut, a light that arrives after it reads as a mistake.
+ */
+const GLOW_LEAD_S = 0.05;
+
 /** Blur radius of the glow copy. The card's own stack used the same figure. */
 const GLOW_BLUR_PX = 34;
 /** How far past the video's box the glow copy is drawn, so light escapes it. */
@@ -443,6 +466,14 @@ export default function TrailerStage() {
      * starting later. The trailer is watched from its first frame again.
      */
     post("seekTo", [0, true]);
+    /*
+     * The copy is sent to the same place, plus its head start — and separately,
+     * because the mirrored seek above may not survive: a player still finishing
+     * a load drops what is aimed at it, which is exactly how the copy used to
+     * end up half a second ahead. Sent here rather than a moment later so its
+     * rebuffer happens while the layer is still fading in, where nobody sees it.
+     */
+    postGlow("seekTo", [GLOW_LEAD_S, true]);
     // The clock is back at zero as of NOW, and the ticker must not spend the
     // next message-less second extrapolating from the position the seek just
     // threw away — which is the whole of the trailer's hidden head start.
@@ -464,7 +495,7 @@ export default function TrailerStage() {
     post("setVolume", [Math.round(volumeRef.current * 100)]);
     post(wantMutedRef.current ? "mute" : "unMute");
     setMuted(wantMutedRef.current);
-  }, [post, silenceCaptions]);
+  }, [post, postGlow, silenceCaptions]);
 
   // Seed from the PREVIEW's own setting — these controls must not touch the
   // watch player's volume.
@@ -914,9 +945,12 @@ export default function TrailerStage() {
        */
       if (runningRef.current && glowSeenRef.current && now - lastSyncRef.current > SYNC_COOLDOWN_MS) {
         const glowT = glowAtRef.current + (now - glowSeenRef.current) / 1000;
-        if (Math.abs(glowT - t) > SYNC_TOLERANCE_S) {
+        // Against the head start, not against zero: the copy is meant to run
+        // GLOW_LEAD_S ahead, so that is the offset being held, and a correction
+        // that put it back level would reintroduce the very lag it exists for.
+        if (Math.abs(glowT - t - GLOW_LEAD_S) > SYNC_TOLERANCE_S) {
           lastSyncRef.current = now;
-          postGlow("seekTo", [Math.max(0, t), true]);
+          postGlow("seekTo", [Math.max(0, t + GLOW_LEAD_S), true]);
         }
       }
       /*
