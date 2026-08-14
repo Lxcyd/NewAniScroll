@@ -296,20 +296,21 @@ export default function TrailerAmbient({
       const p = progressRef.current;
       if (p == null) return;
       /*
-       * Where each still WAS TAKEN, not where a count of them would put it.
+       * The sweep, spread evenly over however many stills there are.
        *
-       * YouTube's mq set samples the middle of each third: 1/6, 3/6, 5/6. That
-       * is a property of the source, so it must not be derived from how many of
-       * them we ended up using — the last one is dropped as a light source (see
-       * ambientFrames), and deriving positions from the length would silently
-       * re-space the remaining two to 1/4 and 3/4 and slide the whole glow out
-       * of step with the picture.
+       * It used to place them at 1/6, 3/6 and 5/6 — where YouTube actually took
+       * them — because the incoming number was the playhead and the light was
+       * meant to stand where the picture stood. It no longer is (see
+       * TrailerStage: at trailer length, that mapping left the light on the
+       * first still for the whole of a normal hover). What arrives now is a
+       * position along the stills themselves, so the stills are what it is
+       * spaced against: 0 is the first, 1 is the last, and every value between
+       * lands between two of them.
        */
-      const at = (k: number) => (2 * k + 1) / 6;
       const last = images.length - 1;
-      const i = Math.min(last - 1, Math.max(0, Math.floor((p * 6 - 1) / 2)));
-      const span = at(i + 1) - at(i);
-      const w = Math.min(1, Math.max(0, (p - at(i)) / span));
+      const pos = Math.min(last, Math.max(0, p * last));
+      const i = Math.min(last - 1, Math.floor(pos));
+      const w = Math.min(1, Math.max(0, pos - i));
       const a = images[i];
       const b = images[i + 1] ?? a;
       if (!a && !b) return;

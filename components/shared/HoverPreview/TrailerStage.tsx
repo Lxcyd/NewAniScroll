@@ -164,8 +164,15 @@ const ENDED = 0;
  * that it is not a per-frame re-render of the open card.
  */
 const PROGRESS_TICK_MS = 200;
-/** Give up re-asking for the video's length after this. */
-const DURATION_ASK_MS = 12000;
+/**
+ * Seconds for the glow to walk the trailer's three stills end to end.
+ *
+ * It then turns round and walks back, so the light never arrives anywhere and
+ * stops. Slow enough to read as light drifting rather than as an effect
+ * cycling; fast enough that the first few seconds of a hover — which is all
+ * most of them are — visibly move.
+ */
+const GLOW_SWEEP_S = 9;
 
 export default function TrailerStage() {
   const attachment = useSyncExternalStore(subscribeStage, getStage, () => null);
@@ -231,8 +238,6 @@ export default function TrailerStage() {
   const wantPlayRef = useRef(false);
   /** Has the boot video ever been started? It is cued, not playing, until asked. */
   const playedRef = useRef(false);
-  /** This video's length, kept because it is not on the messages that tick. */
-  const durationRef = useRef<number | null>(null);
   /**
    * The last position the player reported, and the instant we heard it.
    *
@@ -374,7 +379,6 @@ export default function TrailerStage() {
     if (forceTimerRef.current) clearTimeout(forceTimerRef.current);
     shownRef.current = false;
     rewoundRef.current = false;
-    durationRef.current = null;
     atRef.current = 0;
     atSeenRef.current = 0;
     runningRef.current = false;
@@ -588,26 +592,12 @@ export default function TrailerStage() {
       }
 
       /*
-       * The video's length, wherever this particular message happens to carry
-       * it — and NOT only alongside `currentTime`, which is what the reading
-       * above assumed.
-       *
-       * `duration` travels on its own schedule: inside `progressState` on the
-       * updates that carry one, bare on `initialDelivery`, and on neither for
-       * long stretches of the plain position ticks. Reading it only on the
-       * messages that also carry a position meant a video whose length happened
-       * to be announced on a message of its own was never measured at all —
-       * and without a length there is no progress, so the light never moved.
-       * See the ticker below for what happens when it still does not turn up.
+       * The video's LENGTH is deliberately not read any more. It was only ever
+       * the denominator of `currentTime / duration`, and nothing needs that
+       * ratio now that the glow sweeps on its own clock (see the ticker below).
+       * Probed on dev: both numbers arrive perfectly well and continuously —
+       * they were never the fault.
        */
-      const prog = (info as { progressState?: { duration?: unknown } })?.progressState;
-      const seen =
-        typeof (info as { duration?: unknown })?.duration === "number"
-          ? (info as { duration: number }).duration
-          : typeof prog?.duration === "number"
-          ? prog.duration
-          : null;
-      if (seen && seen > 0) durationRef.current = seen;
 
       if (state === undefined) return;
       if (state === PLAYING) {
@@ -681,31 +671,42 @@ export default function TrailerStage() {
    * AND IT ASKS AGAIN FOR THE LENGTH. `listening` is what makes the embed
    * answer with `initialDelivery`, the message a bare `duration` rides on. The
    * boot handshake stops after four seconds — long before a card that opens a
-   * minute later loads its own video — so without re-asking, a video whose
-   * length was never volunteered has no denominator and no glow. It stops as
-   * soon as an answer lands, and gives up rather than asking for ever.
+   * minute later loads its own video.
    */
   useEffect(() => {
     if (!attachment) return;
-    const startedAt = Date.now();
     const timer = setInterval(() => {
-      const total = durationRef.current;
-      if (total == null) {
-        if (!loadedRef.current || Date.now() - startedAt > DURATION_ASK_MS) return;
-        frameRef.current?.contentWindow?.postMessage(
-          JSON.stringify({ event: "listening", id: 1, channel: "widget" }),
-          ORIGIN,
-        );
-        return;
-      }
       // The same proof the reveal waits for: until the clock has been seen at
-      // the start of THIS video, both halves of the ratio still belong to the
-      // previous one, and that ratio lands past 1 — on the storyboard's last
-      // still, the publisher's end card, which is where the glow used to stick.
+      // the start of THIS video, the position still belongs to the previous
+      // one — and a sweep started from the middle of nowhere is a jump.
       if (!shownRef.current || !rewoundRef.current) return;
       const elapsed = runningRef.current ? (performance.now() - atSeenRef.current) / 1000 : 0;
       const t = atRef.current + elapsed;
-      handlersRef.current?.onProgress(Math.min(1, Math.max(0, t / total)));
+      /*
+       * A TRIANGLE, NOT THE PLAYHEAD — measured, and the correction is the whole
+       * point of this file's last three attempts.
+       *
+       * The card used to send `t / duration`, on the reading that the three
+       * stills sit at 1/6, 3/6 and 5/6 of the video and the light should stand
+       * where the picture stands. That is true and it is useless: trailers run
+       * one to three minutes and a hover lasts ten to thirty seconds. Probed on
+       * dev against a 129 s trailer, twenty-five seconds of hovering moved the
+       * fraction from 0.002 to 0.19 — the whole visit spent below 1/6, which is
+       * the region where the blend is 100 % of the first still. The light was
+       * not stuck by a bug, it was standing still by construction.
+       *
+       * And there is no fourth frame to fix it with: mq4 answers 404 and the
+       * real storyboard sheets under i.ytimg.com/sb/ answer 403 without the
+       * player's token (both checked, again). Three stills is the ceiling.
+       *
+       * So the sweep is given its own clock and walks the three of them back and
+       * forth. What is lost is the claim that the glow stands where the playhead
+       * stands — a claim it could not honour anyway at this scale. What is kept
+       * is that every colour on screen is one the trailer really contains, and
+       * that the light never stops moving while the picture does not.
+       */
+      const cycle = (t / GLOW_SWEEP_S) % 2;
+      handlersRef.current?.onProgress(cycle > 1 ? 2 - cycle : cycle);
     }, PROGRESS_TICK_MS);
     return () => clearInterval(timer);
   }, [attachment]);
