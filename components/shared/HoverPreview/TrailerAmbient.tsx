@@ -295,12 +295,21 @@ export default function TrailerAmbient({
       if (cancelled || document.hidden) return;
       const p = progressRef.current;
       if (p == null) return;
-      // Where the stills actually sit: 1/6, 3/6, 5/6 of the video — the middle
-      // of each third, not its edges. Placing them at 0, 0.5 and 1 would make
-      // the light lead the picture at the start and lag it at the end.
-      const pos = Math.min(images.length - 1, Math.max(0, p * images.length - 0.5));
-      const i = Math.min(images.length - 2, Math.floor(pos));
-      const w = Math.min(1, Math.max(0, pos - i));
+      /*
+       * Where each still WAS TAKEN, not where a count of them would put it.
+       *
+       * YouTube's mq set samples the middle of each third: 1/6, 3/6, 5/6. That
+       * is a property of the source, so it must not be derived from how many of
+       * them we ended up using — the last one is dropped as a light source (see
+       * ambientFrames), and deriving positions from the length would silently
+       * re-space the remaining two to 1/4 and 3/4 and slide the whole glow out
+       * of step with the picture.
+       */
+      const at = (k: number) => (2 * k + 1) / 6;
+      const last = images.length - 1;
+      const i = Math.min(last - 1, Math.max(0, Math.floor((p * 6 - 1) / 2)));
+      const span = at(i + 1) - at(i);
+      const w = Math.min(1, Math.max(0, (p - at(i)) / span));
       const a = images[i];
       const b = images[i + 1] ?? a;
       if (!a && !b) return;

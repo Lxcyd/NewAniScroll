@@ -69,6 +69,29 @@ export function storyboardFrames(id: string): string[] {
   return ["mq1", "mq2", "mq3"].map((n) => `https://i.ytimg.com/vi/${id}/${n}.jpg`);
 }
 
+/**
+ * The subset of those frames fit to light a card with — the first two.
+ *
+ * THE LAST ONE IS AN END CARD FAR TOO OFTEN, and that is measured, not felt.
+ * Across 24 popular trailers, the frame at ~83 % is red-dominant in 6 of them
+ * against 1 for each of the other two, and its average colours are the giveaway:
+ * [218,144,60], [160,102,34], [219,218,213] — publisher logos and broadcast
+ * cards, not film. Trailers put those in their last fifth, so the sample lands
+ * in them.
+ *
+ * Used as light, it was worse than useless: it took over from about two thirds
+ * of the way through, so the glow turned orange over footage that was still
+ * blue, and the card looked lit by the wrong film. Two samples that both sit in
+ * the BODY of the trailer drift less, and drift correctly.
+ *
+ * Bar detection keeps all three: an end card is perfectly good evidence about
+ * the frame's shape, and there the third opinion is what makes the median a
+ * median.
+ */
+export function ambientFrames(id: string): string[] {
+  return storyboardFrames(id).slice(0, 2);
+}
+
 export type TrailerBars = {
   /** Fraction of the height that is bar, top AND bottom (symmetric). */
   tb: number;

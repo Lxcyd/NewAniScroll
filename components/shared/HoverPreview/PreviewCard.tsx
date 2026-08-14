@@ -27,7 +27,7 @@ import ListEditor from "@/components/listEditor";
 import TrailerAmbient from "./TrailerAmbient";
 import { attachStage, detachStage } from "./stageStore";
 import { isTrailerBlocked, subscribeBlocked } from "@/lib/preview/trailerBlocked";
-import { storyboardFrames } from "@/lib/preview/trailerBars";
+import { ambientFrames } from "@/lib/preview/trailerBars";
 
 export type AnchorRect = { top: number; left: number; width: number; height: number };
 
@@ -259,8 +259,8 @@ export default function PreviewCard({
    * it several times a second — and the glow would restart from its first still
    * each time instead of drifting.
    */
-  const ambientFrames = useMemo(
-    () => (trailerId ? storyboardFrames(trailerId) : null),
+  const glowFrames = useMemo(
+    () => (trailerId ? ambientFrames(trailerId) : null),
     [trailerId],
   );
   /*
@@ -431,7 +431,7 @@ export default function PreviewCard({
           banner={banner}
           playing={playing}
           zoom={1}
-          frames={ambientFrames}
+          frames={glowFrames}
           progress={progress}
         />
       </div>
