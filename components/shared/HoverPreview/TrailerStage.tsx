@@ -138,8 +138,6 @@ const IDLE_MS = 1600;
 const MOVE_SLOP = 8;
 /** No controls at all for this long after the card opens, movement or not. */
 const OPEN_GRACE_MS = 350;
-/** How still the pointer must be before movement is read as intent. */
-const SETTLE_MS = 400;
 
 /** YouTube's player states, the only two this cares about. */
 const PLAYING = 1;
@@ -154,8 +152,6 @@ export default function TrailerStage() {
   const volCloseRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const trackRef = useRef<HTMLDivElement>(null);
   const originRef = useRef<{ x: number; y: number } | null>(null);
-  const armedRef = useRef(false);
-  const settleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wantMutedRef = useRef(true);
   const volumeRef = useRef(FALLBACK_VOLUME);
   const openedAtRef = useRef(0);
@@ -321,7 +317,6 @@ export default function TrailerStage() {
     rewoundRef.current = false;
     setVisible(false);
     setShowControls(false);
-    armedRef.current = false;
     originRef.current = null;
 
     if (!attachment) {
@@ -522,7 +517,6 @@ export default function TrailerStage() {
     () => () => {
       if (idleRef.current) clearTimeout(idleRef.current);
       if (volCloseRef.current) clearTimeout(volCloseRef.current);
-      if (settleRef.current) clearTimeout(settleRef.current);
       if (revealTimerRef.current) clearTimeout(revealTimerRef.current);
       if (forceTimerRef.current) clearTimeout(forceTimerRef.current);
     },
@@ -601,20 +595,25 @@ export default function TrailerStage() {
     volCloseRef.current = setTimeout(() => setVolOpen(false), 260);
   };
 
-  /*
-   * The card opens UNDER the pointer, so movement only means intent once the
-   * hand has come to rest.
+  /**
+   * The rule: nothing on arrival, both controls as soon as the hand moves.
+   *
+   * WHAT WAS WRONG BEFORE, because it is worth not rebuilding. This used to
+   * demand that the pointer come to REST for 400 ms before movement counted as
+   * intent — a rule copied from the code that decides whether to open a card at
+   * all, where it is right. Here it was self-defeating: the card opens BECAUSE
+   * the pointer stopped, so no `pointermove` arrives to start that countdown,
+   * and once the visitor did move, every further move pushed the countdown back
+   * another 400 ms. The controls could only appear if you stopped a second time.
+   * They almost never appeared.
+   *
+   * So there is no arming phase. There is a grace period in which the picture is
+   * left alone, and after it the first real displacement shows the controls.
+   * `MOVE_SLOP` is the only thing still filtered out: a pointer sitting on a
+   * scrolling page emits movement it did not make.
    */
   const wake = useCallback((e: { clientX: number; clientY: number }) => {
     if (Date.now() - openedAtRef.current < OPEN_GRACE_MS) return;
-    if (!armedRef.current) {
-      if (settleRef.current) clearTimeout(settleRef.current);
-      settleRef.current = setTimeout(() => {
-        armedRef.current = true;
-        originRef.current = null;
-      }, SETTLE_MS);
-      return;
-    }
     const origin = originRef.current;
     if (!origin) {
       originRef.current = { x: e.clientX, y: e.clientY };
@@ -630,8 +629,6 @@ export default function TrailerStage() {
 
   const sleep = useCallback(() => {
     if (idleRef.current) clearTimeout(idleRef.current);
-    if (settleRef.current) clearTimeout(settleRef.current);
-    armedRef.current = false;
     originRef.current = null;
     setShowControls(false);
   }, []);
@@ -768,17 +765,25 @@ export default function TrailerStage() {
         className={`pointer-events-none absolute inset-0 bg-gradient-to-b from-black/45 via-transparent to-transparent ${chrome}`}
       />
 
-      {/* `onPointerMove` here as well as on the card: while the pointer is over
-          a control it is no longer over the card, so without this the control
-          under the hand would fade out from under it. */}
-      <div className={`absolute left-2 top-2 ${chrome}`} onPointerMove={wake}>
+      {/* Dead centre, which is where it belongs and where it could not go before.
+          It was pushed into a corner while YouTube still painted its own button
+          in the middle — two buttons in one place reads as a bug. SCALE removed
+          that one, so the middle is ours.
+
+          `onPointerMove` here as well as on the layer: a pointer resting ON the
+          button still has to count as movement, or the control fades out from
+          under the hand that is reaching for it. */}
+      <div
+        className={`absolute inset-0 flex items-center justify-center ${chrome}`}
+        onPointerMove={wake}
+      >
         <button
           type="button"
           onClick={togglePlay}
           aria-label={paused ? "Play" : "Pause"}
-          className="as-preview-videobtn h-7 w-7"
+          className="as-preview-videobtn h-11 w-11"
         >
-          {paused ? <MdPlayArrow size={21} /> : <MdPause size={21} />}
+          {paused ? <MdPlayArrow size={28} /> : <MdPause size={28} />}
         </button>
       </div>
 
