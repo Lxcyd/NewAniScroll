@@ -345,6 +345,60 @@ par session. L'économie « un jeton toutes les 6 h » n'existe pas.
 → « YouTube is no longer supported in this application », `WEB_EMBEDDED_PLAYER`
 → « This video is unavailable ». Les deux clients android restent les seuls.
 
+### Les autres sources : il n'y en a pas dans notre catalogue
+
+**Mesuré sur nos propres données** (AniList, 400 animes les plus populaires) :
+378 ont un trailer, et **378 sur 378 ont `trailer.site === "youtube"`**. Pas un
+seul dailymotion, pas un seul vimeo. La question « et si on prenait ailleurs »
+n'a donc pas de réponse gratuite : il faudrait CHERCHER le trailer ailleurs, pas
+le lire ailleurs.
+
+**Dailymotion**, la seule vraie alternative testée : API publique sans clé,
+10/10 de nos titres rendent au moins un candidat embarquable. Sauf que ce sont
+des uploads amateurs — « Tráiler VO », « Trailer [Vostfr] », un « Soundtrack »
+classé en trailer, un promo Netflix live-action pour One Piece. On échangerait un
+id CURÉ par AniList contre une recherche floue, avec le risque d'afficher la
+mauvaise vidéo sur une fiche. Et son player, photographié comme les autres :
+**pas de bouton central** — mais une bannière de consentement aux traceurs qui
+occupe le tiers haut de l'image, toujours là à 5 s, infermable depuis l'extérieur
+puisque cross-origin. On troquerait 4 s de bouton contre un bandeau définitif.
+
+### Comment les outils de téléchargement évitent le drapeau
+
+Lu chez ceux qui vivent le même problème en production.
+
+**Le facteur dominant n'est pas le protocole, c'est l'ADRESSE.** Les IP de
+datacentre (AWS, GCP, Azure, VPS) sont scrutées beaucoup plus durement : le même
+script marche sur un portable et échoue sur un serveur. **Notre worker tourne sur
+Cloudflare, donc en datacentre.** C'est l'explication la plus simple de « ça
+marche chez moi, ça se fait flaguer en prod », et elle ne se corrige par aucun
+en-tête.
+
+**Ce que fait cobalt**, service public confronté au même mur, d'après ses
+variables d'environnement — trois leviers, pas un de plus :
+- `YOUTUBE_SESSION_SERVER` : *« URL to an instance of yt-session-generator. used
+  for automatically pulling `poToken` & `visitor_data` »* — donc un SERVICE
+  SÉPARÉ, pas du code dans l'app (avec `YOUTUBE_SESSION_INNERTUBE_CLIENT`, qui
+  doit être un client compatible botguard, c'est-à-dire `web`) ;
+- `COOKIE_PATH` : des cookies de compte connecté ;
+- `HTTP_PROXY`/`HTTPS_PROXY` : une sortie réseau ailleurs qu'en datacentre.
+
+**Et yt-dlp** recommande la même famille : coller au client de référence (fait le
+13/08), ralentir (`--sleep-interval`), choisir un client moins challengé
+(android — le nôtre), cookies d'un navigateur connecté, et un fournisseur de POT
+pour les IP déjà flaguées.
+
+**Aucun des trois leviers n'est disponible pour nous.** Le service de jetons
+demande un runtime avec `eval` (voir plus haut) ; les cookies veulent un compte
+YouTube réel dont on ferait porter tout le trafic de l'app, avec le risque de
+bannissement qui va avec ; et une sortie résidentielle est un service payant dont
+le seul objet est de faire passer du trafic de datacentre pour autre chose.
+
+**Ce qu'on a et qu'aucun de ces outils n'a : un cache.** yt-dlp et cobalt
+résolvent à la demande, pour un utilisateur, une fois. Nous servons N visiteurs
+la même vidéo. C'est notre seul avantage structurel, et il pointe exactement là
+où la mesure pointait déjà.
+
 ### Ce que la mesure désigne à la place
 
 Le rationnement est fonction du TEMPS, pas de notre identité. La bonne réponse
