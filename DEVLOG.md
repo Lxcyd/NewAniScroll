@@ -399,6 +399,61 @@ résolvent à la demande, pour un utilisateur, une fois. Nous servons N visiteur
 la même vidéo. C'est notre seul avantage structurel, et il pointe exactement là
 où la mesure pointait déjà.
 
+### Dailymotion : les deux exigences échouent
+
+Luc demande TOUS les titres, et sans recherche par nom. Les deux tombent.
+
+- **Pas de catalogue officiel.** Chaînes éditeurs frappées une à une :
+  `crunchyroll_fr`, `crunchyroll`, `animedigitalnetwork`, `kazevideo`,
+  `allthatanime` **n'existent pas** ; `adn`, `animeland`, `netflixfr` ont **0
+  vidéo** ; `wakanim` en a **3** ; `kana-home-video` **20**. Il n'y a pas de
+  source officielle à indexer.
+- **Rien sur quoi joindre.** Tous les champs qu'une vidéo expose : `id`, `title`,
+  `description`, `tags` (texte libre), `channel`, `owner`, `duration`, `language`.
+  Aucun identifiant d'œuvre. « Autrement que par recherche de nom » est donc
+  impossible en principe, pas seulement difficile. Le 10/10 mesuré hier était de
+  l'upload amateur trouvé au nom — l'exemple type appartient à une chaîne
+  « Movie Trailer » (`shortfilms`), pas à un éditeur.
+- **La bannière** est un consentement TCF. Elle disparaît quand la page PARENTE
+  porte un vrai CMP et que le visiteur a consenti ; elle ne se supprime pas
+  depuis l'extérieur, et la simuler serait un problème de conformité, pas une
+  astuce.
+
+### Sortir de Cloudflare : la mesure dit oui, mais pas n'importe comment
+
+**L'adresse compte, et beaucoup.** 30 résolutions InnerTube en rafale, sans
+pause, depuis une ligne résidentielle : **30/30 en 2 s**, aucune dégradation —
+là où le worker oscille entre 1/6 et 6/8 sur des ids froids. Le rationnement ne
+vient donc ni de la cadence, ni des en-têtes, ni d'un jeton manquant : il vient
+de l'egress datacentre.
+
+**Mais on ne peut pas résoudre ici et servir là-bas.** L'URL googlevideo est
+signée contre l'IP qui l'a frappée (mesuré le 14/08, `ip` dans `sparams`). La
+machine qui résout doit donc aussi tirer les octets. La forme viable est :
+egress non-datacentre qui résout ET récupère, avec le Worker devant en cache
+d'edge — le miss froid coûte quelques Mo sur cette liaison, tout le reste est
+servi par l'edge. Reste à vérifier ce que devient cette IP au volume réel de la
+prod : 30 requêtes en 2 s ne prouvent pas qu'une ligne domestique tient une
+journée de trafic.
+
+### Deux fausses pistes que j'ai suivies, et ce qui les a arrêtées
+
+**« android_vr est mort, on le met en second. »** Mesuré 0/14 contre 14/14 pour
+android, depuis cette ligne. C'était faux : ma requête **omettait le
+`visitorData`** que le worker mint et envoie. Rejouée avec identité :
+**10/10 pour les deux clients**, redemption du lien comprise. Un client refusé
+sans identité ne dit rien du client tel qu'on l'utilise.
+
+**Et surtout, le commentaire de `CLIENTS` décrivait déjà l'erreur** : depuis une
+ligne résidentielle android paraît le meilleur meneur, mais depuis l'edge ses
+liens tombent en 403 — c'est l'exigence de jeton GVS que le PO Token Guide
+attribue à ANDROID et pas à ANDROID_VR. « Cette correction a coûté un deploy »,
+dit le fichier. Elle a failli en coûter un second.
+
+**La leçon, et elle vaut pour la section précédente :** une mesure prise à la
+maison ne se transporte pas à l'edge. Avant de déménager le résolveur, il faudra
+mesurer sur l'egress réellement visé, pas sur celui qu'on a sous la main.
+
 ### Ce que la mesure désigne à la place
 
 Le rationnement est fonction du TEMPS, pas de notre identité. La bonne réponse
