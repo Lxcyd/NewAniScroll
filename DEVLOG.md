@@ -260,6 +260,35 @@ elle venait de `dev.aniscroll.com`, par interception) — `localhost` est un cas
 particulier pour un embed et j'aurais conclu de travers. Refus identiques. Il n'y
 a donc que deux hôtes qui jouent, et ils dessinent la même chrome.
 
+### Les proxys d'inconnus : un sur douze répond encore
+
+Douze front-ends tiers frappés (Invidious et Piped), parce qu'ils servent le
+média sans chrome — exactement notre cahier des charges, chez quelqu'un d'autre.
+
+**L'écosystème s'est effondré.** La liste officielle `api.invidious.io` ne
+compte plus que 11 entrées, dont 2 en https et **sur un réseau overlay `.ygg`**,
+injoignable depuis l'internet normal. Sur 9 hôtes historiques : 4 morts en DNS,
+1 en 418, 1 en 404, et les 3 qui répondent 200 sur `/embed` renvoient du
+**`text/html` sur la route média** — une page d'erreur, pas un fichier. Côté
+Piped, 2 des 3 API testées répondent 403/404.
+
+**Un seul marche**, `api.piped.private.coffee` : flux muxé MP4 360p (le même
+itag 18), servi par `proxy.piped.private.coffee` en 206, avec
+`Access-Control-Allow-Origin: *` — donc mieux que googlevideo, qui n'en met
+aucun. Course sur le même fichier de 11,28 Mo, deux passes :
+
+| | passe 1 | passe 2 |
+| --- | --- | --- |
+| notre worker | 0,77 s (14,7 Mo/s) | 0,67 s (16,9 Mo/s) |
+| piped (inconnu) | 1,31 s (8,6 Mo/s) | 1,06 s (10,6 Mo/s) |
+
+**Verdict.** Ça marche, c'est ~1,6× plus lent, et c'est UN serveur bénévole sans
+engagement, dans un écosystème dont les trois quarts sont morts pendant qu'on
+regardait. Y envoyer le trafic d'une app, c'est déplacer notre coût sur la bande
+passante de quelqu'un qui ne l'a pas demandé, et faire dépendre nos aperçus d'une
+machine qu'on ne contrôle pas. À noter comme repli documenté, jamais comme
+architecture.
+
 ## 2026-08-13 (fin) — Copier la requête de référence valait tous les réglages
 
 Après une soirée à régler le disjoncteur au gramme près (43 %, 72 %, 79 %), le
