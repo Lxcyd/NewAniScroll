@@ -1,5 +1,55 @@
 # DEVLOG
 
+## 2026-08-14 — Le POT est lié à la SESSION, pas à l'adresse (et pourquoi ça ne suffit pas)
+
+Suite : si le remède de yt-dlp est hors de l'outil, comment font-ils, et peut-on
+faire pareil ? Trois remèdes documentés — cookies, fournisseur de PO token, autre
+egress. Le deuxième méritait d'être rouvert : je l'avais écarté en partie parce
+que `workerd` interdit `eval` et ne peut donc pas faire tourner BotGuard. « Hors
+du worker » dissout exactement cette objection.
+
+**Comment ils font.** `bgutil-ytdlp-pot-provider` fait tourner la bibliothèque
+BotGuard de LuanRT dans un **serveur HTTP séparé** (Node ≥ 20 ou Deno, port 4416,
+image Docker fournie). yt-dlp lui demande un token par un plugin. Le VM BotGuard
+n'est donc jamais dans l'outil : il est dans un service à côté.
+
+**La bonne nouvelle, et elle est structurelle.** Dans
+`yt_dlp/extractor/youtube/pot/utils.py`, le token est lié à `visitor_data`,
+`visitor_id` ou `video_id` — **jamais à l'adresse IP**. Un minteur posé n'importe
+où peut donc servir un appelant posé ailleurs. La topologie actuelle serait
+préservée : le Worker mint son `visitorData`, demande au minteur un POT lié à ce
+`visitorData`, résout lui-même, et comme l'URL googlevideo reste signée contre
+**l'IP du Worker**, c'est bien le Worker qui tire les octets et remplit son cache.
+Cloudflare resterait le serveur ; seul le minteur serait dehors.
+
+**Les deux murs, mesurés aujourd'hui.**
+
+1. **`WEBPO_CLIENTS` est une liste fermée** : WEB, MWEB, TVHTML5,
+   WEB_EMBEDDED_PLAYER, WEB_CREATOR, WEB_REMIX, TVHTML5_SIMPLY et sa variante
+   embedded. **ANDROID et ANDROID_VR n'y sont pas** — ils relèvent de DroidGuard
+   (attestation Android), que bgutil n'implémente pas. Le POT externe ne peut
+   donc **jamais** aider les deux seuls clients qui nous rendent un fichier muxé.
+   Pour en profiter il faudrait passer à WEB.
+2. **WEB ne rend rien à voir.** Interrogé proprement avec identité (5 vidéos) :
+   `UNPLAYABLE` / « Video unavailable », sous-raison **« The page needs to be
+   reloaded »** avec `signalAction: RELOAD_PAGE` — la signature canonique du POT
+   manquant, donc un POT le débloquerait probablement. Mais la réponse contient
+   **0 format progressif et 0 adaptatif** : on ne peut pas savoir d'ici s'il
+   rendrait un itag 18. Et yt-dlp classe `web` en `REQUIRE_JS_PLAYER: True` — ses
+   formats arrivent en `signatureCipher`, à déchiffrer avec le JS du player, que
+   `workerd` ne peut pas exécuter. Les deux clients android sont justement
+   `REQUIRE_JS_PLAYER: False`, et c'est pour ça qu'ils avaient été choisis.
+
+**Où ça laisse les choses.** Le chemin existe sur le papier et ses deux points de
+rupture sont nommés. Il ne se tranche que par l'expérience : monter bgutil, minter
+un POT, interroger WEB, et regarder si un itag 18 revient **avec une `url` en
+clair** plutôt qu'un `signatureCipher`. Si oui, l'architecture tient sans quitter
+Cloudflare. Si non, le POT ne sert à rien ici et il ne reste que l'egress.
+
+**Et un piège à ne pas répéter** : `_extract_visitor_id` lit le `visitorData` sans
+parser le protobuf (découpe d'octets fixe). C'est de la reconnaissance de forme,
+pas du décodage — ne pas s'en inspirer pour du code qui doit durer.
+
 ## 2026-08-14 — Reproduire yt-dlp : la table des clients est épuisée
 
 Demande : reproduire ce que fait yt-dlp pour régler le blocage. Le worker s'en
