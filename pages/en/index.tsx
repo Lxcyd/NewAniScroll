@@ -1,5 +1,5 @@
 import { aniListData, aniListHomepageBatch } from "@/lib/anilist/AniList";
-import { useState, useEffect, Fragment } from "react";
+import { useState, useEffect, useCallback, Fragment } from "react";
 import Head from "next/head";
 import Link from "next/link";
 import Footer from "@/components/shared/footer";
@@ -30,6 +30,7 @@ import {
 } from "@/components/anime/v2/helpers";
 import { getTmdbAnimeImages } from "@/lib/tmdb/animeImages";
 import { useFanartSrc, onFanartError } from "@/lib/images/fanartFallback";
+import { previewAnchor } from "@/lib/preview/anchor";
 
 /* Which titles get the hero, and in what order — Hayase's algorithm
    (hayase-app/interface, src/lib/components/ui/banner/full-banner.svelte,
@@ -321,20 +322,80 @@ function HeroBanner({
   const prev = () => go(idx - 1, -1);
   const next = () => go(idx + 1, 1);
 
+  /**
+   * The rotation is HELD while the pointer is working the right rail.
+   *
+   * The rail covers are hover-preview anchors, and an auto-advance during a
+   * preview is not merely a distraction: it reorders the rail under the
+   * pointer, so the poster being inspected is replaced mid-hover by a
+   * different title — the preview then belongs to an anime the user never
+   * pointed at, and its anchor element is gone from the DOM.
+   *
+   * NOT a hover-pause on the hero as a whole, which is the thing this file
+   * has always refused to do and still refuses: the hero is a viewport-sized
+   * banner, the cursor rests on it by default, and pausing there would stop
+   * the carousel for good. The rail is a 126px target that has to be aimed at.
+   */
+  const [railHeld, setRailHeld] = useState(false);
+  /**
+   * Bumped on RELEASE only, and it is what keeps the pill honest.
+   *
+   * The pill's fill is a CSS animation: pausing it resumes mid-fill, while the
+   * timer below is a fresh setTimeout every time the effect re-runs. Left
+   * alone, a released hold would show a pill three-quarters full with eight
+   * seconds still to run. Remounting the pill restarts its fill on the same
+   * instant the new timer starts, so the two say the same thing.
+   */
+  const [holdSeq, setHoldSeq] = useState(0);
+  const releaseRail = useCallback(() => {
+    setRailHeld(false);
+    setHoldSeq((s) => s + 1);
+  }, []);
+
+  /**
+   * What ENDS the hold, and why it isn't `onPointerLeave` on the rail.
+   *
+   * The preview card is portalled to <body> and opens centred on the poster,
+   * which means it covers the very element the pointer is on: the rail sees a
+   * leave the moment the preview it caused appears, and the rotation would
+   * resume exactly when it must not. So the hold ends on a pointer that is
+   * over neither the rail nor any preview popup — the two together are one
+   * region, whatever the DOM thinks.
+   */
+  useEffect(() => {
+    if (!railHeld) return;
+    const onOver = (e: Event) => {
+      const node = e.target as Element | null;
+      if (!node || typeof node.closest !== "function") return;
+      if (node.closest("[data-hero-rail]") || node.closest("[data-preview-popup]")) return;
+      releaseRail();
+    };
+    document.addEventListener("pointerover", onOver, true);
+    // Pointer gone from the window entirely: no further pointerover arrives,
+    // so nothing else would ever release the hold.
+    document.addEventListener("mouseleave", releaseRail);
+    window.addEventListener("blur", releaseRail);
+    return () => {
+      document.removeEventListener("pointerover", onOver, true);
+      document.removeEventListener("mouseleave", releaseRail);
+      window.removeEventListener("blur", releaseRail);
+    };
+  }, [railHeld, releaseRail]);
+
   // Auto-advance. `idx` is in the deps so the timer restarts from zero
   // whenever the slide changes — manual prev/next/dot clicks included —
   // keeping the cadence in sync with the progress-pill fill animation
-  // (which also restarts each slide). We deliberately do NOT pause on
-  // hover: the hero fills the viewport, so the cursor sits over it almost
-  // permanently and a hover-pause would freeze the carousel for good.
+  // (which also restarts each slide). `railHeld` is in there for the same
+  // reason: leaving the rail starts a whole fresh interval rather than
+  // resuming a stub of one, which is what the remounted pill draws.
   useEffect(() => {
-    if (list.length < 2) return;
+    if (list.length < 2 || railHeld) return;
     const t = window.setTimeout(() => {
       setDir(1);
       setIdx((i) => (i + 1) % list.length);
     }, HERO_AUTO_INTERVAL_MS);
     return () => window.clearTimeout(t);
-  }, [list.length, idx]);
+  }, [list.length, idx, railHeld]);
 
   // Pre-translate EVERY carousel synopsis up front (the moment the list +
   // language are known), in parallel, so by the time the carousel auto-
@@ -621,6 +682,9 @@ function HeroBanner({
                   >
                     {isActive && (
                       <span
+                        // Remounts on release (see holdSeq) so the fill and the
+                        // timer restart together.
+                        key={`fill-${holdSeq}`}
                         className="absolute inset-y-0 left-0 w-full rounded-full bg-action"
                         style={{
                           transformOrigin: "left",
@@ -629,6 +693,10 @@ function HeroBanner({
                             list.length > 1
                               ? `heroProgress ${HERO_AUTO_INTERVAL_MS}ms linear forwards`
                               : undefined,
+                          // The pill is the visible half of the countdown, so it
+                          // stops when the countdown does — a bar still filling
+                          // with no advance behind it is a broken promise.
+                          animationPlayState: railHeld ? "paused" : "running",
                         }}
                       />
                     )}
@@ -644,7 +712,14 @@ function HeroBanner({
               the natural direction (right = forward). */}
           <div className="hidden lg:flex w-[35%] xl:w-[40%] flex-col items-end justify-end pb-2 pr-[5%]">
             {railEntries.length > 0 && (
-              <div className="flex items-center gap-3">
+              <div
+                // The whole strip holds the rotation, arrows included: reaching
+                // for "next" is aiming at this carousel too, and a slide that
+                // fires on its own while you do is the same surprise.
+                data-hero-rail
+                className="flex items-center gap-3"
+                onPointerEnter={() => setRailHeld(true)}
+              >
                 {/* Prev / next arrows — stacked to the left of the covers. */}
                 {list.length > 1 && (
                   <div className="z-20 flex flex-col gap-2">
@@ -679,6 +754,10 @@ function HeroBanner({
                     <button
                       key={`${e.id}-${k}`}
                       type="button"
+                      // Previewable like every other poster on the site. The
+                      // rotation is what made this impossible before, not the
+                      // markup — see railHeld.
+                      {...previewAnchor(e.id)}
                       onClick={() => go(realIdx, k === 0 ? 0 : 1)}
                       className={`group relative h-[180px] w-[126px] shrink-0 overflow-hidden rounded-xl shadow-xl outline-none focus:outline-none transition-all duration-300 hover:scale-[1.06] ${
                         isCurrent
