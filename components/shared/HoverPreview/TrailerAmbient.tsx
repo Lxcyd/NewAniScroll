@@ -258,7 +258,16 @@ export default function TrailerAmbient({
    * better than a still that never changes at all.
    */
   useEffect(() => {
-    if (!playing || !frames?.length || progress == null || sourceRef?.current) return;
+    /*
+     * `progress` is deliberately NOT a condition here, only inside the tick.
+     *
+     * It is null when playback starts — the player has not reported a position
+     * yet — and it is not in this effect's dependencies (by design: a new value
+     * every 200 ms must not rebuild the loop). Testing it at setup therefore
+     * returned early on the one render that mattered and never ran again, which
+     * is the second reason the glow stayed on the banner.
+     */
+    if (!playing || !frames?.length || sourceRef?.current) return;
     const { source } = ensureCanvases();
     const ctx = source.getContext("2d");
     if (!ctx) return;

@@ -219,6 +219,8 @@ export default function TrailerStage() {
   const wantPlayRef = useRef(false);
   /** Has the boot video ever been started? It is cued, not playing, until asked. */
   const playedRef = useRef(false);
+  /** This video's length, kept because it is not on the messages that tick. */
+  const durationRef = useRef<number | null>(null);
   /** Seen the clock at the start of the CURRENT video — see ADVANCED. */
   const rewoundRef = useRef(false);
   /** Already revealed for the current attachment. */
@@ -340,6 +342,7 @@ export default function TrailerStage() {
     if (forceTimerRef.current) clearTimeout(forceTimerRef.current);
     shownRef.current = false;
     rewoundRef.current = false;
+    durationRef.current = null;
     setVisible(false);
     setShowControls(false);
     setCursorOn(false);
@@ -545,13 +548,28 @@ export default function TrailerStage() {
       if (typeof at === "number") {
         if (at < REWOUND) rewoundRef.current = true;
         else if (rewoundRef.current && at > ADVANCED) reveal();
-        // Told to the card, which passes it to the ambient light: it cannot read
-        // the picture, so this is how it knows which of the video's three
-        // published frames to light the card with.
-        const total = (info as { duration?: unknown })?.duration;
-        if (typeof total === "number" && total > 0) {
-          handlersRef.current?.onProgress(Math.min(1, Math.max(0, at / total)));
-        }
+        /*
+         * Told to the card, which passes it to the ambient light: it cannot read
+         * the picture, so this is how it knows which of the video's three
+         * published frames to light the card with.
+         *
+         * THE DURATION HAS TO BE REMEMBERED, and assuming otherwise is what kept
+         * the glow frozen after the first attempt at this. `duration` is NOT on
+         * the messages that carry `currentTime`: the ticking updates put it
+         * inside `progressState`, and a bare `info.duration` only turns up on
+         * some earlier message. Read on the same tick it is simply undefined,
+         * every time, so the progress was never published at all.
+         */
+        const prog = (info as { progressState?: { duration?: unknown } })?.progressState;
+        const seen =
+          typeof (info as { duration?: unknown })?.duration === "number"
+            ? ((info as { duration: number }).duration)
+            : typeof prog?.duration === "number"
+            ? prog.duration
+            : null;
+        if (seen && seen > 0) durationRef.current = seen;
+        const total = durationRef.current;
+        if (total) handlersRef.current?.onProgress(Math.min(1, Math.max(0, at / total)));
       }
 
       if (state === undefined) return;
