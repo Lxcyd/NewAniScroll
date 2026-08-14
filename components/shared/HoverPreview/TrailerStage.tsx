@@ -192,6 +192,28 @@ const MIRRORED = new Set([
   "unloadModule",
   "setOption",
 ]);
+/**
+ * How far the two players may drift before the glow is pulled back into line.
+ *
+ * MEASURED, because the first version of this trusted one command to do it. On
+ * the first card the two clocks sit within ±0.08 s of each other for as long as
+ * you like — but a card SWITCH left the glow 0.35 to 0.67 s ahead, every time
+ * and for good. The reveal seeks the visible player back to zero; the copy is
+ * still loading the new video at that instant and drops the seek, as the player
+ * drops anything aimed at a video it has not finished loading. It then stays
+ * ahead by exactly what the other one rewound.
+ *
+ * Half a second is not subtle: at a cut, the light changes before the picture
+ * does. So the offset is not assumed away, it is watched and corrected.
+ *
+ * The threshold is what keeps that correction rare. Each one is a seek, and a
+ * seek darkens the halo for an instant while the copy rebuffers — worth paying
+ * once after a switch, not every few seconds over jitter that nobody can see.
+ */
+const SYNC_TOLERANCE_S = 0.3;
+/** And never two corrections in a row without giving the first one time to land. */
+const SYNC_COOLDOWN_MS = 2500;
+
 /** Blur radius of the glow copy. The card's own stack used the same figure. */
 const GLOW_BLUR_PX = 34;
 /** How far past the video's box the glow copy is drawn, so light escapes it. */
@@ -247,6 +269,11 @@ export default function TrailerStage() {
   const glowBoxRef = useRef<HTMLDivElement>(null);
   const glowFrameRef = useRef<HTMLIFrameElement>(null);
   const glowLoadedRef = useRef(false);
+  /** The copy's own clock, read the same way as the visible player's. */
+  const glowAtRef = useRef(0);
+  const glowSeenRef = useRef(0);
+  /** When the copy was last pulled back into line. See SYNC_COOLDOWN_MS. */
+  const lastSyncRef = useRef(0);
   const idleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const volCloseRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const trackRef = useRef<HTMLDivElement>(null);
@@ -346,6 +373,15 @@ export default function TrailerStage() {
    * YouTube's origin as the target throws "The target origin provided does not
    * match the recipient window's origin".
    */
+  /** The same, aimed at the glow copy alone — used to re-align it. */
+  const postGlow = useCallback((func: string, args: unknown[] = []) => {
+    if (!glowLoadedRef.current) return;
+    glowFrameRef.current?.contentWindow?.postMessage(
+      JSON.stringify({ event: "command", func, args }),
+      ORIGIN,
+    );
+  }, []);
+
   const post = useCallback((func: string, args: unknown[] = []) => {
     if (!loadedRef.current) return;
     frameRef.current?.contentWindow?.postMessage(
@@ -360,10 +396,7 @@ export default function TrailerStage() {
      * it is born muted so there is nothing to undo.
      */
     if (glowLoadedRef.current && MIRRORED.has(func)) {
-      glowFrameRef.current?.contentWindow?.postMessage(
-        JSON.stringify({ event: "command", func, args }),
-        ORIGIN,
-      );
+      postGlow(func, args);
     }
   }, []);
 
@@ -496,6 +529,9 @@ export default function TrailerStage() {
     atRef.current = 0;
     atSeenRef.current = 0;
     runningRef.current = false;
+    glowAtRef.current = 0;
+    glowSeenRef.current = 0;
+    lastSyncRef.current = 0;
     setVisible(false);
     // The button must not open on the pause icon because the LAST card was left
     // paused — the state belongs to the showing, not to the player.
@@ -694,6 +730,24 @@ export default function TrailerStage() {
       } catch {
         return;
       }
+      /*
+       * The copy speaks too, and it is answering a different question.
+       *
+       * Its messages say nothing about the card — it has no controls, no
+       * reveal, no error to report that the visible player will not report
+       * first. The one thing worth having is its clock, which is what makes the
+       * drift measurable instead of assumed. So it is taken and the message
+       * goes no further; letting it fall through would have the copy's position
+       * driving the reveal of the picture.
+       */
+      if (e.source === glowFrameRef.current?.contentWindow) {
+        const t = (data?.info as { currentTime?: unknown } | null | undefined)?.currentTime;
+        if (typeof t === "number") {
+          glowAtRef.current = t;
+          glowSeenRef.current = performance.now();
+        }
+        return;
+      }
       // Anything at all from the player means it is past its boot and will obey
       // a command sent right now. See the attach effect.
       aliveRef.current = true;
@@ -805,6 +859,13 @@ export default function TrailerStage() {
         JSON.stringify({ event: "listening", id: 1, channel: "widget" }),
         ORIGIN,
       );
+      // The copy is subscribed as well, and only for its clock: a player that
+      // is never asked to speak reports nothing, and an unmeasured drift is one
+      // that cannot be corrected.
+      glowFrameRef.current?.contentWindow?.postMessage(
+        JSON.stringify({ event: "listening", id: 1, channel: "widget" }),
+        ORIGIN,
+      );
     }, 150);
     const stopHandshake = setTimeout(() => clearInterval(handshake), 4000);
 
@@ -840,8 +901,24 @@ export default function TrailerStage() {
       // the start of THIS video, the position still belongs to the previous
       // one — and a sweep started from the middle of nowhere is a jump.
       if (!shownRef.current || !rewoundRef.current) return;
-      const elapsed = runningRef.current ? (performance.now() - atSeenRef.current) / 1000 : 0;
+      const now = performance.now();
+      const elapsed = runningRef.current ? (now - atSeenRef.current) / 1000 : 0;
       const t = atRef.current + elapsed;
+
+      /*
+       * Pull the light back onto the picture when it has slipped.
+       *
+       * Both positions are extrapolated the same way, so what is compared is
+       * two clocks and not two message arrival times — otherwise the jitter
+       * between updates would look like drift and this would seek for ever.
+       */
+      if (runningRef.current && glowSeenRef.current && now - lastSyncRef.current > SYNC_COOLDOWN_MS) {
+        const glowT = glowAtRef.current + (now - glowSeenRef.current) / 1000;
+        if (Math.abs(glowT - t) > SYNC_TOLERANCE_S) {
+          lastSyncRef.current = now;
+          postGlow("seekTo", [Math.max(0, t), true]);
+        }
+      }
       /*
        * A TRIANGLE, NOT THE PLAYHEAD — measured, and the correction is the whole
        * point of this file's last three attempts.
@@ -869,7 +946,7 @@ export default function TrailerStage() {
       handlersRef.current?.onProgress(cycle > 1 ? 2 - cycle : cycle);
     }, PROGRESS_TICK_MS);
     return () => clearInterval(timer);
-  }, [attachment]);
+  }, [attachment, postGlow]);
 
   useEffect(
     () => () => {
