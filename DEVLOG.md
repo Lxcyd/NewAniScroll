@@ -230,9 +230,35 @@ nos trailers — vérifié sur les deux ids de test via `youtubei/v1/search` :
 i.ytimg.com. Sans signature elle répond 404, mais l'URL signée est stable ~6 h
 par vidéo, donc elle n'est pas liée à l'IP comme googlevideo. C'est donc la seule
 image de trailer que YouTube nous laisse afficher **sans chrome, sans zoom et
-sans faire transiter nos octets** — 135 Ko contre 3 Mo. Le prix : 6 s, muet,
-320×180 (la carte fait 364 de large), et l'extrait est choisi par YouTube. À
-garder en tête si le proxy devient un problème de coût, pas comme un remplaçant.
+sans faire transiter nos octets** — 135 Ko contre 3 Mo.
+
+**Mais son contenu, décodé chunk par chunk plutôt que déduit du nom de fichier
+(`mqdefault_6s`, qui ment) : `du=3000`, 24 images ANMF, 3,00 s, 8 i/s, 320×180,
+muet.** Ce n'est pas une lecture de trailer, c'est une vignette qui bouge. À
+garder en tête si le proxy devient un problème de coût ; jamais comme un
+remplaçant.
+
+### Les autres hôtes d'embed : onze testés, deux qui jouent
+
+Piste de Luc : YouTube a d'autres domaines, l'un d'eux sert peut-être un player
+différent. Onze hôtes frappés, puis photographiés :
+
+| hôte | résultat |
+| --- | --- |
+| `www.youtube.com` | joue — chrome de référence |
+| `www.youtube-nocookie.com` | joue — **captures identiques au pixel** |
+| `www.youtubeeducation.com` | page servie (136 Ko) mais **erreur 152-2**, vidéo indisponible |
+| `youtube.googleapis.com` | page servie, **erreur de lecture** |
+| `www.youtubekids.com` | page servie (128 Ko), **frame plantée** |
+| `m.youtube.com` | 302 → `www.youtube.com?app=desktop` |
+| `music.youtube.com`, `/shorts/` | 302 → mur de consentement |
+| `youtu.be/embed/` | 303 → `/watch` |
+| `youtubeembeddedplayer.googleapis.com` | 404 |
+
+Les trois refus ont été rejoués **sous une vraie origine** (page servie comme si
+elle venait de `dev.aniscroll.com`, par interception) — `localhost` est un cas
+particulier pour un embed et j'aurais conclu de travers. Refus identiques. Il n'y
+a donc que deux hôtes qui jouent, et ils dessinent la même chrome.
 
 ## 2026-08-13 (fin) — Copier la requête de référence valait tous les réglages
 
