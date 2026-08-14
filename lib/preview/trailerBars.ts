@@ -70,26 +70,30 @@ export function storyboardFrames(id: string): string[] {
 }
 
 /**
- * The subset of those frames fit to light a card with — the first two.
+ * The frames used to light the card. All three of them.
  *
- * THE LAST ONE IS AN END CARD FAR TOO OFTEN, and that is measured, not felt.
- * Across 24 popular trailers, the frame at ~83 % is red-dominant in 6 of them
- * against 1 for each of the other two, and its average colours are the giveaway:
- * [218,144,60], [160,102,34], [219,218,213] — publisher logos and broadcast
- * cards, not film. Trailers put those in their last fifth, so the sample lands
- * in them.
+ * A CORRECTION, kept because the reasoning that removed the third one was
+ * plausible and wrong. Measured across 24 trailers, the frame at ~83 % is
+ * red-dominant in 6 of them against 1 for each of the others — publisher logos
+ * and broadcast cards, which trailers put in their last fifth. That statistic is
+ * real. The conclusion drawn from it was not: the glow was turning orange over
+ * footage that was still blue, and the cause of THAT was a mapping bug, not the
+ * frame. The stills sit at 1/6, 3/6 and 5/6 of the video, and the code was
+ * spacing them evenly instead — so the third one took over from two thirds of
+ * the way through rather than from five sixths.
  *
- * Used as light, it was worse than useless: it took over from about two thirds
- * of the way through, so the glow turned orange over footage that was still
- * blue, and the card looked lit by the wrong film. Two samples that both sit in
- * the BODY of the trailer drift less, and drift correctly.
+ * With the spacing fixed, the third frame only lights the card near the end,
+ * which is exactly when an end card is actually on screen. An orange glow under
+ * an orange logo is right.
  *
- * Bar detection keeps all three: an end card is perfectly good evidence about
- * the frame's shape, and there the third opinion is what makes the median a
- * median.
+ * And dropping it cost far more than it saved: with two samples the light
+ * stopped moving at the halfway mark and held one colour to the end. On the
+ * trailer that exposed this, the first frame is a deep red scene and the third
+ * is a bright green one — removing the third froze the whole second half red,
+ * which is the very complaint it was meant to fix.
  */
 export function ambientFrames(id: string): string[] {
-  return storyboardFrames(id).slice(0, 2);
+  return storyboardFrames(id);
 }
 
 export type TrailerBars = {
