@@ -1,5 +1,46 @@
 # DEVLOG
 
+## 2026-08-14 — Le proxy trailer est supprimé, retour à l'embed nu
+
+Décision prise après la journée de mesures : le proxy achetait une première
+image propre au prix d'être **rationné par YouTube** — un tiers des trailers
+refusés à froid depuis l'edge, quelle que soit la forme donnée à la requête.
+Trois culs-de-sac indépendants mesurés le même jour (table des clients yt-dlp
+épuisée, PO token obtenu mais catalogue WEB vide, aucun dépôt du domaine n'y
+échappe) : le prix n'en valait pas la peine.
+
+**Supprimé** : `worker/src/youtube-trailer.js` et son câblage, `NativeTrailer`,
+`lib/preview/trailerCrop.ts`, `lib/preview/trailerVerdict.ts`, et la logique de
+verdict dans `Overview` et `InfoPageMobile`.
+
+**Pas touché** : `worker/src/index.js`, le proxy vidéo des **épisodes**. C'est un
+autre chemin et il est en production — « enlève le worker » ne pouvait pas
+vouloir dire celui-là.
+
+**À la place**, l'embed délibérément nu : autoplay, muet, nos boutons par-dessus
+et **mis de côté** pour ne pas s'empiler sur celui de YouTube — qui revient donc
+les ~4 premières secondes. État connu et assumé : on veut une base simple et
+juste avant de l'optimiser.
+
+**La piste pour l'enlever est consignée dans l'en-tête d'`EmbedTrailer`** plutôt
+que perdue : la chrome est fixe en pixels, donc elle ne survit pas à une
+réduction (360 px de glyphe à ×1, 0 à ×8, cadre impeccable à ×200), avec ses deux
+réserves — un voile de ~7 % qui survit à tout facteur, et une surface composée
+quadratique qui dépend du navigateur qui la clampe. Banc :
+`public/embed-scale-lab.html`.
+
+**Régressions assumées, écrites plutôt que découvertes plus tard** :
+- `TrailerAmbient` retombe sur la bannière floutée — une iframe cross-origin ne
+  se lit pas, donc plus de lueur tirée des vraies images ;
+- la sonde de recadrage disparaît : les vieux trailers avec bandes incrustées les
+  montreront ;
+- le trailer ne se met plus en pause derrière l'éditeur de liste.
+
+**Le Worker n'est PAS redéployé, et c'est important** : la production sert
+`main`, qui contient encore `NativeTrailer` appelant `/w/trailer/`. Déployer le
+Worker amputé maintenant casserait les aperçus en production. Il ne pourra
+l'être qu'une fois ce travail passé sur `main`.
+
 ## 2026-08-14 — Ne pas déplacer le cadre : AGRANDIR le player
 
 Idée venue d'une intuition géométrique — « et si on décalait l'iframe ? ». Le
