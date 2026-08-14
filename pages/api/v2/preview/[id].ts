@@ -3,6 +3,7 @@ import { getMediaMeta } from "@/lib/anilist/getMediaMeta";
 import { setEdgeCache } from "@/lib/http/edgeCache";
 import { getTmdbAnimeImages } from "@/lib/tmdb/animeImages";
 import { resolveHeroBanner } from "@/lib/images/heroBanner";
+import { youtubeTrailerId } from "@/lib/preview/trailerId";
 
 /**
  * GET /api/v2/preview/[id]
@@ -84,11 +85,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   );
 
   // YouTube is the only site we can embed; AniList also returns dailymotion
-  // entries, which the card has no player for.
-  const rawTrailer =
-    media.trailer?.site === "youtube" && media.trailer?.id
-      ? { id: String(media.trailer.id) }
-      : null;
+  // entries, which the card has no player for. The id is cleaned here rather
+  // than at each use — see youtubeTrailerId for the trailing tab that made a
+  // card sit on a black frame.
+  const trailerId =
+    media.trailer?.site === "youtube" ? youtubeTrailerId(media.trailer?.id) : null;
+  const rawTrailer = trailerId ? { id: trailerId } : null;
 
   /*
    * NO PLAYABILITY CHECK ANY MORE, and removing it is the point.

@@ -5004,3 +5004,24 @@ par nom de fichier seul les aurait supprimés à tort — d'où la double vérif
 Rappel au passage : `public/sw.js`, `public/workbox-*.js` et `public/fallback-*.js`
 sont **générés par next-pwa** à chaque build et déjà ignorés par git — ce ne sont
 pas des résidus du dépôt, les effacer les fait juste revenir au build suivant.
+
+### Suite — SNK ne démarrait pas : une tabulation dans l'id AniList
+
+Symptôme : sur *Attack on Titan*, la carte dévoile un rectangle **noir** et le trailer
+ne part jamais, alors que la même vidéo (`LHtdKWJdif4`) se lit sur youtube.com.
+
+Sonde sur la carte : le lecteur reçoit l'id **`"LHtdKWJdif4\t"`** — AniList stocke une
+tabulation à la fin. `loadVideoById` charge donc un id inexistant, le lecteur reste en
+état **−1** (jamais démarré), et c'est le garde-fou `REVEAL_ANYWAY_MS` (4 s) qui
+dévoile le cadre : d'où le noir. La même tabulation empoisonnait aussi
+`i.ytimg.com/vi/<id>/mq1.jpg`, donc le glow de repli **et** la sonde de bandes noires.
+Un caractère dans la base de quelqu'un d'autre, quatre choses cassées.
+
+Correctif : `lib/preview/trailerId.ts` — `youtubeTrailerId()` **nettoie puis valide**
+(11 caractères `[A-Za-z0-9_-]`). Trimmer seul aurait suffi pour ce cas ; valider la
+forme attrape le suivant sans avoir à le connaître, et répond « pas de trailer » plutôt
+que de garer un lecteur sur une vidéo qui ne chargera jamais.
+
+Appliqué aux trois entrées : `pages/api/v2/preview/[id].ts` (toute la chaîne de la
+carte), `Overview.tsx` (lien sortant + sonde `useTrailerBlocked`) et
+`InfoPageMobile.tsx` (embed + vignette `hqdefault`).

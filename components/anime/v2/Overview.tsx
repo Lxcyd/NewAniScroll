@@ -19,6 +19,7 @@ import { useTrailerBlocked } from "@/lib/preview/useTrailerBlocked";
 import { useTranslatedText } from "@/lib/i18n/useTranslatedText";
 import { translateTag } from "@/lib/i18n/animeTags";
 import { hexToCssFilter } from "@/lib/color/hexToCssFilter";
+import { youtubeTrailerId } from "@/lib/preview/trailerId";
 
 type Props = {
   info: AniListInfoTypes;
@@ -60,8 +61,8 @@ export default function Overview({ info, seasonList }: Props) {
   const synopsis = useTranslatedText(synopsisRaw);
 
   const rawTrailerUrl =
-    info.trailer && info.trailer.site === "youtube" && info.trailer.id
-      ? `https://www.youtube.com/watch?v=${info.trailer.id}`
+    info.trailer && info.trailer.site === "youtube" && youtubeTrailerId(info.trailer.id)
+      ? `https://www.youtube.com/watch?v=${youtubeTrailerId(info.trailer.id)}`
       : info.trailer && info.trailer.site === "dailymotion" && info.trailer.id
       ? `https://www.dailymotion.com/video/${info.trailer.id}`
       : null;
@@ -78,8 +79,7 @@ export default function Overview({ info, seasonList }: Props) {
    * YouTube only: Dailymotion has no such probe, and AniList lists exactly zero
    * Dailymotion trailers across its 22 037 dated anime.
    */
-  const ytId =
-    info.trailer?.site === "youtube" && info.trailer?.id ? String(info.trailer.id) : null;
+  const ytId = info.trailer?.site === "youtube" ? youtubeTrailerId(info.trailer?.id) : null;
   // False on BOTH sides on the first render, always: the server has no player
   // and no session, and answering differently there is a hydration mismatch —
   // which React pays for by re-rendering the entire page on the client.
