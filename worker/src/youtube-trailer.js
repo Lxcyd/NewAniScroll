@@ -14,7 +14,14 @@
  * WHY THE BYTES MUST TRANSIT HERE, rather than handing the URL to the browser:
  *   - googlevideo signs the URL against the IP that requested it (`ip=` is
  *     inside `sparams`), so a URL minted by our server is not usable from the
- *     visitor's connection;
+ *     visitor's connection. MEASURED 14/08, not deduced: `sparams` does list
+ *     `ip`, and `ip=` holds the calling machine's own address. Swept six
+ *     InnerTube clients looking for a muxed stream that is NOT bound this way —
+ *     ANDROID and ANDROID_VR give itag 18 with `ip` signed, IOS returns no
+ *     muxed format at all, MWEB answers UNPLAYABLE, TVHTML5_SIMPLY_EMBEDDED and
+ *     WEB_EMBEDDED answer ERROR. There is no unbound muxed URL to be had, so
+ *     "resolve the URL and let the browser fetch it" is not an architecture
+ *     that exists;
  *   - googlevideo sends NO CORS header, so the browser cannot fetch it either
  *     (which rules out MSE and any manual muxing).
  * Both objections disappear once we are the origin the browser talks to.

@@ -122,6 +122,51 @@ le cadrage. Le choix se résume à trois lignes, pour une carte de 364 px :
 Le proxy garde l'avantage. Mais « on ne peut pas » était faux, et c'est ça qu'il
 fallait corriger.
 
+### Les pistes SANS compromis, et la racine qu'elles ont fini par exposer
+
+Cahier des charges de Luc, et il est le bon : **image entière, aucun bouton,
+qualité native**. Tout ce qui zoome ou couvre est donc hors sujet. Trois pistes
+restantes, testées :
+
+- **Démarrage programmé** (charger sans `autoplay`, appeler `playVideo()` à
+  `ready`) : chrome identique.
+- **Son actif** (l'overlay long est-il l'affordance « activer le son » de
+  l'autoplay muet ? clic préalable pour l'activation collante, puis `mute=0`) :
+  chrome identique. Ce n'est pas ça.
+- **Rendre le player SAME-ORIGIN** — la seule piste qui cochait les trois cases :
+  on récupère la page `/embed/`, on y injecte `<base>` + une feuille qui tue
+  `.ytp-*`, et on la sert depuis notre domaine ; le player se construit alors
+  dans NOTRE document. **Et il s'y construit vraiment** : `#movie_player`
+  présent, `<video>` présent, 16 nœuds `ytp-` joignables par notre CSS. Mais
+  YouTube refuse de jouer — **erreur 153**, contrôle du domaine d'embed — et les
+  appels `youtubei/v1/*` sont bloqués par CORS depuis notre origine.
+
+**Et en remontant ce dernier échec on tombe sur la vraie racine.** Pour réparer
+les CORS il faudrait relayer les appels InnerTube par le worker — donc l'URL
+média serait frappée par le worker. Or, mesuré aujourd'hui pour la première fois
+au lieu d'être affirmé : `sparams` contient bien **`ip`**, et le champ `ip=` vaut
+l'adresse de la machine appelante (vérifié : mon IPv6). Balayage de six clients
+InnerTube — ANDROID, ANDROID_VR (itag 18, `ip` signée), IOS (aucun muxé, 27
+adaptatifs), MWEB `UNPLAYABLE`, TVHTML5_SIMPLY_EMBEDDED et WEB_EMBEDDED `ERROR` :
+**aucun ne rend d'URL muxée non liée à l'adresse.**
+
+Donc la même contrainte tue les deux architectures alternatives : le player
+same-origin comme le « worker qui répondrait juste une URL » butent sur le fait
+qu'une URL frappée chez nous ne vaut rien chez le visiteur. **Le transit des
+octets n'est pas un choix, c'est la conséquence de la signature par IP** — et
+c'est ça, pas le bouton, qui explique l'architecture actuelle.
+
+### Conclusion, cette fois avec le périmètre mesuré
+
+L'embed ne peut pas rendre les trois à la fois. Le canal DOM est clos (paramètres,
+liste blanche du pont, `embed_config`), le canal same-origin est clos (153 +
+CORS), et le canal « URL directe » est clos (signature par IP, tous clients).
+Ce qui reste — masquer par position — coûte du zoom ou un calque, c'est-à-dire
+exactement ce que le cahier des charges refuse.
+
+**Le proxy n'est donc pas la solution la moins mauvaise : c'est la seule qui
+satisfait les trois contraintes, et elle est déjà en production.**
+
 ## 2026-08-13 (fin) — Copier la requête de référence valait tous les réglages
 
 Après une soirée à régler le disjoncteur au gramme près (43 %, 72 %, 79 %), le
