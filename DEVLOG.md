@@ -314,6 +314,47 @@ marchait, ce serait un serveur bénévole sans engagement, dans un écosystème 
 les trois quarts sont morts pendant qu'on regardait, et notre coût déplacé sur la
 bande passante de quelqu'un qui ne l'a pas demandé. Ni architecture, ni repli.
 
+### Le PO token : fausse piste, et c'était la mienne
+
+J'avais suggéré le PO token comme prochaine marche. Vérification faite, c'est
+une impasse, pour trois raisons indépendantes.
+
+**1. Le format 18 est précisément l'exempté.** yt-dlp #17348 : « `android_vr` now
+requires GVS PO token for anything but format 18 » — le seul format qui reste
+servi sans jeton est « format 18 (H.264 360p pre-merged with AAC over https) ».
+C'est exactement, et uniquement, celui sur lequel repose tout ce worker. Notre
+architecture est déjà dans le couloir exempté ; un jeton GVS n'achèterait rien.
+
+**2. Notre refus n'est pas une absence de jeton, c'est un rationnement.** La
+preuve est dans notre propre diagnostic du 13/08 : même vidéo, même client, aucun
+jeton, six passes — passe 1 **200 partout**, puis dégradation jusqu'à 403 partout.
+Une absence de jeton est une CONSTANTE ; elle ne peut pas produire « ça marche,
+puis ça ne marche plus ». Et l'instance Piped, qui n'utilise pas non plus de PO
+token, reçoit le refus au mot près.
+
+**3. On ne peut pas en fabriquer dans un Worker.** BotGuard exige d'évaluer du JS
+à l'exécution ; `workerd` interdit `eval`/`new Function` (le drapeau
+`allow_eval_during_startup` ne couvre que le démarrage, pas un défi par vidéo).
+Il faudrait un service Node séparé (bgutil + jsdom) — et comme les jetons sont
+désormais liés à l'ID DE LA VIDÉO, ce serait une attestation par trailer, pas une
+par session. L'économie « un jeton toutes les 6 h » n'existe pas.
+
+**Et les clients sans jeton ne rendent rien d'utilisable** (avec le
+`thirdParty.embedUrl` qui manquait à mon premier essai) : `TVHTML5` →
+`UNPLAYABLE` « The page needs to be reloaded », `TVHTML5_SIMPLY_EMBEDDED_PLAYER`
+→ « YouTube is no longer supported in this application », `WEB_EMBEDDED_PLAYER`
+→ « This video is unavailable ». Les deux clients android restent les seuls.
+
+### Ce que la mesure désigne à la place
+
+Le rationnement est fonction du TEMPS, pas de notre identité. La bonne réponse
+n'est donc pas de mieux s'authentifier, c'est de **sortir la résolution du chemin
+critique du visiteur** : une fois chaud, un trailer revient en 20-42 ms, et on a
+mesuré 4/6 à +30 s contre 1/6 à la première tentative. Pré-chauffer les trailers
+des fiches populaires hors ligne (cron) déplacerait l'échec là où il ne coûte
+rien — personne n'attend. C'est la suite naturelle, et elle ne demande aucune
+nouvelle dépendance.
+
 ## 2026-08-13 (fin) — Copier la requête de référence valait tous les réglages
 
 Après une soirée à régler le disjoncteur au gramme près (43 %, 72 %, 79 %), le
