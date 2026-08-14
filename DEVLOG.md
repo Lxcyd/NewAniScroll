@@ -4872,3 +4872,37 @@ décodeur + second flux) — la carte y garde le glow storyboard.
 Restant assumé : deux lecteurs = deux horloges, dérive d'une fraction de seconde,
 invisible à 34 px de flou. Le balayage storyboard reste comme repli, pas comme
 chemin principal.
+
+### Suite — la copie prenait de l'avance au changement de carte
+
+Symptôme : sur une même image, le halo ne correspond pas ; « il y a un retard ».
+
+Mesuré en abonnant **séparément** les deux lecteurs (`listening` envoyé aussi à la
+copie, messages triés par `e.source`) :
+
+| | dérive |
+|---|---|
+| 1ʳᵉ carte, lecture continue | ±0,08 s, indéfiniment |
+| après un changement de carte | **−0,35 à −0,67 s**, définitif (copie en avance) |
+
+Cause : `reveal()` rembobine le lecteur visible à zéro ; la copie est encore en
+train de charger la nouvelle vidéo à cet instant et **laisse tomber le seek** (le
+lecteur ignore ce qu'on adresse à une vidéo non finie de charger). Elle reste en
+avance d'exactement ce que l'autre a rembobiné.
+
+Correctif : on ne fait plus confiance à une commande unique. Le ticker compare
+deux positions **extrapolées de la même façon** (comparer des instants d'arrivée
+de messages ferait passer la gigue pour une dérive) ; au-delà de 0,3 s, un seek
+remet la copie en place, au plus une fois toutes les 2,5 s — chaque correction
+assombrit brièvement le halo le temps du rebuffer. Après : −0,31 → 0,00 en 1 s,
+puis ±0,05.
+
+**Sous-titres** : `unloadModule` n'était envoyé qu'au `onLoad` de l'iframe. Chaque
+`loadVideoById` reconstruit un module de sous-titres → ils revenaient sur tous les
+trailers sauf celui du boot. Redonné à chaque dévoilement, deux graphies, deux
+formes (`unloadModule` + `setOption(track,{})`), mirroité vers la copie.
+
+**Piège de mesure (2ᵉ fois)** : échantillonner une bande *à côté* de la carte ne
+mesure pas le halo — le carrousel d'accueil défile derrière à peu près au rythme
+des cartons de crédits d'un trailer. Lire les deux régions dans **une seule et
+même capture**, et corréler, est la seule méthode qui tienne. Sondes : `--mute-audio`.
