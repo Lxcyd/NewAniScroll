@@ -5025,3 +5025,34 @@ que de garer un lecteur sur une vidéo qui ne chargera jamais.
 Appliqué aux trois entrées : `pages/api/v2/preview/[id].ts` (toute la chaîne de la
 carte), `Overview.tsx` (lien sortant + sonde `useTrailerBlocked`) et
 `InfoPageMobile.tsx` (embed + vignette `hqdefault`).
+
+### Suite — la teinte du halo (vrai défaut) et la synchro (sous le plancher)
+
+**Teinte — corrigé.** Signalé sur la vraie carte : un carton BLEACH orange éclairait
+en **jaune**, un plan bleu ressortait bien trop clair. Cause : le `brightness(1.7)`
+que j'avais ajouté pour densifier. Mon argument (« un empilement de cinq couches
+≈ 2,15 d'opacité, donc une multiplication est l'équivalent fidèle ») est faux deux
+fois :
+- empiler des copies **translucides** d'une image *converge* vers cette image
+  (composer une image sur elle-même la rend inchangée) — la pile n'a jamais
+  dépassé les couleurs de la vidéo ;
+- une multiplication **écrête** : orange (255,140,0) ×1,7 = (255,238,0) = jaune.
+
+Le filtre est désormais celui du lecteur à l'identique — `blur() saturate(1.8)`,
+rien qui puisse déplacer une teinte. Mesuré après coup sur SNK : écart de teinte
+médian image↔halo **14,6°** (le p90 reste élevé, artefact des plans sombres où la
+teinte n'a pas de sens et où le fond de page domine la bande mesurée).
+
+**Synchro — sous la résolution de la mesure.** Testé sur SNK comme suggéré (fondu
+couleur→noir, signal franc). Le pic de corrélation reste à **un échantillon** de
+zéro, mais **le signe change d'une passe à l'autre** : +51 ms (avant l'avance de
+25 ms), −40 ms (après), −40 ms encore avec la géométrie d'échantillonnage corrigée.
+Un écart de 25 ms ne peut pas produire un basculement de 90 ms : ces pics sont du
+bruit à cette échelle. Conclusion honnête : **|décalage| ≤ ~40 ms**, non réglable
+par cette méthode. `GLOW_LEAD_S` reste à 25 ms (une lumière très légèrement en
+avance se lit comme la coupe ; en retard, comme un défaut).
+
+**Biais de sonde corrigé au passage** : je comparais un recadrage **central** de
+l'image à un halo qui, lui, montre le cadre **entier** flouté — toute coupe
+commençant par les bords donnait au halo une avance apparente. Les deux séries
+intègrent désormais la même surface.
