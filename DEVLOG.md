@@ -1,5 +1,50 @@
 # DEVLOG
 
+## 2026-08-14 — « Et si c'était le navigateur du visiteur qui demandait ? »
+
+Bonne idée, et elle oblige à séparer deux choses que ce dépôt confondait : la
+RÉSOLUTION (l'appel InnerTube) et l'ENCAISSEMENT (tirer les octets googlevideo).
+
+**La résolution depuis le navigateur est fermée, et proprement mesurée.**
+Préflight `OPTIONS` sur `youtubei/v1/player` avec `Origin: https://aniscroll.com`
+→ **403, et aucun en-tête CORS** (`access-control-allow-origin` absent). POST
+direct → 403 également. Un navigateur ne peut donc pas appeler InnerTube depuis
+notre origine. Ce n'est pas contournable côté client : c'est le serveur qui
+refuse d'accorder l'origine.
+
+**Et c'est ce qui tue l'idée**, parce que **le blocage est AU niveau de la
+résolution** : le refus qu'on mesure est `LOGIN_REQUIRED: Sign in to confirm
+you're not a bot`, rendu par l'appel player. Déplacer l'encaissement chez le
+visiteur ne déplace donc pas l'étape refusée. On resterait bloqué au même taux.
+
+**En revanche la signature par IP est moins ferme qu'écrit ici.** Le fichier
+worker affirme qu'une URL mintée par nous « n'est pas utilisable depuis la
+connexion du visiteur ». C'était une DÉDUCTION tirée d'une mesure voisine (on
+avait vu que `sparams` liste `ip`). Testé pour de bon, en double pile : lien
+résolu **en IPv6**, `ip=` portant bien l'adresse v6 — et **encaissé en 206 depuis
+l'IPv4**, une autre adresse. Reproduit deux fois.
+
+**Mais je n'en tire pas de conclusion**, et c'est délibéré :
+- deux familles d'une même ligne restent **un même abonné** ; ça ne dit rien de
+  deux réseaux vraiment étrangers ;
+- une passe intermédiaire a rendu **403 depuis la maison même**, sur un lien
+  qu'une autre passe encaissait en 206 — donc une autre variable traîne ;
+- l'essai via Cloudflare est **non concluant** : le 410 venait de notre propre
+  proxy, pas de googlevideo.
+
+Donc : « signé sur l'IP » est mesuré, « **refusé** ailleurs » ne l'est toujours
+pas, dans un sens comme dans l'autre. À ne pas re-déduire.
+
+*Et si un jour ça se confirmait, le gain ne serait pas le déblocage — ce serait
+la bande passante : le Worker résoudrait (du JSON), le navigateur lirait l'URL
+directement en `<video src>`, qui n'exige aucun CORS contrairement à `fetch` et
+MSE. Le bouton resterait absent, puisqu'il n'y aurait toujours pas de lecteur
+YouTube. C'est une piste de COÛT, pas de blocage.*
+
+**À traiter séparément** : le proxy principal accepte un `?url=` arbitraire, sans
+liste blanche d'hôtes. C'est ce qui m'a permis de m'en servir comme encaisseur
+tiers — et c'est exactement ce que n'importe qui d'autre peut en faire.
+
 ## 2026-08-14 — Le Worker déployé et mesuré : rien n'a changé, et c'était prévisible
 
 Le Worker ne se déploie par aucun CI (pas de `wrangler` dans les workflows) : il
