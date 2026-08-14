@@ -1190,18 +1190,34 @@ export default function TrailerStage() {
               title=""
               allow="autoplay; encrypted-media; compute-pressure"
               tabIndex={-1}
-              // Cover, exactly like the visible copy — a letterboxed source
-              // would otherwise ring the halo with its black bands. No ×200
-              // reduction here though: that trick exists to hide YouTube's
-              // chrome, and a 34 px blur hides it far more thoroughly than any
-              // scaling could.
+              /*
+               * MOUNTED ×200 AND SHRUNK BACK, exactly like the visible copy —
+               * and the sentence that used to sit here, claiming the blur made
+               * that unnecessary, was the bug.
+               *
+               * A 34 px blur does hide the SHAPE of YouTube's chrome. It does
+               * nothing about its light: the progress bar is a white line 530 px
+               * long, and blurred it becomes a bright band lying across the
+               * halo, with the title's smear above it. Worse, that chrome comes
+               * and goes on the player's own schedule — so the light changed
+               * abruptly while the picture on the card did not move at all,
+               * which is precisely the fault reported. Photographed in the
+               * probe: "Saga of…" and the progress bar, legible, inside the
+               * layer that is supposed to be nothing but colour.
+               *
+               * The reduction is the fix that already exists in this file: the
+               * chrome is sized in pixels, so it shrinks to nothing while the
+               * video still fills the frame. See SCALE.
+               */
               style={{
                 position: "absolute",
                 border: 0,
-                width: `${zoom * 100}%`,
-                height: `${zoom * 100}%`,
+                width: `${SCALE * zoom * 100}%`,
+                height: `${SCALE * zoom * 100}%`,
                 left: `${(-(zoom - 1) / 2) * 100}%`,
                 top: `${(-(zoom - 1) / 2) * 100}%`,
+                transform: `scale(${1 / SCALE})`,
+                transformOrigin: "0 0",
               }}
               onLoad={() => {
                 glowLoadedRef.current = true;
