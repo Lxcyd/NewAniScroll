@@ -1,5 +1,60 @@
 # DEVLOG
 
+## 2026-08-14 — Reproduire yt-dlp : la table des clients est épuisée
+
+Demande : reproduire ce que fait yt-dlp pour régler le blocage. Le worker s'en
+inspirait déjà pour les EN-TÊTES (`generate_api_headers`), jamais pour la TABLE
+DES CLIENTS. Lecture de `yt_dlp/extractor/youtube/_base.py` sur master, recopiée
+champ par champ plutôt que de mémoire — quatre écarts, dont **trois jamais
+testés** et deux qui invalidaient une conclusion antérieure :
+
+1. `ANDROID` : on envoyait `20.10.38` / sdk 35 / Android 15, la référence envoie
+   `21.26.364` / sdk 30 / Android 11.
+2. `VISIONOS` (client 101, récent) : le **seul** du tableau sans aucune
+   `GVS_PO_TOKEN_POLICY` ni `PLAYER_PO_TOKEN_POLICY`, avec
+   `REQUIRE_JS_PLAYER=False`. Sur le papier, le client le moins exigeant qui
+   existe. Jamais essayé.
+3. `TV` / `TV_DOWNGRADED` / `TV_SIMPLY` : le balayage du 14/08 interrogeait
+   `TVHTML5_SIMPLY_EMBEDDED_PLAYER`, **un nom que la référence n'utilise plus**.
+   On avait donc conclu « ERROR » sur un client mort.
+4. `WEB_EMBEDDED` : la référence lui pose `thirdParty.embedUrl` avec une URL
+   **non-YouTube** (issue 14826). On l'avait interrogé sans — d'où son ERROR.
+
+**Mesure** (8 vidéos froides, version/UA/champs device/`thirdParty` exacts de la
+référence, avec `visitorData`, et le lien ensuite **redeemé** — un resolve qui ne
+se redeeme pas ne vaut rien, leçon du 13/08) :
+
+| client | résultat |
+|---|---|
+| `android`, `android_vr` | **7/8 SERVI** ← les deux déjà en place |
+| `visionos` | OK, **0 format progressif** |
+| `ios` | OK, 0 format progressif |
+| `tv`, `tv_downgraded`, `tv_simply` | UNPLAYABLE |
+| `web_embedded` (avec `thirdParty`) | ERROR |
+| `mweb` | UNPLAYABLE |
+
+Les deux retests corrigés échouent donc **quand même**, proprement interrogés
+cette fois. Et `android_stale` (nos valeurs actuelles) fait exactement le même
+score que la version de référence : 7/8, la même vidéo manquante.
+
+**Ce verdict-là se transporte à l'edge, contrairement à tout le reste de ce
+fichier.** Il porte sur la présence d'un flux MUXÉ, qui est une propriété du
+client et non de l'adresse appelante : seuls les deux clients android rendent un
+itag 18, et `<video src>` exige un fichier muxé. **Il n'y a pas de troisième
+client à ajouter.** La table est close.
+
+**Et il n'y a pas non plus de forme de requête à copier.** `_download_ytcfg` de
+la référence ne va chercher un vrai ytcfg que pour les familles web et tv — pour
+android elle **synthétise le contexte exactement comme ce fichier le fait**. Le
+remède de yt-dlp face à un appelant datacentre refusé n'est pas une forme de
+requête : ce sont des cookies, un fournisseur de PO token, ou un autre egress.
+Ce qui rejoint la conclusion d'hier par un chemin indépendant.
+
+**Changé** : les constantes ANDROID alignées sur la référence. Écrit dans le
+fichier tel quel — c'est de la parité, **pas un gain mesuré** (7/8 contre 7/8) ;
+c'est là parce qu'une version d'appli périmée est un écart qui ne peut que jouer
+contre nous, jamais pour. Invérifiable depuis la maison, comme le reste.
+
 ## 2026-08-14 — Le bouton de l'embed, enfin PHOTOGRAPHIÉ
 
 Question rouverte : le proxy existe parce que l'embed peint son bouton pendant

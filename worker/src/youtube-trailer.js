@@ -48,8 +48,17 @@
 /** The public InnerTube key. Not a secret — it ships in every YouTube page. */
 const INNERTUBE_KEY = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8";
 
-const ANDROID_VERSION = "20.10.38";
-const ANDROID_UA = `com.google.android.youtube/${ANDROID_VERSION} (Linux; U; Android 15) gzip`;
+/*
+ * Aligned on yt-dlp master (read 14/08): 21.26.364, sdk 30, Android 11 — we
+ * were sending 20.10.38 on Android 15/sdk 35. Measured side by side on 8 cold
+ * videos from a residential line the two are INDISTINGUISHABLE (7/8 each, same
+ * video failing), so this is parity with the reference client and not a
+ * measured gain; it is here because a stale app version is a difference that
+ * can only ever count against us, not for us. Unverifiable from home — like
+ * everything else in this file, the edge is the only place it means anything.
+ */
+const ANDROID_VERSION = "21.26.364";
+const ANDROID_UA = `com.google.android.youtube/${ANDROID_VERSION} (Linux; U; Android 11) gzip`;
 
 const VR_VERSION = "1.65.10";
 const VR_UA = `com.google.android.apps.youtube.vr.oculus/${VR_VERSION} (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip`;
@@ -121,14 +130,48 @@ const CLIENTS = [
     context: {
       clientName: "ANDROID",
       clientVersion: ANDROID_VERSION,
-      androidSdkVersion: 35,
+      androidSdkVersion: 30,
       osName: "Android",
-      osVersion: "15",
+      osVersion: "11",
       hl: "en",
       gl: "US",
     },
   },
 ];
+
+/**
+ * WHY THE ROSTER STOPS AT TWO — swept 14/08 against yt-dlp master's own client
+ * table, copied field for field rather than from memory, so this is a closed
+ * question and not an untried idea.
+ *
+ * Eight cold videos, each client asked with the reference's exact version, UA,
+ * device fields and `thirdParty`, carrying a visitorData, then the link
+ * REDEEMED (a resolve that does not redeem is worth nothing — 13/08):
+ *
+ *   android, android_vr    7/8 SERVED      ← the two already here
+ *   visionos               OK, 0 progressive formats
+ *   ios                    OK, 0 progressive formats
+ *   tv, tv_downgraded      UNPLAYABLE
+ *   tv_simply              UNPLAYABLE
+ *   web_embedded           ERROR (even WITH thirdParty.embedUrl, issue 14826)
+ *   mweb                   UNPLAYABLE
+ *
+ * Three of those were retests that corrected an earlier mistake: the 14/08
+ * sweep had asked TVHTML5_SIMPLY_EMBEDDED_PLAYER, a client name the reference
+ * no longer uses, and had asked WEB_EMBEDDED without the `thirdParty.embedUrl`
+ * it requires. Both now asked properly, and both still refuse.
+ *
+ * The verdict is about MUXED FORMATS, which is a property of the client and
+ * NOT of the calling address, so unlike everything else here it does transfer
+ * from a home line to the edge: only the two android clients hand out itag 18,
+ * and `<video src>` needs a muxed file. There is no third client to add.
+ *
+ * And no anti-block shape to copy either: yt-dlp's `_download_ytcfg` bootstraps
+ * a real ytcfg only for the web/tv families — for android it synthesises the
+ * context exactly as this file does. The reference's remedy for a refused
+ * datacentre caller is not a request shape; it is cookies, a PO token provider,
+ * or a different egress.
+ */
 
 /**
  * YouTube ids are exactly 11 url-safe base64 characters.
