@@ -15,6 +15,7 @@ import styles from "./styles.module.css";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
+import { useTrailerBlocked } from "@/lib/preview/useTrailerBlocked";
 import { useTranslatedText } from "@/lib/i18n/useTranslatedText";
 import { translateTag } from "@/lib/i18n/animeTags";
 import { hexToCssFilter } from "@/lib/color/hexToCssFilter";
@@ -68,28 +69,22 @@ export default function Overview({ info, seasonList }: Props) {
   /**
    * Drop the trailer block when the video cannot be watched from here.
    *
-   * This section is a link out to YouTube, so an unavailable video makes it a
-   * button that leads to an error page — worse than no button. The verdict is
-   * three-way on purpose (see lib/preview/trailerVerdict): only `gone` hides
-   * anything. A refusal aimed at our own proxy must never remove a trailer that
-   * plays perfectly well in the visitor's country.
+   * This section is a link OUT to YouTube, so an unavailable video makes it a
+   * button that leads to an error page — worse than no button at all. Unlike the
+   * hover card, which mounts a player and is told, this page has to ask: see
+   * useTrailerBlocked, which loads a hidden embed at idle and listens. It never
+   * asks to play, so the answer costs no video.
    *
-   * YouTube only: Dailymotion doesn't go through the worker, and AniList lists
-   * exactly zero Dailymotion trailers across its 22 037 dated anime.
+   * YouTube only: Dailymotion has no such probe, and AniList lists exactly zero
+   * Dailymotion trailers across its 22 037 dated anime.
    */
   const ytId =
     info.trailer?.site === "youtube" && info.trailer?.id ? String(info.trailer.id) : null;
-  /*
-   * Starts false on BOTH sides, never from storage.
-   *
-   * Seeding this from localStorage read the verdict during the first client
-   * render, where the server — which has no storage — had just rendered the
-   * trailer block. That is a hydration mismatch, and React answers one by
-   * re-rendering the whole page on the client. `fetchVerdict` returns a stored
-   * verdict immediately anyway, so the effect below hides the block on the very
-   * next render with no request and no flash worth the name.
-   */
-  const trailerUrl = rawTrailerUrl;
+  // False on BOTH sides on the first render, always: the server has no player
+  // and no session, and answering differently there is a hydration mismatch —
+  // which React pays for by re-rendering the entire page on the client.
+  const trailerBlocked = useTrailerBlocked(ytId);
+  const trailerUrl = trailerBlocked ? null : rawTrailerUrl;
 
   return (
     <div style={tStyles.overviewWrap}>

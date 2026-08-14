@@ -42,6 +42,8 @@
 const FATAL = new Set([100, 101, 150]);
 
 const blocked = new Set<string>();
+/** Answered and fine — so nothing asks a second time. */
+const ok = new Set<string>();
 const listeners = new Set<() => void>();
 
 export function isFatalTrailerError(code: unknown): boolean {
@@ -56,6 +58,17 @@ export function markTrailerBlocked(id: string) {
 
 export function isTrailerBlocked(id: string | null | undefined): boolean {
   return !!id && blocked.has(id);
+}
+
+export function markTrailerOk(id: string) {
+  ok.add(id);
+}
+
+/** unknown = nobody has asked yet, which is the only case worth probing. */
+export function trailerStatus(id: string): "unknown" | "ok" | "blocked" {
+  if (blocked.has(id)) return "blocked";
+  if (ok.has(id)) return "ok";
+  return "unknown";
 }
 
 /**

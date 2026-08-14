@@ -35,6 +35,7 @@ import {
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { genreLabel } from "@/lib/i18n/genreLabel";
+import { useTrailerBlocked } from "@/lib/preview/useTrailerBlocked";
 import { useTranslatedText } from "@/lib/i18n/useTranslatedText";
 import { translateTag } from "@/lib/i18n/animeTags";
 import { hexToCssFilter } from "@/lib/color/hexToCssFilter";
@@ -1228,15 +1229,14 @@ function MTrailer({
   const [playing, setPlaying] = useState(false);
   /**
    * Same rule as the desktop overview: a video that cannot be watched from this
-   * region makes this block a tile that opens onto an error. Only a `gone`
-   * verdict hides it — a refusal aimed at our own proxy says nothing about the
-   * video. See lib/preview/trailerVerdict.
+   * region makes this block a tile that opens onto an error. The answer comes
+   * from a hidden embed asked at idle — see lib/preview/useTrailerBlocked.
    */
   const ytId = trailer.site === "youtube" && trailer.id ? String(trailer.id) : null;
-  // Never seeded from storage — see the same guard in Overview: the server has
-  // no localStorage, so reading it during the first client render is a
-  // hydration mismatch, and `fetchVerdict` answers from storage anyway.
-  if (!trailer.id || !trailer.site) return null;
+  const blocked = useTrailerBlocked(ytId);
+  // After the hooks, never before: an early return above them would change the
+  // hook order between renders, which React treats as a broken component.
+  if (!trailer.id || !trailer.site || blocked) return null;
   const embed =
     trailer.site === "youtube"
       ? `https://www.youtube-nocookie.com/embed/${trailer.id}?autoplay=1`

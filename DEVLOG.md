@@ -1,5 +1,41 @@
 # DEVLOG
 
+## 2026-08-14 — La page info sait enfin qu'un trailer est géo-bloqué
+
+La carte apprenait le blocage gratuitement (elle monte un lecteur, il proteste).
+La page info, elle, affiche une **vignette + lien** : aucun lecteur, donc aucun
+moyen de savoir — et Bleach y gardait sa bande-annonce, qui menait à une page
+d'erreur.
+
+**Ce qui rend la sonde acceptable, et qui décide de sa forme** : le lecteur
+signale le refus **sans qu'on lui demande de jouer**. Mesuré depuis la France,
+sans aucun `playVideo` :
+
+| vidéo | messages |
+|---|---|
+| Bleach `0c4IoCA5fY0` | `etat -1` puis **`onError 150`** |
+| témoin jouable | `etat 5`, et plus rien |
+
+Donc `lib/preview/useTrailerBlocked.ts` charge un embed caché et écoute. Pas de
+lecture, donc **aucun octet de vidéo** : le coût est le boot du lecteur et une
+requête de config, et le script de boot est partagé avec tous les autres embeds
+que le navigateur a déjà vus. Au repos (`requestIdleCallback`), et **seulement si
+la réponse est inconnue** — la mémoire de session est partagée avec la carte,
+donc une vidéo déjà jugée d'un côté n'est jamais redemandée de l'autre.
+
+**Le silence vaut réponse** : une vidéo jouable n'émet jamais d'erreur, donc au
+bout de 9 s l'absence de refus est enregistrée comme « ça marche ». Sans ça le
+bloc resterait caché pour tous les trailers qui vont bien.
+
+**Ce que ce n'est délibérément pas** : un contrôle côté serveur. L'ancien
+demandait à notre Worker, qui répondait sur la région d'un datacentre — la
+mauvaise question, au prix d'un aller-retour bloquant. L'API YouTube Data
+répondrait juste mais demande une clé, un quota et le pays du visiteur. Le
+lecteur sait déjà, et le lecteur est gratuit.
+
+**Coût assumé** : un boot d'embed caché par page anime ayant un trailer YouTube,
+une fois par vidéo et par session, entièrement chez le visiteur. Rien chez nous.
+
 ## 2026-08-14 — Le géo-blocage revient, par le lecteur cette fois
 
 **Régression réparée, mieux qu'avant.** En supprimant l'appel Worker de
