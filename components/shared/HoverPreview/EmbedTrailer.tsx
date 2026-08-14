@@ -75,9 +75,19 @@ const OPEN_GRACE_MS = 350;
 /** How still the pointer must be before movement is read as intent — see NativeTrailer. */
 const SETTLE_MS = 400;
 
-/** YouTube's player states, the only two this cares about. */
+/** YouTube's player states this cares about. */
 const PLAYING = 1;
 const PAUSED = 2;
+/**
+ * BUFFERING is what makes the picture appear SOONER.
+ *
+ * The player paints its poster frame the moment it starts fetching media, well
+ * before it reaches PLAYING. Waiting for PLAYING meant holding the banner over
+ * a frame that already had something to show — a black-box delay we were adding
+ * ourselves on top of YouTube's own boot time. Revealing here hands the viewer
+ * a picture at the earliest instant there is one.
+ */
+const BUFFERING = 3;
 
 /**
  * How long to wait for the player to announce itself before showing the frame
@@ -209,6 +219,13 @@ export default function EmbedTrailer({
             ? (data.info as { playerState?: unknown } | null)?.playerState
             : undefined;
       if (state === undefined) return;
+      // BUFFERING only reveals; it never claims playback has begun, so the
+      // play/pause button is not told anything it would have to take back.
+      if (state === BUFFERING) {
+        setPlaying(true);
+        onPlayingChange(true);
+        return;
+      }
       if (state === PLAYING) {
         setPlaying(true);
         setPaused(false);
