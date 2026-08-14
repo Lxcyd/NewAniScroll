@@ -181,11 +181,35 @@ const ENDED = 0;
  * fraction of a second. Through a 34 px blur that is invisible — the light is a
  * colour, not a picture.
  */
-const MIRRORED = new Set(["loadVideoById", "playVideo", "pauseVideo", "seekTo"]);
+const MIRRORED = new Set([
+  "loadVideoById",
+  "playVideo",
+  "pauseVideo",
+  "seekTo",
+  // Captions too: a subtitle band is a bright white bar across the bottom of
+  // the picture, and through the blur it becomes a glowing smear that belongs
+  // to no scene.
+  "unloadModule",
+  "setOption",
+]);
 /** Blur radius of the glow copy. The card's own stack used the same figure. */
 const GLOW_BLUR_PX = 34;
 /** How far past the video's box the glow copy is drawn, so light escapes it. */
-const GLOW_SPREAD = 1.22;
+const GLOW_SPREAD = 1.3;
+/**
+ * The density the stack used to get from having five of itself.
+ *
+ * Its layers ran at 0.9, 0.56, 0.35, 0.22 and 0.13 — about 2.15 of opacity piled
+ * up over the picture. One copy at 1.0 is therefore half the light the card used
+ * to get, which is exactly how it read beside the old glow: correct in hue,
+ * flat.
+ *
+ * `brightness` is the faithful way to put it back rather than a fudge: it is a
+ * multiply, so it does to each pixel what stacking copies of it did, and black
+ * times anything is still black — the dark half of a shot cannot turn into the
+ * grey haze that raising opacity or lightness would have produced.
+ */
+const GLOW_GAIN = 1.7;
 
 /**
  * How often the glow is told where the trailer is.
@@ -343,9 +367,34 @@ export default function TrailerStage() {
     }
   }, []);
 
+  /**
+   * Captions off — ONCE PER VIDEO, not once per session.
+   *
+   * That distinction is the bug. `cc_load_policy=0` in the URL is a request the
+   * player is free to override, and it does; unloading the module answers that,
+   * but it was done a single time, in the iframe's `onLoad`. Every card after
+   * the first arrives by `loadVideoById`, and a new video builds itself a new
+   * captions module — so the subtitles came back on every trailer but the one
+   * the player happened to boot on.
+   *
+   * Both spellings and both instructions, because which of them a given build
+   * obeys is not something to find out one deploy at a time: `unloadModule`
+   * takes the feature away, `setOption(track, {})` selects no track for the
+   * builds that keep it.
+   */
+  const silenceCaptions = useCallback(() => {
+    post("unloadModule", ["captions"]);
+    post("unloadModule", ["cc"]);
+    post("setOption", ["captions", "track", {}]);
+    post("setOption", ["cc", "track", {}]);
+  }, [post]);
+
   const reveal = useCallback(() => {
     if (shownRef.current) return;
     shownRef.current = true;
+    // The video is up and its modules exist: this is the moment the answer
+    // sticks, and it is per showing, so no trailer escapes it.
+    silenceCaptions();
     /*
      * BACK TO THE BEGINNING — the price of waiting for proof, refunded.
      *
@@ -382,7 +431,7 @@ export default function TrailerStage() {
     post("setVolume", [Math.round(volumeRef.current * 100)]);
     post(wantMutedRef.current ? "mute" : "unMute");
     setMuted(wantMutedRef.current);
-  }, [post]);
+  }, [post, silenceCaptions]);
 
   // Seed from the PREVIEW's own setting — these controls must not touch the
   // watch player's volume.
@@ -1053,7 +1102,7 @@ export default function TrailerStage() {
               // box clips the oversized player first, and the filter then
               // carries that clipped picture out past its own edges. That
               // outward bleed is the halo.
-              filter: `blur(${GLOW_BLUR_PX}px) saturate(1.8)`,
+              filter: `blur(${GLOW_BLUR_PX}px) saturate(1.9) brightness(${GLOW_GAIN})`,
               opacity: visible && attachment ? 1 : 0,
               transition: "opacity 240ms",
             }}
@@ -1182,8 +1231,7 @@ export default function TrailerStage() {
            * tracks turned up on the card anyway. Unloading the module is the
            * instruction it cannot reinterpret.
            */
-          post("unloadModule", ["captions"]);
-          post("unloadModule", ["cc"]);
+          silenceCaptions();
           // A card claimed the stage while the frame was still booting.
           const pending = pendingIdRef.current;
           if (!pending) return;
