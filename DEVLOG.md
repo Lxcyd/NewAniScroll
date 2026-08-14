@@ -282,12 +282,37 @@ aucun. Course sur le même fichier de 11,28 Mo, deux passes :
 | notre worker | 0,77 s (14,7 Mo/s) | 0,67 s (16,9 Mo/s) |
 | piped (inconnu) | 1,31 s (8,6 Mo/s) | 1,06 s (10,6 Mo/s) |
 
-**Verdict.** Ça marche, c'est ~1,6× plus lent, et c'est UN serveur bénévole sans
-engagement, dans un écosystème dont les trois quarts sont morts pendant qu'on
-regardait. Y envoyer le trafic d'une app, c'est déplacer notre coût sur la bande
-passante de quelqu'un qui ne l'a pas demandé, et faire dépendre nos aperçus d'une
-machine qu'on ne contrôle pas. À noter comme repli documenté, jamais comme
-architecture.
+**Sauf que cette course était truquée** : elle portait sur une vidéo déjà
+résolue. Sur des ids FROIDS, l'instance ne résout **rien du tout** — 10/10 en
+HTTP 500, et le corps de l'erreur est mot pour mot notre mur :
+
+```
+SignInConfirmNotBotException: YouTube probably temporarily blocked anonymous
+watch access with this IP, got LOGIN_REQUIRED: "Sign in to confirm that you're not a bot"
+```
+
+Le proxy média, lui, ne filtre rien (Referer/Origin quelconques : 206 ; 12
+requêtes rapprochées : 12 × 206). Ce n'est donc pas l'instance qui nous refuse,
+c'est YouTube qui la refuse ELLE — et sans résolution, un proxy média ne sert à
+rien.
+
+**Tête-à-tête à froid, 6 trailers que personne n'avait vus :**
+
+| | 1 tentative | +15 s | +30 s |
+| --- | --- | --- | --- |
+| notre worker | 1/6 | 3/6 | **4/6** (les réussis reviennent en 20-42 ms) |
+| piped | 0/6 | 0/6 | 0/6 |
+
+**Et c'est le vrai enseignement.** Nous sommes rationnés exactement comme elle —
+même refus, même phrase. La différence n'est pas l'adresse IP, c'est
+l'ARCHITECTURE : `warmLater` retente hors bande, les reprises client ont un
+rendez-vous à 7 s, et le cache d'edge rend définitif chaque succès. L'instance
+tierce n'a rien de tout ça : un refus chez elle est un refus final.
+
+**Verdict.** Ça ne marche pas, sauf sur ce qu'elle a déjà en cache. Même si ça
+marchait, ce serait un serveur bénévole sans engagement, dans un écosystème dont
+les trois quarts sont morts pendant qu'on regardait, et notre coût déplacé sur la
+bande passante de quelqu'un qui ne l'a pas demandé. Ni architecture, ni repli.
 
 ## 2026-08-13 (fin) — Copier la requête de référence valait tous les réglages
 
