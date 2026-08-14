@@ -200,6 +200,40 @@ vraiment stupide ». La question à se poser n'était pas « peut-on lire les pi
 (non, et c'est définitif) mais « qui d'autre y a accès » — le compositeur, lui,
 les manipule en permanence sans jamais les montrer à personne.
 
+### Dernière fouille, web compris
+
+**La « couche sombre » est réelle, et c'est la bonne objection.** Le bezel n'est
+pas qu'un glyphe : c'est un disque sombre translucide AVEC les barres blanches
+dessus, plus deux dégradés aux bords (`ytp-gradient-top`/`bottom`). Donc flouter
+le centre, c'est aussi flouter ce disque sombre. Vérifié à l'image sur un plan
+clair, pendant la chrome : le noir franc fait un trou, le flou à 2,4× dilue le
+disque sombre en même temps que les barres et laisse un voile clair. Il tient,
+mais c'était à vérifier plutôt qu'à supposer. (Tentative de chiffrer un voile
+plein cadre par deux lecteurs décalés : abandonnée, l'alignement des contenus
+n'était pas assez précis pour que les moyennes veuillent dire quelque chose.)
+
+**Deux hypothèses de plus, mortes.** La chrome est-elle un rite d'accueil payé
+UNE FOIS par page (monter un lecteur leurre, puis le vrai) ? Non : le second
+lecteur affiche exactement la même chrome, leurre visible ou hors écran.
+`start=` grand y change-t-il quelque chose (0, 8, 30, 60, 120) ? Non plus.
+
+**Ce que dit le web** (recherche demandée par Luc) : rien de plus que ce qu'on a
+dérivé. Les deux seules techniques qui circulent sont « couvrir jusqu'à la
+lecture » et « agrandir l'iframe pour rogner l'UI » ; la doc officielle des
+paramètres ne propose rien, `autohide` est déprécié, `modestbranding` ne touche
+que le logo, et `embed_config` n'apparaît nulle part comme levier public.
+
+**Une seule vraie trouvaille, et elle vient de là** : `movingThumbnailDetails`,
+la vignette ANIMÉE de YouTube (celle du survol sur youtube.com). Elle existe pour
+nos trailers — vérifié sur les deux ids de test via `youtubei/v1/search` :
+`an_webp/<id>/mqdefault_6s.webp`, **320×180, ~135 Ko, HTTP 200**, servie par
+i.ytimg.com. Sans signature elle répond 404, mais l'URL signée est stable ~6 h
+par vidéo, donc elle n'est pas liée à l'IP comme googlevideo. C'est donc la seule
+image de trailer que YouTube nous laisse afficher **sans chrome, sans zoom et
+sans faire transiter nos octets** — 135 Ko contre 3 Mo. Le prix : 6 s, muet,
+320×180 (la carte fait 364 de large), et l'extrait est choisi par YouTube. À
+garder en tête si le proxy devient un problème de coût, pas comme un remplaçant.
+
 ## 2026-08-13 (fin) — Copier la requête de référence valait tous les réglages
 
 Après une soirée à régler le disjoncteur au gramme près (43 %, 72 %, 79 %), le
