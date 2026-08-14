@@ -173,6 +173,17 @@ export default function TrailerStage() {
   const [visible, setVisible] = useState(false);
   const [paused, setPaused] = useState(false);
   const [showControls, setShowControls] = useState(false);
+  /**
+   * The cursor is shown again, on its own clock.
+   *
+   * SEPARATE FROM THE CONTROLS on purpose. Scrolling has to bring the pointer
+   * back — the page is moving under it and the visitor needs to see where they
+   * are — but it must NOT summon the buttons: a pointer resting on a scrolling
+   * page emits movement it never made, which is the whole reason MOVE_SLOP
+   * exists. Two questions, two answers.
+   */
+  const [cursorOn, setCursorOn] = useState(false);
+  const cursorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** Baked-in black bars in THIS trailer, if it has any. See trailerBars.ts. */
   const [bars, setBars] = useState<TrailerBars>({ tb: 0, lr: 0 });
 
@@ -330,6 +341,7 @@ export default function TrailerStage() {
     rewoundRef.current = false;
     setVisible(false);
     setShowControls(false);
+    setCursorOn(false);
     originRef.current = null;
 
     if (!attachment) {
@@ -554,6 +566,7 @@ export default function TrailerStage() {
   useEffect(
     () => () => {
       if (idleRef.current) clearTimeout(idleRef.current);
+      if (cursorTimerRef.current) clearTimeout(cursorTimerRef.current);
       if (volCloseRef.current) clearTimeout(volCloseRef.current);
       if (revealTimerRef.current) clearTimeout(revealTimerRef.current);
       if (forceTimerRef.current) clearTimeout(forceTimerRef.current);
@@ -633,6 +646,12 @@ export default function TrailerStage() {
     volCloseRef.current = setTimeout(() => setVolOpen(false), 260);
   };
 
+  const showCursor = useCallback(() => {
+    setCursorOn(true);
+    if (cursorTimerRef.current) clearTimeout(cursorTimerRef.current);
+    cursorTimerRef.current = setTimeout(() => setCursorOn(false), IDLE_MS);
+  }, []);
+
   /**
    * The rule: nothing on arrival, both controls as soon as the hand moves.
    *
@@ -652,6 +671,9 @@ export default function TrailerStage() {
    */
   const wake = useCallback((e: { clientX: number; clientY: number }) => {
     if (Date.now() - openedAtRef.current < OPEN_GRACE_MS) return;
+    // Before the slop filter: the cursor comes back for ANY movement, including
+    // the tiny ones that are not enough to mean "I am reaching for a control".
+    showCursor();
     const origin = originRef.current;
     if (!origin) {
       originRef.current = { x: e.clientX, y: e.clientY };
@@ -663,13 +685,29 @@ export default function TrailerStage() {
     setShowControls(true);
     if (idleRef.current) clearTimeout(idleRef.current);
     idleRef.current = setTimeout(() => setShowControls(false), IDLE_MS);
-  }, []);
+  }, [showCursor]);
 
   const sleep = useCallback(() => {
     if (idleRef.current) clearTimeout(idleRef.current);
+    if (cursorTimerRef.current) clearTimeout(cursorTimerRef.current);
     originRef.current = null;
     setShowControls(false);
+    setCursorOn(false);
   }, []);
+
+  /**
+   * Scrolling gives the pointer back.
+   *
+   * Listened for on the document rather than on this layer: the wheel is only
+   * one way to scroll, and a visitor using the keyboard or the scrollbar has
+   * exactly the same need to see where their pointer is. Only while a trailer is
+   * actually showing — there is nothing to give back otherwise.
+   */
+  useEffect(() => {
+    if (!visible) return;
+    document.addEventListener("scroll", showCursor, true);
+    return () => document.removeEventListener("scroll", showCursor, true);
+  }, [visible, showCursor]);
 
   /**
    * `loop` needs `playlist` set to the same id — but a preview is a few seconds
@@ -753,7 +791,7 @@ export default function TrailerStage() {
          * for something? A cursor parked in the middle of a three-second trailer
          * is the one thing on the card nobody put there on purpose.
          */
-        cursor: visible && !controlsVisible ? "none" : "default",
+        cursor: visible && !controlsVisible && !cursorOn ? "none" : "default",
         /*
          * Short, because this fade is the last of the sound-before-image gap.
          * Sound and picture are released on the same instant, but a 300 ms
