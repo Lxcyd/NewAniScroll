@@ -17,6 +17,7 @@ import { lockPreview, unlockPreview } from "@/lib/preview/previewLock";
 import { MdInfoOutline, MdPlayArrow } from "react-icons/md";
 import ListEditor from "@/components/listEditor";
 import { peekVerdict } from "@/lib/preview/trailerVerdict";
+import EmbedTrailer from "./EmbedTrailer";
 import NativeTrailer from "./NativeTrailer";
 import TrailerAmbient from "./TrailerAmbient";
 
@@ -41,6 +42,23 @@ const WIDTH = 364;
 const HEIGHT = 468;
 /** Card surface. Kept in sync with the banner gradient in globals.css. */
 const SURFACE = "#1a1a24";
+
+/**
+ * Play the trailer with a scaled-up YouTube embed rather than our proxied MP4.
+ *
+ * ON TRIAL, and the switch is here so reverting is one word. The embed's centre
+ * button — the sole reason the proxy was ever built — disappears when the player
+ * is mounted enormous and scaled back down, because the chrome is fixed in
+ * pixels and does not survive the reduction. See EmbedTrailer for the
+ * measurements and, more importantly, for what it costs.
+ *
+ * Two things are knowingly given up while this is on: TrailerAmbient gets no
+ * source to sample (a cross-origin frame cannot be read), and the crop probe
+ * cannot run for the same reason, so `onCrop` is never called and old material
+ * with baked-in bars will show them. Both are recoverable; neither is worth
+ * solving before the approach has survived a real browser other than Chrome.
+ */
+const USE_EMBED = true;
 
 /**
  * Artwork for the top 45 % of the card, and it is the INFO PAGE's chain, not
@@ -415,15 +433,23 @@ export default function PreviewCard({
               }`}
             />
           )}
-          {data?.trailer?.id && !hideFrame && (
-            <NativeTrailer
-              id={data.trailer.id}
-              videoRef={trailerVideoRef}
-              onHide={onHide}
-              onPlayingChange={onPlayingChange}
-              onCrop={onCrop}
-            />
-          )}
+          {data?.trailer?.id &&
+            !hideFrame &&
+            (USE_EMBED ? (
+              <EmbedTrailer
+                id={data.trailer.id}
+                onHide={onHide}
+                onPlayingChange={onPlayingChange}
+              />
+            ) : (
+              <NativeTrailer
+                id={data.trailer.id}
+                videoRef={trailerVideoRef}
+                onHide={onHide}
+                onPlayingChange={onPlayingChange}
+                onCrop={onCrop}
+              />
+            ))}
         </div>
 
         <div
