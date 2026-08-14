@@ -232,15 +232,21 @@ const SYNC_COOLDOWN_MS = 2500;
  * So the copy is set slightly ahead, and its light lands with the picture rather
  * than after it.
  *
- * WHY HALF A SAMPLE AND NOT A WHOLE ONE. A first attempt gave it the full 50 ms
- * and overshot: the peak moved from one sample late to one sample EARLY, which
- * is the same error mirrored. The instrument cannot resolve better than its 51 ms
- * step, so the honest reading of both runs together is "the true offset is
- * around half a sample" — and the value that puts the peak on zero is half the
- * first guess. Measured again at this figure: peak at lag 0.
+ * HOW BIG, AND WHY NO SMALLER FIGURE IS CLAIMED. Three runs:
  *
- * Anything left is under 25 ms, which is under one frame of the video and far
- * under anything a blurred colour can show.
+ *     no lead   peak at +1 sample  (halo late)
+ *     50 ms     peak at -1 sample  (halo early)
+ *     25 ms     peak at -1 sample  (unchanged)
+ *
+ * Halving the lead did not move the peak, which is the instrument saying it has
+ * run out of resolution: its step is 50 ms, and past this the number cannot be
+ * refined by this method — only the SIGN of the error was ever reliable, and it
+ * has flipped. What is honest to state is |lag| <= 50 ms, against a video frame
+ * that is itself 33 to 42 ms long. Tuning further would be fitting noise.
+ *
+ * 25 ms is kept rather than 50 because it is the smaller of the two settings
+ * that measure the same, and because a light very slightly ahead of a cut reads
+ * as the cut while one behind it reads as a fault.
  */
 const GLOW_LEAD_S = 0.025;
 

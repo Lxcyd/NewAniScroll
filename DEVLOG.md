@@ -4931,3 +4931,29 @@ le cadre.
 d'un coup ») avaient la même cause matérielle visible sur UNE capture de la couche
 elle-même. J'ai mesuré des séries statistiques avant d'avoir simplement REGARDÉ ce
 que peignait le calque incriminé.
+
+### Suite — les 50 ms restantes, et le piège de capture qui les cachait
+
+**Piège de méthode, majeur** : `page.screenshot({clip})` ne compose PAS le filtre CSS
+sur une iframe cross-origin — il rend le lecteur **brut, non flouté**. Toutes les
+mesures de halo prises avec un `clip` portaient donc sur la vidéo elle-même et
+concluaient docilement « aucun décalage ». Ça explique aussi pourquoi `brightness(1.7)`
+ne changeait aucun chiffre. **Seule la capture pleine page rend le filtre.**
+
+Mesure refaite en pleine page (170 captures, ~20 fps, corrélation croisée) :
+
+| avance donnée | pic de corrélation |
+|---|---|
+| aucune | **+1 échantillon** (halo en retard ~50 ms) |
+| 50 ms | −1 échantillon (halo en avance) |
+| 25 ms | −1 échantillon (inchangé) |
+
+Le pic est net (0,0068 contre 0,0009 autour). L'origine n'est pas les horloges
+(±0,05 s) mais le pipeline de la copie : ses images passent par un flou avant
+l'écran, ce que la copie visible ne paie pas.
+
+Retenu : `GLOW_LEAD_S = 25 ms`, posé au dévoilement (pendant le fondu, où le
+rebuffer ne se voit pas) et tenu par le correcteur, qui vise cet écart au lieu de
+zéro. **On ne peut pas affirmer mieux que |décalage| ≤ 50 ms** : le pas de mesure
+vaut 50 ms et une image de la vidéo dure 33 à 42 ms. Descendre plus bas serait
+ajuster du bruit.
