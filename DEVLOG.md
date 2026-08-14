@@ -4806,3 +4806,48 @@ Refonte de la numérotation des saisons pour corriger l'ordre faux (Gundam : le 
 - **Cycle d'import évité** : `seasonDetection.ts` réexporte les garde-fous depuis `helpers.ts` (source pure), pas l'inverse.
 - **Vérifié en dev** : Gundam 108039 → `{number:1,total:1}` (S1 autonome) ; Gundam 80 → S1 + suites 2/3 ; SNK 16498 → S1/total:4 ; HxH 136 → S1 autonome ; Demon Slayer 101922 → une saison porte `variants:[{id:112151,MOVIE,"…Mugen Train"}]`. Type-check propre (hors erreurs Prisma préexistantes = client non généré en local). `npm install` échoue sur le build natif `@tensorflow/tfjs-node` (outils C++ absents) → utiliser `npm install --ignore-scripts` en local.
 - **Fribb pas actif sans Turso** : en local sans DB, le moteur retombe sur le garde-fou d'année du walker — ce qui suffit déjà à corriger Gundam. Pour activer Fribb en prod : lancer `node scripts/refresh-fribb.mjs` avec les variables Turso, puis le planifier.
+
+---
+
+## 2026-08-14 — Lumière d'ambiance du survol : elle ne pouvait pas bouger
+
+Plainte : « la couleur est bonne au début puis se fige (rouge) pour tout le reste ».
+Trois commits de plomberie à l'aveugle avant de mesurer. **Mesurer d'abord.**
+
+### La vraie cause (mesurée, pas déduite)
+Le glow était piloté par `currentTime / duration`, et les trois images de YouTube
+(`mq1/2/3`) étaient placées à 1/6, 3/6, 5/6 — leur vraie position dans la vidéo.
+Sonde Puppeteer sur dev, trailer de 129 s : **25 s de survol = `p` 0.002 → 0.19**.
+Tout le survol se passe sous 1/6, la zone où le fondu vaut 100 % de `mq1`.
+La lumière n'était pas bloquée par un bug : elle était **immobile par construction**
+(2 min de vidéo étalées sur un survol de 15 s).
+
+### Ce qui a été vérifié et qu'il ne faut pas re-tester
+- `currentTime` **et** `duration` arrivent en continu et correctement (~3 msg/s).
+  Ils n'ont jamais été en cause. La duration n'est plus lue du tout.
+- Il n'existe que **trois** images : `mq4` → 404, `i.ytimg.com/sb/…` → 403 sans le
+  jeton du lecteur. On ne peut pas densifier l'échantillonnage.
+- `listening` renvoyé à un lecteur déjà initialisé répond `alreadyInitialized`,
+  **pas** un nouvel `initialDelivery` — inutile pour re-demander une info.
+
+### Le correctif
+Le balayage prend sa propre horloge : triangle de 9 s aller / 9 s retour sur les
+trois images (`GLOW_SWEEP_S`), tant que la vidéo avance. On perd la prétention que
+la lumière se tient là où se tient la tête de lecture (intenable à cette échelle) ;
+on garde que chaque couleur vient vraiment du trailer et que la lumière ne s'arrête
+jamais. Côté `TrailerAmbient`, l'espacement 1/6-3/6-5/6 devient uniforme : ce n'est
+plus une position vidéo qui arrive mais une position dans la séquence.
+
+Corrigé au passage : `onPlaying(true)` n'était dit qu'une fois (depuis `reveal`)
+alors que `false` partait à chaque PAUSED rapporté — un hoquet de buffer démontait
+la boucle de fondu **définitivement**.
+
+### Outillage / pièges de mesure
+- `puppeteer-core` + Chrome installé (hors repo, dans le scratchpad) : le local
+  n'a pas toutes les env → **sonder dev.aniscroll.com**, pas localhost.
+- Les canvases du glow sont **taintés** (la bannière AniList est dessinée sans
+  `crossOrigin`) → `getImageData` refusé. Contournement de sonde : patcher
+  `window.Image` pour forcer `crossOrigin="anonymous"` (le CDN AniList envoie les
+  en-têtes CORS). Sans ça on mesure le fond de page, pas la lumière.
+- Mesurer une bande **à côté** de la carte ne mesure pas le glow : le carrousel
+  d'accueil défile derrière et fabrique de fausses variations toutes les ~6 s.
