@@ -54,6 +54,16 @@ import {
  * lives in a layer above the picture.
  */
 
+/**
+ * The privacy-preserving host, and it is not only a courtesy.
+ *
+ * youtube.com pulls doubleclick for ad status on every embed, which any ad
+ * blocker refuses — filling the console with ERR_BLOCKED_BY_CLIENT that looks
+ * like our bug and is not. nocookie asks for fewer of them, so there is less to
+ * block and less noise to read past. Same player, same API.
+ */
+const ORIGIN = "https://www.youtube-nocookie.com";
+
 /** Sound is ON by default; a trailer at full blast on hover is not. */
 const FALLBACK_VOLUME = PREVIEW_DEFAULT_VOLUME;
 /** Controls fade this long after the pointer stops moving over the video. */
@@ -68,6 +78,17 @@ const SETTLE_MS = 400;
 /** YouTube's player states, the only two this cares about. */
 const PLAYING = 1;
 const PAUSED = 2;
+
+/**
+ * How long to wait for the player to announce itself before showing the frame
+ * anyway.
+ *
+ * A backstop, not the normal path: when the handshake works — which it now does
+ * — the first `infoDelivery` beats this comfortably and the picture appears as
+ * soon as there is one. It matters only when nothing answers, and there the
+ * choice is between a short black box and a long one. Short.
+ */
+const REVEAL_MS = 700;
 
 export default function EmbedTrailer({
   id,
@@ -100,22 +121,37 @@ export default function EmbedTrailer({
   const [paused, setPaused] = useState(false);
   const [showControls, setShowControls] = useState(false);
 
+  /** Has the frame actually navigated to YouTube yet? See `post`. */
+  const loadedRef = useRef(false);
+
   /**
    * `loop` needs `playlist` set to the same id — on its own it does nothing for
-   * a single video. `enablejsapi` is what makes the buttons below possible at
-   * all; everything else is the same parameter set the measurements were taken
-   * with, so what ships is what was photographed.
+   * a single video. `enablejsapi` is what makes the buttons below possible.
+   *
+   * `cc_load_policy=0` asks for captions off. It is a REQUEST, not a guarantee:
+   * a viewer whose YouTube account forces captions on gets them anyway, and
+   * auto-generated tracks ignore it more often than not — which is why the
+   * captions module is also unloaded over the API once the player answers.
    */
   const src =
-    `https://www.youtube.com/embed/${id}` +
+    `${ORIGIN}/embed/${id}` +
     `?enablejsapi=1&controls=0&autoplay=1&mute=1&playsinline=1&rel=0` +
-    `&iv_load_policy=3&disablekb=1&fs=0&loop=1&playlist=${id}`;
+    `&iv_load_policy=3&disablekb=1&fs=0&loop=1&playlist=${id}&cc_load_policy=0`;
 
-  /** Fire a command at the player. No-op until the frame exists. */
+  /**
+   * Fire a command at the player.
+   *
+   * Guarded on the frame having LOADED, not merely existing. A fresh iframe's
+   * contentWindow is still about:blank on our own origin, so posting to it with
+   * YouTube's origin as the target throws "The target origin provided does not
+   * match the recipient window's origin" — which is exactly the warning that was
+   * showing up, once per handshake tick, before the frame had navigated.
+   */
   const post = useCallback((func: string, args: unknown[] = []) => {
+    if (!loadedRef.current) return;
     frameRef.current?.contentWindow?.postMessage(
       JSON.stringify({ event: "command", func, args }),
-      "https://www.youtube.com",
+      ORIGIN,
     );
   }, []);
 
@@ -144,7 +180,7 @@ export default function EmbedTrailer({
    */
   useEffect(() => {
     const onMessage = (e: MessageEvent) => {
-      if (e.origin !== "https://www.youtube.com") return;
+      if (e.origin !== ORIGIN) return;
       let data: { event?: string; info?: unknown };
       try {
         data = typeof e.data === "string" ? JSON.parse(e.data) : e.data;
@@ -195,14 +231,18 @@ export default function EmbedTrailer({
 
     window.addEventListener("message", onMessage);
     const handshake = setInterval(() => {
+      // Not before the frame has navigated: until then its contentWindow is
+      // about:blank on OUR origin, and posting with YouTube's origin as the
+      // target throws — once per tick, which is what filled the console.
+      if (!loadedRef.current) return;
       // The API's own shape: `id` and `channel` alongside the event. A bare
       // `{event:"listening"}` is accepted by some builds and ignored by others,
       // which is not a coin worth flipping for a subscription this depends on.
       frameRef.current?.contentWindow?.postMessage(
         JSON.stringify({ event: "listening", id: 1, channel: "widget" }),
-        "https://www.youtube.com",
+        ORIGIN,
       );
-    }, 250);
+    }, 150);
     const stopHandshake = setTimeout(() => clearInterval(handshake), 4000);
 
     /*
@@ -223,7 +263,7 @@ export default function EmbedTrailer({
     const reveal = setTimeout(() => {
       setPlaying(true);
       onPlayingChange(true);
-    }, 1500);
+    }, REVEAL_MS);
 
     return () => {
       window.removeEventListener("message", onMessage);
@@ -371,6 +411,21 @@ export default function EmbedTrailer({
           border: 0,
           width: "100%",
           height: "100%",
+        }}
+        onLoad={() => {
+          // Only NOW is the frame on YouTube's origin and safe to talk to.
+          loadedRef.current = true;
+          /*
+           * Captions off, for real this time.
+           *
+           * `cc_load_policy=0` in the URL is a preference the player is free to
+           * override, and it does: auto-generated tracks turned up on the card
+           * anyway. Unloading the module is the instruction it cannot reinterpret
+           * — a preview is three seconds of moving artwork, and a line of
+           * machine-transcribed dialogue over it is noise, not information.
+           */
+          post("unloadModule", ["captions"]);
+          post("unloadModule", ["cc"]);
         }}
         className={`pointer-events-none transition-opacity duration-300 ${
           playing ? "opacity-100" : "opacity-0"

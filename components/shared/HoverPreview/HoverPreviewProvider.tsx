@@ -110,7 +110,14 @@ export default function HoverPreviewProvider() {
   useEffect(() => {
     if (!enabled) return;
     const links = [
-      ["preconnect", "https://www.youtube.com"],
+      // The host EmbedTrailer actually loads — warming www.youtube.com while the
+      // frame goes to youtube-nocookie buys nothing.
+      ["preconnect", "https://www.youtube-nocookie.com"],
+      // Where the player fetches its poster — the first pixels the viewer sees.
+      //
+      // The MEDIA host is deliberately absent: googlevideo hostnames are minted
+      // per session and per region (rr3---sn-<random>), so pinning one would
+      // warm a door this visitor will never walk through.
       ["preconnect", "https://i.ytimg.com"],
     ].map(([rel, href]) => {
       const link = document.createElement("link");
