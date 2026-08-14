@@ -258,19 +258,24 @@ const GLOW_BLUR_PX = 34;
 /** How far past the video's box the glow copy is drawn, so light escapes it. */
 const GLOW_SPREAD = 1.3;
 /**
- * The density the stack used to get from having five of itself.
+ * NO BRIGHTNESS HERE, and the reason is a bug this file shipped.
  *
- * Its layers ran at 0.9, 0.56, 0.35, 0.22 and 0.13 — about 2.15 of opacity piled
- * up over the picture. One copy at 1.0 is therefore half the light the card used
- * to get, which is exactly how it read beside the old glow: correct in hue,
- * flat.
+ * A `brightness()` was added to make the halo denser, on the argument that the
+ * old five-layer stack piled up ~2.15 of opacity and that a multiply was the
+ * faithful way to reproduce it. That argument is wrong twice. Stacking
+ * translucent copies of one picture CONVERGES to that picture — alpha
+ * compositing an image over itself returns the image — so the stack never
+ * exceeded the video's own colours; it only made the light more opaque against
+ * the page. And a multiply clips: orange (255,140,0) at ×1.7 becomes
+ * (255,238,0), which is yellow. Reported from the real card, on a BLEACH title
+ * card that is orange on screen and was lighting the page yellow, and on a blue
+ * shot whose halo came out several shades too light.
  *
- * `brightness` is the faithful way to put it back rather than a fudge: it is a
- * multiply, so it does to each pixel what stacking copies of it did, and black
- * times anything is still black — the dark half of a shot cannot turn into the
- * grey haze that raising opacity or lightness would have produced.
+ * So the filter is the watch player's, exactly (see LiveAmbient in
+ * UniversalPlayer): blur and saturation, nothing that can move a hue. Density,
+ * if it is ever wanted again, comes from coverage — a wider spread, a larger
+ * copy — never from a channel multiply.
  */
-const GLOW_GAIN = 1.7;
 
 /**
  * How often the glow is told where the trailer is.
@@ -1229,7 +1234,7 @@ export default function TrailerStage() {
               // box clips the oversized player first, and the filter then
               // carries that clipped picture out past its own edges. That
               // outward bleed is the halo.
-              filter: `blur(${GLOW_BLUR_PX}px) saturate(1.9) brightness(${GLOW_GAIN})`,
+              filter: `blur(${GLOW_BLUR_PX}px) saturate(1.8)`,
               opacity: visible && attachment ? 1 : 0,
               transition: "opacity 240ms",
             }}
