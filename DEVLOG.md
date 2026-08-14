@@ -1,5 +1,55 @@
 # DEVLOG
 
+## 2026-08-14 — PO token : la porte s'ouvre, la pièce est vide
+
+Exécution du plan en cinq étapes. **Arrêté à la porte 1, comme prévu** — c'était
+tout l'intérêt de mettre la question la moins chère en premier.
+
+**Étape 0 (~5 min, prévu 20).** Ni Deno ni Docker sur la machine ; voie Node.
+`bgutil-ytdlp-pot-provider` cloné **épinglé sur `1.3.1`**, `npm ci` en 21 s sans
+compilation native (`canvas` 3.x fournit des binaires — la friction anticipée
+n'existait pas), `npx tsc` propre. Et une bonne surprise : le mode `generate_once`
+mint un token en un coup, donc **aucun serveur à tenir** pour l'essai.
+
+**Étape 1 — deux temps.** Le POT seul ne change rien : WEB reste sur
+`UNPLAYABLE / The page needs to be reloaded`. La pièce manquante n'était pas le
+token mais le **`playbackContext.contentPlaybackContext`** que yt-dlp joint pour
+les clients à JS player : `html5Preference: HTML5_PREF_WANTS` et le
+`signatureTimestamp` (sts) lu dans le `base.js` du player — dont le chemin change
+à chaque déploiement, donc il se lit dans la page, jamais en dur. Avec ça, **WEB
+répond `OK`**. La machinerie marche, la porte s'ouvre.
+
+**Et il n'y a rien derrière.** Sur 7 vidéos :
+
+| | |
+|---|---|
+| **6 sur 7** | **zéro format progressif** (26 à 122 adaptatifs) |
+| 1 sur 7 (`dQw4w9WgXcQ`) | un itag 18 unique, en **`signatureCipher`** |
+
+Or les clients android rendent un itag 18 **en clair** pour ces mêmes vidéos.
+YouTube a retiré le progressif du catalogue de WEB. Et la seule survivante n'est
+pas une bande-annonce : c'est le Rickroll, une vieille vidéo — nos titres réels
+sont dans les six.
+
+**Le POT achète l'entrée d'une pièce qui ne contient plus de fichier muxé**, et
+`<video src>` en exige un. Les étapes 2 à 5 tombent avec.
+
+**La forme de l'argument compte**, parce qu'elle décide de sa durée de vie. Ce
+n'est **pas** « le PO token est hors de portée » — il est parfaitement à portée,
+le lien est `visitor_data` / `video_id` et **jamais l'IP**, donc un minteur posé
+n'importe où aurait pu alimenter le Worker sans toucher à la topologie. C'était
+même élégant. L'objection porte sur le **catalogue**, et c'est ce qui la rend
+solide : aucune ingéniosité d'architecture ne fait réapparaître un format que
+YouTube ne sert plus.
+
+**Ce qui reste debout.** Les deux clients android, `REQUIRE_JS_PLAYER: False`,
+seuls à rendre un itag 18 en clair — c'est-à-dire exactement ce que le worker
+fait déjà. Et le seul levier non épuisé reste celui du 13/08 : l'egress.
+
+*Corollaire, si un jour on acceptait MSE : WEB+POT rend 26 à 122 formats
+adaptatifs. Mais MSE bute sur l'absence de CORS chez googlevideo, qui est la
+raison d'être du proxy. La boucle est bouclée.*
+
 ## 2026-08-14 — Le POT est lié à la SESSION, pas à l'adresse (et pourquoi ça ne suffit pas)
 
 Suite : si le remède de yt-dlp est hors de l'outil, comment font-ils, et peut-on

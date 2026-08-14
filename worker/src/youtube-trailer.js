@@ -171,6 +171,24 @@ const CLIENTS = [
  * context exactly as this file does. The reference's remedy for a refused
  * datacentre caller is not a request shape; it is cookies, a PO token provider,
  * or a different egress.
+ *
+ * AND THE PO TOKEN ROUTE IS CLOSED TOO — tested for real on 14/08, not reasoned
+ * about. A real BotGuard minter was stood up (bgutil 1.3.1, pinned) and it works:
+ * WEB, which answers `UNPLAYABLE / The page needs to be reloaded` bare, answers
+ * OK once given a player PO token AND a `playbackContext.contentPlaybackContext`
+ * carrying `html5Preference` and the `signatureTimestamp` read out of the player
+ * JS. So the machinery is obtainable and the door does open.
+ *
+ * There is simply nothing behind it. Over 7 videos WEB returned ZERO progressive
+ * formats on 6, and on the seventh a lone itag 18 wrapped in `signatureCipher`
+ * — while the android clients return a plain itag 18 url for those same videos.
+ * YouTube has taken progressive out of WEB's catalogue. A PO token buys entry to
+ * a room that no longer holds a muxed file, and `<video src>` needs a muxed file.
+ *
+ * Note the shape of that argument, because it is NOT "PO tokens are unobtainable"
+ * — they are obtainable, the binding is `visitor_data`/`video_id` and never the
+ * IP, so a minter could have lived anywhere and fed this Worker without changing
+ * the topology. The objection is about the catalogue, which is why it is durable.
  */
 
 /**
