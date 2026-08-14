@@ -120,6 +120,17 @@ export default function HoverPreviewProvider() {
       // per session and per region (rr3---sn-<random>), so pinning one would
       // warm a door this visitor will never walk through.
       ["preconnect", "https://i.ytimg.com"],
+      /*
+       * The player's anti-bot script comes off google.com, and it is IN the
+       * boot's critical path — the player will not start without it.
+       *
+       * Taken from lite-youtube-embed's warm list, which is the most-measured
+       * public work on this. It is the one host we were missing; the ad hosts
+       * it also warms are marked "not certain if in the critical path" in that
+       * project's own comments, and a preconnect we cannot justify is a
+       * connection opened on the visitor's behalf for nothing.
+       */
+      ["preconnect", "https://www.google.com"],
     ].map(([rel, href]) => {
       const link = document.createElement("link");
       link.rel = rel;
