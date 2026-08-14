@@ -187,7 +187,20 @@ html.tab-hidden *::after {
    collapsed the fade into a hard line, and flatter was judged worse than the
    problem — a gradient that never commits reads as a mistake, and the subtitles
    are only on some trailers while this seam is on every card. */
-.as-preview-banner::after {
+/* TWO selectors, one rule, and the sharing is the point.
+
+   The card owns this fade, but the trailer is no longer inside the card: it is
+   drawn by TrailerStage on a layer ABOVE it, so the video covered the card's
+   gradient and the picture ended on the hard edge the fade exists to prevent —
+   present on the artwork, gone the instant the trailer started. The layer needs
+   its own copy, and a second copy that could drift from this one by a stop or a
+   colour is how a seam comes back later. So there is one declaration.
+
+   `--as-preview-bg` is set on the card and does not reach the layer, which is a
+   different tree; the fallback is the same #1a1a24 the card passes in, so the
+   two resolve identically. */
+.as-preview-banner::after,
+.as-preview-videofade {
   content: '';
   position: absolute;
   left: 0;

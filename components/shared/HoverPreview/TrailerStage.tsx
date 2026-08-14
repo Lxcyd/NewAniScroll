@@ -818,6 +818,13 @@ export default function TrailerStage() {
         className="pointer-events-none"
       />
 
+      {/* The card's own fade into the body, repeated here because this layer
+          covers the card's copy of it. Not tied to the controls: it belongs to
+          the picture, not to the chrome, and the whole complaint was that it
+          vanished the moment the trailer replaced the artwork. See globals.css,
+          where both copies share one declaration. */}
+      <div aria-hidden className="as-preview-videofade" />
+
       {/* Scrim so the icons stay legible over a bright frame. */}
       <div
         aria-hidden
