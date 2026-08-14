@@ -29,15 +29,29 @@
   une pastille d'une cinquantaine de pixels pendant ~4 s. À comparer aux quatre
   secondes d'image entièrement cachée de l'autre banc.
 
-  DEUX RÉGLAGES NON COSMÉTIQUES.
-  - « pastille suit l'état » : la chrome revient chaque fois que le player quitte
-    PLAYING (pause, mise en tampon → roue au centre). Ces transitions sont
-    ANNONCÉES par l'API, donc la pastille peut les suivre au lieu d'être un pari
-    sur une durée.
-  - « zoom ≥ 2,1 » : au-delà, le centre du player sort du cadre et la pastille
-    devient inutile — plus aucun calque, mais on ne voit plus que la moitié de
-    l'image, décentrée. C'est l'option sans compromis d'affichage, au prix du
-    cadrage.
+  DEUX MESURES À NE PAS OUBLIER, PARCE QU'ELLES ONT CHACUNE DÉMENTI UNE ÉVIDENCE.
+
+  1. LE SEUIL NE SE TRANSPOSE PAS D'UNE TAILLE À L'AUTRE. Il vaut 0,64 sur un
+     cadre de 480 px et 0,60 sur les 364 px de la carte : la chrome se
+     dimensionne avec le player, donc elle occupe une fraction PLUS GRANDE quand
+     le player est plus petit. Tout réglage trouvé ici est valable pour 364 px et
+     doit être re-mesuré si la carte change de largeur.
+
+  2. L'ÉTAT DU PLAYER N'ANNONCE PAS LA CHROME. J'avais câblé « la pastille suit
+     l'état » en tenant pour acquis que la chrome ne revient qu'en quittant
+     PLAYING. Mesuré : réseau coupé + saut en avant → la chrome revient EN ENTIER
+     avec `playerState === 1`. C'est d'ailleurs déjà vrai au démarrage, où elle
+     est peinte pendant PLAYING pendant ~4 s. Conclusion : un masque piloté par
+     l'état est un pari, et la pastille doit rester PERMANENTE — c'est la case
+     « pastille permanente », cochée par défaut, et le décochage n'est là que
+     pour voir ce qu'on risque.
+
+  D'OÙ LA TROISIÈME OPTION, « décentré » : au lieu de couvrir le centre, on le
+  sort du cadre. La fenêtre est calée à droite du centre du player, ce qui exige
+  un zoom > 2 (démonstration : 2,4). Plus aucun calque, plus aucune dépendance à
+  l'état — vérifié y compris sous le stress qui rappelait la chrome. Le prix est
+  brutal et c'est tout l'objet du choix : il ne reste que ~17 % de la surface de
+  l'image, décentrée.
 -->
 <style>
   :root { --bg:#0b0d14; --surface:#151824; --line:#252938; --text:#e8eaf2; --dim:#8b90a8; --brand:#ff3b5c; }
@@ -85,7 +99,9 @@
 
 <div class="toolbar">
   <label>id <input type="text" id="vid" value="6vMuWuWlW4I" /></label>
-  <label>hauteur gardée <input type="range" id="keep" min="0.40" max="1" step="0.02" value="0.64" />
+  <!-- 0,60 : le seuil MESURÉ à 364 px. À 0,64 la pastille « Plus de vidéos »
+       dépasse encore par le bas. -->
+  <label>hauteur gardée <input type="range" id="keep" min="0.40" max="1" step="0.02" value="0.60" />
     <span class="val" id="keepv"></span></label>
   <!-- 10 % de la LARGEUR DU PLAYER : le glyphe mesure ~48 px sur un player de
        480 px, et il grandit avec lui. -->
@@ -93,7 +109,8 @@
     <span class="val" id="patchv"></span></label>
   <label>durée <input type="range" id="dur" min="0" max="8000" step="250" value="4500" />
     <span class="val" id="durv"></span></label>
-  <label><input type="checkbox" id="follow" checked /> pastille suit l'état</label>
+  <label><input type="checkbox" id="perm" checked /> pastille permanente</label>
+  <label><input type="checkbox" id="off" /> décentré (aucun calque)</label>
   <label><input type="checkbox" id="guide" checked /> repère</label>
   <button id="go">relancer</button>
 </div>
@@ -124,13 +141,24 @@ const log = (m) => { out.textContent += `+${Date.now()-t0}ms  ${m}\n`; out.scrol
  * player, c'est une iframe 1/0,64 = 1,56× plus grande, recentrée. La largeur
  * suit le même facteur, sinon le player change de ratio et letterboxe.
  */
+/**
+ * Le mode « décentré » : la fenêtre est calée APRÈS le centre du player, qui
+ * n'est donc plus dans le cadre. Contrainte, en % de la largeur du cadre :
+ *   x0 > 50·Z  (le centre est derrière nous)  et  x0 + 100 ≤ 100·Z  (on reste
+ *   dans le player, sinon on voit son bord noir) → Z ≥ 2,16.
+ * On prend 2,6 : la marge n'est pas du luxe, le player borde son image.
+ */
+const OFF_Z = 2.6, OFF_X0 = 138;
+
 function layout() {
+  const off = $("off").checked;
   const keep = Number($("keep").value);
-  const z = 1 / keep;
+  const z = off ? OFF_Z : 1 / keep;
   const f = $("masked").querySelector("iframe");
   if (f) {
     f.style.width  = f.style.height = (z * 100).toFixed(1) + "%";
-    f.style.left   = f.style.top    = (-(z - 1) / 2 * 100).toFixed(1) + "%";
+    f.style.top    = (-(z - 1) / 2 * 100).toFixed(1) + "%";
+    f.style.left   = off ? -OFF_X0 + "%" : (-(z - 1) / 2 * 100).toFixed(1) + "%";
   }
   // Le glyphe grandit avec le player : mesuré ~48 px pour un player de 480 px,
   // donc on dimensionne la pastille en proportion du PLAYER, pas du cadre.
@@ -140,11 +168,11 @@ function layout() {
   g.style.width = g.style.height = (p * 1.25) + "%";
   g.style.display = $("guide").checked ? "" : "none";
 
-  $("keepv").textContent = keep.toFixed(2) + " ×" + z.toFixed(2);
-  $("patchv").textContent = Math.round(p / 100 * 364) + "px";
+  $("keepv").textContent = (off ? (1 / OFF_Z) : keep).toFixed(2) + " ×" + z.toFixed(2);
+  $("patchv").textContent = off ? "—" : Math.round(p / 100 * 364) + "px";
   $("durv").textContent = ($("dur").value / 1000).toFixed(2) + "s";
-  // Au-delà de ~2,1 le centre du player sort du cadre : plus rien à couvrir.
-  if (z >= 2.1) $("patchEl").style.opacity = "0";
+  // Décentré : il n'y a plus de centre dans le cadre, donc plus rien à couvrir.
+  if (off) { $("patchEl").style.opacity = "0"; $("guideEl").style.display = "none"; }
 }
 
 let playing = false, revealAt = 0;
@@ -197,20 +225,24 @@ addEventListener("message", (e) => {
 });
 
 /**
- * La pastille tombe quand la chrome de démarrage s'est effacée — et REVIENT dès
- * que le player quitte PLAYING, parce que c'est exactement là qu'il repeint son
- * bouton (pause) ou sa roue (mise en tampon). Une durée seule serait un pari ;
- * l'état, lui, est annoncé.
+ * Par défaut la pastille ne tombe JAMAIS.
+ *
+ * J'avais d'abord programmé sa chute sur l'état du player, en croyant que la
+ * chrome ne revenait qu'en quittant PLAYING. Mesuré au banc (réseau coupé + saut
+ * en avant) : elle revient EN ENTIER avec `playerState === 1`. L'état ne dit
+ * donc rien de ce qui est peint, et le décochage ci-dessous ne sert qu'à voir le
+ * risque qu'on prend en le croyant.
  */
 setInterval(() => {
+  if ($("off").checked) { $("patchEl").style.opacity = "0"; return; }
   const expired = revealAt && Date.now() > revealAt;
-  const armed = $("follow").checked ? (!expired || !playing) : !expired;
-  const z = 1 / Number($("keep").value);
-  $("patchEl").style.opacity = (armed && z < 2.1) ? "1" : "0";
+  $("patchEl").style.opacity = ($("perm").checked || !expired) ? "1" : "0";
 }, 100);
 
-for (const id of ["keep", "patch", "guide"]) $(id).addEventListener("input", layout);
-for (const id of ["dur"]) $(id).addEventListener("input", layout);
+for (const id of ["keep", "patch", "guide", "dur", "off"]) {
+  $(id).addEventListener("input", layout);
+  $(id).addEventListener("change", layout);
+}
 $("go").addEventListener("click", mount);
 mount();
 </script>

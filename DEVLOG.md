@@ -74,10 +74,28 @@ une pastille de 57 px pendant ~4 s**. Banc de démonstration :
 [public/embed-mask-lab.html](public/embed-mask-lab.html), embed nu et embed
 masqué côte à côte, réglages en direct.
 
-Un raffinement non cosmétique y est câblé : la pastille **suit l'état** au lieu
-de suivre un chronomètre. La chrome revient à chaque sortie de `PLAYING` (pause →
-gros ▶ ; mise en tampon → roue, au centre elle aussi), et ces transitions sont
-ANNONCÉES par l'API. Une durée seule serait un pari, l'état est une observation.
+### Deux mesures de plus, qui ont chacune démenti ce que je venais d'écrire
+
+**Le seuil ne se transpose pas d'une taille à l'autre.** Les 0,64 ci-dessus ont
+été mesurés sur un cadre de 480 px ; la carte fait 364. Re-mesuré à 364 : il faut
+**0,60** (à 0,64 la pastille « Plus de vidéos » dépasse encore). La chrome se
+dimensionne avec le player, donc elle occupe une fraction plus grande quand le
+player rétrécit. Tout réglage trouvé ici vaut pour une largeur donnée.
+
+**L'état du player n'annonce PAS la chrome.** J'avais câblé « la pastille suit
+l'état », en tenant pour acquis qu'elle ne revient qu'en quittant `PLAYING`.
+Mesuré : réseau coupé + saut en avant → **la chrome revient en entier avec
+`playerState === 1`**. C'était déjà visible au démarrage (peinte pendant PLAYING
+pendant ~4 s) et je ne l'avais pas généralisé. Donc **la pastille doit être
+permanente** : tout masquage piloté par l'état est un pari.
+
+**D'où une troisième option, « décentré ».** Plutôt que couvrir le centre, on le
+sort du cadre : fenêtre calée après le centre du player, ce qui impose un zoom
+> 2 (`x0 > 50·Z` et `x0 + 100 ≤ 100·Z` en % du cadre ; on prend 2,6, le player
+borde son image et la marge n'est pas du luxe). Vérifié sur deux vidéos, au
+démarrage **et** sous le stress qui rappelait la chrome : **rien, jamais, sans
+dépendre d'aucun état**. Le prix est brutal — il reste ~17 % de la surface de
+l'image, décentrée.
 
 ### Leçon
 
@@ -87,11 +105,22 @@ n'impliquait pas « on ne peut pas s'en débarrasser », et j'ai tenu les deux p
 un canal vers le DOM de YouTube pour regarder la seule propriété qu'on possède
 déjà : **il peint toujours au même endroit.**
 
-Ce que ça ne rend pas : la pause (état 2 = gros ▶ permanent), et l'image
-immédiate — il reste ~4 s pendant lesquelles quelque chose couvre le centre.
-Le proxy garde donc l'avantage sur les deux ; le masquage est une porte de
-sortie si le proxy devient trop cher, plus l'aveu que le dossier n'était pas
-clos.
+Deuxième leçon, contre moi-même : j'ai écrit « les transitions sont annoncées par
+l'API » à l'instant même où je venais de photographier une chrome peinte pendant
+PLAYING. **Un raffinement qu'on trouve élégant se relit moins bien qu'on ne le
+mesure** — celui-là a survécu deux heures avant que le banc ne le tue.
+
+Ce que le masquage ne rend toujours pas : la pause (état 2 = gros ▶ permanent) et
+le cadrage. Le choix se résume à trois lignes, pour une carte de 364 px :
+
+| | zoom | calque | image visible | dépend d'un état ? |
+| --- | --- | --- | --- | --- |
+| proxy (actuel) | 1,00 | aucun | 100 % | non |
+| masqué, pastille | 1,67 | pastille ~57 px | ~36 %, centrée | non |
+| masqué, décentré | 2,60 | aucun | ~15 %, décentrée | non |
+
+Le proxy garde l'avantage. Mais « on ne peut pas » était faux, et c'est ça qu'il
+fallait corriger.
 
 ## 2026-08-13 (fin) — Copier la requête de référence valait tous les réglages
 
