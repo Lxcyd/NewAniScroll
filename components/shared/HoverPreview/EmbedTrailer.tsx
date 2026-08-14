@@ -36,8 +36,8 @@ import {
  * element we own, and that inference must never be load-bearing. It was once,
  * for exactly one deploy: the frame's opacity hung on a message from the player,
  * so when the message did not come the trailer played invisibly behind the
- * banner and looked broken. The fade-in is on a timer now and a real message
- * only beats it — see the reveal timeout below.
+ * banner and looked broken. Nothing waits on a message alone any more — see
+ * FORCE_PLAY_MS, which starts the player if it never speaks.
  *
  * `pointer-events: none` on the iframe is load-bearing: HoverPreviewProvider
  * needs the pointer events to know the card is still hovered, so every control
@@ -106,26 +106,42 @@ const SCALE = 200;
 const OVERSCAN = 1.12;
 
 /**
- * How far into the video the player must be before we show it.
+ * DELAY THE START, NOT THE PICTURE — the shape that fixes three faults at once.
  *
- * EVIDENCE RATHER THAN A GUESS. The bad first frame is painted before the
- * player has measured itself; it is gone once the thing is genuinely running.
- * A fixed delay after PLAYING was a bet on how long that takes (220 ms lost
- * it), so instead we wait for the player to tell us its clock has moved. A
- * `currentTime` past this mark cannot be the boot frame — that frame is at 0.
+ * Every previous attempt let the player autoplay and then held the frame hidden
+ * until the ugly boot layout had passed. That bought a clean picture and paid
+ * for it twice: the reveal was late, and the SOUND ran from the real start while
+ * the image waited, so a trailer opened with music over the banner and the video
+ * a beat behind it.
  *
- * The player volunteers `currentTime` in every `infoDelivery`, so this costs no
- * extra machinery, and the banner covers the wait with a finished picture.
+ * The mistake was choosing when to LOOK. The player boots, measures itself and
+ * settles its layout whether or not it is playing — so let all of that happen
+ * while it is cued, silent and hidden, and then start it. Playback and the
+ * picture begin on the same instant: no boot frame to hide, nothing to wait out
+ * once it starts, and no sound ahead of the image because neither begins early.
+ *
+ * `autoplay` is therefore deliberately ABSENT from the URL. A muted player told
+ * to play by script is allowed by every autoplay policy, which is the same
+ * permission the parameter was relying on.
  */
-const REVEAL_AFTER_SECONDS = 0.4;
 
 /**
- * Backstop for the rule above, in case `currentTime` never arrives.
+ * How long to let the cued player settle before telling it to play.
  *
- * Only a safety net: it must be long enough to outlast the boot frame, since
- * firing early is exactly the bug it is meant to avoid.
+ * Covers the layout pass that produced the bad frame. It is spent on a player
+ * that is not running, so it costs nothing but a little more of the banner —
+ * which is a finished picture, not a spinner.
  */
-const SETTLE_AFTER_PLAY_MS = 900;
+const SETTLE_BEFORE_PLAY_MS = 350;
+
+/**
+ * Backstop: play anyway if the player never announces itself.
+ *
+ * The handshake is reliable now, but a preview that stays a still banner because
+ * one message went missing is exactly the failure this file has already shipped
+ * once.
+ */
+const FORCE_PLAY_MS = 1800;
 
 /** Sound is ON by default; a trailer at full blast on hover is not. */
 const FALLBACK_VOLUME = PREVIEW_DEFAULT_VOLUME;
@@ -151,19 +167,6 @@ const PAUSED = 2;
  * picture, and it should hold the frame until there are real moving pixels
  * behind it.
  */
-
-/**
- * How long to wait for the player to announce itself before showing the frame
- * anyway.
- *
- * A BACKSTOP against a broken handshake, nothing more — it exists so a silent
- * player cannot leave the trailer invisible forever, which it once did. It is
- * deliberately LONG. A short one fires while the player is still buffering and
- * swaps the card's finished artwork for a loading spinner, which is the very
- * thing the banner is there to prevent. In the normal case a real PLAYING
- * message arrives long before this and the timer never matters.
- */
-const REVEAL_MS = 6000;
 
 export default function EmbedTrailer({
   id,
@@ -200,17 +203,8 @@ export default function EmbedTrailer({
   const loadedRef = useRef(false);
   /** The backstop timer, so a card torn down mid-wait doesn't set state after. */
   const revealRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  /**
-   * Has the picture actually been revealed yet?
-   *
-   * Kept separate from "the backstop is armed" on purpose. Merging the two —
-   * which the first version did — meant arming the timer marked the frame as
-   * shown, so the clock-based rule saw it as done and never fired early. The
-   * evidence path has to be able to beat the timer, which is its whole point.
-   */
-  const shownRef = useRef(false);
-  /** Backstop already scheduled — don't stack one per PLAYING message. */
-  const backstopArmedRef = useRef(false);
+  /** Have we already asked the player to start? One start per mount. */
+  const startedRef = useRef(false);
 
   /**
    * `loop` needs `playlist` set to the same id — on its own it does nothing for
@@ -223,7 +217,7 @@ export default function EmbedTrailer({
    */
   const src =
     `${ORIGIN}/embed/${id}` +
-    `?enablejsapi=1&controls=0&autoplay=1&mute=1&playsinline=1&rel=0` +
+    `?enablejsapi=1&controls=0&mute=1&playsinline=1&rel=0` +
     `&iv_load_policy=3&disablekb=1&fs=0&loop=1&playlist=${id}&cc_load_policy=0`;
 
   /**
@@ -297,43 +291,31 @@ export default function EmbedTrailer({
       const state = data?.event === "onStateChange" ? data.info : info?.playerState;
 
       /*
-       * The clock is the evidence that the boot frame is behind us — see
-       * REVEAL_AFTER_SECONDS. Checked before the state, because `infoDelivery`
-       * often carries a moving `currentTime` without repeating `playerState`.
+       * The player has booted and is sitting there cued. Let it finish settling
+       * its layout — the pass that produced the bad frame — and then start it.
+       * Nothing is running and nothing is visible while this waits.
        */
-      if (
-        !shownRef.current &&
-        typeof info?.currentTime === "number" &&
-        info.currentTime >= REVEAL_AFTER_SECONDS
-      ) {
-        shownRef.current = true;
+      if (state !== undefined && !startedRef.current) {
+        startedRef.current = true;
         if (revealRef.current) clearTimeout(revealRef.current);
-        setPlaying(true);
-        onPlayingChange(true);
+        revealRef.current = setTimeout(() => post("playVideo"), SETTLE_BEFORE_PLAY_MS);
       }
 
       if (state === undefined) return;
       if (state === PLAYING) {
         setPaused(false);
-        if (shownRef.current) {
-          // Already revealed — a loop, or a resume after our own pause. Announce
-          // at once: the player is long since in position, and waiting again
-          // would blink the banner back over a running picture.
-          setPlaying(true);
-          onPlayingChange(true);
-        } else if (!backstopArmedRef.current) {
-          // FIRST play, and the clock has not moved far enough yet. Arm the
-          // backstop ONLY — deliberately without marking the frame as shown, so
-          // the clock rule above can still beat it. See SETTLE_AFTER_PLAY_MS.
-          backstopArmedRef.current = true;
-          revealRef.current = setTimeout(() => {
-            shownRef.current = true;
-            setPlaying(true);
-            onPlayingChange(true);
-          }, SETTLE_AFTER_PLAY_MS);
-        }
-        // Unmute only once playback is under way: policy refuses an audible
-        // START, not an audible continuation.
+        // Show it the moment it genuinely starts. There is nothing left to wait
+        // out: the boot frame happened while this was cued and hidden.
+        setPlaying(true);
+        onPlayingChange(true);
+        /*
+         * Sound joins the picture, and not before — this is the desync fix.
+         *
+         * Unmuting used to happen on the first PLAYING while the frame was still
+         * hidden behind the banner, so a trailer opened with music over a still
+         * image and the video arriving a beat later. Both begin together now
+         * because playback itself no longer begins early.
+         */
         if (!unmutedRef.current) {
           unmutedRef.current = true;
           post("setVolume", [Math.round(volumeRef.current * 100)]);
@@ -365,30 +347,24 @@ export default function EmbedTrailer({
     const stopHandshake = setTimeout(() => clearInterval(handshake), 4000);
 
     /*
-     * SHOW THE PICTURE EVEN IF NOTHING EVER ANSWERS.
+     * START IT ANYWAY IF NOTHING EVER ANSWERS.
      *
-     * The header of this file claims a late message costs "a slightly late
-     * fade-in". That was wrong as written: a MISSING message cost the whole
-     * frame, because opacity was gated on a state only the player could grant.
-     * A silent player and a broken one were indistinguishable, and both looked
-     * like "the trailer doesn't work".
-     *
-     * So the fade-in now happens on a timer regardless, and any real message
-     * simply beats it. Autoplaying muted video is allowed by every browser we
-     * support, so "assume it is playing" is the safe assumption rather than the
-     * optimistic one — and if it truly is not, the viewer sees YouTube's own
-     * poster frame, which is a perfectly good picture.
+     * Without `autoplay`, a player that never speaks never plays — so a lost
+     * message would leave the card on its banner for good. This file has
+     * already shipped that failure once, in the other direction, and the
+     * lesson is the same: never let the picture depend on a message arriving.
      */
-    const reveal = setTimeout(() => {
-      setPlaying(true);
-      onPlayingChange(true);
-    }, REVEAL_MS);
+    const force = setTimeout(() => {
+      if (startedRef.current) return;
+      startedRef.current = true;
+      post("playVideo");
+    }, FORCE_PLAY_MS);
 
     return () => {
       window.removeEventListener("message", onMessage);
       clearInterval(handshake);
       clearTimeout(stopHandshake);
-      clearTimeout(reveal);
+      clearTimeout(force);
     };
   }, [onHide, onPlayingChange, post]);
 
