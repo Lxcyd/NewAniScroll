@@ -5121,3 +5121,25 @@ faut viser.
 Vérifié sur dev : preview ouvert sur une couverture du rail, ordre du rail
 **inchangé sur 16 s** (soit deux avances manquées, intervalle = 8 s), puis
 rotation reprise après le départ du pointeur.
+
+**Correctif du lendemain** : ce maintien remettait le compte à rebours à zéro.
+Un `setTimeout` ne se met pas en pause, et relancer l'effet avec l'intervalle
+complet à la sortie du survol revient à redémarrer la diapo — six secondes
+d'attente jetées parce que le pointeur est passé sur une affiche. L'échéance est
+désormais suivie en temps réel (`remainingRef`/`deadlineRef`) : entrer dans le
+maintien fige ce qu'il en reste, en sortir arme un timer d'exactement cette
+durée ; `timedIdxRef` distingue « nouvelle diapo » (intervalle entier) de
+« maintien relâché » (le reliquat). La pilule n'est plus remontée :
+`animation-play-state: paused` fige son remplissage sans jamais le rembobiner,
+ce que le timer imite maintenant.
+
+Mesuré sur dev : survol à t+5,2 s (pilule figée à scaleX 0,639, `paused`), 6 s
+de maintien sans avance, puis avance **2,8 s après le relâchement** — soit
+8 − 5,2. Une remise à zéro aurait donné 8 s.
+
+**Piège de sonde, encore un** : mon premier point zéro était un clic sur la
+pastille ACTIVE, censé relancer l'intervalle. Il ne relance rien — `go(i)`
+appelle `setIdx` avec la même valeur, `idx` ne change pas, l'effet ne re-tourne
+pas. La mesure partait donc d'un instant quelconque de la diapo en cours et
+accusait le code à tort. Le point zéro est maintenant une avance réelle,
+attendue en scrutant l'ordre du rail.
