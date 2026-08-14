@@ -82,6 +82,34 @@ const ORIGIN = "https://www.youtube-nocookie.com";
  */
 const SCALE = 200;
 
+/**
+ * How far the player overflows its box, so the picture COVERS instead of FITS.
+ *
+ * The card's video slot is not exactly 16:9 — it is 45 % of a 468 px card, so
+ * 364 × ~211, an aspect of 1.73 against the video's 1.78. A player told to fill
+ * that box keeps the video's own ratio and pads the difference with black: the
+ * band along the top. The old <video> never showed it because `object-cover`
+ * crops to fill, and an iframe has no such thing.
+ *
+ * So we do it by hand: render slightly larger than the box and centre it, and
+ * the bands fall outside the clip. ~3 % would cover the measured mismatch; 12 %
+ * is used instead so rounding, a card of another size, or material that is not
+ * quite 16:9 cannot bring the bands back. The price is losing ~5 % off each
+ * edge, which is exactly what `object-cover` was already doing.
+ */
+const OVERSCAN = 1.12;
+
+/**
+ * A beat between "the player says it is playing" and showing it.
+ *
+ * The player finishes positioning its video AFTER it reports PLAYING — a
+ * reflow that is invisible at ×1 and impossible to miss at ×200, where it reads
+ * as the picture sliding into place. Revealing on the message alone put that
+ * settling on screen. Waiting a moment lets it happen behind the banner, which
+ * is a finished picture and costs nothing to keep a fraction longer.
+ */
+const SETTLE_AFTER_PLAY_MS = 220;
+
 /** Sound is ON by default; a trailer at full blast on hover is not. */
 const FALLBACK_VOLUME = PREVIEW_DEFAULT_VOLUME;
 /** Controls fade this long after the pointer stops moving over the video. */
@@ -153,6 +181,10 @@ export default function EmbedTrailer({
 
   /** Has the frame actually navigated to YouTube yet? See `post`. */
   const loadedRef = useRef(false);
+  /** The settle timer, so a card torn down mid-wait doesn't set state after. */
+  const revealRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** One reveal per mount: PLAYING fires again on every loop of the trailer. */
+  const settleShownRef = useRef(false);
 
   /**
    * `loop` needs `playlist` set to the same id — on its own it does nothing for
@@ -240,9 +272,23 @@ export default function EmbedTrailer({
             : undefined;
       if (state === undefined) return;
       if (state === PLAYING) {
-        setPlaying(true);
         setPaused(false);
-        onPlayingChange(true);
+        if (settleShownRef.current) {
+          // Already settled once — a loop, or a resume after our own pause.
+          // Announce immediately: the player is long since in position, and
+          // waiting again would blink the banner back over a running picture.
+          setPlaying(true);
+          onPlayingChange(true);
+        } else {
+          // FIRST play. The player is still moving its video into place at this
+          // instant — invisible at ×1, impossible to miss at ×200 — so let that
+          // happen behind the banner. See SETTLE_AFTER_PLAY_MS.
+          settleShownRef.current = true;
+          revealRef.current = setTimeout(() => {
+            setPlaying(true);
+            onPlayingChange(true);
+          }, SETTLE_AFTER_PLAY_MS);
+        }
         // Unmute only once playback is under way: policy refuses an audible
         // START, not an audible continuation.
         if (!unmutedRef.current) {
@@ -308,6 +354,7 @@ export default function EmbedTrailer({
       if (idleRef.current) clearTimeout(idleRef.current);
       if (volCloseRef.current) clearTimeout(volCloseRef.current);
       if (settleRef.current) clearTimeout(settleRef.current);
+      if (revealRef.current) clearTimeout(revealRef.current);
     },
     [],
   );
@@ -444,14 +491,16 @@ export default function EmbedTrailer({
         allow="autoplay; encrypted-media; compute-pressure"
         // Sized in PERCENT, not pixels, so the factor holds whatever the card's
         // real width turns out to be: 20000 % of the box, scaled back by 1/200,
-        // lands exactly on the box again.
+        // lands on the box again — times OVERSCAN, which is what makes it cover
+        // rather than fit. The negative offsets re-centre that overflow, half of
+        // it on each side, so the letterbox bands are clipped away.
         style={{
           position: "absolute",
-          top: 0,
-          left: 0,
           border: 0,
-          width: `${SCALE * 100}%`,
-          height: `${SCALE * 100}%`,
+          width: `${SCALE * OVERSCAN * 100}%`,
+          height: `${SCALE * OVERSCAN * 100}%`,
+          left: `${(-(OVERSCAN - 1) / 2) * 100}%`,
+          top: `${(-(OVERSCAN - 1) / 2) * 100}%`,
           transform: `scale(${1 / SCALE})`,
           // Top-left, otherwise the reduction re-centres and shifts the picture.
           transformOrigin: "0 0",
