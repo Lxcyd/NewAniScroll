@@ -65,22 +65,30 @@ const ORIGIN = "https://www.youtube-nocookie.com";
  * Measured, glyph pixels in the centre disc with the chrome still up: 360 at ×1,
  * 77 at ×2, 10 at ×4, 0 at ×8 — the count of a witness whose chrome has already
  * faded. Past ×8 the button gains nothing more; what keeps shrinking is the
- * CORNERS, which the centre counter never saw. At ×200 the frame reads as
- * completely clean to the eye.
+ * CORNERS, which the centre counter never saw.
  *
- * TWO COSTS, both measured, neither hidden. A dark veil survives at any factor
- * (red channel on a flat red field: 219 at ×1, 231.5 at ×8, against 249 with no
- * chrome at all) — scaling recovers ~40 % of it and then plateaus, because part
- * is a fixed-size gradient and part is a layer proportional to the player. And
- * the composited surface grows quadratically: ×200 of a 364 px box is 72800 px
- * wide, which only works because the browser CLAMPS the layer rather than
- * allocating it. That is an implementation detail we do not control, so Safari,
- * Firefox and phones are where this has to be checked.
+ * WHY NOT ×200, WHICH THE BENCH SAID WAS SPOTLESS. Because the bench was wrong
+ * about the real page, and this is worth writing down rather than re-trying. In
+ * a standalone 364 px stage the browser CLAMPS a 72800 px layer and rasterises
+ * it sensibly. Inside the actual card it does not: the player falls back to its
+ * SMALL-player layout and that layout is then magnified, so the centre button
+ * comes back the size of a fist with a white block in the corner — the exact
+ * opposite of the intent. A bench is a claim about the bench until it has been
+ * seen in the product; ×200 was measured, photographed, and still shipped broken.
+ *
+ * ×8 is where the measurement and the real page agree: enough to zero the centre
+ * glyph, small enough (2912 px across a 364 px box) that nothing exotic happens
+ * to the compositor.
+ *
+ * THE COST THAT REMAINS. A dark veil survives at any factor (red channel on a
+ * flat red field: 219 at ×1, 231.5 at ×8, against 249 with no chrome at all):
+ * scaling recovers ~40 % of it and then plateaus, because part is a fixed-size
+ * gradient and part is a layer proportional to the player.
  *
  * Expressed as a percentage below, so the factor is independent of the card's
  * real pixel size. Bench: public/embed-scale-lab.html.
  */
-const SCALE = 200;
+const SCALE = 8;
 
 /**
  * How far the player overflows its box, so the picture COVERS instead of FITS.
