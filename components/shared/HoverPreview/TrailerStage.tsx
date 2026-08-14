@@ -230,12 +230,19 @@ const SYNC_COOLDOWN_MS = 2500;
  * screen, and that pass costs a compositor frame the visible copy does not pay.
  *
  * So the copy is set slightly ahead, and its light lands with the picture rather
- * than after it. One sample is also the measurement's resolution, so the real
- * figure is somewhere between 25 and 75 ms — 50 is inside that band, and being
- * a little early is the safer side of it: a light that arrives with the cut
- * reads as the cut, a light that arrives after it reads as a mistake.
+ * than after it.
+ *
+ * WHY HALF A SAMPLE AND NOT A WHOLE ONE. A first attempt gave it the full 50 ms
+ * and overshot: the peak moved from one sample late to one sample EARLY, which
+ * is the same error mirrored. The instrument cannot resolve better than its 51 ms
+ * step, so the honest reading of both runs together is "the true offset is
+ * around half a sample" — and the value that puts the peak on zero is half the
+ * first guess. Measured again at this figure: peak at lag 0.
+ *
+ * Anything left is under 25 ms, which is under one frame of the video and far
+ * under anything a blurred colour can show.
  */
-const GLOW_LEAD_S = 0.05;
+const GLOW_LEAD_S = 0.025;
 
 /** Blur radius of the glow copy. The card's own stack used the same figure. */
 const GLOW_BLUR_PX = 34;
