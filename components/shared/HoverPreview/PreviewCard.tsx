@@ -50,6 +50,15 @@ const HEIGHT = 468;
 const SURFACE = "#1a1a24";
 
 /**
+ * How close to the window edge the card may come.
+ *
+ * Wide enough for the drop shadow to land somewhere rather than being sliced off
+ * by the viewport — the shadow is what makes the card read as floating above the
+ * page, and a shadow cut down the middle reads as a bug instead.
+ */
+const EDGE_GAP = 16;
+
+/**
  * Artwork for the top 45 % of the card, and it is the INFO PAGE's chain, not
  * Hayase's: `bannerImage` already arrives resolved from /api/v2/preview (see
  * lib/images/heroBanner), and the cover stretches behind it when nothing wide
@@ -137,23 +146,40 @@ export default function PreviewCard({
     };
   }, [id]);
 
-  // Centred on the hovered card, and that is all.
+  // Centred on the hovered card, then pulled back inside the window.
   //
-  // No viewport clamping: a poster half off the edge of a carousel gets a
-  // preview half off the edge too. That is what Hayase does — the popup is
-  // anchored to the card, and pulling it back in would make it point at a
-  // neighbour instead. `rect` is refreshed by the provider on scroll, so this
-  // re-runs and the card travels with the page like any other element.
+  // THE CLAMP IS A REVERSAL, so the old argument is kept: this used to centre
+  // and nothing else, on the grounds that Hayase does the same and that pulling
+  // a popup back in makes it point at a neighbour rather than at the poster it
+  // belongs to. That reasoning holds for a large move. It does not survive the
+  // case that actually happens — the first poster of a row, where the card ends
+  // up flush against the window edge with its shadow and rounded corners cut
+  // off, reading as a rendering fault rather than as a deliberate anchor.
+  //
+  // So the nudge is bounded by construction: at most half the card's width can
+  // ever be taken back, because a poster whose centre is on screen cannot be
+  // further than that from the edge. The card still overlaps its poster; it just
+  // stops touching the glass.
   //
   // Rounded to whole pixels, which is not cosmetic bookkeeping: a poster is
   // rarely at an integer offset, so centring on it lands the card on half
   // pixels. Everything the card clips — the rounded corners, the video's box —
   // is then antialiased against whatever sits behind it, and a half-covered row
   // of pixels along the top of the picture reads as a one-pixel outline.
-  const placeAt = (r: AnchorRect) => ({
-    left: Math.round(r.left + r.width / 2 - WIDTH / 2),
-    top: Math.round(r.top + r.height / 2 - HEIGHT / 2),
-  });
+  const placeAt = (r: AnchorRect) => {
+    const left = r.left + r.width / 2 - WIDTH / 2;
+    const top = r.top + r.height / 2 - HEIGHT / 2;
+    // `Math.max` last, and that order matters: on a window too small to hold the
+    // card, `Math.min` alone would push it off the top-left instead of the
+    // bottom-right. Overflowing the far edge is the lesser of the two, since the
+    // title and the buttons live at the top.
+    const fit = (v: number, size: number, room: number) =>
+      Math.round(Math.max(EDGE_GAP, Math.min(v, room - size - EDGE_GAP)));
+    return {
+      left: fit(left, WIDTH, window.innerWidth),
+      top: fit(top, HEIGHT, window.innerHeight),
+    };
+  };
   useLayoutEffect(() => {
     const p = placeAt(rect);
     posRef.current = p;
