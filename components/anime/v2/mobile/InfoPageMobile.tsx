@@ -914,12 +914,7 @@ function MOverview({
           <RelationsGraph
             open={graphOpen}
             onClose={() => setGraphOpen(false)}
-            relations={info.relations?.edges || []}
-            seasonList={seasonList}
             currentId={info.id}
-            currentTitle={info.title}
-            currentFormat={info.format}
-            currentEpisodes={info.episodes}
           />
         </section>
       ) : null}

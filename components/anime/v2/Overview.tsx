@@ -23,15 +23,9 @@ import { youtubeTrailerId } from "@/lib/preview/trailerId";
 
 type Props = {
   info: AniListInfoTypes;
-  /** Optional — full TV/ONA season chain resolved server-side. When
-   *  provided, Relations renders every season AniList only exposes via
-   *  multi-hop prequel/sequel walks (e.g. DanMachi S3 / S4 / S5 from
-   *  S1's page). Without it, Relations falls back to the direct edges
-   *  on `info.relations`. */
-  seasonList?: import("@/lib/anilist/seasonChain").SeasonEntry[];
 };
 
-export default function Overview({ info, seasonList }: Props) {
+export default function Overview({ info }: Props) {
   const titlePref = useTitlePref();
   const { t, i18n } = useTranslation();
   const [spoilers, setSpoilers] = useState(false);
@@ -220,13 +214,7 @@ export default function Overview({ info, seasonList }: Props) {
                 open={graphOpen}
                 onExpand={() => setGraphOpen(true)}
                 onClose={() => setGraphOpen(false)}
-                relations={info.relations?.edges || []}
-                seasonList={seasonList}
                 currentId={info.id}
-                currentTitle={info.title}
-                currentFormat={info.format}
-                currentEpisodes={info.episodes}
-                currentCover={info.coverImage?.large || info.coverImage?.extraLarge || null}
               />
             </div>
           </section>

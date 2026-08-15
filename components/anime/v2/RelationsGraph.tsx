@@ -1,10 +1,15 @@
-import { CSSProperties, useEffect, useMemo, useRef, useState } from "react";
+import {
+  CSSProperties,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import Link from "next/link";
 import { useRouter } from "next/router";
 import { createPortal } from "react-dom";
 import dagre from "@dagrejs/dagre";
-import { Edge } from "types/info/AnilistInfoTypes";
-import type { SeasonEntry } from "@/lib/anilist/seasonChain";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { animeHref, useClickTarget } from "@/lib/prefs/clickTarget";
 import { useTranslation } from "react-i18next";
@@ -97,8 +102,18 @@ const MAX_SCALE = 2.5;
  */
 const VERTICAL_UNDER_PX = 820;
 
-/** Hayase's own exclusion: a character is not a work. */
-const EXCLUDED_RELATIONS = new Set(["CHARACTER"]);
+/**
+ * `useLayoutEffect`, minus the server warning.
+ *
+ * The board's framing has to be applied BEFORE the browser paints, or the
+ * first frame of every new layout is drawn at the previous transform — the
+ * board appeared at `scale(1)` anchored top-left for one frame and then snapped
+ * to its fit (measured at 12ms on Sword Art Online, 13ms on One Piece). React
+ * logs a warning for a layout effect during SSR, hence the swap; the component
+ * renders nothing on the server anyway.
+ */
+const useIsoLayoutEffect =
+  typeof window !== "undefined" ? useLayoutEffect : useEffect;
 
 /**
  * What counts as a step in the running order. Specials and OVAs are bonuses —
@@ -182,15 +197,14 @@ type Props = {
    * the two lines look like one.
    */
   heading?: React.ReactNode;
-  relations: Edge[];
-  /** Unused by the graph now; kept so the callers' props still typecheck. */
-  seasonList?: SeasonEntry[];
+  /**
+   * The entry the board is opened from — and, since the walk moved to the
+   * server, the ONLY thing the graph needs to draw itself. It used to be seeded
+   * with this page's own relations, title, format, episode count and cover so
+   * the first level cost no request; the server now answers the whole franchise
+   * in one, and every card's metadata comes back with it.
+   */
   currentId: number;
-  currentTitle?: any;
-  currentFormat?: string | null;
-  currentEpisodes?: number | null;
-  /** The page already has it; the walk never fetches this node's own payload. */
-  currentCover?: string | null;
 };
 
 type GNode = {
@@ -209,10 +223,7 @@ type GNode = {
 
 type GEdge = { from: number; to: number; label: string };
 
-/** What one walk of the franchise comes back with. */
-type Walked = { nodes: Map<number, NodeMeta>; edges: Map<string, GEdge> };
-
-/** What a node needs to be drawn — the shape both the prop and the API give. */
+/** What a node needs to be drawn — the shape `/api/v2/relations/tree` returns. */
 type NodeMeta = {
   id: number;
   type?: string | null;
@@ -222,18 +233,6 @@ type NodeMeta = {
   title?: any;
   cover?: string | null;
 };
-
-/**
- * Walk bounds. Hayase has none — a desktop app can afford to pull a hundred
- * nodes. A franchise like Gundam or Fate is a web of that size, and here every
- * node is an HTTP round trip, so the walk stops rather than crawling forever.
- * Sixty covers every ordinary franchise (Sword Art Online is ~22) and the cap
- * only ever removes the outermost, least relevant entries.
- */
-const MAX_NODES = 60;
-const MAX_ROUNDS = 8;
-/** Must match MAX_IDS in the batch route, or the tail of a wave is dropped. */
-const BATCH_MAX = 30;
 
 /**
  * Material Symbols Outlined, drawn inline.
@@ -346,12 +345,7 @@ function FilterMenu({
 export default function RelationsGraph({
   open,
   onClose,
-  relations,
   currentId,
-  currentTitle,
-  currentFormat,
-  currentEpisodes,
-  currentCover,
   embedded,
   onExpand,
   heading,
@@ -595,296 +589,48 @@ export default function RelationsGraph({
 
 
   /**
-   * The walk — `_generateRelationsTree`, transcribed.
+   * The franchise, in ONE request, as soon as the graph is on screen.
    *
-   * Not paraphrased: the ORDER of this traversal decides the picture, so an
-   * equivalent-looking rewrite lands somewhere else. Two ends of a relation
-   * disagree often (Sword Art Online II calls Fatal Bullet's pilot a PARENT,
-   * the pilot calls II an OTHER), and whichever end is visited first sets the
-   * arrow's direction — which is what dagre ranks on. A breadth-first version
-   * of this produced the same 19 nodes and the same 23 edges with two arrows
-   * reversed, and that alone moved a node four columns.
+   * The walk itself now runs on the server — `lib/anilist/franchiseTree.ts`
+   * holds it, and the reasons it is written the way it is. Two things moved
+   * with it.
    *
-   * Their rules, in their order:
+   * It used to be six to eight SEQUENTIAL round trips from here, each level of
+   * the breadth-first walk waiting on the one before it. That was most of the
+   * time a board took to settle: 4.6s for Sword Art Online on a 250ms link,
+   * 7.5s for One Piece. One request replaces them, and the CDN answers it for
+   * everybody else for a day.
    *
-   *  - Only ANIME nodes, never a CHARACTER relation. Both exclusions sit on the
-   *    EDGE, so the manga a series adapts and the unrelated show sharing a voice
-   *    character never enter the graph — and, crucially, never get expanded
-   *    either. Expanding them is what put Alicization and an Eromanga Sensei OVA
-   *    on the board as islands: the light novel is the franchise hub, so pulling
-   *    ITS relations dragged in entries whose only link ran through a node we
-   *    had (rightly) refused to draw.
-   *
-   *  - One edge per PAIR. A pair already drawn is skipped whole — no second
-   *    edge AND no recursion through it — unless it is a PARENT, which is a
-   *    broad term worth replacing by any more specific relation that turns up.
-   *
-   *  - PREQUEL is drawn reversed and relabelled SEQUEL, so chains point one way.
-   *
-   * Depth 2 ends a pass, not the walk: nodes reached at that limit are queued,
-   * re-fetched, and processed as new roots until nothing new appears. Theirs
-   * nests two levels per query; ours returns one, so a node at depth 1 fetches
-   * its own relations — same tree, same order, one more round trip.
+   * And it used to PUBLISH TWICE — a draft walked from whichever page you were
+   * on, then the real board walked from the franchise's root. Those two
+   * disagree by construction: the traversal order decides the direction of a
+   * disputed pair and dagre ranks on direction. So a second and a half after
+   * the draft appeared, it was replaced by a picture in which EVERY card had
+   * moved (13/13 on Sword Art Online, 23/23 on Fate, 54/54 on One Piece) at a
+   * different zoom. There is one answer now, so the board is drawn once and
+   * stays where it was drawn.
    */
   useEffect(() => {
     if (!active) return;
-
     let cancelled = false;
     setWalking(true);
-    /** Shared by both walks, so the second one costs nothing. */
-    const relCache = new Map<number, Promise<any>>();
-
-    /**
-     * One request per WAVE, not per node.
-     *
-     * The walk asks for a whole level's relations in one synchronous burst
-     * (the prefetch loop below, and the round loop at the end), then awaits
-     * them one by one. Registering each id and flushing on the microtask that
-     * follows the burst turns that level into a single `?ids=` call — Sword Art
-     * Online went from 19 round trips to 3 — while every caller still gets its
-     * own promise, so the traversal order is untouched.
-     */
-    const waiting = new Map<number, (v: any) => void>();
-    let flushQueued = false;
-
-    const flush = () => {
-      flushQueued = false;
-      const wave = Array.from(waiting.entries());
-      waiting.clear();
-      for (let i = 0; i < wave.length; i += BATCH_MAX) {
-        const slice = wave.slice(i, i + BATCH_MAX);
-        const ids = slice.map(([id]) => id);
-        fetch(`/api/v2/relations/batch?ids=${ids.join(",")}`)
-          .then((r) => (r.ok ? r.json() : null))
-          .then((data) => {
-            const byId = new Map<number, any>();
-            for (const item of data?.items || []) byId.set(Number(item?.id), item);
-            // An id the route couldn't resolve resolves to null, which the
-            // caller already treats as "no relations".
-            for (const [id, resolve] of slice) resolve(byId.get(id) ?? null);
-          })
-          .catch(() => {
-            for (const [, resolve] of slice) resolve(null);
-          });
-      }
-    };
-
-    const getRelations = (id: number) => {
-      let p = relCache.get(id);
-      if (!p) {
-        p = new Promise((resolve) => {
-          waiting.set(id, resolve);
-          if (!flushQueued) {
-            flushQueued = true;
-            Promise.resolve().then(flush);
-          }
-        });
-        relCache.set(id, p);
-      }
-      return p;
-    };
-
-    const isAnime = (m: any) => (m?.type ?? "ANIME") === "ANIME";
-
-    /**
-     * ONE walk, from one root — the whole traversal, its node map and its edge
-     * map local to the call.
-     *
-     * It used to be inlined here and run once, from the page you were on, and
-     * that is precisely what made the board a different picture on every page
-     * of the same franchise: the traversal order decides the direction of a
-     * disputed pair, and dagre ranks on direction. Nothing about the walk is
-     * changed — it is only made re-runnable, so it can be run from the
-     * franchise's own root instead of from wherever you happen to be standing.
-     */
-    const walkFrom = async (
-      root: NodeMeta,
-      onFirstPass?: (r: Walked) => void
-    ): Promise<Walked | null> => {
-    const nodes = new Map<number, NodeMeta>();
-    const edges = new Map<string, GEdge>();
-    const frontier = new Set<number>();
-
-    /** A node's own relation edges, and the fuller metadata that comes with them. */
-    const edgesOf = async (id: number): Promise<any[]> => {
-      if (id === currentId) return (relations as any[]) || [];
-      const data = await getRelations(id);
-      if (!data) return [];
-      const known = nodes.get(id);
-      if (known) {
-        // The fetch knows more than the edge did — status, episode count.
-        nodes.set(id, {
-          ...known,
-          title: data.title ?? known.title,
-          format: data.format ?? known.format,
-          status: data.status ?? known.status,
-          episodes: data.episodes ?? known.episodes,
-          cover: data.cover ?? known.cover ?? null,
-        });
-      }
-      return data.edges || [];
-    };
-
-    const processEdges = async (m: any, depth = 0): Promise<void> => {
-      if (!m || cancelled) return;
-      if (!isAnime(m)) return;
-      const id = Number(m.id);
-      if (!Number.isFinite(id) || id <= 0) return;
-
-      if (!nodes.has(id)) {
-        if (nodes.size >= MAX_NODES) return;
-        if (depth >= 2) frontier.add(id);
-        // The info page's own relation edges carry AniList's `coverImage`
-        // object; the API flattens it to `cover`. Normalised here so a card
-        // drawn from either source finds its thumbnail in the same place.
-        nodes.set(id, {
-          ...m,
-          cover: m.cover ?? m.coverImage?.large ?? m.coverImage?.extraLarge ?? null,
-        });
-      }
-      if (depth >= 2) return;
-
-      const list = await edgesOf(id);
-      if (cancelled) return;
-
-      // Every child we are about to walk into needs its own relations. Asking
-      // for them together turns a level of the walk into one wave of requests
-      // instead of a queue of them — the traversal order is untouched.
-      if (depth + 1 < 2) {
-        for (const e of list) {
-          const n = e?.node;
-          if (n?.id && isAnime(n) && !EXCLUDED_RELATIONS.has(e.relationType)) {
-            getRelations(Number(n.id));
-          }
-        }
-      }
-
-      for (const e of list) {
-        const node = e?.node;
-        if (!node?.id) continue;
-        if (!isAnime(node) || EXCLUDED_RELATIONS.has(e.relationType)) continue;
-        const nid = Number(node.id);
-
-        const key = [nid, id].sort((a, b) => a - b).join("-");
-        const existing = edges.get(key);
-        if (existing) {
-          if (existing.label === "PARENT") edges.delete(key);
-          else continue;
-        }
-        const isPrequel = e.relationType === "PREQUEL";
-        edges.set(key, {
-          from: isPrequel ? nid : id,
-          to: isPrequel ? id : nid,
-          label: isPrequel ? "SEQUEL" : e.relationType || "OTHER",
-        });
-
-        await processEdges(node, depth + 1);
+    fetch(`/api/v2/relations/tree?id=${currentId}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
         if (cancelled) return;
-      }
-    };
-
-      await processEdges(root);
-      if (cancelled) return null;
-      onFirstPass?.({ nodes, edges });
-
-      for (let round = 0; round < MAX_ROUNDS && frontier.size > 0; round++) {
-        // AniList returns their batched Page in id order; same order here, so
-        // the same end of a disputed pair is the one that gets visited first.
-        const ids = Array.from(frontier).sort((a, b) => a - b);
-        frontier.clear();
-
-        // TWO requests for the whole round, not two per node.
-        //
-        // Registering the round's own ids batches them, but each node's
-        // CHILDREN were only discovered when its turn came round — and its
-        // turn came after the previous node had been awaited. So a round of
-        // twelve nodes serialised into twelve requests, one behind the other,
-        // which is the trickle you see: a few cards, a pause, a few more.
-        //
-        // Awaiting the round's payloads up front lets us register everything
-        // they point at in one further burst, so by the time the sequential
-        // walk starts, every fetch it needs is already in flight. The walk
-        // itself is untouched — prefetching decides nothing about order.
-        const payloads = await Promise.all(ids.map((id) => getRelations(id)));
-        if (cancelled) return null;
-        for (const data of payloads) {
-          for (const e of data?.edges || []) {
-            const n = e?.node;
-            if (n?.id && isAnime(n) && !EXCLUDED_RELATIONS.has(e.relationType)) {
-              getRelations(Number(n.id));
-            }
-          }
-        }
-
-        for (const id of ids) {
-          if (cancelled) return null;
-          await processEdges(nodes.get(id) ?? { id, type: "ANIME" });
-        }
-        // Only the last round repaints. Publishing every round made the board
-        // grow four or five times under the viewer, each growth re-framing it.
-        if (frontier.size === 0 || round === MAX_ROUNDS - 1) onFirstPass?.({ nodes, edges });
-      }
-      return { nodes, edges };
-    };
-
-    const publish = (r: Walked) =>
-      setTree({ nodes: Array.from(r.nodes.values()), edges: Array.from(r.edges.values()) });
-
-    /**
-     * The franchise's own starting point: its oldest entry, by AniList id.
-     *
-     * Any rule would do as long as it names the SAME node from every page —
-     * that is the whole job. The oldest is the one that also gives the walk the
-     * picture it was designed for, a franchise read outwards from where it
-     * began, which is the board this view has always drawn on the first
-     * season's page.
-     */
-    const rootOf = (walked: Walked) =>
-      Array.from(walked.nodes.keys()).reduce((a, b) => (b < a ? b : a), Infinity);
-
-    (async () => {
-      // First pass from here, because this page already holds its relations —
-      // it paints the neighbourhood immediately and, on the way, discovers who
-      // the franchise's root is.
-      let result = await walkFrom(
-        {
-          id: currentId,
-          type: "ANIME",
-          title: currentTitle,
-          format: currentFormat,
-          episodes: currentEpisodes,
-          cover: currentCover ?? null,
-        },
-        publish
-      );
-      if (!result || cancelled) return;
-
-      /**
-       * Then the same walk again from the root, and THAT is what stays on
-       * screen — the identical board from every page of the franchise.
-       *
-       * It costs no request: the first walk has already pulled every node's
-       * relations into `relCache`, so the second reads them from memory. The
-       * loop is for the case where re-rooting brings in an older entry the
-       * first walk never reached; it settles in one round in practice.
-       */
-      let usedRoot = currentId;
-      for (let attempt = 0; attempt < 3; attempt++) {
-        const root = rootOf(result);
-        if (!Number.isFinite(root) || root === usedRoot) break;
-        const again = await walkFrom(result.nodes.get(root) ?? { id: root, type: "ANIME" });
-        if (!again || cancelled) return;
-        usedRoot = root;
-        result = again;
-      }
-      publish(result);
-      if (!cancelled) setWalking(false);
-    })();
-
+        setTree({ nodes: data?.nodes || [], edges: data?.edges || [] });
+        setWalking(false);
+      })
+      .catch(() => {
+        // The board keeps whatever it had; the empty state says the rest.
+        if (!cancelled) setWalking(false);
+      });
     return () => {
       cancelled = true;
     };
-  }, [active, relations, currentId, currentTitle, currentFormat, currentEpisodes, currentCover]);
+    // Only the entry matters now — the walk no longer seeds itself from this
+    // page's own props, so their identity changing must not re-run it.
+  }, [active, currentId]);
 
   /** The walked franchise, laid out by dagre. */
   const { nodes, edges, width, height } = useMemo(() => {
@@ -1178,11 +924,14 @@ export default function RelationsGraph({
    *
    * Without it the graph opens at scale 1 anchored top-left, which for a large
    * franchise means looking at one corner of it and having to hunt for the
-   * rest — and the walk delivers its rounds one after another, so the board
-   * keeps growing under the viewer. Re-fitting on each size change is what
-   * makes that growth read as the picture settling rather than running away.
+   * rest.
+   *
+   * BEFORE the paint, not after: as an ordinary effect this ran once the
+   * browser had already drawn the new layout at the OLD transform, so every
+   * board flashed at `scale(1)` top-left for a frame before snapping into its
+   * frame. See `useIsoLayoutEffect`.
    */
-  useEffect(() => {
+  useIsoLayoutEffect(() => {
     if (!active) return;
     const box = canvasRef.current;
     if (!box || width === 0 || height === 0) return;
@@ -1942,7 +1691,36 @@ export default function RelationsGraph({
         onPointerUp={onPointerUp}
         onPointerLeave={onPointerUp}
       >
-        {nodes.length <= 1 ? (
+        {walking && nodes.length === 0 ? (
+          /**
+           * The board being built, said as a board.
+           *
+           * The franchise arrives in one answer now, so between opening the
+           * page and that answer there is nothing to draw — and an empty dot
+           * grid with a line of grey text reads as "this anime has no
+           * relations", which is the one thing it must not say. Ghost cards
+           * strung along a rank tell you the shape that is coming.
+           */
+          <div style={gStyles.skeleton} aria-busy="true">
+            <style>{SKELETON_KEYFRAMES}</style>
+            {SKELETON_CARDS.map((c, i) => (
+              <div
+                key={i}
+                style={{
+                  ...gStyles.skelCard,
+                  left: `${c.x}%`,
+                  top: `${c.y}%`,
+                  // Staggered, so the row reads left to right like the walk
+                  // that fills it rather than pulsing as one block.
+                  animationDelay: `${i * 0.12}s`,
+                }}
+              />
+            ))}
+            <span style={gStyles.skelLabel}>
+              {t("anime.graphWalking", { defaultValue: "still loading…" })}
+            </span>
+          </div>
+        ) : nodes.length <= 1 ? (
           <div style={gStyles.empty}>{t("anime.noRelated")}</div>
         ) : (
           <div
@@ -2063,6 +1841,31 @@ const NAV_KEYFRAMES = `@keyframes anig-nav {
   90%  { width: 95%; }
   100% { width: 100%; }
 }`;
+
+/** Same reason as NAV_KEYFRAMES: the board is portalled, so the pulse ships
+ *  with it. */
+const SKELETON_KEYFRAMES = `@keyframes anig-skel {
+  0%, 100% { opacity: 0.28; }
+  50%      { opacity: 0.62; }
+}`;
+
+/**
+ * Ghost cards in the shape of a franchise: four ranks, fanning out.
+ *
+ * Not a spinner — the thing being waited for has a recognisable form, and
+ * showing it means the real board replaces something the eye has already
+ * placed instead of arriving into a void.
+ */
+const SKELETON_CARDS = [
+  { x: 6, y: 42 },
+  { x: 27, y: 20 },
+  { x: 27, y: 62 },
+  { x: 48, y: 10 },
+  { x: 48, y: 42 },
+  { x: 48, y: 72 },
+  { x: 69, y: 26 },
+  { x: 69, y: 60 },
+];
 
 const gStyles: Record<string, CSSProperties> = {
   overlay: {
@@ -2329,6 +2132,35 @@ const gStyles: Record<string, CSSProperties> = {
     placeItems: "center",
     color: "var(--txt-3)",
     fontSize: 13,
+  },
+  skeleton: {
+    position: "absolute",
+    inset: 0,
+    // Above the dot grid, below the zoom controls — the controls stay live so
+    // the view is not frozen while the franchise is on its way.
+    pointerEvents: "none",
+  },
+  skelCard: {
+    position: "absolute",
+    width: "16%",
+    height: "20%",
+    minWidth: 54,
+    minHeight: 34,
+    borderRadius: 6,
+    border: "1px solid #26262d",
+    background: "linear-gradient(160deg, #17171c, #101014)",
+    animation: "anig-skel 1.4s ease-in-out infinite",
+  },
+  skelLabel: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 14,
+    textAlign: "center",
+    fontSize: 11.5,
+    fontWeight: 600,
+    letterSpacing: "0.04em",
+    color: "var(--txt-3)",
   },
   /* TextNode.svelte: 150px wide, bordered, #111 body under a #1e1e1e header. */
   node: {

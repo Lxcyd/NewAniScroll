@@ -155,7 +155,7 @@ export default function Tabs({ info, fanartsMeta, progress, seasonList, bonusFil
       </div>
       <div>
         {tab === "overview" && (
-          <Overview info={info} seasonList={seasonList} />
+          <Overview info={info} />
         )}
         {tab === "episodes" && (
           <Episodes
