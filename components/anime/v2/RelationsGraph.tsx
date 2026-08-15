@@ -1716,9 +1716,6 @@ export default function RelationsGraph({
                 }}
               />
             ))}
-            <span style={gStyles.skelLabel}>
-              {t("anime.graphWalking", { defaultValue: "still loading…" })}
-            </span>
           </div>
         ) : nodes.length <= 1 ? (
           <div style={gStyles.empty}>{t("anime.noRelated")}</div>
@@ -2150,17 +2147,6 @@ const gStyles: Record<string, CSSProperties> = {
     border: "1px solid #26262d",
     background: "linear-gradient(160deg, #17171c, #101014)",
     animation: "anig-skel 1.4s ease-in-out infinite",
-  },
-  skelLabel: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    bottom: 14,
-    textAlign: "center",
-    fontSize: 11.5,
-    fontWeight: 600,
-    letterSpacing: "0.04em",
-    color: "var(--txt-3)",
   },
   /* TextNode.svelte: 150px wide, bordered, #111 body under a #1e1e1e header. */
   node: {

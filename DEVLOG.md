@@ -1,5 +1,58 @@
 # DEVLOG
 
+## 2026-08-15 — Le graphe des relations se dessinait deux fois
+
+**Le symptôme** : sur SAO, Fate ou One Piece, le plateau se réorganisait tout
+seul une seconde ou deux après son apparition. Pas « quelques cartes
+s'ajoutent » — mesuré à la frame avec un enregistreur `requestAnimationFrame`
+injecté avant le code de l'app :
+
+| anime | 1er jet | 2e jet | écart | cartes déjà posées qui bougent | zoom |
+|---|---|---|---|---|---|
+| SAO | 13 @3,2 s | 19 @4,6 s | 1,43 s | **13/13**, 1 change de colonne, 1010 px | 0,318 → 0,276 |
+| Fate/stay night | 23 @5,2 s | 42 @7,7 s | 2,42 s | **23/23**, 2 colonnes, 2523 px | 0,138 → 0,109 |
+| One Piece | 54 @6,1 s | 60 @7,5 s | 1,35 s | **54/54**, 9859 px | 0,043 → 0,038 |
+
+**La cause, et elle était écrite dans le fichier** : `RelationsGraph` marchait la
+franchise deux fois — un brouillon depuis la page ouverte, puis le vrai plateau
+depuis la racine de la franchise (pour que toutes les pages d'une franchise
+dessinent la même image). Le commentaire du composant disait déjà pourquoi ces
+deux marches ne peuvent pas coïncider : l'ordre de traversée décide du sens
+d'une paire litigieuse (SAO II appelle le pilote de Fatal Bullet un PARENT, le
+pilote appelle II un OTHER) et dagre range sur le sens. Le premier jet était
+donc, par construction, une image jetable. Elle était affichée quand même.
+
+**Deux aggravants** : le recadrage (`fitView`) était un `useEffect`, donc chaque
+nouvelle mise en page était peinte une frame à `scale(1)` en haut à gauche avant
+de se recadrer (12 ms sur SAO, 13 ms sur One Piece) ; et il est clé sur
+`width x height`, donc il réinitialise aussi le zoom et le décalage du lecteur.
+
+**La correction** : la marche part côté serveur (`lib/anilist/franchiseTree.ts`,
+transcrite et non paraphrasée — un réécriture équivalente atterrit sur une autre
+image), derrière `/api/v2/relations/tree?id=`. Une seule réponse, donc une seule
+image. Le recadrage passe en `useLayoutEffect`. Vérifié : 1 seul état rendu au
+lieu de 3-4, et le plateau final est **au pixel** celui d'avant.
+
+**Le piège de mesure** : en local, l'endpoint mettait 45 s (One Piece) à 80 s
+(Fate) et répondait tronqué. Sur dev : 0,2 à 1,7 s, complet. La différence n'est
+pas le code — c'est que **le cache de réponses AniList est dans Upstash**
+(30 min), injoignable en local, donc chaque marche re-interroge AniList et se
+fait étrangler par le limiteur 28/min. Ne jamais conclure sur une latence
+mesurée en local. Voir [[no-local-player-testing]].
+
+**Ce que le déplacement rend plus risqué, et le garde-fou** : la marche était
+6-8 requêtes ayant chacune son timeout, elle est maintenant une seule. D'où un
+budget de 15 s au-delà duquel elle répond ce qu'elle a avec `partial: true`,
+mis en cache quelques minutes au lieu d'un jour — la requête suivante, sur un
+cache plus chaud, va plus loin.
+
+**Coût** : il baisse. Avant, la clé de cache du CDN était une liste d'ids dont
+la composition changeait avec la traversée (6 entrées par franchise) ; c'est
+maintenant une URL par anime, 24 h, plus un mémo par instance qui indexe TOUS
+les membres de la franchise (l'arbre est identique depuis n'importe quelle
+page — vérifié). Le nombre de requêtes AniList en amont est inchangé.
+
+
 ## 2026-08-14 — La page info sait enfin qu'un trailer est géo-bloqué
 
 La carte apprenait le blocage gratuitement (elle monte un lecteur, il proteste).
