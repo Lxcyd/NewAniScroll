@@ -150,9 +150,11 @@ async function main() {
   // Pull /latest for both TV and movies. If one fails, log and keep going
   // with an empty set — losing one category is better than crashing.
   let tvLatest = null;
+  let latestFailed = false;
   try {
     tvLatest = await fetchFanart(`https://webservice.fanart.tv/v3/tv/latest?date=${since}`);
   } catch (e) {
+    latestFailed = true;
     console.warn(`  ↳ TV /latest failed: ${e.message} — continuing without it`);
   }
   const sizeOf = (p) => p == null ? 0 : Array.isArray(p) ? p.length : Object.keys(p).length;
@@ -163,6 +165,7 @@ async function main() {
   try {
     movieLatest = await fetchFanart(`https://webservice.fanart.tv/v3/movies/latest?date=${since}`);
   } catch (e) {
+    latestFailed = true;
     console.warn(`  ↳ Movies /latest failed: ${e.message} — continuing without it`);
   }
   console.log(`  Movies /latest: ${sizeOf(movieLatest)} entries`);
@@ -243,16 +246,41 @@ async function main() {
     if (i < toRefresh.length - 1) await sleep(REQUEST_DELAY_MS);
   }
 
-  // Save the timestamp BEFORE classifier runs — if classifier crashes, we
-  // don't want to re-pull the same images, just retry classification.
+  const dt = Math.round((Date.now() - t0) / 1000);
+  console.log(`\n✓ Refresh done in ${Math.floor(dt / 60)}m${dt % 60}s — ${added} URL(s) added (INSERT OR IGNORE deduped)`);
+
+  /*
+   * THE CURSOR ONLY MOVES OVER GROUND WE ACTUALLY COVERED.
+   *
+   * `/latest?date=` is the only view we have of what changed, and it is a
+   * WINDOW, not a queue: ask it about the wrong interval and the changes in the
+   * right one are not late, they are gone. So when one of the two calls above
+   * failed, the run saw nothing for that half of the catalogue — and it used to
+   * write `last_check = now` all the same, which closes the window on a period
+   * nobody ever looked at. A fanart.tv outage of a few days therefore punched a
+   * permanent hole in the images, and left a green tick behind it.
+   *
+   * Leaving the cursor where it is costs one wider query on the next run —
+   * `/latest` takes any date, so the missed days are simply included — and the
+   * inserts are `INSERT OR IGNORE`, so re-covering ground is free.
+   *
+   * Still saved BEFORE the classifier: if that crashes we do not want to
+   * re-pull the same images, only to re-classify them.
+   */
+  if (latestFailed) {
+    console.error(
+      `::error::/latest partly failed — last_check left at ${since} ` +
+      `(${new Date(since * 1000).toISOString()}) so the next run re-covers this window`
+    );
+    process.exitCode = 1;
+    return;
+  }
+
   await db.execute({
     sql: `INSERT INTO scrape_state (key, value, updated_at) VALUES (?, ?, ?)
           ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
     args: [LAST_CHECK_KEY, String(nowS), nowS],
   });
-
-  const dt = Math.round((Date.now() - t0) / 1000);
-  console.log(`\n✓ Refresh done in ${Math.floor(dt / 60)}m${dt % 60}s — ${added} URL(s) added (INSERT OR IGNORE deduped)`);
   console.log(`  Saved last_check = ${nowS} (${new Date(nowS * 1000).toISOString()})`);
 }
 

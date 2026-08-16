@@ -2,32 +2,60 @@
 /**
  * Daily refresh of the Turso anime cache.
  *
- * Runs three jobs in order, each non-fatal — a partial run is better than no run.
+ * Runs three jobs in order, each non-fatal — a partial run is better than no
+ * run — but a run in which anything failed EXITS NON-ZERO. See main().
  *
- *   1. RELEASING refresh
- *      Re-fetch every RELEASING anime in the DB. Episode counts, scores, and
- *      airing schedule shift fast for these (TTL=1h), so we want the freshest
- *      data possible.
+ *   1. Airing-window refresh
+ *      Re-fetch every RELEASING and NOT_YET_RELEASED anime in the DB. Episode
+ *      counts, scores and airing dates shift fast for these, and the flip from
+ *      one status to the other is the single most time-sensitive fact we hold.
  *
- *   2. UPDATED_AT delta sweep
- *      Walk Page(sort:UPDATED_AT_DESC) until we hit anime whose
- *      anilist_updated_at <= our highest-known anilist_updated_at. Anything
- *      above is a recent edit on AniList — we re-fetch each one. This catches
- *      description rewrites, cover changes, status flips, new relations, etc.
+ *   2. TTL refresh
+ *      Re-fetch rows whose `expires_at` has passed, most-recently-viewed
+ *      first, up to a per-run budget. This is the job that actually keeps the
+ *      catalogue current.
  *
  *   3. New-ID discovery
  *      Sweep Page(sort:ID_DESC) for AniList IDs higher than what we have in
  *      DB. Catches brand-new entries the bootstrap missed.
  *
- * Designed for GitHub Actions: short, idempotent, no state to ship between
- * runs. Errors in one job don't block the others.
+ * WHY JOB 2 IS A TTL SWEEP AND NOT AN `updatedAt` DELTA, since that is what it
+ * was for a year and the old design is the more obvious one.
+ *
+ * It walked Page(sort:UPDATED_AT_DESC) and stopped at the first entry not newer
+ * than MAX(anilist_updated_at) in our table. Two things were wrong with it, one
+ * fatal by itself:
+ *
+ *  - THE BASELINE WAS NOT A CURSOR. `MAX(anilist_updated_at)` is written by Job
+ *    1 (which runs first, on the very anime AniList edits most often) and by
+ *    every visitor's page view through `upsertAnime`. It therefore always read
+ *    "a few minutes ago" instead of "where the last sweep stopped". Measured on
+ *    every scheduled run from 2026-08-08 to 2026-08-16, without exception:
+ *    `page 1: 0/50 newer than baseline`, `0 edited anime refreshed`. The job had
+ *    never picked up a single edit. Under a multi-day AniList outage it was also
+ *    the loss the whole design was supposed to prevent: on recovery Job 1 pushes
+ *    the baseline to now and the outage window is skipped for good.
+ *
+ *  - AND A REAL CURSOR WOULD NOT HAVE SAVED IT. AniList bumps `updatedAt` in
+ *    bulk: probed 2026-08-16, pages 4 through 20 of UPDATED_AT_DESC all carried
+ *    the SAME second (15:07:57) — hundreds of media touched by one batch job of
+ *    theirs — and 55 of 345 ids came back twice across eight pages, which is
+ *    what unstable pagination over tied sort keys does. (What it does to the
+ *    entries it silently skips instead is the same thing, unobserved.) So the
+ *    stream is mostly noise, a day of it does not fit in the 100-page ceiling
+ *    the API enforces, and no amount of it can be trusted to be complete.
+ *
+ * `expires_at` has neither problem. It is not a cursor — the queue IS the state
+ * of the table — so a run that never happened costs a day of freshness and
+ * nothing else, and there is no window that can be skipped past. That is the
+ * outage answer this script was missing.
  *
  * Usage:
  *   node scripts/refresh-cache.mjs
- *   node scripts/refresh-cache.mjs --skip-releasing
- *   node scripts/refresh-cache.mjs --skip-delta
+ *   node scripts/refresh-cache.mjs --skip-airing
+ *   node scripts/refresh-cache.mjs --skip-ttl
  *   node scripts/refresh-cache.mjs --skip-discovery
- *   node scripts/refresh-cache.mjs --max-delta-pages=20
+ *   node scripts/refresh-cache.mjs --max-ttl-rows=2000
  */
 
 import { config } from "dotenv";
@@ -37,11 +65,35 @@ import { createClient } from "@libsql/client";
 
 // ─── CLI ─────────────────────────────────────────────────────────────────
 const args = new Set(process.argv.slice(2));
-const SKIP_RELEASING = args.has("--skip-releasing");
-const SKIP_DELTA = args.has("--skip-delta");
+// `--skip-releasing` is still accepted: it is what the workflow passed before
+// the job grew to cover NOT_YET_RELEASED too, and a flag rename should not
+// silently start running a job somebody asked to skip.
+const SKIP_AIRING = args.has("--skip-airing") || args.has("--skip-releasing");
+const SKIP_TTL = args.has("--skip-ttl") || args.has("--skip-delta");
 const SKIP_DISCOVERY = args.has("--skip-discovery");
-const maxDeltaArg = [...args].find((a) => a.startsWith("--max-delta-pages="));
-const MAX_DELTA_PAGES = maxDeltaArg ? parseInt(maxDeltaArg.split("=")[1], 10) : 50;
+/**
+ * How many expired rows one run may re-fetch.
+ *
+ * 50 ids per request and 2.1 s between them, so 6000 rows is 120 requests and
+ * about 4.5 minutes — comfortable inside the workflow's 30-minute ceiling, and
+ * enough to clear the backlog that a year without a working TTL sweep left
+ * (8965 expired rows on 2026-08-16) in under two runs, then keep up with ease.
+ */
+const maxTtlArg = [...args].find((a) => a.startsWith("--max-ttl-rows="));
+const MAX_TTL_ROWS = maxTtlArg ? parseInt(maxTtlArg.split("=")[1], 10) : 6000;
+/**
+ * And a wall clock over the row budget, because the row budget is a guess.
+ *
+ * A batch of 50 costs ~4 s on a runner and ~15 s from a French desktop, so
+ * 6000 rows is 12 minutes there and 35 here — past the workflow's own ceiling,
+ * where the process is killed mid-batch and the run goes red for no fault.
+ *
+ * Stopping early is free in this job and in no other: there is no cursor to
+ * leave inconsistent, and the rows not reached are still expired, so they are
+ * simply the head of the next run's queue. So the budget that matters is time.
+ */
+const maxMinutesArg = [...args].find((a) => a.startsWith("--max-minutes="));
+const MAX_TTL_MINUTES = maxMinutesArg ? parseFloat(maxMinutesArg.split("=")[1]) : 20;
 
 // ─── Config ──────────────────────────────────────────────────────────────
 const PER_PAGE = 50;
@@ -113,13 +165,6 @@ const QUERY_BY_IDS = `query($ids:[Int]){
   }
 }`;
 
-const QUERY_RECENT = `query($page:Int){
-  Page(page:$page, perPage:50){
-    pageInfo { hasNextPage currentPage }
-    media(sort:UPDATED_AT_DESC, type:ANIME){${FIELDS}}
-  }
-}`;
-
 const QUERY_NEW = `query($page:Int){
   Page(page:$page, perPage:50){
     pageInfo { hasNextPage currentPage }
@@ -142,20 +187,46 @@ function ttlForStatus(s) {
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-async function aniRequest(query, variables) {
-  const res = await fetch("https://graphql.anilist.co", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Accept: "application/json" },
-    body: JSON.stringify({ query, variables }),
-  });
+/**
+ * One request, with the two failures that are worth surviving.
+ *
+ * 429 was already handled and is not a failure at all — it is AniList pacing us.
+ * A 5xx or a dropped connection is: those are the shape an AniList wobble
+ * actually takes, and one of them used to abort the whole job, throwing away
+ * however many batches were still queued behind it. Three tries at 5 s and 15 s
+ * turns a blip into a pause. A run that is still failing after that is a real
+ * outage, and it is now reported as one (see main).
+ */
+async function aniRequest(query, variables, attempt = 1) {
+  const MAX_ATTEMPTS = 3;
+  const retry = async (why) => {
+    if (attempt >= MAX_ATTEMPTS) throw new Error(`${why} (after ${attempt} attempts)`);
+    const wait = attempt * 5000;
+    console.warn(`  ↳ ${why} — retrying in ${wait / 1000}s (${attempt}/${MAX_ATTEMPTS - 1})`);
+    await sleep(wait);
+    return aniRequest(query, variables, attempt + 1);
+  };
+
+  let res;
+  try {
+    res = await fetch("https://graphql.anilist.co", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ query, variables }),
+    });
+  } catch (e) {
+    return retry(`AniList unreachable: ${e.message}`);
+  }
 
   if (res.status === 429) {
     const retryAfter = res.headers.get("retry-after");
     const wait = (retryAfter ? Number(retryAfter) : 30) * 1000;
     console.warn(`  ↳ 429, sleeping ${wait}ms`);
     await sleep(wait);
-    return aniRequest(query, variables);
+    // Not counted as an attempt: being throttled is not a failure.
+    return aniRequest(query, variables, attempt);
   }
+  if (res.status >= 500) return retry(`AniList HTTP ${res.status}`);
   if (!res.ok) throw new Error(`AniList HTTP ${res.status}`);
   const json = await res.json();
   if (json.errors) throw new Error(`AniList errors: ${JSON.stringify(json.errors)}`);
@@ -217,13 +288,35 @@ async function upsertBatch(mediaList) {
   await db.batch(ops);
 }
 
-// ─── Job 1: refresh RELEASING ────────────────────────────────────────────
-async function refreshReleasing() {
-  console.log("\n┌─ Job 1: RELEASING refresh ─");
+// ─── Job 1: refresh the airing window ────────────────────────────────────
+/**
+ * RELEASING **and** NOT_YET_RELEASED, and the second half is a repair.
+ *
+ * Only RELEASING was refreshed here, on the reading that it is the status whose
+ * numbers move. But a NOT_YET_RELEASED anime that starts airing only becomes
+ * RELEASING if somebody re-fetches it, and this job's own query is what decides
+ * who gets re-fetched — so an anime that had not aired yet on the day it was
+ * ingested could never enter the list. Nothing else reached it either: the
+ * delta sweep picked up nothing (see the header) and its 24-hour TTL fed a job
+ * that did not exist.
+ *
+ * Measured on 2026-08-16, before this changed: 718 of 737 NOT_YET_RELEASED rows
+ * past their TTL, and 24 anime still listed as upcoming whose start date was up
+ * to three months in the past — "Kimi to Hanabi to Yakusoku to" (206819, due
+ * 2026-07-17) among them.
+ *
+ * The cost of the fix is 15 extra requests, about 30 seconds.
+ */
+async function refreshAiring() {
+  console.log("\n┌─ Job 1: airing-window refresh (RELEASING + NOT_YET_RELEASED) ─");
 
-  const r = await db.execute("SELECT id FROM anime WHERE status = 'RELEASING' ORDER BY popularity DESC NULLS LAST");
+  const r = await db.execute(
+    `SELECT id FROM anime
+      WHERE status IN ('RELEASING', 'NOT_YET_RELEASED')
+      ORDER BY popularity DESC NULLS LAST`
+  );
   const ids = r.rows.map((row) => Number(row.id));
-  console.log(`│  ${ids.length} RELEASING anime to refresh`);
+  console.log(`│  ${ids.length} anime in the airing window`);
 
   if (ids.length === 0) {
     console.log("└─ nothing to do");
@@ -246,59 +339,95 @@ async function refreshReleasing() {
   return { refreshed };
 }
 
-// ─── Job 2: UPDATED_AT delta sweep ───────────────────────────────────────
-async function deltaSweep() {
-  console.log("\n┌─ Job 2: UPDATED_AT delta sweep ─");
+// ─── Job 2: TTL refresh ──────────────────────────────────────────────────
+/**
+ * Re-fetch what has expired, most-recently-viewed first.
+ *
+ * NO CURSOR, and that is the whole point of it — see the header. The work queue
+ * is `expires_at < now`, which is a fact about the table rather than a memory of
+ * previous runs, so a run that failed, was skipped, or died halfway leaves the
+ * rows it did not reach exactly where they were: still expired, still queued,
+ * picked up by the next run. Days of AniList downtime cost freshness and cannot
+ * cost data.
+ *
+ * `last_accessed_at DESC` is what makes a partial run the right partial run:
+ * whatever the budget covers is the part of the catalogue people are actually
+ * looking at.
+ */
+async function ttlRefresh() {
+  console.log("\n┌─ Job 2: TTL refresh ─");
 
-  // Highest anilist_updated_at we currently know about. Anything above this on
-  // AniList is something we should pull.
-  const r = await db.execute(
-    "SELECT MAX(anilist_updated_at) AS max_at FROM anime WHERE anilist_updated_at IS NOT NULL"
-  );
-  const knownMax = Number(r.rows[0]?.max_at ?? 0);
-  console.log(`│  Highest known anilist_updated_at: ${knownMax} (${knownMax ? new Date(knownMax * 1000).toISOString() : "never"})`);
+  const now = Math.floor(Date.now() / 1000);
+  const backlog = await db.execute({
+    sql: "SELECT COUNT(*) AS n FROM anime WHERE expires_at < ?",
+    args: [now],
+  });
+  const total = Number(backlog.rows[0]?.n ?? 0);
+  console.log(`│  ${total} expired rows, budget ${MAX_TTL_ROWS} this run`);
 
-  if (!knownMax) {
-    console.log("└─ no baseline, skipping (run bootstrap first)");
-    return { refreshed: 0 };
+  if (total === 0) {
+    console.log("└─ nothing to do");
+    return { refreshed: 0, remaining: 0 };
   }
+
+  const r = await db.execute({
+    sql: `SELECT id FROM anime
+           WHERE expires_at < ?
+           ORDER BY last_accessed_at DESC
+           LIMIT ?`,
+    args: [now, MAX_TTL_ROWS],
+  });
+  const ids = r.rows.map((row) => Number(row.id));
 
   let refreshed = 0;
-  // AniList caps Page() at 100 pages — going past returns HTTP 400.
-  const cap = Math.min(MAX_DELTA_PAGES, 100);
-  for (let page = 1; page <= cap; page++) {
-    let data;
-    try {
-      data = await aniRequest(QUERY_RECENT, { page });
-    } catch (e) {
-      if (e.message.includes("HTTP 400")) {
-        console.warn(`│  ↳ hit AniList page cap at ${page} — stopping`);
-        break;
-      }
-      throw e;
+  let missing = 0;
+  let ranOut = false;
+  const deadline = Date.now() + MAX_TTL_MINUTES * 60_000;
+  for (let i = 0; i < ids.length; i += PER_PAGE) {
+    if (Date.now() > deadline) {
+      ranOut = true;
+      console.log(`│  ↳ ${MAX_TTL_MINUTES} min budget spent — stopping here`);
+      break;
     }
-    const media = data?.Page?.media || [];
-    if (media.length === 0) break;
+    const batch = ids.slice(i, i + PER_PAGE);
+    const data = await aniRequest(QUERY_BY_IDS, { ids: batch });
+    const got = data?.Page?.media || [];
+    await upsertBatch(got);
+    refreshed += got.length;
 
-    // Anything with updatedAt > knownMax is "new edit", everything from this
-    // point on in the sorted page is older than what we have → we can stop.
-    const newer = media.filter((m) => Number(m.updatedAt ?? 0) > knownMax);
-    if (newer.length > 0) {
-      await upsertBatch(newer);
-      refreshed += newer.length;
+    /*
+     * Ids AniList did not return — deleted or merged entries.
+     *
+     * Their row is untouched by the upsert, so `expires_at` stays in the past
+     * and they come back at the head of this very queue on every future run,
+     * for ever, spending the budget on the only rows in the table that can
+     * never be refreshed. Pushing their deadline out parks them without
+     * throwing away the copy we hold, which is the last one anybody has.
+     */
+    const returned = new Set(got.map((m) => Number(m.id)));
+    const gone = batch.filter((id) => !returned.has(id));
+    if (gone.length > 0) {
+      missing += gone.length;
+      await db.execute({
+        sql: `UPDATE anime SET expires_at = ?
+               WHERE id IN (${gone.map(() => "?").join(",")})`,
+        args: [now + 7 * DAY, ...gone],
+      });
     }
 
-    console.log(`│  ↳ page ${page}: ${newer.length}/${media.length} newer than baseline`);
-
-    // First page where every entry is older than baseline → done.
-    if (newer.length < media.length) break;
-    if (!data.Page.pageInfo?.hasNextPage) break;
-
-    await sleep(REQUEST_DELAY_MS);
+    if ((i / PER_PAGE) % 10 === 0 || i + PER_PAGE >= ids.length) {
+      console.log(`│  ↳ ${Math.min(i + PER_PAGE, ids.length)}/${ids.length} — ${refreshed} refreshed`);
+    }
+    if (i + PER_PAGE < ids.length) await sleep(REQUEST_DELAY_MS);
   }
 
-  console.log(`└─ ${refreshed} edited anime refreshed`);
-  return { refreshed };
+  const remaining = Math.max(0, total - refreshed - missing);
+  if (missing > 0) console.log(`│  ${missing} id(s) unknown to AniList — parked for 7 days`);
+  console.log(
+    `└─ ${refreshed} refreshed, ${remaining} still expired (next run takes them)` +
+    (ranOut ? " — budget-limited" : "")
+  );
+  return { refreshed, remaining };
 }
 
 // ─── Job 3: new-ID discovery ─────────────────────────────────────────────
@@ -338,29 +467,44 @@ async function discoverNew() {
 // ─── Main ────────────────────────────────────────────────────────────────
 async function main() {
   const t0 = Date.now();
-  let r1 = { refreshed: 0 }, r2 = { refreshed: 0 }, r3 = { added: 0 };
+  let r1 = { refreshed: 0 }, r2 = { refreshed: 0, remaining: 0 }, r3 = { added: 0 };
 
-  if (!SKIP_RELEASING) {
-    try { r1 = await refreshReleasing(); }
-    catch (e) { console.error("✘ Job 1 failed:", e.message); }
-  }
-  if (!SKIP_DELTA) {
-    try { r2 = await deltaSweep(); }
-    catch (e) { console.error("✘ Job 2 failed:", e.message); }
-  }
-  if (!SKIP_DISCOVERY) {
-    try { r3 = await discoverNew(); }
-    catch (e) { console.error("✘ Job 3 failed:", e.message); }
-  }
+  /*
+   * A FAILED JOB FAILS THE RUN, and its absence is how a multi-day outage could
+   * have gone unnoticed.
+   *
+   * Each job stays wrapped — one of them falling over should not deprive us of
+   * the other two — but the process used to exit 0 regardless, so AniList being
+   * down for three days would have shown three green ticks in the Actions tab
+   * and nothing else. The whole point of catching data loss early is being told.
+   */
+  const failures = [];
+  const run = async (label, fn) => {
+    try { return await fn(); }
+    catch (e) {
+      failures.push(`${label}: ${e.message}`);
+      console.error(`::error::${label} failed: ${e.message}`);
+      return null;
+    }
+  };
+
+  if (!SKIP_AIRING) r1 = (await run("Job 1 (airing window)", refreshAiring)) ?? r1;
+  if (!SKIP_TTL) r2 = (await run("Job 2 (TTL refresh)", ttlRefresh)) ?? r2;
+  if (!SKIP_DISCOVERY) r3 = (await run("Job 3 (discovery)", discoverNew)) ?? r3;
 
   const dt = Math.round((Date.now() - t0) / 1000);
   console.log(`\n✓ Refresh complete in ${Math.floor(dt / 60)}m${dt % 60}s`);
-  console.log(`  RELEASING refreshed: ${r1.refreshed}`);
-  console.log(`  Edits picked up:     ${r2.refreshed}`);
-  console.log(`  New IDs discovered:  ${r3.added}`);
+  console.log(`  Airing window refreshed: ${r1.refreshed}`);
+  console.log(`  Expired rows refreshed:  ${r2.refreshed} (${r2.remaining} left for next run)`);
+  console.log(`  New IDs discovered:      ${r3.added}`);
 
   const total = await db.execute("SELECT COUNT(*) AS n FROM anime");
-  console.log(`  Total in DB:         ${total.rows[0].n}`);
+  console.log(`  Total in DB:             ${total.rows[0].n}`);
+
+  if (failures.length > 0) {
+    console.error(`\n✘ ${failures.length} job(s) failed:\n  - ${failures.join("\n  - ")}`);
+    process.exitCode = 1;
+  }
 }
 
 main().catch((e) => {
