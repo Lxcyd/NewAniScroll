@@ -197,11 +197,18 @@ const DONE_GREEN = "#22c55e";
  * a bare line of text at the top of its column, this one is a word centred on a
  * row of buttons, and two columns of a grid cannot measure each other. Both
  * sides pin their heading row to this number, so the headings share a baseline
- * and the two cards under them start on the same line. It is a floor, not a
- * cap — the row is ~23px of chips, and the few spare pixels keep a slightly
- * taller control from breaking the alignment.
+ * and the two cards under them start on the same line.
+ *
+ * It MUST sit above the row's natural height, which is what 26 got wrong: the
+ * chips measure 27.5 in the browser, so the floor did nothing on this side
+ * while the other side obeyed it, and the two rows came out 26 against 27.5.
+ * Half of that put the headings 0.75px apart and the full 1.5px separated the
+ * cards — invisible at 100%, plain at any zoom. Measured on dev, not guessed.
+ *
+ * A floor rather than a fixed height so the row can still grow if the chips
+ * wrap; below 900px the grid is one column and there is nothing left to align.
  */
-export const EMBED_HEADER_H = 26;
+export const EMBED_HEADER_H = 28;
 
 type Props = {
   open: boolean;
