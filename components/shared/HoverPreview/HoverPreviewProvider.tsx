@@ -6,6 +6,7 @@ import { PREVIEW_ATTR } from "@/lib/preview/anchor";
 import { isPreviewLocked, onPreviewUnlocked } from "@/lib/preview/previewLock";
 import { fetchPreview } from "@/lib/preview/previewStore";
 import { startViewportPrefetch } from "@/lib/preview/viewportPrefetch";
+import { usePreviewPrefs } from "@/lib/prefs/previewPrefs";
 import PreviewCard, { type AnchorRect } from "./PreviewCard";
 import TrailerStage from "./TrailerStage";
 
@@ -26,21 +27,10 @@ import TrailerStage from "./TrailerStage";
  *
  * The timing is Hayase's in shape — a delay re-armed on every `pointermove`, so
  * the card appears when the pointer STOPS on a poster and never while it is
- * travelling across one — but not in length. See {@link STILL_TIME}.
+ * travelling across one — but not in length. The length is the viewer's now:
+ * see `lib/prefs/previewPrefs.ts`, which also holds the reasoning that used to
+ * live here and sets the floor of the range.
  */
-
-/**
- * How long the pointer must hold still before a card opens.
- *
- * Hayase uses 30 ms. That is short enough to be beaten by a hand that is still
- * moving: micro-adjustments over a small area are not a smooth stream of events
- * but bursts separated by pauses, and any pause longer than the delay opens the
- * card. The observed result was backwards — sweeping fast across a row showed
- * nothing, while fidgeting in one spot popped a card the user had not settled
- * on. A window wider than the gaps in a moving hand is what makes "static"
- * actually mean static; the cost is that a deliberate stop waits this long.
- */
-const STILL_TIME = 200;
 
 /** Below this the popup would cover most of the viewport — not worth showing. */
 const MIN_VIEWPORT_WIDTH = 1024;
@@ -58,6 +48,7 @@ function rectOf(el: HTMLElement): AnchorRect {
 
 export default function HoverPreviewProvider() {
   const router = useRouter();
+  const prefs = usePreviewPrefs();
   const [enabled, setEnabled] = useState(false);
   const [open, setOpen] = useState<OpenState | null>(null);
 
@@ -85,7 +76,10 @@ export default function HoverPreviewProvider() {
   // would pop the card over the link the user just pressed.
   useEffect(() => {
     const mq = window.matchMedia("(hover: hover) and (pointer: fine)");
-    const apply = () => setEnabled(mq.matches && window.innerWidth >= MIN_VIEWPORT_WIDTH);
+    // The viewer's switch is ANDed with the two conditions the device imposes:
+    // turning it on cannot make a preview work on a touch screen.
+    const apply = () =>
+      setEnabled(prefs.enabled && mq.matches && window.innerWidth >= MIN_VIEWPORT_WIDTH);
     apply();
     mq.addEventListener("change", apply);
     window.addEventListener("resize", apply);
@@ -93,7 +87,7 @@ export default function HoverPreviewProvider() {
       mq.removeEventListener("change", apply);
       window.removeEventListener("resize", apply);
     };
-  }, []);
+  }, [prefs.enabled]);
 
   /**
    * Warm the connection the trailer will need, at page load rather than at
@@ -193,7 +187,7 @@ export default function HoverPreviewProvider() {
         timer = null;
         pendingEl = null;
         show(el);
-      }, STILL_TIME);
+      }, prefs.delay);
     };
 
     const arm = (el: HTMLElement) => {
@@ -337,7 +331,9 @@ export default function HoverPreviewProvider() {
       document.removeEventListener("mouseleave", close);
       window.removeEventListener("blur", close);
     };
-  }, [enabled]);
+    // `prefs.delay` is read inside the countdown, so the listeners have to be
+    // rebound when it changes or the old value keeps arming the card.
+  }, [enabled, prefs.delay]);
 
   // A popup surviving into the next page would float over unrelated content.
   useEffect(() => {

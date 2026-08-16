@@ -17,6 +17,13 @@ import { useDataSaver, setDataSaver } from "@/lib/prefs/dataSaver";
 import { useNotifPrefs, setNotifPrefs } from "@/lib/prefs/notifPrefs";
 import { useClickTarget, setClickTarget, ClickTarget } from "@/lib/prefs/clickTarget";
 import { useHideSpoilers, setHideSpoilers } from "@/lib/prefs/spoilerPrefs";
+import {
+  usePreviewPrefs,
+  setPreviewEnabled,
+  setPreviewDelay,
+  PREVIEW_MIN_DELAY,
+  PREVIEW_MAX_DELAY,
+} from "@/lib/prefs/previewPrefs";
 import { useServerPref, setServerPref } from "@/lib/prefs/serverPref";
 import SERVERS from "@/lib/servers";
 import { clearAllProgress } from "@/lib/watch/progress";
@@ -275,6 +282,7 @@ export default function Settings() {
   const notifPrefs = useNotifPrefs();
   const clickTarget = useClickTarget();
   const hideSpoilers = useHideSpoilers();
+  const previewPrefs = usePreviewPrefs();
   const serverPref = useServerPref();
   const accent = useAccent();
   const localList = useLocalList();
@@ -800,6 +808,44 @@ export default function Settings() {
                 checked={hideSpoilers}
                 onChange={setHideSpoilers}
               />
+              <Toggle
+                label={t("settings.browsing.hoverPreview")}
+                desc={t("settings.browsing.hoverPreviewDesc")}
+                checked={previewPrefs.enabled}
+                onChange={setPreviewEnabled}
+              />
+              {/* Hidden rather than disabled when the preview is off: a delay
+                  for something that never opens is a control with nothing to
+                  act on, and a greyed row invites a click that does nothing. */}
+              {previewPrefs.enabled && (
+                <div className="flex items-center justify-between gap-4 py-3">
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium">
+                      {t("settings.browsing.hoverDelay")}
+                    </div>
+                    <div className="text-white/50 text-xs mt-0.5">
+                      {t("settings.browsing.hoverDelayDesc")}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3 shrink-0">
+                    <input
+                      type="range"
+                      min={PREVIEW_MIN_DELAY}
+                      max={PREVIEW_MAX_DELAY}
+                      step={100}
+                      value={previewPrefs.delay}
+                      onChange={(e) => {
+                        const ms = parseInt(e.target.value, 10);
+                        if (Number.isFinite(ms)) setPreviewDelay(ms);
+                      }}
+                      className="w-32 accent-action cursor-pointer"
+                    />
+                    <span className="text-sm tabular-nums text-white/80 w-12 text-right">
+                      {(previewPrefs.delay / 1000).toFixed(1)}s
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
           </section>
 

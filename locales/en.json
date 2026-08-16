@@ -84,7 +84,11 @@
       "infoPage": "Info page",
       "watchPage": "Watch page",
       "hideSpoilers": "Hide spoilers",
-      "hideSpoilersDesc": "Blur episode thumbnails and hide episode titles and descriptions throughout the app to avoid spoilers."
+      "hideSpoilersDesc": "Blur episode thumbnails and hide episode titles and descriptions throughout the app to avoid spoilers.",
+      "hoverPreview": "Hover preview",
+      "hoverPreviewDesc": "Show a card with the trailer when the pointer comes to rest on an anime.",
+      "hoverDelay": "Preview delay",
+      "hoverDelayDesc": "How long the pointer must hold still on an anime before the card opens."
     },
     "player": {
       "title": "Video player",

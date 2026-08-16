@@ -84,7 +84,11 @@
       "infoPage": "Page d'info",
       "watchPage": "Page de visionnage",
       "hideSpoilers": "Masquer les spoilers",
-      "hideSpoilersDesc": "Floute les vignettes d'épisodes et masque les titres et descriptions d'épisodes dans toute l'app pour éviter les spoilers."
+      "hideSpoilersDesc": "Floute les vignettes d'épisodes et masque les titres et descriptions d'épisodes dans toute l'app pour éviter les spoilers.",
+      "hoverPreview": "Aperçu au survol",
+      "hoverPreviewDesc": "Affiche une fiche avec la bande-annonce quand le pointeur s'arrête sur un anime.",
+      "hoverDelay": "Délai avant l'aperçu",
+      "hoverDelayDesc": "Temps d'immobilité du pointeur sur un anime avant que la fiche s'ouvre."
     },
     "player": {
       "title": "Lecteur vidéo",

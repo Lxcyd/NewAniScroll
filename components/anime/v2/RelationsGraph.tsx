@@ -748,8 +748,12 @@ export default function RelationsGraph({
     setTree(cached ?? { nodes: [], edges: [] });
     setHidden(new Set());
     setMoved(new Map());
-    setSelected(null);
     fittedFor.current = "";
+    // NOT the selection: it belongs to the effect above, which puts it on the
+    // new entry so the board opens already answering "what comes after this
+    // one". Clearing it here ran second — same [active, currentId] key, later
+    // in the file — and left the board with no chain, so the running order's
+    // 1, 2, 3 disappeared.
     // A cached franchise is on screen already — saying "still loading" over it
     // would be a spinner for work that is done.
     setWalking(!cached);
