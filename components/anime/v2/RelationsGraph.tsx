@@ -11,6 +11,7 @@ import { useRouter } from "next/router";
 import { createPortal } from "react-dom";
 import dagre from "@dagrejs/dagre";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
+import { FRANCHISE_TREE_V } from "@/lib/anilist/franchiseTreeVersion";
 import { animeHref, useClickTarget } from "@/lib/prefs/clickTarget";
 import { useTranslation } from "react-i18next";
 import { useSession } from "next-auth/react";
@@ -322,9 +323,12 @@ type NodeMeta = {
  *
  * `v` is not read by the route: it is the CDN key. The answer holds for a day,
  * so without it a franchise walked under older rules would keep serving that
- * board until tomorrow. Bump it on any change to the walk's shape.
+ * board until tomorrow. The number is shared with the server's own cache — see
+ * FRANCHISE_TREE_V — because the two hold the same answer and must forget it
+ * on the same day.
  */
-export const relationsTreeUrl = (id: number) => `/api/v2/relations/tree?id=${id}&v=5`;
+export const relationsTreeUrl = (id: number) =>
+  `/api/v2/relations/tree?id=${id}&v=${FRANCHISE_TREE_V}`;
 
 /**
  * Franchises already walked, kept for the life of the tab.

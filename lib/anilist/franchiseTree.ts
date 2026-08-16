@@ -1,5 +1,7 @@
 import { fetchRelationsBatch } from "./relationsBatch";
+import { FRANCHISE_TREE_V } from "./franchiseTreeVersion";
 import type { RelationsPayload } from "./relationsPayload";
+import { redis } from "../redis";
 
 /**
  * The franchise graph's walk, run on the server.
@@ -369,23 +371,142 @@ const memo = new Map<number, { at: number; tree: FranchiseTree }>();
 const MEMO_TTL_MS = 60 * 60 * 1000;
 const MEMO_MAX = 200;
 
-export async function getFranchiseTree(id: number): Promise<FranchiseTree> {
-  const hit = memo.get(id);
-  if (hit && Date.now() - hit.at < MEMO_TTL_MS) return hit.tree;
+/**
+ * The SHARED cache, which is the one that decides how often a walk happens at
+ * all.
+ *
+ * The two caches that existed are both private to whoever answered: the memo
+ * above belongs to one warm lambda, and the CDN entry in front of the route
+ * belongs to one PoP. So the same franchise was re-walked by every recycled
+ * instance and by every region — measured on dev, cold: 2.3 s for Death Note,
+ * 5.0 s for Fullmetal Alchemist, and 45 s for One Piece against a cache with
+ * nothing in it. That is the "sometimes slow": it is not a slow path, it is the
+ * ordinary path, paid again by whoever lands somewhere cold.
+ *
+ * One Upstash key makes the walk cost once per franchise per day for everybody.
+ * The CDN still absorbs the repeat traffic, so this is read on a CDN MISS only —
+ * a command per miss, not per visit, which is what keeps it far away from the
+ * free tier's ceiling.
+ */
+const CACHE_TTL_S = 24 * 60 * 60;
+const cacheKey = (id: number) => `ftree:v${FRANCHISE_TREE_V}:${id}`;
+const lockKey = (id: number) => `ftree:lock:v${FRANCHISE_TREE_V}:${id}`;
+/** Long enough for the slowest walk we have measured, short enough that a
+ *  crashed holder does not park the franchise for a minute. */
+const LOCK_TTL_S = 20;
+/** How long a request that lost the lock waits for the winner's answer. */
+const WAIT_TRIES = 8;
+const WAIT_MS = 400;
 
-  const tree = await buildFranchiseTree(id);
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-  // A truncated walk must not be what the next hour serves — the point of
-  // flagging it is that the following request, against a warmer cache, gets
-  // further.
-  if (tree.partial) return tree;
+/**
+ * Every read and write here is best-effort by construction.
+ *
+ * `redis` is undefined when Upstash is not configured (local, previews without
+ * the env), and Upstash itself can be down or over quota. None of that is a
+ * reason to fail: the walk still works, it is merely slower — which is exactly
+ * the behaviour this file had before the cache existed.
+ */
+async function readCache(id: number): Promise<FranchiseTree | null> {
+  try {
+    const raw = await redis?.get(cacheKey(id));
+    if (!raw) return null;
+    const tree = JSON.parse(raw) as FranchiseTree;
+    return Array.isArray(tree?.nodes) && tree.nodes.length > 0 ? tree : null;
+  } catch {
+    return null;
+  }
+}
 
-  // Keyed on every member, not just the root: the answer is the same from any
-  // page of the franchise, so the next one of them is a map lookup.
+async function writeCache(id: number, tree: FranchiseTree): Promise<void> {
+  try {
+    await redis?.set(cacheKey(id), JSON.stringify(tree), "EX", CACHE_TTL_S);
+  } catch {
+    /* the answer is already on its way to the caller */
+  }
+}
+
+/** Fills the memo under every member, so any page of the franchise is a lookup. */
+function remember(id: number, tree: FranchiseTree): void {
   if (memo.size > MEMO_MAX) memo.clear();
   const at = Date.now();
   for (const n of tree.nodes) memo.set(n.id, { at, tree });
   memo.set(id, { at, tree });
+}
+
+/**
+ * Which cache answered, for the route's `x-tree-cache` header.
+ *
+ * Handed in by the caller rather than kept in a module variable: one lambda
+ * serves several requests at once, and a shared "last source" would hand a
+ * franchise's label to whichever request happened to finish next. A diagnostic
+ * that lies under load is worse than none — that is the exact shape of the
+ * measurement mistakes this feature was written to stop making.
+ */
+export type TreeSource = "memo" | "redis" | "walk";
+export type TreeMeta = { source: TreeSource };
+
+export async function getFranchiseTree(
+  id: number,
+  meta?: TreeMeta,
+): Promise<FranchiseTree> {
+  const mark = (s: TreeSource) => {
+    if (meta) meta.source = s;
+  };
+  const hit = memo.get(id);
+  if (hit && Date.now() - hit.at < MEMO_TTL_MS) {
+    mark("memo");
+    return hit.tree;
+  }
+
+  const cached = await readCache(id);
+  if (cached) {
+    mark("redis");
+    remember(id, cached);
+    return cached;
+  }
+
+  /*
+   * ONE walk per franchise, even under a burst.
+   *
+   * AniList's budget is 28 queries a minute for the WHOLE fleet, so ten
+   * visitors arriving on a cold One Piece do not cost ten times one walk — they
+   * cost each other their quota, and the walk that runs out of budget answers
+   * `partial`. Whoever takes the lock walks; the others wait for that answer and
+   * only walk themselves if it never comes.
+   */
+  let held = false;
+  try {
+    held = (await redis?.set(lockKey(id), "1", "EX", LOCK_TTL_S, "NX")) === "OK";
+  } catch {
+    /* no lock available — everyone walks, as before */
+  }
+
+  if (!held && redis) {
+    for (let i = 0; i < WAIT_TRIES; i++) {
+      await sleep(WAIT_MS);
+      const arrived = await readCache(id);
+      if (arrived) {
+        mark("redis");
+        remember(id, arrived);
+        return arrived;
+      }
+    }
+    // The holder died, or is slower than we are willing to wait. Walk.
+  }
+
+  mark("walk");
+  const tree = await buildFranchiseTree(id);
+
+  // A truncated walk must not be what the next hour serves — the point of
+  // flagging it is that the following request, against a warmer cache, gets
+  // further. That applies twice over to the shared cache, where it would be
+  // everyone's answer for a day.
+  if (tree.partial) return tree;
+
+  remember(id, tree);
+  await writeCache(id, tree);
 
   return tree;
 }

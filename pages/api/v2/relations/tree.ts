@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { getFranchiseTree } from "@/lib/anilist/franchiseTree";
+import { getFranchiseTree, type TreeMeta } from "@/lib/anilist/franchiseTree";
 
 /**
  * GET /api/v2/relations/tree?id=N
@@ -43,8 +43,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   let tree: Awaited<ReturnType<typeof getFranchiseTree>> | null = null;
+  const meta: TreeMeta = { source: "walk" };
   try {
-    tree = await getFranchiseTree(id);
+    tree = await getFranchiseTree(id, meta);
   } catch {
     /* treated as a miss */
   }
@@ -62,6 +63,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   // most of the board, immediately — but it must not be what everybody sees
   // until tomorrow.
   const ttl = tree.partial ? PARTIAL_TTL_S : TTL_S;
+  /*
+   * Which cache answered — `memo`, `redis` or `walk`.
+   *
+   * Diagnostic, and it earns its line: from outside, the shared cache is
+   * invisible. Ask twice and the per-instance memo answers the second call, so
+   * a fast reply proves nothing about whether the walk is now paid once for
+   * everybody or once per lambda. This says which.
+   */
+  res.setHeader("x-tree-cache", meta.source);
   res.setHeader("Cache-Control", `public, max-age=${tree.partial ? 60 : 600}`);
   res.setHeader("CDN-Cache-Control", `public, s-maxage=${ttl}, stale-while-revalidate=${ttl}`);
   return res.status(200).json(tree);
