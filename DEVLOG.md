@@ -1,5 +1,47 @@
 # DEVLOG
 
+## 2026-08-16 — Le trailer de la carte, parfois noir, et qui marchait « au bout de plusieurs essais »
+
+**Le symptôme** : sur certaines cartes le haut restait un rectangle noir — pas
+l'artwork, du noir — et re-survoler la même carte deux ou trois fois finissait
+par faire apparaître la bande-annonce.
+
+**Ce que ce noir est** : le fond de course de `TrailerStage`. `REVEAL_ANYWAY_MS`
+était un `setTimeout(reveal, 4000)` sec, écrit pour un seul scénario — le
+message qui n'arrive pas alors que l'image, elle, est bien là. Il ne demandait
+jamais s'il y avait quelque chose à révéler. Quand le chargement de la vidéo se
+perd, il lève quand même la bannière au bout de 4 s, et découvre un lecteur qui
+n'affiche rien. D'où le noir, et d'où le fait que seul un nouveau survol (un
+nouveau `loadVideoById`) le corrige.
+
+**Pourquoi le chargement se perd** : le lecteur ignore ce qu'on lui envoie tant
+qu'il n'a pas fini de charger la vidéo précédente — la même règle qui faisait
+courir la lueur avec une demi-seconde d'avance. Un pointeur qui balaie un
+carrousel lui donne un id toutes les quelques centaines de ms : celui qui tombe
+au mauvais moment est jeté, et `loadedIdRef` croit pourtant l'avoir chargé.
+
+**Le second chemin, plus vicieux** : la poignée de main `listening` s'arrête 4 s
+après le boot. Si l'iframe n'a pas fini de charger d'ici là (cache froid, boot
+au ralenti), le lecteur n'est jamais abonné et **ne parle plus de la session** —
+les commandes passent, la vidéo joue, mais aucun `currentTime` n'arrive, donc la
+révélation n'a plus sa preuve et *toutes* les cartes tombent dans le fond de
+course.
+
+**La correction**, deux endroits :
+
+- le fond de course demande d'abord si une position a été rapportée pour cette
+  carte. Oui → il révèle, comme avant. Non → il ne révèle rien, redemande la
+  vidéo une fois, et s'il est toujours muet 4 s plus tard rend la main à
+  l'artwork (`onHide`) au lieu du noir ;
+- `listening` est réémis 2 s à chaque ouverture de carte, en plus du boot. Un
+  lecteur déjà abonné répond en renvoyant ce qu'il aurait envoyé de toute façon.
+
+**Non vérifié en conditions réelles** : le défaut est intermittent et se mesure
+sur dev, pas en local (voir [[no-local-player-testing]]). Ce qui est établi ici
+c'est le mécanisme du noir — un `reveal` inconditionnel — pas la fréquence de
+chacune des deux causes.
+
+
 ## 2026-08-15 — Le graphe des relations se dessinait deux fois
 
 **Le symptôme** : sur SAO, Fate ou One Piece, le plateau se réorganisait tout

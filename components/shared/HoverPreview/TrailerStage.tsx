@@ -408,6 +408,8 @@ export default function TrailerStage() {
   handlersRef.current = attachment?.handlers ?? null;
   const revealTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const forceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Has THIS card already been given a second load. See the backstop. */
+  const retriedRef = useRef(false);
 
   /**
    * Fire a command at the player.
@@ -442,6 +444,24 @@ export default function TrailerStage() {
     if (glowLoadedRef.current && MIRRORED.has(func)) {
       postGlow(func, args);
     }
+  }, []);
+
+  /**
+   * Ask both players to start reporting.
+   *
+   * The embed says nothing until it has received a `listening`, and it can miss
+   * one sent while it is still booting — so this is repeated rather than sent
+   * once, both at boot and again on every card (see the two effects below).
+   */
+  const subscribe = useCallback(() => {
+    // The API's own shape: `id` and `channel` alongside the event. A bare
+    // `{event:"listening"}` is accepted by some builds and ignored by others.
+    const msg = JSON.stringify({ event: "listening", id: 1, channel: "widget" });
+    if (loadedRef.current) frameRef.current?.contentWindow?.postMessage(msg, ORIGIN);
+    // The copy is subscribed as well, and only for its clock: a player that is
+    // never asked to speak reports nothing, and an unmeasured drift is one that
+    // cannot be corrected.
+    if (glowLoadedRef.current) glowFrameRef.current?.contentWindow?.postMessage(msg, ORIGIN);
   }, []);
 
   /**
@@ -709,7 +729,46 @@ export default function TrailerStage() {
         post("playVideo");
       }, FORCE_PLAY_MS);
     }
-    revealTimerRef.current = setTimeout(reveal, REVEAL_ANYWAY_MS);
+    /*
+     * AND THE REVEAL BACKSTOP IS NOT A BLIND REVEAL — that is the black card.
+     *
+     * It used to be `setTimeout(reveal, …)` flat, on the reading that a missing
+     * message is the only thing that can keep the picture hidden. It is not: a
+     * load can simply be LOST. `loadVideoById` aimed at a player still finishing
+     * the previous card's load is dropped — the same rule that made the glow run
+     * half a second ahead — and a sweep across a carousel hands the player a new
+     * id every few hundred milliseconds. Nothing then plays, no clock is ever
+     * reported, and four seconds later this timer lifted the banner off a player
+     * showing nothing at all: the black rectangle reported on the card, which
+     * only went away by hovering again until one load survived.
+     *
+     * So the timer asks first WHETHER anything is playing. A single position
+     * reported for this card is enough — the picture is there and only the proof
+     * of it is missing, which is the case this backstop was written for. No
+     * position at all means the video never arrived: reveal nothing, ask for it
+     * again, and if the second attempt is just as silent give the card its
+     * artwork back rather than a black hole.
+     */
+    retriedRef.current = false;
+    const backstop = () => {
+      if (atSeenRef.current) {
+        reveal();
+        return;
+      }
+      const id = loadedIdRef.current;
+      if (!retriedRef.current && id) {
+        retriedRef.current = true;
+        post("mute");
+        post("loadVideoById", [id]);
+        revealTimerRef.current = setTimeout(backstop, REVEAL_ANYWAY_MS);
+        return;
+      }
+      // Out of ideas, and the banner is still up: leave it up. `onHide` releases
+      // the stage, so the player is parked instead of sitting behind the card
+      // playing to nobody.
+      handlersRef.current?.onHide(true);
+    };
+    revealTimerRef.current = setTimeout(backstop, REVEAL_ANYWAY_MS);
   }, [attachment, bootId, post, reveal]);
 
   /**
@@ -903,22 +962,7 @@ export default function TrailerStage() {
     };
 
     window.addEventListener("message", onMessage);
-    const handshake = setInterval(() => {
-      if (!loadedRef.current) return;
-      // The API's own shape: `id` and `channel` alongside the event. A bare
-      // `{event:"listening"}` is accepted by some builds and ignored by others.
-      frameRef.current?.contentWindow?.postMessage(
-        JSON.stringify({ event: "listening", id: 1, channel: "widget" }),
-        ORIGIN,
-      );
-      // The copy is subscribed as well, and only for its clock: a player that
-      // is never asked to speak reports nothing, and an unmeasured drift is one
-      // that cannot be corrected.
-      glowFrameRef.current?.contentWindow?.postMessage(
-        JSON.stringify({ event: "listening", id: 1, channel: "widget" }),
-        ORIGIN,
-      );
-    }, 150);
+    const handshake = setInterval(subscribe, 150);
     const stopHandshake = setTimeout(() => clearInterval(handshake), 4000);
 
     return () => {
@@ -926,7 +970,33 @@ export default function TrailerStage() {
       clearInterval(handshake);
       clearTimeout(stopHandshake);
     };
-  }, [bootId, post, reveal]);
+  }, [bootId, post, reveal, subscribe]);
+
+  /**
+   * AND AGAIN ON EVERY CARD, because the boot handshake expires.
+   *
+   * It stops after four seconds, which covers the player waking up and nothing
+   * else. If the frame is still loading when it stops — a cold cache, a slow
+   * network, an idle boot that lost the race — the player is never told to
+   * report, and it then stays silent for the WHOLE session: commands still work,
+   * so the video plays, but no `currentTime` ever arrives, the reveal has no
+   * proof to wait for, and every card falls through to the backstop above. One
+   * lost message at boot should not cost the session its trailers.
+   *
+   * Two seconds per card, which is inside the ~800 ms the video takes to start
+   * and cheap: an already-subscribed player answers a second `listening` by
+   * re-sending what it would have sent anyway.
+   */
+  useEffect(() => {
+    if (!attachment) return;
+    subscribe();
+    const again = setInterval(subscribe, 200);
+    const stop = setTimeout(() => clearInterval(again), 2000);
+    return () => {
+      clearInterval(again);
+      clearTimeout(stop);
+    };
+  }, [attachment, subscribe]);
 
   /**
    * WHERE THE TRAILER IS, ON OUR OWN CLOCK — the glow's only source of motion.
