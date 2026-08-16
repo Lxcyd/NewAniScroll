@@ -6,6 +6,58 @@ megaplay, vidmoly...).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-08-17 (soir) — Les chips s'effacent tous, et Megaplay ne revient jamais
+
+Deux bugs sans rapport l'un avec l'autre, tous deux dans le selecteur de
+serveurs, tous deux des **decalages de cle** entre deux effets qui doivent
+pourtant vivre au meme rythme.
+
+**Bug 1 — tous les chips disparaissent sauf l'actif.** La remise a zero de
+`confirmedServers` / `failedServers` / `degradedServers` vivait en tete de
+l'effet « liste d'episodes », dont les deps sont
+`[sessions?.user?.name, epiNumber, dub, info?.id]`. Le nom arrive en asynchrone
+(`useSession()` rend `undefined` puis l'objet session) et next-auth refetch au
+focus de la fenetre : la remise a zero se rejouait donc **sur un episode
+parfaitement stable**. L'effet de sondage, lui, n'est cle que sur
+`[info?.id, epiNumber, dub]` et ne se rejouait pas — son `cachedConfirmed` en
+memoire retenait deja tous les serveurs, donc chaque `probe()` sortait a la
+premiere ligne et **rien ne se repeignait jamais**.
+
+Ce qui rend le symptome total plutot que partiel : depuis la retraite des
+lecteurs iframe, **les 11 serveurs de `lib/servers.js` sont tous `type: "api"`**.
+La ligne `if (server.type === "iframe") return true;` de `shouldShow` est donc
+morte, et chaque chip depend uniquement de `confirmedServers.has(id)`. Un Set
+vide efface le selecteur entier ; seul l'actif survit, par la premiere ligne de
+`shouldShow`. L'aleatoire (« parfois ») etait la course entre l'hydratation de
+la session et la fin du pool de sondes.
+
+**Bug 2 — Megaplay absent alors que la video existe.** Le fan-out retire le
+serveur actif du pool, au motif que `fetchStreamSource` le resout deja et
+allume son chip. Mais il lisait l'`activeServer` **fige dans la closure** de
+l'effet — c'est-a-dire toujours `"megaplay"`, le placeholder SSR, puisque
+l'effet part au montage, avant que la preference sauvegardee soit lue. Pour
+quiconque a une preference **autre que megaplay**, megaplay etait donc saute
+par le pool *et* jamais demande par le chemin actif (qui, lui, va chercher la
+preference). Son chip ne pouvait structurellement pas apparaitre. Corrige en
+lisant un `activeServerRef` au moment du splice — apres les `await`, donc une
+fois la preference posee.
+
+**Verifie que le backend n'y est pour rien** :
+`/api/v2/source?server=megaplay&aniId=21&episode=1&sub=sub` rend un
+`master.m3u8` valide sur dev. Le meme appel confirme au passage que
+`voiranime-vidmoly` repond `{"absent":true,"hard":true}` et
+`animesama-sibnet-vo` un 503 « embed unreachable or decoy » sur ce titre.
+
+**La lecon** : deux effets qui pilotent le meme etat doivent porter la **meme
+cle**. Ici l'un se remettait a zero sur un evenement que l'autre ignorait, et
+la reparation (re-sonder) etait justement ce que l'autre refusait de faire.
+Meme famille que le bug de l'observateur de boutons juste en dessous : dans les
+deux cas, un effet garde une valeur figee pendant qu'un autre avance.
+
+**Non verifie en navigateur au moment d'ecrire** : `tsc` passe, le
+raisonnement est verifie contre le code et le backend, mais le comportement
+doit etre constate sur dev.aniscroll.com.
+
 ## 2026-08-17 — Changer de lecteur faisait disparaitre nos boutons
 
 **Symptome** : en quittant Uqload pour un autre lecteur, il manque des boutons
