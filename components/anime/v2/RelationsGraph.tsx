@@ -2001,7 +2001,15 @@ export default function RelationsGraph({
               />
             ))}
           </div>
-        ) : nodes.length <= 1 ? (
+        ) : nodes.length === 0 ? (
+          /* Empty means EMPTY — nothing came back at all.
+             It used to mean "one card or fewer", on the reasoning that a lone
+             card says nothing a franchise map is for. But the board is also
+             what a filter leaves behind, and a series whose only neighbours are
+             printed (its manga, its light novel) drops to exactly one card the
+             moment the manga chip is off — so the page answered "no related
+             entries" about a franchise it had just drawn. One card is an answer:
+             this entry, and nothing else on this side of the filter. */
           <div style={gStyles.empty}>{t("anime.noRelated")}</div>
         ) : (
           <div
