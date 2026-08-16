@@ -361,6 +361,19 @@ export default function Watch({
   const failedServersRef = useRef(failedServers);
   useEffect(() => { failedServersRef.current = failedServers; }, [failedServers]);
 
+  // Live mirror of `activeServer`. The probe fan-out is keyed on the EPISODE, so
+  // its closure freezes whatever `activeServer` was when the effect ran — which
+  // on mount is always the SSR-safe "megaplay" placeholder, before the saved
+  // preference has been read. It used that frozen value to splice the active
+  // server out of the pool ("fetchStreamSource resolves it, don't probe twice"),
+  // so for anyone with a preference other than megaplay, megaplay was skipped by
+  // the pool AND never fetched by the active path: its chip could not appear even
+  // when the episode has a perfectly good megaplay source. Reading the ref at
+  // splice time (after the awaits, i.e. once the preference has landed) skips the
+  // server actually being fetched instead.
+  const activeServerRef = useRef(activeServer);
+  useEffect(() => { activeServerRef.current = activeServer; }, [activeServer]);
+
   const markConfirmed = useCallback((id) => {
     setConfirmedServers((prev) => {
       if (prev.has(id)) return prev;
@@ -871,16 +884,32 @@ export default function Watch({
     );
   }, [info?.id, setRatingModalState]);
 
-  // ── Episode list + navigation ────────────────────────────────
+  // ── Reset server verdicts on episode change ──────────────────
+  // Keyed EXACTLY like the probe fan-out below ([info.id, epiNumber, dub]) —
+  // and nothing else. This used to live at the top of the episode-list effect,
+  // whose deps also carry `sessions?.user?.name`. That name arrives async
+  // (`useSession()` returns undefined first, then the session object) and
+  // next-auth ALSO refetches on window focus, so the reset fired again on a
+  // perfectly stable episode. The probe effect, keyed only on the episode, did
+  // NOT re-run: its in-memory `cachedConfirmed` still held every server, so
+  // every probe returned early and nothing ever repainted. Since all servers in
+  // lib/servers.js are type "api", `shouldShow` falls through to
+  // `confirmedServers.has(id)` for all of them — an emptied Set wipes the whole
+  // selector, leaving only the active chip. That is the "all the players vanish
+  // except the selected one" report, and its randomness was the race between
+  // session hydration and the probe pool finishing.
+  //
+  // Reset at the START of the effect, not in the cleanup. In React 18 dev/Strict
+  // Mode the cleanup fires between the two mount passes and would clobber probe
+  // results that completed in the first pass.
   useEffect(() => {
-    // Reset server-state for the new episode at the START of the effect, not in
-    // the cleanup. In React 18 dev/Strict Mode the cleanup fires between the two
-    // mount passes and would clobber probe results that completed in the first
-    // pass — anime-sama / hianime servers would silently disappear from the UI.
     setFailedServers(new Map());
     setConfirmedServers(new Set());
     setDegradedServers(new Set());
+  }, [info?.id, epiNumber, dub]);
 
+  // ── Episode list + navigation ────────────────────────────────
+  useEffect(() => {
     async function getInfo() {
       if (!info) return;
       if (info.mediaListEntry) setOnList(true);
@@ -1707,7 +1736,12 @@ export default function Watch({
       //    effect, priority:"high") — that lights its chip via markConfirmed.
       //    We DON'T separately probe it here: that was a duplicate /api/v2/source
       //    round-trip competing with the very request the player waits on.
-      const activeIdx = remaining.findIndex((s) => s.id === activeServer);
+      //    Read the LIVE active server (ref), not the one captured when this
+      //    effect ran — see activeServerRef. The captured value is the pre-
+      //    preference "megaplay" placeholder, and skipping it here is what hid
+      //    the Megaplay chip on every visit for a user with a saved preference.
+      const liveActive = activeServerRef.current;
+      const activeIdx = remaining.findIndex((s) => s.id === liveActive);
       if (activeIdx >= 0) remaining.splice(activeIdx, 1);
 
       await runPool(remaining, MAX_CONCURRENT);
