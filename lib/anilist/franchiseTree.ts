@@ -234,11 +234,26 @@ export async function buildFranchiseTree(id: number): Promise<FranchiseTree> {
           if (existing.label === "PARENT") edges.delete(key);
           else continue;
         }
-        const isPrequel = e.relationType === "PREQUEL";
+        /**
+         * Two relations are read backwards from the node being processed, and
+         * dagre ranks on direction — an edge pointing the wrong way puts the
+         * card on the wrong side of the board.
+         *
+         * PREQUEL: "the one before me", drawn reversed and relabelled SEQUEL so
+         * every chain points one way.
+         *
+         * SOURCE: "the work I came from". Same shape — it is the origin, so it
+         * ranks BEFORE the anime, not after it. The label stays: unlike
+         * PREQUEL/SEQUEL there is no mirror term that keeps its meaning
+         * (ADAPTATION is what the paper says about the anime, not what the
+         * anime says about the paper).
+         */
+        const rel = e.relationType;
+        const reversed = rel === "PREQUEL" || rel === "SOURCE";
         edges.set(key, {
-          from: isPrequel ? oid : nid,
-          to: isPrequel ? nid : oid,
-          label: isPrequel ? "SEQUEL" : e.relationType || "OTHER",
+          from: reversed ? oid : nid,
+          to: reversed ? nid : oid,
+          label: rel === "PREQUEL" ? "SEQUEL" : rel || "OTHER",
         });
 
         await processEdges(node, depth + 1);

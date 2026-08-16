@@ -460,14 +460,14 @@ export default function RelationsGraph({
   /** Hide recaps, retellings and spin-offs — see SIDE_RELATIONS. */
   const [canonOnly, setCanonOnly] = useState(false);
   /**
-   * Drop every printed work — manga, light novel, one-shot.
+   * Bring in the printed works — manga, light novel, one-shot.
    *
-   * They are shown by default because a franchise usually STARTS on paper and
-   * the board was leaving that out. But they are also the one kind of card you
-   * cannot open, and someone reading the board as a watch order has no use for
-   * them, so one press takes them all off.
+   * Off by default: this is a site you watch things on, the board is read as a
+   * watch order, and a manga is the one card that opens nothing. The franchise
+   * usually STARTS on paper though, so the origin is one press away rather
+   * than absent — which is what it was before the walk drew it at all.
    */
-  const [hideManga, setHideManga] = useState(false);
+  const [showManga, setShowManga] = useState(false);
   /** Cover art on the cards, on by default — a franchise is far easier to read
    *  by its art than by twenty near-identical titles. The switch turns the
    *  board back into plain text cards. */
@@ -651,7 +651,7 @@ export default function RelationsGraph({
     // day, so without it every franchise walked before manga were drawn would
     // keep serving the old, paperless board until tomorrow. Bump on any change
     // to the walk's shape.
-    fetch(`/api/v2/relations/tree?id=${currentId}&v=2`)
+    fetch(`/api/v2/relations/tree?id=${currentId}&v=3`)
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         if (cancelled) return;
@@ -694,9 +694,9 @@ export default function RelationsGraph({
 
     for (const id of Array.from(hidden)) seen.delete(id);
 
-    // Printed works, off in one press. Nothing is orphaned by this: the walk
-    // never crosses a manga, so no anime on the board hangs off one.
-    if (hideManga) {
+    // Printed works, out unless asked for. Nothing is orphaned by dropping
+    // them: the walk never crosses a manga, so no anime hangs off one.
+    if (!showManga) {
       for (const n of Array.from(seen.values())) if (n.manga) seen.delete(n.id);
     }
 
@@ -788,7 +788,7 @@ export default function RelationsGraph({
     currentId,
     titlePref,
     hidden,
-    hideManga,
+    showManga,
     onlyFormats,
     onlyRelations,
     canonOnly,
@@ -1691,15 +1691,15 @@ export default function RelationsGraph({
             {t("anime.graphMainStory", { defaultValue: "Main story" })}
           </button>
           {/* Same rule as the chip below: the label is what PRESSING it gets
-              you, not what is on the board — so "No manga", lit while they are
-              gone. Only offered when the franchise actually has one. */}
+              you — "Manga", lit while they are on the board. Only offered when
+              the franchise actually has one. */}
           {hasManga && (
             <button
               type="button"
-              onClick={() => setHideManga((v) => !v)}
-              style={{ ...gStyles.chip, ...(hideManga ? gStyles.chipOn : null) }}
+              onClick={() => setShowManga((v) => !v)}
+              style={{ ...gStyles.chip, ...(showManga ? gStyles.chipOn : null) }}
             >
-              {t("anime.graphNoManga", { defaultValue: "No manga" })}
+              {t("anime.graphShowManga", { defaultValue: "Manga" })}
             </button>
           )}
           {/* The switch reads as the MODE it turns on, so its label has to be
