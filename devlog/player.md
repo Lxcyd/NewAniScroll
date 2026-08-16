@@ -6,6 +6,77 @@ megaplay, vidmoly...).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-08-17 (nuit) — Sibnet tuait la fonction, et une preference morte se rejouait a vie
+
+Audit du reste du selecteur, apres les deux bugs de l'entree ci-dessous. Deux
+trouvailles de plus, et trois choses laissees ouvertes.
+
+**Sibnet rend un 504, systematiquement.** Mesure sur dev, 11 hotes x 3 titres
+(aniId 21, 16498, 154587) : `animesama-sibnet` et `animesama-sibnet-vo` rendent
+un `FUNCTION_INVOCATION_TIMEOUT` sur **6 cellules / 6**, pendant que les six
+autres hotes repondent proprement. Ce n'est pas un titre difficile, c'est l'hote.
+
+Cause : les trois jambes de `fetchSibnetEmbed` (shell.php -> worker -> page de
+visionnage) sont sequentielles et plafonnees a 5 s chacune. Total 15 s —
+**exactement le `maxDuration` de `/api/v2/source`**. La plateforme tuait donc la
+route avant qu'elle puisse formuler la moindre reponse. Le memo
+`sibnetShellBlocked` ne coupe la jambe worker que sur un 403 EXPLICITE : quand la
+jambe directe **expire** (pas de reponse du tout), le memo reste faux et les
+trois jambes sont payees plein tarif. C'est le cas mesure.
+
+Un 504 est le pire resultat possible : il consomme l'invocation entiere, il
+n'est pas cachable, et il n'apprend rien au client — `requestSource` le classe
+`retry`, donc la sonde recommence et re-paie 15 s. Les deux chips sibnet
+monopolisaient ainsi la moitie du pool de 4 pendant ~33 s : c'est une bonne
+partie du « les lecteurs mettent une eternite a apparaitre ».
+
+**Le piege du correctif** : un budget de paroi global aurait ete faux. La jambe
+qui MARCHE sur un egress bloque est la **troisieme** (cf. l'entree du 08/08), et
+les deux premieres consomment le budget avant elle — on aurait echange un 504
+contre une regression silencieuse du seul chemin qui aboutit. Donc 5 s pour
+shell.php + worker **ensemble**, et 5 s **reserves** a la page de visionnage.
+
+Verifie sur dev apres deploiement : `504 / 15 s` -> `503 / 10-11 s` avec un corps
+d'erreur structure, sur 4 cellules / 4.
+
+**Preference de lecteur jamais validee.** `preferred_server` etait relu de
+`localStorage` sans etre confronte a `lib/servers.js`. Or les ids bougent
+beaucoup ici — au moins huit retires ou renommes (`animesama-vidmoly` ->
+`ansembed`, `voiranime-voe`, `vidnest`, `4animo`, `miruro-jet`, les
+`hianime-*`...). Un id mort donnait une cascade **permanente** : `getServer()`
+retombe sur `SERVERS[0]`, donc le type reste `"api"` et la requete part quand
+meme ; `/api/v2/source?server=<id mort>` echoue ; `shouldShow` ne trouve aucun
+chip a marquer actif ; le repli finit par ramener megaplay. Et comme **seul un
+CLIC reecrit `localStorage`**, l'id mort restait en place : le meme aller-retour
+perdu et le meme flash « Source unavailable » se rejouaient a **chaque
+chargement**, indefiniment. La page info payait le meme prix, en prechauffant la
+preference en **priorite haute** — un scrape lourd gaspille a chaque visite.
+`getServerPref()` ecarte et purge desormais un id inconnu.
+
+### Laisse ouvert, volontairement
+
+- **Sibnet est injoignable depuis Vercel**, 503 « embed unreachable or decoy »
+  sur les trois jambes et sur toutes les cellules testees. Le correctif ci-dessus
+  ne repare que la MANIERE d'echouer (proprement, en 10 s, cachable), pas
+  l'acces. C'est vraisemblablement la suite de l'histoire de shards du 08/08. A
+  noter : sibnet occupe encore **2 des 3 entrees** de
+  `PREFERRED_FALLBACK_ORDER` — le repli privilegie donc un hote mort.
+- **`degradedServers` est du plomb mort.** L'etat est calcule, passe a travers
+  cinq niveaux de props jusqu'a `LangGroup`... et jamais lu. Le commentaire de
+  l'etat affirme pourtant « the selector renders these red ». Un visiteur sur un
+  hote degrade (repli iframe, sans notre habillage Vidstack) n'a aucun signal.
+- **L'effet « appliquer la preference une fois confirmee »** (`[...info].js`,
+  juste sous l'effet de montage) est **injoignable dans tous les cas** : l'effet
+  de montage pose `appliedPrefRef.current = true` des qu'une preference existe,
+  et l'autre branche sort sur `!pref`. Son commentaire decrit un comportement
+  qui n'a plus lieu — exactement le genre de chose qui egare la prochaine
+  session de debug.
+
+**La lecon** : le budget d'une cascade de replis doit etre compare au
+`maxDuration` de la fonction qui l'heberge. Ici la somme des replis EGALAIT la
+limite, donc le chemin « tout echoue » — le plus frequent sur un hote en panne —
+etait le seul a ne jamais pouvoir repondre.
+
 ## 2026-08-17 (soir) — Les chips s'effacent tous, et Megaplay ne revient jamais
 
 Deux bugs sans rapport l'un avec l'autre, tous deux dans le selecteur de
