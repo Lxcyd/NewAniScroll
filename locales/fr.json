@@ -935,11 +935,14 @@
     "rel": {
       "PREQUEL": "préquelle",
       "SEQUEL": "suite",
-      "PARENT": "œuvre parente",
+      "PARENT": "parent",
       "SIDE_STORY": "histoire parallèle",
       "ALTERNATIVE": "version alternative",
       "ADAPTATION": "adaptation",
       "SPIN_OFF": "spin-off",
+      "SUMMARY": "résumé",
+      "COMPILATION": "compilation",
+      "CONTAINS": "contient",
       "OTHER": "autre"
     },
     "fmt": {

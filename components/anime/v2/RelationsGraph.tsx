@@ -1378,7 +1378,11 @@ export default function RelationsGraph({
                 opacity: dim ? 0.5 : 1,
               }}
             >
-              {e.label.replace(/_/g, " ")}
+              {/* Même clé que les cartes Related : le lien porte le même mot
+                  ici et là, et l'anglais d'AniList ne traverse plus l'écran. */}
+              {t(`anime.rel.${e.label}`, {
+                defaultValue: e.label.replace(/_/g, " ").toLowerCase(),
+              })}
             </span>
           );
         })}
@@ -1637,7 +1641,9 @@ export default function RelationsGraph({
             onToggle={() => setOpenMenu((m) => (m === "rel" ? null : "rel"))}
             options={relationKinds.map((r) => ({
               value: r,
-              label: r.replace(/_/g, " ").toLowerCase(),
+              label: t(`anime.rel.${r}`, {
+                defaultValue: r.replace(/_/g, " ").toLowerCase(),
+              }),
             }))}
             selected={onlyRelations}
             onPick={(v) =>
@@ -2280,6 +2286,9 @@ const gStyles: Record<string, CSSProperties> = {
     fontSize: 8.5,
     fontWeight: 700,
     letterSpacing: "0.04em",
+    /* Les majuscules venaient de l'enum brut ; la traduction est en bas de
+       casse, et sans ça la pastille cesse de se lire comme une étiquette. */
+    textTransform: "uppercase",
     color: "#7ec8ff",
     whiteSpace: "nowrap",
     pointerEvents: "none",

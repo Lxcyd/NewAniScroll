@@ -940,6 +940,9 @@
       "ALTERNATIVE": "alternative",
       "ADAPTATION": "adaptation",
       "SPIN_OFF": "spin-off",
+      "SUMMARY": "summary",
+      "COMPILATION": "compilation",
+      "CONTAINS": "contains",
       "OTHER": "other"
     },
     "fmt": {
