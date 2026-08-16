@@ -1,9 +1,13 @@
 # Daily refresh of the Turso anime cache.
 #
 # Runs scripts/cache/refresh-cache.mjs which:
-#   1. Re-fetches every RELEASING anime (TTL 1h on those rows).
-#   2. Walks AniList sort:UPDATED_AT_DESC to pick up edits since last run.
+#   1. Re-fetches every RELEASING and NOT_YET_RELEASED anime.
+#   2. Re-fetches rows whose TTL has expired, most-recently-viewed first.
 #   3. Discovers AniList IDs higher than what's in our DB.
+#
+# The script exits non-zero when any of the three fails, so an AniList outage
+# turns this workflow red instead of passing silently — which is how a run that
+# refreshed nothing at all used to look exactly like a healthy one.
 #
 # Schedule: 03:00 UTC every day (off-peak for AniList, before EU users wake).
 # Also exposed as workflow_dispatch so we can trigger it manually from the
@@ -20,13 +24,13 @@ on:
     - cron: "0 3 * * *"
   workflow_dispatch:
     inputs:
-      skip_releasing:
-        description: "Skip the RELEASING refresh job"
+      skip_airing:
+        description: "Skip the RELEASING + NOT_YET_RELEASED refresh"
         required: false
         type: boolean
         default: false
-      skip_delta:
-        description: "Skip the UPDATED_AT delta sweep"
+      skip_ttl:
+        description: "Skip the TTL refresh"
         required: false
         type: boolean
         default: false
@@ -35,11 +39,19 @@ on:
         required: false
         type: boolean
         default: false
+      max_ttl_rows:
+        description: "Expired rows the TTL refresh may take this run (default 6000)"
+        required: false
+        type: string
 
 jobs:
   refresh:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # The TTL job stops itself at 20 minutes (--max-minutes), so this is only
+    # the outer guard: airing window + discovery + that budget, with room for a
+    # slow AniList. It must stay comfortably above the script's own budget, or
+    # the process is killed mid-batch and a healthy run reads as a failure.
+    timeout-minutes: 45
 
     steps:
       - uses: actions/checkout@v4
@@ -60,6 +72,7 @@ jobs:
           TURSO_AUTH_TOKEN:   ${{ secrets.TURSO_AUTH_TOKEN }}
         run: |
           node scripts/cache/refresh-cache.mjs \
-            ${{ inputs.skip_releasing == true && '--skip-releasing' || '' }} \
-            ${{ inputs.skip_delta     == true && '--skip-delta'     || '' }} \
-            ${{ inputs.skip_discovery == true && '--skip-discovery' || '' }}
+            ${{ inputs.skip_airing    == true && '--skip-airing'    || '' }} \
+            ${{ inputs.skip_ttl       == true && '--skip-ttl'       || '' }} \
+            ${{ inputs.skip_discovery == true && '--skip-discovery' || '' }} \
+            ${{ inputs.max_ttl_rows   != ''   && format('--max-ttl-rows={0}', inputs.max_ttl_rows) || '' }}

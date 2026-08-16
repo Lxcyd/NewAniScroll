@@ -1,5 +1,63 @@
 # DEVLOG
 
+## 2026-08-16 — Le cron ne rattrapait rien, et une panne AniList l'aurait prouvé trop tard
+
+**La question posée** : si AniList tombe plusieurs jours, a-t-on un repli pour ne
+rien perdre ? **Réponse** : rien de stocké ne peut être perdu (que des upsert,
+et le SSR sert la base quand AniList ne répond pas), mais il n'y avait aucun
+rattrapage — et il manquait déjà des choses **sans panne**.
+
+**Le delta sweep n'a jamais rien remonté.** Son repère était
+`MAX(anilist_updated_at)` sur toute la table. Or cette colonne est repoussée par
+le Job 1, qui tourne *avant* et réécrit les animes qu'AniList édite le plus, et
+par chaque visiteur du site via `upsertAnime`. Le repère lisait donc toujours
+« il y a quelques minutes » au lieu de « où le dernier balayage s'est arrêté ».
+Sur tous les runs du 08 au 16/08, sans exception : `page 1: 0/50 newer than
+baseline`. Et sous une panne de trois jours, c'était exactement la perte que le
+job était censé éviter : à la reprise, le Job 1 remonte le repère à maintenant
+et la fenêtre est sautée pour de bon.
+
+**Un vrai curseur ne l'aurait pas sauvé**, et c'est ce qui a changé la
+correction prévue. Sondé le 16/08 : les pages 4 à 20 de `UPDATED_AT_DESC`
+portent **la même seconde** (15:07:57) — des centaines de médias touchés par un
+lot côté AniList — et 55 ids sur 345 reviennent en double sur huit pages, ce que
+fait une pagination instable sur des clés de tri ex æquo. Ce qu'elle fait aux
+entrées qu'elle saute à la place, on ne le voit pas. Le flux est donc du bruit
+majoritaire, une journée n'entre pas dans le plafond de 100 pages de l'API, et
+sa complétude n'est de toute façon pas garantie.
+
+**Ce qui remplace** : un balayage par TTL (`expires_at < now`, les plus consultés
+d'abord, budget en lignes **et** en minutes). Il n'a pas de curseur du tout — la
+file de travail *est* l'état de la table — donc un run manqué, échoué ou coupé
+en plein milieu laisse les lignes non traitées exactement où elles étaient. Une
+panne coûte de la fraîcheur, elle ne peut plus coûter de la donnée.
+
+**Ce qui manquait, mesuré** : 8 965 lignes hors TTL sur 22 592, dont 7 353
+jamais re-fetchées depuis plus de 90 jours ; 718 des 737 `NOT_YET_RELEASED`
+périmées ; et **24 animes encore « à paraître » dont la date de sortie était
+passée**, jusqu'à trois mois (206819 *Kimi to Hanabi to Yakusoku to*, dû le
+17/07). Cause : le Job 1 ne prenait que `RELEASING`, or c'est lui qui décide qui
+est re-fetché — un anime pas encore sorti le jour de son ingestion ne pouvait
+donc jamais entrer dans la liste. Le Job 1 prend maintenant les deux statuts
+(+15 requêtes, 30 s). Après passage : 700 à paraître, 0 périmé, 0 date passée.
+
+**Deux autres pièges de la même famille** :
+
+- l'échec était **vert**. Chaque job était dans un `try/catch` et le process
+  sortait en 0 : trois jours de panne AniList auraient affiché trois coches
+  vertes. Le script sort maintenant en 1 et émet `::error::` ;
+- `refresh-fanarts` avançait son curseur **même quand l'amont avait échoué** :
+  si `/latest` levait, il traitait 0 id et écrivait quand même
+  `last_check = now`. `/latest?date=` est une *fenêtre*, pas une file : une
+  panne fanart.tv creusait un trou définitif. Le curseur ne bouge plus que si
+  les deux appels ont réussi ; les ré-ingestions sont `INSERT OR IGNORE`, donc
+  repasser sur le même terrain est gratuit.
+
+**Attention au déploiement** : les workflows planifiés ne tournent que depuis la
+branche par défaut. Tant que ceci n'est pas sur `main`, le cron continue de
+tourner avec l'ancien script. Voir [[prod-is-main-not-dev]].
+
+
 ## 2026-08-16 — Le trailer de la carte, parfois noir, et qui marchait « au bout de plusieurs essais »
 
 **Le symptôme** : sur certaines cartes le haut restait un rectangle noir — pas
