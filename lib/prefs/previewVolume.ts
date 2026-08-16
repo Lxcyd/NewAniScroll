@@ -21,10 +21,13 @@ export const PREVIEW_VOLUME_KEY = "aniscroll:preview:volume";
 export const PREVIEW_MUTED_KEY = "aniscroll:preview:muted";
 
 /**
- * Used until the visitor touches the preview's own volume control. Lower than
- * the player's default of 1, because this is audio nobody pressed play on.
+ * Used until the visitor touches the preview's own volume control. Far lower
+ * than the player's default of 1, because this is audio nobody pressed play on:
+ * it starts because a pointer came to rest, so it should read as the room's
+ * ambience rather than as something demanding to be listened to. Whoever wants
+ * it louder says so once, and the control remembers.
  */
-export const PREVIEW_DEFAULT_VOLUME = 0.4;
+export const PREVIEW_DEFAULT_VOLUME = 0.15;
 
 const clamp = (v: number) => Math.min(1, Math.max(0, v));
 
