@@ -814,38 +814,43 @@ export default function Settings() {
                 checked={previewPrefs.enabled}
                 onChange={setPreviewEnabled}
               />
-              {/* Hidden rather than disabled when the preview is off: a delay
-                  for something that never opens is a control with nothing to
-                  act on, and a greyed row invites a click that does nothing. */}
-              {previewPrefs.enabled && (
-                <div className="flex items-center justify-between gap-4 py-3">
-                  <div className="min-w-0">
-                    <div className="text-sm font-medium">
-                      {t("settings.browsing.hoverDelay")}
-                    </div>
-                    <div className="text-white/50 text-xs mt-0.5">
-                      {t("settings.browsing.hoverDelayDesc")}
-                    </div>
+              {/* Greyed rather than removed when the preview is off: the row
+                  keeps its place, so turning the switch back on doesn't make
+                  the panel jump, and the setting stays visible as something
+                  that exists. `disabled` does the refusing — opacity alone
+                  would still take a drag. */}
+              <div
+                className={`flex items-center justify-between gap-4 py-3 ${
+                  previewPrefs.enabled ? "" : "opacity-40"
+                }`}
+              >
+                <div className="min-w-0">
+                  <div className="text-sm font-medium">
+                    {t("settings.browsing.hoverDelay")}
                   </div>
-                  <div className="flex items-center gap-3 shrink-0">
-                    <input
-                      type="range"
-                      min={PREVIEW_MIN_DELAY}
-                      max={PREVIEW_MAX_DELAY}
-                      step={50}
-                      value={previewPrefs.delay}
-                      onChange={(e) => {
-                        const ms = parseInt(e.target.value, 10);
-                        if (Number.isFinite(ms)) setPreviewDelay(ms);
-                      }}
-                      className="w-32 accent-action cursor-pointer"
-                    />
-                    <span className="text-sm tabular-nums text-white/80 w-12 text-right">
-                      {(previewPrefs.delay / 1000).toFixed(1)}s
-                    </span>
+                  <div className="text-white/50 text-xs mt-0.5">
+                    {t("settings.browsing.hoverDelayDesc")}
                   </div>
                 </div>
-              )}
+                <div className="flex items-center gap-3 shrink-0">
+                  <input
+                    type="range"
+                    min={PREVIEW_MIN_DELAY}
+                    max={PREVIEW_MAX_DELAY}
+                    step={50}
+                    value={previewPrefs.delay}
+                    disabled={!previewPrefs.enabled}
+                    onChange={(e) => {
+                      const ms = parseInt(e.target.value, 10);
+                      if (Number.isFinite(ms)) setPreviewDelay(ms);
+                    }}
+                    className="w-32 accent-action cursor-pointer disabled:cursor-not-allowed"
+                  />
+                  <span className="text-sm tabular-nums text-white/80 w-12 text-right">
+                    {(previewPrefs.delay / 1000).toFixed(1)}s
+                  </span>
+                </div>
+              </div>
             </div>
           </section>
 
