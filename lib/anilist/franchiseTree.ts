@@ -85,8 +85,21 @@ const WALK_BUDGET_MS = 15_000;
  * Walk bounds. A franchise like Gundam or Fate is a web without them, and the
  * cap only ever removes the outermost, least relevant entries (Sword Art Online
  * is ~19 nodes, Fate ~42, One Piece ~60).
+ *
+ * ANIME only, and that is the whole point of the count being separate. When
+ * manga joined the walk they shared this budget, and One Piece — which sits
+ * exactly ON the cap — came back as 50 anime and 10 volumes of paper: the
+ * Toriko / Dragon Ball crossover specials, among the last things reached, were
+ * pushed off the board by the source manga of shows already drawn. Measured,
+ * not deduced: 60 / 50 / 10 on `?id=21`.
  */
 const MAX_NODES = 60;
+/**
+ * And a bound of their own, so "uncapped" doesn't mean unbounded: a franchise
+ * of forty entries each pointing at a manga, a novel and a one-shot would
+ * triple the answer's size for cards that are hidden by default.
+ */
+const MAX_MANGA_NODES = 25;
 const MAX_ROUNDS = 8;
 /** Matches MAX_IDS in the batch route and AniList's own page size. */
 const BATCH_MAX = 30;
@@ -170,6 +183,9 @@ export async function buildFranchiseTree(id: number): Promise<FranchiseTree> {
     const nodes = new Map<number, FranchiseNode>();
     const edges = new Map<string, FranchiseEdge>();
     const frontier = new Set<number>();
+    /** Counted apart — the two caps are separate, see MAX_NODES. */
+    let animeCount = 0;
+    let mangaCount = 0;
 
     /** A node's own edges, and the fuller metadata that comes with them. */
     const edgesOf = async (nid: number): Promise<any[]> => {
@@ -195,19 +211,22 @@ export async function buildFranchiseTree(id: number): Promise<FranchiseTree> {
       const nid = Number(m.id);
       if (!Number.isFinite(nid) || nid <= 0) return;
 
+      const anime = isAnime(m);
       if (!nodes.has(nid)) {
-        if (nodes.size >= MAX_NODES) return;
-        if (depth >= 2 && isAnime(m)) frontier.add(nid);
+        if (anime ? animeCount >= MAX_NODES : mangaCount >= MAX_MANGA_NODES) return;
+        if (depth >= 2 && anime) frontier.add(nid);
         nodes.set(nid, {
           ...m,
           cover: m.cover ?? m.coverImage?.large ?? m.coverImage?.extraLarge ?? null,
         });
+        if (anime) animeCount++;
+        else mangaCount++;
       }
       // A manga is a LEAF: drawn, never walked. Its own relations are the
       // franchise's hub — a light novel points at every adaptation of every
       // side series — so expanding one is what used to drag unrelated shows
       // onto the board. It is also why it never joins the frontier above.
-      if (!isAnime(m)) return;
+      if (!anime) return;
       if (depth >= 2) return;
 
       const list = await edgesOf(nid);
