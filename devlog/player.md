@@ -6,6 +6,49 @@ megaplay, vidmoly...).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-08-17 — Changer de lecteur faisait disparaitre nos boutons
+
+**Symptome** : en quittant Uqload pour un autre lecteur, il manque des boutons
+dans la barre. La roue crantee et le PiP restent — ce sont ceux de Vidstack —
+mais le plein ecran, l'episode suivant et le groupe telechargement/sous-titres/
+cast disparaissent jusqu'a un rechargement complet de la page.
+
+**Cause** : ce sont exactement les boutons que nous **portalons** dans la barre
+de Vidstack, via quatre `div` hotes qu'un `MutationObserver` va replacer a
+chaque fois que Vidstack reconstruit son sous-arbre. L'observateur etait cree
+dans un `useEffect` dont les dependances etaient `[isSmallLayout]` seul, et sa
+callback etait `() => sync(playerEl)` — `playerEl` etant le noeud **capture au
+moment du setup**.
+
+Or un changement de serveur vide `streamData`, donc le rendu tombe dans le
+retour anticipe « loading » / « Source unavailable » plus bas dans le fichier,
+et **`<MediaPlayer>` est demonte**. Le flux suivant en remonte un neuf. L'effet,
+lui, ne se rejouait pas : l'observateur restait accroche a l'element mort. Pire
+qu'un simple no-op — l'observateur du `document.body` (`subtree: true`)
+continuait de tiquer, `sync` s'executait sur un orphelin, tous les
+`querySelector` rendaient des noeuds deconnectes, et chaque hote etait donc
+**activement detache** avec son drapeau remis a `false`.
+
+**Pourquoi Uqload le declenche a tous les coups** : classe dernier (`speed: 5`),
+jeton lie a l'IP et a usage unique, une extraction lente et qui echoue souvent.
+Le retour anticipe a donc toujours le temps de rendre. Le bug n'est pas propre a
+Uqload — n'importe quel changement de serveur peut le produire — mais c'est avec
+lui qu'il est systematique.
+
+**Correction** : ajouter `playerElState` aux dependances de l'effet (l'etat qui
+suit deja la racine du player, rafraichi sur `[streamData]`), et relire la
+racine vivante dans la callback plutot que de syncer le noeud capture.
+
+**La lecon** : `playerElState` existait deja et **tous** les autres effets qui
+touchent la racine du player en dependaient (le miroir `data-fullscreen`, le
+double-clic, les raccourcis). Le localisateur etait la seule exception. Quand un
+fichier a une convention aussi nette, l'endroit qui s'en ecarte est le suspect a
+regarder en premier.
+
+**Non verifie en navigateur au moment d'ecrire** : `tsc` passe, mais le
+comportement doit etre constate sur dev.aniscroll.com (localhost ne reproduit
+pas les conditions de resolution des lecteurs).
+
 ## 2026-08-08 (soir) — Sibnet remarche : deux blocages, et une conclusion fausse en route
 
 Suite du diagnostic du lot `top50` ci-dessous. Sibnet ne rendait que 5 cellules

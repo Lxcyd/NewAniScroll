@@ -1953,7 +1953,16 @@ export default function UniversalPlayer({
         return;
       }
       sync(playerEl);
-      obs = new MutationObserver(() => sync(playerEl));
+      // Re-read the live root on every callback instead of syncing the node
+      // captured at setup time. A <MediaPlayer> that unmounted and came back
+      // (see the `playerElState` dep below) leaves this closure holding an
+      // orphan, and syncing an orphan DETACHES every host — which is precisely
+      // how the buttons went missing. The `document.body` observer below still
+      // fires for the new subtree, so this alone re-attaches them.
+      obs = new MutationObserver(() => {
+        const live = (playerRef.current?.el as HTMLElement | undefined) || null;
+        if (live) sync(live);
+      });
       // childList: catches the controls bar / menu being mounted/unmounted.
       // attributes: catches Vidstack toggling data-open on the settings menu
       //   (open/close fires no childList event, just an attribute flip).
@@ -2141,7 +2150,20 @@ export default function UniversalPlayer({
     };
     // `isSmallLayout` gates whether the controls host attaches to the bar, so
     // re-run the locator when the breakpoint flips.
-  }, [isSmallLayout]);
+    //
+    // `playerElState` is what makes a SERVER CHANGE work. Switching host clears
+    // `streamData`, so the render falls into the "loading" / "Source
+    // unavailable" early-return above and <MediaPlayer> UNMOUNTS; the new
+    // stream then mounts a BRAND NEW player root. Without this dep the effect
+    // never re-ran: the observer stayed bound to the dead element and every
+    // sync detached our hosts, so the fullscreen / next-episode / download
+    // buttons vanished until a full remount. Reported after switching away
+    // from Uqload, which hits it every time — ranked last (speed 5) with an
+    // IP-bound single-use token, its resolution is slow enough (and fails
+    // often enough) that the early-return always renders. Every other effect
+    // that touches the player root already depends on `playerElState`; this
+    // one was the exception.
+  }, [isSmallLayout, playerElState]);
 
   // Toggling fullscreen mutates no DOM the observer above watches, so drive the
   // faked `data-fullscreen` attribute from the state as well (the observer only
