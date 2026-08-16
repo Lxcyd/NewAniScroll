@@ -4,6 +4,10 @@
 
 🕸️ **Franchise graph** — the Relations section is now a real fullscreen board: draggable illustrated cards, zoom, search and filters, a **numbered watch order**, boxed sub-series and the source manga included.
 
-🖼️ **Richer artwork** — the whole fanart.tv library plus TMDB visuals (banners, posters, logos), and a new player: **Ansembed**.
+🎞️ **New player** — Ansembed joins the available servers.
 
-⏭️ **Intro / outro skipping on many more episodes**, 10x faster player thumbnails, and an even lighter site to load.
+⚡ **A leaner site** — lighter pages to load and roughly 10x faster player thumbnails.
+
+🗂️ **Films and side entries miscounted** — a film in the middle of a franchise, or a prequel, no longer counts as a season.
+
+🔧 **Players fixed** — sibnet works again, and a briefly unreachable player no longer makes an episode look missing.

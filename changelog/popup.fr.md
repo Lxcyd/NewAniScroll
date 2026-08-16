@@ -4,6 +4,10 @@
 
 🕸️ **Graphe de franchise** — la section Relations devient un vrai plateau plein écran : fiches illustrées déplaçables, zoom, recherche et filtres, **ordre de visionnage numéroté**, sous-séries encadrées et manga d'origine inclus.
 
-🖼️ **Illustrations enrichies** — toute la bibliothèque fanart.tv plus les visuels TMDB (bannières, affiches, logos), et un nouveau lecteur : **Ansembed**.
+🎞️ **Nouveau lecteur** — Ansembed rejoint les serveurs disponibles.
 
-⏭️ **Saut d'intro / d'outro sur beaucoup plus d'épisodes**, des vignettes de lecteur 10x plus rapides, et un site encore plus léger à charger.
+⚡ **Site optimisé** — des pages plus légères à charger et des vignettes de lecteur environ 10x plus rapides.
+
+🗂️ **Films et hors-séries mal classés** — un film au milieu d'une franchise ou une préquelle ne comptent plus comme une saison.
+
+🔧 **Lecteurs corrigés** — sibnet refonctionne, et un lecteur momentanément injoignable ne fait plus croire que l'épisode n'existe pas.
