@@ -49,6 +49,16 @@ const WIDTH = 364;
  * how much synopsis there is rather than leaving a gap under a clamped one.
  */
 const HEIGHT = 468;
+/**
+ * How close to the window's SIDE the card may come.
+ *
+ * Wide enough for the drop shadow to land somewhere rather than being sliced off
+ * by the viewport — the shadow is what makes the card read as floating above the
+ * page, and a shadow cut down the middle reads as a bug instead. Sides only: see
+ * `placeAt` for why the top and bottom are left free to overflow.
+ */
+const EDGE_GAP = 16;
+
 /** Card surface. Kept in sync with the banner gradient in globals.css. */
 const SURFACE = "#1a1a24";
 
@@ -147,16 +157,27 @@ export default function PreviewCard({
   }, [id]);
 
   /**
-   * Centred on the poster, and nothing else.
+   * Centred on the poster — held off the side edges, free to run off the top
+   * and bottom.
    *
-   * This clamped the card into the window for a while, so that a poster at the
-   * start of a row wouldn't leave it flush against the glass with its shadow
-   * and rounded corners sliced off. The trade turned out to be the wrong way
-   * round: pulling the card back in DETACHES it from the thing it describes —
-   * it comes to rest over a neighbouring poster, and the reader has to work out
-   * which of the two it is talking about. A card half off the screen is still
-   * unmistakably the card OF the poster it covers, and the half that matters —
-   * the artwork, the title, the buttons — is the half that stays.
+   * The two axes are not the same problem, which is what an all-round clamp got
+   * wrong. VERTICALLY the card must be allowed to overflow: a poster near the
+   * top of the window cannot hold a 468px card inside it, and pulling the card
+   * down to fit DETACHES it from the thing it describes — it comes to rest over
+   * a neighbouring row and the reader has to work out which poster it is
+   * talking about. Half a card off the top is still unmistakably the card OF
+   * the poster it covers.
+   *
+   * HORIZONTALLY the opposite holds, because the window's side is a hard visual
+   * edge in a way the fold is not: a card flush against the glass has its
+   * shadow and its rounded corners sliced off and reads as a rendering fault.
+   * The nudge is bounded by construction — at most half the card's width can
+   * ever be taken back, since a poster whose centre is on screen cannot be
+   * further than that from the edge — so the card still overlaps its own
+   * poster. It just stops touching the glass.
+   *
+   * `Math.max` last, and the order matters: on a window too narrow to hold the
+   * card, `Math.min` alone would push it off to the left instead of the right.
    *
    * Rounded to whole pixels, which is not cosmetic bookkeeping: a poster is
    * rarely at an integer offset, so centring on it lands the card on half
@@ -165,7 +186,9 @@ export default function PreviewCard({
    * of pixels along the top of the picture reads as a one-pixel outline.
    */
   const placeAt = (r: AnchorRect) => ({
-    left: Math.round(r.left + r.width / 2 - WIDTH / 2),
+    left: Math.round(
+      Math.max(EDGE_GAP, Math.min(r.left + r.width / 2 - WIDTH / 2, window.innerWidth - WIDTH - EDGE_GAP)),
+    ),
     top: Math.round(r.top + r.height / 2 - HEIGHT / 2),
   });
   useLayoutEffect(() => {
