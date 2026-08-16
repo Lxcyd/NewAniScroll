@@ -74,6 +74,22 @@ const NODE_BASE_H = 49;
 const NODE_LINE_H = 19;
 const CHARS_PER_LINE = 20;
 /**
+ * Room above the title on a text-only card, so the dismiss button gets a
+ * corner to itself.
+ *
+ * Without it the title's FIRST line starts 10px down while the button occupies
+ * 1px to 15px in the same corner, so any title long enough to reach the right
+ * edge — the common case, the card is 150px — has the minus stroked through
+ * it. With covers on there is no clash: the title is centred in a 114px row,
+ * nowhere near the corner.
+ *
+ * It has to be added to the card's HEIGHT as well as its padding: dagre lays
+ * the board out from `nodeHeight`, so padding the DOM alone would make every
+ * text card 8px taller than the space reserved for it and the last rank would
+ * lean into the next.
+ */
+const NODE_CLOSE_CLEAR = 8;
+/**
  * With covers on, the art sits to the LEFT of the text and is shown WHOLE — a
  * cover is a 2:3 portrait, and cropping it to a strip cuts the title lettering
  * off the artwork, which is most of what makes one recognisable at a glance.
@@ -152,7 +168,7 @@ const SIDE_RELATIONS = new Set([
 const nodeHeight = (title: string, withCover: boolean) => {
   const text = NODE_BASE_H + Math.ceil((title.length || 1) / CHARS_PER_LINE) * NODE_LINE_H;
   // Side by side, the card is as tall as the taller column.
-  return withCover ? Math.max(COVER_H, text) : text;
+  return withCover ? Math.max(COVER_H, text) : text + NODE_CLOSE_CLEAR;
 };
 
 /**
@@ -2266,7 +2282,9 @@ const gStyles: Record<string, CSSProperties> = {
   nodeTitle: {
     background: "#1e1e1e",
     fontWeight: 700,
-    padding: "10px 10px 8px",
+    // Top padding clears the dismiss button — see NODE_CLOSE_CLEAR. Overridden
+    // whole by `nodeTitleSide` when covers are on, which has no such clash.
+    padding: `${10 + NODE_CLOSE_CLEAR}px 10px 8px`,
     lineHeight: 1.25,
   },
   nodeMeta: {
