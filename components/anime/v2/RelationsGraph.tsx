@@ -678,6 +678,8 @@ export default function RelationsGraph({
    * it had. Whichever one is nearest the middle of the box — see the effect.
    */
   const anchorCard = useRef<{ id: number; sx: number; sy: number } | null>(null);
+  /** The layout the anchor was last read against — see the effect. */
+  const lastLayout = useRef<GNode[] | null>(null);
   /** Last known canvas size, to carry the view across a change of window. */
   const viewport = useRef<{ w: number; h: number } | null>(null);
 
@@ -1222,8 +1224,25 @@ export default function RelationsGraph({
       };
     };
 
+    /*
+     * ONLY when the layout was rebuilt — and getting this wrong undid every pan.
+     *
+     * This effect also runs when the VIEW moves, because `offset` and `scale`
+     * are in its deps (it has to re-read the anchor after a pan, or the next
+     * re-layout would restore a view two gestures old). On those runs the
+     * anchor card has moved on screen by exactly the amount the hand moved it,
+     * so the correction below read that as drift and put it back: the board
+     * followed the pointer, then snapped home the instant you let go. Measured
+     * on dev, drag +132/−66 → back to 0/0 on release.
+     *
+     * The layout memo returns a new array whenever it recomputes, and only
+     * then, so its identity is the honest test for "the board was rebuilt".
+     */
+    const relaidOut = lastLayout.current !== null && lastLayout.current !== nodes;
+    lastLayout.current = nodes;
+
     const prev = anchorCard.current;
-    if (prev && touchedView.current) {
+    if (prev && touchedView.current && relaidOut) {
       const still = nodes.find((n) => n.id === prev.id);
       // Gone — filtered out by the very press we are reacting to. Nothing to
       // hold: the next pass anchors on whatever is nearest the middle now.
