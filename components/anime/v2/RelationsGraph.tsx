@@ -106,10 +106,19 @@ const PAD = 40;
  * covers on, where a card is half as wide again) stopped well before the whole
  * board fitted — you could see the picture the fit gave you and never pull back
  * from it. Cards are unreadable down there, and that is the point: what you are
- * reading at 0.12 is the SHAPE of the franchise.
+ * reading at this end is the SHAPE of the franchise.
+ *
+ * 0.12 was still far too high, and it did more than stop the wheel early. One
+ * Piece lays out 10053px of board, which the inline strip fits at 0.0376 — so
+ * every zoom the clamp touched moved the board WITHOUT the scale it was
+ * computed for, and expanding parked the franchise off the corner of a view
+ * three times its size. A floor has to sit under the smallest fit any franchise
+ * can produce; anything else is a bug waiting for a big enough show.
  */
-const MIN_SCALE = 0.12;
-const MAX_SCALE = 2.5;
+const MIN_SCALE = 0.01;
+/** The other end, raised with the floor: 2.5 was no obstacle to reading a card,
+ *  but "no real limit" reads both ways and nothing breaks up here. */
+const MAX_SCALE = 4;
 
 /**
  * Below this, a left-to-right board is a strip narrower than one card and taller
@@ -1024,7 +1033,14 @@ export default function RelationsGraph({
     // A box with no size yet would "fit" the board to nothing and then be
     // remembered as fitted; let the next pass do it.
     if (!box.clientWidth || !box.clientHeight) return;
-    const key = `${Math.round(width)}x${Math.round(height)}`;
+    // `open` is part of the key, so expanding and collapsing each re-frame the
+    // board. Carrying the old view across that step was the intent, and it is
+    // still what a window resize does — but between a 378px strip in the page
+    // and a full window the carry is a factor of three, and it left One Piece
+    // (10053px of board) parked off the corner of a view three times its size.
+    // Arriving on the whole franchise, centred, is the only reading of "bigger"
+    // that survives a franchise of any size.
+    const key = `${Math.round(width)}x${Math.round(height)}:${open ? "full" : "inline"}`;
     if (fittedFor.current === key) return;
     fittedFor.current = key;
 
@@ -1037,7 +1053,7 @@ export default function RelationsGraph({
       y: (box.clientHeight - boardH * next) / 2,
     });
     viewport.current = { w: box.clientWidth, h: box.clientHeight };
-  }, [active, width, height]);
+  }, [active, width, height, open]);
 
   /**
    * Keep what you were looking at when the viewport changes size.
@@ -1065,12 +1081,20 @@ export default function RelationsGraph({
       // Nothing to preserve before the first fit has framed the board.
       if (!prev || !prev.w || !prev.h || !fittedFor.current) return;
       if (prev.w === w && prev.h === h) return;
-      const k = Math.min(w / prev.w, h / prev.h);
-      setScale((s) => Math.min(MAX_SCALE, Math.max(MIN_SCALE, s * k)));
-      setOffset((o) => ({
+      // Recomputed from the scale actually obtained, exactly as in `zoomAt`: a
+      // clamped zoom with an unclamped offset moves the board by a factor it
+      // was never scaled by, and the view slides off the corner.
+      const s = scaleRef.current;
+      const next = Math.min(MAX_SCALE, Math.max(MIN_SCALE, s * Math.min(w / prev.w, h / prev.h)));
+      const k = next / s;
+      const o = liveOffset.current;
+      const framed = {
         x: w / 2 - (prev.w / 2 - o.x) * k,
         y: h / 2 - (prev.h / 2 - o.y) * k,
-      }));
+      };
+      liveOffset.current = framed;
+      setScale(next);
+      setOffset(framed);
     });
     ro.observe(box);
     return () => ro.disconnect();
