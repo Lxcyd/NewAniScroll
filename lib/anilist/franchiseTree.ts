@@ -506,7 +506,13 @@ export async function getFranchiseTree(
   if (tree.partial) return tree;
 
   remember(id, tree);
-  await writeCache(id, tree);
+  // An EMPTY walk is never shared. `nodes: []` does not mean "this anime has no
+  // relations" — a franchise always contains the anime itself — it means the
+  // upstream was unreachable, and the route says as much by answering
+  // `partial`. `readCache` already refuses to serve one; not writing it is the
+  // other half, and the half that matters: a day of everyone being told a
+  // franchise is empty because AniList blinked once.
+  if (tree.nodes.length > 0) await writeCache(id, tree);
 
   return tree;
 }
