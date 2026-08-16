@@ -797,7 +797,11 @@ export default function RelationsGraph({
     // day, so without it every franchise walked before manga were drawn would
     // keep serving the old, paperless board until tomorrow. Bump on any change
     // to the walk's shape.
-    fetch(relationsTreeUrl(currentId))
+    // `credentials: "omit"` is not a detail: it is half of the agreement with
+    // the `<link rel=preload as=fetch>` in the page's head, which carries
+    // "omit" of its own accord. A mismatch there does not fail — it silently
+    // fetches the franchise twice and warns about a preload nobody used.
+    fetch(relationsTreeUrl(currentId), { credentials: "omit" })
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         if (cancelled) return;

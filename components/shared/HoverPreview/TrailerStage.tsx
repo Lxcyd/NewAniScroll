@@ -1357,7 +1357,9 @@ export default function TrailerStage() {
                 transform: `scale(${1 / SCALE})`,
                 transformOrigin: "0 0",
               }}
-              onLoad={() => {
+              onLoad={(e) => {
+                // Same trap as the visible frame: `about:blank` fires onLoad too.
+                if (!e.currentTarget.getAttribute("src")) return;
                 glowLoadedRef.current = true;
                 // It boots on the same video as the visible player but silent,
                 // and every transport command since is mirrored to it.
@@ -1469,8 +1471,19 @@ export default function TrailerStage() {
            */
           pointerEvents: "none",
         }}
-        onLoad={() => {
-          // Only NOW is the frame on YouTube's origin and safe to talk to.
+        onLoad={(e) => {
+          /*
+           * Only NOW is the frame on YouTube's origin and safe to talk to —
+           * PROVIDED it went there. `src` is undefined until a card asks for a
+           * video, and an iframe with no src loads `about:blank`, which fires
+           * this handler exactly like a real navigation and inherits OUR origin.
+           * The flag went up on that, and every command after it was posted to
+           * our own blank document with YouTube named as the target origin:
+           * "Failed to execute 'postMessage'… the target origin provided does
+           * not match the recipient window's origin", once per tick of the
+           * `listening` repeater.
+           */
+          if (!e.currentTarget.getAttribute("src")) return;
           loadedRef.current = true;
           /*
            * Captions off, for real this time. `cc_load_policy=0` in the URL is a

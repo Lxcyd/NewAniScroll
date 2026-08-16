@@ -600,12 +600,27 @@ export default function Info({
             air is bought back here — the browser opens the request while it is
             still parsing and compiling, and the component finds it in flight.
 
-            No `crossorigin` on purpose: `as=fetch` matches on credentials mode,
-            and the component's plain same-origin `fetch()` sends cookies. The
-            attribute would make this preload a different request and we would
-            pay for the franchise twice. Same reason the URL comes from
-            `relationsTreeUrl` instead of being spelled out again. */}
-        {info?.id && <link rel="preload" as="fetch" href={relationsTreeUrl(Number(info.id))} />}
+            `crossorigin` IS required, and leaving it off is what made the
+            browser refuse the match: an `as=fetch` preload without it carries
+            credentials mode "omit", while a plain `fetch()` defaults to
+            "same-origin" — "A preload for … is found, but is not used because
+            the request credentials mode does not match". The two now agree on
+            "omit" (see `relationsTreeUrl`'s caller in RelationsGraph), which is
+            also the truth of this route: it is public, identical for everybody,
+            and reads no cookie.
+
+            `key` because next/head keeps ONE tag per key: without it a re-render
+            of this page emitted the tag again, and the console carried three
+            copies of the same "preloaded but not used" complaint. */}
+        {info?.id && (
+          <link
+            key="preload-relations-tree"
+            rel="preload"
+            as="fetch"
+            crossOrigin="anonymous"
+            href={relationsTreeUrl(Number(info.id))}
+          />
+        )}
       </Head>
 
       <Navbar info={info} />
