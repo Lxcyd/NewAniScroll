@@ -1070,8 +1070,10 @@ export default function RelationsGraph({
     ro.observe(box);
     return () => ro.disconnect();
     // The canvas node itself is swapped when the board moves between the inline
-    // box and the overlay, so the observer has to follow that move.
-  }, [active, open]);
+    // box and the overlay, so the observer has to follow that move — and
+    // `mounted` for the same reason as the wheel below: there is no canvas to
+    // observe on the pass before it flips.
+  }, [active, open, mounted]);
 
   /**
    * Wheel-to-zoom, bound by hand so it can refuse the page its scroll.
@@ -1080,6 +1082,12 @@ export default function RelationsGraph({
    * harmless in the overlay (there is nothing behind it to scroll), but in the
    * inline preview every zoom would also scroll the info page out from under
    * the graph.
+   *
+   * `mounted` is in the deps because the component renders NOTHING until it
+   * flips: without it this ran once, against a ref still holding null, and
+   * never again — the board is client-only, so the first pass has no canvas to
+   * bind to. Opening the overlay changed `open` and re-ran it, which is why the
+   * wheel zoomed full-screen and scrolled the page inline.
    */
   useEffect(() => {
     const box = canvasRef.current;
@@ -1091,7 +1099,7 @@ export default function RelationsGraph({
     };
     box.addEventListener("wheel", onWheelNative, { passive: false });
     return () => box.removeEventListener("wheel", onWheelNative);
-  }, [active, open]);
+  }, [active, open, mounted]);
 
 
   /** Where a card actually sits: its layout position plus any hand nudge. */
