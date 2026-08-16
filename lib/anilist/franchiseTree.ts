@@ -26,10 +26,10 @@ import type { RelationsPayload } from "./relationsPayload";
  * an equivalent-looking rewrite lands on a different picture. Their rules, in
  * their order:
  *
- *  - Only ANIME nodes, never a CHARACTER relation. Both exclusions sit on the
- *    EDGE, so the manga a series adapts is never drawn AND never expanded —
- *    expanding it is what used to drag unrelated shows onto the board, the
- *    light novel being a franchise's hub.
+ *  - Never a CHARACTER relation — a character is not a work. A manga is drawn
+ *    but never EXPANDED: it is where most franchises start, so leaving it out
+ *    left the origin off the board, while walking through it drags in every
+ *    unrelated show that shares the hub. Leaf, not exclusion.
  *
  *  - One edge per PAIR. A pair already drawn is skipped whole — no second edge
  *    and no recursion through it — unless it is a PARENT, which is a broad term
@@ -190,18 +190,22 @@ export async function buildFranchiseTree(id: number): Promise<FranchiseTree> {
 
     const processEdges = async (m: any, depth = 0): Promise<void> => {
       if (!m) return;
-      if (!isAnime(m)) return;
       const nid = Number(m.id);
       if (!Number.isFinite(nid) || nid <= 0) return;
 
       if (!nodes.has(nid)) {
         if (nodes.size >= MAX_NODES) return;
-        if (depth >= 2) frontier.add(nid);
+        if (depth >= 2 && isAnime(m)) frontier.add(nid);
         nodes.set(nid, {
           ...m,
           cover: m.cover ?? m.coverImage?.large ?? m.coverImage?.extraLarge ?? null,
         });
       }
+      // A manga is a LEAF: drawn, never walked. Its own relations are the
+      // franchise's hub — a light novel points at every adaptation of every
+      // side series — so expanding one is what used to drag unrelated shows
+      // onto the board. It is also why it never joins the frontier above.
+      if (!isAnime(m)) return;
       if (depth >= 2) return;
 
       const list = await edgesOf(nid);
@@ -221,7 +225,7 @@ export async function buildFranchiseTree(id: number): Promise<FranchiseTree> {
       for (const e of list) {
         const node = e?.node;
         if (!node?.id) continue;
-        if (!isAnime(node) || EXCLUDED_RELATIONS.has(e.relationType)) continue;
+        if (EXCLUDED_RELATIONS.has(e.relationType)) continue;
         const oid = Number(node.id);
 
         const key = [oid, nid].sort((a, b) => a - b).join("-");
@@ -276,9 +280,15 @@ export async function buildFranchiseTree(id: number): Promise<FranchiseTree> {
    * Any rule would do as long as it names the SAME node from every page — that
    * is the whole job. The oldest is also the one that gives the walk the
    * picture it was designed for, a franchise read outwards from where it began.
+   *
+   * Anime only: a manga is a leaf the walk refuses to expand, so re-rooting on
+   * one (and they carry old, low ids — they are usually the oldest thing in a
+   * franchise) would end the walk on its first node and answer with one card.
    */
   const rootOf = (walked: Walked) =>
-    Array.from(walked.nodes.keys()).reduce((a, b) => (b < a ? b : a), Infinity);
+    Array.from(walked.nodes.values())
+      .filter((n) => isAnime(n))
+      .reduce((a, n) => (n.id < a ? n.id : a), Infinity);
 
   let result = await walkFrom({ id, type: "ANIME" });
 

@@ -142,6 +142,11 @@ const SIDE_RELATIONS = new Set([
   "ALTERNATIVE",
   "SPIN_OFF",
   "OTHER",
+  // The paper the anime came from, and the paper it produced. Neither moves
+  // the story on screen forward, and "main story" meant a watch order before
+  // manga were drawn at all — this is what keeps it meaning that.
+  "SOURCE",
+  "ADAPTATION",
 ]);
 
 const nodeHeight = (title: string, withCover: boolean) => {
@@ -228,6 +233,8 @@ type GNode = {
   status: string | null;
   cover: string | null;
   current: boolean;
+  /** Manga, light novel, one-shot — drawn, but there is no page to open. */
+  manga: boolean;
   x: number;
   y: number;
   w: number;
@@ -284,6 +291,10 @@ const FORMAT_LABEL: Record<string, string> = {
   OVA: "OVA",
   ONA: "ONA",
   MUSIC: "Music",
+  MANGA: "Manga",
+  MANHWA: "Manhwa",
+  NOVEL: "Light Novel",
+  ONE_SHOT: "One-shot",
 };
 
 /**
@@ -448,6 +459,15 @@ export default function RelationsGraph({
   const [openMenu, setOpenMenu] = useState<null | "rel" | "fmt">(null);
   /** Hide recaps, retellings and spin-offs — see SIDE_RELATIONS. */
   const [canonOnly, setCanonOnly] = useState(false);
+  /**
+   * Drop every printed work — manga, light novel, one-shot.
+   *
+   * They are shown by default because a franchise usually STARTS on paper and
+   * the board was leaving that out. But they are also the one kind of card you
+   * cannot open, and someone reading the board as a watch order has no use for
+   * them, so one press takes them all off.
+   */
+  const [hideManga, setHideManga] = useState(false);
   /** Cover art on the cards, on by default — a franchise is far easier to read
    *  by its art than by twenty near-identical titles. The switch turns the
    *  board back into plain text cards. */
@@ -627,7 +647,11 @@ export default function RelationsGraph({
     if (!active) return;
     let cancelled = false;
     setWalking(true);
-    fetch(`/api/v2/relations/tree?id=${currentId}`)
+    // `v` is not read by the route — it is the CDN key. The answer holds for a
+    // day, so without it every franchise walked before manga were drawn would
+    // keep serving the old, paperless board until tomorrow. Bump on any change
+    // to the walk's shape.
+    fetch(`/api/v2/relations/tree?id=${currentId}&v=2`)
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         if (cancelled) return;
@@ -657,6 +681,9 @@ export default function RelationsGraph({
         episodes: m.episodes ?? null,
         status: m.status ?? null,
         cover: m.cover ?? null,
+        // AniList only has two types, and a light novel is a MANGA whose
+        // format says NOVEL — so anything that isn't an anime is printed.
+        manga: (m.type ?? "ANIME") !== "ANIME",
         current: m.id === currentId,
         x: 0,
         y: 0,
@@ -666,6 +693,12 @@ export default function RelationsGraph({
     }
 
     for (const id of Array.from(hidden)) seen.delete(id);
+
+    // Printed works, off in one press. Nothing is orphaned by this: the walk
+    // never crosses a manga, so no anime on the board hangs off one.
+    if (hideManga) {
+      for (const n of Array.from(seen.values())) if (n.manga) seen.delete(n.id);
+    }
 
     /**
      * Canon only — what remains when you walk out from this entry WITHOUT ever
@@ -750,7 +783,26 @@ export default function RelationsGraph({
     }
 
     return { nodes: allNodes, edges: list, width: maxX, height: maxY };
-  }, [tree, currentId, titlePref, hidden, onlyFormats, onlyRelations, canonOnly, covers, rankDir]);
+  }, [
+    tree,
+    currentId,
+    titlePref,
+    hidden,
+    hideManga,
+    onlyFormats,
+    onlyRelations,
+    canonOnly,
+    covers,
+    rankDir,
+  ]);
+
+  /** Whether the franchise has anything printed at all — a chip that filters
+   *  nothing is a chip that asks a question the board already answered. Read
+   *  from the walk, not from `nodes`: pressing it empties the latter. */
+  const hasManga = useMemo(
+    () => tree.nodes.some((n) => (n.type ?? "ANIME") !== "ANIME"),
+    [tree.nodes],
+  );
 
   /** Relation kinds actually on this board, for the filter menu — offering
    *  "compilation" on a franchise that has none is noise. */
@@ -1393,10 +1445,25 @@ export default function RelationsGraph({
           const isSelected = n.id === selected;
           const isMatch = !!matches?.has(n.id);
           const done = isFinished(listMap?.get(n.id), n.episodes);
+          /**
+           * A manga card is a plain box, not a link.
+           *
+           * The site has no page for printed works, so `href` would land on a
+           * 404 — and a link that goes nowhere is worse than no link: it looks
+           * pressable, the cursor promises a page, and middle-click opens the
+           * dead end in a tab. It still drags, still lights its neighbours,
+           * still hides. It just doesn't navigate.
+           */
+          const Card: any = n.manga ? "div" : Link;
           return (
-            <Link
+            <Card
               key={n.id}
-              href={animeHref(n.id, clickTarget)}
+              {...(n.manga
+                ? null
+                : {
+                    href: animeHref(n.id, clickTarget),
+                    title: t("anime.graphOpenEntry", { defaultValue: "Open this entry" }),
+                  })}
               onMouseEnter={() => setHover(n.id)}
               onMouseLeave={() => setHover((h) => (h === n.id ? null : h))}
               // A card is a link, first press. The two-step it replaced —
@@ -1405,10 +1472,12 @@ export default function RelationsGraph({
               // lit is already what the board shows from the entry you
               // came from. Hovering still lights a card's neighbourhood,
               // which is the reading the click was standing in for.
-              onPointerDown={(ev) => onNodePointerDown(ev, n.id)}
+              onPointerDown={(ev: React.PointerEvent) => onNodePointerDown(ev, n.id)}
               onPointerMove={onNodePointerMove}
               onPointerUp={onNodePointerUp}
-              onClick={(ev) => {
+              onClick={(ev: React.MouseEvent) => {
+                // Nothing to navigate to, so nothing to guard or announce.
+                if (n.manga) return;
                 // A card that was just dragged must not navigate.
                 if (nodeDrag.current?.moved) {
                   ev.preventDefault();
@@ -1420,9 +1489,10 @@ export default function RelationsGraph({
                 if (ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.button !== 0) return;
                 if (open) setNavigating(true);
               }}
-              title={t("anime.graphOpenEntry", { defaultValue: "Open this entry" })}
               style={{
                 ...gStyles.node,
+                // Nothing to open: the card must not claim otherwise.
+                ...(n.manga ? { cursor: "default" } : null),
                 left: posOf(n).x + PAD,
                 top: posOf(n).y + PAD,
                 width: n.w,
@@ -1537,7 +1607,7 @@ export default function RelationsGraph({
                   </div>
                 </>
               )}
-            </Link>
+            </Card>
           );
         })}
       </>
@@ -1620,6 +1690,18 @@ export default function RelationsGraph({
           >
             {t("anime.graphMainStory", { defaultValue: "Main story" })}
           </button>
+          {/* Same rule as the chip below: the label is what PRESSING it gets
+              you, not what is on the board — so "No manga", lit while they are
+              gone. Only offered when the franchise actually has one. */}
+          {hasManga && (
+            <button
+              type="button"
+              onClick={() => setHideManga((v) => !v)}
+              style={{ ...gStyles.chip, ...(hideManga ? gStyles.chipOn : null) }}
+            >
+              {t("anime.graphNoManga", { defaultValue: "No manga" })}
+            </button>
+          )}
           {/* The switch reads as the MODE it turns on, so its label has to be
               what you get by pressing it — covers are the default now, and a
               lit chip called "Covers" while covers were already showing said

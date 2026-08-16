@@ -36,10 +36,13 @@ const coverOf = (m: any): string | null =>
 
 export function toRelationsPayload(media: any): RelationsPayload {
   const edges = (media?.relations?.edges || [])
-    // A manga is not drawn, and — more importantly — never expanded: the light
-    // novel is a franchise's hub, so walking it drags in every unrelated work
-    // that shares it.
-    .filter((e: any) => e?.node?.id && e.node.type !== "MANGA")
+    // A manga IS drawn now — it is usually where the franchise starts, and the
+    // board was answering "what is related" while leaving the origin out. What
+    // it must never be is EXPANDED: the light novel is a franchise's hub, so
+    // walking it drags in every unrelated work that shares it. That rule moved
+    // to the walk (`franchiseTree`), which keeps a manga as a leaf; dropping it
+    // here also dropped the edge, which is the part the reader wanted.
+    .filter((e: any) => e?.node?.id)
     .map((e: any) => ({
       relationType: e.relationType,
       node: {
