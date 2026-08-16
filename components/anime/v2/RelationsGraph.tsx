@@ -289,8 +289,6 @@ const ICON = {
     "M80-160v-240h80v160h160v80H80Zm0-400v-240h240v80H160v160H80Zm560 400v-80h160v-160h80v240H640Zm160-400v-160H640v-80h240v240h-80Z",
   fullscreen:
     "M120-120v-200h80v120h120v80H120Zm520 0v-80h120v-120h80v200H640ZM120-640v-200h200v80H200v120h-80Zm640 0v-120H640v-80h200v200h-80Z",
-  fullscreenExit:
-    "M240-120v-120H120v-80h200v200h-80Zm400 0v-200h200v80H720v120h-80ZM120-640v-80h120v-120h80v200H120Zm520 0v-200h80v120h120v80H640Z",
   refresh:
     "M480-160q-134 0-227-93t-93-227q0-134 93-227t227-93q69 0 132 28.5T720-690v-110h80v280H520v-80h168q-32-56-87.5-88T480-720q-100 0-170 70t-70 170q0 100 70 170t170 70q77 0 139-44t87-116h84q-28 106-114 173t-196 67Z",
   close:
@@ -488,7 +486,6 @@ export default function RelationsGraph({
    *  by its art than by twenty near-identical titles. The switch turns the
    *  board back into plain text cards. */
   const [covers, setCovers] = useState(true);
-  const [isFull, setIsFull] = useState(false);
   /** True while the franchise is still being walked. The first pass paints
    *  almost at once and the rest arrives after; saying so is what turns "the
    *  graph is broken" into "the graph is still counting". */
@@ -570,7 +567,6 @@ export default function RelationsGraph({
   // still goes through state, and the live position follows it. Only a pan in
   // progress owns this ref, so its own writes are not overwritten mid-gesture.
   if (!drag.current) liveOffset.current = offset;
-  const overlayRef = useRef<HTMLDivElement>(null);
   /** Cleared whenever the board changes size, so the fit runs again. */
   const fittedFor = useRef<string>("");
   /** Last known canvas size, to carry the view across a change of window. */
@@ -1095,7 +1091,12 @@ export default function RelationsGraph({
     const onWheelNative = (e: WheelEvent) => {
       e.preventDefault();
       const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
-      setScale((s) => Math.min(MAX_SCALE, Math.max(MIN_SCALE, s * factor)));
+      // Anchored on the cursor: the card under the pointer is the one you are
+      // asking about, so it is the one that must not move. `zoomAt` reads the
+      // live scale and offset from refs, so this listener stays correct
+      // although it is bound once and never rebound.
+      const r = box.getBoundingClientRect();
+      zoomAt(factor, e.clientX - r.left, e.clientY - r.top);
     };
     box.addEventListener("wheel", onWheelNative, { passive: false });
     return () => box.removeEventListener("wheel", onWheelNative);
@@ -1290,31 +1291,53 @@ export default function RelationsGraph({
   };
 
   /**
-   * Real fullscreen on the overlay — the ⤢ button only re-framed the board.
+   * ⤢ expands the inline board to the overlay, and that is the LAST step.
    *
-   * From the inline preview the same button means one step less: expand to the
-   * overlay. Asking the browser for fullscreen on a box inside the page would
-   * blow up the info page around it, which is not what "see this bigger" means.
+   * The overlay used to offer the browser's own fullscreen on top of itself, so
+   * the board had three sizes and the second and third looked nearly alike —
+   * the same black rectangle, minus the browser's chrome. Pressing it a second
+   * time therefore read as "nothing happened", except that leaving now took two
+   * gestures (Escape to drop fullscreen, Escape again to close) and the page
+   * behind had scrolled somewhere on the way back.
+   *
+   * One expansion, one way back. The button is only drawn inline, where it
+   * still has somewhere to go.
    */
-  const toggleFullscreen = () => {
-    if (embedded && !open) {
-      onExpand?.();
-      return;
-    }
-    const el = overlayRef.current;
-    if (!el) return;
-    if (document.fullscreenElement) document.exitFullscreen().catch(() => undefined);
-    else el.requestFullscreen?.().catch(() => undefined);
-  };
-  useEffect(() => {
-    // The board itself needs nothing here: the resize observer above carries
-    // the view across the size change, in or out.
-    const onChange = () => setIsFull(!!document.fullscreenElement);
-    document.addEventListener("fullscreenchange", onChange);
-    return () => document.removeEventListener("fullscreenchange", onChange);
-  }, []);
+  const toggleFullscreen = () => onExpand?.();
 
-  const zoomBy = (f: number) => setScale((s) => Math.min(MAX_SCALE, Math.max(MIN_SCALE, s * f)));
+  /**
+   * Zoom, holding one point of the BOARD still under one point of the box.
+   *
+   * The board is `translate(offset) scale(scale)`, so a screen point p sits
+   * over board point (p − offset) / scale. Scaling alone leaves `offset`
+   * where it was, which pins the board's top-left corner: on a franchise laid
+   * out to the right, zooming in walked away from whatever you were reading
+   * and you had to pan back after every notch. Solving that expression for a
+   * fixed board point gives the offset below.
+   *
+   * `k` is recomputed from the scale we actually got, not from `f`: at the
+   * clamp the two differ, and using `f` there would drift the board on a zoom
+   * that never happened.
+   */
+  const zoomAt = (f: number, px: number, py: number) => {
+    const s = scaleRef.current;
+    const next = Math.min(MAX_SCALE, Math.max(MIN_SCALE, s * f));
+    if (next === s) return;
+    const k = next / s;
+    const o = liveOffset.current;
+    const moved = { x: px - (px - o.x) * k, y: py - (py - o.y) * k };
+    liveOffset.current = moved;
+    setScale(next);
+    setOffset(moved);
+  };
+
+  /** The +/− buttons hold the MIDDLE of the box still — the closest thing to
+   *  "where you are looking" when the gesture names no point of its own. */
+  const zoomBy = (f: number) => {
+    const box = canvasRef.current;
+    if (!box) return;
+    zoomAt(f, box.clientWidth / 2, box.clientHeight / 2);
+  };
   const fitBoard = () => {
     const box = canvasRef.current;
     if (!box || !width || !height) return;
@@ -1862,7 +1885,7 @@ export default function RelationsGraph({
           </div>
         )}
 
-        {/* Zoom, fit, real fullscreen, reset, and a way out. */}
+        {/* Zoom, expand, reset, and a way out. */}
         <div style={gStyles.controls} onPointerDown={(e) => e.stopPropagation()}>
           <button style={gStyles.ctrlBtn} onClick={() => zoomBy(1.2)} aria-label="Zoom +" title="Zoom +">
             <Icon d={ICON.add} />
@@ -1870,14 +1893,17 @@ export default function RelationsGraph({
           <button style={gStyles.ctrlBtn} onClick={() => zoomBy(1 / 1.2)} aria-label="Zoom −" title="Zoom −">
             <Icon d={ICON.remove} />
           </button>
-          <button
-            style={gStyles.ctrlBtn}
-            onClick={toggleFullscreen}
-            aria-label={t("anime.graphFullscreen", { defaultValue: "Fullscreen" })}
-            title={t("anime.graphFullscreen", { defaultValue: "Fullscreen" })}
-          >
-            <Icon d={isFull ? ICON.fullscreenExit : ICON.fullscreen} />
-          </button>
+          {/* Inline only: expanded, there is nowhere further to go. */}
+          {!open && (
+            <button
+              style={gStyles.ctrlBtn}
+              onClick={toggleFullscreen}
+              aria-label={t("anime.graphFullscreen", { defaultValue: "Fullscreen" })}
+              title={t("anime.graphFullscreen", { defaultValue: "Fullscreen" })}
+            >
+              <Icon d={ICON.fullscreen} />
+            </button>
+          )}
           <button
             style={gStyles.ctrlBtn}
             onClick={() => {
@@ -1913,7 +1939,6 @@ export default function RelationsGraph({
   // it on top, and keeps any ancestor transform from trapping `position: fixed`.
   const overlay = createPortal(
     <div
-      ref={overlayRef}
       role="dialog"
       aria-modal="true"
       aria-label={t("anime.relationsGraphTitle", { defaultValue: "Franchise timeline" })}
