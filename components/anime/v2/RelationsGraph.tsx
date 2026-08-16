@@ -100,6 +100,32 @@ const COVER_H = 114;
 const NODE_W_COVER = NODE_W + COVER_W;
 /** Board margin, so the outermost nodes aren't flush against the edge. */
 const PAD = 40;
+/**
+ * Air left around the board when it is framed, in SCREEN pixels.
+ *
+ * `PAD` cannot do this job: it lives in board coordinates, so it shrinks with
+ * the zoom — on One Piece, framed at 0.0376, its 40px come out as one and a
+ * half, and the outermost cards sit against the border. This one is applied to
+ * the box before the fit is computed, so the gutter is the same whether the
+ * board is nineteen cards or sixty.
+ */
+const FIT_MARGIN = 24;
+
+/**
+ * Frame a board of `boardW × boardH` inside a box, centred, with air around it.
+ *
+ * One function because there are two callers — the automatic fit and the reset
+ * button — and when they were two copies of the same three lines they were free
+ * to disagree about the margin.
+ */
+const fitView = (boxW: number, boxH: number, boardW: number, boardH: number) => {
+  const usableW = Math.max(1, boxW - FIT_MARGIN * 2);
+  const usableH = Math.max(1, boxH - FIT_MARGIN * 2);
+  // Clamped like every other zoom: a fit below the floor would be a scale the
+  // next wheel notch silently disagrees with — the bug this file just paid for.
+  const scale = Math.max(MIN_SCALE, Math.min(1, usableW / boardW, usableH / boardH));
+  return { scale, x: (boxW - boardW * scale) / 2, y: (boxH - boardH * scale) / 2 };
+};
 
 /**
  * Zoom range. The floor used to be 0.35, which on a wide franchise (or with
@@ -1044,14 +1070,9 @@ export default function RelationsGraph({
     if (fittedFor.current === key) return;
     fittedFor.current = key;
 
-    const boardW = width + PAD * 2;
-    const boardH = height + PAD * 2;
-    const next = Math.min(1, box.clientWidth / boardW, box.clientHeight / boardH);
-    setScale(next);
-    setOffset({
-      x: (box.clientWidth - boardW * next) / 2,
-      y: (box.clientHeight - boardH * next) / 2,
-    });
+    const v = fitView(box.clientWidth, box.clientHeight, width + PAD * 2, height + PAD * 2);
+    setScale(v.scale);
+    setOffset({ x: v.x, y: v.y });
     viewport.current = { w: box.clientWidth, h: box.clientHeight };
   }, [active, width, height, open]);
 
@@ -1378,14 +1399,9 @@ export default function RelationsGraph({
   const fitBoard = () => {
     const box = canvasRef.current;
     if (!box || !width || !height) return;
-    const boardW = width + PAD * 2;
-    const boardH = height + PAD * 2;
-    const next = Math.min(1, box.clientWidth / boardW, box.clientHeight / boardH);
-    setScale(next);
-    setOffset({
-      x: (box.clientWidth - boardW * next) / 2,
-      y: (box.clientHeight - boardH * next) / 2,
-    });
+    const v = fitView(box.clientWidth, box.clientHeight, width + PAD * 2, height + PAD * 2);
+    setScale(v.scale);
+    setOffset({ x: v.x, y: v.y });
   };
 
   const onPointerDown = (e: React.PointerEvent) => {
