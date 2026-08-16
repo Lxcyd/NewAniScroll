@@ -115,12 +115,27 @@ export async function resolveSource(
  * the stream URL already points at, so playback starts with zero buffering.
  * Fire-and-forget; failures are silently ignored. Only fetches a small slice
  * of the first segment (Range) to avoid pulling the whole episode.
+ *
+ * DIRECT STREAMS ONLY, and the docstring above is why the restriction is not a
+ * loss. "Whatever proxy the stream URL already points at" describes a source
+ * that plays as-is; everything else is wrapped through our Worker by the player
+ * (`proxied()` in UniversalPlayer) and never fetched at this address at all. So
+ * warming the raw URL was doing neither of the two things it exists for: the
+ * host CDN refuses a bare browser request — `403` on cdn.watching.onl, once per
+ * info page, in everyone's console — and even when it answered it primed the
+ * CDN's edge instead of the Worker's, which is the only one playback reads.
+ *
+ * Warming the proxied URL instead is a real option, and deliberately not taken
+ * here: it would turn a request that has been failing for free into 256 KB of
+ * video pulled through the Worker on every info page, for an episode the
+ * visitor may never open. That is a cost decision, not a console fix.
  */
 export async function warmStream(streamData: any, signal?: AbortSignal) {
   try {
-    const url: string | undefined =
-      streamData?.sources?.[0]?.url || streamData?.streams?.[0]?.url;
+    const source = streamData?.sources?.[0] ?? streamData?.streams?.[0];
+    const url: string | undefined = source?.url;
     if (!url || !/\.m3u8(\?|$)/i.test(url)) return;
+    if (!source?.directUrl) return;
     const res = await fetch(url, { priority: "low", signal } as any);
     if (!res.ok) return;
     const text = await res.text();
