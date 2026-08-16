@@ -428,7 +428,14 @@ function FilterMenu({
     ...(on ? gStyles.menuItemOn : hovered === value ? gStyles.menuItemHover : null),
   });
   return (
-    <div style={gStyles.menuWrap} onPointerLeave={() => setHovered(null)}>
+    <div
+      style={gStyles.menuWrap}
+      // Marks the chip AND its list as "inside": the press that closes an open
+      // menu is caught on the document, and without this exemption pressing the
+      // chip would close the menu just before its own click reopened it.
+      data-graph-menu=""
+      onPointerLeave={() => setHovered(null)}
+    >
       <button
         type="button"
         onClick={onToggle}
@@ -1575,6 +1582,29 @@ export default function RelationsGraph({
     // being the code's — expanding after a reset frames the board again.
     touchedView.current = false;
   };
+
+  /**
+   * A press anywhere else on the page closes an open filter menu.
+   *
+   * The board already dismissed it (see `onPointerDown` below), which covered
+   * the common case and hid the gap: everything OUTSIDE the graph — the details
+   * column, the tabs, the synopsis, the page's own scrollbar — left the menu
+   * hanging open over the board while the reader was plainly done with it.
+   *
+   * On `document` in the CAPTURE phase, so it is heard before whatever was
+   * pressed acts on it, and only while a menu is open — a listener that spends
+   * its life doing nothing is still a listener on every press of the page.
+   */
+  useEffect(() => {
+    if (!openMenu) return;
+    const onDown = (e: Event) => {
+      const node = e.target as HTMLElement | null;
+      if (node?.closest?.("[data-graph-menu]")) return;
+      setOpenMenu(null);
+    };
+    document.addEventListener("pointerdown", onDown, true);
+    return () => document.removeEventListener("pointerdown", onDown, true);
+  }, [openMenu]);
 
   const onPointerDown = (e: React.PointerEvent) => {
     // Touching the board dismisses an open filter menu, the way a menu anywhere
