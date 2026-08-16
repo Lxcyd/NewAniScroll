@@ -21,6 +21,7 @@ import { anilistFetch } from "@/lib/anilist/anilistFetch";
 import { getUserList, peekListEntry, hasUserList, patchListEntry } from "@/lib/anilist/userListCache";
 import { peekLocalEntry, LOCAL_LIST_EVENT } from "@/lib/list/localList";
 import { useSyncPrefs } from "@/lib/prefs/syncPrefs";
+import { getServerPref } from "@/lib/prefs/serverPref";
 import { getCachedAnime } from "@/lib/db/anime";
 import { loadFanarts } from "@/lib/db/fanarts";
 import { resolveSeasonChain, resolveSeasonList, resolveBonusFilms, SeasonEntry } from "@/lib/anilist/seasonChain";
@@ -352,10 +353,11 @@ export default function Info({
       //  2. the user's saved preferred server — the one the page switches to
       //     once confirmed (and the one they actually watch).
       // Both at HIGH priority so they resolve first.
-      let preferred: string | null = null;
-      try {
-        preferred = localStorage.getItem("preferred_server");
-      } catch {}
+      // getServerPref, pas localStorage brut : une preference pointant sur un
+      // serveur retire declenchait ici un scrape lourd en priorite HAUTE, a
+      // chaque visite de page info, pour un id que la route ne sait pas resoudre
+      // (cf. lib/prefs/serverPref.ts).
+      const preferred: string | null = getServerPref() || null;
 
       const prioritised = [server];
       if (preferred && preferred !== server) prioritised.push(preferred);

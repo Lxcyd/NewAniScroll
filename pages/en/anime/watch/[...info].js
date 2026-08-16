@@ -25,6 +25,7 @@ import { getCachedAnime } from "@/lib/db/anime";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { onEpisodeFinished } from "@/lib/list/syncEngine";
 import { getPlayerPrefs } from "@/lib/prefs/playerPrefs";
+import { getServerPref } from "@/lib/prefs/serverPref";
 import { recordWatchToday } from "@/lib/stats/streak";
 import { useTranslation } from "react-i18next";
 import { FULL_MEDIA_FIELDS } from "@/lib/anilist/fullMediaQuery";
@@ -468,7 +469,9 @@ export default function Watch({
   const preferredServerRef = useRef(null);
   const appliedPrefRef = useRef(false);
   useEffect(() => {
-    const pref = localStorage.getItem("preferred_server") || null;
+    // Via getServerPref (et non localStorage brut) : il ecarte — et purge — une
+    // preference qui designe un serveur retire, cf. lib/prefs/serverPref.ts.
+    const pref = getServerPref() || null;
     preferredServerRef.current = pref;
     // Select the user's server UP FRONT so it's the one loaded in priority — not
     // megaplay-then-switch. If the anime doesn't actually offer this server the
