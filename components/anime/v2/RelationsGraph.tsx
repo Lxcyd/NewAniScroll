@@ -296,6 +296,8 @@ const ICON = {
     "M80-160v-240h80v160h160v80H80Zm0-400v-240h240v80H160v160H80Zm560 400v-80h160v-160h80v240H640Zm160-400v-160H640v-80h240v240h-80Z",
   fullscreen:
     "M120-120v-200h80v120h120v80H120Zm520 0v-80h120v-120h80v200H640ZM120-640v-200h200v80H200v120h-80Zm640 0v-120H640v-80h200v200h-80Z",
+  fullscreenExit:
+    "M240-120v-120H120v-80h200v200h-80Zm400 0v-200h200v80H720v120h-80ZM120-640v-80h120v-120h80v200H120Zm520 0v-200h80v120h120v80H640Z",
   refresh:
     "M480-160q-134 0-227-93t-93-227q0-134 93-227t227-93q69 0 132 28.5T720-690v-110h80v280H520v-80h168q-32-56-87.5-88T480-720q-100 0-170 70t-70 170q0 100 70 170t170 70q77 0 139-44t87-116h84q-28 106-114 173t-196 67Z",
   close:
@@ -1307,10 +1309,14 @@ export default function RelationsGraph({
    * gestures (Escape to drop fullscreen, Escape again to close) and the page
    * behind had scrolled somewhere on the way back.
    *
-   * One expansion, one way back. The button is only drawn inline, where it
-   * still has somewhere to go.
+   * One expansion, one way back — but the button stays on BOTH sides of it,
+   * showing the exit glyph once expanded. It is where the hand already is (the
+   * control cluster it just pressed), where the eye looks for the way out of a
+   * full-screen view, and it saves crossing the whole board to the ✕ in the far
+   * corner. The two are not redundant: ✕ closes the dialog, this collapses it
+   * back into the page, and here they happen to mean the same thing.
    */
-  const toggleFullscreen = () => onExpand?.();
+  const toggleFullscreen = () => (open ? onClose() : onExpand?.());
 
   /**
    * Zoom, holding one point of the BOARD still under one point of the box.
@@ -1900,17 +1906,22 @@ export default function RelationsGraph({
           <button style={gStyles.ctrlBtn} onClick={() => zoomBy(1 / 1.2)} aria-label="Zoom −" title="Zoom −">
             <Icon d={ICON.remove} />
           </button>
-          {/* Inline only: expanded, there is nowhere further to go. */}
-          {!open && (
-            <button
-              style={gStyles.ctrlBtn}
-              onClick={toggleFullscreen}
-              aria-label={t("anime.graphFullscreen", { defaultValue: "Fullscreen" })}
-              title={t("anime.graphFullscreen", { defaultValue: "Fullscreen" })}
-            >
-              <Icon d={ICON.fullscreen} />
-            </button>
-          )}
+          <button
+            style={gStyles.ctrlBtn}
+            onClick={toggleFullscreen}
+            aria-label={
+              open
+                ? t("anime.graphExitFullscreen", { defaultValue: "Exit full screen" })
+                : t("anime.graphFullscreen", { defaultValue: "Fullscreen" })
+            }
+            title={
+              open
+                ? t("anime.graphExitFullscreen", { defaultValue: "Exit full screen" })
+                : t("anime.graphFullscreen", { defaultValue: "Fullscreen" })
+            }
+          >
+            <Icon d={open ? ICON.fullscreenExit : ICON.fullscreen} />
+          </button>
           <button
             style={gStyles.ctrlBtn}
             onClick={() => {

@@ -883,6 +883,7 @@
     "graphFit": "Ajuster à l'écran",
     "graphReset": "Réinitialiser la disposition",
     "graphFullscreen": "Plein écran",
+    "graphExitFullscreen": "Quitter le plein écran",
     "graphHideNode": "Masquer cette fiche",
     "graphWalking": "chargement…",
     "graphSearch": "Chercher dans le graphe",

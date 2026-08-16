@@ -883,6 +883,7 @@
     "graphFit": "Fit to screen",
     "graphReset": "Reset layout",
     "graphFullscreen": "Fullscreen",
+    "graphExitFullscreen": "Exit full screen",
     "graphHideNode": "Hide this entry",
     "graphWalking": "still loading…",
     "graphSearch": "Search the graph",
