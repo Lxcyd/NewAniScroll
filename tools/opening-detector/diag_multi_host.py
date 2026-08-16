@@ -42,7 +42,7 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
 from detect_anime import _probe_duration, load_theme_pools, refs_for_episode
-from diag_match import _measure_actual_window_start, ms
+from diag_match import _measure_actual_window_start, _window_offset, ms
 from oped.adapter_aniscroll import MULTI_HOSTS, VF_INCOMPATIBLE_HOSTS, resolve_episodes
 from oped.audio import load_audio
 from oped.fingerprint import fingerprint
@@ -87,13 +87,11 @@ def _process_host(args, host: str, refs, win, start_s) -> tuple[list[str], dict 
         # and silently fall back to the bogus 24*60 = 1440.0s duration —
         # this was the actual bug behind megaplay's wrong ED timing.
         ep_dur = _probe_duration(e["url"], referer=e.get("referer"))
-        win_offset = 0.0 if start_s is None else (
-            ep_dur + start_s if start_s < 0 else start_s
-        )
-        measured = _measure_actual_window_start(e["url"], win, e.get("referer"))
+        measured = _measure_actual_window_start(e["url"], win, e.get("referer"), ep_dur)
         base_key = f"{args.slug}/{args.season}/{args.lang}/{actual_host}/ep{args.ep}"
         samples = load_audio(e["url"], cache_key=base_key, window=win,
                               referer=e.get("referer"))
+        win_offset = _window_offset(win, ep_dur, len(samples) / 11025)
         ep_fp = fingerprint(samples)
     except Exception as exc:
         log.append(f"  {actual_host}: fetch/decode failed — {exc}")

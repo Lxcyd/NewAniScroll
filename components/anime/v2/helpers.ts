@@ -326,19 +326,32 @@ export type TitleImage = {
   queue: string[];
 };
 
-/* Pick the hero title image with the priority requested by the user:
-   1. random `clearart` (transparent character art) in EN/textless
-   2. most-liked `logo` (stylized title text) in EN/textless
-   3. null (caller falls back to plain title text)
+/* Pick the info page's hero title image, in the order requested by the user
+   (2026-08-08):
+   1. random `clearart` (transparent character art) from fanart.tv, EN/textless
+   2. TMDB logo
+   3. most-liked fanart.tv `logo` (stylized title text), EN/textless
+   4. null (caller falls back to plain title text)
+
+   TMDB sits BETWEEN the two fanart.tv types rather than after both. The split
+   is on kind, not on provider: clearart is the art this hero was designed
+   around (and the only type that cycles), so it stays first whatever else
+   exists — but between two *logos*, TMDB's library is the better and far more
+   complete one, so a fanart.tv logo is now what fills TMDB's gaps rather than
+   the other way round.
 
    When multiple clearart candidates exist, we ship the full list as a
    shuffled queue so the Hero can cycle through them on click without a
    second fanart fetch — same Turso read covers both the initial paint
-   and every subsequent click. */
-export function pickTitleImage(fanarts: FanartResponse | null): TitleImage | null {
-  if (!fanarts) return null;
+   and every subsequent click.
 
-  const clearart = (fanarts.types.clearart || []).filter((a) =>
+   `tmdbLogo` is a plain URL because this file is bundled to the client and
+   lib/tmdb/* is server-only; the SSR call site does the fetch. */
+export function pickTitleImage(
+  fanarts: FanartResponse | null,
+  tmdbLogo?: string | null,
+): TitleImage | null {
+  const clearart = (fanarts?.types.clearart || []).filter((a) =>
     isAcceptableLang(a.language)
   );
   if (clearart.length > 0) {
@@ -348,21 +361,17 @@ export function pickTitleImage(fanarts: FanartResponse | null): TitleImage | nul
     return { url: urls[0], kind: "clearart", queue: urls };
   }
 
-  const logos = (fanarts.types.logo || []).filter((a) =>
-    isAcceptableLang(a.language)
-  );
-  if (logos.length > 0) {
-    // API already orders by likes desc.
-    return { url: logos[0].url, kind: "logo", queue: [] };
-  }
+  const fromTmdb = tmdbTitleImage(tmdbLogo);
+  if (fromTmdb) return fromTmdb;
 
-  return null;
+  return pickHeroLogo(fanarts);
 }
 
-/* Logo-only variant of pickTitleImage. The home hero wants the stylised
-   title TEXT (HD ClearLogo) only — never the transparent character art
-   (clearart), which fights the banner background behind it. Returns the
-   most-liked acceptable-language logo, or null to fall back to text. */
+/* fanart.tv logo only. The home hero wants the stylised title TEXT
+   (HD ClearLogo) and never the transparent character art (clearart), which
+   fights the banner background behind it; the info page uses it as the last
+   image resort, after TMDB. Returns the most-liked acceptable-language logo,
+   or null to fall back to text. */
 export function pickHeroLogo(fanarts: FanartResponse | null): TitleImage | null {
   if (!fanarts) return null;
   const logos = (fanarts.types.logo || []).filter((a) =>
@@ -372,6 +381,43 @@ export function pickHeroLogo(fanarts: FanartResponse | null): TitleImage | null 
     return { url: logos[0].url, kind: "logo", queue: [] };
   }
   return null;
+}
+
+/* Wrap a TMDB logo URL (lib/tmdb/animeImages.getTmdbAnimeImages().logo) as a
+   TitleImage.
+
+   Pure and provider-agnostic on purpose: this file is bundled to the client,
+   and lib/tmdb/* is server-only (it reads TMDB_API_KEY and hits Turso). The
+   fetch happens at the SSR call site; only the resulting URL crosses over.
+
+   PRECEDENCE DIFFERS BY SURFACE, and it is a deliberate call each time:
+
+   - Home hero (pages/en/index.tsx): TMDB FIRST. That carousel is a copy of
+     Hayase's and renders the same logo they do.
+
+     I originally had fanart.tv ahead of it and gave two reasons, only one of
+     which survives. The NSFW filtering does NOT: a logo is title typography,
+     there is nothing to filter, and TMDB's logo library carries no such risk
+     in the first place. Our NSFW pipeline (lib/db/fanarts.ts) exists for
+     BACKGROUNDS and CLEARART — character art, where it is genuinely needed —
+     and citing it for logos was borrowing a justification from the wrong
+     category. The edge-cache advantage is real (fanart-proxy.aniscroll.com,
+     1-year cache, ~50 ms worldwide, versus an uncached hotlink to
+     image.tmdb.org) but it is about the PIPE, not the image, and on a surface
+     built to match theirs the image decides. Overruled 2026-08-08.
+   - Info page (pages/en/anime/[...id].tsx): fanart.tv CLEARART first, then
+     TMDB, then the fanart.tv logo (see pickTitleImage). The clearart cycle is
+     a feature TMDB has no equivalent for, so it keeps the top slot; between
+     two logos TMDB wins on coverage.
+
+   Either way TMDB only ever fills what fanart.tv doesn't cover, or vice versa
+   — fanart.tv covers a fraction of the catalogue, so both orderings leave the
+   other provider plenty to do.
+
+   `queue` is always empty: a logo is single-image, only clearart cycles. */
+export function tmdbTitleImage(url: string | null | undefined): TitleImage | null {
+  if (!url) return null;
+  return { url, kind: "logo", queue: [] };
 }
 
 /* Fisher-Yates shuffle. Used to randomise the clearart cycle order at
@@ -386,9 +432,21 @@ function shuffle<T>(arr: T[]): T[] {
 }
 
 /* Flatten the fanart payload into a single artwork list for the Artworks tab.
-   Excludes types we don't want to gallery (logos / clearart belong to the
-   hero; characters too) and drops anything not in the English/textless
-   bucket. NSFW labels are already filtered server-side by /api/v2/fanarts. */
+   Drops anything outside the English/textless bucket; NSFW labels are already
+   filtered server-side by /api/v2/fanarts.
+
+   EVERY TYPE fanart.tv actually stores is galleried. The list below is not a
+   guess — it is the distinct `type` values present in `anime_fanarts`, counted
+   2026-08-08: logo 26350, poster 19031, background 18523, clearart 15999,
+   character 12259, thumb 10391, banner 8678, seasonposter 7515, seasonthumb
+   1771, seasonbanner 1526, disc 467.
+
+   `logo`, `clearart`, `character` and `disc` used to be excluded on the
+   grounds that "logos and clearart belong to the hero". That stopped holding
+   the moment TMDB logos started appearing in this same gallery: the tab showed
+   a TMDB logo while hiding fanart.tv's, and hid 28,000 clearart/character
+   images that exist for no other surface. Character art in particular has no
+   home anywhere else in the app. */
 export function collectArtworks(
   fanarts: FanartResponse | null
 ): Array<FanartItem & { type: string }> {
@@ -401,6 +459,10 @@ export function collectArtworks(
     "seasonposter",
     "seasonbanner",
     "seasonthumb",
+    "logo",
+    "clearart",
+    "character",
+    "disc",
   ]);
   const out: Array<FanartItem & { type: string }> = [];
   for (const [type, items] of Object.entries(fanarts.types)) {
@@ -751,6 +813,48 @@ function parseRomanOrInt(s: string): number | null {
   if (Number.isFinite(n) && n > 0) return n;
   const r = ROMAN[s.toLowerCase()];
   return r || null;
+}
+
+/**
+ * The title with every season/part marker stripped — what's left is the work
+ * itself. Used to tell a continuation of the SAME work from a new one.
+ *
+ * A number in a title only means "franchise season N" when the entry is a new
+ * work. When it continues the previous one, the number counts within THAT
+ * work, and trusting it corrupts the whole chain: the native title of
+ * "Alicization - War of Underworld Part 2" is "… War of Underworld (2nd
+ * Season)" — the second season *of War of Underworld* — which reset the
+ * franchise counter from 4 back to 2 and labelled the entry "Season 2 Part 2",
+ * after "Season 4". Comparing the stripped titles catches it: both entries
+ * reduce to the same work, so the second one continues the first.
+ */
+export function seasonTitleBase(
+  title:
+    | { english?: string | null; romaji?: string | null; native?: string | null }
+    | null
+    | undefined
+): string {
+  const raw = String(title?.english || title?.romaji || "").trim();
+  return raw
+    .replace(/\b(?:Part|Cour)\s+(?:\d+|[IVX]+)\b/gi, "")
+    .replace(/\b(?:\d+(?:st|nd|rd|th)|first|second|third|fourth|fifth)\s+Season\b/gi, "")
+    .replace(/\bSeason\s+(?:\d+|[IVX]+)\b/gi, "")
+    .replace(/\bFinal\s+(?:Season|Chapters?)\b/gi, "")
+    .replace(/[\s:\-–—,.]+$/g, "")
+    .replace(/\s{2,}/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+/** Do two entries reduce to the same work, one continuing the other? */
+export function continuesSameWork(
+  prev: Parameters<typeof seasonTitleBase>[0],
+  next: Parameters<typeof seasonTitleBase>[0]
+): boolean {
+  const a = seasonTitleBase(prev);
+  const b = seasonTitleBase(next);
+  // Short bases collide too easily ("SAO" vs "SAO"); require some substance.
+  return a.length >= 6 && a === b;
 }
 
 /* Does a title read like a *continuation* of the previous season rather than

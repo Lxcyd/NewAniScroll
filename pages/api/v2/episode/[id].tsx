@@ -8,6 +8,11 @@ import {
   getSimklEpisodeStills,
   type SimklEpisodeData,
 } from "@/lib/simkl/episodeStills";
+import { fillStillGaps } from "@/lib/tmdb/episodeStills";
+import {
+  getAniZipEpisodes,
+  type AniZipEpisodeData,
+} from "@/lib/anizip/episodes";
 
 /**
  * Episode API — generates episode lists from AniList data.
@@ -164,6 +169,27 @@ function filterData(data: any[], type: "sub" | "dub") {
   return filteredData.filter((i) => i !== null);
 }
 
+/**
+ * Redis key for a title's episode list.
+ *
+ * BUMP THE VERSION WHENEVER WHAT FEEDS THIS LIST CHANGES — not only when its
+ * shape does. A cached list is built from whatever providers were wired in at
+ * the time it was written, and it keeps being served afterwards: adding a
+ * better source changes nothing for any title already in Redis, for up to 30
+ * days on a finished show.
+ *
+ * v5 → v6 (2026-08-08): ani.zip joined the chain ahead of Simkl and TMDB. The
+ * symptom was visible and specific — episode rows still read "Episode 1",
+ * "Episode 2" instead of the real titles ani.zip returns, and the thumbnails
+ * were Simkl's rather than the ones the new order picks.
+ *
+ * This is the same trap as CACHE_VERSION in lib/db/tmdbImagesCache.ts, hit
+ * twice in one afternoon: a cache outlives the reason its contents were what
+ * they were, and no TTL can notice.
+ */
+const EPISODE_CACHE_KEY = (id: string | string[] | undefined) =>
+  `episode:v6:${id}`;
+
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse
@@ -202,13 +228,13 @@ export default async function handler(
     }
 
     if (refresh !== null) {
-      await redis.del(`episode:v5:${id}`);
+      await redis.del(EPISODE_CACHE_KEY(id));
     } else {
-      cached = await redis.get(`episode:v5:${id}`);
+      cached = await redis.get(EPISODE_CACHE_KEY(id));
       if (cached) {
         const parsed = JSON.parse(cached);
         if (!parsed || parsed.length === 0) {
-          await redis.del(`episode:v5:${id}`);
+          await redis.del(EPISODE_CACHE_KEY(id));
           cached = null;
         }
       }
@@ -261,37 +287,81 @@ export default async function handler(
     return res.status(404).json({ error: "Anime not found" });
   }
 
-  /* Real per-episode stills, from Simkl. Only on the cache-miss path — a Redis
+  /* Real per-episode stills and titles. Only on the cache-miss path — a Redis
      hit returns above and never reaches these.
 
-     TMDB used to be merged in on top of this (it won per episode, being
-     validated against an exact episode-count match on a mapped season). It is
-     gone: Simkl is keyed to THIS AniList entry, so it needs no season
-     inference at all, which is what made the TMDB path both fragile and
-     expensive — a mapping to resolve, a validation to refuse on, and an API key
-     to carry. Where Simkl has no image the row falls back to the client's
-     fanart pool, same as it always did past the timeout.
+     THREE PROVIDERS, IN COVERAGE ORDER, each filling what the previous left
+     empty. They differ only in what they can be keyed by, and that is what
+     decides the order:
 
-     Timeboxed: the episode list is the site's hot path and this makes an
-     external call. Past the budget we drop the stills and let the pool cover
-     the rows; the result still lands in the cache on a later request. */
+       1. ani.zip  — keyed on the ANILIST ID itself. Nothing to map, nothing to
+                     miss. This is the source Hayase uses, and it is first for
+                     the reason it is theirs: it cannot fail on a title that is
+                     merely new.
+       2. Simkl    — keyed on Fribb's `simkl_id`, which covers ~34% of entries
+                     and skews against airing shows; `resolveSimklId` rescues
+                     some of the rest with a direct lookup.
+       3. TMDB     — needs a season, the weakest link of all (see
+                     lib/tmdb/episodeStills.ts), so it only ever writes into
+                     episodes the first two left empty.
+
+     Where none has an image the row falls back to the client's fanart pool,
+     exactly as before.
+
+     ani.zip and Simkl run CONCURRENTLY: neither depends on the other and both
+     are usually a single cached Turso read, so serialising them would double
+     the latency of the common case for nothing. TMDB comes after because it
+     needs to know which episodes are still missing.
+
+     Timeboxed: the episode list is the site's hot path. Past the budget we
+     drop what hasn't arrived and let the pool cover those rows; the result
+     still lands in the cache on a later request. */
   const displayed = displayedEpisodeCount(media);
-  const simkl = await Promise.race([
-    getSimklEpisodeStills(Number(id), displayed || null).catch(() => ({
-      stills: {},
-      titles: {},
-    })),
-    new Promise<SimklEpisodeData>((r) =>
-      setTimeout(() => r({ stills: {}, titles: {} }), 3000),
+  const [anizip, simkl] = await Promise.race([
+    Promise.all([
+      getAniZipEpisodes(Number(id), displayed || null).catch(() => ({
+        stills: {},
+        titles: {},
+      })),
+      getSimklEpisodeStills(Number(id), displayed || null).catch(() => ({
+        stills: {},
+        titles: {},
+      })),
+    ]),
+    new Promise<[AniZipEpisodeData, SimklEpisodeData]>((r) =>
+      setTimeout(
+        () => r([
+          { stills: {}, titles: {} },
+          { stills: {}, titles: {} },
+        ]),
+        3000,
+      ),
     ),
   ]);
 
-  const rawData = buildEpisodeList(id as string, media, simkl.stills, simkl.titles);
+  /* Spread order IS the precedence: later keys win, so the earlier provider
+     must be spread last. */
+  const merged = { ...simkl.stills, ...anizip.stills };
+  const mergedTitles = { ...simkl.titles, ...anizip.titles };
+
+  /* TMDB fills what's left, on its own timebox rather than inside the race
+     above — otherwise a slow first round would eat the whole budget and the
+     fill would never get a turn, while a slow TMDB could push the total past
+     what the episode list is allowed to spend. Costs nothing when the first
+     two came back complete (fillStillGaps returns without a call) or when
+     TMDB_API_KEY is unset. 2s, not 3s: this is strictly a bonus on top of an
+     answer we already have. */
+  const stills = await Promise.race([
+    fillStillGaps(Number(id), displayed || null, merged).catch(() => merged),
+    new Promise<Record<number, string>>((r) => setTimeout(() => r(merged), 2000)),
+  ]);
+
+  const rawData = buildEpisodeList(id as string, media, stills, mergedTitles);
 
   // Cache
   if (redis && cacheTime !== null && rawData.length > 0) {
     await redis.set(
-      `episode:v5:${id}`,
+      EPISODE_CACHE_KEY(id),
       JSON.stringify(rawData),
       "EX",
       cacheTime

@@ -35,6 +35,7 @@ import {
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { genreLabel } from "@/lib/i18n/genreLabel";
+import { useTrailerBlocked } from "@/lib/preview/useTrailerBlocked";
 import { useTranslatedText } from "@/lib/i18n/useTranslatedText";
 import { translateTag } from "@/lib/i18n/animeTags";
 import { hexToCssFilter } from "@/lib/color/hexToCssFilter";
@@ -50,6 +51,7 @@ import ScoresTab from "../ScoresTab";
 import Related from "../Related";
 import RelationsGraph from "../RelationsGraph";
 import { coverUrl } from "@/lib/images/cover";
+import { youtubeTrailerId } from "@/lib/preview/trailerId";
 
 type Props = {
   info: AniListInfoTypes;
@@ -912,8 +914,6 @@ function MOverview({
           <RelationsGraph
             open={graphOpen}
             onClose={() => setGraphOpen(false)}
-            relations={info.relations?.edges || []}
-            seasonList={seasonList}
             currentId={info.id}
           />
         </section>
@@ -1223,17 +1223,29 @@ function MTrailer({
   bannerFallback?: string | null;
 }) {
   const [playing, setPlaying] = useState(false);
-  if (!trailer.id || !trailer.site) return null;
+  /**
+   * Same rule as the desktop overview: a video that cannot be watched from this
+   * region makes this block a tile that opens onto an error. The answer comes
+   * from a hidden embed asked at idle — see lib/preview/useTrailerBlocked.
+   */
+  // Cleaned, not just stringified: AniList ships ids with whitespace stapled on
+  // (see youtubeTrailerId), and one of those builds an embed URL and a thumbnail
+  // URL that both 404.
+  const ytId = trailer.site === "youtube" ? youtubeTrailerId(trailer.id) : null;
+  const blocked = useTrailerBlocked(ytId);
+  // After the hooks, never before: an early return above them would change the
+  // hook order between renders, which React treats as a broken component.
+  if (!trailer.id || !trailer.site || blocked) return null;
   const embed =
-    trailer.site === "youtube"
-      ? `https://www.youtube-nocookie.com/embed/${trailer.id}?autoplay=1`
+    trailer.site === "youtube" && ytId
+      ? `https://www.youtube-nocookie.com/embed/${ytId}?autoplay=1`
       : trailer.site === "dailymotion"
       ? `https://www.dailymotion.com/embed/video/${trailer.id}?autoplay=1`
       : null;
   const thumb =
     trailer.thumbnail ||
-    (trailer.site === "youtube"
-      ? `https://i.ytimg.com/vi/${trailer.id}/hqdefault.jpg`
+    (trailer.site === "youtube" && ytId
+      ? `https://i.ytimg.com/vi/${ytId}/hqdefault.jpg`
       : null) ||
     bannerFallback ||
     null;

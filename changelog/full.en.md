@@ -2,6 +2,61 @@
 
 All notable changes to AniScroll appear here. Most recent first.
 
+## [v0.0.7] — Hover preview, franchise graph & artwork (2026-08-16)
+
+### Added
+- **Hover preview**: point at any cover on the site and a card opens with the
+  **trailer playing on its own**, sound, the synopsis, and the same ratings and
+  numbers as the info page — plus a button to add the show to your AniList. An
+  **ambient light** picks up the video's colours around the card in real time.
+- **Preview settings**: hover preview can be turned on or off in the settings,
+  with its own trigger delay.
+- **Franchise graph**: the Relations section is now a real board, in fullscreen
+  — illustrated cards you can drag, wheel zoom, search, and two filter menus by
+  type and format. The **watch order is numbered**, bonus and side entries stay
+  off the main thread, sub-series are boxed, and the source manga now appears on
+  the board. Titles you have completed are circled in green.
+- **Richer Artwork tab**: the whole fanart.tv library, plus TMDB visuals
+  (banners, posters, logos), with duplicates removed.
+- **New player**: Ansembed joins the available servers, and the voir-anime
+  player moves to voembed.net.
+- **Episodes split across two files** (Re:Zero ep. 1 dub) are stitched back
+  together and played as a single episode.
+- **Watched at the end credits**: a setting to count an episode as watched as
+  soon as the ending starts, instead of waiting for the very end.
+- **Clicking the player's timestamp** copies the timestamped link.
+- **Volume readout** now appears as soon as you hover the icon.
+
+### Changed
+- **Intro / outro skipping on many more episodes**: a chain of fallbacks takes
+  over when a player doesn't answer, multi-part episodes are handled, and a
+  failed detection is retried instead of being final.
+- **An even lighter site**: ~46 kB less JavaScript on every page, covers served
+  at the right size in grids, several pages made static, info-page tabs loaded
+  on click, and a navigation bar that no longer recomputes on every frame while
+  you scroll.
+- **Player thumbnails**: roughly 10x faster pre-caching, no more empty slots on
+  the bar, and the hover preview finally follows the cursor.
+- **Discover** now only offers shows that are currently airing.
+- **Trailers blocked in your country** are hidden instead of showing a broken
+  player.
+- **Home banner**: its height follows the window, the show's official logo is
+  displayed, and hovering the poster rail pauses the rotation.
+
+### Fixed
+- **Films and side entries miscounted**: a film in the middle of a chain, a
+  re-adaptation mistaken for a recap movie, or a prequel no longer count as
+  seasons.
+- **Off-by-one numbering** on shows whose first season is a prequel.
+- **Missing episode thumbnails**: the cached list ignored one of its sources
+  for 30 days.
+- **The sibnet player works again.**
+- **Episodes wrongly reported as missing**: a player that is briefly
+  unreachable doesn't prove the episode doesn't exist.
+- **Unreadable navigation bar** on some banners.
+- **The language no longer flips** for a split second while the page loads.
+- **Next-episode countdown** resetting itself to zero.
+
 ## [v0.0.6] — Player controls, real episode thumbnails & speed (2026-08-03)
 
 ### Added

@@ -8,6 +8,7 @@ import {
   sharesFranchise,
   extractSeasonFromTitle,
   isSeasonContinuation,
+  continuesSameWork,
   type SeasonNode,
 } from "./seasonDetection";
 import {
@@ -130,9 +131,19 @@ function numberByChronology(
 
   let running = 0;
   let startNumber: number | null = null;
-  for (const m of seasons) {
+  for (let i = 0; i < seasons.length; i++) {
+    const m = seasons[i];
+    // Films in the chain don't take a season number (see resolveFranchiseSeasons).
+    if ((m as any)?.format === "MOVIE") {
+      if (Number(m.id) === startId) startNumber = Math.max(1, running);
+      continue;
+    }
     const fromTitle = extractSeasonFromTitle(m.title as any);
-    if (fromTitle != null) running = fromTitle;
+    // See seasonChain: a title's number only anchors the franchise counter
+    // when the entry is a new work, not when it continues the previous one.
+    if (i > 0 && continuesSameWork(seasons[i - 1]?.title as any, m.title as any)) {
+      running = Math.max(1, running);
+    } else if (fromTitle != null) running = fromTitle;
     else if (isSeasonContinuation(m.title as any)) running = Math.max(1, running);
     else running = running + 1;
     if (Number(m.id) === startId) startNumber = running;
@@ -188,10 +199,26 @@ async function buildFranchise(
 
   // Pull in any Fribb-group members the AniList walk missed (a member on a
   // divergent TMDB fiche still belongs to the franchise chronologically).
+  //
+  // Except when the entry is season 0 of that fiche. TMDB parks a franchise's
+  // films, OVAs and specials in "Specials", and that is what Fribb reports as
+  // season 0 — "attached to this show", not "a season of it". Ghost in the
+  // Shell (1995) is season 0 of the Stand Alone Complex fiche (tmdb.tv 1095,
+  // shared by the 1995 film, Innocence, 2.0, SAC, 2nd GIG and both 2045s), so
+  // unioning the group put four TV seasons of a DIFFERENT continuity into the
+  // film's own season dropdown — the very nodes the AniList walk had refused,
+  // since it only chains PREQUEL/SEQUEL and SAC hangs off the film as an
+  // ALTERNATIVE. 693 films sit on a tv fiche at season 0 in Fribb's list; this
+  // was every one of their pages.
+  const selfIsFicheExtra = fribbSelf?.tmdbSeason === 0;
   let fribbGroup: FribbEntry[] = [];
-  if (fribbSelf?.tmdbTvId) {
+  if (fribbSelf?.tmdbTvId && !selfIsFicheExtra) {
     fribbGroup = await getFribbFranchise(fribbSelf.tmdbTvId);
     for (const e of fribbGroup) {
+      // Same rule for the members: a film parked on the fiche's specials is not
+      // a season of it either. One that genuinely continues the story is on the
+      // PREQUEL/SEQUEL chain, so the walk above has already brought it in.
+      if (e.tmdbSeason === 0) continue;
       if (!byId.has(e.anilistId)) {
         const m = await load(e.anilistId);
         if (m) byId.set(e.anilistId, m);
@@ -337,16 +364,21 @@ export function findFilmVariants(
     .filter(
       (e: any) =>
         !(excludeIds && excludeIds.has(Number(e.node?.id))) &&
-        // SUMMARY = an AniList recap-film edge (Attack on Titan: The Roar of
-        // Awakening recaps S2). It's the same content as the season re-cut into a
-        // film — exactly a dual-format variant — but was previously matched by no
-        // helper, so recap films silently vanished. A whole-franchise digest
-        // (~Chronicle~, SUMMARY of 4 seasons) is filtered out downstream by the
-        // multi-season guard in resolveFranchiseSeasons and shown as a bonus film.
-        (e.relationType === "COMPILATION" ||
-          e.relationType === "ALTERNATIVE" ||
-          e.relationType === "PARENT" ||
-          e.relationType === "SUMMARY") &&
+        // A dual-format variant claims "this season, re-cut as a film" — so
+        // only AniList's two digest edges qualify. SUMMARY is the recap film
+        // (Attack on Titan: The Roar of Awakening recaps S2), COMPILATION the
+        // assembled one. A whole-franchise digest (~Chronicle~, SUMMARY of 4
+        // seasons) is filtered out downstream by the multi-season guard in
+        // resolveFranchiseSeasons and shown as a bonus film.
+        //
+        // ALTERNATIVE and PARENT used to be accepted too, and that is wrong:
+        // ALTERNATIVE means a different adaptation, not the same one re-cut.
+        // It presented Progressive - Aria of a Starless Night as "Season 1,
+        // watch as a film" — a 2021 re-adaptation with its own continuity and
+        // its own sequels, offered in place of the 2012 season. Those films
+        // are not lost: they surface in the franchise Films panel, which is
+        // where a separate work belongs.
+        (e.relationType === "COMPILATION" || e.relationType === "SUMMARY") &&
         e.node?.type === "ANIME" &&
         e.node?.format === "MOVIE" &&
         sharesFranchise(media?.title, e.node?.title)
@@ -411,6 +443,43 @@ export interface FilmVariant {
 export function findBonusFilms(nodes: any[]): FilmVariant[] {
   const seen = new Set<number>();
   const films: any[] = [];
+
+  /**
+   * Films the franchise itself continues INTO — some earlier entry names them
+   * as its sequel. Those are mid-chain canonical content, never a bonus.
+   *
+   * The PREQUEL rule below exists for Jujutsu Kaisen 0, a standalone film that
+   * precedes its series. But being someone's prequel is not enough: Ordinal
+   * Scale is the SEQUEL of Sword Art Online II *and* the PREQUEL of
+   * Alicization, and the PREQUEL edge alone had it pulled out of the season
+   * list — the 2017 film vanished from the chronology, which jumped from 2014
+   * straight to 2018 while the franchise graph still numbered it step 3.
+   * Jujutsu Kaisen 0 has no entry pointing at it as a sequel, so it stays a
+   * bonus.
+   */
+  const chained = new Set<number>();
+  for (const m of nodes) {
+    for (const e of m?.relations?.edges || []) {
+      if (e.relationType === "SEQUEL" && e.node?.id) chained.add(Number(e.node.id));
+    }
+  }
+
+  /**
+   * A franchise made only of films has no series for a film to be a bonus OF —
+   * its films ARE its chronology.
+   *
+   * Ghost in the Shell (1995) → Innocence is a two-film chain. Pulling the
+   * first out as a "bonus" left Innocence's page with a season list of one and
+   * no way back to the film it continues, and the 1995 film's own page opening
+   * on the Films panel as if it were an extra of itself. Jujutsu Kaisen 0, the
+   * case the PREQUEL rule was written for, is untouched: it precedes a TV
+   * series, so its franchise has real seasons and the film is genuinely beside
+   * them.
+   */
+  const filmsOnly = !nodes.some(
+    (m: any) => isSeasonLike(m) && m?.format !== "MOVIE"
+  );
+
   for (const m of nodes) {
     const franchiseTitle = m?.title;
     for (const e of m?.relations?.edges || []) {
@@ -424,7 +493,8 @@ export function findBonusFilms(nodes: any[]): FilmVariant[] {
       // to format === "MOVIE" means a PREQUEL edge to a real TV season is never
       // pulled in by mistake.
       const isBonusRelation =
-        e.relationType === "SIDE_STORY" || e.relationType === "PREQUEL";
+        e.relationType === "SIDE_STORY" ||
+        (e.relationType === "PREQUEL" && !filmsOnly);
       if (
         isBonusRelation &&
         e.node?.type === "ANIME" &&
@@ -432,6 +502,8 @@ export function findBonusFilms(nodes: any[]): FilmVariant[] {
         sharesFranchise(franchiseTitle, e.node?.title)
       ) {
         const id = Number(e.node.id);
+        // Mid-chain film — the franchise continues into it, so it is a season.
+        if (e.relationType === "PREQUEL" && chained.has(id)) continue;
         if (seen.has(id)) continue;
         seen.add(id);
         films.push(e.node);
@@ -750,9 +822,24 @@ export async function resolveFranchiseSeasons(
   }
 
   let running = 0;
-  return seasonLike.map((m: any) => {
+  return seasonLike.map((m: any, i: number) => {
+    // A film that sits in the chain belongs in the chronology at its date, but
+    // it is not a season: Ordinal Scale (2017) comes between seasons 2 and 3
+    // without being "Season 3". It keeps the number of the season it follows,
+    // so the count of real seasons is unaffected, and carries its own title as
+    // its label.
+    if (m?.format === "MOVIE") {
+      return toSeasonEntry(
+        m,
+        Math.max(1, running),
+        m.title?.english || m.title?.romaji || "Film",
+        excludeVariantIds
+      );
+    }
     const fromTitle = extractSeasonFromTitle(m.title);
-    if (fromTitle != null) running = fromTitle;
+    if (i > 0 && continuesSameWork(seasonLike[i - 1]?.title, m.title)) {
+      running = Math.max(1, running);
+    } else if (fromTitle != null) running = fromTitle;
     else if (isSeasonContinuation(m.title)) running = Math.max(1, running);
     else running = running + 1;
     const partMatch = String(m.title?.english || m.title?.romaji || "").match(

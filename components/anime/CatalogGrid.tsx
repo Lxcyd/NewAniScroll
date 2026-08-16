@@ -23,6 +23,7 @@ import MobileNav from "@/components/shared/MobileNav";
 import { useInfiniteScroll } from "@/lib/hooks/useInfiniteScroll";
 import { coverUrl } from "@/lib/images/cover";
 import { animeHref, useClickTarget } from "@/lib/prefs/clickTarget";
+import { previewAnchor } from "@/lib/preview/anchor";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 
 /** Pages past this need an explicit click, so scrolling can't page forever. */
@@ -101,6 +102,7 @@ export default function CatalogGrid({
             <div
               key={index}
               className="flex flex-col items-center w-[150px] lg:w-[180px]"
+              {...previewAnchor(i.id)}
             >
               <Link
                 href={animeHref(i.id, clickTarget)}

@@ -11,6 +11,7 @@ import {
   computeSeasonInfo,
   extractSeasonFromTitle,
   isSeasonContinuation,
+  continuesSameWork,
   isSeasonLike,
   sharesFranchise,
   SeasonInfo,
@@ -42,7 +43,15 @@ import {
 // v5: SIDE_STORY bonus films (HxH: Phantom Rouge) are excluded from season
 //     numbering, so the "· S<n>" badge no longer over-counts them. Bumped to
 //     drop pre-fix cached numbers (Phantom Rouge was cached as S2).
-const REDIS_KEY_CHAIN = (id: number) => `seasonChain:v5:${id}`;
+// v6: le numero d'une saison ne se lit plus dans un titre qui continue le
+//     precedent (le titre natif de War of Underworld Part 2 dit "(2nd Season)",
+//     ce qui ramenait le compteur de 4 a 2).
+// v7: le film enchaine compte desormais comme une saison, donc le numero et
+//     le total changent (Alicization passe de S3 a S4).
+// v9: le groupe TMDB n'est plus fusionne quand la fiche classe l'entree en
+//     saison 0 ("Specials") — Ghost in the Shell (1995) heritait des saisons
+//     de Stand Alone Complex, une autre continuite.
+const REDIS_KEY_CHAIN = (id: number) => `seasonChain:v9:${id}`;
 // v3: SeasonEntry gained `idMal` (feeds Jikan per-episode score lookups).
 // v4: numbering now uses a running counter so split-cours + unnumbered
 //     "Final Season" entries get the right S<n> (AoT Final Season = S4, not S5).
@@ -71,7 +80,22 @@ const REDIS_KEY_CHAIN = (id: number) => `seasonChain:v5:${id}`;
 //      real seasons instead of the lone movie. Changes the list for those ids.
 // v14: PREQUEL movies (Jujutsu Kaisen 0) no longer counted as a numbered season
 //      — they're bonus films now. Bump to evict lists that had them as "Season N".
-const REDIS_KEY_LIST = (id: number) => `seasonList:v14:${id}`;
+// v15: meme correction que seasonChain v6 — "Season 2 Part 2" s'affichait
+//      apres "Season 4" sur Sword Art Online.
+// v16: une variante "film" d'une saison n'accepte plus que les aretes de
+//      digest (SUMMARY, COMPILATION). ALTERNATIVE presentait Progressive -
+//      Aria of a Starless Night comme "saison 1, en film" alors que c'est
+//      une re-adaptation ; elle passe dans le panneau Films.
+// v17: un film au milieu de la chaine n'est plus classe en film bonus. La
+//      regle PREQUEL (pour Jujutsu Kaisen 0) sortait Ordinal Scale de la
+//      chronologie, qui sautait de 2014 a 2018.
+// v19: idem seasonChain v9 — un film classe en saison 0 d'une fiche TV ne
+//      recupere plus les saisons de cette fiche, et un film de la fiche
+//      n'apparait plus comme saison. Change la liste de ces pages.
+// v20: dans une franchise qui n'est faite QUE de films, un film prequel n'est
+//      plus un film bonus — Ghost in the Shell (1995) redevient une entree de
+//      la chronologie devant Innocence. Jujutsu Kaisen 0 garde sa regle.
+const REDIS_KEY_LIST = (id: number) => `seasonList:v20:${id}`;
 
 // Cache accessors now hit Turso (see lib/db/seasonCache.ts) instead of Redis.
 // The cache_key strings keep their version tag, so a version bump still evicts
@@ -415,10 +439,18 @@ async function resolveSeasonListUncached(
   //   - otherwise (a fresh, unnumbered season like "The Final Season")
   //                                    → previous distinct season + 1.
   let running = 0;
-  return seasonLike.map((m) => {
+  return seasonLike.map((m, i) => {
     const fromTitle = extractSeasonFromTitle(m.title);
     const continuation = isSeasonContinuation(m.title);
-    if (fromTitle != null) {
+    // A number in the title anchors the counter only for a NEW work. When the
+    // entry continues the previous one, that number counts within THAT work:
+    // "War of Underworld Part 2" is titled "(2nd Season)" natively — the second
+    // season of War of Underworld — and anchoring on it reset the franchise
+    // counter from 4 to 2, listing "Season 2 Part 2" after "Season 4".
+    const continuesPrev = i > 0 && continuesSameWork(seasonLike[i - 1]?.title, m.title);
+    if (continuesPrev) {
+      running = Math.max(1, running);
+    } else if (fromTitle != null) {
       running = fromTitle;
     } else if (continuation) {
       running = Math.max(1, running); // inherit current season (don't bump)

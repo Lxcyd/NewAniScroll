@@ -1,5 +1,5 @@
 import { aniListData, aniListHomepageBatch } from "@/lib/anilist/AniList";
-import { useState, useEffect, Fragment } from "react";
+import { useState, useEffect, useCallback, useRef, Fragment } from "react";
 import Head from "next/head";
 import Link from "next/link";
 import Footer from "@/components/shared/footer";
@@ -23,8 +23,63 @@ import { redis } from "@/lib/redis";
 import { Navbar } from "@/components/shared/NavBar";
 import { useRouter } from "next/router";
 import { loadFanarts } from "@/lib/db/fanarts";
-import { pickHeroLogo, TitleImage } from "@/components/anime/v2/helpers";
+import {
+  pickHeroLogo,
+  tmdbTitleImage,
+  TitleImage,
+} from "@/components/anime/v2/helpers";
+import { getTmdbAnimeImages } from "@/lib/tmdb/animeImages";
 import { useFanartSrc, onFanartError } from "@/lib/images/fanartFallback";
+import { previewAnchor } from "@/lib/preview/anchor";
+
+/* Which titles get the hero, and in what order — Hayase's algorithm
+   (hayase-app/interface, src/lib/components/ui/banner/full-banner.svelte,
+   `shuffleAndFilter`), extended from their 5 slots to our 8.
+
+   TWO HALVES, and the pool matters more than the sort. The pool is built by
+   `heroPool` in lib/anilist/AniList.js — the CURRENT SEASON's best-scored
+   titles, which is Hayase's own query, not the trending list. Ranking the
+   trending list is what kept One Piece and Bleach welded to the front; they
+   are permanently trending and never leave. Scoping to the season is what
+   actually rotates the hero, because the season itself rotates.
+
+   Then the sort: a Knuth multiplicative hash of the id
+   (`id * 2654435761 >>> 0`, the 32-bit golden-ratio constant). A stable
+   pseudo-random permutation — unrelated to score, identical for every visitor
+   and every render, so a title ranked 12th by score can open the carousel.
+   Verified 2026-08-08 against Hayase's live output: with this pool and this
+   sort, THE GHOST IN THE SHELL (AniList 177699) lands first, exactly as it
+   does in their app.
+
+   Determinism is the point, not a limitation — SSR and hydration must agree,
+   and a `Math.random()` order would swap the hero under the visitor's cursor
+   on every re-render.
+
+   `id * 2654435761` reaches ~5.6e14 for a 6-digit AniList id — comfortably
+   inside 2^53, so the multiplication is exact before `>>> 0` folds it to
+   uint32. No overflow to guard against.
+
+   The `bannerImage ?? trailer?.id` filter is theirs too: an entry with neither
+   has no artwork to put behind the hero. Our homepage query doesn't request
+   `trailer`, so today it reads as "has a banner" — kept in full so it stays
+   correct if that field is ever added. NOT_YET_RELEASED is our own filter and
+   stays: a "BIENTÔT" entry in the hero can't be watched, and the dedicated
+   Upcoming section is where those belong. */
+const HERO_SLOTS = 8;
+
+function heroHash(id: number): number {
+  return (id * 2654435761) >>> 0;
+}
+
+export function pickHeroRotation(items: any[]): any[] {
+  if (!Array.isArray(items)) return [];
+  return items
+    .filter((it) => it?.status !== "NOT_YET_RELEASED")
+    .filter((it) => it?.bannerImage ?? it?.trailer?.id)
+    .slice()
+    .sort((a, b) => heroHash(Number(a?.id)) - heroHash(Number(b?.id)))
+    .slice(0, HERO_SLOTS);
+}
 
 export async function getServerSideProps(ctx: any) {
   // Edge-cache the home page aggressively. The response is identical for
@@ -45,7 +100,7 @@ export async function getServerSideProps(ctx: any) {
   // never picked up) must NOT take the whole homepage down — swallow the error
   // and treat it as a cache miss so we fall through to a live AniList fetch.
   if (redis) {
-    cachedData = await redis.get("index_server_v2").catch(() => null);
+    cachedData = await redis.get("index_server_v3").catch(() => null);
   }
 
   // Resolve the hero entries (HD logo for the top trending titles) outside
@@ -59,24 +114,35 @@ export async function getServerSideProps(ctx: any) {
     items: any[],
   ): Promise<Array<HeroEntry>> => {
     if (!Array.isArray(items)) return [];
-    // Don't recommend anime that hasn't aired yet — a "BIENTÔT" entry in the
-    // hero carousel can't actually be watched. (The dedicated "Upcoming"
-    // section, fed by getUpcomingAnime, is where those belong.) Then take the
-    // top 8 to cycle through the hero carousel (dots + side rail).
-    const slice = items
-      .filter((it) => it?.status !== "NOT_YET_RELEASED")
-      .slice(0, 8);
+    const slice = pickHeroRotation(items);
     return Promise.all(
       slice.map(async (it) => {
-        const fanarts = await loadFanarts(Number(it?.id)).catch(() => null);
+        const id = Number(it?.id);
+        // Both are per-title lookups with their own cache, so run them
+        // together rather than serially: fanart is one Turso row, TMDB is one
+        // Turso row warm / one HTTP call cold (30-day TTL).
+        const [fanarts, tmdb] = await Promise.all([
+          loadFanarts(id).catch(() => null),
+          getTmdbAnimeImages(id).catch(() => ({ backdrop: null, logo: null })),
+        ]);
         return {
           id: it?.id,
           title: it?.title || { english: null, romaji: null },
           coverImage: it?.coverImage || null,
-          bannerImage: it?.bannerImage || null,
+          // TMDB backdrop FIRST — this is the whole point of the integration.
+          // AniList's bannerImage is a 1900×400 letterbox crop the 21:9 hero
+          // has to stretch; a TMDB backdrop is native 1280×720 key art.
+          bannerImage: tmdb.backdrop || it?.bannerImage || null,
           description: it?.description || "",
           status: it?.status || null,
-          titleImage: pickHeroLogo(fanarts),
+          /* TMDB logo FIRST, fanart.tv behind it (user decision, 2026-08-08).
+             I had it the other way round and argued for it — fanart.tv is
+             NSFW-filtered, likes-ranked and edge-cached — but that reasoning
+             was about delivery, not about the image. Hayase renders TMDB's
+             logo, this hero is a copy of theirs, and the two must match.
+             fanart.tv still covers everything TMDB has no logo for, which is
+             a lot, so nothing is lost by demoting it to second. */
+          titleImage: tmdbTitleImage(tmdb.logo) ?? pickHeroLogo(fanarts),
         };
       }),
     );
@@ -92,12 +158,15 @@ export async function getServerSideProps(ctx: any) {
     null;
 
   if (cachedData) {
-    const { genre, detail, populars, thisSeason, movies } =
+    const { genre, detail, populars, thisSeason, movies, heroPool } =
       JSON.parse(cachedData);
     const firstTrend = pickFirstTrend(detail?.data || []);
     const [upComing, heroEntries] = await Promise.all([
       getUpcomingAnime(),
-      resolveHeroEntries(detail?.data || []),
+      /* `?? detail` is a safety net, not a design: a blob written by an older
+         deploy has no `heroPool`, and a hero of trending titles beats no hero
+         at all for the few minutes before the key bump takes effect. */
+      resolveHeroEntries(heroPool?.data || detail?.data || []),
     ]);
     return {
       props: {
@@ -131,10 +200,12 @@ export async function getServerSideProps(ctx: any) {
       // Best-effort cache write — a failing Redis must not crash SSR.
       await redis
         .set(
-          // Key bumped — payload now carries thisSeason + movies; the old
-          // `index_server` value would lack them and the sections wouldn't
-          // render until the 2 h TTL expired.
-          "index_server_v2",
+          /* Key bumped whenever the payload gains a field the page reads.
+             v2 → v3 (2026-08-08): `heroPool` joined it. A v2 blob has no such
+             key, so the hero would silently keep falling back to trending for
+             up to 2 h — the same "cache outlives the change" trap already hit
+             three times today (TMDB artwork, episode lists, discover). */
+          "index_server_v3",
           JSON.stringify({
             genre: genreDetail.props,
             detail: trendingDetail.props,
@@ -142,6 +213,7 @@ export async function getServerSideProps(ctx: any) {
             firstTrend: trendingDetail.props.data?.[0] || null,
             thisSeason: seasonDetail.props,
             movies: moviesDetail.props,
+            heroPool: batch.heroPool?.props ?? null,
           }), // set cache for 2 hours
           "EX",
           60 * 60 * 2
@@ -150,7 +222,7 @@ export async function getServerSideProps(ctx: any) {
     }
 
     const heroEntries = await resolveHeroEntries(
-      trendingDetail.props.data || [],
+      batch.heroPool?.props?.data || trendingDetail.props.data || [],
     );
 
     return {
@@ -250,20 +322,98 @@ function HeroBanner({
   const prev = () => go(idx - 1, -1);
   const next = () => go(idx + 1, 1);
 
-  // Auto-advance. `idx` is in the deps so the timer restarts from zero
-  // whenever the slide changes — manual prev/next/dot clicks included —
-  // keeping the cadence in sync with the progress-pill fill animation
-  // (which also restarts each slide). We deliberately do NOT pause on
-  // hover: the hero fills the viewport, so the cursor sits over it almost
-  // permanently and a hover-pause would freeze the carousel for good.
+  /**
+   * The rotation is HELD while the pointer is working the right rail.
+   *
+   * The rail covers are hover-preview anchors, and an auto-advance during a
+   * preview is not merely a distraction: it reorders the rail under the
+   * pointer, so the poster being inspected is replaced mid-hover by a
+   * different title — the preview then belongs to an anime the user never
+   * pointed at, and its anchor element is gone from the DOM.
+   *
+   * NOT a hover-pause on the hero as a whole, which is the thing this file
+   * has always refused to do and still refuses: the hero is a viewport-sized
+   * banner, the cursor rests on it by default, and pausing there would stop
+   * the carousel for good. The rail is a 126px target that has to be aimed at.
+   */
+  const [railHeld, setRailHeld] = useState(false);
+  const releaseRail = useCallback(() => setRailHeld(false), []);
+  /**
+   * What is LEFT of the current slide's time, so a hold suspends the countdown
+   * instead of resetting it.
+   *
+   * A setTimeout cannot be paused, and re-running the effect on release with
+   * the full interval is the same as restarting the slide — six seconds of
+   * waiting thrown away because the pointer passed over a poster. So the
+   * deadline is tracked in wall-clock time: entering the hold freezes whatever
+   * remains of it, leaving it arms a timer for exactly that much.
+   *
+   * The pill needs no equivalent: its fill is a CSS animation and
+   * `animation-play-state` resumes it where it stopped, which is the behaviour
+   * this ref reproduces for the timer. The two are paused and resumed in the
+   * same render, so they stay on the same clock.
+   */
+  const remainingRef = useRef(HERO_AUTO_INTERVAL_MS);
+  const deadlineRef = useRef(0);
+  /** Distinguishes "the slide changed" (full interval) from "the hold ended". */
+  const timedIdxRef = useRef(idx);
+
+  /**
+   * What ENDS the hold, and why it isn't `onPointerLeave` on the rail.
+   *
+   * The preview card is portalled to <body> and opens centred on the poster,
+   * which means it covers the very element the pointer is on: the rail sees a
+   * leave the moment the preview it caused appears, and the rotation would
+   * resume exactly when it must not. So the hold ends on a pointer that is
+   * over neither the rail nor any preview popup — the two together are one
+   * region, whatever the DOM thinks.
+   */
+  useEffect(() => {
+    if (!railHeld) return;
+    const onOver = (e: Event) => {
+      const node = e.target as Element | null;
+      if (!node || typeof node.closest !== "function") return;
+      if (node.closest("[data-hero-rail]") || node.closest("[data-preview-popup]")) return;
+      releaseRail();
+    };
+    document.addEventListener("pointerover", onOver, true);
+    // Pointer gone from the window entirely: no further pointerover arrives,
+    // so nothing else would ever release the hold.
+    document.addEventListener("mouseleave", releaseRail);
+    window.addEventListener("blur", releaseRail);
+    return () => {
+      document.removeEventListener("pointerover", onOver, true);
+      document.removeEventListener("mouseleave", releaseRail);
+      window.removeEventListener("blur", releaseRail);
+    };
+  }, [railHeld, releaseRail]);
+
+  // Auto-advance. `idx` is in the deps so the countdown restarts from the full
+  // interval whenever the slide changes — manual prev/next/dot clicks included
+  // — keeping the cadence in sync with the progress-pill fill animation (which
+  // also restarts each slide). `railHeld` is in there to suspend and RESUME it;
+  // see remainingRef for why that is not the same as re-arming it.
   useEffect(() => {
     if (list.length < 2) return;
+    // A new slide gets its whole interval; a released hold gets what was left.
+    if (timedIdxRef.current !== idx) {
+      timedIdxRef.current = idx;
+      remainingRef.current = HERO_AUTO_INTERVAL_MS;
+    }
+    if (railHeld) {
+      // The previous run's cleanup has already cleared the timer, so all that
+      // is left to do is remember how much of it had not elapsed.
+      remainingRef.current = Math.max(0, deadlineRef.current - Date.now());
+      return;
+    }
+    const wait = remainingRef.current;
+    deadlineRef.current = Date.now() + wait;
     const t = window.setTimeout(() => {
       setDir(1);
       setIdx((i) => (i + 1) % list.length);
-    }, HERO_AUTO_INTERVAL_MS);
+    }, wait);
     return () => window.clearTimeout(t);
-  }, [list.length, idx]);
+  }, [list.length, idx, railHeld]);
 
   // Pre-translate EVERY carousel synopsis up front (the moment the list +
   // language are known), in parallel, so by the time the carousel auto-
@@ -314,10 +464,27 @@ function HeroBanner({
 
   return (
     <div className="hidden lg:block relative w-full overflow-hidden">
-      {/* +100px taller than before (was max-h 680). The extra height plus
-          the tall bottom gradient lets the artwork breathe and dissolve
-          into the page. */}
-      <div className="relative aspect-[21/9] max-h-[780px] min-h-[520px] w-full">
+      {/* Height is tied to the VIEWPORT, not to an aspect ratio, and that is the
+          whole point: the fold has to land between the "Recently Watched"
+          heading and its first row of cards. A fixed 780px box couldn't promise
+          that — on a 900px-tall screen the cards poked above the fold, which is
+          exactly what reads as clutter.
+
+          calc(100svh - 3rem) leaves 48px below the hero, and the next section
+          spends it as `lg:mt-6` (24px) plus its heading (~40px): the heading
+          stays visible as the cue that there IS more page, and the cards start
+          ~16px BELOW the fold. svh, not vh, so a mobile-style collapsing URL bar
+          can't make the hero jump (irrelevant today — this block is lg-only —
+          but vh is the wrong unit to leave behind).
+
+          max-h caps it so an ultra-tall monitor doesn't get a 1400px hero; past
+          ~950px of viewport the cards creep back into view, which is the
+          deliberate trade — a hero taller than that looks worse than a sliver of
+          the next row. min-h keeps a short laptop from crushing the text block.
+
+          NOT measured in a browser: the 3rem comes from the heading's own
+          type scale. If the cards still show, this is the number to raise. */}
+      <div className="relative h-[calc(100svh-3rem)] max-h-[900px] min-h-[520px] w-full">
         {/* Background banner. Keyed on the entry id so React swaps the
             <img> cleanly; framer-motion cross-fades + slow Ken-Burns zoom. */}
         <AnimatePresence mode="popLayout">
@@ -373,7 +540,39 @@ function HeroBanner({
 
         {/* Content column */}
         <div className="absolute inset-0 flex">
-          <div className="flex w-full xl:w-[60%] lg:w-[65%] flex-col justify-between gap-5 pt-16 pb-24 pl-[7%] pr-8">
+          {/* justify-END, not justify-between: the whole block (logo, tags,
+              synopsis, CTAs) sits at the BOTTOM of the hero, immediately above
+              the progress pills, with `gap-5` as the only space between them.
+
+              justify-between pinned the logo under the navbar and let the
+              column's height push everything apart, which left a large dead
+              band across the middle of a 780px-tall hero and detached the text
+              from its controls. Packing to the bottom also lines the block up
+              with the cover rail on the right, which is bottom-anchored too
+              (both still share pb-2).
+
+              pt-16 stays as a floor, not as a position: it only matters when a
+              very long synopsis would otherwise grow up under the navbar.
+
+              gap-8 (32px), and the number accounts for something a purely
+              structural reading misses. Above the buttons the boxes are 28px
+              apart (the stack's `gap-5` = 20px, plus the CTA block's `mt-2` =
+              8px) — but the synopsis is a PARAGRAPH, and its line box is taller
+              than its glyphs: `text-lg` is an 18px font in a 28px line, so ~5px
+              of half-leading sits below the last line, INSIDE the box. The
+              visible gap under the text is therefore ~33px, not 28px.
+
+              Below the buttons there is no such phantom space: a button's box
+              ends where its background ends. So matching the two structurally
+              (gap-7) left the lower gap looking tighter, which is exactly what
+              it looked like. gap-8 (32px) matches the ~33px the eye actually
+              sees, to within a pixel.
+
+              NOT measured in a browser — derived from the Tailwind line-height
+              (`text-lg` → 1.75rem). If this still reads unevenly, the value to
+              tune is this one, and the reason it isn't a round number is the
+              half-leading above. */}
+          <div className="flex w-full xl:w-[60%] lg:w-[65%] flex-col justify-end gap-8 pt-16 pb-2 pl-[7%] pr-8">
             <AnimatePresence mode="wait" custom={dir}>
               <motion.div
                 key={`stack-${active.id}`}
@@ -481,10 +680,11 @@ function HeroBanner({
 
             {/* Segmented progress bar — outside AnimatePresence so it
                 stays mounted across slide transitions. w-fit matches the
-                CTA button row; flex-1 pills distribute evenly. Placed at
-                the bottom of the column (justify-between) so its bottom
-                edge aligns with the bottom of the cover thumbnails on the
-                right rail (both share pb-24). */}
+                CTA button row; flex-1 pills distribute evenly. Last child of
+                a justify-end column, so it sits at the very bottom with the
+                info block resting directly on top of it, and its bottom edge
+                still aligns with the cover thumbnails on the right rail
+                (both share pb-2). */}
             <div className="flex w-fit gap-2">
               {list.map((_, i) => {
                 const isActive = i === idx % list.length;
@@ -508,6 +708,13 @@ function HeroBanner({
                             list.length > 1
                               ? `heroProgress ${HERO_AUTO_INTERVAL_MS}ms linear forwards`
                               : undefined,
+                          // The pill is the visible half of the countdown, so it
+                          // stops when the countdown does — a bar still filling
+                          // with no advance behind it is a broken promise. And
+                          // it RESUMES where it stopped, which is the whole
+                          // point: `paused` freezes the fill, it never rewinds
+                          // it, and the timer is made to match (remainingRef).
+                          animationPlayState: railHeld ? "paused" : "running",
                         }}
                       />
                     )}
@@ -521,9 +728,16 @@ function HeroBanner({
               arrows sitting to their LEFT. Anchored to the lower right
               above the bottom gradient. Clicking a thumb jumps focus in
               the natural direction (right = forward). */}
-          <div className="hidden lg:flex w-[35%] xl:w-[40%] flex-col items-end justify-end pb-24 pr-[5%]">
+          <div className="hidden lg:flex w-[35%] xl:w-[40%] flex-col items-end justify-end pb-2 pr-[5%]">
             {railEntries.length > 0 && (
-              <div className="flex items-center gap-3">
+              <div
+                // The whole strip holds the rotation, arrows included: reaching
+                // for "next" is aiming at this carousel too, and a slide that
+                // fires on its own while you do is the same surprise.
+                data-hero-rail
+                className="flex items-center gap-3"
+                onPointerEnter={() => setRailHeld(true)}
+              >
                 {/* Prev / next arrows — stacked to the left of the covers. */}
                 {list.length > 1 && (
                   <div className="z-20 flex flex-col gap-2">
@@ -558,6 +772,10 @@ function HeroBanner({
                     <button
                       key={`${e.id}-${k}`}
                       type="button"
+                      // Previewable like every other poster on the site. The
+                      // rotation is what made this impossible before, not the
+                      // markup — see railHeld.
+                      {...previewAnchor(e.id)}
                       onClick={() => go(realIdx, k === 0 ? 0 : 1)}
                       className={`group relative h-[180px] w-[126px] shrink-0 overflow-hidden rounded-xl shadow-xl outline-none focus:outline-none transition-all duration-300 hover:scale-[1.06] ${
                         isCurrent
@@ -948,7 +1166,13 @@ export default function Home({
           </div>
         )}
 
-        <div className="lg:mt-16 mt-5 flex flex-col items-center">
+        {/* lg:mt-6, not mt-16: this wrapper holds EVERY section below the hero,
+            so its top margin is the hero-to-"Recently Watched" gap and nothing
+            else — shrinking it slides the whole column up without touching the
+            spacing BETWEEN sections (that lives in each section's own margins).
+            The hero's own bottom padding (pb-2) is already at its floor, so
+            this is the only remaining lever on that gap. */}
+        <div className="lg:mt-6 mt-5 flex flex-col items-center">
           <motion.div
             className="w-screen flex-none lg:w-[95%] xl:w-[87%]"
             initial={{ opacity: 0 }}

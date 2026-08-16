@@ -205,18 +205,16 @@ def _ffmpeg_keyframe_hashes(
     `showinfo` prints each OUTPUT frame's `pts_time` to stderr, which we parse
     for exact per-frame timestamps without a second ffprobe pass.
 
-    Same URL/header handling as `audio._ffmpeg_decode`: HLS-only flags gated
-    on `.m3u8`, `-ss`/`-sseof` seek BEFORE `-i` for window decoding — imported
-    from `audio.py` (`_is_hls_url`) rather than duplicated, so both call sites
-    can never disagree on what counts as HLS.
+    Same URL/header handling as `audio._ffmpeg_decode`: demuxer flags gated on
+    the source shape (.m3u8 / .ffconcat), `-headers` only for http inputs,
+    `-ss`/`-sseof` seek BEFORE `-i` for window decoding — imported from
+    `audio.py` rather than duplicated, so both call sites can never disagree.
     """
-    from .audio import _is_hls_url  # single source of truth for HLS gating
+    from .audio import _hls_flags, _input_headers  # single source of truth
 
     cmd = ["ffmpeg", "-hide_banner", "-loglevel", "info"]
-    if referer:
-        cmd += ["-headers", f"Referer: {referer}\r\n"]
-    if _is_hls_url(src):
-        cmd += ["-allowed_extensions", "ALL", "-allowed_segment_extensions", "ALL", "-extension_picky", "0"]
+    cmd += _input_headers(src, referer)
+    cmd += _hls_flags(src)
     if window is not None:
         start_s, dur_s = window
         if start_s is not None:
@@ -269,7 +267,7 @@ def keyframe_hashes_abs(
     window is stable across re-runs and the native decode is skipped on a hit.
     Rounded to 0.1s so trivial float jitter doesn't miss the cache.
     """
-    from .audio import _is_hls_url
+    from .audio import _hls_flags, _input_headers
     from .megaplay import is_megaplay, materialize_window
 
     cache_file = None
@@ -288,15 +286,13 @@ def keyframe_hashes_abs(
     # `Video: png`, no real video/audio). Materialise the window as a local,
     # de-PNG'd .ts that keeps the same absolute PTS, so the `-copyts -ss/-to`
     # decode below works on it unchanged. See oped/megaplay.py + audio.py.
-    if is_megaplay(src):
+    if is_megaplay(src, referer):
         src = materialize_window(src, start_abs, dur, referer=referer)
         referer = None
 
     cmd = ["ffmpeg", "-hide_banner", "-loglevel", "info"]
-    if referer:
-        cmd += ["-headers", f"Referer: {referer}\r\n"]
-    if _is_hls_url(src):
-        cmd += ["-allowed_extensions", "ALL", "-allowed_segment_extensions", "ALL", "-extension_picky", "0"]
+    cmd += _input_headers(src, referer)
+    cmd += _hls_flags(src)
     # -to (ABSOLUTE end, before -i) not -t: with -copyts the timeline is absolute
     # so -t truncates to ~nothing on HLS (megaplay: 2 frames). See audio.py.
     cmd += ["-copyts", "-ss", str(start_abs)]

@@ -13,10 +13,14 @@ so we don't re-hit anime-sama / Sibnet on every run; the URLs carry an expiry
 from __future__ import annotations
 
 import json
+import os
 import subprocess
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+
+from .errors import ProcessKilled, killed_by_os
 
 BRIDGE = Path(__file__).resolve().parents[1] / "bridge" / "resolve.mjs"
 URL_CACHE_TTL = 6 * 3600  # signed stream URLs expire within ~a day; refresh before
@@ -26,17 +30,42 @@ URL_CACHE_TTL = 6 * 3600  # signed stream URLs expire within ~a day; refresh bef
 # change what's served — the bridge may silently keep returning the same
 # encode regardless of the requested language.
 #
-# megaplay: per resolve_episodes' docstring below, its embed URL is built
-# directly from a MAL id + episode number ("it isn't scraped from
-# anime-sama's episodes.js like the other hosts"). There is no `lang` input
-# anywhere in that construction. Confirmed empirically on SnK ep3: a
-# `--lang vf` run against megaplay returned a stream with the EXACT same
-# probed duration (1466.5s, to the decimal) as the `--lang vostfr` run —
-# i.e. the same VOSTFR encode served back under a VF request, not a real
-# French track. Until bridge/resolve.mjs is confirmed to branch on language
-# for this host, treat it as VOSTFR-only and exclude it from VF runs rather
-# than silently poisoning cross-host reconciliation with a mislabeled
-# stream.
+# megaplay reste exclu du VF. La conclusion n'a jamais bougé ; ce sont les DEUX
+# tentatives de la justifier qui étaient fausses, et les deux méritent d'être
+# gardées parce qu'elles ratent la cible de deux façons différentes.
+#
+# **Tentative 1 — la durée.** `--lang vf` et `--lang vostfr` rendaient une durée
+# sondée identique à la décimale (1466.5 s sur SnK ep3), d'où « c'est le même
+# encode ». Sauf qu'un doublage est le même épisode avec une autre piste audio :
+# il a le même métrage par construction. L'égalité était le résultat attendu dans
+# les DEUX hypothèses — une mesure sans pouvoir discriminant.
+#
+# **Tentative 2 — la corrélation audio brute.** Fenêtre de 20 s à t=600 s sur les
+# deux flux : r = -0.005, donc « deux pistes sans rapport, megaplay sert un vrai
+# doublage français ». Faux aussi, et le contre-exemple est imparable : la MÊME
+# mesure entre `ansembed_vf` et `ansembed_vo` — même épisode, même hôte — donne
+# r = +0.05. Une corrélation à instant fixe ne compare rien dès que les encodes
+# sont décalés, ce qu'ils sont toujours (megaplay est en tête de 16.6 s).
+#
+# **Ce qui tranche vraiment** (08/08/2026) : corrélation d'ENVELOPPE d'énergie
+# avec recherche de décalage sur ±40 s, fenêtre de 120 s. La méthode se valide
+# d'abord sur un cas connu — `ansembed_vo` vs `megaplay_sub`, deux fois le même
+# audio japonais, donne r = 0.93 à -16.58 s, soit exactement l'avance megaplay
+# documentée ailleurs. Sur cette échelle :
+#
+#     megaplay_dub vs ansembed_vf (français) : r = 0.669
+#     megaplay_dub vs ansembed_vo (japonais) : r = 0.695
+#     ansembed_vf  vs ansembed_vo            : r = 0.717   <- "même épisode,
+#     megaplay_dub vs megaplay_sub           : r = 0.760      langue différente"
+#
+# megaplay_dub ne ressemble NI au français NI au japonais au niveau « même
+# audio » (0.93) : il reste au niveau « même épisode, autre langue » face aux
+# deux. C'est donc une TROISIÈME langue — le doublage anglais, ce que
+# `/<mal>/<ep>/dub` désigne partout ailleurs. megaplay n'a pas de piste FR.
+#
+# Leçon : avant de conclure d'une mesure, la faire tourner sur un cas dont on
+# connaît déjà la réponse. Les deux erreurs ci-dessus auraient sauté
+# immédiatement.
 VF_INCOMPATIBLE_HOSTS = {"megaplay"}
 
 
@@ -98,13 +127,28 @@ def resolve_episodes(
             args.append(str(mal_id) if mal_id else "")
         if va_slug:
             args.append(str(va_slug))
-    proc = subprocess.run(
-        args,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-    )
+    # The bridge does its own network I/O (worker + host pages + HEAD probes)
+    # and had no ceiling, so a hung upstream page pinned a batch worker forever.
+    # Resolution is short-lived by nature — the slowest measured pass was ~52 s —
+    # so 300 s only fires on a stall.
+    try:
+        proc = subprocess.run(
+            args,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=float(os.environ.get("OPED_BRIDGE_TIMEOUT", "300")),
+        )
+    except subprocess.TimeoutExpired:
+        raise RuntimeError("bridge timeout — upstream stalled, host skipped") from None
     if proc.returncode != 0:
+        if killed_by_os(proc.returncode):
+            raise ProcessKilled(
+                f"bridge tue par le systeme (rc={proc.returncode} / "
+                f"0x{proc.returncode & 0xFFFFFFFF:08X}), stderr="
+                f"{proc.stderr.strip()!r} — l'environnement s'eteint, "
+                f"ce n'est PAS un echec de {host_pref or 'l hote'}"
+            )
         raise RuntimeError(f"bridge failed (rc={proc.returncode}):\n{proc.stderr}")
 
     # The extractor prints diagnostic [sibnet] lines to stdout too; the JSON is
@@ -139,7 +183,80 @@ def resolve_episodes(
 #     which is fine — it never poisons the DB, it just doesn't contribute.
 # This list is the displayed-host allowlist (mirrors host_versions.json keys /
 # lib/hostRegistry.js DISPLAYED_HOSTS). Keep the three in sync.
-MULTI_HOSTS = ["sibnet", "sendvid", "megaplay", "vidmoly", "vidmoly-va", "uqload"]
+# `vidmoly` (the anime-sama entry) is GONE, replaced by `ansembed`: anime-sama
+# migrated its vidmoly uploads to that white-label domain and no longer lists
+# vidmoly.* on any panel, so the host could only ever answer "not offered" —
+# one wasted resolution subprocess per episode over 33k ep-languages. Same
+# reasoning that removed uqload from this list in July. `vidmoly-va` stays: it
+# is voir-anime's own upload, a genuinely different encode.
+MULTI_HOSTS = ["sibnet", "sendvid", "megaplay", "ansembed", "vidmoly-va",
+               "uqload"]
+
+# --- Réessai de résolution (07/08) -------------------------------------------
+# MESURÉ AVANT D'ÊTRE ÉCRIT. Sur 8 lots successifs, parmi les couples
+# (cellule, hôte) ayant échoué au premier essai et ayant une référence
+# AnimeThemes : 26 sur 72 (36 %) réussissent à un essai ultérieur — ansembed
+# 40 %, megaplay 55 %, vidmoly-va 29 %. Les deux autres tiers ne reviennent
+# JAMAIS : l'échec n'est pas majoritairement transitoire, et réessayer ne
+# converge PAS vers « l'hôte finit par répondre ». Ce réessai récupère une
+# fraction connue, pas la totalité — ne pas lui prêter davantage.
+#
+# Ce qui rend l'opération rentable malgré tout : 33 % des cellules exploitables
+# n'ont qu'UN SEUL hôte qui répond, à un hôte du seuil de service (≥2). C'est
+# là qu'un hôte récupéré fait basculer une cellule, pas sur celles à zéro hôte.
+RESOLVE_ATTEMPTS = 5
+RESOLVE_BACKOFF_S = 2.0
+# Plafond : sans lui la 5e attente durerait 32 s et un hôte mort tiendrait le
+# lot en otage. 2, 4, 8, 8 s — au total 22 s au pire, uniquement sur les motifs
+# transitoires, et les hôtes se résolvent en parallèle donc l'épisode n'attend
+# que le plus lent.
+RESOLVE_BACKOFF_MAX_S = 8.0
+
+# Motifs DÉFINITIFS : réessayer n'y peut rien et coûte du temps de run.
+# « not offered » est le plus fréquent des échecs (95 sur 244 lors du lot du
+# 07/08) et n'est PAS une panne : l'hôte ne sert simplement pas cette saison.
+_PERMANENT_MARKERS = (
+    "not offered by anime-sama",     # l'hôte ne sert pas cette saison
+    "not in voir-anime page",        # l'épisode n'y est pas
+    "file not found",
+    "404",                           # page/fichier absent, pas une indisponibilité
+)
+
+
+# COUPE-CIRCUIT PAR HÔTE (07/08, après mesure sur le lot `seed`).
+# Le réessai ci-dessus ne se souvenait de rien : sur 64 réessais du lot, **60
+# portaient sur sendvid**, qui renvoyait `HTTP 502` épisode après épisode. On
+# payait 4 attentes par épisode pour un hôte manifestement mort sur ce lot.
+# Après ce nombre d'échecs TRANSITOIRES consécutifs, l'hôte n'est plus réessayé
+# du reste du processus — sa première tentative reste faite, donc s'il
+# ressuscite on le voit immédiatement et le compteur repart.
+CIRCUIT_BREAKER_FAILS = 3
+_host_fail_streak: dict[str, int] = {}
+_host_fail_lock = threading.Lock()
+
+
+def _circuit_open(host: str) -> bool:
+    with _host_fail_lock:
+        return _host_fail_streak.get(host, 0) >= CIRCUIT_BREAKER_FAILS
+
+
+def _note_host_result(host: str, ok: bool) -> None:
+    with _host_fail_lock:
+        if ok:
+            _host_fail_streak.pop(host, None)
+        else:
+            _host_fail_streak[host] = _host_fail_streak.get(host, 0) + 1
+
+
+def _is_transient(exc: Exception) -> bool:
+    """Un nouvel essai a-t-il une chance de changer le résultat ?
+
+    Par défaut OUI (timeouts, coupures, 5xx, embed injoignable) : mieux vaut un
+    essai de trop qu'une cellule perdue. Seuls les motifs explicitement
+    définitifs coupent le réessai.
+    """
+    msg = str(exc).lower()
+    return not any(m in msg for m in _PERMANENT_MARKERS)
 
 
 def resolve_episodes_multi(
@@ -200,15 +317,51 @@ def resolve_episodes_multi(
     ]
 
     def _resolve_one(host: str) -> tuple[str, list[dict]]:
-        try:
-            eps = resolve_episodes(
-                slug, season_dir, lang, ep_start, ep_end,
-                host_pref=host, cache_dir=cache_dir, mal_id=mal_id,
-                va_slug=va_slug,
-            )
-        except Exception:
-            eps = []  # this host is down / has no match — its peers cover us
-        return host, eps
+        last: Exception | None = None
+        for attempt in range(RESOLVE_ATTEMPTS):
+            try:
+                eps = resolve_episodes(
+                    slug, season_dir, lang, ep_start, ep_end,
+                    host_pref=host, cache_dir=cache_dir, mal_id=mal_id,
+                    va_slug=va_slug,
+                )
+            except ProcessKilled:
+                # Ni réessai, ni coupe-circuit, ni `[no-host]` : on remonte.
+                # Réessayer n'a aucun sens (la machine s'éteint) et l'imputer à
+                # l'hôte fabriquerait l'absence fausse que cette classe existe
+                # pour empêcher.
+                raise
+            except Exception as exc:
+                last = exc
+                transient = _is_transient(exc)
+                # Seuls les échecs TRANSITOIRES alimentent le compteur : un
+                # « not offered » est fréquent et n'est pas une panne, le
+                # compter remettrait la série à zéro en permanence et le
+                # coupe-circuit ne se fermerait jamais.
+                if transient:
+                    _note_host_result(host, ok=False)
+                if attempt + 1 >= RESOLVE_ATTEMPTS or not transient:
+                    break
+                if _circuit_open(host):
+                    print(f"  [circuit] {host}: {CIRCUIT_BREAKER_FAILS} echecs "
+                          f"d'affilee — plus de reessai sur ce lot")
+                    break
+                # Temporisation croissante : un 502 ou un embed injoignable est
+                # souvent une mauvaise seconde chez l'hôte, pas une absence.
+                delay = min(RESOLVE_BACKOFF_S * (2 ** attempt),
+                            RESOLVE_BACKOFF_MAX_S)
+                print(f"  [retry] {host}: {exc} — nouvel essai dans {delay:.0f}s")
+                time.sleep(delay)
+            else:
+                _note_host_result(host, ok=True)     # la série repart à zéro
+                return host, eps
+        # Its peers cover us, so a failing host must not sink the episode —
+        # but swallowing the REASON is how "only 2 of 5 hosts resolve" went
+        # undiagnosed for weeks. The bridge now says whether the player is
+        # simply not offered for this season (a data gap, nothing to fix) or
+        # actually failed to extract (a bug, a block, a dead host).
+        print(f"  [no-host] {host}: {last}")
+        return host, []
 
     by_ep: dict[int, list[dict]] = {}
     if eligible:

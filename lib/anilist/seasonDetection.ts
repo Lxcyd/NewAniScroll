@@ -17,6 +17,8 @@
 export {
   extractSeasonFromTitle,
   isSeasonContinuation,
+  continuesSameWork,
+  seasonTitleBase,
   isSeasonLike,
   sharesFranchise,
   // Season-chain guards live in helpers.ts (that file is the pure source; this

@@ -108,11 +108,11 @@ jobs:
           if [ -n "${{ inputs.concurrency }}" ]; then
             ARGS="$ARGS --concurrency=${{ inputs.concurrency }}"
           fi
-          node scripts/warm-cache.mjs $ARGS
+          node scripts/cache/warm-cache.mjs $ARGS
 
       # Delta-only image warming: just the anime added/refreshed in the last
       # N days. Bulk back-fill of the existing catalog is done locally via
-      # `node scripts/warm-images.mjs --limit=4000` to preserve the CF
+      # `node scripts/cache/warm-images.mjs --limit=4000` to preserve the CF
       # 5000 transformations/month free tier and avoid GH job timeouts.
       - name: Run image warmer (delta AVIF)
         env:
@@ -131,4 +131,4 @@ jobs:
           if [ -n "${{ inputs.concurrency }}" ]; then
             ARGS="$ARGS --concurrency=${{ inputs.concurrency }}"
           fi
-          node scripts/warm-images.mjs $ARGS
+          node scripts/cache/warm-images.mjs $ARGS

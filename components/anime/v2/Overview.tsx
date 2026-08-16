@@ -10,27 +10,22 @@ import {
   countryLabel,
   capitalize,
 } from "./helpers";
-import Related from "./Related";
-import RelationsGraph from "./RelationsGraph";
+import RelationsGraph, { EMBED_HEADER_H } from "./RelationsGraph";
 import styles from "./styles.module.css";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
+import { useTrailerBlocked } from "@/lib/preview/useTrailerBlocked";
 import { useTranslatedText } from "@/lib/i18n/useTranslatedText";
 import { translateTag } from "@/lib/i18n/animeTags";
 import { hexToCssFilter } from "@/lib/color/hexToCssFilter";
+import { youtubeTrailerId } from "@/lib/preview/trailerId";
 
 type Props = {
   info: AniListInfoTypes;
-  /** Optional — full TV/ONA season chain resolved server-side. When
-   *  provided, Relations renders every season AniList only exposes via
-   *  multi-hop prequel/sequel walks (e.g. DanMachi S3 / S4 / S5 from
-   *  S1's page). Without it, Relations falls back to the direct edges
-   *  on `info.relations`. */
-  seasonList?: import("@/lib/anilist/seasonChain").SeasonEntry[];
 };
 
-export default function Overview({ info, seasonList }: Props) {
+export default function Overview({ info }: Props) {
   const titlePref = useTitlePref();
   const { t, i18n } = useTranslation();
   const [spoilers, setSpoilers] = useState(false);
@@ -59,12 +54,31 @@ export default function Overview({ info, seasonList }: Props) {
   // server-side). Falls back to the English original while loading / on error.
   const synopsis = useTranslatedText(synopsisRaw);
 
-  const trailerUrl =
-    info.trailer && info.trailer.site === "youtube" && info.trailer.id
-      ? `https://www.youtube.com/watch?v=${info.trailer.id}`
+  const rawTrailerUrl =
+    info.trailer && info.trailer.site === "youtube" && youtubeTrailerId(info.trailer.id)
+      ? `https://www.youtube.com/watch?v=${youtubeTrailerId(info.trailer.id)}`
       : info.trailer && info.trailer.site === "dailymotion" && info.trailer.id
       ? `https://www.dailymotion.com/video/${info.trailer.id}`
       : null;
+
+  /**
+   * Drop the trailer block when the video cannot be watched from here.
+   *
+   * This section is a link OUT to YouTube, so an unavailable video makes it a
+   * button that leads to an error page — worse than no button at all. Unlike the
+   * hover card, which mounts a player and is told, this page has to ask: see
+   * useTrailerBlocked, which loads a hidden embed at idle and listens. It never
+   * asks to play, so the answer costs no video.
+   *
+   * YouTube only: Dailymotion has no such probe, and AniList lists exactly zero
+   * Dailymotion trailers across its 22 037 dated anime.
+   */
+  const ytId = info.trailer?.site === "youtube" ? youtubeTrailerId(info.trailer?.id) : null;
+  // False on BOTH sides on the first render, always: the server has no player
+  // and no session, and answering differently there is a hydration mismatch —
+  // which React pays for by re-rendering the entire page on the client.
+  const trailerBlocked = useTrailerBlocked(ytId);
+  const trailerUrl = trailerBlocked ? null : rawTrailerUrl;
 
   return (
     <div style={tStyles.overviewWrap}>
@@ -115,7 +129,22 @@ export default function Overview({ info, seasonList }: Props) {
               paddingBottom: 6,
             }}
           >
-            <div style={tStyles.secKicker}>{t("anime.sectionDetails")}</div>
+            {/* Sur la même ligne que le titre du graphe d'à côté : là-bas le mot
+                est centré sur une rangée de boutons, ici c'est une ligne de
+                texte nue. On épingle les deux à la même hauteur (et au même
+                écart sous elle que `embedShell`), sinon "DÉTAILS" flotte
+                au-dessus de "RELATIONS" et les deux cartes se décalent. */}
+            <div
+              style={{
+                ...tStyles.secKicker,
+                marginBottom: 8,
+                minHeight: EMBED_HEADER_H,
+                display: "flex",
+                alignItems: "center",
+              }}
+            >
+              {t("anime.sectionDetails")}
+            </div>
             <div
               style={{
                 ...tStyles.detailsCard,
@@ -170,31 +199,9 @@ export default function Overview({ info, seasonList }: Props) {
               paddingBottom: 6,
             }}
           >
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: 8,
-              }}
-            >
-              <div style={tStyles.secKicker}>{t("anime.sectionRelations")}</div>
-              <button
-                type="button"
-                onClick={() => setGraphOpen(true)}
-                style={relMapBtnStyle}
-                title={t("anime.relationsMap", { defaultValue: "View timeline" })}
-              >
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                  <circle cx="5" cy="12" r="2.5" />
-                  <circle cx="19" cy="6" r="2.5" />
-                  <circle cx="19" cy="18" r="2.5" />
-                  <line x1="7.2" y1="11" x2="16.8" y2="7" />
-                  <line x1="7.2" y1="13" x2="16.8" y2="17" />
-                </svg>
-                {t("anime.relationsMap", { defaultValue: "View timeline" })}
-              </button>
-            </div>
+            {/* The heading is handed to the graph so it can draw it on the same
+                line as its own controls; the ⤢ in the board's controls is what
+                expands the view now. */}
             <div
               style={{
                 flex: 1,
@@ -202,22 +209,31 @@ export default function Overview({ info, seasonList }: Props) {
                 display: "flex",
               }}
             >
-              <Related
-                relations={info.relations?.edges || []}
-                seasonList={seasonList}
+              {/* The franchise map itself, in the page — the same board the
+                  overlay shows, at the size this column has. It replaces the
+                  card carousel that used to sit here: the carousel listed the
+                  direct neighbours in no particular order, which is the one
+                  thing a franchise map makes plain. Pressing ⤢ (or the button
+                  above) hands this exact view to the full-screen view — same
+                  instance, so the zoom, the selection and anything you moved
+                  come with it. */}
+              <RelationsGraph
+                embedded
+                heading={
+                  // Without the kicker's bottom margin: on a row whose items
+                  // are centred, it would push the word off the line.
+                  <div style={{ ...tStyles.secKicker, marginBottom: 0 }}>
+                    {t("anime.sectionRelations")}
+                  </div>
+                }
+                open={graphOpen}
+                onExpand={() => setGraphOpen(true)}
+                onClose={() => setGraphOpen(false)}
                 currentId={info.id}
               />
             </div>
           </section>
         </div>
-
-        <RelationsGraph
-          open={graphOpen}
-          onClose={() => setGraphOpen(false)}
-          relations={info.relations?.edges || []}
-          seasonList={seasonList}
-          currentId={info.id}
-        />
 
         {/* Row 2 col 1 — Tags + External Sites (absolutely positioned trick
              so the sidebar height tracks the main column). */}
@@ -780,20 +796,6 @@ function buildPopularity(
     ],
   ];
 }
-
-const relMapBtnStyle: CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  gap: 6,
-  padding: "5px 10px",
-  fontSize: 11.5,
-  fontWeight: 600,
-  color: "var(--txt-2)",
-  background: "var(--bg-2)",
-  border: "1px solid var(--line)",
-  borderRadius: 8,
-  cursor: "pointer",
-};
 
 const tStyles: Record<string, CSSProperties> = {
   overviewWrap: { display: "flex", flexDirection: "column", gap: 28 },

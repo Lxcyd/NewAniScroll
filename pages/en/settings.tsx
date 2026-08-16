@@ -17,6 +17,13 @@ import { useDataSaver, setDataSaver } from "@/lib/prefs/dataSaver";
 import { useNotifPrefs, setNotifPrefs } from "@/lib/prefs/notifPrefs";
 import { useClickTarget, setClickTarget, ClickTarget } from "@/lib/prefs/clickTarget";
 import { useHideSpoilers, setHideSpoilers } from "@/lib/prefs/spoilerPrefs";
+import {
+  usePreviewPrefs,
+  setPreviewEnabled,
+  setPreviewDelay,
+  PREVIEW_MIN_DELAY,
+  PREVIEW_MAX_DELAY,
+} from "@/lib/prefs/previewPrefs";
 import { useServerPref, setServerPref } from "@/lib/prefs/serverPref";
 import SERVERS from "@/lib/servers";
 import { clearAllProgress } from "@/lib/watch/progress";
@@ -275,6 +282,7 @@ export default function Settings() {
   const notifPrefs = useNotifPrefs();
   const clickTarget = useClickTarget();
   const hideSpoilers = useHideSpoilers();
+  const previewPrefs = usePreviewPrefs();
   const serverPref = useServerPref();
   const accent = useAccent();
   const localList = useLocalList();
@@ -800,6 +808,49 @@ export default function Settings() {
                 checked={hideSpoilers}
                 onChange={setHideSpoilers}
               />
+              <Toggle
+                label={t("settings.browsing.hoverPreview")}
+                desc={t("settings.browsing.hoverPreviewDesc")}
+                checked={previewPrefs.enabled}
+                onChange={setPreviewEnabled}
+              />
+              {/* Greyed rather than removed when the preview is off: the row
+                  keeps its place, so turning the switch back on doesn't make
+                  the panel jump, and the setting stays visible as something
+                  that exists. `disabled` does the refusing — opacity alone
+                  would still take a drag. */}
+              <div
+                className={`flex items-center justify-between gap-4 py-3 ${
+                  previewPrefs.enabled ? "" : "opacity-40"
+                }`}
+              >
+                <div className="min-w-0">
+                  <div className="text-sm font-medium">
+                    {t("settings.browsing.hoverDelay")}
+                  </div>
+                  <div className="text-white/50 text-xs mt-0.5">
+                    {t("settings.browsing.hoverDelayDesc")}
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 shrink-0">
+                  <input
+                    type="range"
+                    min={PREVIEW_MIN_DELAY}
+                    max={PREVIEW_MAX_DELAY}
+                    step={50}
+                    value={previewPrefs.delay}
+                    disabled={!previewPrefs.enabled}
+                    onChange={(e) => {
+                      const ms = parseInt(e.target.value, 10);
+                      if (Number.isFinite(ms)) setPreviewDelay(ms);
+                    }}
+                    className="w-32 accent-action cursor-pointer disabled:cursor-not-allowed"
+                  />
+                  <span className="text-sm tabular-nums text-white/80 w-12 text-right">
+                    {(previewPrefs.delay / 1000).toFixed(1)}s
+                  </span>
+                </div>
+              </div>
             </div>
           </section>
 
@@ -1050,10 +1101,12 @@ export default function Settings() {
                 checked={syncPrefs.autoProgress}
                 onChange={(v) => setSyncPrefs({ autoProgress: v })}
               />
-              {/* Sync threshold — how far into an episode counts as "watched"
-                  (progress +1 / AniList update). Sits right after the progress
-                  toggle since it defines WHEN that progress is recorded; applies
-                  to the local list too, so it isn't gated by login. */}
+              {/* ONE row for the whole "when does an episode count as watched"
+                  decision: the description states the real rule (reaching the
+                  detected ED — nothing to configure there, it comes from the
+                  OP/ED detector) and the slider only sets the runtime fallback
+                  used when no ending was found. Applies to the local list too,
+                  so it isn't gated by login. */}
               <div className="flex items-center justify-between gap-4 py-3">
                 <div className="min-w-0">
                   <div className="text-sm font-medium">

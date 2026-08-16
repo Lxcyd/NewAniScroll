@@ -15,6 +15,7 @@ import { asCssVars, BRAND } from "@/lib/theme";
 import { applyAccent, getAccent } from "@/lib/prefs/accentColor";
 // import SecretPage from "@/components/secret";
 import NoticeStack from "@/components/shared/NoticeStack";
+import HoverPreviewProvider from "@/components/shared/HoverPreview/HoverPreviewProvider";
 import EpisodeTransitionOverlay from "@/components/shared/episodeTransitionOverlay";
 import { notify } from "@/lib/notifications/noticeStore";
 import ChangeLogs from "../components/shared/changelogs";
@@ -449,6 +450,10 @@ export default function App({
                 <ChangeLogs />
                 <AnilistHealthBanner />
                 <SyncBootstrap />
+                {/* Site-wide anime hover preview. One delegated listener +
+                    one portal for every card on the page — see
+                    lib/preview/anchor.ts for how a card opts in. */}
+                <HoverPreviewProvider />
                 {/* App-shell fade-in only (CSS keyframe, see globals.css). We
                     deliberately do NOT use an enter/exit transition here: on
                     browser back/forward (popstate) the exit animation could

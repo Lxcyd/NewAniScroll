@@ -61,7 +61,7 @@ jobs:
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN:   ${{ secrets.TURSO_AUTH_TOKEN }}
           FANART_API_KEY:     ${{ secrets.FANART_API_KEY }}
-        run: node scripts/refresh-fanarts.mjs
+        run: node scripts/fanarts/refresh-fanarts.mjs
 
       # ÉTAPE 2 — le classifieur, et lui seul, paie ses dépendances.
       # Rien de tout ce qui suit ne s'exécute quand skip_classify est demandé.
@@ -105,7 +105,7 @@ jobs:
         if: ${{ inputs.skip_classify != true }}
         run: |
           if [ ! -f .cache/models/wd-swinv2-v3.onnx ] || [ ! -f .cache/models/wd-swinv2-v3-tags.csv ]; then
-            node scripts/download-wd14-model.mjs
+            node scripts/fanarts/download-wd14-model.mjs
           fi
 
       - name: Classify new fanarts
@@ -116,4 +116,4 @@ jobs:
         # GitHub Actions runners have 4 vCPUs — match that.
         # The classifier only loops over rows where nsfw_label IS NULL, so
         # this only touches rows the refresh step just added.
-        run: node scripts/classify-fanarts.mjs --concurrency=4
+        run: node scripts/fanarts/classify-fanarts.mjs --concurrency=4

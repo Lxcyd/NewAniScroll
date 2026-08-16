@@ -29,9 +29,13 @@ import { notify } from "@/lib/notifications/noticeStore";
 import { Navbar } from "@/components/shared/NavBar";
 import { AniListInfoTypes } from "types/info/AnilistInfoTypes";
 import InfoPage from "@/components/anime/v2/InfoPage";
+import { relationsTreeUrl } from "@/components/anime/v2/RelationsGraph";
 import InfoPageMobile from "@/components/anime/v2/mobile/InfoPageMobile";
 import { useIsMobile } from "@/lib/hooks/useIsMobile";
 import { pickTitleImage, collectArtworks, slugifyTitle, SeasonInfo, TitleImage } from "@/components/anime/v2/helpers";
+import { getTmdbAnimeImages } from "@/lib/tmdb/animeImages";
+import { resolveHeroBanner } from "@/lib/images/heroBanner";
+
 import type { FanartsMeta } from "@/components/anime/v2/helpers";
 import { replaceUrlPreservingState } from "@/lib/navigation/replaceUrl";
 
@@ -587,6 +591,36 @@ export default function Info({
             fetchpriority="high"
           />
         )}
+        {/* The franchise graph, started by the PRELOAD SCANNER rather than by
+            the component that needs it.
+
+            The board is client-only, so its fetch could not leave before
+            hydration: measured on dev, the HTML was in at 260ms and the request
+            still did not start until 428ms, then took 284ms. That 168ms of dead
+            air is bought back here — the browser opens the request while it is
+            still parsing and compiling, and the component finds it in flight.
+
+            `crossorigin="anonymous"` IS required, and leaving it off is what
+            made the browser refuse the match: without the attribute a preload
+            carries credentials mode "include", while a plain `fetch()` defaults
+            to "same-origin" — "A preload for … is found, but is not used
+            because the request credentials mode does not match". The attribute
+            maps to "same-origin" too, so the pair agrees. Which also means the
+            fetch must stay PLAIN: forcing `credentials: "omit"` there breaks
+            the match again from the other side, and the browser said so.
+
+            `key` because next/head keeps ONE tag per key: without it a re-render
+            of this page emitted the tag again, and the console carried three
+            copies of the same "preloaded but not used" complaint. */}
+        {info?.id && (
+          <link
+            key="preload-relations-tree"
+            rel="preload"
+            as="fetch"
+            crossOrigin="anonymous"
+            href={relationsTreeUrl(Number(info.id))}
+          />
+        )}
       </Head>
 
       <Navbar info={info} />
@@ -836,22 +870,27 @@ export async function getServerSideProps(ctx: any) {
   if (parsedCache?.info && cacheUsable) {
     const { info, color } = parsedCache;
 
-    // Banner + cover URLs are already in the cached `info`, so we can
-    // tell the browser to start fetching them RIGHT NOW via Link:
-    // headers — long before getServerSideProps finishes. These add ~0ms
-    // to the response and shave ~200-500ms off image arrival time when
-    // the SSR has to await downstream work below.
-    if (info?.bannerImage) appendPreloadHeader(ctx.res, info.bannerImage);
+    // The cover URL is already in the cached `info`, so tell the browser to
+    // start fetching it RIGHT NOW via a Link: header — long before
+    // getServerSideProps finishes. Adds ~0ms to the response and shaves
+    // ~200-500ms off image arrival when the SSR awaits downstream work below.
     const coverUrl = info?.coverImage?.extraLarge || info?.coverImage?.large;
     if (coverUrl) appendPreloadHeader(ctx.res, coverUrl);
 
     // Resolve fanarts first so we can ALSO emit a preload header for
     // the clearart before we await the (slower) season-chain walk.
-    // Single-row Turso read, typically <50ms.
-    const fanarts = await loadFanarts(animeIdNum).catch(() => null);
+    // Single-row Turso read, typically <50ms. TMDB rides along: warm it is
+    // also one Turso row, and when TMDB_API_KEY is unset it returns without
+    // touching anything, so this costs nothing in that case.
+    const [fanarts, tmdb] = await Promise.all([
+      loadFanarts(animeIdNum).catch(() => null),
+      getTmdbAnimeImages(animeIdNum).catch(() => ({ backdrop: null, logo: null })),
+    ]);
     timer.mark("fanarts");
-    const initialTitleImage = pickTitleImage(fanarts);
+    const initialTitleImage = pickTitleImage(fanarts, tmdb.logo);
     const fanartsMeta = toFanartsMeta(fanarts);
+    const heroBanner = await resolveHeroBanner(info?.bannerImage, tmdb.backdrop);
+    if (heroBanner) appendPreloadHeader(ctx.res, heroBanner);
     // No clearart preload header — see the <link> note above: the <img> may
     // swap to assets.fanart.tv on proxy error, leaving a proxy-URL preload
     // unconsumed ("preloaded but not used"). preconnect handles the latency.
@@ -866,7 +905,13 @@ export async function getServerSideProps(ctx: any) {
     timer.end(`cache-hit id=${id?.[0]}`);
     return {
       props: {
-        info: stripCharacters(info),
+        /* Shallow copy, never a mutation: `info` came straight out of the
+           Redis blob and the same object is handed back to other readers of
+           that cache. Writing the TMDB URL onto it would leak a TMDB backdrop
+           into the shared AniList payload for 30 days. */
+        info: stripCharacters(
+          heroBanner ? { ...info, bannerImage: heroBanner } : info,
+        ),
         color,
         api: API_URI,
         chapterNotFound: chapterNotFound || null,
@@ -925,18 +970,23 @@ export async function getServerSideProps(ctx: any) {
     color: textColor,
   };
 
-  // Banner + cover URLs are now known — push them into Link: headers so
-  // the browser can start downloading while we await the rest.
-  if (data?.bannerImage) appendPreloadHeader(ctx.res, data.bannerImage);
+  // The cover URL is now known — push it into a Link: header so the browser
+  // can start downloading while we await the rest.
   const coverUrl = data?.coverImage?.extraLarge || data?.coverImage?.large;
   if (coverUrl) appendPreloadHeader(ctx.res, coverUrl);
 
   // Resolve fanarts ahead of the slower walker work so we can emit the
-  // clearart preload header before the response body is sent.
-  const fanarts = await loadFanarts(animeIdNum).catch(() => null);
+  // clearart preload header before the response body is sent. TMDB rides
+  // along — see the cache-hit path above for why the banner preload waits.
+  const [fanarts, tmdb] = await Promise.all([
+    loadFanarts(animeIdNum).catch(() => null),
+    getTmdbAnimeImages(animeIdNum).catch(() => ({ backdrop: null, logo: null })),
+  ]);
   timer.mark("fanarts");
-  const initialTitleImage = pickTitleImage(fanarts);
+  const initialTitleImage = pickTitleImage(fanarts, tmdb.logo);
   const fanartsMeta = toFanartsMeta(fanarts);
+  const heroBanner = await resolveHeroBanner(data?.bannerImage, tmdb.backdrop);
+  if (heroBanner) appendPreloadHeader(ctx.res, heroBanner);
   // No clearart preload header — the <img> may swap to assets.fanart.tv on
   // proxy error, which would leave a proxy-URL preload unconsumed.
 
@@ -972,7 +1022,11 @@ export async function getServerSideProps(ctx: any) {
 
   return {
     props: {
-      info: stripCharacters(data),
+      /* Shallow copy — `data` is what redis.set just persisted as the shared
+         AniList blob above, and it must stay free of TMDB URLs. */
+      info: stripCharacters(
+        heroBanner ? { ...data, bannerImage: heroBanner } : data,
+      ),
       color,
       api: API_URI,
       chapterNotFound: chapterNotFound || null,

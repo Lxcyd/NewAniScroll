@@ -1,0 +1,504 @@
+# RÉCAP — Détecteur d'intro/outro (OP/ED) via AnimeThemes.moe
+
+Doc unique de reprise (remplace l'ancien RECAP + ROADMAP_FRAME_ACCURATE + STAGE4_PLAN).
+Dernière mise à jour : 2026-08-04 (session : couche replis F1-F7 + garde-fous faux
+positifs P1-P8 — voir §6bis, c'est la partie la plus récente et la plus structurante).
+
+**En une phrase** : pour chaque épisode d'anime, on récupère l'OP/ED credited
+d'AnimeThemes comme RÉFÉRENCE, on LOCALISE grossièrement le thème dans l'épisode par
+l'audio, puis on PRÉCISE le bord au niveau frame par l'IMAGE (landmarks distinctifs),
+et on livre `start`/`end` en temps épisode absolu — par lecteur, pour alimenter le
+`SkipOverlay`.
+
+---
+
+## 0. Le problème et la décision de fond
+
+Aucune API ne donne les timecodes intra-épisode (OP/ED start/end DANS l'épisode) —
+vérifié sur données brutes AnimeThemes + AniSkip/Anime-Skip (mauvaise couverture,
+écartés). AnimeThemes donne par anime : chanson, plage d'épisodes, et surtout la
+**vidéo credited (.webm)** de l'OP/ED. On inverse donc le matching : fingerprint du
+thème connu UNE fois, puis on matche chaque épisode contre lui.
+
+**Décision cadrée (frame-accurate) :** précision ±1 frame (~42 ms à 23.976 fps).
+- **L'audio mesure la MUSIQUE** (~12 ms, plus fin) → sert au REPÉRAGE grossier + au
+  choix de version (OP1 vs OP2). Rien d'autre.
+- **L'image credited mesure la COUPE VISUELLE** (le vrai événement à skipper) →
+  AUTORITÉ UNIQUE du bord. Elle reste juste quand l'audio est le canal corrompu :
+  fondu au noir (musique continue), carton silencieux, VF qui duck le thème sous
+  les dialogues, encode qui trim l'audio.
+
+---
+
+## 1. Vue d'ensemble du pipeline (v2, chemin par défaut)
+
+```
+  MAL/AniList id
+       │  oped/animethemes.py : resolve_slug → fetch_themes
+       ▼
+  Thèmes { OP1, OP2, ED1, ED2 } chacun : song, episodes_spec, .webm NC + credited
+       ▼
+  build_references()  (oped/theme_bank.py)
+       │  - audio : fingerprint de chaque version, caché .fp.npz
+       │  - image : décode NATIF (fps=None) du clip CREDITED → landmarks
+       │            (frames distinctives, r_time frame-exact) + ref_native_dur
+       ▼
+  Pour chaque (épisode, lecteur, langue) : detect_op_ed_v2()
+       │  A. LOCATE (audio, ABSOLU) : decode_audio_abs(fenêtre large) → best_match
+       │     → theme_t0 GROSSIER + VERSION + ref choisie
+       │  B. ALIGN (image, ABSOLU) : keyframe_hashes_abs(fenêtre native autour de t0)
+       │     → anchor_by_landmarks → theme_t0 PRÉCIS (consensus de landmarks)
+       │  C. BORDS : start = theme_t0 ; end = theme_t0 + ref_native_dur
+       │  D. Fallback : consensus image faible → garde le t0 audio, low_confidence
+       ▼
+  ThemeHit { kind, slug, version, start, end (absolus),
+             source: credited|audio, n_landmarks, consensus_frac, low_confidence }
+       │
+       ├─ multi-host : detect_op_ed_multi → reconcile_hits (CONTRÔLE DE CONFIANCE,
+       │               plus une correction : chaque host est déjà frame-accurate)
+       ▼
+  (batch)  batch_detect.py  →  JSONL { mal_id, episode, op, ed }
+```
+
+**Fondation « horloge absolue partagée » (ce qui rend v2 possible) :**
+`decode_audio_abs` et `keyframe_hashes_abs` décodent avec `-copyts` + `-ss` absolu +
+`-to` (jamais `-t`, qui tronque à ~rien sur HLS avec -copyts). Résultat mesuré :
+audio et vidéo portent le MÊME pts absolu (megaplay : vidéo 1260.0 / audio 1260.08).
+→ theme_t0 audio et image sont directement comparables, sans ancre `-sseof` ni
+réconciliation A/V. C'est ce qui a tué la classe de bugs `-sseof` (le « décalage A/V
+de 10 s » megaplay était un artefact de `-sseof`, pas un vrai désync).
+
+---
+
+## 2. Les modules cœur (moteur de matching) — NE PAS CASSER
+
+Validés Étape 1 (synthétique, erreur médiane 3,27 ms). Tout le reste est construit
+dessus sans les modifier.
+
+### `oped/audio.py`
+- `load_audio(src, window=(start,dur), cache_key=…)` → PCM mono float32 11025 Hz.
+  Fenêtrage = grosse optim : seek AVANT `-i` → HTTP Range (mp4) / segments HLS
+  couvrants seulement. (Chemin LEGACY.)
+- `decode_audio_abs(src, start_abs, dur)` → `(samples, abs_start)`. Décode en ABSOLU
+  (`-copyts` + `-ss` + `-to`). `abs_start` récupéré via `ashowinfo` (le seek arrondit).
+  **Chemin v2.**
+- `_is_hls_url(src)` : les flags `-allowed_extensions ALL …` sont PRIVÉS au démuxer
+  HLS → ajoutés seulement si `.m3u8` (sinon ffmpeg plante sur MP4 direct type sendvid).
+- Cache : jamais par URL (tokens signés tournent) → passer un `cache_key` stable.
+  Certains hosts (megaplay) : 403 sans header `Referer`.
+
+### `oped/fingerprint.py` — empreinte façon Shazam (constellation)
+- Spectrogramme → pics → hash de paires `(f1,f2,dt)` packé uint64 + temps d'ancre.
+- Maison (pas Chromaprint) car on veut un OFFSET temporel précis (histogramme de
+  `t_q − t_r` pique net, récupérable à un hop STFT ~11,6 ms), pas un ID de piste.
+
+### `oped/matcher.py` — vote d'offset par collisions de hash
+- `best_match(q, r)` : offset le plus voté = alignement ; span des ancres = segment.
+- `_dense_span` : plus grand run contigu d'ancres (clustering gap 8 s) → span propre
+  (sinon des coïncidences lointaines feraient exploser le span sur tout l'épisode).
+- `SeriesBank` (épisode↔épisode) = ANCIEN mode, PAS le chemin recommandé, ignorer.
+
+### `oped/video_fingerprint.py` — empreinte image (dHash keyframes)
+- `keyframe_hashes_abs(src, start_abs, dur, fps=None, cache_key=…)` : décode en ABSOLU.
+  `fps=None` = toutes les frames NATIVES (pts réel) → précision ±1 frame. Cache
+  optionnel par (cache_key, start_abs, dur, fps) arrondi 0,1 s.
+- `pick_landmarks(vfp)` : choisit ~15-24 frames DISTINCTIVES (plancher `min_unique=10`
+  bits + écart temporel `min_gap 3 s`). Une frame distinctive a un dHash rare → se
+  relocalise nettement dans l'épisode (contrairement à un aplat/fondu qui matche
+  « partout »).
+- `anchor_by_landmarks(ep_vfp, landmarks)` → `LandmarkAnchor(theme_t0, n_accepted,
+  consensus_frac, …)`. Pour chaque landmark : meilleure frame épisode par Hamming,
+  ACCEPTÉE si distance ≤ 8 ET 2e-meilleure ≥ 6 plus loin (localisation non ambiguë).
+  **Estimateur = MODE, pas médiane** : les estimations forment un mode net sur la
+  grille frame 23.976 fps avec quelques outliers à ±N frames entières (landmark
+  relocalisé sur la frame GOP voisine) ; on snappe à la grille, prend le mode, moyenne
+  ±1 frame. `consensus_frac` (fraction à ±1 frame du mode) = le signal de CONFIANCE.
+- `refine_edge_credited_video` / `decode_dense_window` : raffineur dense d'arête
+  (chemin LEGACY ; pas branché dans v2 — voir §6 « ED trimés »).
+
+---
+
+## 3. Références & détection (`oped/theme_bank.py`)
+
+- `build_references(theme, with_video=True)` → `list[ThemeReference]` (une par version).
+  - audio : `fp` + `duration`, caché `.fp.npz`.
+  - image : `video_fp` 2fps (legacy cross-confirm) ; **landmarks + `ref_native_dur`**
+    depuis un décode NATIF du clip credited (Stage-3 fix : un décode 2fps quantifie
+    r_time à 0,5 s et biaise toute projection).
+  - Robustesse : `_native_ref_ok` (ne cache/traite JAMAIS un décode dégénéré <500
+    frames / <60 s) + `_decode_native_ref` (retry borné + LOCK sérialisant les décodes
+    natifs lourds — sinon les décodes concurrents se font rate-limiter par
+    animethemes.moe et 0 frame était caché en dur).
+- `ThemeReference` : `kind, slug, version, fp, duration, video_fp, video_ref_url,
+  landmarks, ref_native_dur`.
+- `detect_op_ed_v2(episode_duration, op_refs, ed_refs, resolve_audio_abs,
+  resolve_video_abs=None, …)` → `list[ThemeHit]` — LE détecteur par défaut (§1.A-D).
+  `resolve_video_abs=None` (ou `--no-video`) → skip ALIGN, tout en fallback audio.
+- `ThemeHit` : `start`/`end` absolus, `source` (credited/audio), `n_landmarks`,
+  `consensus_frac`, `low_confidence`, + champs legacy (`votes`, `score`, `inferred`,
+  `confirmed_by_video`…) gardés pour compat.
+- `detect_op_ed(...)` = ANCIENNE cascade (override guards, `_abs_offset`, dense refine…).
+  Encore présente, accessible via `--legacy`. À SUPPRIMER une fois v2 validé large.
+
+---
+
+## 4. Multi-lecteur (`oped/multi_host.py`)
+
+Chaque host sert un encode différent (durée/trim ≠). On détecte par host EN ABSOLU,
+puis `reconcile_hits` fait un **contrôle de confiance** (plus une correction) :
+- OP ancré sur le start ; ED ancré sur les SECONDES-FROM-END (indépendant de la durée),
+  re-projetable sur la durée du `<video>` joué au runtime.
+- Outliers >±4 s droppés, `spread`/`agree` rapportés. `reconcile_hits` ne lit que
+  `source`/`votes`/flags (tous peuplés par v2) → marche tel quel avec v2.
+- `detect_per_host` / `detect_op_ed_multi` : params `resolve_audio_abs_for` /
+  `resolve_video_abs_for` + `v2=True`. `detect_op_ed_multi` = thin wrapper
+  (`detect_per_host` + `reconcile_hits`) : appeler `detect_per_host` directement
+  quand on veut AUSSI le timing par host.
+- **Garde-fou spread (2026-07-16, `SERVE_MAX_SPREAD_S=10.0`)** : `ReconciledHit.serve`
+  retient (`False`) un « accord » ≥2 hosts dont le `spread` dépasse 10 s. Un spread
+  sain ne peut excéder la tolérance amont (4/7 s) SAUF via le fallback `_consensus`
+  (« si tout est rejeté, on réintègre tout » → `n_hosts_agree` n'y est PAS une mesure
+  d'accord). Cas mesuré : cyberpunk VOSTFR ED, 2 hosts ayant matché des OCCURRENCES
+  différentes du thème, moyennées → spread 87-91 s, timing inexistant sur les 2 hosts.
+  Le hit reste STOCKÉ mais non servi (politique « precision-first »). Inerte à 1 host
+  (spread=0). Corrigé dans `serve`, PAS dans `_consensus` (le fallback protège un vrai
+  cas à la marge).
+- **Garde faux-positif INFERRED (2026-07-16, `INFERRED_REQUIRES_VIDEO=True`)** : un hit
+  `inferred` (thème emprunté au POOL cour-wide car l'épisode n'a pas de mapping direct
+  AnimeThemes) n'est servi (`serve=True`) QUE si l'image l'a confirmé — sinon `False`.
+  Raison : contrairement à un thème directement mappé (AnimeThemes garantit sa présence),
+  rien ne garantit qu'une séquence inferred joue VRAIMENT sur cet épisode. Sa CHANSON peut
+  se rejouer sur le générique de fin (l'audio matche) alors que l'IMAGE de l'ED est absente
+  → faux positif sur audio seul. Cas mesuré : cyberpunk ep1 VOSTFR ED, 2 hosts d'accord sur
+  un ED `source="audio"` / `n_video_confirm=0` / `inferred=True`, servi à tort (reprise de
+  la chanson ED, pas la séquence). Après fix : `serve=False`, les hits inferred+image (ex.
+  devilman OP credited) restent servis, les hits direct-mappés inchangés.
+  - **Chaînon `n_video_confirm` (v2)** : `confirmed_by_video` n'est JAMAIS posé en v2 (les
+    deux seuls `=True` sont dans la cascade legacy) → il valait 0 partout, y compris sur des
+    hits `source="video"`/`"credited"` à 20 landmarks. `reconcile_hits` dérive donc désormais
+    `n_video_confirm` de la PROVENANCE : un hit `source in ("credited","video")` COMPTE comme
+    image-confirmé (son t0 EST l'ancre landmark), un `audio`/`mixed` non.
+  - **Chaînon `inferred` (v2)** : `detect_op_ed_v2` ne stampe pas non plus `inferred` sur ses
+    `ThemeHit` (le CALLER choisit les refs du pool, donc lui seul le sait). Le flag est passé à
+    `reconcile_hits(per_host, inferred_op=, inferred_ed=)` par `batch_detect` et posé sur le
+    `ReconciledHit` (où `serve` le lit). Le CLI `detect_anime` le stampe déjà sur les hits avant
+    `reconcile_hits` (lignes ~470) → les deux chemins convergent.
+
+---
+
+## 5. CLI, batch, contrat d'entrée
+
+**CLI** `detect_anime.py` (v2 par défaut ; `--legacy` = ancienne cascade) :
+```
+# single-host
+python detect_anime.py --anilist 113415 --slug jujutsu-kaisen --host sibnet --start 3 --end 3
+# multi-host VO+VF (megaplay + vidmoly-va via --mal/--va-slug)
+python detect_anime.py --anilist 113415 --slug jujutsu-kaisen --multi-host \
+    --langs vostfr,vf --start 3 --end 3 --mal 40748 --va-slug jujutsu-kaisen
+```
+`--no-video` = audio seul (skip ALIGN). `--out fic.json` = écriture incrémentale
+(fusion par épisode/langue). Sortie multi-host nichée : `episodes[ep][lang] =
+{per_host:{host:{op,ed}}, consensus:{op,ed}}`. Single-host reste plat
+`episodes[ep] = {op, ed}`.
+
+**Batch** `batch_detect.py` : runner 2000 animes, pré-filtre AnimeThemes-only, reprise
+`--resume`, throttle AIMD par host (`oped/throttle.py`), manifest JSONL
+(`oped/manifest.py`). Sink JSONL par ep-langue : `{mal_id, episode, lang, op, ed,
+per_host}` où `op`/`ed` = CONSENSUS moyenné (contrôle de confiance seulement) et
+`per_host: {host:{duration, op, ed}}` = timing AUTORITATIF par lecteur (via
+`_hit_to_dict` réutilisé de `detect_anime`). **Pourquoi le per_host (2026-07-16)** :
+le consensus moyenne des encodes différents et ne tombe sur AUCUN host réel — cyberpunk
+VOSTFR OP consensus 1:13 alors que sibnet=1:16 / megaplay=1:15 / vidmoly=1:10 (durées
+1534 s vs 1439 s). L'app doit servir le timing du lecteur RÉELLEMENT joué. L'importeur
+DB devra lire `per_host` (cf. §6 TODO 2).
+
+**Contrat d'entrée batch** : JSON `[{mal_id, slug(anime-sama), seasons:[{season_dir,
+lang, ep_start, ep_end}]}]`. Le tool NE dérive PAS le mapping MAL↔slug↔saisons —
+c'est l'app (son season resolver) qui génère ce `anime.json`.
+
+**Cache v2** : fenêtres absolues audio (`absa/…`) et vidéo (`absv/…`) cachées par
+(base_key, start_abs, dur, fps) — re-run ~2× plus rapide. Refs natives credited :
+`…+cred.native.vfp.npz`.
+
+---
+
+## 6. État actuel & ce qui RESTE
+
+**FAIT (branche dev) :** Stages 1-2 (horloge absolue + landmarks), Stage 3 (theme_t0
+frame-accurate par mode-consensus), Stage 4 steps 1-5a — v2 est le chemin PAR DÉFAUT,
+single + multi-host, avec cache.
+
+**Nettoyage + batch v2 (2026-07-15) :**
+- Ménage : supprimés tous les `proto_*`, `poc_synthetic`, `probe_*`, `run_series/snk`,
+  `diag_full`, `diag_per_host`, le dossier `out/`, et le code mort `oped/classify.py`
+  + `oped/fallback.py` (importés par personne de vivant). RESTENT : cœur `oped/*`,
+  `batch_detect.py`, `detect_anime.py`, + `diag_multi_host.py` (& sa dépendance
+  `diag_match.py`) comme unique outil de diag. Tout récupérable via git.
+- **`batch_detect.py` passe maintenant en v2** (multi-host) : `resolve_audio_abs_for`
+  + `resolve_video_abs_for` + `v2=True` câblés (helper `_cached_audio_abs` porté du
+  CLI, mêmes clés cache `absa/`/`absv/`). Le single-host `--no-multi-host` reste sur
+  la cascade legacy (chemin d'opt-out, non prioritaire). Gain : plus de `-sseof` ni de
+  dense-refine systématique → moins de décodes réseau par host, qualité identique.
+- **`uqload` retiré de `MULTI_HOSTS`** : aucun extracteur enregistré → échouait
+  TOUJOURS. Le garder ne faisait que dépenser un subprocess de résolution par épisode
+  pour zéro hit (charge CDN/handshake gaspillée sur 33k eps). Zéro impact qualité.
+- **Instrumentation** `oped/timings.py` + flag `batch_detect.py --timings` : mesure
+  wall-clock par phase (resolve/probe/detect) et par host, imprime un tableau + une
+  ETA de backfill extrapolée à la DB (33 719 ep-langues). Zéro coût si désactivé.
+- **Fetch audio+vidéo fusionné : ÉCARTÉ** (étudié, non viable sur v2). LOCATE audio
+  décode une large fenêtre (OP 300s) ; ALIGN vidéo une fenêtre étroite (~98s) centrée
+  sur un `theme_t0` qui n'existe QU'APRÈS l'audio. Fusionner obligerait à décoder la
+  vidéo sur les 300s → ~3× plus de vidéo → plus lent ET plus de charge CDN. La
+  structure LOCATE→ALIGN est causalement séquentielle : ne pas re-tenter la fusion.
+- **Probe multi-host parallélisé** (batch) : les ~5 `_probe_duration` par épisode
+  étaient en série (5 round-trips ffprobe avant détection). Passés en ThreadPool (1
+  thread/host, même pattern que `detect_anime._probe_one`) ; chaque host garde son
+  slot AIMD → aucune charge CDN supplémentaire, juste moins de latence en série.
+- **Code mort supprimé de `matcher.py`** : `SeriesBank` + `EpisodeSegment` +
+  `_overlaps` (~90 lignes, ancien mode épisode↔épisode, instancié par personne).
+  `best_match` (prod) et `all_matches` (diag) conservés.
+- **LOCK natif global (`_NATIVE_REF_LOCK`) : GARDÉ tel quel.** Il sérialise les décodes
+  natifs des clips credited d'AnimeThemes sur tout le batch — NÉCESSAIRE (animethemes.moe
+  rate-limite ; sans lui 0 frame était caché en dur, cf. §9). Coût one-time caché ; ne
+  pas « paralléliser » sous peine de re-casser le cache des refs.
+
+**Précision : 3 correctifs post-bench (2026-07-16, bench 3 animes / 60 ep-langues) :**
+Le bench v2 a validé un détecteur solide mais exposé 3 défauts réels ; ordre imposé de
+mise en œuvre (2→3→1) car le Chantier 1 change des `source` audio→video, ce qui
+basculerait la tolérance mesurée du Chantier 2.
+- **[C2] Garde-fou spread** (`multi_host.py`) : cf. §4. Effet mesuré sur le bench :
+  9 flips `serve` True→False (cyberpunk VOSTFR ED ep2-10, spread 87-91 s), **0
+  régression** (aucun hit à spread ≤7 s ne perd son serve — OP cyberpunk à 5.9 s = vraie
+  diff d'encode, préservé). Perte de couverture VOLONTAIRE et assumée.
+- **[C3] Per-host dans le batch** (`batch_detect.py`) : cf. §5. `detect_op_ed_multi`
+  remplacé par `detect_per_host` + `reconcile_hits` (0 détection en double, c'est déjà
+  ce que le wrapper faisait) ; bloc `per_host` sérialisé en plus du consensus.
+- **[C1] Landmarks NC activés** (`theme_bank.py`) : `build_references` construisait
+  déjà les landmarks depuis le clip NC quand aucun credited n'existe (17 % des thèmes :
+  blood_lad, SnK), mais `_align_image` appelait `anchor_by_landmarks` SANS seuil →
+  défaut 8 bits (credited) → aucun landmark NC accepté (credit-penalty 2-30 bits) →
+  fallback audio systématique. Fix : `_ref_is_credited` PROMU au niveau module
+  (`_ref_is_credited_impl`, partagé cascade+v2) ; seuil selon provenance (NC=12,
+  credited=8) ; gardes NC plus stricts sur l'AGRÉGAT (`ALIGN_MIN_LANDMARKS_NC=6`,
+  `ALIGN_MIN_CONSENSUS_FRAC_NC=0.65`) puisque le seuil par-landmark est plus lâche ;
+  étiquetage honnête `source="video"` (NC frame-accurate mais GOP-coarse vs credits →
+  subit la tolérance 7 s / poids ×0.4 de `multi_host`, conservateur). **Vérifié offline**
+  (SnK ED1 NC = 19 landmarks) : à ~10 bits de credit-penalty, OLD thr8 accepte 1/19
+  (→ audio), NEW thr12 accepte 14/19 frac 0.93 err 0 ms (→ image). Chemin CREDITED
+  strictement bit-identique (thr=8, min_lm=4, frac=0.5, source="credited" inchangés).
+  **N'A PAS** vocation à récupérer les séquences denses (~30 bits ≈ paire aléatoire) —
+  signal noyé, aucun seuil ne le sauve ; `sep_min` non touché (option B si faux positifs).
+
+**Cas « pourquoi pas d'ED » élucidés (2026-07-16, NE PAS re-creuser) :**
+- **Devilman Crybaby ED absent sur tous les eps** : AnimeThemes ne répertorie qu'un ED
+  (`ED1 "Konya Dake"`, `episodes='9'` → ne joue QUE sur l'ep9, Netflix, pas d'ED récurrent).
+  Le fallback inferred RÉINJECTE bien l'ED1 sur les autres eps (via `ed_pool`), mais aucun
+  match. Vérifié en extrayant les frames : la ref ED1 ET la fin d'épisode SONT le même TYPE
+  de séquence (crédits blancs défilant sur fond NOIR), MAIS le fingerprint dHash ne peut pas
+  les matcher — (1) fond noir à ~98 % → dHash quasi constant, NON-DISCRIMINANT (matcherait
+  n'importe quel générique noir de n'importe quel anime → faux positifs partout) ; (2) texte
+  qui DÉFILE en continu → jamais le même keyframe entre ref et épisode → aucun landmark stable,
+  aucun mode (anchor=None même à seuil 20 bits). L'audio ne matche pas non plus (l'épisode a le
+  son de fin sous les crédits, pas la piste isolée). **Ne rien servir est CORRECT** : la donnée
+  ne porte aucune signature exploitable. Forcer un match ici = exactement le faux positif à éviter.
+- **Cyberpunk ep1 : pas d'OP** normal (l'OP « This Fffire » n'apparaît qu'à partir de l'ep2) ;
+  l'ED ep1 en audio-seul était le faux positif corrigé par `INFERRED_REQUIRES_VIDEO` (cf. §4).
+
+**Validé E2E (JJK ep3, multi-host VO+VF, 9 lignes host×lang, TOUTES credited) :**
+- megaplay ED **21:15** (fin du bug -5 s → 21:10) ; vidmoly-va OP **3:12** (fin du bug
+  +15 s → 3:28) ; trio (sibnet/sendvid/vidmoly) inchangé.
+- ED fin 22:44.9-22:45.1 vs coupe terrain じゅじゅさんぽ ~22:44.9 → frame-accurate.
+- 2 clusters d'encode (sendvid/sibnet ~21:14.9 vs megaplay/vidmoly/-va ~21:15.11) :
+  vraie diff par host, préservée en timing par-hôte (jamais moyennée) ; consensus
+  spread 0.15-0.27 s. Confiance image par host 71-94 %.
+- SnK ep1 (cold-open ~2 min) : OP1 2:02 localisé (fallback audio, pas de rip credited),
+  ED1 credited 94 %. Métrique = `consensus_frac` PAR HÔTE, PAS l'accord cross-host
+  (le contenu POST-ED diffère légitimement entre hosts).
+
+**RESTE — étape 5b : supprimer l'ancienne cascade** (`detect_op_ed`, `_apply_video`,
+`_video_sourced_hit`, `_refine_credited_dense`, `_abs_offset`, `resolve_window_duration`,
+constantes `*_OVERRIDE_*`/`VIDEO_EDGE_*`/`CREDITED_ALIGN_MIN_VOTES`/
+`DENSE_AUDIO_SHARPEN_BAND_S`…) + le flag `--legacy`. ⚠ À FAIRE seulement quand v2 aura
+tourné sur PLUS d'animes que JJK/SnK (le filet legacy existe pour ça).
+
+**À surveiller avant 5b :**
+- Sélection de VERSION OP par fill audio : v2 a pris OP1 v1 vs legacy v2 sur JJK ep3.
+  Cuts OP1 quasi identiques → cosmétique pour le timing, mais tester sur un titre où
+  les versions diffèrent VRAIMENT (durée/cut).
+- Bord « end » des ED TRIMÉS : v2 fait `end = theme_t0 + ref_native_dur` systématique
+  (OK JJK/SnK). Si un host coupe l'ED avant la fin du clip credited, brancher un refine
+  « end » (l'outil `refine_edge_credited_video(edge_kind="end")` existe mais renvoyait
+  None — à déboguer : fenêtres ref/épisode natives + ref_native_dur, garde-fou =
+  n'accepter que si la fin détectée est ANTÉRIEURE et proche).
+
+**TODO câblage app (hors détecteur) :**
+1. Script export `anime.json` depuis la DB/app (season resolver).
+2. Importeur JSONL→DB pour `pages/api/v2/skip/[malId]/[episode].ts` : propager
+   `from_end_*`/`canonical_duration` + gérer le nesting par langue en multi-host.
+3. `SkipOverlay` : re-dériver l'ED depuis `from_end_*` vs la durée du `<video>` actif.
+4. megaplay/VF : `VF_INCOMPATIBLE_HOSTS={"megaplay"}` est une MITIGATION (embed dérivé
+   de mal_id+ep, pas de lang) — confirmer/lever en lisant `bridge/resolve.mjs`.
+5. `sendvid` échoue parfois à la résolution (`resolution failed: []`) — non investigué.
+
+---
+
+## 6bis. Replis & garde-fous faux positifs (2026-08-04)
+
+Deux principes, valables partout dans cette couche :
+**(1) rien n'est jamais déplacé** — un hit douteux est retenu ou signalé, jamais
+« corrigé » en un timing inventé ; **(2) l'accord entre lecteurs n'est PAS une
+preuve** — tous les hosts passent la même référence dans le même matcher, donc
+ils reproduisent la même erreur. Les vraies preuves indépendantes sont l'IMAGE
+et la SAISON.
+
+### Le vocabulaire commun : `oped/validate.py`
+Produit des *raisons*, pas des décisions. Celles listées dans `validate.BLOCKING`
+empêchent de SERVIR (`ReconciledHit.serve`, `per_host[…].serve`, et l'importeur
+qui jette déjà tout `serve:false`) ; les autres sont consultatives.
+Raisons : `implausible_length` (25-150 s — attrape un rip « full version » projeté
+en skip de 4 min), `end_clamped` (la ref déborde de l'épisode), `vote_span_too_short`
+(90 s livrés pour 12 s de votes), `av_divergence` (audio et image ont localisé deux
+choses différentes), `ambiguous_audio_peak`, `ambiguous_theme`, `op_ed_overlap`,
+`season_outlier`.
+
+### Replis (F)
+- **F1 — auto-référence épisode↔épisode** (`oped/self_ref.py`) : quand AnimeThemes
+  n'a rien, ou que son thème n'est PAS celui de notre encode (VF à OP remplacé,
+  cut streaming), l'OP/ED est récupéré comme *le segment qui se répète entre
+  épisodes*, puis découpé du fingerprint existant (`slice_fingerprint`, **zéro
+  décodage**) pour devenir une `ThemeReference` normale. Déclenché par
+  `_self_reference_pass` (batch) quand un `kind` couvre < 34 % des épisodes.
+  Anti-faux-positif : échantillonnage **stridé** (ep 1,4,7… → un RECAP, qui ne se
+  répète qu'entre épisodes ADJACENTS, ne peut structurellement pas voter), bande de
+  longueur, support ≥3 épisodes, position cohérente. Tout hit dérivé est
+  `derived=True` → **jamais servi** avant confirmation par la passe saison
+  (`DERIVED_REQUIRES_SEASON`).
+- **F2 — fenêtre ED élargie** (240 s → 420 s de fin), miroir du repli OP, bornée
+  pour ne jamais atteindre la région OP.
+- **F3 — repli sur le pool** : si le thème *directement mappé* ne matche rien, on
+  retente avec TOUS les thèmes de la série (le mapping `episodes` d'AnimeThemes est
+  régulièrement décalé d'un épisode autour d'un OP1→OP2). Le hit récupéré est
+  stampé `inferred` → hérite du gate image.
+- **F4 — durée estimée** : un `_probe_duration` en échec ne fait plus tomber le
+  host ; sa durée est empruntée à la médiane de ses pairs. L'OP (ancré au début,
+  horloge absolue) est servi normalement ; **l'ED est retenu** et le host est exclu
+  du consensus ED (son ancre `from_end` serait fausse).
+- **F5 — `min_fill` relâché** (0.5 → 0.25) en dernier recours, mais le hit n'est
+  gardé **que si l'image le confirme** (un fill faible ressemble aussi à une
+  coïncidence).
+- **F7 — prédiction intra-saison** : un épisode sans hit dont la saison s'accorde
+  fortement (≥70 % des épisodes, spread ≤4 s) reçoit un intervalle marqué
+  `source:"predicted"`. Jamais sur ep1 ni sur le dernier épisode.
+
+### Vérifications (P)
+- **P2 — pic rival** : `best_match_ranked` renvoie, dans la MÊME passe (coût nul),
+  le rapport de votes du meilleur offset *concurrent*. Une chanson qui se rejoue
+  ailleurs (reprise sur générique, insert, preview) produit deux pics ; ≥0.6 sur un
+  hit audio = bloquant. C'est la cause racine du faux positif cyberpunk, jusqu'ici
+  seulement mitigée par `inferred`.
+- **P4 — divergence audio↔image** : `av_delta` est mesuré dès que les deux signaux
+  ancrent ; >4 s = bloquant (`video_disagreement` était déclaré mais jamais posé en
+  v2). `align_status` distingue enfin `ok` / `rejected` (l'image a tourné et n'a PAS
+  confirmé — une preuve CONTRE) / `absent` (aucune info).
+- **P5 — cohérence intra-saison** (`season_pass.py`) : par (mal, langue, host, kind),
+  **clustering** des positions (ancre = start pour l'OP, secondes-depuis-la-fin pour
+  l'ED) + contrôle de longueur. ⚠️ **Volontairement par clusters et non par médiane** :
+  la position de l'OP est légitimement **bimodale** (certains épisodes ouvrent sur un
+  cold-open, d'autres démarrent sur l'OP) — une médiane tomberait entre les deux modes
+  et signalerait la moitié de la saison. **ep1 et le dernier épisode sont exemptés**
+  (un OP tardif à l'ep1 après un long prologue, ou un finale sans OP, sont NORMAUX ;
+  `--strict-first` pour les inspecter quand même). Une saison trop dispersée ne rend
+  **aucun** verdict plutôt qu'un faux.
+- **P3** : `low_confidence` est désormais remonté (consensus + par host) et vaut
+  « toutes les sources d'accord ont vu l'image REJETER l'alignement ». Décision
+  assumée : ce n'est **pas** bloquant en soi — SnK ep1 OP (2:02, correct) est un hit
+  audio-seul ; le tuer coûterait de la couverture réelle. C'est la passe saison qui
+  arbitre les audio-seuls.
+- **P1/P6/P7/P8** : longueur/bord clampé/chevauchement OP-ED/marge entre THÈMES
+  différents (OP1 vs OP2, dont les longueurs diffèrent), tous posés par
+  `validate.annotate` à la fin de `detect_op_ed_v2`.
+
+### Tests
+`python test_guards.py` — 65 assertions, **hors-ligne** (ni réseau ni ffmpeg) :
+plausibilité, pic rival, slicing, découverte de segment répété + anti-recap, gate
+`serve`, passe saison (dont « OP tardif à l'ep1 non signalé » et « saison bimodale
+ne signale rien »), et la cascade v2 de bout en bout sur audio synthétique
+(F2/F3 inclus).
+
+### Ordre d'exploitation
+```
+python batch_detect.py --anime-list … --out results.jsonl --multi-host --resume
+python season_pass.py --in results.jsonl --out results.checked.jsonl --report
+node scripts/import-oped-host-skips.mjs --in=results.checked.jsonl
+```
+La passe saison est **obligatoire** avant import : c'est elle qui promeut les hits
+`derived` et qui retire les outliers.
+
+---
+
+## 7. Outils de diagnostic
+- `diag_match.py` : alignement référence↔épisode détaillé, un host.
+- `diag_multi_host.py` : détection par host (sans réconciliation) côte à côte —
+  distingue un bug systémique (même décalage partout) d'un encode réellement différent.
+  Hosts en parallèle (`--workers`) ; baisser `--workers` si rate-limit CDN avant de
+  suspecter un bug.
+- Les anciens harnais `proto_*` / `poc_synthetic` / `probe_*` ont été SUPPRIMÉS
+  (2026-07-15, récupérables via git) — cf. §6. `diag_match.py` + `diag_multi_host.py`
+  sont les seuls outils de diag restants.
+
+---
+
+## 8. À NE PAS confondre — le dropdown OP/ED (feature SÉPARÉE)
+Une autre feature JOUE les clips NC AnimeThemes dans la page info (3e dropdown). Ce
+n'est PAS le détecteur. Fichiers : `lib/animethemes/themes.ts`,
+`pages/api/v2/themes/[id].ts`, `components/anime/v2/OpEdPanel.tsx`. Chantiers distincts.
+
+---
+
+## 8bis. Optimisations perf (précision INCHANGÉE — résultats bit-identiques)
+- **popcount LUT** (`video_fingerprint._popcount64`, 2026-07-15) : l'ancienne
+  version faisait 64 passes shift+mask par élément. Remplacée par une table 8-bit
+  (`_POPCOUNT_LUT`) : on voit chaque uint64 comme 8 octets, LUT + somme. Résultat
+  BIT-POUR-BIT identique (vérifié sur vide / 1-D / 2-D / patterns limites) ; ~3×
+  plus vite sur la matrice de distance vidéo `(n_q, n_r)` de `best_match_video`,
+  ~17× sur les tableaux 1-D de `anchor_by_landmarks`/`landmark_scores`. C'est le
+  hot-path CPU de TOUT le chemin image (best_match_video, anchor_by_landmarks,
+  landmark_scores, refine_edge_credited_video). Aucune constante de détection
+  touchée. Micro-bench post-fix : best_match_video ~5 ms/call, anchor ~1 ms/call.
+- **Non fait volontairement** : paralléliser LOCATE-audio ∥ ALIGN-vidéo dans
+  `_detect_kind` v2. La fenêtre ALIGN dérive du t0 audio (donc dépendance réelle) ;
+  spéculer la fenêtre risque un décode incomplet/gaspillé, l'élargir coûte plus de
+  décode → au détriment de la robustesse. Le réseau reste le goulot mais est déjà
+  parallélisé aux niveaux OP∥ED, inter-hosts, inter-langues, inter-versions.
+
+---
+
+## 9. Historique des bugs corrigés (ne pas recasser)
+- **Durée probe silencieuse** (`_probe_duration`) : ffprobe échouait sur megaplay (403
+  sans Referer, segments `.jpg` rejetés) et un `except` avalait l'erreur → offset ED
+  corrompu ~26 s. Fix : `referer` + flags HLS conditionnels + `[warn]` explicite.
+- **Flags HLS inconditionnels** → crash sur MP4 direct (sendvid). Fix : `_is_hls_url`.
+- **megaplay sans signal de langue** : embed dérivé de mal_id+ep, jamais de lang →
+  `VF_INCOMPATIBLE_HOSTS={"megaplay"}` (mitigation, cf. §6 TODO 4).
+- **Ancre ED `-sseof` fausse** quand le seek keyframe déborde (megaplay 21:10→21:15,
+  décodait 175 s au lieu de 180). Fix legacy `_abs_offset`. RENDU OBSOLÈTE par v2
+  (horloge absolue, plus de `-sseof`).
+- **_dense_span** : span ED qui explosait 165→1531 s sur des coïncidences lointaines.
+- **theme_t0 bruité (Stage 3)** : cause = estimateur + fourniture de landmarks (pas
+  l'acceptation). Fix : landmarks natifs + plancher `min_unique` + estimateur MODE.
+- **Décodes natifs credited rate-limités** (build_references concurrent) → 0 frame caché
+  en dur → OP toujours en fallback audio. Fix : `_native_ref_ok` + retry + LOCK.
+- **Chip sibnet qui apparaît puis disparaît** (app, `pages/en/anime/watch/[...info].js`,
+  2026-07-16) : sibnet sert un LEURRE anti-bot au 1er hit à froid → `/api/v2/source` résout
+  **204 une fois, puis 200 stable** (vérifié live cyberpunk ep2 + devilman ep1 ; le cold-start
+  Next en dev, ~2,4 s de compile, aggravait le timing). Ce n'est NI le parsing du panel
+  (`findPreferredArray` trouve sibnet), NI l'extraction (`extractSibnet` OK 3/3 en isolation),
+  NI le player_map (`verified`), NI le cache négatif Redis (aucune clé). C'était le CLIENT qui
+  traitait un 204 comme absence DÉFINITIVE. Deux voies distinctes corrigées :
+  (a) `fetchStreamSource` (au CLIC) : retry-once sur 204 avant `markFailed` ;
+  (b) `probe` fan-out (la LISTE des chips) : un PREMIER `fail-404`/204 retombe désormais dans le
+  wait-and-retry transitoire au lieu de conclure `markFailed`+`confirmedAbsent` ; seul un SECOND
+  204 est publié comme absence réelle. Décoy froid → réussit au 2e coup, chip reste ; vraie
+  absence → échoue 2× → retiré comme avant. **Le player_map est keyé (ani_id, source, lang) SANS
+  host** : une seule ligne partagée par sibnet/sendvid/vidmoly — un statut `absent`/`broken`
+  écrit là masquerait TOUS les hosts anime-sama de cette langue (pas le cas ici, mais à savoir).

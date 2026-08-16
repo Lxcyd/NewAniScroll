@@ -1,11 +1,19 @@
 {
   "compilerOptions": {
+    // Sans `target`, TypeScript retombe sur ES5, et en ES5 parcourir une Map ou
+    // un Set exige `downlevelIteration` : `for (const n of map.values())` est
+    // alors une erreur de compilation, alors que le code tourne parfaitement
+    // (Next compile avec SWC, qui ne lit pas cette option — elle ne decide que
+    // du typage). C'etait l'erreur qui apparaissait sur du code valide.
+    "target": "esnext",
     "lib": ["dom", "dom.iterable", "esnext"],
     "allowJs": true,
     "skipLibCheck": true,
     "strict": true,
     "noEmit": true,
     "incremental": true,
+    // Hors de la racine : c'est un cache de build, pas un fichier de projet.
+    "tsBuildInfoFile": "node_modules/.cache/tsconfig.tsbuildinfo",
     "esModuleInterop": true,
     "module": "esnext",
     "moduleResolution": "Bundler",

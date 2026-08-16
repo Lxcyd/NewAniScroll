@@ -20,7 +20,7 @@ const TTL_S = 30 * 60;
 const QUERY = `
   query Discover($page: Int!) {
     Page(page: $page, perPage: 20) {
-      media(type: ANIME, sort: [TRENDING_DESC, POPULARITY_DESC], isAdult: false) {
+      media(type: ANIME, status: RELEASING, sort: [TRENDING_DESC, POPULARITY_DESC], isAdult: false) {
         id
         title { romaji english native }
         coverImage { extraLarge large color }
@@ -35,7 +35,14 @@ const QUERY = `
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const page = Math.max(1, Math.min(50, Number(req.query.page) || 1));
-  const cacheKey = `discover:${page}`;
+  /* v2 (2026-08-08): the query gained `status: RELEASING` (user decision — the
+     deck is for what's airing now). Bumping is mandatory, not tidiness: the
+     v1 pages already in Redis were built WITHOUT that filter and would keep
+     serving finished shows for the rest of their 30-minute window, and the
+     same omission has already cost two debugging rounds today (the TMDB
+     artwork rows and the episode lists). A cache never notices that the
+     question changed. */
+  const cacheKey = `discover:v2:${page}`;
 
   // Edge-cache the response: the discover deck is identical for every visitor
   // and each session swipes a new page every ~3 cards, so without a real edge
@@ -67,6 +74,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     label: `discover:${page}`,
   });
   const media = json?.data?.Page?.media || [];
+  /* No TMDB enrichment here, deliberately: TMDB backdrops are scoped to the
+     home page's recommendation hero (user decision, 2026-08-08). The discover
+     deck keeps AniList's banner. */
   const payload = { media };
 
   if (redis && media.length > 0) {

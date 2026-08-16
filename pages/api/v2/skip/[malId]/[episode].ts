@@ -2,6 +2,10 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import { getOpedSkips, type OpedSkipRow } from "@/lib/db/opedSkips";
 import { getHostSkip, type OpedHostSkipRow } from "@/lib/db/opedHostSkips";
 import { serverToHost } from "@/lib/hostRegistry";
+// Les deux fournisseurs participatifs vivent à part pour que les outils de
+// mesure hors ligne appellent EXACTEMENT le même code que le lecteur — cf.
+// l'en-tête de lib/skip/providers.ts.
+import { fetchFromAniSkip, fetchFromAnimeSkip, type Skip } from "@/lib/skip/providers";
 
 /**
  * Skip-times proxy.
@@ -31,38 +35,60 @@ export const config = {
   api: { bodyParser: false },
 };
 
-type Skip = {
-  start: number;
-  end: number;
-  type: "op" | "ed";
-  /** Present only on detector-sourced skips: "audio" | "video" | "mixed". Lets
-   *  the player down-rank auto-skip on a coarser (video-only) timing later. */
-  confidence?: string;
-};
+/**
+ * Garde de péremption — au-delà de cet écart entre la durée contre laquelle une
+ * ligne a été mesurée et celle que le lecteur rapporte, on refuse de servir.
+ *
+ * Pourquoi elle existe : on stocke `duration` (par hôte) et `canonical_duration`
+ * (réconcilié), et jusqu'ici la route ne les lisait JAMAIS. Or les hôtes
+ * changent de fichier — le cache megaplay tourne, des uploads meurent et sont
+ * remplacés. Le jour où un hôte réuploade un MONTAGE différent, la ligne stockée
+ * devient un timing étranger servi avec pleine confiance, et **avant** le
+ * participatif puisque nos lignes sont prioritaires. C'est exactement le défaut
+ * qu'on a diagnostiqué chez AniSkip le 07/08 (3,3 % de réponses arithmétiquement
+ * impossibles), en pire. Voir DEVLOG.md, « 2026-08-07 — Audit OP/ED », §6.
+ *
+ * Deux seuils, parce que les deux champs ne veulent pas dire la même chose :
+ *
+ * - PAR HÔTE, la durée stockée est celle de CET encodage précis. L'écart attendu
+ *   se limite au bruit de mesure entre ffprobe et le lecteur. 10 s laisse passer
+ *   ce bruit et arrête un remplacement de fichier.
+ * - RÉCONCILIÉ, `canonical_duration` est la MÉDIANE de plusieurs encodages, qui
+ *   diffèrent légitimement entre eux (mesuré : Erased ep1, 1372 s sur deux hôtes
+ *   contre 1381 s sur un troisième). Un seuil serré y rejetterait des lignes
+ *   valides ; 60 s n'attrape que le hors-sujet franc — mauvais épisode, film
+ *   confondu avec un épisode.
+ *
+ * En cas de refus on ne renvoie pas vide : on retombe sur le participatif. Une
+ * réponse imparfaite d'une source qu'on sait imparfaite vaut mieux qu'une
+ * réponse fausse présentée comme la nôtre.
+ *
+ * NOTE — cette garde est aujourd'hui INERTE : aucun appelant n'envoie
+ * `episodeLength` (voir lib/skip/prefetchSkips.ts, dont aucun site d'appel ne
+ * remplit le champ), donc la re-projection de l'ED ne se produit pas non plus.
+ * Elle est écrite maintenant pour être en place AVANT le premier import. La
+ * faire mordre suppose que le client transmette la durée réelle — précisément le
+ * changement qui a causé la régression revertée en 88170c1, à refaire avec la
+ * porte de non-régression en place.
+ */
+const HOST_DURATION_TOLERANCE_S = 10;
+const CANONICAL_DURATION_TOLERANCE_S = 60;
 
-const ANIME_SKIP_ENDPOINT = "https://api.anime-skip.com/graphql";
-const ANIME_SKIP_CLIENT_ID =
-  process.env.ANIME_SKIP_CLIENT_ID ||
-  // Shared rate-limited public client. Set ANIME_SKIP_CLIENT_ID in
-  // env for a dedicated quota.
-  "ZGfO0sMF3eCwLYf8yMSCJjlynwNGRXWE";
+/** Vrai quand la ligne a été mesurée sur un média sensiblement différent de
+ *  celui que le lecteur a sous les yeux. Une durée inconnue des deux côtés ne
+ *  prouve rien : on ne bloque que sur un désaccord constaté. */
+function durationMismatch(
+  storedDuration: number | null | undefined,
+  playerDuration: number,
+  toleranceS: number,
+): boolean {
+  if (!storedDuration || storedDuration <= 0) return false;
+  if (!playerDuration || playerDuration <= 0) return false;
+  return Math.abs(storedDuration - playerDuration) > toleranceS;
+}
 
-// Anime-Skip stores timestamps as POINTS (each marker is a single
-// `at` second, not an interval). We map their free-form timestamp
-// type names to our op/ed vocabulary; any point whose type isn't
-// here is treated as a section boundary that terminates a preceding
-// op/ed interval.
-const ANIME_SKIP_TYPE: Record<string, "op" | "ed"> = {
-  "New Intro": "op",
-  Intro: "op",
-  Branding: "op",
-  "Mixed Intro": "op",
-  "New Credits": "ed",
-  "New Ending": "ed",
-  Ending: "ed",
-  "Mixed Credits": "ed",
-  "Mixed Ending": "ed",
-};
+
+
 
 export default async function handler(
   req: NextApiRequest,
@@ -93,7 +119,16 @@ export default async function handler(
   //    own OP/ED (correct absolute OP; ED re-projected from its from_end anchor).
   if (mapped) {
     const hostRow = await getHostSkipSafe(malId, episode, mapped.lang, mapped.host);
-    if (hostRow && hostRow.serve) {
+    const hostStale =
+      hostRow !== null &&
+      durationMismatch(hostRow.duration, episodeLength, HOST_DURATION_TOLERANCE_S);
+    if (hostStale) {
+      console.warn(
+        `[skip] ligne perimee ignoree: mal${malId} ep${episode} ${mapped.host} ` +
+          `mesuree sur ${hostRow!.duration}s, lecteur a ${episodeLength}s`,
+      );
+    }
+    if (hostRow && hostRow.serve && !hostStale) {
       const skips = hostRowToSkips(hostRow, episodeLength);
       if (skips.length) {
         res.setHeader(
@@ -112,6 +147,22 @@ export default async function handler(
   const oped = await getOpedSkipsSafe(malId, episode, effLang);
   const opedSkips = oped
     .filter((r) => r.serve)
+    .filter((r) => {
+      // Même garde que par hôte, seuil plus large : canonical_duration est une
+      // médiane sur des encodages qui diffèrent légitimement entre eux.
+      const stale = durationMismatch(
+        r.canonicalDuration,
+        episodeLength,
+        CANONICAL_DURATION_TOLERANCE_S,
+      );
+      if (stale) {
+        console.warn(
+          `[skip] ligne reconciliee perimee ignoree: mal${malId} ep${episode} ` +
+            `${r.kind} mesuree sur ${r.canonicalDuration}s, lecteur a ${episodeLength}s`,
+        );
+      }
+      return !stale;
+    })
     .map((r) => opedRowToSkip(r, episodeLength))
     .filter((s): s is Skip => s !== null)
     .sort((a, b) => a.start - b.start);
@@ -270,132 +321,5 @@ function opedRowToSkip(r: OpedSkipRow, episodeLength: number): Skip | null {
   };
 }
 
-async function fetchFromAnimeSkip(
-  aniListId: number,
-  episode: number,
-): Promise<Skip[]> {
-  // 1. AniList id → Anime-Skip showId(s). Anime-Skip can have MULTIPLE
-  //    shows under the same external id (different submitters, different
-  //    completeness levels). We previously hard-picked [0], which on
-  //    Demon Slayer dropped us into a near-empty submission and missed
-  //    the fully timestamped one sitting at index 1.
-  const showRes = await gql<{
-    findShowsByExternalId: Array<{ id: string }>;
-  }>(
-    `query($s: ExternalService!, $id: String!) {
-       findShowsByExternalId(service: $s, serviceId: $id) { id }
-     }`,
-    { s: "ANILIST", id: String(aniListId) },
-  );
-  const showIds =
-    showRes?.findShowsByExternalId?.map((s) => s.id).filter(Boolean) || [];
-  if (showIds.length === 0) return [];
 
-  // 2. Fetch every show's episode list in parallel and merge candidates
-  //    for the requested episode number. Pick the candidate with the most
-  //    op/ed timestamps after the points→intervals conversion — that's the
-  //    "most useful" submission for the player.
-  const epLists = await Promise.all(
-    showIds.map((id) =>
-      gql<{
-        findEpisodesByShowId: Array<{
-          number: string | null;
-          absoluteNumber: string | null;
-          timestamps: Array<{ at: number; type: { name: string } }>;
-        }>;
-      }>(
-        `query($id: ID!) {
-           findEpisodesByShowId(showId: $id) {
-             number absoluteNumber
-             timestamps { at type { name } }
-           }
-         }`,
-        { id },
-      ).catch(() => null),
-    ),
-  );
 
-  // Points → intervals: pair each op/ed point with the NEXT point of any
-  // kind to derive an end time. Returns the resulting Skip[] for one
-  // episode submission.
-  const toSkips = (
-    timestamps: Array<{ at: number; type: { name: string } }>,
-  ): Skip[] => {
-    const sorted = [...timestamps].sort((a, b) => a.at - b.at);
-    const out: Skip[] = [];
-    for (let i = 0; i < sorted.length; i++) {
-      const cur = sorted[i];
-      const mapped = ANIME_SKIP_TYPE[cur.type?.name];
-      if (!mapped) continue;
-      const next = sorted[i + 1];
-      if (!next) continue;
-      if (next.at - cur.at < 5) continue;
-      out.push({
-        start: Math.round(cur.at),
-        end: Math.round(next.at),
-        type: mapped,
-      });
-    }
-    return out;
-  };
-
-  let best: Skip[] = [];
-  for (const epList of epLists) {
-    const episodes = epList?.findEpisodesByShowId || [];
-    const ep =
-      episodes.find((e) => Number(e.number) === episode) ||
-      episodes.find((e) => Number(e.absoluteNumber) === episode);
-    if (!ep) continue;
-    const candidate = toSkips(ep.timestamps);
-    if (candidate.length > best.length) best = candidate;
-  }
-  return best;
-}
-
-async function gql<T>(query: string, variables: any): Promise<T> {
-  const res = await fetch(ANIME_SKIP_ENDPOINT, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Client-ID": ANIME_SKIP_CLIENT_ID,
-    },
-    body: JSON.stringify({ query, variables }),
-  });
-  if (!res.ok) throw new Error(`anime-skip ${res.status}`);
-  const json = await res.json();
-  if (json.errors?.length) throw new Error(json.errors[0].message);
-  return json.data as T;
-}
-
-async function fetchFromAniSkip(
-  malId: number,
-  episode: number,
-  episodeLength: number,
-): Promise<Skip[]> {
-  // AniSkip now hard-rejects the request with HTTP 400 when episodeLength
-  // is missing (`episodeLength must not be less than 0`). Sending 0 is
-  // still accepted and just disables their best-submission tiebreak — the
-  // primary intro/outro entries come back the same. SkipOverlay no longer
-  // waits for the player's duration before firing the fetch, so we just
-  // default the param to 0 instead of reintroducing the 2-3 s wait.
-  const params = new URLSearchParams();
-  ["op", "ed"].forEach((t) => params.append("types[]", t));
-  params.set("episodeLength", String(Math.max(0, Math.round(episodeLength))));
-  const res = await fetch(
-    `https://api.aniskip.com/v2/skip-times/${malId}/${episode}?${params}`,
-  );
-  if (!res.ok) return [];
-  const json = await res.json();
-  const KEEP = new Set(["op", "ed"]);
-  return (json?.results || [])
-    .filter((r: any) => KEEP.has(r?.skipType) && r?.interval)
-    .map((r: any) => ({
-      start: Math.round(r.interval.startTime),
-      end: Math.round(r.interval.endTime),
-      type: r.skipType as "op" | "ed",
-    }))
-    .filter(
-      (s: Skip) =>
-        s.end > s.start && s.end - s.start >= 5 && !(s.type === "ed" && s.start < 3),
-    );
-}

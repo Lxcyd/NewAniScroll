@@ -183,6 +183,10 @@ module.exports = withPWA({
       },
       {
         protocol: "https",
+        hostname: "image.tmdb.org",
+      },
+      {
+        protocol: "https",
         hostname: "tenor.com",
       },
       {

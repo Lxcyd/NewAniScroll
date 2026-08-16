@@ -1,6 +1,6 @@
 # Refresh the Fribb/anime-lists mapping into the `fribb_map` Turso table.
 #
-# Runs scripts/refresh-fribb.mjs which downloads Fribb's anime-list-mini.json
+# Runs scripts/cache/refresh-fribb.mjs which downloads Fribb's anime-list-mini.json
 # and upserts the AniList↔MAL↔TMDB↔TVDB mapping (incl. season.tmdb) used by the
 # season resolver to separate remakes/originals by TMDB fiche. The script stores
 # the upstream ETag in scrape_state and short-circuits on 304, so a frequent
@@ -50,5 +50,5 @@ jobs:
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN:   ${{ secrets.TURSO_AUTH_TOKEN }}
         run: |
-          node scripts/refresh-fribb.mjs \
+          node scripts/cache/refresh-fribb.mjs \
             ${{ inputs.force == true && '--force' || '' }}

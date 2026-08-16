@@ -23,8 +23,11 @@ export type SyncPrefs = {
   autoPause: boolean;
   /** Inactivity window for auto-pause, in days. */
   autoPauseDays: number;
-  /** Minimum fraction of an episode that must be watched before it counts as
-   *  finished (progress +1 / AniList update). 0–1.0; default 0.8 (80%). */
+  /** FALLBACK completion trigger: minimum fraction of an episode that must be
+   *  watched before it counts as finished (progress +1 / AniList update).
+   *  Used only when the episode has no detected ending — when an ED segment is
+   *  known, reaching it is what marks the episode watched (UniversalPlayer).
+   *  0–1.0; default 0.8 (80%). */
   syncThreshold: number;
   /** True once the user has answered the "which list wins" direction prompt at
    *  least once (first AniList login, or a manual toggle). Gates the one-time

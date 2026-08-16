@@ -20,12 +20,41 @@
 //
 // Prints ONE JSON line last: { ok, host, episodes:[{ep,url,isM3U8,host}], errors }
 
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join, resolve as resolvePath } from "node:path";
+import { fileURLToPath } from "node:url";
 import { getExtractor, extractMegaplay } from "../../../lib/extractors.js";
+import { getPartsBySlug } from "../../../lib/multipartEpisodes.js";
+import { playlistDurations } from "../../../lib/hlsMerge.js";
 
-const WORKER = "https://aniscroll-proxy.luc-deldem.workers.dev";
+// proxy.aniscroll.com, NOT aniscroll-proxy.luc-deldem.workers.dev. The
+// workers.dev route was retired when the proxy moved to the custom domain (the
+// domain is required for edge caching), and Cloudflare answers a subdomain with
+// no worker behind it with its own 404 "There is nothing here yet" page — a
+// 19,984-byte HTML body, HTTP 404, for EVERY url. So `viaWorker` didn't degrade,
+// it returned a hard failure on every call, and had been doing so silently for
+// the whole top50 batch. Measured 2026-08-08: this URL 404s example.com.
+const WORKER = "https://proxy.aniscroll.com";
 const BASE = "https://anime-sama.to";
 const VOIRANIME_BASE = "https://voir-anime.to";
-const VIDMOLY_DOMAINS = ["vidmoly.net", "vidmoly.to", "vidmoly.biz"];
+// `ansembed.net` is Vidmoly white-labelled: the same embed page (its own
+// <title>, cdn.staticmoly.me assets) serving the same …/hls2/…/master.m3u8.
+// anime-sama lists it as a SEPARATE player, so it is an extra encode per title.
+// It is also reachable where the vidmoly.* domains are DNS-blocked, which makes
+// it the most dependable member of the family — hence first.
+// `voembed.net` is the same story for voir-anime: since ~2026-08 its "LECTEUR
+// myTV" panel serves voembed.net on newly published titles, vidmoly.biz on the
+// back catalogue.
+const VIDMOLY_DOMAINS = [
+  "ansembed.net",
+  "voembed.net",
+  "vidmoly.net",
+  "vidmoly.to",
+  "vidmoly.biz",
+];
+// Every domain this family answers on: used to swap domains on retry, and to
+// route an embed to the local Vidmoly extraction instead of the shared lib.
+const VIDMOLY_HOST_RE = /(vidmoly\.(?:to|biz|net)|ansembed\.net|voembed\.net)/i;
 const BROWSER_UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
   + "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
@@ -40,7 +69,10 @@ const BROWSER_UA =
 // So we do a local, direct extraction rather than reusing extractVidmoly.
 async function extractVidmolyDirect(embedUrl) {
   for (const domain of VIDMOLY_DOMAINS) {
-    const url = embedUrl.replace(/vidmoly\.(to|biz|net)/, domain);
+    // Swap whichever domain of the family the embed arrived on — matching only
+    // `vidmoly.*` meant an ansembed embed was never retried elsewhere (the URL
+    // went out unchanged, so every "retry" hit the same host).
+    const url = embedUrl.replace(VIDMOLY_HOST_RE, domain);
     let html;
     try {
       const r = await fetch(url, {
@@ -154,6 +186,35 @@ function pickArray(arrays, hostKey) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/* Sibnet's rate limit has to be remembered ACROSS processes, and that is not a
+   detail — it is the whole difference between the memo working and not.
+   The batch spawns one `node resolve.mjs` per (title, season, lang, host,
+   episode-range), so a per-process memo is forgotten every few episodes and the
+   run keeps knocking on a door it was just told to stop knocking on. Measured
+   2026-08-08: the throttle answers 429 on every page and had not lifted after
+   40 minutes, so the cost of ignoring it is the rest of the batch.
+
+   A file with an expiry, not a lock: it never blocks anything permanently, and a
+   crashed run leaves at worst a marker that expires on its own. */
+const THROTTLE_FILE = new URL("../cache/sibnet-throttle", import.meta.url);
+const THROTTLE_MS = 10 * 60 * 1000;
+
+function sibnetThrottledUntil() {
+  try {
+    return Number(readFileSync(THROTTLE_FILE, "utf8").trim()) || 0;
+  } catch {
+    return 0;
+  }
+}
+function markSibnetThrottled() {
+  try {
+    mkdirSync(new URL("../cache/", import.meta.url), { recursive: true });
+    writeFileSync(THROTTLE_FILE, String(Date.now() + THROTTLE_MS));
+  } catch {
+    /* Best effort: losing the marker costs requests, never correctness. */
+  }
+}
+
 // Extract one embed with retry+backoff. Transient blocks (host rate-limits,
 // brief 403s, timeouts) often clear within a few seconds; a host is only
 // considered failed after RETRIES exhausted. Backoff: 1s, 3s, 7s.
@@ -164,13 +225,20 @@ async function extractWithRetry(embed, retries = 3) {
     try {
       // vidmoly is extracted locally (token binds to this IP) — see
       // extractVidmolyDirect. All other hosts go through the shared lib.
-      if (/vidmoly/i.test(embed)) {
+      if (VIDMOLY_HOST_RE.test(embed)) {
         const v = await extractVidmolyDirect(embed);
         if (v.ok) return v;
         lastErr = v.error;
         continue;
       }
       const res = await getExtractor(embed)(embed);
+      /* A rate limit is the ONE failure where retrying makes things worse: each
+         attempt extends the window. Bail out immediately and tell the caller
+         why, instead of spending the loop's four attempts on it. */
+      if (res?.throttled) {
+        markSibnetThrottled();
+        return { ok: false, error: res.error || "rate limited", throttled: true };
+      }
       const s = res?.streams?.[0];
       if (s?.url) {
         // referer is needed by hosts like embed4me for ffmpeg to fetch the m3u8.
@@ -188,10 +256,21 @@ async function extractWithRetry(embed, retries = 3) {
 async function extractRange(arr, hostKey, start, end) {
   const episodes = [];
   const errors = [];
+  const throttledUntil = hostKey === "sibnet" ? sibnetThrottledUntil() : 0;
+  if (throttledUntil > Date.now()) {
+    const left = Math.ceil((throttledUntil - Date.now()) / 1000);
+    errors.push(`${hostKey}: debit limite (429), reprise dans ${left}s — aucune requete emise`);
+    return { episodes, errors };
+  }
+
   for (let ep = start; ep <= end; ep++) {
     const embed = arr[ep - 1];
     if (!embed) { errors.push(`ep ${ep}: no embed`); continue; }
     const r = await extractWithRetry(embed);
+    if (r.throttled) {
+      errors.push(`ep ${ep}: ${r.error}`);
+      break; // le reste de la plage est condamne, ne pas le payer
+    }
     if (r.ok) {
       episodes.push({ ep, url: r.url, isM3U8: r.isM3U8, host: hostKey,
                       referer: r.referer });
@@ -262,6 +341,34 @@ async function voirEpisodeUrl(slug, ep) {
   return null;
 }
 
+/**
+ * The lettered URLs of a split episode (…-01a-vf/, …-01b-vf/), in the order
+ * lib/multipartEpisodes.js declares — or null if any part is missing.
+ *
+ * Mirrors buildVoiranimeEpPartRegex in pages/api/v2/source/index.js. The
+ * ordinary episode regex above cannot match these (it anchors on `-<digits>`
+ * right before the trailing slash), which is exactly why a split episode
+ * resolved to nothing here until now.
+ */
+async function voirEpisodePartUrls(slug, ep, parts) {
+  const slugEsc = slug.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
+  const baseEsc = VOIRANIME_BASE.replace(/\./g, "\\.");
+  const re = new RegExp(
+    `href=["'](${baseEsc}/anime/${slugEsc}(?:-[a-z0-9]{1,3})?/[^"']+?-(\\d+)([a-z])(?:-(?:vf|vostfr))?/)["']`,
+    "gi",
+  );
+  const html = await fetchPage(`${VOIRANIME_BASE}/anime/${slug}/`);
+  const found = new Map();
+  let m;
+  while ((m = re.exec(html)) !== null) {
+    if (parseInt(m[2], 10) !== ep) continue;
+    const letter = m[3].toLowerCase();
+    if (!found.has(letter)) found.set(letter, m[1]);
+  }
+  const urls = parts.map((p) => found.get(p));
+  return urls.every(Boolean) ? urls : null;
+}
+
 async function voirVidmolyEmbed(episodeUrl) {
   const html = await fetchPage(episodeUrl);
   const sm = html.match(/thisChapterSources\s*=\s*({[\s\S]*?});/);
@@ -270,9 +377,66 @@ async function voirVidmolyEmbed(episodeUrl) {
   try { sources = JSON.parse(sm[1]); } catch { return null; }
   for (const iframeHtml of Object.values(sources)) {
     const src = String(iframeHtml).match(/<iframe\s+src=["']([^"']+)["']/i);
-    if (src && /vidmoly/i.test(src[1])) return src[1];
+    // voembed.net is the same myTV panel on a white-label domain — see
+    // VIDMOLY_HOST_RE. Matching only "vidmoly" made every migrated title look
+    // like it had no vidmoly-va source at all.
+    if (src && VIDMOLY_HOST_RE.test(src[1])) return src[1];
   }
   return null;
+}
+
+// Where merged split-episode playlists are written. Kept under the tool's own
+// cache/ (alongside cache/urls and cache/audio) so a wipe of that directory
+// clears them too — they hold signed segment URLs and go stale on the same
+// clock as the resolved URLs the adapter caches.
+const MERGE_DIR = resolvePath(fileURLToPath(new URL("../cache/merged", import.meta.url)));
+
+/**
+ * Present a split episode to ffmpeg as ONE continuous 49-minute input, so the
+ * detector measures the same timeline the player shows. Without it the OP/ED
+ * timings found here would be relative to a 25-minute part and land nowhere
+ * near the stream users actually watch.
+ *
+ * Uses the `concat` demuxer, NOT the merged HLS playlist the browser gets
+ * (lib/hlsMerge.js). Both were measured on the real Re:Zero streams:
+ *
+ *   merged .m3u8 + #EXT-X-DISCONTINUITY   -ss 1600/2000/2900 → 0 bytes
+ *   .ffconcat + per-entry `duration`      -ss 1600/2000/2900 → full window
+ *
+ * ffmpeg's HLS demuxer does not rebase part B's timestamps across the
+ * discontinuity, so everything past the junction decodes empty; the concat
+ * demuxer shifts each entry onto the previous one's end, which is exactly the
+ * semantics we want. hls.js does handle the discontinuity, hence the split.
+ *
+ * The `duration` directives are load-bearing twice over: they give the input a
+ * total length, without which `-sseof` (how the ED window is anchored) returns
+ * nothing at all.
+ *
+ * Returns the absolute path of the .ffconcat.
+ */
+async function concatVoirParts(vaSlug, ep, masterUrls, referer) {
+  mkdirSync(MERGE_DIR, { recursive: true });
+  const durations = await playlistDurations(masterUrls, {
+    fetchText: async (url) => {
+      const r = await fetch(url, {
+        headers: { "User-Agent": BROWSER_UA, Referer: referer || `${VOIRANIME_BASE}/` },
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status} on ${url}`);
+      return r.text();
+    },
+  });
+  const body = ["ffconcat version 1.0"];
+  masterUrls.forEach((url, i) => {
+    body.push(`file ${url}`, `duration ${durations[i].toFixed(3)}`);
+  });
+  const path = join(MERGE_DIR, `${vaSlug}-ep${String(ep).padStart(2, "0")}.ffconcat`);
+  writeFileSync(path, body.join("\n") + "\n", "utf-8");
+  const total = durations.reduce((a, b) => a + b, 0);
+  console.log(
+    `[vidmoly-va] ep ${ep}: ${masterUrls.length} parts → ${Math.round(total)}s ` +
+      `(${durations.map((d) => Math.round(d)).join(" + ")})`,
+  );
+  return path;
 }
 
 async function resolveVoiranime(vaSlug, start, end) {
@@ -280,6 +444,41 @@ async function resolveVoiranime(vaSlug, start, end) {
   const errors = [];
   for (let ep = start; ep <= end; ep++) {
     try {
+      // Split episode (lib/multipartEpisodes.js): the parts ARE the episode —
+      // there is no un-lettered URL for voirEpisodeUrl to find.
+      const parts = getPartsBySlug(vaSlug, ep);
+      if (parts) {
+        const partUrls = await voirEpisodePartUrls(vaSlug, ep, parts);
+        if (!partUrls) {
+          errors.push(`ep ${ep}: split episode, parts ${parts.join("+")} not all on page`);
+          continue;
+        }
+        const masters = [];
+        let referer = null;
+        let failed = null;
+        for (const url of partUrls) {
+          const embed = await voirVidmolyEmbed(url);
+          if (!embed) { failed = `no vidmoly iframe on ${url}`; break; }
+          const r = await extractVidmolyDirect(embed);
+          if (!r.ok) { failed = r.error; break; }
+          masters.push(r.url);
+          referer = r.referer;
+        }
+        // All or nothing: half an episode would put every timing it produces
+        // ~25 minutes out on the stream the player actually serves.
+        if (failed) { errors.push(`ep ${ep}: ${failed}`); continue; }
+        const list = await concatVoirParts(vaSlug, ep, masters, referer);
+        episodes.push({
+          // `isM3U8: false` — the input is an .ffconcat, not a playlist. The
+          // consumers key their ffmpeg flags off the extension (oped/audio.py),
+          // and passing HLS demuxer options to the concat demuxer is fatal
+          // ("Option allowed_extensions not found"), so this must not lie.
+          ep, url: list, isM3U8: false, host: "vidmoly-va", referer,
+          parts: masters.length,
+        });
+        continue;
+      }
+
       const episodeUrl = await voirEpisodeUrl(vaSlug, ep);
       if (!episodeUrl) { errors.push(`ep ${ep}: not in voir-anime page`); continue; }
       const embed = await voirVidmolyEmbed(episodeUrl);
@@ -331,6 +530,14 @@ async function main() {
 
   // Try each host in priority order; keep the first that resolves the WHOLE
   // requested range (so the series bank gets a consistent single-host cut).
+  //
+  // Diagnostics rule: `out.errors` ACCUMULATES across hosts and is never
+  // overwritten. It used to be assigned only inside `episodes.length >
+  // out.episodes.length`, so a host that resolved ZERO episodes (0 > 0 is
+  // false) had its collected reasons silently dropped — total failure, the case
+  // that most needs explaining, was the one case that explained nothing. That is
+  // why every failing host reported `resolution failed: []` and nobody could
+  // tell a blocked domain from a host the site simply doesn't offer.
   for (const hostKey of priority) {
     if (hostKey === "megaplay") {
       if (!malId) {
@@ -338,13 +545,14 @@ async function main() {
         continue;
       }
       const { episodes, errors } = await extractMegaplayRange(malId, lang, start, end);
+      out.errors.push(...errors.map((e) => `${hostKey}: ${e}`));
       if (episodes.length === end - start + 1) {
-        out.ok = true; out.host = hostKey; out.episodes = episodes; out.errors = errors;
+        out.ok = true; out.host = hostKey; out.episodes = episodes;
         console.log(JSON.stringify(out));
         return;
       }
       if (episodes.length > out.episodes.length) {
-        out.host = hostKey; out.episodes = episodes; out.errors = errors;
+        out.host = hostKey; out.episodes = episodes;
       }
       continue;
     }
@@ -355,28 +563,37 @@ async function main() {
         continue;
       }
       const { episodes, errors } = await resolveVoiranime(vaSlug, start, end);
+      out.errors.push(...errors.map((e) => `${hostKey}: ${e}`));
       if (episodes.length === end - start + 1) {
-        out.ok = true; out.host = hostKey; out.episodes = episodes; out.errors = errors;
+        out.ok = true; out.host = hostKey; out.episodes = episodes;
         console.log(JSON.stringify(out));
         return;
       }
       if (episodes.length > out.episodes.length) {
-        out.host = hostKey; out.episodes = episodes; out.errors = errors;
+        out.host = hostKey; out.episodes = episodes;
       }
       continue;
     }
 
     const arr = pickArray(arrays, hostKey);
-    if (!arr) continue;
+    if (!arr) {
+      // NOT a failure: anime-sama simply doesn't list this player for this
+      // season (SnK offers sibnet + uqload only, no sendvid/vidmoly). Saying so
+      // distinguishes "nothing to resolve" from "resolution broke", which is the
+      // difference between a data gap and a bug worth chasing.
+      out.errors.push(`${hostKey}: not offered by anime-sama for this season`);
+      continue;
+    }
     const { episodes, errors } = await extractRange(arr, hostKey, start, end);
+    out.errors.push(...errors.map((e) => `${hostKey}: ${e}`));
     if (episodes.length === end - start + 1) {
-      out.ok = true; out.host = hostKey; out.episodes = episodes; out.errors = errors;
+      out.ok = true; out.host = hostKey; out.episodes = episodes;
       console.log(JSON.stringify(out));
       return;
     }
     // Partial: remember the best attempt but keep trying other hosts.
     if (episodes.length > out.episodes.length) {
-      out.host = hostKey; out.episodes = episodes; out.errors = errors;
+      out.host = hostKey; out.episodes = episodes;
     }
   }
   out.ok = out.episodes.length > 0;

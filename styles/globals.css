@@ -65,6 +65,189 @@ html.tab-hidden *::after {
   animation: as-pop-in 0.35s ease both;
 }
 
+/* Hover preview popup (components/shared/HoverPreview) — Hayase's `load-in`,
+   same 0.3s ease, same 1.2rem rise and 0.95 scale. Ours is portalled and
+   already positioned in px, so there is no -50% translate to carry through. */
+@keyframes as-preview-in {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 1.2rem, 0) scale(0.95);
+  }
+}
+.as-preview-root {
+  will-change: transform;
+  animation: 0.3s ease 0s 1 as-preview-in;
+}
+
+/* Ambient light. The banner artwork, blown past the card's edges, blurred and
+   over-saturated — bias lighting for the popup. It has to live outside the card
+   (which clips) and behind it (whose surface is opaque), hence the negative
+   inset on the root and the -z-10. */
+/* Bare glyphs, no chrome. The card's own actions carry no plate or outline —
+   only the icon, in the app's body colour (`--text-body`), lifting to full
+   white or to the brand colour when they're on. */
+.as-preview-iconbtn {
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  color: var(--text-body, #dbdcdd);
+  transition: color 0.18s ease, transform 0.18s ease;
+}
+.as-preview-iconbtn:hover {
+  color: #ffffff;
+  transform: translateY(-1px);
+}
+.as-preview-iconbtn[data-on='true'] {
+  color: var(--brand-primary, #ff3b5c);
+}
+
+/* Same, over the video. Nothing behind the glyph either — a shadow does the
+   work a plate used to do, so the icon stays readable on a bright frame without
+   putting a second button-looking shape on screen. */
+.as-preview-videobtn {
+  display: grid;
+  place-items: center;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  color: #ffffff;
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.85)) drop-shadow(0 0 10px rgba(0, 0, 0, 0.55));
+  transition: transform 0.18s ease, opacity 0.18s ease;
+}
+.as-preview-videobtn:hover {
+  transform: scale(1.08);
+}
+.as-preview-voltrack {
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.85));
+}
+
+/* The glow belongs to the VIDEO, not to the card. This box IS the video's box
+   (the card's top 45%), cut open on three sides: `clip-path` with negative
+   insets lets the blur run as far as it likes left, right and up, and stops it
+   at the bottom of the picture. Light off a screen doesn't wrap around to
+   backlight the text below it.
+   The bottom inset used to be 0 — cut exactly at the foot of the picture — and
+   that is what drew a horizontal line down either side of the card. Fading the
+   glow's own pixels to nothing by that height did not help, and the reason is
+   the order of operations: each layer is blurred by 34 px AFTER its pixels are
+   composed, and a Gaussian that wide carries light a good hundred pixels
+   downward from everything still lit above. The blurred result at the cut is
+   therefore never zero, whatever the pixels underneath say. A heavily blurred
+   layer cannot be made to end sharply; it can only be given room to die.
+   So the cut moves down out of the way. The picture's own fade (see
+   TrailerAmbient) ends the light at the foot of the frame, the blur's tail
+   spreads below that, and this inset catches whatever is left far enough down
+   that there is nothing to see. The card body is opaque and sits in front, so
+   the extra room costs nothing but a little light beside the synopsis — which
+   is what a screen actually does. */
+.as-preview-ambient-clip {
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 45%;
+  clip-path: inset(-400px -400px -150px -400px);
+}
+
+/* The single-layer glow that used to live here is gone, and with it a long tail
+   of geometry: a hand-placed -60px offset, a `max-width: none` to undo
+   Tailwind's preflight, and a radial mask that could never behave like light —
+   fade it early and the glow is an even haze up against the picture, fade it
+   late and it meets its own edge as a visible rectangle. TrailerAmbient now
+   uses the watch player's projector stack instead (concentric copies, each
+   larger and fainter), where the falloff is a property of the stack and needs
+   no mask at all. */
+
+/* Placeholder for the preview banner while its URL is still in flight. A calm
+   sweep, not a spinner: it is on screen for a fraction of a second at most. */
+@keyframes as-preview-shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+.as-preview-skeleton {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.03) 0%,
+    rgba(255, 255, 255, 0.07) 50%,
+    rgba(255, 255, 255, 0.03) 100%
+  );
+  background-size: 200% 100%;
+  animation: as-preview-shimmer 1.4s linear infinite;
+}
+
+/* The banner fades into the card body instead of ending on a hard edge.
+
+   NINE STOPS, AND THE COUNT IS THE POINT. A linear-gradient interpolates
+   STRAIGHT between consecutive stops, so every stop is a kink in the alpha
+   curve and the eye reads a kink as an edge. The previous stops were Hayase's
+   — flat to 80%, then 0.89 by 95%, then solid — which is two segments of very
+   different slope meeting at 95%: the fade arrived in two visible steps, a band
+   and then a second darker band. Fewer stops did not mean softer.
+
+   These nine sample a smoothstep (3t²−2t³) across 58%→100%. It leaves zero
+   slope at BOTH ends, so the fade has no start edge and no finish edge, and
+   between them no two segments differ enough in slope to show a seam. Sampling
+   a curve is why the stop list is long; shortening it puts the steps back.
+
+   Tried and reverted earlier: pushing the ramp later and FLATTENING it, to stop
+   it washing out the subtitles some trailers carry burnt into the picture. That
+   ended in a fade that never commits, which reads as a mistake. Smooth is not
+   flat — this one still reaches solid, it just gets there without a corner. */
+/* TWO selectors, one rule, and the sharing is the point.
+
+   The card owns this fade, but the trailer is no longer inside the card: it is
+   drawn by TrailerStage on a layer ABOVE it, so the video covered the card's
+   gradient and the picture ended on the hard edge the fade exists to prevent —
+   present on the artwork, gone the instant the trailer started. The layer needs
+   its own copy, and a second copy that could drift from this one by a stop or a
+   colour is how a seam comes back later. So there is one declaration.
+
+   `--as-preview-bg` is set on the card and does not reach the layer, which is a
+   different tree; the fallback is the same #1a1a24 the card passes in, so the
+   two resolve identically. */
+.as-preview-banner::after,
+.as-preview-videofade {
+  content: '';
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  /* The video can leak a pixel or two under the gradient while it settles. */
+  margin-bottom: -2px;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  background: linear-gradient(
+    180deg,
+    rgba(26, 26, 36, 0) 0%,
+    rgba(26, 26, 36, 0) 58%,
+    rgba(26, 26, 36, 0.039) 63%,
+    rgba(26, 26, 36, 0.143) 68%,
+    rgba(26, 26, 36, 0.291) 73%,
+    rgba(26, 26, 36, 0.464) 78%,
+    rgba(26, 26, 36, 0.641) 83%,
+    rgba(26, 26, 36, 0.801) 88%,
+    rgba(26, 26, 36, 0.905) 92%,
+    rgba(26, 26, 36, 0.975) 96%,
+    var(--as-preview-bg, #1a1a24) 100%
+  );
+}
+
+/* Bullet separators between the preview's meta cells, so no cell has to know
+   whether it is first. */
+.as-preview-details span + span::before {
+  content: '•';
+  padding: 0 0.3rem;
+  font-size: 0.4rem;
+  align-self: center;
+  white-space: normal;
+  color: #737373;
+}
+
 /* Heart "favourite" fill animation — used by the anime info page (desktop
    Hero + mobile header). Defined globally so the inline `animation:
    heart-pop ...` on the heart SVGs resolves whether the desktop or the
@@ -182,6 +365,55 @@ a {
   --video-border-radius: 12px;
 }
 
+/* The player's own box paints nothing.
+ *
+ * Vidstack's default layout gives BOTH the player and the picture inside it the
+ * same 12px radius and the same black background, and the player additionally
+ * carries a 1px border — so the picture sits one pixel inside a black box cut to
+ * the same curve as itself. A rounded edge is antialiased by definition: its
+ * outermost pixels are half-covered, and whatever is behind shows through them.
+ * Here that was black, against a bright picture, which is how the dark outline
+ * around the corners was drawn.
+ *
+ * The picture needs no help: `[data-media-provider], video, .vds-poster` keep
+ * their own black background, so letterbox bars are still black and nothing is
+ * transparent while a source loads. Only the box BEHIND the picture is cleared.
+ */
+.vds-player {
+  background-color: transparent;
+  /* And no frame at all.
+   *
+   * Vidstack draws `1px solid rgb(255 255 255 / 0.1)` around the player. On the
+   * black box it used to sit on, that pixel read as very dark grey — the outline
+   * that kept surviving every other fix, because it is not an artefact of
+   * clipping or of subpixel layout: it is a border, deliberately drawn, on all
+   * four sides, following the radius. Nothing else in the app frames its media,
+   * so it goes. */
+  --video-border: none;
+  border: none;
+}
+
+/* One rounded clip, and one black box, for the whole player.
+ *
+ * Clearing the player's background was not enough because Vidstack repeats the
+ * pair — radius AND black — on every element down the stack: the provider, the
+ * <video>, the poster. Nested curves at the same radius do not compose into one
+ * clean edge; each is antialiased separately and the black under them shows
+ * through what none of them fully covers, which leaves the same hairline one
+ * level further in.
+ *
+ * So the provider keeps the radius (it is the one with `overflow: hidden`, so it
+ * is the one actually clipping) and keeps the black (it is what letterbox bars
+ * are made of). Everything inside it is square-cornered and transparent, and is
+ * cut by that single clip.
+ */
+.vds-player video,
+.vds-player .vds-poster,
+.vds-player iframe {
+  border-radius: 0;
+  background-color: transparent;
+}
+
 /* No rounded corners in fullscreen — the player fills the whole screen, so a
    12px radius just leaves black wedges at the corners. Covers native
    fullscreen (Vidstack sets [data-fullscreen]) and our iOS CSS pseudo-
@@ -231,6 +463,97 @@ a {
 .vds-player .w2g-fs-send:hover {
   color: #fff !important;
   filter: brightness(0.92);
+}
+
+/* The time readout (current / duration) doubles as a button: clicking it copies
+   the timestamped link, exactly like the `copyTimestamp` shortcut (handler in
+   UniversalPlayer, delegated from the player root). Give it the same affordance
+   as the rest of the chrome — pointer cursor, rose tint, faint pill — since
+   nothing else in the bar hints that the text is clickable. */
+.vds-player .vds-time-group {
+  cursor: pointer;
+  border-radius: 6px;
+  padding: 2px 6px;
+  /* Vertical pull only. A negative horizontal margin would drag the group back
+     under its neighbours — on the left that's the volume slider's thumb. */
+  margin: -2px 0;
+  transition: color 0.15s ease, background-color 0.15s ease;
+}
+.vds-player .vds-time-group:hover,
+.vds-player .vds-time-group:focus-visible {
+  background: rgba(255, 255, 255, 0.1);
+}
+/* `.vds-time` and `.vds-time-divider` each set their own `color`, so tinting
+   only the group leaves the digits white — the children have to be targeted. */
+.vds-player .vds-time-group:hover .vds-time,
+.vds-player .vds-time-group:hover .vds-time-divider,
+.vds-player .vds-time-group:focus-visible .vds-time,
+.vds-player .vds-time-group:focus-visible .vds-time-divider {
+  color: var(--brand-primary, #e94560);
+}
+.vds-player .vds-time-group:focus-visible {
+  outline: none;
+}
+
+/* Volume slider — fix the expand/collapse loop on the mute button's right edge.
+   Vidstack expands the slider only while the BUTTON is hovered, and the
+   collapsed slider sits flush against that edge: its box is 0-wide but the thumb
+   still paints (and hit-tests) outside it, so the pointer alternated between
+   button and thumb — expand, collapse, expand… Two halves to the fix: a
+   collapsed slider takes no pointer events at all (only the button can be
+   hovered → it opens), and once open, hovering the slider itself keeps it open
+   (so nothing can pull the hover back off).
+
+   The expanded slider starts 7px right of the button (9px margin, 2px of
+   translate), and that gap is a dead zone: leaving the button collapses the
+   slider before the pointer ever reaches it. The ::before below bridges exactly
+   that gap — it belongs to the slider, so hovering it counts as hovering the
+   slider and the travel from button to slider is continuous. It's inert while
+   collapsed (pointer-events is inherited) and stops short of the button so it
+   can never swallow a click meant for mute. */
+.vds-player .vds-volume-slider {
+  pointer-events: none;
+}
+.vds-player .vds-volume-slider::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 100%;
+  width: 7px;
+  pointer-events: inherit;
+}
+.vds-player [data-media-mute-button]:hover ~ .vds-volume-slider,
+/* Vidstack's own trigger (hover OR keyboard focus on the button) — kept so a
+   focus-expanded slider stays interactive despite the pointer-events reset. */
+.vds-player [data-media-mute-button][data-hocus] ~ .vds-volume-slider,
+.vds-player .vds-volume-slider:hover,
+/* Keyboard focus only. Vidstack's own `[data-active]` is `dragging || focused ||
+   pointing`, so after a mouse click the bar stayed open for good — the click's
+   DOM focus is dropped in UniversalPlayer (pointerup → blur) so that state can't
+   linger, and `:focus-visible` keeps the keyboard path working. */
+.vds-player .vds-volume-slider:focus-visible,
+.vds-player .vds-volume-slider[data-dragging] {
+  margin-left: 9px;
+  /* Vidstack zeroes the base `margin: 0 calc(thumb-size / 2)` and only puts the
+     left half back, so at full volume the thumb overflowed the slider's right
+     edge and sat on top of the time readout. Give that half back. */
+  margin-right: calc(var(--media-slider-thumb-size, 15px) / 2);
+  max-width: var(--video-volume-slider-max-width, 72px);
+  pointer-events: auto;
+}
+
+/* …and the thumb comes with it.
+
+   Vidstack only paints the knob while the SLIDER is `[data-active]` (dragging,
+   focused or pointed at), so hovering the mute button opened the bar on a bare
+   line: the one control that says where the level currently sits was missing at
+   the exact moment the bar appeared, and it turned up later, when the pointer
+   finished crossing the gap. Same triggers as the rule above, so the bar and
+   its knob arrive together. */
+.vds-player [data-media-mute-button]:hover ~ .vds-volume-slider .vds-slider-thumb,
+.vds-player [data-media-mute-button][data-hocus] ~ .vds-volume-slider .vds-slider-thumb {
+  opacity: 1;
 }
 
 /* Floating Skip Intro / Skip Outro button (dark pill on left of

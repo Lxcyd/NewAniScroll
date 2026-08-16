@@ -8,6 +8,7 @@ is never re-decoded needlessly (spec: never recompute uselessly).
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -15,12 +16,100 @@ from pathlib import Path
 import numpy as np
 
 from . import SAMPLE_RATE
-from .megaplay import is_megaplay, materialize_window
+from .errors import ProcessKilled, killed_by_os
+from .megaplay import is_megaplay, materialize_window, playlist_duration
 
 # ashowinfo prints one `pts_time:<abs seconds>` per audio frame to stderr; with
 # -copyts these are ABSOLUTE episode timestamps. We only need the first (the pts
 # of output sample 0) to anchor the window on the shared absolute clock.
 _ASHOWINFO_PTS_RE = re.compile(rb"pts_time:([\d.]+)")
+
+# WALL-CLOCK CEILING on every ffmpeg/ffprobe call. Without one, a CDN that stops
+# answering mid-segment hangs ffmpeg forever and `subprocess.run` waits with it —
+# no exception, no log, no retry. That is not theoretical: the 2026-08-06 audit
+# lot froze on a cold title with three live ffmpeg processes and the Python
+# parent flat at +0.5 s CPU over 7 minutes, and had to be killed by hand. One
+# stalled segment suspends the WHOLE batch, not just its episode, so on a
+# multi-day backfill it is a near-certainty.
+#
+# The value is a ceiling, not a budget: a legitimate 300 s window decode over
+# HLS measured at most ~94 s on the slowest host, so 480 s only ever fires on a
+# genuine stall. Override with OPED_FFMPEG_TIMEOUT for a slow link.
+FFMPEG_TIMEOUT_S = float(os.environ.get("OPED_FFMPEG_TIMEOUT", "480"))
+# ffprobe on a LOCAL file — no network, so anything beyond a few seconds is a
+# broken file, not a slow one.
+FFPROBE_TIMEOUT_S = float(os.environ.get("OPED_FFPROBE_TIMEOUT", "60"))
+
+
+def _run(cmd, *, timeout, what, text=False):
+    """`subprocess.run` that cannot hang.
+
+    A timeout is reported as RuntimeError — the same type an ffmpeg non-zero
+    exit already raises here — so every existing caller treats a stalled host
+    exactly like a failed one: the host is dropped, the episode keeps its other
+    hosts, and the batch moves on instead of stopping dead.
+
+    Cette tolérance a exactement UNE exception, et c'est le point de passage
+    unique de tous les ffmpeg/ffprobe, donc elle vit ici : un ffmpeg TUÉ par le
+    système n'est pas un hôte défaillant (voir `errors.ProcessKilled`). Le
+    traiter comme tel enregistrerait une absence de générique là où il n'y a
+    qu'une machine qui s'éteint — et cette ligne-là, une fois en base, ne se
+    distingue plus d'une vraie.
+    """
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=text, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(
+            f"ffmpeg timeout after {timeout:.0f}s for {what!r} — host stalled, "
+            f"skipping (see FFMPEG_TIMEOUT_S)"
+        ) from None
+    if killed_by_os(proc.returncode):
+        raise ProcessKilled(
+            f"ffmpeg tue par le systeme (rc={proc.returncode} / "
+            f"0x{proc.returncode & 0xFFFFFFFF:08X}) sur {what!r} — "
+            f"l'environnement s'eteint, ce n'est PAS un echec de l'hote"
+        )
+    return proc
+
+# ffmpeg EXITS 0 after a partially-failed HTTP read: it reports the failure on
+# stderr, fills what it could not fetch, and still writes a full-length stream.
+# Checking only the return code and a non-empty buffer therefore accepts a
+# degraded decode — which is then fingerprinted and CACHED, freezing the damage
+# for every later run.
+#
+# Measured on charlotte ep2 / vidmoly-va: the cached 299.5 s window carried
+# 19482 hashes against 23828 for a clean decode of the SAME window, and matched
+# the OP at 563 votes / 42.5 s instead of 3501 votes / 33.1 s. Both decodes
+# reported the full duration, so a length check cannot catch this — the audio
+# was complete in extent and damaged in content. The host was dropped from the
+# consensus and the failure looked like "vidmoly-va can't detect this episode".
+#
+# Raising instead of caching means the next run simply retries, exactly as
+# theme_bank does for a truncated native reference decode. Deliberately narrow:
+# only transport/decode failures, never the ordinary warnings ffmpeg prints on
+# healthy streams.
+_DECODE_ERROR_RE = re.compile(
+    rb"Error in the pull function"
+    rb"|Invalid data found when processing input"
+    rb"|error while decoding"
+    rb"|Connection reset|Broken pipe|Input/output error"
+    rb"|Server returned 4|Server returned 5"
+    rb"|Failed to (?:read|open)",
+    re.IGNORECASE,
+)
+
+
+def _reject_degraded(stderr: bytes, src: str, what: str) -> None:
+    """Raise when ffmpeg logged a transport/decode failure despite exiting 0."""
+    hit = _DECODE_ERROR_RE.search(stderr or b"")
+    if not hit:
+        return
+    err = stderr.decode("utf-8", "replace").strip()
+    raise RuntimeError(
+        f"ffmpeg exited 0 but reported a decode/transport failure for {src!r} "
+        f"({what}) — refusing to cache a degraded decode. "
+        f"Trigger: {hit.group(0).decode('utf-8', 'replace')!r}\nstderr:\n{err[-800:]}"
+    )
 
 
 def _cache_key(src: Path, sample_rate: int) -> str:
@@ -121,23 +210,32 @@ def decode_audio_abs(
     which keeps the same absolute PTS — the `-copyts -ss/-to` below then work on
     it unchanged, so the shared-clock contract still holds.
     """
-    if is_megaplay(src):
+    seek = start_abs
+    if is_megaplay(src, referer):
         src = materialize_window(src, start_abs, dur, referer=referer)
         referer = None  # local file: no HTTP headers, no HLS demuxer flags
+        # ffmpeg's input `-ss` is RELATIVE to the container's start_time (it adds
+        # ic->start_time to the seek target, and `-seek_timestamp 1` does not
+        # override that for mpegts — measured). The materialised .ts starts at the
+        # first picked segment's PTS (~start_abs − _LEAD_S), not at 0, so passing
+        # the absolute time seeks to roughly TWICE it, lands past EOF and decodes
+        # zero frames. This only ever bit windows late in the episode — the ED —
+        # which is why an OP-window materialisation (file starting at ~0) looked
+        # fine. `-copyts` still keeps the OUTPUT pts absolute, so `ashowinfo`
+        # below reports the true absolute anchor and the shared clock holds.
+        seek = max(0.0, start_abs - _container_start(src))
 
     cmd = ["ffmpeg", "-hide_banner", "-loglevel", "info"]
-    if referer:
-        cmd += ["-headers", f"Referer: {referer}\r\n"]
-    if _is_hls_url(src):
-        cmd += ["-allowed_extensions", "ALL", "-allowed_segment_extensions", "ALL", "-extension_picky", "0"]
+    cmd += _input_headers(src, referer)
+    cmd += _hls_flags(src)
     # -copyts + absolute -ss (before -i) → range-limited fetch AND absolute pts.
     # Bound the end with -to (ABSOLUTE, before -i): with -copyts the timeline is
     # absolute, so `-t <dur>` is measured against it and truncates to ~nothing on
     # HLS (megaplay: `-t 113` yielded 2 frames). `-to <start+dur>` gives the full
     # window. None dur → decode to EOF.
-    cmd += ["-copyts", "-ss", str(start_abs)]
+    cmd += ["-copyts", "-ss", str(seek)]
     if dur is not None:
-        cmd += ["-to", str(start_abs + dur)]
+        cmd += ["-to", str(seek + dur)]
     cmd += ["-i", src]
     cmd += [
         "-vn",
@@ -147,7 +245,7 @@ def decode_audio_abs(
         "-f", "f32le",
         "-",
     ]
-    proc = subprocess.run(cmd, capture_output=True)
+    proc = _run(cmd, timeout=FFMPEG_TIMEOUT_S, what=src)
     if proc.returncode != 0:
         err = proc.stderr.decode("utf-8", "replace").strip()
         raise RuntimeError(f"ffmpeg (abs) failed for {src!r}:\n{err}")
@@ -158,9 +256,27 @@ def decode_audio_abs(
             f"ffmpeg returned 0 bytes of audio for {src!r} "
             f"(start_abs={start_abs}, dur={dur}). stderr:\n{err}"
         )
+    _reject_degraded(proc.stderr, str(src), f"start_abs={start_abs}, dur={dur}")
     m = _ASHOWINFO_PTS_RE.search(proc.stderr)
     abs_start = float(m.group(1)) if m else float(start_abs)
     return samples, abs_start
+
+
+def _container_start(path: str) -> float:
+    """First timestamp of a LOCAL container, in seconds (0.0 if unknown).
+
+    Only used to turn an absolute seek into the relative one ffmpeg's `-ss`
+    actually wants; the probe is local, so it costs no network.
+    """
+    out = _run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=start_time",
+         "-of", "default=nk=1:nw=1", path],
+        timeout=FFPROBE_TIMEOUT_S, what=path, text=True,
+    )
+    try:
+        return float(out.stdout.strip())
+    except ValueError:
+        return 0.0
 
 
 def _is_hls_url(src: str) -> bool:
@@ -174,6 +290,72 @@ def _is_hls_url(src: str) -> bool:
     only be added when the source is actually an .m3u8 — never unconditionally.
     """
     return ".m3u8" in src.split("?", 1)[0].lower()
+
+
+def _is_http(src: str) -> bool:
+    return src.lower().startswith(("http://", "https://"))
+
+
+def _input_headers(src: str, referer: str | None) -> list[str]:
+    """`-headers` flags for the input, empty unless it is fetched over http.
+
+    `-headers` belongs to ffmpeg's http protocol. Passing it for a LOCAL input
+    is not merely useless, it is fatal: ffmpeg resolves the option against the
+    file protocol, finds nothing and aborts with "Option headers not found"
+    before it ever opens the input. The megaplay path already worked around
+    this by nulling `referer` by hand after materialising its local .ts; this
+    generalises that rule to every local input, which a split episode also is
+    (bridge/resolve.mjs writes a local .ffconcat whose entries are remote).
+    Those entries are then fetched by the demuxer's own http contexts, and
+    measured against Vidmoly they need no Referer: the token is IP-bound.
+    """
+    if not referer or not _is_http(src):
+        return []
+    return ["-headers", f"Referer: {referer}\r\n"]
+
+
+def _is_ffconcat(src: str) -> bool:
+    """True for the concat list a split episode resolves to.
+
+    See `_hls_flags` for why a split episode is fed through the concat demuxer
+    rather than as one merged playlist.
+    """
+    return src.split("?", 1)[0].lower().endswith(".ffconcat")
+
+
+def _hls_flags(src: str) -> list[str]:
+    """Demuxer-specific input flags — empty for a plain file or MP4 URL.
+
+    Two shapes need them, and their flag sets are mutually exclusive:
+
+    HLS (.m3u8). The extension flags relax ffmpeg's segment allowlist (some
+    hosts serve segments under decoy extensions).
+
+    Concat list (.ffconcat). This is how a SPLIT episode arrives — one broadcast
+    episode the host uploaded as two files (lib/multipartEpisodes.js), written
+    by bridge/resolve.mjs. It is deliberately not a merged .m3u8: ffmpeg's HLS
+    demuxer does not rebase timestamps across an `#EXT-X-DISCONTINUITY`, so on
+    the real Re:Zero streams every seek past the junction (`-ss 1600`, `2000`,
+    `2900`) decoded ZERO bytes, while the concat demuxer returned the full
+    window at each. Passing the HLS flags here would be fatal, not merely
+    useless — the concat demuxer aborts with "Option allowed_extensions not
+    found" — hence the either/or.
+
+    The protocol whitelist covers both: whenever the input is a LOCAL file
+    whose entries are remote, ffmpeg defaults to `file,crypto,data` and refuses
+    the http(s) URIs inside it. Remote inputs keep ffmpeg's own defaults — no
+    behaviour change for any host that was already working.
+    """
+    if _is_ffconcat(src):
+        return ["-f", "concat", "-safe", "0",
+                "-protocol_whitelist", "file,crypto,data,http,https,tcp,tls"]
+    if not _is_hls_url(src):
+        return []
+    flags = ["-allowed_extensions", "ALL", "-allowed_segment_extensions", "ALL",
+             "-extension_picky", "0"]
+    if not _is_http(src):
+        flags += ["-protocol_whitelist", "file,crypto,data,http,https,tcp,tls"]
+    return flags
 
 
 def _ffmpeg_decode(
@@ -199,11 +381,33 @@ def _ffmpeg_decode(
     rather than after full decode. A negative `start_s` uses `-sseof` to seek
     relative to end-of-file — the cheap way to grab just the ED tail.
     """
+    # Megaplay's PNG-decoy segments have to be de-wrapped locally (see
+    # oped/megaplay.py) — ffmpeg reads the raw HLS as a lone `Video: png` with no
+    # audio and `-vn` then errors with "Output file does not contain any stream".
+    # `_ffmpeg_decode_abs` already did this; THIS path did not, so every window
+    # decode (which is the one detect_anime actually calls) lost megaplay
+    # whenever its rotating CDN served wrapped segments — silently, as a
+    # per-host fetch failure rather than a wrong result. Measured on
+    # erased/ep3 via megap.norami.top while SnK's CDN happened to serve
+    # unwrapped segments, which is why the host looked healthy.
+    if window is not None and is_megaplay(src, referer):
+        start_s, dur_s = window
+        # A negative start is `-sseof`, resolvable only by the demuxer we are
+        # bypassing — anchor it on the playlist's own EXTINF total instead.
+        if start_s is None:
+            start_abs = 0.0
+        elif start_s < 0:
+            start_abs = max(0.0, playlist_duration(src, referer=referer) + start_s)
+        else:
+            start_abs = float(start_s)
+        samples, _abs = decode_audio_abs(
+            src, start_abs, dur_s, sample_rate=sample_rate, referer=referer
+        )
+        return samples
+
     cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error"]
-    if referer:
-        cmd += ["-headers", f"Referer: {referer}\r\n"]
-    if _is_hls_url(src):
-        cmd += ["-allowed_extensions", "ALL", "-allowed_segment_extensions", "ALL", "-extension_picky", "0"]
+    cmd += _input_headers(src, referer)
+    cmd += _hls_flags(src)
     if window is not None:
         start_s, dur_s = window
         if start_s is not None:
@@ -222,7 +426,7 @@ def _ffmpeg_decode(
         "-f", "f32le",              # raw float32 little-endian to stdout
         "-",
     ]
-    proc = subprocess.run(cmd, capture_output=True)
+    proc = _run(cmd, timeout=FFMPEG_TIMEOUT_S, what=src)
     if proc.returncode != 0:
         err = proc.stderr.decode("utf-8", "replace").strip()
         raise RuntimeError(f"ffmpeg failed for {src!r}:\n{err}")
@@ -233,4 +437,5 @@ def _ffmpeg_decode(
             f"ffmpeg returned 0 bytes of audio for {src!r} (window={window!r}) "
             f"— stream likely unreachable/empty for this segment. stderr:\n{err}"
         )
+    _reject_degraded(proc.stderr, str(src), f"window={window!r}")
     return samples

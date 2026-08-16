@@ -2,6 +2,67 @@
 
 Toutes les nouveautés d'AniScroll, les plus récentes en premier.
 
+## [v0.0.7] — Aperçu au survol, graphe de franchise & illustrations (2026-08-16)
+
+### Ajouté
+- **Aperçu au survol** : posez le curseur sur n'importe quelle jaquette du site
+  et une carte s'ouvre avec la **bande-annonce qui démarre toute seule**, le
+  son, le synopsis, les mêmes notes et chiffres que la fiche, et un bouton pour
+  ajouter la série à votre liste AniList. Une **lumière d'ambiance** reprend en
+  temps réel les couleurs de la vidéo autour de la carte.
+- **Réglages de l'aperçu** : l'aperçu au survol s'active ou se coupe dans les
+  réglages, avec son propre délai de déclenchement.
+- **Graphe de franchise** : la section Relations devient un vrai plateau, en
+  plein écran — fiches illustrées déplaçables, zoom à la molette, recherche, et
+  deux menus de filtres par type et par format. L'**ordre de visionnage est
+  numéroté**, les bonus et hors-séries restent hors du fil principal, les
+  sous-séries sont encadrées, et l'œuvre d'origine (le manga) entre sur le
+  plateau. Les titres que vous avez terminés sont cerclés de vert.
+- **Onglet Illustrations enrichi** : toute la bibliothèque fanart.tv, plus les
+  visuels TMDB (bannières, affiches, logos), sans doublons.
+- **Nouveau lecteur** : Ansembed rejoint les serveurs disponibles, et le
+  lecteur voir-anime bascule sur voembed.net.
+- **Épisodes coupés en deux fichiers** (Re:Zero ép. 1 VF) : les deux moitiés
+  sont recollées et lues comme un seul épisode.
+- **Vu au générique de fin** : un réglage pour compter l'épisode comme vu dès le
+  début du générique, sans attendre la toute fin.
+- **Cliquer sur le temps du lecteur** copie le lien horodaté.
+- **Pastille de volume** : le niveau s'affiche dès le survol de l'icône.
+
+### Modifié
+- **Saut d'intro / d'outro sur beaucoup plus d'épisodes** : une cascade de
+  replis prend le relais quand un lecteur ne répond pas, les épisodes en
+  plusieurs parties sont gérés, et une détection ratée est réessayée au lieu
+  d'être définitive.
+- **Site encore plus léger** : ~46 ko de JavaScript en moins sur chaque page,
+  jaquettes servies à la bonne taille dans les grilles, plusieurs pages passées
+  en statique, onglets de la fiche chargés au clic, et une barre de navigation
+  qui ne se recalcule plus à chaque image pendant le défilement.
+- **Vignettes du lecteur** : pré-chargement environ 10x plus rapide, plus de
+  case vide sur la barre, et l'aperçu suit enfin le curseur.
+- **Découverte** ne propose plus que des animes en cours de diffusion.
+- **Bandes-annonces bloquées dans votre pays** : elles sont masquées au lieu
+  d'afficher un lecteur en erreur.
+- **Bandeau d'accueil** : sa hauteur suit celle de la fenêtre, le logo officiel
+  de la série y est affiché, et survoler le rail d'affiches met la rotation en
+  pause.
+
+### Corrigé
+- **Films et hors-séries mal classés** : un film au milieu d'une chaîne, une
+  re-adaptation prise pour un film-résumé ou une préquelle n'entrent plus dans
+  le décompte des saisons.
+- **Numérotation décalée** sur les séries dont la première saison est une
+  préquelle.
+- **Vignettes d'épisode manquantes** : la liste en cache ignorait une de ses
+  sources pendant 30 jours.
+- **Le lecteur sibnet refonctionne.**
+- **Épisodes annoncés absents à tort** : un lecteur momentanément injoignable ne
+  prouve pas que l'épisode n'existe pas.
+- **Barre de navigation illisible** sur certaines bannières.
+- **La langue ne bascule plus** une fraction de seconde au chargement de la
+  page.
+- **Compte à rebours du prochain épisode** qui repartait à zéro tout seul.
+
 ## [v0.0.6] — Contrôles du lecteur, vraies vignettes d'épisode & rapidité (2026-08-03)
 
 ### Ajouté

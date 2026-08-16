@@ -86,6 +86,10 @@ type Stream = {
    *  no shared in-memory state with the extractor) can authenticate against
    *  cloudwindow-route. */
   voeCookie?: string | null;
+  /** The URL is a blob: we built in this document (the merged playlist of a
+   *  split episode). It must never be handed to the proxy or the download
+   *  Worker — they can't resolve a blob from another origin's memory. */
+  localFile?: boolean;
 };
 
 type Subtitle = {
@@ -107,8 +111,15 @@ export type UniversalStreamData = {
   /** Server hands the browser an embed URL to fetch itself, so the IP-bound
    *  master.m3u8 token is issued to the user's IP — segments then stream
    *  straight from the host CDN with no proxy. UniversalPlayer runs the
-   *  extractor on mount; if it fails, falls back to the iframe field. */
-  clientExtract?: { type: "vidmoly"; embedUrl: string };
+   *  extractor on mount; if it fails, falls back to the iframe field.
+   *
+   *  `vidmoly-multipart` is the same deal for an episode the host split across
+   *  several files (lib/multipartEpisodes.js): every part is extracted, then
+   *  their playlists are merged into ONE local blob playlist. Everything below
+   *  this component therefore sees a single stream of the full duration. */
+  clientExtract?:
+    | { type: "vidmoly"; embedUrl: string }
+    | { type: "vidmoly-multipart"; embedUrls: string[] };
 };
 
 type Props = {
@@ -262,6 +273,30 @@ const HLS_CONFIG_DIRECT = {
 // the episode is effectively done, so we'd rather start it (or the next one)
 // clean than drop the user onto the end card.
 const END_GUARD = 15;
+
+// An "ed" segment sitting in the first half of an episode is a mis-tagged
+// marker (recap, swapped op/ed), not the real ending — trusting it would
+// declare the episode watched a few minutes in.
+const OUTRO_MIN_FRACTION = 0.5;
+
+/**
+ * Start of the episode's ending (ED), or null when there's no usable one.
+ * Segments arrive already clamped/sanity-filtered from SkipOverlay; we only
+ * add the back-half guard above and take the earliest qualifying ED.
+ */
+function getOutroStart(
+  segments: Array<{ start: number; end: number; type: string }> | undefined,
+  duration: number,
+): number | null {
+  if (!segments?.length || !(duration > 0)) return null;
+  let best: number | null = null;
+  for (const s of segments) {
+    if (s.type !== "ed") continue;
+    if (s.start < duration * OUTRO_MIN_FRACTION) continue;
+    if (best == null || s.start < best) best = s.start;
+  }
+  return best;
+}
 
 function proxied(
   url: string,
@@ -1665,6 +1700,12 @@ export default function UniversalPlayer({
      mechanic Miruro uses (no overlay hacks, no DOM portaling). */
   const skipTimes: Array<{ start: number; end: number; type: string }> =
     watchCtx.skipTimes || [];
+  // Latest segments in a ref: the (episode-scoped) progress effect reads the ED
+  // start on every timeupdate and must not re-bind when the skip data lands.
+  const skipTimesRef = useRef(skipTimes);
+  useEffect(() => {
+    skipTimesRef.current = skipTimes;
+  }, [skipTimes]);
   // Real video duration drives the trailing "Episode" cue. We read
   // `useMediaState("duration")` (the value Vidstack uses for its own
   // seek bar — same denominator the chapter pills are scaled against)
@@ -2138,6 +2179,83 @@ export default function UniversalPlayer({
     playerEl.addEventListener("dblclick", onDblClick, { capture: true });
     return () =>
       playerEl.removeEventListener("dblclick", onDblClick, { capture: true });
+  }, [playerElState]);
+
+  // ── Click the time readout → copy the timestamped link ──
+  // Same action as the `copyTimestamp` shortcut, on the one bit of chrome that
+  // already shows the current time. Vidstack owns that markup (`.vds-time-group`
+  // is re-rendered on its own schedule), so we DELEGATE from the player root
+  // instead of binding the node: no re-binding when it re-renders, no observer.
+  // `pointerover` is where we stamp the affordance attributes (tooltip, role,
+  // focusability) — it can only fire on a node that exists, and it precedes any
+  // click. The hover styling itself lives in globals.css (`.vds-time-group`).
+  useEffect(() => {
+    const playerEl = playerElState;
+    if (!playerEl) return;
+    const label = t("shortcuts.actions.copyTimestamp");
+
+    const timeGroup = (e: Event) =>
+      (e.target as HTMLElement | null)?.closest<HTMLElement>(".vds-time-group") || null;
+
+    const onPointerOver = (e: Event) => {
+      const el = timeGroup(e);
+      if (!el || el.dataset.asCopyTs) return;
+      el.dataset.asCopyTs = "1";
+      el.setAttribute("role", "button");
+      el.setAttribute("tabindex", "0");
+      el.setAttribute("title", label);
+      el.setAttribute("aria-label", label);
+    };
+
+    const onClick = (e: Event) => {
+      if (!timeGroup(e)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      runActionRef.current?.("copyTimestamp");
+    };
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "Enter" && e.key !== " ") return;
+      if (!timeGroup(e)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      runActionRef.current?.("copyTimestamp");
+    };
+
+    playerEl.addEventListener("pointerover", onPointerOver);
+    playerEl.addEventListener("click", onClick);
+    playerEl.addEventListener("keydown", onKeyDown);
+    return () => {
+      playerEl.removeEventListener("pointerover", onPointerOver);
+      playerEl.removeEventListener("click", onClick);
+      playerEl.removeEventListener("keydown", onKeyDown);
+    };
+  }, [playerElState, t]);
+
+  // ── Volume bar: drop the focus a click leaves behind ──
+  // The bar is only meant to be open while you're pointing at it, but Vidstack
+  // expands it on `data-active` = dragging || focused || pointing. Setting the
+  // volume with the mouse focuses the slider, so `focused` stayed true and the
+  // bar never closed again. Blur on pointerup — the pointer is done with it by
+  // then, and keyboard users (who tab, never click) keep their focus ring.
+  useEffect(() => {
+    const playerEl = playerElState;
+    if (!playerEl) return;
+    const onPointerUp = (e: PointerEvent) => {
+      if (e.pointerType === "mouse" && e.button !== 0) return;
+      const slider = (e.target as HTMLElement | null)?.closest<HTMLElement>(
+        ".vds-volume-slider",
+      );
+      if (!slider) return;
+      // One frame later: Vidstack finishes its own pointerup work (which can
+      // re-focus the slider) before we take the focus away.
+      requestAnimationFrame(() => {
+        const active = document.activeElement as HTMLElement | null;
+        if (active && slider.contains(active)) active.blur();
+      });
+    };
+    playerEl.addEventListener("pointerup", onPointerUp);
+    return () => playerEl.removeEventListener("pointerup", onPointerUp);
   }, [playerElState]);
 
   // ── iOS native-player interception ──
@@ -2726,7 +2844,8 @@ export default function UniversalPlayer({
   // extractor module isn't shipped to users of every other server.
   useEffect(() => {
     const ce = streamData?.clientExtract;
-    if (!ce || ce.type !== "vidmoly") {
+    const multipart = ce?.type === "vidmoly-multipart";
+    if (!ce || (ce.type !== "vidmoly" && !multipart)) {
       setClientStatus("idle");
       setClientStream(null);
       return;
@@ -2734,42 +2853,62 @@ export default function UniversalPlayer({
     setClientStatus("pending");
     setClientStream(null);
     const ac = new AbortController();
+    // Blob playlists built by the multipart merge stay alive until revoked;
+    // this holds the revoker so the cleanup below can free them.
+    let revokeMerged: (() => void) | null = null;
     // Hard timeout: the browser fetch to vidmoly can hang on iOS (slow/blocked
     // CORS preflight with no fast rejection), leaving us stuck on "Loading…"
     // forever with no iframe fallback. After 6s we give up and mark the client
     // extraction failed so the iframe path takes over. We track the timeout
     // abort separately from the cleanup abort: only the former should flip to
     // "failed" (a cleanup abort means the component/source went away).
+    //
+    // A split episode does the same work once per part and then reads both
+    // playlists, so its budget scales with the part count instead of firing
+    // mid-merge on a connection that was going to make it.
     let timedOut = false;
+    const budget = multipart ? 6000 * ce.embedUrls.length : 6000;
     const timeout = setTimeout(() => {
       timedOut = true;
       ac.abort();
-    }, 6000);
+    }, budget);
     (async () => {
       try {
         const mod = await import("@/lib/clientVidmoly");
-        const res = await mod.extractVidmolyClient(ce.embedUrl, {
-          signal: ac.signal,
-        });
+        const res = multipart
+          ? await mod.extractVidmolyMultipartClient(ce.embedUrls, {
+              signal: ac.signal,
+            })
+          : await mod.extractVidmolyClient(ce.embedUrl, {
+              signal: ac.signal,
+            });
         // Timeout fired: the extractor resolves with {error:"aborted"} (it
         // swallows the AbortError internally), so we must flip to "failed"
         // HERE — before the generic aborted-guard below — or we'd stay stuck
         // on "pending" and never reach the iframe fallback.
         if (timedOut) {
           dwarn("[UniversalPlayer] client vidmoly timed out → iframe");
+          (res as any)?.revoke?.();
           setClientStatus("failed");
           return;
         }
         // Cleanup abort (unmount / source change): drop the result silently.
-        if (ac.signal.aborted) return;
+        if (ac.signal.aborted) {
+          (res as any)?.revoke?.();
+          return;
+        }
         clearTimeout(timeout);
         if (res.masterUrl) {
+          revokeMerged = (res as any).revoke ?? null;
           setClientStream({
             url: res.masterUrl,
             quality: "auto",
-            isM3U8: res.masterUrl.includes(".m3u8"),
-            // The URL is the raw CDN m3u8 — no extra wrapping needed.
+            // A merged playlist lives at a blob: URL, whose name says nothing
+            // about its content — assert HLS rather than sniffing for ".m3u8".
+            isM3U8: multipart || res.masterUrl.includes(".m3u8"),
+            // The URL is the raw CDN m3u8 (or our own blob) — no wrapping.
             directUrl: true,
+            localFile: multipart,
           });
           setClientStatus("ok");
         } else {
@@ -2796,6 +2935,7 @@ export default function UniversalPlayer({
     return () => {
       clearTimeout(timeout);
       ac.abort();
+      revokeMerged?.();
     };
   }, [streamData]);
 
@@ -2908,8 +3048,8 @@ export default function UniversalPlayer({
     let lastSavedAt = 0;
     let resumeApplied = false;
     // Fire the "episode counts as watched" callback at most once per mount —
-    // either when playback crosses the Sync Threshold (e.g. 80%) or on the
-    // natural end, whichever comes first.
+    // when the ending (ED) starts, or, without ED data, when playback crosses
+    // the Sync Threshold (e.g. 80%) / reaches the natural end.
     let completeFired = false;
     const fireComplete = () => {
       if (completeFired) return;
@@ -2955,12 +3095,19 @@ export default function UniversalPlayer({
       // Count toward the watch streak once the user has genuinely watched a bit
       // (≥2 min) — more reliable than waiting for a full finish. Idempotent/day.
       if (video.currentTime >= 120) recordWatchToday();
-      // Sync Threshold: count the episode as watched once playback passes the
-      // configured fraction (default 80%), without waiting for the very end.
+      // "Watched" trigger. Preferred signal: the ENDING itself — once the ED
+      // starts the episode's story is over, so it counts as finished there
+      // (credits + next-episode preview don't need watching). Only when no ED
+      // is known for this episode do we fall back to the configured Sync
+      // Threshold fraction (default 80%).
       const dur = video.duration || 0;
       if (!completeFired && dur > 0) {
-        const threshold = getSyncPrefs().syncThreshold;
-        if (video.currentTime / dur >= threshold) fireComplete();
+        const outroStart = getOutroStart(skipTimesRef.current, dur);
+        if (outroStart != null) {
+          if (video.currentTime >= outroStart) fireComplete();
+        } else if (video.currentTime / dur >= getSyncPrefs().syncThreshold) {
+          fireComplete();
+        }
       }
     };
 
@@ -3696,7 +3843,7 @@ export default function UniversalPlayer({
     // clientExtract source becomes a real <video> once extraction succeeds, so
     // it must NOT be treated as a pure iframe here.
     const wantsClientExtractAP =
-      streamData?.clientExtract?.type === "vidmoly" && clientStatus !== "failed";
+      !!streamData?.clientExtract && clientStatus !== "failed";
     const isIframeSource = !wantsClientExtractAP && !!streamData?.iframe;
     if (isIframeSource) return;
 
@@ -4028,7 +4175,7 @@ export default function UniversalPlayer({
   // has fired; `pending` while it's fetching; `ok` once we have the URL.
   // Only `failed` falls through to the iframe.
   const wantsClientExtract =
-    streamData?.clientExtract?.type === "vidmoly" && clientStatus !== "failed";
+    !!streamData?.clientExtract && clientStatus !== "failed";
 
   const bestStream = wantsClientExtract
     ? clientStatus === "ok"
@@ -4058,7 +4205,10 @@ export default function UniversalPlayer({
     // Vidmoly is anti-embed for non-whitelisted domains. Sending no referer
     // sometimes bypasses the check; sandbox grants the JS-redirect chain
     // permissions to actually load the player.
-    const isVidmoly = /vidmoly\.(to|biz|net)/i.test(iframeSrc);
+    // …including the white-label domains of the same backend (ansembed for
+    // anime-sama, voembed for voir-anime's myTV panel) — they embed-gate the
+    // same way, so they need the same no-referrer treatment.
+    const isVidmoly = /(vidmoly\.(to|biz|net)|ansembed\.net|voembed\.net)/i.test(iframeSrc);
     return (
       <div
         className={`relative h-full w-full${
@@ -4141,7 +4291,13 @@ export default function UniversalPlayer({
   // Otherwise we fall back to the in-tree Vercel endpoints — these still
   // work but eat Fast Origin Transfer like before.
   const proxyConfigured = PROXY_BASE !== "/api/v2/proxy/m3u8";
-  const downloadUrl = proxyConfigured
+  // A merged split episode is already a local blob playlist whose segment URIs
+  // are absolute CDN URLs, so the blob IS the download: handing it to the
+  // Worker instead would ask it to fetch a blob: URL that only exists in this
+  // tab. Opened in VLC/mpv/ffmpeg it plays the whole episode, both parts.
+  const downloadUrl = bestStream!.localFile
+    ? innerUrl
+    : proxyConfigured
     ? `${PROXY_BASE}?url=${encodeURIComponent(innerUrl)}` +
       `&dl=1&filename=${encodeURIComponent(safeName + "." + ext)}` +
       (refererParam ? `&referer=${encodeURIComponent(refererParam)}` : "") +
@@ -4491,9 +4647,12 @@ export default function UniversalPlayer({
         ref={playerRef}
         // Note: overflow-visible (not hidden) so portaled menus (subtitles
         // settings, etc.) can extend slightly past the bottom edge of the
-        // player without being clipped. The bg-black still draws the player
-        // box; only stray child elements can now overflow.
-        className="vds-player relative z-10 h-full w-full overflow-visible bg-black"
+        // player without being clipped.
+        //
+        // No bg-black here, deliberately — see the `.vds-player` background
+        // rule in globals.css. The picture already paints its own black box;
+        // a second one behind it only showed through the rounded corners.
+        className="vds-player relative z-10 h-full w-full overflow-visible"
         src={playerSrc}
         // Bigger buffers + fast-fail segment loading so seeking lands in
         // already-buffered data instead of a slow proxy→CDN round-trip.
@@ -4810,7 +4969,16 @@ export default function UniversalPlayer({
           Playback of these stays direct & fast; they simply have no scrubber
           preview (same trade-off as sibnet). CORS streams (megaplay HLS) keep it. */}
       {!bestStream!.noCors && (
-        <HoverPreview playerRef={playerRef} src={src} isM3U8={isM3U8} />
+        <HoverPreview
+          playerRef={playerRef}
+          src={src}
+          isM3U8={isM3U8}
+          // Direct CDN (vidmoly & co): keep the preview on ONE decoder. Same
+          // reason warmAt() bails on these — concurrent hits are what trigger
+          // their ERR_EMPTY_RESPONSE cutoff, and killing playback to fill a
+          // thumbnail strip is a terrible trade.
+          direct={bestStream!.directUrl === true}
+        />
       )}
 
       {/* Big centred play button — the MANUAL start affordance, shown only when

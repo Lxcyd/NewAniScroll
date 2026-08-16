@@ -1,11 +1,12 @@
 import { rateLimiterRedis, redis } from "@/lib/redis";
 import * as cheerio from "cheerio";
-import { getExtractor, extractMegaplay } from "@/lib/extractors";
+import { getExtractor, extractMegaplay, VIDMOLY_HOST_RE } from "@/lib/extractors";
 import { getMediaMeta } from "@/lib/anilist/getMediaMeta";
 import { getPlayerMapEntry, upsertPlayerMap, flagPlayerMap } from "@/lib/db/playerMap";
 import { resolveSeasonNumber } from "@/lib/anilist/resolveSeason";
 import { resolveSeasonChain } from "@/lib/anilist/seasonChain";
 import { isRecapTitle } from "@/lib/anilist/seasonDetection";
+import { getEpisodeParts } from "@/lib/multipartEpisodes";
 
 /* Per-provider trace logger. Off by default â€” set DEBUG_SOURCE=1 in
    .env.local to see the chatty `[anime-sama]` / `[voiranime]` /
@@ -29,6 +30,22 @@ class TransientSourceError extends Error {
     super(message);
     this.name = "TransientSourceError";
     this.transient = true;
+  }
+}
+
+/* The opposite end of the same contract: an absence we PROVED, deterministically
+   — the host itself answered 404 for this upload (vidmoly's dead-slug probe,
+   verified HEAD 404 == GET 404). A plain `null` absence is only *probably* real:
+   it can be an anti-bot decoy, which is why the click path retries it three
+   times over 5.6 s and then refuses to publish it. Neither is worth doing to a
+   proven 404 — the retries are pure spinner time and the refusal to publish is
+   what made a dead chip come back on every reload (Clevatess S2 ep2 VF).
+   Carried to the client as `{ absent: true, hard: true }`. */
+class HardAbsenceError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "HardAbsenceError";
+    this.hardAbsent = true;
   }
 }
 
@@ -95,7 +112,15 @@ async function fetchViaWorker(targetUrl, options = {}, timeoutMs = 5000) {
 // multiple network perspectives and the browser fetch in the failing case.
 // Returns true when the slug is reachable, false when it's gone.
 async function isVidmolyEmbedAlive(embedUrl) {
-  const url = embedUrl.replace(/vidmoly\.(to|biz|net)/i, "vidmoly.biz");
+  // ansembed.net slugs are NOT mirrored on vidmoly.biz — they're the same
+  // backend but a distinct slug namespace, so rewriting the domain would probe
+  // a slug that never existed and 404, hiding a perfectly live chip. Probe
+  // ansembed on its own host; only the vidmoly.* variants are interchangeable.
+  // voembed.net (voir-anime's myTV panel) gets the same treatment: probe where
+  // the embed came from rather than betting on the mirror carrying the slug.
+  const url = /(ansembed|voembed)\.net/i.test(embedUrl)
+    ? embedUrl
+    : embedUrl.replace(/vidmoly\.(to|biz|net)/i, "vidmoly.biz");
   try {
     const res = await fetchWithTimeout(
       url,
@@ -175,6 +200,15 @@ const EXTRACTABLE_HOSTS = [
   // (both = Worker), the IP-bound master token stays valid end-to-end and
   // the user plays in the Universal Player without an iframe.
   "vidmoly",
+  // ansembed.net — same white-label vidmoly backend, so it is listed for the
+  // same reason "vidmoly" is: as a last-resort net. In practice neither is
+  // reached from the anime-sama / voir-anime routes, because the VIDMOLY_HOST_RE
+  // branch above returns a `clientExtract` first. That is deliberate — this
+  // family's master token binds to whoever fetched the embed, so extracting it
+  // HERE yields a stream only our own IP can play.
+  "ansembed",
+  // voembed.net — voir-anime's white-label of the same backend; same reason.
+  "voembed",
   "embed4me",
   "lpayer",        // lpayer.embed4me.com
   "smoothpre",     // hls2 CDN bypass (was TikTok-trapped via /stream/ path)
@@ -554,7 +588,14 @@ const ANIMESAMA_SERVERS = {
   // VF (French dub)
   "animesama-sibnet":       { name: "Sibnet",      preferred: ["sibnet.ru"],                              lang: "vf" },
   "animesama-sendvid":      { name: "Sendvid",     preferred: ["sendvid.com"],                            lang: "vf" },
-  "animesama-vidmoly":      { name: "Vidmoly",     preferred: ["vidmoly.to", "vidmoly.biz", "vidmoly.net"], lang: "vf" },
+  // Ansembed REPLACES anime-sama's old Vidmoly entry: the site migrated its
+  // vidmoly uploads to this white-label domain and no longer lists vidmoly.*
+  // on ANY panel (measured over 17 panels, 0 hits — while ansembed appears on
+  // 11 of 12, more often than sibnet). The old "animesama-vidmoly" server was
+  // therefore dead: it could never match an array, so it only ever cost a
+  // resolution attempt per episode. Voir-Anime's vidmoly is a DIFFERENT site
+  // with its own uploads and stays.
+  "animesama-ansembed":     { name: "Ansembed",    preferred: ["ansembed."],                              lang: "vf" },
   "animesama-embed4me":     { name: "Embed4Me",    preferred: ["embed4me.com", "lpayer"],                 lang: "vf" },
   "animesama-callistanise": { name: "Player",      preferred: ["callistanise.com", "dingtezuni.com", "movearnpre.com"], lang: "vf" },
   // Fallback only — uqload's stream token is IP/single-use-bound (a concurrent
@@ -564,7 +605,7 @@ const ANIMESAMA_SERVERS = {
   // VOSTFR (Japanese + French subs)
   "animesama-sibnet-vo":       { name: "Sibnet",      preferred: ["sibnet.ru"],                              lang: "vostfr" },
   "animesama-sendvid-vo":      { name: "Sendvid",     preferred: ["sendvid.com"],                            lang: "vostfr" },
-  "animesama-vidmoly-vo":      { name: "Vidmoly",     preferred: ["vidmoly.to", "vidmoly.biz", "vidmoly.net"], lang: "vostfr" },
+  "animesama-ansembed-vo":     { name: "Ansembed",    preferred: ["ansembed."],                              lang: "vostfr" },
   "animesama-embed4me-vo":     { name: "Embed4Me",    preferred: ["embed4me.com", "lpayer"],                 lang: "vostfr" },
   "animesama-callistanise-vo": { name: "Player",      preferred: ["callistanise.com", "dingtezuni.com", "movearnpre.com"], lang: "vostfr" },
   "animesama-uqload-vo":       { name: "Uqload",      preferred: ["uqload."],                                lang: "vostfr" },
@@ -655,7 +696,21 @@ async function getAnimeSamaIframe(serverKey, title, episode, aniId) {
     // the heuristic path re-derives the correct panel. Films/OAV dirs (non
     // "saisonN") are exempt — their "season" isn't a number.
     let mapPanelCoherent = true;
-    if (mapRow?.seasonDir && /^saison/i.test(mapRow.seasonDir)) {
+    // A hors-série / recap panel is never the answer to an episode request, and
+    // the numeric check below CANNOT catch it: `/saison\s*(\d+)/` reads
+    // "saison1hs" as season 1, exactly like "saison1", so the row looked
+    // coherent and the fast path served an 11:40 recap for Bungou Stray Dogs
+    // S1 ep1. The heuristic path has always excluded these panels
+    // (`isSideStory`); this path simply never did.
+    if (
+      mapRow?.seasonDir &&
+      isSideStoryDir(mapRow.seasonDir, null) &&
+      !(mapRow.note || "").includes(HS_BY_YEAR)
+    ) {
+      dlog(`[anime-sama] player_map ${mapRow.seasonDir} is a side-story panel — ignoring poisoned row`);
+      flagPlayerMap(aniId, "animesama", langPath, `side-story dir: ${mapRow.seasonDir}`).catch(() => {});
+      mapPanelCoherent = false;
+    } else if (mapRow?.seasonDir && /^saison/i.test(mapRow.seasonDir)) {
       const dirSeason = Number((mapRow.seasonDir.match(/saison\s*(\d+)/i) || [])[1] || 1);
       const expectedSeason = await detectSeasonNumber(aniId);
       if (dirSeason !== expectedSeason) {
@@ -905,7 +960,13 @@ async function resolveAnimeSamaHeuristically(
                 epOffset: useIndex - episodeIndex,
                 episodeCount: canonicalLen,
                 animeStatus: meta?.status ?? null,
-                note: "runtime resolution",
+                // Stamp the one case where a `saison*hs` panel is legitimate —
+                // see HS_BY_YEAR. Without it the row we are writing here would
+                // be rejected as poisoned on the very next request.
+                note:
+                  targetSeason === yearMatchedSeason && isSideStoryDir(targetSeason.dir, null)
+                    ? `runtime resolution (${HS_BY_YEAR} ${aniYear})`
+                    : "runtime resolution",
               }).catch(() => {});
             }
           }
@@ -1029,7 +1090,12 @@ async function finalizeAnimeSamaIframe(serverKey, serverDef, iframeUrl) {
     // Origin in Access-Control-Allow-Origin (verified), so the browser fetch
     // succeeds. If client extraction fails (CORS on the CDN, no source in
     // HTML, etc.), UniversalPlayer falls back to the iframe.
-    if (lower.includes("vidmoly")) {
+    // VIDMOLY_HOST_RE, not `includes("vidmoly")`: ansembed.net is the same
+    // backend with the same IP-bound token, so it needs the same
+    // browser-side extraction. Matching on the literal string sent it to the
+    // server-side extractor instead, which either failed (→ raw JW iframe) or
+    // "succeeded" with a token bound to our IP that 410s on every segment.
+    if (VIDMOLY_HOST_RE.test(lower)) {
       // Aniwsama tends to keep dead vidmoly slugs in its catalogue for weeks
       // after the file is deleted. Probe before serving the chip so a dead
       // slug yields "server unavailable" instead of vidmoly's own 404 page.
@@ -1058,6 +1124,19 @@ async function finalizeAnimeSamaIframe(serverKey, serverDef, iframeUrl) {
         return result;
       }
       dlog(`[anime-sama] Extraction failed for ${serverKey}: ${result.error}`);
+      /* An extractor that never reached the embed knows NOTHING about this
+         episode, so it must not be allowed to publish an absence. Returning
+         null below is a claim ("no source here") that the client caches for 6h;
+         a transport refusal is not evidence for that claim, it is the absence
+         of evidence. Throwing hands the handler a 503 → the chip reads `retry`,
+         and the next visitor asks again instead of inheriting our bad luck.
+         This is the same contract the catalogue/detail-page fetches already
+         follow — see TransientSourceError at the top of this file. */
+      if (result.transient) {
+        throw new TransientSourceError(
+          `${serverKey}: ${result.error || "embed unreachable"}`,
+        );
+      }
       // Sibnet + Sendvid X-Frame-Options DENY → an iframe fallback is a dead
       // "refused to connect" page, so hide the chip instead of degrading it.
       // uqload: same outcome for a different reason — its embed is Referer-gated
@@ -1067,6 +1146,10 @@ async function finalizeAnimeSamaIframe(serverKey, serverDef, iframeUrl) {
     }
     return { iframe: iframeUrl, degraded: true, reason: "extraction failed" };
   } catch (e) {
+    // Rethrow, don't swallow: this catch turns any throw into "no source", which
+    // would undo the transient classification a few lines up the moment it was
+    // made. Only genuinely unknown errors become an absence.
+    if (e instanceof TransientSourceError) throw e;
     console.error(`anime-sama ${serverKey} error:`, e.message);
     return null;
   }
@@ -1517,6 +1600,29 @@ async function findAnimeSamaSlug(title, aniId, mediaOpts = {}) {
     }
   }
 
+  /*
+   * Also search the FRANCHISE name — everything before the colon.
+   *
+   * anime-sama's catalogue search does not cope with a full subtitled title.
+   * Measured 2026-08-10 on AniList 177699:
+   *
+   *   "Koukaku Kidoutai: THE GHOST IN THE SHELL"  (romaji)  → no results
+   *   "THE GHOST IN THE SHELL"                    (english) → no results
+   *   "Koukaku Kidoutai"                                    → ghost-in-the-shell
+   *
+   * Every query we had was one of the first two, so the slug came back null and
+   * the title had no anime-sama player at all — while the catalogue carried it,
+   * with four hosts. `stripSeason` doesn't help: this is a subtitle, not a
+   * season marker. The 4-character floor keeps a stray prefix ("Re:", "K:")
+   * from turning into a search for nothing in particular.
+   */
+  for (const q of [...queries]) {
+    const head = q?.split(/\s*[:：]/)[0]?.trim();
+    if (head && head.length >= 4 && head !== q && !queries.includes(head)) {
+      queries.push(head);
+    }
+  }
+
   // Build the set of titles we'll score candidates against. We don't strip
   // here â€” we want "Hanma Baki" to match "baki" via token overlap, not via
   // string equality.
@@ -1659,6 +1765,47 @@ async function findAnimeSamaSlug(title, aniId, mediaOpts = {}) {
  * later seasons ("Final Season") collapse onto saison1. Returns null when
  * nothing scores (caller falls back to ordinal/seasons[0]).
  */
+/**
+ * True for a "hors-série" / recap / log panel — anime-sama parks these under a
+ * `saison*hs` dir (or gives them a Log/Recap/Résumé label). They are NEVER the
+ * answer to a normal episode request.
+ *
+ * Module-level because BOTH resolution paths need it and only one had it. The
+ * player_map fast path checked season coherence with `/saison\s*(\d+)/`, which
+ * reads "saison1hs" as season 1 — identical to "saison1" — so a row pinned to
+ * the hors-série panel passed the guard and was served forever. Symptom:
+ * Bungou Stray Dogs S1 ep1 playing an 11:40 recap short instead of the 23:42
+ * episode, on the main-season URL.
+ */
+/**
+ * Marker written into a player_map note when a `saison*hs` panel was chosen
+ * because its label carries the AniList year — the one case where such a panel
+ * IS the answer.
+ *
+ * anime-sama parks two different things under `saison*hs`: recap/log shorts,
+ * and standalone hors-série SERIES that have their own AniList entry. The
+ * blanket refusal below is right for the first and wrong for the second, and
+ * the fast path cannot tell them apart on its own: it holds a dir name, not the
+ * catalogue page, so it has neither the label nor the year to judge by.
+ *
+ * The heuristic path does have both — `seasons[].year` is parsed from the label
+ * and matched against AniList's seasonYear, and that year match already
+ * outranks every other signal. So it decides, and records that it decided.
+ * A year in the label is a strong discriminator by construction: a recap panel
+ * is titled "One Piece Log…" or "… Recap", never "Ghost in the Shell (2026)".
+ *
+ * Found on AniList 177699 — anime-sama carries THE GHOST IN THE SHELL (2026)
+ * under `ghost-in-the-shell/saison1hs`, with four hosts, and we offered none of
+ * them. Without this marker the row the resolver writes back would be rejected
+ * and flagged as poisoned on the next request, then rewritten, forever.
+ */
+const HS_BY_YEAR = "hs panel matched by year";
+
+function isSideStoryDir(dir, label) {
+  return /hs$/i.test(dir || "") ||
+    /\b(log|recap|r[ée]sum[ée]|digest|special)\b/i.test(label || "");
+}
+
 function pickAnimeSamaSeason(seasons, aniTitles, seasonNum) {
   if (!Array.isArray(seasons) || seasons.length <= 1) return null;
   if (!aniTitles || aniTitles.length === 0) return null;
@@ -1680,8 +1827,7 @@ function pickAnimeSamaSeason(seasons, aniTitles, seasonNum) {
   // Saga"), so the plain title-overlap below would pick it over the real
   // "Saga 1 (East Blue)" panel (whose label shares no token with "One Piece").
   // Exclude them from selection entirely.
-  const isSideStory = (s) =>
-    /hs$/i.test(s.dir || "") || /\b(log|recap|r[ée]sum[ée]|digest|special)\b/i.test(s.label || "");
+  const isSideStory = (s) => isSideStoryDir(s.dir, s.label);
 
   // Case A — cleanly numbered panels and a detected season > 1: target the
   // matching "Saison N", clamping to the max so an overshooting seasonNum lands
@@ -1764,9 +1910,139 @@ const VOIRANIME_SERVERS = {
   // Vidmoly — voir-anime tends to carry fresher slugs than anime-sama (their
   // scrape rotates more often), so adding it gives us a separate uploader to
   // try when anime-sama's vidmoly URL is dead.
-  "voiranime-vidmoly":    { name: "Vidmoly", host: ["vidmoly.to", "vidmoly.biz", "vidmoly.net"], lang: "vf" },
-  "voiranime-vidmoly-vo": { name: "Vidmoly", host: ["vidmoly.to", "vidmoly.biz", "vidmoly.net"], lang: "vostfr" },
+  //
+  // `voembed.net` is the SAME panel ("LECTEUR myTV"): since ~2026-08 voir-anime
+  // serves newly published episodes on that white-label domain and keeps
+  // vidmoly.biz only on the back catalogue (surveyed 2026-08-06: all 25 titles
+  // linked from the homepage were on voembed, 24/25 random verified back-cat
+  // slugs still on vidmoly.biz). Both must match or the migrated titles lose
+  // the chip entirely. Same backend, same encode → same `vidmoly-va` OP/ED
+  // fingerprint host, so lib/hostRegistry.js needs no new entry.
+  // `ansembed.net` is the THIRD domain of that same white-label network, and it
+  // was the only one of the three this list did not know: lib/extractors.js and
+  // lib/clientVidmoly.js both match it, and anime-sama has ansembed servers of
+  // its own. Added for consistency, not to fix an observed failure — surveyed
+  // 2026-08-10, voir-anime links voembed.net on the new titles and vidmoly.biz
+  // on the back catalogue, and none of the pages checked linked ansembed
+  // directly. If that changes, the chip keeps working instead of quietly
+  // resolving to nothing. Same backend, so no registry entry of its own.
+  "voiranime-vidmoly":    { name: "Vidmoly", host: ["vidmoly.to", "vidmoly.biz", "vidmoly.net", "voembed.net", "ansembed.net"], lang: "vf" },
+  "voiranime-vidmoly-vo": { name: "Vidmoly", host: ["vidmoly.to", "vidmoly.biz", "vidmoly.net", "voembed.net", "ansembed.net"], lang: "vostfr" },
 };
+
+/**
+ * How many episodes of this entry's own chain aired BEFORE it, when the site
+ * keeps them all on one page.
+ *
+ * voir-anime keeps one page per SEASON; AniList splits some seasons into parts
+ * with their own entries. "Shingeki no Kyojin: The Final Season Part 2" is
+ * entry #131681 with 12 episodes, but on voir-anime its first episode is number
+ * 17 of the season-4 page, behind the 16 of Part 1.
+ *
+ * That mattered more than it looks. The slug for Part 2 now resolves — the
+ * subtitle forms find the season-4 page — so the prequel FALLBACK never runs,
+ * and without this the resolver served page episode 3 for Part 2 episode 3:
+ * the wrong episode, silently, which is worse than the missing chip it
+ * replaced. Hayase's resolveSeason carries the offset whatever route found the
+ * media; ours has to do the same rather than treat it as a repair for failure.
+ */
+async function voiranimeChainOffset(aniId) {
+  let media = await getMediaMeta(aniId).catch(() => null);
+  let offset = 0;
+  for (let hop = 0; hop < MAX_PREQUEL_HOPS && media; hop += 1) {
+    const edge = (media.relations?.edges || []).find(
+      (e) => e?.relationType === "PREQUEL" && PREQUEL_FORMATS.has(e?.node?.format),
+    );
+    if (!edge?.node?.id) break;
+    const prev = await getMediaMeta(Number(edge.node.id)).catch(() => null);
+    if (!prev) break;
+    // Only entries the SITE would have merged onto one page count: a previous
+    // SEASON has its own page, a previous PART does not. We cannot see the
+    // site's grouping from here, so we stop at the first ancestor whose own
+    // title is not a part of the same season name.
+    if (!sharesSeasonName(media, prev)) break;
+    offset += Number(prev.episodes) || 0;
+    media = prev;
+  }
+  return offset;
+}
+
+/** True when two entries are parts of one season — same title up to "Part N". */
+function sharesSeasonName(a, b) {
+  const strip = (m) =>
+    (m?.title?.romaji || m?.title?.english || "")
+      .replace(/\s*(Part|Cour)\s*\d+\s*$/i, "")
+      .trim()
+      .toLowerCase();
+  const sa = strip(a);
+  const sb = strip(b);
+  return Boolean(sa) && sa === sb;
+}
+
+/**
+ * Walk the PREQUEL chain until a season that voir-anime actually has a page for,
+ * and shift the episode number by everything that came before.
+ *
+ * This is Hayase's `resolveSeason` (hayase-app/interface,
+ * src/lib/components/ui/player/resolver.ts) reduced to what voir-anime needs.
+ * The idea is theirs and it is the right one: a season is a NODE IN A CHAIN,
+ * not a number to be guessed out of a title. Their version walks PREQUEL edges
+ * accumulating each ancestor's episode count until the requested episode falls
+ * inside the current entry; ours stops as soon as a slug resolves, because the
+ * page — not the entry — is what carries the episodes.
+ *
+ * What it fixes: "Shingeki no Kyojin: The Final Season Part 2" has NO page of
+ * its own. Its episodes are the tail of the season-4 page, starting at 17,
+ * because voir-anime kept one page for a season AniList splits into parts. No
+ * slug pattern can find a page that does not exist — the only way through is to
+ * ask the prequel and carry the offset (16 episodes) along.
+ *
+ * `findEdge`'s format filter is Hayase's too, and load-bearing: an unfiltered
+ * PREQUEL walk wanders into recap films and OVAs, which have episode counts of
+ * their own and would poison the offset.
+ */
+// Reuses PREQUEL_FORMATS (declared above for the season walk) rather than
+// keeping a second, subtly different list — two definitions of "what counts as
+// a previous season" is how the two paths drift apart.
+const MAX_PREQUEL_HOPS = 4;
+
+async function voiranimePrequelChain(aniId, isVF, episode, trace = null) {
+  let media = await getMediaMeta(aniId).catch(() => null);
+  let offset = 0;
+
+  for (let hop = 0; hop < MAX_PREQUEL_HOPS; hop += 1) {
+    const edge = (media?.relations?.edges || []).find(
+      (e) => e?.relationType === "PREQUEL" && PREQUEL_FORMATS.has(e?.node?.format || ""),
+    );
+    if (!edge?.node?.id) return null;
+
+    const prevId = Number(edge.node.id);
+    media = await getMediaMeta(prevId).catch(() => null);
+    if (!media) return null;
+    // The offset is what the PREQUEL aired, not what we air. Adding our own
+    // count instead put Final Season Part 2 episode 1 at 13 (1 + our 12) rather
+    // than 17 (1 + the prequel's 16) — a number the page has, belonging to the
+    // previous part, so the mistake would have played the wrong episode rather
+    // than failing loudly. Hayase's resolveSeason accumulates the same way.
+    offset += Number(media?.episodes) || 0;
+
+    const prevSeason = await detectSeasonNumber(prevId);
+    const prevTitle = media.title?.romaji || media.title?.english || "";
+    const slug = await findVoiranimeSlug(prevTitle, prevId, isVF, prevSeason);
+    if (!slug) continue;
+
+    // The offset counts what came BEFORE us, so our episode 1 is the prequel's
+    // last + 1. Guard against a chain that would place us before its own start.
+    const shifted = episode + offset;
+    if (!Number.isFinite(shifted) || shifted < 1) return null;
+    if (trace) trace.prequelChain = { slug, offset, hop: hop + 1, viaId: prevId };
+    dlog(
+      `[voiranime] no page for ${aniId}; using prequel ${prevId} (${slug}) with ep ${episode} → ${shifted}`,
+    );
+    return { slug, episode: shifted };
+  }
+  return null;
+}
 
 async function getVoiranimeIframe(serverKey, title, episode, aniId, trace = null) {
   try {
@@ -1817,13 +2093,24 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId, trace = null
     }
 
     let slug = mappedSlug;
+    let viaPrequelOffset = 0;
     if (!slug) {
       const seasonNum = await detectSeasonNumber(aniId);
       slug = await findVoiranimeSlug(title, aniId, isVF, seasonNum);
       if (trace) trace.resolvedSlug = { seasonNum, slug };
       if (!slug) {
-        dlog(`[voiranime] No slug found for ${title} (${lang}, S${seasonNum})`);
-        return null;
+        // No page of its own — try the season it continues. See
+        // voiranimePrequelChain.
+        const viaPrequel = await voiranimePrequelChain(aniId, isVF, episode, trace);
+        if (viaPrequel) {
+          slug = viaPrequel.slug;
+          // It resolved the shift itself, so the offset below must not add a
+          // second one.
+          viaPrequelOffset = viaPrequel.episode - Number(episode);
+        } else {
+          dlog(`[voiranime] No slug found for ${title} (${lang}, S${seasonNum})`);
+          return null;
+        }
       }
     }
     if (trace) trace.finalSlug = slug;
@@ -1832,6 +2119,18 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId, trace = null
     // Fetch the anime detail page to get the full episode list.
     // Some Madara installs require the episode list via admin-ajax (chapters).
     let episodeUrl = null;
+    /*
+     * Shift into the page's numbering when this entry is a later PART of a
+     * season the site keeps on one page. Zero for everything else, so the
+     * ordinary case is untouched. See voiranimeChainOffset.
+     */
+    const chainOffset = viaPrequelOffset || (await voiranimeChainOffset(aniId));
+    const wantedEpisode = Number(episode) + chainOffset;
+    if (chainOffset > 0) {
+      dlog(`[voiranime] ${aniId} is a later part: ep ${episode} → ${wantedEpisode}`);
+      if (trace) trace.chainOffset = chainOffset;
+    }
+    let partUrls = null; // set only for a split episode — see partLetters below
 
     // Episode URLs may sit under the parent slug OR a short child-slug variant
     // (e.g. tokyo-ghoul-vf → tokyo-ghoul-vf-a) — see buildVoiranimeEpRegex.
@@ -1849,6 +2148,39 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId, trace = null
       `href=["'](${baseEsc}/anime/${slugEsc}(?:-[a-z0-9]{1,3})?/(?:film|movie|ova|oav|special)[^"']*/)["']`,
       "gi"
     );
+
+    // Split-episode opt-in (lib/multipartEpisodes.js). Restricted to the
+    // browser-extracted Vidmoly hosts: the two parts are stitched back together
+    // by merging their HLS playlists in the user's browser (lib/hlsMerge.js),
+    // which only works for a host we hand to the client as an embed URL. On any
+    // other host the lookup below stays the ordinary single-file one and simply
+    // finds nothing — a hidden chip, not a half episode.
+    const partLetters = serverDef.host.some((h) => h.startsWith("vidmoly"))
+      ? getEpisodeParts(aniId, "voiranime", lang, episode)
+      : null;
+    const partRegex = partLetters ? buildVoiranimeEpPartRegex(slug) : null;
+
+    /** The part URLs for `episode`, in playback order — or null if any is missing. */
+    const collectParts = (html) => {
+      const found = new Map();
+      let m;
+      partRegex.lastIndex = 0;
+      while ((m = partRegex.exec(html)) !== null) {
+        if (parseInt(m[2], 10) !== Number(episode)) continue;
+        const letter = m[3].toLowerCase();
+        if (!found.has(letter)) found.set(letter, m[1]);
+      }
+      const urls = partLetters.map((p) => found.get(p));
+      // All or nothing. Serving part A alone as "episode 1" would put every
+      // later timestamp — watch progress, OP/ED skips — half an hour out.
+      if (urls.some((u) => !u)) {
+        dlog(
+          `[voiranime] ep ${episode} parts incomplete: found ${[...found.keys()].join(",") || "none"}, need ${partLetters.join(",")}`,
+        );
+        return null;
+      }
+      return urls;
+    };
 
     const collectEpisodes = (html) => {
       const map = new Map();
@@ -1873,26 +2205,34 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId, trace = null
     // Try detail page scrape first. Routed via the CF Worker — voir-anime.to
     // 403s direct Vercel fetches (Cloudflare), same as anime-sama.
     let detailDead = false; // 4xx on a mapped slug = the mapping itself is gone
+    // …and the opposite: the detail page never gave a verdict (5xx/429/timeout).
+    // Tracked so a "no episode found" that's really "we never saw the list" is
+    // reported as retryable instead of a 6h absence.
+    let detailInconclusive = false;
     try {
       const detailRes = await fetchViaWorker(`${VOIRANIME_BASE}/anime/${slug}/`);
       if (detailRes.ok) {
         const html = await detailRes.text();
+        if (partLetters) partUrls = collectParts(html);
         const epMap = collectEpisodes(html);
-        if (epMap.has(Number(episode))) {
-          episodeUrl = epMap.get(Number(episode));
+        if (epMap.has(wantedEpisode)) {
+          episodeUrl = epMap.get(wantedEpisode);
         }
       } else if (detailRes.status >= 400 && detailRes.status < 500 && detailRes.status !== 429) {
         detailDead = true;
+      } else {
+        detailInconclusive = true;
       }
     } catch (e) {
       console.error(`[voiranime] detail fetch failed for ${slug}:`, e.message);
+      detailInconclusive = true;
     }
 
     // Fallback: try Madara AJAX chapters endpoint. This stays a DIRECT fetch:
     // the CF Worker only proxies GETs (it drops the method/body), so routing a
     // POST through it would silently become a GET and fail. Best-effort only —
     // the detail-page scrape above (via Worker) is the primary path.
-    if (!episodeUrl) {
+    if (!episodeUrl || (partLetters && !partUrls)) {
       try {
         const ajaxRes = await fetchWithTimeout(
           `${VOIRANIME_BASE}/wp-admin/admin-ajax.php`,
@@ -1907,13 +2247,19 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId, trace = null
         );
         if (ajaxRes.ok) {
           const html = await ajaxRes.text();
+          if (partLetters && !partUrls) partUrls = collectParts(html);
           const epMap = collectEpisodes(html);
-          if (epMap.has(Number(episode))) {
-            episodeUrl = epMap.get(Number(episode));
+          if (epMap.has(wantedEpisode)) {
+            episodeUrl = epMap.get(wantedEpisode);
           }
         }
       } catch {}
     }
+
+    // A split episode has no un-lettered URL of its own: the parts ARE the
+    // episode. Anchor the rest of the function (player_map write-back, the
+    // "not found" strike) on the first part so both shapes share one path.
+    if (partUrls) episodeUrl = partUrls[0];
 
     if (!episodeUrl) {
       // A mapped slug whose page 4xxes is a dead mapping (slug renamed /
@@ -1924,6 +2270,12 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId, trace = null
         flagPlayerMap(aniId, "voiranime", lang, "mapped slug page 4xx");
       }
       dlog(`[voiranime] Episode ${episode} not found in ${slug}`);
+      // "Not in the list" is only a verdict if we actually READ the list. When
+      // the detail page pushed back and the AJAX fallback didn't fill in either,
+      // we know nothing — retry rather than hide the chip for 6h.
+      if (detailInconclusive) {
+        throw new TransientSourceError(`voir-anime episode list unreachable for ${slug}`);
+      }
       return null;
     }
 
@@ -1944,45 +2296,36 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId, trace = null
       }).catch(() => {});
     }
 
-    // Fetch episode page and extract thisChapterSources. Via the Worker —
-    // voir-anime.to 403s direct Vercel fetches (Cloudflare).
-    const epRes = await fetchViaWorker(episodeUrl);
-    if (!epRes.ok) {
-      console.error(`[voiranime] ${serverKey} episode page ${epRes.status} for ${episodeUrl}`);
-      return null;
-    }
-    const epHtml = await epRes.text();
-
-    const sourcesMatch = epHtml.match(/thisChapterSources\s*=\s*({[\s\S]*?});/);
-    if (!sourcesMatch) {
-      dlog(`[voiranime] No thisChapterSources in ${episodeUrl}`);
-      return null;
-    }
-
-    let sources;
-    try {
-      sources = JSON.parse(sourcesMatch[1]);
-    } catch {
-      dlog(`[voiranime] Failed to parse thisChapterSources JSON`);
-      return null;
-    }
-
-    // Find the player whose iframe URL matches one of the host patterns
-    let iframeUrl = null;
-    for (const [_, iframeHtml] of Object.entries(sources)) {
-      const srcMatch = iframeHtml.match(/<iframe\s+src=["']([^"']+)["']/i);
-      if (!srcMatch) continue;
-      const url = srcMatch[1];
-      if (serverDef.host.some((h) => url.toLowerCase().includes(h.toLowerCase()))) {
-        iframeUrl = url;
-        break;
+    // ── Split episode: hand the browser BOTH embeds ───────────────────────
+    // The player extracts each one (binding each token to the user's IP, as
+    // usual) and merges the two HLS playlists into a single continuous stream,
+    // so nothing downstream of this point ever sees two files. Strictly all or
+    // nothing: one dead part means no chip, because a truncated episode would
+    // desynchronise the scrubber, the resume position and the OP/ED skips.
+    if (partUrls) {
+      const embeds = [];
+      for (const url of partUrls) {
+        const embed = await voiranimeEpisodeIframe(url, serverDef, serverKey);
+        if (!embed) {
+          dlog(`[voiranime] ep ${episode} part page has no ${serverDef.name} embed: ${url}`);
+          return null;
+        }
+        if (!(await isVidmolyEmbedAlive(embed))) {
+          dlog(`[voiranime] ep ${episode} part embed is dead — hiding chip: ${embed}`);
+          return null;
+        }
+        embeds.push(embed);
       }
+      dlog(`[voiranime] ep ${episode} resolved as ${embeds.length} parts on ${serverDef.name}`);
+      return {
+        clientExtract: { type: "vidmoly-multipart", embedUrls: embeds },
+        // Fallback only — an iframe can show one part, never the merged whole.
+        iframe: embeds[0],
+      };
     }
 
-    if (!iframeUrl) {
-      dlog(`[voiranime] Host ${serverDef.host[0]} not available for ${episodeUrl}`);
-      return null;
-    }
+    const iframeUrl = await voiranimeEpisodeIframe(episodeUrl, serverDef, serverKey);
+    if (!iframeUrl) return null;
 
     dlog(`[voiranime] Found ep ${episode} on ${serverDef.name}: ${iframeUrl}`);
 
@@ -2036,10 +2379,14 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId, trace = null
     // Vidmoly: same bypass as anime-sama — hand the embed URL to the browser
     // so the m3u8 token IP-binds to the user instead of any proxy. See the
     // commentary in getAnimeSamaIframe for the full rationale.
-    if (lower.includes("vidmoly")) {
+    if (VIDMOLY_HOST_RE.test(lower)) {
       if (!(await isVidmolyEmbedAlive(iframeUrl))) {
         dlog(`[voiranime] vidmoly slug 404 — hiding chip: ${iframeUrl}`);
-        return null;
+        // PROVEN gone: the probe only answers false on an explicit 404 (a network
+        // error returns true so we never punish a chip for our own hiccup). Say
+        // so, instead of returning the ambiguous null — the client then stops
+        // re-offering a chip that can only ever spin.
+        throw new HardAbsenceError(`vidmoly upload deleted: ${iframeUrl}`);
       }
       return {
         clientExtract: { type: "vidmoly", embedUrl: iframeUrl },
@@ -2064,10 +2411,82 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId, trace = null
       }
     }
     return { iframe: iframeUrl, degraded: true, reason: "extraction failed" };
-  } catch (e) {
-    console.error(`voiranime ${serverKey} error:`, e.message);
+  } catch (error) {
+    console.error(`voiranime ${serverKey} error:`, error.message);
+    // Was `return null` — which told the caller "this host genuinely has no
+    // source", so ONE worker hiccup / CF challenge / timeout got negative-cached
+    // (10 min) AND published into the 6h availability snapshot: the chip showed
+    // on the first load and was gone after a reload, for every visitor, until
+    // the TTL expired. Exactly the megaplay "disappeared after a reload" bug
+    // (see its retry-before-declaring-absent comment) — anime-sama already
+    // guards this way; voir-anime never did. A genuine absence always returns
+    // null from the paths above, so a THROW here is by definition transient —
+    // except the one absence we can PROVE, which travels as its own type.
+    if (error instanceof HardAbsenceError) throw error;
+    throw error instanceof TransientSourceError
+      ? error
+      : new TransientSourceError(error.message);
+  }
+}
+
+/**
+ * The host's iframe URL on one voir-anime episode page, or null.
+ *
+ * Split out of getVoiranimeIframe because a multi-part episode has to run it
+ * once PER PART (see lib/multipartEpisodes.js) — inlined, the two paths would
+ * have drifted apart the first time voir-anime changed its markup.
+ *
+ * null means ONE thing: the page loaded and this host is genuinely not on it.
+ * Everything else throws TransientSourceError — see the contract in
+ * getVoiranimeIframe's catch.
+ */
+async function voiranimeEpisodeIframe(episodeUrl, serverDef, serverKey) {
+  // Via the Worker — voir-anime.to 403s direct Vercel fetches (Cloudflare).
+  const epRes = await fetchViaWorker(episodeUrl);
+  if (!epRes.ok) {
+    console.error(`[voiranime] ${serverKey} episode page ${epRes.status} for ${episodeUrl}`);
+    // 5xx/429/403 = the Worker or Cloudflare pushed back — that is NOT a verdict
+    // on whether this host carries the episode. Same reasoning as
+    // voiranimeSlugExists's "unknown". A real 404/410 IS a verdict (the page is
+    // gone), so it stays a clean absence.
+    if (epRes.status >= 500 || epRes.status === 429 || epRes.status === 403) {
+      throw new TransientSourceError(
+        `voir-anime episode page ${epRes.status} for ${episodeUrl}`,
+      );
+    }
     return null;
   }
+  const epHtml = await epRes.text();
+
+  const sourcesMatch = epHtml.match(/thisChapterSources\s*=\s*({[\s\S]*?});/);
+  if (!sourcesMatch) {
+    dlog(`[voiranime] No thisChapterSources in ${episodeUrl}`);
+    // A real episode page ALWAYS carries this block. Its absence on a 200 means
+    // we got something else — an anti-bot interstitial, a truncated body, a
+    // theme change. Never broadcast that as "this host has no source".
+    throw new TransientSourceError(`voir-anime episode page has no player data: ${episodeUrl}`);
+  }
+
+  let sources;
+  try {
+    sources = JSON.parse(sourcesMatch[1]);
+  } catch {
+    dlog(`[voiranime] Failed to parse thisChapterSources JSON`);
+    throw new TransientSourceError(`voir-anime player data unparseable: ${episodeUrl}`);
+  }
+
+  // Find the player whose iframe URL matches one of the host patterns
+  for (const [_, iframeHtml] of Object.entries(sources)) {
+    const srcMatch = iframeHtml.match(/<iframe\s+src=["']([^"']+)["']/i);
+    if (!srcMatch) continue;
+    const url = srcMatch[1];
+    if (serverDef.host.some((h) => url.toLowerCase().includes(h.toLowerCase()))) {
+      return url;
+    }
+  }
+
+  dlog(`[voiranime] Host ${serverDef.host[0]} not available for ${episodeUrl}`);
+  return null;
 }
 
 /**
@@ -2088,6 +2507,28 @@ function buildVoiranimeEpRegex(slug) {
   const baseEsc = VOIRANIME_BASE.replace(/\./g, "\\.");
   return new RegExp(
     `href=["'](${baseEsc}/anime/${slugEsc}(?:-[a-z0-9]{1,3})?/[^"']+?-(\\d+)(?:-(?:vf|vostfr))?/)["']`,
+    "gi",
+  );
+}
+
+/**
+ * Same as buildVoiranimeEpRegex, but for the LETTERED episode URLs a split
+ * episode produces: `…/re-zero-…-01a-vf/` and `…-01b-vf/`.
+ *
+ * These are deliberately invisible to the ordinary episode regex — it anchors
+ * on `-<digits>` immediately before the trailing slash (or `-vf`), so `01a`
+ * never matches and a lettered URL can't be mistaken for episode 1. That's the
+ * property we want: only the callers that consulted lib/multipartEpisodes.js
+ * and got an opt-in ever look for these, so no other title can accidentally
+ * pick up a `-a`/`-b` page as a regular episode.
+ *
+ * Captures: [1] the URL, [2] the episode number, [3] the part letter.
+ */
+function buildVoiranimeEpPartRegex(slug) {
+  const slugEsc = slug.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
+  const baseEsc = VOIRANIME_BASE.replace(/\./g, "\\.");
+  return new RegExp(
+    `href=["'](${baseEsc}/anime/${slugEsc}(?:-[a-z0-9]{1,3})?/[^"']+?-(\\d+)([a-z])(?:-(?:vf|vostfr))?/)["']`,
     "gi",
   );
 }
@@ -2114,6 +2555,32 @@ function titleToSlug(title) {
  * punctuation is DROPPED (letters joined). Returns a de-duped array, primary
  * (hyphenated) form first. Cheap — used only to widen direct slug guessing.
  */
+/**
+ * The part of a title BEFORE its colon, slugified — "Shingeki no Kyojin: The
+ * Final Season" → "shingeki-no-kyojin". Null when there is no colon or the head
+ * is too short to identify a franchise.
+ */
+function headSlugOf(title) {
+  const idx = (title || "").search(/[:：]/);
+  if (idx < 0) return null;
+  const head = titleToSlug(title.slice(0, idx));
+  return head && head.length >= 3 ? head : null;
+}
+
+/**
+ * The part of a title that follows its colon, slugified — "Shingeki no Kyojin:
+ * The Final Season" → "the-final-season".
+ *
+ * Returns null when there is no subtitle, or when what follows the colon is too
+ * short to identify anything ("Re:Zero" must not yield "zero").
+ */
+function subtitleSlugOf(title) {
+  const idx = (title || "").search(/[:：]/);
+  if (idx < 0) return null;
+  const sub = titleToSlug(title.slice(idx + 1));
+  return sub && sub.length >= 4 ? sub : null;
+}
+
 function titleToSlugVariants(title) {
   const out = new Set();
   const add = (s) => { if (isUsableSlugBase(s)) out.add(s); };
@@ -2148,7 +2615,17 @@ function titleToSlugVariants(title) {
 function isUsableSlugBase(slug) {
   if (!slug) return false;
   const letters = slug.replace(/[^a-z]/gi, "");
-  return letters.length >= 3;
+  if (letters.length < 3) return false;
+  // …and the ≥3-letter floor is not enough on its own. A non-Latin synonym that
+  // happens to embed a Latin fragment survives it as pure boilerplate: AniList
+  // lists "ผ่าพิภพไททัน Final Season" for Attack on Titan, and titleToSlug
+  // reduces it to the bare word `final-season`. That passes the letter count
+  // and would be probed as a real anime slug, matching whatever unrelated page
+  // voir-anime happens to have there. Reject a base that is nothing BUT season
+  // boilerplate — it never identifies a title.
+  return !/^(?:the-)?(?:final-|\d+(?:st|nd|rd|th)-)?(?:season|saison|part|cour|act)(?:-\d+|-[ivx]+)?$/i.test(
+    slug,
+  );
 }
 
 // Quickly check if /anime/{slug}/ exists. Routed through the CF Worker because
@@ -2242,6 +2719,32 @@ async function findVoiranimeSlug(title, aniId, isVF, seasonNum, mediaOpts = {}) 
         ]) {
           slugCandidates.add(isVF ? `${form}-vf` : form);
         }
+        /*
+         * The number goes BETWEEN the base and the subtitle, not after it.
+         *
+         * Measured on voir-anime 2026-08-10, Attack on Titan season 4:
+         *   shingeki-no-kyojin-4-the-final-season-vf  200   ← the real page
+         *   shingeki-no-kyojin-4-vf                   404
+         *   shingeki-no-kyojin-s4-vf                  404
+         *   shingeki-no-kyojin-the-final-season-vf    404
+         * Not one of the forms above can reach it, and neither can the bare
+         * base: the site numbers the season AND keeps the subtitle. The four
+         * numbered forms only ever work for a title that has no subtitle
+         * (shingeki-no-kyojin-2, -3 are both 200), which is why this went
+         * unnoticed until a season whose name is its subtitle.
+         */
+        const sub = subtitleSlugOf(t);
+        // `base` is the slug of the WHOLE title, subtitle included, so it must
+        // not be reused here — pairing it with the subtitle again produced
+        // `shingeki-no-kyojin-the-final-season-4-the-final-season`. The head is
+        // what goes before the colon, and it is the only part the number
+        // attaches to.
+        const head = headSlugOf(t);
+        if (sub && head) {
+          for (const form of [`${head}-${seasonNum}-${sub}`, `${head}-${sub}`]) {
+            slugCandidates.add(isVF ? `${form}-vf` : form);
+          }
+        }
       }
     }
   }
@@ -2267,7 +2770,26 @@ async function findVoiranimeSlug(title, aniId, isVF, seasonNum, mediaOpts = {}) 
   // batches and taking the earliest-listed hit within each batch. A hard cap
   // bounds the total work.
   const ordered = Array.from(slugCandidates).slice(0, 16);
-  const BATCH = 4;
+  // BATCH was 4, which meant only the first EIGHT candidates were ever probed:
+  // each probe allows 3.5 s, batches run back-to-back, and the deadline check
+  // sits between them — so batch 1 ends at ~3.5 s, batch 2 at ~7 s, and batch 3
+  // is refused against the 6 s budget. Everything past position 8 was dead
+  // weight, including the bare base, which is deliberately ordered LAST.
+  //
+  // That is what made voir-anime look missing for anime it carries perfectly
+  // well. Measured on Ace of the Diamond act II (AniList 105749): the title
+  // already encodes its season, so the real page is the bare
+  // `diamond-no-ace-act-ii` (HTTP 200) sitting at position 10 — never reached,
+  // while the season-suffixed forms we did probe (…-s3, -3, -saison-3,
+  // -season-3) are all 404. Same shape for Attack on Titan S2, whose
+  // `shingeki-no-kyojin-2` sits at 13.
+  //
+  // These are I/O-bound Worker fetches, so 8 in flight costs the same
+  // wall-clock as 4. Doubling the batch covers all 16 candidates in two rounds
+  // (~7 s worst case, and the second round is admitted because it starts at
+  // ~3.5 s) WITHOUT touching the priority order — which matters, because that
+  // order is what stops a season ≥2 from falling back onto the season-1 page.
+  const BATCH = 8;
   let sawInconclusive = false;
   for (let i = 0; i < ordered.length; i += BATCH) {
     if (Date.now() > deadline) { sawInconclusive = true; break; } // out of budget
@@ -2353,6 +2875,15 @@ async function findVoiranimeSlug(title, aniId, isVF, seasonNum, mediaOpts = {}) 
   // probe was inconclusive (Worker/voir-anime 5xx/429/timeout): the slug might
   // be valid, so don't pin a permanent "missing" — let the next request retry.
   if (!sawInconclusive) voirSlugCache.set(cacheKey, null);
+  // The in-memory cache was already careful here, but the VERDICT still left as
+  // a bare null — so the caller reported a clean absence and the chip got buried
+  // in the 6h availability snapshot anyway. An inconclusive search is retryable,
+  // and saying so is the whole point of having tracked it.
+  if (sawInconclusive) {
+    throw new TransientSourceError(
+      `voir-anime slug search inconclusive for ${title} (S${seasonNum}, ${isVF ? "vf" : "vostfr"})`,
+    );
+  }
   return null;
 }
 
@@ -2530,7 +3061,18 @@ export async function inspectVoiranime(aniId, lang = "vostfr") {
     if (!title) return out;
 
     out.seasonNum = await detectSeasonNumber(aniId, RO);
-    const slug = await findVoiranimeSlug(title, aniId, isVF, out.seasonNum, RO);
+    let slug = await findVoiranimeSlug(title, aniId, isVF, out.seasonNum, RO);
+    if (!slug) {
+      // Mirror the player's prequel-chain fallback, or the audit reports
+      // "missing" for every entry the player can actually serve through its
+      // previous season — an instrument that disagrees with the thing it
+      // measures is worse than none.
+      const viaPrequel = await voiranimePrequelChain(aniId, isVF, 1);
+      if (viaPrequel) {
+        slug = viaPrequel.slug;
+        out.viaPrequel = { slug, episodeOffset: viaPrequel.episode - 1 };
+      }
+    }
     if (!slug) return out;
     out.slug = slug;
 
@@ -2667,6 +3209,13 @@ const SOURCE_CACHE_TTL_S = 300;
 // the TTL with no user-visible difference (the chip just stays grey until then).
 const SOURCE_NOTFOUND_TTL_S = 600;
 const NOT_FOUND_SENTINEL = '{"__nf":1}';
+// Same sentinel, plus "and we proved it" — so a cache hit (or a follower waiting
+// on the leader) answers with the same `hard` flag the scrape would have. Without
+// this the flag would survive exactly one request out of every ten minutes'
+// worth, which is the same as not having it.
+const HARD_NOT_FOUND_SENTINEL = '{"__nf":1,"hard":1}';
+const isNotFoundSentinel = (v) =>
+  v === NOT_FOUND_SENTINEL || v === HARD_NOT_FOUND_SENTINEL;
 
 // ── Single-flight lock ──────────────────────────────────────────────────
 // On a freshly-released popular episode the cache is cold and dozens of
@@ -2743,7 +3292,16 @@ function sourceCacheKey({ server, aniId, episode, sub }) {
   // every hit). Bumping the version orphans every v10 entry so the next
   // probe re-resolves from the (now-correct) resolver. See the season-cache
   // Redis->Turso migration + player_map purge for the upstream fix.
-  return `src:v11:${server}:${aniId}:${episode}:${sub || "sub"}`;
+  // v12: EVICT the absences recorded before the anime-sama slug fix. A title
+  // indexed under its franchise name (see the pre-colon query in
+  // findAnimeSamaSlug) resolved to nothing, and "nothing" is cached for 6 h
+  // like any other answer — so every host stayed missing on a build that could
+  // serve them, and the negative entry was rewritten on each probe. Bumping
+  // orphans the v11 absences so the next probe asks the fixed resolver.
+  // v13: same again for the voir-anime slug forms ({base}-{N}-{subtitle}).
+  // A resolver that reaches pages it could not reach before must not be read
+  // through absences recorded by the one that could not.
+  return `src:v13:${server}:${aniId}:${episode}:${sub || "sub"}`;
 }
 
 // ── Handler ─────────────────────────────────────────────────────────────
@@ -2805,9 +3363,12 @@ export default async function handler(req, res) {
   //   - POST → the original contract: 204 with soft404:true, hard 404 without,
   //     which the warmers and audit scripts still read.
   const wantsSoft404 = !isGet && req.body?.soft404 === true;
-  const notFoundStatus = (msg) =>
+  // `hard` = the absence was PROVEN (see HardAbsenceError), not merely observed.
+  // GET-only: the POST contract (warmers, audit scripts) has no use for it and
+  // its 204 carries no body anyway.
+  const notFoundStatus = (msg, { hard = false } = {}) =>
     isGet
-      ? res.status(200).json({ absent: true })
+      ? res.status(200).json(hard ? { absent: true, hard: true } : { absent: true })
       : wantsSoft404
       ? res.status(204).end()
       : res.status(404).json({ error: msg || "Source not found" });
@@ -2855,13 +3416,15 @@ export default async function handler(req, res) {
     try {
       const cached = await redis.get(cacheKey);
       if (cached) {
-        if (cached === NOT_FOUND_SENTINEL) {
+        if (isNotFoundSentinel(cached)) {
           // Negative cache hit — skip the expensive scrape entirely. This is
           // the main CPU win: ~half of probe fan-outs naturally 404, and a
           // popular episode would re-extract the same dead servers for every
           // visitor without this.
           cacheAbsent();
-          return notFoundStatus("Source not found");
+          return notFoundStatus("Source not found", {
+            hard: cached === HARD_NOT_FOUND_SENTINEL,
+          });
         }
         cacheFound();
         return res.status(200).json(JSON.parse(cached));
@@ -2904,9 +3467,11 @@ export default async function handler(req, res) {
     if (!isLeader) {
       const leaderResult = await waitForLeaderResult(cacheKey);
       if (leaderResult) {
-        if (leaderResult === NOT_FOUND_SENTINEL) {
+        if (isNotFoundSentinel(leaderResult)) {
           cacheAbsent();
-          return notFoundStatus("Source not found");
+          return notFoundStatus("Source not found", {
+            hard: leaderResult === HARD_NOT_FOUND_SENTINEL,
+          });
         }
         cacheFound();
         return res.status(200).json(JSON.parse(leaderResult));
@@ -2931,15 +3496,20 @@ export default async function handler(req, res) {
     return res.status(200).json(payload);
   };
 
-  const sendNotFound = (msg) => {
+  const sendNotFound = (msg, { hard = false } = {}) => {
     if (canCache) {
       const write = redis
-        .set(cacheKey, NOT_FOUND_SENTINEL, "EX", SOURCE_NOTFOUND_TTL_S)
+        .set(
+          cacheKey,
+          hard ? HARD_NOT_FOUND_SENTINEL : NOT_FOUND_SENTINEL,
+          "EX",
+          SOURCE_NOTFOUND_TTL_S,
+        )
         .catch(() => {});
       if (isLeader) write.finally(() => releaseScrapeLock(cacheKey));
     }
     cacheAbsent();
-    return notFoundStatus(msg);
+    return notFoundStatus(msg, { hard });
   };
 
   // A TRANSIENT resolve failure (upstream down/slow, anti-bot, timeout) — as
@@ -3074,6 +3644,7 @@ export default async function handler(req, res) {
       return { data: await fn() };
     } catch (error) {
       if (error instanceof TransientSourceError) return { retry: error.message };
+      if (error instanceof HardAbsenceError) return { hardAbsent: error.message };
       throw error; // a genuinely unexpected error keeps the outer 500 handling
     }
   };
@@ -3094,10 +3665,11 @@ export default async function handler(req, res) {
   if (VOIRANIME_SERVERS[server]) {
     const searchTitle = await resolveTitle();
     if (!searchTitle) return sendNotFound("Could not resolve anime title");
-    const { data, retry } = await resolveProvider(() =>
+    const { data, retry, hardAbsent } = await resolveProvider(() =>
       getVoiranimeIframe(server, searchTitle, episode, aniId),
     );
     if (retry) return sendRetryable(retry);
+    if (hardAbsent) return sendNotFound(hardAbsent, { hard: true });
     if (!data) return sendNotFound("Source not found");
     return sendOk(data);
   }

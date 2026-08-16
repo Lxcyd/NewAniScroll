@@ -37,7 +37,14 @@ No changes to fingerprint/matcher: `best_match` is already query↔reference.
 
 from __future__ import annotations
 
+import os
+import random
+import tempfile
+import threading
+import time as _time_mod
+import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -45,8 +52,9 @@ from . import SAMPLE_RATE
 from .animethemes import Theme
 from .audio import load_audio
 from .fingerprint import Fingerprint, fingerprint
-from .matcher import Match, best_match
+from .matcher import Match, best_match, best_match_ranked
 from .refine import refine_edges_ref_anchored
+from . import validate
 from .video_fingerprint import (
     DENSE_FPS,
     DENSE_HALF_WINDOW_S,
@@ -220,6 +228,46 @@ class ThemeHit:
     # delivered t0 fell back to the coarse AUDIO locate — still shipped (no gap),
     # but flagged low-confidence for multi-host reconciliation.
     low_confidence: bool = False
+    # ── false-positive instrumentation (see oped/validate.py) ────────────────
+    # How contested the winning audio offset was: votes of the strongest RIVAL
+    # placement / votes of the winner (matcher.best_match_ranked). 0.0 = the peak
+    # stood alone. A high value on an audio-sourced hit means the same song
+    # matched somewhere else in the window too (reprise, insert song, preview).
+    peak_margin: float = 0.0
+    # Fill gap between the winning THEME and the best runner-up of a DIFFERENT
+    # slug (OP1 vs OP2 — not versions of the same theme, which are near-identical
+    # audio). None when there was no cross-theme competition. Small = we cannot
+    # tell which theme plays here, and their lengths differ.
+    theme_margin: float | None = None
+    # |image t0 − audio t0| when BOTH signals produced an anchor. None when only
+    # one ran. Large = the two located different events (validate.AV_DIVERGENCE_S).
+    av_delta: float | None = None
+    # What the image aligner concluded: "ok" (anchored, gates cleared, it owns
+    # the t0), "rejected" (it ran but fell below the gates → audio t0 kept),
+    # "absent" (no video resolver / no landmarks / decode failed → no opinion).
+    # "rejected" and "absent" both mean audio-only, but only "rejected" is
+    # evidence AGAINST the hit.
+    align_status: str = "absent"
+    # True when the reference was DERIVED from the series itself (episode↔episode
+    # self-matching, oped/self_ref.py) instead of an AnimeThemes clip. Nothing
+    # vouches that the segment is the OP/ED, so these are held until the
+    # intra-season pass confirms them across the season.
+    derived: bool = False
+    # True when the theme was found ONLY by the last-resort whole-episode scan,
+    # its mapped window and wide fallback having both come up empty (Erased ep1
+    # ends on the OPENING song, at 1281 s). Un fait de PROVENANCE, pas une
+    # anomalie dérivée : `validate.annotate` réécrit `anomalies` en bloc et
+    # effacerait le marqueur — c'est ce qui est arrivé à la première version.
+    out_of_window: bool = False
+    # Retrouvé lors de la passe d'amorçage : un pair avait trouvé le thème, on a
+    # rouvert une fenêtre étroite autour de son timing et CET hôte l'a confirmé
+    # sur son PROPRE audio. Ce n'est donc pas un timing recopié — l'accord reste
+    # gagné — mais la région n'a pas été choisie indépendamment, et un lecteur de
+    # la table doit pouvoir le savoir.
+    seeded_by_peer: bool = False
+    # Plausibility reasons from oped/validate.py (empty = clean). Those in
+    # validate.BLOCKING hold the hit back from being served.
+    anomalies: list = field(default_factory=list)
 
 
 def _window_tag(window: tuple[float | None, float | None] | None) -> str:
@@ -282,6 +330,122 @@ def cached_fingerprint(
     return fp, dur
 
 
+# ── animethemes.moe politeness ───────────────────────────────────────────────
+# v.animethemes.moe is one small origin, and the reference fetch fans out
+# MULTIPLICATIVELY with nothing bounding it: batch_detect runs N anime at once
+# (--workers 16), detect_anime opens one thread PER THEME, and build_references
+# opens one PER VERSION. On the 15-anime audit that is ~120 concurrent pulls at
+# a single host, which rate-limits — and the 3 short retries below then ran out
+# and the reference was dropped SILENTLY (`if fp is None: return None`).
+#
+# Measured consequence: vinland-saga and dororo (2 of 15 anime, 13%) lost EVERY
+# OP/ED reference and fell back to the F1 self-derived path. From the outside
+# that looked like "no host found the OP on any episode" — a detector failure —
+# when the reference had simply never been downloaded. Both URLs fetch and
+# fingerprint fine in isolation (90.0 s / 10162 hashes), which is what proved
+# the failure was contention, not a dead link.
+_ANIMETHEMES_MAX_CONCURRENCY = 4
+_ANIMETHEMES_SEM = threading.BoundedSemaphore(_ANIMETHEMES_MAX_CONCURRENCY)
+
+
+def _is_animethemes(url: str | None) -> bool:
+    return "animethemes.moe" in (url or "")
+
+
+@contextmanager
+def animethemes_slot(url: str | None):
+    """Serialise pulls against animethemes.moe to _ANIMETHEMES_MAX_CONCURRENCY.
+
+    Process-wide, so it bounds the product of every fan-out layer above it. A
+    no-op for any other host — episode CDNs have their own AIMD limiter and must
+    not be slowed by this one.
+    """
+    if not _is_animethemes(url):
+        yield
+        return
+    _ANIMETHEMES_SEM.acquire()
+    try:
+        yield
+    finally:
+        _ANIMETHEMES_SEM.release()
+
+
+@contextmanager
+def materialized_clip(url: str | None):
+    """Fetch a reference clip ONCE and yield a local path (or the URL on failure).
+
+    What this buys is REQUEST COUNT, not bytes and not wall time. Measured on a
+    quiet origin, the local route is if anything marginally slower per reference
+    (17.2 s vs 16.2 s for download+2fps+native): ffmpeg streams selectively and
+    does not pull the whole 66 MB clip, so "download once instead of three
+    times" is NOT a 3x saving in bytes — an earlier version of this comment
+    claimed that and was wrong.
+
+    The problem it actually solves: ffmpeg streaming a webm issues DOZENS of
+    HTTP range requests per pass, and every reference ran three such passes
+    (audio fp, 2fps keyframes, native decode — the last two on the same clip).
+    animethemes.moe rate-limits on request RATE, so a handful of concurrent
+    ffmpeg pulls trips it even though the concurrency itself is modest. Measured
+    during a batch: 8/8 probes refused with 503 in 0.15 s. With the batch
+    stopped, the same origin served a full clip in 4.8 s and four concurrent
+    range requests in ~1.5 s each — the limiter was reacting to us. One plain
+    streaming GET per clip collapses that request storm to a single request.
+
+    Byte-for-byte identical input, so every fingerprint produced is unchanged:
+    this trades a little per-reference latency for not being throttled.
+
+    The file is deleted on exit rather than kept: a full backfill would pile up
+    tens of GB of clips for nothing, since the derived `.fp.npz`/`.vfp.npz`
+    caches already make a re-run download-free. On any download failure it
+    yields the original URL, so behaviour degrades to exactly what it was.
+    """
+    if not _is_animethemes(url):
+        yield url
+        return
+    tmp = None
+    try:
+        import requests as _rq
+        suffix = Path(urllib.parse.urlparse(url).path).suffix or ".webm"
+        fd, tmp = tempfile.mkstemp(prefix="animethemes_", suffix=suffix)
+        with os.fdopen(fd, "wb") as fh:
+            with _rq.get(url, stream=True, timeout=120) as resp:
+                resp.raise_for_status()
+                for chunk in resp.iter_content(1 << 20):
+                    fh.write(chunk)
+        if os.path.getsize(tmp) <= 0:
+            raise OSError("empty download")
+        yield tmp
+        return
+    except Exception:
+        if tmp and os.path.exists(tmp):
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            tmp = None
+        yield url            # fall back to streaming straight from the origin
+        return
+    finally:
+        if tmp and os.path.exists(tmp):
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+
+
+# Reference fetches that exhausted their retries, as (key, url, last error).
+# A run that loses references silently degrades to F1 without saying so, which
+# is exactly how the vinland/dororo gap went unnoticed — batch_detect prints
+# this at the end of a run.
+REFERENCE_FAILURES: list[tuple[str, str, str]] = []
+_FAILURES_LOCK = threading.Lock()
+
+
+def record_reference_failure(key: str, url: str, err: str) -> None:
+    with _FAILURES_LOCK:
+        REFERENCE_FAILURES.append((key, url, err))
+
+
 def _fp_cached(samples_key: str, url: str, cache_dir: Path, *,
                referer: str | None = None) -> tuple[Fingerprint, float]:
     """Whole-clip fingerprint cache used by `build_references` (reference
@@ -318,8 +482,30 @@ def _native_ref_ok(vfp: VideoFingerprint) -> bool:
 # many others against animethemes.moe and a rate-limit/reset yields a truncated
 # decode. It's a one-time cached cost, so retry a couple of times with a short
 # backoff before giving up (then the ref degrades to audio-only anchoring).
-_NATIVE_REF_RETRIES = 3
+#
+# Raised from 3 to 6 with EXPONENTIAL backoff + jitter (was a flat 2 s/4 s).
+# Under the contention described at _ANIMETHEMES_MAX_CONCURRENCY, three quick
+# tries all landed inside the same rate-limit window and failed together —
+# retrying is only useful if it outlasts the limiter. Jitter stops the threads
+# that were throttled together from retrying in lockstep.
+_NATIVE_REF_RETRIES = 6
 _NATIVE_REF_BACKOFF_S = 2.0
+
+
+_NATIVE_REF_BACKOFF_MAX_S = 12.0
+
+
+def _retry_sleep(attempt: int) -> None:
+    """Exponential backoff with jitter, CAPPED: ~2, 4, 8, 12, 12 s (+/-25%).
+
+    Uncapped doubling (…16, 32) made every lost reference cost a full minute of
+    sleeping, which is how a run spent 23 minutes producing zero episodes once
+    the origin started refusing. The cap keeps retries patient enough to outlast
+    a short throttle without turning a failure into a stall — the real pressure
+    relief is `materialized_clip` cutting the request rate, not longer waits.
+    """
+    delay = min(_NATIVE_REF_BACKOFF_S * (2 ** attempt), _NATIVE_REF_BACKOFF_MAX_S)
+    _time_mod.sleep(delay * random.uniform(0.75, 1.25))
 
 # A full-clip native decode is heavy and animethemes.moe rate-limits: when
 # build_references fans out every (theme, version) — and the caller fans THAT out
@@ -331,15 +517,30 @@ _NATIVE_REF_BACKOFF_S = 2.0
 _NATIVE_REF_LOCK = __import__("threading").Lock()
 
 
-def _decode_native_ref(url: str) -> VideoFingerprint | None:
-    """Native (fps=None) full-clip decode with a bounded retry, serialised across
-    threads (see `_NATIVE_REF_LOCK`). Returns a VideoFingerprint only when it
-    passes `_native_ref_ok`, else None."""
+def _decode_native_ref(src: str) -> VideoFingerprint | None:
+    """Native (fps=None) full-clip decode with a bounded retry. Returns a
+    VideoFingerprint only when it passes `_native_ref_ok`, else None.
+
+    The global lock applies ONLY to a remote animethemes source. Its whole
+    purpose was to keep simultaneous full-clip pulls off that origin — once the
+    caller has materialised the clip locally (`materialized_clip`), the decode
+    is pure local CPU and serialising it just throws away parallelism for no
+    protection. Retrying a local file is pointless too, so that collapses to a
+    single attempt.
+    """
     import time as _time
+    remote = _is_animethemes(src)
+    if not remote:
+        try:
+            vfp = keyframe_hashes_abs(src, 0.0, None, fps=None)
+        except Exception:
+            return None
+        return vfp if _native_ref_ok(vfp) else None
+
     with _NATIVE_REF_LOCK:
         for attempt in range(_NATIVE_REF_RETRIES):
             try:
-                vfp = keyframe_hashes_abs(url, 0.0, None, fps=None)
+                vfp = keyframe_hashes_abs(src, 0.0, None, fps=None)
             except Exception:
                 vfp = None
             if _native_ref_ok(vfp):
@@ -395,14 +596,25 @@ def build_references(
         # (a theme usually has a usable version; a per-episode-ED series has many).
         # Bounded retry first, since a 5XX is often transient under concurrency.
         fp = dur = None
+        last_err = ""
         for attempt in range(_NATIVE_REF_RETRIES):
             try:
-                fp, dur = _fp_cached(key, entry.video_url, cache_dir)
+                with animethemes_slot(entry.video_url):
+                    with materialized_clip(entry.video_url) as audio_src:
+                        fp, dur = _fp_cached(key, audio_src, cache_dir)
                 break
-            except Exception:
+            except Exception as exc:
+                last_err = f"{type(exc).__name__}: {exc}"
                 if attempt < _NATIVE_REF_RETRIES - 1:
-                    __import__("time").sleep(_NATIVE_REF_BACKOFF_S * (attempt + 1))
+                    _retry_sleep(attempt)
         if fp is None:
+            # NEVER silent. Losing a reference degrades the anime to the F1
+            # self-derived path, which then looks like a detection failure on
+            # every host — see _ANIMETHEMES_MAX_CONCURRENCY for the case that
+            # cost 2 of 15 anime their OP without a single line of output.
+            print(f"  [theme] REFERENCE PERDUE {key} — {last_err or 'echec'} "
+                  f"({entry.video_url})")
+            record_reference_failure(key, entry.video_url, last_err)
             return None
         vfp = None
         # IMAGE reference: prefer the CREDITED clip (its on-screen credits match
@@ -414,47 +626,53 @@ def build_references(
         landmarks: list = []
         ref_native_dur = 0.0
         if with_video:
-            try:
-                # 2fps keyframe fingerprint — the coarse cross-confirm signal used
-                # by the current cascade (best_match_video / _video_hit_for).
-                vfp = extract_keyframe_hashes(
-                    video_ref_url, cache_key=video_key, cache_dir=video_cache_dir
-                )
-            except Exception:
-                vfp = None  # video is confirmation-only; audio still ships
-            try:
-                # NATIVE decode of the whole credited clip: landmarks with
-                # frame-exact r_time (Stage-3 fix) + the canonical native duration
-                # for the Stage-4 end boundary. Cached under a distinct
-                # `.native.vfp.npz` so it never collides with the 2fps `vfp` above.
-                #
-                # Only a NON-degenerate decode is cached. build_references fetches
-                # every version concurrently, so this native pull races the 2fps
-                # one against animethemes.moe; a rate-limit/reset can return 0-few
-                # frames. Caching that empty result froze the failure permanently
-                # (0-frame OP refs → the image ALIGN always fell back to audio).
-                # Requiring a plausible frame count before saving means a transient
-                # failure is simply RETRIED on the next run instead of persisted.
-                native_file = Path(video_cache_dir) / (
-                    f"{video_key.replace('/', '__')}.native.vfp.npz"
-                )
-                nref = None
-                if native_file.exists():
-                    cached = VideoFingerprint.load(native_file)
-                    if _native_ref_ok(cached):
-                        nref = cached
-                if nref is None:
-                    decoded = _decode_native_ref(video_ref_url)
-                    if decoded is not None:
-                        native_file.parent.mkdir(parents=True, exist_ok=True)
-                        decoded.save(native_file)
-                        nref = decoded
-                if nref is not None:
-                    landmarks = pick_landmarks(nref)
-                    ref_native_dur = float(nref.times.max())
-            except Exception:
-                landmarks = []      # anchoring degrades to audio-only; still ships
-                ref_native_dur = 0.0
+            # ONE fetch of the credited clip for BOTH image passes below — the
+            # 2fps hash and the native decode used to download the very same
+            # file twice (see materialized_clip).
+            with animethemes_slot(video_ref_url), \
+                    materialized_clip(video_ref_url) as video_src:
+                try:
+                    # 2fps keyframe fingerprint — the coarse cross-confirm signal
+                    # used by the cascade (best_match_video / _video_hit_for).
+                    vfp = extract_keyframe_hashes(
+                        video_src, cache_key=video_key,
+                        cache_dir=video_cache_dir,
+                    )
+                except Exception:
+                    vfp = None  # video is confirmation-only; audio still ships
+                try:
+                    # NATIVE decode of the whole credited clip: landmarks with
+                    # frame-exact r_time (Stage-3 fix) + the canonical native
+                    # duration for the Stage-4 end boundary. Cached under a
+                    # distinct `.native.vfp.npz` so it never collides with the
+                    # 2fps `vfp` above.
+                    #
+                    # Only a NON-degenerate decode is cached: a rate-limit or
+                    # reset can return 0-few frames, and caching that froze the
+                    # failure permanently (0-frame OP refs → the image ALIGN
+                    # always fell back to audio). Requiring a plausible frame
+                    # count before saving means a transient failure is simply
+                    # RETRIED on the next run instead of persisted.
+                    native_file = Path(video_cache_dir) / (
+                        f"{video_key.replace('/', '__')}.native.vfp.npz"
+                    )
+                    nref = None
+                    if native_file.exists():
+                        cached = VideoFingerprint.load(native_file)
+                        if _native_ref_ok(cached):
+                            nref = cached
+                    if nref is None:
+                        decoded = _decode_native_ref(video_src)
+                        if decoded is not None:
+                            native_file.parent.mkdir(parents=True, exist_ok=True)
+                            decoded.save(native_file)
+                            nref = decoded
+                    if nref is not None:
+                        landmarks = pick_landmarks(nref)
+                        ref_native_dur = float(nref.times.max())
+                except Exception:
+                    landmarks = []  # anchoring degrades to audio-only; still ships
+                    ref_native_dur = 0.0
         return ThemeReference(
             kind=theme.kind,
             slug=theme.slug,
@@ -469,7 +687,11 @@ def build_references(
             ref_native_dur=ref_native_dur,
         )
 
-    with ThreadPoolExecutor(max_workers=len(entries)) as pool:
+    # Capped: the animethemes semaphore already bounds the useful parallelism,
+    # so spawning one thread per version only piles up threads waiting on it.
+    with ThreadPoolExecutor(
+        max_workers=min(len(entries), _ANIMETHEMES_MAX_CONCURRENCY * 2)
+    ) as pool:
         built = list(pool.map(_build_one, entries))
     # Drop versions whose audio ref could not be fetched (see _build_one); the
     # anime still ships with the versions that succeeded.
@@ -1201,6 +1423,32 @@ ALIGN_NOAUDIO_MIN_LANDMARKS = 6      # of ~19-21 built — a real theme lands mo
 ALIGN_NOAUDIO_MIN_CONSENSUS_FRAC = 0.7  # tighter than the 0.5 audio-guided floor
 ALIGN_NOAUDIO_SEP_MIN = 8            # raised from the default 6: unambiguous only
 
+# ED wide-search fallback (F2). The default 240 s tail misses an ED followed by a
+# long epilogue + next-episode preview + sponsor cards, which together can push
+# the ED's END past 4 minutes from the episode end. Same shape as the OP's
+# widened window and clamped away from the OP region by the caller, so a widened
+# ED can never reach back into the opening.
+ED_SEARCH_FROM_END_FALLBACK = 420.0   # last 7 min
+
+# Relaxed audio fill floor (F5). `min_fill` (0.5) demands that the match cover
+# half the reference — a TV-size sequence matched against a FULL-version rip, or
+# a heavily trimmed broadcast cut, legitimately falls under it. Rather than lose
+# the episode we retry at this floor, but a relaxed-fill locate is NEVER shipped
+# on audio alone: it must be confirmed by the image (see _detect_kind), because a
+# low fill is also exactly what a coincidental match looks like.
+RELAXED_MIN_FILL = 0.25
+
+
+@dataclass
+class _Located:
+    """Outcome of the coarse AUDIO locate, plus its competition metrics."""
+
+    ref: "ThemeReference"
+    theme_t0: float
+    match: Match
+    peak_margin: float = 0.0
+    theme_margin: float | None = None
+
 
 def _ref_is_credited_impl(ref: "ThemeReference") -> bool:
     """True when this ref's image fingerprint came from the credited (with-
@@ -1220,9 +1468,13 @@ def detect_op_ed_v2(
     resolve_video_abs=None,
     op_search: tuple[float, float] = OP_SEARCH,
     ed_search_from_end: float = ED_SEARCH_FROM_END,
+    ed_search_from_end_fallback: float = ED_SEARCH_FROM_END_FALLBACK,
+    op_pool_refs: list[ThemeReference] | None = None,
+    ed_pool_refs: list[ThemeReference] | None = None,
     min_votes: int = 40,
     min_score: float = MIN_SCORE_DEFAULT,
     min_fill: float = 0.5,
+    full_episode_scan: bool = False,
 ) -> list[ThemeHit]:
     """Locate OP and ED with the image-credited pipeline (see section banner).
 
@@ -1233,51 +1485,86 @@ def detect_op_ed_v2(
       resolve_video_abs(start_abs, dur, fps) -> VideoFingerprint
           native (fps=None) episode keyframes with ABSOLUTE pts.
 
-    Returns 0..2 ThemeHits in absolute episode time. Runs OP and ED in parallel;
-    logic is identical to sequential.
+    `op_pool_refs`/`ed_pool_refs` (F3): every theme of the SERIES, used only as a
+    last resort when the episode's directly-mapped refs matched nothing —
+    AnimeThemes' per-episode mapping is regularly off by an episode around an
+    OP1→OP2 transition. A hit recovered that way is stamped `inferred`, which
+    carries the stricter serve gate downstream.
+
+    Returns 0..2 ThemeHits in absolute episode time, each annotated with
+    plausibility reasons (`anomalies`, see oped/validate.py) — nothing is
+    filtered here, the serve gate decides. Runs OP and ED in parallel; logic is
+    identical to sequential.
     """
 
-    def _locate_audio(refs, start_abs, dur):
-        """A. Coarse audio locate. Returns (best ThemeReference, theme_t0_abs,
-        Match) or None. theme_t0_abs = abs_start + (q_start - r_start)."""
+    def _locate_audio(refs, start_abs, dur, fill_floor=None):
+        """A. Coarse audio locate. Returns `_Located` or None.
+
+        `fill_floor` overrides `min_fill` for the relaxed retry (F5).
+
+        Beyond the winner it reports two competition metrics the caller turns
+        into false-positive guards (they cost nothing — both fall out of the
+        matching already being done):
+          - `peak_margin`: how strongly a RIVAL placement of the same reference
+            competed inside this window (matcher.best_match_ranked);
+          - `theme_margin`: the fill gap to the best runner-up of a DIFFERENT
+            theme slug. Versions of the SAME slug are near-identical audio and
+            are not competitors; OP1 vs OP2 are, and they have different lengths.
+        """
+        floor = min_fill if fill_floor is None else fill_floor
         try:
             fp, abs_start = resolve_audio_abs(start_abs, dur)
         except Exception:
             return None
         if fp is None:
             return None
-        best = None  # (fill, ref, m)
+        cands = []  # (fill, ref, m, rival)
         for ref in refs:
-            m = best_match(fp, ref.fp, min_votes=min_votes)
+            m, rival = best_match_ranked(fp, ref.fp, min_votes=min_votes)
             if m is None or m.score < min_score:
                 continue
             ref_dur = ref.duration if ref.duration > 0 else max(m.r_end, 1e-6)
             fill = min(1.0, (m.r_end - m.r_start) / max(ref_dur, 1e-6))
-            if fill < min_fill:
+            if fill < floor:
                 continue
-            if best is None or fill > best[0]:
-                best = (fill, ref, m)
-        if best is None:
+            cands.append((fill, ref, m, rival))
+        if not cands:
             return None
-        _fill, ref, m = best
-        theme_t0_abs = abs_start + (m.q_start - m.r_start)
-        return ref, theme_t0_abs, m
+        cands.sort(key=lambda c: (c[0], c[2].n_votes), reverse=True)
+        fill, ref, m, rival = cands[0]
+        other = next((c for c in cands[1:] if c[1].slug != ref.slug), None)
+        theme_margin = None if other is None else round(fill - other[0], 4)
+        return _Located(
+            ref=ref,
+            theme_t0=abs_start + (m.q_start - m.r_start),
+            match=m,
+            peak_margin=round(rival, 3),
+            theme_margin=theme_margin,
+        )
 
     def _align_image(ref, theme_t0_coarse):
-        """B. Native landmark anchor around the coarse t0. Returns LandmarkAnchor
-        or None (no video resolver / no landmarks / no image decode / nothing
-        accepted). None → the caller keeps the coarse audio t0."""
+        """B. Native landmark anchor around the coarse t0.
+
+        Returns `(LandmarkAnchor | None, ran: bool)`. `ran` says whether the
+        image actually got to give an opinion — it is False when there was no
+        video resolver, no landmarks on the reference, or the decode came back
+        empty. That distinction is the whole point: an anchor that RAN and found
+        nothing is evidence AGAINST the audio hit, while one that never ran is
+        merely no evidence, and both otherwise look identical downstream (both
+        fall back to the audio t0). Measured on SnK: the ED reported "absent"
+        while the image had in fact run and failed to anchor.
+        """
         if resolve_video_abs is None or not ref.landmarks:
-            return None
+            return None, False
         span = ref.ref_native_dur if ref.ref_native_dur > 0 else ref.duration
         start_abs = max(0.0, theme_t0_coarse - ALIGN_PAD_S)
         dur = span + 2 * ALIGN_PAD_S
         try:
             ep_vfp = resolve_video_abs(start_abs, dur, None)
         except Exception:
-            return None
+            return None, False
         if ep_vfp is None or ep_vfp.hashes.size == 0:
-            return None
+            return None, False
         # Threshold by provenance: a credited ref matches episode-credited frames
         # (re-encode noise only → tight 8 bits); an NC ref matches episode frames
         # that carry credit text over the same footage → the looser 12-bit
@@ -1285,7 +1572,7 @@ def detect_op_ed_v2(
         # clean clip) are ALWAYS rejected at 8 bits and v2 silently falls back to
         # audio. sep_min stays at its default (one parameter at a time).
         thr = HAMMING_THRESHOLD_CREDITED if _ref_is_credited_impl(ref) else HAMMING_THRESHOLD
-        return anchor_by_landmarks(ep_vfp, ref.landmarks, hamming_max=thr)
+        return anchor_by_landmarks(ep_vfp, ref.landmarks, hamming_max=thr), True
 
     def _locate_image_noaudio(refs, start_abs, dur):
         """A'. IMAGE-ONLY locate when audio LOCATE found nothing (e.g. the theme
@@ -1325,54 +1612,68 @@ def detect_op_ed_v2(
         _frac, ref, anc = best
         return ref, anc.theme_t0, anc
 
-    def _detect_kind(refs, start_abs, dur, fallback_dur=None):
+    def _cascade(refs, start_abs, dur, fallback=None):
         if not refs:
             return None
         loc = _locate_audio(refs, start_abs, dur)
-        if loc is None and fallback_dur is not None and fallback_dur > dur:
+        if loc is None and fallback is not None:
             # The theme wasn't in the default search window — retry over a WIDER
             # one. An OP after a long cold-open can start past OP_SEARCH's 5 min
             # (Bocchi ep6: OP1 at 5:03, just past 300s); the audio match itself is
             # strong (3356 votes) once the window reaches it. This is v2's
             # equivalent of the old full_fallback, but bounded to the widened
-            # window instead of the whole episode.
-            loc = _locate_audio(refs, start_abs, fallback_dur)
+            # window instead of the whole episode. `fallback` is a full
+            # (start, dur) pair because the two kinds widen in OPPOSITE
+            # directions: the OP keeps its start and extends forward, the ED
+            # keeps the episode end and extends BACKWARD (a longer tail).
+            loc = _locate_audio(refs, fallback[0], fallback[1])
+        relaxed = False
         if loc is None:
             # AUDIO GATE BYPASS: the music didn't match (re-dub / translated theme
             # / audio-only trim), but the PICTURE may still be there. Scan the
             # search window by image alone, credited-only + strict gates. If it
-            # anchors, deliver a frame-accurate "video"-sourced hit; else give up.
+            # anchors, deliver a frame-accurate "video"-sourced hit.
             img = _locate_image_noaudio(refs, start_abs, dur)
-            if img is None:
+            if img is not None:
+                ref, theme_t0_img, anc = img
+                ref_dur = ref.ref_native_dur if ref.ref_native_dur > 0 else (
+                    ref.duration if ref.duration > 0 else 90.0
+                )
+                start = float(min(max(theme_t0_img, 0.0), episode_duration))
+                end = float(min(max(theme_t0_img + ref_dur, 0.0), episode_duration))
+                return ThemeHit(
+                    kind=ref.kind, slug=ref.slug, version=ref.version,
+                    start=start, end=end,
+                    votes=0, score=0.0,
+                    vote_start=start, vote_end=end,
+                    r_start=0.0, r_end=ref_dur, ref_duration=ref_dur,
+                    # "video": frame-accurate picture but no audio cross-check, so
+                    # multi_host applies the wider tolerance / down-weight. NOT
+                    # "credited" (that implies the full audio+image agreement).
+                    source="video",
+                    edge_start_source="video", edge_end_source="video",
+                    video_theme_t0=anc.theme_t0,
+                    n_landmarks=anc.n_accepted,
+                    consensus_frac=anc.consensus_frac,
+                    low_confidence=False,
+                    align_status="ok",
+                )
+            # F5 — LAST RESORT: the audio DID match somewhere but covered too
+            # little of the reference to clear `min_fill` (a TV-size broadcast cut
+            # matched against a full-version rip, a trimmed master). Retry at the
+            # relaxed floor. A low fill is also what a coincidence looks like, so
+            # this hit is only kept below if the IMAGE confirms it.
+            loc = _locate_audio(refs, start_abs, dur, fill_floor=RELAXED_MIN_FILL)
+            if loc is None:
                 return None
-            ref, theme_t0_img, anc = img
-            ref_dur = ref.ref_native_dur if ref.ref_native_dur > 0 else (
-                ref.duration if ref.duration > 0 else 90.0
-            )
-            start = float(min(max(theme_t0_img, 0.0), episode_duration))
-            end = float(min(max(theme_t0_img + ref_dur, 0.0), episode_duration))
-            return ThemeHit(
-                kind=ref.kind, slug=ref.slug, version=ref.version,
-                start=start, end=end,
-                votes=0, score=0.0,
-                vote_start=start, vote_end=end,
-                r_start=0.0, r_end=ref_dur, ref_duration=ref_dur,
-                # "video": frame-accurate picture but no audio cross-check, so
-                # multi_host applies the wider tolerance / down-weight. NOT
-                # "credited" (that implies the full audio+image agreement).
-                source="video",
-                edge_start_source="video", edge_end_source="video",
-                video_theme_t0=anc.theme_t0,
-                n_landmarks=anc.n_accepted,
-                consensus_frac=anc.consensus_frac,
-                low_confidence=False,
-            )
-        ref, theme_t0_audio, m = loc
+            relaxed = True
+
+        ref, theme_t0_audio, m = loc.ref, loc.theme_t0, loc.match
 
         ref_dur = ref.ref_native_dur if ref.ref_native_dur > 0 else (
             ref.duration if ref.duration > 0 else m.r_end
         )
-        anc = _align_image(ref, theme_t0_audio)
+        anc, image_ran = _align_image(ref, theme_t0_audio)
         # Gates scale with provenance: the NC path used a looser per-landmark
         # Hamming threshold, so it must clear stricter AGGREGATE gates (more
         # accepted landmarks, tighter consensus) before we trust the image t0.
@@ -1384,6 +1685,22 @@ def detect_op_ed_v2(
             and anc.n_accepted >= min_lm
             and anc.consensus_frac >= min_frac
         )
+        # P4 — how far apart the two independent signals landed. Only meaningful
+        # when both produced an anchor; `validate` turns a large gap into a
+        # BLOCKING reason, because past a few seconds they are describing
+        # different events and there is no way to tell which one is the theme.
+        av_delta = None if anc is None else round(abs(anc.theme_t0 - theme_t0_audio), 3)
+        # Honest report of what the image concluded — "rejected" (it ran and
+        # fell short, whether it produced a weak anchor or none at all) is
+        # evidence AGAINST the hit, "absent" (never ran: no resolver, no
+        # landmarks, empty decode) is merely no evidence. Both end up
+        # audio-aligned, so `source` alone can't tell them apart.
+        align_status = "ok" if strong else ("rejected" if image_ran else "absent")
+
+        if relaxed and not strong:
+            # The relaxed-fill locate never ships on audio alone (see above).
+            return None
+
         if strong:
             theme_t0 = anc.theme_t0          # C. image is the authority
             # Honest provenance: "credited" only when the ref WAS the credited rip
@@ -1411,19 +1728,97 @@ def detect_op_ed_v2(
             n_landmarks=(anc.n_accepted if anc is not None else 0),
             consensus_frac=(anc.consensus_frac if anc is not None else 0.0),
             low_confidence=low_conf,
+            peak_margin=loc.peak_margin,
+            theme_margin=loc.theme_margin,
+            av_delta=av_delta,
+            align_status=align_status,
+            video_disagreement=bool(
+                av_delta is not None and av_delta > validate.AV_DIVERGENCE_S
+            ),
+            anomalies=(["relaxed_fill"] if relaxed else []),
         )
+
+    def _detect_kind(refs, start_abs, dur, fallback=None, pool_refs=None):
+        """The cascade against the MAPPED refs, then (F3) against the series-wide
+        POOL if that found nothing.
+
+        AnimeThemes' `episodes` mapping is frequently off by an episode around an
+        OP1→OP2 transition, and a mapping that EXISTS but is wrong used to cost us
+        the episode outright: the pool fallback only triggered when the mapping
+        was ABSENT (batch_detect.refs_for). A pool hit is stamped `inferred`, so
+        it inherits the stricter serve gate (image confirmation required) — the
+        recovery can't smuggle in an unconfirmed guess."""
+        hit = _cascade(refs, start_abs, dur, fallback)
+        if hit is not None:
+            return hit
+
+        # DERNIER RECOURS — le thème est MAPPÉ sur cet épisode par AnimeThemes,
+        # et il est introuvable dans sa fenêtre comme dans son repli élargi.
+        # C'est un signal fort : la source affirme que le thème est là, donc
+        # c'est notre fenêtre qui est aveugle, pas le catalogue. Erased ep1 en
+        # est le cas témoin — l'épisode se termine sur la CHANSON D'OUVERTURE
+        # (OP1 à 1281,0 → 1371,0, `fill` 0,98 sur trois hôtes), très au-delà des
+        # 720 s du repli, et le clamp anti-région-ED l'excluait par construction.
+        # Balayage de l'épisode entier, réservé aux refs mappées : le pool
+        # (F3) n'a pas ce prior et l'élargir ainsi inventerait des appariements.
+        # ⚠️ COÛTEUX, ET C'EST POURQUOI IL EST FERMÉ PAR DÉFAUT. Le balayage
+        # décode l'épisode ENTIER sous une clé de cache neuve. Activé par hôte,
+        # il a fait passer un lot de 2 épisodes au-delà de 10 minutes sans
+        # produire une seule ligne (mesuré le 07/08) : 4 hôtes × 2 kinds × un
+        # fichier complet. `multi_host` ne l'ouvre donc que pour UN hôte, puis
+        # propage le résultat aux autres par amorçage — une fenêtre de 90 s au
+        # lieu d'un fichier de 22 minutes.
+        if full_episode_scan and refs and (start_abs > 0.0 or dur < episode_duration):
+            hit = _cascade(refs, 0.0, episode_duration)
+            if hit is not None:
+                # Ni le `kind` ni le slug ne changent : l'identité du thème vient
+                # de l'APPARIEMENT, jamais de la position (règle du 07/08, née de
+                # deux versions du plan cassées par ce raccourci). La position
+                # n'est ici qu'une anomalie signalée, que la porte de service lit
+                # pour retenir le hit en attendant une validation.
+                hit.out_of_window = True
+                hit.low_confidence = True
+                return hit
+
+        if not pool_refs:
+            return None
+        tried = {(r.slug, r.version) for r in (refs or [])}
+        rest = [r for r in pool_refs if (r.slug, r.version) not in tried]
+        if not rest:
+            return None
+        hit = _cascade(rest, start_abs, dur, fallback)
+        if hit is not None:
+            hit.inferred = True
+        return hit
 
     ed_start = max(0.0, episode_duration - ed_search_from_end)
     # OP wide-fallback window, clamped so it never reaches into the ED search
     # region (a theme match there would be the ED/next-ep preview, not the OP).
-    op_fallback = min(OP_SEARCH_FALLBACK_DUR, max(op_search[1], ed_start - op_search[0]))
+    op_fallback_dur = min(
+        OP_SEARCH_FALLBACK_DUR, max(op_search[1], ed_start - op_search[0])
+    )
+    op_fallback = (op_search[0], op_fallback_dur)
+    # F2 — ED wide-fallback tail (the mirror of the OP's). A long epilogue +
+    # next-episode preview + sponsor cards can push the ED out of the 4 min tail;
+    # a longer tail rescues it. Clamped so it never reaches back into the OP
+    # search region, for the mirror-image reason.
+    ed_tail = min(
+        ed_search_from_end_fallback,
+        max(ed_search_from_end, episode_duration - (op_search[0] + op_search[1])),
+    )
+    ed_fallback = (max(0.0, episode_duration - ed_tail), ed_tail)
     with ThreadPoolExecutor(max_workers=2) as pool:
         futures = [
-            pool.submit(_detect_kind, op_refs, op_search[0], op_search[1], op_fallback),
-            pool.submit(_detect_kind, ed_refs, ed_start, ed_search_from_end),
+            pool.submit(_detect_kind, op_refs, op_search[0], op_search[1],
+                        op_fallback, op_pool_refs),
+            pool.submit(_detect_kind, ed_refs, ed_start, ed_search_from_end,
+                        ed_fallback, ed_pool_refs),
         ]
         hits = [f.result() for f in futures]
 
     kept = [h for h in hits if h is not None]
     kept.sort(key=lambda h: h.start)
+    # P1/P6/P7 — plausibility of what we are about to deliver. Reasons only; the
+    # serve gate (multi_host / batch) is what acts on them. Never moves a value.
+    validate.annotate(kept, episode_duration)
     return kept

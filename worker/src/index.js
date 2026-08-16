@@ -18,7 +18,7 @@
  *   The Worker reads it back here and forwards it as the `Cookie` header.
  *
  * This Worker also serves a few endpoints offloaded from Vercel to cut Fluid
- * Active CPU — see ./edge-endpoints.js (/w/health, /w/broadcast, /w/track).
+ * Active CPU — see ./edge-endpoints.js (/w/status, /w/broadcast, /w/track).
  */
 
 import { handleEdgeEndpoint } from "./edge-endpoints.js";
@@ -551,7 +551,7 @@ async function handle(request, env, ctx) {
 export default {
   async fetch(request, env, ctx) {
     try {
-      // Offloaded-from-Vercel endpoints (/w/health, /w/broadcast, /w/track) are
+      // Offloaded-from-Vercel endpoints (/w/status, /w/broadcast, /w/track) are
       // routed first; everything else is the HLS/scrape proxy.
       const edge = await handleEdgeEndpoint(request, env, ctx);
       if (edge) return edge;

@@ -7,6 +7,7 @@ import type { SeasonEntry } from "@/lib/anilist/seasonChain";
 import styles from "./styles.module.css";
 import { useTranslation } from "react-i18next";
 import { coverUrl } from "@/lib/images/cover";
+import { previewAnchor } from "@/lib/preview/anchor";
 
 type Props = {
   relations: Edge[];
@@ -189,6 +190,8 @@ export default function Related({ relations, currentId, seasonList }: Props) {
           <span key={edge.id} style={{ display: "contents" }}>
             <Link
               href={href}
+              // Related rows also carry MANGA nodes — those have no preview.
+              {...(n.type === "MANGA" ? {} : previewAnchor(n.id))}
               style={{
                 ...rStyles.card,
                 borderColor: isCurrent ? color + "66" : "var(--line)",

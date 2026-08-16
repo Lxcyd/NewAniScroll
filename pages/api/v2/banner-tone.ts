@@ -23,9 +23,18 @@ import sharp from "sharp";
  * invocation per banner in existence, not one per page view.
  */
 
-/** Only AniList's media CDN — this endpoint fetches whatever URL it is given,
- *  so it must not become an open proxy / SSRF hop. */
-const ALLOWED_HOST = "s4.anilist.co";
+/**
+ * The image hosts a hero banner can actually come from, and nothing else: this
+ * endpoint fetches whatever URL it is given, so an open list would make it an
+ * open proxy and an SSRF hop.
+ *
+ * TMDB is here because the hero learned to prefer a TMDB backdrop over a
+ * low-resolution AniList banner (see lib/images/heroBanner.ts) and this list did
+ * not follow. Every one of those pages asked about a host that was refused: a
+ * `400` per visit in the console, and — the part that is not console noise — a
+ * navbar that kept its default chrome over artwork it had never measured.
+ */
+const ALLOWED_HOSTS = new Set(["s4.anilist.co", "image.tmdb.org"]);
 
 /**
  * Share of the image height we judge.
@@ -61,7 +70,7 @@ export default async function handler(
   } catch {
     return res.status(400).json({ error: "bad url" });
   }
-  if (url.protocol !== "https:" || url.hostname !== ALLOWED_HOST) {
+  if (url.protocol !== "https:" || !ALLOWED_HOSTS.has(url.hostname)) {
     return res.status(400).json({ error: "host not allowed" });
   }
 

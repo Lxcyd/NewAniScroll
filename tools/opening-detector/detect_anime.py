@@ -53,8 +53,9 @@ from oped.adapter_aniscroll import (
     resolve_episodes,
     resolve_episodes_multi,
 )
+from oped import validate
 from oped.animethemes import fetch_themes, resolve_slug, themes_for_episode
-from oped.audio import _is_hls_url, decode_audio_abs, load_audio
+from oped.audio import _hls_flags, _input_headers, decode_audio_abs, load_audio
 from oped.fingerprint import Fingerprint, fingerprint
 from oped.multi_host import (
     HostStream,
@@ -132,10 +133,8 @@ def _probe_duration(url: str, referer: str | None = None) -> float:
     abs-offset conversion for that host specifically.
     """
     cmd = ["ffprobe", "-v", "error"]
-    if referer:
-        cmd += ["-headers", f"Referer: {referer}\r\n"]
-    if _is_hls_url(url):
-        cmd += ["-allowed_extensions", "ALL", "-allowed_segment_extensions", "ALL", "-extension_picky", "0"]
+    cmd += _input_headers(url, referer)
+    cmd += _hls_flags(url)
     cmd += [
         "-show_entries", "format=duration",
         "-of", "default=noprint_wrappers=1:nokey=1", url,
@@ -547,6 +546,9 @@ def run_multi_host(args, themes, refs_by_theme, op_pool, ed_pool, lang: str, log
             resolve_audio_abs_for=resolve_audio_abs_for,
             resolve_video_abs_for=(None if args.no_video else resolve_video_abs_for),
             v2=not args.legacy,
+            # F3 — same series-wide last resort as the batch: used only after the
+            # episode's mapped theme matched nothing, and stamped `inferred`.
+            op_pool_refs=op_pool, ed_pool_refs=ed_pool,
             op_window=OP_WINDOW, ed_window=ED_WINDOW,
             min_votes=args.min_votes, min_score=args.min_score,
         )
@@ -554,7 +556,9 @@ def run_multi_host(args, themes, refs_by_theme, op_pool, ed_pool, lang: str, log
             for h in host_hits:
                 if (h.kind == "op" and inferred_op) or (h.kind == "ed" and inferred_ed):
                     h.inferred = True
-        reconciled = reconcile_hits(per_host)
+        reconciled = reconcile_hits(
+            per_host, inferred_op=inferred_op, inferred_ed=inferred_ed
+        )
         return ep, streams, per_host, reconciled
 
     results = []
@@ -603,6 +607,25 @@ def _hit_to_dict(h: ThemeHit, duration: float) -> dict:
         out["n_landmarks"] = h.n_landmarks
         out["consensus_frac"] = round(h.consensus_frac, 3)
         out["low_confidence"] = h.low_confidence
+    # False-positive instrumentation (oped/validate.py). `anomalies` is the only
+    # field the importer must ACT on — a reason in validate.BLOCKING means the
+    # interval is stored for inspection but must not be served; the rest is
+    # evidence for the season pass and for debugging a bad row.
+    out["align_status"] = h.align_status
+    if h.peak_margin:
+        out["peak_margin"] = h.peak_margin
+    if h.theme_margin is not None:
+        out["theme_margin"] = h.theme_margin
+    if h.av_delta is not None:
+        out["av_delta"] = h.av_delta
+    if h.derived:
+        out["derived"] = True
+    if h.anomalies:
+        out["anomalies"] = list(h.anomalies)
+    blocking = validate.blocking(h.anomalies)
+    if blocking:
+        out["serve"] = False
+        out["held_reason"] = ", ".join(blocking)
     if h.kind == "ed":
         out["from_end_start"] = round(max(0.0, duration - h.start), 2)
         out["from_end_end"] = round(max(0.0, duration - h.end), 2)

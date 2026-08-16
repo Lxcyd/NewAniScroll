@@ -714,26 +714,56 @@ function SeasonPicker({
   const seasonTitlePref = useTitlePref();
   const { t, i18n } = useTranslation();
   const [open, setOpen] = useState(false);
+
+  /**
+   * The anime of the page, as a row of the menu, when the season list left it
+   * out — which happens on a film page whose film is a franchise bonus (Ghost
+   * in the Shell 1995, Phantom Rouge): the list then holds the OTHER works, and
+   * the thing you are actually looking at is missing from its own picker.
+   *
+   * With it there, a page that used to offer one destination offers two, and
+   * the pill becomes a real dropdown instead of a link that only ever went one
+   * way. Coming BACK was what you could not do before.
+   */
+  const list = useMemo<SeasonEntry[]>(() => {
+    if (seasonList.some((s) => s.id === info.id)) return seasonList;
+    const self: SeasonEntry = {
+      id: info.id,
+      number: 0,
+      label: pickTitle(info.title, seasonTitlePref),
+      year: info.seasonYear ?? info.startDate?.year ?? null,
+      episodes: info.episodes ?? null,
+      format: info.format ?? null,
+      status: info.status ?? null,
+      title: info.title as any,
+      coverImage: info.coverImage as any,
+      variants: null,
+    };
+    // In the chronology, like every other row — a film that opens the franchise
+    // has to read as coming first.
+    return [...seasonList, self].sort(
+      (a, b) => (a.year ?? Infinity) - (b.year ?? Infinity)
+    );
+  }, [seasonList, info, seasonTitlePref]);
+
   // Show the picker when there are multiple seasons OR any season also offers a
   // film variant (dual-format: even a single season becomes two menu rows).
-  const filmVariantCount = seasonList.reduce(
+  const filmVariantCount = list.reduce(
     (n, s) => n + (s.variants?.length ?? 0),
     0
   );
-  const hasMany = seasonList.length + filmVariantCount > 1;
+  const hasMany = list.length + filmVariantCount > 1;
   const active =
-    seasonList.find((s) => s.id === activeSeasonId) || null;
+    list.find((s) => s.id === activeSeasonId) || null;
 
-  // Redirect case: the list holds exactly ONE season and it's a DIFFERENT anime
-  // than the one being viewed (e.g. on Phantom Rouge's film page, the only
-  // "season" is the TV series). Clicking then navigates to that anime's page
-  // instead of opening a pointless one-item menu. Not when the lone entry IS the
-  // current anime (a standalone) — there's nowhere to go.
+  // Redirect case: the menu would hold exactly ONE row and it's a DIFFERENT
+  // anime than the one being viewed. Clicking then navigates to that anime's
+  // page instead of opening a pointless one-item menu. Rare now that the page's
+  // own anime joins the list — it takes a season list that is empty of it AND
+  // of everything else.
   const loneRedirectId =
-    seasonList.length === 1 &&
-    filmVariantCount === 0 &&
-    seasonList[0].id !== info.id
-      ? seasonList[0].id
+    list.length === 1 && filmVariantCount === 0 && list[0].id !== info.id
+      ? list[0].id
       : null;
 
   // Close on outside click / Escape.
@@ -877,7 +907,7 @@ function SeasonPicker({
           onClick={(e) => e.stopPropagation()}
           style={tStyles.seasonMenu}
         >
-          {seasonList.map((s) => {
+          {list.map((s) => {
             const films = s.variants ?? [];
             const grouped = films.length > 0;
 
