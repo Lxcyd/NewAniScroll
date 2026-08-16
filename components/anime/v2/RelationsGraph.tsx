@@ -651,7 +651,7 @@ export default function RelationsGraph({
     // day, so without it every franchise walked before manga were drawn would
     // keep serving the old, paperless board until tomorrow. Bump on any change
     // to the walk's shape.
-    fetch(`/api/v2/relations/tree?id=${currentId}&v=3`)
+    fetch(`/api/v2/relations/tree?id=${currentId}&v=4`)
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         if (cancelled) return;

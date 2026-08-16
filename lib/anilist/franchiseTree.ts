@@ -35,7 +35,9 @@ import type { RelationsPayload } from "./relationsPayload";
  *    and no recursion through it — unless it is a PARENT, which is a broad term
  *    worth replacing by any more specific relation that turns up.
  *
- *  - PREQUEL is drawn reversed and relabelled SEQUEL, so chains point one way.
+ *  - Relations read backwards from the node being processed are drawn reversed,
+ *    so the board ranks what came first, first: PREQUEL (relabelled SEQUEL, so
+ *    chains point one way), SOURCE and PARENT. See the edge loop.
  *
  * Depth 2 ends a pass, not the walk: nodes reached at that limit are queued,
  * re-fetched, and processed as new roots until nothing new appears.
@@ -235,21 +237,26 @@ export async function buildFranchiseTree(id: number): Promise<FranchiseTree> {
           else continue;
         }
         /**
-         * Two relations are read backwards from the node being processed, and
+         * Three relations are read backwards from the node being processed, and
          * dagre ranks on direction — an edge pointing the wrong way puts the
          * card on the wrong side of the board.
          *
          * PREQUEL: "the one before me", drawn reversed and relabelled SEQUEL so
          * every chain points one way.
          *
-         * SOURCE: "the work I came from". Same shape — it is the origin, so it
-         * ranks BEFORE the anime, not after it. The label stays: unlike
-         * PREQUEL/SEQUEL there is no mirror term that keeps its meaning
-         * (ADAPTATION is what the paper says about the anime, not what the
-         * anime says about the paper).
+         * SOURCE: "the work I came from". It is the origin, so it ranks BEFORE
+         * the anime. The label stays: unlike PREQUEL/SEQUEL there is no mirror
+         * term that keeps its meaning (ADAPTATION is what the paper says about
+         * the anime, not what the anime says about the paper).
+         *
+         * PARENT: "the work I hang off". Its mirror, CONTAINS, is already drawn
+         * container-first — so leaving PARENT alone meant the SAME pair ranked
+         * differently depending on which end the walk happened to visit first,
+         * and a main series landed after its own side story. Reversed, the two
+         * agree: whoever contains, comes first.
          */
         const rel = e.relationType;
-        const reversed = rel === "PREQUEL" || rel === "SOURCE";
+        const reversed = rel === "PREQUEL" || rel === "SOURCE" || rel === "PARENT";
         edges.set(key, {
           from: reversed ? oid : nid,
           to: reversed ? nid : oid,
