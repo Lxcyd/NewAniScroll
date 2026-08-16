@@ -390,6 +390,9 @@ const FORMAT_LABEL: Record<string, string> = {
  * unticking the last value and "showing everything" are the same state, and
  * without a row to press you can only reach it by unticking one by one.
  */
+/** Stands in for the "All" row, which has no value of its own to be keyed on. */
+const ALL_ROW = " all";
+
 function FilterMenu({
   label,
   open,
@@ -409,8 +412,23 @@ function FilterMenu({
   onClear: () => void;
   allLabel: string;
 }) {
+  /**
+   * The row under the pointer.
+   *
+   * The menu is drawn with inline styles — everything on this board is — and an
+   * inline style has no `:hover`, so the rows answered nothing at all: a list of
+   * nine where only the ticked one was ever lit, and no way to tell which one a
+   * press would land on. Kept in state rather than moved to a stylesheet so the
+   * menu stays one self-contained component.
+   */
+  const [hovered, setHovered] = useState<string | null>(null);
+  /** Lit on hover, unless the row is already lit for being selected. */
+  const rowStyle = (value: string, on: boolean) => ({
+    ...gStyles.menuItem,
+    ...(on ? gStyles.menuItemOn : hovered === value ? gStyles.menuItemHover : null),
+  });
   return (
-    <div style={gStyles.menuWrap}>
+    <div style={gStyles.menuWrap} onPointerLeave={() => setHovered(null)}>
       <button
         type="button"
         onClick={onToggle}
@@ -424,10 +442,8 @@ function FilterMenu({
           <button
             type="button"
             onClick={onClear}
-            style={{
-              ...gStyles.menuItem,
-              ...(selected.size === 0 ? gStyles.menuItemOn : null),
-            }}
+            onPointerEnter={() => setHovered(ALL_ROW)}
+            style={rowStyle(ALL_ROW, selected.size === 0)}
           >
             <span style={gStyles.tick}>{selected.size === 0 ? "✓" : ""}</span>
             {allLabel}
@@ -437,10 +453,8 @@ function FilterMenu({
               key={o.value}
               type="button"
               onClick={() => onPick(o.value)}
-              style={{
-                ...gStyles.menuItem,
-                ...(selected.has(o.value) ? gStyles.menuItemOn : null),
-              }}
+              onPointerEnter={() => setHovered(o.value)}
+              style={rowStyle(o.value, selected.has(o.value))}
             >
               <span style={gStyles.tick}>{selected.has(o.value) ? "✓" : ""}</span>
               {o.label}
@@ -2273,6 +2287,9 @@ const gStyles: Record<string, CSSProperties> = {
     background: "rgba(255,59,92,.14)",
     color: "var(--brand-primary, #ff3b5c)",
   },
+  /** Plain white lift, not the brand tint: hovering a row says "this is the one
+   *  you would press", which must not look like "this one is selected". */
+  menuItemHover: { background: "rgba(255,255,255,.07)", color: "var(--txt-1)" },
   tick: { width: 10, fontSize: 10, lineHeight: 1 },
   /**
    * A field, not a sixth chip.
