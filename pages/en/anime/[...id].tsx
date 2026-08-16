@@ -600,14 +600,14 @@ export default function Info({
             air is bought back here — the browser opens the request while it is
             still parsing and compiling, and the component finds it in flight.
 
-            `crossorigin` IS required, and leaving it off is what made the
-            browser refuse the match: an `as=fetch` preload without it carries
-            credentials mode "omit", while a plain `fetch()` defaults to
-            "same-origin" — "A preload for … is found, but is not used because
-            the request credentials mode does not match". The two now agree on
-            "omit" (see `relationsTreeUrl`'s caller in RelationsGraph), which is
-            also the truth of this route: it is public, identical for everybody,
-            and reads no cookie.
+            `crossorigin="anonymous"` IS required, and leaving it off is what
+            made the browser refuse the match: without the attribute a preload
+            carries credentials mode "include", while a plain `fetch()` defaults
+            to "same-origin" — "A preload for … is found, but is not used
+            because the request credentials mode does not match". The attribute
+            maps to "same-origin" too, so the pair agrees. Which also means the
+            fetch must stay PLAIN: forcing `credentials: "omit"` there breaks
+            the match again from the other side, and the browser said so.
 
             `key` because next/head keeps ONE tag per key: without it a re-render
             of this page emitted the tag again, and the console carried three
