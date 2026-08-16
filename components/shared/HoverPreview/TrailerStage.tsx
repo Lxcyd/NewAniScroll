@@ -742,16 +742,29 @@ export default function TrailerStage() {
      * showing nothing at all: the black rectangle reported on the card, which
      * only went away by hovering again until one load survived.
      *
-     * So the timer asks first WHETHER anything is playing. A single position
-     * reported for this card is enough — the picture is there and only the proof
-     * of it is missing, which is the case this backstop was written for. No
-     * position at all means the video never arrived: reveal nothing, ask for it
-     * again, and if the second attempt is just as silent give the card its
-     * artwork back rather than a black hole.
+     * So the timer asks first WHETHER anything is playing. No position at all
+     * means the video never arrived: reveal nothing, ask for it again, and if
+     * the second attempt is just as silent give the card its artwork back rather
+     * than a black hole.
+     *
+     * A REPORTED POSITION IS NOT ENOUGH, and that is the case this cost us. The
+     * test used to be "any position at all", on the reading that the picture is
+     * there and only the proof is missing. A video that cannot be played HERE —
+     * geo-blocked, embedding refused — reports `currentTime: 0` quite happily
+     * and then stays at 0 for ever: proof of a player, not of a picture. Four
+     * seconds later this lifted the banner off a black rectangle, which is
+     * exactly what Prison School shows in France. So the clock has to have
+     * MOVED: zero is the number a video that never started reports.
      */
     retriedRef.current = false;
     const backstop = () => {
-      if (atSeenRef.current) {
+      // Already showing: this timer is not cleared by a successful reveal, and
+      // the reveal rewinds the clock to zero. Without this line, a trailer that
+      // was revealed a moment before the four seconds are up would read as
+      // "never started" under the stricter test below and be RELOADED under the
+      // viewer — the one regression a tighter rule could introduce here.
+      if (shownRef.current) return;
+      if (atSeenRef.current && atRef.current > ADVANCED) {
         reveal();
         return;
       }
