@@ -543,6 +543,19 @@ a {
   pointer-events: auto;
 }
 
+/* …and the thumb comes with it.
+
+   Vidstack only paints the knob while the SLIDER is `[data-active]` (dragging,
+   focused or pointed at), so hovering the mute button opened the bar on a bare
+   line: the one control that says where the level currently sits was missing at
+   the exact moment the bar appeared, and it turned up later, when the pointer
+   finished crossing the gap. Same triggers as the rule above, so the bar and
+   its knob arrive together. */
+.vds-player [data-media-mute-button]:hover ~ .vds-volume-slider .vds-slider-thumb,
+.vds-player [data-media-mute-button][data-hocus] ~ .vds-volume-slider .vds-slider-thumb {
+  opacity: 1;
+}
+
 /* Floating Skip Intro / Skip Outro button (dark pill on left of
    the Next Episode CTA). Match the chrome hover — text + arrow
    tint to rose, subtle background lift. */
