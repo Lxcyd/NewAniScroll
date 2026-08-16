@@ -21,16 +21,21 @@ export const PREVIEW_PREFS_EVENT = "aniscroll:preview:prefs:change";
 /**
  * How long the pointer must hold still before a card opens, in milliseconds.
  *
- * This was `STILL_TIME` in HoverPreviewProvider, and its reasoning is the floor
- * of the range below. Hayase uses 30ms, which is short enough to be beaten by a
+ * This was `STILL_TIME` in HoverPreviewProvider, and its reasoning is why 200
+ * is the DEFAULT. Hayase uses 30ms, which is short enough to be beaten by a
  * hand that is still moving: micro-adjustments over a small area are not a
  * smooth stream of events but bursts separated by pauses, and any pause longer
  * than the delay opens a card the pointer was only passing over. The window has
  * to be wider than the gaps in a moving hand for "still" to mean still.
  */
 export const PREVIEW_DEFAULT_DELAY = 200;
-/** Under this, a travelling pointer trips the card — see above. */
-export const PREVIEW_MIN_DELAY = 200;
+/**
+ * The range opens at zero, so the default is a recommendation rather than a
+ * floor. Below ~200ms the card is tripped by a hand still in motion, for the
+ * reason above — but that is a thing to know, not a thing to enforce, and
+ * someone who wants the card the instant the pointer lands can have it.
+ */
+export const PREVIEW_MIN_DELAY = 0;
 /** Three seconds of holding still is already someone who has stopped reading. */
 export const PREVIEW_MAX_DELAY = 3000;
 

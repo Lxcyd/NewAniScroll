@@ -832,7 +832,7 @@ export default function Settings() {
                       type="range"
                       min={PREVIEW_MIN_DELAY}
                       max={PREVIEW_MAX_DELAY}
-                      step={100}
+                      step={50}
                       value={previewPrefs.delay}
                       onChange={(e) => {
                         const ms = parseInt(e.target.value, 10);
