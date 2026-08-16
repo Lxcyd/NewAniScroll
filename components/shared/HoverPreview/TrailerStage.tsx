@@ -1439,6 +1439,22 @@ export default function TrailerStage() {
           transform: `scale(${1 / SCALE})`,
           // Top-left, otherwise the reduction re-centres and shifts the picture.
           transformOrigin: "0 0",
+          /*
+           * THE PAGE MUST STILL SCROLL under a playing trailer.
+           *
+           * This is a cross-origin document: a wheel over it is delivered to
+           * YouTube's page, not to ours, and never reaches our scroller. So a
+           * pointer resting on a poster — which is where it is, the card opened
+           * under it — froze the page outright. Measured: a real wheel moved
+           * scrollY by 0. The card then looked pinned to the screen, because
+           * nothing was moving at all.
+           *
+           * The layer AROUND it keeps `pointerEvents: auto` so hovering still
+           * wakes the cursor and the controls; only the frame itself steps out
+           * of the way. Nothing is lost: the player is `controls=0` and
+           * `disablekb=1`, so it has no interaction of its own to receive.
+           */
+          pointerEvents: "none",
         }}
         onLoad={() => {
           // Only NOW is the frame on YouTube's origin and safe to talk to.
