@@ -391,7 +391,7 @@ const FORMAT_LABEL: Record<string, string> = {
  * without a row to press you can only reach it by unticking one by one.
  */
 /** Stands in for the "All" row, which has no value of its own to be keyed on. */
-const ALL_ROW = " all";
+const ALL_ROW = "__all__";
 
 function FilterMenu({
   label,
@@ -662,6 +662,11 @@ export default function RelationsGraph({
    * change of franchise, whose ids the old view means nothing about.
    */
   const touchedView = useRef(false);
+  /**
+   * The card the view is held onto across a re-layout, with the screen position
+   * it had. Whichever one is nearest the middle of the box — see the effect.
+   */
+  const anchorCard = useRef<{ id: number; sx: number; sy: number } | null>(null);
   /** Last known canvas size, to carry the view across a change of window. */
   const viewport = useRef<{ w: number; h: number } | null>(null);
 
@@ -1164,6 +1169,79 @@ export default function RelationsGraph({
     touchedView.current = false;
     viewport.current = { w: box.clientWidth, h: box.clientHeight };
   }, [active, width, height, open]);
+
+  /**
+   * Hold the same CARD still when the layout is rebuilt under the view.
+   *
+   * A filter — the manga chip, a relation, a format, "main story" — hands dagre
+   * a different set of nodes, and dagre lays the whole board out again from
+   * scratch: every rank shifts, so board coordinates mean something else than
+   * they did a frame ago. The zoom survived that (see `touchedView`) and the
+   * offset survived it too, which is precisely the problem: keeping the same
+   * offset over a board that moved is what makes the entry you were reading
+   * slide off the screen while nothing appears to have "reset".
+   *
+   * So the view is anchored to a NODE rather than to a coordinate: whichever
+   * card sits nearest the middle of the box is remembered with the screen
+   * position it occupies, and after any re-layout the offset is nudged by
+   * exactly what it takes to put that card back under the same pixel. The zoom
+   * is not touched — this only ever translates.
+   *
+   * Only for a view the viewer set: an untouched board is re-framed whole by
+   * the effect above, which is a better answer than holding one card still.
+   */
+  useIsoLayoutEffect(() => {
+    if (!active) return;
+    const box = canvasRef.current;
+    if (!box || nodes.length === 0 || !box.clientWidth) return;
+
+    /** Where a card's middle currently falls, in box pixels. */
+    const screenOf = (n: GNode) => {
+      const p = posOf(n);
+      return {
+        x: liveOffset.current.x + (p.x + PAD + n.w / 2) * scale,
+        y: liveOffset.current.y + (p.y + PAD + n.h / 2) * scale,
+      };
+    };
+
+    const prev = anchorCard.current;
+    if (prev && touchedView.current) {
+      const still = nodes.find((n) => n.id === prev.id);
+      // Gone — filtered out by the very press we are reacting to. Nothing to
+      // hold: the next pass anchors on whatever is nearest the middle now.
+      if (still) {
+        const now = screenOf(still);
+        const dx = prev.sx - now.x;
+        const dy = prev.sy - now.y;
+        // Sub-pixel drift is the layout landing where it already was; moving for
+        // it would be a render per commit for nothing.
+        if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5) {
+          const next = { x: liveOffset.current.x + dx, y: liveOffset.current.y + dy };
+          liveOffset.current = next;
+          setOffset(next);
+        }
+      }
+    }
+
+    // Re-read AFTER any correction above, so the record always describes the
+    // view as it is now — a pan or a zoom lands here too, and that is the point:
+    // "where you were" has to mean the last thing you looked at.
+    const cx = box.clientWidth / 2;
+    const cy = box.clientHeight / 2;
+    let best: { id: number; sx: number; sy: number } | null = null;
+    let bestDist = Infinity;
+    for (const n of nodes) {
+      const s = screenOf(n);
+      const d = (s.x - cx) ** 2 + (s.y - cy) ** 2;
+      if (d < bestDist) {
+        bestDist = d;
+        best = { id: n.id, sx: s.x, sy: s.y };
+      }
+    }
+    anchorCard.current = best;
+    // `posOf` reads `moved`, which is in the deps through `nodes`.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, nodes, scale, offset]);
 
   /**
    * Keep what you were looking at when the viewport changes size.
