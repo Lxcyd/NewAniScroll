@@ -313,6 +313,34 @@ type NodeMeta = {
 };
 
 /**
+ * The franchise endpoint, built in ONE place.
+ *
+ * The info page preloads this exact URL from its `<head>`, and a preload only
+ * counts if it matches the request byte for byte — a `v` bumped here and not
+ * there would quietly fetch the franchise twice and earn a "preloaded but not
+ * used" warning for the trouble.
+ *
+ * `v` is not read by the route: it is the CDN key. The answer holds for a day,
+ * so without it a franchise walked under older rules would keep serving that
+ * board until tomorrow. Bump it on any change to the walk's shape.
+ */
+export const relationsTreeUrl = (id: number) => `/api/v2/relations/tree?id=${id}&v=5`;
+
+/**
+ * Franchises already walked, kept for the life of the tab.
+ *
+ * Browsing a franchise means visiting its members one after another, and every
+ * one of them asks for the SAME tree — the answer is deliberately identical
+ * from any entry, which is what the server-side re-rooting is for. The CDN
+ * makes that cheap, not free: measured at 284ms on a warm edge, which is 284ms
+ * of skeleton for a board this tab has already drawn. Here it is a lookup.
+ *
+ * It cannot go stale inside a tab: a franchise's shape changes about once a
+ * season, and the route already serves one answer for a day.
+ */
+const treeCache = new Map<number, { nodes: NodeMeta[]; edges: GEdge[] }>();
+
+/**
  * Material Symbols Outlined, drawn inline.
  *
  * The set the app already uses, at its own weight — pulling the icon font in
@@ -702,16 +730,45 @@ export default function RelationsGraph({
   useEffect(() => {
     if (!active) return;
     let cancelled = false;
-    setWalking(true);
+
+    /**
+     * The PREVIOUS anime's franchise must go before the new one arrives.
+     *
+     * Nothing cleared `tree` on a change of entry, so moving from One Piece to
+     * a two-card show left sixty cards of the wrong franchise on screen for as
+     * long as the request took — and they were live: clickable, searchable,
+     * laid out. A board showing someone else's franchise is worse than a board
+     * showing nothing, and there is already a skeleton for "nothing yet".
+     *
+     * Everything the viewer did to the old board goes with it, for the same
+     * reason: a card hidden on One Piece has no meaning here, and neither does
+     * a selection or a hand-moved position keyed on ids that are gone.
+     */
+    const cached = treeCache.get(currentId);
+    setTree(cached ?? { nodes: [], edges: [] });
+    setHidden(new Set());
+    setMoved(new Map());
+    setSelected(null);
+    fittedFor.current = "";
+    // A cached franchise is on screen already — saying "still loading" over it
+    // would be a spinner for work that is done.
+    setWalking(!cached);
+    if (cached) return;
+
     // `v` is not read by the route — it is the CDN key. The answer holds for a
     // day, so without it every franchise walked before manga were drawn would
     // keep serving the old, paperless board until tomorrow. Bump on any change
     // to the walk's shape.
-    fetch(`/api/v2/relations/tree?id=${currentId}&v=5`)
+    fetch(relationsTreeUrl(currentId))
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         if (cancelled) return;
-        setTree({ nodes: data?.nodes || [], edges: data?.edges || [] });
+        const next = { nodes: data?.nodes || [], edges: data?.edges || [] };
+        // Only a complete walk is worth keeping: a `partial` answer is the one
+        // the route itself refuses to cache for long, precisely because the
+        // next request gets further.
+        if (next.nodes.length > 0 && !data?.partial) treeCache.set(currentId, next);
+        setTree(next);
         setWalking(false);
       })
       .catch(() => {

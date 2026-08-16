@@ -29,6 +29,7 @@ import { notify } from "@/lib/notifications/noticeStore";
 import { Navbar } from "@/components/shared/NavBar";
 import { AniListInfoTypes } from "types/info/AnilistInfoTypes";
 import InfoPage from "@/components/anime/v2/InfoPage";
+import { relationsTreeUrl } from "@/components/anime/v2/RelationsGraph";
 import InfoPageMobile from "@/components/anime/v2/mobile/InfoPageMobile";
 import { useIsMobile } from "@/lib/hooks/useIsMobile";
 import { pickTitleImage, collectArtworks, slugifyTitle, SeasonInfo, TitleImage } from "@/components/anime/v2/helpers";
@@ -590,6 +591,21 @@ export default function Info({
             fetchpriority="high"
           />
         )}
+        {/* The franchise graph, started by the PRELOAD SCANNER rather than by
+            the component that needs it.
+
+            The board is client-only, so its fetch could not leave before
+            hydration: measured on dev, the HTML was in at 260ms and the request
+            still did not start until 428ms, then took 284ms. That 168ms of dead
+            air is bought back here — the browser opens the request while it is
+            still parsing and compiling, and the component finds it in flight.
+
+            No `crossorigin` on purpose: `as=fetch` matches on credentials mode,
+            and the component's plain same-origin `fetch()` sends cookies. The
+            attribute would make this preload a different request and we would
+            pay for the franchise twice. Same reason the URL comes from
+            `relationsTreeUrl` instead of being spelled out again. */}
+        {info?.id && <link rel="preload" as="fetch" href={relationsTreeUrl(Number(info.id))} />}
       </Head>
 
       <Navbar info={info} />
