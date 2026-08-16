@@ -641,6 +641,13 @@ export default function RelationsGraph({
   if (!drag.current) liveOffset.current = offset;
   /** Cleared whenever the board changes size, so the fit runs again. */
   const fittedFor = useRef<string>("");
+  /**
+   * Whether the viewer has moved the view themselves — a zoom, a pan, a jump to
+   * a search hit. Set by every deliberate move, cleared by anything that frames
+   * the board on their behalf (the automatic fit, the reset button) and by a
+   * change of franchise, whose ids the old view means nothing about.
+   */
+  const touchedView = useRef(false);
   /** Last known canvas size, to carry the view across a change of window. */
   const viewport = useRef<{ w: number; h: number } | null>(null);
 
@@ -749,6 +756,7 @@ export default function RelationsGraph({
     setHidden(new Set());
     setMoved(new Map());
     fittedFor.current = "";
+    touchedView.current = false;
     // NOT the selection: it belongs to the effect above, which puts it on the
     // new entry so the board opens already answering "what comes after this
     // one". Clearing it here ran second — same [active, currentId] key, later
@@ -1121,19 +1129,25 @@ export default function RelationsGraph({
     // remembered as fitted; let the next pass do it.
     if (!box.clientWidth || !box.clientHeight) return;
     // `open` is part of the key, so expanding and collapsing each re-frame the
-    // board. Carrying the old view across that step was the intent, and it is
-    // still what a window resize does — but between a 378px strip in the page
-    // and a full window the carry is a factor of three, and it left One Piece
-    // (10053px of board) parked off the corner of a view three times its size.
-    // Arriving on the whole franchise, centred, is the only reading of "bigger"
-    // that survives a franchise of any size.
+    // board — on a view NOBODY HAS TOUCHED. An untouched board carried across
+    // that step arrived badly: between a 378px strip and a full window the
+    // carry is a factor of three, and One Piece (10053px of board) landed off
+    // the corner of a view three times its size.
     const key = `${Math.round(width)}x${Math.round(height)}:${open ? "full" : "inline"}`;
     if (fittedFor.current === key) return;
     fittedFor.current = key;
 
+    // A view the viewer set is theirs to keep. Expanding is a change of window,
+    // not a change of subject: if you zoomed onto one branch and pressed ⤢, you
+    // asked to see THAT branch bigger, and re-framing the whole franchise would
+    // undo the two gestures you just made. The resize observer below carries it
+    // across instead — the key is still marked, so this pass stays skipped.
+    if (touchedView.current) return;
+
     const v = fitView(box.clientWidth, box.clientHeight, width + PAD * 2, height + PAD * 2);
     setScale(v.scale);
     setOffset({ x: v.x, y: v.y });
+    touchedView.current = false;
     viewport.current = { w: box.clientWidth, h: box.clientHeight };
   }, [active, width, height, open]);
 
@@ -1228,6 +1242,7 @@ export default function RelationsGraph({
   const centreOn = (n: GNode) => {
     const box = canvasRef.current;
     if (!box) return;
+    touchedView.current = true;
     const p = posOf(n);
     setOffset({
       x: box.clientWidth / 2 - (p.x + PAD + n.w / 2) * scale,
@@ -1446,6 +1461,7 @@ export default function RelationsGraph({
     const o = liveOffset.current;
     const moved = { x: px - (px - o.x) * k, y: py - (py - o.y) * k };
     liveOffset.current = moved;
+    touchedView.current = true;
     setScale(next);
     setOffset(moved);
   };
@@ -1463,6 +1479,9 @@ export default function RelationsGraph({
     const v = fitView(box.clientWidth, box.clientHeight, width + PAD * 2, height + PAD * 2);
     setScale(v.scale);
     setOffset({ x: v.x, y: v.y });
+    // The button's whole job is a clean slate, so the framing goes back to
+    // being the code's — expanding after a reset frames the board again.
+    touchedView.current = false;
   };
 
   const onPointerDown = (e: React.PointerEvent) => {
@@ -1495,7 +1514,10 @@ export default function RelationsGraph({
     setDragging(false);
     // Publish where the hand left the board, so everything that reads `offset`
     // (centring, the resize handler, the next pan's origin) sees the truth.
-    if (panned) setOffset(liveOffset.current);
+    if (panned) {
+      setOffset(liveOffset.current);
+      touchedView.current = true;
+    }
   };
 
   /**
