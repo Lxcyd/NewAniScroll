@@ -10,7 +10,7 @@ import {
   countryLabel,
   capitalize,
 } from "./helpers";
-import RelationsGraph from "./RelationsGraph";
+import RelationsGraph, { EMBED_HEADER_H } from "./RelationsGraph";
 import styles from "./styles.module.css";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { useTranslation } from "react-i18next";
@@ -129,7 +129,22 @@ export default function Overview({ info }: Props) {
               paddingBottom: 6,
             }}
           >
-            <div style={tStyles.secKicker}>{t("anime.sectionDetails")}</div>
+            {/* Sur la même ligne que le titre du graphe d'à côté : là-bas le mot
+                est centré sur une rangée de boutons, ici c'est une ligne de
+                texte nue. On épingle les deux à la même hauteur (et au même
+                écart sous elle que `embedShell`), sinon "DÉTAILS" flotte
+                au-dessus de "RELATIONS" et les deux cartes se décalent. */}
+            <div
+              style={{
+                ...tStyles.secKicker,
+                marginBottom: 8,
+                minHeight: EMBED_HEADER_H,
+                display: "flex",
+                alignItems: "center",
+              }}
+            >
+              {t("anime.sectionDetails")}
+            </div>
             <div
               style={{
                 ...tStyles.detailsCard,

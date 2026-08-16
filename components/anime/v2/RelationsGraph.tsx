@@ -169,6 +169,19 @@ const isFinished = (entry: UserListEntry | undefined, episodes: number | null) =
 /** The green the list editor uses for a watched entry (.le-dd-dot-current). */
 const DONE_GREEN = "#22c55e";
 
+/**
+ * Height of the inline controls row, in pixels.
+ *
+ * Exported because the section beside this one has to match it: its heading is
+ * a bare line of text at the top of its column, this one is a word centred on a
+ * row of buttons, and two columns of a grid cannot measure each other. Both
+ * sides pin their heading row to this number, so the headings share a baseline
+ * and the two cards under them start on the same line. It is a floor, not a
+ * cap — the row is ~23px of chips, and the few spare pixels keep a slightly
+ * taller control from breaking the alignment.
+ */
+export const EMBED_HEADER_H = 26;
+
 type Props = {
   open: boolean;
   onClose: () => void;
@@ -2041,6 +2054,7 @@ const gStyles: Record<string, CSSProperties> = {
     borderBottom: "none",
     position: "relative",
     zIndex: 2,
+    minHeight: EMBED_HEADER_H,
   },
   /** Hard right, so the heading keeps the left of the line to itself. */
   filtersEmbedded: { justifyContent: "flex-end" },
