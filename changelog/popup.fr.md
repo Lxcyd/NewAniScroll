@@ -1,9 +1,9 @@
-## v0.0.6
+## v0.0.7
 
-⌨️ **Vos propres raccourcis** — attribuez n'importe quelle touche à n'importe quelle action du lecteur depuis un clavier visuel, et ouvrez un panneau de **statistiques vidéo** avec capture d'écran et « copier le lien à cet instant ».
+🎬 **Aperçu au survol** — posez le curseur sur n'importe quelle jaquette : la **bande-annonce démarre toute seule**, avec le son, le synopsis, les notes et un bouton pour ajouter la série à votre liste. Une **lumière d'ambiance** reprend les couleurs de la vidéo autour de la carte.
 
-🖼️ **Vraies vignettes d'épisode** — chaque ligne affiche enfin son propre visuel au lieu de la même image répétée, avec de vrais titres là où AniList n'en liste aucun.
+🕸️ **Graphe de franchise** — la section Relations devient un vrai plateau plein écran : fiches illustrées déplaçables, zoom, recherche et filtres, **ordre de visionnage numéroté**, sous-séries encadrées et manga d'origine inclus.
 
-⛶ **Le plein écran qui tient** — un bouton **épisode suivant** dans la barre de contrôle, et passer à l'épisode suivant ne vous éjecte plus du plein écran.
+🖼️ **Illustrations enrichies** — toute la bibliothèque fanart.tv plus les visuels TMDB (bannières, affiches, logos), et un nouveau lecteur : **Ansembed**.
 
-⚡ **Un site bien plus rapide** — les pages communes à tous sont servies depuis le CDN au lieu d'être reconstruites pour chaque visiteur, et le saut d'intro / d'outro est plus précis sur plus de lecteurs.
+⏭️ **Saut d'intro / d'outro sur beaucoup plus d'épisodes**, des vignettes de lecteur 10x plus rapides, et un site encore plus léger à charger.

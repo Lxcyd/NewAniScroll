@@ -1,9 +1,9 @@
-## v0.0.6
+## v0.0.7
 
-⌨️ **Your own shortcuts** — assign any key to any player action from a visual keyboard, and open a **video stats** panel with screenshot and "copy link at this timestamp".
+🎬 **Hover preview** — point at any cover and the **trailer starts on its own**, with sound, the synopsis, ratings and a button to add the show to your list. An **ambient light** picks up the video's colours around the card.
 
-🖼️ **Real episode thumbnails** — every episode row now shows its own frame instead of the same repeated image, with real titles where AniList lists none.
+🕸️ **Franchise graph** — the Relations section is now a real fullscreen board: draggable illustrated cards, zoom, search and filters, a **numbered watch order**, boxed sub-series and the source manga included.
 
-⛶ **Fullscreen that stays** — a **next episode** button in the control bar, and moving to the next episode no longer drops you out of fullscreen.
+🖼️ **Richer artwork** — the whole fanart.tv library plus TMDB visuals (banners, posters, logos), and a new player: **Ansembed**.
 
-⚡ **A much faster site** — the pages everyone shares are now served from the CDN instead of being rebuilt for each visitor, and intro / outro skipping is more accurate on more players.
+⏭️ **Intro / outro skipping on many more episodes**, 10x faster player thumbnails, and an even lighter site to load.
