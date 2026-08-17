@@ -439,6 +439,33 @@ export function serverPerfTier(serverId: string): Tier | null {
   return final >= 80 ? "fast" : final >= 40 ? "medium" : "slow";
 }
 
+/**
+ * Les poincons de TOUS les lecteurs, lus APRES le montage.
+ *
+ * `serverPerfTier` touche localStorage : appele pendant le rendu, il rend null
+ * au SSR et un vrai palier au client, donc une erreur d'hydratation sur la
+ * pastille. Meme parade que les autres prefs du projet (cf. `useServerPref`) —
+ * le premier rendu client est identique au serveur, l'effet reveille ensuite.
+ */
+export function useServerPerfTiers(): Record<string, Tier | null> {
+  const [tiers, setTiers] = useState<Record<string, Tier | null>>({});
+  useEffect(() => {
+    const sync = () => {
+      const next: Record<string, Tier | null> = {};
+      for (const s of SERVERS as { id: string }[]) next[s.id] = serverPerfTier(s.id);
+      setTiers(next);
+    };
+    sync();
+    window.addEventListener(SERVER_PERF_EVENT, sync);
+    window.addEventListener("storage", sync);
+    return () => {
+      window.removeEventListener(SERVER_PERF_EVENT, sync);
+      window.removeEventListener("storage", sync);
+    };
+  }, []);
+  return tiers;
+}
+
 /* ── Interrupteur et remise a zero (Reglages) ──────────────────────────────
  * Meme forme evenement/hook que les autres prefs pour que l'UI reste vivante.
  */

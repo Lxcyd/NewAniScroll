@@ -3,6 +3,7 @@ import { SignalIcon } from "@heroicons/react/24/solid";
 import { useTranslation } from "react-i18next";
 // @ts-ignore — plain JS context, no types
 import { useWatchProvider } from "@/lib/context/watchPageProvider";
+import { useServerPerfTiers } from "@/lib/watch/serverPerf";
 
 const LANG_CONFIG = {
   multi: { labelKey: "player.langMulti", flag: "🌐", descKey: "player.langMultiDesc" },
@@ -17,11 +18,16 @@ const SPEED_TIERS = {
   slow: { color: "#ff6b6b", labelKey: "player.speedSlow" },
 };
 
-// A server's dot reflects its MEASURED speed when we have a live reading
-// (UniversalPlayer writes the active stream's real throughput/rebuffering to
-// the watch context), otherwise its static `speed` rank from lib/servers.js
-// (1 = fastest). megaplay & co. vary per title, so the live reading is the
-// truthful one — the static rank is just the at-rest estimate.
+// A server's dot reflects, in order of authority:
+//   1. the LIVE reading for the stream playing right now (UniversalPlayer
+//      writes the real throughput/rebuffering to the watch context),
+//   2. the PERSISTED score learned across sessions on this device
+//      (lib/watch/serverPerf) — the only tier that can speak for a server the
+//      user hasn't opened yet, which is exactly what a chip needs,
+//   3. the static `speed` rank from lib/servers.js (1 = fastest), the at-rest
+//      estimate written by hand.
+// megaplay & co. vary per title, so a static rank lies; each step down is a
+// weaker claim, and the ring thickness says which one is talking.
 function staticTier(speed) {
   const s = speed ?? 99;
   if (s <= 2) return "fast";
@@ -50,6 +56,7 @@ function LangGroup({
 }) {
   const { t } = useTranslation();
   const { liveSpeed } = useWatchProvider() || {};
+  const learnedTiers = useServerPerfTiers();
   const config = LANG_CONFIG[langKey];
   const visible = (servers || []).filter((s) =>
     shouldShow(s, activeServer, confirmedServers, failedServers)
@@ -77,7 +84,9 @@ function LangGroup({
           const baseClasses = isActive
             ? "bg-action/25 text-white ring-1 ring-action shadow-[0_0_12px_rgba(255,127,87,0.35)]"
             : "bg-as-surface/70 text-white/80 ring-1 ring-white/5 hover:bg-as-surface hover:text-white hover:ring-white/20";
-          const measured = liveSpeed?.[server.id];
+          const live = liveSpeed?.[server.id];
+          const learned = live ? null : learnedTiers[server.id] || null;
+          const measured = live || learned;
           const sp =
             SPEED_TIERS[measured || staticTier(server.speed)] || SPEED_TIERS.medium;
           const tip = measured
@@ -96,9 +105,14 @@ function LangGroup({
                 className="inline-block w-[7px] h-[7px] rounded-full shrink-0"
                 style={{
                   background: sp.color,
-                  boxShadow: measured
+                  // Trois epaisseurs pour trois niveaux de certitude : anneau
+                  // franc = mesure en direct, anneau discret = appris sur cet
+                  // appareil, simple halo = estimation au repos.
+                  boxShadow: live
                     ? `0 0 0 2px ${sp.color}33, 0 0 7px ${sp.color}99`
-                    : `0 0 6px ${sp.color}80`,
+                    : learned
+                      ? `0 0 0 1px ${sp.color}26, 0 0 6px ${sp.color}80`
+                      : `0 0 6px ${sp.color}80`,
                 }}
               />
               {server.name}
