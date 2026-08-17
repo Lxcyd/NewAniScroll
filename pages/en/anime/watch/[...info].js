@@ -37,7 +37,7 @@ import LangPreferenceModal from "@/components/watch/primary/LangPreferenceModal"
 import { recordWatchToday } from "@/lib/stats/streak";
 import { useTranslation } from "react-i18next";
 import { FULL_MEDIA_FIELDS } from "@/lib/anilist/fullMediaQuery";
-import { getPrefetchedSource, sourceKey, setPrefetchedSource, clearPrefetchedSourcesFor } from "@/lib/watch/sourcePrefetch";
+import { getPrefetchedSource, sourceKey, setPrefetchedSource, clearPrefetchedSourcesFor, getPlannedServer } from "@/lib/watch/sourcePrefetch";
 import { requestSource } from "@/lib/watch/sourceRequest";
 import { replaceUrlPreservingState } from "@/lib/navigation/replaceUrl";
 import { getPrefetchedEpisodes, setPrefetchedEpisodes, clearPrefetchedEpisodesFor } from "@/lib/watch/episodePrefetch";
@@ -516,7 +516,13 @@ export default function Watch({
     // Sinon on demarre sur le plus rapide de la langue n°1 — la sonde corrigera
     // si cet anime ne l'offre pas (effet « filet de securite » plus bas).
     if (!pref && langOrder) {
-      const guess = pickServerForLangs(langOrder);
+      // La page info a peut-etre deja mise sur un hote pour cette serie — et
+      // elle a pu affiner son choix avec l'instantane de disponibilite, ce
+      // qu'on ne peut pas se permettre ici (ce serait un aller-retour reseau
+      // DEVANT le premier chargement). Suivre son pari aligne les deux pages :
+      // la source prechauffee est alors lue telle quelle, sans rien redemander.
+      // Absent (arrivee directe, lien partage), on choisit a l'aveugle.
+      const guess = getPlannedServer(aniId) || pickServerForLangs(langOrder);
       if (guess) setActiveServer(guess);
     }
     // Select the user's server UP FRONT so it's the one loaded in priority — not

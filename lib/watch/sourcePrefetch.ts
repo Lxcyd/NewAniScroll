@@ -58,6 +58,31 @@ export function clearPrefetchedSourcesFor(aniId: number | string): void {
   Array.from(store.keys()).forEach((key) => {
     if (key.startsWith(prefix)) store.delete(key);
   });
+  planned.delete(String(aniId));
+}
+
+/**
+ * Le serveur que la page info a decide de prechauffer pour cet anime.
+ *
+ * Les deux pages resolvent le meme serveur avec les memes fonctions, sauf que la
+ * page info affine son choix avec l'instantane de disponibilite — un GET qu'on
+ * ne veut PAS mettre devant le premier chargement de la page de lecture. Sans ce
+ * relais, les deux pages pouvaient donc choisir deux hotes differents de la meme
+ * langue, et le prechauffage (lourd) etait perdu : la page de lecture attendait
+ * une extraction a froid alors qu'une source resolue dormait a cote.
+ *
+ * En memoire, meme onglet, meme duree de vie que les sources prechauffees
+ * (purge en quittant la page info sans aller regarder).
+ */
+const planned = new Map<string, string>();
+
+export function setPlannedServer(aniId: number | string, server: string): void {
+  if (server) planned.set(String(aniId), server);
+}
+
+export function getPlannedServer(aniId: number | string | null | undefined): string {
+  if (aniId == null) return "";
+  return planned.get(String(aniId)) || "";
 }
 
 /**

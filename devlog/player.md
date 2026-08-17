@@ -108,6 +108,51 @@ globe. Trace recuperes sur `fonts.gstatic.com` plutot qu'ecrits de memoire — u
 Titre renomme « Votre ordre de preference de langue » (le mot « preference » etait
 demande explicitement).
 
+### Iteration 5 — le prechauffage visait le mauvais lecteur (regression de l'iteration 1)
+
+« Essaie d'accelerer le loading des lecteurs ». Le gros du temps ne se gagnait
+pas dans du code plus rapide : il se gagnait en **prechauffant le bon hote**.
+
+La page info prechauffe la source de l'episode de reprise pendant que
+l'utilisateur lit la fiche (`resolveSource` + `warmStream`), et la page de
+lecture lit ce resultat au lieu de redemander. Sauf que la cible etait ecrite en
+dur : `megaplay` + `preferred_server`. C'etait juste tant que la page de lecture
+demarrait sur megaplay — **l'ordre de preference des lecteurs a casse cette
+hypothese sans que rien ne le signale**. Depuis, elle demarre sur le lecteur
+retenu pour la serie, ou sur le plus rapide de la langue n°1. On payait donc un
+scrape lourd (le plus cher de nos endpoints) pour deux hotes dont aucun n'etait
+celui qui allait s'ouvrir, et l'utilisateur attendait quand meme une extraction
+a froid. Le clic ne mettant plus a jour `preferred_server` (iteration 4), le
+second prechauffage etait souvent vide de sens en plus.
+
+**Correction en trois points.**
+
+1. La page info resout desormais sa cible **avec les memes fonctions** que la
+   page de lecture (exception de la serie -> serveur epingle -> ordre des
+   langues -> megaplay), et prechauffe ce seul hote — un scrape lourd au lieu de
+   deux, et le bon.
+2. Elle affine avec `/api/v2/availability` (GET mis en cache CDN 10 min, deja
+   utilise par la page de lecture) : parmi les hotes qui ont REELLEMENT repondu
+   pour cet episode, elle prend le meilleur de la langue n°1. Sans ca, quelqu'un
+   qui classe la VF en tete ferait prechauffer un hote VF sur une serie qui n'en
+   a pas — le pire des deux mondes.
+3. **Le piege de cet affinage** : les deux pages auraient alors pu choisir deux
+   hotes DIFFERENTS de la meme langue, et le prechauffage aurait ete perdu une
+   seconde fois. La page de lecture ne peut pas refaire le meme calcul — ce
+   serait un aller-retour reseau DEVANT son premier chargement. D'ou un relais en
+   memoire dans `sourcePrefetch` (`setPlannedServer`/`getPlannedServer`, meme
+   duree de vie que les sources prechauffees) : la page info dit sur quoi elle a
+   mise, la page de lecture suit. Arrivee directe (lien partage), pas de relais :
+   choix a l'aveugle, comme avant.
+
+Les donnees de skip suivent la meme cible (elles sont stockees PAR HOTE, une
+entree chauffee sur le mauvais hote ne sert a rien), en attendant la promesse de
+resolution plutot qu'en pariant sur l'ordre des deux passes.
+
+**Non mesure** : le gain se lit sur dev.aniscroll.com, en comparant le temps
+jusqu'a la premiere frame depuis la page info (chemin chaud) et depuis un lien
+direct (chemin froid, inchange).
+
 ### Iteration 4 — exception par anime, interrupteur, et un clic qui n'empoisonne plus tout
 
 Trois demandes user : un toast a l'enregistrement, un lecteur choisi en cours
