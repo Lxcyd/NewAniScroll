@@ -6,6 +6,55 @@ megaplay, vidmoly...).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-08-17 — Un upload mort cachait la piste de doublage vivante
+
+Signale par le user, capture a l'appui : le lecteur Ansembed marche sur
+anime-sama pour One Piece VF, et notre chip est absent.
+
+**Le diagnostic n'est pas celui qu'on croit.** Premiere hypothese : le panneau
+`vf2` (la VF Netflix, ou pointait sa capture) n'etait pas explore. Faux —
+`animeSamaLangDirs` couvre vf/vf1/vf2/vf3 depuis longtemps, et ansembed **est**
+present dans `vf` aussi. Mesure :
+
+| panneau | slug ansembed | etat |
+|---|---|---|
+| `saison1/vf` | `embed-1j1tjy3qqbs7` | **404, mort** |
+| `saison1/vf2` | `embed-na2vrsevfe89` | **200, vivant** |
+
+On s'arretait au premier repertoire de langue qui REPONDAIT, on y ramassait
+l'upload mort, `isVidmolyEmbedAlive` le rejetait, et le chip disparaissait —
+sans jamais regarder `vf2`. Les **trois** boucles de langue du fichier avaient
+ce defaut : chemin rapide `player_map`, saison ciblee, iteration cumulative
+(c'est cette derniere qu'emprunte One Piece, dont la ligne player_map porte
+`season_dir=null`).
+
+**Deux niveaux, et il fallait les deux.** Que l'hote soit absent du panneau se
+voit tout de suite et se corrige gratuitement — les panneaux sont deja
+telecharges : c'est `pickLangDirForHost`, qui retient le repertoire portant
+vraiment l'hote au lieu du premier qui repond, en gardant le premier panneau vu
+comme repli (sans quoi on confondrait « panneau introuvable », donc mapping
+casse, et « panneau sain, hote absent », donc absence honnete). Qu'un upload
+soit mort ne se voit qu'a la verification de vivacite, bien plus loin :
+l'appelant relance alors la resolution en excluant le repertoire deja tente.
+Rien n'est paye dans le cas courant, au pire quatre tours.
+
+**Ampleur, mesuree et non supposee** — 350 titres VF tires au hasard dans
+`player_map` : 3 ont des pistes VF multiples, **1 seul** perdait un lecteur
+(One Piece). Le defaut est reel mais isole. Le detecteur a ete valide contre le
+cas connu avant d'etre cru : il voit One Piece (`vf` mort -> `vf2` vivant) et
+laisse passer Vinland Saga, ou la piste vivante (`vf1`) vient en premier.
+
+**VOSTFR reste sans variantes numerotees**, cette fois chiffre : sur 12 titres,
+`vostfr1`/`vostfr2` n'existent nulle part, la ou `vf1`/`vf2` apparaissent 2 fois
+sur 12. Le commentaire d'origine disait vrai, il ne le prouvait pas.
+
+Verifie sur dev.aniscroll.com : ansembed rend desormais `embed-na2vrsevfe89`
+pour One Piece VF ep1. Balayage de 8 titres x 5 lecteurs, aucune regression.
+
+**Sans rapport, constate au passage** : `sendvid.com` renvoie 502 jusque sur sa
+racine — l'hebergeur est down, tous ses chips sont absents partout. Rien a
+corriger chez nous, mais ne pas relire ce silence comme un bug de resolution.
+
 ## 2026-08-17 — Classer les lecteurs sur ce qu'on mesure, pas sur ce qu'on suppose
 
 Demande du user, partie d'une observation : uqload sert ses vignettes de survol
