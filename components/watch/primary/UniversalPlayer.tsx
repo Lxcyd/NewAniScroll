@@ -1683,6 +1683,16 @@ export default function UniversalPlayer({
   const maxHeightRef = useRef(0);
   const srcCommitAtRef = useRef(0);
   const ttffDoneRef = useRef(false);
+  /** Derniere valeur mesuree, gardee pour l'overlay « stats for nerds ». */
+  const ttffMsRef = useRef(0);
+  /* Passe tel quel a VideoStats : ce sont des refs, donc l'overlay lit les
+     accumulateurs vivants sans qu'aucune mesure ne declenche de rendu. */
+  const perfRefs = useRef({
+    wallMs: wallMsRef,
+    stalledMs: stalledMsRef,
+    maxHeight: maxHeightRef,
+    ttffMs: ttffMsRef,
+  }).current;
 
   const videoEl = useCallback(
     () =>
@@ -1748,6 +1758,7 @@ export default function UniversalPlayer({
     maxHeightRef.current = 0;
     srcCommitAtRef.current = 0;
     ttffDoneRef.current = false;
+    ttffMsRef.current = 0;
   }, [serverId, aniListId, episodeNumber]);
 
   // Stall et qualite sont des ACCUMULATEURS : ils n'ont de valeur qu'a la fin.
@@ -1792,7 +1803,8 @@ export default function UniversalPlayer({
     }
     if (!canPlayState) return;
     ttffDoneRef.current = true;
-    recordSample("t", performance.now() - srcCommitAtRef.current);
+    ttffMsRef.current = performance.now() - srcCommitAtRef.current;
+    recordSample("t", ttffMsRef.current);
   }, [serverId, streamData, canPlayState]);
   /* AniSkip chapter cues, populated by SkipOverlay after it fetches
      the API. Each entry: { start, end, type }. We translate them
@@ -5240,6 +5252,7 @@ export default function UniversalPlayer({
                 playerRef={playerRef}
                 hlsRef={hlsRef}
                 serverName={serverId}
+                perf={perfRefs}
                 onClose={() => setStatsOpen(false)}
               />,
               playerElState,
@@ -5249,6 +5262,7 @@ export default function UniversalPlayer({
               playerRef={playerRef}
               hlsRef={hlsRef}
               serverName={serverId}
+              perf={perfRefs}
               onClose={() => setStatsOpen(false)}
             />
           ))}

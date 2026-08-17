@@ -11,6 +11,16 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { MediaPlayerInstance } from "@vidstack/react";
+import { getServerScore } from "@/lib/watch/serverPerf";
+
+/** Accumulateurs vivants du lecteur (lib/watch/serverPerf), passes par ref pour
+ *  que les lire ici ne coute aucun rendu la-bas. */
+export type PerfRefs = {
+  wallMs: { current: number };
+  stalledMs: { current: number };
+  maxHeight: { current: number };
+  ttffMs: { current: number };
+};
 
 type Stats = {
   resolution: string;
@@ -26,6 +36,11 @@ type Stats = {
   duration: string;
   bufferHealth: string;
   server: string;
+  /* Score persiste par lecteur — ce qui classera les chips au prochain
+     chargement. Affiche ici pour pouvoir le lire sans passer par la console. */
+  ttff: string;
+  stallRate: string;
+  perfScore: string;
 };
 
 const EMPTY: Stats = {
@@ -42,6 +57,9 @@ const EMPTY: Stats = {
   duration: "—",
   bufferHealth: "—",
   server: "—",
+  ttff: "—",
+  stallRate: "—",
+  perfScore: "—",
 };
 
 function fmtTime(s: number): string {
@@ -58,11 +76,13 @@ export default function VideoStats({
   playerRef,
   hlsRef,
   serverName,
+  perf,
   onClose,
 }: {
   playerRef: React.RefObject<MediaPlayerInstance>;
   hlsRef: React.MutableRefObject<any>;
   serverName?: string;
+  perf?: PerfRefs;
   onClose: () => void;
 }) {
   const { t } = useTranslation();
@@ -123,6 +143,30 @@ export default function VideoStats({
         }
       } catch {}
 
+      // Score persiste du lecteur actif. `C` est la confiance : tant qu'elle est
+      // basse, le rang statique de lib/servers.js tient encore la barre.
+      let perfScore = "—";
+      let ttff = "—";
+      let stallRate = "—";
+      if (serverName) {
+        const { final, measured, C } = getServerScore(serverName);
+        perfScore =
+          measured == null
+            ? `${final.toFixed(0)} (statique)`
+            : `${final.toFixed(0)} · C ${C.toFixed(2)}`;
+        if (perf) {
+          if (perf.ttffMs.current > 0) {
+            ttff = `${Math.round(perf.ttffMs.current)} ms`;
+          }
+          const wall = perf.wallMs.current;
+          stallRate =
+            wall > 0
+              ? `${((perf.stalledMs.current / wall) * 60).toFixed(1)} s/min` +
+                (wall < 60_000 ? " (trop court)" : "")
+              : "—";
+        }
+      }
+
       return {
         resolution: vw && vh ? `${vw}×${vh}` : "—",
         displayResolution: dispW && dispH ? `${dispW}×${dispH}` : "—",
@@ -138,6 +182,9 @@ export default function VideoStats({
         duration: fmtTime(video.duration),
         bufferHealth: `${bufferAhead.toFixed(1)} s`,
         server: serverName || "—",
+        ttff,
+        stallRate,
+        perfScore,
       };
     };
 
@@ -155,7 +202,7 @@ export default function VideoStats({
       cancelled = true;
       cancelAnimationFrame(raf);
     };
-  }, [playerRef, hlsRef, serverName]);
+  }, [playerRef, hlsRef, serverName, perf]);
 
   const rows: Array<[string, string]> = [
     [t("stats.server"), stats.server],
@@ -169,6 +216,9 @@ export default function VideoStats({
     [t("stats.playbackRate"), stats.playbackRate],
     [t("stats.volume"), stats.volume],
     [t("stats.time"), `${stats.currentTime} / ${stats.duration}`],
+    [t("stats.ttff"), stats.ttff],
+    [t("stats.stallRate"), stats.stallRate],
+    [t("stats.perfScore"), stats.perfScore],
   ];
 
   return (
