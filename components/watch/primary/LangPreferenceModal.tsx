@@ -97,17 +97,24 @@ function MultiIcon({ className }: { className?: string }) {
 /**
  * Une couleur par famille, et sa logique : la **part de francais** que le
  * lecteur apporte — c'est exactement l'axe sur lequel on demande a l'utilisateur
- * de trancher, donc autant le rendre lisible d'un coup d'oeil.
+ * de trancher, donc autant le rendre lisible d'un coup d'oeil. Du chaud (tout
+ * en francais) vers le froid (pas de francais) :
  *
- *   vert  → tout en francais (audio double)
- *   cyan  → moitie (image japonaise, texte francais)
- *   violet → pas de francais (anglais par defaut)
+ *   corail → tout en francais (audio double)
+ *   violet → moitie (image japonaise, texte francais)
+ *   bleu   → pas de francais (anglais par defaut)
  *
- * Vert -> cyan -> violet se lit comme un degrade, pas comme trois etats sans
- * rapport. Les teintes viennent de la palette `as` du theme (watching /
- * rewatching / planning). En dur, et en style inline : `bg-[${hex}]` compose a
- * la volee n'existerait pas dans le CSS bati (le JIT ne voit que des chaines
- * completes) — c'est le meme piege que le bleu de `ring-action/40`.
+ * Premiere version en vert / cyan / violet : la logique tenait, mais le vert est
+ * a l'oppose du rose de la marque sur la roue chromatique — ca jurait. Cette
+ * rampe-ci est un degrade de coucher de soleil (teintes ~15° → ~285° → ~217°,
+ * en passant par le magenta) et le rose `#E94560` (~348°) tombe DEDANS : les
+ * trois couleurs sont donc parentes de l'accent au lieu de le combattre. Le
+ * corail est d'ailleurs `--brand-secondary`, deja utilise par le selecteur de
+ * serveurs.
+ *
+ * En dur, et en style inline : `bg-[${hex}]` compose a la volee n'existerait pas
+ * dans le CSS bati (le JIT ne voit que des chaines completes) — c'est le meme
+ * piege que le bleu de `ring-action/40`.
  */
 const CARDS: Record<
   Lang,
@@ -122,21 +129,21 @@ const CARDS: Record<
   vf: {
     Icon: DubIcon,
     tag: "VF",
-    color: "#10B981",
+    color: "#FF7F57",
     titleKey: "player.langPref.vfTitle",
     descKey: "player.langPref.vfDesc",
   },
   vo: {
     Icon: SubIcon,
     tag: "VOSTFR",
-    color: "#06B6D4",
+    color: "#C084FC",
     titleKey: "player.langPref.voTitle",
     descKey: "player.langPref.voDesc",
   },
   multi: {
     Icon: MultiIcon,
     tag: "Multi",
-    color: "#A855F7",
+    color: "#60A5FA",
     titleKey: "player.langPref.multiTitle",
     descKey: "player.langPref.multiDesc",
   },
@@ -300,7 +307,7 @@ export default function LangPreferenceModal({
                   // Le fond reste OPAQUE (la surface du theme est en dessous) et
                   // `--surface-surface` garde le theme vivant, ce qu'un hex en
                   // dur aurait perdu.
-                  background: `linear-gradient(180deg, ${card.color}1a 0%, transparent 55%), var(--surface-surface, #22222e)`,
+                  background: `linear-gradient(180deg, ${card.color}30 0%, ${card.color}14 45%, transparent 100%), var(--surface-surface, #22222e)`,
                   transform: `translateX(${x}px)`,
                   // La bague EST une box-shadow : la transitionner suffit a
                   // faire respirer le halo rose au survol.
