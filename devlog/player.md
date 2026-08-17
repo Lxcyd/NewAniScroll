@@ -200,6 +200,37 @@ Note de methode : le cache Redis est PARTAGE entre prod et dev, et la cle edge
 inclut `title`/`malId`. Deux facons de se mentir a soi-meme en mesurant, les
 deux rencontrees dans la meme heure.
 
+### Suite 3 — le memo « shell.php refuse » ne s'eteignait JAMAIS
+
+Le chip tient maintenant a l'ecran (suite 2), mais le lecteur ne resout toujours
+pas sur dev. Nouvelle mesure, et cette fois le mode d'echec a change : **0,25 s**
+au lieu de 5 s. Trop vite pour avoir tente quoi que ce soit — donc les jambes
+sont SAUTEES, pas expirees.
+
+Six requetes paralleles sur dev (donc plusieurs instances lambda), meme titre :
+certaines rendent un flux, d'autres echouent en 0,25 s. Ce n'est pas l'hote qui
+est capricieux, **c'est l'historique de chaque instance**.
+
+`sibnetShellBlocked` etait un `let … = false` passe a `true` et **jamais remis**.
+Avec `SIBNET_SKIP_AFTER_REFUSALS = 1`, UN seul 403 condamnait shell.php pour
+toute la duree de vie de l'instance — des heures sur une fonction tiede. Il ne
+reste alors que la jambe de derniere chance, et la ou elle ne passe pas non plus,
+sibnet est mort sur cette instance, definitivement.
+
+Prod, plus frequentee donc plus renouvelee, n'exhibait pas le symptome : de quoi
+croire longtemps a une difference d'egress entre les deux environnements. Ca
+n'en etait pas une — `vercel.json` pointe `cdg1` des deux cotes, verifie.
+
+Un blocage d'egress est un ETAT, pas une verite (le devlog du 08/08 raconte deja
+un sibnet qui remarche). Le memo se comporte donc maintenant comme le throttle
+429 juste a cote : reaction immediate — un refus suffit, le seuil ne bouge pas —
+et **oubli au bout de 10 minutes**. Un succes direct efface le compteur : c'est
+la preuve que l'egress n'est pas ferme.
+
+Verifie au passage, et c'est le correctif de la suite precedente qui marche :
+l'episode 4 rend desormais `{absent:true}` au lieu d'une URL ansembed deguisee en
+sibnet.
+
 ### Suite 2 — « il s'affiche puis disparait » : un 503 effacait une certitude
 
 Le detail qui manquait, donne par le user a la troisieme passe : le chip sibnet
