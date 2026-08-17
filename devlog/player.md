@@ -6,6 +6,92 @@ megaplay, vidmoly...).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-08-17 — Classer les lecteurs sur ce qu'on mesure, pas sur ce qu'on suppose
+
+Demande du user, partie d'une observation : uqload sert ses vignettes de survol
+bien plus densement que les autres, ce qui trahit un acces aleatoire rapide —
+alors que `lib/servers.js` le classe **dernier** (`speed: 5`). Le rang `speed`
+y est ecrit a la main, deduit de l'architecture de livraison ; il est donc faux
+au moins une fois, et le commentaire de `UniversalPlayer` le disait deja
+(« a static rank lies »).
+
+**Le nouveau module** : `lib/watch/serverPerf.ts`. Quatre criteres mesures
+pendant la lecture, accumules en localStorage, rendus sous forme d'un rang
+utilisable partout ou `speed` l'etait :
+
+| | | |
+|---|---|---|
+| `t` | demarrage | ms du commit du src au premier `canPlay` |
+| `s` | stabilite | secondes stallees par 60 s de lecture |
+| `k` | seek | ms d'un seek RESEAU (cible hors de `video.buffered`) |
+| `q` | qualite | `videoHeight` max reellement servi |
+
+**Le vrai probleme de conception** n'est pas de mesurer, c'est que sibnet et
+sendvid sont `noCors` et ne peuvent pas tout produire. Deux regles le
+resolvent : on **n'impute jamais** une valeur manquante, et on **renormalise**
+sur les seuls criteres presents, ponderes par leur confiance. Un hote qui ne
+fournit que `t`+`s`+`q` est note sur 0,80 de la masse de poids, ramenee a 100 :
+il reste sur le meme axe que les autres, il converge seulement plus lentement.
+Sans ca, tout classement multi-criteres punit mecaniquement les hotes les moins
+instrumentables — exactement les plus fragiles.
+
+**Deux instruments ecartes, et pourquoi.** HoverPreview semblait le candidat
+evident pour le seek (c'est lui qui a produit l'observation de depart) : ses six
+decodeurs paralleles se **concurrencent**, donc le ms/seek est gonfle
+precisement sur les hotes qui en recoivent six, et le composant n'est pas monte
+du tout pour les flux noCors. La video principale est non-contendue et
+universelle. La latence `/api/v2/source` est ecartee aussi : indissociable de
+son etage de cache (Redis 300 s, cache negatif 600 s, edge `s-maxage=300`, et un
+suiveur du single-flight enregistre le temps de scrape du **meneur**). Le chiffre
+qu'on veut — « du clic au premier pixel, imputable a l'hote » — c'est le TTFF,
+qui demarre apres.
+
+**Garde-fous.** Le rang statique reste le prior et garde toujours 25 % du mot
+(`CONF_CAP`), donc deux echantillons chanceux ne couronnent personne. Store vide
+=> confiance 0 => rang `(speed-1)*20`, strictement monotone en `speed` : le tri
+etant stable, c'est la **meme permutation** qu'avant, verifiee sur les trois
+langues et six ordres de preference. Un echantillon par critere et par session
+`(lecteur, anime, episode)`, sinon un episode de 24 min empilerait dix lectures
+du meme stall. Aucune requete ajoutee — la page de lecture est deja le premier
+consommateur de quota Upstash du site.
+
+**Le piege sur lequel on est tombe** : la confiance replie d'abord la quantite
+de preuve et la fraicheur en un seul facteur (`n` decroissant / MIN_N). Avec
+`MIN_N = 1` pour la qualite, il fallait que `n` descende **sous 1** pour que la
+demi-vie morde — soit quatre demi-vies depuis n = 20. Un seul critere suffisait
+donc a maintenir en vie un verdict de deux mois. Les deux notions sont
+desormais separees.
+
+**Autorite volontairement limitee** : le score decide de l'ordre des chips et du
+lecteur par defaut, jamais d'une bascule en cours de lecture, et une bascule
+automatique ne persiste toujours pas. Le pin manuel reste seul maitre.
+
+Deux nettoyages au passage. `shouldShow` vivait en deux exemplaires (selecteur +
+raccourci « lecteur suivant ») et avait **deja diverge** — le selecteur testait
+`failedServers.get?.()` en plus de `.has?.()` — alors que le raccourci est cense
+parcourir exactement les chips affiches : extrait dans
+`lib/watch/serverVisibility.ts`. Et « Restaurer les reglages par defaut »
+retirait bien la cle, mais le module garde un miroir **en memoire** qui l'aurait
+reecrite au flush suivant ; il faut le lui dire explicitement.
+
+Le poincon du selecteur repond maintenant a trois niveaux de certitude (direct,
+appris, statique), l'epaisseur de l'anneau disant lequel parle. L'overlay
+« stats for nerds » affiche TTFF, taux de coupure et score+confiance. Le rang
+appris ne se lit qu'apres le montage : reordonner pendant le rendu change
+l'ordre du DOM entre serveur et client, ce qui est une erreur d'hydratation.
+
+**Phase 2 (non construite)** : un prior regional par pays remplacerait
+`staticScore` dans la fusion, sans toucher a la collecte, au stockage ni aux
+points de consommation. Le signal geo le moins cher est `request.cf.country`
+dans le Worker — mais le pipeline Worker->Turso est mort depuis le 11/07, et
+c'est le vrai prealable. La Phase 1 n'en depend pas, c'est pourquoi elle passe
+en premier.
+
+Verifs : `tsc --noEmit` OK, `next lint` OK, `next build` OK, et 26 assertions
+sur le modele (parite a store vide, mesurabilite partielle, un-echantillon,
+peremption a 60 j, purge a 90 j, mediane/EWMA, onglet cache). **Non teste en
+navigateur — a valider sur dev.aniscroll.com.**
+
 ## 2026-08-17 — La langue avant le lecteur : un classement 1-2-3 pose une fois
 
 Nouvelle fonctionnalite, demandee par le user. Jusqu'ici le lecteur par defaut
