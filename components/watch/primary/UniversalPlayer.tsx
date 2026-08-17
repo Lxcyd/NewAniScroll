@@ -1,7 +1,7 @@
 import "@vidstack/react/player/styles/default/theme.css";
 import "@vidstack/react/player/styles/default/layouts/video.css";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 // @ts-ignore — react-dom types not installed but createPortal is exported
 import { createPortal } from "react-dom";
 import {
@@ -36,6 +36,13 @@ import FullscreenChat from "@/components/watch/party/FullscreenChat";
 // @ts-ignore — context module is plain JS, no types
 import { useWatchProvider } from "@/lib/context/watchPageProvider";
 import { getServer } from "@/lib/servers";
+import {
+  beginSession,
+  commitSession,
+  offSessionEnd,
+  onSessionEnd,
+  recordSample,
+} from "@/lib/watch/serverPerf";
 import { useTranslation } from "react-i18next";
 import { notify } from "@/lib/notifications/noticeStore";
 import {
@@ -1657,6 +1664,33 @@ export default function UniversalPlayer({
     waitingRef.current = !!waitingState;
     if (waitingState) lastStallRef.current = Date.now();
   }, [waitingState]);
+  const pausedState = useMediaState("paused", playerRef);
+  const pausedRef = useRef(true);
+  pausedRef.current = !!pausedState;
+  const canPlayState = useMediaState("canPlay", playerRef);
+  /** Periode de la boucle de mesure. Sert aussi de pas d'accumulation. */
+  const MEASURE_MS = 2500;
+
+  /* ── Mesures persistees par lecteur ────────────────────────────────────
+     Quatre criteres nourrissent le classement des chips au chargement
+     suivant : demarrage (t), stabilite (s), seek (k), qualite (q). Tout passe
+     par lib/watch/serverPerf, qui n'ecrit qu'en localStorage — aucune requete
+     ajoutee, la page de lecture est deja le premier consommateur de quota du
+     site. Les accumulateurs sont declares ici, la boucle de mesure juste en
+     dessous les alimente, et les effets plus bas les posent. */
+  const wallMsRef = useRef(0);
+  const stalledMsRef = useRef(0);
+  const maxHeightRef = useRef(0);
+  const srcCommitAtRef = useRef(0);
+  const ttffDoneRef = useRef(false);
+
+  const videoEl = useCallback(
+    () =>
+      ((playerRef.current?.el as HTMLElement | undefined)?.querySelector(
+        "video",
+      ) as HTMLVideoElement | null) || null,
+    [],
+  );
   // Fresh measurements per episode/anime — a server fast on ep 1 can be slow
   // on ep 12, so don't carry stale dots across episodes.
   useEffect(() => {
@@ -1687,12 +1721,79 @@ export default function UniversalPlayer({
       if (waitingRef.current) tier = "slow";
       else if (recentlyStalled && tier === "fast") tier = "medium";
       if (tier) setLiveSpeedFor(serverId, tier);
+
+      // Accumulation pour le score PERSISTE (lib/watch/serverPerf). Le poincon
+      // ci-dessus meurt avec la page ; ceci survit et sert a classer les
+      // lecteurs au prochain chargement. Deux additions et une lecture de
+      // videoHeight — rien qui touche localStorage dans cette boucle.
+      if (!pausedRef.current) wallMsRef.current += MEASURE_MS;
+      if (waitingRef.current) stalledMsRef.current += MEASURE_MS;
+      const h = videoEl()?.videoHeight || 0;
+      if (h > maxHeightRef.current) maxHeightRef.current = h;
     };
     measure();
-    const id = setInterval(measure, 2500);
+    const id = setInterval(measure, MEASURE_MS);
     return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [serverId]);
+
+  // Une session = (lecteur, anime, episode). Un critere n'y depose qu'un seul
+  // echantillon, sinon un episode de 24 min empilerait dix lectures du meme
+  // stall et le compteur cesserait de signifier « observations independantes ».
+  useEffect(() => {
+    if (!serverId) return;
+    beginSession(serverId, aniListId, episodeNumber);
+    wallMsRef.current = 0;
+    stalledMsRef.current = 0;
+    maxHeightRef.current = 0;
+    srcCommitAtRef.current = 0;
+    ttffDoneRef.current = false;
+  }, [serverId, aniListId, episodeNumber]);
+
+  // Stall et qualite sont des ACCUMULATEURS : ils n'ont de valeur qu'a la fin.
+  // serverPerf appelle ce finaliseur juste avant de refermer la session, quel
+  // que soit le chemin de sortie (episode suivant, onglet cache, page quittee).
+  useEffect(() => {
+    const flushAccumulators = () => {
+      // Sous une minute de lecture reelle, le ratio est domine par le
+      // demarrage et ne dit rien de la tenue de l'hote.
+      if (wallMsRef.current >= 60_000) {
+        recordSample("s", (stalledMsRef.current / wallMsRef.current) * 60);
+      }
+      if (maxHeightRef.current > 0) recordSample("q", maxHeightRef.current);
+      wallMsRef.current = 0;
+      stalledMsRef.current = 0;
+      maxHeightRef.current = 0;
+    };
+    onSessionEnd(flushAccumulators);
+    return () => {
+      // Le lecteur est demonte a CHAQUE changement de serveur : c'est un vrai
+      // bout de session, il doit etre pose avant que le finaliseur ne parte.
+      flushAccumulators();
+      offSessionEnd(flushAccumulators);
+      commitSession();
+    };
+  }, []);
+
+  // TTFF — du moment ou le lecteur recoit REELLEMENT un flux au premier
+  // `canPlay`. Le chrono ne part pas au changement d'episode : la resolution
+  // /api/v2/source qui precede est indissociable de son etage de cache (Redis,
+  // cache negatif, edge, et un suiveur du single-flight enregistre le temps de
+  // scrape du meneur), donc elle ne dit rien de l'hote. Ce qui suit, si :
+  // extraction cote navigateur incluse, c'est de l'attente que l'hote cause.
+  useEffect(() => {
+    if (!serverId || !streamData || ttffDoneRef.current) return;
+    if (!srcCommitAtRef.current) {
+      // Deja pret a l'instant ou le flux arrive : rien a chronometrer, et
+      // enregistrer un ~0 ici ferait passer l'hote pour instantane.
+      if (canPlayState) ttffDoneRef.current = true;
+      else srcCommitAtRef.current = performance.now();
+      return;
+    }
+    if (!canPlayState) return;
+    ttffDoneRef.current = true;
+    recordSample("t", performance.now() - srcCommitAtRef.current);
+  }, [serverId, streamData, canPlayState]);
   /* AniSkip chapter cues, populated by SkipOverlay after it fetches
      the API. Each entry: { start, end, type }. We translate them
      into a WebVTT chapters track served via a blob URL so Vidstack
@@ -2174,6 +2275,52 @@ export default function UniversalPlayer({
     if (isFullscreen) playerEl.setAttribute("data-fullscreen", "");
     else playerEl.removeAttribute("data-fullscreen");
   }, [isFullscreen, playerElState]);
+
+  // Latence de SEEK — le critere `k` du score persiste (lib/watch/serverPerf).
+  //
+  // C'est l'observation d'origine : uqload sert ses vignettes de survol bien
+  // plus densement que les autres, ce qui trahit un acces aleatoire rapide,
+  // alors que lib/servers.js le classe DERNIER. On ne mesure pas depuis
+  // HoverPreview pour autant : ses six decodeurs paralleles se concurrencent,
+  // ce qui gonfle le ms/seek precisement sur les hotes qui en recoivent six,
+  // et le composant n'est pas monte du tout pour les flux noCors (sibnet,
+  // sendvid). La video principale est non-contendue et universelle.
+  //
+  // Seuls les seeks RESEAU comptent : sauter dans une zone deja bufferisee est
+  // instantane partout et ne dit rien de l'hote.
+  useEffect(() => {
+    const playerEl = playerElState;
+    if (!playerEl || !serverId) return;
+    const video = playerEl.querySelector<HTMLVideoElement>("video");
+    if (!video) return;
+
+    let startedAt = 0;
+    const buffered = (t: number) => {
+      try {
+        const b = video.buffered;
+        for (let i = 0; i < b.length; i++) {
+          if (t >= b.start(i) && t <= b.end(i)) return true;
+        }
+      } catch {
+        /* certains providers refusent l'acces avant les metadonnees */
+      }
+      return false;
+    };
+    const onSeeking = () => {
+      startedAt = buffered(video.currentTime) ? 0 : performance.now();
+    };
+    const onSeeked = () => {
+      if (!startedAt) return;
+      recordSample("k", performance.now() - startedAt);
+      startedAt = 0;
+    };
+    video.addEventListener("seeking", onSeeking);
+    video.addEventListener("seeked", onSeeked);
+    return () => {
+      video.removeEventListener("seeking", onSeeking);
+      video.removeEventListener("seeked", onSeeked);
+    };
+  }, [playerElState, serverId]);
 
   // Double-click toggles fullscreen — but OURS. Vidstack's default layout ships
   // a `toggle:fullscreen` gesture that would enter ITS fullscreen (on the player

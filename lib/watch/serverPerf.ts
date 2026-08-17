@@ -262,8 +262,39 @@ function median(values: number[]): number {
   return v.length % 2 ? v[mid] : (v[mid - 1] + v[mid]) / 2;
 }
 
+/**
+ * Appele juste avant que la session ne se referme, quelle qu'en soit la cause
+ * (changement d'episode, de lecteur, onglet cache, page quittee).
+ *
+ * Certaines mesures ne sont pas des evenements mais des ACCUMULATEURS — le
+ * stall se compte sur toute la duree de lecture, la qualite est un maximum
+ * observe. Elles n'ont de valeur qu'a la fin, et sans ce point d'ancrage il
+ * faudrait que le producteur devine par lui-meme tous les chemins de sortie,
+ * en s'ordonnant correctement avec ceux d'ici.
+ */
+let finalizer: (() => void) | null = null;
+
+export function onSessionEnd(fn: () => void): void {
+  finalizer = fn;
+}
+
+/**
+ * Retrait IDENTITAIRE : rien ne garantit qu'un composant soit demonte avant que
+ * son remplacant ne soit monte. Un retrait aveugle effacerait alors le
+ * finaliseur du nouveau, et ses accumulateurs ne seraient jamais poses.
+ */
+export function offSessionEnd(fn: () => void): void {
+  if (finalizer === fn) finalizer = null;
+}
+
 /** Replie les echantillons en attente dans le store, un par critere. */
 export function commitSession(): void {
+  try {
+    // Depose ses derniers echantillons dans `pending` — donc AVANT sa lecture.
+    finalizer?.();
+  } catch {
+    /* une mesure ne doit jamais casser une lecture */
+  }
   const id = sessionServer;
   const p = pending;
   pending = {};
