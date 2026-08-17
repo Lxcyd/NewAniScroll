@@ -102,7 +102,13 @@
       "defaultServer": "Default server",
       "defaultServerDesc": "Always try this server first. Auto uses the site default and remembers the one you pick in the player. Falls back when an anime doesn't have it.",
       "serverAuto": "Auto (site default)",
-      "note": "This setting is saved on this device. The rating is stored in your local list (and pushed to AniList when sync is on)."
+      "note": "This setting is saved on this device. The rating is stored in your local list (and pushed to AniList when sync is on).",
+      "serverPerf": "Learn which server is fastest",
+      "serverPerfDesc": "Measures startup, stalls, seek speed and quality while you watch, on this device only, and puts the fastest servers first. Nothing is sent anywhere. Off keeps the hand-written order.",
+      "serverPerfReset": "Measurements",
+      "serverPerfResetDesc": "Scores learned on this device. Reset to fall back to the default order.",
+      "serverPerfNone": "Nothing measured yet",
+      "serverPerfResetBtn": "Reset"
     },
     "dataSaver": {
       "title": "Data saver",

@@ -102,7 +102,13 @@
       "defaultServer": "Serveur par défaut",
       "defaultServerDesc": "Essaie ce serveur en priorité. Auto utilise le défaut du site et mémorise celui choisi dans le lecteur. Repli automatique si un anime ne l'a pas.",
       "serverAuto": "Auto (défaut du site)",
-      "note": "Ce réglage est enregistré sur cet appareil. La note est enregistrée dans votre liste locale (et poussée vers AniList si la synchronisation est active)."
+      "note": "Ce réglage est enregistré sur cet appareil. La note est enregistrée dans votre liste locale (et poussée vers AniList si la synchronisation est active).",
+      "serverPerf": "Apprendre quel serveur est le plus rapide",
+      "serverPerfDesc": "Mesure le démarrage, les coupures, la vitesse de navigation et la qualité pendant que vous regardez, sur cet appareil uniquement, et place les serveurs les plus rapides en premier. Rien n'est envoyé nulle part. Désactivé, l'ordre par défaut est conservé.",
+      "serverPerfReset": "Mesures",
+      "serverPerfResetDesc": "Scores appris sur cet appareil. Réinitialiser fait revenir à l'ordre par défaut.",
+      "serverPerfNone": "Aucune mesure pour l'instant",
+      "serverPerfResetBtn": "Réinitialiser"
     },
     "dataSaver": {
       "title": "Économie de données",
