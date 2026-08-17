@@ -58,6 +58,56 @@ Re-ouvrable dans Reglages > Lecteur, et `lang_pref_order` est ajoute aux cles qu
 Verifs : `tsc --noEmit` OK, `next lint` OK, `next build` OK. Non teste en
 navigateur — a valider sur dev.aniscroll.com.
 
+### Iteration 2 — `Reorder` de framer-motion jete, et l'habillage repris
+
+Retour user sur la premiere version : « on ne peut pas swipe les cartes
+correctement, c'est bugue », plus l'interface qui ne ressemblait pas au reste du
+site.
+
+**Le glisser-deposer.** `Reorder` (framer-motion) mesure des elements qu'il
+reordonne lui-meme dans le DOM. Avec trois cartes `flex-1` de largeur egale,
+chaque permutation change la mesure sous ses pieds : les cartes sautaient au
+lieu de suivre le doigt. Reecrit a la main, en s'inspirant du gestionnaire de
+listes de l'ancienne AniScroll (`startRowDrag` dans `scroll-helpers.js` :
+Pointer Events + `setPointerCapture` + placeholder), mais en plus simple parce
+que les trois emplacements sont fixes et de largeur egale :
+
+- **l'ordre du DOM ne bouge jamais** (vf, vo, multi) ;
+- chaque carte est posee sur son emplacement par un `translateX` de
+  `(emplacement - position DOM) x pas` ;
+- la carte tiree ajoute le deplacement du pointeur et perd sa transition ; les
+  autres gardent la leur, donc elles glissent toutes seules.
+
+Rien n'est mesure pendant le geste, donc rien ne peut sauter. **Le piege**, en
+revanche : quand l'ordre change en cours de glissement, la position de repos de
+la carte tiree change aussi — sans decaler l'origine du geste (`startX`) d'un
+pas, elle sautait d'un cran sous le doigt. C'est exactement le meme genre de
+compensation que le `ghostOffset` du ShortcutEditor.
+
+`touch-action: none` sur les cartes (sinon le navigateur prend le geste
+horizontal pour un scroll), et la rangee reste invisible tant que la largeur
+d'un emplacement n'est pas mesuree — avant ca les translations valent 0 et un
+classement enregistre non-standard s'afficherait une frame a l'envers.
+
+**L'habillage.** Repris sur la grammaire du site : `bg-as-card` + `rounded-card`
++ `shadow-poster`, pastille d'accent en tete, titres Outfit / textes Karla,
+carte n°1 en `ring-action` avec le halo (le meme code couleur que le chip du
+serveur actif dans le selecteur), numeros 2-3 en gris. Les badges drapeau ont
+saute : `🇫🇷` se rend en « FR » sur Windows, ce qui donnait une vignette ratee —
+remplaces par des etiquettes VF / VOSTFR / Multi dans le style typographique deja
+utilise par le selecteur de serveurs. Sous chaque numero, un mot (« d'abord » /
+« sinon » / « en dernier ») dit ce que le classement veut dire, ce que le seul
+chiffre ne faisait pas.
+
+Icones passees en **Material Symbols** (`viewBox="0 -960 960 960"`,
+`fill="currentColor"`) : micro pour le doublage (fourni par le user), sous-titres,
+globe. Trace recuperes sur `fonts.gstatic.com` plutot qu'ecrits de memoire — un
+`path` invente rend une bouillie. Ca supprime au passage la dependance
+`react-icons` de ce composant.
+
+Titre renomme « Votre ordre de preference de langue » (le mot « preference » etait
+demande explicitement).
+
 ---
 
 ## 2026-08-17 (nuit) — Sibnet tuait la fonction, et une preference morte se rejouait a vie
