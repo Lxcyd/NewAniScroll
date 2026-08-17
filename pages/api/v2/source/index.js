@@ -652,10 +652,9 @@ async function fetchPanelIframe(slug, seasonDir, langPath, serverDef, index) {
     if (!epRes.ok) continue;
     const episodeArrays = parseEpisodesJs(await epRes.text());
     if (episodeArrays.length === 0) continue;
-    const bestArray = findPreferredArray(episodeArrays, serverDef.preferred);
-    if (bestArray && index >= 0 && index < bestArray.length) {
-      return { panelOk: true, iframeUrl: bestArray[index] };
-    }
+    // A la bonne position ET chez le bon hote — cf. pickPreferredEpisodeUrl.
+    const url = pickPreferredEpisodeUrl(episodeArrays, serverDef.preferred, index);
+    if (url) return { panelOk: true, iframeUrl: url };
     return { panelOk: true, iframeUrl: null };
   }
   return { panelOk: false, iframeUrl: null };
@@ -913,7 +912,6 @@ async function resolveAnimeSamaHeuristically(
         const jsContent = await epRes.text();
         const episodeArrays = parseEpisodesJs(jsContent);
         if (episodeArrays.length > 0) {
-          const bestArray = findPreferredArray(episodeArrays, serverDef.preferred);
           // MERGED-PANEL OFFSET: some franchises are stored as ONE saison1 panel
           // that concatenates every season's episodes (Gintama 365ep, Fairy Tail
           // 328ep, DBZ Kai 291ep…). For a season ≥2 that means episode 1 lives at
@@ -942,8 +940,13 @@ async function resolveAnimeSamaHeuristically(
               dlog(`[anime-sama] Merged panel ${targetSeason.dir}: S${seasonNum} ep${episode} → merged index ${useIndex} (offset ${offset}, panel ${canonicalLen}ep)`);
             }
           }
-          if (bestArray && useIndex >= 0 && useIndex < bestArray.length) {
-            iframeUrl = bestArray[useIndex];
+          const pickedUrl = pickPreferredEpisodeUrl(
+            episodeArrays,
+            serverDef.preferred,
+            useIndex,
+          );
+          if (pickedUrl) {
+            iframeUrl = pickedUrl;
             dlog(`[anime-sama] Found ep ${episode} in ${targetSeason.dir}: ${iframeUrl}`);
             // WRITE-BACK: persist what we just derived (slug + panel + offset)
             // so the next request takes the fast-path and the verifier can
@@ -1017,9 +1020,13 @@ async function resolveAnimeSamaHeuristically(
         if (localIndex >= 0 && localIndex < canonicalCount) {
           // This is the right season for the requested episode.
           // Now check if the requested host is available in THIS season.
-          const bestArray = findPreferredArray(episodeArrays, serverDef.preferred);
-          if (bestArray && localIndex < bestArray.length) {
-            iframeUrl = bestArray[localIndex];
+          const localUrl = pickPreferredEpisodeUrl(
+            episodeArrays,
+            serverDef.preferred,
+            localIndex,
+          );
+          if (localUrl) {
+            iframeUrl = localUrl;
             dlog(`[anime-sama] Found ep ${episode} in ${season.dir}: ${iframeUrl}`);
             // SLUG-ONLY write-back: cumulative numbering spans multiple panels,
             // so a single season_dir+offset row can't represent it — but the
@@ -1869,15 +1876,34 @@ function pickAnimeSamaSeason(seasons, aniTitles, seasonNum) {
   return best.season && best.score > 0 ? best.season : null;
 }
 
-/** Match an episodes.js array to a preferred host list. Returns null if no match. */
-function findPreferredArray(episodeArrays, preferred) {
-  const prefs = Array.isArray(preferred) ? preferred : [preferred];
+/**
+ * L'URL de l'episode `index` CHEZ L'HOTE demande, ou null s'il n'y est pas.
+ *
+ * Remplace `findPreferredArray`, qui choisissait un tableau sur son PREMIER
+ * element, l'appelant indexant ensuite dedans en supposant tout le tableau du
+ * meme hote. C'est faux, et pas qu'en theorie : mesure du 17/08/2026, le panel VF de
+ * `ghost-in-the-shell/saison1hs` porte
+ *
+ *   eps3 = [sibnet, sibnet, sibnet, ANSEMBED, sibnet, ANSEMBED]
+ *
+ * — anime-sama bouche les trous d'un lecteur avec un autre hote. Demander
+ * l'episode 4 sur `animesama-sibnet` rendait donc une URL ansembed : le chip
+ * « Sibnet » servait le flux d'ansembed, qui a deja son propre chip. Deux chips
+ * pour un seul flux, et un diagnostic impossible a lire quand l'un des deux
+ * tombe.
+ *
+ * On balaie donc TOUS les tableaux a la bonne position et on ne garde qu'une URL
+ * qui appartient vraiment a l'hote. Aucune correspondance = l'hote n'a pas cet
+ * episode, ce qui est une absence honnete.
+ */
+function pickPreferredEpisodeUrl(episodeArrays, preferred, index) {
+  if (!(index >= 0)) return null;
+  const prefs = (Array.isArray(preferred) ? preferred : [preferred]).map((p) =>
+    String(p).toLowerCase(),
+  );
   for (const arr of episodeArrays) {
-    if (arr.length === 0) continue;
-    // Check any URL in the array (not just [0]) since some arrays have mixed hosts
-    if (prefs.some((p) => arr[0].toLowerCase().includes(p.toLowerCase()))) {
-      return arr;
-    }
+    const url = arr[index];
+    if (url && prefs.some((p) => url.toLowerCase().includes(p))) return url;
   }
   return null;
 }

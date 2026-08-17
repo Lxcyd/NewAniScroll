@@ -161,6 +161,45 @@ l'aniId 177699 en VF doivent repondre 200, et le chip reapparaitre. Attention au
 cache Redis PARTAGE entre prod et dev pendant le test : appeler dev AVANT prod,
 ou busting par un parametre inutilise.
 
+### Suite — « pareil en prod », et un tableau qui melange les hotes
+
+Deuxieme passe apres retour user (le chip manque aussi en prod, ou le correctif
+n'est de toute facon pas deploye). Deux resultats, dont un qui n'a rien a voir
+avec le symptome de depart.
+
+**1. L'API repond, quand elle est chaude.** Rejoue la requete EXACTE du
+navigateur (elle porte `title` et `malId`, qui font partie de la cle de cache
+edge — les tests « nus » n'interrogent donc pas la meme entree) : prod rend un
+flux sibnet en 200 pour l'ep1. Ce que le navigateur a vu, ce sont deux 503
+consecutifs (la sonde retente une fois, 3 s apres) sur une resolution FROIDE.
+Une fois l'entree Redis chaude, le chip revient. Le correctif d'enveloppe
+ci-dessus vise exactement cette fenetre froide — et `main` ne l'a pas encore.
+
+**2. Une fausse piste qui a failli devenir un correctif faux.** Avec `title` +
+`malId`, `server=animesama-sibnet` rendait un embed ANSEMBED. Conclusion facile
+et fausse : « les parametres du client cassent la resolution d'hote ». La vraie
+raison est ailleurs — j'avais teste les eps 4 et 6 dans ce cas, et les eps
+1/2/3/5 dans l'autre. Le panel :
+
+    eps3 = [sibnet, sibnet, sibnet, ANSEMBED, sibnet, ANSEMBED]
+
+**anime-sama bouche les trous d'un lecteur avec un autre hote.** Le parametre
+n'y etait pour rien, c'est l'EPISODE qui change l'hote.
+
+**Le vrai bug qui en decoule** : `findPreferredArray` choisissait un tableau sur
+son PREMIER element, puis l'appelant indexait dedans en supposant tout le
+tableau homogene. Demander l'ep4 sur `animesama-sibnet` rendait donc une URL
+ansembed : le chip « Sibnet » servait le flux d'ansembed, qui a deja son propre
+chip. Deux chips pour un seul flux — et un diagnostic illisible le jour ou l'un
+des deux tombe. Remplacee par `pickPreferredEpisodeUrl`, qui balaie TOUS les
+tableaux a la bonne position et n'accepte qu'une URL appartenant vraiment a
+l'hote ; aucune correspondance = absence honnete. `findPreferredArray` n'avait
+plus d'appelant, supprimee.
+
+Note de methode : le cache Redis est PARTAGE entre prod et dev, et la cle edge
+inclut `title`/`malId`. Deux facons de se mentir a soi-meme en mesurant, les
+deux rencontrees dans la meme heure.
+
 ---
 
 ### Iteration 5 — le prechauffage visait le mauvais lecteur (regression de l'iteration 1)
