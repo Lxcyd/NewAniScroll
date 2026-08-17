@@ -6,6 +6,60 @@ megaplay, vidmoly...).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-08-17 — La langue avant le lecteur : un classement 1-2-3 pose une fois
+
+Nouvelle fonctionnalite, demandee par le user. Jusqu'ici le lecteur par defaut
+etait un ID de serveur (`preferred_server`) : precis, mais que personne ne
+choisit avant d'avoir clique dans le selecteur, et qui ne dit rien de ce qui
+compte vraiment pour un francophone — **la langue**. On ajoute donc un cran
+au-dessus : un classement des trois familles de `lang` que `lib/servers.js`
+porte deja (`vf`, `vo`, `multi`).
+
+**La popup** (`components/watch/primary/LangPreferenceModal.tsx`) s'ouvre une
+seule fois, au premier episode ouvert, quand `getLangOrder()` rend `null`. Trois
+cartes (doublage VF, sous-titres FR, lecteur multi-langue) sous des numeros
+**fixes** 1-2-3 : ce sont les cartes qui glissent, pas les numeros
+(`Reorder` de framer-motion, `axis="x"`). Des fleches `‹ ›` doublent le
+glisser-deposer — le drag horizontal sur mobile est le genre de chose qui marche
+« presque ».
+
+**Pas de sortie sans reponse** : ni fond cliquable ni croix, seulement un bouton
+qui valide l'ordre affiche (defaut VF > VOSTFR > multi). Une popup qu'on peut
+esquiver revient a chaque episode ou ne revient jamais ; les deux sont pires
+qu'un choix par defaut assume.
+
+**La resolution** (`lib/prefs/langPref.ts`, `pickServerForLangs`) : premiere
+langue du classement qui a un candidat non-echoue (et confirme, quand les sondes
+ont parle), puis meilleur rang **dans** cette langue. Trois points de branchement
+dans la page de lecture, aucun nouveau :
+- au montage, le pari initial vise le meilleur serveur de la langue n°1 (au lieu
+  de megaplay) — sauf si un `preferred_server` explicite est pose, qui reste
+  prioritaire parce que plus precis ;
+- le filet de securite (serveur actif en echec) choisit desormais parmi les
+  **confirmes** selon le classement, avant de retomber sur l'ordre statique ;
+- le repli de `markFailed` suit le classement une fois la langue d'origine
+  epuisee. Sans ca, perdre le dernier lecteur VF renvoyait sur megaplay (tete de
+  liste) meme pour quelqu'un qui avait classe le VOSTFR juste apres.
+
+**Choix du lecteur dans la langue** : le premier, c'est-a-dire le rang `speed`
+statique de `lib/servers.js`. `pickServerForLangs` prend une option `rank` pour
+que « le plus rapide reellement mesure » (le `liveSpeed` du watchPageProvider,
+deja affiche en poincon dans le selecteur) ne demande qu'une fonction a passer,
+pas une reecriture.
+
+**Garde-fou** : classement absent = comportement historique **inchange**
+(megaplay, `PREFERRED_FALLBACK_ORDER`). On ne suppose pas un ordre par defaut
+pour qui n'a pas repondu — c'est ce qui evite qu'un deploiement bascule tout le
+monde en VF du jour au lendemain.
+
+Re-ouvrable dans Reglages > Lecteur, et `lang_pref_order` est ajoute aux cles que
+« Restaurer les reglages par defaut » efface (ce qui re-affiche la popup).
+
+Verifs : `tsc --noEmit` OK, `next lint` OK, `next build` OK. Non teste en
+navigateur — a valider sur dev.aniscroll.com.
+
+---
+
 ## 2026-08-17 (nuit) — Sibnet tuait la fonction, et une preference morte se rejouait a vie
 
 Audit du reste du selecteur, apres les deux bugs de l'entree ci-dessous. Deux

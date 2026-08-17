@@ -26,6 +26,7 @@ import {
 } from "@/lib/prefs/previewPrefs";
 import { useServerPref, setServerPref } from "@/lib/prefs/serverPref";
 import SERVERS from "@/lib/servers";
+import LangPreferenceModal from "@/components/watch/primary/LangPreferenceModal";
 import { clearAllProgress } from "@/lib/watch/progress";
 import { restoreDefaultSettings } from "@/lib/prefs/resetSettings";
 import { useAccent, setAccent, ACCENT_PRESETS, DEFAULT_ACCENT } from "@/lib/prefs/accentColor";
@@ -288,6 +289,8 @@ export default function Settings() {
   const localList = useLocalList();
   // Visual keyboard shortcut editor overlay (shared with the player).
   const [shortcutEditorOpen, setShortcutEditorOpen] = useState(false);
+  // Meme popup que celle affichee au premier episode (classement des langues).
+  const [langPrefOpen, setLangPrefOpen] = useState(false);
   const [titlePref, setTitlePrefState] = useState<TitlePref>("en");
   const [uiLang, setUiLangState] = useState<Lang>("en");
   const [mounted, setMounted] = useState(false);
@@ -877,6 +880,27 @@ export default function Settings() {
                 checked={playerPrefs.defaultMuted}
                 onChange={(v) => setPlayerPrefs({ defaultMuted: v })}
               />
+              {/* Classement des langues (lang_pref_order) — la meme popup que
+                  celle du premier episode. Elle decide quelle langue on essaie
+                  d'abord; le serveur epingle ci-dessous, lui, reste prioritaire
+                  quand il est renseigne. */}
+              <div className="flex items-center justify-between gap-4 py-3">
+                <div className="min-w-0">
+                  <div className="text-sm font-medium">
+                    {t("player.langPref.settingsLabel")}
+                  </div>
+                  <div className="text-white/50 text-xs mt-0.5">
+                    {t("player.langPref.settingsDesc")}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setLangPrefOpen(true)}
+                  className="shrink-0 rounded-md bg-action px-3 py-1.5 text-sm font-medium text-white transition hover:brightness-110"
+                >
+                  {t("player.langPref.settingsButton")}
+                </button>
+              </div>
               {/* Default server (preferred_server). Empty = Auto (site default,
                   remembers whatever the user clicks in the player). */}
               <div className="flex items-start justify-between gap-4 py-3">
@@ -1360,6 +1384,10 @@ export default function Settings() {
       {shortcutEditorOpen && (
         <ShortcutEditor onClose={() => setShortcutEditorOpen(false)} />
       )}
+      <LangPreferenceModal
+        open={langPrefOpen}
+        onSave={() => setLangPrefOpen(false)}
+      />
     </>
   );
 }

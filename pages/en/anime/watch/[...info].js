@@ -26,6 +26,8 @@ import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { onEpisodeFinished } from "@/lib/list/syncEngine";
 import { getPlayerPrefs } from "@/lib/prefs/playerPrefs";
 import { getServerPref } from "@/lib/prefs/serverPref";
+import { getLangOrder, pickServerForLangs } from "@/lib/prefs/langPref";
+import LangPreferenceModal from "@/components/watch/primary/LangPreferenceModal";
 import { recordWatchToday } from "@/lib/stats/streak";
 import { useTranslation } from "react-i18next";
 import { FULL_MEDIA_FIELDS } from "@/lib/anilist/fullMediaQuery";
@@ -375,6 +377,13 @@ export default function Watch({
   const activeServerRef = useRef(activeServer);
   useEffect(() => { activeServerRef.current = activeServer; }, [activeServer]);
 
+  // Classement des langues choisi par l'utilisateur (popup au premier episode,
+  // cf. lib/prefs/langPref.ts). `null` = jamais repondu → on garde exactement le
+  // comportement historique. Lu dans un ref pour rester accessible aux callbacks
+  // stables (markFailed) sans les recreer.
+  const langOrderRef = useRef(null);
+  const [langModalOpen, setLangModalOpen] = useState(false);
+
   const markConfirmed = useCallback((id) => {
     setConfirmedServers((prev) => {
       if (prev.has(id)) return prev;
@@ -438,7 +447,13 @@ export default function Watch({
       if (!next) {
         next = SERVERS.find((s) => !failedSet.has(s.id) && s.lang === failedLang)?.id;
       }
-      // Only once the language is exhausted: the hinted list, then anything left.
+      // Langue epuisee : on suit le classement de l'utilisateur (2 puis 3) avant
+      // de retomber sur les heuristiques historiques. Sans ca, perdre le dernier
+      // lecteur VF renvoyait sur megaplay (tete de liste) meme quand la personne
+      // avait classe le VOSTFR juste apres la VF.
+      if (!next && langOrderRef.current) {
+        next = pickServerForLangs(langOrderRef.current, { failed: failedSet });
+      }
       if (!next) {
         next = PREFERRED_FALLBACK_ORDER.find(isCandidate);
       }
@@ -473,6 +488,21 @@ export default function Watch({
     // preference qui designe un serveur retire, cf. lib/prefs/serverPref.ts.
     const pref = getServerPref() || null;
     preferredServerRef.current = pref;
+
+    // Classement des langues. Absent = l'utilisateur n'a jamais repondu : on
+    // ouvre la popup (une seule fois, elle n'a pas de sortie « sans reponse »)
+    // et on ne touche a rien pour CE chargement.
+    const langOrder = getLangOrder();
+    langOrderRef.current = langOrder;
+    if (!langOrder) setLangModalOpen(true);
+    // Un serveur explicitement epingle (Reglages > lecteur par defaut) reste
+    // prioritaire sur le classement de langues : c'est un choix plus precis.
+    // Sinon on demarre sur le plus rapide de la langue n°1 — la sonde corrigera
+    // si cet anime ne l'offre pas (effet « filet de securite » plus bas).
+    if (!pref && langOrder) {
+      const guess = pickServerForLangs(langOrder);
+      if (guess) setActiveServer(guess);
+    }
     // Select the user's server UP FRONT so it's the one loaded in priority — not
     // megaplay-then-switch. If the anime doesn't actually offer this server the
     // fetch fails and the safety-net effect below falls back to a confirmed one,
@@ -507,7 +537,15 @@ export default function Watch({
     if (confirmedServers.has(activeServer)) return;
     if (!failedServers.has(activeServer)) return; // still pending — wait
     // Pick the best confirmed server, honouring the preferred fallback order.
+    // Quand l'utilisateur a classe les langues, c'est SON ordre qui decide
+    // (langue 1 confirmee d'abord, puis 2, puis 3), le classement statique ne
+    // servant que de repli.
     const firstConfirmed =
+      (langOrderRef.current &&
+        pickServerForLangs(langOrderRef.current, {
+          confirmed: confirmedServers,
+          failed: failedServers,
+        })) ||
       PREFERRED_FALLBACK_ORDER.find((id) => confirmedServers.has(id)) ||
       [...confirmedServers][0];
     if (firstConfirmed && firstConfirmed !== activeServer) {
@@ -2122,6 +2160,26 @@ export default function Watch({
         <meta name="twitter:title"   content={`Watch - ${episodeNavigation?.playing?.title || info?.title?.english}`} />
         <meta name="twitter:description" content={episodeNavigation?.playing?.description || info?.description} />
       </Head>
+
+      {/* Classement des langues — affiche une seule fois (tant que rien n'est
+          enregistre), puis reglable depuis Reglages > Lecteur. La validation
+          rebascule tout de suite sur le meilleur lecteur du nouvel ordre pour
+          l'episode en cours, sinon le choix ne prendrait effet qu'a la page
+          suivante. */}
+      <LangPreferenceModal
+        open={langModalOpen}
+        onSave={(order) => {
+          langOrderRef.current = order;
+          setLangModalOpen(false);
+          if (preferredServerRef.current) return; // serveur epingle : il gagne
+          const best =
+            pickServerForLangs(order, {
+              confirmed: confirmedServers,
+              failed: failedServers,
+            }) || pickServerForLangs(order, { failed: failedServers });
+          if (best) setActiveServer(best);
+        }}
+      />
 
       {/* AniList login modal */}
       <Modal open={open} onClose={() => handleClose()}>

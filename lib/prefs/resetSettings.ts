@@ -13,6 +13,10 @@
 const KEEP = new Set(["aniscroll:localList"]);
 const EXTRA_KEYS = [
   "preferred_server",
+  // Classement des langues (cf. lib/prefs/langPref.ts) : le remettre a zero
+  // re-affiche la popup au prochain episode, ce qui est bien le sens de
+  // « reglages par defaut ».
+  "lang_pref_order",
   "view",
   "artplayer_settings",
   "aniscroll:volume",
