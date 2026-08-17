@@ -429,7 +429,10 @@
     "background": "Fond",
     "previewText": "Portez ce vieux whisky au juge blond qui fume.",
     "sub": "VOSTFR",
-    "dub": "VF"
+    "dub": "VF",
+    "speedScore": "score",
+    "speedConfidence": "confiance",
+    "speedEstimated": "estimé, non mesuré"
   },
   "shortcuts": {
     "title": "Raccourcis clavier",

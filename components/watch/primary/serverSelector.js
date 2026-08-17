@@ -3,7 +3,11 @@ import { SignalIcon } from "@heroicons/react/24/solid";
 import { useTranslation } from "react-i18next";
 // @ts-ignore — plain JS context, no types
 import { useWatchProvider } from "@/lib/context/watchPageProvider";
-import { useServerPerfRank, useServerPerfTiers } from "@/lib/watch/serverPerf";
+import {
+  useServerPerfRank,
+  useServerPerfScores,
+  tierOf,
+} from "@/lib/watch/serverPerf";
 import { shouldShowServer } from "@/lib/watch/serverVisibility";
 
 const LANG_CONFIG = {
@@ -44,10 +48,10 @@ function LangGroup({
   failedServers,
   confirmedServers,
   degradedServers,
+  scores,
 }) {
   const { t } = useTranslation();
   const { liveSpeed } = useWatchProvider() || {};
-  const learnedTiers = useServerPerfTiers();
   const config = LANG_CONFIG[langKey];
   const visible = (servers || []).filter((s) =>
     shouldShowServer(s, activeServer, confirmedServers, failedServers)
@@ -75,14 +79,34 @@ function LangGroup({
           const baseClasses = isActive
             ? "bg-action/25 text-white ring-1 ring-action shadow-[0_0_12px_rgba(255,127,87,0.35)]"
             : "bg-as-surface/70 text-white/80 ring-1 ring-white/5 hover:bg-as-surface hover:text-white hover:ring-white/20";
+          const score = scores[server.id];
           const live = liveSpeed?.[server.id];
-          const learned = live ? null : learnedTiers[server.id] || null;
+          const learned = live || !score ? null : tierOf(score);
           const measured = live || learned;
           const sp =
             SPEED_TIERS[measured || staticTier(server.speed)] || SPEED_TIERS.medium;
-          const tip = measured
-            ? `${t(sp.labelKey)} · ${t("player.speedMeasured")}`
-            : t(sp.labelKey);
+          // Le chiffre : 0-100, plus haut = plus rapide. C'est EXACTEMENT ce qui
+          // ordonne les chips, donc le lire de gauche a droite doit donner une
+          // suite decroissante — sinon c'est que l'ordre ment.
+          const shown = score ? Math.round(score.final) : null;
+          // `C` est la confiance : a 0, le chiffre n'est que le rang ecrit a la
+          // main de lib/servers.js. On l'affiche quand meme (c'est bien lui qui
+          // classe) mais en retrait, pour ne pas faire passer une supposition
+          // pour une mesure.
+          const isMeasured = !!score && score.measured != null;
+          const tip = [
+            t(sp.labelKey),
+            measured ? t("player.speedMeasured") : null,
+            shown == null
+              ? null
+              : isMeasured
+                ? `${t("player.speedScore")} ${shown} · ${t(
+                    "player.speedConfidence",
+                  )} ${Math.round(score.C * 100)}%`
+                : `${t("player.speedScore")} ${shown} · ${t("player.speedEstimated")}`,
+          ]
+            .filter(Boolean)
+            .join(" · ");
           return (
             <button
               key={server.id}
@@ -107,6 +131,15 @@ function LangGroup({
                 }}
               />
               {server.name}
+              {shown != null && (
+                <span
+                  className={`tabular-nums text-[10px] font-semibold leading-none ${
+                    isMeasured ? "text-white/70" : "text-white/25"
+                  }`}
+                >
+                  {shown}
+                </span>
+              )}
             </button>
           );
         })}
@@ -126,6 +159,8 @@ export default function ServerSelector({
   // Ordre par le rang MESURE sur cet appareil ; identique au rang statique tant
   // qu'aucune mesure n'existe, donc l'affichage par defaut ne bouge pas.
   const groups = getServersByLang(useServerPerfRank());
+  // Un seul balayage pour les trois groupes : c'est la meme table.
+  const scores = useServerPerfScores();
 
   return (
     <div className="flex flex-col gap-3 py-3">
@@ -161,6 +196,7 @@ export default function ServerSelector({
         failedServers={failedServers}
         confirmedServers={confirmedServers}
         degradedServers={degradedServers}
+        scores={scores}
       />
       <LangGroup
         langKey="vo"
@@ -170,6 +206,7 @@ export default function ServerSelector({
         failedServers={failedServers}
         confirmedServers={confirmedServers}
         degradedServers={degradedServers}
+        scores={scores}
       />
       <LangGroup
         langKey="vf"
@@ -179,6 +216,7 @@ export default function ServerSelector({
         failedServers={failedServers}
         confirmedServers={confirmedServers}
         degradedServers={degradedServers}
+        scores={scores}
       />
     </div>
   );

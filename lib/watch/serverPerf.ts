@@ -312,7 +312,16 @@ export function commitSession(): void {
       : [v, 1, day];
     wrote = true;
   }
-  if (wrote) scheduleFlush();
+  if (!wrote) return;
+  scheduleFlush();
+  // Reveille les affichages (chiffre du chip, tableau des Reglages). Sans ca le
+  // score reste fige sur ce qu'il valait a l'ouverture de la page, et regarder
+  // un episode ne changerait visiblement rien.
+  try {
+    window.dispatchEvent(new CustomEvent(SERVER_PERF_EVENT));
+  } catch {
+    /* best-effort */
+  }
 }
 
 /**
@@ -429,31 +438,40 @@ export function serverPerfRank(server: { id: string; speed?: number }): number {
 }
 
 /**
- * Poincon persistant, ou null tant qu'on n'a pas de quoi l'affirmer. Les seuils
- * collent a `staticTier` de serverSelector.js par construction : speed <= 2
- * vaut un score >= 80, speed <= 4 un score >= 40.
+ * Poincon d'un score deja calcule, ou null tant qu'on n'a pas de quoi
+ * l'affirmer. Les seuils collent a `staticTier` de serverSelector.js par
+ * construction : speed <= 2 vaut un score >= 80, speed <= 4 un score >= 40.
  */
-export function serverPerfTier(serverId: string): Tier | null {
-  const { C, final } = getServerScore(serverId);
+export function tierOf({ C, final }: ServerScore): Tier | null {
   if (C < TIER_MIN_CONF) return null;
   return final >= 80 ? "fast" : final >= 40 ? "medium" : "slow";
 }
 
+export function serverPerfTier(serverId: string): Tier | null {
+  return tierOf(getServerScore(serverId));
+}
+
 /**
- * Les poincons de TOUS les lecteurs, lus APRES le montage.
+ * Les scores de TOUS les lecteurs, lus APRES le montage.
  *
- * `serverPerfTier` touche localStorage : appele pendant le rendu, il rend null
- * au SSR et un vrai palier au client, donc une erreur d'hydratation sur la
- * pastille. Meme parade que les autres prefs du projet (cf. `useServerPref`) —
- * le premier rendu client est identique au serveur, l'effet reveille ensuite.
+ * `getServerScore` touche localStorage : appele pendant le rendu, il rendrait
+ * le score statique au SSR et le score appris au client, donc une erreur
+ * d'hydratation. Meme parade que les autres prefs du projet (cf.
+ * `useServerPref`) — le premier rendu client est identique au serveur, l'effet
+ * reveille ensuite.
+ *
+ * Un seul balayage sert a la fois le chiffre affiche et le palier du poincon :
+ * les deux doivent de toute facon parler du meme score.
  */
-export function useServerPerfTiers(): Record<string, Tier | null> {
-  const [tiers, setTiers] = useState<Record<string, Tier | null>>({});
+export function useServerPerfScores(): Record<string, ServerScore> {
+  const [scores, setScores] = useState<Record<string, ServerScore>>({});
   useEffect(() => {
     const sync = () => {
-      const next: Record<string, Tier | null> = {};
-      for (const s of SERVERS as { id: string }[]) next[s.id] = serverPerfTier(s.id);
-      setTiers(next);
+      const next: Record<string, ServerScore> = {};
+      for (const s of SERVERS as { id: string; speed?: number }[]) {
+        next[s.id] = getServerScore(s.id, s.speed);
+      }
+      setScores(next);
     };
     sync();
     window.addEventListener(SERVER_PERF_EVENT, sync);
@@ -463,7 +481,7 @@ export function useServerPerfTiers(): Record<string, Tier | null> {
       window.removeEventListener("storage", sync);
     };
   }, []);
-  return tiers;
+  return scores;
 }
 
 /**

@@ -429,7 +429,10 @@
     "background": "Background",
     "previewText": "The quick brown fox jumps over the lazy dog.",
     "sub": "Sub",
-    "dub": "Dub"
+    "dub": "Dub",
+    "speedScore": "score",
+    "speedConfidence": "confidence",
+    "speedEstimated": "estimated, not measured"
   },
   "shortcuts": {
     "title": "Keyboard shortcuts",
