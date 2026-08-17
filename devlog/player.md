@@ -108,6 +108,61 @@ globe. Trace recuperes sur `fonts.gstatic.com` plutot qu'ecrits de memoire — u
 Titre renomme « Votre ordre de preference de langue » (le mot « preference » etait
 demande explicitement).
 
+## 2026-08-17 (suite) — « On n'a pas la VF sibnet alors qu'elle existe »
+
+Signalement user, capture a l'appui : sur anime-sama, Ghost in the Shell (2026)
+en VF, LECTEUR 3 = sibnet, ca joue. Sur dev, le chip « Anime-Sama Sibnet » est
+absent de la rangee VF (present en VO).
+
+**Ce n'etait ni la resolution de panel, ni un leurre, ni un blocage d'egress** —
+les trois hypotheses evidentes, toutes fausses, toutes ecartees par la mesure :
+
+- `/api/v2/source/inspect` rend le MEME panel sur dev et sur prod :
+  `saison1hs`, « Ghost in the Shell (2026) », 6 episodes. Resolution correcte.
+- `episodes.js` du panel VF contient bien sibnet en `eps3`
+  (`shell.php?videoid=6236560`). L'utilisateur a raison, la VF existe.
+- Fausse piste a noter, elle a coute du temps : le flux rendu par prod pointe sur
+  `…/58/88/18/5888181.mp4` alors qu'on a demande le videoid `6236560`. Ca
+  ressemble a un leurre anti-bot. Ca n'en est pas un : l'id du fichier CDN
+  interne n'a AUCUN rapport avec le videoid de l'embed — c'est ecrit noir sur
+  blanc dans le commentaire de `looksGood`, qui valide le `player.src` de la
+  page (`/v/<hash>/6236560.mp4`, lui, correspond) et pas l'URL finale.
+
+**La vraie cause, mesuree.** Meme requete des deux cotes :
+
+| | ep1 | ep2 | ep3 |
+| --- | --- | --- | --- |
+| dev (avec l'enveloppe de 5 s) | **503 a 5,28 s** | **503 a 5,19 s** | OK |
+| prod (sans enveloppe) | OK a 4,81 s | OK | OK |
+
+Les autres titres passent sur dev en 2,2-2,9 s. Autrement dit shell.php repond en
+~2 a ~5 s depuis Vercel selon la video, et l'enveloppe de 5 s introduite la nuit
+derniere pour tuer les 504 tombait **pile dessus** : la jambe qui allait aboutir
+etait coupee quelques centaines de ms trop tot. Un « presque » converti en
+absence — le chip disparait, et l'episode d'a cote passe, ce qui donne un bug
+qui a l'air aleatoire.
+
+**Correctif : la somme ne bouge pas, la decoupe si.** 5+5 devient 7,5+2,5. La
+jambe de derniere chance (page de visionnage) n'a jamais eu besoin de 5 s :
+mesuree a ~0,2-0,3 s a chaque fois, c'est une page servie normalement, pas un
+tarpit. On lui en prend 2,5 pour les donner a la premiere. Total inchange, donc
+zero risque de 504 supplementaire — ce qui etait tout l'objet de l'enveloppe.
+
+**Trouve en chemin, corrige aussi** : les hops d'apres la cascade (resolution du
+302, sonde du shard, repli sur un autre shard) avaient chacun leur plafond
+propre — 5+4+4 s — sans aucun rapport avec ce que la cascade venait de depenser.
+Pire cas theorique 10+13 = 23 s sur une route plafonnee a 15 : le 504 rentrait
+par la fenetre. Ils partagent desormais une echeance de bout en bout
+(`SIBNET_TOTAL_MS`, 13 s).
+
+**Non verifie** : le correctif n'est pas deploye (webhooks GitHub en panne cote
+Vercel). A re-mesurer sur dev une fois en ligne — les episodes 1 et 2 de
+l'aniId 177699 en VF doivent repondre 200, et le chip reapparaitre. Attention au
+cache Redis PARTAGE entre prod et dev pendant le test : appeler dev AVANT prod,
+ou busting par un parametre inutilise.
+
+---
+
 ### Iteration 5 — le prechauffage visait le mauvais lecteur (regression de l'iteration 1)
 
 « Essaie d'accelerer le loading des lecteurs ». Le gros du temps ne se gagnait
