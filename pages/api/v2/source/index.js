@@ -618,9 +618,54 @@ const ANIMESAMA_SERVERS = {
  * back to those siblings instead of 404ing. Order: the requested dir first,
  * then its numbered variants. VOSTFR rarely splits, so we leave it as-is.
  */
-function animeSamaLangDirs(langPath) {
-  if (langPath === "vf") return ["vf", "vf1", "vf2", "vf3"];
-  return [langPath];
+function animeSamaLangDirs(langPath, exclude) {
+  const all = langPath === "vf" ? ["vf", "vf1", "vf2", "vf3"] : [langPath];
+  return exclude?.size ? all.filter((d) => !exclude.has(d)) : all;
+}
+
+/**
+ * Choisit le repertoire de langue qui porte VRAIMENT l'episode chez l'hote
+ * demande, au lieu du premier qui repond.
+ *
+ * Le piege, mesure le 17/08/2026 sur One Piece VF : `saison1/vf` ET
+ * `saison1/vf2` portent tous deux ansembed, mais le slug de `vf`
+ * (`embed-1j1tjy3qqbs7`) est MORT — 404 — tandis que celui de `vf2`
+ * (`embed-na2vrsevfe89`) est vivant. En s'arretant au premier panneau qui
+ * repondait, on ramassait le mort et on declarait l'hote absent, alors que le
+ * lecteur marchait parfaitement sur le site. Les trois boucles de langue du
+ * fichier avaient ce defaut.
+ *
+ * Deux niveaux, et les deux comptent :
+ *   1. l'hote n'est pas du tout dans ce panneau  → on passe au suivant, gratuit
+ *      (les panneaux sont de toute facon deja telecharges) ;
+ *   2. l'hote y est mais son upload est mort     → seule la verification de
+ *      vivacite, plus loin, peut le dire ; l'appelant relance alors la
+ *      resolution en excluant le repertoire deja tente (cf. `excludeLangs`).
+ *
+ * `fallback` porte le premier panneau qui a repondu meme sans l'hote : sans lui
+ * on ne saurait plus distinguer « panneau introuvable » (mapping casse) de
+ * « panneau sain, hote absent » (absence honnete), ce que fetchPanelIframe doit
+ * rendre a son appelant.
+ */
+async function pickLangDirForHost(slug, seasonDir, langDirs, serverDef, index) {
+  let fallback = null;
+  for (const lp of langDirs) {
+    let res;
+    try {
+      res = await fetchViaWorker(
+        `${ANIMESAMA_BASE}/catalogue/${slug}/${seasonDir}/${lp}/episodes.js`,
+      );
+    } catch {
+      continue;
+    }
+    if (!res.ok) continue;
+    const episodeArrays = parseEpisodesJs(await res.text());
+    if (episodeArrays.length === 0) continue;
+    if (!fallback) fallback = { langDir: lp, episodeArrays };
+    const url = pickPreferredEpisodeUrl(episodeArrays, serverDef.preferred, index);
+    if (url) return { langDir: lp, episodeArrays, url };
+  }
+  return fallback ? { ...fallback, url: null } : null;
 }
 
 /**
@@ -637,27 +682,17 @@ function animeSamaLangDirs(langPath) {
  *                             That's an authoritative miss — the heuristics
  *                             would reach the same panel and conclude the same.
  */
-async function fetchPanelIframe(slug, seasonDir, langPath, serverDef, index) {
+async function fetchPanelIframe(slug, seasonDir, langPath, serverDef, index, excludeLangs) {
   const tryLangs = /^film/i.test(seasonDir)
-    ? [langPath, langPath === "vf" ? "vostfr" : "vf"] // films are often single-language
-    : animeSamaLangDirs(langPath);
-  for (const lp of tryLangs) {
-    const epPath = `${ANIMESAMA_BASE}/catalogue/${slug}/${seasonDir}/${lp}/episodes.js`;
-    let epRes;
-    try {
-      epRes = await fetchViaWorker(epPath);
-    } catch {
-      continue;
-    }
-    if (!epRes.ok) continue;
-    const episodeArrays = parseEpisodesJs(await epRes.text());
-    if (episodeArrays.length === 0) continue;
-    // A la bonne position ET chez le bon hote — cf. pickPreferredEpisodeUrl.
-    const url = pickPreferredEpisodeUrl(episodeArrays, serverDef.preferred, index);
-    if (url) return { panelOk: true, iframeUrl: url };
-    return { panelOk: true, iframeUrl: null };
-  }
-  return { panelOk: false, iframeUrl: null };
+    ? [langPath, langPath === "vf" ? "vostfr" : "vf"].filter(
+        (d) => !excludeLangs?.has(d),
+      ) // films are often single-language
+    : animeSamaLangDirs(langPath, excludeLangs);
+  // A la bonne position, chez le bon hote, ET dans le panneau qui le porte
+  // vraiment — cf. pickLangDirForHost.
+  const hit = await pickLangDirForHost(slug, seasonDir, tryLangs, serverDef, index);
+  if (!hit) return { panelOk: false, iframeUrl: null };
+  return { panelOk: true, iframeUrl: hit.url, langDir: hit.langDir };
 }
 
 async function getAnimeSamaIframe(serverKey, title, episode, aniId) {
@@ -719,39 +754,72 @@ async function getAnimeSamaIframe(serverKey, title, episode, aniId) {
       }
     }
 
-    if (
-      mapPanelCoherent &&
-      mapRow?.slug &&
-      mapRow?.seasonDir &&
-      (mapRow.status === "verified" || mapRow.status === "heuristic")
-    ) {
-      const fast = await fetchPanelIframe(
-        mapRow.slug,
-        mapRow.seasonDir,
-        langPath,
-        serverDef,
-        episodeIndex + (mapRow.epOffset || 0),
-      );
-      if (fast.panelOk) {
-        resolvedViaMap = true;
-        iframeUrl = fast.iframeUrl;
-        dlog(`[anime-sama] player_map hit: ${mapRow.slug}/${mapRow.seasonDir} (+${mapRow.epOffset || 0}) → ${iframeUrl ? "found" : "host/ep absent"}`);
-        if (!iframeUrl) return null; // authoritative miss — heuristics would agree
-      } else {
-        // The mapped panel is gone (source restructured). Record the failure —
-        // three strikes demote verified→broken — and re-derive from scratch.
-        flagPlayerMap(aniId, "animesama", langPath, "mapped panel unreachable");
-        dlog(`[anime-sama] player_map row stale for ${aniId}/${langPath} — falling back to heuristics`);
-      }
-    }
+    /* Un upload mort dans un panneau ne veut pas dire que l'hote n'a pas
+       l'episode : anime-sama garde plusieurs pistes de doublage (vf, vf1, vf2),
+       et la piste vivante n'est pas forcement la premiere. Mesure du 17/08/2026,
+       One Piece VF : `saison1/vf` porte un ansembed 404 et `saison1/vf2` le meme
+       hote bien vivant.
 
-    if (!iframeUrl) {
-      iframeUrl = await resolveAnimeSamaHeuristically(
-        serverKey, serverDef, title, episode, episodeIndex, aniId, langPath, mapRow,
-      );
+       On ne paie donc RIEN dans le cas courant — le premier candidat est servi
+       tel quel — et on ne relance la resolution que lorsqu'il s'avere mort, en
+       excluant le repertoire deja tente. Borne par le nombre de pistes, donc au
+       pire quatre tours. Les fetchs de catalogue/saison sont memoises, seuls les
+       episodes.js des pistes suivantes sont vraiment redemandes. */
+    const excludeLangs = new Set();
+    const MAX_LANG_ATTEMPTS = 4;
+
+    for (let attempt = 0; attempt < MAX_LANG_ATTEMPTS; attempt++) {
+      let langDir = null;
+      iframeUrl = null;
+
+      if (
+        mapPanelCoherent &&
+        mapRow?.slug &&
+        mapRow?.seasonDir &&
+        (mapRow.status === "verified" || mapRow.status === "heuristic")
+      ) {
+        const fast = await fetchPanelIframe(
+          mapRow.slug,
+          mapRow.seasonDir,
+          langPath,
+          serverDef,
+          episodeIndex + (mapRow.epOffset || 0),
+          excludeLangs,
+        );
+        if (fast.panelOk) {
+          resolvedViaMap = true;
+          iframeUrl = fast.iframeUrl;
+          langDir = fast.langDir;
+          dlog(`[anime-sama] player_map hit: ${mapRow.slug}/${mapRow.seasonDir} (+${mapRow.epOffset || 0}) → ${iframeUrl ? "found" : "host/ep absent"}`);
+          if (!iframeUrl) return null; // authoritative miss — heuristics would agree
+        } else if (attempt === 0) {
+          // The mapped panel is gone (source restructured). Record the failure —
+          // three strikes demote verified→broken — and re-derive from scratch.
+          flagPlayerMap(aniId, "animesama", langPath, "mapped panel unreachable");
+          dlog(`[anime-sama] player_map row stale for ${aniId}/${langPath} — falling back to heuristics`);
+        }
+      }
+
+      if (!iframeUrl) {
+        const found = await resolveAnimeSamaHeuristically(
+          serverKey, serverDef, title, episode, episodeIndex, aniId, langPath, mapRow,
+          excludeLangs,
+        );
+        iframeUrl = found?.url || null;
+        langDir = found?.langDir || null;
+      }
+      if (!iframeUrl) return null;
+
+      const finalized = await finalizeAnimeSamaIframe(serverKey, serverDef, iframeUrl);
+      if (finalized) return finalized;
+
+      // Candidat mort. Sans repertoire identifie on ne saurait pas quoi
+      // exclure et on rejouerait le meme a l'infini : on s'arrete.
+      if (!langDir) return null;
+      excludeLangs.add(langDir);
+      dlog(`[anime-sama] ${serverKey}: ${langDir} mort — on tente la piste suivante`);
     }
-    if (!iframeUrl) return null;
-    return await finalizeAnimeSamaIframe(serverKey, serverDef, iframeUrl);
+    return null;
   } catch (error) {
     console.error(`[anime-sama] ${serverKey} failed:`, error.message);
     // A THROWN error is never a clean "no source" — genuine absence always
@@ -771,8 +839,12 @@ async function getAnimeSamaIframe(serverKey, title, episode, aniId) {
  */
 async function resolveAnimeSamaHeuristically(
   serverKey, serverDef, title, episode, episodeIndex, aniId, langPath, mapRow,
+  excludeLangs,
 ) {
   {
+    // Repertoire de langue d'ou vient l'URL retenue. Remonte a l'appelant pour
+    // qu'un upload mort puisse le faire exclure a la tentative suivante.
+    let usedLangDir = null;
     // Seed the slug when the map knows it but lacks a usable season dir —
     // still skips the expensive catalogue search.
     const knownSlug =
@@ -896,21 +968,22 @@ async function resolveAnimeSamaHeuristically(
       // Language dirs to try, in order. Films often carry their own single
       // language in the panneau path; otherwise a VF request also tries the
       // numbered dub tracks (vf1/vf2) some series use.
-      const targetLangs = targetSeason.isFilm
-        ? [targetSeason.path.split("/")[1] || langPath]
-        : animeSamaLangDirs(langPath);
-      let epRes = null;
-      let usedLang = targetLangs[0];
-      for (const lp of targetLangs) {
-        const p = `${ANIMESAMA_BASE}/catalogue/${slug}/${targetSeason.dir}/${lp}/episodes.js`;
-        const r = await fetchViaWorker(p);
-        if (r.ok) { epRes = r; usedLang = lp; break; }
-      }
+      const targetLangs = (
+        targetSeason.isFilm
+          ? [targetSeason.path.split("/")[1] || langPath]
+          : animeSamaLangDirs(langPath, excludeLangs)
+      ).filter((d) => !excludeLangs?.has(d));
+      // On choisit le repertoire qui porte l'hote, pas le premier qui repond :
+      // un panneau `vf` peut exister avec un upload mort pendant que `vf2` a le
+      // bon (cf. pickLangDirForHost).
+      const hit = await pickLangDirForHost(
+        slug, targetSeason.dir, targetLangs, serverDef, episodeIndex,
+      );
+      const usedLang = hit?.langDir || targetLangs[0];
       dlog(`[anime-sama] Direct season ${targetSeason.dir}/${usedLang} (${yearMatchedSeason ? `year ${aniYear}` : `ordinal ${seasonNum}`})`);
 
-      if (epRes && epRes.ok) {
-        const jsContent = await epRes.text();
-        const episodeArrays = parseEpisodesJs(jsContent);
+      if (hit) {
+        const episodeArrays = hit.episodeArrays;
         if (episodeArrays.length > 0) {
           // MERGED-PANEL OFFSET: some franchises are stored as ONE saison1 panel
           // that concatenates every season's episodes (Gintama 365ep, Fairy Tail
@@ -977,6 +1050,10 @@ async function resolveAnimeSamaHeuristically(
       } else {
         console.error(`[anime-sama] ${serverKey} no episodes.js for ${slug}/${targetSeason.dir} in ${targetLangs.join("/")}`);
       }
+      // Le repertoire retenu est celui qui portait l'hote : il doit remonter a
+      // l'appelant pour qu'un upload mort puisse le faire exclure au tour
+      // suivant, sinon la relance retomberait indefiniment sur le meme panneau.
+      if (iframeUrl) usedLangDir = usedLang;
     }
 
     // 5. Fallback: cumulative season iteration (only if year/PREQUEL didn't match)
@@ -995,21 +1072,21 @@ async function resolveAnimeSamaHeuristically(
     if (!iframeUrl && !directTarget) {
       let cumulativeEps = 0;
       for (const season of seasons) {
-        // Same VF track fallback (vf → vf1/vf2) as the direct path.
-        let epRes = null;
-        for (const lp of animeSamaLangDirs(langPath)) {
-          const r = await fetchViaWorker(
-            `${ANIMESAMA_BASE}/catalogue/${slug}/${season.dir}/${lp}/episodes.js`,
-          );
-          if (r.ok) { epRes = r; break; }
-        }
-        if (!epRes) {
+        // Same VF track fallback (vf → vf1/vf2) as the direct path, et le meme
+        // choix : le repertoire qui PORTE l'hote, pas le premier qui repond.
+        const hit = await pickLangDirForHost(
+          slug,
+          season.dir,
+          animeSamaLangDirs(langPath, excludeLangs),
+          serverDef,
+          episodeIndex - cumulativeEps,
+        );
+        if (!hit) {
           dlog(`[anime-sama] No ${langPath.toUpperCase()} for ${season.dir}`);
           continue;
         }
 
-        const jsContent = await epRes.text();
-        const episodeArrays = parseEpisodesJs(jsContent);
+        const episodeArrays = hit.episodeArrays;
         if (episodeArrays.length === 0) continue;
 
         // Canonical episode count = max length across all host arrays in this season.
@@ -1027,7 +1104,8 @@ async function resolveAnimeSamaHeuristically(
           );
           if (localUrl) {
             iframeUrl = localUrl;
-            dlog(`[anime-sama] Found ep ${episode} in ${season.dir}: ${iframeUrl}`);
+            usedLangDir = hit.langDir;
+            dlog(`[anime-sama] Found ep ${episode} in ${season.dir}/${hit.langDir}: ${iframeUrl}`);
             // SLUG-ONLY write-back: cumulative numbering spans multiple panels,
             // so a single season_dir+offset row can't represent it — but the
             // slug alone still spares the next request the catalogue search.
@@ -1058,7 +1136,7 @@ async function resolveAnimeSamaHeuristically(
       console.error(`[anime-sama] ${serverKey} no iframe for ep=${episode} slug=${slug} (seasons=${seasons.length})`);
       return null;
     }
-    return iframeUrl;
+    return { url: iframeUrl, langDir: usedLangDir };
   }
 }
 
