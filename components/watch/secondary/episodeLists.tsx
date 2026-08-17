@@ -178,7 +178,7 @@ export default function EpisodeLists({
   const duration = info?.duration ? t("home.minutesShort", { count: info.duration }) : null;
 
   return (
-    <div className="w-full lg:w-[300px] xl:w-[340px] shrink-0 flex flex-col gap-2">
+    <div className="w-full lg:w-[340px] xl:w-[400px] 2xl:w-[440px] shrink-0 flex flex-col gap-2">
       {/* Next-episode shortcut. Kept above the panel rather than under it:
           the list scrolls, and a control that follows the scroll would be
           out of reach on a 100-episode entry. */}
