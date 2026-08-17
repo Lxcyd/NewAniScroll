@@ -24,6 +24,7 @@ import SERVERS from "@/lib/servers";
 export type Lang = "vf" | "vo" | "multi";
 
 const KEY = "lang_pref_order";
+const ENABLED_KEY = "lang_pref_enabled";
 export const LANG_PREF_EVENT = "aniscroll:langPref:change";
 
 /** Ordre propose par defaut dans la popup (l'utilisateur peut le remanier). */
@@ -64,6 +65,55 @@ export function setLangOrder(order: Lang[]): void {
     /* best-effort */
   }
   window.dispatchEvent(new CustomEvent(LANG_PREF_EVENT));
+}
+
+/**
+ * Interrupteur general (Reglages > Lecteur). Eteint, le classement est CONSERVE
+ * mais ignore : la page de lecture retombe sur son comportement historique.
+ * Absent du stockage = allume — sinon la fonctionnalite naitrait desactivee.
+ */
+export function isLangPrefEnabled(): boolean {
+  if (typeof window === "undefined") return true;
+  try {
+    return window.localStorage.getItem(ENABLED_KEY) !== "0";
+  } catch {
+    return true;
+  }
+}
+
+export function setLangPrefEnabled(on: boolean): void {
+  if (typeof window === "undefined") return;
+  try {
+    if (on) window.localStorage.removeItem(ENABLED_KEY);
+    else window.localStorage.setItem(ENABLED_KEY, "0");
+  } catch {
+    /* best-effort */
+  }
+  window.dispatchEvent(new CustomEvent(LANG_PREF_EVENT));
+}
+
+export function useLangPrefEnabled(): boolean {
+  const [on, setOn] = useState(true);
+  useEffect(() => {
+    const read = () => setOn(isLangPrefEnabled());
+    read();
+    window.addEventListener(LANG_PREF_EVENT, read);
+    window.addEventListener("storage", read);
+    return () => {
+      window.removeEventListener(LANG_PREF_EVENT, read);
+      window.removeEventListener("storage", read);
+    };
+  }, []);
+  return on;
+}
+
+/**
+ * L'ordre REELLEMENT applicable : `null` si l'utilisateur n'a pas repondu OU si
+ * la fonctionnalite est eteinte. C'est ce que consomme la page de lecture ;
+ * `getLangOrder()` (brut) reste pour l'edition dans la popup.
+ */
+export function getEffectiveLangOrder(): Lang[] | null {
+  return isLangPrefEnabled() ? getLangOrder() : null;
 }
 
 export function useLangOrder(): Lang[] | null {

@@ -108,6 +108,42 @@ globe. Trace recuperes sur `fonts.gstatic.com` plutot qu'ecrits de memoire — u
 Titre renomme « Votre ordre de preference de langue » (le mot « preference » etait
 demande explicitement).
 
+### Iteration 4 — exception par anime, interrupteur, et un clic qui n'empoisonne plus tout
+
+Trois demandes user : un toast a l'enregistrement, un lecteur choisi en cours
+d'episode qui **reste** pour cet anime, et un interrupteur general dans les
+Reglages.
+
+**L'exception par serie** (`lib/prefs/animeServerPref.ts`, cle
+`aniscroll:animeServer`) : un clic dans le selecteur retient le lecteur pour CET
+anime. Elle emprunte le meme chemin que la preference epinglee
+(`preferredServerRef`), donc zero logique nouvelle : appliquee d'emblee, et si
+l'anime ne l'offre pas pour cet episode, le filet de securite existant retombe
+sur un serveur confirme en suivant l'ordre des langues. L'entree n'est PAS
+supprimee dans ce cas — un hote peut manquer un episode et revenir au suivant.
+Elagage a 200 series (l'ordre des cles JSON fait office d'anciennete).
+
+**Consequence assumee : le clic n'ecrit plus `preferred_server`.** C'est un
+changement de comportement, mais l'ancien devenait toxique avec l'ordre des
+langues : un seul clic sur une serie qui n'a que du VOSTFR epinglait ce serveur
+pour tout le catalogue et rendait le classement inerte partout ailleurs. Le
+serveur epingle des Reglages redevient ce qu'il pretend etre — un choix
+explicite, que seule la page Reglages modifie.
+
+**L'effet de montage est passe de `[]` a `[aniId]`** : il lit desormais une
+preference qui depend de la serie, donc une navigation SPA vers un AUTRE anime
+doit la relire. Changer d'episode ne rejoue rien (aniId ne bouge pas).
+
+**L'interrupteur** (`lang_pref_enabled`) n'efface pas le classement, il le met
+en sommeil : `getEffectiveLangOrder()` rend `null` quand il est eteint, donc la
+page reprend telle quelle sa logique historique, et rallumer retrouve l'ordre.
+La popup ne s'ouvre plus si la fonctionnalite est eteinte.
+
+**Toasts** : « Preferences enregistrees » a la validation (dans le composant,
+pas chez ses deux appelants — la confirmation appartient a l'action), et
+« Lecteur memorise pour cet anime » au changement manuel, sans quoi la
+memorisation serait totalement invisible.
+
 ### Iteration 3 — le bleu inexplique : `ring-action/40` ne fait RIEN
 
 Retour user : « on a du bleu je ne sais pas pourquoi ». C'est un piege Tailwind

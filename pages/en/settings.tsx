@@ -27,6 +27,7 @@ import {
 import { useServerPref, setServerPref } from "@/lib/prefs/serverPref";
 import SERVERS from "@/lib/servers";
 import LangPreferenceModal from "@/components/watch/primary/LangPreferenceModal";
+import { useLangPrefEnabled, setLangPrefEnabled } from "@/lib/prefs/langPref";
 import { clearAllProgress } from "@/lib/watch/progress";
 import { restoreDefaultSettings } from "@/lib/prefs/resetSettings";
 import { useAccent, setAccent, ACCENT_PRESETS, DEFAULT_ACCENT } from "@/lib/prefs/accentColor";
@@ -291,6 +292,7 @@ export default function Settings() {
   const [shortcutEditorOpen, setShortcutEditorOpen] = useState(false);
   // Meme popup que celle affichee au premier episode (classement des langues).
   const [langPrefOpen, setLangPrefOpen] = useState(false);
+  const langPrefEnabled = useLangPrefEnabled();
   const [titlePref, setTitlePrefState] = useState<TitlePref>("en");
   const [uiLang, setUiLangState] = useState<Lang>("en");
   const [mounted, setMounted] = useState(false);
@@ -883,20 +885,35 @@ export default function Settings() {
               {/* Classement des langues (lang_pref_order) — la meme popup que
                   celle du premier episode. Elle decide quelle langue on essaie
                   d'abord; le serveur epingle ci-dessous, lui, reste prioritaire
-                  quand il est renseigne. */}
-              <div className="flex items-center justify-between gap-4 py-3">
+                  quand il est renseigne.
+
+                  L'interrupteur n'EFFACE pas le classement, il le met en
+                  sommeil : eteint, la page de lecture reprend son comportement
+                  historique, et rallumer retrouve l'ordre tel quel. */}
+              <Toggle
+                label={t("player.langPref.settingsLabel")}
+                desc={t("player.langPref.settingsDesc")}
+                checked={langPrefEnabled}
+                onChange={setLangPrefEnabled}
+              />
+              <div
+                className={`flex items-center justify-between gap-4 py-3 ${
+                  langPrefEnabled ? "" : "opacity-40"
+                }`}
+              >
                 <div className="min-w-0">
                   <div className="text-sm font-medium">
-                    {t("player.langPref.settingsLabel")}
+                    {t("player.langPref.settingsOrderLabel")}
                   </div>
                   <div className="text-white/50 text-xs mt-0.5">
-                    {t("player.langPref.settingsDesc")}
+                    {t("player.langPref.settingsOrderDesc")}
                   </div>
                 </div>
                 <button
                   type="button"
+                  disabled={!langPrefEnabled}
                   onClick={() => setLangPrefOpen(true)}
-                  className="shrink-0 rounded-md bg-action px-3 py-1.5 text-sm font-medium text-white transition hover:brightness-110"
+                  className="shrink-0 rounded-md bg-action px-3 py-1.5 text-sm font-medium text-white transition hover:brightness-110 disabled:cursor-not-allowed"
                 >
                   {t("player.langPref.settingsButton")}
                 </button>

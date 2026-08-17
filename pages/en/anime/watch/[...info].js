@@ -26,7 +26,13 @@ import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { onEpisodeFinished } from "@/lib/list/syncEngine";
 import { getPlayerPrefs } from "@/lib/prefs/playerPrefs";
 import { getServerPref } from "@/lib/prefs/serverPref";
-import { getLangOrder, pickServerForLangs } from "@/lib/prefs/langPref";
+import {
+  getLangOrder,
+  getEffectiveLangOrder,
+  isLangPrefEnabled,
+  pickServerForLangs,
+} from "@/lib/prefs/langPref";
+import { getAnimeServer, setAnimeServer } from "@/lib/prefs/animeServerPref";
 import LangPreferenceModal from "@/components/watch/primary/LangPreferenceModal";
 import { recordWatchToday } from "@/lib/stats/streak";
 import { useTranslation } from "react-i18next";
@@ -484,17 +490,27 @@ export default function Watch({
   const preferredServerRef = useRef(null);
   const appliedPrefRef = useRef(false);
   useEffect(() => {
-    // Via getServerPref (et non localStorage brut) : il ecarte — et purge — une
-    // preference qui designe un serveur retire, cf. lib/prefs/serverPref.ts.
-    const pref = getServerPref() || null;
+    // Priorite, du plus precis au plus general :
+    //   1. le lecteur retenu POUR CET ANIME (un clic dans le selecteur pendant
+    //      un episode le pose — cf. lib/prefs/animeServerPref.ts) ;
+    //   2. le serveur epingle dans les Reglages ;
+    //   3. l'ordre de preference des langues.
+    // Les deux premiers empruntent le meme chemin (`preferredServerRef`) : ils
+    // sont appliques d'emblee, et si l'anime ne les offre pas, le filet de
+    // securite plus bas retombe sur un serveur confirme.
+    // Via getServerPref/getAnimeServer (et non localStorage brut) : ils ecartent
+    // — et purgent — une preference qui designe un serveur retire, cf.
+    // lib/prefs/serverPref.ts.
+    const pref = getAnimeServer(aniId) || getServerPref() || null;
     preferredServerRef.current = pref;
 
     // Classement des langues. Absent = l'utilisateur n'a jamais repondu : on
     // ouvre la popup (une seule fois, elle n'a pas de sortie « sans reponse »)
-    // et on ne touche a rien pour CE chargement.
-    const langOrder = getLangOrder();
+    // et on ne touche a rien pour CE chargement. Eteint dans les Reglages, on
+    // ne propose rien et on n'applique rien.
+    const langOrder = getEffectiveLangOrder();
     langOrderRef.current = langOrder;
-    if (!langOrder) setLangModalOpen(true);
+    if (!getLangOrder() && isLangPrefEnabled()) setLangModalOpen(true);
     // Un serveur explicitement epingle (Reglages > lecteur par defaut) reste
     // prioritaire sur le classement de langues : c'est un choix plus precis.
     // Sinon on demarre sur le plus rapide de la langue n°1 — la sonde corrigera
@@ -513,7 +529,9 @@ export default function Watch({
       setActiveServer(pref);
     }
     setServerResolved(true);
-  }, []);
+    // Cle sur l'anime : une navigation SPA vers une AUTRE serie doit relire son
+    // exception a elle. Changer d'EPISODE ne rejoue rien (aniId ne bouge pas).
+  }, [aniId]);
 
   // Apply the saved preference only when it's actually available for this
   // anime (i.e. it has been confirmed by the probes). Until then we stay on
@@ -1857,7 +1875,16 @@ export default function Watch({
         return;
       }
       setActiveServer(serverId);
-      localStorage.setItem("preferred_server", serverId);
+      // Le choix devient l'exception de CET anime, et rien d'autre.
+      //
+      // Avant, ce clic ecrasait `preferred_server`, la preference GLOBALE. Ca
+      // n'a plus de sens depuis l'ordre de preference des langues : un seul clic
+      // sur une serie qui n'a que du VOSTFR aurait epingle ce serveur pour tout
+      // le catalogue et rendu le classement inerte partout ailleurs. Le serveur
+      // epingle des Reglages redevient donc ce qu'il pretend etre : un choix
+      // explicite, que seule la page Reglages modifie.
+      setAnimeServer(aniId, serverId);
+      notify(t("player.rememberedForAnime"), { icon: "📌" });
       // The URL no longer encodes the server — preference lives entirely
       // in localStorage, so shares/bookmarks don't pin a stale server id
       // and switching players doesn't dirty the browser history.
@@ -1866,7 +1893,7 @@ export default function Watch({
       // means a genuine local action worth broadcasting.
       if (party) party.broadcast("server", { server: serverId });
     },
-    [party, t]
+    [party, t, aniId]
   );
 
   // ── Keyboard shortcut: cycle to the next player/server ──────

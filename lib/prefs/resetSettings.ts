@@ -17,6 +17,7 @@ const EXTRA_KEYS = [
   // re-affiche la popup au prochain episode, ce qui est bien le sens de
   // « reglages par defaut ».
   "lang_pref_order",
+  "lang_pref_enabled",
   "view",
   "artplayer_settings",
   "aniscroll:volume",

@@ -34,6 +34,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { notify } from "@/lib/notifications/noticeStore";
 import {
   DEFAULT_LANG_ORDER,
   getLangOrder,
@@ -194,6 +195,9 @@ export default function LangPreferenceModal({
 
   const save = () => {
     setLangOrder(order);
+    // Le toast vit ici plutot que chez les deux appelants (page de lecture et
+    // Reglages) : la confirmation appartient a l'action, pas au contexte.
+    notify(t("player.langPref.saved"), { icon: "✅" });
     onSave?.(order);
   };
 
