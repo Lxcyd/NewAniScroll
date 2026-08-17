@@ -1884,7 +1884,7 @@ export default function Watch({
       // epingle des Reglages redevient donc ce qu'il pretend etre : un choix
       // explicite, que seule la page Reglages modifie.
       setAnimeServer(aniId, serverId);
-      notify(t("player.rememberedForAnime"), { icon: "📌" });
+      notify.success(t("player.rememberedForAnime"));
       // The URL no longer encodes the server — preference lives entirely
       // in localStorage, so shares/bookmarks don't pin a stale server id
       // and switching players doesn't dirty the browser history.

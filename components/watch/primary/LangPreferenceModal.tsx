@@ -94,18 +94,52 @@ function MultiIcon({ className }: { className?: string }) {
   );
 }
 
+/**
+ * Une couleur par famille, et sa logique : la **part de francais** que le
+ * lecteur apporte — c'est exactement l'axe sur lequel on demande a l'utilisateur
+ * de trancher, donc autant le rendre lisible d'un coup d'oeil.
+ *
+ *   vert  → tout en francais (audio double)
+ *   cyan  → moitie (image japonaise, texte francais)
+ *   violet → pas de francais (anglais par defaut)
+ *
+ * Vert -> cyan -> violet se lit comme un degrade, pas comme trois etats sans
+ * rapport. Les teintes viennent de la palette `as` du theme (watching /
+ * rewatching / planning). En dur, et en style inline : `bg-[${hex}]` compose a
+ * la volee n'existerait pas dans le CSS bati (le JIT ne voit que des chaines
+ * completes) — c'est le meme piege que le bleu de `ring-action/40`.
+ */
 const CARDS: Record<
   Lang,
   {
     Icon: (p: { className?: string }) => JSX.Element;
     tag: string;
+    color: string;
     titleKey: string;
     descKey: string;
   }
 > = {
-  vf: { Icon: DubIcon, tag: "VF", titleKey: "player.langPref.vfTitle", descKey: "player.langPref.vfDesc" },
-  vo: { Icon: SubIcon, tag: "VOSTFR", titleKey: "player.langPref.voTitle", descKey: "player.langPref.voDesc" },
-  multi: { Icon: MultiIcon, tag: "Multi", titleKey: "player.langPref.multiTitle", descKey: "player.langPref.multiDesc" },
+  vf: {
+    Icon: DubIcon,
+    tag: "VF",
+    color: "#10B981",
+    titleKey: "player.langPref.vfTitle",
+    descKey: "player.langPref.vfDesc",
+  },
+  vo: {
+    Icon: SubIcon,
+    tag: "VOSTFR",
+    color: "#06B6D4",
+    titleKey: "player.langPref.voTitle",
+    descKey: "player.langPref.voDesc",
+  },
+  multi: {
+    Icon: MultiIcon,
+    tag: "Multi",
+    color: "#A855F7",
+    titleKey: "player.langPref.multiTitle",
+    descKey: "player.langPref.multiDesc",
+  },
 };
 
 /** Deplace `from` vers `to` dans une copie du tableau. */
@@ -197,7 +231,9 @@ export default function LangPreferenceModal({
     setLangOrder(order);
     // Le toast vit ici plutot que chez les deux appelants (page de lecture et
     // Reglages) : la confirmation appartient a l'action, pas au contexte.
-    notify(t("player.langPref.saved"), { icon: "✅" });
+    // `notify.success` = la carte verte du NoticeStack, avec sa coche maison —
+    // pas d'icone passee a la main, le type en fournit deja une.
+    notify.success(t("player.langPref.saved"));
     onSave?.(order);
   };
 
@@ -221,8 +257,11 @@ export default function LangPreferenceModal({
               {i > 0 && (
                 <span
                   aria-hidden
-                  style={{ transform: "translate(calc(-50% - 6px), -50%)" }}
-                  className="absolute left-0 top-1/2 text-white/30 text-3xl leading-none"
+                  style={{
+                    transform: "translate(calc(-50% - 6px), -50%)",
+                    color: "rgba(233,69,96,0.65)",
+                  }}
+                  className="absolute left-0 top-1/2 text-3xl leading-none"
                 >
                   →
                 </span>
@@ -257,6 +296,11 @@ export default function LangPreferenceModal({
                 onPointerUp={endDrag}
                 onPointerCancel={endDrag}
                 style={{
+                  // Voile de la couleur de famille, qui s'efface vers le bas.
+                  // Le fond reste OPAQUE (la surface du theme est en dessous) et
+                  // `--surface-surface` garde le theme vivant, ce qu'un hex en
+                  // dur aurait perdu.
+                  background: `linear-gradient(180deg, ${card.color}1a 0%, transparent 55%), var(--surface-surface, #22222e)`,
                   transform: `translateX(${x}px)`,
                   // La bague EST une box-shadow : la transitionner suffit a
                   // faire respirer le halo rose au survol.
@@ -266,17 +310,27 @@ export default function LangPreferenceModal({
                   zIndex: dragging ? 10 : 1,
                   touchAction: "none",
                 }}
-                className={`flex-1 basis-0 min-w-0 select-none rounded-card p-4 flex flex-col items-center text-center gap-2 ring-1 bg-as-surface ring-white/5 ${ACCENT_HOVER} ${
+                className={`flex-1 basis-0 min-w-0 select-none rounded-card p-4 flex flex-col items-center text-center gap-2 ring-1 ring-white/5 ${ACCENT_HOVER} ${
                   dragging ? "cursor-grabbing" : "cursor-grab"
                 } ${dragging ? "shadow-poster brightness-110" : ""}`}
               >
-                <span className="grid place-items-center w-12 h-12 rounded-card ring-1 bg-white/5 ring-white/10 text-white/60">
+                <span
+                  className="grid place-items-center w-12 h-12 rounded-card"
+                  style={{
+                    color: card.color,
+                    background: `${card.color}1f`,
+                    boxShadow: `inset 0 0 0 1px ${card.color}59`,
+                  }}
+                >
                   <card.Icon className="w-7 h-7" />
                 </span>
                 <span className="font-outfit text-sm font-semibold leading-tight">
                   {t(card.titleKey)}
                 </span>
-                <span className="font-karla text-[10px] uppercase tracking-wider text-white/35">
+                <span
+                  className="font-karla text-[10px] font-bold uppercase tracking-wider"
+                  style={{ color: card.color }}
+                >
                   {card.tag}
                 </span>
                 <span className="font-karla text-[11px] leading-snug text-white/50">
