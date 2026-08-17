@@ -224,11 +224,7 @@ export default function LangPreferenceModal({
                 </span>
               )}
               <span
-                className={`grid place-items-center w-7 h-7 rounded-full text-sm font-semibold transition-colors ${
-                  i === 0
-                    ? "bg-action text-white shadow-glow"
-                    : "bg-white/5 text-white/45 ring-1 ring-white/10"
-                }`}
+                className="grid place-items-center w-7 h-7 rounded-full text-sm font-semibold bg-white/5 text-white/45 ring-1 ring-white/10"
               >
                 {i + 1}
               </span>
@@ -266,7 +262,7 @@ export default function LangPreferenceModal({
                   zIndex: dragging ? 10 : 1,
                   touchAction: "none",
                 }}
-                className={`flex-1 basis-0 min-w-0 select-none rounded-card p-4 flex flex-col items-center text-center gap-2 ring-1 bg-as-surface/60 ring-white/5 ${ACCENT_HOVER} ${
+                className={`flex-1 basis-0 min-w-0 select-none rounded-card p-4 flex flex-col items-center text-center gap-2 ring-1 bg-as-surface ring-white/5 ${ACCENT_HOVER} ${
                   dragging ? "cursor-grabbing" : "cursor-grab"
                 } ${dragging ? "shadow-poster brightness-110" : ""}`}
               >
@@ -285,8 +281,13 @@ export default function LangPreferenceModal({
 
                 {/* Repli clavier / petit ecran du glisser-deposer. Le
                     `stopPropagation` evite qu'un clic sur une fleche demarre
-                    un glissement. */}
-                <span className="flex items-center gap-1.5 pt-1">
+                    un glissement.
+
+                    `mt-auto` colle la rangee au BAS de la carte : les cartes
+                    sont etirees a la meme hauteur (`items-stretch`) mais leurs
+                    descriptions ne font pas le meme nombre de lignes, donc sans
+                    ca les fleches flottaient a trois hauteurs differentes. */}
+                <span className="mt-auto pt-2 flex items-center gap-1.5">
                   <button
                     type="button"
                     disabled={slot === 0}
