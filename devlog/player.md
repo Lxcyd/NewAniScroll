@@ -108,6 +108,44 @@ globe. Trace recuperes sur `fonts.gstatic.com` plutot qu'ecrits de memoire — u
 Titre renomme « Votre ordre de preference de langue » (le mot « preference » etait
 demande explicitement).
 
+### Iteration 3 — le bleu inexplique : `ring-action/40` ne fait RIEN
+
+Retour user : « on a du bleu je ne sais pas pourquoi ». C'est un piege Tailwind
+qui merite d'etre retenu, parce qu'il est silencieux et qu'il touche quatre
+autres fichiers du site.
+
+`action` vaut `var(--brand-primary, #E94560)`. **Tailwind v3 ne sait pas injecter
+d'alpha dans une couleur qui est une `var()`** : il lui faut les canaux
+`<r> <g> <b>` pour composer `rgb(… / <alpha>)`. Resultat, `ring-action/40`,
+`bg-action/25`, `ring-action/50`... ne generent **aucune regle** — verifie dans
+le CSS bati : zero occurrence de `action\/<n>` dans tout le bundle. La classe est
+inerte. Et pour un `ring`, inerte ne veut pas dire neutre : `ring-1` pose la
+bague, `--tw-ring-color` garde son **defaut Tailwind** — `rgba(59,130,246,.5)`,
+bleu-500. D'ou des anneaux bleus au milieu d'une charte rose, sans que rien dans
+le code ne mentionne du bleu.
+
+Pour un `bg-`, l'echec est muet a l'inverse : pas de fond du tout. C'est le cas
+de `bg-action/25` sur le chip du serveur ACTIF dans `serverSelector.js` — il n'a
+jamais eu son fond teinte, seule sa bague (`ring-action`, sans alpha, donc
+valide) le distingue.
+
+**Regle** : sur `action`, seul l'accent PLEIN est utilisable (`bg-action`,
+`ring-action`, `text-action`). Toute teinte translucide s'ecrit en rgba litteral
+— ce que faisait deja le selecteur de serveurs avec
+`shadow-[0_0_12px_rgba(255,127,87,0.35)]`. Regroupe ici dans une constante
+`ACCENT` (chaines completes, sinon le JIT ne les voit pas). Contrepartie assumee,
+la meme que dans le reste du code : ces teintes-la ne suivent plus le theme.
+
+**Restent a corriger ailleurs** (meme bug, non touche ici) :
+`ReportModal.tsx:610`, `SyncDirectionModal.tsx:71` (bague bleue au survol),
+`404.tsx:39`, `_error.tsx:26`.
+
+Autres retours de la meme passe : halo rose au survol de **chaque** carte (la
+bague EST une box-shadow, il suffit de la transitionner), textes raccourcis,
+pastille d'icone supprimee a cote du titre, et les mots sous les numeros
+(« d'abord / sinon / en dernier ») remplaces par des **fleches entre les
+numeros** — la chaine de repli se lit alors sans legende.
+
 ---
 
 ## 2026-08-17 (nuit) — Sibnet tuait la fonction, et une preference morte se rejouait a vie

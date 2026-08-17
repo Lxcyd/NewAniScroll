@@ -46,6 +46,29 @@ const LANGS: Lang[] = ["vf", "vo", "multi"];
 /** Doit rester synchro avec le `gap-3` de la rangee (12px). */
 const GAP = 12;
 
+/**
+ * L'accent en dur, et pourquoi.
+ *
+ * `action` vaut `var(--brand-primary, #E94560)` : Tailwind v3 ne sait pas
+ * injecter d'alpha dans une couleur qui est une `var()`, donc `ring-action/50`
+ * & co. ne generent AUCUNE regle — verifie dans le CSS bati, zero occurrence de
+ * `action\/<n>`. La classe ne fait rien, `--tw-ring-color` reste a son defaut
+ * Tailwind (`rgba(59,130,246,.5)`) et l'anneau sort... bleu. C'etait le bleu
+ * inexplique autour des numeros.
+ *
+ * On ecrit donc les teintes translucides en rgba litteral, comme le fait deja
+ * le selecteur de serveurs (`shadow-[0_0_12px_rgba(255,127,87,0.35)]`). Seul
+ * l'accent PLEIN (`bg-action`, `ring-action`, `text-action`) reste themable.
+ */
+const ACCENT = {
+  tint: "bg-[rgba(233,69,96,0.08)]",
+  tintStrong: "bg-[rgba(233,69,96,0.14)]",
+  ring: "ring-[rgba(233,69,96,0.45)]",
+  ringSoft: "ring-[rgba(233,69,96,0.28)]",
+  glow: "shadow-[0_0_20px_rgba(233,69,96,0.15)]",
+  hover: "hover:ring-[rgba(233,69,96,0.55)] hover:shadow-[0_0_26px_rgba(233,69,96,0.30)]",
+};
+
 /** Doublage : le micro de Material Symbols (fourni par le user). */
 function DubIcon({ className }: { className?: string }) {
   return (
@@ -177,36 +200,32 @@ export default function LangPreferenceModal({
     onSave?.(order);
   };
 
-  const slotLabels = [
-    t("player.langPref.slotFirst"),
-    t("player.langPref.slotThen"),
-    t("player.langPref.slotLast"),
-  ];
-
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm px-4">
       <div className="w-full max-w-2xl rounded-card bg-as-card ring-1 ring-white/10 shadow-poster p-6 sm:p-7">
-        {/* En-tete : meme grammaire que les autres panneaux du lecteur —
-            pastille d'accent, titre Outfit, sous-titre Karla en retrait. */}
-        <div className="flex items-start gap-3.5 mb-5">
-          <span className="flex-none grid place-items-center w-11 h-11 rounded-card bg-action/15 ring-1 ring-action/30 text-action">
-            <MultiIcon className="w-6 h-6" />
-          </span>
-          <div className="min-w-0">
-            <h3 className="font-outfit text-lg font-semibold leading-tight">
-              {t("player.langPref.title")}
-            </h3>
-            <p className="font-karla text-sm text-white/55 mt-1">
-              {t("player.langPref.body")}
-            </p>
-          </div>
-        </div>
+        <h3 className="font-outfit text-lg font-semibold leading-tight">
+          {t("player.langPref.title")}
+        </h3>
+        <p className="font-karla text-sm text-white/55 mt-1 mb-5">
+          {t("player.langPref.body")}
+        </p>
 
         {/* Numeros FIXES : ils ne bougent pas, ce sont les cartes qui glissent
-            dessous. Meme rangee flex que les cartes pour rester alignes. */}
+            dessous. Meme rangee flex que les cartes pour rester alignes, et une
+            fleche posee au milieu de chaque gouttiere pour que la chaine de
+            repli (1 puis 2 puis 3) se lise sans legende. */}
         <div className="flex gap-3 mb-2.5">
           {[0, 1, 2].map((i) => (
-            <div key={i} className="flex-1 basis-0 flex flex-col items-center gap-1">
+            <div key={i} className="relative flex-1 basis-0 flex justify-center">
+              {i > 0 && (
+                <span
+                  aria-hidden
+                  style={{ transform: "translate(calc(-50% - 6px), -50%)" }}
+                  className="absolute left-0 top-1/2 text-white/25 text-base leading-none"
+                >
+                  →
+                </span>
+              )}
               <span
                 className={`grid place-items-center w-7 h-7 rounded-full text-sm font-semibold transition-colors ${
                   i === 0
@@ -215,9 +234,6 @@ export default function LangPreferenceModal({
                 }`}
               >
                 {i + 1}
-              </span>
-              <span className="font-karla text-[10px] uppercase tracking-wider text-white/30">
-                {slotLabels[i]}
               </span>
             </div>
           ))}
@@ -246,22 +262,26 @@ export default function LangPreferenceModal({
                 onPointerCancel={endDrag}
                 style={{
                   transform: `translateX(${x}px)`,
-                  transition: dragging ? "none" : "transform 220ms cubic-bezier(.2,.8,.2,1)",
+                  // La bague EST une box-shadow : la transitionner suffit a
+                  // faire respirer le halo rose au survol.
+                  transition: dragging
+                    ? "none"
+                    : "transform 220ms cubic-bezier(.2,.8,.2,1), box-shadow 200ms ease, background-color 200ms ease",
                   zIndex: dragging ? 10 : 1,
                   touchAction: "none",
                 }}
-                className={`flex-1 basis-0 min-w-0 select-none rounded-card p-4 flex flex-col items-center text-center gap-2 ring-1 ${
+                className={`flex-1 basis-0 min-w-0 select-none rounded-card p-4 flex flex-col items-center text-center gap-2 ring-1 ${ACCENT.hover} ${
                   dragging ? "cursor-grabbing" : "cursor-grab"
                 } ${
                   top
-                    ? "bg-action/10 ring-action/50 shadow-[0_0_20px_rgba(233,69,96,0.15)]"
-                    : "bg-as-surface/60 ring-white/5 hover:ring-white/15"
+                    ? `${ACCENT.tint} ${ACCENT.ring} ${ACCENT.glow}`
+                    : "bg-as-surface/60 ring-white/5"
                 } ${dragging ? "shadow-poster brightness-110" : ""}`}
               >
                 <span
                   className={`grid place-items-center w-12 h-12 rounded-card ring-1 ${
                     top
-                      ? "bg-action/15 ring-action/25 text-action"
+                      ? `${ACCENT.tintStrong} ${ACCENT.ringSoft} text-action`
                       : "bg-white/5 ring-white/10 text-white/60"
                   }`}
                 >
