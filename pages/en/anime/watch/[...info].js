@@ -370,6 +370,11 @@ export default function Watch({
   const failedServersRef = useRef(failedServers);
   useEffect(() => { failedServersRef.current = failedServers; }, [failedServers]);
 
+  // Meme miroir pour les confirmations : `markFailed` doit pouvoir savoir, en
+  // lecture synchrone, si le serveur qui vient d'echouer etait deja confirme.
+  const confirmedServersRef = useRef(confirmedServers);
+  useEffect(() => { confirmedServersRef.current = confirmedServers; }, [confirmedServers]);
+
   // Live mirror of `activeServer`. The probe fan-out is keyed on the EPISODE, so
   // its closure freezes whatever `activeServer` was when the effect ran — which
   // on mount is always the SSR-safe "megaplay" placeholder, before the saved
@@ -414,12 +419,34 @@ export default function Watch({
   ];
 
   const markFailed = useCallback((id, reason) => {
-    setFailedServers((prev) => {
-      if (prev.get(id) === reason) return prev;
-      const next = new Map(prev);
-      next.set(id, reason);
-      return next;
-    });
+    /* Un echec PASSAGER n'efface pas une confirmation deja acquise.
+     *
+     * C'est le « le lecteur sibnet s'affiche puis disparait » signale le
+     * 17/08/2026 : l'instantane de disponibilite (ou une sonde precedente) avait
+     * confirme `animesama-sibnet`, le chip etait peint — puis un unique 503 sur
+     * une resolution froide (sibnet met ~2 a 5 s depuis Vercel) le retirait de
+     * l'ecran. On effacait donc une CONNAISSANCE avec une NON-connaissance : un
+     * 503 dit « je n'ai pas pu savoir », pas « ce lecteur n'existe pas ».
+     *
+     * Seule une absence PROUVEE (le 204/404 de la route, « Source not found »)
+     * a le droit de retirer un chip confirme. Le reste — 5xx, reseau, timeout,
+     * erreur de lecture — laisse le chip en place : au pire l'utilisateur clique
+     * dessus et la resolution repart (souvent chaude, donc immediate), ce qui
+     * est infiniment moins deroutant qu'un lecteur qui s'evapore sous le curseur.
+     *
+     * Le repli automatique ci-dessous, lui, n'est PAS conditionne : si c'est le
+     * serveur ACTIF qui vient d'echouer, on bascule quand meme — ne pas cacher
+     * le chip et laisser tourner un lecteur mort seraient deux erreurs, pas une.
+     */
+    const provenAbsence = reason === "Source not found";
+    if (provenAbsence || !confirmedServersRef.current.has(id)) {
+      setFailedServers((prev) => {
+        if (prev.get(id) === reason) return prev;
+        const next = new Map(prev);
+        next.set(id, reason);
+        return next;
+      });
+    }
 
     // Auto-fallback: if the active server is the one that failed, switch to the
     // next working server (prefer same language). Don't write to localStorage —

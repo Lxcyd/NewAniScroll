@@ -200,6 +200,33 @@ Note de methode : le cache Redis est PARTAGE entre prod et dev, et la cle edge
 inclut `title`/`malId`. Deux facons de se mentir a soi-meme en mesurant, les
 deux rencontrees dans la meme heure.
 
+### Suite 2 — « il s'affiche puis disparait » : un 503 effacait une certitude
+
+Le detail qui manquait, donne par le user a la troisieme passe : le chip sibnet
+**apparait, puis s'en va**. Ce n'est donc pas « il ne se confirme jamais »,
+c'est « il se confirme, puis quelque chose l'efface ». Deux ecrivains
+seulement : `markConfirmed` peint, `markFailed` cache.
+
+Deroule : l'instantane de disponibilite contient desormais `animesama-sibnet`
+(verifie) → le chip est peint des le premier rendu. Puis une sonde tombe sur une
+resolution FROIDE (sibnet met ~2 a 5 s depuis Vercel), rend 503, et
+`markFailed` retire le chip. **On effacait une connaissance avec une
+non-connaissance** : un 503 dit « je n'ai pas pu savoir », pas « ce lecteur
+n'existe pas ».
+
+Correctif : seule une absence PROUVEE (le 204/404 de la route, `Source not
+found`) peut retirer un chip **deja confirme**. 5xx, reseau, timeout, erreur de
+lecture : le chip reste. Au pire l'utilisateur clique dessus et la resolution
+repart — souvent chaude, donc immediate — ce qui est infiniment moins deroutant
+qu'un lecteur qui s'evapore sous le curseur. Le repli automatique n'est pas
+touche : si c'est le serveur ACTIF qui echoue, on bascule quand meme.
+
+A noter, le meme symptome avait deja ete traite en amont, sous une autre cause
+(un premier 204 pris pour une absence definitive — cf. le commentaire « what
+made the sibnet chip appear then vanish » dans la sonde). Le chemin par
+`markFailed` restait ouvert. Les deux garde-fous sont complementaires : l'un
+empeche de conclure trop vite, l'autre de defaire une conclusion acquise.
+
 ---
 
 ### Iteration 5 — le prechauffage visait le mauvais lecteur (regression de l'iteration 1)
