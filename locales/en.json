@@ -361,7 +361,7 @@
     "available": "available",
     "degraded": "degraded (iframe fallback)",
     "langMulti": "Multi",
-    "langVO": "VO",
+    "langVO": "VOSTFR",
     "langVF": "VF",
     "langMultiDesc": "Sub / Dub",
     "langVODesc": "Japanese",
@@ -432,7 +432,12 @@
     "dub": "Dub",
     "speedScore": "score",
     "speedConfidence": "confidence",
-    "speedEstimated": "estimated, not measured"
+    "speedEstimated": "estimated, not measured",
+    "nowPlayingShort": "now playing",
+    "timeLeft": "{{time}} left",
+    "view_compact": "Compact list",
+    "view_cards": "Thumbnails",
+    "view_grid": "Number grid"
   },
   "shortcuts": {
     "title": "Keyboard shortcuts",
@@ -1032,7 +1037,8 @@
     },
     "artFilterAll": "All",
     "fullscreen": "Fullscreen",
-    "notYetReleased": "Not yet released"
+    "notYetReleased": "Not yet released",
+    "inYourList": "In your list"
   },
   "party": {
     "watchTogether": "Watch together",

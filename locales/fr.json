@@ -361,7 +361,7 @@
     "available": "disponible",
     "degraded": "dégradé (repli iframe)",
     "langMulti": "Multi",
-    "langVO": "VO",
+    "langVO": "VOSTFR",
     "langVF": "VF",
     "langMultiDesc": "VOSTFR / VF",
     "langVODesc": "Japonais",
@@ -432,7 +432,12 @@
     "dub": "VF",
     "speedScore": "score",
     "speedConfidence": "confiance",
-    "speedEstimated": "estimé, non mesuré"
+    "speedEstimated": "estimé, non mesuré",
+    "nowPlayingShort": "en cours",
+    "timeLeft": "{{time}} restantes",
+    "view_compact": "Liste compacte",
+    "view_cards": "Vignettes",
+    "view_grid": "Grille de numéros"
   },
   "shortcuts": {
     "title": "Raccourcis clavier",
@@ -1032,7 +1037,8 @@
     },
     "artFilterAll": "Toutes",
     "fullscreen": "Plein écran",
-    "notYetReleased": "Pas encore sortie"
+    "notYetReleased": "Pas encore sortie",
+    "inYourList": "Dans votre liste"
   },
   "party": {
     "watchTogether": "Regarder ensemble",

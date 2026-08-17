@@ -2307,11 +2307,11 @@ export default function Watch({
           <div
             id="default"
             className={`${
-              theaterMode ? "lg:max-w-[95%] xl:max-w-[80%]" : "lg:max-w-[95%]"
-            } w-full flex flex-col lg:flex-row mx-auto`}
+              theaterMode ? "lg:max-w-[95%] xl:max-w-[80%]" : "max-w-[1180px]"
+            } w-full flex flex-col lg:flex-row gap-4 mx-auto lg:px-4`}
           >
             {/* ── Primary column ── */}
-            <div id="primary" className="w-full">
+            <div id="primary" className="w-full min-w-0 flex flex-col gap-3">
 
               {/* Default (non-theater) player — no parent bg/overflow so ambient glow can extend outside */}
               {!theaterMode && (
@@ -2346,58 +2346,6 @@ export default function Watch({
 
               {/* Details row */}
               <div id="details" className="flex flex-col gap-5 w-full px-3 lg:px-0">
-                <div className="flex items-end justify-between pt-3 border-b-2 border-secondary pb-2">
-                  <div className="w-[55%]">
-                    <div className="flex font-outfit font-semibold text-lg lg:text-2xl text-white line-clamp-1">
-                      <Link
-                        href={`/en/anime/${info?.id}`}
-                        className="hover:underline line-clamp-1"
-                      >
-                        {episodeNavigation?.playing?.title || (info?.title && pickTitle(info.title, titlePref)) || t("common.loading")}
-                      </Link>
-                    </div>
-                    <h3 className="font-karla">
-                      {episodeNavigation?.playing?.number ? (
-                        `Episode ${episodeNavigation?.playing?.number}`
-                      ) : (
-                        <Skeleton width={120} height={16} />
-                      )}
-                    </h3>
-                  </div>
-
-                  <div className="flex gap-2 text-sm">
-                    {!partyUIOpen && info?.id && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setPartyUIOpen(true);
-                          setPartyPanelHidden(false);
-                        }}
-                        className="flex items-center gap-2 rounded-md bg-action/20 px-3 py-2 text-sm font-medium text-action transition hover:bg-action/30"
-                      >
-                        <UsersIcon className="h-5 w-5" />
-                        <span className="hidden lg:block">{t("party.watchTogether")}</span>
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      onClick={handleShareClick}
-                      className="flex items-center gap-2 px-3 py-1 ring-[1px] ring-white/20 rounded overflow-hidden"
-                    >
-                      <ShareIcon className="w-5 h-5" />
-                      <span className="hidden lg:block">{t("anime.share")}</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setIsOpen(true)}
-                      className="flex items-center gap-2 px-3 py-1 ring-[1px] ring-white/20 rounded overflow-hidden"
-                    >
-                      <FlagIcon className="w-5 h-5" />
-                      <span className="hidden lg:block">{t("nav.report")}</span>
-                    </button>
-                  </div>
-                </div>
-
                 <Details
                   info={info}
                   session={sessions}
@@ -2407,6 +2355,65 @@ export default function Watch({
                   onList={onList}
                   setOnList={setOnList}
                   handleOpen={() => handleOpen()}
+                  title={
+                    <div className="min-w-0">
+                      <Link
+                        href={`/en/anime/${info?.id}`}
+                        className="line-clamp-1 font-outfit text-lg font-semibold text-white hover:underline lg:text-2xl"
+                      >
+                        {(info?.title && pickTitle(info.title, titlePref)) || t("common.loading")}
+                      </Link>
+                      <h3 className="font-karla text-sm text-white/45 line-clamp-1">
+                        {episodeNavigation?.playing?.number ? (
+                          <>
+                            {t("common.episode")} {episodeNavigation.playing.number}
+                            {episodeNavigation.playing.title
+                              ? ` · ${episodeNavigation.playing.title}`
+                              : ""}
+                          </>
+                        ) : (
+                          <Skeleton width={120} height={16} />
+                        )}
+                      </h3>
+                    </div>
+                  }
+                  actions={
+                    <div className="grid grid-cols-3 gap-2">
+                      {info?.id && (
+                        <button
+                          type="button"
+                          title={t("party.watchTogether")}
+                          aria-label={t("party.watchTogether")}
+                          disabled={partyUIOpen}
+                          onClick={() => {
+                            setPartyUIOpen(true);
+                            setPartyPanelHidden(false);
+                          }}
+                          className="flex items-center justify-center rounded-lg bg-white/[0.04] py-2 text-white/70 ring-1 ring-white/[0.07] transition-colors hover:bg-white/[0.09] hover:text-white disabled:opacity-40"
+                        >
+                          <UsersIcon className="h-5 w-5" />
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        title={t("anime.share")}
+                        aria-label={t("anime.share")}
+                        onClick={handleShareClick}
+                        className="flex items-center justify-center rounded-lg bg-white/[0.04] py-2 text-white/70 ring-1 ring-white/[0.07] transition-colors hover:bg-white/[0.09] hover:text-white"
+                      >
+                        <ShareIcon className="h-5 w-5" />
+                      </button>
+                      <button
+                        type="button"
+                        title={t("nav.report")}
+                        aria-label={t("nav.report")}
+                        onClick={() => setIsOpen(true)}
+                        className="flex items-center justify-center rounded-lg bg-white/[0.04] py-2 text-white/70 ring-1 ring-white/[0.07] transition-colors hover:bg-white/[0.09] hover:text-white"
+                      >
+                        <FlagIcon className="h-5 w-5" />
+                      </button>
+                    </div>
+                  }
                 />
               </div>
             </div>
@@ -2414,7 +2421,7 @@ export default function Watch({
             {/* ── Secondary column (episode list) ── */}
             <div
               id="secondary"
-              className={`relative ${theaterMode ? "pt-5" : "pt-4 lg:pt-0"} lg:pl-4`}
+              className={`relative shrink-0 ${theaterMode ? "pt-5" : "pt-4 lg:pt-0"}`}
             >
               {/* Desktop placement — beside the episode list. On mobile the
                   panel renders in the primary column under the player instead. */}
