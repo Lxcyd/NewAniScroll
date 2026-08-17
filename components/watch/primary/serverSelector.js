@@ -3,7 +3,8 @@ import { SignalIcon } from "@heroicons/react/24/solid";
 import { useTranslation } from "react-i18next";
 // @ts-ignore — plain JS context, no types
 import { useWatchProvider } from "@/lib/context/watchPageProvider";
-import { useServerPerfTiers } from "@/lib/watch/serverPerf";
+import { useServerPerfRank, useServerPerfTiers } from "@/lib/watch/serverPerf";
+import { shouldShowServer } from "@/lib/watch/serverVisibility";
 
 const LANG_CONFIG = {
   multi: { labelKey: "player.langMulti", flag: "🌐", descKey: "player.langMultiDesc" },
@@ -35,16 +36,6 @@ function staticTier(speed) {
   return "slow";
 }
 
-// Decide whether a server should be visible in the selector.
-function shouldShow(server, activeServer, confirmedServers, failedServers) {
-  if (server.id === activeServer) return true;
-  if (failedServers?.has?.(server.id) || failedServers?.get?.(server.id)) {
-    return false;
-  }
-  if (server.type === "iframe") return true;
-  return confirmedServers?.has(server.id);
-}
-
 function LangGroup({
   langKey,
   servers,
@@ -59,7 +50,7 @@ function LangGroup({
   const learnedTiers = useServerPerfTiers();
   const config = LANG_CONFIG[langKey];
   const visible = (servers || []).filter((s) =>
-    shouldShow(s, activeServer, confirmedServers, failedServers)
+    shouldShowServer(s, activeServer, confirmedServers, failedServers)
   );
   if (visible.length === 0) return null;
 
@@ -132,7 +123,9 @@ export default function ServerSelector({
   degradedServers,
 }) {
   const { t } = useTranslation();
-  const groups = getServersByLang();
+  // Ordre par le rang MESURE sur cet appareil ; identique au rang statique tant
+  // qu'aucune mesure n'existe, donc l'affichage par defaut ne bouge pas.
+  const groups = getServersByLang(useServerPerfRank());
 
   return (
     <div className="flex flex-col gap-3 py-3">

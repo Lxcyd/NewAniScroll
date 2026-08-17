@@ -1938,15 +1938,15 @@ export default function Watch({
   useEffect(() => {
     const onCycle = () => {
       const { getServersByLang } = require("@/lib/servers");
-      const groups = getServersByLang();
-      // Same visibility test as serverSelector.js `shouldShow`.
-      const isVisible = (s) => {
-        if (s.id === activeServer) return true;
-        if (failedServers?.has?.(s.id)) return false;
-        if (s.type === "iframe") return true;
-        return confirmedServers.has(s.id);
-      };
-      const pool = [...groups.multi, ...groups.vo, ...groups.vf].filter(isVisible);
+      const { serverPerfRank } = require("@/lib/watch/serverPerf");
+      const { shouldShowServer } = require("@/lib/watch/serverVisibility");
+      // Meme ordre ET meme regle de visibilite que le selecteur — les deux
+      // etaient recopies ici et avaient deja diverge, ce qui faisait atterrir
+      // le raccourci sur un lecteur qu'aucun chip n'affichait.
+      const groups = getServersByLang(serverPerfRank);
+      const pool = [...groups.multi, ...groups.vo, ...groups.vf].filter((s) =>
+        shouldShowServer(s, activeServer, confirmedServers, failedServers),
+      );
       if (pool.length < 2) return; // nothing to cycle to
       const idx = pool.findIndex((s) => s.id === activeServer);
       const next = pool[(idx + 1) % pool.length];

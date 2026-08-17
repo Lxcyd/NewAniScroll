@@ -466,6 +466,29 @@ export function useServerPerfTiers(): Record<string, Tier | null> {
   return tiers;
 }
 
+/**
+ * Le rang mesure, mais seulement APRES le montage.
+ *
+ * Reordonner une liste pendant le rendu change l'ORDRE DU DOM entre le serveur
+ * et le client : c'est une erreur d'hydratation, pas un simple ecart d'attribut.
+ * Avant le montage on rend donc le rang statique — exactement ce que le serveur
+ * a rendu — et l'effet bascule ensuite sur les mesures.
+ *
+ * En pratique la bascule ne se voit pas : un chip n'apparait qu'une fois son
+ * lecteur confirme, ce qui se decide cote client apres sondage, donc l'ordre
+ * definitif est en place bien avant qu'il y ait plusieurs chips a ordonner.
+ */
+export function useServerPerfRank(): (s: { id: string; speed?: number }) => number {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    const wake = () => setReady(true);
+    wake();
+    window.addEventListener(SERVER_PERF_EVENT, wake);
+    return () => window.removeEventListener(SERVER_PERF_EVENT, wake);
+  }, []);
+  return ready ? serverPerfRank : (s) => s.speed ?? 99;
+}
+
 /* ── Interrupteur et remise a zero (Reglages) ──────────────────────────────
  * Meme forme evenement/hook que les autres prefs pour que l'UI reste vivante.
  */

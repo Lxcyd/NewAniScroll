@@ -20,6 +20,7 @@
 
 import { useEffect, useState } from "react";
 import SERVERS from "@/lib/servers";
+import { serverPerfRank } from "@/lib/watch/serverPerf";
 
 export type Lang = "vf" | "vo" | "multi";
 
@@ -140,16 +141,19 @@ type PickOpts = {
   /** Serveurs connus en echec — jamais proposes. */
   failed?: Set<string> | Map<string, unknown> | null;
   /**
-   * Ordre de choix A L'INTERIEUR d'une langue. Par defaut le rang statique
-   * `speed` de lib/servers.js (1 = le plus rapide), c'est-a-dire « le premier ».
-   * Le jour ou on voudra « le plus rapide reellement mesure », il suffit de
-   * passer une fonction qui lit `liveSpeed` du watchPageProvider — rien d'autre
-   * ne bouge ici.
+   * Ordre de choix A L'INTERIEUR d'une langue. Par defaut le rang MESURE sur
+   * cet appareil (lib/watch/serverPerf), qui retombe exactement sur le rang
+   * statique `speed` de lib/servers.js tant qu'aucune mesure n'existe.
+   *
+   * Sur le serveur, `serverPerfRank` ne peut pas lire localStorage et rend le
+   * rang statique : ce defaut est donc sans danger au SSR par construction, il
+   * n'y a pas d'ordre a faire diverger entre les deux rendus.
    */
   rank?: (server: ServerDef) => number;
 };
 
-const staticRank = (s: ServerDef) => s.speed ?? 99;
+/** Le rang d'origine, garde comme repli explicite et pour les tests. */
+export const staticRank = (s: ServerDef) => s.speed ?? 99;
 
 /**
  * Le meilleur serveur selon l'ordre de langues : premiere langue qui a un
@@ -157,7 +161,7 @@ const staticRank = (s: ServerDef) => s.speed ?? 99;
  */
 export function pickServerForLangs(
   order: Lang[] | null | undefined,
-  { confirmed, failed, rank = staticRank }: PickOpts = {},
+  { confirmed, failed, rank = serverPerfRank }: PickOpts = {},
 ): string | null {
   const langs = order && order.length ? order : DEFAULT_LANG_ORDER;
   const isFailed = (id: string) =>
