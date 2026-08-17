@@ -59,15 +59,12 @@ const GAP = 12;
  * On ecrit donc les teintes translucides en rgba litteral, comme le fait deja
  * le selecteur de serveurs (`shadow-[0_0_12px_rgba(255,127,87,0.35)]`). Seul
  * l'accent PLEIN (`bg-action`, `ring-action`, `text-action`) reste themable.
+ *
+ * Les trois cartes sont desormais IDENTIQUES au repos : le rose ne marque plus
+ * la premiere (les numeros s'en chargent), il ne sert qu'au survol.
  */
-const ACCENT = {
-  tint: "bg-[rgba(233,69,96,0.08)]",
-  tintStrong: "bg-[rgba(233,69,96,0.14)]",
-  ring: "ring-[rgba(233,69,96,0.45)]",
-  ringSoft: "ring-[rgba(233,69,96,0.28)]",
-  glow: "shadow-[0_0_20px_rgba(233,69,96,0.15)]",
-  hover: "hover:ring-[rgba(233,69,96,0.55)] hover:shadow-[0_0_26px_rgba(233,69,96,0.30)]",
-};
+const ACCENT_HOVER =
+  "hover:ring-[rgba(233,69,96,0.55)] hover:shadow-[0_0_26px_rgba(233,69,96,0.30)]";
 
 /** Doublage : le micro de Material Symbols (fourni par le user). */
 function DubIcon({ className }: { className?: string }) {
@@ -221,7 +218,7 @@ export default function LangPreferenceModal({
                 <span
                   aria-hidden
                   style={{ transform: "translate(calc(-50% - 6px), -50%)" }}
-                  className="absolute left-0 top-1/2 text-white/25 text-base leading-none"
+                  className="absolute left-0 top-1/2 text-white/30 text-3xl leading-none"
                 >
                   →
                 </span>
@@ -251,7 +248,6 @@ export default function LangPreferenceModal({
             const card = CARDS[lang];
             const slot = order.indexOf(lang);
             const dragging = drag?.lang === lang;
-            const top = slot === 0;
             const x = (slot - domIndex) * step + (dragging ? drag!.dx : 0);
             return (
               <div
@@ -270,21 +266,11 @@ export default function LangPreferenceModal({
                   zIndex: dragging ? 10 : 1,
                   touchAction: "none",
                 }}
-                className={`flex-1 basis-0 min-w-0 select-none rounded-card p-4 flex flex-col items-center text-center gap-2 ring-1 ${ACCENT.hover} ${
+                className={`flex-1 basis-0 min-w-0 select-none rounded-card p-4 flex flex-col items-center text-center gap-2 ring-1 bg-as-surface/60 ring-white/5 ${ACCENT_HOVER} ${
                   dragging ? "cursor-grabbing" : "cursor-grab"
-                } ${
-                  top
-                    ? `${ACCENT.tint} ${ACCENT.ring} ${ACCENT.glow}`
-                    : "bg-as-surface/60 ring-white/5"
                 } ${dragging ? "shadow-poster brightness-110" : ""}`}
               >
-                <span
-                  className={`grid place-items-center w-12 h-12 rounded-card ring-1 ${
-                    top
-                      ? `${ACCENT.tintStrong} ${ACCENT.ringSoft} text-action`
-                      : "bg-white/5 ring-white/10 text-white/60"
-                  }`}
-                >
+                <span className="grid place-items-center w-12 h-12 rounded-card ring-1 bg-white/5 ring-white/10 text-white/60">
                   <card.Icon className="w-7 h-7" />
                 </span>
                 <span className="font-outfit text-sm font-semibold leading-tight">
