@@ -6,6 +6,54 @@ megaplay, vidmoly...).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-08-18 — Le chip manquant survit au correctif : c'est l'instantane qui parle
+
+Suite du correctif des pistes de doublage. L'API rendait bien Ansembed VF sur
+One Piece, et le chip restait absent A L'ECRAN. Deux couches, pas une :
+l'instantane de disponibilite (`avail:*`, 6 h) listait encore l'hote dans
+`absent`, et un hote marque absent n'est re-sonde qu'avec **20 %** de chance par
+visite — donc il pouvait rester masque bien plus longtemps que six heures.
+`CACHE_VERSION` passe en `v4`, ce que le commentaire du fichier prescrit
+justement pour ce cas.
+
+**Lecon de methode** : verifier `/api/v2/source` ne prouve PAS que le chip
+apparait. Entre les deux il y a l'instantane, le cache negatif Redis (600 s, dont
+la cle ignore les parametres anti-cache de l'URL) et le cache edge. Un correctif
+de resolution se verifie a l'ecran, ou pas du tout.
+
+### Voir-Anime VF Vidmoly : mesure, l'hypothese ne tient pas
+
+Soupcon d'un manque generalise du Vidmoly VF. **45 titres tires au hasard dans
+player_map : 45 verdicts corrects.** 43 resolvent ; les 2 restants (One Piece,
+Meikyuu Black Company) portent bien une balise vidmoly sur voir-anime mais leur
+upload repond **404**, donc masquer le chip est le bon comportement. Le premier
+audit les comptait perdus parce qu'il testait la PRESENCE de la balise et pas la
+VIVACITE de l'upload — l'app, elle, teste la vivacite.
+
+Au passage : One Piece numerote ses episodes sur **4 chiffres** chez voir-anime
+(`one-piece-0001-vf`), la ou tout le monde en met 2. Le resolveur le gere deja
+(`inspect` rend 1093 episodes correctement) ; c'est un piege pour qui sonde a la
+main, pas un bug.
+
+**Piste non exploitee** : une page d'episode voir-anime propose HUIT lecteurs
+(myTV, MOON, SB, VOE, Stape, FHD1, YU), mais seule l'URL de myTV est dans le HTML
+initial — les autres se chargent en JS. On ne voit donc jamais que myTV, et quand
+son upload est mort le chip disparait alors que le site, lui, sait jouer
+l'episode. Note aussi que « LECTEUR VOE » existe encore, ce qui contredit la
+suppression du 04/07/2026 (« voir-anime ne porte plus aucun lien VOE »).
+
+### Sibnet : 403 sur l'egresse Cloudflare, tout le site
+
+Constate le 18/08 : `video.sibnet.ru/shell.php` rend 200 depuis une ligne
+domestique et **403 via proxy.aniscroll.com** (`{"error":"Upstream error",
+"upstream":403}`). Resultat, 503 « embed unreachable or decoy » sur tous les
+titres testes (One Piece, AoT, Jujutsu Kaisen). Le chip reste VISIBLE — c'est un
+`retry`, pas un `absent` — donc l'utilisateur clique et tombe sur une erreur.
+
+NON CORRIGE. Le repli prevu passe par la page de visionnage en direct depuis
+Vercel, et cette egresse ne se teste pas depuis un poste de dev : il faut
+`vercel logs --json`. A traiter, c'est l'hote VF le plus present.
+
 ## 2026-08-17 — Un upload mort cachait la piste de doublage vivante
 
 Signale par le user, capture a l'appui : le lecteur Ansembed marche sur
