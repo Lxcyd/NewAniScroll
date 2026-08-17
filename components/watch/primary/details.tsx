@@ -75,7 +75,12 @@ export default function Details({
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-5 sm:flex-row">
-        <div className="shrink-0">
+        {/* The box carries the size, not the <Image>. next/image renders an
+            <img> with width=1000, so without a sized parent it stretches to
+            the row's full width — object-cover then shows a wide band of the
+            portrait cover (it reads as a banner) and the blown-up flex item
+            pushes the rest of the card over the episode column. */}
+        <div className="h-[190px] w-[132px] shrink-0 overflow-hidden rounded-poster shadow-poster">
           {info ? (
             <Link href={`/en/anime/${info.id}`}>
               <Image
@@ -83,7 +88,7 @@ export default function Details({
                 alt="Anime Cover"
                 width={1000}
                 height={1000}
-                className="aspect-[9/13] h-[190px] rounded-poster object-cover shadow-poster duration-300 ease-out hover:scale-[1.03]"
+                className="h-[190px] w-[132px] object-cover duration-300 ease-out hover:scale-[1.03]"
               />
             </Link>
           ) : (
