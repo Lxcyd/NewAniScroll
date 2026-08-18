@@ -7,7 +7,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { StarIcon, ChevronDownIcon } from "@heroicons/react/24/solid";
 import { useTranslation } from "react-i18next";
-import { statusLabel } from "@/components/anime/v2/helpers";
+import { statusLabel, parseDescription } from "@/components/anime/v2/helpers";
 import { genreLabel } from "@/lib/i18n/genreLabel";
 import { useTranslatedText } from "@/lib/i18n/useTranslatedText";
 
@@ -45,8 +45,12 @@ export default function Details({
 
   const [showDesc, setShowDesc] = useState(false);
 
+  // Same treatment as the info page's Overview: strip the "(Source: …)" tail
+  // out of the body and show it as an attribution line, rather than leaving
+  // it mid-paragraph.
+  const parsed = parseDescription(description);
   // Auto-translate the synopsis into the active UI language (server-cached).
-  const localizedDesc = useTranslatedText(description);
+  const localizedDesc = useTranslatedText(parsed.text);
   const truncatedDesc = truncateText(localizedDesc, 420);
 
   function handlePlan() {
@@ -73,7 +77,12 @@ export default function Details({
   const studio = info?.studios?.edges?.[0]?.node?.name;
 
   return (
-    <div className="flex flex-col gap-4">
+    // `relative z-10`: the player's ambient glow is a positioned layer that
+    // overflows well past the player box. A non-positioned sibling paints
+    // UNDER it, which is what veiled the add-to-list button — the glow was
+    // literally on top of it. Giving the card its own positioned layer puts
+    // the light back where it belongs, behind the controls.
+    <div className="relative z-10 flex flex-col gap-4">
       <div className="flex flex-col gap-5 sm:flex-row">
         {/* The box carries the size, not the <Image>. next/image renders an
             <img> with width=1000, so without a sized parent it stretches to
@@ -128,16 +137,20 @@ export default function Details({
             </span>
           </div>
 
-          <div className="flex flex-wrap gap-2">
+          {/* Same chip vocabulary as the info page's hero (Hero.tsx
+              hStyles.genreChip / studioChip): brand-tinted pills for genres,
+              a blue one for the studio. Two pages describing the same anime
+              shouldn't spell it two different ways. */}
+          <div className="flex flex-wrap items-center gap-2">
             {studio && (
-              <span className="rounded-md bg-white/[0.05] px-2 py-1 font-karla text-xs text-white/60 ring-1 ring-white/[0.07]">
+              <span className="rounded-full border border-[rgba(74,143,255,0.3)] bg-[rgba(74,143,255,0.1)] px-[11px] py-[5px] text-xs font-semibold text-[#7ec8ff]">
                 {studio}
               </span>
             )}
             {info?.genres?.map((item, index) => (
               <span
                 key={index}
-                className="rounded-md border border-action/70 px-2 py-1 font-karla text-xs text-gray-100"
+                className="rounded-full border border-action/[0.35] bg-action/[0.12] px-[11px] py-[5px] text-xs font-semibold text-[color-mix(in_srgb,var(--brand-primary,#ff7a91)_75%,#fff)]"
               >
                 {genreLabel(t, item)}
               </span>
@@ -151,10 +164,10 @@ export default function Details({
           <button
             type="button"
             onClick={() => (session ? handlePlan() : handleOpen())}
-            className={`w-full rounded-lg px-4 py-2.5 font-karla text-sm font-semibold transition-colors ${
+            className={`w-full rounded-[11px] px-5 py-3.5 text-[15px] font-semibold transition-colors ${
               onList
-                ? "bg-white/[0.06] text-white/70 ring-1 ring-white/10"
-                : "bg-action text-white shadow-glow hover:brightness-110"
+                ? "border border-[#2f3447] bg-white/[0.04] text-[#c4c8d4]"
+                : "border border-action bg-action text-white hover:brightness-110"
             }`}
           >
             {onList ? t("anime.inYourList") : `+ ${t("anime.addToList")}`}
@@ -163,23 +176,35 @@ export default function Details({
         </div>
       </div>
 
-      <div className="relative rounded-md bg-secondary">
+      {/* Synopsis — info-page typography (14px / 1.65, --txt-1) on the same
+          panel treatment as the rest of the card. */}
+      <div className="relative rounded-xl bg-as-card/60 ring-1 ring-white/[0.06]">
         {info && (
           <>
-            <p
-              dangerouslySetInnerHTML={{
-                __html: showDesc
-                  ? localizedDesc
-                  : localizedDesc?.length > 420
-                  ? truncatedDesc
-                  : localizedDesc
-              }}
-              className={`p-5 text-sm font-light font-roboto text-[#e4e4e4] `}
-            />
+            <div className="p-5">
+              <p
+                className="m-0 text-sm leading-[1.65] text-[#c4c8d4]"
+                style={{ textWrap: "pretty" } as any}
+                dangerouslySetInnerHTML={{
+                  __html: showDesc
+                    ? localizedDesc
+                    : localizedDesc?.length > 420
+                    ? truncatedDesc
+                    : localizedDesc
+                }}
+              />
+              {parsed.source && showDesc && (
+                <div className="mt-2.5 text-[11px] text-[#5e6478]">
+                  <em>
+                    {t("anime.source")} · {parsed.source}
+                  </em>
+                </div>
+              )}
+            </div>
             {!showDesc && localizedDesc?.length > 120 && (
               <span
                 onClick={() => setShowDesc((prev) => !prev)}
-                className="flex justify-center items-end rounded-md pb-5 font-semibold font-karla cursor-pointer w-full h-full bg-gradient-to-t from-secondary hover:from-20% to-transparent absolute inset-0"
+                className="absolute inset-0 flex h-full w-full cursor-pointer items-end justify-center rounded-xl bg-gradient-to-t from-as-card to-transparent pb-5 font-karla font-semibold hover:from-20%"
               >
                 {t("anime.readMore")}
               </span>

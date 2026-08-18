@@ -103,17 +103,6 @@ export default function ServerSelector({
 
   if (!servers.length) return null;
 
-  function pickLang(next) {
-    setPicked(next);
-    // Switching language has to move the stream, not just the chip row —
-    // otherwise clicking VF while a VOSTFR host plays would change nothing
-    // visible and read as a broken control. Best-ranked host of the group.
-    const list = visibleByLang[next] || [];
-    if (list.length && !list.some((s) => s.id === activeServer)) {
-      onChange(list[0].id);
-    }
-  }
-
   return (
     <div className="flex items-center gap-3 rounded-xl bg-as-card/60 ring-1 ring-white/[0.06] px-3 py-2">
       <span className="hidden sm:block shrink-0 text-[10px] font-karla uppercase tracking-[0.15em] text-white/30">
@@ -176,18 +165,26 @@ export default function ServerSelector({
 
       {available.length > 1 && (
         <div className="shrink-0 flex items-center gap-0.5 rounded-lg bg-black/30 p-0.5">
+          {/* Browsing, not switching: picking a language only changes WHICH
+              hosts are listed — the stream keeps playing until a chip is
+              clicked. So the tab holding the host that's actually playing
+              carries a dot; without it, browsing another language would
+              leave no active chip anywhere and hide where the stream is. */}
           {available.map((l) => (
             <button
               key={l}
               type="button"
-              onClick={() => pickLang(l)}
-              className={`rounded-[6px] px-2.5 py-1 text-[11px] font-karla font-semibold uppercase tracking-wide transition-colors ${
+              onClick={() => setPicked(l)}
+              className={`relative rounded-[6px] px-2.5 py-1 text-[11px] font-karla font-semibold uppercase tracking-wide transition-colors ${
                 l === lang
                   ? "bg-white/10 text-white ring-1 ring-white/15"
                   : "text-white/35 hover:text-white/70"
               }`}
             >
               {t(LANG_LABELS[l])}
+              {l === activeLang && l !== lang && (
+                <span className="absolute right-1 top-1 h-1 w-1 rounded-full bg-action" />
+              )}
             </button>
           ))}
         </div>

@@ -2378,6 +2378,11 @@ export default function Watch({
                     </div>
                   }
                   actions={
+                    /* Same button recipe as the info page's hero actions:
+                       rgba(255,255,255,0.04) on a --line-2 border, radius 11,
+                       and STROKE icons (the info page never uses filled
+                       glyphs) — a filled heroicon next to them reads as a
+                       different product. */
                     <div className="grid grid-cols-3 gap-2">
                       {info?.id && (
                         <button
@@ -2389,9 +2394,13 @@ export default function Watch({
                             setPartyUIOpen(true);
                             setPartyPanelHidden(false);
                           }}
-                          className="flex items-center justify-center rounded-lg bg-white/[0.04] py-2 text-white/70 ring-1 ring-white/[0.07] transition-colors hover:bg-white/[0.09] hover:text-white disabled:opacity-40"
+                          className={WATCH_ICON_BTN}
                         >
-                          <UsersIcon className="h-5 w-5" />
+                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                            <circle cx="9" cy="7" r="4" />
+                            <path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" />
+                          </svg>
                         </button>
                       )}
                       <button
@@ -2399,18 +2408,27 @@ export default function Watch({
                         title={t("anime.share")}
                         aria-label={t("anime.share")}
                         onClick={handleShareClick}
-                        className="flex items-center justify-center rounded-lg bg-white/[0.04] py-2 text-white/70 ring-1 ring-white/[0.07] transition-colors hover:bg-white/[0.09] hover:text-white"
+                        className={WATCH_ICON_BTN}
                       >
-                        <ShareIcon className="h-5 w-5" />
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                          <circle cx="18" cy="5" r="3" />
+                          <circle cx="6" cy="12" r="3" />
+                          <circle cx="18" cy="19" r="3" />
+                          <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+                          <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+                        </svg>
                       </button>
                       <button
                         type="button"
                         title={t("nav.report")}
                         aria-label={t("nav.report")}
                         onClick={() => setIsOpen(true)}
-                        className="flex items-center justify-center rounded-lg bg-white/[0.04] py-2 text-white/70 ring-1 ring-white/[0.07] transition-colors hover:bg-white/[0.09] hover:text-white"
+                        className={WATCH_ICON_BTN}
                       >
-                        <FlagIcon className="h-5 w-5" />
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
+                          <line x1="4" y1="22" x2="4" y2="15" />
+                        </svg>
                       </button>
                     </div>
                   }
@@ -2466,6 +2484,11 @@ function buildWatchUrl(aniId, ep, dub, server, roomId) {
   if (roomId) params.set("party", String(roomId));
   return `/en/anime/watch/${aniId}/${provider}?${params.toString()}`;
 }
+
+// Secondary action button, borrowed from the info page's hero so both pages
+// look like the same site.
+const WATCH_ICON_BTN =
+  "flex items-center justify-center rounded-[11px] border border-[#2f3447] bg-white/[0.04] py-3 text-[#c4c8d4] transition-colors hover:border-[#3d4359] hover:bg-white/[0.07] hover:text-white disabled:opacity-40";
 
 function SpinLoader() {
   return (

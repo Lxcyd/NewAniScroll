@@ -294,13 +294,13 @@ export default function EpisodeLists({
                 <Link
                   key={item.id}
                   href={hrefFor(item)}
-                  className={`group flex items-center gap-2.5 rounded-lg p-1.5 transition-colors ${
+                  className={`group flex items-center gap-3 rounded-lg p-2 transition-colors ${
                     f.isPlaying
                       ? "pointer-events-none bg-action/10 ring-1 ring-action/70"
                       : "ring-1 ring-transparent hover:bg-white/[0.05]"
                   }`}
                 >
-                  <div className="relative h-[34px] w-[60px] shrink-0 overflow-hidden rounded-md bg-image/40">
+                  <div className="relative h-[59px] w-[105px] shrink-0 overflow-hidden rounded-md bg-image/40">
                     {hasArt && f.parsedImage && (
                       <Image
                         src={f.parsedImage}
@@ -320,7 +320,7 @@ export default function EpisodeLists({
                   </div>
                   <div className="min-w-0 grow">
                     <div
-                      className={`truncate text-[13px] font-karla font-semibold ${
+                      className={`line-clamp-2 text-sm font-karla font-semibold leading-snug ${
                         f.isPlaying ? "text-action" : "text-white/85"
                       }`}
                     >
@@ -328,7 +328,7 @@ export default function EpisodeLists({
                       <span className="px-1 text-white/25">·</span>
                       {f.title}
                     </div>
-                    <div className="mt-0.5 text-[10px] font-karla text-white/35">
+                    <div className="mt-1 text-[11px] font-karla text-white/35">
                       {f.isPlaying ? (
                         <span className="text-action/80">
                           {t("player.nowPlayingShort")}
