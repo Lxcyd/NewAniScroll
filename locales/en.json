@@ -435,9 +435,6 @@
     "speedEstimated": "estimated, not measured",
     "nowPlayingShort": "now playing",
     "timeLeft": "{{time}} left",
-    "view_compact": "Compact list",
-    "view_cards": "Thumbnails",
-    "view_grid": "Number grid",
     "rewindSeconds": "Back {{count}}s"
   },
   "shortcuts": {
