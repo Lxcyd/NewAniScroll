@@ -2467,35 +2467,46 @@ export default function Watch({
             </div>
 
             {/* ── Secondary column (episode list) ── */}
-            {/* A flex column at `lg`, so the episode list can claim whatever
-                height is left under the party panel and run down to the bottom
-                of the primary column (i.e. to the recommendations rail). */}
+            {/* At `lg` the column is a fixed-width BOX and its content is taken
+                out of flow (absolute inner). That direction matters: a normal
+                flex item is sized by its content, so a 24-episode list made the
+                whole row that tall and left a hole between the synopsis and the
+                recommendations. Out of flow, the column contributes no height
+                at all — it takes the primary column's, and the list scrolls
+                inside whatever that is. The width has to move up here for the
+                same reason: with nothing in flow, the column would collapse.
+                (25rem/33rem = the list's 24rem/32rem + the 1rem gutter, now
+                expressed as the inner's `left-4`.) */}
             <div
               id="secondary"
-              className={`relative shrink-0 lg:flex lg:flex-col ${theaterMode ? "pt-5" : "pt-4 lg:pt-0"} lg:pl-4`}
+              className={`relative shrink-0 lg:w-[25rem] xl:w-[33rem] ${theaterMode ? "pt-5" : "pt-4 lg:pt-0"}`}
             >
-              {/* Desktop placement — above the episode list, not instead of it.
-                  On mobile the panel renders in the primary column under the
-                  player instead, and this one is hidden.
-                  It carries EpisodeLists' own widths so the column keeps its
-                  size whatever is or isn't under it. */}
-              {partyPanelBlock && (
-                <div className="hidden shrink-0 px-3 lg:block lg:px-0 lg:w-[24rem] lg:max-w-sm xl:w-[32rem] xl:max-w-lg">
-                  {partyPanelBlock}
+              <div
+                className={`lg:absolute lg:left-4 lg:right-0 lg:bottom-0 lg:flex lg:flex-col ${
+                  theaterMode ? "lg:top-5" : "lg:top-0"
+                }`}
+              >
+                {/* Desktop placement — above the episode list, not instead of
+                    it. On mobile the panel renders in the primary column under
+                    the player instead, and this one is hidden. */}
+                {partyPanelBlock && (
+                  <div className="hidden shrink-0 px-3 lg:block lg:px-0">
+                    {partyPanelBlock}
+                  </div>
+                )}
+                <div className="lg:flex lg:min-h-0 lg:flex-1">
+                  <EpisodeLists
+                    info={info}
+                    session={sessions}
+                    map={mapEpisode}
+                    providerId={provider}
+                    watchId={watchId}
+                    episode={episodesList}
+                    artStorage={artStorage}
+                    track={episodeNavigation}
+                    dub={dub}
+                  />
                 </div>
-              )}
-              <div className="lg:flex lg:min-h-0 lg:flex-1">
-                <EpisodeLists
-                  info={info}
-                  session={sessions}
-                  map={mapEpisode}
-                  providerId={provider}
-                  watchId={watchId}
-                  episode={episodesList}
-                  artStorage={artStorage}
-                  track={episodeNavigation}
-                  dub={dub}
-                />
               </div>
             </div>
           </div>
