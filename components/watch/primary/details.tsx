@@ -7,9 +7,6 @@ import Link from "next/link";
 import Image from "next/image";
 import { useTranslation } from "react-i18next";
 import { statusLabel, parseDescription } from "@/components/anime/v2/helpers";
-import Recommendations from "@/components/anime/v2/Recommendations";
-import styles from "@/components/anime/v2/styles.module.css";
-import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { genreLabel } from "@/lib/i18n/genreLabel";
 import { useTranslatedText } from "@/lib/i18n/useTranslatedText";
 
@@ -77,7 +74,6 @@ export default function Details({
 }: DetailsProps) {
   const { markPlanning } = useAniList(session);
   const { t, i18n } = useTranslation();
-  const titlePref = useTitlePref();
 
   // Same treatment as the info page's Overview: strip the "(Source: …)" tail
   // out of the body and show it as an attribution line, rather than leaving
@@ -85,11 +81,6 @@ export default function Details({
   const parsed = parseDescription(description);
   // Auto-translate the synopsis into the active UI language (server-cached).
   const localizedDesc = useTranslatedText(parsed.text);
-
-  // AniList lists recommendations as edges around a nullable media node.
-  const recs = ((info?.recommendations?.nodes || [])
-    .map((n: any) => n?.mediaRecommendation)
-    .filter(Boolean) as any[]) || [];
 
   function handlePlan() {
     if (onList === false) {
@@ -298,18 +289,9 @@ export default function Details({
         )}
       </div>
 
-      {/* Recommendations — the info page's own carousel, not a copy of it.
-          It reads the v2 design tokens, which live scoped to that page's
-          `.root`; `styles.tokens` carries them WITHOUT the page furniture
-          (background, 100vh floor), so the rail renders here identically. */}
-      {recs.length > 0 && (
-        <div className={`min-w-0 ${styles.tokens}`}>
-          <Recommendations
-            items={recs}
-            forTitle={pickTitle(info.title, titlePref) || t("anime.thisAnime")}
-          />
-        </div>
-      )}
+      {/* Recommendations used to close this block. They now render in the page
+          itself, BELOW the two-column row, so the rail can run the full page
+          width instead of stopping at this column's right edge. */}
       {/* Comments removed — Disqus showed a hard-to-debug "moderator" error
           for visitors and added a third-party tracker we don't need. */}
     </div>

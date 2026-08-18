@@ -237,14 +237,18 @@ export default function EpisodeLists({
   }
 
   return (
-    <div className="w-full lg:max-w-sm xl:max-w-lg lg:w-[24rem] xl:w-[32rem] shrink-0 flex flex-col gap-2">
+    /* `lg:h-full` + the flex chain below: the card stretches to whatever the
+       page gives this column, and the scroll area — not the card — absorbs the
+       overflow. `min-h-0` at each level because a flex item won't shrink below
+       its content otherwise, which would push the scrollbar out of view. */
+    <div className="w-full lg:h-full lg:max-w-sm xl:max-w-lg lg:w-[24rem] xl:w-[32rem] shrink-0 flex flex-col gap-2">
       <div
-        className="rounded-xl border"
+        className="rounded-xl border lg:flex lg:min-h-0 lg:flex-1 lg:flex-col"
         style={{ borderColor: T.line, background: "rgba(16,18,26,0.6)" }}
       >
         {/* ── Header: season · range · view mode ── */}
         <div
-          className="flex items-center gap-2 border-b px-2.5 py-2"
+          className="flex shrink-0 items-center gap-2 border-b px-2.5 py-2"
           style={{ borderColor: T.line }}
         >
           {seasons.length > 1 && (
@@ -306,7 +310,7 @@ export default function EpisodeLists({
 
         {/* ── List ── */}
         <div
-          className={`scrollbar-thin scrollbar-thumb-[#313131] scrollbar-thumb-rounded-full max-h-[60vh] overflow-y-auto lg:max-h-[calc(100vh-14rem)] ${
+          className={`scrollbar-thin scrollbar-thumb-[#313131] scrollbar-thumb-rounded-full max-h-[60vh] overflow-y-auto lg:max-h-none lg:min-h-0 lg:flex-1 ${
             view === "grid"
               ? "grid grid-cols-[repeat(auto-fill,minmax(56px,1fr))] gap-1.5 p-2.5"
               : view === "compact"

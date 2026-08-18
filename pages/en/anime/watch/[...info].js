@@ -3,6 +3,11 @@ import { FlagIcon, ShareIcon, UsersIcon } from "@heroicons/react/24/solid";
 import Details from "@/components/watch/primary/details";
 import EpisodeLists from "@/components/watch/secondary/episodeLists";
 import ServerSelector from "@/components/watch/primary/serverSelector";
+import Recommendations from "@/components/anime/v2/Recommendations";
+// The v2 design tokens, scoped. `.tokens` carries the custom properties the
+// info-page components read, WITHOUT that page's furniture (background,
+// 100vh floor) — so the rail renders here exactly as it does there.
+import v2Styles from "@/components/anime/v2/styles.module.css";
 import { prefetchSkips } from "@/lib/skip/prefetchSkips";
 import dynamic from "next/dynamic";
 // Vidstack uses Web Components — must be loaded client-only or hydration fails.
@@ -2144,13 +2149,18 @@ export default function Watch({
   // primary column directly under the player (`lg:hidden`), on desktop it lives
   // in the secondary column beside the episode list (`hidden lg:block`). Built
   // once here so both placements stay in sync.
-  // The panel is SHOWING (not the little re-open pill). On desktop it takes the
-  // episode list's slot rather than stacking above it: both want the column's
-  // full height, and side by side the list was crushed to a two-row sliver.
-  // Closing the panel (its ✕) only hides it — the party keeps running — so the
-  // list is one click away and nothing is lost by giving up the split.
-  const partyPanelOpen = (party || partyUIOpen) && !partyPanelHidden;
+  // AniList lists recommendations as edges around a nullable media node.
+  const recommendations = useMemo(
+    () =>
+      (info?.recommendations?.nodes || [])
+        .map((n) => n?.mediaRecommendation)
+        .filter(Boolean),
+    [info?.recommendations],
+  );
 
+  // On desktop the panel sits at the TOP of the secondary column and the
+  // episode list follows directly under it, taking the remaining height. The
+  // panel is a fixed height (the player's), so what the list loses is bounded.
   const partyPanelBlock = (party || partyUIOpen) && (
     partyPanelHidden ? (
       <button
@@ -2457,22 +2467,24 @@ export default function Watch({
             </div>
 
             {/* ── Secondary column (episode list) ── */}
+            {/* A flex column at `lg`, so the episode list can claim whatever
+                height is left under the party panel and run down to the bottom
+                of the primary column (i.e. to the recommendations rail). */}
             <div
               id="secondary"
-              className={`relative shrink-0 ${theaterMode ? "pt-5" : "pt-4 lg:pt-0"} lg:pl-4`}
+              className={`relative shrink-0 lg:flex lg:flex-col ${theaterMode ? "pt-5" : "pt-4 lg:pt-0"} lg:pl-4`}
             >
-              {/* Desktop placement — IN the episode list's slot, not above it.
+              {/* Desktop placement — above the episode list, not instead of it.
                   On mobile the panel renders in the primary column under the
-                  player instead, and the list stays put there.
-                  It carries EpisodeLists' own widths: with the list hidden,
-                  nothing else holds the column open and it would shrink to the
-                  panel's content width. */}
+                  player instead, and this one is hidden.
+                  It carries EpisodeLists' own widths so the column keeps its
+                  size whatever is or isn't under it. */}
               {partyPanelBlock && (
-                <div className="hidden px-3 lg:block lg:px-0 lg:w-[24rem] lg:max-w-sm xl:w-[32rem] xl:max-w-lg">
+                <div className="hidden shrink-0 px-3 lg:block lg:px-0 lg:w-[24rem] lg:max-w-sm xl:w-[32rem] xl:max-w-lg">
                   {partyPanelBlock}
                 </div>
               )}
-              <div className={partyPanelOpen ? "lg:hidden" : undefined}>
+              <div className="lg:flex lg:min-h-0 lg:flex-1">
                 <EpisodeLists
                   info={info}
                   session={sessions}
@@ -2487,6 +2499,25 @@ export default function Watch({
               </div>
             </div>
           </div>
+
+          {/* Recommendations — the info page's own carousel, moved OUT of the
+              details column so the rail spans the whole page width (both
+              columns) instead of stopping at the episode list's left edge. */}
+          {recommendations.length > 0 && (
+            <div
+              className={`${
+                theaterMode ? "lg:max-w-[95%] xl:max-w-[80%]" : "lg:max-w-[95%]"
+              } mx-auto mt-6 w-full min-w-0 px-3 lg:px-0 ${v2Styles.tokens}`}
+            >
+              <Recommendations
+                items={recommendations}
+                forTitle={
+                  (info?.title && pickTitle(info.title, titlePref)) ||
+                  t("anime.thisAnime")
+                }
+              />
+            </div>
+          )}
         </div>
       </main>
     </>
