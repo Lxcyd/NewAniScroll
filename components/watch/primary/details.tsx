@@ -1,4 +1,4 @@
-import { ReactNode, useEffect, useState } from "react";
+import { CSSProperties, ReactNode, useEffect, useState } from "react";
 import { useAniList } from "../../../lib/anilist/useAnilist";
 import Skeleton from "react-loading-skeleton";
 import { AniListInfoTypes } from "types/info/AnilistInfoTypes";
@@ -9,6 +9,39 @@ import { useTranslation } from "react-i18next";
 import { statusLabel, parseDescription } from "@/components/anime/v2/helpers";
 import { genreLabel } from "@/lib/i18n/genreLabel";
 import { useTranslatedText } from "@/lib/i18n/useTranslatedText";
+
+/* Chips, copied VALUE FOR VALUE from the info page's hero (Hero.tsx
+ * hStyles.genreChip / studioChip).
+ *
+ * They have to be inline styles, not Tailwind classes: `action` is declared in
+ * tailwind.config.js as `var(--brand-primary, …)` — a complete colour, not the
+ * channel triplet Tailwind needs to inject an alpha. So `bg-action/[0.12]` and
+ * `border-action/[0.35]` compile to NOTHING at all, which is why these chips
+ * came out as hard red outlines on no background instead of the soft tinted
+ * pills the info page shows. color-mix() does the tinting instead, exactly as
+ * the info page does it. */
+const GENRE_CHIP: CSSProperties = {
+  padding: "5px 11px",
+  background: "color-mix(in srgb, var(--brand-primary, #ff3b5c) 12%, transparent)",
+  border: "1px solid color-mix(in srgb, var(--brand-primary, #ff3b5c) 35%, transparent)",
+  borderRadius: 999,
+  color: "color-mix(in srgb, var(--brand-primary, #ff7a91) 75%, #fff)",
+  fontSize: 12,
+  fontWeight: 600,
+};
+
+const STUDIO_CHIP: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 6,
+  padding: "5px 11px",
+  background: "rgba(74,143,255,0.1)",
+  border: "1px solid rgba(74,143,255,0.3)",
+  borderRadius: 999,
+  color: "#7ec8ff",
+  fontSize: 12,
+  fontWeight: 600,
+};
 
 type DetailsProps = {
   info: AniListInfoTypes;
@@ -209,19 +242,14 @@ export default function Details({
               matters — the studio is the aside, not the headline. */}
           <div className="flex flex-wrap items-center gap-2">
             {info?.genres?.slice(0, 4).map((item, index) => (
-              <span
-                key={index}
-                className="rounded-full border border-action/[0.35] bg-action/[0.12] px-[11px] py-[5px] text-xs font-semibold text-[color-mix(in_srgb,var(--brand-primary,#ff7a91)_75%,#fff)]"
-              >
+              <span key={index} style={GENRE_CHIP}>
                 {genreLabel(t, item)}
               </span>
             ))}
             {studio && (
               <>
                 <span className="h-4 w-px bg-[#2f3447]" />
-                <span className="rounded-full border border-[rgba(74,143,255,0.3)] bg-[rgba(74,143,255,0.1)] px-[11px] py-[5px] text-xs font-semibold text-[#7ec8ff]">
-                  {studio}
-                </span>
+                <span style={STUDIO_CHIP}>{studio}</span>
               </>
             )}
           </div>

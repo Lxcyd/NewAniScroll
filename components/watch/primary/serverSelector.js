@@ -143,9 +143,23 @@ export default function ServerSelector({
               type="button"
               onClick={() => onChange(server.id)}
               title={tip}
+              // Les teintes de l'accent passent par color-mix en style inline :
+              // `action` vaut `var(--brand-primary, …)`, et Tailwind v3 ne sait
+              // pas injecter d'alpha dans une var() — `bg-action/20` ne genere
+              // AUCUNE regle. Meme piege que LangPreferenceModal documente.
+              style={
+                isActive
+                  ? {
+                      background:
+                        "color-mix(in srgb, var(--brand-primary, #E94560) 20%, transparent)",
+                      boxShadow:
+                        "inset 0 0 0 1px color-mix(in srgb, var(--brand-primary, #E94560) 70%, transparent)",
+                    }
+                  : undefined
+              }
               className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[13px] font-karla font-medium transition-colors duration-200 ${
                 isActive
-                  ? "bg-action/20 text-white ring-1 ring-action/70"
+                  ? "text-white"
                   : "bg-white/[0.04] text-white/70 ring-1 ring-white/[0.07] hover:bg-white/[0.08] hover:text-white"
               }`}
             >
