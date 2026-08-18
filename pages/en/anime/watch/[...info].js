@@ -2144,6 +2144,13 @@ export default function Watch({
   // primary column directly under the player (`lg:hidden`), on desktop it lives
   // in the secondary column beside the episode list (`hidden lg:block`). Built
   // once here so both placements stay in sync.
+  // The panel is SHOWING (not the little re-open pill). On desktop it takes the
+  // episode list's slot rather than stacking above it: both want the column's
+  // full height, and side by side the list was crushed to a two-row sliver.
+  // Closing the panel (its ✕) only hides it — the party keeps running — so the
+  // list is one click away and nothing is lost by giving up the split.
+  const partyPanelOpen = (party || partyUIOpen) && !partyPanelHidden;
+
   const partyPanelBlock = (party || partyUIOpen) && (
     partyPanelHidden ? (
       <button
@@ -2454,22 +2461,30 @@ export default function Watch({
               id="secondary"
               className={`relative shrink-0 ${theaterMode ? "pt-5" : "pt-4 lg:pt-0"} lg:pl-4`}
             >
-              {/* Desktop placement — beside the episode list. On mobile the
-                  panel renders in the primary column under the player instead. */}
+              {/* Desktop placement — IN the episode list's slot, not above it.
+                  On mobile the panel renders in the primary column under the
+                  player instead, and the list stays put there.
+                  It carries EpisodeLists' own widths: with the list hidden,
+                  nothing else holds the column open and it would shrink to the
+                  panel's content width. */}
               {partyPanelBlock && (
-                <div className="hidden px-3 lg:block lg:px-0">{partyPanelBlock}</div>
+                <div className="hidden px-3 lg:block lg:px-0 lg:w-[24rem] lg:max-w-sm xl:w-[32rem] xl:max-w-lg">
+                  {partyPanelBlock}
+                </div>
               )}
-              <EpisodeLists
-                info={info}
-                session={sessions}
-                map={mapEpisode}
-                providerId={provider}
-                watchId={watchId}
-                episode={episodesList}
-                artStorage={artStorage}
-                track={episodeNavigation}
-                dub={dub}
-              />
+              <div className={partyPanelOpen ? "lg:hidden" : undefined}>
+                <EpisodeLists
+                  info={info}
+                  session={sessions}
+                  map={mapEpisode}
+                  providerId={provider}
+                  watchId={watchId}
+                  episode={episodesList}
+                  artStorage={artStorage}
+                  track={episodeNavigation}
+                  dub={dub}
+                />
+              </div>
             </div>
           </div>
         </div>
