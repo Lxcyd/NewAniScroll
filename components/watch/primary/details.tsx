@@ -303,7 +303,7 @@ export default function Details({
           `.root`; `styles.tokens` carries them WITHOUT the page furniture
           (background, 100vh floor), so the rail renders here identically. */}
       {recs.length > 0 && (
-        <div className={styles.tokens}>
+        <div className={`min-w-0 ${styles.tokens}`}>
           <Recommendations
             items={recs}
             forTitle={pickTitle(info.title, titlePref) || t("anime.thisAnime")}

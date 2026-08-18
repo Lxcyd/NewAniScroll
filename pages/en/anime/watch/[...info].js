@@ -2316,8 +2316,15 @@ export default function Watch({
                 `flex flex-col`, which is the only layout change this column
                 took — and the black bands appeared with it. The player box
                 sizes itself from its own aspect-ratio, and that only resolves
-                predictably while its ancestors leave its height alone. */}
-            <div id="primary" className="w-full">
+                predictably while its ancestors leave its height alone.
+                `min-w-0` is a different matter and IS needed: this is a flex
+                ITEM of the row above, and a flex item defaults to
+                `min-width: auto` — it refuses to shrink below its content's
+                min-content width. The recommendations rail is a carousel of
+                fixed-width cards, so that width is the whole strip; without
+                this the column blew past the viewport and shoved the episode
+                list off screen. It constrains width only, never height. */}
+            <div id="primary" className="w-full min-w-0">
 
               {/* Default (non-theater) player — no parent bg/overflow so ambient glow can extend outside */}
               {!theaterMode && (
