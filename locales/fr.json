@@ -437,7 +437,8 @@
     "timeLeft": "{{time}} restantes",
     "view_compact": "Liste compacte",
     "view_cards": "Vignettes",
-    "view_grid": "Grille de numéros"
+    "view_grid": "Grille de numéros",
+    "rewindSeconds": "Reculer de {{count}} s"
   },
   "shortcuts": {
     "title": "Raccourcis clavier",

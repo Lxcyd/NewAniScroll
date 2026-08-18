@@ -437,7 +437,8 @@
     "timeLeft": "{{time}} left",
     "view_compact": "Compact list",
     "view_cards": "Thumbnails",
-    "view_grid": "Number grid"
+    "view_grid": "Number grid",
+    "rewindSeconds": "Back {{count}}s"
   },
   "shortcuts": {
     "title": "Keyboard shortcuts",
