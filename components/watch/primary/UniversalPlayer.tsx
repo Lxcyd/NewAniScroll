@@ -1493,6 +1493,39 @@ export default function UniversalPlayer({
 
   // Capture the hls.js instance once Vidstack has set the provider up.
   const onProviderSetup = (provider: any) => {
+    // Fit the box to the video's real shape.
+    //
+    // The box is 16/9 by default while the hosts' encodes are not: a slightly
+    // taller source pillarboxes (black down the right), a slightly wider one
+    // letterboxes. Both are bands WE draw, not bands in the file.
+    //
+    // Measured on the ELEMENT, not through a React media-event prop — the
+    // element is the one thing present on every provider path and every
+    // Vidstack version, and it is already how this function reaches the video
+    // for the Referer policy. `resize` matters as much as `loadedmetadata`:
+    // an HLS level switch can change the intrinsic size mid-playback.
+    const sizeEl: HTMLVideoElement | undefined =
+      provider?.video || provider?.media || undefined;
+    if (sizeEl && "videoWidth" in sizeEl) {
+      const measure = () => {
+        const w = sizeEl.videoWidth;
+        const h = sizeEl.videoHeight;
+        if (!w || !h) return;
+        const r = w / h;
+        // Ignore absurd readings (a broken decode reporting 1x1 and the like)
+        // — a wrong ratio here would deform every frame.
+        if (r < 0.5 || r > 4) return;
+        // Within a half-percent of 16/9, leave the box alone: the difference
+        // is under a pixel at any realistic width, and reflowing the whole
+        // page to chase it would cost more than it buys.
+        setVideoRatio(Math.abs(r - 16 / 9) < 0.009 ? null : `${w}/${h}`);
+      };
+      sizeEl.addEventListener("loadedmetadata", measure);
+      sizeEl.addEventListener("resize", measure);
+      // Metadata may already be in by the time setup runs.
+      measure();
+    }
+
 
     // Direct-CDN streams (sibnet cvn, sendvid MP4, CORS-open HLS CDNs) are
     // validated server-side to play with an arbitrary Referer. Strip the
@@ -1553,6 +1586,12 @@ export default function UniversalPlayer({
   // "stats for nerds" panel are both toggled from the settings menu / hotkeys.
   const [shortcutEditorOpen, setShortcutEditorOpen] = useState(false);
   const [statsOpen, setStatsOpen] = useState(false);
+
+  // Real shape of the decoded video, once metadata says what it is. Null until
+  // then — and null also means "close enough to 16/9 to not bother" — so 16/9
+  // holds the layout still during load instead of collapsing the box and
+  // snapping back. See the measurement in onProviderSetup.
+  const [videoRatio, setVideoRatio] = useState<string | null>(null);
 
   const router = useRouter();
   // Central keyboard-shortcut listener. Declared here (before any early return)
@@ -4906,7 +4945,10 @@ export default function UniversalPlayer({
         // trade-off: LiveAmbient canvas sampling tainted, falls back to
         // StaticGlow on these sources.
         {...(bestStream!.noCors ? {} : { crossorigin: "anonymous" })}
-        aspectRatio="16/9"
+        aspectRatio={videoRatio || "16/9"}
+        // A new stream can be a different shape — drop the previous
+        // measurement so we never stretch the new video into the old box.
+        onSourceChange={() => setVideoRatio(null)}
         // Disable Vidstack's built-in keyboard shortcuts ENTIRELY: our central
         // window-level handler (see the keydown effect) is the single source of
         // truth for every shortcut, driven by the user's keybindings. Leaving
