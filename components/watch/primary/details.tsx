@@ -82,7 +82,12 @@ export default function Details({
     // UNDER it, which is what veiled the add-to-list button — the glow was
     // literally on top of it. Giving the card its own positioned layer puts
     // the light back where it belongs, behind the controls.
-    <div className="relative z-10 flex flex-col gap-4">
+    // `font-karla` : rien ici ne declarait de famille, donc tout ce que j'ai
+    // repris de la page d'info (stats, pastilles, synopsis, boutons) tombait
+    // sur la sans-serif systeme — visiblement etrangere au reste du site, qui
+    // est en Karla. La page d'info a son propre Inter parce qu'elle porte ses
+    // tokens ; ici c'est la police du site qui fait foi.
+    <div className="relative z-10 flex flex-col gap-4 font-karla">
       <div className="flex flex-col gap-5 sm:flex-row">
         {/* The box carries the size, not the <Image>. next/image renders an
             <img> with width=1000, so without a sized parent it stretches to

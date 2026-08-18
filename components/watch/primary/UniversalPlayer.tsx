@@ -1552,6 +1552,15 @@ export default function UniversalPlayer({
   // "stats for nerds" panel are both toggled from the settings menu / hotkeys.
   const [shortcutEditorOpen, setShortcutEditorOpen] = useState(false);
   const [statsOpen, setStatsOpen] = useState(false);
+
+  // Real aspect ratio of the decoded video, once metadata says what it is.
+  //
+  // The box used to be pinned to 16/9 unconditionally, so a source that isn't
+  // 16/9 got letterboxed by the player itself — permanent black bands, on
+  // every frame of the episode, drawn by us rather than present in the file.
+  // 16/9 remains the value BEFORE metadata arrives: it holds the layout still
+  // during load instead of collapsing the box to nothing and snapping back.
+  const [videoRatio, setVideoRatio] = useState<string | null>(null);
   const router = useRouter();
   // Central keyboard-shortcut listener. Declared here (before any early return)
   // so the hooks run unconditionally on every render path. The dispatcher
@@ -4904,7 +4913,21 @@ export default function UniversalPlayer({
         // trade-off: LiveAmbient canvas sampling tainted, falls back to
         // StaticGlow on these sources.
         {...(bestStream!.noCors ? {} : { crossorigin: "anonymous" })}
-        aspectRatio="16/9"
+        aspectRatio={videoRatio || "16/9"}
+        // A new stream can be a different shape — drop the previous
+        // measurement so we never stretch the new video into the old box.
+        onSourceChange={() => setVideoRatio(null)}
+        onLoadedMetadata={() => {
+          const video = playerRef.current?.el?.querySelector("video");
+          const w = video?.videoWidth || 0;
+          const h = video?.videoHeight || 0;
+          if (!w || !h) return;
+          const r = w / h;
+          // Ignore absurd readings (a broken decode reporting 1x1 and the
+          // like) — a wrong ratio here would deform every frame.
+          if (r < 0.5 || r > 4) return;
+          setVideoRatio(`${w}/${h}`);
+        }}
         // Disable Vidstack's built-in keyboard shortcuts ENTIRELY: our central
         // window-level handler (see the keydown effect) is the single source of
         // truth for every shortcut, driven by the user's keybindings. Leaving

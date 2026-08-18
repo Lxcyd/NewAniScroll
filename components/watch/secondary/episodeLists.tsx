@@ -15,6 +15,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useHideSpoilers } from "@/lib/prefs/spoilerPrefs";
 import { useSyncPrefs } from "@/lib/prefs/syncPrefs";
 import { peekLocalEntry, LOCAL_LIST_EVENT } from "@/lib/list/localList";
+import { fixApostrophes } from "@/lib/text/apostrophes";
 
 type EpisodeListsProps = {
   info: AniListInfoTypes;
@@ -171,14 +172,17 @@ export default function EpisodeLists({
       left: duration && time ? clock(duration - time) : null,
       title: hideSpoilers
         ? `${t("common.episode")} ${item?.number}`
-        : mapData?.title || `${t("common.episode")} ${item?.number}`,
+        : fixApostrophes(mapData?.title) || `${t("common.episode")} ${item?.number}`,
     };
   }
 
   const duration = info?.duration ? t("home.minutesShort", { count: info.duration }) : null;
 
   return (
-    <div className="w-full lg:w-[340px] xl:w-[400px] 2xl:w-[440px] shrink-0 flex flex-col gap-2">
+    // Same widths as before the redesign (lg:max-w-sm / xl:max-w-lg): they set
+    // how much of the row is left to the player, and the player's footprint is
+    // the thing to keep stable.
+    <div className="w-full lg:max-w-sm xl:max-w-lg lg:w-[24rem] xl:w-[32rem] shrink-0 flex flex-col gap-2">
       {/* Next-episode shortcut. Kept above the panel rather than under it:
           the list scrolls, and a control that follows the scroll would be
           out of reach on a 100-episode entry. */}
@@ -412,7 +416,7 @@ export default function EpisodeLists({
                     <p className="line-clamp-2 font-outfit text-xs font-extralight italic">
                       {hideSpoilers
                         ? `${t("common.episode")} ${item.number}`
-                        : f.mapData?.description ||
+                        : fixApostrophes(f.mapData?.description) ||
                           `${t("common.episode")} ${item.number}`}
                     </p>
                   </div>

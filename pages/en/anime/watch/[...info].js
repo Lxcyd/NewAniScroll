@@ -23,6 +23,7 @@ import { getServer } from "@/lib/servers";
 import { primeMediaCache, getCachedMediaMeta } from "@/lib/anilist/getMediaMeta";
 import { getCachedAnime } from "@/lib/db/anime";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
+import { fixApostrophes } from "@/lib/text/apostrophes";
 import { onEpisodeFinished } from "@/lib/list/syncEngine";
 import { getPlayerPrefs } from "@/lib/prefs/playerPrefs";
 import { getServerPref } from "@/lib/prefs/serverPref";
@@ -2308,7 +2309,7 @@ export default function Watch({
             id="default"
             className={`${
               theaterMode ? "lg:max-w-[95%] xl:max-w-[80%]" : "lg:max-w-[95%]"
-            } w-full flex flex-col lg:flex-row gap-4 mx-auto lg:px-4`}
+            } w-full flex flex-col lg:flex-row mx-auto`}
           >
             {/* ── Primary column ── */}
             <div id="primary" className="w-full min-w-0 flex flex-col gap-3">
@@ -2368,7 +2369,7 @@ export default function Watch({
                           <>
                             {t("common.episode")} {episodeNavigation.playing.number}
                             {episodeNavigation.playing.title
-                              ? ` · ${episodeNavigation.playing.title}`
+                              ? ` · ${fixApostrophes(episodeNavigation.playing.title)}`
                               : ""}
                           </>
                         ) : (
@@ -2439,7 +2440,7 @@ export default function Watch({
             {/* ── Secondary column (episode list) ── */}
             <div
               id="secondary"
-              className={`relative shrink-0 ${theaterMode ? "pt-5" : "pt-4 lg:pt-0"}`}
+              className={`relative shrink-0 ${theaterMode ? "pt-5" : "pt-4 lg:pt-0"} lg:pl-4`}
             >
               {/* Desktop placement — beside the episode list. On mobile the
                   panel renders in the primary column under the player instead. */}
