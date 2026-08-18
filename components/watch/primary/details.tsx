@@ -5,7 +5,6 @@ import { AniListInfoTypes } from "types/info/AnilistInfoTypes";
 import { SessionTypes } from "pages/en";
 import Link from "next/link";
 import Image from "next/image";
-import { StarIcon, ChevronDownIcon } from "@heroicons/react/24/solid";
 import { useTranslation } from "react-i18next";
 import { statusLabel, parseDescription } from "@/components/anime/v2/helpers";
 import { genreLabel } from "@/lib/i18n/genreLabel";
@@ -41,7 +40,7 @@ export default function Details({
   actions,
 }: DetailsProps) {
   const { markPlanning } = useAniList(session);
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
 
   const [showDesc, setShowDesc] = useState(false);
 
@@ -75,6 +74,26 @@ export default function Details({
   )?.rank;
   const score = info?.averageScore ? (info.averageScore / 10).toFixed(2) : null;
   const studio = info?.studios?.edges?.[0]?.node?.name;
+
+  // Episode count, read exactly as the info page reads it: while a show is
+  // AIRING the total alone would overstate what you can actually watch, so it
+  // becomes "aired/total". `nextAiringEpisode.episode` is the NEXT one to air.
+  const airedSoFar = info?.nextAiringEpisode?.episode
+    ? Math.max(0, info.nextAiringEpisode.episode - 1)
+    : null;
+  const epLabel =
+    info?.status === "RELEASING"
+      ? airedSoFar != null && info?.episodes
+        ? `${airedSoFar}/${info.episodes}`
+        : airedSoFar != null
+          ? `${airedSoFar}+`
+          : info?.episodes
+            ? `${info.episodes}`
+            : "N/A"
+      : info?.episodes
+        ? `${info.episodes}`
+        : "N/A";
+  const durLabel = info?.duration ? `EP · ${info.duration}min` : "EP";
 
   return (
     // `relative z-10`: the player's ambient glow is a positioned layer that
@@ -113,46 +132,79 @@ export default function Details({
         <div className="flex min-w-0 grow flex-col gap-3">
           {title}
 
-          {/* Stats line — score · rank · popularity · run length · status. */}
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-karla text-sm text-white/60">
+          {/* Stat blocks, identical to the info page's hero (Hero.tsx): same
+              icons, same metric, same caption underneath. The previous version
+              invented its own row — a chevron for POPULARITY where the info
+              page shows a heart for FAVOURITES — so the same anime reported two
+              different numbers depending on the page you were on. */}
+          <div className="flex items-center gap-5">
             {score && (
-              <span className="flex items-center gap-1">
-                <StarIcon className="h-4 w-4 text-as-score" />
-                <span className="font-semibold text-white">{score}</span>
-                <span className="text-xs text-white/35">/10</span>
-                {rank && <span className="text-xs text-white/35">· #{rank}</span>}
-              </span>
+              <>
+                <div className="flex flex-col items-center text-center">
+                  <div className="flex items-center gap-2">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="#f6c544">
+                      <polygon points="12 2 15 9 22 9 17 14 19 21 12 17 5 21 7 14 2 9 9 9" />
+                    </svg>
+                    <span className="text-[22px] font-bold leading-none text-[#f6c544]">
+                      {score}
+                    </span>
+                    <span className="text-[11.5px] font-medium text-[#8a8fa3]">/10</span>
+                  </div>
+                  <div className="mt-1.5 text-[10px] font-semibold tracking-[0.1em] text-[#5e6478]">
+                    {rank ? t("anime.rated", { rank }) : t("anime.average")}
+                  </div>
+                </div>
+                <div className="h-10 w-px bg-[#252938]" />
+              </>
             )}
-            {info?.popularity != null && (
-              <span className="flex items-center gap-1 border-l border-white/10 pl-3">
-                <ChevronDownIcon className="h-3.5 w-3.5 text-as-accent" />
-                <span className="tabular-nums">
-                  {info.popularity.toLocaleString()}
-                </span>
-              </span>
+
+            {info?.favourites != null && (
+              <>
+                <div className="flex flex-col items-center text-center">
+                  <div className="flex items-center gap-2">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="#ff3b5c">
+                      <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
+                    </svg>
+                    {/* Formatted against the ACTIVE UI language, never the
+                        ambient one — see the long note in Hero.tsx: a bare
+                        toLocaleString() makes Node and a French browser
+                        disagree and costs a full hydration re-render. */}
+                    <span className="text-[22px] font-bold leading-none text-[#f4f5f8]">
+                      {info.favourites.toLocaleString(i18n.language)}
+                    </span>
+                  </div>
+                  <div className="mt-1.5 text-[10px] font-semibold tracking-[0.1em] text-[#5e6478]">
+                    FAVORITES
+                  </div>
+                </div>
+                <div className="h-10 w-px bg-[#252938]" />
+              </>
             )}
-            <span className="flex flex-wrap items-center gap-x-1.5 border-l border-white/10 pl-3 text-xs">
-              {info?.episodes && (
-                <span>
-                  {info.episodes} {t("anime.formatEpisodes").toLowerCase()}
+
+            <div className="flex flex-col items-center text-center">
+              <div className="flex items-center gap-2 text-[#c4c8d4]">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                  <rect x="3" y="5" width="18" height="14" rx="2" />
+                  <path d="m10 9 5 3-5 3z" fill="currentColor" />
+                </svg>
+                <span className="text-[22px] font-bold leading-none text-[#f4f5f8]">
+                  {epLabel}
                 </span>
+                <span className="text-[11.5px] font-medium text-[#8a8fa3]">{durLabel}</span>
+              </div>
+              {info?.status && (
+                <div className="mt-1.5 text-[10px] font-semibold tracking-[0.1em] text-[#5e6478]">
+                  {statusLabel(t, info.status).toUpperCase()}
+                </div>
               )}
-              {info?.duration && <span>· {t("home.minutesShort", { count: info.duration })}</span>}
-              {info?.status && <span>· {statusLabel(t, info.status)}</span>}
-            </span>
+            </div>
           </div>
 
-          {/* Same chip vocabulary as the info page's hero (Hero.tsx
-              hStyles.genreChip / studioChip): brand-tinted pills for genres,
-              a blue one for the studio. Two pages describing the same anime
-              shouldn't spell it two different ways. */}
+          {/* Same chip vocabulary as the info page's hero: brand-tinted pills
+              for genres, then a hairline, then the studio in blue. The order
+              matters — the studio is the aside, not the headline. */}
           <div className="flex flex-wrap items-center gap-2">
-            {studio && (
-              <span className="rounded-full border border-[rgba(74,143,255,0.3)] bg-[rgba(74,143,255,0.1)] px-[11px] py-[5px] text-xs font-semibold text-[#7ec8ff]">
-                {studio}
-              </span>
-            )}
-            {info?.genres?.map((item, index) => (
+            {info?.genres?.slice(0, 4).map((item, index) => (
               <span
                 key={index}
                 className="rounded-full border border-action/[0.35] bg-action/[0.12] px-[11px] py-[5px] text-xs font-semibold text-[color-mix(in_srgb,var(--brand-primary,#ff7a91)_75%,#fff)]"
@@ -160,6 +212,14 @@ export default function Details({
                 {genreLabel(t, item)}
               </span>
             ))}
+            {studio && (
+              <>
+                <span className="h-4 w-px bg-[#2f3447]" />
+                <span className="rounded-full border border-[rgba(74,143,255,0.3)] bg-[rgba(74,143,255,0.1)] px-[11px] py-[5px] text-xs font-semibold text-[#7ec8ff]">
+                  {studio}
+                </span>
+              </>
+            )}
           </div>
         </div>
 

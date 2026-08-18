@@ -183,25 +183,10 @@ export default function EpisodeLists({
     // how much of the row is left to the player, and the player's footprint is
     // the thing to keep stable.
     <div className="w-full lg:max-w-sm xl:max-w-lg lg:w-[24rem] xl:w-[32rem] shrink-0 flex flex-col gap-2">
-      {/* Next-episode shortcut. Kept above the panel rather than under it:
-          the list scrolls, and a control that follows the scroll would be
-          out of reach on a 100-episode entry. */}
-      {track?.next && (
-        <button
-          type="button"
-          onClick={() =>
-            router.push(
-              `/en/anime/watch/${info.id}/${providerId}?id=${track?.next?.id}&num=${
-                track?.next?.number
-              }${dub ? `&dub=${dub}` : ""}`,
-            )
-          }
-          className="self-start px-1 text-sm font-karla font-semibold text-white/60 transition-colors hover:text-white"
-        >
-          {t("player.nextEpisodeBtn")} ›
-        </button>
-      )}
-
+      {/* No "next episode" button here: the player's own control bar already
+          carries one, right next to play/pause, and it is the copy that is
+          reachable in fullscreen. Two of them competing above the list was
+          just noise. */}
       <div className="rounded-xl bg-as-card/60 ring-1 ring-white/[0.06] overflow-hidden">
         {/* ── Header: season · range · view mode ── */}
         <div className="flex items-center gap-2 px-2.5 py-2 border-b border-white/[0.06]">
@@ -304,7 +289,7 @@ export default function EpisodeLists({
                       : "ring-1 ring-transparent hover:bg-white/[0.05]"
                   }`}
                 >
-                  <div className="relative h-[59px] w-[105px] shrink-0 overflow-hidden rounded-md bg-image/40">
+                  <div className="relative h-[79px] w-[140px] shrink-0 overflow-hidden rounded-md bg-image/40">
                     {hasArt && f.parsedImage && (
                       <Image
                         src={f.parsedImage}
