@@ -65,6 +65,11 @@ const VIEW_LABELS: Record<View, string> = {
   grid: "anime.gridOfNumbers",
 };
 
+/** Next view in the cycle, wrapping round. */
+export function nextView(current: View): View {
+  return VIEWS[(VIEWS.indexOf(current) + 1) % VIEWS.length];
+}
+
 function ViewIcon({ view }: { view: View }) {
   const common = {
     width: 14,
@@ -283,29 +288,20 @@ export default function EpisodeLists({
             )}
           </div>
 
-          {/* Same segmented control as the info page's Episodes tab. */}
-          <div
-            className="ml-auto flex shrink-0 gap-0.5 rounded-lg border p-[3px]"
-            style={{ background: T.bg2, borderColor: T.line }}
+          {/* One button that cycles the three views, same control as the info
+              page. The icon shows the view you are IN, and the label names it
+              plus the action — a bare "next" icon would leave you guessing
+              what you are looking at. */}
+          <button
+            type="button"
+            onClick={() => pickView(nextView(view))}
+            title={`${t(VIEW_LABELS[view])} · ${t("anime.changeView")}`}
+            aria-label={`${t(VIEW_LABELS[view])} · ${t("anime.changeView")}`}
+            className="ml-auto grid h-[26px] w-[28px] shrink-0 place-items-center rounded-lg border transition-colors"
+            style={{ background: T.bg2, borderColor: T.line, color: T.txt0 }}
           >
-            {VIEWS.map((v) => (
-              <button
-                key={v}
-                type="button"
-                onClick={() => pickView(v)}
-                title={t(VIEW_LABELS[v])}
-                aria-label={t(VIEW_LABELS[v])}
-                aria-pressed={v === view}
-                className="grid h-[22px] w-[24px] place-items-center rounded-md transition-colors"
-                style={{
-                  background: v === view ? T.bg3 : "transparent",
-                  color: v === view ? T.txt0 : T.txt3,
-                }}
-              >
-                <ViewIcon view={v} />
-              </button>
-            ))}
-          </div>
+            <ViewIcon view={view} />
+          </button>
         </div>
 
         {/* ── List ── */}

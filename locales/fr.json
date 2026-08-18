@@ -1036,7 +1036,8 @@
     "artFilterAll": "Toutes",
     "fullscreen": "Plein écran",
     "notYetReleased": "Pas encore sortie",
-    "inYourList": "Dans votre liste"
+    "inYourList": "Dans votre liste",
+    "changeView": "Changer d’affichage"
   },
   "party": {
     "watchTogether": "Regarder ensemble",
