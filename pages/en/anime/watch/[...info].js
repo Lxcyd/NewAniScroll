@@ -2312,7 +2312,12 @@ export default function Watch({
             } w-full flex flex-col lg:flex-row mx-auto`}
           >
             {/* ── Primary column ── */}
-            <div id="primary" className="w-full min-w-0 flex flex-col gap-3">
+            {/* Plain block, as it was before the redesign. It briefly became a
+                `flex flex-col`, which is the only layout change this column
+                took — and the black bands appeared with it. The player box
+                sizes itself from its own aspect-ratio, and that only resolves
+                predictably while its ancestors leave its height alone. */}
+            <div id="primary" className="w-full">
 
               {/* Default (non-theater) player — no parent bg/overflow so ambient glow can extend outside */}
               {!theaterMode && (
@@ -2335,7 +2340,7 @@ export default function Watch({
 
               {/* Server selector */}
 
-              <div className="px-3 lg:px-0">
+              <div className="mt-3 px-3 lg:px-0">
                 <ServerSelector
                   activeServer={activeServer}
                   onChange={handleServerChange}
@@ -2346,7 +2351,7 @@ export default function Watch({
               </div>
 
               {/* Details row */}
-              <div id="details" className="flex flex-col gap-5 w-full px-3 lg:px-0">
+              <div id="details" className="mt-4 flex flex-col gap-5 w-full px-3 lg:px-0">
                 <Details
                   info={info}
                   session={sessions}

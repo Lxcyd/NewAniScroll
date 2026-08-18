@@ -107,7 +107,11 @@ export default function Details({
     // est en Karla. La page d'info a son propre Inter parce qu'elle porte ses
     // tokens ; ici c'est la police du site qui fait foi.
     <div className="relative z-10 flex flex-col gap-4 font-karla">
-      <div className="flex flex-col gap-5 sm:flex-row">
+      {/* Wraps rather than squeezes. With a fixed three-column row the stat
+          blocks (whose width is their content) ran straight under the action
+          buttons as soon as the window narrowed. Now the action column drops
+          to its own line before anything overlaps. */}
+      <div className="flex flex-wrap gap-5">
         {/* The box carries the size, not the <Image>. next/image renders an
             <img> with width=1000, so without a sized parent it stretches to
             the row's full width — object-cover then shows a wide band of the
@@ -129,7 +133,7 @@ export default function Details({
           )}
         </div>
 
-        <div className="flex min-w-0 grow flex-col gap-3">
+        <div className="flex min-w-0 grow basis-[300px] flex-col gap-3">
           {title}
 
           {/* Stat blocks, identical to the info page's hero (Hero.tsx): same
@@ -137,7 +141,7 @@ export default function Details({
               invented its own row — a chevron for POPULARITY where the info
               page shows a heart for FAVOURITES — so the same anime reported two
               different numbers depending on the page you were on. */}
-          <div className="flex items-center gap-5">
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
             {score && (
               <>
                 <div className="flex flex-col items-center text-center">
@@ -225,7 +229,7 @@ export default function Details({
 
         {/* Action column — the add-to-list CTA is the one thing a viewer is
             here to do besides watching, so it gets the full-width button. */}
-        <div className="flex w-full shrink-0 flex-col gap-2 sm:w-[210px]">
+        <div className="flex shrink-0 grow basis-[210px] flex-col gap-2 lg:grow-0 lg:basis-[210px]">
           <button
             type="button"
             onClick={() => (session ? handlePlan() : handleOpen())}
