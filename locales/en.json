@@ -434,8 +434,7 @@
     "speedConfidence": "confidence",
     "speedEstimated": "estimated, not measured",
     "nowPlayingShort": "now playing",
-    "timeLeft": "{{time}} left",
-    "rewindSeconds": "Back {{count}}s"
+    "timeLeft": "{{time}} left"
   },
   "shortcuts": {
     "title": "Keyboard shortcuts",

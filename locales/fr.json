@@ -434,8 +434,7 @@
     "speedConfidence": "confiance",
     "speedEstimated": "estimé, non mesuré",
     "nowPlayingShort": "en cours",
-    "timeLeft": "{{time}} restantes",
-    "rewindSeconds": "Reculer de {{count}} s"
+    "timeLeft": "{{time}} restantes"
   },
   "shortcuts": {
     "title": "Raccourcis clavier",

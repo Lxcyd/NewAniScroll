@@ -589,42 +589,6 @@ function CustomControls({
 // "Next episode" — the classic skip-next glyph (▶|), sitting right after
 // play/pause in the control bar. Only rendered when there IS a next episode.
 // Navigation goes through navigateToEpisode so fullscreen is preserved.
-// Step-back button, sitting between play/pause and the next-episode skip.
-// A rewind is the single most-used correction while watching subs ("what did
-// they say?"), and the keyboard shortcut is invisible to anyone on a laptop
-// trackpad or a TV browser — so it earns a place in the bar.
-const REWIND_SECONDS = 10;
-
-function RewindButton({
-  playerRef,
-}: {
-  playerRef: React.RefObject<MediaPlayerInstance>;
-}) {
-  const { t } = useTranslation();
-  const label = t("player.rewindSeconds", { count: REWIND_SECONDS });
-  return (
-    <button
-      type="button"
-      onClick={() => {
-        const player = playerRef.current;
-        if (!player) return;
-        player.currentTime = Math.max(0, player.currentTime - REWIND_SECONDS);
-      }}
-      title={label}
-      aria-label={label}
-      className={ICON_BTN_CLS}
-      style={ICON_BTN_STYLE}
-    >
-      {/* Material "replay_10" — the arc carries the meaning, the digits the
-          amount, so the button reads without its tooltip. */}
-      <svg viewBox="0 0 24 24" fill="currentColor" className="vds-icon">
-        <path d="M11.99 5V1l-5 5 5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6h-2c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z" />
-        <path d="M10.9 16h-.85v-3.26l-1.01.31v-.69l1.77-.63h.09V16zm4.28-1.76c0 .32-.03.6-.1.82s-.17.42-.29.57-.28.25-.45.32-.37.1-.59.1-.41-.03-.59-.1-.33-.17-.46-.32-.23-.34-.3-.57-.11-.5-.11-.82v-.74c0-.32.03-.6.1-.82s.17-.42.29-.57.28-.25.45-.32.37-.1.59-.1.41.03.59.1.33.17.46.32.23.34.3.57.11.5.11.82v.74zm-.85-.86c0-.19-.01-.35-.04-.48s-.07-.23-.12-.31-.11-.13-.19-.17-.16-.05-.25-.05-.18.02-.25.05-.14.09-.19.17-.09.18-.12.31-.04.29-.04.48v.97c0 .19.01.35.04.48s.07.24.12.32.11.14.19.17.16.05.25.05.18-.02.25-.05.14-.09.19-.17.09-.19.11-.32.04-.29.04-.48v-.97z" />
-      </svg>
-    </button>
-  );
-}
-
 function NextEpisodeButton({
   onClick,
   onWarm,
@@ -5022,26 +4986,21 @@ export default function UniversalPlayer({
       {/* "Next episode" button, portaled into the STABLE navHost the observer
           parks right after the play/pause button. Same stable-container
           rationale as the group above. Hidden on the last episode (no href). */}
-      {navHostAttached && navHostRef.current && createPortal(
-        <>
-          <RewindButton playerRef={playerRef} />
-          {nextEpisodeHref && (
-            <NextEpisodeButton
-              onClick={() =>
-                navigateToEpisode(router, nextEpisodeHref, isFullscreen)
-              }
-              onWarm={() => {
-                try {
-                  // JS bundle only — a getServerSideProps route isn't data-prefetched
-                  // by the Pages Router, so this costs no function invocation.
-                  router.prefetch(nextEpisodeHref);
-                } catch {
-                  /* prefetch unsupported — the click still works, just colder */
-                }
-              }}
-            />
-          )}
-        </>,
+      {nextEpisodeHref && navHostAttached && navHostRef.current && createPortal(
+        <NextEpisodeButton
+          onClick={() =>
+            navigateToEpisode(router, nextEpisodeHref, isFullscreen)
+          }
+          onWarm={() => {
+            try {
+              // JS bundle only — a getServerSideProps route isn't data-prefetched
+              // by the Pages Router, so this costs no function invocation.
+              router.prefetch(nextEpisodeHref);
+            } catch {
+              /* prefetch unsupported — the click still works, just colder */
+            }
+          }}
+        />,
         navHostRef.current,
       )}
 
