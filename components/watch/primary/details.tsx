@@ -1,4 +1,4 @@
-import { CSSProperties, ReactNode, useEffect, useState } from "react";
+import { CSSProperties, ReactNode } from "react";
 import { useAniList } from "../../../lib/anilist/useAnilist";
 import Skeleton from "react-loading-skeleton";
 import { AniListInfoTypes } from "types/info/AnilistInfoTypes";
@@ -7,6 +7,9 @@ import Link from "next/link";
 import Image from "next/image";
 import { useTranslation } from "react-i18next";
 import { statusLabel, parseDescription } from "@/components/anime/v2/helpers";
+import Recommendations from "@/components/anime/v2/Recommendations";
+import styles from "@/components/anime/v2/styles.module.css";
+import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { genreLabel } from "@/lib/i18n/genreLabel";
 import { useTranslatedText } from "@/lib/i18n/useTranslatedText";
 
@@ -74,8 +77,7 @@ export default function Details({
 }: DetailsProps) {
   const { markPlanning } = useAniList(session);
   const { t, i18n } = useTranslation();
-
-  const [showDesc, setShowDesc] = useState(false);
+  const titlePref = useTitlePref();
 
   // Same treatment as the info page's Overview: strip the "(Source: …)" tail
   // out of the body and show it as an attribution line, rather than leaving
@@ -83,7 +85,11 @@ export default function Details({
   const parsed = parseDescription(description);
   // Auto-translate the synopsis into the active UI language (server-cached).
   const localizedDesc = useTranslatedText(parsed.text);
-  const truncatedDesc = truncateText(localizedDesc, 420);
+
+  // AniList lists recommendations as edges around a nullable media node.
+  const recs = ((info?.recommendations?.nodes || [])
+    .map((n: any) => n?.mediaRecommendation)
+    .filter(Boolean) as any[]) || [];
 
   function handlePlan() {
     if (onList === false) {
@@ -92,13 +98,8 @@ export default function Details({
     }
   }
 
-  useEffect(() => {
-    // Reset the "Read more" expansion when the episode changes — keeps
-    // the description collapsed on a new entry.
-    return () => {
-      setShowDesc(false);
-    };
-  }, [id]);
+  // (The effect that used to reset the "Read more" fold on episode change is
+  // gone with the fold itself — there is no expansion state left to reset.)
 
   // "#278" — AniList's all-time RATED position. Only shown when AniList
   // actually ranks the entry; a computed rank would be a fabrication.
@@ -274,49 +275,43 @@ export default function Details({
       </div>
 
       {/* Synopsis — info-page typography (14px / 1.65, --txt-1) on the same
-          panel treatment as the rest of the card. */}
-      <div className="relative rounded-xl bg-as-card/60 ring-1 ring-white/[0.06]">
+          panel treatment as the rest of the card. Shown WHOLE: there is no
+          "read more" fold. The page is already scrolled past the player by
+          anyone reading this far, and a fold on a paragraph of four lines
+          bought nothing but a click. */}
+      <div className="rounded-xl bg-as-card/60 ring-1 ring-white/[0.06]">
         {info && (
-          <>
-            <div className="p-5">
-              <p
-                className="m-0 text-sm leading-[1.65] text-[#c4c8d4]"
-                style={{ textWrap: "pretty" } as any}
-                dangerouslySetInnerHTML={{
-                  __html: showDesc
-                    ? localizedDesc
-                    : localizedDesc?.length > 420
-                    ? truncatedDesc
-                    : localizedDesc
-                }}
-              />
-              {parsed.source && showDesc && (
-                <div className="mt-2.5 text-[11px] text-[#5e6478]">
-                  <em>
-                    {t("anime.source")} · {parsed.source}
-                  </em>
-                </div>
-              )}
-            </div>
-            {!showDesc && localizedDesc?.length > 120 && (
-              <span
-                onClick={() => setShowDesc((prev) => !prev)}
-                className="absolute inset-0 flex h-full w-full cursor-pointer items-end justify-center rounded-xl bg-gradient-to-t from-as-card to-transparent pb-5 font-karla font-semibold hover:from-20%"
-              >
-                {t("anime.readMore")}
-              </span>
+          <div className="p-5">
+            <p
+              className="m-0 text-sm leading-[1.65] text-[#c4c8d4]"
+              style={{ textWrap: "pretty" } as any}
+              dangerouslySetInnerHTML={{ __html: localizedDesc }}
+            />
+            {parsed.source && (
+              <div className="mt-2.5 text-[11px] text-[#5e6478]">
+                <em>
+                  {t("anime.source")} · {parsed.source}
+                </em>
+              </div>
             )}
-          </>
+          </div>
         )}
       </div>
+
+      {/* Recommendations — the info page's own carousel, not a copy of it.
+          It reads the v2 design tokens, which live scoped to that page's
+          `.root`; `styles.tokens` carries them WITHOUT the page furniture
+          (background, 100vh floor), so the rail renders here identically. */}
+      {recs.length > 0 && (
+        <div className={styles.tokens}>
+          <Recommendations
+            items={recs}
+            forTitle={pickTitle(info.title, titlePref) || t("anime.thisAnime")}
+          />
+        </div>
+      )}
       {/* Comments removed — Disqus showed a hard-to-debug "moderator" error
           for visitors and added a third-party tracker we don't need. */}
     </div>
   );
-}
-
-function truncateText(txt: string, length: number) {
-  if (!txt) return "";
-  const text = txt.replace(/(<([^>]+)>)/gi, "");
-  return text.length > length ? text.slice(0, length) + "..." : text;
 }
