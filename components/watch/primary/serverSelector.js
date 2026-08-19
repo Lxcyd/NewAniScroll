@@ -104,7 +104,10 @@ export default function ServerSelector({
   if (!servers.length) return null;
 
   return (
-    <div className="flex items-center gap-3 rounded-xl bg-as-card/60 ring-1 ring-white/[0.06] px-3 py-2">
+    /* Au survol la barre s'assombrit franchement : les ambient lights du player
+       diffusent derriere elle, et un fond translucide laisse passer assez de
+       couleur pour gener la lecture des chips au moment ou on vise. */
+    <div className="group flex items-center gap-3 rounded-xl bg-as-card/60 hover:bg-[#0a0b10]/95 ring-1 ring-white/[0.06] px-3 py-2 transition-colors duration-200">
       <span className="hidden sm:block shrink-0 text-[11px] font-karla font-semibold uppercase tracking-[0.12em] text-white/60">
         {t("player.servers")}
       </span>

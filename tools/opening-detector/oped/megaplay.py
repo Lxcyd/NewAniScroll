@@ -26,6 +26,7 @@ audio pass and the video pass (and re-runs) share one download.
 from __future__ import annotations
 
 import hashlib
+import os
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -192,4 +193,40 @@ def materialize_window(
         for seg_url in picked:
             f.write(depng(_fetch(seg_url, referer)))
     tmp.replace(out_path)
+    _prune(cache_dir)
     return str(out_path)
+
+
+# Disk budget for the materialised windows. Each one is a real slice of video
+# (tens of MB), one per (episode, window), and nothing ever deleted them: the
+# 2026-08-07 overnight lot grew this directory to 68 GB and filled the disk,
+# which then failed every write in the run with `OSError: [Errno 28]`. The
+# files are pure cache — regenerable from the master URL — so evicting the
+# oldest is free apart from a re-fetch.
+MEGAPLAY_CACHE_BUDGET_BYTES = int(
+    float(os.environ.get("OPED_MEGAPLAY_CACHE_GB", "8")) * 1024 ** 3
+)
+
+
+def _prune(cache_dir: Path) -> None:
+    """Keep the directory under budget, oldest-first.
+
+    Deliberately cheap and best-effort: it runs after a write, skips files
+    another thread still holds (Windows refuses those), and never raises — a
+    cache that cannot be trimmed must not take the batch down with it.
+    """
+    try:
+        files = [(p, p.stat()) for p in cache_dir.glob("*.ts")]
+    except OSError:
+        return
+    total = sum(st.st_size for _, st in files)
+    if total <= MEGAPLAY_CACHE_BUDGET_BYTES:
+        return
+    for path, st in sorted(files, key=lambda x: x[1].st_mtime):
+        try:
+            path.unlink()
+            total -= st.st_size
+        except OSError:
+            continue  # in use by another worker — the next prune gets it
+        if total <= MEGAPLAY_CACHE_BUDGET_BYTES * 0.8:
+            return
