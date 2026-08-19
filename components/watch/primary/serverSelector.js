@@ -139,24 +139,18 @@ export default function ServerSelector({
                         "inset 0 0 0 1px color-mix(in srgb, var(--brand-primary, #E94560) 70%, transparent)",
                       color: TEXT_ACTIVE,
                     }
-                  : // Chip au repos : un degrade tres court du haut vers le bas +
-                    // un filet clair sur l'arete superieure et une ombre portee
-                    // basse. C'est le relief qui manquait — a plat, la chip se
-                    // confondait avec la barre. Le survol l'ecrase : le fond
-                    // s'assombrit, le filet disparait, le nom monte d'un cran.
-                    {
-                      background:
-                        hovered === server.id
-                          ? "rgba(14,16,22,0.55)"
-                          : "linear-gradient(180deg, rgba(255,255,255,0.10), rgba(255,255,255,0.02)), rgba(35,39,53,0.55)",
-                      boxShadow:
-                        hovered === server.id
-                          ? "inset 0 0 0 1px rgba(255,255,255,0.20)"
-                          : "inset 0 0 0 1px rgba(255,255,255,0.10), inset 0 1px 0 rgba(255,255,255,0.12), 0 1px 2px rgba(0,0,0,0.35)",
-                      color: hovered === server.id ? TEXT_HOVER : TEXT,
-                    }
+                  : // Le fond s'assombrit au survol : le nom monte d'un cran en
+                    // meme temps, sinon la chip visee perdrait en lisibilite.
+                    { color: hovered === server.id ? TEXT_HOVER : TEXT }
               }
-              className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[13px] font-karla font-medium transition-colors duration-200"
+              className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[13px] font-karla font-medium transition-colors duration-200 ${
+                isActive
+                  ? ""
+                  : // Le survol ASSOMBRIT la chip visee (il ne l'eclaircit pas) :
+                    // sur une barre posee sous des ambient lights, un creux se lit
+                    // mieux qu'une bosse.
+                    "bg-[#232735]/55 ring-1 ring-white/10 hover:bg-[#0e1016]/40 hover:ring-white/20"
+              }`}
             >
               {labels[server.id]}
             </button>
