@@ -104,12 +104,16 @@ export default function ServerSelector({
   if (!servers.length) return null;
 
   return (
-    /* Fond OPAQUE, en hexa litteral : `bg-as-card/60` ne produisait aucune regle
-       — `as-card` vaut `var(--surface-card, …)` et Tailwind v3 ne sait pas y
-       injecter d'alpha (meme piege que les teintes d'accent plus bas). La barre
-       n'avait donc pas de fond du tout, et les ambient lights du player, qui
-       debordent largement sous la video, la delavaient entierement. */
-    <div className="relative z-10 flex items-center gap-3 rounded-xl bg-[#14161f] ring-1 ring-white/[0.06] px-3 py-2">
+    /* Le fond passe par un style inline : `bg-as-card/60` ne produisait AUCUNE
+       regle — `as-card` vaut `var(--surface-card, …)` et Tailwind v3 ne sait pas
+       y injecter d'alpha (meme piege que les teintes d'accent plus bas). La
+       barre n'avait donc pas de fond du tout. On garde la translucidite voulue
+       au depart, cette fois reellement appliquee : c'est le contraste des chips
+       qui porte la lisibilite, pas un aplat sombre. */
+    <div
+      className="relative z-10 flex items-center gap-3 rounded-xl ring-1 ring-white/[0.06] px-3 py-2"
+      style={{ background: "rgba(20,22,31,0.6)" }}
+    >
       <span className="hidden sm:block shrink-0 text-[11px] font-karla font-semibold uppercase tracking-[0.12em] text-white/60">
         {t("player.servers")}
       </span>
