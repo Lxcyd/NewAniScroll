@@ -16,8 +16,13 @@ const LANG_LABELS = {
 // un rose finit toujours par jurer avec l'image. Les deux gris de la palette du
 // site (ceux de details.tsx / episodeLists.tsx) tiennent sur n'importe quel
 // fond, et l'ecart entre les deux dit a lui seul quel lecteur est actif.
+// Le lecteur ACTIF, lui, prend l'accent du site — la meme couleur que son
+// liseré. Ce n'est pas une teinte choisie au hasard : elle suit le theme de
+// l'utilisateur, et c'est deja elle qui marque "en cours" partout ailleurs
+// (episode en lecture, onglet actif). Un blanc casse ne disait rien.
 const TEXT = "#c4c8d4";
-const TEXT_ACTIVE = "#f4f5f8";
+const TEXT_HOVER = "#f4f5f8";
+const TEXT_ACTIVE = "var(--brand-primary, #E94560)";
 
 // La vitesse ne s'AFFICHE plus (ni mot, ni poincon, ni infobulle) : elle ne fait
 // plus qu'ordonner les chips, via useServerPerfRank. Les paliers rapide/moyen/
@@ -136,7 +141,7 @@ export default function ServerSelector({
                     }
                   : // Le fond s'assombrit au survol : le nom monte d'un cran en
                     // meme temps, sinon la chip visee perdrait en lisibilite.
-                    { color: hovered === server.id ? TEXT_ACTIVE : TEXT }
+                    { color: hovered === server.id ? TEXT_HOVER : TEXT }
               }
               className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[13px] font-karla font-medium transition-colors duration-200 ${
                 isActive
