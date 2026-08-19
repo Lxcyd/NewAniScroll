@@ -2558,7 +2558,9 @@ function buildWatchUrl(aniId, ep, dub, server, roomId) {
 // Secondary action button, borrowed from the info page's hero so both pages
 // look like the same site.
 const WATCH_ICON_BTN =
-  "flex items-center justify-center rounded-[11px] border border-[#2f3447] bg-white/[0.04] py-3 text-[#c4c8d4] transition-colors hover:border-[#3d4359] hover:bg-white/[0.07] hover:text-white disabled:opacity-40";
+  // Fond OPAQUE : ces boutons sont dans la trainee des ambient lights du player,
+  // et un rgba(255,255,255,0.04) les laissait completement delaves.
+  "flex items-center justify-center rounded-[11px] border border-[#2f3447] bg-[#1a1d29] py-3 text-[#c4c8d4] transition-colors hover:border-[#3d4359] hover:bg-[#242838] hover:text-white disabled:opacity-40";
 
 function SpinLoader() {
   return (

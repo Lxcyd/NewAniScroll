@@ -166,7 +166,7 @@ export default function ServerSelector({
                     }
                   : undefined
               }
-              className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[13px] font-karla font-medium transition-colors duration-200 ${
+              className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1 text-[15px] font-karla font-bold transition-colors duration-200 ${
                 isActive
                   ? "text-white"
                   : // Le survol ASSOMBRIT la chip visee (il ne l'eclaircit pas) :
@@ -177,14 +177,15 @@ export default function ServerSelector({
               }`}
             >
               {labels[server.id]}
-              {/* Une mesure parle plus fort qu'une estimation : le mot est
-                  franc quand il vient d'une lecture, en retrait sinon. */}
+              {/* Le mot ("rapide", "moyen") est retire de la chip : il doublait
+                  la largeur de chaque bouton pour une info secondaire. Le
+                  poincon de couleur la porte seul, et l'infobulle donne le mot,
+                  la mesure et le score. Une mesure parle plus fort qu'une
+                  estimation : le point est franc quand il vient d'une lecture. */}
               <span
-                className="text-[10px] font-normal leading-none"
-                style={{ color: sp.color, opacity: measured ? 1 : 0.8 }}
-              >
-                {t(sp.labelKey).toLowerCase()}
-              </span>
+                className="h-[6px] w-[6px] shrink-0 rounded-full"
+                style={{ background: sp.color, opacity: measured ? 1 : 0.65 }}
+              />
             </button>
           );
         })}
