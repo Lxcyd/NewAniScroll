@@ -114,7 +114,7 @@ export default function ServerSelector({
       className="relative z-10 flex items-center gap-3 rounded-xl ring-1 ring-white/[0.06] px-3 py-2"
       style={{ background: "rgba(20,22,31,0.15)" }}
     >
-      <span className="hidden sm:block shrink-0 text-[11px] font-karla font-semibold uppercase tracking-[0.12em] text-white/60">
+      <span className="hidden sm:block shrink-0 text-[14px] font-karla font-bold uppercase tracking-[0.12em] text-white/75">
         {t("player.servers")}
       </span>
 
@@ -166,14 +166,14 @@ export default function ServerSelector({
                     }
                   : undefined
               }
-              className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1 text-[15px] font-karla font-bold transition-colors duration-200 ${
+              className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[13px] font-karla font-medium transition-colors duration-200 ${
                 isActive
                   ? "text-white"
                   : // Le survol ASSOMBRIT la chip visee (il ne l'eclaircit pas) :
                     // sur une barre posee sous des ambient lights, un creux se lit
                     // mieux qu'une bosse. Le texte reste blanc, la lisibilite ne
                     // baisse pas au moment ou on vise.
-                    "bg-[#232735]/55 text-white ring-1 ring-white/10 hover:bg-[#0e1016]/80 hover:ring-white/20"
+                    "bg-[#232735]/55 text-white ring-1 ring-white/10 hover:bg-[#0e1016]/40 hover:ring-white/20"
               }`}
             >
               {labels[server.id]}
