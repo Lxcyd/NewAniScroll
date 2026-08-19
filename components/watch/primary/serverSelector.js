@@ -1,13 +1,7 @@
 import { useMemo, useState } from "react";
 import { getServersByLang } from "@/lib/servers";
 import { useTranslation } from "react-i18next";
-// @ts-ignore — plain JS context, no types
-import { useWatchProvider } from "@/lib/context/watchPageProvider";
-import {
-  useServerPerfRank,
-  useServerPerfScores,
-  tierOf,
-} from "@/lib/watch/serverPerf";
+import { useServerPerfRank } from "@/lib/watch/serverPerf";
 import { shouldShowServer } from "@/lib/watch/serverVisibility";
 
 const LANGS = ["multi", "vo", "vf"];
@@ -17,29 +11,10 @@ const LANG_LABELS = {
   vf: "player.langVF",
 };
 
-// Speed "poinçon" tiers. Green = fast, amber = medium, red = slow.
-const SPEED_TIERS = {
-  fast: { color: "#2dd47a", labelKey: "player.speedFast" },
-  medium: { color: "#f6c544", labelKey: "player.speedMedium" },
-  slow: { color: "#ff6b6b", labelKey: "player.speedSlow" },
-};
-
-// A server's tier reflects, in order of authority:
-//   1. the LIVE reading for the stream playing right now (UniversalPlayer
-//      writes the real throughput/rebuffering to the watch context),
-//   2. the PERSISTED score learned across sessions on this device
-//      (lib/watch/serverPerf) — the only tier that can speak for a server the
-//      user hasn't opened yet, which is exactly what a chip needs,
-//   3. the static `speed` rank from lib/servers.js (1 = fastest), the at-rest
-//      estimate written by hand.
-// megaplay & co. vary per title, so a static rank lies; each step down is a
-// weaker claim, and the opacity of the tier word says which one is talking.
-function staticTier(speed) {
-  const s = speed ?? 99;
-  if (s <= 2) return "fast";
-  if (s <= 4) return "medium";
-  return "slow";
-}
+// La vitesse ne s'AFFICHE plus (ni mot, ni poincon, ni infobulle) : elle ne fait
+// plus qu'ordonner les chips, via useServerPerfRank. Les paliers rapide/moyen/
+// lent et la lecture live du contexte n'ont donc plus de lecteur ici — ils
+// restent dans lib/watch/serverPerf, ou le classement les consomme.
 
 // Chips are read at a glance, and inside a language group the site prefix is
 // noise: under VF every host is anime-sama or voir-anime already. So we show
@@ -67,12 +42,9 @@ export default function ServerSelector({
   degradedServers,
 }) {
   const { t } = useTranslation();
-  const { liveSpeed } = useWatchProvider() || {};
   // Ordre par le rang MESURE sur cet appareil ; identique au rang statique tant
   // qu'aucune mesure n'existe, donc l'affichage par defaut ne bouge pas.
   const groups = getServersByLang(useServerPerfRank());
-  // Un seul balayage pour les trois groupes : c'est la meme table.
-  const scores = useServerPerfScores();
 
   // Only languages that actually have a showable server get a tab — an empty
   // "VF" tab would be a dead end on a title anime-sama doesn't carry.
@@ -119,39 +91,17 @@ export default function ServerSelector({
       </span>
 
       <div className="flex flex-wrap items-center gap-1.5 min-w-0 grow">
+        {/* La vitesse ne s'affiche plus nulle part sur la chip — ni le mot, ni le
+            poincon de couleur, ni l'infobulle. Elle continue en revanche
+            d'ORDONNER la liste (useServerPerfRank) : le plus rapide reste en
+            tete, c'est ce rang qui parle maintenant. */}
         {servers.map((server) => {
           const isActive = activeServer === server.id;
-          const score = scores[server.id];
-          const live = liveSpeed?.[server.id];
-          const learned = live || !score ? null : tierOf(score);
-          const measured = live || learned;
-          const sp =
-            SPEED_TIERS[measured || staticTier(server.speed)] || SPEED_TIERS.medium;
-          // Le chiffre : 0-100, plus haut = plus rapide. C'est EXACTEMENT ce qui
-          // ordonne les chips, donc il reste la reference — mais dans l'infobulle,
-          // le mot ("rapide") portant seul l'information a l'oeil.
-          const shown = score ? Math.round(score.final) : null;
-          const isMeasured = !!score && score.measured != null;
-          const tip = [
-            server.name,
-            t(sp.labelKey),
-            measured ? t("player.speedMeasured") : null,
-            shown == null
-              ? null
-              : isMeasured
-                ? `${t("player.speedScore")} ${shown} · ${t(
-                    "player.speedConfidence",
-                  )} ${Math.round(score.C * 100)}%`
-                : `${t("player.speedScore")} ${shown} · ${t("player.speedEstimated")}`,
-          ]
-            .filter(Boolean)
-            .join(" · ");
           return (
             <button
               key={server.id}
               type="button"
               onClick={() => onChange(server.id)}
-              title={tip}
               // Les teintes de l'accent passent par color-mix en style inline :
               // `action` vaut `var(--brand-primary, …)`, et Tailwind v3 ne sait
               // pas injecter d'alpha dans une var() — `bg-action/20` ne genere
@@ -168,7 +118,11 @@ export default function ServerSelector({
               }
               className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[13px] font-karla font-medium transition-colors duration-200 ${
                 isActive
-                  ? "text-white"
+                  ? // La chip active repond aussi au survol : sans retour, elle
+                    // avait l'air morte. Son fond etant une teinte d'accent posee
+                    // en inline, on l'eclaircit au filtre plutot que par une
+                    // seconde couleur a tenir en phase.
+                    "text-white hover:brightness-125"
                   : // Le survol ASSOMBRIT la chip visee (il ne l'eclaircit pas) :
                     // sur une barre posee sous des ambient lights, un creux se lit
                     // mieux qu'une bosse. Le texte reste blanc, la lisibilite ne
@@ -177,15 +131,6 @@ export default function ServerSelector({
               }`}
             >
               {labels[server.id]}
-              {/* Le mot ("rapide", "moyen") est retire de la chip : il doublait
-                  la largeur de chaque bouton pour une info secondaire. Le
-                  poincon de couleur la porte seul, et l'infobulle donne le mot,
-                  la mesure et le score. Une mesure parle plus fort qu'une
-                  estimation : le point est franc quand il vient d'une lecture. */}
-              <span
-                className="h-[6px] w-[6px] shrink-0 rounded-full"
-                style={{ background: sp.color, opacity: measured ? 1 : 0.65 }}
-              />
             </button>
           );
         })}
