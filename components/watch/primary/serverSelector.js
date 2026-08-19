@@ -108,9 +108,8 @@ export default function ServerSelector({
        — `as-card` vaut `var(--surface-card, …)` et Tailwind v3 ne sait pas y
        injecter d'alpha (meme piege que les teintes d'accent plus bas). La barre
        n'avait donc pas de fond du tout, et les ambient lights du player, qui
-       debordent largement sous la video, la delavaient entierement. Au survol on
-       descend encore d'un cran, au moment ou on vise une chip. */
-    <div className="group relative z-10 flex items-center gap-3 rounded-xl bg-[#14161f] hover:bg-[#080911] ring-1 ring-white/[0.06] px-3 py-2 transition-colors duration-200">
+       debordent largement sous la video, la delavaient entierement. */
+    <div className="relative z-10 flex items-center gap-3 rounded-xl bg-[#14161f] ring-1 ring-white/[0.06] px-3 py-2">
       <span className="hidden sm:block shrink-0 text-[11px] font-karla font-semibold uppercase tracking-[0.12em] text-white/60">
         {t("player.servers")}
       </span>
@@ -166,7 +165,11 @@ export default function ServerSelector({
               className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[13px] font-karla font-medium transition-colors duration-200 ${
                 isActive
                   ? "text-white"
-                  : "bg-[#232735] text-white ring-1 ring-white/10 hover:bg-[#2c3142]"
+                  : // Le survol ASSOMBRIT la chip visee (il ne l'eclaircit pas) :
+                    // sur une barre posee sous des ambient lights, un creux se lit
+                    // mieux qu'une bosse. Le texte reste blanc, la lisibilite ne
+                    // baisse pas au moment ou on vise.
+                    "bg-[#232735] text-white ring-1 ring-white/10 hover:bg-[#12141b] hover:ring-white/20"
               }`}
             >
               {labels[server.id]}
