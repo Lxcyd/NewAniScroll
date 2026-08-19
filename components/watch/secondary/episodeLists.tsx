@@ -172,6 +172,24 @@ export default function EpisodeLists({
     };
   }, [info?.id]);
 
+  /* Menu de saisons maison plutot qu'un <select> natif : la liste porte un
+     libelle ("Season 2 Part 2") et un sous-titre, et deux cours d'une meme
+     saison partagent le meme `number` — "Saison 2" deux fois dans le natif.
+     Meme rendu que le SeasonPicker de la page d'info. */
+  const [seasonOpen, setSeasonOpen] = useState(false);
+  const activeSeason = seasons.find((s) => String(s.id) === String(info?.id));
+  useEffect(() => {
+    if (!seasonOpen) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setSeasonOpen(false);
+    const onClick = () => setSeasonOpen(false);
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("click", onClick);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("click", onClick);
+    };
+  }, [seasonOpen]);
+
   // Titles/images live in `map` (the provider's episode metadata); a run
   // without usable art falls back to number-only rows, as before.
   const hasArt = useMemo(
@@ -253,28 +271,90 @@ export default function EpisodeLists({
         >
           {seasons.length > 1 && (
             <div className="relative shrink-0">
-              <select
-                value={info?.id}
-                onChange={(e) =>
-                  router.push(
-                    `/en/anime/watch/${e.target.value}/${providerId}?id=${providerId}-1&num=1${
-                      dub ? `&dub=${dub}` : ""
-                    }`,
-                  )
-                }
-                className="cursor-pointer appearance-none rounded-lg border py-1 pl-2.5 pr-6 text-[11px] font-semibold outline-none"
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSeasonOpen((o) => !o);
+                }}
+                className="flex items-center gap-1.5 rounded-lg border py-1 pl-2.5 pr-2 text-[11px] font-semibold outline-none"
                 style={{ background: T.bg2, borderColor: T.line, color: T.txt0 }}
               >
-                {seasons.map((s) => (
-                  <option key={s.id} value={s.id} style={{ background: T.bg2 }}>
-                    {t("anime.season")} {s.number}
-                  </option>
-                ))}
-              </select>
-              <ChevronDownIcon
-                className="pointer-events-none absolute right-1.5 top-1/2 h-3 w-3 -translate-y-1/2"
-                style={{ color: T.txt3 }}
-              />
+                <span className="max-w-[150px] truncate">
+                  {activeSeason?.label || `${t("anime.season")} ${activeSeason?.number ?? 1}`}
+                </span>
+                <ChevronDownIcon
+                  className="h-3 w-3 shrink-0 transition-transform"
+                  style={{
+                    color: T.txt3,
+                    transform: seasonOpen ? "rotate(180deg)" : "none",
+                  }}
+                />
+              </button>
+              {seasonOpen && (
+                <div
+                  onClick={(e) => e.stopPropagation()}
+                  className="absolute left-0 top-[calc(100%+6px)] z-30 max-h-[320px] min-w-[220px] overflow-y-auto rounded-xl border p-1 shadow-2xl"
+                  style={{ background: T.bg2, borderColor: T.line2 }}
+                >
+                  {seasons.map((s) => {
+                    const rowActive = String(s.id) === String(info?.id);
+                    // Meme sous-titre que la page d'info : annee · nb d'episodes,
+                    // repli sur le format quand ni l'un ni l'autre n'est connu.
+                    const sub =
+                      [s.year, s.episodes ? `${s.episodes} EP` : null]
+                        .filter(Boolean)
+                        .join(" · ") || (s.format ?? "");
+                    return (
+                      <button
+                        key={s.id}
+                        type="button"
+                        onClick={() => {
+                          setSeasonOpen(false);
+                          if (rowActive) return;
+                          router.push(
+                            `/en/anime/watch/${s.id}/${providerId}?id=${providerId}-1&num=1${
+                              dub ? `&dub=${dub}` : ""
+                            }`,
+                          );
+                        }}
+                        className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left"
+                        style={{
+                          background: rowActive ? ACCENT_SOFT : "transparent",
+                          color: rowActive ? ACCENT : T.txt0,
+                        }}
+                      >
+                        <span className="flex min-w-0 flex-col">
+                          <span className="truncate text-[12.5px] font-semibold">
+                            {s.label || `${t("anime.season")} ${s.number}`}
+                          </span>
+                          {sub && (
+                            <span
+                              className="text-[10.5px]"
+                              style={{ color: T.txt3 }}
+                            >
+                              {sub}
+                            </span>
+                          )}
+                        </span>
+                        {rowActive && (
+                          <svg
+                            width="13"
+                            height="13"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth={2.5}
+                            className="ml-auto shrink-0"
+                          >
+                            <polyline points="20 6 9 17 4 12" />
+                          </svg>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
 
@@ -312,7 +392,10 @@ export default function EpisodeLists({
         <div
           className={`scrollbar-thin scrollbar-thumb-[#313131] scrollbar-thumb-rounded-full max-h-[60vh] overflow-y-auto lg:max-h-none lg:min-h-0 lg:flex-1 ${
             view === "grid"
-              ? "grid grid-cols-[repeat(auto-fill,minmax(56px,1fr))] gap-1.5 p-2.5"
+              ? /* content-start : le conteneur est `flex-1` donc plus haut que
+                   ses lignes ; sans ca `align-content: stretch` etire les rangees
+                   et laisse un trou beant entre l'ep 8 et l'ep 9. */
+                "grid content-start grid-cols-[repeat(auto-fill,minmax(56px,1fr))] gap-1.5 p-2.5"
               : view === "compact"
                 ? "flex flex-col gap-1 p-2"
                 : "flex flex-col gap-2 p-2"

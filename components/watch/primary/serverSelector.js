@@ -105,7 +105,7 @@ export default function ServerSelector({
 
   return (
     <div className="flex items-center gap-3 rounded-xl bg-as-card/60 ring-1 ring-white/[0.06] px-3 py-2">
-      <span className="hidden sm:block shrink-0 text-[10px] font-karla uppercase tracking-[0.15em] text-white/30">
+      <span className="hidden sm:block shrink-0 text-[11px] font-karla font-semibold uppercase tracking-[0.12em] text-white/60">
         {t("player.servers")}
       </span>
 
@@ -160,7 +160,7 @@ export default function ServerSelector({
               className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[13px] font-karla font-medium transition-colors duration-200 ${
                 isActive
                   ? "text-white"
-                  : "bg-white/[0.04] text-white/70 ring-1 ring-white/[0.07] hover:bg-white/[0.08] hover:text-white"
+                  : "bg-[#232735] text-white ring-1 ring-white/10 hover:bg-[#2c3142]"
               }`}
             >
               {labels[server.id]}
@@ -168,7 +168,7 @@ export default function ServerSelector({
                   franc quand il vient d'une lecture, en retrait sinon. */}
               <span
                 className="text-[10px] font-normal leading-none"
-                style={{ color: sp.color, opacity: measured ? 0.95 : 0.5 }}
+                style={{ color: sp.color, opacity: measured ? 1 : 0.8 }}
               >
                 {t(sp.labelKey).toLowerCase()}
               </span>
@@ -192,7 +192,7 @@ export default function ServerSelector({
               className={`relative rounded-[6px] px-2.5 py-1 text-[11px] font-karla font-semibold uppercase tracking-wide transition-colors ${
                 l === lang
                   ? "bg-white/10 text-white ring-1 ring-white/15"
-                  : "text-white/35 hover:text-white/70"
+                  : "text-white/60 hover:text-white"
               }`}
             >
               {t(LANG_LABELS[l])}
