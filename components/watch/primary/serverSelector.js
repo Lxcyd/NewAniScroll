@@ -11,9 +11,13 @@ const LANG_LABELS = {
   vf: "player.langVF",
 };
 
-// Le vert des anciens poincons "rapide" : il habille maintenant le nom de TOUS
-// les lecteurs, sans plus rien dire de leur vitesse.
-const TEXT = "#2dd47a";
+// Pas de couleur "de marque" sur ces noms : la barre est posee dans la trainee
+// des ambient lights, dont la teinte change a chaque plan — un vert, un bleu ou
+// un rose finit toujours par jurer avec l'image. Les deux gris de la palette du
+// site (ceux de details.tsx / episodeLists.tsx) tiennent sur n'importe quel
+// fond, et l'ecart entre les deux dit a lui seul quel lecteur est actif.
+const TEXT = "#c4c8d4";
+const TEXT_ACTIVE = "#f4f5f8";
 
 // La vitesse ne s'AFFICHE plus (ni mot, ni poincon, ni infobulle) : elle ne fait
 // plus qu'ordonner les chips, via useServerPerfRank. Les paliers rapide/moyen/
@@ -128,9 +132,11 @@ export default function ServerSelector({
                       }color-mix(in srgb, var(--brand-primary, #E94560) 20%, transparent)`,
                       boxShadow:
                         "inset 0 0 0 1px color-mix(in srgb, var(--brand-primary, #E94560) 70%, transparent)",
-                      color: TEXT,
+                      color: TEXT_ACTIVE,
                     }
-                  : { color: TEXT }
+                  : // Le fond s'assombrit au survol : le nom monte d'un cran en
+                    // meme temps, sinon la chip visee perdrait en lisibilite.
+                    { color: hovered === server.id ? TEXT_ACTIVE : TEXT }
               }
               className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[13px] font-karla font-medium transition-colors duration-200 ${
                 isActive
