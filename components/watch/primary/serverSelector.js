@@ -104,10 +104,13 @@ export default function ServerSelector({
   if (!servers.length) return null;
 
   return (
-    /* Au survol la barre s'assombrit franchement : les ambient lights du player
-       diffusent derriere elle, et un fond translucide laisse passer assez de
-       couleur pour gener la lecture des chips au moment ou on vise. */
-    <div className="group flex items-center gap-3 rounded-xl bg-as-card/60 hover:bg-[#0a0b10]/95 ring-1 ring-white/[0.06] px-3 py-2 transition-colors duration-200">
+    /* Fond OPAQUE, en hexa litteral : `bg-as-card/60` ne produisait aucune regle
+       — `as-card` vaut `var(--surface-card, …)` et Tailwind v3 ne sait pas y
+       injecter d'alpha (meme piege que les teintes d'accent plus bas). La barre
+       n'avait donc pas de fond du tout, et les ambient lights du player, qui
+       debordent largement sous la video, la delavaient entierement. Au survol on
+       descend encore d'un cran, au moment ou on vise une chip. */
+    <div className="group relative z-10 flex items-center gap-3 rounded-xl bg-[#14161f] hover:bg-[#080911] ring-1 ring-white/[0.06] px-3 py-2 transition-colors duration-200">
       <span className="hidden sm:block shrink-0 text-[11px] font-karla font-semibold uppercase tracking-[0.12em] text-white/60">
         {t("player.servers")}
       </span>
