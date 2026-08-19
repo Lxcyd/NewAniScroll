@@ -11,17 +11,14 @@ const LANG_LABELS = {
   vf: "player.langVF",
 };
 
-// Pas de couleur "de marque" sur ces noms : la barre est posee dans la trainee
-// des ambient lights, dont la teinte change a chaque plan — un vert, un bleu ou
-// un rose finit toujours par jurer avec l'image. Les deux gris de la palette du
-// site (ceux de details.tsx / episodeLists.tsx) tiennent sur n'importe quel
-// fond, et l'ecart entre les deux dit a lui seul quel lecteur est actif.
-// Le lecteur ACTIF, lui, prend l'accent du site — la meme couleur que son
-// liseré. Ce n'est pas une teinte choisie au hasard : elle suit le theme de
-// l'utilisateur, et c'est deja elle qui marque "en cours" partout ailleurs
-// (episode en lecture, onglet actif). Un blanc casse ne disait rien.
-const TEXT = "#c4c8d4";
-const TEXT_HOVER = "#f4f5f8";
+// Un bleu-lavande froid pour les lecteurs au repos. Froid, c'est ce qui compte :
+// les ambient lights du player sont presque toujours chaudes (peau, ciel, feu),
+// donc cette teinte s'en detache au lieu de s'y noyer comme un gris, et elle ne
+// rentre pas en concurrence avec le rose de l'accent — qui, lui, est reserve au
+// lecteur ACTIF, la meme couleur que son liseré et que le "en cours" du reste du
+// site. Peu saturee, elle reste lisible sur n'importe quelle image.
+const TEXT = "#a9b6e8";
+const TEXT_HOVER = "#dfe5ff";
 const TEXT_ACTIVE = "var(--brand-primary, #E94560)";
 
 // La vitesse ne s'AFFICHE plus (ni mot, ni poincon, ni infobulle) : elle ne fait
