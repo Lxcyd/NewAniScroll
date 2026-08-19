@@ -11,6 +11,10 @@ const LANG_LABELS = {
   vf: "player.langVF",
 };
 
+// Le vert des anciens poincons "rapide" : il habille maintenant le nom de TOUS
+// les lecteurs, sans plus rien dire de leur vitesse.
+const TEXT = "#2dd47a";
+
 // La vitesse ne s'AFFICHE plus (ni mot, ni poincon, ni infobulle) : elle ne fait
 // plus qu'ordonner les chips, via useServerPerfRank. Les paliers rapide/moyen/
 // lent et la lecture live du contexte n'ont donc plus de lecteur ici — ils
@@ -67,6 +71,7 @@ export default function ServerSelector({
     visibleByLang[l].some((s) => s.id === activeServer)
   );
   const [picked, setPicked] = useState(null);
+  const [hovered, setHovered] = useState(null);
   const lang =
     (picked && visibleByLang[picked] && picked) || activeLang || available[0];
 
@@ -102,32 +107,38 @@ export default function ServerSelector({
               key={server.id}
               type="button"
               onClick={() => onChange(server.id)}
+              onMouseEnter={() => setHovered(server.id)}
+              onMouseLeave={() => setHovered(null)}
               // Les teintes de l'accent passent par color-mix en style inline :
               // `action` vaut `var(--brand-primary, …)`, et Tailwind v3 ne sait
               // pas injecter d'alpha dans une var() — `bg-action/20` ne genere
               // AUCUNE regle. Meme piege que LangPreferenceModal documente.
+              //
+              // Le survol de la chip ACTIVE doit l'assombrir comme les autres, et
+              // un `hover:` Tailwind ne peut pas : le fond est pose ici, en
+              // inline, donc il gagne toujours. D'ou l'etat de survol tenu en
+              // React — un voile noir se superpose a la teinte d'accent.
               style={
                 isActive
                   ? {
-                      background:
-                        "color-mix(in srgb, var(--brand-primary, #E94560) 20%, transparent)",
+                      background: `${
+                        hovered === server.id
+                          ? "linear-gradient(rgba(0,0,0,0.4), rgba(0,0,0,0.4)), "
+                          : ""
+                      }color-mix(in srgb, var(--brand-primary, #E94560) 20%, transparent)`,
                       boxShadow:
                         "inset 0 0 0 1px color-mix(in srgb, var(--brand-primary, #E94560) 70%, transparent)",
+                      color: TEXT,
                     }
-                  : undefined
+                  : { color: TEXT }
               }
               className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[13px] font-karla font-medium transition-colors duration-200 ${
                 isActive
-                  ? // La chip active repond aussi au survol : sans retour, elle
-                    // avait l'air morte. Son fond etant une teinte d'accent posee
-                    // en inline, on l'eclaircit au filtre plutot que par une
-                    // seconde couleur a tenir en phase.
-                    "text-white hover:brightness-125"
+                  ? ""
                   : // Le survol ASSOMBRIT la chip visee (il ne l'eclaircit pas) :
                     // sur une barre posee sous des ambient lights, un creux se lit
-                    // mieux qu'une bosse. Le texte reste blanc, la lisibilite ne
-                    // baisse pas au moment ou on vise.
-                    "bg-[#232735]/55 text-white ring-1 ring-white/10 hover:bg-[#0e1016]/40 hover:ring-white/20"
+                    // mieux qu'une bosse.
+                    "bg-[#232735]/55 ring-1 ring-white/10 hover:bg-[#0e1016]/40 hover:ring-white/20"
               }`}
             >
               {labels[server.id]}
