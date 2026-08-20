@@ -333,12 +333,10 @@ body,
 .as-epbar-ctl:hover {
   background: rgba(255, 255, 255, 0.08);
 }
-/* `:focus-within` et non `:focus` : la meme regle sert au champ de
-   recherche (qui prend le focus lui-meme) et au declencheur de saison. Sans
-   cadre a colorer, c'est l'aplat qui prend la teinte accent. */
-.as-epbar-ctl:focus-within {
-  background: color-mix(in srgb, var(--brand-primary, #ff3b5c) 14%, transparent);
-}
+/* Pas d'etat de focus : la teinte accent restait collee au bouton apres le
+   clic, longtemps apres que l'action ait eu lieu. Le survol suffit a dire
+   qu'on vise une commande, et le resultat du clic (menu ouvert, vue changee)
+   se voit ailleurs. */
 /* Un seul niveau de texte sur toute la rangee : le blanc du nom de saison.
    Le gris sourd hierarchisait par la couleur ce que l'aplat hierarchise deja
    par le survol, et faisait lire la moitie des commandes comme desactivees.

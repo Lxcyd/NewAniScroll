@@ -167,20 +167,16 @@ export default function ServerSelector({
               key={l}
               type="button"
               onClick={() => setPicked(l)}
-              /* L'onglet choisi porte l'accent, comme la chip de lecteur juste
-                 au-dessus. En blanc translucide, son liseré prenait la couleur
-                 de ce qui passe derriere : sur une scene bleue — la moitie des
-                 animes — il ressortait bleu.
-                 Inline et non en classes : Tailwind ne sait pas injecter
-                 d'alpha dans une var(), donc pas de `ring-action/60` (meme
-                 piege que la chip et que LangPreferenceModal). */
+              /* L'onglet choisi reste blanc — c'est un choix de NAVIGATION, pas
+                 le lecteur en cours (que designe la pastille d'accent). Mais son
+                 fond est opaque : en blanc translucide sur un conteneur lui-meme
+                 translucide, le liseré laissait passer la video et sortait bleu
+                 sur une scene bleue. */
               style={
                 l === lang
                   ? {
-                      background:
-                        "color-mix(in srgb, var(--brand-primary, #E94560) 18%, transparent)",
-                      boxShadow:
-                        "inset 0 0 0 1px color-mix(in srgb, var(--brand-primary, #E94560) 60%, transparent)",
+                      background: "#2b3040",
+                      boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.16)",
                     }
                   : undefined
               }
