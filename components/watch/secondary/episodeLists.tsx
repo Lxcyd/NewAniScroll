@@ -965,21 +965,22 @@ export default function EpisodeLists({
                    gauche, titre en gras italique, resume en dessous. Et son
                    survol, qui manquait ici : la carte grossit d'un poil, prend
                    un liseré blanc et une ombre — c'est ce mouvement qui dit
-                   qu'une ligne est cliquable, l'episode en cours (liseré
-                   accent) etant justement le seul a ne pas l'etre. */
+                   qu'une ligne est cliquable. L'episode en cours grossit lui
+                   aussi — une carte inerte au milieu de cartes vivantes se lit
+                   comme un bug — mais garde son liseré accent, son curseur par
+                   defaut, et son clic ne mene nulle part : on y est deja. */
                 <Link
                   key={`detailed-${item.id}`}
                   href={hrefFor(item)}
                   data-playing={f.playing ? "" : undefined}
+                  onClick={f.playing ? (e) => e.preventDefault() : undefined}
                   /* Pas de `scale-100` au repos : une transform, meme neutre,
                      compose l'element sur sa propre couche, et Chrome rogne
                      alors les coins arrondis sans anticrenelage — d'ou les
                      bords en escalier. La carte reste donc sans transform tant
                      qu'on ne la survole pas. */
-                  className={`bg-secondary group relative flex h-[110px] w-full rounded-lg transition-transform duration-300 ease-out ${
-                    f.playing
-                      ? "pointer-events-none"
-                      : "cursor-pointer hover:scale-[1.02]"
+                  className={`bg-secondary group relative flex h-[110px] w-full rounded-lg transition-transform duration-300 ease-out hover:scale-[1.02] ${
+                    f.playing ? "cursor-default" : "cursor-pointer"
                   }`}
                 >
                   <div className="relative h-[110px] w-[43%] shrink-0 overflow-hidden rounded-lg shadow-[4px_0px_5px_0px_rgba(0,0,0,0.3)] lg:w-[42%]">
