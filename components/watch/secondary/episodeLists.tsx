@@ -122,15 +122,15 @@ function ViewIcon({ view }: { view: View }) {
 }
 
 /**
- * "23:40 min" — la lecture minutes:secondes du lecteur, suivie de son unite.
- * L'unite remplace l'ancienne pastille d'horloge : seul, dans une liste ou
- * tout est deja numerote, un "23:40" se lisait comme un horaire.
+ * "23:40" — la lecture minutes:secondes du lecteur. Elle se passe d'unite
+ * comme d'icone : posee dans son cadre, au coin de la vignette, elle occupe la
+ * place ou une duree se lit sur n'importe quelle carte video.
  */
 function humanRuntime(seconds: number): string {
   const total = Math.round(seconds);
   const m = Math.floor(total / 60);
   const s = total % 60;
-  return `${m}:${String(s).padStart(2, "0")} min`;
+  return `${m}:${String(s).padStart(2, "0")}`;
 }
 
 /* Ces deux composants s'abonnent EUX-MEMES aux remontees du lecteur et
@@ -308,11 +308,15 @@ function Runtime({
   return (
     <p
       ref={ref}
-      className="flex items-center gap-1.5 font-outfit text-xs font-light tabular-nums"
+      className="inline-flex items-center gap-1 rounded-md border px-1.5 py-[2px] font-outfit text-[11px] font-light tabular-nums"
       // L'episode qu'on est en train de regarder garde sa duree, meme s'il a
       // deja ete termine un jour : c'est celle-la qu'on veut sous les yeux
       // pendant une rediffusion.
-      style={{ color: done && !live ? T.green : live ? undefined : T.txt3 }}
+      style={
+        done && !live
+          ? { color: T.green, borderColor: "rgba(45,212,122,0.35)" }
+          : { color: T.txt3, borderColor: T.line2 }
+      }
     >
       {done && !live ? (
         <>
@@ -1020,27 +1024,34 @@ export default function EpisodeLists({
                   </div>
 
                   <div
-                    className={`flex h-full w-full select-none flex-col gap-2 overflow-x-hidden p-4 ${
+                    className={`flex h-full w-full select-none flex-col gap-1.5 overflow-hidden p-3.5 ${
                       f.playing ? "text-[#7a7a7a]" : ""
                     }`}
                   >
-                    <h1 className="line-clamp-1 font-karla font-bold italic">
+                    {/* Un titre long passe a la ligne au lieu d'etre coupe :
+                        deux lignes tiennent dans la hauteur de la vignette, et
+                        c'est la moitie des titres d'episodes. */}
+                    <h1 className="line-clamp-2 font-karla text-[14px] font-bold italic leading-[1.3]">
                       {f.title}
                     </h1>
-                    {/* La duree remplace le resume : "Episode 1" sous un titre
-                        qui dit deja l'episode ne servait a rien. */}
-                    <Runtime
-                      aniId={info.id}
-                      episode={item.number}
-                      malId={info?.idMal ?? null}
-                      live={f.playing}
-                      known={f.known}
-                      done={f.done}
-                      doneLabel={t("anime.episodeDone")}
-                      anchor={anchor}
-                      estimate={f.estimate}
-                      onMeasured={reportRuntime}
-                    />
+                    {/* La duree remplace le resume ("Episode 1" sous un titre
+                        qui dit deja l'episode ne servait a rien) et se pose en
+                        bas a droite, la ou une duree se lit sur n'importe
+                        quelle carte video. */}
+                    <div className="mt-auto self-end">
+                      <Runtime
+                        aniId={info.id}
+                        episode={item.number}
+                        malId={info?.idMal ?? null}
+                        live={f.playing}
+                        known={f.known}
+                        done={f.done}
+                        doneLabel={t("anime.episodeDone")}
+                        anchor={anchor}
+                        estimate={f.estimate}
+                        onMeasured={reportRuntime}
+                      />
+                    </div>
                   </div>
 
                   {/* Liseré de l'episode en cours, pose en calque PAR-DESSUS la
