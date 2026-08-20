@@ -819,7 +819,7 @@ export default function EpisodeLists({
               stroke="currentColor"
               strokeWidth={2}
               className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2"
-              style={{ color: "rgba(244,245,248,0.5)" }}
+              style={{ color: T.txt0 }}
             >
               <circle cx="11" cy="11" r="7" />
               <path d="m20 20-3.5-3.5" />
