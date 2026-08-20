@@ -122,17 +122,15 @@ function ViewIcon({ view }: { view: View }) {
 }
 
 /**
- * Duree ecrite en toutes lettres — "23 min 40", et "24 min" tout court quand
- * elle tombe juste. L'unite remplace l'ancienne pastille d'horloge : un "23:40"
- * seul dans une liste ou tout est numerote se lisait comme un compte a rebours
- * ou un horaire, alors que "min" ne laisse aucun doute. Les secondes restent :
- * c'est la duree du fichier, mesuree, pas un arrondi.
+ * "23:40 min" — la lecture minutes:secondes du lecteur, suivie de son unite.
+ * L'unite remplace l'ancienne pastille d'horloge : seul, dans une liste ou
+ * tout est deja numerote, un "23:40" se lisait comme un horaire.
  */
 function humanRuntime(seconds: number): string {
   const total = Math.round(seconds);
   const m = Math.floor(total / 60);
   const s = total % 60;
-  return s ? `${m} min ${String(s).padStart(2, "0")}` : `${m} min`;
+  return `${m}:${String(s).padStart(2, "0")} min`;
 }
 
 /* Ces deux composants s'abonnent EUX-MEMES aux remontees du lecteur et
