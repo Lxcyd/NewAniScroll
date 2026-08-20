@@ -445,10 +445,10 @@ export default function EpisodeLists({
     const box = listRef.current;
     const row = box?.querySelector<HTMLElement>("[data-playing]");
     if (!box || !row) return;
-    box.scrollTop = Math.max(
-      0,
-      row.offsetTop - (box.clientHeight - row.offsetHeight) / 2,
-    );
+    // En HAUT du panneau, pas au centre : la ligne en cours devient la premiere
+    // qu'on lit, et tout ce qui suit — l'episode suivant, surtout — se trouve
+    // dessous, dans le sens de la lecture.
+    box.scrollTop = Math.max(0, row.offsetTop - 8);
   }, [watchId, view, desc, query, episode?.length, track?.playing?.number]);
 
   /* Season siblings, fetched after mount from the edge-cached route rather
@@ -506,31 +506,33 @@ export default function EpisodeLists({
   const padTo = String(last ?? episode?.length ?? 1).length;
 
   /* Recherche et ordre d'affichage.
-     La recherche accepte les deux formes qu'on a en tete devant une liste : un
-     NUMERO ("12", et "1" ne doit alors pas ramener 1, 10, 11, 12…) ou un
-     morceau de TITRE, accents ignores. La comparaison se fait sur le titre
-     affiche, celui du fournisseur — chercher un mot qu'on ne voit nulle part
-     dans la liste ne rendrait service a personne. */
+     Un chiffre se cherche comme un MOTIF, pas comme une valeur : taper "1"
+     doit ramener 1, 01, 11, 21… — c'est ainsi qu'on cherche dans une liste
+     numerotee, en tapant ce qu'on voit ecrit sur la vignette. Le motif est
+     donc compare a la fois au numero nu et au numero pade, sinon "01" ne
+     trouverait rien sur une serie a deux chiffres. Le texte, lui, se compare
+     au titre affiche — celui du fournisseur — accents ignores : chercher un
+     mot qu'on ne voit nulle part dans la liste ne rendrait service a
+     personne. */
   const shown = useMemo(() => {
     let rows = episode ?? [];
     const q = query.trim().toLowerCase();
     if (q) {
-      const asNumber = /^\d+$/.test(q) ? parseInt(q, 10) : null;
+      const flat = (s: string) =>
+        s.toLowerCase().normalize("NFD").replace(RE_DIACRITICS, "");
+      const needle = flat(q);
+      const digits = /^\d+$/.test(q);
       rows = rows.filter((item) => {
-        if (asNumber != null && item.number === asNumber) return true;
+        if (digits) {
+          const n = String(item.number);
+          if (n.includes(q) || n.padStart(padTo, "0").includes(q)) return true;
+        }
         const title = map?.find((i: any) => i.number === item.number)?.title;
-        return (
-          !!title &&
-          String(title)
-            .toLowerCase()
-            .normalize("NFD")
-            .replace(RE_DIACRITICS, "")
-            .includes(q.normalize("NFD").replace(RE_DIACRITICS, ""))
-        );
+        return !!title && flat(String(title)).includes(needle);
       });
     }
     return desc ? [...rows].reverse() : rows;
-  }, [episode, map, query, desc]);
+  }, [episode, map, query, desc, padTo]);
 
   /* Duree de reference de la saison, agregee au fil des mesures qui remontent
      des lignes. Elle sert deux fois : a combler les episodes que personne n'a
@@ -755,7 +757,7 @@ export default function EpisodeLists({
             </div>
           )}
 
-          <div className="flex min-w-0 items-baseline gap-1.5">
+          <div className="flex min-w-0 shrink-0 items-baseline gap-1.5">
             <span className="text-[13px] font-semibold" style={{ color: T.txt0 }}>
               {t("anime.episodes")}
             </span>
@@ -769,24 +771,50 @@ export default function EpisodeLists({
             )}
           </div>
 
-          {/* One button that cycles the three views, same control as the info
-              page. The icon shows the view you are IN, and the label names it
-              plus the action — a bare "next" icon would leave you guessing
-              what you are looking at. */}
-          {/* Ordre de lecture. La fleche montre le sens ACTUEL, l'infobulle
-              annonce ce qu'un clic ferait — un episode 1 en bas de liste sans
-              rien pour l'expliquer se lit comme un bug. */}
+          {/* Recherche, tenue au minimum : elle vit dans l'en-tete, a la suite
+              du compte d'episodes, et s'elargit a la saisie. Une barre pleine
+              largeur volait une ligne de liste en permanence pour un usage
+              occasionnel. Numero ou titre — et elle FILTRE plutot que de
+              sauter : sur une serie longue, voir les trois lignes qui
+              correspondent vaut mieux que d'etre depose au milieu de mille
+              autres. */}
+          <div className="relative ml-1.5 min-w-0 flex-1">
+            <svg
+              width="12"
+              height="12"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+              className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2"
+              style={{ color: T.txt3 }}
+            >
+              <circle cx="11" cy="11" r="7" />
+              <path d="m20 20-3.5-3.5" />
+            </svg>
+            <input
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder={t("anime.searchEpisode")}
+              aria-label={t("anime.searchEpisode")}
+              className="h-[26px] w-full max-w-[104px] rounded-lg border pl-[26px] pr-2 text-[11.5px] outline-none transition-[max-width] duration-200 focus:max-w-full"
+              style={{ background: T.bg2, borderColor: T.line, color: T.txt0 }}
+            />
+          </div>
+
+          {/* Ordre de lecture. La fleche montre le sens ACTUEL, et l'infobulle
+              annonce ce qu'un clic ferait. Volontairement SANS accent quand il
+              est inverse : l'accent, sur cette page, ne designe que l'episode
+              en cours — l'etaler sur un bouton d'affichage lui ferait perdre
+              ce sens. */}
           <button
             type="button"
             onClick={toggleOrder}
             title={desc ? t("anime.sortDesc") : t("anime.sortAsc")}
             aria-label={desc ? t("anime.sortAsc") : t("anime.sortDesc")}
-            className="ml-auto grid h-[26px] w-[28px] shrink-0 place-items-center rounded-lg border transition-colors"
-            style={{
-              background: T.bg2,
-              borderColor: desc ? ACCENT_BORDER : T.line,
-              color: desc ? ACCENT : T.txt0,
-            }}
+            className="grid h-[26px] w-[28px] shrink-0 place-items-center rounded-lg border transition-colors"
+            style={{ background: T.bg2, borderColor: T.line, color: T.txt0 }}
           >
             <svg
               width="14"
@@ -814,45 +842,6 @@ export default function EpisodeLists({
           >
             <ViewIcon view={view} />
           </button>
-        </div>
-
-        {/* ── Recherche ──
-            Numero ou titre. Elle FILTRE la liste au lieu d'y sauter : sur une
-            serie longue, voir les trois lignes qui correspondent vaut mieux
-            que d'etre depose au milieu de mille autres. */}
-        <div
-          className="flex shrink-0 items-center gap-2 border-b px-2.5 py-2"
-          style={{ borderColor: T.line }}
-        >
-          <div className="relative flex-1">
-            <svg
-              width="13"
-              height="13"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={2}
-              className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2"
-              style={{ color: T.txt3 }}
-            >
-              <circle cx="11" cy="11" r="7" />
-              <path d="m20 20-3.5-3.5" />
-            </svg>
-            <input
-              type="search"
-              inputMode="text"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder={t("anime.searchEpisode")}
-              aria-label={t("anime.searchEpisode")}
-              className="w-full rounded-lg border py-1 pl-7 pr-2 text-[12px] outline-none focus:ring-1"
-              style={{
-                background: T.bg2,
-                borderColor: T.line,
-                color: T.txt0,
-              }}
-            />
-          </div>
         </div>
 
         {/* ── List ──
