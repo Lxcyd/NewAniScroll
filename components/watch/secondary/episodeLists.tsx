@@ -17,6 +17,7 @@ import {
   ProgressEntry,
   ProgressTick,
 } from "@/lib/watch/progress";
+import { peekRuntime, queueRuntime } from "@/lib/watch/episodeRuntime";
 
 type EpisodeListsProps = {
   info: AniListInfoTypes;
@@ -26,6 +27,8 @@ type EpisodeListsProps = {
   episode: Episode[];
   track: any;
   dub: string;
+  /** Lecteur actif — la duree exacte se mesure sur SON fichier. */
+  server?: string;
 };
 
 type SeasonRow = {
@@ -168,33 +171,105 @@ function ProgressBar({
   );
 }
 
-/** Duree de l'episode. Passe de l'estimation AniList a la duree exacte des
- *  que le lecteur a charge le fichier. */
+/**
+ * Duree de l'episode, par ordre de fiabilite :
+ *
+ *   1. l'episode EN COURS la tient du lecteur lui-meme, en direct ;
+ *   2. un episode deja ouvert sur cet appareil l'a laissee dans le store de
+ *      reprise ;
+ *   3. les autres la font mesurer sur le manifeste du serveur actif — mais
+ *      seulement une fois la ligne A L'ECRAN (cf. lib/watch/episodeRuntime),
+ *      pour qu'ouvrir une longue serie ne declenche pas une rafale de scrapes ;
+ *   4. a defaut, la moyenne annoncee par AniList, precedee d'un "~" pour ne
+ *      pas faire passer une estimation pour la duree du fichier.
+ */
 function Runtime({
   aniId,
   episode,
+  server,
+  sub,
+  title,
+  malId,
   live,
-  initial,
+  known,
+  estimate,
 }: {
   aniId: number | string;
   episode: number;
+  server?: string;
+  sub: "sub" | "dub";
+  title?: string | null;
+  malId?: number | string | null;
   live: boolean;
-  initial: string;
+  known: number | null;
+  estimate: string | null;
 }) {
-  const ref = useRef<HTMLSpanElement>(null);
+  const ref = useRef<HTMLParagraphElement>(null);
+  const [exact, setExact] = useState<number | null>(known);
+
+  // 1. Le lecteur, pour l'episode en cours.
   useEffect(() => {
     if (!live) return;
     const onTick = (e: Event) => {
       const d = (e as CustomEvent<ProgressTick>).detail;
       if (!d || String(d.aniId) !== String(aniId)) return;
       if (Number(d.episode) !== Number(episode)) return;
-      if (!ref.current || !(d.duration > 0)) return;
-      ref.current.textContent = mmss(d.duration);
+      if (!(d.duration > 0)) return;
+      setExact((prev) => (prev === d.duration ? prev : d.duration));
     };
     window.addEventListener(PROGRESS_EVENT, onTick);
     return () => window.removeEventListener(PROGRESS_EVENT, onTick);
   }, [aniId, episode, live]);
-  return <span ref={ref}>{initial}</span>;
+
+  // 3. La mesure sur le manifeste, differee jusqu'a ce que la ligne soit vue.
+  useEffect(() => {
+    if (live || exact != null || !server || !ref.current) return;
+    const cached = peekRuntime({ aniId, episode, server, sub });
+    if (cached != null) {
+      setExact(cached);
+      return;
+    }
+    const el = ref.current;
+    const ac = new AbortController();
+    let done = false;
+    const io = new IntersectionObserver((entries) => {
+      if (done || !entries.some((en) => en.isIntersecting)) return;
+      done = true;
+      io.disconnect();
+      queueRuntime({ aniId, episode, server, sub, title, malId }, ac.signal).then(
+        (s) => s != null && setExact(s),
+      );
+    });
+    io.observe(el);
+    return () => {
+      io.disconnect();
+      ac.abort();
+    };
+  }, [aniId, episode, server, sub, title, malId, live, exact]);
+
+  const text = exact != null ? mmss(exact) : estimate;
+  if (!text) return null;
+  return (
+    <p
+      ref={ref}
+      className="flex items-center gap-1.5 font-outfit text-xs font-light tabular-nums"
+      style={{ color: live ? undefined : T.txt3 }}
+    >
+      <svg
+        width="12"
+        height="12"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={2}
+        className="shrink-0"
+      >
+        <circle cx="12" cy="12" r="9" />
+        <path d="M12 7v5l3 2" />
+      </svg>
+      {text}
+    </p>
+  );
 }
 
 export default function EpisodeLists({
@@ -205,6 +280,7 @@ export default function EpisodeLists({
   episode,
   track,
   dub,
+  server,
 }: EpisodeListsProps) {
   // Watched-episode count for the "seen" bar. Source of truth must match the
   // rest of the app: the LOCAL list when sync is off / guest (the editor and
@@ -308,6 +384,15 @@ export default function EpisodeLists({
      restent alignes en colonne quelle que soit la longueur de la serie. */
   const padTo = String(last ?? episode?.length ?? 1).length;
 
+  /* L'episode en cours se reconnait a son NUMERO. `watchId` ne peut plus servir
+     a ça : c'est devenu la cle de la liste de visionnage (`{aniId}-{num}`),
+     alors que les lignes portent l'id du fournisseur ("animesama-ansembed-1").
+     La comparaison echouait donc a tous les coups — plus de liseré, plus de
+     vignette assombrie, et surtout plus rien pour designer la ligne qui doit
+     suivre la lecture en direct. Le repli sur `watchId` reste pour le cas ou la
+     navigation n'est pas encore resolue. */
+  const playingNumber = Number(track?.playing?.number);
+
   function hrefFor(item: Episode) {
     return `/en/anime/watch/${info.id}/${providerId}?id=${encodeURIComponent(
       item.id,
@@ -339,7 +424,9 @@ export default function EpisodeLists({
       mapData,
       parsedImage,
       watched,
-      playing: item.id == watchId,
+      playing: Number.isFinite(playingNumber)
+        ? item.number === playingNumber
+        : item.id == watchId,
       // Fini = pleine. Un episode compte pour vu soit parce que la liste le
       // dit, soit parce que la position sauvegardee est arrivee au bout (le
       // lecteur ecrit time = duration a la fin de l'episode).
@@ -349,17 +436,14 @@ export default function EpisodeLists({
         : fixApostrophes(mapData?.title) ||
           `${t("common.episode")} ${item?.number}`,
       pad: String(item.number).padStart(padTo, "0"),
-      /* Duree affichee. Exacte des qu'on connait le fichier — c'est le lecteur
-         qui l'a mesuree, sur le serveur ou l'episode a ete ouvert. Sinon on
-         retombe sur la moyenne annoncee par AniList, et le "~" dit que c'est
-         une estimation plutot que de faire passer un chiffre approximatif pour
-         la duree reelle. */
-      runtime:
-        store && store.duration > 0
-          ? mmss(store.duration)
-          : info?.duration
-            ? `~${t("home.minutesShort", { count: info.duration })}`
-            : null,
+      /* Duree deja mesuree par le lecteur sur cet appareil, s'il y en a une ;
+         <Runtime> se charge d'aller chercher les autres. Le "~" de l'estimation
+         AniList evite de faire passer une moyenne de serie pour la duree du
+         fichier. */
+      known: store && store.duration > 0 ? store.duration : null,
+      estimate: info?.duration
+        ? `~${t("home.minutesShort", { count: info.duration })}`
+        : null,
     };
   }
 
@@ -670,31 +754,17 @@ export default function EpisodeLists({
                     </h1>
                     {/* La duree remplace le resume : "Episode 1" sous un titre
                         qui dit deja l'episode ne servait a rien. */}
-                    {f.runtime && (
-                      <p
-                        className="flex items-center gap-1.5 font-outfit text-xs font-light tabular-nums"
-                        style={{ color: f.playing ? undefined : T.txt3 }}
-                      >
-                        <svg
-                          width="12"
-                          height="12"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth={2}
-                          className="shrink-0"
-                        >
-                          <circle cx="12" cy="12" r="9" />
-                          <path d="M12 7v5l3 2" />
-                        </svg>
-                        <Runtime
-                          aniId={info.id}
-                          episode={item.number}
-                          live={f.playing}
-                          initial={f.runtime}
-                        />
-                      </p>
-                    )}
+                    <Runtime
+                      aniId={info.id}
+                      episode={item.number}
+                      server={server}
+                      sub={dub ? "dub" : "sub"}
+                      title={info?.title?.romaji || info?.title?.english}
+                      malId={info?.idMal ?? null}
+                      live={f.playing}
+                      known={f.known}
+                      estimate={f.estimate}
+                    />
                   </div>
                 </Link>
               );
