@@ -167,10 +167,25 @@ export default function ServerSelector({
               key={l}
               type="button"
               onClick={() => setPicked(l)}
-              className={`relative rounded-[6px] px-2.5 py-1 text-[11px] font-karla font-semibold uppercase tracking-wide transition-colors ${
+              /* L'onglet choisi porte l'accent, comme la chip de lecteur juste
+                 au-dessus. En blanc translucide, son liseré prenait la couleur
+                 de ce qui passe derriere : sur une scene bleue — la moitie des
+                 animes — il ressortait bleu.
+                 Inline et non en classes : Tailwind ne sait pas injecter
+                 d'alpha dans une var(), donc pas de `ring-action/60` (meme
+                 piege que la chip et que LangPreferenceModal). */
+              style={
                 l === lang
-                  ? "bg-white/10 text-white ring-1 ring-white/15"
-                  : "text-white/60 hover:text-white"
+                  ? {
+                      background:
+                        "color-mix(in srgb, var(--brand-primary, #E94560) 18%, transparent)",
+                      boxShadow:
+                        "inset 0 0 0 1px color-mix(in srgb, var(--brand-primary, #E94560) 60%, transparent)",
+                    }
+                  : undefined
+              }
+              className={`relative rounded-[6px] px-2.5 py-1 text-[11px] font-karla font-semibold uppercase tracking-wide transition-colors ${
+                l === lang ? "text-white" : "text-white/60 hover:text-white"
               }`}
             >
               {t(LANG_LABELS[l])}
