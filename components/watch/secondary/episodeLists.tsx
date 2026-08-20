@@ -721,21 +721,11 @@ export default function EpisodeLists({
                      alors les coins arrondis sans anticrenelage — d'ou les
                      bords en escalier. La carte reste donc sans transform tant
                      qu'on ne la survole pas. */
-                  className={`bg-secondary flex h-[110px] w-full rounded-lg transition-all duration-300 ease-out ${
+                  className={`bg-secondary relative flex h-[110px] w-full rounded-lg transition-all duration-300 ease-out ${
                     f.playing
                       ? "pointer-events-none"
                       : "cursor-pointer ring-0 ring-white hover:scale-[1.02] hover:shadow-lg hover:ring-1"
                   }`}
-                  /* Liseré de l'episode en cours en ombre INTERNE plutot qu'en
-                     `ring` : le ring est peint hors de la boite, sur le bord
-                     exterieur du rayon, la ou Chrome escalade visiblement le
-                     trait d'un pixel. A l'interieur, il suit le meme arrondi
-                     que le fond de la carte et sort net. */
-                  style={
-                    f.playing
-                      ? { boxShadow: `inset 0 0 0 1.5px ${ACCENT}` }
-                      : undefined
-                  }
                 >
                   <div className="relative h-[110px] w-[43%] shrink-0 overflow-hidden rounded-lg shadow-[4px_0px_5px_0px_rgba(0,0,0,0.3)] lg:w-[42%]">
                     {hasArt && f.parsedImage && (
@@ -808,6 +798,22 @@ export default function EpisodeLists({
                       onMeasured={reportRuntime}
                     />
                   </div>
+
+                  {/* Liseré de l'episode en cours, pose en calque PAR-DESSUS la
+                      carte : la vignette est collee au bord gauche, donc un
+                      trait peint dans le fond passerait derriere elle. Et il
+                      est trace en ombre INTERNE de ce calque plutot qu'en
+                      `ring` — un ring est peint hors de la boite, sur le bord
+                      exterieur du rayon, la ou Chrome escalade le trait d'un
+                      pixel ; a l'interieur il suit exactement le meme arrondi
+                      et sort net. */}
+                  {f.playing && (
+                    <span
+                      aria-hidden
+                      className="pointer-events-none absolute inset-0 rounded-lg"
+                      style={{ boxShadow: `inset 0 0 0 1.5px ${ACCENT}` }}
+                    />
+                  )}
                 </Link>
               );
             })
