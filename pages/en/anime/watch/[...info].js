@@ -48,7 +48,8 @@ import { requestSource } from "@/lib/watch/sourceRequest";
 import { replaceUrlPreservingState } from "@/lib/navigation/replaceUrl";
 import { getPrefetchedEpisodes, setPrefetchedEpisodes, clearPrefetchedEpisodesFor } from "@/lib/watch/episodePrefetch";
 import { getPrefetchedInfo, clearPrefetchedInfoFor } from "@/lib/watch/infoPrefetch";
-import { markComplete } from "@/lib/watch/progress";
+import { markComplete, getProgress, isCompleted } from "@/lib/watch/progress";
+import { getSyncPrefs } from "@/lib/prefs/syncPrefs";
 import { anilistFetch } from "@/lib/anilist/anilistFetch";
 import Link from "next/link";
 import MobileNav from "@/components/shared/MobileNav";
@@ -1135,8 +1136,13 @@ export default function Watch({
   // for still-releasing shows (matches the list editor's logic). Called both
   // by the player's natural `ended` (HLS) and on advancing to the next episode
   // (covers iframe servers like Megaplay that have no <video> element).
+  /* Episodes dont le lecteur a DECLARE la fin pendant cette visite (ED atteint,
+     ou seuil de validation franchi). C'est la preuve que le passage a l'episode
+     suivant, lui, n'apporte pas : cf. l'effet d'avancement plus bas. */
+  const firedCompleteRef = useRef(new Set());
   const handleEpisodeComplete = useCallback(
     ({ aniListId, episodeNumber }) => {
+      firedCompleteRef.current.add(`${aniListId}:${episodeNumber}`);
       const total =
         info?.episodes ??
         (info?.nextAiringEpisode?.episode
@@ -1182,14 +1188,29 @@ export default function Watch({
     setRatingModalState((prev) => (prev.isOpen ? prev : { ...prev, isOpen: true }));
   }, [setRatingModalState]);
 
-  // ── Mark the previous episode complete when advancing ────────
-  // When the user moves on to the next episode (N → N+1), the one they just
-  // left is, by definition, finished — so we pin its progress to the end. That
-  // makes the home/info "continue watching" show the right next episode and
-  // keeps a future rewatch starting clean from 0 (see lib/watch/progress.ts).
-  // Only forward moves count; jumping BACK to an earlier episode must not wipe
-  // a genuine mid-episode resume point. The natural end-of-video case is
-  // handled inside the player itself via `markComplete` on `ended`.
+  /* ── Valider l'episode quitte, mais seulement s'il a ete REGARDE ──────
+   *
+   * Avancer d'un episode ne prouve rien : sauter de l'episode 1 a l'episode 2
+   * apres dix secondes n'a jamais voulu dire qu'on avait vu le premier. C'est
+   * pourtant ce que faisait cet effet — tout mouvement N → N+1 epinglait
+   * l'episode precedent a sa fin, donc "vu" dans la liste, sur la page
+   * d'accueil et jusque dans le pousse AniList.
+   *
+   * La validation suit desormais la MEME regle que le lecteur (Reglages →
+   * Synchronisation) : l'ED atteint, ou a defaut la fraction de l'episode
+   * regardee. Deux chemins mènent au meme verdict :
+   *
+   *   - le lecteur a deja declare la fin pendant cette visite (`firedComplete`),
+   *     ce qui couvre l'ED comme le seuil ;
+   *   - sinon on relit la position sauvegardee et on la compare au seuil, ce
+   *     qui couvre une visite anterieure ou un onglet rouvert.
+   *
+   * Sans aucune position enregistree, il n'y a rien a valider : c'est le cas
+   * des serveurs en iframe, ou aucun <video> ne nous appartient et ou personne
+   * ne peut dire ce qui a ete regarde.
+   *
+   * Seuls les mouvements EN AVANT sont concernes ; revenir en arriere ne doit
+   * pas effacer un point de reprise legitime. */
   const prevEpiRef = useRef(null);
   useEffect(() => {
     const ep = parseInt(epiNumber, 10);
@@ -1202,12 +1223,21 @@ export default function Watch({
       Number.isFinite(ep) &&
       ep === prev.ep + 1
     ) {
-      markComplete(id, prev.ep);
-      // Advancing to the next episode = the previous one is watched. Drive the
-      // list sync from here (not just the player's `ended`) so it ALSO works
-      // for iframe servers like Megaplay, which have no <video> element to fire
-      // `ended`. handleEpisodeComplete updates the local list + optional push.
-      handleEpisodeComplete({ aniListId: id, episodeNumber: prev.ep });
+      const entry = getProgress(id, prev.ep);
+      const threshold = getSyncPrefs().syncThreshold;
+      const watchedEnough =
+        isCompleted(entry) ||
+        (entry?.duration > 0 && entry.time / entry.duration >= threshold);
+      if (firedCompleteRef.current.has(`${id}:${prev.ep}`) || watchedEnough) {
+        // Epingler la progression a la fin : la reprise repart proprement de 0
+        // et "continuer a regarder" pointe le bon episode suivant.
+        markComplete(id, prev.ep);
+        // La liste (locale, plus le pousse AniList quand il est actif) n'est
+        // pilotee d'ici que si le lecteur ne l'a pas deja fait lui-meme.
+        if (!firedCompleteRef.current.has(`${id}:${prev.ep}`)) {
+          handleEpisodeComplete({ aniListId: id, episodeNumber: prev.ep });
+        }
+      }
     }
     if (id != null && Number.isFinite(ep)) prevEpiRef.current = { id, ep };
     // eslint-disable-next-line react-hooks/exhaustive-deps
