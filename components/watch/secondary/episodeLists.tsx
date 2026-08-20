@@ -37,6 +37,8 @@ type SeasonRow = {
   year: number | null;
   episodes: number | null;
   format: string | null;
+  /** FINISHED / RELEASING / NOT_YET_RELEASED — voir /api/v2/seasons/[id]. */
+  status: string | null;
 };
 
 /* Design tokens copied from components/anime/v2/styles.module.css.
@@ -692,12 +694,16 @@ export default function EpisodeLists({
                 >
                   {seasons.map((s) => {
                     const rowActive = String(s.id) === String(info?.id);
+                    const soon = s.status === "NOT_YET_RELEASED";
                     // Meme sous-titre que la page d'info : annee · nb d'episodes,
                     // repli sur le format quand ni l'un ni l'autre n'est connu.
-                    const sub =
-                      [s.year, s.episodes ? `${s.episodes} EP` : null]
-                        .filter(Boolean)
-                        .join(" · ") || (s.format ?? "");
+                    // Et "Bientot" pour une saison qui n'a pas commence — la
+                    // seule information qui compte pour elle.
+                    const sub = soon
+                      ? t("anime.notYetReleased")
+                      : [s.year, s.episodes ? `${s.episodes} EP` : null]
+                          .filter(Boolean)
+                          .join(" · ") || (s.format ?? "");
                     return (
                       <button
                         key={s.id}
@@ -705,8 +711,24 @@ export default function EpisodeLists({
                         onClick={() => {
                           setSeasonOpen(false);
                           if (rowActive) return;
+                          /* Une saison pas encore diffusee n'a pas d'episode 1 :
+                             l'ouvrir dans le lecteur donnait une page qui
+                             retombait sur les episodes de la saison en cours —
+                             on croyait regarder la S3, on regardait la S2. Elle
+                             mene donc a sa fiche, qui sait dire "Bientot" et
+                             porte la date de sortie. */
+                          if (soon) {
+                            router.push(`/en/anime/${s.id}`);
+                            return;
+                          }
+                          /* Et l'id d'episode se derive de la saison CIBLE, pas
+                             du fournisseur de celle qu'on quitte :
+                             `${providerId}-1` fabriquait "animesama-ansembed-1",
+                             l'id d'un episode d'un AUTRE anime. Meme forme que
+                             partout ailleurs sur le site (Hero, accueil,
+                             decouverte). */
                           router.push(
-                            `/en/anime/watch/${s.id}/${providerId}?id=${providerId}-1&num=1${
+                            `/en/anime/watch/${s.id}/megaplay?id=megaplay-${s.id}-1&num=1${
                               dub ? `&dub=${dub}` : ""
                             }`,
                           );
@@ -714,7 +736,7 @@ export default function EpisodeLists({
                         className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left"
                         style={{
                           background: rowActive ? ACCENT_SOFT : "transparent",
-                          color: rowActive ? ACCENT : T.txt0,
+                          color: rowActive ? ACCENT : soon ? T.txt3 : T.txt0,
                         }}
                       >
                         <span className="flex min-w-0 flex-col">

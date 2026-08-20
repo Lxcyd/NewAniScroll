@@ -46,6 +46,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       year: s.year ?? null,
       episodes: s.episodes ?? null,
       format: s.format ?? null,
+      // Le statut voyage jusqu'au selecteur : une saison NOT_YET_RELEASED n'a
+      // aucun episode a jouer, et l'y envoyer quand meme donne un lecteur qui
+      // retombe sur les episodes de la saison precedente.
+      status: s.status ?? null,
     }))
   );
 }
