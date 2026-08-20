@@ -13,6 +13,7 @@ import { peekLocalEntry, LOCAL_LIST_EVENT } from "@/lib/list/localList";
 import { fixApostrophes } from "@/lib/text/apostrophes";
 import {
   getAnimeProgress,
+  isCompleted,
   PROGRESS_EVENT,
   ProgressEntry,
   ProgressTick,
@@ -189,6 +190,8 @@ function Runtime({
   malId,
   live,
   known,
+  done,
+  doneLabel,
   anchor,
   estimate,
   onMeasured,
@@ -198,6 +201,10 @@ function Runtime({
   malId?: number | string | null;
   live: boolean;
   known: number | null;
+  /** Episode fini : la duree restante n'interesse plus personne. */
+  done: boolean;
+  /** Libelle traduit du "Terminé" — le composant n'a pas de `t` a lui. */
+  doneLabel: string;
   /** Duree de reference de la saison — cf. `anchorOf` plus bas. */
   anchor: number | null;
   estimate: string | null;
@@ -234,12 +241,16 @@ function Runtime({
       setExact({ s: cached, player: false });
       return;
     }
+    // Un episode deja fini n'a plus rien a demander au reseau : son libelle ne
+    // depend plus de sa duree. Sa valeur en cache, elle, reste bonne a prendre
+    // — elle nourrit la reference de la saison.
+    if (done) return;
     const el = ref.current;
     const ac = new AbortController();
-    let done = false;
+    let fired = false;
     const io = new IntersectionObserver((entries) => {
-      if (done || !entries.some((en) => en.isIntersecting)) return;
-      done = true;
+      if (fired || !entries.some((en) => en.isIntersecting)) return;
+      fired = true;
       io.disconnect();
       queueRuntime({ malId, episode }, ac.signal).then(
         (s) => s != null && setExact({ s, player: false }),
@@ -250,7 +261,7 @@ function Runtime({
       io.disconnect();
       ac.abort();
     };
-  }, [episode, malId, live, exact]);
+  }, [episode, malId, live, exact, done]);
 
   // Toute mesure obtenue nourrit la duree de reference de la saison.
   useEffect(() => {
@@ -258,44 +269,72 @@ function Runtime({
   }, [exact, episode, onMeasured]);
 
   /* Choix de la valeur affichee.
-     - Le fichier lu par le lecteur ne se discute pas.
-     - Une valeur participative qui ne s'ecarte que de quelques secondes de la
-       reference de la saison est recalee dessus : ces ecarts-la sont du bruit
-       de mesure entre encodages (AniSkip annonce 23:42 pour les episodes 4 et
-       5 de Solo Leveling S2, la ou le fichier servi fait 23:40 comme tous ses
-       voisins). Au-dela du seuil, on la garde telle quelle — un episode
-       double, un recap ou un special sont legitimement plus courts ou plus
-       longs, et les ecraser serait mentir.
-     - Sans mesure du tout, la reference de la saison vaut mieux que la moyenne
-       d'AniList, arrondie a la minute. */
-  const SNAP_SECONDS = 5;
-  const shown =
-    exact?.player
-      ? exact.s
-      : exact && anchor != null && Math.abs(exact.s - anchor) <= SNAP_SECONDS
-        ? anchor
-        : (exact?.s ?? anchor);
+     - Le fichier lu par le lecteur ne se discute jamais.
+     - Une valeur participative n'est retenue que si elle est PLAUSIBLE face a
+       la reference de la saison. Deux mesures d'AniSkip nous ont menti de deux
+       façons : 23:42 la ou le fichier fait 23:40 (bruit entre encodages), et
+       23:40 sur l'episode 4 de Steins;Gate 0 la ou tous ses voisins — et le
+       lecteur lui-meme — disent 23:56 (soumission mesuree contre une autre
+       version). Les deux sont des ecarts de quelques secondes sur un metrage
+       de saison : dans ce regime, la reference est plus sure que la valeur
+       isolee, donc elle gagne.
+     - L'exception est l'ecart FRANC : un episode double, un recap ou un
+       special s'ecartent de dizaines de minutes, pas de secondes. Au-dela d'un
+       quart du metrage de la saison, la valeur participative decrit un episode
+       vraiment different et on la garde telle quelle.
+     - Sans mesure du tout, la reference vaut mieux que la moyenne d'AniList,
+       arrondie a la minute. */
+  const genuinelyDifferent =
+    exact != null && anchor != null && Math.abs(exact.s - anchor) > anchor * 0.25;
+  const shown = exact?.player
+    ? exact.s
+    : anchor != null && !genuinelyDifferent
+      ? anchor
+      : (exact?.s ?? anchor);
   const text = shown != null ? mmss(shown) : estimate;
-  if (!text) return null;
+  // Le <p> reste monte meme sans rien a dire : c'est lui que l'observateur de
+  // visibilite surveille pour declencher la mesure.
   return (
     <p
       ref={ref}
       className="flex items-center gap-1.5 font-outfit text-xs font-light tabular-nums"
-      style={{ color: live ? undefined : T.txt3 }}
+      // L'episode qu'on est en train de regarder garde sa duree, meme s'il a
+      // deja ete termine un jour : c'est celle-la qu'on veut sous les yeux
+      // pendant une rediffusion.
+      style={{ color: done && !live ? T.green : live ? undefined : T.txt3 }}
     >
-      <svg
-        width="12"
-        height="12"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={2}
-        className="shrink-0"
-      >
-        <circle cx="12" cy="12" r="9" />
-        <path d="M12 7v5l3 2" />
-      </svg>
-      {text}
+      {done && !live ? (
+        <>
+          <svg
+            width="12"
+            height="12"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2.5}
+            className="shrink-0"
+          >
+            <polyline points="20 6 9 17 4 12" />
+          </svg>
+          {doneLabel}
+        </>
+      ) : text ? (
+        <>
+          <svg
+            width="12"
+            height="12"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2}
+            className="shrink-0"
+          >
+            <circle cx="12" cy="12" r="9" />
+            <path d="M12 7v5l3 2" />
+          </svg>
+          {text}
+        </>
+      ) : null}
     </p>
   );
 }
@@ -343,6 +382,23 @@ export default function EpisodeLists({
     if (info?.id == null) return;
     setSaved(getAnimeProgress(info.id));
   }, [info?.id, watchId]);
+
+  /* Un episode qui se termine sous nos yeux doit passer au vert sans attendre
+     une navigation. `markComplete` (fin naturelle, bouton suivant, enchainement
+     automatique) ecrit `time = duration` puis l'annonce : c'est ce palier-la
+     qu'on guette, et lui seul — se relire a chaque remontee de position
+     redeclencherait un rendu toutes les 3 s pour rien. */
+  useEffect(() => {
+    if (info?.id == null) return;
+    const onTick = (e: Event) => {
+      const d = (e as CustomEvent<ProgressTick>).detail;
+      if (!d || String(d.aniId) !== String(info.id)) return;
+      if (!(d.duration > 0) || d.time < d.duration) return;
+      setSaved(getAnimeProgress(info.id));
+    };
+    window.addEventListener(PROGRESS_EVENT, onTick);
+    return () => window.removeEventListener(PROGRESS_EVENT, onTick);
+  }, [info?.id]);
   const hideSpoilers = useHideSpoilers();
   const { t } = useTranslation();
   const router = useRouter();
@@ -510,6 +566,11 @@ export default function EpisodeLists({
          existent dans les historiques deja constitues, et sans garde elles
          s'affichaient telles quelles — les "0:01" sur les episodes 02 et 03. */
       known: store && store.duration > 60 ? store.duration : null,
+      /* "Fini" au sens du site : soit la liste de visionnage l'a compte, soit
+         la position sauvegardee est arrivee au bout — ce que `markComplete`
+         ecrit aussi bien a la fin naturelle de la video qu'au passage a
+         l'episode suivant (bouton ou enchainement automatique). */
+      done: watched || isCompleted(store),
       estimate: info?.duration
         ? `~${t("home.minutesShort", { count: info.duration })}`
         : null,
@@ -840,6 +901,8 @@ export default function EpisodeLists({
                       malId={info?.idMal ?? null}
                       live={f.playing}
                       known={f.known}
+                      done={f.done}
+                      doneLabel={t("anime.episodeDone")}
                       anchor={anchor}
                       estimate={f.estimate}
                       onMeasured={reportRuntime}
