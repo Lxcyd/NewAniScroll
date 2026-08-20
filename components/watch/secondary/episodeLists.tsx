@@ -27,8 +27,6 @@ type EpisodeListsProps = {
   episode: Episode[];
   track: any;
   dub: string;
-  /** Lecteur actif — la duree exacte se mesure sur SON fichier. */
-  server?: string;
 };
 
 type SeasonRow = {
@@ -177,18 +175,14 @@ function ProgressBar({
  *   1. l'episode EN COURS la tient du lecteur lui-meme, en direct ;
  *   2. un episode deja ouvert sur cet appareil l'a laissee dans le store de
  *      reprise ;
- *   3. les autres la font mesurer sur le manifeste du serveur actif — mais
- *      seulement une fois la ligne A L'ECRAN (cf. lib/watch/episodeRuntime),
- *      pour qu'ouvrir une longue serie ne declenche pas une rafale de scrapes ;
+ *   3. les autres la demandent a AniSkip, directement depuis le navigateur —
+ *      et seulement une fois la ligne A L'ECRAN (cf. lib/watch/episodeRuntime) ;
  *   4. a defaut, la moyenne annoncee par AniList, precedee d'un "~" pour ne
  *      pas faire passer une estimation pour la duree du fichier.
  */
 function Runtime({
   aniId,
   episode,
-  server,
-  sub,
-  title,
   malId,
   live,
   known,
@@ -196,9 +190,6 @@ function Runtime({
 }: {
   aniId: number | string;
   episode: number;
-  server?: string;
-  sub: "sub" | "dub";
-  title?: string | null;
   malId?: number | string | null;
   live: boolean;
   known: number | null;
@@ -221,10 +212,10 @@ function Runtime({
     return () => window.removeEventListener(PROGRESS_EVENT, onTick);
   }, [aniId, episode, live]);
 
-  // 3. La mesure sur le manifeste, differee jusqu'a ce que la ligne soit vue.
+  // 3. AniSkip, differé jusqu'a ce que la ligne soit reellement a l'ecran.
   useEffect(() => {
-    if (live || exact != null || !server || !ref.current) return;
-    const cached = peekRuntime({ aniId, episode, server, sub });
+    if (live || exact != null || malId == null || !ref.current) return;
+    const cached = peekRuntime({ malId, episode });
     if (cached != null) {
       setExact(cached);
       return;
@@ -236,7 +227,7 @@ function Runtime({
       if (done || !entries.some((en) => en.isIntersecting)) return;
       done = true;
       io.disconnect();
-      queueRuntime({ aniId, episode, server, sub, title, malId }, ac.signal).then(
+      queueRuntime({ malId, episode }, ac.signal).then(
         (s) => s != null && setExact(s),
       );
     });
@@ -245,7 +236,7 @@ function Runtime({
       io.disconnect();
       ac.abort();
     };
-  }, [aniId, episode, server, sub, title, malId, live, exact]);
+  }, [episode, malId, live, exact]);
 
   const text = exact != null ? mmss(exact) : estimate;
   if (!text) return null;
@@ -280,7 +271,6 @@ export default function EpisodeLists({
   episode,
   track,
   dub,
-  server,
 }: EpisodeListsProps) {
   // Watched-episode count for the "seen" bar. Source of truth must match the
   // rest of the app: the LOCAL list when sync is off / guest (the editor and
@@ -613,7 +603,7 @@ export default function EpisodeLists({
                   key={item.id}
                   href={hrefFor(item)}
                   title={f.title}
-                  className={`grid aspect-square scale-100 place-items-center rounded-lg border text-sm font-semibold transition-all duration-300 ease-out ${
+                  className={`grid aspect-square place-items-center rounded-lg border text-sm font-semibold transition-all duration-300 ease-out ${
                     f.playing
                       ? "pointer-events-none"
                       : "hover:scale-[1.06] hover:shadow-lg hover:ring-1 hover:ring-white"
@@ -644,7 +634,7 @@ export default function EpisodeLists({
                   key={item.id}
                   href={hrefFor(item)}
                   title={f.title}
-                  className={`flex min-h-[40px] scale-100 items-center gap-3 rounded-lg border px-3 py-2.5 transition-all duration-300 ease-out ${
+                  className={`flex min-h-[40px] items-center gap-3 rounded-lg border px-3 py-2.5 transition-all duration-300 ease-out ${
                     f.playing
                       ? "pointer-events-none"
                       : "hover:scale-[1.02] hover:shadow-lg hover:ring-1 hover:ring-white"
@@ -694,7 +684,12 @@ export default function EpisodeLists({
                 <Link
                   key={item.id}
                   href={hrefFor(item)}
-                  className={`bg-secondary flex h-[110px] w-full scale-100 rounded-lg transition-all duration-300 ease-out ${
+                  /* Pas de `scale-100` au repos : une transform, meme neutre,
+                     compose l'element sur sa propre couche, et Chrome rogne
+                     alors les coins arrondis sans anticrenelage — d'ou les
+                     bords en escalier. La carte reste donc sans transform tant
+                     qu'on ne la survole pas. */
+                  className={`bg-secondary flex h-[110px] w-full rounded-lg transition-all duration-300 ease-out ${
                     f.playing
                       ? "pointer-events-none ring-1 ring-action"
                       : "cursor-pointer ring-0 ring-white hover:scale-[1.02] hover:shadow-lg hover:ring-1"
@@ -708,7 +703,13 @@ export default function EpisodeLists({
                         draggable={false}
                         width={496}
                         height={280}
-                        className={`h-[110px] w-full object-cover ${
+                        /* L'arrondi est porte par l'image ELLE-MEME, pas
+                           seulement par le `overflow-hidden` du cadre : le
+                           filtre `brightness` promeut l'image sur sa propre
+                           couche, et le rognage du parent y perd son
+                           anticrenelage. Arrondie a la source, elle sort
+                           nette. */
+                        className={`h-[110px] w-full rounded-lg object-cover ${
                           f.playing ? "brightness-[30%]" : "brightness-75"
                         } ${hideSpoilers && !f.playing ? "blur-lg" : ""}`}
                       />
@@ -757,9 +758,6 @@ export default function EpisodeLists({
                     <Runtime
                       aniId={info.id}
                       episode={item.number}
-                      server={server}
-                      sub={dub ? "dub" : "sub"}
-                      title={info?.title?.romaji || info?.title?.english}
                       malId={info?.idMal ?? null}
                       live={f.playing}
                       known={f.known}

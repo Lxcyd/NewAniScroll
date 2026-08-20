@@ -2504,7 +2504,6 @@ export default function Watch({
                     providerId={provider}
                     watchId={watchId}
                     episode={episodesList}
-                    server={activeServer}
                     track={episodeNavigation}
                     dub={dub}
                   />
