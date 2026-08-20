@@ -66,7 +66,14 @@ const T = {
 const ACCENT = "var(--brand-primary, #ff3b5c)";
 const ACCENT_BORDER = `color-mix(in srgb, ${ACCENT} 40%, transparent)`;
 const ACCENT_SOFT = `color-mix(in srgb, ${ACCENT} 12%, transparent)`;
-const ACCENT_ROW = `linear-gradient(90deg, color-mix(in srgb, ${ACCENT} 6%, transparent), ${T.bg2})`;
+/* La teinte d'accent est POSEE SUR l'aplat, elle ne le remplace pas : ce
+   panneau flotte sur un fond translucide (rgba(16,18,26,0.6)), donc une couche
+   a 6% d'accent laissait voir l'image de l'anime a travers la ligne en cours —
+   la seule ligne trouee de la liste. Le degrade s'eteint maintenant vers
+   `transparent` et `T.bg2` ferme la pile en couleur de fond opaque. */
+const ACCENT_ROW = `linear-gradient(90deg, color-mix(in srgb, ${ACCENT} 6%, transparent), transparent), ${T.bg2}`;
+const ACCENT_CELL = `linear-gradient(${ACCENT_SOFT}, ${ACCENT_SOFT}), ${T.bg2}`;
+const WATCHED_CELL = `linear-gradient(rgba(45,212,122,0.06), rgba(45,212,122,0.06)), ${T.bg2}`;
 
 /* The three shapes the list can take, same three as the info page's Episodes
    tab: thumbnails, one-line rows, grid of numbers. Remembered per device — a
@@ -921,9 +928,9 @@ export default function EpisodeLists({
                   style={{
                     borderColor: f.playing ? ACCENT_BORDER : T.line,
                     background: f.playing
-                      ? ACCENT_SOFT
+                      ? ACCENT_CELL
                       : f.watched
-                        ? "rgba(45,212,122,0.06)"
+                        ? WATCHED_CELL
                         : T.bg2,
                     color: f.playing
                       ? ACCENT
