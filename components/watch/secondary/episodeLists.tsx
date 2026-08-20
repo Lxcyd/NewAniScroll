@@ -875,7 +875,16 @@ export default function EpisodeLists({
               const f = factsFor(item);
               return (
                 <Link
-                  key={item.id}
+                  /* Clef prefixee par la vue : les trois branches rendent un
+                     <Link> a la meme clef, donc React REUTILISE le meme noeud
+                     d'une vue a l'autre et se contente d'echanger ses classes.
+                     Avec `transition-all` dessus, le passage grille → cartes
+                     animait tout, bordure comprise : la bordure de la grille
+                     fondait vers le blanc en s'amincissant, et chaque carte
+                     clignotait d'un liseré blanc — le meme que le survol.
+                     Une clef differente par vue force un remontage : la
+                     nouvelle vue s'affiche dans son etat final, sans tween. */
+                  key={`grid-${item.id}`}
                   href={hrefFor(item)}
                   title={f.title}
                   data-playing={f.playing ? "" : undefined}
@@ -907,7 +916,7 @@ export default function EpisodeLists({
               const f = factsFor(item);
               return (
                 <Link
-                  key={item.id}
+                  key={`compact-${item.id}`}
                   href={hrefFor(item)}
                   title={f.title}
                   data-playing={f.playing ? "" : undefined}
@@ -959,7 +968,7 @@ export default function EpisodeLists({
                    qu'une ligne est cliquable, l'episode en cours (liseré
                    accent) etant justement le seul a ne pas l'etre. */
                 <Link
-                  key={item.id}
+                  key={`detailed-${item.id}`}
                   href={hrefFor(item)}
                   data-playing={f.playing ? "" : undefined}
                   /* Pas de `scale-100` au repos : une transform, meme neutre,
@@ -967,10 +976,10 @@ export default function EpisodeLists({
                      alors les coins arrondis sans anticrenelage — d'ou les
                      bords en escalier. La carte reste donc sans transform tant
                      qu'on ne la survole pas. */
-                  className={`bg-secondary relative flex h-[110px] w-full rounded-lg transition-all duration-300 ease-out ${
+                  className={`bg-secondary group relative flex h-[110px] w-full rounded-lg transition-transform duration-300 ease-out ${
                     f.playing
                       ? "pointer-events-none"
-                      : "cursor-pointer ring-0 ring-white hover:scale-[1.02] hover:shadow-lg hover:ring-1"
+                      : "cursor-pointer hover:scale-[1.02]"
                   }`}
                 >
                   <div className="relative h-[110px] w-[43%] shrink-0 overflow-hidden rounded-lg shadow-[4px_0px_5px_0px_rgba(0,0,0,0.3)] lg:w-[42%]">
@@ -987,8 +996,10 @@ export default function EpisodeLists({
                            couche, et le rognage du parent y perd son
                            anticrenelage. Arrondie a la source, elle sort
                            nette. */
-                        className={`h-[110px] w-full rounded-lg object-cover ${
-                          f.playing ? "brightness-[30%]" : "brightness-75"
+                        className={`h-[110px] w-full rounded-lg object-cover transition-[filter] duration-300 ease-out ${
+                          f.playing
+                            ? "brightness-[30%]"
+                            : "brightness-75 group-hover:brightness-100"
                         } ${hideSpoilers && !f.playing ? "blur-lg" : ""}`}
                       />
                     )}
@@ -1062,11 +1073,26 @@ export default function EpisodeLists({
                       exterieur du rayon, la ou Chrome escalade le trait d'un
                       pixel ; a l'interieur il suit exactement le meme arrondi
                       et sort net. */}
-                  {f.playing && (
+                  {f.playing ? (
                     <span
                       aria-hidden
                       className="pointer-events-none absolute inset-0 rounded-lg"
                       style={{ boxShadow: `inset 0 0 0 1.5px ${ACCENT}` }}
+                    />
+                  ) : (
+                    /* Meme liseré, en blanc et au survol. Il est pose en calque
+                       comme celui de l'episode en cours (et non en `ring`) pour
+                       la meme raison : un ring peint hors de la boite escalade
+                       le trait d'un pixel sur l'arrondi. On anime son opacite,
+                       jamais sa presence — un trait qui apparait d'un coup se
+                       lit comme un defaut de rendu. */
+                    <span
+                      aria-hidden
+                      className="pointer-events-none absolute inset-0 rounded-lg opacity-0 transition-opacity duration-200 ease-out group-hover:opacity-100"
+                      style={{
+                        boxShadow:
+                          "inset 0 0 0 1.5px rgba(255,255,255,0.85), 0 6px 18px rgba(0,0,0,0.45)",
+                      }}
                     />
                   )}
                 </Link>
