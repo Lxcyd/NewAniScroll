@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { getServersByLang } from "@/lib/servers";
 import { useTranslation } from "react-i18next";
 import { useServerPerfRank } from "@/lib/watch/serverPerf";
@@ -84,6 +84,25 @@ export default function ServerSelector({
   const servers = visibleByLang[lang] || [];
   const labels = useMemo(() => shortNames(servers), [servers]);
 
+  /* Le fond de l'onglet choisi est un calque unique qui GLISSE d'un onglet a
+     l'autre, au lieu de s'eteindre ici pour se rallumer la. Sa position est
+     mesuree sur le bouton actif plutot que calculee : les trois libelles n'ont
+     pas la meme longueur ("MULTI" / "VOSTFR" / "VF"), et des colonnes de
+     largeur egale auraient etire "VF" pour rien.
+     La toute PREMIERE mesure se pose sans transition (`animate: false`) : sans
+     ca, le calque traverserait la barre depuis la gauche a l'ouverture du
+     lecteur, comme si on venait de cliquer. */
+  const tabsRef = useRef(null);
+  const [pill, setPill] = useState(null);
+  useEffect(() => {
+    const el = tabsRef.current?.querySelector("[data-lang-active]");
+    setPill((prev) =>
+      el
+        ? { left: el.offsetLeft, width: el.offsetWidth, animate: prev != null }
+        : null,
+    );
+  }, [lang, available.join("|")]);
+
   if (!servers.length) return null;
 
   return (
@@ -156,7 +175,31 @@ export default function ServerSelector({
       </div>
 
       {available.length > 1 && (
-        <div className="shrink-0 flex items-center gap-0.5 rounded-lg bg-black/30 p-0.5">
+        <div
+          ref={tabsRef}
+          className="relative shrink-0 flex items-center gap-0.5 rounded-lg bg-black/30 p-0.5"
+        >
+          {/* Le calque qui glisse. Il est pose SOUS les onglets (z-0 contre
+              z-10) et porte le fond opaque + le liseré que chaque onglet actif
+              dessinait lui-meme : un seul objet qui se deplace se lit comme un
+              curseur, la ou trois fonds qui s'allument tour a tour ne disent
+              rien du chemin parcouru. */}
+          {pill && (
+            <span
+              aria-hidden
+              className="absolute bottom-0.5 top-0.5 z-0 rounded-[6px]"
+              style={{
+                left: 0,
+                width: pill.width,
+                transform: `translateX(${pill.left}px)`,
+                background: "#2b3040",
+                boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.16)",
+                transition: pill.animate
+                  ? "transform 260ms cubic-bezier(0.32,0.72,0,1), width 260ms cubic-bezier(0.32,0.72,0,1)"
+                  : "none",
+              }}
+            />
+          )}
           {/* Browsing, not switching: picking a language only changes WHICH
               hosts are listed — the stream keeps playing until a chip is
               clicked. So the tab holding the host that's actually playing
@@ -167,20 +210,8 @@ export default function ServerSelector({
               key={l}
               type="button"
               onClick={() => setPicked(l)}
-              /* L'onglet choisi reste blanc — c'est un choix de NAVIGATION, pas
-                 le lecteur en cours (que designe la pastille d'accent). Mais son
-                 fond est opaque : en blanc translucide sur un conteneur lui-meme
-                 translucide, le liseré laissait passer la video et sortait bleu
-                 sur une scene bleue. */
-              style={
-                l === lang
-                  ? {
-                      background: "#2b3040",
-                      boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.16)",
-                    }
-                  : undefined
-              }
-              className={`relative rounded-[6px] px-2.5 py-1 text-[11px] font-karla font-semibold uppercase tracking-wide transition-colors ${
+              data-lang-active={l === lang ? "" : undefined}
+              className={`relative z-10 rounded-[6px] px-2.5 py-1 text-[11px] font-karla font-semibold uppercase tracking-wide transition-colors ${
                 l === lang ? "text-white" : "text-white/60 hover:text-white"
               }`}
             >

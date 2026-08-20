@@ -878,9 +878,10 @@ export default function EpisodeLists({
             il lui faut ce conteneur comme reference — sinon la mesure part du
             haut de la page et on defile n'importe ou. */}
         <div
+          key={view}
           ref={listRef}
           onScroll={onListScroll}
-          className={`as-epscroll relative max-h-[60vh] overflow-y-auto lg:max-h-none lg:min-h-0 lg:flex-1 ${
+          className={`as-epscroll as-viewswap relative max-h-[60vh] overflow-y-auto lg:max-h-none lg:min-h-0 lg:flex-1 ${
             view === "grid"
               ? /* content-start : le conteneur est `flex-1` donc plus haut que
                    ses lignes ; sans ca `align-content: stretch` etire les rangees

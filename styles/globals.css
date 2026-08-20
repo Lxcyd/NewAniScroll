@@ -369,6 +369,27 @@ body,
   background: rgba(255, 255, 255, 0.05) !important;
 }
 
+/* Passage d'une vue a l'autre (cartes · lignes · grille). Les trois vues ne
+   peuvent pas se transformer l'une en l'autre — ni le meme nombre d'elements
+   a l'ecran, ni la meme forme — donc la nouvelle entre au lieu de tenter un
+   morphing : un souffle vers le haut, 0,24 s. C'est aussi ce qui remplace
+   l'ancien tween par-carte, qui faisait clignoter un liseré blanc partout.
+   Pose par une `key` sur le conteneur : chaque vue est un nouveau noeud, donc
+   l'animation rejoue a chaque bascule. */
+@keyframes as-view-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.as-viewswap {
+  animation: as-view-in 0.24s cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+
 /* Ascenseur de la liste. Le site masque tous les ascenseurs (regle plus
    haut) ; celui-ci doit rester visible — la liste depasse toujours — mais il
    sortait avec la piste blanche du systeme.
