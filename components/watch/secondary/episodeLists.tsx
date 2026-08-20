@@ -829,7 +829,7 @@ export default function EpisodeLists({
             onClick={toggleOrder}
             title={desc ? t("anime.sortDesc") : t("anime.sortAsc")}
             aria-label={desc ? t("anime.sortAsc") : t("anime.sortDesc")}
-            className="as-epbar-ghost grid h-[26px] w-[28px] shrink-0 place-items-center rounded-lg"
+            className="as-epbar-ctl as-epbar-ghost grid h-[26px] w-[28px] shrink-0 place-items-center rounded-lg"
           >
             <svg
               width="14"
@@ -852,7 +852,7 @@ export default function EpisodeLists({
             onClick={() => pickView(nextView(view))}
             title={`${t(VIEW_LABELS[view])} · ${t("anime.changeView")}`}
             aria-label={`${t(VIEW_LABELS[view])} · ${t("anime.changeView")}`}
-            className="as-epbar-ghost grid h-[26px] w-[28px] shrink-0 place-items-center rounded-lg"
+            className="as-epbar-ctl as-epbar-ghost grid h-[26px] w-[28px] shrink-0 place-items-center rounded-lg"
           >
             <ViewIcon view={view} />
           </button>

@@ -321,42 +321,38 @@ body,
   transition: background-color 0.15s ease, border-color 0.15s ease,
     color 0.15s ease;
 }
-.as-epbar-ctl {
-  background: #161924;
-  border: 1px solid #252938;
+/* Un seul et meme habit pour toute la rangee, celui du compteur : un aplat
+   blanc a 4 %, sans cadre. Les cadres etaient ce qui faisait "pas du tout
+   l'app" — cinq boites dessinees les unes contre les autres. */
+.as-epbar-ctl,
+.as-epbar-badge {
+  background: rgba(255, 255, 255, 0.04);
+  border: none;
   color: #f4f5f8;
 }
 .as-epbar-ctl:hover {
-  background: #1b1f2e;
-  border-color: #2f3447;
+  background: rgba(255, 255, 255, 0.08);
 }
 /* `:focus-within` et non `:focus` : la meme regle sert au champ de
-   recherche (qui prend le focus lui-meme) et au declencheur de saison. */
+   recherche (qui prend le focus lui-meme) et au declencheur de saison. Sans
+   cadre a colorer, c'est l'aplat qui prend la teinte accent. */
 .as-epbar-ctl:focus-within {
-  border-color: color-mix(in srgb, var(--brand-primary, #ff3b5c) 55%, transparent);
+  background: color-mix(in srgb, var(--brand-primary, #ff3b5c) 14%, transparent);
 }
 .as-epbar-ctl::placeholder {
   color: #5e6478;
 }
-/* Boutons d'icone : sans cadre au repos, ils ne se dessinent qu'au survol.
-   Un liseré permanent sur chacun d'eux faisait une rangee bruyante ou rien
-   ne hierarchisait la recherche (la commande principale) et deux bascules
-   d'affichage. */
+/* Boutons d'icone : meme aplat, mais l'icone reste sourde tant qu'on ne la
+   survole pas — sinon deux glyphes pleins pesaient autant que le nom de la
+   saison. */
 .as-epbar-ghost {
-  background: transparent;
-  border: 1px solid transparent;
   color: #5e6478;
 }
 .as-epbar-ghost:hover {
-  background: rgba(255, 255, 255, 0.06);
-  border-color: #252938;
   color: #f4f5f8;
 }
-/* Compteur d'episodes : il ne se clique pas, donc pas de cadre — un liseré
-   identique a celui du selecteur de saison, juste a cote, promettait un
-   menu qui n'existe pas. */
+/* Le compteur, lui, ne se clique pas : pas de survol, et un texte sourd. */
 .as-epbar-badge {
-  background: rgba(255, 255, 255, 0.04);
   color: #5e6478;
 }
 
@@ -371,12 +367,16 @@ body,
 }
 
 /* Ascenseur de la liste. Le site masque tous les ascenseurs (regle plus
-   haut) ; celui-ci doit rester visible — la liste depasse toujours — mais
-   il sortait avec la piste blanche du systeme, la seule surface claire de
-   toute la page. */
+   haut) ; celui-ci doit rester visible — la liste depasse toujours — mais il
+   sortait avec la piste blanche du systeme.
+   C'est EXACTEMENT `.customScroll` de components/anime/v2/styles.module.css,
+   valeurs comprises : 8 px, piste blanc 4 %, pouce `--line-2`, `--txt-3` au
+   survol. Le module est scope a la page d'info et ne peut pas etre importe
+   ici, alors les tokens sont recopies — comme l'objet `T` du panneau, qui
+   mirroir deja ce meme fichier. */
 .as-epscroll {
   scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.16) transparent;
+  scrollbar-color: #2f3447 rgba(255, 255, 255, 0.04);
 }
 .as-epscroll::-webkit-scrollbar {
   display: block;
@@ -384,19 +384,15 @@ body,
   height: 8px;
 }
 .as-epscroll::-webkit-scrollbar-track {
-  background: transparent;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 4px;
 }
 .as-epscroll::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.16);
-  border-radius: 8px;
-  /* Bordure transparente + `background-clip` : le pouce fait 4 px de large
-     mais reste attrapable sur 8. */
-  border: 2px solid transparent;
-  background-clip: padding-box;
+  background: #2f3447;
+  border-radius: 4px;
 }
 .as-epscroll::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.3);
-  background-clip: padding-box;
+  background: #5e6478;
 }
 
 /* Disable native drag of images everywhere on the page. We use
