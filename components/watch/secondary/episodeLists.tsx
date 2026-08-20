@@ -437,6 +437,23 @@ export default function EpisodeLists({
      aurait emporte la page avec lui) a chaque fois que la ligne visee peut
      avoir bouge — episode, vue, ordre, filtre. */
   const listRef = useRef<HTMLDivElement>(null);
+
+  /* Separation en-tete / liste. Le trait plein etait la ligne de trop : il
+     barrait le panneau meme quand la liste commencait a son sommet, avec rien
+     a separer. A la place, l'en-tete porte une ombre douce, et seulement
+     quand des cartes passent DESSOUS — la separation apparait au moment ou
+     elle sert, et s'efface des qu'on revient en haut.
+     L'attribut est pose a la main sur le noeud plutot que par un state : ce
+     handler part a chaque cran de molette, et re-rendre une liste de plusieurs
+     centaines de lignes a ce rythme se paierait cher. */
+  const headRef = useRef<HTMLDivElement>(null);
+  const onListScroll = useCallback(() => {
+    headRef.current?.toggleAttribute(
+      "data-scrolled",
+      (listRef.current?.scrollTop ?? 0) > 4,
+    );
+  }, []);
+
   useEffect(() => {
     const box = listRef.current;
     const row = box?.querySelector<HTMLElement>("[data-playing]");
@@ -445,6 +462,7 @@ export default function EpisodeLists({
     // qu'on lit, et tout ce qui suit — l'episode suivant, surtout — se trouve
     // dessous, dans le sens de la lecture.
     box.scrollTop = Math.max(0, row.offsetTop - 8);
+    onListScroll();
   }, [watchId, view, desc, query, episode?.length, track?.playing?.number]);
 
   /* Season siblings, fetched after mount from the edge-cached route rather
@@ -661,8 +679,8 @@ export default function EpisodeLists({
       >
         {/* ── Header: season · range · view mode ── */}
         <div
-          className="flex shrink-0 items-center gap-2 border-b px-2.5 py-2"
-          style={{ borderColor: T.line }}
+          ref={headRef}
+          className="as-epbar flex shrink-0 items-center gap-2 px-2.5 py-2.5"
         >
           {seasons.length > 1 && (
             <div className="relative shrink-0">
@@ -679,10 +697,7 @@ export default function EpisodeLists({
                 </span>
                 <ChevronDownIcon
                   className="h-3 w-3 shrink-0 transition-transform"
-                  style={{
-                    color: T.txt3,
-                    transform: seasonOpen ? "rotate(180deg)" : "none",
-                  }}
+                  style={{ transform: seasonOpen ? "rotate(180deg)" : "none" }}
                 />
               </button>
               {seasonOpen && (
@@ -804,7 +819,7 @@ export default function EpisodeLists({
               stroke="currentColor"
               strokeWidth={2}
               className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2"
-              style={{ color: T.txt3 }}
+              style={{ color: "rgba(244,245,248,0.5)" }}
             >
               <circle cx="11" cy="11" r="7" />
               <path d="m20 20-3.5-3.5" />
@@ -829,7 +844,7 @@ export default function EpisodeLists({
             onClick={toggleOrder}
             title={desc ? t("anime.sortDesc") : t("anime.sortAsc")}
             aria-label={desc ? t("anime.sortAsc") : t("anime.sortDesc")}
-            className="as-epbar-ctl as-epbar-ghost grid h-[26px] w-[28px] shrink-0 place-items-center rounded-lg"
+            className="as-epbar-ctl grid h-[26px] w-[28px] shrink-0 place-items-center rounded-lg"
           >
             <svg
               width="14"
@@ -852,7 +867,7 @@ export default function EpisodeLists({
             onClick={() => pickView(nextView(view))}
             title={`${t(VIEW_LABELS[view])} · ${t("anime.changeView")}`}
             aria-label={`${t(VIEW_LABELS[view])} · ${t("anime.changeView")}`}
-            className="as-epbar-ctl as-epbar-ghost grid h-[26px] w-[28px] shrink-0 place-items-center rounded-lg"
+            className="as-epbar-ctl grid h-[26px] w-[28px] shrink-0 place-items-center rounded-lg"
           >
             <ViewIcon view={view} />
           </button>
@@ -864,6 +879,7 @@ export default function EpisodeLists({
             haut de la page et on defile n'importe ou. */}
         <div
           ref={listRef}
+          onScroll={onListScroll}
           className={`as-epscroll relative max-h-[60vh] overflow-y-auto lg:max-h-none lg:min-h-0 lg:flex-1 ${
             view === "grid"
               ? /* content-start : le conteneur est `flex-1` donc plus haut que

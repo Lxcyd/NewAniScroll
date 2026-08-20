@@ -339,21 +339,26 @@ body,
 .as-epbar-ctl:focus-within {
   background: color-mix(in srgb, var(--brand-primary, #ff3b5c) 14%, transparent);
 }
+/* Un seul niveau de texte sur toute la rangee : le blanc du nom de saison.
+   Le gris sourd hierarchisait par la couleur ce que l'aplat hierarchise deja
+   par le survol, et faisait lire la moitie des commandes comme desactivees.
+   Seul le texte fantome du champ reste en retrait — c'est un exemple, pas
+   une valeur. */
 .as-epbar-ctl::placeholder {
-  color: #5e6478;
+  color: rgba(244, 245, 248, 0.5);
 }
-/* Boutons d'icone : meme aplat, mais l'icone reste sourde tant qu'on ne la
-   survole pas — sinon deux glyphes pleins pesaient autant que le nom de la
-   saison. */
-.as-epbar-ghost {
-  color: #5e6478;
+
+/* L'en-tete n'est plus separe de la liste par un trait : il porte une ombre
+   qui n'existe que lorsque des cartes passent dessous (`data-scrolled`, pose
+   par le handler de defilement du panneau). En haut de liste, rien a separer,
+   donc rien de dessine. */
+.as-epbar {
+  position: relative;
+  z-index: 1;
+  transition: box-shadow 0.2s ease;
 }
-.as-epbar-ghost:hover {
-  color: #f4f5f8;
-}
-/* Le compteur, lui, ne se clique pas : pas de survol, et un texte sourd. */
-.as-epbar-badge {
-  color: #5e6478;
+.as-epbar[data-scrolled] {
+  box-shadow: 0 10px 14px -10px rgba(0, 0, 0, 0.85);
 }
 
 /* Lignes du menu des saisons. `!important` parce que la ligne porte son fond
