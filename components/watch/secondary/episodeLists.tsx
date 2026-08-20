@@ -40,7 +40,6 @@ type SeasonRow = {
  * step: this panel is meant to be the info page's episode list, narrower. */
 const T = {
   bg2: "#161924",
-  bg3: "#1d2030",
   line: "#252938",
   line2: "#2f3447",
   txt0: "#f4f5f8",
@@ -204,10 +203,6 @@ export default function EpisodeLists({
 
   const first = episode?.[0]?.number;
   const last = episode?.[episode.length - 1]?.number;
-  const durationLabel = info?.duration
-    ? t("home.minutesShort", { count: info.duration })
-    : null;
-  const langLabel = dub ? "Dub" : "Sub";
 
   function hrefFor(item: Episode) {
     return `/en/anime/watch/${info.id}/${providerId}?id=${encodeURIComponent(
@@ -411,8 +406,10 @@ export default function EpisodeLists({
                   key={item.id}
                   href={hrefFor(item)}
                   title={f.title}
-                  className={`grid aspect-square place-items-center rounded-lg border text-sm font-semibold transition-all ${
-                    f.playing ? "pointer-events-none" : ""
+                  className={`grid aspect-square scale-100 place-items-center rounded-lg border text-sm font-semibold transition-all duration-300 ease-out ${
+                    f.playing
+                      ? "pointer-events-none"
+                      : "hover:scale-[1.06] hover:shadow-lg hover:ring-1 hover:ring-white"
                   }`}
                   style={{
                     borderColor: f.playing ? ACCENT_BORDER : T.line,
@@ -440,8 +437,10 @@ export default function EpisodeLists({
                   key={item.id}
                   href={hrefFor(item)}
                   title={f.title}
-                  className={`flex min-h-[40px] items-center gap-3 rounded-lg border px-3 py-2.5 transition-colors ${
-                    f.playing ? "pointer-events-none" : ""
+                  className={`flex min-h-[40px] scale-100 items-center gap-3 rounded-lg border px-3 py-2.5 transition-all duration-300 ease-out ${
+                    f.playing
+                      ? "pointer-events-none"
+                      : "hover:scale-[1.02] hover:shadow-lg hover:ring-1 hover:ring-white"
                   }`}
                   style={frame(f.playing)}
                 >
@@ -478,124 +477,71 @@ export default function EpisodeLists({
           ) : (
             episode.map((item) => {
               const f = factsFor(item);
+              const desc = hideSpoilers
+                ? `${t("common.episode")} ${item.number}`
+                : fixApostrophes(f.mapData?.description) ||
+                  `${t("common.episode")} ${item.number}`;
               return (
+                /* Carte reprise TELLE QUELLE de la prod : vignette large a
+                   gauche, titre en gras italique, resume en dessous. Et son
+                   survol, qui manquait ici : la carte grossit d'un poil, prend
+                   un liseré blanc et une ombre — c'est ce mouvement qui dit
+                   qu'une ligne est cliquable, l'episode en cours (liseré
+                   accent) etant justement le seul a ne pas l'etre. */
                 <Link
                   key={item.id}
                   href={hrefFor(item)}
-                  className={`flex items-center gap-3.5 rounded-[10px] border p-2.5 transition-all ${
-                    f.playing ? "pointer-events-none" : ""
+                  className={`bg-secondary flex h-[110px] w-full scale-100 rounded-lg transition-all duration-300 ease-out ${
+                    f.playing
+                      ? "pointer-events-none ring-1 ring-action"
+                      : "cursor-pointer ring-0 ring-white hover:scale-[1.02] hover:shadow-lg hover:ring-1"
                   }`}
-                  style={frame(f.playing)}
                 >
-                  <div className="relative h-[70px] w-[124px] shrink-0 overflow-hidden rounded-[7px] bg-image/40">
+                  <div className="relative h-[110px] w-[43%] shrink-0 overflow-hidden rounded-lg shadow-[4px_0px_5px_0px_rgba(0,0,0,0.3)] lg:w-[42%]">
                     {hasArt && f.parsedImage && (
                       <Image
                         src={f.parsedImage}
                         alt=""
                         draggable={false}
-                        width={248}
-                        height={140}
-                        className={`h-full w-full object-cover ${
-                          hideSpoilers && !f.playing ? "blur-md" : ""
-                        }`}
+                        width={496}
+                        height={280}
+                        className={`h-[110px] w-full object-cover ${
+                          f.playing ? "brightness-[30%]" : "brightness-75"
+                        } ${hideSpoilers && !f.playing ? "blur-lg" : ""}`}
                       />
-                    )}
-                    {/* Scrim, so the number stays readable on a bright frame. */}
-                    <div
-                      className="pointer-events-none absolute inset-x-0 bottom-0 h-[55%]"
-                      style={{
-                        background:
-                          "linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(0,0,0,0.7) 100%)",
-                      }}
-                    />
-                    <span className="absolute bottom-1.5 left-2 text-[16px] font-bold text-white/85">
-                      {f.pad}
-                    </span>
-                    {f.playing && (
-                      <div className="absolute inset-0 grid place-items-center bg-black/40">
-                        <span
-                          className="grid h-8 w-8 place-items-center rounded-full pl-[2px]"
-                          style={{
-                            background: `color-mix(in srgb, ${ACCENT} 90%, transparent)`,
-                          }}
-                        >
-                          <svg
-                            viewBox="0 0 20 20"
-                            fill="#fff"
-                            className="h-4 w-4"
-                          >
-                            <path d="M6.3 2.841A1.5 1.5 0 004 4.11V15.89a1.5 1.5 0 002.3 1.269l9.344-5.89a1.5 1.5 0 000-2.538L6.3 2.84z" />
-                          </svg>
-                        </span>
-                      </div>
                     )}
                     <span
                       className="absolute bottom-0 left-0 h-[2px]"
                       style={{ width: f.barWidth, background: ACCENT }}
                     />
-                  </div>
-
-                  <div className="flex min-w-0 flex-1 flex-col gap-1">
-                    <div className="flex items-center gap-2">
-                      <span
-                        className="text-[10.5px] tracking-[0.08em]"
-                        style={{ color: T.txt3 }}
-                      >
-                        EP {f.pad}
-                      </span>
-                      {f.playing ? (
-                        <span
-                          className="rounded-[3px] px-1.5 py-[2px] text-[9.5px] font-semibold tracking-[0.04em]"
-                          style={{ color: ACCENT, background: ACCENT_SOFT }}
-                        >
-                          {t("player.nowPlayingShort")}
-                        </span>
-                      ) : f.watched ? (
-                        <span
-                          className="rounded-[3px] px-1.5 py-[2px] text-[9.5px] font-semibold tracking-[0.04em]"
-                          style={{
-                            color: T.green,
-                            background: "rgba(45,212,122,0.1)",
-                          }}
-                        >
-                          ✓
-                        </span>
-                      ) : null}
-                    </div>
-                    <div
-                      className="truncate text-sm font-semibold"
-                      style={{ color: T.txt0 }}
-                    >
-                      {f.title}
-                    </div>
-                    <div
-                      className="flex items-center gap-2 text-[11.5px]"
-                      style={{ color: T.txt3 }}
-                    >
-                      {durationLabel}
-                      <span
-                        className="h-[3px] w-[3px] rounded-full"
-                        style={{ background: T.txt3 }}
-                      />
-                      {langLabel}
-                    </div>
-                  </div>
-
-                  {/* The whole row is the link, so this reads as a label rather
-                      than a second control — and it only appears where the
-                      panel is wide enough not to squeeze the title. */}
-                  {!f.playing && (
-                    <span
-                      className="hidden shrink-0 rounded-lg border px-4 py-2 text-xs font-semibold xl:block"
-                      style={{
-                        background: T.bg3,
-                        borderColor: T.line2,
-                        color: T.txt0,
-                      }}
-                    >
-                      {f.watched ? t("anime.replay") : t("anime.play")}
+                    <span className="absolute bottom-2 left-2 font-karla text-sm font-bold text-white">
+                      {t("common.episode")} {item?.number}
                     </span>
-                  )}
+                    {f.playing && (
+                      <div className="absolute inset-0 grid place-items-center">
+                        <svg
+                          viewBox="0 0 20 20"
+                          fill="currentColor"
+                          className="h-5 w-5 scale-[1.5]"
+                        >
+                          <path d="M6.3 2.841A1.5 1.5 0 004 4.11V15.89a1.5 1.5 0 002.3 1.269l9.344-5.89a1.5 1.5 0 000-2.538L6.3 2.84z" />
+                        </svg>
+                      </div>
+                    )}
+                  </div>
+
+                  <div
+                    className={`flex h-full w-full select-none flex-col gap-2 overflow-x-hidden p-4 ${
+                      f.playing ? "text-[#7a7a7a]" : ""
+                    }`}
+                  >
+                    <h1 className="line-clamp-1 font-karla font-bold italic">
+                      {f.title}
+                    </h1>
+                    <p className="line-clamp-2 font-outfit text-xs font-extralight italic">
+                      {desc}
+                    </p>
+                  </div>
                 </Link>
               );
             })
