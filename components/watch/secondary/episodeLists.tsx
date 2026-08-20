@@ -121,12 +121,18 @@ function ViewIcon({ view }: { view: View }) {
   );
 }
 
-/** Duree exacte, en m:ss — c'est la duree que le LECTEUR a mesuree. */
-function mmss(seconds: number): string {
+/**
+ * Duree ecrite en toutes lettres — "23 min 40", et "24 min" tout court quand
+ * elle tombe juste. L'unite remplace l'ancienne pastille d'horloge : un "23:40"
+ * seul dans une liste ou tout est numerote se lisait comme un compte a rebours
+ * ou un horaire, alors que "min" ne laisse aucun doute. Les secondes restent :
+ * c'est la duree du fichier, mesuree, pas un arrondi.
+ */
+function humanRuntime(seconds: number): string {
   const total = Math.round(seconds);
   const m = Math.floor(total / 60);
   const s = total % 60;
-  return `${m}:${String(s).padStart(2, "0")}`;
+  return s ? `${m} min ${String(s).padStart(2, "0")}` : `${m} min`;
 }
 
 /* Ces deux composants s'abonnent EUX-MEMES aux remontees du lecteur et
@@ -298,7 +304,7 @@ function Runtime({
     : anchor != null && !genuinelyDifferent
       ? anchor
       : (exact?.s ?? anchor);
-  const text = shown != null ? mmss(shown) : estimate;
+  const text = shown != null ? humanRuntime(shown) : estimate;
   // Le <p> reste monte meme sans rien a dire : c'est lui que l'observateur de
   // visibilite surveille pour declencher la mesure.
   return (
@@ -325,23 +331,9 @@ function Runtime({
           </svg>
           {doneLabel}
         </>
-      ) : text ? (
-        <>
-          <svg
-            width="12"
-            height="12"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={2}
-            className="shrink-0"
-          >
-            <circle cx="12" cy="12" r="9" />
-            <path d="M12 7v5l3 2" />
-          </svg>
-          {text}
-        </>
-      ) : null}
+      ) : (
+        text
+      )}
     </p>
   );
 }
@@ -757,8 +749,15 @@ export default function EpisodeLists({
             </div>
           )}
 
-          <div className="flex min-w-0 shrink-0 items-baseline gap-1.5">
-            <span className="text-[13px] font-semibold" style={{ color: T.txt0 }}>
+          {/* Meme cadre que le selecteur de saison et les deux boutons : les
+              quatre elements de cet en-tete sont maintenant sur une seule
+              ligne, et un libelle nu au milieu de trois pastilles bordees
+              donnait une rangee bancale. */}
+          <div
+            className="flex h-[26px] shrink-0 items-center gap-1.5 rounded-lg border px-2.5"
+            style={{ background: T.bg2, borderColor: T.line }}
+          >
+            <span className="text-[11px] font-semibold" style={{ color: T.txt0 }}>
               {t("anime.episodes")}
             </span>
             {first != null && last != null && (
@@ -771,14 +770,13 @@ export default function EpisodeLists({
             )}
           </div>
 
-          {/* Recherche, tenue au minimum : elle vit dans l'en-tete, a la suite
-              du compte d'episodes, et s'elargit a la saisie. Une barre pleine
-              largeur volait une ligne de liste en permanence pour un usage
-              occasionnel. Numero ou titre — et elle FILTRE plutot que de
+          {/* Recherche : elle occupe la place qui reste dans l'en-tete, entre le
+              compte d'episodes et les deux boutons — pas de ligne dediee, pas
+              de largeur figee. Numero ou titre, et elle FILTRE plutot que de
               sauter : sur une serie longue, voir les trois lignes qui
               correspondent vaut mieux que d'etre depose au milieu de mille
               autres. */}
-          <div className="relative ml-1.5 min-w-0 flex-1">
+          <div className="relative min-w-0 flex-1">
             <svg
               width="12"
               height="12"
@@ -798,7 +796,7 @@ export default function EpisodeLists({
               onChange={(e) => setQuery(e.target.value)}
               placeholder={t("anime.searchEpisode")}
               aria-label={t("anime.searchEpisode")}
-              className="h-[26px] w-full max-w-[104px] rounded-lg border pl-[26px] pr-2 text-[11.5px] outline-none transition-[max-width] duration-200 focus:max-w-full"
+              className="h-[26px] w-full rounded-lg border pl-[26px] pr-2 text-[11.5px] outline-none"
               style={{ background: T.bg2, borderColor: T.line, color: T.txt0 }}
             />
           </div>
