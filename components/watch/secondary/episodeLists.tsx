@@ -920,10 +920,13 @@ export default function EpisodeLists({
                   href={hrefFor(item)}
                   title={f.title}
                   data-playing={f.playing ? "" : undefined}
-                  className={`grid aspect-square place-items-center rounded-lg border text-sm font-semibold transition-all duration-300 ease-out ${
+                  onClick={f.playing ? (e) => e.preventDefault() : undefined}
+                  /* Meme regle que les deux autres vues : la case en cours
+                     grossit au survol, sans liseré blanc ni curseur main. */
+                  className={`grid aspect-square place-items-center rounded-lg border text-sm font-semibold transition-all duration-300 ease-out hover:scale-[1.06] ${
                     f.playing
-                      ? "pointer-events-none"
-                      : "hover:scale-[1.06] hover:shadow-lg hover:ring-1 hover:ring-white"
+                      ? "cursor-default"
+                      : "hover:shadow-lg hover:ring-1 hover:ring-white"
                   }`}
                   style={{
                     borderColor: f.playing ? ACCENT_BORDER : T.line,
@@ -952,10 +955,17 @@ export default function EpisodeLists({
                   href={hrefFor(item)}
                   title={f.title}
                   data-playing={f.playing ? "" : undefined}
-                  className={`flex min-h-[40px] items-center gap-3 rounded-lg border px-3 py-2.5 transition-all duration-300 ease-out ${
+                  onClick={f.playing ? (e) => e.preventDefault() : undefined}
+                  /* L'episode en cours grossit lui aussi : une ligne inerte au
+                     milieu de lignes vivantes se lit comme un bug. Il garde en
+                     revanche son liseré accent (pas de blanc) et un curseur par
+                     defaut — son clic ne mene nulle part, on y est deja. D'ou le
+                     `preventDefault` plutot qu'un `pointer-events-none`, qui
+                     supprimerait aussi le survol. */
+                  className={`flex min-h-[40px] items-center gap-3 rounded-lg border px-3 py-2.5 transition-all duration-300 ease-out hover:scale-[1.02] ${
                     f.playing
-                      ? "pointer-events-none"
-                      : "hover:scale-[1.02] hover:shadow-lg hover:ring-1 hover:ring-white"
+                      ? "cursor-default"
+                      : "hover:shadow-lg hover:ring-1 hover:ring-white"
                   }`}
                   style={frame(f.playing)}
                 >
