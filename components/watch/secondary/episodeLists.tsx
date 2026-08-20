@@ -189,7 +189,7 @@ function Runtime({
   malId,
   live,
   known,
-  fallback,
+  anchor,
   estimate,
   onMeasured,
 }: {
@@ -198,13 +198,17 @@ function Runtime({
   malId?: number | string | null;
   live: boolean;
   known: number | null;
-  /** Duree typique de la saison, pour les episodes que personne n'a mesures. */
-  fallback: number | null;
+  /** Duree de reference de la saison — cf. `anchorOf` plus bas. */
+  anchor: number | null;
   estimate: string | null;
-  onMeasured: (episode: number, seconds: number) => void;
+  onMeasured: (episode: number, seconds: number, fromPlayer: boolean) => void;
 }) {
   const ref = useRef<HTMLParagraphElement>(null);
-  const [exact, setExact] = useState<number | null>(known);
+  // La provenance compte autant que la valeur : une duree lue dans le fichier
+  // ne se discute pas, une duree participative se recale (voir plus bas).
+  const [exact, setExact] = useState<{ s: number; player: boolean } | null>(
+    known != null ? { s: known, player: true } : null,
+  );
 
   // 1. Le lecteur, pour l'episode en cours.
   useEffect(() => {
@@ -214,7 +218,9 @@ function Runtime({
       if (!d || String(d.aniId) !== String(aniId)) return;
       if (Number(d.episode) !== Number(episode)) return;
       if (!(d.duration > 0)) return;
-      setExact((prev) => (prev === d.duration ? prev : d.duration));
+      setExact((prev) =>
+        prev?.player && prev.s === d.duration ? prev : { s: d.duration, player: true },
+      );
     };
     window.addEventListener(PROGRESS_EVENT, onTick);
     return () => window.removeEventListener(PROGRESS_EVENT, onTick);
@@ -225,7 +231,7 @@ function Runtime({
     if (live || exact != null || malId == null || !ref.current) return;
     const cached = peekRuntime({ malId, episode });
     if (cached != null) {
-      setExact(cached);
+      setExact({ s: cached, player: false });
       return;
     }
     const el = ref.current;
@@ -236,7 +242,7 @@ function Runtime({
       done = true;
       io.disconnect();
       queueRuntime({ malId, episode }, ac.signal).then(
-        (s) => s != null && setExact(s),
+        (s) => s != null && setExact({ s, player: false }),
       );
     });
     io.observe(el);
@@ -246,18 +252,30 @@ function Runtime({
     };
   }, [episode, malId, live, exact]);
 
-  // Toute mesure obtenue nourrit la duree typique de la saison, celle qui
-  // servira aux episodes qu'AniSkip ne connait pas.
+  // Toute mesure obtenue nourrit la duree de reference de la saison.
   useEffect(() => {
-    if (exact != null) onMeasured(episode, exact);
+    if (exact) onMeasured(episode, exact.s, exact.player);
   }, [exact, episode, onMeasured]);
 
-  /* Les episodes d'une meme saison sont taillés au meme metrage : quand
-     personne n'a mesure celui-ci, la duree de ses voisins est bien plus proche
-     de la verite que la moyenne de serie d'AniList (qui arrondit a la minute).
-     La vraie duree la remplace des que l'episode est lu. */
-  const text =
-    exact != null ? mmss(exact) : fallback != null ? mmss(fallback) : estimate;
+  /* Choix de la valeur affichee.
+     - Le fichier lu par le lecteur ne se discute pas.
+     - Une valeur participative qui ne s'ecarte que de quelques secondes de la
+       reference de la saison est recalee dessus : ces ecarts-la sont du bruit
+       de mesure entre encodages (AniSkip annonce 23:42 pour les episodes 4 et
+       5 de Solo Leveling S2, la ou le fichier servi fait 23:40 comme tous ses
+       voisins). Au-dela du seuil, on la garde telle quelle — un episode
+       double, un recap ou un special sont legitimement plus courts ou plus
+       longs, et les ecraser serait mentir.
+     - Sans mesure du tout, la reference de la saison vaut mieux que la moyenne
+       d'AniList, arrondie a la minute. */
+  const SNAP_SECONDS = 5;
+  const shown =
+    exact?.player
+      ? exact.s
+      : exact && anchor != null && Math.abs(exact.s - anchor) <= SNAP_SECONDS
+        ? anchor
+        : (exact?.s ?? anchor);
+  const text = shown != null ? mmss(shown) : estimate;
   if (!text) return null;
   return (
     <p
@@ -393,21 +411,42 @@ export default function EpisodeLists({
      restent alignes en colonne quelle que soit la longueur de la serie. */
   const padTo = String(last ?? episode?.length ?? 1).length;
 
-  /* Duree typique de la saison, agregee au fil des mesures qui remontent des
-     lignes. Elle comble les episodes qu'AniSkip ne connait pas : une saison est
-     montee au meme metrage, donc la mediane de ses voisins vaut mieux que la
-     moyenne arrondie a la minute d'AniList. On ne la publie qu'a partir de deux
-     mesures concordantes, et seulement si elle a bouge — sinon chaque reponse
-     re-rendrait la liste entiere. */
-  const measured = useRef(new Map<number, number>());
-  const [typical, setTypical] = useState<number | null>(null);
-  const reportRuntime = useCallback((ep: number, seconds: number) => {
-    measured.current.set(ep, seconds);
-    const all = [...measured.current.values()].sort((a, b) => a - b);
-    if (all.length < 2) return;
-    const median = all[Math.floor(all.length / 2)];
-    setTypical((prev) => (prev != null && Math.abs(prev - median) < 1 ? prev : median));
-  }, []);
+  /* Duree de reference de la saison, agregee au fil des mesures qui remontent
+     des lignes. Elle sert deux fois : a combler les episodes que personne n'a
+     mesures, et a recaler les valeurs participatives qui ne s'en ecartent que
+     de quelques secondes (cf. <Runtime>).
+     Les durees LUES DANS LE FICHIER priment : une seule d'entre elles suffit a
+     fixer la reference, la ou il faut deux mesures participatives concordantes
+     — le fichier, c'est ce que l'utilisateur va reellement regarder, alors
+     qu'une soumission peut viser un autre encodage. */
+  const measured = useRef<{
+    id: unknown;
+    rows: Map<number, { s: number; player: boolean }>;
+  }>({ id: null, rows: new Map() });
+  const [anchor, setAnchor] = useState<number | null>(null);
+  const reportRuntime = useCallback(
+    (ep: number, seconds: number, fromPlayer: boolean) => {
+      // Les mesures appartiennent a UNE saison : changer d'anime sans vider la
+      // table ferait recaler les episodes de la suivante sur le metrage de la
+      // precedente.
+      if (measured.current.id !== info?.id) {
+        measured.current = { id: info?.id, rows: new Map() };
+        setAnchor(null);
+      }
+      const prev = measured.current.rows.get(ep);
+      // Ne jamais laisser une valeur participative effacer une mesure du fichier.
+      if (prev?.player && !fromPlayer) return;
+      measured.current.rows.set(ep, { s: seconds, player: fromPlayer });
+      const all = [...measured.current.rows.values()];
+      const fromFiles = all.filter((v) => v.player).map((v) => v.s);
+      const pool = fromFiles.length ? fromFiles : all.map((v) => v.s);
+      if (!fromFiles.length && pool.length < 2) return;
+      pool.sort((a, b) => a - b);
+      const median = pool[Math.floor(pool.length / 2)];
+      setAnchor((old) => (old != null && Math.abs(old - median) < 1 ? old : median));
+    },
+    [info?.id],
+  );
 
   /* L'episode en cours se reconnait a son NUMERO. `watchId` ne peut plus servir
      a ça : c'est devenu la cle de la liste de visionnage (`{aniId}-{num}`),
@@ -801,7 +840,7 @@ export default function EpisodeLists({
                       malId={info?.idMal ?? null}
                       live={f.playing}
                       known={f.known}
-                      fallback={typical}
+                      anchor={anchor}
                       estimate={f.estimate}
                       onMeasured={reportRuntime}
                     />
