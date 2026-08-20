@@ -89,18 +89,16 @@ export default function ServerSelector({
      mesuree sur le bouton actif plutot que calculee : les trois libelles n'ont
      pas la meme longueur ("MULTI" / "VOSTFR" / "VF"), et des colonnes de
      largeur egale auraient etire "VF" pour rien.
-     La toute PREMIERE mesure se pose sans transition (`animate: false`) : sans
-     ca, le calque traverserait la barre depuis la gauche a l'ouverture du
-     lecteur, comme si on venait de cliquer. */
+     Rien a prevoir pour le premier rendu : le calque n'existe pas tant qu'il
+     n'est pas mesure, et une transition ne se declenche jamais sur le style
+     initial d'un element — il nait donc a sa place, sans traverser la barre.
+     `available.join("|")` en dependance et non `available` : le tableau est
+     reconstruit a chaque rendu, la chaine ne change qu'avec les onglets. */
   const tabsRef = useRef(null);
   const [pill, setPill] = useState(null);
   useEffect(() => {
     const el = tabsRef.current?.querySelector("[data-lang-active]");
-    setPill((prev) =>
-      el
-        ? { left: el.offsetLeft, width: el.offsetWidth, animate: prev != null }
-        : null,
-    );
+    setPill(el ? { left: el.offsetLeft, width: el.offsetWidth } : null);
   }, [lang, available.join("|")]);
 
   if (!servers.length) return null;
@@ -194,9 +192,8 @@ export default function ServerSelector({
                 transform: `translateX(${pill.left}px)`,
                 background: "#2b3040",
                 boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.16)",
-                transition: pill.animate
-                  ? "transform 260ms cubic-bezier(0.32,0.72,0,1), width 260ms cubic-bezier(0.32,0.72,0,1)"
-                  : "none",
+                transition:
+                  "transform 260ms cubic-bezier(0.32,0.72,0,1), width 260ms cubic-bezier(0.32,0.72,0,1)",
               }}
             />
           )}

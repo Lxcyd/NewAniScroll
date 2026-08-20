@@ -309,71 +309,36 @@ body,
 }
 
 /* ── Panneau d'episodes du lecteur ────────────────────────────────────
-   Barre d'outils (saison · compteur · recherche · tri · vue). Ses couleurs
-   sont celles du panneau, miroir de components/anime/v2. Elles vivent ici
-   et non en style inline pour une raison precise : un style inline n'a ni
-   :hover ni :focus. Les cinq controles de cette rangee ne repondaient donc
-   a rien, et cinq rectangles bordes, inertes et de meme poids se lisaient
-   comme un cadre decoratif plutot que comme des commandes. */
-.as-epbar-ctl,
-.as-epbar-ghost,
-.as-epbar-badge {
-  transition: background-color 0.15s ease, border-color 0.15s ease,
-    color 0.15s ease;
-}
-/* Un seul et meme habit pour toute la rangee, celui du compteur : un aplat
-   blanc a 4 %, sans cadre. Les cadres etaient ce qui faisait "pas du tout
-   l'app" — cinq boites dessinees les unes contre les autres. */
-.as-epbar-ctl,
-.as-epbar-badge {
-  background: rgba(255, 255, 255, 0.04);
-  border: none;
-  color: #f4f5f8;
-}
-.as-epbar-ctl:hover {
-  background: rgba(255, 255, 255, 0.08);
-}
-/* Pas d'etat de focus : la teinte accent restait collee au bouton apres le
-   clic, longtemps apres que l'action ait eu lieu. Le survol suffit a dire
-   qu'on vise une commande, et le resultat du clic (menu ouvert, vue changee)
-   se voit ailleurs. */
-/* Un seul niveau de texte sur toute la rangee : le blanc du nom de saison.
-   Le gris sourd hierarchisait par la couleur ce que l'aplat hierarchise deja
-   par le survol, et faisait lire la moitie des commandes comme desactivees.
-   Seul le texte fantome du champ reste en retrait — c'est un exemple, pas
-   une valeur. */
-.as-epbar-ctl::placeholder {
-  color: rgba(244, 245, 248, 0.5);
-}
+   Ce qui reste ici est ce que Tailwind ne sait pas exprimer : une regle de
+   keyframes, et un pseudo-element. Tout l'habillage de la barre d'outils est
+   reparti dans le composant, en variantes `hover:` / `data-[scrolled]:` — le
+   detour par une classe globale n'etait justifie que contre les styles
+   INLINE, qui n'ont pas d'etat de survol ; les classes Tailwind, elles, en
+   ont. */
 
-/* L'en-tete n'est plus separe de la liste par un trait : il porte une ombre
-   qui n'existe que lorsque des cartes passent dessous (`data-scrolled`, pose
-   par le handler de defilement du panneau). En haut de liste, rien a separer,
-   donc rien de dessine. */
-.as-epbar {
-  position: relative;
-  z-index: 1;
-  transition: box-shadow 0.2s ease;
+/* Liseré de survol des cartes d'episode. En pseudo-element et non en <span> :
+   la liste rend une carte par episode, parfois plusieurs centaines, et un
+   noeud de plus par ligne se paie a chaque rendu pour un trait que le CSS
+   sait dessiner seul. */
+.as-epcard::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 8px;
+  box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, 0.85),
+    0 6px 18px rgba(0, 0, 0, 0.45);
+  opacity: 0;
+  transition: opacity 0.2s ease-out;
+  pointer-events: none;
 }
-.as-epbar[data-scrolled] {
-  box-shadow: 0 10px 14px -10px rgba(0, 0, 0, 0.85);
-}
-
-/* Lignes du menu des saisons. `!important` parce que la ligne porte son fond
-   en style inline ; la classe n'est posee que sur les lignes INACTIVES, donc
-   elle n'ecrase jamais le fond accent de la saison en cours. */
-.as-epmenu-row {
-  transition: background-color 0.15s ease;
-}
-.as-epmenu-row:hover {
-  background: rgba(255, 255, 255, 0.05) !important;
+.as-epcard:hover::after {
+  opacity: 1;
 }
 
 /* Passage d'une vue a l'autre (cartes · lignes · grille). Les trois vues ne
    peuvent pas se transformer l'une en l'autre — ni le meme nombre d'elements
    a l'ecran, ni la meme forme — donc la nouvelle entre au lieu de tenter un
-   morphing : un souffle vers le haut, 0,24 s. C'est aussi ce qui remplace
-   l'ancien tween par-carte, qui faisait clignoter un liseré blanc partout.
+   morphing : un souffle vers le haut, 0,24 s.
    Pose par une `key` sur le conteneur : chaque vue est un nouveau noeud, donc
    l'animation rejoue a chaque bascule. */
 @keyframes as-view-in {
@@ -388,35 +353,6 @@ body,
 }
 .as-viewswap {
   animation: as-view-in 0.24s cubic-bezier(0.32, 0.72, 0, 1) both;
-}
-
-/* Ascenseur de la liste. Le site masque tous les ascenseurs (regle plus
-   haut) ; celui-ci doit rester visible — la liste depasse toujours — mais il
-   sortait avec la piste blanche du systeme.
-   C'est EXACTEMENT `.customScroll` de components/anime/v2/styles.module.css,
-   valeurs comprises : 8 px, piste blanc 4 %, pouce `--line-2`, `--txt-3` au
-   survol. Le module est scope a la page d'info et ne peut pas etre importe
-   ici, alors les tokens sont recopies — comme l'objet `T` du panneau, qui
-   mirroir deja ce meme fichier. */
-.as-epscroll {
-  scrollbar-width: thin;
-  scrollbar-color: #2f3447 rgba(255, 255, 255, 0.04);
-}
-.as-epscroll::-webkit-scrollbar {
-  display: block;
-  width: 8px;
-  height: 8px;
-}
-.as-epscroll::-webkit-scrollbar-track {
-  background: rgba(255, 255, 255, 0.04);
-  border-radius: 4px;
-}
-.as-epscroll::-webkit-scrollbar-thumb {
-  background: #2f3447;
-  border-radius: 4px;
-}
-.as-epscroll::-webkit-scrollbar-thumb:hover {
-  background: #5e6478;
 }
 
 /* Disable native drag of images everywhere on the page. We use

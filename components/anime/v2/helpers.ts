@@ -25,6 +25,32 @@ export function statusLabel(t: TFunction, status: string | null): string {
   }
 }
 
+/**
+ * Sous-titre d'une ligne de saison dans un selecteur : "2024 · 12 EP", le
+ * format seul quand ni l'annee ni le compte ne sont connus, et "Pas encore
+ * sortie" pour une saison qui n'a pas commence — auquel cas l'annee annoncee
+ * et un compte previsionnel diraient moins que le statut.
+ *
+ * Deux selecteurs le rendent : celui de la page d'info (v2/Episodes) et celui
+ * du panneau du lecteur (watch/secondary/episodeLists). Ils affichaient la
+ * meme ligne, ecrite deux fois.
+ */
+export function seasonSubtitle(
+  t: TFunction,
+  s: {
+    year?: number | null;
+    episodes?: number | null;
+    format?: string | null;
+    status?: string | null;
+  },
+): string {
+  if (s.status === "NOT_YET_RELEASED") return t("anime.notYetReleased");
+  return (
+    [s.year, s.episodes ? `${s.episodes} EP` : null].filter(Boolean).join(" · ") ||
+    (s.format ?? "")
+  );
+}
+
 export function countryLabel(t: TFunction, c: string | null): string {
   switch (c) {
     case "JP":

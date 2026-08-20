@@ -13,7 +13,7 @@ import type { SeasonEntry } from "@/lib/anilist/seasonChain";
 import type { FilmVariant } from "@/lib/anilist/resolveSeason";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { useHideSpoilers } from "@/lib/prefs/spoilerPrefs";
-import { slugifyTitle } from "./helpers";
+import { seasonSubtitle, slugifyTitle } from "./helpers";
 import {
   buildEpisodeImagePool,
   pickEpisodeImage,
@@ -941,12 +941,7 @@ function SeasonPicker({
             const films = s.variants ?? [];
             const grouped = films.length > 0;
 
-            const seasonSub =
-              s.status === "NOT_YET_RELEASED"
-                ? t("anime.notYetReleased")
-                : [s.year, s.episodes ? `${s.episodes} EP` : null]
-                    .filter(Boolean)
-                    .join(" · ") || (s.format ?? "");
+            const seasonSub = seasonSubtitle(t, s);
 
             // Simple case — no films: one flat row per season.
             if (!grouped) {

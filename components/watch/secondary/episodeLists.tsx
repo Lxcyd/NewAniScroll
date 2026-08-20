@@ -19,6 +19,14 @@ import {
   ProgressTick,
 } from "@/lib/watch/progress";
 import { peekRuntime, queueRuntime } from "@/lib/watch/episodeRuntime";
+/* Les tokens de la page d'info, en classe importable — c'est ce pour quoi
+   `.tokens` a ete separe de `.root` (cf. son commentaire), et la page de
+   lecture l'utilise deja pour sa rangee de recommandations. Le panneau les
+   porte donc a son tour, ce qui lui donne `--line-2` / `--txt-3` et, avec eux,
+   l'ascenseur `.customScroll` de cette meme feuille. */
+import v2Styles from "@/components/anime/v2/styles.module.css";
+import { seasonSubtitle } from "@/components/anime/v2/helpers";
+import { animeHref } from "@/lib/prefs/clickTarget";
 
 type EpisodeListsProps = {
   info: AniListInfoTypes;
@@ -672,7 +680,7 @@ export default function EpisodeLists({
        page gives this column, and the scroll area — not the card — absorbs the
        overflow. `min-h-0` at each level because a flex item won't shrink below
        its content otherwise, which would push the scrollbar out of view. */
-    <div className="w-full lg:h-full lg:max-w-sm xl:max-w-lg lg:w-[24rem] xl:w-[32rem] shrink-0 flex flex-col gap-2">
+    <div className={`${v2Styles.tokens} w-full lg:h-full lg:max-w-sm xl:max-w-lg lg:w-[24rem] xl:w-[32rem] shrink-0 flex flex-col gap-2`}>
       <div
         className="rounded-xl border lg:flex lg:min-h-0 lg:flex-1 lg:flex-col"
         style={{ borderColor: T.line, background: "rgba(16,18,26,0.6)" }}
@@ -680,7 +688,7 @@ export default function EpisodeLists({
         {/* ── Header: season · range · view mode ── */}
         <div
           ref={headRef}
-          className="as-epbar flex shrink-0 items-center gap-2 px-2.5 py-2.5"
+          className="relative z-[1] flex shrink-0 items-center gap-2 px-2.5 py-2.5 transition-shadow duration-200 data-[scrolled]:shadow-[0_10px_14px_-10px_rgba(0,0,0,0.85)]"
         >
           {seasons.length > 1 && (
             <div className="relative shrink-0">
@@ -690,7 +698,7 @@ export default function EpisodeLists({
                   e.stopPropagation();
                   setSeasonOpen((o) => !o);
                 }}
-                className="as-epbar-ctl flex h-[26px] items-center gap-1.5 rounded-lg pl-2.5 pr-2 text-[11px] font-semibold outline-none"
+                className="bg-white/[0.04] text-[#f4f5f8] transition-colors hover:bg-white/[0.08] flex h-[26px] items-center gap-1.5 rounded-lg pl-2.5 pr-2 text-[11px] font-semibold outline-none"
               >
                 <span className="max-w-[150px] truncate">
                   {activeSeason?.label || `${t("anime.season")} ${activeSeason?.number ?? 1}`}
@@ -703,21 +711,15 @@ export default function EpisodeLists({
               {seasonOpen && (
                 <div
                   onClick={(e) => e.stopPropagation()}
-                  className="as-epscroll absolute left-0 top-[calc(100%+6px)] z-30 max-h-[320px] min-w-[220px] overflow-y-auto rounded-xl border p-1 shadow-2xl"
+                  className={`${v2Styles.customScroll} absolute left-0 top-[calc(100%+6px)] z-30 max-h-[320px] min-w-[220px] overflow-y-auto rounded-xl border p-1 shadow-2xl`}
                   style={{ background: T.bg2, borderColor: T.line2 }}
                 >
                   {seasons.map((s) => {
                     const rowActive = String(s.id) === String(info?.id);
                     const soon = s.status === "NOT_YET_RELEASED";
-                    // Meme sous-titre que la page d'info : annee · nb d'episodes,
-                    // repli sur le format quand ni l'un ni l'autre n'est connu.
-                    // Et "Bientot" pour une saison qui n'a pas commence — la
-                    // seule information qui compte pour elle.
-                    const sub = soon
-                      ? t("anime.notYetReleased")
-                      : [s.year, s.episodes ? `${s.episodes} EP` : null]
-                          .filter(Boolean)
-                          .join(" · ") || (s.format ?? "");
+                    // Meme ligne que le selecteur de la page d'info, et
+                    // desormais le meme code : cf. seasonSubtitle.
+                    const sub = seasonSubtitle(t, s);
                     return (
                       <button
                         key={s.id}
@@ -732,7 +734,7 @@ export default function EpisodeLists({
                              mene donc a sa fiche, qui sait dire "Bientot" et
                              porte la date de sortie. */
                           if (soon) {
-                            router.push(`/en/anime/${s.id}`);
+                            router.push(animeHref(s.id, "info"));
                             return;
                           }
                           /* Et l'id d'episode se derive de la saison CIBLE, pas
@@ -747,11 +749,12 @@ export default function EpisodeLists({
                             }`,
                           );
                         }}
-                        className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left ${
-                          rowActive ? "" : "as-epmenu-row"
-                        }`}
+                        className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left transition-colors hover:bg-white/[0.05]"
                         style={{
-                          background: rowActive ? ACCENT_SOFT : "transparent",
+                          /* Rien d'inline sur une ligne inactive : le fond
+                             accent de la ligne active passe devant la classe
+                             de survol sans avoir a crier `!important`. */
+                          background: rowActive ? ACCENT_SOFT : undefined,
                           color: rowActive ? ACCENT : soon ? T.txt3 : T.txt0,
                         }}
                       >
@@ -793,7 +796,7 @@ export default function EpisodeLists({
               quatre elements de cet en-tete sont maintenant sur une seule
               ligne, et un libelle nu au milieu de trois pastilles bordees
               donnait une rangee bancale. */}
-          <div className="as-epbar-badge flex h-[26px] shrink-0 items-center gap-1.5 rounded-lg px-2.5">
+          <div className="flex h-[26px] shrink-0 items-center gap-1.5 rounded-lg bg-white/[0.04] px-2.5 text-[#f4f5f8]">
             <span className="text-[11px] font-semibold">
               {t("anime.episodes")}
             </span>
@@ -830,7 +833,7 @@ export default function EpisodeLists({
               onChange={(e) => setQuery(e.target.value)}
               placeholder={t("anime.searchEpisode")}
               aria-label={t("anime.searchEpisode")}
-              className="as-epbar-ctl h-[26px] w-full rounded-lg pl-[26px] pr-2 text-[11.5px] outline-none"
+              className="bg-white/[0.04] text-[#f4f5f8] transition-colors hover:bg-white/[0.08] h-[26px] w-full rounded-lg pl-[26px] pr-2 text-[11.5px] outline-none placeholder:text-[#f4f5f8]/50"
             />
           </div>
 
@@ -844,7 +847,7 @@ export default function EpisodeLists({
             onClick={toggleOrder}
             title={desc ? t("anime.sortDesc") : t("anime.sortAsc")}
             aria-label={desc ? t("anime.sortAsc") : t("anime.sortDesc")}
-            className="as-epbar-ctl grid h-[26px] w-[28px] shrink-0 place-items-center rounded-lg"
+            className="bg-white/[0.04] text-[#f4f5f8] transition-colors hover:bg-white/[0.08] grid h-[26px] w-[28px] shrink-0 place-items-center rounded-lg"
           >
             <svg
               width="14"
@@ -867,7 +870,7 @@ export default function EpisodeLists({
             onClick={() => pickView(nextView(view))}
             title={`${t(VIEW_LABELS[view])} · ${t("anime.changeView")}`}
             aria-label={`${t(VIEW_LABELS[view])} · ${t("anime.changeView")}`}
-            className="as-epbar-ctl grid h-[26px] w-[28px] shrink-0 place-items-center rounded-lg"
+            className="bg-white/[0.04] text-[#f4f5f8] transition-colors hover:bg-white/[0.08] grid h-[26px] w-[28px] shrink-0 place-items-center rounded-lg"
           >
             <ViewIcon view={view} />
           </button>
@@ -881,7 +884,7 @@ export default function EpisodeLists({
           key={view}
           ref={listRef}
           onScroll={onListScroll}
-          className={`as-epscroll as-viewswap relative max-h-[60vh] overflow-y-auto lg:max-h-none lg:min-h-0 lg:flex-1 ${
+          className={`${v2Styles.customScroll} as-viewswap relative max-h-[60vh] overflow-y-auto lg:max-h-none lg:min-h-0 lg:flex-1 ${
             view === "grid"
               ? /* content-start : le conteneur est `flex-1` donc plus haut que
                    ses lignes ; sans ca `align-content: stretch` etire les rangees
@@ -906,16 +909,7 @@ export default function EpisodeLists({
               const f = factsFor(item);
               return (
                 <Link
-                  /* Clef prefixee par la vue : les trois branches rendent un
-                     <Link> a la meme clef, donc React REUTILISE le meme noeud
-                     d'une vue a l'autre et se contente d'echanger ses classes.
-                     Avec `transition-all` dessus, le passage grille → cartes
-                     animait tout, bordure comprise : la bordure de la grille
-                     fondait vers le blanc en s'amincissant, et chaque carte
-                     clignotait d'un liseré blanc — le meme que le survol.
-                     Une clef differente par vue force un remontage : la
-                     nouvelle vue s'affiche dans son etat final, sans tween. */
-                  key={`grid-${item.id}`}
+                  key={item.id}
                   href={hrefFor(item)}
                   title={f.title}
                   data-playing={f.playing ? "" : undefined}
@@ -947,7 +941,7 @@ export default function EpisodeLists({
               const f = factsFor(item);
               return (
                 <Link
-                  key={`compact-${item.id}`}
+                  key={item.id}
                   href={hrefFor(item)}
                   title={f.title}
                   data-playing={f.playing ? "" : undefined}
@@ -1001,7 +995,7 @@ export default function EpisodeLists({
                    comme un bug — mais garde son liseré accent, son curseur par
                    defaut, et son clic ne mene nulle part : on y est deja. */
                 <Link
-                  key={`detailed-${item.id}`}
+                  key={item.id}
                   href={hrefFor(item)}
                   data-playing={f.playing ? "" : undefined}
                   onClick={f.playing ? (e) => e.preventDefault() : undefined}
@@ -1011,7 +1005,7 @@ export default function EpisodeLists({
                      bords en escalier. La carte reste donc sans transform tant
                      qu'on ne la survole pas. */
                   className={`bg-secondary group relative flex h-[110px] w-full rounded-lg transition-transform duration-300 ease-out hover:scale-[1.02] ${
-                    f.playing ? "cursor-default" : "cursor-pointer"
+                    f.playing ? "cursor-default" : "as-epcard cursor-pointer"
                   }`}
                 >
                   <div className="relative h-[110px] w-[43%] shrink-0 overflow-hidden rounded-lg shadow-[4px_0px_5px_0px_rgba(0,0,0,0.3)] lg:w-[42%]">
@@ -1108,26 +1102,11 @@ export default function EpisodeLists({
                       exterieur du rayon, la ou Chrome escalade le trait d'un
                       pixel ; a l'interieur il suit exactement le meme arrondi
                       et sort net. */}
-                  {f.playing ? (
+                  {f.playing && (
                     <span
                       aria-hidden
                       className="pointer-events-none absolute inset-0 rounded-lg"
                       style={{ boxShadow: `inset 0 0 0 1.5px ${ACCENT}` }}
-                    />
-                  ) : (
-                    /* Meme liseré, en blanc et au survol. Il est pose en calque
-                       comme celui de l'episode en cours (et non en `ring`) pour
-                       la meme raison : un ring peint hors de la boite escalade
-                       le trait d'un pixel sur l'arrondi. On anime son opacite,
-                       jamais sa presence — un trait qui apparait d'un coup se
-                       lit comme un defaut de rendu. */
-                    <span
-                      aria-hidden
-                      className="pointer-events-none absolute inset-0 rounded-lg opacity-0 transition-opacity duration-200 ease-out group-hover:opacity-100"
-                      style={{
-                        boxShadow:
-                          "inset 0 0 0 1.5px rgba(255,255,255,0.85), 0 6px 18px rgba(0,0,0,0.45)",
-                      }}
                     />
                   )}
                 </Link>
