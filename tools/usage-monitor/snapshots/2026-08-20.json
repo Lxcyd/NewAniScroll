@@ -1,0 +1,59 @@
+{
+  "date": "2026-08-20",
+  "generatedAt": "2026-08-20T07:08:25.557Z",
+  "census": {
+    "dbsize": 13097,
+    "scanned": 13097,
+    "complete": true,
+    "iters": 14,
+    "buckets": {
+      "anime": 10653,
+      "episode": 1982,
+      "tr": 458,
+      "jikan": 3,
+      "new_schedule": 1
+    },
+    "topTwoSeg": {
+      "anime:v5": 10653,
+      "episode:v3": 1653,
+      "tr:fr": 458,
+      "episode:v5": 203,
+      "episode:v6": 126,
+      "jikan:eps": 3
+    }
+  },
+  "upstashStats": {
+    "dbId": "0fc53b75-3b30-41bd-9cce-d739790fbb61",
+    "dbName": "aniscroll-cache",
+    "databaseCount": 1,
+    "daily": [
+      {
+        "x": "2026-08-16",
+        "y": 9185
+      },
+      {
+        "x": "2026-08-17",
+        "y": 9948
+      },
+      {
+        "x": "2026-08-18",
+        "y": 4818
+      },
+      {
+        "x": "2026-08-19",
+        "y": 6397
+      },
+      {
+        "x": "2026-08-20",
+        "y": 2033
+      }
+    ],
+    "today": 2033,
+    "yesterday": 6397,
+    "avgPerDay7d": 6476,
+    "projectedMonthly": 194280,
+    "freeCapMonthly": 500000,
+    "projectedCapPct": 39
+  },
+  "vercel": null
+}
