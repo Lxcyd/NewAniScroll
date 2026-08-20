@@ -921,12 +921,10 @@ export default function EpisodeLists({
                   title={f.title}
                   data-playing={f.playing ? "" : undefined}
                   onClick={f.playing ? (e) => e.preventDefault() : undefined}
-                  /* Meme regle que les deux autres vues : la case en cours
-                     grossit au survol, sans liseré blanc ni curseur main. */
-                  className={`grid aspect-square place-items-center rounded-lg border text-sm font-semibold transition-all duration-300 ease-out hover:scale-[1.06] ${
-                    f.playing
-                      ? "cursor-default"
-                      : "hover:shadow-lg hover:ring-1 hover:ring-white"
+                  /* Meme regle que les deux autres vues : la case en cours se
+                     survole comme les autres, seul son curseur la distingue. */
+                  className={`grid aspect-square place-items-center rounded-lg border text-sm font-semibold transition-all duration-300 ease-out hover:scale-[1.06] hover:shadow-lg hover:ring-1 hover:ring-white ${
+                    f.playing ? "cursor-default" : ""
                   }`}
                   style={{
                     borderColor: f.playing ? ACCENT_BORDER : T.line,
@@ -956,16 +954,15 @@ export default function EpisodeLists({
                   title={f.title}
                   data-playing={f.playing ? "" : undefined}
                   onClick={f.playing ? (e) => e.preventDefault() : undefined}
-                  /* L'episode en cours grossit lui aussi : une ligne inerte au
-                     milieu de lignes vivantes se lit comme un bug. Il garde en
-                     revanche son liseré accent (pas de blanc) et un curseur par
-                     defaut — son clic ne mene nulle part, on y est deja. D'ou le
-                     `preventDefault` plutot qu'un `pointer-events-none`, qui
-                     supprimerait aussi le survol. */
-                  className={`flex min-h-[40px] items-center gap-3 rounded-lg border px-3 py-2.5 transition-all duration-300 ease-out hover:scale-[1.02] ${
-                    f.playing
-                      ? "cursor-default"
-                      : "hover:shadow-lg hover:ring-1 hover:ring-white"
+                  /* L'episode en cours se survole comme les autres : une ligne
+                     inerte au milieu de lignes vivantes se lit comme un bug.
+                     Son liseré accent reste dessous, le blanc du survol le
+                     couvre le temps du survol. Seul son curseur par defaut le
+                     distingue — son clic ne mene nulle part, on y est deja.
+                     D'ou le `preventDefault` plutot qu'un `pointer-events-none`,
+                     qui supprimerait aussi le survol. */
+                  className={`flex min-h-[40px] items-center gap-3 rounded-lg border px-3 py-2.5 transition-all duration-300 ease-out hover:scale-[1.02] hover:shadow-lg hover:ring-1 hover:ring-white ${
+                    f.playing ? "cursor-default" : ""
                   }`}
                   style={frame(f.playing)}
                 >
@@ -1007,10 +1004,11 @@ export default function EpisodeLists({
                    gauche, titre en gras italique, resume en dessous. Et son
                    survol, qui manquait ici : la carte grossit d'un poil, prend
                    un liseré blanc et une ombre — c'est ce mouvement qui dit
-                   qu'une ligne est cliquable. L'episode en cours grossit lui
-                   aussi — une carte inerte au milieu de cartes vivantes se lit
-                   comme un bug — mais garde son liseré accent, son curseur par
-                   defaut, et son clic ne mene nulle part : on y est deja. */
+                   qu'une ligne est cliquable. L'episode en cours se survole
+                   exactement pareil — une carte inerte au milieu de cartes
+                   vivantes se lit comme un bug ; son liseré accent reste
+                   dessous et reapparait des qu'on sort. Seuls son curseur par
+                   defaut et son clic mort le distinguent : on y est deja. */
                 <Link
                   key={item.id}
                   href={hrefFor(item)}
@@ -1021,8 +1019,8 @@ export default function EpisodeLists({
                      alors les coins arrondis sans anticrenelage — d'ou les
                      bords en escalier. La carte reste donc sans transform tant
                      qu'on ne la survole pas. */
-                  className={`bg-secondary group relative flex h-[110px] w-full rounded-lg transition-transform duration-300 ease-out hover:scale-[1.02] ${
-                    f.playing ? "cursor-default" : "as-epcard cursor-pointer"
+                  className={`as-epcard bg-secondary group relative flex h-[110px] w-full rounded-lg transition-transform duration-300 ease-out hover:scale-[1.02] ${
+                    f.playing ? "cursor-default" : "cursor-pointer"
                   }`}
                 >
                   <div className="relative h-[110px] w-[43%] shrink-0 overflow-hidden rounded-lg shadow-[4px_0px_5px_0px_rgba(0,0,0,0.3)] lg:w-[42%]">
