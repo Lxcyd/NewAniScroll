@@ -6,7 +6,7 @@ import { useRouter } from "next/router";
 import { AniListInfoTypes } from "types/info/AnilistInfoTypes";
 import { Episode } from "types/api/Episode";
 import { useTranslation } from "react-i18next";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useHideSpoilers } from "@/lib/prefs/spoilerPrefs";
 import { useSyncPrefs } from "@/lib/prefs/syncPrefs";
 import { peekLocalEntry, LOCAL_LIST_EVENT } from "@/lib/list/localList";
@@ -186,14 +186,19 @@ function Runtime({
   malId,
   live,
   known,
+  fallback,
   estimate,
+  onMeasured,
 }: {
   aniId: number | string;
   episode: number;
   malId?: number | string | null;
   live: boolean;
   known: number | null;
+  /** Duree typique de la saison, pour les episodes que personne n'a mesures. */
+  fallback: number | null;
   estimate: string | null;
+  onMeasured: (episode: number, seconds: number) => void;
 }) {
   const ref = useRef<HTMLParagraphElement>(null);
   const [exact, setExact] = useState<number | null>(known);
@@ -238,7 +243,18 @@ function Runtime({
     };
   }, [episode, malId, live, exact]);
 
-  const text = exact != null ? mmss(exact) : estimate;
+  // Toute mesure obtenue nourrit la duree typique de la saison, celle qui
+  // servira aux episodes qu'AniSkip ne connait pas.
+  useEffect(() => {
+    if (exact != null) onMeasured(episode, exact);
+  }, [exact, episode, onMeasured]);
+
+  /* Les episodes d'une meme saison sont taillés au meme metrage : quand
+     personne n'a mesure celui-ci, la duree de ses voisins est bien plus proche
+     de la verite que la moyenne de serie d'AniList (qui arrondit a la minute).
+     La vraie duree la remplace des que l'episode est lu. */
+  const text =
+    exact != null ? mmss(exact) : fallback != null ? mmss(fallback) : estimate;
   if (!text) return null;
   return (
     <p
@@ -373,6 +389,22 @@ export default function EpisodeLists({
      liste. 12 episodes donnent "01", 1120 donnent "0001" — les numeros
      restent alignes en colonne quelle que soit la longueur de la serie. */
   const padTo = String(last ?? episode?.length ?? 1).length;
+
+  /* Duree typique de la saison, agregee au fil des mesures qui remontent des
+     lignes. Elle comble les episodes qu'AniSkip ne connait pas : une saison est
+     montee au meme metrage, donc la mediane de ses voisins vaut mieux que la
+     moyenne arrondie a la minute d'AniList. On ne la publie qu'a partir de deux
+     mesures concordantes, et seulement si elle a bouge — sinon chaque reponse
+     re-rendrait la liste entiere. */
+  const measured = useRef(new Map<number, number>());
+  const [typical, setTypical] = useState<number | null>(null);
+  const reportRuntime = useCallback((ep: number, seconds: number) => {
+    measured.current.set(ep, seconds);
+    const all = [...measured.current.values()].sort((a, b) => a - b);
+    if (all.length < 2) return;
+    const median = all[Math.floor(all.length / 2)];
+    setTypical((prev) => (prev != null && Math.abs(prev - median) < 1 ? prev : median));
+  }, []);
 
   /* L'episode en cours se reconnait a son NUMERO. `watchId` ne peut plus servir
      a ça : c'est devenu la cle de la liste de visionnage (`{aniId}-{num}`),
@@ -691,9 +723,19 @@ export default function EpisodeLists({
                      qu'on ne la survole pas. */
                   className={`bg-secondary flex h-[110px] w-full rounded-lg transition-all duration-300 ease-out ${
                     f.playing
-                      ? "pointer-events-none ring-1 ring-action"
+                      ? "pointer-events-none"
                       : "cursor-pointer ring-0 ring-white hover:scale-[1.02] hover:shadow-lg hover:ring-1"
                   }`}
+                  /* Liseré de l'episode en cours en ombre INTERNE plutot qu'en
+                     `ring` : le ring est peint hors de la boite, sur le bord
+                     exterieur du rayon, la ou Chrome escalade visiblement le
+                     trait d'un pixel. A l'interieur, il suit le meme arrondi
+                     que le fond de la carte et sort net. */
+                  style={
+                    f.playing
+                      ? { boxShadow: `inset 0 0 0 1.5px ${ACCENT}` }
+                      : undefined
+                  }
                 >
                   <div className="relative h-[110px] w-[43%] shrink-0 overflow-hidden rounded-lg shadow-[4px_0px_5px_0px_rgba(0,0,0,0.3)] lg:w-[42%]">
                     {hasArt && f.parsedImage && (
@@ -761,7 +803,9 @@ export default function EpisodeLists({
                       malId={info?.idMal ?? null}
                       live={f.playing}
                       known={f.known}
+                      fallback={typical}
                       estimate={f.estimate}
+                      onMeasured={reportRuntime}
                     />
                   </div>
                 </Link>
