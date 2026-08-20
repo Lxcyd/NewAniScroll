@@ -316,7 +316,11 @@ export default function Watch({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [info?.id, sessions?.user?.name]);
 
-  const [artStorage,        setArtStorage]        = useState(null);
+  // (`artStorage` a disparu : la liste d'episodes lisait ce store par id
+  //  d'episode alors qu'il est indexe par id d'ANIME — la lecture ne rendait
+  //  jamais rien. Elle lit maintenant lib/watch/progress.ts, la meme source
+  //  que la reprise de lecture. Le store `artplayer_settings` continue par
+  //  ailleurs d'alimenter l'historique "repris recemment".)
   const [episodeNavigation, setEpisodeNavigation] = useState(null);
   const [episodesList,      setepisodesList]      = useState();
   const [mapEpisode,        setMapEpisode]        = useState(null);
@@ -1111,8 +1115,6 @@ export default function Watch({
           } catch {}
         }
       }
-
-      setArtStorage(JSON.parse(localStorage.getItem("artplayer_settings") || "null"));
     }
 
     getInfo();
@@ -2502,7 +2504,6 @@ export default function Watch({
                     providerId={provider}
                     watchId={watchId}
                     episode={episodesList}
-                    artStorage={artStorage}
                     track={episodeNavigation}
                     dub={dub}
                   />

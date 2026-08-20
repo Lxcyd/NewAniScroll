@@ -6,11 +6,17 @@ import { useRouter } from "next/router";
 import { AniListInfoTypes } from "types/info/AnilistInfoTypes";
 import { Episode } from "types/api/Episode";
 import { useTranslation } from "react-i18next";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useHideSpoilers } from "@/lib/prefs/spoilerPrefs";
 import { useSyncPrefs } from "@/lib/prefs/syncPrefs";
 import { peekLocalEntry, LOCAL_LIST_EVENT } from "@/lib/list/localList";
 import { fixApostrophes } from "@/lib/text/apostrophes";
+import {
+  getAnimeProgress,
+  PROGRESS_EVENT,
+  ProgressEntry,
+  ProgressTick,
+} from "@/lib/watch/progress";
 
 type EpisodeListsProps = {
   info: AniListInfoTypes;
@@ -18,7 +24,6 @@ type EpisodeListsProps = {
   providerId: string;
   watchId: string;
   episode: Episode[];
-  artStorage: any;
   track: any;
   dub: string;
 };
@@ -107,13 +112,97 @@ function ViewIcon({ view }: { view: View }) {
   );
 }
 
+/** Duree exacte, en m:ss — c'est la duree que le LECTEUR a mesuree. */
+function mmss(seconds: number): string {
+  const total = Math.round(seconds);
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+/* Ces deux composants s'abonnent EUX-MEMES aux remontees du lecteur et
+   ecrivent dans le DOM par une ref, sans passer par un state. C'est
+   deliberé : le lecteur emet toutes les 3 s, et faire re-rendre la liste
+   entiere a ce rythme se paie cher des qu'un anime compte plusieurs
+   centaines d'episodes. Ici seul l'episode en cours ecoute, et il ne touche
+   que ses deux noeuds. */
+
+/** Barre de progression posee sur la vignette : elle avance PENDANT la
+ *  lecture, et se remplit quand l'episode est fini. */
+function ProgressBar({
+  aniId,
+  episode,
+  live,
+  width,
+}: {
+  aniId: number | string;
+  episode: number;
+  live: boolean;
+  width: string;
+}) {
+  const ref = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    if (!live) return;
+    const onTick = (e: Event) => {
+      const d = (e as CustomEvent<ProgressTick>).detail;
+      if (!d || String(d.aniId) !== String(aniId)) return;
+      if (Number(d.episode) !== Number(episode)) return;
+      if (!ref.current || !(d.duration > 0)) return;
+      ref.current.style.width = `${Math.min(100, (d.time / d.duration) * 100)}%`;
+    };
+    window.addEventListener(PROGRESS_EVENT, onTick);
+    return () => window.removeEventListener(PROGRESS_EVENT, onTick);
+  }, [aniId, episode, live]);
+  return (
+    <span
+      ref={ref}
+      className="absolute bottom-0 left-0 h-[3px]"
+      style={{
+        width,
+        background: ACCENT,
+        // Les remontees arrivent par paliers de 3 s ; la transition rattrape
+        // l'intervalle, sinon la barre sauterait au lieu d'avancer.
+        transition: "width 1s linear",
+      }}
+    />
+  );
+}
+
+/** Duree de l'episode. Passe de l'estimation AniList a la duree exacte des
+ *  que le lecteur a charge le fichier. */
+function Runtime({
+  aniId,
+  episode,
+  live,
+  initial,
+}: {
+  aniId: number | string;
+  episode: number;
+  live: boolean;
+  initial: string;
+}) {
+  const ref = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    if (!live) return;
+    const onTick = (e: Event) => {
+      const d = (e as CustomEvent<ProgressTick>).detail;
+      if (!d || String(d.aniId) !== String(aniId)) return;
+      if (Number(d.episode) !== Number(episode)) return;
+      if (!ref.current || !(d.duration > 0)) return;
+      ref.current.textContent = mmss(d.duration);
+    };
+    window.addEventListener(PROGRESS_EVENT, onTick);
+    return () => window.removeEventListener(PROGRESS_EVENT, onTick);
+  }, [aniId, episode, live]);
+  return <span ref={ref}>{initial}</span>;
+}
+
 export default function EpisodeLists({
   info,
   map,
   providerId,
   watchId,
   episode,
-  artStorage,
   track,
   dub,
 }: EpisodeListsProps) {
@@ -140,6 +229,17 @@ export default function EpisodeLists({
     };
   }, [info?.id]);
   const progress = syncEnabled ? info.mediaListEntry?.progress : localProgress;
+
+  /* Positions sauvegardees de CET anime (lib/watch/progress.ts), une lecture
+     pour toute la liste. Elles portent aussi la duree reelle mesuree par le
+     lecteur, episode par episode. On relit au changement d'episode : celui
+     qu'on vient de quitter a sa position fraiche, et l'episode en cours, lui,
+     avance en direct via <ProgressBar live>. */
+  const [saved, setSaved] = useState<Record<string, ProgressEntry>>({});
+  useEffect(() => {
+    if (info?.id == null) return;
+    setSaved(getAnimeProgress(info.id));
+  }, [info?.id, watchId]);
   const hideSpoilers = useHideSpoilers();
   const { t } = useTranslation();
   const router = useRouter();
@@ -203,6 +303,10 @@ export default function EpisodeLists({
 
   const first = episode?.[0]?.number;
   const last = episode?.[episode.length - 1]?.number;
+  /* Largeur du numero : autant de chiffres que le plus grand numero de la
+     liste. 12 episodes donnent "01", 1120 donnent "0001" — les numeros
+     restent alignes en colonne quelle que soit la longueur de la serie. */
+  const padTo = String(last ?? episode?.length ?? 1).length;
 
   function hrefFor(item: Episode) {
     return `/en/anime/watch/${info.id}/${providerId}?id=${encodeURIComponent(
@@ -214,12 +318,17 @@ export default function EpisodeLists({
      the local watch position when we have one, else "fully watched" for
      everything at or below the list progress. */
   function factsFor(item: Episode) {
-    const store = artStorage?.[item.id];
-    const time = store?.timeWatched;
-    const duration = store?.duration;
-    let prog = (time / duration) * 100;
-    if (prog > 90) prog = 100;
+    /* La position vient de `aniscroll:progress`, la meme que celle qui fait
+       reprendre la lecture. L'ancienne source (`artStorage[item.id]`) ne
+       pouvait rien rendre : ce store est indexe par ID D'ANIME, jamais par id
+       d'episode, donc la recherche echouait a tous les coups et la barre ne
+       bougeait que pour les episodes deja comptes comme vus. */
+    const store = saved[String(item.number)];
     const watched = progress !== undefined && progress >= item?.number;
+    const prog =
+      store && store.duration > 0
+        ? Math.min(100, (store.time / store.duration) * 100)
+        : 0;
     const mapData = map?.find((i: any) => i.number === item.number);
     const parsedImage = mapData
       ? mapData?.img?.includes("null") || mapData?.image?.includes("null")
@@ -231,12 +340,26 @@ export default function EpisodeLists({
       parsedImage,
       watched,
       playing: item.id == watchId,
-      barWidth: watched ? "100%" : store !== undefined ? `${prog}%` : "0%",
+      // Fini = pleine. Un episode compte pour vu soit parce que la liste le
+      // dit, soit parce que la position sauvegardee est arrivee au bout (le
+      // lecteur ecrit time = duration a la fin de l'episode).
+      barWidth: watched || prog >= 99.5 ? "100%" : `${prog}%`,
       title: hideSpoilers
         ? `${t("common.episode")} ${item?.number}`
         : fixApostrophes(mapData?.title) ||
           `${t("common.episode")} ${item?.number}`,
-      pad: String(item.number).padStart(2, "0"),
+      pad: String(item.number).padStart(padTo, "0"),
+      /* Duree affichee. Exacte des qu'on connait le fichier — c'est le lecteur
+         qui l'a mesuree, sur le serveur ou l'episode a ete ouvert. Sinon on
+         retombe sur la moyenne annoncee par AniList, et le "~" dit que c'est
+         une estimation plutot que de faire passer un chiffre approximatif pour
+         la duree reelle. */
+      runtime:
+        store && store.duration > 0
+          ? mmss(store.duration)
+          : info?.duration
+            ? `~${t("home.minutesShort", { count: info.duration })}`
+            : null,
     };
   }
 
@@ -477,10 +600,6 @@ export default function EpisodeLists({
           ) : (
             episode.map((item) => {
               const f = factsFor(item);
-              const desc = hideSpoilers
-                ? `${t("common.episode")} ${item.number}`
-                : fixApostrophes(f.mapData?.description) ||
-                  `${t("common.episode")} ${item.number}`;
               return (
                 /* Carte reprise TELLE QUELLE de la prod : vignette large a
                    gauche, titre en gras italique, resume en dessous. Et son
@@ -510,12 +629,23 @@ export default function EpisodeLists({
                         } ${hideSpoilers && !f.playing ? "blur-lg" : ""}`}
                       />
                     )}
-                    <span
-                      className="absolute bottom-0 left-0 h-[2px]"
-                      style={{ width: f.barWidth, background: ACCENT }}
+                    {/* Voile bas, pour que le numero tienne aussi sur une
+                        image claire. */}
+                    <div
+                      className="pointer-events-none absolute inset-x-0 bottom-0 h-[55%]"
+                      style={{
+                        background:
+                          "linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(0,0,0,0.7) 100%)",
+                      }}
                     />
-                    <span className="absolute bottom-2 left-2 font-karla text-sm font-bold text-white">
-                      {t("common.episode")} {item?.number}
+                    <ProgressBar
+                      aniId={info.id}
+                      episode={item.number}
+                      live={f.playing}
+                      width={f.barWidth}
+                    />
+                    <span className="absolute bottom-2 left-2 font-karla text-[17px] font-bold leading-none text-white/90">
+                      {f.pad}
                     </span>
                     {f.playing && (
                       <div className="absolute inset-0 grid place-items-center">
@@ -538,9 +668,33 @@ export default function EpisodeLists({
                     <h1 className="line-clamp-1 font-karla font-bold italic">
                       {f.title}
                     </h1>
-                    <p className="line-clamp-2 font-outfit text-xs font-extralight italic">
-                      {desc}
-                    </p>
+                    {/* La duree remplace le resume : "Episode 1" sous un titre
+                        qui dit deja l'episode ne servait a rien. */}
+                    {f.runtime && (
+                      <p
+                        className="flex items-center gap-1.5 font-outfit text-xs font-light tabular-nums"
+                        style={{ color: f.playing ? undefined : T.txt3 }}
+                      >
+                        <svg
+                          width="12"
+                          height="12"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth={2}
+                          className="shrink-0"
+                        >
+                          <circle cx="12" cy="12" r="9" />
+                          <path d="M12 7v5l3 2" />
+                        </svg>
+                        <Runtime
+                          aniId={info.id}
+                          episode={item.number}
+                          live={f.playing}
+                          initial={f.runtime}
+                        />
+                      </p>
+                    )}
                   </div>
                 </Link>
               );
