@@ -64,6 +64,13 @@ const ACCENT_ROW = `linear-gradient(90deg, color-mix(in srgb, ${ACCENT} 6%, tran
 const VIEWS = ["detailed", "compact", "grid"] as const;
 type View = (typeof VIEWS)[number];
 const VIEW_KEY = "aniscroll.episodeView";
+/* L'ordre de lecture est une preference d'usage, pas un etat de page : quelqu'un
+   qui rattrape une serie en cours veut les derniers episodes en haut a chaque
+   visite, pas a chaque fois qu'il y repense. */
+const ORDER_KEY = "aniscroll.episodeOrder";
+
+/** Signes diacritiques, pour que "resurrection" trouve "Résurrection". */
+const RE_DIACRITICS = /[\u0300-\u036f]/g;
 // Same labels as the info page's own switch — one vocabulary for one control.
 const VIEW_LABELS: Record<View, string> = {
   detailed: "anime.detailedView",
@@ -413,6 +420,37 @@ export default function EpisodeLists({
     window.localStorage.setItem(VIEW_KEY, next);
   }
 
+  const [desc, setDesc] = useState(false);
+  useEffect(() => {
+    setDesc(window.localStorage.getItem(ORDER_KEY) === "desc");
+  }, []);
+  function toggleOrder() {
+    setDesc((d) => {
+      window.localStorage.setItem(ORDER_KEY, d ? "asc" : "desc");
+      return !d;
+    });
+  }
+
+  const [query, setQuery] = useState("");
+
+  /* Ancrage sur l'episode en cours.
+     La liste s'ouvrait en haut, ce qui ne sert que pour l'episode 1 : partout
+     ailleurs il fallait aller chercher a la main la ligne qu'on est en train de
+     regarder — et sur une longue serie, elle est hors de vue des l'ouverture.
+     On repositionne donc le conteneur (jamais la fenetre : `scrollIntoView`
+     aurait emporte la page avec lui) a chaque fois que la ligne visee peut
+     avoir bouge — episode, vue, ordre, filtre. */
+  const listRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const box = listRef.current;
+    const row = box?.querySelector<HTMLElement>("[data-playing]");
+    if (!box || !row) return;
+    box.scrollTop = Math.max(
+      0,
+      row.offsetTop - (box.clientHeight - row.offsetHeight) / 2,
+    );
+  }, [watchId, view, desc, query, episode?.length, track?.playing?.number]);
+
   /* Season siblings, fetched after mount from the edge-cached route rather
      than resolved in the page's SSR — see /api/v2/seasons/[id]. A franchise
      with a single season returns one row (or none), and the picker hides. */
@@ -466,6 +504,33 @@ export default function EpisodeLists({
      liste. 12 episodes donnent "01", 1120 donnent "0001" — les numeros
      restent alignes en colonne quelle que soit la longueur de la serie. */
   const padTo = String(last ?? episode?.length ?? 1).length;
+
+  /* Recherche et ordre d'affichage.
+     La recherche accepte les deux formes qu'on a en tete devant une liste : un
+     NUMERO ("12", et "1" ne doit alors pas ramener 1, 10, 11, 12…) ou un
+     morceau de TITRE, accents ignores. La comparaison se fait sur le titre
+     affiche, celui du fournisseur — chercher un mot qu'on ne voit nulle part
+     dans la liste ne rendrait service a personne. */
+  const shown = useMemo(() => {
+    let rows = episode ?? [];
+    const q = query.trim().toLowerCase();
+    if (q) {
+      const asNumber = /^\d+$/.test(q) ? parseInt(q, 10) : null;
+      rows = rows.filter((item) => {
+        if (asNumber != null && item.number === asNumber) return true;
+        const title = map?.find((i: any) => i.number === item.number)?.title;
+        return (
+          !!title &&
+          String(title)
+            .toLowerCase()
+            .normalize("NFD")
+            .replace(RE_DIACRITICS, "")
+            .includes(q.normalize("NFD").replace(RE_DIACRITICS, ""))
+        );
+      });
+    }
+    return desc ? [...rows].reverse() : rows;
+  }, [episode, map, query, desc]);
 
   /* Duree de reference de la saison, agregee au fil des mesures qui remontent
      des lignes. Elle sert deux fois : a combler les episodes que personne n'a
@@ -708,21 +773,95 @@ export default function EpisodeLists({
               page. The icon shows the view you are IN, and the label names it
               plus the action — a bare "next" icon would leave you guessing
               what you are looking at. */}
+          {/* Ordre de lecture. La fleche montre le sens ACTUEL, l'infobulle
+              annonce ce qu'un clic ferait — un episode 1 en bas de liste sans
+              rien pour l'expliquer se lit comme un bug. */}
+          <button
+            type="button"
+            onClick={toggleOrder}
+            title={desc ? t("anime.sortDesc") : t("anime.sortAsc")}
+            aria-label={desc ? t("anime.sortAsc") : t("anime.sortDesc")}
+            className="ml-auto grid h-[26px] w-[28px] shrink-0 place-items-center rounded-lg border transition-colors"
+            style={{
+              background: T.bg2,
+              borderColor: desc ? ACCENT_BORDER : T.line,
+              color: desc ? ACCENT : T.txt0,
+            }}
+          >
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              style={{ transform: desc ? "scaleY(-1)" : "none" }}
+            >
+              <path d="M7 4v16M3 8l4-4 4 4" />
+              <path d="M14 7h7M14 12h5M14 17h3" />
+            </svg>
+          </button>
+
           <button
             type="button"
             onClick={() => pickView(nextView(view))}
             title={`${t(VIEW_LABELS[view])} · ${t("anime.changeView")}`}
             aria-label={`${t(VIEW_LABELS[view])} · ${t("anime.changeView")}`}
-            className="ml-auto grid h-[26px] w-[28px] shrink-0 place-items-center rounded-lg border transition-colors"
+            className="grid h-[26px] w-[28px] shrink-0 place-items-center rounded-lg border transition-colors"
             style={{ background: T.bg2, borderColor: T.line, color: T.txt0 }}
           >
             <ViewIcon view={view} />
           </button>
         </div>
 
-        {/* ── List ── */}
+        {/* ── Recherche ──
+            Numero ou titre. Elle FILTRE la liste au lieu d'y sauter : sur une
+            serie longue, voir les trois lignes qui correspondent vaut mieux
+            que d'etre depose au milieu de mille autres. */}
         <div
-          className={`scrollbar-thin scrollbar-thumb-[#313131] scrollbar-thumb-rounded-full max-h-[60vh] overflow-y-auto lg:max-h-none lg:min-h-0 lg:flex-1 ${
+          className="flex shrink-0 items-center gap-2 border-b px-2.5 py-2"
+          style={{ borderColor: T.line }}
+        >
+          <div className="relative flex-1">
+            <svg
+              width="13"
+              height="13"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+              className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2"
+              style={{ color: T.txt3 }}
+            >
+              <circle cx="11" cy="11" r="7" />
+              <path d="m20 20-3.5-3.5" />
+            </svg>
+            <input
+              type="search"
+              inputMode="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder={t("anime.searchEpisode")}
+              aria-label={t("anime.searchEpisode")}
+              className="w-full rounded-lg border py-1 pl-7 pr-2 text-[12px] outline-none focus:ring-1"
+              style={{
+                background: T.bg2,
+                borderColor: T.line,
+                color: T.txt0,
+              }}
+            />
+          </div>
+        </div>
+
+        {/* ── List ──
+            `relative` : l'ancrage sur l'episode en cours mesure `offsetTop`, et
+            il lui faut ce conteneur comme reference — sinon la mesure part du
+            haut de la page et on defile n'importe ou. */}
+        <div
+          ref={listRef}
+          className={`scrollbar-thin scrollbar-thumb-[#313131] scrollbar-thumb-rounded-full relative max-h-[60vh] overflow-y-auto lg:max-h-none lg:min-h-0 lg:flex-1 ${
             view === "grid"
               ? /* content-start : le conteneur est `flex-1` donc plus haut que
                    ses lignes ; sans ca `align-content: stretch` etire les rangees
@@ -735,14 +874,22 @@ export default function EpisodeLists({
         >
           {!episode || episode.length === 0 ? (
             <Skeleton className="h-[86px] w-full rounded-[10px]" />
+          ) : shown.length === 0 ? (
+            <p
+              className="px-2 py-6 text-center text-[12.5px]"
+              style={{ color: T.txt3 }}
+            >
+              {t("anime.noEpisodeMatch")}
+            </p>
           ) : view === "grid" ? (
-            episode.map((item) => {
+            shown.map((item) => {
               const f = factsFor(item);
               return (
                 <Link
                   key={item.id}
                   href={hrefFor(item)}
                   title={f.title}
+                  data-playing={f.playing ? "" : undefined}
                   className={`grid aspect-square place-items-center rounded-lg border text-sm font-semibold transition-all duration-300 ease-out ${
                     f.playing
                       ? "pointer-events-none"
@@ -767,13 +914,14 @@ export default function EpisodeLists({
               );
             })
           ) : view === "compact" ? (
-            episode.map((item) => {
+            shown.map((item) => {
               const f = factsFor(item);
               return (
                 <Link
                   key={item.id}
                   href={hrefFor(item)}
                   title={f.title}
+                  data-playing={f.playing ? "" : undefined}
                   className={`flex min-h-[40px] items-center gap-3 rounded-lg border px-3 py-2.5 transition-all duration-300 ease-out ${
                     f.playing
                       ? "pointer-events-none"
@@ -812,7 +960,7 @@ export default function EpisodeLists({
               );
             })
           ) : (
-            episode.map((item) => {
+            shown.map((item) => {
               const f = factsFor(item);
               return (
                 /* Carte reprise TELLE QUELLE de la prod : vignette large a
@@ -824,6 +972,7 @@ export default function EpisodeLists({
                 <Link
                   key={item.id}
                   href={hrefFor(item)}
+                  data-playing={f.playing ? "" : undefined}
                   /* Pas de `scale-100` au repos : une transform, meme neutre,
                      compose l'element sur sa propre couche, et Chrome rogne
                      alors les coins arrondis sans anticrenelage — d'ou les
