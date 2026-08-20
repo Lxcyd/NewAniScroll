@@ -149,6 +149,9 @@ function ProgressBar({
       if (!d || String(d.aniId) !== String(aniId)) return;
       if (Number(d.episode) !== Number(episode)) return;
       if (!ref.current || !(d.duration > 0)) return;
+      // `time: -1` = remontee de duree seule (le fichier vient d'etre charge),
+      // sans position a montrer : la barre n'a rien a en faire.
+      if (d.time < 0) return;
       ref.current.style.width = `${Math.min(100, (d.time / d.duration) * 100)}%`;
     };
     window.addEventListener(PROGRESS_EVENT, onTick);
@@ -462,7 +465,12 @@ export default function EpisodeLists({
          <Runtime> se charge d'aller chercher les autres. Le "~" de l'estimation
          AniList evite de faire passer une moyenne de serie pour la duree du
          fichier. */
-      known: store && store.duration > 0 ? store.duration : null,
+      /* Le seuil n'est pas cosmetique : `markComplete` retombe sur `duration =
+         1` quand il termine un episode dont il ne connait pas la duree (passage
+         a l'episode suivant avant que le fichier ait ete charge). Ces entrees
+         existent dans les historiques deja constitues, et sans garde elles
+         s'affichaient telles quelles — les "0:01" sur les episodes 02 et 03. */
+      known: store && store.duration > 60 ? store.duration : null,
       estimate: info?.duration
         ? `~${t("home.minutesShort", { count: info.duration })}`
         : null,

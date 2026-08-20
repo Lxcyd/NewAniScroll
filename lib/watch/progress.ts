@@ -54,6 +54,7 @@ export const PROGRESS_EVENT = "aniscroll:progress-tick";
 export type ProgressTick = {
   aniId: number | string;
   episode: number | string;
+  /** Position courante, ou -1 quand la remontee ne porte QUE la duree. */
   time: number;
   duration: number;
 };
@@ -94,6 +95,26 @@ function writeMap(map: ProgressMap): void {
 export function isCompleted(entry: ProgressEntry | null | undefined): boolean {
   if (!entry || !entry.duration) return false;
   return entry.time >= entry.duration - END_THRESHOLD_SECONDS;
+}
+
+/**
+ * Annonce la duree du fichier des que le lecteur la connait, sans attendre
+ * qu'on ait regarde quoi que ce soit. La liste d'episodes affiche une duree
+ * estimee tant que personne n'a mesure l'episode ; des que le fichier est
+ * charge, c'est LUI qui fait foi, et il n'y a aucune raison d'attendre la
+ * premiere sauvegarde de position (3 s de lecture) pour le dire.
+ *
+ * `time: -1` signale une remontee sans position : les abonnes qui suivent
+ * l'avancement doivent l'ignorer, ceux qui affichent la duree la prennent.
+ */
+export function publishDuration(
+  aniId: number | string,
+  episode: number | string,
+  duration: number,
+): void {
+  if (aniId == null || episode == null) return;
+  if (!Number.isFinite(duration) || duration <= 0) return;
+  emitTick({ aniId, episode, time: -1, duration });
 }
 
 /** Raw saved entry for an episode (or null). */

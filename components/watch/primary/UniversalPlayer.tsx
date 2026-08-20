@@ -51,7 +51,12 @@ import {
 } from "@/lib/notifications/playerSurface";
 import type { TFunction } from "i18next";
 import { VIDSTACK_FR } from "@/lib/i18n/vidstackFr";
-import { getResumeTime, saveProgress, markComplete } from "@/lib/watch/progress";
+import {
+  getResumeTime,
+  saveProgress,
+  markComplete,
+  publishDuration,
+} from "@/lib/watch/progress";
 import { recordWatchToday } from "@/lib/stats/streak";
 import { useDataSaver } from "@/lib/prefs/dataSaver";
 import { usePlayerPrefs, setPlayerPrefs, getPlayerPrefs } from "@/lib/prefs/playerPrefs";
@@ -3341,6 +3346,14 @@ export default function UniversalPlayer({
       fireComplete();
     };
 
+    // La duree du fichier est connue des le chargement des metadonnees. La
+    // liste d'episodes affiche jusque-la une duree estimee ; la publier tout de
+    // suite lui evite d'attendre la premiere sauvegarde de position (3 s de
+    // lecture) pour corriger l'episode qu'on a sous les yeux.
+    const onMeta = () => {
+      if (video?.duration) publishDuration(aniListId, episodeNumber, video.duration);
+    };
+
     const bind = () => {
       const player = playerRef.current;
       el = (player?.el as HTMLElement) || null;
@@ -3349,8 +3362,11 @@ export default function UniversalPlayer({
       // can-play fires once metadata + first frames are ready → safe to seek.
       el!.addEventListener("can-play", resume);
       video.addEventListener("loadeddata", resume);
+      video.addEventListener("loadedmetadata", onMeta);
+      video.addEventListener("durationchange", onMeta);
       video.addEventListener("timeupdate", onTimeUpdate);
       video.addEventListener("ended", onEnded);
+      onMeta();
       // Last-chance save when the user navigates away / closes the tab.
       window.addEventListener("pagehide", onTimeUpdate);
       return true;
@@ -3367,6 +3383,8 @@ export default function UniversalPlayer({
       window.clearInterval(pollId);
       el?.removeEventListener("can-play", resume);
       video?.removeEventListener("loadeddata", resume);
+      video?.removeEventListener("loadedmetadata", onMeta);
+      video?.removeEventListener("durationchange", onMeta);
       video?.removeEventListener("timeupdate", onTimeUpdate);
       video?.removeEventListener("ended", onEnded);
       window.removeEventListener("pagehide", onTimeUpdate);
