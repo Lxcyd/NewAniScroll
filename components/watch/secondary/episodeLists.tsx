@@ -1066,9 +1066,12 @@ export default function EpisodeLists({
                   </div>
 
                   <div
-                    className={`flex h-full w-full select-none flex-col gap-1.5 overflow-hidden p-3.5 ${
-                      f.playing ? "text-[#7a7a7a]" : ""
-                    }`}
+                    /* Pas de gris pour l'episode en cours : son titre se lit
+                       comme les autres. Il est deja designe par le liseré
+                       accent, la vignette assombrie et l'icone de lecture —
+                       l'eteindre en plus le faisait passer pour indisponible,
+                       alors que c'est celui qu'on regarde. */
+                    className="flex h-full w-full select-none flex-col gap-1.5 overflow-hidden p-3.5"
                   >
                     {/* Un titre long passe a la ligne au lieu d'etre coupe :
                         deux lignes tiennent dans la hauteur de la vignette, et
