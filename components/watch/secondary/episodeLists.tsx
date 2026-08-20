@@ -672,8 +672,7 @@ export default function EpisodeLists({
                   e.stopPropagation();
                   setSeasonOpen((o) => !o);
                 }}
-                className="flex items-center gap-1.5 rounded-lg border py-1 pl-2.5 pr-2 text-[11px] font-semibold outline-none"
-                style={{ background: T.bg2, borderColor: T.line, color: T.txt0 }}
+                className="as-epbar-ctl flex h-[26px] items-center gap-1.5 rounded-lg pl-2.5 pr-2 text-[11px] font-semibold outline-none"
               >
                 <span className="max-w-[150px] truncate">
                   {activeSeason?.label || `${t("anime.season")} ${activeSeason?.number ?? 1}`}
@@ -689,7 +688,7 @@ export default function EpisodeLists({
               {seasonOpen && (
                 <div
                   onClick={(e) => e.stopPropagation()}
-                  className="absolute left-0 top-[calc(100%+6px)] z-30 max-h-[320px] min-w-[220px] overflow-y-auto rounded-xl border p-1 shadow-2xl"
+                  className="as-epscroll absolute left-0 top-[calc(100%+6px)] z-30 max-h-[320px] min-w-[220px] overflow-y-auto rounded-xl border p-1 shadow-2xl"
                   style={{ background: T.bg2, borderColor: T.line2 }}
                 >
                   {seasons.map((s) => {
@@ -733,7 +732,9 @@ export default function EpisodeLists({
                             }`,
                           );
                         }}
-                        className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left"
+                        className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left ${
+                          rowActive ? "" : "as-epmenu-row"
+                        }`}
                         style={{
                           background: rowActive ? ACCENT_SOFT : "transparent",
                           color: rowActive ? ACCENT : soon ? T.txt3 : T.txt0,
@@ -777,18 +778,12 @@ export default function EpisodeLists({
               quatre elements de cet en-tete sont maintenant sur une seule
               ligne, et un libelle nu au milieu de trois pastilles bordees
               donnait une rangee bancale. */}
-          <div
-            className="flex h-[26px] shrink-0 items-center gap-1.5 rounded-lg border px-2.5"
-            style={{ background: T.bg2, borderColor: T.line }}
-          >
-            <span className="text-[11px] font-semibold" style={{ color: T.txt0 }}>
+          <div className="as-epbar-badge flex h-[26px] shrink-0 items-center gap-1.5 rounded-lg px-2.5">
+            <span className="text-[11px] font-semibold">
               {t("anime.episodes")}
             </span>
             {first != null && last != null && (
-              <span
-                className="text-[11px] tabular-nums"
-                style={{ color: T.txt3 }}
-              >
+              <span className="text-[11px] tabular-nums opacity-80">
                 {first}–{last}
               </span>
             )}
@@ -820,8 +815,7 @@ export default function EpisodeLists({
               onChange={(e) => setQuery(e.target.value)}
               placeholder={t("anime.searchEpisode")}
               aria-label={t("anime.searchEpisode")}
-              className="h-[26px] w-full rounded-lg border pl-[26px] pr-2 text-[11.5px] outline-none"
-              style={{ background: T.bg2, borderColor: T.line, color: T.txt0 }}
+              className="as-epbar-ctl h-[26px] w-full rounded-lg pl-[26px] pr-2 text-[11.5px] outline-none"
             />
           </div>
 
@@ -835,8 +829,7 @@ export default function EpisodeLists({
             onClick={toggleOrder}
             title={desc ? t("anime.sortDesc") : t("anime.sortAsc")}
             aria-label={desc ? t("anime.sortAsc") : t("anime.sortDesc")}
-            className="grid h-[26px] w-[28px] shrink-0 place-items-center rounded-lg border transition-colors"
-            style={{ background: T.bg2, borderColor: T.line, color: T.txt0 }}
+            className="as-epbar-ghost grid h-[26px] w-[28px] shrink-0 place-items-center rounded-lg"
           >
             <svg
               width="14"
@@ -859,8 +852,7 @@ export default function EpisodeLists({
             onClick={() => pickView(nextView(view))}
             title={`${t(VIEW_LABELS[view])} · ${t("anime.changeView")}`}
             aria-label={`${t(VIEW_LABELS[view])} · ${t("anime.changeView")}`}
-            className="grid h-[26px] w-[28px] shrink-0 place-items-center rounded-lg border transition-colors"
-            style={{ background: T.bg2, borderColor: T.line, color: T.txt0 }}
+            className="as-epbar-ghost grid h-[26px] w-[28px] shrink-0 place-items-center rounded-lg"
           >
             <ViewIcon view={view} />
           </button>
@@ -872,7 +864,7 @@ export default function EpisodeLists({
             haut de la page et on defile n'importe ou. */}
         <div
           ref={listRef}
-          className={`scrollbar-thin scrollbar-thumb-[#313131] scrollbar-thumb-rounded-full relative max-h-[60vh] overflow-y-auto lg:max-h-none lg:min-h-0 lg:flex-1 ${
+          className={`as-epscroll relative max-h-[60vh] overflow-y-auto lg:max-h-none lg:min-h-0 lg:flex-1 ${
             view === "grid"
               ? /* content-start : le conteneur est `flex-1` donc plus haut que
                    ses lignes ; sans ca `align-content: stretch` etire les rangees
