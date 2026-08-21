@@ -2184,8 +2184,9 @@ export default function UniversalPlayer({
     /* Le noir d'ouverture ne dure souvent que quelques images. Plutot que de
        poser la vignette par-dessus, on avance jusqu'a la premiere vraie image
        et on l'y laisse : le spectateur voit le film, et il ne perd qu'une
-       fraction de seconde au play. Passe une seconde de noir, c'est un parti
-       pris de mise en scene et non un artefact — la vignette reprend la main.
+       fraction de seconde au play. Passe la derniere borne de BLACK_SCAN,
+       c'est un parti pris de mise en scene et non un artefact — la vignette
+       reprend la main.
        Abandonne des que la lecture commence : on ne deplace jamais une video
        sous les yeux de qui la regarde. */
     const seek = async (video: HTMLVideoElement) => {
@@ -2223,12 +2224,11 @@ export default function UniversalPlayer({
         }
       }
       // Noir jusqu'au bout : c'est une ouverture voulue, la vignette la couvre
-      // et la lecture doit repartir du debut.
-      if (
-        !dead &&
-        video.paused &&
-        Math.abs(video.currentTime - expected) <= 0.01
-      )
+      // et la lecture doit repartir du debut. C'est ICI, et nulle part avant,
+      // qu'elle est demandee — voir `look`.
+      if (dead) return;
+      setFirstFrameLit(false);
+      if (video.paused && Math.abs(video.currentTime - expected) <= 0.01)
         video.currentTime = 0;
     };
     /* Un seul verdict definitif : « il y a une image ». Le noir, lui, reste
@@ -2271,7 +2271,12 @@ export default function UniversalPlayer({
         setFirstFrameLit(true);
         return;
       }
-      setFirstFrameLit(false);
+      /* Noir — mais la vignette ne s'affiche pas encore. Le balayage a une
+         chance de trouver une vraie image quelques centaines de millisecondes
+         plus loin, et la poser en attendant ne montrait qu'un battement :
+         vignette, puis image. Pendant qu'il cherche, l'ecran garde le noir de
+         la video, qui est ce qu'elle a vraiment a montrer. La vignette n'est
+         demandee qu'au bout du balayage, s'il n'a rien trouve. */
       if (!scanned) {
         scanned = true;
         scanning = true;
