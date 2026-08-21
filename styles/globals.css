@@ -345,15 +345,18 @@ body,
    rose assombri aurait fait pire, il se serait enfonce dans le fond noir du
    panneau au moment ou l'on demande a la ligne de reagir. */
 
-/* Vues liste et grille : elles portent une vraie bordure, mais posee en style
-   INLINE — donc intouchable depuis ici sans `!important`. Le liseré de survol
-   passe par une ombre exterieure, qui elle n'a aucun concurrent. Au repos la
-   bordure est a 40% d'accent : passer a 100% suffit a marquer le survol.
-   1px, et pas 1,5 : c'est l'epaisseur exacte du `ring-1` blanc des autres
-   cases. Deux traits d'epaisseurs differentes cote a cote se lisent comme
-   deux etats differents, alors que seule la couleur doit distinguer les
-   deux — l'un dit "cliquable", l'autre "tu y es". */
+/* Vues liste et grille. Le liseré de survol passe par une ombre EXTERIEURE de
+   1px, l'epaisseur exacte du `ring-1` blanc des autres cases.
+   Mais a epaisseur declaree egale, le trait rose se lisait deux fois plus
+   epais : ces cases portent aussi une bordure de 1px, teintee a 40% d'accent
+   sur l'episode en cours — donc rose. Elle s'ajoutait au ring pour faire 2px,
+   la ou la bordure des autres cases (#252938, invisible sur ce fond) laisse
+   voir le seul ring blanc. On l'efface donc le temps du survol, et le trait
+   peint fait 1px des deux cotes.
+   `!important` : cette bordure est posee en style INLINE par `frame()`, et
+   rien d'autre ne passe devant un style inline. */
 .as-eplive:not(.as-epcard):hover {
+  border-color: transparent !important;
   box-shadow: 0 0 0 1px var(--brand-primary, #ff3b5c),
     0 10px 15px -3px rgba(0, 0, 0, 0.45);
 }
