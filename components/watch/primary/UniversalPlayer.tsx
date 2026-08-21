@@ -7,6 +7,7 @@ import { createPortal } from "react-dom";
 import {
   MediaPlayer,
   MediaProvider,
+  Poster,
   Track,
   useMediaState,
   isHLSProvider,
@@ -373,6 +374,7 @@ function LiveAmbient({
     let raf = 0;
     let lastFrameTime = -1;
     let lastSampleAt = 0;
+    let lastPoster = "";
 
     // GPU budget: the ambient glow is a soft, heavily-blurred backdrop — it
     // does not need 60 fps. Sampling at ~30 fps halves the per-frame canvas
@@ -408,9 +410,6 @@ function LiveAmbient({
 
       const playerEl = playerRef.current?.el as HTMLElement | undefined;
       const video = playerEl?.querySelector("video") as HTMLVideoElement | null;
-      if (!video || video.readyState < 2 || video.videoWidth === 0) return;
-      if (video.currentTime === lastFrameTime) return;
-      lastFrameTime = video.currentTime;
 
       const source = sourceRef.current!;
       const prev   = prevRef.current!;
@@ -421,24 +420,56 @@ function LiveAmbient({
       sctx.imageSmoothingEnabled = true;
       sctx.imageSmoothingQuality = "high";
 
-      try {
-        sctx.drawImage(video, 0, 0, SRC_W, SRC_H);
-        // Pairwise temporal blend → softens scene cuts.
-        sctx.globalAlpha = 0.5;
-        sctx.drawImage(prev, 0, 0);
-        sctx.globalAlpha = 1.0;
-        pctx.clearRect(0, 0, SRC_W, SRC_H);
-        pctx.drawImage(source, 0, 0);
-        for (const layer of layerRefs.current) {
-          if (!layer) continue;
-          const lctx = layer.getContext("2d");
-          if (!lctx) continue;
-          lctx.clearRect(0, 0, SRC_W, SRC_H);
-          lctx.drawImage(source, 0, 0);
+      /* Une source, la meme peinture. `blend` melange a la frame precedente
+         pour adoucir les coupes de plan : la vignette, elle, arrive seule et n'a
+         rien a adoucir — elle remplit au contraire le tampon, pour que la
+         premiere image de la video s'y fonde au lieu de surgir. */
+      const paint = (src: CanvasImageSource, blend: boolean) => {
+        try {
+          sctx.drawImage(src, 0, 0, SRC_W, SRC_H);
+          if (blend) {
+            sctx.globalAlpha = 0.5;
+            sctx.drawImage(prev, 0, 0);
+            sctx.globalAlpha = 1.0;
+          }
+          pctx.clearRect(0, 0, SRC_W, SRC_H);
+          pctx.drawImage(source, 0, 0);
+          for (const layer of layerRefs.current) {
+            if (!layer) continue;
+            const lctx = layer.getContext("2d");
+            if (!lctx) continue;
+            lctx.clearRect(0, 0, SRC_W, SRC_H);
+            lctx.drawImage(source, 0, 0);
+          }
+        } catch {
+          // Cross-origin taint — silently skip. (Le dessin, lui, ne teinte que
+          // la lecture des pixels, qu'on ne fait jamais ici.)
         }
-      } catch {
-        // Cross-origin taint — silently skip.
+      };
+
+      /* Tant que la lecture n'a pas commence, la source est la VIGNETTE de
+         l'episode et non la video : la premiere frame de la plupart des
+         encodages est noire, et un noir n'a aucune couleur a projeter — d'ou une
+         page eteinte jusqu'au premier play. On lit l'image deja affichee par le
+         lecteur plutot que d'en charger une seconde. */
+      const started = !!video && (!video.paused || video.currentTime > 0);
+      if (!started || !video || video.readyState < 2 || video.videoWidth === 0) {
+        const img = playerEl?.querySelector(
+          "img.vds-poster",
+        ) as HTMLImageElement | null;
+        if (!img?.complete || !img.naturalWidth) return;
+        // Repeinte seulement quand la vignette change — a l'ouverture, et a
+        // chaque episode.
+        if (img.currentSrc === lastPoster) return;
+        lastPoster = img.currentSrc;
+        lastFrameTime = -1;
+        paint(img, false);
+        return;
       }
+
+      if (video.currentTime === lastFrameTime) return;
+      lastFrameTime = video.currentTime;
+      paint(video, true);
     };
 
     raf = requestAnimationFrame(tick);
@@ -4943,6 +4974,13 @@ export default function UniversalPlayer({
         onError={() => onError?.("Playback error")}
       >
         <MediaProvider>
+          {/* L'image de l'episode, tant que rien n'est lance. Le `poster` passe
+              a <MediaPlayer> ne fait que renseigner l'etat : Vidstack n'affiche
+              rien sans cet element, d'ou le rectangle noir — la premiere frame
+              de la plupart des encodages — et, faute de couleurs a echantillonner,
+              l'absence d'ambient light avant le premier play. Vidstack la retire
+              de lui-meme au demarrage (`data-visible`). */}
+          <Poster className="vds-poster" src={poster} alt="" />
           {subtitleTracks.map((t, i) => (
             <Track
               key={t.src}
