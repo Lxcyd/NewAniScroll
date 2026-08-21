@@ -2631,8 +2631,15 @@ export default function Watch({
       </main>
 
       {/* La page se terminait sur la rangee de recommandations, sans rien
-          derriere : toutes les autres pages du site ferment sur ce pied. */}
-      <Footer />
+          derriere : toutes les autres pages du site ferment sur ce pied.
+          Il prend la largeur des colonnes du dessus — la meme expression qu'a
+          `#default` et que la rangee de recommandations — sans quoi il se
+          resserrait a 80 % sous un contenu a 95 %. */}
+      <Footer
+        widthClass={`w-[90%] ${
+          theaterMode ? "lg:w-[95%] xl:w-[80%]" : "lg:w-[95%]"
+        }`}
+      />
     </>
   );
 }
