@@ -1342,11 +1342,46 @@ export default function RelationsGraph({
    * never again — the board is client-only, so the first pass has no canvas to
    * bind to. Opening the overlay changed `open` and re-ran it, which is why the
    * wheel zoomed full-screen and scrolled the page inline.
+   *
+   * Quand le plateau prend la molette et quand il la laisse passer : cf. le
+   * commentaire de `armed`, dans le corps.
    */
   useEffect(() => {
     const box = canvasRef.current;
     if (!box) return;
+
+    /* Le plateau ne prend la molette qu'apres un VRAI mouvement de souris.
+       Le navigateur amarre une salve de molette au premier defileur touche, ce
+       qui suffisait tant que la salve durait : on defilait la page, le curseur
+       s'arretait sur le plateau, et la suite continuait d'aller a la page. Mais
+       l'amarrage expire apres quelques secondes d'immobilite, et le cran
+       suivant zoomait un plateau que personne n'avait vise — il etait juste
+       passe sous le curseur.
+       On ne se repose donc plus sur l'amarrage : le plateau s'arme au
+       deplacement, se desarme des qu'une salve part ailleurs, et desarme il
+       laisse simplement passer.
+       « Vrai » mouvement : le navigateur emet aussi un `pointermove` quand la
+       page defile sous un curseur immobile, aux MEMES coordonnees. Les comparer
+       est ce qui separe « j'ai vise le graphe » de « le graphe est venu a
+       moi ». */
+    let armed = false;
+    let lastX = -1;
+    let lastY = -1;
+
+    const onPointerMove = (e: PointerEvent) => {
+      if (e.clientX !== lastX || e.clientY !== lastY) armed = true;
+      lastX = e.clientX;
+      lastY = e.clientY;
+    };
+
+    // Passif, et pose sur la fenetre : celui-ci n'intervient sur rien, il
+    // constate seulement qu'une salve concerne autre chose que le plateau.
+    const onWheelAnywhere = (e: WheelEvent) => {
+      if (!box.contains(e.target as Node)) armed = false;
+    };
+
     const onWheelNative = (e: WheelEvent) => {
+      if (!armed) return;
       e.preventDefault();
       const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
       // Anchored on the cursor: the card under the pointer is the one you are
@@ -1356,8 +1391,18 @@ export default function RelationsGraph({
       const r = box.getBoundingClientRect();
       zoomAt(factor, e.clientX - r.left, e.clientY - r.top);
     };
+
+    box.addEventListener("pointermove", onPointerMove);
     box.addEventListener("wheel", onWheelNative, { passive: false });
-    return () => box.removeEventListener("wheel", onWheelNative);
+    window.addEventListener("wheel", onWheelAnywhere, {
+      passive: true,
+      capture: true,
+    });
+    return () => {
+      box.removeEventListener("pointermove", onPointerMove);
+      box.removeEventListener("wheel", onWheelNative);
+      window.removeEventListener("wheel", onWheelAnywhere, { capture: true });
+    };
   }, [active, open, mounted]);
 
 
