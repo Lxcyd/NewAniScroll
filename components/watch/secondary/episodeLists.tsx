@@ -965,9 +965,9 @@ export default function EpisodeLists({
                   onClick={f.playing ? (e) => e.preventDefault() : undefined}
                   /* L'episode en cours bouge comme les autres : une ligne inerte
                      au milieu de lignes vivantes se lit comme un bug. Son liseré
-                     de survol est rose et non blanc (`as-eplive`) — le blanc dit
-                     "cliquable", or on y est deja ; d'ou aussi le curseur par
-                     defaut et le `preventDefault`, qui neutralise le clic sans
+                     de survol reste rose, en plus intense (`as-eplive`) — le
+                     blanc dit "cliquable", or on y est deja ; d'ou aussi le
+                     curseur par defaut et le `preventDefault`, qui neutralise le clic sans
                      tuer le survol comme le ferait `pointer-events-none`. */
                   className={`flex min-h-[40px] items-center gap-3 rounded-lg border px-3 py-2.5 transition-all duration-300 ease-out hover:scale-[1.02] ${
                     f.playing
@@ -1016,9 +1016,9 @@ export default function EpisodeLists({
                    un liseré blanc et une ombre — c'est ce mouvement qui dit
                    qu'une ligne est cliquable. L'episode en cours bouge pareil —
                    une carte inerte au milieu de cartes vivantes se lit comme un
-                   bug — mais son liseré ne passe pas au blanc : `as-eplive` lui
-                   donne un rose eclairci, un cran au-dessus de son liseré au
-                   repos. Restent son curseur par defaut et son clic mort. */
+                   bug — mais son liseré ne passe pas au blanc : `as-eplive` le
+                   monte en intensite, l'accent a plein regime double d'un halo.
+                   Restent son curseur par defaut et son clic mort. */
                 <Link
                   key={item.id}
                   href={hrefFor(item)}
