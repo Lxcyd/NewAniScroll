@@ -1476,3 +1476,37 @@ Session de debug guidée par les logs console du user (captures d'écran success
   mieux (muted-fallback + unmute-au-geste, impossible avec l'attribut seul).
 
 ---
+
+## 2026-08-21 — Vignette d'épisode sur ouverture noire (règle définitive)
+
+**Règle** : première frame noire → la vignette TMDB/Simkl couvre la vidéo (et l'ambient
+l'échantillonne) ; première frame non noire → elle reste, telle quelle. Rien d'autre.
+
+Trois versions rejetées avant celle-ci, toutes pour la même raison — la mesure répondait avant
+d'être fiable, ou pas du tout :
+- **balayage jusqu'à 3 s** (`BLACK_SCAN`, supprimé) : cherchait plus loin dans le fichier une image
+  « qui ferait l'affaire ». One Piece s'ouvrait donc sur son logo, une image que personne n'a
+  demandée. La règle ne parle que de la PREMIÈRE frame.
+- **couvrir au pari quand le canvas est teinté** (sibnet, `noCors`) : posait la vignette sur de
+  vraies images. Le pari inverse (ne jamais couvrir) laissait un rectangle noir sans ambient.
+- **verdict pris à `readyState >= 2`** : décodable ≠ peinte. Lecture noire prématurée → vignette
+  posée → vraie frame → vignette retirée. Le défaut le plus visible.
+
+**Ce qui tient** : un noir doit être mesuré DEUX fois à 300 ms d'écart avant de couvrir ; une image
+claire tranche du premier coup ; le verdict ne bascule qu'une fois. Sur un flux `noCors`, la
+question est posée à une copie du fichier passée par `proxy.aniscroll.com` (qui répond CORS) dans un
+`<video>` jamais attaché au document, coupé dès la première image lue, verdict gardé en session sous
+le chemin du fichier. Le flux joue toujours en direct — le proxy ne sert qu'à la mesure.
+
+**Mesure de contrôle** (ffmpeg, frame 0, 16×9, luminance Rec.709 — le calcul du player) :
+
+| titre | lecteur | luma | verdict |
+|---|---|---|---|
+| One Piece ep1 | sibnet (direct / via proxy) | 0.0 / 0.0 | vignette |
+| One Piece ep1 | ansembed VF + VO (acao=`*`) | 0.0 | vignette |
+| Solo Leveling S2 ep1 | sibnet | 168.6 | frame gardée |
+| Solo Leveling S2 ep1 | ansembed VF | 168.1 | frame gardée |
+| Solo Leveling S2 ep1 | ansembed VO | 0.0 | vignette |
+
+La copie proxifiée rend exactement la même valeur que le flux direct : c'est ce qui rend la sonde
+légitime. sendvid / embed4me / uqload / callistanise ne servent pas ces deux titres.
