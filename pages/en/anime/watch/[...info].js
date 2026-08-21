@@ -4,6 +4,7 @@ import Details from "@/components/watch/primary/details";
 import EpisodeLists from "@/components/watch/secondary/episodeLists";
 import ServerSelector from "@/components/watch/primary/serverSelector";
 import Recommendations from "@/components/anime/v2/Recommendations";
+import Footer from "@/components/shared/footer";
 // The v2 design tokens, scoped. `.tokens` carries the custom properties the
 // info-page components read, WITHOUT that page's furniture (background,
 // 100vh floor) — so the rail renders here exactly as it does there.
@@ -2628,6 +2629,10 @@ export default function Watch({
           )}
         </div>
       </main>
+
+      {/* La page se terminait sur la rangee de recommandations, sans rien
+          derriere : toutes les autres pages du site ferment sur ce pied. */}
+      <Footer />
     </>
   );
 }
