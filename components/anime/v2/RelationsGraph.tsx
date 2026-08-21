@@ -1861,7 +1861,19 @@ export default function RelationsGraph({
                 ? null
                 : {
                     href: animeHref(n.id, clickTarget),
-                    title: t("anime.graphOpenEntry", { defaultValue: "Open this entry" }),
+                    /* L'infobulle native n'apparait qu'une fois le plateau arme
+                       — meme regle que le curseur et le survol. En defilant, une
+                       carte passe sous le pointeur immobile et annonçait
+                       « ouvrir cette fiche » a quelqu'un qui lisait la page. Le
+                       lien, lui, reste un lien : le clic est deliberé, et le
+                       clic-milieu ou l'ouverture en onglet doivent marcher. */
+                    ...(armed
+                      ? {
+                          title: t("anime.graphOpenEntry", {
+                            defaultValue: "Open this entry",
+                          }),
+                        }
+                      : null),
                   })}
               /* Meme regle que la molette : une carte ne s'allume que si on est
                  alle la chercher. En defilant, les cartes passent sous un
@@ -1896,8 +1908,12 @@ export default function RelationsGraph({
               }}
               style={{
                 ...gStyles.node,
-                // Nothing to open: the card must not claim otherwise.
-                ...(n.manga ? { cursor: "default" } : null),
+                /* Nothing to open: the card must not claim otherwise.
+                   Desarme non plus : le plateau tout entier se presente alors
+                   comme le reste de la page, et une carte qui vient de passer
+                   sous le curseur en defilant ne doit pas se donner pour un
+                   bouton. */
+                ...(n.manga || !armed ? { cursor: "default" } : null),
                 left: posOf(n).x + PAD,
                 top: posOf(n).y + PAD,
                 width: n.w,
