@@ -122,15 +122,21 @@ const releve = `(() => {
       lisible = true;
     } catch { lisible = false; }
   }
+  let memo = 0;
+  try { memo = Object.keys(JSON.parse(localStorage.getItem("as:firstframe") || "{}")).length; } catch {}
   return {
     vignette: !img
       ? "aucun element"
       : img.className.includes("as-poster-off") ? "cachee" : "AFFICHEE",
+    /* L'image est-elle DEJA telechargee ? C'est la seule chose qui compte au
+       moment ou le verdict tombe : une vignette dont le fichier arrive apres
+       coup laisse un trou noir. Le <link rel=preload> de la page /watch existe
+       pour que ce soit vrai bien avant. */
+    image: !img ? "-" : img.complete && img.naturalWidth > 0 ? "prete" : "en vol",
+    preload: !!document.querySelector('link[rel="preload"][as="image"]'),
     video: v ? v.readyState : "aucune",
     lisible, luma,
-    memo: Object.entries(sessionStorage)
-      .filter(([k]) => k.startsWith("as:firstframe"))
-      .map(([k, val]) => k.slice(-26) + "=" + val),
+    memo,
   };
 })()`;
 
