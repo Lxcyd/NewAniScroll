@@ -487,12 +487,22 @@ export default function EpisodeLists({
      de CE cadre, donc au bout de quelques crans son curseur passe sous le bord
      de la fenetre et on defile a l'aveugle, sans plus rien voir de sa position.
      Des qu'il s'approche d'un bord, on rend donc la difference en defilement de
-     PAGE. Le calcul se referme sur lui-meme : defiler la page de d remonte le
-     panneau de d, donc le curseur aussi — un seul ajustement suffit, il n'y a
-     pas de boucle.
+     PAGE.
+     Seulement PENDANT qu'on tient la poignee, jamais a la molette. Deux raisons.
+     A la molette on ne regarde pas l'ascenseur, on regarde la liste : deplacer
+     la page sous les yeux de quelqu'un qui n'a rien demande est une surprise, et
+     chaque cran en declenchait une — d'ou les allers-retours. En le tenant, au
+     contraire, on vise une position dans la serie, et c'est la qu'on a besoin de
+     voir ou en est le curseur.
+     Sous la poignee le calcul se referme sur lui-meme : defiler la page de d
+     remonte le cadre de d, et le navigateur, qui replace la poignee sous le
+     pointeur reste immobile, la fait descendre d'autant dans la liste. Les deux
+     effets vont dans le meme sens, rien n'oscille — et pointeur arrete, plus
+     aucun evenement ne part.
      Volontairement absent de `onListScroll` : l'ancrage sur l'episode en cours
      appelle ce dernier a l'ouverture, et il ne doit surtout pas emporter la
      page avec lui. */
+  const thumbHeld = useRef(false);
   const followScrollThumb = useCallback(() => {
     const box = listRef.current;
     if (!box) return;
@@ -509,13 +519,35 @@ export default function EpisodeLists({
     // `else if` : sur une liste a peine defilable le curseur est plus haut que
     // la fenetre moins ses deux marges, et les deux bords depassent a la fois.
     // Suivre le bas est alors le bon choix, c'est le sens de lecture.
-    if (below > 0) window.scrollBy(0, below);
-    else if (above > 0) window.scrollBy(0, -above);
+    // Le seuil a 1px evite de rendre un sous-pixel a chaque evenement.
+    if (below > 1) window.scrollBy(0, below);
+    else if (above > 1) window.scrollBy(0, -above);
   }, []);
+
+  /* Tient-on la poignee ? Le clic tombe-t-il dans la gouttiere de l'ascenseur,
+     c'est-a-dire au-dela de `clientWidth`, qui l'exclut alors que le rectangle
+     de l'element la comprend. On compare a partir de ce rectangle et non de
+     `offsetX` : sous le pointeur il y a le plus souvent une ligne, et `offsetX`
+     se compterait alors depuis elle. */
+  const onListPointerDown = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      const box = e.currentTarget;
+      if (e.clientX - box.getBoundingClientRect().left < box.clientWidth) return;
+      thumbHeld.current = true;
+      const release = () => {
+        thumbHeld.current = false;
+        window.removeEventListener("pointerup", release);
+        window.removeEventListener("pointercancel", release);
+      };
+      window.addEventListener("pointerup", release);
+      window.addEventListener("pointercancel", release);
+    },
+    [],
+  );
 
   const onListScrollEvent = useCallback(() => {
     onListScroll();
-    followScrollThumb();
+    if (thumbHeld.current) followScrollThumb();
   }, [onListScroll, followScrollThumb]);
 
   useEffect(() => {
@@ -959,6 +991,7 @@ export default function EpisodeLists({
           key={view}
           ref={listRef}
           onScroll={onListScrollEvent}
+          onPointerDown={onListPointerDown}
           className={`${v2Styles.customScroll} as-viewswap relative max-h-[60vh] overflow-y-auto lg:max-h-none lg:min-h-0 lg:flex-1 ${
             view === "grid"
               ? /* content-start : le conteneur est `flex-1` donc plus haut que
