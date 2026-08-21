@@ -1041,12 +1041,20 @@ export default function EpisodeLists({
                   href={hrefFor(item)}
                   data-playing={f.playing ? "" : undefined}
                   onClick={f.playing ? (e) => e.preventDefault() : undefined}
-                  /* Pas de `scale-100` au repos : une transform, meme neutre,
-                     compose l'element sur sa propre couche, et Chrome rogne
-                     alors les coins arrondis sans anticrenelage — d'ou les
-                     bords en escalier. La carte reste donc sans transform tant
-                     qu'on ne la survole pas. */
-                  className={`as-epcard bg-secondary group relative flex h-[110px] w-full rounded-lg transition-transform duration-300 ease-out hover:scale-[1.02] ${
+                  /* AUCUNE transform sur cette carte, ni au repos ni au survol,
+                     et c'est ce qui garde la vignette nette. Un `scale` de 1.02
+                     compose la carte sur sa propre couche : Chrome la rasterise
+                     a l'echelle 1, ETIRE cette texture de 2% pendant toute la
+                     transition, puis la redessine nette a l'arrivee — d'ou une
+                     image molle qui se rattrape a la fin. Et l'inverse (poser
+                     la mise en page 2% plus grande et reduire au repos) rendrait
+                     la transform permanente : c'est ce qui rognait les coins
+                     arrondis en escalier, sans anticrenelage.
+                     Le survol se lit donc au liseré blanc et a l'ombre
+                     (`.as-epcard::after`), qui eux ne composent rien. Les vues
+                     liste et grille gardent leur agrandissement : pas d'image
+                     dedans, donc rien a resampler. */
+                  className={`as-epcard bg-secondary group relative flex h-[110px] w-full rounded-lg ${
                     f.playing ? "as-eplive cursor-default" : "cursor-pointer"
                   }`}
                 >
