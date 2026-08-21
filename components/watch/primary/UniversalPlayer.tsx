@@ -2158,7 +2158,6 @@ export default function UniversalPlayer({
     probe.height = 9;
     const ctx = probe.getContext("2d", { willReadFrequently: true });
     if (!ctx) return;
-    let frame = 0;
     let dead = false;
     /* `null` = la question n'a pas de reponse : canvas teinte, la source ne
        repond pas d'en-tete CORS (sibnet) et relire les pixels est interdit.
@@ -2207,6 +2206,11 @@ export default function UniversalPlayer({
         });
         if (dead) return;
         if (!landed) break;
+        // `seeked` dit que la position est prise, pas que l'image est peinte :
+        // lire tout de suite renvoie encore la frame precedente — c'est-a-dire
+        // le noir qu'on cherche justement a quitter.
+        await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+        if (dead) return;
         const value = luma(video);
         if (value === null) return;
         if (value > BLACK_FRAME) {
@@ -2223,30 +2227,60 @@ export default function UniversalPlayer({
       )
         video.currentTime = 0;
     };
+    /* Un seul verdict definitif : « il y a une image ». Le noir, lui, reste
+       provisoire et se remesure quatre fois par seconde tant que la lecture
+       n'a pas commence.
+       C'est la lecon des deux tentatives precedentes : toutes les raisons de
+       mal repondre sont des raisons TEMPORAIRES — l'hote est lent, le premier
+       segment n'est pas encore decode, la frame n'est pas encore peinte. Une
+       decision prise une fois, au pire instant, restait posee sur la video
+       pour toujours. Celle-ci se corrige d'elle-meme des que l'image arrive.
+       Le cout : un dessin 16x9 quatre fois par seconde sur un lecteur a
+       l'arret. */
+    let scanned = false;
+    let scanning = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
     const look = () => {
+      timer = null;
       const video = el.querySelector("video") as HTMLVideoElement | null;
-      /* Pas de verdict tant qu'aucune image n'est decodable. L'attente n'a pas
-         d'echeance : un hote lent finira par repondre, et trancher a sa place
-         (l'ancienne limite a huit secondes) posait la vignette sur une video
-         qui allait s'afficher une seconde plus tard, sans plus jamais se
-         reviser. */
-      if (!video || video.readyState < 2 || !video.videoWidth) {
-        frame = requestAnimationFrame(look);
+      const again = () => {
+        timer = setTimeout(look, 250);
+      };
+      // Rien a decider tant qu'aucune image n'est decodable, et plus rien a
+      // decider une fois que le spectateur regarde.
+      if (!video || video.readyState < 2 || !video.videoWidth) return again();
+      // Plus rien a decider une fois que le spectateur regarde.
+      if (!video.paused) return;
+      // Le balayage deplace la video : le temps qu'il dure, il est seul juge.
+      if (scanning) return again();
+      // Une position non nulle qui ne vient pas de lui vient du spectateur, et
+      // ce qu'il a choisi de voir n'a pas a etre recouvert.
+      if (video.currentTime > 0.01) {
+        setFirstFrameLit(true);
         return;
       }
       const value = luma(video);
+      // Canvas teinte (source sans en-tete CORS, sibnet) : la question n'aura
+      // jamais de reponse, donc on ne couvre pas — et on cesse de demander.
       if (value === null) return;
       if (value > BLACK_FRAME) {
         setFirstFrameLit(true);
         return;
       }
       setFirstFrameLit(false);
-      void seek(video);
+      if (!scanned) {
+        scanned = true;
+        scanning = true;
+        void seek(video).finally(() => {
+          scanning = false;
+        });
+      }
+      again();
     };
-    frame = requestAnimationFrame(look);
+    look();
     return () => {
       dead = true;
-      cancelAnimationFrame(frame);
+      if (timer) clearTimeout(timer);
     };
   }, [playerElState, poster]);
   const [castAvailable, setCastAvailable] = useState(false);
