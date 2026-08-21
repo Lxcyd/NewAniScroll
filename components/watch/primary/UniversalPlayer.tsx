@@ -351,6 +351,10 @@ function proxied(
  *  Assez haut pour couvrir un noir "sale" d'encodage, assez bas pour qu'un
  *  plan de nuit reste une image. */
 const BLACK_FRAME = 12;
+/** Instants (en secondes) sondes quand l'image d'ouverture est noire. Au-dela
+ *  du dernier, le noir n'est plus un artefact d'encodage mais une intention de
+ *  mise en scene : on ne va pas chercher l'image derriere. */
+const BLACK_SCAN = [0.2, 0.45, 0.7, 1];
 
 function LiveAmbient({
   playerRef,
@@ -2133,18 +2137,17 @@ export default function UniversalPlayer({
   const ambientEnabled =
     ambient && ctxAmbient && !dataSaver && !isFullscreen;
 
-  /* La premiere frame du fichier est-elle noire ?
+  /* L'image d'ouverture est-elle noire ?
      La question decide de deux choses : si la vignette de l'episode reste
      posee sur la video avant le premier play, et si l'ambient l'echantillonne
      elle plutot que la video. Beaucoup d'encodages ouvrent sur un fondu au
      noir — c'est pour ceux-la que la vignette existe. Mais quand la premiere
      frame est une vraie image, la recouvrir cache au spectateur ce qu'il
      s'apprete a regarder.
-     Mesure : la frame reduite a 16x9 et sa luminance moyenne. Une taint de
-     canvas (source sans en-tete CORS) laisse la question sans reponse — voir
-     le `catch` pour le sens dans lequel on tranche alors.
-     `null` = on ne sait pas encore : la vignette tient la place en attendant,
-     plutot que de laisser voir un noir qu'on effacerait aussitot. */
+     Mesure : la frame reduite a 16x9 et sa luminance moyenne.
+     Trois etats. `null` = on ne sait pas encore, et on ne couvre pas : mieux
+     vaut laisser voir un noir une seconde que masquer une image qui allait
+     bien. La vignette n'arrive qu'apres une mesure qui l'a demandee. */
   const [firstFrameLit, setFirstFrameLit] = useState<boolean | null>(null);
   useEffect(() => {
     setFirstFrameLit(null);
@@ -2156,42 +2159,95 @@ export default function UniversalPlayer({
     const ctx = probe.getContext("2d", { willReadFrequently: true });
     if (!ctx) return;
     let frame = 0;
-    const since = performance.now();
+    let dead = false;
+    /* `null` = la question n'a pas de reponse : canvas teinte, la source ne
+       repond pas d'en-tete CORS (sibnet) et relire les pixels est interdit.
+       Dans ce cas on NE COUVRE PAS. Des deux erreurs possibles, celle-ci est
+       la moins couteuse : ne pas masquer un noir rend ce que le lecteur
+       montrait avant que cette mesure existe, tandis que masquer une vraie
+       image se voit a tous les coups. */
+    const luma = (video: HTMLVideoElement): number | null => {
+      try {
+        ctx.drawImage(video, 0, 0, 16, 9);
+        const { data } = ctx.getImageData(0, 0, 16, 9);
+        let sum = 0;
+        for (let i = 0; i < data.length; i += 4)
+          sum += data[i] * 0.2126 + data[i + 1] * 0.7152 + data[i + 2] * 0.0722;
+        return sum / (data.length / 4);
+      } catch {
+        return null;
+      }
+    };
+    /* Le noir d'ouverture ne dure souvent que quelques images. Plutot que de
+       poser la vignette par-dessus, on avance jusqu'a la premiere vraie image
+       et on l'y laisse : le spectateur voit le film, et il ne perd qu'une
+       fraction de seconde au play. Passe une seconde de noir, c'est un parti
+       pris de mise en scene et non un artefact — la vignette reprend la main.
+       Abandonne des que la lecture commence : on ne deplace jamais une video
+       sous les yeux de qui la regarde. */
+    const seek = async (video: HTMLVideoElement) => {
+      let expected = video.currentTime;
+      for (const at of BLACK_SCAN) {
+        // Le balayage n'a le droit de deplacer que la video qu'il a lui-meme
+        // laissee la : toute autre position vient du spectateur.
+        if (dead || !video.paused || Math.abs(video.currentTime - expected) > 0.01)
+          return;
+        video.currentTime = at;
+        expected = at;
+        const landed = await new Promise<boolean>((resolve) => {
+          const done = () => {
+            video.removeEventListener("seeked", done);
+            resolve(true);
+          };
+          video.addEventListener("seeked", done);
+          setTimeout(() => {
+            video.removeEventListener("seeked", done);
+            resolve(false);
+          }, 1500);
+        });
+        if (dead) return;
+        if (!landed) break;
+        const value = luma(video);
+        if (value === null) return;
+        if (value > BLACK_FRAME) {
+          setFirstFrameLit(true);
+          return;
+        }
+      }
+      // Noir jusqu'au bout : c'est une ouverture voulue, la vignette la couvre
+      // et la lecture doit repartir du debut.
+      if (
+        !dead &&
+        video.paused &&
+        Math.abs(video.currentTime - expected) <= 0.01
+      )
+        video.currentTime = 0;
+    };
     const look = () => {
       const video = el.querySelector("video") as HTMLVideoElement | null;
-      if (video && video.readyState >= 2 && video.videoWidth > 0) {
-        try {
-          ctx.drawImage(video, 0, 0, 16, 9);
-          const { data } = ctx.getImageData(0, 0, 16, 9);
-          let sum = 0;
-          for (let i = 0; i < data.length; i += 4)
-            sum +=
-              data[i] * 0.2126 + data[i + 1] * 0.7152 + data[i + 2] * 0.0722;
-          setFirstFrameLit(sum / (data.length / 4) > BLACK_FRAME);
-        } catch {
-          /* Canvas teinte : la source ne repond pas d'en-tete CORS (sibnet), et
-             relire les pixels est interdit. On ne saura donc jamais, pour ces
-             hotes-la, si la premiere frame est noire.
-             Dans le doute on NE COUVRE PAS. Des deux erreurs possibles, celle-ci
-             est la moins couteuse : ne pas masquer un noir rend ce que le
-             lecteur montrait avant que cette mesure existe, tandis que masquer
-             une vraie image cache au spectateur ce qu'il s'apprete a regarder —
-             et c'est visible a tous les coups, pas seulement sur les encodages
-             qui ouvrent sur un fondu. */
-          setFirstFrameLit(true);
-        }
+      /* Pas de verdict tant qu'aucune image n'est decodable. L'attente n'a pas
+         d'echeance : un hote lent finira par repondre, et trancher a sa place
+         (l'ancienne limite a huit secondes) posait la vignette sur une video
+         qui allait s'afficher une seconde plus tard, sans plus jamais se
+         reviser. */
+      if (!video || video.readyState < 2 || !video.videoWidth) {
+        frame = requestAnimationFrame(look);
         return;
       }
-      // Un fichier qui n'a toujours pas donne d'image au bout de huit secondes
-      // ne dira rien de plus : on tranche pour la vignette.
-      if (performance.now() - since > 8000) {
-        setFirstFrameLit(false);
+      const value = luma(video);
+      if (value === null) return;
+      if (value > BLACK_FRAME) {
+        setFirstFrameLit(true);
         return;
       }
-      frame = requestAnimationFrame(look);
+      setFirstFrameLit(false);
+      void seek(video);
     };
     frame = requestAnimationFrame(look);
-    return () => cancelAnimationFrame(frame);
+    return () => {
+      dead = true;
+      cancelAnimationFrame(frame);
+    };
   }, [playerElState, poster]);
   const [castAvailable, setCastAvailable] = useState(false);
   const [castConnected, setCastConnected] = useState(false);
