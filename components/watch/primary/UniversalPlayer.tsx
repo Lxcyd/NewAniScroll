@@ -351,6 +351,15 @@ function proxied(
  *  Assez haut pour couvrir un noir "sale" d'encodage, assez bas pour qu'un
  *  plan de nuit reste une image. */
 const BLACK_FRAME = 12;
+/** Attente entre les deux lectures qui doivent s'accorder avant que la
+ *  vignette couvre quoi que ce soit — et delai laisse a une frame fraichement
+ *  decodee pour etre peinte avant qu'on la lise. */
+const CONFIRM_MS = 300;
+/** Rythme d'attente tant qu'aucune image n'est decodable. */
+const POLL_MS = 250;
+/** Au-dela, la copie proxifiee ne repondra pas : pas de mesure, pas de
+ *  vignette. */
+const PROBE_TIMEOUT_MS = 8000;
 
 function LiveAmbient({
   playerRef,
@@ -2145,6 +2154,19 @@ export default function UniversalPlayer({
   const ambientEnabled =
     ambient && ctxAmbient && !dataSaver && !isFullscreen;
 
+  /* Le flux joue-t-il sans en-tete CORS ? Alors le canvas se teinte et ses
+     pixels sont illisibles — voir `noCors`. La question se pose alors a une
+     COPIE du meme fichier passee par notre proxy, qui, lui, repond CORS.
+     (Le flux joue toujours en direct : le proxy ne sert qu'a la mesure.) */
+  const blindStream =
+    (streamData?.clientExtract
+      ? clientStream
+      : streamData?.streams?.[0] || streamData?.sources?.[0]) || null;
+  const blindProbeSrc =
+    blindStream?.noCors && !blindStream.localFile
+      ? proxied(blindStream.url, blindStream.referer || streamData?.referer)
+      : null;
+
   /* L'image d'ouverture est-elle noire ?
      La question decide de deux choses : si la vignette de l'episode reste
      posee sur la video avant le premier play, et si l'ambient l'echantillonne
@@ -2152,32 +2174,55 @@ export default function UniversalPlayer({
      noir — c'est pour ceux-la que la vignette existe. Mais quand la premiere
      frame est une vraie image, la recouvrir cache au spectateur ce qu'il
      s'apprete a regarder.
-     Mesure : la premiere frame reduite a 16x9, et sa luminance moyenne. Rien
-     d'autre — on ne va PAS chercher plus loin dans le fichier une image qui
-     ferait l'affaire. La regle est celle-la et pas une autre : premiere frame
-     noire → la vignette de l'episode ; premiere frame non noire → elle reste,
-     telle quelle.
-     Trois etats. `null` = on ne sait pas, et on ne couvre pas : mieux vaut
-     laisser voir un noir une seconde que masquer une image qui allait bien.
-     La vignette n'arrive qu'apres une mesure qui l'a demandee. */
+     La regle est celle-la et pas une autre : premiere frame noire → la
+     vignette de l'episode ; premiere frame non noire → elle reste, telle
+     quelle. On ne va PAS chercher plus loin dans le fichier une image qui
+     ferait l'affaire.
+     Mesure : la premiere frame reduite a 16x9, et sa luminance moyenne.
+     Trois etats. `null` = pas de reponse, et on ne couvre pas.
+
+     UN SEUL passage a `false`, et jamais avant d'en etre sur. C'est le point
+     dur : une vignette posee puis retiree est le defaut le plus visible de
+     tous, et c'est ce que produisait toute mesure prise trop tot — `readyState
+     >= 2` dit qu'une image est decodable, pas qu'elle est peinte, et lire le
+     canvas a cet instant rend du noir sur un episode qui n'en a pas. D'ou
+     `confirm` : deux lectures noires separees de CONFIRM_MS, et seulement
+     alors la vignette. Une lecture claire, elle, tranche du premier coup —
+     il n'y a rien a masquer, donc rien a risquer. */
   const [firstFrameLit, setFirstFrameLit] = useState<boolean | null>(null);
   useEffect(() => {
     setFirstFrameLit(null);
     const el = playerElState;
     if (!el) return;
-    const probe = document.createElement("canvas");
-    probe.width = 16;
-    probe.height = 9;
-    const ctx = probe.getContext("2d", { willReadFrequently: true });
+    const canvas = document.createElement("canvas");
+    canvas.width = 16;
+    canvas.height = 9;
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
     if (!ctx) return;
     let dead = false;
-    /* `null` = la question n'a pas de reponse : canvas teinte, la source ne
-       repond pas d'en-tete CORS (sibnet) et relire les pixels est interdit.
-       Le dessin, lui, passe — c'est la RELECTURE qui est interdite, et il n'y
-       a aucun contournement. Sans reponse, on laisse la video tranquille. */
-    const luma = (video: HTMLVideoElement): number | null => {
+    let settled = false;
+    let probeEl: HTMLVideoElement | null = null;
+    // Un seul endroit ou les minuteries vivent et meurent : plusieurs peuvent
+    // courir en meme temps (la confirmation et le delai de garde de la sonde),
+    // et aucune ne doit survivre a un changement d'episode.
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    const at = (ms: number, fn: () => void) => {
+      timers.push(setTimeout(fn, ms));
+    };
+    const stopTimers = () => {
+      while (timers.length) clearTimeout(timers.pop()!);
+    };
+    const settle = (verdict: boolean | null) => {
+      if (dead || settled) return;
+      settled = true;
+      setFirstFrameLit(verdict);
+    };
+    /* `null` = la question n'a pas de reponse : canvas teinte, relire les
+       pixels est interdit. Le dessin, lui, passe — c'est la RELECTURE qui est
+       interdite, et il n'y a aucun contournement cote element. */
+    const luma = (source: HTMLVideoElement): number | null => {
       try {
-        ctx.drawImage(video, 0, 0, 16, 9);
+        ctx.drawImage(source, 0, 0, 16, 9);
         const { data } = ctx.getImageData(0, 0, 16, 9);
         let sum = 0;
         for (let i = 0; i < data.length; i += 4)
@@ -2187,60 +2232,98 @@ export default function UniversalPlayer({
         return null;
       }
     };
-    /* Un seul verdict definitif : « il y a une image ». Le noir, lui, reste
-       provisoire et se remesure quatre fois par seconde tant que la lecture
-       n'a pas commence.
-       C'est la lecon des deux tentatives precedentes : toutes les raisons de
-       mal repondre sont des raisons TEMPORAIRES — l'hote est lent, le premier
-       segment n'est pas encore decode, la frame n'est pas encore peinte. Une
-       decision prise une fois, au pire instant, restait posee sur la video
-       pour toujours. Celle-ci se corrige d'elle-meme des que l'image arrive.
-       Le cout : un dessin 16x9 quatre fois par seconde sur un lecteur a
-       l'arret. */
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    const look = () => {
-      timer = null;
-      const video = el.querySelector("video") as HTMLVideoElement | null;
-      const again = () => {
-        timer = setTimeout(look, 250);
+
+    /* Flux illisible : on mesure la meme premiere frame sur une copie
+       proxifiee, dans un <video> qui n'est jamais attache au document. Le
+       cout est une lecture partielle du fichier (le navigateur s'arrete des
+       qu'il a de quoi decoder une image, et on le coupe aussitot apres) sur
+       une reponse que le Worker met en cache d'edge un jour.
+       Sans copie mesurable, `null` : on ne couvre pas au pari — parier posait
+       la vignette sur de vraies images, ce qui se voit tout de suite. */
+    const askTheProxy = () => {
+      // Pas de vignette a poser, pas de raison de tirer des octets : le verdict
+      // ne servirait a rien.
+      if (!blindProbeSrc || !poster) return settle(null);
+      /* Un fichier ne change pas d'ouverture. Le verdict est donc garde pour la
+         session, sous le chemin du fichier (sa query est signee et change a
+         chaque resolution) : changer de lecteur puis revenir, ou revoir
+         l'episode, ne retelecharge rien. */
+      const memo = `as:firstframe:${blindStream!.url.split("?")[0]}`;
+      try {
+        const seen = sessionStorage.getItem(memo);
+        if (seen) return settle(seen === "1");
+      } catch {
+        /* sessionStorage refuse (navigation privee, cookies bloques) — on
+           mesure, simplement. */
+      }
+      const remember = (verdict: boolean | null) => {
+        if (verdict !== null) {
+          try {
+            sessionStorage.setItem(memo, verdict ? "1" : "0");
+          } catch {
+            /* idem */
+          }
+        }
+        return verdict;
       };
-      // Rien a decider tant qu'aucune image n'est decodable, et plus rien a
-      // decider une fois que le spectateur regarde.
-      if (!video || video.readyState < 2 || !video.videoWidth) return again();
-      // Plus rien a decider une fois que le spectateur regarde.
-      if (!video.paused) return;
-      // Une position non nulle vient du spectateur, et ce qu'il a choisi de
-      // voir n'a pas a etre recouvert.
-      if (video.currentTime > 0.01) {
-        setFirstFrameLit(true);
-        return;
-      }
+      const v = document.createElement("video");
+      probeEl = v;
+      v.crossOrigin = "anonymous";
+      v.muted = true;
+      v.preload = "auto";
+      v.playsInline = true;
+      const stop = (verdict: boolean | null) => {
+        stopTimers();
+        v.removeAttribute("src");
+        v.load();
+        probeEl = null;
+        settle(remember(verdict));
+      };
+      v.addEventListener("loadeddata", () => {
+        if (dead) return;
+        // `loadeddata` dit qu'une image est decodee ; on lui laisse le temps
+        // d'exister avant de la lire, comme sur le lecteur lui-meme.
+        at(CONFIRM_MS, () => {
+          const value = luma(v);
+          stop(value === null ? null : value > BLACK_FRAME);
+        });
+      });
+      v.addEventListener("error", () => stop(null));
+      at(PROBE_TIMEOUT_MS, () => stop(null));
+      v.src = blindProbeSrc;
+    };
+
+    const look = () => {
+      const video = el.querySelector("video") as HTMLVideoElement | null;
+      // Rien a decider tant qu'aucune image n'est decodable.
+      if (!video || video.readyState < 2 || !video.videoWidth)
+        return at(POLL_MS, look);
+      // Une lecture commencee, ou une position choisie par le spectateur :
+      // ce qu'il regarde n'a pas a etre recouvert.
+      if (!video.paused || video.played.length > 0 || video.currentTime > 0.01)
+        return settle(true);
       const value = luma(video);
-      /* Canvas teinte (source sans en-tete CORS, sibnet) : la question n'aura
-         jamais de reponse, et on ne couvre pas. Couvrir au pari, comme je
-         l'avais fait, posait la vignette sur des premieres frames qui etaient
-         de vraies images — visible immediatement, et faux. La vignette ne
-         s'affiche que sur un noir MESURE ; sans mesure, la video montre ce
-         qu'elle a. */
-      if (value === null) {
-        setFirstFrameLit(null);
-        return;
-      }
-      if (value > BLACK_FRAME) {
-        setFirstFrameLit(true);
-        return;
-      }
-      // Noir mesure : la vignette couvre. Le verdict reste provisoire — on
-      // continue de mesurer, une vraie image le corrigera.
-      setFirstFrameLit(false);
-      again();
+      if (value === null) return askTheProxy();
+      if (value > BLACK_FRAME) return settle(true);
+      // Noir — mais pas encore la vignette : une seconde lecture doit dire la
+      // meme chose. Voir le commentaire du bloc.
+      at(CONFIRM_MS, () => {
+        if (!video.paused || video.played.length > 0) return settle(true);
+        const again = luma(video);
+        if (again === null) return askTheProxy();
+        settle(again <= BLACK_FRAME ? false : true);
+      });
     };
     look();
     return () => {
       dead = true;
-      if (timer) clearTimeout(timer);
+      stopTimers();
+      if (probeEl) {
+        probeEl.removeAttribute("src");
+        probeEl.load();
+      }
     };
-  }, [playerElState, poster]);
+  }, [playerElState, poster, blindProbeSrc]);
   const [castAvailable, setCastAvailable] = useState(false);
   const [castConnected, setCastConnected] = useState(false);
 
