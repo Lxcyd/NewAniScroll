@@ -1,6 +1,6 @@
-# Usage Monitor — 2026-08-20
+# Usage Monitor — 2026-08-21
 
-_Generated 2026-08-20T07:08:25.557Z_
+_Generated 2026-08-21T07:09:25.938Z_
 
 ## ⚠️ Flags
 - Only **1 Upstash DB** on the account → dev & prod likely share it (see DEVLOG 2026-07-30).
@@ -9,30 +9,34 @@ _Generated 2026-08-20T07:08:25.557Z_
 > DBs on account: **1** — dev (Preview) & prod SHARE this DB; the number below mixes both.
 
 - DB: `aniscroll-cache`
-- Today: **2,033** (-4,364 -68%) vs yesterday
-- 7-day avg/day: **6,476**
-- Projected month: **194,280** / 500,000 cap — **39%**
+- Today: **4,412** (-7,236 -62%) vs yesterday
+- 7-day avg/day: **7,445**
+- Projected month: **223,350** / 500,000 cap — **45%**
 
 ## Redis keyspace census (where the load comes from)
-- DBSIZE: **13,097** | scanned: 13,097 keys
+- DBSIZE: **14,251** | scanned: 14,066 keys
 
 | prefix | keys | % | Δ vs prev |
 |---|---:|---:|---:|
-| `anime:` | 10,653 | 81.3% | (+505 +5%) |
-| `episode:` | 1,982 | 15.1% | (+1 +0%) |
-| `tr:` | 458 | 3.5% | (+2 +0%) |
-| `jikan:` | 3 | 0.0% | (-1 -25%) |
-| `new_schedule:` | 1 | 0.0% | (=) |
+| `anime:` | 11,592 | 82.4% | (+939 +9%) |
+| `episode:` | 1,986 | 14.1% | (+4 +0%) |
+| `tr:` | 464 | 3.3% | (+6 +1%) |
+| `avail:` | 13 | 0.1% | — |
+| `ftree:` | 8 | 0.1% | — |
+| `jikan:` | 3 | 0.0% | (=) |
 
 <details><summary>Top 2-segment namespaces</summary>
 
 | namespace | keys |
 |---|---:|
-| `anime:v5` | 10,653 |
+| `anime:v5` | 11,592 |
 | `episode:v3` | 1,653 |
-| `tr:fr` | 458 |
+| `tr:fr` | 464 |
 | `episode:v5` | 203 |
-| `episode:v6` | 126 |
+| `episode:v6` | 130 |
+| `ftree:v5` | 8 |
+| `avail:v3` | 7 |
+| `avail:v4` | 6 |
 | `jikan:eps` | 3 |
 
 </details>
