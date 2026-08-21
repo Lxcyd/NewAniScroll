@@ -553,16 +553,19 @@ export default function EpisodeLists({
      liste, pas l'ascenseur, et deplacer la page sous les yeux de quelqu'un qui
      n'a rien demande est une surprise.
 
-     Ce qui suit se declenche sur le POINTEUR, pas sur la position de la
-     poignee, et c'est tout le sujet. Le navigateur garde la poignee collee au
-     pointeur : viser sa position revenait a la repousser d'un bord dont il la
-     ramenait aussitot — un aller-retour a la frequence des evenements, ce que
-     l'on voyait vibrer. Plafonner le pas n'a fait qu'en ralentir la moitie
-     utile. Le pointeur, lui, ne repond a rien de ce qu'on fait : la boucle est
-     ouverte, elle ne peut pas osciller.
-     La vitesse suit l'enfoncement dans la marge, comme un glisser-deposer qui
-     approche du bord — on dose donc en approchant plus ou moins du bord, et non
-     en trainant plus ou moins vite. */
+     Deux choses a savoir sur la poignee NATIVE, qui expliquent la forme de ce
+     qui suit. Elle ne dit rien : pendant qu'on la traine, le navigateur ne
+     transmet plus aucun `pointermove` a la page — la piloter au pointeur ne
+     declenchait donc plus rien du tout. Et elle est tenue : le navigateur la
+     replace sous le curseur, si bien qu'un rattrapage calcule pour la sortir
+     d'un bord est defait aussitot — c'est cet aller-retour qu'on voyait vibrer.
+
+     D'ou : une boucle de frames qui lit la position de la poignee et fait
+     GLISSER la page a vitesse constante tant que celle-ci est dans la bande, au
+     lieu de rendre l'ecart d'un coup. Le glissement eloigne la poignee du bord
+     et s'arrete de lui-meme au bout d'une bande ; le mouvement de souris suivant
+     la ramene et le relance. Chaque geste rend donc un glissement continu la ou
+     il rendait un saut. */
   const thumbHeld = useRef<(() => void) | null>(null);
   const onListPointerDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
@@ -575,28 +578,37 @@ export default function EpisodeLists({
       if (e.clientX - box.getBoundingClientRect().left < box.clientWidth) return;
       thumbHeld.current?.();
 
-      let y = e.clientY;
       let frame = 0;
-      const move = (ev: PointerEvent) => {
-        y = ev.clientY;
-      };
       const tick = () => {
-        const below = y - (window.innerHeight - THUMB_MARGIN);
-        const above = THUMB_MARGIN - y;
+        frame = requestAnimationFrame(tick);
+        const { scrollTop, scrollHeight, clientHeight } = box;
+        if (scrollHeight <= clientHeight) return;
+        /* Geometrie de la poignee native : sa taille est la part visible de la
+           liste, sa position la meme part du chemin parcouru. Le plancher de
+           24px est celui qu'appliquent les navigateurs sur les listes tres
+           longues. */
+        const thumbH = Math.max(24, (clientHeight / scrollHeight) * clientHeight);
+        const thumbTop =
+          box.getBoundingClientRect().top +
+          (scrollTop / scrollHeight) * clientHeight;
+        const below = thumbTop + thumbH - (window.innerHeight - THUMB_MARGIN);
+        const above = THUMB_MARGIN - thumbTop;
+        // La vitesse croit avec l'enfoncement dans la bande : on dose en
+        // approchant plus ou moins du bord.
         const rate = (d: number) => Math.min(1, d / THUMB_MARGIN) * THUMB_SPEED;
+        // `else if` : sur une liste a peine defilable la poignee est plus haute
+        // que la fenetre moins ses deux bandes, et les deux bords depassent a la
+        // fois. Suivre le bas est alors le bon choix, c'est le sens de lecture.
         if (below > 0) window.scrollBy(0, rate(below));
         else if (above > 0) window.scrollBy(0, -rate(above));
-        frame = requestAnimationFrame(tick);
       };
       const release = () => {
         cancelAnimationFrame(frame);
-        window.removeEventListener("pointermove", move);
         window.removeEventListener("pointerup", release);
         window.removeEventListener("pointercancel", release);
         thumbHeld.current = null;
       };
       thumbHeld.current = release;
-      window.addEventListener("pointermove", move);
       window.addEventListener("pointerup", release);
       window.addEventListener("pointercancel", release);
       frame = requestAnimationFrame(tick);
