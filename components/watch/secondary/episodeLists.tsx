@@ -707,6 +707,22 @@ export default function EpisodeLists({
      l'episode 7, et l'a peut-etre lu ecrit ainsi ailleurs. */
   const padTo = String(last ?? episode?.length ?? 1).length;
 
+  /* Les donnees du fournisseur indexees par numero d'episode.
+     Elles etaient retrouvees par un `find` dans le tableau, une fois par ligne
+     rendue et une fois par ligne filtree — donc un balayage complet par
+     episode. Sur douze episodes ça ne se voit pas ; sur les 1174 de One Piece
+     ça fait plus d'un million de comparaisons a chaque inversion de l'ordre ou
+     frappe dans la recherche, et c'est la que l'interface se figeait. Un index
+     construit une fois rend la meme reponse en temps constant. */
+  const byNumber = useMemo(() => {
+    const index = new Map<any, any>();
+    // Le premier gagne, comme `find` : deux entrees pour un meme numero
+    // arrivent des fournisseurs qui listent un episode en double.
+    for (const row of (map as any[]) ?? [])
+      if (!index.has(row?.number)) index.set(row?.number, row);
+    return index;
+  }, [map]);
+
   /* Recherche et ordre d'affichage.
      Un chiffre se cherche comme un MOTIF, pas comme une valeur : taper "1"
      doit ramener 1, 01, 11, 21… — c'est ainsi qu'on cherche dans une liste
@@ -729,12 +745,12 @@ export default function EpisodeLists({
           const n = String(item.number);
           if (n.includes(q) || n.padStart(padTo, "0").includes(q)) return true;
         }
-        const title = map?.find((i: any) => i.number === item.number)?.title;
+        const title = byNumber.get(item.number)?.title;
         return !!title && flat(String(title)).includes(needle);
       });
     }
     return desc ? [...rows].reverse() : rows;
-  }, [episode, map, query, desc, padTo]);
+  }, [episode, byNumber, query, desc, padTo]);
 
   /* Duree de reference de la saison, agregee au fil des mesures qui remontent
      des lignes. Elle sert deux fois : a combler les episodes que personne n'a
@@ -803,7 +819,7 @@ export default function EpisodeLists({
       store && store.duration > 0
         ? Math.min(100, (store.time / store.duration) * 100)
         : 0;
-    const mapData = map?.find((i: any) => i.number === item.number);
+    const mapData = byNumber.get(item.number);
     const parsedImage = mapData
       ? mapData?.img?.includes("null") || mapData?.image?.includes("null")
         ? info.coverImage?.extraLarge
