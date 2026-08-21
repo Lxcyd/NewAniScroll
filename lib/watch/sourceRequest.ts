@@ -30,6 +30,8 @@
  * the anti-bot decoy retries — a proven 404 does not become a 200 in 5.6 s —
  * and to publish the absence, which an ambiguous one must never do.
  */
+import { EARLY_SOURCE_KEY } from "./earlySource";
+
 export type SourceOutcome =
   | { kind: "ok"; data: any }
   | { kind: "absent"; hard?: boolean }
@@ -75,11 +77,33 @@ export async function requestSource(
   params: SourceParams,
   opts: { signal?: AbortSignal; priority?: "high" | "low" | "auto" } = {},
 ): Promise<SourceOutcome> {
-  const res = await fetch(sourceRequestUrl(params), {
-    signal: opts.signal,
-    // @ts-ignore — `priority` is a valid fetch init in Chromium/Safari.
-    priority: opts.priority || "auto",
-  });
+  const url = sourceRequestUrl(params);
+  /* La requete est peut-etre deja partie, avant meme ce bundle : le script pose
+     dans le document en lance une des l'analyse du HTML (cf.
+     lib/watch/earlySource.ts). Si c'est la meme adresse, on adopte sa reponse
+     au lieu d'en demander une seconde — sinon on aurait paye deux fois le
+     chemin qu'on cherchait justement a raccourcir.
+     Consommee une seule fois : le repere est efface avant meme d'etre attendu,
+     une `Response` ne se lit pas deux fois. Le `signal` d'annulation ne
+     s'applique pas a celle-la — elle etait partie avant qu'il existe. */
+  const early = (globalThis as any)[EARLY_SOURCE_KEY] as
+    | { url: string; promise: Promise<Response> }
+    | undefined;
+  let res: Response;
+  if (early && early.url === url) {
+    delete (globalThis as any)[EARLY_SOURCE_KEY];
+    try {
+      res = await early.promise;
+    } catch {
+      return { kind: "retry" };
+    }
+  } else {
+    res = await fetch(url, {
+      signal: opts.signal,
+      // @ts-ignore — `priority` is a valid fetch init in Chromium/Safari.
+      priority: opts.priority || "auto",
+    });
+  }
 
   // Legacy spellings of "absent" (POST contract / an edge copy from before the
   // switch). Terminal either way.
