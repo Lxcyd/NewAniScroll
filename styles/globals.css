@@ -335,6 +335,25 @@ body,
   opacity: 1;
 }
 
+/* Vignette pas encore arrivee. Meme pulsation que les cartes fantomes du graphe
+   de franchise (`anig-skel`) — c'est la meme reponse a la meme question, "ça
+   arrive", et deux respirations differentes dans une meme page se remarquent.
+   Le degrade lui aussi vient de la : une plaque unie se lit comme une image
+   noire, une plaque qui a un sens de lumiere se lit comme une place vide. */
+@keyframes as-epskel {
+  0%,
+  100% {
+    opacity: 0.28;
+  }
+  50% {
+    opacity: 0.62;
+  }
+}
+.as-epskel {
+  background: linear-gradient(160deg, #17171c, #101014);
+  animation: as-epskel 1.4s ease-in-out infinite;
+}
+
 /* Survol de l'episode EN COURS, dans les trois vues. Il bouge comme les autres
    — une ligne inerte au milieu de lignes vivantes se lit comme un bug — mais
    son liseré ne passe pas au blanc : le blanc est la couleur du "cliquable",

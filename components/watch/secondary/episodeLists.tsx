@@ -82,13 +82,13 @@ const ACCENT_ROW = `linear-gradient(90deg, color-mix(in srgb, ${ACCENT} 6%, tran
 const ACCENT_CELL = `linear-gradient(${ACCENT_SOFT}, ${ACCENT_SOFT}), ${T.bg2}`;
 const WATCHED_CELL = `linear-gradient(rgba(45,212,122,0.06), rgba(45,212,122,0.06)), ${T.bg2}`;
 
-/** Marge, en px, sous laquelle le curseur de l'ascenseur de la liste est trop
- *  pres d'un bord de la fenetre pour qu'on le lise encore. La page se decale
- *  alors de ce qu'il faut pour l'en eloigner (cf. `followScrollThumb`). */
-const THUMB_MARGIN = 72;
-/** Defilement de page maximal rendu en une fois pendant qu'on tient la poignee
- *  (cf. `followScrollThumb`) : au-dela, le rattrapage se voit sauter. */
-const THUMB_STEP = 12;
+/** Bande, en px, le long de chaque bord de la fenetre : y trainer la poignee de
+ *  l'ascenseur y fait glisser la page (cf. `onListPointerDown`). */
+const THUMB_MARGIN = 96;
+/** Vitesse de ce glissement, en px par frame, poignee tenue au ras du bord —
+ *  soit environ un ecran par seconde. Elle decroit vers 0 a l'entree de la
+ *  bande, pour qu'on la dose en approchant plus ou moins du bord. */
+const THUMB_SPEED = 16;
 
 /* The three shapes the list can take, same three as the info page's Episodes
    tab: thumbnails, one-line rows, grid of numbers. Remembered per device — a
@@ -213,6 +213,52 @@ function ProgressBar({
         transition: "width 1s linear",
       }}
     />
+  );
+}
+
+/**
+ * La vignette d'un episode, et la plaque qui respire a sa place tant qu'elle
+ * n'est pas arrivee. Un composant a elle seule pour ce seul etat : c'est la
+ * seule chose de la carte qui ait besoin d'un state, et le tenir ici evite de
+ * refaire rendre la liste entiere a chaque image qui se pose.
+ */
+function Thumb({ src, blurred }: { src: string; blurred: boolean }) {
+  const [loaded, setLoaded] = useState(false);
+  return (
+    <>
+      {/* Sous l'image, pas a la place : elle s'efface par-dessus la plaque, sans
+          le vide d'une frame entre les deux. */}
+      {!loaded && <div className="as-epskel absolute inset-0 rounded-lg" />}
+      <Image
+        src={src}
+        alt=""
+        draggable={false}
+        /* La taille REELLE de la vignette, pas celle de la source. Le panneau
+           fait 33rem au plus large, la vignette 42% : ~224px. Avec 496 annonces,
+           `next/image` servait un fichier de 496px de large — et son 2x, un de
+           992 — pour une case de 224 : cinq a vingt fois les octets
+           necessaires, sur une liste qui en charge des centaines. C'est ce qui
+           les faisait arriver en retard quand on descend vite. */
+        width={224}
+        height={126}
+        /* 60 plutot que les 75 par defaut : un quart d'octets en moins, et a
+           cette taille la difference ne se voit pas. */
+        quality={60}
+        onLoad={() => setLoaded(true)}
+        /* AUCUN filtre ici, et c'est la regle : un `filter` promeut l'image sur
+           sa propre couche, que le navigateur rasterise une fois puis ETIRE
+           pendant le `scale` du survol — l'image partait floue et ne redevenait
+           nette qu'a la fin du mouvement. L'assombrissement de l'episode en
+           cours passe donc par un voile pose au-dessus, pas par `brightness`.
+           L'arrondi reste porte par l'image elle-meme : le rognage du parent
+           perd son anticrenelage des que la couche est composee.
+           (`blur-lg` est l'exception assumee : masquer un spoiler EST un
+           filtre, et cette carte-la ne grandit pas plus mal qu'une autre.) */
+        className={`h-[110px] w-full rounded-lg object-cover transition-opacity duration-200 ${
+          loaded ? "opacity-100" : "opacity-0"
+        } ${blurred ? "blur-lg" : ""}`}
+      />
+    </>
   );
 }
 
@@ -497,82 +543,70 @@ export default function EpisodeLists({
     );
   }, []);
 
-  /* La page suit le curseur de l'ascenseur de la liste.
+  /* La page suit la poignee de l'ascenseur de la liste.
      Le panneau est plus haut que la fenetre : son cadre commence en haut de
-     l'ecran et se termine sous le pli. L'ascenseur de la liste descend le long
-     de CE cadre, donc au bout de quelques crans son curseur passe sous le bord
-     de la fenetre et on defile a l'aveugle, sans plus rien voir de sa position.
-     Des qu'il s'approche d'un bord, on rend donc la difference en defilement de
-     PAGE.
-     Seulement PENDANT qu'on tient la poignee, jamais a la molette. Deux raisons.
-     A la molette on ne regarde pas l'ascenseur, on regarde la liste : deplacer
-     la page sous les yeux de quelqu'un qui n'a rien demande est une surprise, et
-     chaque cran en declenchait une — d'ou les allers-retours. En le tenant, au
-     contraire, on vise une position dans la serie, et c'est la qu'on a besoin de
-     voir ou en est le curseur.
-     Sous la poignee le calcul se referme sur lui-meme : defiler la page de d
-     remonte le cadre de d, et le navigateur, qui replace la poignee sous le
-     pointeur reste immobile, la fait descendre d'autant dans la liste. Les deux
-     effets vont dans le meme sens, rien n'oscille — et pointeur arrete, plus
-     aucun evenement ne part.
-     Volontairement absent de `onListScroll` : l'ancrage sur l'episode en cours
-     appelle ce dernier a l'ouverture, et il ne doit surtout pas emporter la
-     page avec lui. */
-  const thumbHeld = useRef(false);
-  const followScrollThumb = useCallback(() => {
-    const box = listRef.current;
-    if (!box) return;
-    const { scrollTop, scrollHeight, clientHeight } = box;
-    if (scrollHeight <= clientHeight) return;
-    // Geometrie du curseur natif : sa taille est la part visible de la liste,
-    // sa position la meme part du chemin parcouru. Le plancher de 24px est
-    // celui qu'appliquent les navigateurs sur les listes tres longues.
-    const thumbH = Math.max(24, (clientHeight / scrollHeight) * clientHeight);
-    const thumbTop =
-      box.getBoundingClientRect().top + (scrollTop / scrollHeight) * clientHeight;
-    const below = thumbTop + thumbH - (window.innerHeight - THUMB_MARGIN);
-    const above = THUMB_MARGIN - thumbTop;
-    // `else if` : sur une liste a peine defilable le curseur est plus haut que
-    // la fenetre moins ses deux marges, et les deux bords depassent a la fois.
-    // Suivre le bas est alors le bon choix, c'est le sens de lecture.
-    /* Par petits pas, jamais l'ecart d'un coup. Le navigateur garde la poignee
-       collee au pointeur : rendre 70px de page en une fois la deplace de 70px,
-       puis il la remet sous le pointeur au mouvement suivant — c'est cet
-       aller-retour qu'on voyait clignoter, et d'autant plus qu'on montait
-       doucement, un tout petit mouvement de souris declenchant un grand saut de
-       page. Plafonne, le rattrapage se fait sur plusieurs evenements et devient
-       un glissement.
-       Le seuil a 1px, lui, evite de rendre un sous-pixel a chaque evenement. */
-    const step = (d: number) => Math.min(d, THUMB_STEP);
-    if (below > 1) window.scrollBy(0, step(below));
-    else if (above > 1) window.scrollBy(0, -step(above));
-  }, []);
+     l'ecran et se termine sous le pli. La poignee descend le long de CE cadre,
+     donc en la trainant on finit par la pousser sous le bord de la fenetre et
+     on defile a l'aveugle. Tant qu'on la tient pres d'un bord, la page glisse
+     donc dans ce sens, ce qui ramene le reste du panneau dans l'ecran.
+     Seulement en la TENANT, jamais a la molette : a la molette on regarde la
+     liste, pas l'ascenseur, et deplacer la page sous les yeux de quelqu'un qui
+     n'a rien demande est une surprise.
 
-  /* Tient-on la poignee ? Le clic tombe-t-il dans la gouttiere de l'ascenseur,
-     c'est-a-dire au-dela de `clientWidth`, qui l'exclut alors que le rectangle
-     de l'element la comprend. On compare a partir de ce rectangle et non de
-     `offsetX` : sous le pointeur il y a le plus souvent une ligne, et `offsetX`
-     se compterait alors depuis elle. */
+     Ce qui suit se declenche sur le POINTEUR, pas sur la position de la
+     poignee, et c'est tout le sujet. Le navigateur garde la poignee collee au
+     pointeur : viser sa position revenait a la repousser d'un bord dont il la
+     ramenait aussitot — un aller-retour a la frequence des evenements, ce que
+     l'on voyait vibrer. Plafonner le pas n'a fait qu'en ralentir la moitie
+     utile. Le pointeur, lui, ne repond a rien de ce qu'on fait : la boucle est
+     ouverte, elle ne peut pas osciller.
+     La vitesse suit l'enfoncement dans la marge, comme un glisser-deposer qui
+     approche du bord — on dose donc en approchant plus ou moins du bord, et non
+     en trainant plus ou moins vite. */
+  const thumbHeld = useRef<(() => void) | null>(null);
   const onListPointerDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
+      /* Tient-on la poignee ? Le clic tombe-t-il au-dela de `clientWidth`, qui
+         exclut la gouttiere de l'ascenseur alors que le rectangle de l'element
+         la comprend. On mesure depuis ce rectangle et non avec `offsetX` : sous
+         le pointeur il y a le plus souvent une ligne, et `offsetX` se compterait
+         alors depuis elle. */
       const box = e.currentTarget;
       if (e.clientX - box.getBoundingClientRect().left < box.clientWidth) return;
-      thumbHeld.current = true;
+      thumbHeld.current?.();
+
+      let y = e.clientY;
+      let frame = 0;
+      const move = (ev: PointerEvent) => {
+        y = ev.clientY;
+      };
+      const tick = () => {
+        const below = y - (window.innerHeight - THUMB_MARGIN);
+        const above = THUMB_MARGIN - y;
+        const rate = (d: number) => Math.min(1, d / THUMB_MARGIN) * THUMB_SPEED;
+        if (below > 0) window.scrollBy(0, rate(below));
+        else if (above > 0) window.scrollBy(0, -rate(above));
+        frame = requestAnimationFrame(tick);
+      };
       const release = () => {
-        thumbHeld.current = false;
+        cancelAnimationFrame(frame);
+        window.removeEventListener("pointermove", move);
         window.removeEventListener("pointerup", release);
         window.removeEventListener("pointercancel", release);
+        thumbHeld.current = null;
       };
+      thumbHeld.current = release;
+      window.addEventListener("pointermove", move);
       window.addEventListener("pointerup", release);
       window.addEventListener("pointercancel", release);
+      frame = requestAnimationFrame(tick);
     },
     [],
   );
 
-  const onListScrollEvent = useCallback(() => {
-    onListScroll();
-    if (thumbHeld.current) followScrollThumb();
-  }, [onListScroll, followScrollThumb]);
+  // Poignee relachee par la sortie du panneau : la boucle et ses trois
+  // ecouteurs vivent sur `window`, ils ne partiraient pas d'eux-memes.
+  useEffect(() => () => thumbHeld.current?.(), []);
 
   useEffect(() => {
     /* Le reglage est lu ICI, a chaud, et non par `usePlayerPrefs` : ce hook
@@ -1014,7 +1048,7 @@ export default function EpisodeLists({
         <div
           key={view}
           ref={listRef}
-          onScroll={onListScrollEvent}
+          onScroll={onListScroll}
           onPointerDown={onListPointerDown}
           /* Repere pour les lignes : c'est ce cadre, et non la fenetre, qui
              sert de reference aux observateurs qui prennent de l'avance. */
@@ -1173,31 +1207,9 @@ export default function EpisodeLists({
                 >
                   <div className="relative h-[110px] w-[43%] shrink-0 overflow-hidden rounded-lg shadow-[4px_0px_5px_0px_rgba(0,0,0,0.3)] lg:w-[42%]">
                     {hasArt && f.parsedImage && (
-                      <Image
+                      <Thumb
                         src={f.parsedImage}
-                        alt=""
-                        draggable={false}
-                        /* La taille REELLE de la vignette, pas celle de la
-                           source. Le panneau fait 33rem au plus large, la
-                           vignette 42% : ~224px. Avec 496 annonces, `next/image`
-                           servait un fichier de 496px de large — et son 2x, un
-                           de 992 — pour une case de 224 : cinq a vingt fois les
-                           octets necessaires, sur une liste qui en charge des
-                           centaines. C'est ce qui les faisait arriver en retard
-                           quand on descend vite. */
-                        width={224}
-                        height={126}
-                        /* AUCUN filtre ici, et c'est la regle : un `filter`
-                           promeut l'image sur sa propre couche, que le
-                           navigateur rasterise une fois puis ETIRE pendant le
-                           `scale` du survol — l'image partait floue et ne
-                           redevenait nette qu'a la fin du mouvement.
-                           L'assombrissement de l'episode en cours passe donc
-                           par un voile pose au-dessus (voir plus bas), pas par
-                           `brightness`. L'arrondi reste porte par l'image
-                           elle-meme : le rognage du parent perd son
-                           anticrenelage des que la couche est composee. */
-                        className={`h-[110px] w-full rounded-lg object-cover ${hideSpoilers && !f.playing ? "blur-lg" : ""}`}
+                        blurred={hideSpoilers && !f.playing}
                       />
                     )}
                     {/* L'episode en cours s'assombrit sous un voile plein, la
