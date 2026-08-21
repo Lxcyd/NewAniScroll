@@ -1337,9 +1337,6 @@ export default function RelationsGraph({
    * inline preview every zoom would also scroll the info page out from under
    * the graph.
    *
-   * Pose sur la FENETRE, en capture, et non sur le plateau : cf. le test du
-   * pointeur dans le corps de l'ecouteur.
-   *
    * `mounted` is in the deps because the component renders NOTHING until it
    * flips: without it this ran once, against a ref still holding null, and
    * never again — the board is client-only, so the first pass has no canvas to
@@ -1350,40 +1347,17 @@ export default function RelationsGraph({
     const box = canvasRef.current;
     if (!box) return;
     const onWheelNative = (e: WheelEvent) => {
-      /* Le pointeur est-il sur le plateau ? La question se pose ICI parce que
-         l'ecouteur est pose sur la FENETRE et non sur le plateau.
-         Le navigateur amarre une salve de molette au premier defileur touche et
-         lui adresse toute la suite, cible DOM comprise, jusqu'a la fin du
-         geste : en s'arretant sur le graphe au milieu d'un defilement de page,
-         les crans suivants continuaient d'aller a la page et le plateau ne
-         voyait rien. Bouger la souris rompait l'amarrage, d'ou un zoom qui ne
-         marchait qu'apres avoir remue.
-         En capture sur la fenetre, on voit passer la salve quel que soit son
-         amarrage, et on la reprend des qu'elle survole le plateau.
-         `elementFromPoint` en plus du rectangle : un menu ou une infobulle
-         posee par-dessus doit garder son propre defilement. */
-      const r = box.getBoundingClientRect();
-      const inside =
-        e.clientX >= r.left &&
-        e.clientX <= r.right &&
-        e.clientY >= r.top &&
-        e.clientY <= r.bottom &&
-        box.contains(document.elementFromPoint(e.clientX, e.clientY));
-      if (!inside) return;
       e.preventDefault();
       const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
       // Anchored on the cursor: the card under the pointer is the one you are
       // asking about, so it is the one that must not move. `zoomAt` reads the
       // live scale and offset from refs, so this listener stays correct
       // although it is bound once and never rebound.
+      const r = box.getBoundingClientRect();
       zoomAt(factor, e.clientX - r.left, e.clientY - r.top);
     };
-    window.addEventListener("wheel", onWheelNative, {
-      passive: false,
-      capture: true,
-    });
-    return () =>
-      window.removeEventListener("wheel", onWheelNative, { capture: true });
+    box.addEventListener("wheel", onWheelNative, { passive: false });
+    return () => box.removeEventListener("wheel", onWheelNative);
   }, [active, open, mounted]);
 
 
