@@ -351,10 +351,14 @@ function proxied(
  *  Assez haut pour couvrir un noir "sale" d'encodage, assez bas pour qu'un
  *  plan de nuit reste une image. */
 const BLACK_FRAME = 12;
-/** Instants (en secondes) sondes quand l'image d'ouverture est noire. Au-dela
- *  du dernier, le noir n'est plus un artefact d'encodage mais une intention de
- *  mise en scene : on ne va pas chercher l'image derriere. */
-const BLACK_SCAN = [0.2, 0.45, 0.7, 1];
+/** Instants (en secondes) sondes quand l'image d'ouverture est noire.
+ *  La borne haute est mesuree, pas devinee : l'episode 1 de Solo Leveling S2
+ *  ouvre sur exactement 1,001 s de noir (ffmpeg blackdetect), et un balayage
+ *  qui s'arretait a 1 s rendait la main a la vignette d'un cheveu. Trois
+ *  secondes couvrent les fondus d'ouverture reels avec de la marge ; au-dela,
+ *  le noir n'est plus un artefact d'encodage mais une intention de mise en
+ *  scene, et on ne va pas chercher l'image derriere. */
+const BLACK_SCAN = [0.25, 0.5, 1, 1.4, 1.8, 2.4, 3];
 
 function LiveAmbient({
   playerRef,
