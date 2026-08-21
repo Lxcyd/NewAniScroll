@@ -525,14 +525,27 @@ export default function EpisodeLists({
        desactive. Et il n'a rien a suivre en direct : seul compte son etat a
        l'instant ou la liste se replace. */
     if (!getPlayerPrefs().snapToCurrentEpisode) return;
-    const box = listRef.current;
-    const row = box?.querySelector<HTMLElement>("[data-playing]");
-    if (!box || !row) return;
-    // En HAUT du panneau, pas au centre : la ligne en cours devient la premiere
-    // qu'on lit, et tout ce qui suit — l'episode suivant, surtout — se trouve
-    // dessous, dans le sens de la lecture.
-    box.scrollTop = Math.max(0, row.offsetTop - 8);
-    onListScroll();
+    /* Une frame d'attente : l'effet part avant que la liste ait sa mise en page
+       definitive (la vue vient d'etre remontee, `key={view}`), et une mesure
+       prise trop tot vise a cote. */
+    const frame = requestAnimationFrame(() => {
+      const box = listRef.current;
+      const row = box?.querySelector<HTMLElement>("[data-playing]");
+      if (!box || !row) return;
+      /* Ecart mesure entre les deux rectangles, et non `row.offsetTop` : ce
+         dernier se compte depuis l'`offsetParent`, qui n'est pas forcement le
+         cadre defilant et n'inclut ni ses bordures ni la meme origine — d'ou
+         une ligne qui tombait quelques pixels sous le haut. La difference des
+         rectangles, elle, est exactement ce qu'il faut defiler.
+         En HAUT du panneau, pas au centre : la ligne en cours devient la
+         premiere qu'on lit, et tout ce qui suit — l'episode suivant, surtout —
+         se trouve dessous, dans le sens de la lecture. */
+      const delta =
+        row.getBoundingClientRect().top - box.getBoundingClientRect().top;
+      box.scrollTop = Math.max(0, box.scrollTop + delta);
+      onListScroll();
+    });
+    return () => cancelAnimationFrame(frame);
   }, [watchId, view, desc, query, episode?.length, track?.playing?.number]);
 
   /* Season siblings, fetched after mount from the edge-cached route rather
