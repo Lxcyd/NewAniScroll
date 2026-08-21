@@ -1,5 +1,6 @@
 import {
   CSSProperties,
+  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -1346,6 +1347,19 @@ export default function RelationsGraph({
    * Quand le plateau prend la molette et quand il la laisse passer : cf. le
    * commentaire de `armed`, dans le corps.
    */
+  /* Etat d'armement, sorti de l'effet pour que le CURSEUR le dise aussi : une
+     main de prehension sur un plateau qui laisse passer la molette promet une
+     interaction qu'il vient de refuser. La ref porte la valeur vivante (lue par
+     des ecouteurs qui ne re-rendent rien), le state ne sert qu'a repeindre le
+     curseur — et il ne bouge qu'aux bascules, pas a chaque mouvement. */
+  const armedRef = useRef(false);
+  const [armed, setArmed] = useState(false);
+  const setArm = useCallback((v: boolean) => {
+    if (armedRef.current === v) return;
+    armedRef.current = v;
+    setArmed(v);
+  }, []);
+
   useEffect(() => {
     const box = canvasRef.current;
     if (!box) return;
@@ -1364,24 +1378,26 @@ export default function RelationsGraph({
        page defile sous un curseur immobile, aux MEMES coordonnees. Les comparer
        est ce qui separe « j'ai vise le graphe » de « le graphe est venu a
        moi ». */
-    let armed = false;
     let lastX = -1;
     let lastY = -1;
 
     const onPointerMove = (e: PointerEvent) => {
-      if (e.clientX !== lastX || e.clientY !== lastY) armed = true;
+      if (e.clientX !== lastX || e.clientY !== lastY) setArm(true);
       lastX = e.clientX;
       lastY = e.clientY;
     };
+    // Sorti du plateau : plus rien a armer, et le curseur redevient celui de la
+    // page de toute façon.
+    const onPointerLeave = () => setArm(false);
 
     // Passif, et pose sur la fenetre : celui-ci n'intervient sur rien, il
     // constate seulement qu'une salve concerne autre chose que le plateau.
     const onWheelAnywhere = (e: WheelEvent) => {
-      if (!box.contains(e.target as Node)) armed = false;
+      if (!box.contains(e.target as Node)) setArm(false);
     };
 
     const onWheelNative = (e: WheelEvent) => {
-      if (!armed) return;
+      if (!armedRef.current) return;
       e.preventDefault();
       const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
       // Anchored on the cursor: the card under the pointer is the one you are
@@ -1393,6 +1409,7 @@ export default function RelationsGraph({
     };
 
     box.addEventListener("pointermove", onPointerMove);
+    box.addEventListener("pointerleave", onPointerLeave);
     box.addEventListener("wheel", onWheelNative, { passive: false });
     window.addEventListener("wheel", onWheelAnywhere, {
       passive: true,
@@ -1400,10 +1417,11 @@ export default function RelationsGraph({
     });
     return () => {
       box.removeEventListener("pointermove", onPointerMove);
+      box.removeEventListener("pointerleave", onPointerLeave);
       box.removeEventListener("wheel", onWheelNative);
       window.removeEventListener("wheel", onWheelAnywhere, { capture: true });
     };
-  }, [active, open, mounted]);
+  }, [active, open, mounted, setArm]);
 
 
   /** Where a card actually sits: its layout position plus any hand nudge. */
@@ -2164,7 +2182,13 @@ export default function RelationsGraph({
         ref={canvasRef}
         style={{
           ...gStyles.canvas,
-          cursor: dragging ? "grabbing" : "grab",
+          /* La main n'apparait qu'une fois le plateau arme — cf. `armedRef`.
+             Tant qu'il laisse passer la molette, il se presente comme le reste
+             de la page ; promettre une prise qu'on vient de refuser serait le
+             seul endroit ou l'interface mentirait. Le glisser, lui, reste
+             possible : c'est un geste deliberé, il n'a pas besoin d'etre
+             annonce pour marcher. */
+          cursor: dragging ? "grabbing" : armed ? "grab" : "default",
           ...(embedded && !open ? gStyles.canvasEmbedded : null),
         }}
         onPointerDown={onPointerDown}
