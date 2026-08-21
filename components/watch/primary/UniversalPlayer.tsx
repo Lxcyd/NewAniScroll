@@ -329,23 +329,48 @@ function proxied(
 }
 
 /**
- * LiveAmbient — projector stack with GPU bilinear scaling.
+ * LiveAmbient — la lumiere d'ambiance derriere le lecteur.
  *
- * The previous "stretch a small canvas to full size via CSS" approach was
- * unreliable: most browsers resample upscaled <canvas> with nearest-neighbor
- * regardless of imageSmoothingQuality. Result: visible pixel grid in the
- * gradient.
+ * UNE copie de l'image, agrandie au-dela du lecteur, floutee, sur-saturee.
+ * C'est exactement la structure de la lumiere du survol de carte (voir
+ * TrailerStage, dont le halo est un second exemplaire de la video floute) — et
+ * ce n'en etait pas une avant : cinq copies concentriques, chacune un peu plus
+ * grande et beaucoup plus pale, se composaient a la place.
  *
- * Fix: keep each <canvas> at its native pixel size, and use a CSS `scale()`
- * transform on a wrapper to enlarge it. CSS transforms ARE always GPU-
- * accelerated with bilinear filtering, so the result is silky-smooth even
- * with a 320×180 source. Heavy CSS blur on top hides any residual artifacts
- * and gives the soft ambient feel.
+ * POURQUOI LA PILE EST PARTIE, mesure a l'appui (meme instrument sur les deux,
+ * bande de 30 px juste a l'exterieur, sur une scene orange saturee) :
  *
- * Z-index: wrapper sits at z-index:-1 (behind the player which is z:0). The
- * player has `overflow:hidden` so its controls always stay above and visible.
+ *     lecteur, ancienne pile   image s42 l50   ->   halo s82 l39
+ *     carte au survol          image s15 l16   ->   halo s27 l18
  *
- * Temporal blending: pairwise 50/50 with previous frame, softens scene cuts.
+ * La carte garde la clarte de l'image ; l'ancien lecteur en perdait un
+ * cinquieme. La cause est arithmetique et non esthetique : la copie la plus
+ * INTERIEURE de la pile (celle qui portait 13 % du resultat) s'arrete
+ * exactement au bord du lecteur, donc elle ne participe pas au halo — la ou la
+ * lumiere se voit, il manquait toujours une part du total, et ce qui manque
+ * est remplace par du noir. D'ou une lumiere plus sombre et plus lourde que
+ * l'image, pendant que la sur-saturation, elle, s'appliquait bien. Sombre et
+ * sursature : c'est la definition d'une couleur qui n'est pas la bonne.
+ *
+ * Deuxieme raison, moins visible mais reelle : les cinq echelles pesaient
+ * presque autant les unes que les autres (0,13 a 0,25 apres composition), et
+ * elles echantillonnent des endroits differents de l'image — a 600 px du
+ * centre, les points sources vont de 455 a 600 px. Le halo d'un bord etait
+ * donc tire vers le centre du cadre au lieu de dire la couleur de ce bord.
+ *
+ * Une seule copie n'a ni l'un ni l'autre de ces defauts, et coute cinq fois
+ * moins cher au compositeur (un flou de 72 px au lieu de cinq).
+ *
+ * Le canvas reste petit (320x180) et c'est le `scale()` CSS qui l'agrandit :
+ * un <canvas> etire par sa propre taille est reechantillonne au plus proche
+ * voisin par la plupart des navigateurs — grille de pixels visible — alors
+ * qu'un transform CSS passe par le GPU et son filtrage bilineaire.
+ *
+ * Z-index : le calque est a -1, derriere le lecteur (z:0), qui masque donc le
+ * centre de la lumiere et n'en laisse voir que le debordement.
+ *
+ * Melange temporel : moitie-moitie avec la frame precedente, pour adoucir les
+ * coupes de plan.
  */
 /** Luminance moyenne (0-255) sous laquelle une frame est tenue pour noire.
  *  Assez haut pour couvrir un noir "sale" d'encodage, assez bas pour qu'un
@@ -426,14 +451,19 @@ function LiveAmbient({
    *  `true` comme `null` laissent la video, qui montre alors quelque chose. */
   lit: boolean | null;
 }) {
-  const layerRefs = useRef<(HTMLCanvasElement | null)[]>([]);
+  const glowRef = useRef<HTMLCanvasElement | null>(null);
   const sourceRef = useRef<HTMLCanvasElement | null>(null);
   const prevRef = useRef<HTMLCanvasElement | null>(null);
 
-  // Multi-scale projector stack — concentric copies behind the player.
-  const LAYERS = 5;
-  // Each subsequent layer is enlarged by this fraction beyond layer 0.
-  const SCALE_STEP = 0.08;
+  /* De combien la copie deborde le lecteur. C'est elle qui fait le halo : la
+     bande ou la lumiere se voit doit tomber DANS une copie opaque, pas dans sa
+     retombee. Meme valeur que le survol de carte (GLOW_SPREAD). */
+  const SPREAD = 1.3;
+  /* Rayon du flou, avant le `scale` — les deux sont sur le meme element, donc
+     l'ecran en voit 72 x 1,3 ≈ 94 px, soit 7,4 % de la largeur du lecteur. Le
+     survol de carte floute 34 px sur une boite de 473 px : 7,2 %. La meme
+     lumiere, a l'echelle pres. */
+  const BLUR_PX = 72;
   // Canvas pixel size. Stays small because CSS transform handles the visible
   // scaling with GPU bilinear filtering. Higher would just waste pixels.
   const SRC_W = 320;
@@ -514,13 +544,11 @@ function LiveAmbient({
           }
           pctx.clearRect(0, 0, SRC_W, SRC_H);
           pctx.drawImage(source, 0, 0);
-          for (const layer of layerRefs.current) {
-            if (!layer) continue;
-            const lctx = layer.getContext("2d");
-            if (!lctx) continue;
-            lctx.clearRect(0, 0, SRC_W, SRC_H);
-            lctx.drawImage(source, 0, 0);
-          }
+          const glow = glowRef.current;
+          const gctx = glow?.getContext("2d");
+          if (!gctx) return;
+          gctx.clearRect(0, 0, SRC_W, SRC_H);
+          gctx.drawImage(source, 0, 0);
         } catch {
           // Cross-origin taint — silently skip. (Le dessin, lui, ne teinte que
           // la lecture des pixels, qu'on ne fait jamais ici.)
@@ -575,54 +603,48 @@ function LiveAmbient({
     };
   }, [playerRef, lit]);
 
-  // Wrapper sits BEHIND the player (z:-1). pointer-events:none so the player
-  // controls catch every click. Inside, each canvas is rendered at native
-  // pixel size, then a wrapper div uses `width/height: 100%` + CSS object-
-  // fit-like behavior to stretch it visually. The actual bilinear smoothing
-  // comes from the CSS `transform: scale()` applied to each canvas wrapper.
+  /* Le calque est derriere le lecteur (z:-1) et ne recoit aucun clic. La copie
+     y est agrandie de SPREAD puis floutee : le lecteur en cache le centre, et
+     ce qui deborde EST la lumiere. Le flou et le `scale` sont sur le meme
+     element — l'ecran voit donc un flou de BLUR_PX x SPREAD, ce dont la
+     constante tient compte. */
   return (
     <div
       aria-hidden
       className="pointer-events-none absolute inset-0"
       style={{ zIndex: -1 }}
     >
-      {Array.from({ length: LAYERS }).map((_, i) => {
-        const scale = 1 + i * SCALE_STEP;
-        // Wrapper fills the player; the canvas inside is positioned to
-        // cover it entirely with CSS scaling, which uses GPU bilinear.
-        return (
-          <div
-            key={i}
-            className="absolute inset-0 overflow-visible"
-            style={{
-              transform: `scale(${scale})`,
-              transformOrigin: "center",
-              // Heavy blur smooths the gradient + cancels any residual
-              // pixel artifacts from canvas → CSS upscaling.
-              filter: "blur(72px) saturate(1.8)",
-              opacity: 0.95 * Math.pow(0.65, i),
-              willChange: "transform",
-            }}
-          >
-            <canvas
-              ref={(el) => { layerRefs.current[i] = el; }}
-              width={SRC_W}
-              height={SRC_H}
-              // width/height: 100% stretches the canvas to fill the wrapper
-              // via CSS — this is the only path where browsers DO interpolate
-              // (the canvas is treated as a replaced element). object-fit
-              // ensures it covers fully.
-              style={{
-                width: "100%",
-                height: "100%",
-                display: "block",
-                objectFit: "cover",
-                imageRendering: "auto",
-              }}
-            />
-          </div>
-        );
-      })}
+      <div
+        className="absolute inset-0 overflow-visible"
+        style={{
+          transform: `scale(${SPREAD})`,
+          transformOrigin: "center",
+          // Le flou lisse le degrade et efface au passage ce qui resterait de
+          // la grille de pixels du canvas agrandi. `saturate` est la meme
+          // valeur que le survol de carte : une matrice lineaire, qui densifie
+          // sans pouvoir deplacer une teinte (a la difference d'un
+          // `brightness`, qui ecrete — l'orange y devient jaune).
+          filter: `blur(${BLUR_PX}px) saturate(1.8)`,
+          willChange: "transform",
+        }}
+      >
+        <canvas
+          ref={glowRef}
+          width={SRC_W}
+          height={SRC_H}
+          // width/height: 100% stretches the canvas to fill the wrapper
+          // via CSS — this is the only path where browsers DO interpolate
+          // (the canvas is treated as a replaced element). object-fit
+          // ensures it covers fully.
+          style={{
+            width: "100%",
+            height: "100%",
+            display: "block",
+            objectFit: "cover",
+            imageRendering: "auto",
+          }}
+        />
+      </div>
     </div>
   );
 }
