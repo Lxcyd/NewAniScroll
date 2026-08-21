@@ -5059,11 +5059,18 @@ export default function UniversalPlayer({
               que Vidstack pose sur le lecteur. */}
           {poster && (
             <img
-              /* Retiree des que la premiere frame se revele etre une vraie
-                 image : elle vaut mieux que la vignette pour dire ce qu'on
-                 s'apprete a regarder. Par une classe et non par un demontage,
-                 pour que le fondu du CSS ait lieu. */
-              className={`as-poster${firstFrameLit ? " as-poster-off" : ""}`}
+              /* Visible SEULEMENT une fois la premiere frame reconnue noire.
+                 Tant qu'on ne sait pas, elle reste effacee : la montrer puis la
+                 retirer donnait une image d'episode qui basculait vers la video
+                 sous les yeux, un clignotement pour rien. Dans l'autre cas —
+                 celui pour lequel elle existe — il n'y a rien a masquer, la
+                 frame est noire, et elle arrive par-dessus sans qu'on ait vu
+                 quoi que ce soit partir.
+                 Par une classe et non par un demontage, pour que le fondu du
+                 CSS ait lieu. */
+              className={`as-poster${
+                firstFrameLit === false ? "" : " as-poster-off"
+              }`}
               src={poster}
               alt=""
               aria-hidden
