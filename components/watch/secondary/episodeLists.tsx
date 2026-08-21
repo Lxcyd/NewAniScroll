@@ -90,6 +90,11 @@ const THUMB_MARGIN = 96;
  *  `rate`), pour rattraper une poignee jetee loin sous le pli. */
 const THUMB_SPEED = 16;
 
+/** Premiere tranche de lignes rendue apres un changement de liste — de quoi
+ *  remplir le premier ecran dans les trois vues, la grille comprise. Le reste
+ *  suit en doublant a chaque frame (cf. `budget`). */
+const CHUNK = 40;
+
 /* The three shapes the list can take, same three as the info page's Episodes
    tab: thumbnails, one-line rows, grid of numbers. Remembered per device — a
    choice about how you read a list shouldn't reset on the next episode. */
@@ -622,36 +627,6 @@ export default function EpisodeLists({
   // ecouteurs vivent sur `window`, ils ne partiraient pas d'eux-memes.
   useEffect(() => () => thumbHeld.current?.(), []);
 
-  useEffect(() => {
-    /* Le reglage est lu ICI, a chaud, et non par `usePlayerPrefs` : ce hook
-       rend d'abord les valeurs par defaut puis les vraies apres son propre
-       effet — l'ancrage serait donc deja parti avant de savoir qu'il est
-       desactive. Et il n'a rien a suivre en direct : seul compte son etat a
-       l'instant ou la liste se replace. */
-    if (!getPlayerPrefs().snapToCurrentEpisode) return;
-    /* Une frame d'attente : l'effet part avant que la liste ait sa mise en page
-       definitive (la vue vient d'etre remontee, `key={view}`), et une mesure
-       prise trop tot vise a cote. */
-    const frame = requestAnimationFrame(() => {
-      const box = listRef.current;
-      const row = box?.querySelector<HTMLElement>("[data-playing]");
-      if (!box || !row) return;
-      /* Ecart mesure entre les deux rectangles, et non `row.offsetTop` : ce
-         dernier se compte depuis l'`offsetParent`, qui n'est pas forcement le
-         cadre defilant et n'inclut ni ses bordures ni la meme origine — d'ou
-         une ligne qui tombait quelques pixels sous le haut. La difference des
-         rectangles, elle, est exactement ce qu'il faut defiler.
-         En HAUT du panneau, pas au centre : la ligne en cours devient la
-         premiere qu'on lit, et tout ce qui suit — l'episode suivant, surtout —
-         se trouve dessous, dans le sens de la lecture. */
-      const delta =
-        row.getBoundingClientRect().top - box.getBoundingClientRect().top;
-      box.scrollTop = Math.max(0, box.scrollTop + delta);
-      onListScroll();
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [watchId, view, desc, query, episode?.length, track?.playing?.number]);
-
   /* Season siblings, fetched after mount from the edge-cached route rather
      than resolved in the page's SSR — see /api/v2/seasons/[id]. A franchise
      with a single season returns one row (or none), and the picker hides. */
@@ -751,6 +726,80 @@ export default function EpisodeLists({
     }
     return desc ? [...rows].reverse() : rows;
   }, [episode, byNumber, query, desc, padTo]);
+
+  /* Rendu par tranches.
+     Changer de vue ou inverser l'ordre reconstruisait les 1174 lignes de One
+     Piece dans la meme frame que le clic : le bouton restait enfonce une
+     seconde avant que quoi que ce soit ne bouge. Or personne n'a besoin de la
+     ligne 900 a cet instant — on ne voit que le premier ecran.
+     La liste repart donc a une tranche, ce qui est immediat, puis double a
+     chaque frame jusqu'a tout contenir : six frames pour une serie de mille
+     episodes, dont seule la premiere est devant les yeux de quelqu'un qui
+     attend. Le doublement, plutot qu'un pas fixe, garde le total du travail du
+     meme ordre de grandeur qu'un rendu unique.
+
+     La remise a zero se fait PENDANT le rendu et non dans un effet : un effet
+     s'execute apres, et la frame du clic aurait justement rendu la liste
+     entiere — le mal qu'on cherche a eviter. */
+  const [rendered, setRendered] = useState(shown);
+  const [budget, setBudget] = useState(CHUNK);
+  if (rendered !== shown) {
+    setRendered(shown);
+    setBudget(CHUNK);
+  }
+  useEffect(() => {
+    if (budget >= shown.length) return;
+    const frame = requestAnimationFrame(() =>
+      setBudget((b) => Math.min(shown.length, b * 2)),
+    );
+    return () => cancelAnimationFrame(frame);
+  }, [budget, shown]);
+  const visible = budget >= shown.length ? shown : shown.slice(0, budget);
+
+  /* Ancrage sur l'episode en cours — la suite du commentaire de `listRef`.
+     Pose ici, apres le rendu par tranches, parce qu'il en depend : la ligne
+     visee peut n'arriver qu'a une tranche plus tard. */
+  useEffect(() => {
+    /* Le reglage est lu ICI, a chaud, et non par `usePlayerPrefs` : ce hook
+       rend d'abord les valeurs par defaut puis les vraies apres son propre
+       effet — l'ancrage serait donc deja parti avant de savoir qu'il est
+       desactive. Et il n'a rien a suivre en direct : seul compte son etat a
+       l'instant ou la liste se replace. */
+    if (!getPlayerPrefs().snapToCurrentEpisode) return;
+    /* Une frame d'attente : l'effet part avant que la liste ait sa mise en page
+       definitive (la vue vient d'etre remontee, `key={view}`), et une mesure
+       prise trop tot vise a cote. */
+    const frame = requestAnimationFrame(() => {
+      const box = listRef.current;
+      const row = box?.querySelector<HTMLElement>("[data-playing]");
+      if (!box || !row) return;
+      /* Ecart mesure entre les deux rectangles, et non `row.offsetTop` : ce
+         dernier se compte depuis l'`offsetParent`, qui n'est pas forcement le
+         cadre defilant et n'inclut ni ses bordures ni la meme origine — d'ou
+         une ligne qui tombait quelques pixels sous le haut. La difference des
+         rectangles, elle, est exactement ce qu'il faut defiler.
+         En HAUT du panneau, pas au centre : la ligne en cours devient la
+         premiere qu'on lit, et tout ce qui suit — l'episode suivant, surtout —
+         se trouve dessous, dans le sens de la lecture. */
+      const delta =
+        row.getBoundingClientRect().top - box.getBoundingClientRect().top;
+      box.scrollTop = Math.max(0, box.scrollTop + delta);
+      onListScroll();
+    });
+    return () => cancelAnimationFrame(frame);
+    /* `budget` en dependance : la ligne en cours peut n'etre rendue qu'a une
+       tranche plus tard, et l'ancrage n'aurait alors rien trouve. Il repasse a
+       chaque tranche — une fois la ligne en place, l'ecart mesure est nul et
+       les passages suivants ne font rien. */
+  }, [
+    watchId,
+    view,
+    desc,
+    query,
+    episode?.length,
+    track?.playing?.number,
+    budget,
+  ]);
 
   /* Duree de reference de la saison, agregee au fil des mesures qui remontent
      des lignes. Elle sert deux fois : a combler les episodes que personne n'a
@@ -1104,7 +1153,7 @@ export default function EpisodeLists({
               {t("anime.noEpisodeMatch")}
             </p>
           ) : view === "grid" ? (
-            shown.map((item) => {
+            visible.map((item) => {
               const f = factsFor(item);
               return (
                 <Link
@@ -1143,7 +1192,7 @@ export default function EpisodeLists({
               );
             })
           ) : view === "compact" ? (
-            shown.map((item) => {
+            visible.map((item) => {
               const f = factsFor(item);
               return (
                 <Link
@@ -1209,7 +1258,7 @@ export default function EpisodeLists({
               );
             })
           ) : (
-            shown.map((item) => {
+            visible.map((item) => {
               const f = factsFor(item);
               return (
                 /* Carte reprise TELLE QUELLE de la prod : vignette large a
