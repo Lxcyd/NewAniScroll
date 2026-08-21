@@ -365,9 +365,13 @@ function LiveAmbient({
   lit,
 }: {
   playerRef: React.RefObject<MediaPlayerInstance>;
-  /** La premiere frame du fichier est une vraie image : l'ambient peut la
-   *  prendre pour source des l'arret, sans attendre le premier play. */
-  lit: boolean;
+  /** La premiere image du fichier est-elle une vraie image ?
+   *  `true` : l'ambient peut la prendre pour source des l'arret, sans attendre
+   *  le premier play. `false` : c'est un noir d'ouverture, et tant que la
+   *  lecture n'a pas commence la source est la vignette — meme si la video
+   *  s'est arretee ailleurs qu'a zero, car ce « ailleurs » est le balayage
+   *  du noir et non un choix du spectateur. `null` : pas encore de verdict. */
+  lit: boolean | null;
 }) {
   const layerRefs = useRef<(HTMLCanvasElement | null)[]>([]);
   const sourceRef = useRef<HTMLCanvasElement | null>(null);
@@ -480,8 +484,13 @@ function LiveAmbient({
          elle qu'on projette, des l'arret. */
       const usable =
         !!video && video.readyState >= 2 && video.videoWidth > 0;
-      const live =
-        usable && (lit || !video!.paused || video!.currentTime > 0);
+      /* « Le spectateur regarde » ne se lit pas a la position : le balayage du
+         noir d'ouverture laisse lui aussi la video ailleurs qu'a zero, et une
+         position non nulle faisait alors projeter un noir a la place de la
+         vignette — page eteinte, exactement ce que la vignette evite.
+         `played` ne ment pas : il ne se remplit qu'apres une vraie lecture. */
+      const watched = usable && (!video!.paused || video!.played.length > 0);
+      const live = usable && (watched || lit === true);
       if (!live) {
         const img = playerEl?.querySelector(
           "img.as-poster",
@@ -2195,11 +2204,22 @@ export default function UniversalPlayer({
        Abandonne des que la lecture commence : on ne deplace jamais une video
        sous les yeux de qui la regarde. */
     const seek = async (video: HTMLVideoElement) => {
+      /* Position ou le balayage a laisse la video. On la relit APRES chaque
+         `seeked` au lieu de garder l'instant demande : un seek atterrit sur
+         l'image cle la plus proche, pas au millieme demande, et comparer a la
+         consigne faisait prendre ce decalage pour un geste du spectateur — le
+         balayage s'interrompait alors sans verdict, et la vignette n'arrivait
+         jamais sur les episodes qui ouvrent vraiment sur du noir. */
       let expected = video.currentTime;
       for (const at of BLACK_SCAN) {
         // Le balayage n'a le droit de deplacer que la video qu'il a lui-meme
         // laissee la : toute autre position vient du spectateur.
-        if (dead || !video.paused || Math.abs(video.currentTime - expected) > 0.01)
+        if (
+          dead ||
+          !video.paused ||
+          video.played.length > 0 ||
+          Math.abs(video.currentTime - expected) > 0.05
+        )
           return;
         video.currentTime = at;
         expected = at;
@@ -2216,13 +2236,16 @@ export default function UniversalPlayer({
         });
         if (dead) return;
         if (!landed) break;
+        expected = video.currentTime;
         // `seeked` dit que la position est prise, pas que l'image est peinte :
         // lire tout de suite renvoie encore la frame precedente — c'est-a-dire
         // le noir qu'on cherche justement a quitter.
         await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
         if (dead) return;
         const value = luma(video);
-        if (value === null) return;
+        // Canvas teinte en cours de route : plus de mesure possible, et le
+        // verdict est celui du sans-mesure — on couvre (voir `luma`).
+        if (value === null) break;
         if (value > BLACK_FRAME) {
           setFirstFrameLit(true);
           return;
@@ -2233,8 +2256,10 @@ export default function UniversalPlayer({
       // qu'elle est demandee — voir `look`.
       if (dead) return;
       setFirstFrameLit(false);
-      if (video.paused && Math.abs(video.currentTime - expected) <= 0.01)
-        video.currentTime = 0;
+      // Rembobiner : la video est restee la ou le balayage l'a laissee, et
+      // personne n'a encore rien regarde (`played` vide) — la rendre a zero
+      // est donc sans risque, meme si le dernier seek a atterri de travers.
+      if (video.paused && video.played.length === 0) video.currentTime = 0;
     };
     /* Un seul verdict definitif : « il y a une image ». Le noir, lui, reste
        provisoire et se remesure quatre fois par seconde tant que la lecture
@@ -2263,8 +2288,11 @@ export default function UniversalPlayer({
       // Le balayage deplace la video : le temps qu'il dure, il est seul juge.
       if (scanning) return again();
       // Une position non nulle qui ne vient pas de lui vient du spectateur, et
-      // ce qu'il a choisi de voir n'a pas a etre recouvert.
-      if (video.currentTime > 0.01) {
+      // ce qu'il a choisi de voir n'a pas a etre recouvert. Mais APRES le
+      // balayage, une position non nulle est le plus souvent la sienne : s'y
+      // fier declarait « il y a une image » sur un ecran noir, sans vignette
+      // ni ambient, des que le balayage rendait la main de travers.
+      if (video.currentTime > 0.01 && (!scanned || video.played.length > 0)) {
         setFirstFrameLit(true);
         return;
       }
@@ -2291,8 +2319,17 @@ export default function UniversalPlayer({
         void seek(video).finally(() => {
           scanning = false;
         });
+        return again();
       }
-      again();
+      /* Le balayage est passe et n'a pas conclu (il s'est interrompu, ou la
+         mesure a cesse d'etre possible). Le noir mesure ICI, maintenant, est
+         alors le dernier mot : sans lui l'etat restait `null` pour toujours et
+         la vignette n'arrivait jamais. */
+      setFirstFrameLit(false);
+      // Et la lecture doit repartir du debut, comme au bout d'un balayage
+      // complet : ce qui a bouge la video, c'est nous.
+      if (video.currentTime > 0.01 && video.played.length === 0)
+        video.currentTime = 0;
     };
     look();
     return () => {
@@ -5161,7 +5198,7 @@ export default function UniversalPlayer({
       style={{ isolation: "isolate" }}
     >
       {ambientEnabled && (
-        <LiveAmbient playerRef={playerRef} lit={firstFrameLit === true} />
+        <LiveAmbient playerRef={playerRef} lit={firstFrameLit} />
       )}
 
       <MediaPlayer
