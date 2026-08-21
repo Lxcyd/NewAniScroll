@@ -1000,7 +1000,7 @@ export default function EpisodeLists({
                       largeur fixe laissait le numero d'une serie a quatre
                       chiffres deborder et coller le titre. */}
                   <span
-                    className="min-w-[28px] shrink-0 text-right font-karla text-[17px] font-bold leading-none tabular-nums"
+                    className="min-w-[28px] shrink-0 text-center font-karla text-[17px] font-bold leading-none tabular-nums"
                     style={{ color: T.txt1 }}
                   >
                     {item.number}
@@ -1100,9 +1100,12 @@ export default function EpisodeLists({
                       live={f.playing}
                       width={f.barWidth}
                     />
+                    {/* Blanc franc, et non le gris des deux autres vues : ce
+                        numero-la n'est pas pose sur l'aplat du panneau mais sur
+                        une photo, sous un voile. Un gris qui recule proprement
+                        d'un aplat sombre devient juste sale sur une image. */}
                     <span
-                      className="absolute bottom-2 left-2 font-karla text-[17px] font-bold leading-none"
-                      style={{ color: T.txt1 }}
+                      className="absolute bottom-2 left-2 font-karla text-[17px] font-bold leading-none text-white"
                     >
                       {item.number}
                     </span>
