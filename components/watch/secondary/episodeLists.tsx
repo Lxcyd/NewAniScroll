@@ -1058,18 +1058,26 @@ export default function EpisodeLists({
                         draggable={false}
                         width={496}
                         height={280}
-                        /* L'arrondi est porte par l'image ELLE-MEME, pas
-                           seulement par le `overflow-hidden` du cadre : le
-                           filtre `brightness` promeut l'image sur sa propre
-                           couche, et le rognage du parent y perd son
-                           anticrenelage. Arrondie a la source, elle sort
-                           nette. */
-                        className={`h-[110px] w-full rounded-lg object-cover transition-[filter] duration-300 ease-out ${
-                          f.playing
-                            ? "brightness-[30%]"
-                            : "brightness-75 group-hover:brightness-100"
-                        } ${hideSpoilers && !f.playing ? "blur-lg" : ""}`}
+                        /* AUCUN filtre ici, et c'est la regle : un `filter`
+                           promeut l'image sur sa propre couche, que le
+                           navigateur rasterise une fois puis ETIRE pendant le
+                           `scale` du survol — l'image partait floue et ne
+                           redevenait nette qu'a la fin du mouvement.
+                           L'assombrissement de l'episode en cours passe donc
+                           par un voile pose au-dessus (voir plus bas), pas par
+                           `brightness`. L'arrondi reste porte par l'image
+                           elle-meme : le rognage du parent perd son
+                           anticrenelage des que la couche est composee. */
+                        className={`h-[110px] w-full rounded-lg object-cover ${hideSpoilers && !f.playing ? "blur-lg" : ""}`}
                       />
+                    )}
+                    {/* L'episode en cours s'assombrit sous un voile plein, la
+                        ou un `brightness` sur l'image aurait suffi : le voile
+                        est un aplat, il ne cree pas de couche filtrée qui
+                        flouterait la vignette pendant le `scale` du survol.
+                        Meme rendu, meme opacite (70% de noir ~ brightness 30%). */}
+                    {f.playing && (
+                      <div className="pointer-events-none absolute inset-0 rounded-lg bg-black/70" />
                     )}
                     {/* Voile bas, pour que le numero tienne aussi sur une
                         image claire. */}
