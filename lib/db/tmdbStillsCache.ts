@@ -3,10 +3,10 @@ import { getFanartsClient } from "./turso-fanarts";
 /**
  * tmdb_stills_cache — per-anime episode still URLs, and the refusals.
  *
- * The TABLE NAME is a fossil and stays one on purpose: TMDB was dropped as a
- * provider (Simkl is the only source now), but this table holds live Simkl rows
- * in production. Renaming it would orphan every one of them and re-fetch the
- * whole catalogue for nothing. It is, and always was, a generic stills cache.
+ * The TABLE NAME is a fossil and stays one on purpose: it long outlived the
+ * provider it was named after, and holds live rows in production. Renaming it
+ * would orphan every one of them and re-fetch the whole catalogue for nothing.
+ * It is, and always was, a generic stills cache.
  *
  * Shape and failure policy copied from lib/db/seasonCache.ts: the key carries
  * its own version tag, TTL is checked on read, the table is created lazily, and
@@ -18,8 +18,8 @@ import { getFanartsClient } from "./turso-fanarts";
  * episode stills have exactly that profile. It falls back to the main DB when
  * the fanarts env vars are unset.
  *
- * REFUSALS ARE CACHED, and that's the point: a title Simkl has no images for
- * would otherwise be re-fetched on every Redis miss. Refusals get a shorter TTL
+ * REFUSALS ARE CACHED, and that's the point: a title the provider has no
+ * images for would otherwise be re-fetched on every Redis miss. Refusals get a shorter TTL
  * than hits so a provider-side correction can rescue a title within a day.
  * Transient failures (network, rate-limit) must NOT be cached — the caller
  * decides that.
@@ -62,14 +62,17 @@ async function ensureTable(): Promise<void> {
 }
 
 /** Stills source. Part of the cache key so no two overwrite each other. */
-export type StillsSource = "tmdb" | "simkl" | "anizip";
+export type StillsSource = "tmdb" | "anizip";
 
 const KEY_PREFIX: Record<StillsSource, string> = {
   // "tmdbStills:v1:" kept verbatim so rows written before TMDB was dropped —
   // and by the gap-fill path that succeeded it — stay readable.
   tmdb: "tmdbStills:v1:",
-  simkl: "simklStills:v1:",
   anizip: "anizipStills:v1:",
+  // Il y a eu un prefixe "simklStills:v1:". Simkl est retire (22/08/2026) et
+  // plus rien ne l'ecrit ni ne le lit ; ses lignes restent en base, inertes,
+  // plutot qu'un DELETE de masse sur une table de production pour recuperer
+  // quelques kilo-octets.
 };
 
 function keyFor(anilistId: number, source: StillsSource): string {

@@ -7,7 +7,7 @@
  * TMDB season is guesswork, and the old code refused rather than guess.
  * Backdrops and logos hang off the SERIES, so `tmdbTvId` alone is enough and
  * there is nothing to prove. (Episode stills still need a season — they stay a
- * complement to Simkl, see lib/tmdb/episodeStills.ts.)
+ * complement to ani.zip, see lib/tmdb/episodeStills.ts.)
  *
  * MAPPING. Fribb's `themoviedb_id` is a static cross-map, not a TMDB call, and
  * we already ingest it (lib/fribb/fribbMap.ts). Its known weakness — mislabelled
@@ -70,7 +70,7 @@ const MAX_PREQUEL_HOPS = 2;
  * Borrow the franchise's TMDB tv id from an earlier season.
  *
  * THE GAP THIS CLOSES, measured 2026-08-08: Hell Mode S2 (AniList 209983) is
- * in Fribb with every id null — no `tmdb.tv`, no `tvdb_id`, no `simkl_id` —
+ * in Fribb with every id null — no `tmdb.tv`, no `tvdb_id` —
  * while S1 (185262) maps cleanly to tv 280049. Fribb is a periodically
  * regenerated static file and a currently-airing sequel is exactly what it
  * hasn't caught up with, so the site's most prominent titles were the ones

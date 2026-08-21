@@ -74,7 +74,7 @@ export const TTL_REFUSAL_S = 24 * 60 * 60;
  * OUTLIVES THE REASON IT WAS CACHED. Shipping a fix that makes a previously
  * impossible lookup possible is exactly the case the TTL cannot see, because
  * from the row's point of view nothing has changed. The same failure is
- * documented for `tmdb_stills_cache` (a `no-simkl-id` row answering before the
+ * documented for `tmdb_stills_cache` (a `no-id` row answering before the
  * fixed code could run).
  *
  * v2 → v3 (2026-08-08): ani.zip mappings joined the id resolution, ahead of

@@ -5318,7 +5318,7 @@ export default function UniversalPlayer({
 
               Une <img> a nous plutot que le <Poster> de Vidstack : ce dernier
               herite du `crossorigin` du lecteur, or les vignettes viennent de
-              Simkl, qui ne repond pas d'en-tete CORS — la requete partait donc
+              des CDN qui ne repondent pas d'en-tete CORS — la requete partait donc
               en mode CORS et se faisait refuser. Nous n'avons aucun besoin de
               ce mode : l'ambient DESSINE cette image, il n'en relit jamais les
               pixels, et seule la relecture demande le CORS.

@@ -160,7 +160,7 @@ for (const e of evenements.filter((x) => x.method === "Network.requestWillBeSent
     : u;
   try {
     const h = new URL(interne).hostname;
-    if (!/aniscroll|anilist|thetvdb|simkl|tmdb|google|vercel/i.test(h))
+    if (!/aniscroll|anilist|thetvdb|tmdb|google|vercel/i.test(h))
       hotes.set(h, (hotes.get(h) || 0) + 1);
   } catch {}
 }

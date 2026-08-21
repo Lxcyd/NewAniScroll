@@ -1,0 +1,686 @@
+[
+ {
+  "mal_id": 256,
+  "anilist_id": 256,
+  "slug": "voices-of-a-distant-star",
+  "seasons": [
+   {
+    "season_dir": "film",
+    "lang": "vostfr",
+    "episodes": [
+     1
+    ]
+   },
+   {
+    "season_dir": "film",
+    "lang": "vf",
+    "episodes": [
+     1
+    ]
+   }
+  ]
+ },
+ {
+  "mal_id": 392,
+  "anilist_id": 392,
+  "slug": "yuyu-hakusho",
+  "seasons": [
+   {
+    "season_dir": "saison1",
+    "lang": "vf",
+    "episodes": [
+     2,
+     3
+    ]
+   }
+  ]
+ },
+ {
+  "mal_id": 34572,
+  "anilist_id": 97940,
+  "slug": "black-clover",
+  "seasons": [
+   {
+    "season_dir": "saison1",
+    "lang": "vf",
+    "episodes": [
+     2
+    ]
+   }
+  ]
+ },
+ {
+  "mal_id": 62604,
+  "anilist_id": 199588,
+  "slug": "otaku-ni-yasashii-gal-wa-inai",
+  "seasons": [
+   {
+    "season_dir": "saison1",
+    "lang": "vostfr",
+    "episodes": [
+     1
+    ]
+   }
+  ]
+ },
+ {
+  "mal_id": 15,
+  "anilist_id": 15,
+  "slug": "eyeshield-21",
+  "seasons": [
+   {
+    "season_dir": "saison1",
+    "lang": "vf",
+    "episodes": [
+     145
+    ]
+   }
+  ]
+ },
+ {
+  "mal_id": 530,
+  "anilist_id": 530,
+  "slug": "sailor-moon",
+  "seasons": [
+   {
+    "season_dir": "saison1",
+    "lang": "vf",
+    "episodes": [
+     1,
+     3
+    ]
+   }
+  ]
+ },
+ {
+  "mal_id": 37141,
+  "anilist_id": 100977,
+  "slug": "les-brigades-immunitaires",
+  "seasons": [
+   {
+    "season_dir": "saison1",
+    "lang": "vf",
+    "va_slug": "hataraku-saibou-black-vf",
+    "va_only": true,
+    "episodes": [
+     2
+    ]
+   }
+  ]
+ },
+ {
+  "mal_id": 40215,
+  "anilist_id": 110857,
+  "slug": "aggretsuko",
+  "seasons": [
+   {
+    "season_dir": "saison3",
+    "lang": "vf",
+    "episodes": [
+     2
+    ]
+   }
+  ]
+ },
+ {
+  "mal_id": 61851,
+  "anilist_id": 194447,
+  "slug": "isekai-quartet",
+  "seasons": [
+   {
+    "season_dir": "saison3",
+    "lang": "vostfr",
+    "episodes": [
+     1,
+     2,
+     3,
+     11
+    ]
+   }
+  ]
+ },
+ {
+  "mal_id": 56731,
+  "anilist_id": 169559,
+  "slug": "synduality-noir",
+  "seasons": [
+   {
+    "season_dir": "saison1-2",
+    "lang": "vf",
+    "episodes": [
+     1,
+     3
+    ]
+   }
+  ]
+ },
+ {
+  "mal_id": 39456,
+  "anilist_id": 108111,
+  "slug": "are-you-lost",
+  "seasons": [
+   {
+    "season_dir": "saison1",
+    "lang": "vostfr",
+    "episodes": [
+     2,
+     3
+    ]
+   }
+  ]
+ },
+ {
+  "mal_id": 50598,
+  "anilist_id": 154983,
+  "slug": "aggretsuko",
+  "seasons": [
+   {
+    "season_dir": "saison5",
+    "lang": "vf",
+    "va_slug": "aggressive-retsuko-ona-5-vf",
+    "episodes": [
+     1,
+     2,
+     3,
+     10
+    ]
+   },
+   {
+    "season_dir": "saison5",
+    "lang": "vostfr",
+    "va_slug": "aggressive-retsuko-ona-5",
+    "va_only": true,
+    "episodes": [
+     1,
+     2,
+     3,
+     10
+    ]
+   }
+  ]
+ },
+ {
+  "mal_id": 60326,
+  "anilist_id": 184591,
+  "slug": "watanare",
+  "seasons": [
+   {
+    "season_dir": "saison1",
+    "lang": "vostfr",
+    "episodes": [
+     1,
+     2,
+     3,
+     12
+    ]
+   }
+  ]
+ },
+ {
+  "mal_id": 36904,
+  "anilist_id": 101571,
+  "slug": "aggretsuko",
+  "seasons": [
+   {
+    "season_dir": "saison1",
+    "lang": "vf",
+    "episodes": [
+     2
+    ]
+   }
+  ]
+ },
+ {
+  "mal_id": 51369,
+  "anilist_id": 146638,
+  "slug": "kengan-ashura",
+  "seasons": [
+   {
+    "season_dir": "saison2-1",
+    "lang": "vostfr",
+    "episodes": [
+     1
+    ]
+   },
+   {
+    "season_dir": "saison2-1",
+    "lang": "vf",
+    "episodes": [
+     12
+    ]
+   }
+  ]
+ },
+ {
+  "mal_id": 62896,
+  "anilist_id": 201903,
+  "slug": "chou-kaguya-hime",
+  "seasons": [
+   {
+    "season_dir": "film",
+    "lang": "vostfr",
+    "episodes": [
+     1
+    ]
+   },
+   {
+    "season_dir": "film",
+    "lang": "vf",
+    "episodes": [
+     1
+    ]
+   }
+  ]
+ },
+ {
+  "mal_id": 31537,
+  "anilist_id": 21322,
+  "slug": "mysteria-friends",
+  "seasons": [
+   {
+    "season_dir": "saison1",
+    "lang": "vostfr",
+    "episodes": [
+     1,
+     10
+    ]
+   }
+  ]
+ },
+ {
+  "mal_id": 45489,
+  "anilist_id": 127619,
+  "slug": "aggretsuko",
+  "seasons": [
+   {
+    "season_dir": "saison4",
+    "lang": "vf",
+    "va_slug": "aggressive-retsuko-ona-4-vf",
+    "episodes": [
+     1,
+     2,
+     3,
+     10
+    ]
+   }
+  ]
+ },
+ {
+  "mal_id": 39988,
+  "anilist_id": 110178,
+  "slug": "isekai-quartet",
+  "seasons": [
+   {
+    "season_dir": "saison2",
+    "lang": "vostfr",
+    "episodes": [
+     1
+    ]
+   }
+  ]
+ },
+ {
+  "mal_id": 35069,
+  "anilist_id": 98442,
+  "slug": "sekai-saikou-no-assassin",
+  "seasons": [
+   {
+    "season_dir": "saison1",
+    "lang": "vostfr",
+    "episodes": [
+     1,
+     2,
+     3,
+     12
+    ]
+   },
+   {
+    "season_dir": "saison1",
+    "lang": "vf",
+    "episodes": [
+     2,
+     3
+    ]
+   }
+  ]
+ },
+ {
+  "mal_id": 60732,
+  "anilist_id": 186052,
+  "slug": "the-water-magician",
+  "seasons": [
+   {
+    "season_dir": "saison1",
+    "lang": "vostfr",
+    "episodes": [
+     1,
+     2,
+     3,
+     12
+    ]
+   }
+  ]
+ },
+ {
+  "mal_id": 33352,
+  "anilist_id": 21827,
+  "slug": "violet-evergarden",
+  "seasons": [
+   {
+    "season_dir": "saison1",
+    "lang": "vf",
+    "va_slug": "violet-evergarden-vf",
+    "episodes": [
+     3,
+     13
+    ]
+   }
+  ]
+ },
+ {
+  "mal_id": 60489,
+  "anilist_id": 185407,
+  "slug": "takopis-original-sin",
+  "seasons": [
+   {
+    "season_dir": "saison1",
+    "lang": "vostfr",
+    "episodes": [
+     1,
+     2,
+     3,
+     6
+    ]
+   }
+  ]
+ },
+ {
+  "mal_id": 61128,
+  "anilist_id": 187264,
+  "slug": "yuusha-party-wo-oidasareta-kiyoubinbou",
+  "seasons": [
+   {
+    "season_dir": "saison1",
+    "lang": "vostfr",
+    "episodes": [
+     1,
+     2,
+     3,
+     12
+    ]
+   }
+  ]
+ },
+ {
+  "mal_id": 50891,
+  "anilist_id": 144323,
+  "slug": "hoshi-no-samidare",
+  "seasons": [
+   {
+    "season_dir": "saison1",
+    "lang": "vf",
+    "va_slug": "hoshi-no-samidare-vf",
+    "va_only": true,
+    "episodes": [
+     1,
+     2
+    ]
+   }
+  ]
+ },
+ {
+  "mal_id": 49357,
+  "anilist_id": 138060,
+  "slug": "star-wars-visions",
+  "seasons": [
+   {
+    "season_dir": "saison1",
+    "lang": "vf",
+    "episodes": [
+     1,
+     9
+    ]
+   }
+  ]
+ },
+ {
+  "mal_id": 56784,
+  "anilist_id": 169755,
+  "slug": "bleach",
+  "seasons": [
+   {
+    "season_dir": "saison2-3",
+    "lang": "vostfr",
+    "episodes": [
+     14
+    ]
+   },
+   {
+    "season_dir": "saison2-3",
+    "lang": "vf",
+    "episodes": [
+     14
+    ]
+   }
+  ]
+ },
+ {
+  "mal_id": 54743,
+  "anilist_id": 162803,
+  "slug": "dead-mount-death-play",
+  "seasons": [
+   {
+    "season_dir": "saison1-2",
+    "lang": "vf",
+    "va_slug": "dead-mount-death-play-vf",
+    "episodes": [
+     1
+    ]
+   }
+  ]
+ },
+ {
+  "mal_id": 23385,
+  "anilist_id": 20779,
+  "slug": "kimi-wa-kanata",
+  "seasons": [
+   {
+    "season_dir": "film",
+    "lang": "vostfr",
+    "episodes": [
+     1
+    ]
+   }
+  ]
+ },
+ {
+  "mal_id": 50265,
+  "anilist_id": 140960,
+  "slug": "spy-x-family",
+  "seasons": [
+   {
+    "season_dir": "saison1",
+    "lang": "vf",
+    "va_slug": "spyxfamily-vf",
+    "episodes": [
+     1
+    ]
+   }
+  ]
+ },
+ {
+  "mal_id": 350,
+  "anilist_id": 350,
+  "slug": "magical-doremi",
+  "seasons": [
+   {
+    "season_dir": "saison1",
+    "lang": "vf",
+    "episodes": [
+     1,
+     51
+    ]
+   }
+  ]
+ },
+ {
+  "mal_id": 59361,
+  "anilist_id": 179696,
+  "slug": "i-have-a-crush-at-work",
+  "seasons": [
+   {
+    "season_dir": "saison1",
+    "lang": "vostfr",
+    "episodes": [
+     1,
+     2,
+     3,
+     12
+    ]
+   }
+  ]
+ },
+ {
+  "mal_id": 37985,
+  "anilist_id": 105200,
+  "slug": "aggretsuko",
+  "seasons": [
+   {
+    "season_dir": "saison2",
+    "lang": "vf",
+    "episodes": [
+     2
+    ]
+   }
+  ]
+ },
+ {
+  "mal_id": 19815,
+  "anilist_id": 19815,
+  "slug": "no-game-no-life",
+  "seasons": [
+   {
+    "season_dir": "saison1",
+    "lang": "vostfr",
+    "episodes": [
+     1,
+     12
+    ]
+   }
+  ]
+ },
+ {
+  "mal_id": 1000,
+  "anilist_id": 1000,
+  "slug": "albator-78",
+  "seasons": [
+   {
+    "season_dir": "saison1",
+    "lang": "vf",
+    "episodes": [
+     3,
+     42
+    ]
+   }
+  ]
+ },
+ {
+  "mal_id": 32494,
+  "anilist_id": 21578,
+  "slug": "days",
+  "seasons": [
+   {
+    "season_dir": "saison1",
+    "lang": "vf",
+    "va_slug": "sakamoto-days-vf",
+    "va_only": true,
+    "episodes": [
+     1
+    ]
+   }
+  ]
+ },
+ {
+  "mal_id": 49778,
+  "anilist_id": 143598,
+  "slug": "kijin-gentoushou",
+  "seasons": [
+   {
+    "season_dir": "saison1",
+    "lang": "vostfr",
+    "episodes": [
+     24
+    ]
+   }
+  ]
+ },
+ {
+  "mal_id": 50549,
+  "anilist_id": 142455,
+  "slug": "bubble",
+  "seasons": [
+   {
+    "season_dir": "film",
+    "lang": "vostfr",
+    "episodes": [
+     1
+    ]
+   },
+   {
+    "season_dir": "film",
+    "lang": "vf",
+    "episodes": [
+     1
+    ]
+   }
+  ]
+ },
+ {
+  "mal_id": 1913,
+  "anilist_id": 1913,
+  "slug": "young-gto",
+  "seasons": [
+   {
+    "season_dir": "saison1",
+    "lang": "vostfr",
+    "episodes": [
+     1,
+     2,
+     3,
+     5
+    ]
+   }
+  ]
+ },
+ {
+  "mal_id": 59130,
+  "anilist_id": 178433,
+  "slug": "mynoghra",
+  "seasons": [
+   {
+    "season_dir": "saison1",
+    "lang": "vostfr",
+    "episodes": [
+     1,
+     2,
+     3,
+     13
+    ]
+   }
+  ]
+ },
+ {
+  "mal_id": 60285,
+  "anilist_id": 184237,
+  "slug": "sakamoto-days",
+  "seasons": [
+   {
+    "season_dir": "saison1-2",
+    "lang": "vf",
+    "episodes": [
+     2
+    ]
+   }
+  ]
+ }
+]

@@ -1,23 +1,26 @@
 /**
- * Per-episode stills from TMDB — a strict COMPLEMENT to Simkl, never a rival.
+ * Per-episode stills from TMDB — a strict COMPLEMENT to ani.zip, never a
+ * rival.
  *
- * Read lib/simkl/episodeStills.ts first: Simkl's id indexes the same entry
- * AniList does, so it needs no season inference, and that is why it replaced
- * TMDB here on 2026-08-03. Nothing about that has changed. What changed is
- * that we now hold a TMDB key again for series artwork (backdrops, logos —
+ * Read lib/anizip/episodes.ts first: ani.zip is keyed on the AniList id
+ * itself, so it needs no season inference — that is why it leads the chain.
+ * TMDB holds a key here for series artwork anyway (backdrops, logos —
  * lib/tmdb/animeImages.ts), and the marginal cost of asking it for the
- * episodes Simkl could not cover is one request.
+ * episodes ani.zip could not cover is one request.
+ *
+ * (Simkl occupied this middle place jusqu'au 22/08/2026. Il est retire ; le
+ * raisonnement ci-dessous vaut mot pour mot avec ani.zip a sa place.)
  *
  * THE RULE, and it is the whole safety argument: TMDB may only write into
- * episode numbers Simkl left EMPTY. It never overwrites a Simkl still and
- * never contributes a title. A season mis-mapping can therefore leave a row
+ * episode numbers the first provider left EMPTY. It never overwrites its
+ * still and never contributes a title. A season mis-mapping can therefore leave a row
  * with a placeholder — the status quo — but can never replace a correct frame
  * with a wrong one.
  *
  * WHY THIS ISN'T THE OLD CODE. The removed implementation was the sole
  * provider and had to prove its mapping, so it demanded an exact
  * episode-count equality and refused on every airing show and every split
- * cour. Here the floor is the one Simkl uses (TMDB must know AT LEAST as many
+ * cour. Here the floor is a lower bound (TMDB must know AT LEAST as many
  * episodes as we display) because a wrong guess costs a missing image, not a
  * wrong one.
  *
@@ -75,8 +78,8 @@ type Reason =
 /**
  * Stills for `anilistId`, for the episodes in `wanted`.
  *
- * `wanted` is the set of episode numbers still missing an image after Simkl —
- * pass it so a title Simkl covered fully costs nothing at all.
+ * `wanted` is the set of episode numbers still missing an image after ani.zip
+ * — pass it so a title ani.zip covered fully costs nothing at all.
  */
 export async function getTmdbEpisodeStills(
   anilistId: number,
@@ -136,7 +139,7 @@ export async function getTmdbEpisodeStills(
     return await refuse("tmdb-error", entry.tmdbTvId, entry.tmdbSeason);
   }
 
-  /* Same floor as Simkl, not the old exact equality: a provider that knows
+  /* A floor, not the old exact equality: a provider that knows
      MORE episodes than we display is normal (it runs ahead on airing shows);
      one that knows FEWER is a suspect mapping — most often Fribb pointing at a
      fused or renumbered season. */
@@ -157,7 +160,7 @@ export async function getTmdbEpisodeStills(
   }
 
   /* Cache the WHOLE season, not just the `wanted` subset. `wanted` varies with
-     what Simkl happened to return on this particular request; caching the
+     what ani.zip happened to return on this particular request; caching the
      intersection would make the row depend on another provider's transient
      state, and a later request wanting a different episode would get a false
      "no". Filtering to `wanted` is the caller's job, below. */
@@ -179,25 +182,25 @@ export async function getTmdbEpisodeStills(
 }
 
 /**
- * Simkl's stills, with TMDB filling only the gaps.
+ * The leading provider's stills, with TMDB filling only the gaps.
  *
- * Returns the Simkl map untouched when it is already complete — which also
- * means no TMDB call is made for those titles.
+ * Returns the map untouched when it is already complete — which also means no
+ * TMDB call is made for those titles.
  */
 export async function fillStillGaps(
   anilistId: number,
   displayedEpisodes: number | null,
-  simklStills: Record<number, string>,
+  baseStills: Record<number, string>,
 ): Promise<Record<number, string>> {
   if (!tmdbEnabled() || !displayedEpisodes || displayedEpisodes <= 0) {
-    return simklStills;
+    return baseStills;
   }
 
   const wanted = new Set<number>();
   for (let n = 1; n <= displayedEpisodes; n++) {
-    if (!simklStills[n]) wanted.add(n);
+    if (!baseStills[n]) wanted.add(n);
   }
-  if (wanted.size === 0) return simklStills;
+  if (wanted.size === 0) return baseStills;
 
   const tmdb = await getTmdbEpisodeStills(anilistId, displayedEpisodes, wanted).catch(
     () => EMPTY,
@@ -205,7 +208,7 @@ export async function fillStillGaps(
 
   // forEach, not for..of: tsconfig targets ES5 without downlevelIteration, so
   // iterating a Set directly doesn't compile.
-  const merged = { ...simklStills };
+  const merged = { ...baseStills };
   wanted.forEach((n) => {
     if (tmdb[n]) merged[n] = tmdb[n];
   });

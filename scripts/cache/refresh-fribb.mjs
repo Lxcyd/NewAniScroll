@@ -121,7 +121,7 @@ async function main() {
       tmdbMovieId: movieId(r.themoviedb_id),
       tvdbId: typeof r.tvdb_id === "number" ? r.tvdb_id : null,
       // Per-ENTRY id (not franchise) — powers per-episode stills, see
-      // lib/simkl/episodeStills.ts.
+      // Plus lu depuis le retrait de Simkl — voir lib/fribb/fribbMap.ts.
       simklId: typeof r.simkl_id === "number" ? r.simkl_id : null,
       tmdbSeason:
         r.season && typeof r.season.tmdb === "number" ? r.season.tmdb : null,

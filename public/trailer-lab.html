@@ -1,0 +1,701 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Banc d'essai — trailer au survol sans chrome YouTube</title>
+<!--
+  BANC D'ESSAI JETABLE. Rien ici n'est destiné à la production : le but est de
+  prouver, avant d'écrire une ligne dans l'app, qu'une iframe YouTube officielle
+  peut jouer un trailer au survol SANS jamais montrer son bouton central.
+
+  LA RÈGLE, ET LA SEULE :
+    l'iframe est invisible sauf pendant l'état PLAYING (1).
+  Les états où YouTube peint son bouton — UNSTARTED (-1), BUFFERING (3),
+  PAUSED (2), ENDED (0), CUED (5) — sont exactement ceux où l'artwork la
+  recouvre. Aucune inférence : onStateChange les ANNONCE.
+
+  LE SECOND MÉCANISME, tout aussi load-bearing :
+    pointer-events: none sur l'iframe.
+  Le chrome au survol (barre de titre, « Watch on YouTube », barre de contrôles)
+  est déclenché par le hover — et ce hover n'atteint jamais le player. En prime
+  personne ne peut cliquer pour mettre en pause, donc personne ne peut convoquer
+  le gros bouton par accident.
+
+  Le bandeau du bas journalise chaque transition d'état : c'est ce qui PROUVE la
+  règle au lieu de la croire.
+-->
+<style>
+  :root {
+    --bg: #0b0d14;
+    --surface: #151824;
+    --line: #252938;
+    --text: #e8eaf2;
+    --dim: #8b90a8;
+    --brand: #ff3b5c;
+    --card-w: 364px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+    padding: 28px 28px 140px;
+  }
+  h1 { font-size: 19px; margin: 0 0 4px; }
+  .sub { color: var(--dim); margin: 0 0 22px; max-width: 70ch; }
+  .sub code { color: var(--text); background: #1e2233; padding: 1px 5px; border-radius: 4px; }
+
+  .toolbar {
+    display: flex; flex-wrap: wrap; gap: 16px; align-items: center;
+    padding: 12px 14px; margin-bottom: 24px;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+  }
+  .toolbar label { display: flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; }
+  .toolbar input[type="text"] {
+    background: #0e111b; border: 1px solid var(--line); color: var(--text);
+    border-radius: 6px; padding: 6px 9px; width: 190px; font: inherit;
+  }
+  .toolbar button {
+    background: var(--brand); border: 0; color: #fff; font: inherit; font-weight: 600;
+    padding: 7px 13px; border-radius: 6px; cursor: pointer;
+  }
+
+  /* ---- La grille de jaquettes -------------------------------------------- */
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 16px; }
+  .poster {
+    position: relative; aspect-ratio: 2/3; border-radius: 8px; overflow: hidden;
+    background: #1a1e2c; cursor: pointer; border: 1px solid var(--line);
+  }
+  .poster img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .poster .name {
+    position: absolute; inset: auto 0 0 0; padding: 18px 8px 7px;
+    background: linear-gradient(transparent, rgba(0,0,0,.9));
+    font-size: 12px; line-height: 1.3;
+  }
+  .poster.dead { outline: 2px solid #b3403f; outline-offset: -2px; }
+
+  /* ---- La carte de survol ------------------------------------------------ */
+  #panel {
+    position: fixed; width: var(--card-w); z-index: 50;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+    overflow: hidden; box-shadow: 0 24px 60px rgba(0,0,0,.65);
+    opacity: 0; transform: scale(.94); pointer-events: none;
+    transition: opacity .16s, transform .16s;
+  }
+  #panel.open { opacity: 1; transform: scale(1); pointer-events: auto; }
+
+  /* La boîte vidéo. `overflow: hidden` est obligatoire : l'iframe est agrandie
+     au-delà de la boîte pour repousser hors cadre le chrome résiduel des bords
+     (et, accessoirement, avaler le pillarbox d'un trailer 4:3). */
+  .stage { position: relative; aspect-ratio: 16/9; background: #000; overflow: hidden; }
+
+  /* L'ARTWORK — le calque de couverture. Il est SOUS l'iframe dans l'ordre du
+     DOM mais visible dès que l'iframe s'efface, ce qui est la même chose vu du
+     spectateur et évite de faire clignoter deux opacités en sens inverse. */
+  .stage .art { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+
+  .stage .frame {
+    position: absolute; inset: 0;
+    opacity: 0; transition: opacity .25s;
+    /* Rien ne doit atteindre le player : ni clic, ni survol. */
+    pointer-events: none;
+    transform: scale(1.14);
+    transform-origin: center;
+  }
+  .stage.live .frame { opacity: 1; }
+  .stage .frame iframe { width: 100%; height: 100%; border: 0; display: block; }
+
+  /* ---- Les contrôles maison, dans un calque au-dessus -------------------- */
+  .chrome { position: absolute; inset: 0; opacity: 0; transition: opacity .2s; pointer-events: none; }
+  .chrome.on { opacity: 1; }
+  .scrim { position: absolute; inset: 0; background: linear-gradient(rgba(0,0,0,.45), transparent 55%); }
+  .btn {
+    display: grid; place-items: center; border: 0; cursor: pointer;
+    background: rgba(0,0,0,.45); color: #fff; border-radius: 999px;
+    backdrop-filter: blur(4px); transition: background .15s;
+  }
+  .btn:hover { background: rgba(0,0,0,.7); }
+  .center { position: absolute; inset: 0; display: grid; place-items: center; }
+  .center .btn { width: 56px; height: 56px; pointer-events: auto; }
+  .center svg { width: 30px; height: 30px; fill: #fff; }
+
+  .vol { position: absolute; top: 8px; right: 8px; display: flex; flex-direction: column; align-items: center; pointer-events: auto; }
+  .vol .btn { width: 30px; height: 30px; }
+  .vol svg { width: 17px; height: 17px; fill: #fff; }
+  .track-wrap {
+    margin-top: 6px; padding: 8px 6px; border-radius: 999px; background: rgba(0,0,0,.5);
+    opacity: 0; pointer-events: none; transition: opacity .15s; backdrop-filter: blur(4px);
+  }
+  .vol.open .track-wrap { opacity: 1; pointer-events: auto; }
+  .track { position: relative; width: 5px; height: 76px; border-radius: 999px; background: rgba(255,255,255,.25); cursor: pointer; }
+  .fill { position: absolute; left: 0; bottom: 0; width: 100%; border-radius: 999px; background: var(--brand); }
+  .knob { position: absolute; left: 50%; width: 11px; height: 11px; border-radius: 999px; background: #fff; transform: translate(-50%, 50%); box-shadow: 0 1px 4px rgba(0,0,0,.6); pointer-events: none; }
+
+  .meta { padding: 11px 13px 13px; }
+  .meta .t { font-weight: 600; margin-bottom: 3px; }
+  .meta .d { color: var(--dim); font-size: 12px; }
+
+  /* ---- Le journal -------------------------------------------------------- */
+  #log {
+    position: fixed; inset: auto 0 0 0; height: 118px; z-index: 60;
+    background: #05070d; border-top: 1px solid var(--line);
+    font: 12px/1.55 ui-monospace, "Cascadia Code", Consolas, monospace;
+    overflow: auto; padding: 8px 14px;
+  }
+  #log .row { display: flex; gap: 10px; white-space: pre; }
+  #log .ts { color: #4d5470; }
+  #log .s1 { color: #4ade80; }
+  #log .s2, #log .s3, #log .s0, #log .s5, #log .s-1 { color: #fbbf24; }
+  #log .err { color: #f87171; }
+  #log .ok { color: #7dd3fc; }
+</style>
+</head>
+<body>
+
+<h1>Banc d'essai — trailer au survol, iframe YouTube, zéro chrome</h1>
+<p class="sub">
+  Survole une jaquette. Le contrat à valider : <strong>(1)</strong> aucun bouton ne doit apparaître au démarrage,
+  même souris immobile sur la vidéo ; <strong>(2)</strong> bouger la souris sur le trailer fait apparaître play/pause
+  et volume, qui s'effacent après 1,6&nbsp;s ; <strong>(3)</strong> la pause fait revenir l'artwork instantanément ;
+  <strong>(4)</strong> le bouclage ne montre ni écran de fin ni vidéos liées.
+  Le journal du bas trace chaque transition d'état — <code>PLAYING</code> est le seul état où l'image est visible.
+</p>
+
+<div class="toolbar">
+  <label><input type="checkbox" id="opt-unmute" /> tenter <code>unMute()</code> au démarrage <em>(risqué — c'est ce qui a fait apparaître la UI)</em></label>
+  <label><input type="checkbox" id="opt-nocookie" /> passer par <code>youtube-nocookie.com</code></label>
+  <label><input type="checkbox" id="opt-reveal" /> révéler l'iframe en permanence <em>(pour voir ce qu'on cache)</em></label>
+  <label><input type="checkbox" id="opt-raw" /> <strong>iframe brute</strong> <em>(sans l'API — c'est la variante « seulement le bouton central »)</em></label>
+  <label><input type="checkbox" id="opt-onready" /> démarrer dans <code>onReady</code> <em>(mute + playVideo, au lieu de autoplay=1)</em></label>
+  <label>révéler à partir de
+    <input type="number" id="opt-thresh" value="1" step="0.25" min="0" max="10" style="width:62px" /> s de lecture
+  </label>
+  <span style="flex:1"></span>
+  <input type="text" id="add-id" placeholder="id YouTube à tester…" />
+  <button id="add-go">Ajouter une carte</button>
+</div>
+
+<div class="grid" id="grid"></div>
+
+<div id="panel">
+  <div class="stage" id="stage">
+    <img class="art" id="art" alt="" />
+    <div class="frame" id="frame"></div>
+    <div class="chrome" id="chrome">
+      <div class="scrim"></div>
+      <div class="center">
+        <button class="btn" id="playpause" aria-label="Pause"></button>
+      </div>
+      <div class="vol" id="vol">
+        <button class="btn" id="mute" aria-label="Couper le son"></button>
+        <div class="track-wrap">
+          <div class="track" id="track">
+            <div class="fill" id="fill"></div>
+            <div class="knob" id="knob"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="meta">
+    <div class="t" id="p-title">—</div>
+    <div class="d" id="p-desc">—</div>
+  </div>
+</div>
+
+<div id="log"></div>
+
+<script>
+(() => {
+"use strict";
+
+/* ------------------------------------------------------------------ journal */
+const logEl = document.getElementById("log");
+const t0 = Date.now();
+function log(text, cls) {
+  const row = document.createElement("div");
+  row.className = "row";
+  const ms = String(Date.now() - t0).padStart(6, " ");
+  row.innerHTML = `<span class="ts">+${ms}ms</span><span class="${cls || ""}">${text}</span>`;
+  logEl.appendChild(row);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+/* --------------------------------------------- chargement unique de l'API YT */
+/* Le script rappelle UN seul global. Plusieurs cartes peuvent se monter, donc la
+   promesse est mémoïsée — c'est exactement ce que fera lib/preview/youtubeApi.ts. */
+let apiPromise = null;
+function loadYouTubeApi() {
+  if (apiPromise) return apiPromise;
+  apiPromise = new Promise((resolve, reject) => {
+    if (window.YT && window.YT.Player) return resolve(window.YT);
+    window.onYouTubeIframeAPIReady = () => { log("API IFrame prête", "ok"); resolve(window.YT); };
+    const s = document.createElement("script");
+    s.src = "https://www.youtube.com/iframe_api";
+    // Un bloqueur de pub qui coupe iframe_api doit donner une carte à l'artwork,
+    // pas une carte suspendue.
+    s.onerror = () => reject(new Error("iframe_api bloqué"));
+    document.head.appendChild(s);
+  });
+  return apiPromise;
+}
+
+/* --------------------------------------------------------- les états nommés */
+const STATE = { "-1": "UNSTARTED", 0: "ENDED", 1: "PLAYING", 2: "PAUSED", 3: "BUFFERING", 5: "CUED" };
+
+/* ------------------------------------------------------ éléments du panneau */
+const panel = document.getElementById("panel");
+const stage = document.getElementById("stage");
+const art = document.getElementById("art");
+const frameBox = document.getElementById("frame");
+const chrome = document.getElementById("chrome");
+const playpause = document.getElementById("playpause");
+const volBox = document.getElementById("vol");
+const muteBtn = document.getElementById("mute");
+const track = document.getElementById("track");
+const fill = document.getElementById("fill");
+const knob = document.getElementById("knob");
+const pTitle = document.getElementById("p-title");
+const pDesc = document.getElementById("p-desc");
+
+const optUnmute = document.getElementById("opt-unmute");
+const optNocookie = document.getElementById("opt-nocookie");
+const optReveal = document.getElementById("opt-reveal");
+const optOnReady = document.getElementById("opt-onready");
+const optRaw = document.getElementById("opt-raw");
+
+const ICON = {
+  play: '<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>',
+  pause: '<svg viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>',
+  loud: '<svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0014 7.97v8.05A4.47 4.47 0 0016.5 12z"/></svg>',
+  muted: '<svg viewBox="0 0 24 24"><path d="M16.5 12A4.5 4.5 0 0014 7.97v2.21l2.45 2.45c.03-.2.05-.41.05-.63zM19 12c0 .94-.2 1.82-.54 2.64l1.51 1.51A8.8 8.8 0 0021 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06a8.99 8.99 0 003.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/></svg>',
+};
+
+/* --------------------------------------------------- la fenêtre de contrôles */
+/* Reprise à l'identique de NativeTrailer, AVEC la correction : la fenêtre s'arme
+   au passage à PLAYING, pas au montage. Le bug actuel est là — showControls
+   s'arme sur un mouvement fait pendant l'écran noir, mais ne devient visible
+   qu'à l'arrivée de l'image, d'où un bouton qui apparaît tout seul au premier
+   frame alors que la souris ne bouge plus. */
+const OPEN_GRACE_MS = 350;
+const MOVE_SLOP = 8;
+const IDLE_MS = 1600;
+
+let player = null;          // l'instance YT.Player en cours
+let playing = false;        // état 1 exactement
+let armedAt = 0;            // instant du premier PLAYING
+let origin = null;          // position de la souris à sa première rencontre
+let idleTimer = null;
+let volCloseTimer = null;
+let showControls = false;
+let volOpen = false;
+let watchdog = null;
+let poller = null;          // voir syncLive : la VÉRITÉ sur l'état
+
+let volume = 0.45;          // 0-1 ici, ×100 pour l'API
+let muted = true;           // l'autoplay ne peut être QUE muet
+
+/**
+ * La règle, appliquée depuis l'état RÉEL et pas depuis le dernier événement reçu.
+ *
+ * Première version : `.live` était basculé dans onStateChange. Mesuré sur le
+ * banc — le player s'est arrêté et a peint son écran de pause SANS que la
+ * transition soit annoncée (Chrome bloque la lecture redevenue audible après
+ * unMute, YouTube émet onAutoplayBlocked et pose son UI). L'iframe est restée
+ * révélée sur un player à l'arrêt : toute la UI à l'écran.
+ *
+ * Un événement manqué ne doit pas pouvoir découvrir la frame. `getPlayerState()`
+ * est interrogeable à tout moment et ne ment pas, donc c'est lui qui décide, et
+ * les événements ne servent plus qu'à journaliser. Quatre appels par seconde sur
+ * une carte survolée, c'est gratuit — et c'est la différence entre une règle
+ * qu'on espère et une règle qui tient.
+ */
+let lastTime = -1;          // dernière position lue
+let lastAdvanceAt = 0;      // quand elle a bougé pour la dernière fois
+let stallWarned = false;
+
+/*
+ * Le son au démarrage : OPTIONNEL, et par défaut refusé.
+ *
+ * L'autoplay ne peut être QUE muet ; rendre audible juste après est une faveur
+ * que le navigateur accorde ou non. Un clic sur le bouton volume, lui, est un
+ * geste utilisateur : toujours accepté. C'est le chemin sûr, et celui que
+ * gardera l'app.
+ */
+function tryUnmute() {
+  if (!player) return;
+  player.unMute();
+  player.setVolume(Math.round(volume * 100));
+  muted = false;
+  log(`unMute() tenté à ${Math.round(volume * 100)}%`, "ok");
+  setTimeout(() => {
+    if (!player) return;
+    const st = player.getPlayerState();
+    if (st !== 1) log(`⚠ état ${st} après unMute — le navigateur a refusé le son`, "err");
+    else if (player.isMuted()) log("⚠ toujours muet après unMute()", "err");
+    else log("✓ son accepté après unMute()", "s1");
+    muted = !!player.isMuted();
+    paintControls();
+  }, 900);
+}
+
+function syncLive() {
+  let state = -1;
+  let now = 0;
+  try {
+    state = player ? player.getPlayerState() : -1;
+    now = player ? player.getCurrentTime() : 0;
+  } catch { state = -1; }
+
+  /*
+   * PLAYING ne suffit PAS. Mesuré sur ce banc avec un bloqueur de pub actif :
+   * le player rapporte l'état 1 tout en restant sur son écran d'avant-lecture
+   * (titre, avatar, transport), image noire — il attend `ad_status.js`, que
+   * l'extension a bloqué, et ne démarre jamais vraiment.
+   *
+   * Or Google documente que cet écran est irréductible AVANT le début de la
+   * lecture, à la pause et à la fin (dépréciation de `showinfo`, 25/09/2018).
+   * La seule preuve qu'on en est sorti est que l'horloge AVANCE. C'est aussi
+   * ce que l'ancienne implémentation surveillait — à la différence qu'ici elle
+   * ne sert qu'à décider d'une opacité, pas à piloter des reprises.
+   */
+  if (now !== lastTime) { lastTime = now; lastAdvanceAt = Date.now(); stallWarned = false; }
+  const advancing = Date.now() - lastAdvanceAt < 800;
+  if (state === 1 && !advancing && !stallWarned && armedAt) {
+    stallWarned = true;
+    log(`⚠ état 1 PLAYING mais l'horloge est figée à ${now.toFixed(2)}s — le player n'a pas démarré (bloqueur de pub ?), on recouvre`, "err");
+  }
+
+  /*
+   * LE SEUIL. `currentTime > 0` ne veut pas dire que l'image est là : mesuré sur
+   * ce banc, l'horloge est à 0.01s alors que le player affiche encore son écran
+   * de démarrage (titre, avatar, transport) pendant ~3 s. Révéler à ce
+   * moment-là, c'est révéler précisément ce qu'on voulait cacher.
+   *
+   * La durée n'est pas documentée et dépend du réseau, du bloqueur de pub et de
+   * l'humeur du player. Elle est donc RÉGLABLE dans la barre d'outils : le rôle
+   * de ce banc est de trouver la plus petite valeur qui tienne, pas de deviner.
+   * Le journal trace l'horloge quart de seconde par quart de seconde jusqu'à la
+   * révélation, pour qu'on puisse comparer ce qu'il dit à ce qu'on voit.
+   */
+  const threshold = Number(document.getElementById("opt-thresh").value) || 0;
+  if (player && !armedAt && state === 1) log(`  … horloge ${now.toFixed(2)}s (seuil ${threshold}s)`);
+  const live = state === 1 && advancing && now >= threshold;
+  if (live !== playing) {
+    playing = live;
+    if (!live) { showControls = false; origin = null; }
+    // La fenêtre des contrôles naît avec l'IMAGE — pas avec la carte, et pas
+    // avec un état PLAYING qui ne montre rien.
+    if (live && !armedAt) {
+      armedAt = Date.now();
+      origin = null;
+      showControls = false;
+      clearTimeout(watchdog);
+      log(`image réellement en marche (horloge à ${now.toFixed(2)}s) — révélée`, "s1");
+      if (optUnmute.checked) tryUnmute();
+    }
+    paintControls();
+  }
+  stage.classList.toggle("live", live || optReveal.checked);
+}
+
+function paintControls() {
+  const visible = playing && (showControls || volOpen);
+  chrome.classList.toggle("on", visible);
+  playpause.innerHTML = playing ? ICON.pause : ICON.play;
+  muteBtn.innerHTML = muted ? ICON.muted : ICON.loud;
+  const pct = (muted ? 0 : volume) * 100;
+  fill.style.height = pct + "%";
+  knob.style.bottom = pct + "%";
+}
+
+function wake(e) {
+  if (!playing) return;                                  // rien à contrôler
+  if (Date.now() - armedAt < OPEN_GRACE_MS) return;      // l'image vient de naître
+  if (!origin) { origin = { x: e.clientX, y: e.clientY }; return; }
+  if (Math.abs(e.clientX - origin.x) < MOVE_SLOP && Math.abs(e.clientY - origin.y) < MOVE_SLOP) return;
+  showControls = true;
+  paintControls();
+  clearTimeout(idleTimer);
+  idleTimer = setTimeout(() => { showControls = false; paintControls(); }, IDLE_MS);
+}
+
+stage.addEventListener("pointermove", wake);
+stage.addEventListener("pointerleave", () => {
+  clearTimeout(idleTimer);
+  origin = null; showControls = false; paintControls();
+});
+
+/* ----------------------------------------------------------- les contrôles */
+playpause.addEventListener("click", (e) => {
+  e.stopPropagation();
+  if (!player) return;
+  // La pause est possible PARCE QUE l'artwork recouvrira la frame : l'état 2 est
+  // exactement celui où YouTube peignait son bouton, et il est caché par la règle.
+  if (playing) player.pauseVideo(); else player.playVideo();
+});
+
+function applyMuted(next) {
+  muted = next;
+  if (player) { if (next) player.mute(); else { player.unMute(); player.setVolume(Math.round(volume * 100)); } }
+  log(`bouton son → ${next ? "muet" : "audible"}`, "ok");
+  paintControls();
+}
+muteBtn.addEventListener("click", (e) => {
+  e.stopPropagation();
+  if (!muted) return applyMuted(true);
+  if (volume <= 0) volume = 0.45;
+  applyMuted(false);
+});
+
+volBox.addEventListener("pointerenter", () => { clearTimeout(volCloseTimer); volOpen = true; volBox.classList.add("open"); paintControls(); });
+volBox.addEventListener("pointerleave", () => {
+  volCloseTimer = setTimeout(() => { volOpen = false; volBox.classList.remove("open"); paintControls(); }, 260);
+});
+
+function volumeFrom(e) {
+  const r = track.getBoundingClientRect();
+  volume = Math.min(1, Math.max(0, 1 - (e.clientY - r.top) / r.height));   // le haut = 100 %
+  if (player) player.setVolume(Math.round(volume * 100));
+  // Glisser en bas EST couper, remonter EST rallumer.
+  if (volume === 0 && !muted) applyMuted(true);
+  else if (volume > 0 && muted) applyMuted(false);
+  else paintControls();
+}
+track.addEventListener("pointerdown", (e) => { e.stopPropagation(); track.setPointerCapture(e.pointerId); volumeFrom(e); });
+track.addEventListener("pointermove", (e) => { if (track.hasPointerCapture(e.pointerId)) volumeFrom(e); });
+
+/* ------------------------------------------------------- ouverture / fermeture */
+let openFor = null;
+let openTimer = null;
+
+function destroyPlayer() {
+  clearTimeout(watchdog);
+  clearInterval(poller);
+  poller = null;
+  if (player) { try { player.destroy(); } catch {} player = null; }
+  frameBox.innerHTML = "";
+  playing = false; showControls = false; volOpen = false; origin = null;
+  armedAt = 0; lastTime = -1; lastAdvanceAt = 0; stallWarned = false;
+  volBox.classList.remove("open");
+  stage.classList.remove("live");
+  paintControls();
+}
+
+function closePanel() {
+  clearTimeout(openTimer);
+  if (!openFor) return;
+  log(`fermeture — ${openFor.title}`);
+  openFor = null;
+  panel.classList.remove("open");
+  destroyPlayer();
+}
+
+function openPanel(item, rect) {
+  if (openFor && openFor.videoId === item.videoId) return;
+  destroyPlayer();
+  openFor = item;
+
+  art.src = item.image || "";
+  pTitle.textContent = item.title;
+  pDesc.textContent = `videoId ${item.videoId}`;
+
+  // Position : centrée sur la jaquette, recalée dans la fenêtre.
+  const w = 364, h = 364 * 9 / 16 + 66;
+  let left = rect.left + rect.width / 2 - w / 2;
+  let top = rect.top + rect.height / 2 - h / 2;
+  left = Math.max(10, Math.min(left, innerWidth - w - 10));
+  top = Math.max(10, Math.min(top, innerHeight - h - 130));
+  panel.style.left = left + "px";
+  panel.style.top = top + "px";
+  panel.classList.add("open");
+
+  log(`ouverture — ${item.title} (${item.videoId})`);
+  mountPlayer(item.videoId);
+}
+
+/* -------------------------------------------------------------- LE MÉCANISME */
+function mountPlayer(videoId) {
+  /*
+   * VARIANTE TÉMOIN : l'iframe brute, sans `enablejsapi`.
+   *
+   * À comparer côte à côte avec la variante API. Le pari à vérifier est qu'elle
+   * ne montre QUE le bouton central pendant le démarrage — ni titre, ni avatar,
+   * ni partage, ni logo. Si c'est vrai, le chrome supplémentaire est le prix de
+   * l'API, ce qui est une information de premier ordre.
+   *
+   * Son défaut est l'autre moitié du problème : sans API, aucun état n'est
+   * annoncé, donc rien ne dit QUAND révéler — et aucun contrôle n'est pilotable.
+   * On révèle donc sur le seuil, à l'aveugle.
+   */
+  if (optRaw.checked) {
+    const url = `https://www.youtube.com/embed/${videoId}`
+      + `?autoplay=1&mute=1&controls=0&disablekb=1&fs=0&iv_load_policy=3&playsinline=1&rel=0`;
+    const el = document.createElement("iframe");
+    el.src = url;
+    el.allow = "autoplay";
+    frameBox.appendChild(el);
+    const wait = (Number(document.getElementById("opt-thresh").value) || 0) * 1000;
+    log(`iframe brute — aucun état disponible, révélation à l'aveugle dans ${wait} ms`, "ok");
+    watchdog = setTimeout(() => {
+      armedAt = Date.now();
+      playing = true;
+      stage.classList.add("live");
+      paintControls();
+      log("iframe brute révélée (rien ne garantit que l'image soit là)", "s1");
+    }, wait);
+    return;
+  }
+
+  const host = document.createElement("div");
+  frameBox.appendChild(host);   // l'API REMPLACE cet élément par l'iframe
+
+  loadYouTubeApi().then((YT) => {
+    if (!openFor || openFor.videoId !== videoId) return;   // déjà reparti ailleurs
+
+    const options = {
+      videoId,
+      playerVars: {
+        autoplay: optOnReady.checked ? 0 : 1,
+        mute: 1,             // OBLIGATOIRE : seul l'autoplay muet est autorisé
+        controls: 0,         // supprime la barre du bas
+        disablekb: 1,        // la carte ne vole pas les touches de la page
+        fs: 0,
+        iv_load_policy: 3,   // pas d'annotations
+        playsinline: 1,
+        rel: 0,
+        enablejsapi: 1,
+        origin: window.location.origin,
+        // PAS de loop/playlist. Boucler par `playlist` fait entrer le player en
+        // mode liste de lecture : c'est ce qui ajoutait les flèches ⏮ ⏭ à l'écran
+        // de pause vu au premier essai. On boucle nous-mêmes sur ENDED.
+        // modestbranding est déprécié et sans effet depuis le 15/08/2023.
+      },
+      events: {
+        onReady: (e) => {
+          log("onReady", "ok");
+          // Variante testable : démarrer à la main plutôt que par autoplay=1.
+          // C'est la séquence des exemples qui circulent (labnol / SO 41045251) —
+          // eux l'utilisent pour le SON, mais elle change aussi l'amorçage, et
+          // c'est l'amorçage qui coûte les ~3 s de chrome.
+          if (optOnReady.checked) { e.target.mute(); e.target.playVideo(); log("démarrage manuel (mute + playVideo)", "ok"); }
+          // La règle est désormais pilotée par l'état RÉEL, en continu.
+          clearInterval(poller);
+          poller = setInterval(syncLive, 250);
+        },
+        // Les événements ne DÉCIDENT plus rien, ils racontent. La décision est
+        // dans syncLive, qui interroge l'état réel et l'horloge.
+        onStateChange: (e) => {
+          log(`état ${e.data} ${STATE[e.data] || e.data}`, "s" + e.data);
+
+          // Boucle maison : revenir au début plutôt que laisser l'écran de fin.
+          if (e.data === 0 && player) { player.seekTo(0); player.playVideo(); }
+
+          syncLive();
+        },
+        // Chrome a refusé la lecture. C'est ce qui s'est produit au premier essai
+        // après unMute() : le player a posé son écran de pause sans que la
+        // transition soit annoncée. Journalisé fort — l'affichage, lui, est déjà
+        // couvert par syncLive.
+        onAutoplayBlocked: () => log("⚠ onAutoplayBlocked — le navigateur refuse la lecture", "err"),
+        onError: (e) => {
+          // 101 / 150 = l'uploader interdit l'embed. 100 = vidéo absente.
+          log(`onError ${e.data} — pas de trailer, on reste sur l'artwork`, "err");
+          destroyPlayer();
+        },
+      },
+    };
+    // La clé `host` doit être ABSENTE, pas `undefined` : l'API la lit telle quelle.
+    if (optNocookie.checked) options.host = "https://www.youtube-nocookie.com";
+    player = new YT.Player(host, options);
+
+    // Filet : rien qui joue au bout de 6 s (embed refusé, réseau, bloqueur) →
+    // la carte reste sur son artwork au lieu de fixer un rectangle noir.
+    watchdog = setTimeout(() => {
+      if (!playing) { log("⚠ aucun PLAYING après 6 s — abandon, artwork", "err"); destroyPlayer(); }
+    }, 6000);
+  }).catch((err) => {
+    log(`API indisponible (${err.message}) — artwork seul`, "err");
+  });
+}
+
+optReveal.addEventListener("change", () => {
+  stage.classList.toggle("live", playing || optReveal.checked);
+  log(optReveal.checked ? "révélation permanente ON — c'est ce que la règle cache" : "révélation permanente OFF");
+});
+
+/* --------------------------------------------------------- panneau collant */
+panel.addEventListener("pointerenter", () => clearTimeout(openTimer));
+panel.addEventListener("pointerleave", closePanel);
+
+/* ------------------------------------------------------------ les jaquettes */
+const grid = document.getElementById("grid");
+
+function addCard(item) {
+  const el = document.createElement("div");
+  el.className = "poster";
+  el.innerHTML = `<img src="${item.image || ""}" alt="" /><div class="name">${item.title}</div>`;
+  el.addEventListener("pointerenter", () => {
+    clearTimeout(openTimer);
+    openTimer = setTimeout(() => openPanel(item, el.getBoundingClientRect()), 220);
+  });
+  el.addEventListener("pointerleave", (e) => {
+    clearTimeout(openTimer);
+    // Ne pas fermer si on entre dans le panneau lui-même.
+    if (!panel.contains(e.relatedTarget)) setTimeout(() => { if (!panel.matches(":hover")) closePanel(); }, 60);
+  });
+  grid.appendChild(el);
+}
+
+/* De vrais trailers, tirés d'AniList (API publique, CORS ouvert, pas de clé) —
+   un banc sur des ids inventés ne prouverait rien. */
+const QUERY = `query {
+  Page(perPage: 40) {
+    media(type: ANIME, sort: POPULARITY_DESC, isAdult: false) {
+      title { romaji english }
+      coverImage { large }
+      trailer { id site }
+    }
+  }
+}`;
+
+fetch("https://graphql.anilist.co", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ query: QUERY }),
+})
+  .then((r) => r.json())
+  .then((json) => {
+    const list = (json?.data?.Page?.media || [])
+      .filter((m) => m?.trailer?.site === "youtube" && m?.trailer?.id)
+      .slice(0, 18)
+      .map((m) => ({
+        videoId: String(m.trailer.id),
+        title: m.title.english || m.title.romaji,
+        image: m.coverImage?.large || null,
+      }));
+    log(`${list.length} trailers YouTube chargés depuis AniList`, "ok");
+    list.forEach(addCard);
+    // Un cas connu de refus, pour vérifier que l'échec est doux.
+    addCard({ videoId: "0c4IoCA5fY0", title: "⚠ cas géobloqué (témoin)", image: null });
+  })
+  .catch((err) => log(`AniList injoignable (${err.message}) — ajoute un id à la main`, "err"));
+
+document.getElementById("add-go").addEventListener("click", () => {
+  const input = document.getElementById("add-id");
+  const raw = input.value.trim();
+  const id = (raw.match(/[A-Za-z0-9_-]{11}/) || [])[0];
+  if (!id) return log(`« ${raw} » ne contient pas d'id YouTube (11 caractères)`, "err");
+  addCard({ videoId: id, title: "ajouté à la main", image: null });
+  input.value = "";
+  log(`carte ajoutée : ${id}`, "ok");
+});
+
+paintControls();
+log("banc prêt — survole une jaquette");
+})();
+</script>
+</body>
+</html>

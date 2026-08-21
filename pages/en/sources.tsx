@@ -7,11 +7,11 @@ import { useTranslation } from "react-i18next";
 /**
  * Credits page — who supplies the data AniScroll shows.
  *
- * Two of these are contractual, not courtesy: Simkl expects attribution under
- * its free tier, and TMDB mandates a VERBATIM disclaimer — reproduced below as
- * `TMDB_DISCLAIMER`, which is why it is a literal and not an i18n key. Do not
- * translate it, shorten it, or fold it into the generic legal note; its wording
- * is the term. The rest are here because they earned it.
+ * One of these is contractual, not courtesy: TMDB mandates a VERBATIM
+ * disclaimer — reproduced below as `TMDB_DISCLAIMER`, which is why it is a
+ * literal and not an i18n key. Do not translate it, shorten it, or fold it
+ * into the generic legal note; its wording is the term. The rest are here
+ * because they earned it.
  *
  * Streaming hosts are deliberately absent: they aren't data sources, and the
  * footer disclaimer already covers them.
@@ -43,7 +43,6 @@ const SOURCES: Source[] = [
   { name: "AnimeThemes", url: "https://animethemes.moe", key: "animethemes" },
   { name: "MyAnimeList", url: "https://myanimelist.net", key: "mal" },
   { name: "Jikan", url: "https://jikan.moe", key: "jikan" },
-  { name: "Simkl", url: "https://simkl.com", key: "simkl" },
   { name: "TMDB", url: "https://www.themoviedb.org", key: "tmdb" },
   { name: "ani.zip", url: "https://ani.zip", key: "anizip" },
   { name: "Fribb/anime-lists", url: "https://github.com/Fribb/anime-lists", key: "fribb" },

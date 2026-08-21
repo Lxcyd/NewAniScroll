@@ -12,9 +12,8 @@
  *                                       ani.zip: themoviedb_id 280049.
  *
  * TMDB had the artwork for both the whole time; nobody could tell us which
- * record to ask for. This is the same shape as `resolveSimklId()` in
- * lib/simkl/simklClient.ts — Fribb stays the fast path (one local row, no
- * network), and a live lookup rescues what it hasn't caught up with.
+ * record to ask for. Fribb stays the fast path (one local row, no network),
+ * and a live lookup rescues what it hasn't caught up with.
  *
  * ani.zip is keyed on the AniList id itself, which is what makes it able to
  * answer at all where a static cross-map can't.
@@ -27,7 +26,7 @@ const ANIZIP_BASE = "https://api.ani.zip";
 const TIMEOUT_MS = 5000;
 
 /* Cloudflare answers 403 to a default fetch UA — same reason
-   lib/anizip/episodes.ts and lib/simkl/simklClient.ts send one. */
+   lib/anizip/episodes.ts sends one. */
 const USER_AGENT =
   "Mozilla/5.0 (compatible; AniScroll/1.0; +https://aniscroll.com)";
 

@@ -4,9 +4,9 @@
  * TMDB was removed from this repo on 2026-08-03 as a stills provider, and the
  * reason still stands: mapping an AniList entry onto a TMDB *season* is
  * guesswork, and the old code refused constantly rather than guess (One Piece
- * has no `tmdb_season` at all). Nothing here re-litigates that. Simkl remains
+ * has no `tmdb_season` at all). Nothing here re-litigates that. ani.zip is
  * the primary stills source; TMDB comes back for what it is genuinely better
- * at and Simkl never provided — **series-level artwork**:
+ * at and no per-episode source provides — **series-level artwork**:
  *
  *   - backdrops: real 1280×720+ key art, versus AniList's `bannerImage`, a
  *     1900×400 letterbox crop that a full-bleed hero has to stretch.
@@ -14,7 +14,7 @@
  *
  * Neither needs a season, so neither inherits the failure mode that got TMDB
  * dropped. Episode stills DO need one, so they stay a strict *complement* to
- * Simkl (see lib/tmdb/episodeStills.ts): TMDB may only fill episodes Simkl
+ * ani.zip (see lib/tmdb/episodeStills.ts): TMDB may only fill episodes ani.zip
  * left empty, never replace or contradict them.
  *
  * LIMITS (checked 2026-08-08). There is no monthly quota and no per-key cap:

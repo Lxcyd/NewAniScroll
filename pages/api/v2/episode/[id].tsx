@@ -4,10 +4,6 @@ import { rateLimiterRedis, rateSuperStrict, redis } from "@/lib/redis";
 import { NextApiRequest, NextApiResponse } from "next";
 import { anilistFetch } from "@/lib/anilist/anilistFetch";
 import { getCachedAnime } from "@/lib/db/anime";
-import {
-  getSimklEpisodeStills,
-  type SimklEpisodeData,
-} from "@/lib/simkl/episodeStills";
 import { fillStillGaps } from "@/lib/tmdb/episodeStills";
 import {
   getAniZipEpisodes,
@@ -116,9 +112,9 @@ function buildEpisodeList(
       .trim();
     return {
       id: `megaplay-${id}-${num}`,
-      /* Simkl backs the sequels up: it keys on THIS entry and numbers from 1,
-         so it has real titles exactly where streamingEpisodes was rejected as
-         foreign (and where AniList lists nothing at all — Chainsaw Man). */
+      /* ani.zip backs the sequels up: it keys on THIS entry and numbers from
+         1, so it has real titles exactly where streamingEpisodes was rejected
+         as foreign (and where AniList lists nothing at all — Chainsaw Man). */
       title: cleanTitle || titles[num] || `Episode ${num}`,
       number: num,
       /* Only a genuinely per-episode image, or null. We used to fall back to
@@ -128,8 +124,9 @@ function buildEpisodeList(
          artwork loaded already, and this response is a shared 30-day cache
          blob, so a pick made here would freeze one viewer's choice for all.
 
-         AniList's own thumb still wins over the Simkl still when it survived
-         the foreign-entry check above: it is this entry's own artwork. */
+         AniList's own thumb still wins over the provider still when it
+         survived the foreign-entry check above: it is this entry's own
+         artwork. */
       img: streaming?.thumbnail || stills[num] || null,
       description: null,
     };
@@ -183,12 +180,19 @@ function filterData(data: any[], type: "sub" | "dub") {
  * "Episode 2" instead of the real titles ani.zip returns, and the thumbnails
  * were Simkl's rather than the ones the new order picks.
  *
+ * v6 → v7 (2026-08-22): Simkl est retire de la chaine. Deux raisons de monter
+ * la version plutot que de laisser courir : les listes deja en cache tiennent
+ * des vignettes servies par `simkl.in`, un hote qui ne figure plus dans les
+ * `remotePatterns` de next.config — elles s'afficheraient cassees ; et une
+ * liste v6 continuerait de preferer un titre Simkl a celui d'ani.zip pendant
+ * trente jours sur une serie terminee.
+ *
  * This is the same trap as CACHE_VERSION in lib/db/tmdbImagesCache.ts, hit
  * twice in one afternoon: a cache outlives the reason its contents were what
  * they were, and no TTL can notice.
  */
 const EPISODE_CACHE_KEY = (id: string | string[] | undefined) =>
-  `episode:v6:${id}`;
+  `episode:v7:${id}`;
 
 export default async function handler(
   req: NextApiRequest,
@@ -290,59 +294,42 @@ export default async function handler(
   /* Real per-episode stills and titles. Only on the cache-miss path — a Redis
      hit returns above and never reaches these.
 
-     THREE PROVIDERS, IN COVERAGE ORDER, each filling what the previous left
-     empty. They differ only in what they can be keyed by, and that is what
-     decides the order:
+     DEUX FOURNISSEURS, dans l'ordre de couverture, le second remplissant ce
+     que le premier laisse vide. Ils different par ce qui les indexe, et c'est
+     ce qui decide de l'ordre :
 
        1. ani.zip  — keyed on the ANILIST ID itself. Nothing to map, nothing to
                      miss. This is the source Hayase uses, and it is first for
                      the reason it is theirs: it cannot fail on a title that is
                      merely new.
-       2. Simkl    — keyed on Fribb's `simkl_id`, which covers ~34% of entries
-                     and skews against airing shows; `resolveSimklId` rescues
-                     some of the rest with a direct lookup.
-       3. TMDB     — needs a season, the weakest link of all (see
+       2. TMDB     — needs a season, the weakest link of all (see
                      lib/tmdb/episodeStills.ts), so it only ever writes into
-                     episodes the first two left empty.
+                     episodes the first left empty.
+
+     Simkl etait le maillon du milieu et n'y est plus (voir le retrait du
+     22/08/2026) : plus d'appel, plus de cle a tenir, une correspondance
+     d'identifiants de moins a maintenir. Ce qu'il apportait en propre —
+     les series tres longues — retombe sur ani.zip puis sur le fond fanart.
 
      Where none has an image the row falls back to the client's fanart pool,
      exactly as before.
-
-     ani.zip and Simkl run CONCURRENTLY: neither depends on the other and both
-     are usually a single cached Turso read, so serialising them would double
-     the latency of the common case for nothing. TMDB comes after because it
-     needs to know which episodes are still missing.
 
      Timeboxed: the episode list is the site's hot path. Past the budget we
      drop what hasn't arrived and let the pool cover those rows; the result
      still lands in the cache on a later request. */
   const displayed = displayedEpisodeCount(media);
-  const [anizip, simkl] = await Promise.race([
-    Promise.all([
-      getAniZipEpisodes(Number(id), displayed || null).catch(() => ({
-        stills: {},
-        titles: {},
-      })),
-      getSimklEpisodeStills(Number(id), displayed || null).catch(() => ({
-        stills: {},
-        titles: {},
-      })),
-    ]),
-    new Promise<[AniZipEpisodeData, SimklEpisodeData]>((r) =>
-      setTimeout(
-        () => r([
-          { stills: {}, titles: {} },
-          { stills: {}, titles: {} },
-        ]),
-        3000,
-      ),
+  const anizip = await Promise.race([
+    getAniZipEpisodes(Number(id), displayed || null).catch(() => ({
+      stills: {},
+      titles: {},
+    })),
+    new Promise<AniZipEpisodeData>((r) =>
+      setTimeout(() => r({ stills: {}, titles: {} }), 3000),
     ),
   ]);
 
-  /* Spread order IS the precedence: later keys win, so the earlier provider
-     must be spread last. */
-  const merged = { ...simkl.stills, ...anizip.stills };
-  const mergedTitles = { ...simkl.titles, ...anizip.titles };
+  const merged = { ...anizip.stills };
+  const mergedTitles = { ...anizip.titles };
 
   /* TMDB fills what's left, on its own timebox rather than inside the race
      above — otherwise a slow first round would eat the whole budget and the
