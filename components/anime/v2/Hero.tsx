@@ -845,9 +845,7 @@ const hStyles: Record<string, CSSProperties> = {
     letterSpacing: "0.08em",
   },
   contentWrap: {
-    // Voir `--page-w` dans styles.module.css : la largeur de la page, definie
-    // une fois et lue ici comme dans le corps.
-    maxWidth: "var(--page-w)",
+    maxWidth: 1380,
     margin: "0 auto",
     padding: "0 28px 36px",
     // Overlaps the banner. Kept in step with the banner height (360) + fade so
