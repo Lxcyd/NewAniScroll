@@ -61,10 +61,12 @@ const T = {
   line: "#252938",
   line2: "#2f3447",
   txt0: "#f4f5f8",
-  /* Le blanc legerement grisé des numeros d'episode : assez proche du texte
-     pour rester du meme cote que lui, assez en retrait pour que le TITRE reste
-     ce qu'on lit en premier sur une ligne. */
-  txt1: "#c4c8d4",
+  /* Le blanc grisé des numeros d'episode. Un cran plus bas que le --txt-1 de la
+     page d'info (#c4c8d4), qui se lisait encore blanc a cote du titre : l'ecart
+     avec `txt0` doit se VOIR. Mais on reste loin au-dessus de `txt3`, la teinte
+     du secondaire — le numero est une information qu'on lit, pas un detail
+     efface, et il garde son opacite pleine. */
+  txt1: "#a2a8b8",
   txt3: "#5e6478",
   green: "#2dd47a",
 };
