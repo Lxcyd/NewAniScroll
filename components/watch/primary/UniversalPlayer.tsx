@@ -360,10 +360,6 @@ const POLL_MS = 250;
 /** Au-dela, la copie proxifiee ne repondra pas : pas de mesure, pas de
  *  vignette. */
 const PROBE_TIMEOUT_MS = 8000;
-/** Delai avant de tirer cette copie : le temps que la page finisse d'allumer
- *  ses chips de lecteurs. Le Worker qui sert la copie est celui qui resout les
- *  pages sibnet, et une vignette ne vaut pas de le disputer a une resolution. */
-const PROBE_DELAY_MS = 1500;
 
 function LiveAmbient({
   playerRef,
@@ -2270,14 +2266,14 @@ export default function UniversalPlayer({
         }
         return verdict;
       };
-      at(PROBE_DELAY_MS, () => probeNow(remember));
+      probeNow(remember);
     };
 
-    /* La sonde elle-meme, une fois la page calmee. Elle tire quelques Mo du
-       fichier a travers notre Worker, et le Worker est aussi ce qui resout les
-       pages sibnet : tant que la page finit d'allumer ses chips de lecteurs,
-       ces octets-la peuvent attendre. Le spectateur, lui, ne perd rien — il
-       regarde un noir qui est vraiment celui de la video. */
+    /* La sonde elle-meme. Mesure : elle rend son verdict en ~2,5 s (Chrome,
+       sibnet a travers le Worker, cache d'edge froid) — c'est le temps d'aller
+       chercher l'index du fichier puis son debut. Rien ne l'attend d'autre, et
+       elle ne dispute rien a la resolution des lecteurs : celle-ci parle a
+       Vercel et aux pages sibnet, la sonde au CDN. */
     const probeNow = (remember: (v: boolean | null) => boolean | null) => {
       const v = document.createElement("video");
       probeEl = v;
@@ -2327,7 +2323,12 @@ export default function UniversalPlayer({
         settle(again <= BLACK_FRAME ? false : true);
       });
     };
-    look();
+    /* Un flux `noCors` est teinte d'avance : inutile d'attendre que la video
+       soit prete pour constater qu'on ne peut pas la lire. On demande tout de
+       suite au proxy, et les ~2,5 s de la sonde courent pendant que le lecteur
+       se charge au lieu de s'ajouter apres. */
+    if (blindProbeSrc) askTheProxy();
+    else look();
     return () => {
       dead = true;
       stopTimers();
