@@ -351,14 +351,6 @@ function proxied(
  *  Assez haut pour couvrir un noir "sale" d'encodage, assez bas pour qu'un
  *  plan de nuit reste une image. */
 const BLACK_FRAME = 12;
-/** Instants (en secondes) sondes quand l'image d'ouverture est noire.
- *  La borne haute est mesuree, pas devinee : l'episode 1 de Solo Leveling S2
- *  ouvre sur exactement 1,001 s de noir (ffmpeg blackdetect), et un balayage
- *  qui s'arretait a 1 s rendait la main a la vignette d'un cheveu. Trois
- *  secondes couvrent les fondus d'ouverture reels avec de la marge ; au-dela,
- *  le noir n'est plus un artefact d'encodage mais une intention de mise en
- *  scene, et on ne va pas chercher l'image derriere. */
-const BLACK_SCAN = [0.25, 0.5, 1, 1.4, 1.8, 2.4, 3];
 
 function LiveAmbient({
   playerRef,
@@ -366,11 +358,9 @@ function LiveAmbient({
 }: {
   playerRef: React.RefObject<MediaPlayerInstance>;
   /** La premiere image du fichier est-elle une vraie image ?
-   *  `true` : l'ambient peut la prendre pour source des l'arret, sans attendre
-   *  le premier play. `false` : c'est un noir d'ouverture, et tant que la
-   *  lecture n'a pas commence la source est la vignette — meme si la video
-   *  s'est arretee ailleurs qu'a zero, car ce « ailleurs » est le balayage
-   *  du noir et non un choix du spectateur. `null` : pas encore de verdict. */
+   *  `false` (noir mesure) est le seul cas ou l'ambient prend la vignette pour
+   *  source avant le premier play : c'est le seul ou elle est a l'ecran.
+   *  `true` comme `null` laissent la video, qui montre alors quelque chose. */
   lit: boolean | null;
 }) {
   const layerRefs = useRef<(HTMLCanvasElement | null)[]>([]);
@@ -490,7 +480,12 @@ function LiveAmbient({
          vignette — page eteinte, exactement ce que la vignette evite.
          `played` ne ment pas : il ne se remplit qu'apres une vraie lecture. */
       const watched = usable && (!video!.paused || video!.played.length > 0);
-      const live = usable && (watched || lit === true);
+      /* La video est la source sauf quand la vignette la recouvre : ce que
+         l'ambient projette est ce que l'ecran montre, toujours. Une fois la
+         lecture commencee, la vignette n'est plus la et le verdict d'ouverture
+         ne compte plus — d'ou `watched`, qui ne se remplit qu'apres un vrai
+         play (la position, elle, ne dit pas qui l'a bougee). */
+      const live = usable && (watched || lit !== false);
       if (!live) {
         const img = playerEl?.querySelector(
           "img.as-poster",
@@ -2157,10 +2152,14 @@ export default function UniversalPlayer({
      noir — c'est pour ceux-la que la vignette existe. Mais quand la premiere
      frame est une vraie image, la recouvrir cache au spectateur ce qu'il
      s'apprete a regarder.
-     Mesure : la frame reduite a 16x9 et sa luminance moyenne.
-     Trois etats. `null` = on ne sait pas encore, et on ne couvre pas : mieux
-     vaut laisser voir un noir une seconde que masquer une image qui allait
-     bien. La vignette n'arrive qu'apres une mesure qui l'a demandee. */
+     Mesure : la premiere frame reduite a 16x9, et sa luminance moyenne. Rien
+     d'autre — on ne va PAS chercher plus loin dans le fichier une image qui
+     ferait l'affaire. La regle est celle-la et pas une autre : premiere frame
+     noire → la vignette de l'episode ; premiere frame non noire → elle reste,
+     telle quelle.
+     Trois etats. `null` = on ne sait pas, et on ne couvre pas : mieux vaut
+     laisser voir un noir une seconde que masquer une image qui allait bien.
+     La vignette n'arrive qu'apres une mesure qui l'a demandee. */
   const [firstFrameLit, setFirstFrameLit] = useState<boolean | null>(null);
   useEffect(() => {
     setFirstFrameLit(null);
@@ -2175,14 +2174,7 @@ export default function UniversalPlayer({
     /* `null` = la question n'a pas de reponse : canvas teinte, la source ne
        repond pas d'en-tete CORS (sibnet) et relire les pixels est interdit.
        Le dessin, lui, passe — c'est la RELECTURE qui est interdite, et il n'y
-       a aucun contournement.
-       Dans ce cas on couvre quand meme. Ce n'est pas le pari que j'avais pris
-       d'abord, et le renversement vient d'une mesure : les episodes ouvrent
-       massivement sur du noir (verifie a l'ffmpeg — 1,001 s pour Solo Leveling
-       S2 ep1). Sans mesure possible, la vignette a donc une chance sur beaucoup
-       d'avoir raison, et l'erreur inverse — un rectangle noir, sans ambient
-       light, la ou la vignette existait justement pour ca — est celle que le
-       spectateur voit reellement. */
+       a aucun contournement. Sans reponse, on laisse la video tranquille. */
     const luma = (video: HTMLVideoElement): number | null => {
       try {
         ctx.drawImage(video, 0, 0, 16, 9);
@@ -2195,72 +2187,6 @@ export default function UniversalPlayer({
         return null;
       }
     };
-    /* Le noir d'ouverture ne dure souvent que quelques images. Plutot que de
-       poser la vignette par-dessus, on avance jusqu'a la premiere vraie image
-       et on l'y laisse : le spectateur voit le film, et il ne perd qu'une
-       fraction de seconde au play. Passe la derniere borne de BLACK_SCAN,
-       c'est un parti pris de mise en scene et non un artefact — la vignette
-       reprend la main.
-       Abandonne des que la lecture commence : on ne deplace jamais une video
-       sous les yeux de qui la regarde. */
-    const seek = async (video: HTMLVideoElement) => {
-      /* Position ou le balayage a laisse la video. On la relit APRES chaque
-         `seeked` au lieu de garder l'instant demande : un seek atterrit sur
-         l'image cle la plus proche, pas au millieme demande, et comparer a la
-         consigne faisait prendre ce decalage pour un geste du spectateur — le
-         balayage s'interrompait alors sans verdict, et la vignette n'arrivait
-         jamais sur les episodes qui ouvrent vraiment sur du noir. */
-      let expected = video.currentTime;
-      for (const at of BLACK_SCAN) {
-        // Le balayage n'a le droit de deplacer que la video qu'il a lui-meme
-        // laissee la : toute autre position vient du spectateur.
-        if (
-          dead ||
-          !video.paused ||
-          video.played.length > 0 ||
-          Math.abs(video.currentTime - expected) > 0.05
-        )
-          return;
-        video.currentTime = at;
-        expected = at;
-        const landed = await new Promise<boolean>((resolve) => {
-          const done = () => {
-            video.removeEventListener("seeked", done);
-            resolve(true);
-          };
-          video.addEventListener("seeked", done);
-          setTimeout(() => {
-            video.removeEventListener("seeked", done);
-            resolve(false);
-          }, 1500);
-        });
-        if (dead) return;
-        if (!landed) break;
-        expected = video.currentTime;
-        // `seeked` dit que la position est prise, pas que l'image est peinte :
-        // lire tout de suite renvoie encore la frame precedente — c'est-a-dire
-        // le noir qu'on cherche justement a quitter.
-        await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-        if (dead) return;
-        const value = luma(video);
-        // Canvas teinte en cours de route : plus de mesure possible, et le
-        // verdict est celui du sans-mesure — on couvre (voir `luma`).
-        if (value === null) break;
-        if (value > BLACK_FRAME) {
-          setFirstFrameLit(true);
-          return;
-        }
-      }
-      // Noir jusqu'au bout : c'est une ouverture voulue, la vignette la couvre
-      // et la lecture doit repartir du debut. C'est ICI, et nulle part avant,
-      // qu'elle est demandee — voir `look`.
-      if (dead) return;
-      setFirstFrameLit(false);
-      // Rembobiner : la video est restee la ou le balayage l'a laissee, et
-      // personne n'a encore rien regarde (`played` vide) — la rendre a zero
-      // est donc sans risque, meme si le dernier seek a atterri de travers.
-      if (video.paused && video.played.length === 0) video.currentTime = 0;
-    };
     /* Un seul verdict definitif : « il y a une image ». Le noir, lui, reste
        provisoire et se remesure quatre fois par seconde tant que la lecture
        n'a pas commence.
@@ -2271,8 +2197,6 @@ export default function UniversalPlayer({
        pour toujours. Celle-ci se corrige d'elle-meme des que l'image arrive.
        Le cout : un dessin 16x9 quatre fois par seconde sur un lecteur a
        l'arret. */
-    let scanned = false;
-    let scanning = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
     const look = () => {
       timer = null;
@@ -2285,51 +2209,31 @@ export default function UniversalPlayer({
       if (!video || video.readyState < 2 || !video.videoWidth) return again();
       // Plus rien a decider une fois que le spectateur regarde.
       if (!video.paused) return;
-      // Le balayage deplace la video : le temps qu'il dure, il est seul juge.
-      if (scanning) return again();
-      // Une position non nulle qui ne vient pas de lui vient du spectateur, et
-      // ce qu'il a choisi de voir n'a pas a etre recouvert. Mais APRES le
-      // balayage, une position non nulle est le plus souvent la sienne : s'y
-      // fier declarait « il y a une image » sur un ecran noir, sans vignette
-      // ni ambient, des que le balayage rendait la main de travers.
-      if (video.currentTime > 0.01 && (!scanned || video.played.length > 0)) {
+      // Une position non nulle vient du spectateur, et ce qu'il a choisi de
+      // voir n'a pas a etre recouvert.
+      if (video.currentTime > 0.01) {
         setFirstFrameLit(true);
         return;
       }
       const value = luma(video);
-      // Canvas teinte (source sans en-tete CORS, sibnet) : la question n'aura
-      // jamais de reponse. On couvre — voir `luma` — et on cesse de demander.
+      /* Canvas teinte (source sans en-tete CORS, sibnet) : la question n'aura
+         jamais de reponse, et on ne couvre pas. Couvrir au pari, comme je
+         l'avais fait, posait la vignette sur des premieres frames qui etaient
+         de vraies images — visible immediatement, et faux. La vignette ne
+         s'affiche que sur un noir MESURE ; sans mesure, la video montre ce
+         qu'elle a. */
       if (value === null) {
-        setFirstFrameLit(false);
+        setFirstFrameLit(null);
         return;
       }
       if (value > BLACK_FRAME) {
         setFirstFrameLit(true);
         return;
       }
-      /* Noir — mais la vignette ne s'affiche pas encore. Le balayage a une
-         chance de trouver une vraie image quelques centaines de millisecondes
-         plus loin, et la poser en attendant ne montrait qu'un battement :
-         vignette, puis image. Pendant qu'il cherche, l'ecran garde le noir de
-         la video, qui est ce qu'elle a vraiment a montrer. La vignette n'est
-         demandee qu'au bout du balayage, s'il n'a rien trouve. */
-      if (!scanned) {
-        scanned = true;
-        scanning = true;
-        void seek(video).finally(() => {
-          scanning = false;
-        });
-        return again();
-      }
-      /* Le balayage est passe et n'a pas conclu (il s'est interrompu, ou la
-         mesure a cesse d'etre possible). Le noir mesure ICI, maintenant, est
-         alors le dernier mot : sans lui l'etat restait `null` pour toujours et
-         la vignette n'arrivait jamais. */
+      // Noir mesure : la vignette couvre. Le verdict reste provisoire — on
+      // continue de mesurer, une vraie image le corrigera.
       setFirstFrameLit(false);
-      // Et la lecture doit repartir du debut, comme au bout d'un balayage
-      // complet : ce qui a bouge la video, c'est nous.
-      if (video.currentTime > 0.01 && video.played.length === 0)
-        video.currentTime = 0;
+      again();
     };
     look();
     return () => {
