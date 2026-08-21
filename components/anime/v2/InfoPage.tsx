@@ -84,7 +84,9 @@ export default function InfoPage({
 
       <div
         style={{
-          maxWidth: 1380,
+          // Voir `--page-w` dans styles.module.css : la largeur de la page,
+          // definie une fois et lue ici comme dans le heros.
+          maxWidth: "var(--page-w)",
           margin: "0 auto",
           padding: "0 28px 48px",
           display: "flex",

@@ -40,6 +40,15 @@
 .root {
   composes: tokens;
 
+  /* Largeur du contenu de la page, une seule fois pour toute la page.
+     Le héros et le corps la lisent tous les deux ; ils portaient chacun un
+     `maxWidth: 1380` en dur, et deux valeurs identiques ecrites a deux
+     endroits sont deux valeurs qui finissent par diverger.
+     95 %, la valeur exacte de la page de lecture (`lg:max-w-[95%]`) et sans
+     plafond comme elle, pour que passer de l'une a l'autre ne change pas la
+     largeur du site sous les yeux. */
+  --page-w: 95%;
+
   background: var(--bg-0);
   color: var(--txt-0);
   font-family: "Inter", system-ui, sans-serif;

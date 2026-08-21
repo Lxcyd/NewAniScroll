@@ -737,7 +737,9 @@ export default function Info({
         )}
       </main>
 
-      <Footer />
+      {/* La meme largeur que le contenu au-dessus (`--page-w`), sans quoi le
+          pied se resserre a 80 % sous une page qui tient 95 %. */}
+      <Footer widthClass="w-[90%] lg:w-[95%]" />
     </>
   );
 }
