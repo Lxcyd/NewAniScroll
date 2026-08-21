@@ -99,6 +99,8 @@
       "forceMaxQualityDesc": "Garde le lecteur à la meilleure qualité au lieu de s'adapter au débit. Activez si vous avez des baisses de qualité soudaines.",
       "defaultMuted": "Démarrer en sourdine",
       "defaultMutedDesc": "Les vidéos démarrent muettes ; vous pouvez réactiver le son depuis les commandes du lecteur.",
+      "snapToCurrentEpisode": "Se placer sur l'épisode en cours",
+      "snapToCurrentEpisodeDesc": "La liste s'ouvre sur l'épisode en cours de lecture plutôt que sur le premier.",
       "defaultServer": "Serveur par défaut",
       "defaultServerDesc": "Essaie ce serveur en priorité. Auto utilise le défaut du site et mémorise celui choisi dans le lecteur. Repli automatique si un anime ne l'a pas.",
       "serverAuto": "Auto (défaut du site)",

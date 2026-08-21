@@ -949,6 +949,12 @@ export default function Settings() {
                 checked={playerPrefs.defaultMuted}
                 onChange={(v) => setPlayerPrefs({ defaultMuted: v })}
               />
+              <Toggle
+                label={t("settings.player.snapToCurrentEpisode")}
+                desc={t("settings.player.snapToCurrentEpisodeDesc")}
+                checked={playerPrefs.snapToCurrentEpisode}
+                onChange={(v) => setPlayerPrefs({ snapToCurrentEpisode: v })}
+              />
               {/* Classement des langues (lang_pref_order) — la meme popup que
                   celle du premier episode. Elle decide quelle langue on essaie
                   d'abord; le serveur epingle ci-dessous, lui, reste prioritaire
