@@ -86,6 +86,9 @@ const WATCHED_CELL = `linear-gradient(rgba(45,212,122,0.06), rgba(45,212,122,0.0
  *  pres d'un bord de la fenetre pour qu'on le lise encore. La page se decale
  *  alors de ce qu'il faut pour l'en eloigner (cf. `followScrollThumb`). */
 const THUMB_MARGIN = 72;
+/** Defilement de page maximal rendu en une fois pendant qu'on tient la poignee
+ *  (cf. `followScrollThumb`) : au-dela, le rattrapage se voit sauter. */
+const THUMB_STEP = 12;
 
 /* The three shapes the list can take, same three as the info page's Episodes
    tab: thumbnails, one-line rows, grid of numbers. Remembered per device — a
@@ -288,14 +291,27 @@ function Runtime({
     const el = ref.current;
     const ac = new AbortController();
     let fired = false;
-    const io = new IntersectionObserver((entries) => {
-      if (fired || !entries.some((en) => en.isIntersecting)) return;
-      fired = true;
-      io.disconnect();
-      queueRuntime({ malId, episode }, ac.signal).then(
-        (s) => s != null && setExact({ s, player: false }),
-      );
-    });
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (fired || !entries.some((en) => en.isIntersecting)) return;
+        fired = true;
+        io.disconnect();
+        queueRuntime({ malId, episode }, ac.signal).then(
+          (s) => s != null && setExact({ s, player: false }),
+        );
+      },
+      /* La marge d'avance se prend sur le CADRE DEFILANT, pas sur la fenetre.
+         Avec `root: null`, `rootMargin` elargit bien le rectangle de la fenetre
+         mais pas le rognage des ancetres : une ligne encore sous le bas du
+         panneau reste "hors champ" quoi qu'on annonce, et la duree ne partait
+         chercher qu'une fois la ligne arrivee — trop tard quand on descend
+         vite. Vise depuis le cadre, l'avance porte enfin.
+         600px : deux ecrans de liste compacte, cinq cartes detaillees. */
+      {
+        root: el.closest("[data-eplist]"),
+        rootMargin: "600px 0px",
+      },
+    );
     io.observe(el);
     return () => {
       io.disconnect();
@@ -519,9 +535,17 @@ export default function EpisodeLists({
     // `else if` : sur une liste a peine defilable le curseur est plus haut que
     // la fenetre moins ses deux marges, et les deux bords depassent a la fois.
     // Suivre le bas est alors le bon choix, c'est le sens de lecture.
-    // Le seuil a 1px evite de rendre un sous-pixel a chaque evenement.
-    if (below > 1) window.scrollBy(0, below);
-    else if (above > 1) window.scrollBy(0, -above);
+    /* Par petits pas, jamais l'ecart d'un coup. Le navigateur garde la poignee
+       collee au pointeur : rendre 70px de page en une fois la deplace de 70px,
+       puis il la remet sous le pointeur au mouvement suivant — c'est cet
+       aller-retour qu'on voyait clignoter, et d'autant plus qu'on montait
+       doucement, un tout petit mouvement de souris declenchant un grand saut de
+       page. Plafonne, le rattrapage se fait sur plusieurs evenements et devient
+       un glissement.
+       Le seuil a 1px, lui, evite de rendre un sous-pixel a chaque evenement. */
+    const step = (d: number) => Math.min(d, THUMB_STEP);
+    if (below > 1) window.scrollBy(0, step(below));
+    else if (above > 1) window.scrollBy(0, -step(above));
   }, []);
 
   /* Tient-on la poignee ? Le clic tombe-t-il dans la gouttiere de l'ascenseur,
@@ -992,6 +1016,9 @@ export default function EpisodeLists({
           ref={listRef}
           onScroll={onListScrollEvent}
           onPointerDown={onListPointerDown}
+          /* Repere pour les lignes : c'est ce cadre, et non la fenetre, qui
+             sert de reference aux observateurs qui prennent de l'avance. */
+          data-eplist=""
           className={`${v2Styles.customScroll} as-viewswap relative max-h-[60vh] overflow-y-auto lg:max-h-none lg:min-h-0 lg:flex-1 ${
             view === "grid"
               ? /* content-start : le conteneur est `flex-1` donc plus haut que
@@ -1150,8 +1177,16 @@ export default function EpisodeLists({
                         src={f.parsedImage}
                         alt=""
                         draggable={false}
-                        width={496}
-                        height={280}
+                        /* La taille REELLE de la vignette, pas celle de la
+                           source. Le panneau fait 33rem au plus large, la
+                           vignette 42% : ~224px. Avec 496 annonces, `next/image`
+                           servait un fichier de 496px de large — et son 2x, un
+                           de 992 — pour une case de 224 : cinq a vingt fois les
+                           octets necessaires, sur une liste qui en charge des
+                           centaines. C'est ce qui les faisait arriver en retard
+                           quand on descend vite. */
+                        width={224}
+                        height={126}
                         /* AUCUN filtre ici, et c'est la regle : un `filter`
                            promeut l'image sur sa propre couche, que le
                            navigateur rasterise une fois puis ETIRE pendant le
