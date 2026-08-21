@@ -542,9 +542,10 @@ export default function EpisodeLists({
 
   const first = episode?.[0]?.number;
   const last = episode?.[episode.length - 1]?.number;
-  /* Largeur du numero : autant de chiffres que le plus grand numero de la
-     liste. 12 episodes donnent "01", 1120 donnent "0001" — les numeros
-     restent alignes en colonne quelle que soit la longueur de la serie. */
+  /* Nombre de chiffres du plus grand numero de la liste. Il ne sert plus a
+     AFFICHER les numeros — ils s'ecrivent nus, 1 puis 10 puis 100 — mais la
+     recherche continue d'en avoir besoin : quelqu'un qui tape "007" cherche
+     l'episode 7, et l'a peut-etre lu ecrit ainsi ailleurs. */
   const padTo = String(last ?? episode?.length ?? 1).length;
 
   /* Recherche et ordre d'affichage.
@@ -664,7 +665,6 @@ export default function EpisodeLists({
         ? `${t("common.episode")} ${item?.number}`
         : fixApostrophes(mapData?.title) ||
           `${t("common.episode")} ${item?.number}`,
-      pad: String(item.number).padStart(padTo, "0"),
       /* Duree deja mesuree par le lecteur sur cet appareil, s'il y en a une ;
          <Runtime> se charge d'aller chercher les autres. Le "~" de l'estimation
          AniList evite de faire passer une moyenne de serie pour la duree du
@@ -993,17 +993,17 @@ export default function EpisodeLists({
                       pas. `tabular-nums` en plus, que la vignette n'a pas :
                       alignes en colonne, des chiffres de largeurs inegales se
                       voient.
-                      `min-w`, pas `w` : sur une serie a quatre chiffres (One
-                      Piece), une largeur fixe de 28px laissait le numero deborder
-                      de sa case et venir coller le titre. La colonne garde donc
-                      son plancher — les series courtes restent alignees — mais
-                      s'ouvre quand le numero est plus large, et le `gap` reste
-                      un vrai espace. */}
+                      Le numero s'ecrit nu — 1, 10, 100 — sans zeros de tete :
+                      c'est ainsi qu'on nomme un episode a voix haute. La colonne
+                      garde un plancher de 28px pour que les series courtes
+                      restent alignees entre elles, et s'ouvre au-dela : une
+                      largeur fixe laissait le numero d'une serie a quatre
+                      chiffres deborder et coller le titre. */}
                   <span
                     className="min-w-[28px] shrink-0 text-right font-karla text-[17px] font-bold leading-none tabular-nums"
                     style={{ color: T.txt1 }}
                   >
-                    {f.pad}
+                    {item.number}
                   </span>
                   <span
                     className="flex-1 truncate text-[13px] font-medium"
@@ -1104,7 +1104,7 @@ export default function EpisodeLists({
                       className="absolute bottom-2 left-2 font-karla text-[17px] font-bold leading-none"
                       style={{ color: T.txt1 }}
                     >
-                      {f.pad}
+                      {item.number}
                     </span>
                     {f.playing && (
                       <div className="absolute inset-0 grid place-items-center">
