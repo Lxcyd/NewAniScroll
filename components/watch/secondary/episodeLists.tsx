@@ -1016,9 +1016,9 @@ export default function EpisodeLists({
                    un liseré blanc et une ombre — c'est ce mouvement qui dit
                    qu'une ligne est cliquable. L'episode en cours bouge pareil —
                    une carte inerte au milieu de cartes vivantes se lit comme un
-                   bug — mais son liseré ne passe pas au blanc : `as-eplive` le
-                   monte en intensite, l'accent a plein regime double d'un halo.
-                   Restent son curseur par defaut et son clic mort. */
+                   bug — mais son liseré ne passe pas au blanc : `as-eplive`
+                   garde l'accent et l'epaissit. Restent son curseur par defaut
+                   et son clic mort. */
                 <Link
                   key={item.id}
                   href={hrefFor(item)}

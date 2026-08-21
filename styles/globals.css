@@ -340,28 +340,25 @@ body,
    son liseré ne passe pas au blanc : le blanc est la couleur du "cliquable",
    or cette ligne-la ne mene nulle part, on y est deja.
    Le survol monte donc en INTENSITE, pas en clarte : l'accent a plein regime,
-   double d'un halo de la meme couleur. Un rose delave (accent melange a du
-   blanc) perdait sa saturation et donnait un liseré fane ; un rose assombri
-   aurait fait pire, il se serait enfonce dans le fond noir du panneau au
-   moment ou l'on demande a la ligne de reagir. La difference avec le repos se
-   lit a l'eclat, et non a la teinte — ce qui a l'avantage de tenir quel que
-   soit l'accent choisi dans les reglages. */
-:root {
-  --as-eplive-glow: color-mix(in srgb, var(--brand-primary, #ff3b5c) 45%, transparent);
-}
+   et rien d'autre — pas de halo, le trait reste net. Un rose delave (accent
+   melange a du blanc) perdait sa saturation et donnait un liseré fane ; un
+   rose assombri aurait fait pire, il se serait enfonce dans le fond noir du
+   panneau au moment ou l'on demande a la ligne de reagir. */
+
 /* Vues liste et grille : elles portent une vraie bordure, mais posee en style
    INLINE — donc intouchable depuis ici sans `!important`. Le liseré de survol
    passe par une ombre exterieure, qui elle n'a aucun concurrent. Au repos la
-   bordure est a 40% d'accent : passer a 100% suffit deja a marquer le survol. */
+   bordure est a 40% d'accent : passer a 100% suffit a marquer le survol. */
 .as-eplive:not(.as-epcard):hover {
   box-shadow: 0 0 0 1.5px var(--brand-primary, #ff3b5c),
-    0 0 14px var(--as-eplive-glow), 0 10px 15px -3px rgba(0, 0, 0, 0.45);
+    0 10px 15px -3px rgba(0, 0, 0, 0.45);
 }
-/* Vue detaillee : la carte a deja son pseudo-element, et son liseré au repos
-   est deja l'accent plein — c'est le halo, lui, qui dit le survol. */
+/* Vue detaillee : son liseré au repos est DEJA l'accent plein, la couleur ne
+   peut donc rien dire de plus. C'est l'epaisseur qui parle — 2,5px au lieu de
+   1,5 — sinon la carte serait la seule des trois vues a ne pas repondre. */
 .as-epcard.as-eplive::after {
-  box-shadow: inset 0 0 0 1.5px var(--brand-primary, #ff3b5c),
-    0 0 16px var(--as-eplive-glow), 0 6px 18px rgba(0, 0, 0, 0.45);
+  box-shadow: inset 0 0 0 2.5px var(--brand-primary, #ff3b5c),
+    0 6px 18px rgba(0, 0, 0, 0.45);
 }
 
 /* Passage d'une vue a l'autre (cartes · lignes · grille). Les trois vues ne
