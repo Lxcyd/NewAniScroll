@@ -61,6 +61,10 @@ const T = {
   line: "#252938",
   line2: "#2f3447",
   txt0: "#f4f5f8",
+  /* Le blanc legerement grisé des numeros d'episode : assez proche du texte
+     pour rester du meme cote que lui, assez en retrait pour que le TITRE reste
+     ce qu'on lit en premier sur une ligne. */
+  txt1: "#c4c8d4",
   txt3: "#5e6478",
   green: "#2dd47a",
 };
@@ -950,7 +954,7 @@ export default function EpisodeLists({
                       ? ACCENT
                       : f.watched
                         ? T.green
-                        : T.txt0,
+                        : T.txt1,
                   }}
                 >
                   {item.number}
@@ -987,7 +991,10 @@ export default function EpisodeLists({
                       pas. `tabular-nums` en plus, que la vignette n'a pas :
                       alignes en colonne, des chiffres de largeurs inegales se
                       voient. */}
-                  <span className="w-7 shrink-0 text-right font-karla text-[17px] font-bold leading-none tabular-nums text-white/90">
+                  <span
+                    className="w-7 shrink-0 text-right font-karla text-[17px] font-bold leading-none tabular-nums"
+                    style={{ color: T.txt1 }}
+                  >
                     {f.pad}
                   </span>
                   <span
@@ -1077,7 +1084,10 @@ export default function EpisodeLists({
                       live={f.playing}
                       width={f.barWidth}
                     />
-                    <span className="absolute bottom-2 left-2 font-karla text-[17px] font-bold leading-none text-white/90">
+                    <span
+                      className="absolute bottom-2 left-2 font-karla text-[17px] font-bold leading-none"
+                      style={{ color: T.txt1 }}
+                    >
                       {f.pad}
                     </span>
                     {f.playing && (
