@@ -253,11 +253,12 @@ export default function Details({
           <button
             type="button"
             onClick={() => (session ? handlePlan() : handleOpen())}
-            className={`w-full rounded-[11px] px-5 py-3.5 text-[15px] font-semibold transition-colors ${
-              onList
-                ? "border border-[#2f3447] bg-white/[0.04] text-[#c4c8d4]"
-                : "border border-action bg-action text-white hover:brightness-110"
-            }`}
+            /* Le meme aplat d'accent dans les deux etats, seul le libelle
+               change. L'etat "dans votre liste" portait un blanc a 4% : sur une
+               carte deja translucide, ça ne fait pas un bouton gris, ça fait un
+               trou par lequel on voit l'image de fond — et le geste que la
+               colonne est la pour porter se lisait comme desactive. */
+            className="w-full rounded-[11px] border border-action bg-action px-5 py-3.5 text-[15px] font-semibold text-white transition-colors hover:brightness-110"
           >
             {onList ? t("anime.inYourList") : `+ ${t("anime.addToList")}`}
           </button>
