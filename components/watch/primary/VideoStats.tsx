@@ -23,6 +23,7 @@ export type PerfRefs = {
   /* Decoupage du demarrage, dans l'ordre ou il se deroule. Le total seul ne
      dit pas ou passent les secondes, et regler un demarrage a l'aveugle
      revient a deviner. */
+  pageMs: { current: number };
   sourceMs: { current: number };
   manifestMs: { current: number };
   frag1Ms: { current: number };
@@ -46,8 +47,10 @@ type Stats = {
   /* Score persiste par lecteur — ce qui classera les chips au prochain
      chargement. Affiche ici pour pouvoir le lire sans passer par la console. */
   ttff: string;
-  /** « source · manifest · seg1 · image », en ms. */
+  /** « src · manifest · seg1 · image », en ms. */
   startup: string;
+  /** Tout ce qui precede la demande de source, en ms. */
+  pageMs: string;
   stallRate: string;
   perfScore: string;
 };
@@ -68,6 +71,7 @@ const EMPTY: Stats = {
   server: "—",
   ttff: "—",
   startup: "—",
+  pageMs: "—",
   stallRate: "—",
   perfScore: "—",
 };
@@ -166,9 +170,13 @@ export default function VideoStats({
          manifeste ni segment, et un « 0 ms » se lirait comme instantane. */
       const ms = (v: number) => (v > 0 ? String(Math.round(v)) : "—");
       const startup = perf
-        ? `${ms(perf.sourceMs.current)} · ${ms(perf.manifestMs.current)} · ` +
-          `${ms(perf.frag1Ms.current)} · ${ms(perf.frameMs.current)}`
+        ? `${ms(perf.sourceMs.current)}·${ms(perf.manifestMs.current)}·` +
+          `${ms(perf.frag1Ms.current)}·${ms(perf.frameMs.current)}`
         : "—";
+      const pageMs =
+        perf && perf.pageMs.current > 0
+          ? `${Math.round(perf.pageMs.current)} ms`
+          : "—";
       if (serverName) {
         const { final, measured, C } = getServerScore(serverName);
         perfScore =
@@ -205,6 +213,7 @@ export default function VideoStats({
         server: serverName || "—",
         ttff,
         startup,
+        pageMs,
         stallRate,
         perfScore,
       };
@@ -239,9 +248,14 @@ export default function VideoStats({
     [t("stats.volume"), stats.volume],
     [t("stats.time"), `${stats.currentTime} / ${stats.duration}`],
     [t("stats.ttff"), stats.ttff],
-    // Libelle en dur : c'est un instrument de mise au point, pas une ligne de
-    // l'interface — le traduire supposerait qu'on le garde.
-    ["source · manif · seg1 · img", stats.startup],
+    /* Libelles en dur : c'est un instrument de mise au point, pas une ligne de
+       l'interface — les traduire supposerait qu'on les garde.
+       « Page » est a part parce qu'il ne mesure pas la meme chose que les
+       autres : tout ce qui precede la demande de source (navigation, hydratation,
+       lecture des preferences), la ou les quatre suivants decoupent le chemin du
+       flux lui-meme. Et c'est en general le plus gros. */
+    ["Page → src", stats.pageMs],
+    ["src·manif·seg1·img", stats.startup],
     [t("stats.stallRate"), stats.stallRate],
     [t("stats.perfScore"), stats.perfScore],
   ];

@@ -1299,6 +1299,20 @@ export default function Watch({
    *  re-rendre, et le `setHlsData` qui la suit provoque le rendu de toute
    *  façon. */
   const sourceMsRef = useRef(0);
+  /* Tout ce qui precede cette demande : chargement du document, hydratation,
+     lecture de la preference de lecteur. Compte depuis le debut de la
+     NAVIGATION — `performance.now()` part de la pour un chargement franc, et
+     l'evenement de route le recale pour un passage d'episode a episode, ou
+     l'horloge du document est deja vieille de plusieurs minutes. */
+  const pageMsRef = useRef(0);
+  const navAtRef = useRef(0);
+  useEffect(() => {
+    const mark = () => {
+      navAtRef.current = performance.now();
+    };
+    router.events?.on("routeChangeStart", mark);
+    return () => router.events?.off("routeChangeStart", mark);
+  }, [router.events]);
 
   const fetchStreamSource = useCallback(async (serverId, signal) => {
     // `info` is hydrated client-side now — on a cold SSR it can be null for the
@@ -1318,6 +1332,7 @@ export default function Watch({
        (cf. le commentaire du TTFF dans UniversalPlayer) — il est la pour dire
        ou passent les secondes, pas pour juger un lecteur. */
     const sourceAt = performance.now();
+    pageMsRef.current = sourceAt - navAtRef.current;
     const markSourceMs = () => {
       sourceMsRef.current = performance.now() - sourceAt;
     };
@@ -2134,6 +2149,7 @@ export default function Watch({
             autoplay={!!autoplay}
             streamData={hlsData}
             sourceMs={sourceMsRef.current}
+            pageMs={pageMsRef.current}
             poster={episodeNavigation?.playing?.img || info?.bannerImage}
             serverId={server.id}
             nextEpisodeHref={nextEpisodeHref}

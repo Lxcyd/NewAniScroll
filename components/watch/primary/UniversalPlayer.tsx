@@ -141,6 +141,9 @@ type Props = {
    *  quand elle sortait deja du cache de prechauffage. Affiche dans l'overlay
    *  « stats for nerds », premier poste du decoupage du demarrage. */
   sourceMs?: number;
+  /** Tout ce qui precede la demande de source — navigation, hydratation,
+   *  lecture des preferences — en ms. Meme usage que `sourceMs`. */
+  pageMs?: number;
   onError?: (reason?: string) => void;
   ambient?: boolean;
   serverId?: string;
@@ -1430,6 +1433,7 @@ export default function UniversalPlayer({
   streamData,
   poster,
   sourceMs,
+  pageMs,
   onError,
   ambient = true,
   serverId,
@@ -1818,9 +1822,11 @@ export default function UniversalPlayer({
      page et arrive en prop. Recopiee dans une ref pour rejoindre les autres :
      l'overlay lit des refs, jamais du state. */
   const sourceMsRef = useRef(0);
+  const pageMsRef = useRef(0);
   useEffect(() => {
     sourceMsRef.current = sourceMs ?? 0;
-  }, [sourceMs]);
+    pageMsRef.current = pageMs ?? 0;
+  }, [sourceMs, pageMs]);
   /* Passe tel quel a VideoStats : ce sont des refs, donc l'overlay lit les
      accumulateurs vivants sans qu'aucune mesure ne declenche de rendu. */
   const perfRefs = useRef({
@@ -1828,6 +1834,7 @@ export default function UniversalPlayer({
     stalledMs: stalledMsRef,
     maxHeight: maxHeightRef,
     ttffMs: ttffMsRef,
+    pageMs: pageMsRef,
     sourceMs: sourceMsRef,
     manifestMs: manifestMsRef,
     frag1Ms: frag1MsRef,
