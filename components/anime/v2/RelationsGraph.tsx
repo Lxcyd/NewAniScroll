@@ -2042,6 +2042,11 @@ export default function RelationsGraph({
       rankDir,
       near,
       hover,
+      /* `armed` gouverne le curseur et l'infobulle de CHAQUE carte : sans lui
+         ici, le plateau gardait le balisage memorisé du moment ou il etait
+         arme, et une carte arrivee sous un curseur immobile continuait de se
+         donner pour un lien. */
+      armed,
       chain,
       selected,
       matches,

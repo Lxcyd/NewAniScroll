@@ -2141,9 +2141,8 @@ export default function UniversalPlayer({
      frame est une vraie image, la recouvrir cache au spectateur ce qu'il
      s'apprete a regarder.
      Mesure : la frame reduite a 16x9 et sa luminance moyenne. Une taint de
-     canvas (source sans en-tete CORS) laisse la question sans reponse — on
-     garde alors la vignette, qui est le cas le plus frequent et le moins
-     genant des deux.
+     canvas (source sans en-tete CORS) laisse la question sans reponse — voir
+     le `catch` pour le sens dans lequel on tranche alors.
      `null` = on ne sait pas encore : la vignette tient la place en attendant,
      plutot que de laisser voir un noir qu'on effacerait aussitot. */
   const [firstFrameLit, setFirstFrameLit] = useState<boolean | null>(null);
@@ -2170,7 +2169,16 @@ export default function UniversalPlayer({
               data[i] * 0.2126 + data[i + 1] * 0.7152 + data[i + 2] * 0.0722;
           setFirstFrameLit(sum / (data.length / 4) > BLACK_FRAME);
         } catch {
-          setFirstFrameLit(false);
+          /* Canvas teinte : la source ne repond pas d'en-tete CORS (sibnet), et
+             relire les pixels est interdit. On ne saura donc jamais, pour ces
+             hotes-la, si la premiere frame est noire.
+             Dans le doute on NE COUVRE PAS. Des deux erreurs possibles, celle-ci
+             est la moins couteuse : ne pas masquer un noir rend ce que le
+             lecteur montrait avant que cette mesure existe, tandis que masquer
+             une vraie image cache au spectateur ce qu'il s'apprete a regarder —
+             et c'est visible a tous les coups, pas seulement sur les encodages
+             qui ouvrent sur un fondu. */
+          setFirstFrameLit(true);
         }
         return;
       }
