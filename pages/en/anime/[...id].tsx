@@ -737,9 +737,12 @@ export default function Info({
         )}
       </main>
 
-      {/* La meme largeur que le contenu au-dessus (`--page-w`), sans quoi le
-          pied se resserre a 80 % sous une page qui tient 95 %. */}
-      <Footer widthClass="w-[90%] lg:w-[95%]" />
+      {/* La meme largeur que le contenu au-dessus (`--page-w`), ET la meme
+          marge interieure : le corps de la page est a 95 % PLUS 28 px de
+          padding, donc un pied a 95 % tout court commence 28 px trop a
+          gauche — assez pour que le logo ne soit pas sur la meme ligne que
+          le reste de la page. */}
+      <Footer widthClass="w-[90%] lg:w-[95%] px-0 lg:px-7" />
     </>
   );
 }

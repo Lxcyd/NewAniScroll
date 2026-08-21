@@ -816,9 +816,13 @@
       "jikan": "L'API ouverte qui rend les données MyAnimeList accessibles.",
       "simkl": "Les vignettes réelles de chaque épisode, y compris pour les très longues séries que les autres bases ne couvrent pas.",
       "tmdb": "Les grandes illustrations derrière les bandeaux d'accueil, les logos de titre, et les vignettes d'épisodes que Simkl n'a pas.",
+      "anizip": "Titres et vignettes par épisode, indexés directement sur l'identifiant AniList — le complément de Simkl, sans table de correspondance.",
       "fribb": "La table de correspondance entre les identifiants des différentes bases, sans laquelle rien ne pourrait être recoupé.",
       "aniskip": "Les repères communautaires pour passer les génériques.",
-      "animeskip": "Repères de génériques, en complément."
+      "animeskip": "Repères de génériques, en complément.",
+      "tracemoe": "La recherche par image : donnez-lui une capture, il rend l'anime, l'épisode et la seconde exacte.",
+      "youtube": "Les bandes-annonces — sur la fiche, et celle qui se lance sous le curseur au survol d'une jaquette.",
+      "gtranslate": "Traduit les synopsis et titres d'épisodes qui n'existent que dans une seule langue."
     }
   },
   "about": {

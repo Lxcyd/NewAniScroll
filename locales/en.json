@@ -816,9 +816,13 @@
       "jikan": "The open API that makes MyAnimeList data reachable.",
       "simkl": "Real per-episode thumbnails, including for the very long-running series other databases don't cover.",
       "tmdb": "The wide key art behind the hero banners, the title logos, and the episode thumbnails Simkl is missing.",
+      "anizip": "Per-episode titles and stills, keyed straight on the AniList id — the mapping-free complement to Simkl.",
       "fribb": "The cross-database ID map, without which none of these could be matched to each other.",
       "aniskip": "Community-sourced timestamps for skipping openings and endings.",
-      "animeskip": "Opening/ending skip timestamps, as a complement."
+      "animeskip": "Opening/ending skip timestamps, as a complement.",
+      "tracemoe": "Search by image: give it a screenshot and it names the anime, the episode and the second it was taken at.",
+      "youtube": "The trailers — on the info page, and the one that plays under the cursor on a card.",
+      "gtranslate": "Translates the synopses and episode titles that only exist in one language."
     }
   },
   "about": {

@@ -1,8 +1,6 @@
 import Link from "next/link";
-import { useState } from "react";
 import Logo from "./Logo";
 import { useTranslation } from "react-i18next";
-import { getCurrentSeason } from "@/utils/getTimes";
 
 /** Largeur du contenu du pied, par defaut celle des pages du site.
  *  Toutes ne l'ont pas : la page /watch tient ses colonnes a 95 % jusqu'en xl
@@ -13,8 +11,6 @@ const DEFAULT_WIDTH = "w-[90%] lg:w-[95%] xl:w-[80%]";
 
 function Footer({ widthClass = DEFAULT_WIDTH }: { widthClass?: string }) {
   const { t } = useTranslation();
-  const [year] = useState(new Date().getFullYear());
-  const [season] = useState(getCurrentSeason());
 
   return (
     <footer className="flex-col w-full">
@@ -29,24 +25,12 @@ function Footer({ widthClass = DEFAULT_WIDTH }: { widthClass?: string }) {
             </p>
           </div>
           <div className="flex flex-col gap-10 lg:flex-row lg:items-end lg:gap-[9.06rem] text-[#a7a7a7] text-sm lg:text-end">
+            {/* Les seuls liens qui ont leur place ici : ceux qui parlent du
+                site. La navigation du catalogue (cette saison, populaires,
+                films, series) vit dans la barre du haut, ou on la cherche —
+                la repeter en pied ne faisait que remplir la colonne. */}
             <div className="flex flex-col gap-10 font-karla font-bold lg:flex-row lg:gap-[5.94rem]">
-              <ul className="flex flex-col gap-y-[0.7rem] ">
-                <li className="cursor-pointer hover:text-action">
-                  <Link href={`/en/search/anime?season=${season}&year=${year}`}>
-                    {t("home.thisSeason")}
-                  </Link>
-                </li>
-                <li className="cursor-pointer hover:text-action">
-                  <Link href={`/en/search/anime`}>{t("home.popularAnime")}</Link>
-                </li>
-              </ul>
               <ul className="flex flex-col gap-y-[0.7rem]">
-                <li className="cursor-pointer hover:text-action">
-                  <Link href={`/en/search/anime?format=MOVIE`}>{t("footer.movies")}</Link>
-                </li>
-                <li className="cursor-pointer hover:text-action">
-                  <Link href={`/en/search/anime?format=TV`}>{t("footer.tvShows")}</Link>
-                </li>
                 <li className="cursor-pointer hover:text-action">
                   <Link href={`/en/dmca`}>{t("footer.dmca")}</Link>
                 </li>

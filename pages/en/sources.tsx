@@ -32,6 +32,11 @@ type Source = {
 const TMDB_DISCLAIMER =
   "This product uses the TMDB API but is not endorsed or certified by TMDB.";
 
+/* La liste doit rester la liste de CE QUI EST APPELE. Elle avait pris du
+   retard : ani.zip, trace.moe, YouTube et Google Traduction servaient la page
+   sans y figurer. La verification est mecanique — les hotes distants appeles
+   par lib/, pages/api/ et components/ — et c'est ainsi qu'il faut la refaire
+   quand une source entre ou sort. */
 const SOURCES: Source[] = [
   { name: "AniList", url: "https://anilist.co", key: "anilist" },
   { name: "fanart.tv", url: "https://fanart.tv", key: "fanart" },
@@ -40,9 +45,13 @@ const SOURCES: Source[] = [
   { name: "Jikan", url: "https://jikan.moe", key: "jikan" },
   { name: "Simkl", url: "https://simkl.com", key: "simkl" },
   { name: "TMDB", url: "https://www.themoviedb.org", key: "tmdb" },
+  { name: "ani.zip", url: "https://ani.zip", key: "anizip" },
   { name: "Fribb/anime-lists", url: "https://github.com/Fribb/anime-lists", key: "fribb" },
   { name: "AniSkip", url: "https://aniskip.com", key: "aniskip" },
   { name: "Anime-Skip", url: "https://anime-skip.com", key: "animeskip" },
+  { name: "trace.moe", url: "https://trace.moe", key: "tracemoe" },
+  { name: "YouTube", url: "https://www.youtube.com", key: "youtube" },
+  { name: "Google Traduction", url: "https://translate.google.com", key: "gtranslate" },
 ];
 
 export default function Sources() {
