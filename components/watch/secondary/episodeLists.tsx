@@ -992,9 +992,15 @@ export default function EpisodeLists({
                       petit gris ici et en gros blanc la-bas ne se justifiait
                       pas. `tabular-nums` en plus, que la vignette n'a pas :
                       alignes en colonne, des chiffres de largeurs inegales se
-                      voient. */}
+                      voient.
+                      `min-w`, pas `w` : sur une serie a quatre chiffres (One
+                      Piece), une largeur fixe de 28px laissait le numero deborder
+                      de sa case et venir coller le titre. La colonne garde donc
+                      son plancher — les series courtes restent alignees — mais
+                      s'ouvre quand le numero est plus large, et le `gap` reste
+                      un vrai espace. */}
                   <span
-                    className="w-7 shrink-0 text-right font-karla text-[17px] font-bold leading-none tabular-nums"
+                    className="min-w-[28px] shrink-0 text-right font-karla text-[17px] font-bold leading-none tabular-nums"
                     style={{ color: T.txt1 }}
                   >
                     {f.pad}
