@@ -1399,9 +1399,18 @@ export default function Watch({
       // 404 for this upload, and no amount of waiting turns that into a stream.
       // Retrying it cost 3 requests and 5.6 s of spinner before the fallback
       // could even start — that was the "the VF player is dead" wait.
+      //
+      // Le meme traitement vaut pour un verdict `retry` (503), et il manquait.
+      // La route distingue exprès l'ABSENCE, qui est un verdict, du HOQUET, qui
+      // n'en est pas un — un scrape lent, un hote qui bafouille. Or la suite
+      // marquait les deux « failed », et le filet de securite plus bas bascule
+      // sur un serveur confirme des qu'il voit ce marquage : un 503 isolé
+      // suffisait donc a reprendre a l'utilisateur le lecteur qu'il venait de
+      // choisir, sous ses yeux. On redemande avant de conclure.
       for (
         let attempt = 0;
-        out.kind === "absent" && !out.hard && attempt < DECOY_RETRIES;
+        (out.kind === "retry" || (out.kind === "absent" && !out.hard)) &&
+        attempt < DECOY_RETRIES;
         attempt++
       ) {
         await new Promise((r) => setTimeout(r, DECOY_BACKOFF_MS[attempt]));
