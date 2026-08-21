@@ -360,6 +360,10 @@ const POLL_MS = 250;
 /** Au-dela, la copie proxifiee ne repondra pas : pas de mesure, pas de
  *  vignette. */
 const PROBE_TIMEOUT_MS = 8000;
+/** Delai avant de tirer cette copie : le temps que la page finisse d'allumer
+ *  ses chips de lecteurs. Le Worker qui sert la copie est celui qui resout les
+ *  pages sibnet, et une vignette ne vaut pas de le disputer a une resolution. */
+const PROBE_DELAY_MS = 1500;
 
 function LiveAmbient({
   playerRef,
@@ -2266,6 +2270,15 @@ export default function UniversalPlayer({
         }
         return verdict;
       };
+      at(PROBE_DELAY_MS, () => probeNow(remember));
+    };
+
+    /* La sonde elle-meme, une fois la page calmee. Elle tire quelques Mo du
+       fichier a travers notre Worker, et le Worker est aussi ce qui resout les
+       pages sibnet : tant que la page finit d'allumer ses chips de lecteurs,
+       ces octets-la peuvent attendre. Le spectateur, lui, ne perd rien — il
+       regarde un noir qui est vraiment celui de la video. */
+    const probeNow = (remember: (v: boolean | null) => boolean | null) => {
       const v = document.createElement("video");
       probeEl = v;
       v.crossOrigin = "anonymous";
@@ -2290,7 +2303,7 @@ export default function UniversalPlayer({
       });
       v.addEventListener("error", () => stop(null));
       at(PROBE_TIMEOUT_MS, () => stop(null));
-      v.src = blindProbeSrc;
+      v.src = blindProbeSrc!;
     };
 
     const look = () => {
