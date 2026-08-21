@@ -335,6 +335,30 @@ body,
   opacity: 1;
 }
 
+/* Survol de l'episode EN COURS, dans les trois vues. Il bouge comme les autres
+   — une ligne inerte au milieu de lignes vivantes se lit comme un bug — mais
+   son liseré ne passe pas au blanc : le blanc est la couleur du "cliquable",
+   or cette ligne-la ne mene nulle part, on y est deja. Il prend donc un rose
+   ECLAIRCI : meme famille que son liseré au repos, un cran au-dessus, ce qui
+   se lit comme un survol et non comme un autre etat.
+   Le rose est melange a du blanc plutot que pris a une opacite differente : au
+   repos la ligne est deja a 40% d'accent, et monter a 100% n'aurait fait que
+   la rapprocher de la carte detaillee, qui elle est deja a 100%. */
+:root {
+  --as-eplive-hover: color-mix(in srgb, var(--brand-primary, #ff3b5c) 55%, #ffffff);
+}
+/* Vues liste et grille : elles portent une vraie bordure, mais posee en style
+   INLINE — donc intouchable depuis ici sans `!important`. Le liseré de survol
+   passe par une ombre exterieure, qui elle n'a aucun concurrent. */
+.as-eplive:not(.as-epcard):hover {
+  box-shadow: 0 0 0 1.5px var(--as-eplive-hover), 0 10px 15px -3px rgba(0, 0, 0, 0.45);
+}
+/* Vue detaillee : la carte a deja son pseudo-element, on ne fait qu'en changer
+   la couleur (son liseré accent plein reste dessous et reapparait a la sortie). */
+.as-epcard.as-eplive::after {
+  box-shadow: inset 0 0 0 1.5px var(--as-eplive-hover), 0 6px 18px rgba(0, 0, 0, 0.45);
+}
+
 /* Passage d'une vue a l'autre (cartes · lignes · grille). Les trois vues ne
    peuvent pas se transformer l'une en l'autre — ni le meme nombre d'elements
    a l'ecran, ni la meme forme — donc la nouvelle entre au lieu de tenter un

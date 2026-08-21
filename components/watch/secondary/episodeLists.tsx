@@ -9,6 +9,7 @@ import { useTranslation } from "react-i18next";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useHideSpoilers } from "@/lib/prefs/spoilerPrefs";
 import { useSyncPrefs } from "@/lib/prefs/syncPrefs";
+import { getPlayerPrefs } from "@/lib/prefs/playerPrefs";
 import { peekLocalEntry, LOCAL_LIST_EVENT } from "@/lib/list/localList";
 import { fixApostrophes } from "@/lib/text/apostrophes";
 import {
@@ -470,6 +471,12 @@ export default function EpisodeLists({
   }, []);
 
   useEffect(() => {
+    /* Le reglage est lu ICI, a chaud, et non par `usePlayerPrefs` : ce hook
+       rend d'abord les valeurs par defaut puis les vraies apres son propre
+       effet — l'ancrage serait donc deja parti avant de savoir qu'il est
+       desactive. Et il n'a rien a suivre en direct : seul compte son etat a
+       l'instant ou la liste se replace. */
+    if (!getPlayerPrefs().snapToCurrentEpisode) return;
     const box = listRef.current;
     const row = box?.querySelector<HTMLElement>("[data-playing]");
     if (!box || !row) return;
@@ -923,8 +930,10 @@ export default function EpisodeLists({
                   onClick={f.playing ? (e) => e.preventDefault() : undefined}
                   /* Meme regle que les deux autres vues : la case en cours se
                      survole comme les autres, seul son curseur la distingue. */
-                  className={`grid aspect-square place-items-center rounded-lg border text-sm font-semibold transition-all duration-300 ease-out hover:scale-[1.06] hover:shadow-lg hover:ring-1 hover:ring-white ${
-                    f.playing ? "cursor-default" : ""
+                  className={`grid aspect-square place-items-center rounded-lg border text-sm font-semibold transition-all duration-300 ease-out hover:scale-[1.06] ${
+                    f.playing
+                      ? "as-eplive cursor-default"
+                      : "hover:shadow-lg hover:ring-1 hover:ring-white"
                   }`}
                   style={{
                     borderColor: f.playing ? ACCENT_BORDER : T.line,
@@ -954,15 +963,16 @@ export default function EpisodeLists({
                   title={f.title}
                   data-playing={f.playing ? "" : undefined}
                   onClick={f.playing ? (e) => e.preventDefault() : undefined}
-                  /* L'episode en cours se survole comme les autres : une ligne
-                     inerte au milieu de lignes vivantes se lit comme un bug.
-                     Son liseré accent reste dessous, le blanc du survol le
-                     couvre le temps du survol. Seul son curseur par defaut le
-                     distingue — son clic ne mene nulle part, on y est deja.
-                     D'ou le `preventDefault` plutot qu'un `pointer-events-none`,
-                     qui supprimerait aussi le survol. */
-                  className={`flex min-h-[40px] items-center gap-3 rounded-lg border px-3 py-2.5 transition-all duration-300 ease-out hover:scale-[1.02] hover:shadow-lg hover:ring-1 hover:ring-white ${
-                    f.playing ? "cursor-default" : ""
+                  /* L'episode en cours bouge comme les autres : une ligne inerte
+                     au milieu de lignes vivantes se lit comme un bug. Son liseré
+                     de survol est rose et non blanc (`as-eplive`) — le blanc dit
+                     "cliquable", or on y est deja ; d'ou aussi le curseur par
+                     defaut et le `preventDefault`, qui neutralise le clic sans
+                     tuer le survol comme le ferait `pointer-events-none`. */
+                  className={`flex min-h-[40px] items-center gap-3 rounded-lg border px-3 py-2.5 transition-all duration-300 ease-out hover:scale-[1.02] ${
+                    f.playing
+                      ? "as-eplive cursor-default"
+                      : "hover:shadow-lg hover:ring-1 hover:ring-white"
                   }`}
                   style={frame(f.playing)}
                 >
@@ -1004,11 +1014,11 @@ export default function EpisodeLists({
                    gauche, titre en gras italique, resume en dessous. Et son
                    survol, qui manquait ici : la carte grossit d'un poil, prend
                    un liseré blanc et une ombre — c'est ce mouvement qui dit
-                   qu'une ligne est cliquable. L'episode en cours se survole
-                   exactement pareil — une carte inerte au milieu de cartes
-                   vivantes se lit comme un bug ; son liseré accent reste
-                   dessous et reapparait des qu'on sort. Seuls son curseur par
-                   defaut et son clic mort le distinguent : on y est deja. */
+                   qu'une ligne est cliquable. L'episode en cours bouge pareil —
+                   une carte inerte au milieu de cartes vivantes se lit comme un
+                   bug — mais son liseré ne passe pas au blanc : `as-eplive` lui
+                   donne un rose eclairci, un cran au-dessus de son liseré au
+                   repos. Restent son curseur par defaut et son clic mort. */
                 <Link
                   key={item.id}
                   href={hrefFor(item)}
@@ -1020,7 +1030,7 @@ export default function EpisodeLists({
                      bords en escalier. La carte reste donc sans transform tant
                      qu'on ne la survole pas. */
                   className={`as-epcard bg-secondary group relative flex h-[110px] w-full rounded-lg transition-transform duration-300 ease-out hover:scale-[1.02] ${
-                    f.playing ? "cursor-default" : "cursor-pointer"
+                    f.playing ? "as-eplive cursor-default" : "cursor-pointer"
                   }`}
                 >
                   <div className="relative h-[110px] w-[43%] shrink-0 overflow-hidden rounded-lg shadow-[4px_0px_5px_0px_rgba(0,0,0,0.3)] lg:w-[42%]">
