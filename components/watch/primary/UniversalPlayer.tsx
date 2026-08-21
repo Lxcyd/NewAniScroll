@@ -137,6 +137,10 @@ export type UniversalStreamData = {
 type Props = {
   streamData: UniversalStreamData | null;
   poster?: string;
+  /** Temps qu'a pris la resolution de la source (/api/v2/source), en ms — 0
+   *  quand elle sortait deja du cache de prechauffage. Affiche dans l'overlay
+   *  « stats for nerds », premier poste du decoupage du demarrage. */
+  sourceMs?: number;
   onError?: (reason?: string) => void;
   ambient?: boolean;
   serverId?: string;
@@ -1425,6 +1429,7 @@ function CenterPlayButton({
 export default function UniversalPlayer({
   streamData,
   poster,
+  sourceMs,
   onError,
   ambient = true,
   serverId,
@@ -1557,6 +1562,27 @@ export default function UniversalPlayer({
     if (isHLSProvider(provider)) {
       const hls = provider.instance || null;
       hlsRef.current = hls;
+      /* Jalons du demarrage — cf. les refs a cote de `ttffMsRef`. Poses ici
+         parce que c'est le seul endroit qui tient l'instance hls.js, et seul
+         le PREMIER passage compte : les gardes `if (!ref.current)` laissent
+         filer les manifestes et segments suivants. Litteraux de chaine plutot
+         que l'enum, comme le `pin` juste dessous. */
+      if (hls) {
+        try {
+          (hls as any).on("hlsManifestParsed", () => {
+            if (manifestAtRef.current) return;
+            manifestAtRef.current = performance.now();
+            if (srcCommitAtRef.current)
+              manifestMsRef.current =
+                manifestAtRef.current - srcCommitAtRef.current;
+          });
+          (hls as any).on("hlsFragLoaded", () => {
+            if (frag1AtRef.current || !manifestAtRef.current) return;
+            frag1AtRef.current = performance.now();
+            frag1MsRef.current = frag1AtRef.current - manifestAtRef.current;
+          });
+        } catch {}
+      }
       // Force Maximum Quality: pin hls.js to the top level (setting
       // currentLevel to a fixed index disables ABR auto-switching) once the
       // manifest's levels are known. Read the pref at setup time. When off we
@@ -1776,6 +1802,25 @@ export default function UniversalPlayer({
   const ttffDoneRef = useRef(false);
   /** Derniere valeur mesuree, gardee pour l'overlay « stats for nerds ». */
   const ttffMsRef = useRef(0);
+  /* Decoupage du TTFF, pour l'overlay.
+     Le total ne dit pas ou passent les secondes, et regler un demarrage a
+     l'aveugle revient a deviner. Trois etapes se suivent une fois le flux
+     connu : le manifeste, le premier segment, puis le decodage jusqu'a la
+     premiere image. Chacune se remet a zero au changement de source, et n'est
+     relevee qu'une fois — c'est le PREMIER passage qui interesse, pas la
+     moyenne d'une lecture en cours. */
+  const manifestMsRef = useRef(0);
+  const frag1MsRef = useRef(0);
+  const frameMsRef = useRef(0);
+  const manifestAtRef = useRef(0);
+  const frag1AtRef = useRef(0);
+  /* La resolution de la source precede le lecteur — elle se mesure donc dans la
+     page et arrive en prop. Recopiee dans une ref pour rejoindre les autres :
+     l'overlay lit des refs, jamais du state. */
+  const sourceMsRef = useRef(0);
+  useEffect(() => {
+    sourceMsRef.current = sourceMs ?? 0;
+  }, [sourceMs]);
   /* Passe tel quel a VideoStats : ce sont des refs, donc l'overlay lit les
      accumulateurs vivants sans qu'aucune mesure ne declenche de rendu. */
   const perfRefs = useRef({
@@ -1783,6 +1828,10 @@ export default function UniversalPlayer({
     stalledMs: stalledMsRef,
     maxHeight: maxHeightRef,
     ttffMs: ttffMsRef,
+    sourceMs: sourceMsRef,
+    manifestMs: manifestMsRef,
+    frag1Ms: frag1MsRef,
+    frameMs: frameMsRef,
   }).current;
 
   const videoEl = useCallback(
@@ -1850,6 +1899,11 @@ export default function UniversalPlayer({
     srcCommitAtRef.current = 0;
     ttffDoneRef.current = false;
     ttffMsRef.current = 0;
+    manifestMsRef.current = 0;
+    frag1MsRef.current = 0;
+    frameMsRef.current = 0;
+    manifestAtRef.current = 0;
+    frag1AtRef.current = 0;
   }, [serverId, aniListId, episodeNumber]);
 
   // Stall et qualite sont des ACCUMULATEURS : ils n'ont de valeur qu'a la fin.
@@ -1894,7 +1948,12 @@ export default function UniversalPlayer({
     }
     if (!canPlayState) return;
     ttffDoneRef.current = true;
-    ttffMsRef.current = performance.now() - srcCommitAtRef.current;
+    const at = performance.now();
+    ttffMsRef.current = at - srcCommitAtRef.current;
+    // Ce qui reste apres le premier segment : le decodage jusqu'a l'image. Sur
+    // un MP4 direct il n'y a ni manifeste ni segment a chronometrer, et cette
+    // derniere etape vaut alors le TTFF entier.
+    frameMsRef.current = at - (frag1AtRef.current || srcCommitAtRef.current);
     recordSample("t", ttffMsRef.current);
   }, [serverId, streamData, canPlayState]);
   /* AniSkip chapter cues, populated by SkipOverlay after it fetches

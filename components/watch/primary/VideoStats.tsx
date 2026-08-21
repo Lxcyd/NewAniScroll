@@ -20,6 +20,13 @@ export type PerfRefs = {
   stalledMs: { current: number };
   maxHeight: { current: number };
   ttffMs: { current: number };
+  /* Decoupage du demarrage, dans l'ordre ou il se deroule. Le total seul ne
+     dit pas ou passent les secondes, et regler un demarrage a l'aveugle
+     revient a deviner. */
+  sourceMs: { current: number };
+  manifestMs: { current: number };
+  frag1Ms: { current: number };
+  frameMs: { current: number };
 };
 
 type Stats = {
@@ -39,6 +46,8 @@ type Stats = {
   /* Score persiste par lecteur — ce qui classera les chips au prochain
      chargement. Affiche ici pour pouvoir le lire sans passer par la console. */
   ttff: string;
+  /** « source · manifest · seg1 · image », en ms. */
+  startup: string;
   stallRate: string;
   perfScore: string;
 };
@@ -58,6 +67,7 @@ const EMPTY: Stats = {
   bufferHealth: "—",
   server: "—",
   ttff: "—",
+  startup: "—",
   stallRate: "—",
   perfScore: "—",
 };
@@ -148,6 +158,17 @@ export default function VideoStats({
       let perfScore = "—";
       let ttff = "—";
       let stallRate = "—";
+      /* Les quatre etapes du demarrage, dans l'ordre. Lu hors du `if
+         (serverName)` qui suit : le decoupage vaut aussi pour un lecteur qui
+         n'a pas encore de score persiste, et c'est justement au premier
+         chargement qu'on veut le voir.
+         Un tiret la ou l'etape n'a pas eu lieu — un MP4 direct n'a ni
+         manifeste ni segment, et un « 0 ms » se lirait comme instantane. */
+      const ms = (v: number) => (v > 0 ? String(Math.round(v)) : "—");
+      const startup = perf
+        ? `${ms(perf.sourceMs.current)} · ${ms(perf.manifestMs.current)} · ` +
+          `${ms(perf.frag1Ms.current)} · ${ms(perf.frameMs.current)}`
+        : "—";
       if (serverName) {
         const { final, measured, C } = getServerScore(serverName);
         perfScore =
@@ -183,6 +204,7 @@ export default function VideoStats({
         bufferHealth: `${bufferAhead.toFixed(1)} s`,
         server: serverName || "—",
         ttff,
+        startup,
         stallRate,
         perfScore,
       };
@@ -217,6 +239,9 @@ export default function VideoStats({
     [t("stats.volume"), stats.volume],
     [t("stats.time"), `${stats.currentTime} / ${stats.duration}`],
     [t("stats.ttff"), stats.ttff],
+    // Libelle en dur : c'est un instrument de mise au point, pas une ligne de
+    // l'interface — le traduire supposerait qu'on le garde.
+    ["source · manif · seg1 · img", stats.startup],
     [t("stats.stallRate"), stats.stallRate],
     [t("stats.perfScore"), stats.perfScore],
   ];

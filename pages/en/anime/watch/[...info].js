@@ -1294,6 +1294,11 @@ export default function Watch({
   // — the request that actually gates the player — gets the connection pool to
   // itself first, instead of competing with ~17 low-priority probes.
   const activeSourceSettledRef = useRef(false);
+  /** Duree de la resolution de source du dernier chargement, passee au lecteur
+   *  pour l'overlay de mise au point. Une ref : la mesure ne doit rien
+   *  re-rendre, et le `setHlsData` qui la suit provoque le rendu de toute
+   *  façon. */
+  const sourceMsRef = useRef(0);
 
   const fetchStreamSource = useCallback(async (serverId, signal) => {
     // `info` is hydrated client-side now — on a cold SSR it can be null for the
@@ -1308,6 +1313,14 @@ export default function Watch({
 
     setHlsLoading(true);
     setHlsData(null);
+    /* Premier poste du decoupage du demarrage montre dans « stats for nerds » :
+       tout ce qui precede le lecteur. Il n'entre pas dans le score des hotes
+       (cf. le commentaire du TTFF dans UniversalPlayer) — il est la pour dire
+       ou passent les secondes, pas pour juger un lecteur. */
+    const sourceAt = performance.now();
+    const markSourceMs = () => {
+      sourceMsRef.current = performance.now() - sourceAt;
+    };
 
     // Fast path: the info page may have already resolved this exact source in
     // the background (megaplay, resume episode). If a fresh entry is in the
@@ -1317,6 +1330,7 @@ export default function Watch({
       sourceKey(info.id, parseInt(epiNumber), serverId, sub),
     );
     if (prefetched && !signal?.aborted) {
+      markSourceMs();
       setHlsData(prefetched);
       setHlsLoading(false);
       markConfirmed(serverId);
@@ -1392,6 +1406,7 @@ export default function Watch({
         if (out.hard) activeVerdictRef.current.hardAbsent.add(serverId);
       } else if (out.kind === "ok") {
         const data = out.data;
+        markSourceMs();
         setHlsData(data);
         setPrefetchedSource(
           sourceKey(info.id, parseInt(epiNumber), serverId, sub),
@@ -2118,6 +2133,7 @@ export default function Watch({
           <UniversalPlayer
             autoplay={!!autoplay}
             streamData={hlsData}
+            sourceMs={sourceMsRef.current}
             poster={episodeNavigation?.playing?.img || info?.bannerImage}
             serverId={server.id}
             nextEpisodeHref={nextEpisodeHref}
