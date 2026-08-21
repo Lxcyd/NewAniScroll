@@ -82,6 +82,11 @@ const ACCENT_ROW = `linear-gradient(90deg, color-mix(in srgb, ${ACCENT} 6%, tran
 const ACCENT_CELL = `linear-gradient(${ACCENT_SOFT}, ${ACCENT_SOFT}), ${T.bg2}`;
 const WATCHED_CELL = `linear-gradient(rgba(45,212,122,0.06), rgba(45,212,122,0.06)), ${T.bg2}`;
 
+/** Marge, en px, sous laquelle le curseur de l'ascenseur de la liste est trop
+ *  pres d'un bord de la fenetre pour qu'on le lise encore. La page se decale
+ *  alors de ce qu'il faut pour l'en eloigner (cf. `followScrollThumb`). */
+const THUMB_MARGIN = 72;
+
 /* The three shapes the list can take, same three as the info page's Episodes
    tab: thumbnails, one-line rows, grid of numbers. Remembered per device — a
    choice about how you read a list shouldn't reset on the next episode. */
@@ -475,6 +480,43 @@ export default function EpisodeLists({
       (listRef.current?.scrollTop ?? 0) > 4,
     );
   }, []);
+
+  /* La page suit le curseur de l'ascenseur de la liste.
+     Le panneau est plus haut que la fenetre : son cadre commence en haut de
+     l'ecran et se termine sous le pli. L'ascenseur de la liste descend le long
+     de CE cadre, donc au bout de quelques crans son curseur passe sous le bord
+     de la fenetre et on defile a l'aveugle, sans plus rien voir de sa position.
+     Des qu'il s'approche d'un bord, on rend donc la difference en defilement de
+     PAGE. Le calcul se referme sur lui-meme : defiler la page de d remonte le
+     panneau de d, donc le curseur aussi — un seul ajustement suffit, il n'y a
+     pas de boucle.
+     Volontairement absent de `onListScroll` : l'ancrage sur l'episode en cours
+     appelle ce dernier a l'ouverture, et il ne doit surtout pas emporter la
+     page avec lui. */
+  const followScrollThumb = useCallback(() => {
+    const box = listRef.current;
+    if (!box) return;
+    const { scrollTop, scrollHeight, clientHeight } = box;
+    if (scrollHeight <= clientHeight) return;
+    // Geometrie du curseur natif : sa taille est la part visible de la liste,
+    // sa position la meme part du chemin parcouru. Le plancher de 24px est
+    // celui qu'appliquent les navigateurs sur les listes tres longues.
+    const thumbH = Math.max(24, (clientHeight / scrollHeight) * clientHeight);
+    const thumbTop =
+      box.getBoundingClientRect().top + (scrollTop / scrollHeight) * clientHeight;
+    const below = thumbTop + thumbH - (window.innerHeight - THUMB_MARGIN);
+    const above = THUMB_MARGIN - thumbTop;
+    // `else if` : sur une liste a peine defilable le curseur est plus haut que
+    // la fenetre moins ses deux marges, et les deux bords depassent a la fois.
+    // Suivre le bas est alors le bon choix, c'est le sens de lecture.
+    if (below > 0) window.scrollBy(0, below);
+    else if (above > 0) window.scrollBy(0, -above);
+  }, []);
+
+  const onListScrollEvent = useCallback(() => {
+    onListScroll();
+    followScrollThumb();
+  }, [onListScroll, followScrollThumb]);
 
   useEffect(() => {
     /* Le reglage est lu ICI, a chaud, et non par `usePlayerPrefs` : ce hook
@@ -903,7 +945,7 @@ export default function EpisodeLists({
         <div
           key={view}
           ref={listRef}
-          onScroll={onListScroll}
+          onScroll={onListScrollEvent}
           className={`${v2Styles.customScroll} as-viewswap relative max-h-[60vh] overflow-y-auto lg:max-h-none lg:min-h-0 lg:flex-1 ${
             view === "grid"
               ? /* content-start : le conteneur est `flex-1` donc plus haut que
