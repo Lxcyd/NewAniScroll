@@ -265,7 +265,11 @@ export function parseDescription(
    callers should fall back to omitting the slug segment in that case.
    - lowercases, strips diacritics, drops anything that isn't [a-z0-9]
    - collapses runs of separators into a single dash
-   - trims to 60 chars at a word boundary so URLs stay readable */
+   Le titre est rendu ENTIER. Il etait coupe a 60 caracteres, ce qui tronquait
+   les titres longs en pleine phrase — "…second-reincarnation-of-a" — et donnait
+   une adresse qui a l'air cassee la ou elle devait justement se lire. Les 60
+   caracteres economisaient d'ailleurs peu : la limite qui compte est celle de
+   l'URL entiere, tres loin au-dessus. */
 export function slugifyTitle(
   title:
     | { english?: string | null; romaji?: string | null; userPreferred?: string | null }
@@ -279,16 +283,10 @@ export function slugifyTitle(
   const ascii = source
     .normalize("NFKD")
     .replace(/[̀-ͯ]/g, "");
-  let s = ascii
+  return ascii
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
-  if (s.length > 60) {
-    const cut = s.slice(0, 60);
-    const lastDash = cut.lastIndexOf("-");
-    s = lastDash > 30 ? cut.slice(0, lastDash) : cut;
-  }
-  return s;
 }
 
 export function pickRandom<T>(arr: T[]): T | null {

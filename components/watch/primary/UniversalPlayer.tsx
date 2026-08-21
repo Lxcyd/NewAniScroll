@@ -340,10 +340,19 @@ function proxied(
  *
  * Temporal blending: pairwise 50/50 with previous frame, softens scene cuts.
  */
+/** Luminance moyenne (0-255) sous laquelle une frame est tenue pour noire.
+ *  Assez haut pour couvrir un noir "sale" d'encodage, assez bas pour qu'un
+ *  plan de nuit reste une image. */
+const BLACK_FRAME = 12;
+
 function LiveAmbient({
   playerRef,
+  lit,
 }: {
   playerRef: React.RefObject<MediaPlayerInstance>;
+  /** La premiere frame du fichier est une vraie image : l'ambient peut la
+   *  prendre pour source des l'arret, sans attendre le premier play. */
+  lit: boolean;
 }) {
   const layerRefs = useRef<(HTMLCanvasElement | null)[]>([]);
   const sourceRef = useRef<HTMLCanvasElement | null>(null);
@@ -450,9 +459,15 @@ function LiveAmbient({
          l'episode et non la video : la premiere frame de la plupart des
          encodages est noire, et un noir n'a aucune couleur a projeter — d'ou une
          page eteinte jusqu'au premier play. On lit l'image deja affichee par le
-         lecteur plutot que d'en charger une seconde. */
-      const started = !!video && (!video.paused || video.currentTime > 0);
-      if (!started || !video || video.readyState < 2 || video.videoWidth === 0) {
+         lecteur plutot que d'en charger une seconde.
+         Sauf quand cette premiere frame est une vraie image (`lit`) : elle dit
+         alors mieux que la vignette ce qu'on s'apprete a regarder, et c'est
+         elle qu'on projette, des l'arret. */
+      const usable =
+        !!video && video.readyState >= 2 && video.videoWidth > 0;
+      const live =
+        usable && (lit || !video!.paused || video!.currentTime > 0);
+      if (!live) {
         const img = playerEl?.querySelector(
           "img.as-poster",
         ) as HTMLImageElement | null;
@@ -466,9 +481,9 @@ function LiveAmbient({
         return;
       }
 
-      if (video.currentTime === lastFrameTime) return;
-      lastFrameTime = video.currentTime;
-      paint(video, true);
+      if (video!.currentTime === lastFrameTime) return;
+      lastFrameTime = video!.currentTime;
+      paint(video!, true);
     };
 
     raf = requestAnimationFrame(tick);
@@ -476,7 +491,7 @@ function LiveAmbient({
       cancelAnimationFrame(raf);
       io?.disconnect();
     };
-  }, [playerRef]);
+  }, [playerRef, lit]);
 
   // Wrapper sits BEHIND the player (z:-1). pointer-events:none so the player
   // controls catch every click. Inside, each canvas is rendered at native
@@ -2051,6 +2066,59 @@ export default function UniversalPlayer({
   const dataSaver = useDataSaver();
   const ambientEnabled =
     ambient && ctxAmbient && !dataSaver && !isFullscreen;
+
+  /* La premiere frame du fichier est-elle noire ?
+     La question decide de deux choses : si la vignette de l'episode reste
+     posee sur la video avant le premier play, et si l'ambient l'echantillonne
+     elle plutot que la video. Beaucoup d'encodages ouvrent sur un fondu au
+     noir — c'est pour ceux-la que la vignette existe. Mais quand la premiere
+     frame est une vraie image, la recouvrir cache au spectateur ce qu'il
+     s'apprete a regarder.
+     Mesure : la frame reduite a 16x9 et sa luminance moyenne. Une taint de
+     canvas (source sans en-tete CORS) laisse la question sans reponse — on
+     garde alors la vignette, qui est le cas le plus frequent et le moins
+     genant des deux.
+     `null` = on ne sait pas encore : la vignette tient la place en attendant,
+     plutot que de laisser voir un noir qu'on effacerait aussitot. */
+  const [firstFrameLit, setFirstFrameLit] = useState<boolean | null>(null);
+  useEffect(() => {
+    setFirstFrameLit(null);
+    const el = playerElState;
+    if (!el) return;
+    const probe = document.createElement("canvas");
+    probe.width = 16;
+    probe.height = 9;
+    const ctx = probe.getContext("2d", { willReadFrequently: true });
+    if (!ctx) return;
+    let frame = 0;
+    const since = performance.now();
+    const look = () => {
+      const video = el.querySelector("video") as HTMLVideoElement | null;
+      if (video && video.readyState >= 2 && video.videoWidth > 0) {
+        try {
+          ctx.drawImage(video, 0, 0, 16, 9);
+          const { data } = ctx.getImageData(0, 0, 16, 9);
+          let sum = 0;
+          for (let i = 0; i < data.length; i += 4)
+            sum +=
+              data[i] * 0.2126 + data[i + 1] * 0.7152 + data[i + 2] * 0.0722;
+          setFirstFrameLit(sum / (data.length / 4) > BLACK_FRAME);
+        } catch {
+          setFirstFrameLit(false);
+        }
+        return;
+      }
+      // Un fichier qui n'a toujours pas donne d'image au bout de huit secondes
+      // ne dira rien de plus : on tranche pour la vignette.
+      if (performance.now() - since > 8000) {
+        setFirstFrameLit(false);
+        return;
+      }
+      frame = requestAnimationFrame(look);
+    };
+    frame = requestAnimationFrame(look);
+    return () => cancelAnimationFrame(frame);
+  }, [playerElState, poster]);
   const [castAvailable, setCastAvailable] = useState(false);
   const [castConnected, setCastConnected] = useState(false);
 
@@ -4911,7 +4979,9 @@ export default function UniversalPlayer({
       }${party?.amPlaybackBlocked ? " w2g-playback-blocked" : ""}`}
       style={{ isolation: "isolate" }}
     >
-      {ambientEnabled && <LiveAmbient playerRef={playerRef} />}
+      {ambientEnabled && (
+        <LiveAmbient playerRef={playerRef} lit={firstFrameLit === true} />
+      )}
 
       <MediaPlayer
         ref={playerRef}
@@ -4988,7 +5058,16 @@ export default function UniversalPlayer({
               L'effacement au demarrage est laisse au CSS, sur le `data-started`
               que Vidstack pose sur le lecteur. */}
           {poster && (
-            <img className="as-poster" src={poster} alt="" aria-hidden />
+            <img
+              /* Retiree des que la premiere frame se revele etre une vraie
+                 image : elle vaut mieux que la vignette pour dire ce qu'on
+                 s'apprete a regarder. Par une classe et non par un demontage,
+                 pour que le fondu du CSS ait lieu. */
+              className={`as-poster${firstFrameLit ? " as-poster-off" : ""}`}
+              src={poster}
+              alt=""
+              aria-hidden
+            />
           )}
           {subtitleTracks.map((t, i) => (
             <Track

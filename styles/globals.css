@@ -529,7 +529,8 @@ a {
   pointer-events: none;
   transition: opacity 0.25s ease-out;
 }
-.vds-player[data-started] .as-poster {
+.vds-player[data-started] .as-poster,
+.vds-player .as-poster-off {
   opacity: 0;
 }
 
