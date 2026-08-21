@@ -2096,6 +2096,13 @@ export default function Watch({
   function handleOpen()  { setOpen(true);  document.body.style.overflow = "hidden"; }
   function handleClose() { setOpen(false); document.body.style.overflow = "auto";   }
 
+  /* La vignette de l'episode. Connue des que la liste d'episodes est la,
+     c'est-a-dire bien avant la source : d'ou le `preload` en <Head> plus bas.
+     Sans lui elle ne commencait a se telecharger qu'au montage du lecteur,
+     apres la resolution du flux — plusieurs secondes de retard sur une image
+     dont tout le role est de couvrir le premier instant. */
+  const posterUrl = episodeNavigation?.playing?.img || info?.bannerImage;
+
   // ── Player ───────────────────────────────────────────────────
   // Memoized JSX — recomputes ONLY when player-relevant state changes.
   // Wrapping as a function component (`function Player(){}` defined inside Watch)
@@ -2163,7 +2170,7 @@ export default function Watch({
             streamData={hlsData}
             sourceMs={sourceMsRef.current}
             pageMs={pageMsRef.current}
-            poster={episodeNavigation?.playing?.img || info?.bannerImage}
+            poster={posterUrl}
             serverId={server.id}
             nextEpisodeHref={nextEpisodeHref}
             prevEpisodeHref={prevEpisodeHref}
@@ -2199,7 +2206,7 @@ export default function Watch({
       <PlayerErrorBoundary key={iframeKey} resetKey={iframeKey}>
         <UniversalPlayer
           streamData={{ iframe: src }}
-          poster={episodeNavigation?.playing?.img || info?.bannerImage}
+          poster={posterUrl}
           serverId={server.id}
           nextEpisodeHref={nextEpisodeHref}
           prevEpisodeHref={prevEpisodeHref}
@@ -2296,6 +2303,20 @@ export default function Watch({
         <link rel="dns-prefetch" href="https://video.sibnet.ru" />
         <link rel="dns-prefetch" href="https://sendvid.com" />
         <link rel="dns-prefetch" href="https://vidmoly.to" />
+        {/* La vignette de l'episode, demandee des qu'on connait son adresse et
+            en haute priorite. Elle est bien consommee — c'est le <img
+            class="as-poster"> du lecteur, meme URL — donc pas de « preloaded
+            but not used ». Elle ne coute rien de plus : le lecteur allait la
+            chercher de toute façon, simplement trop tard pour couvrir
+            l'ouverture noire qu'elle est censee couvrir. */}
+        {posterUrl && (
+          <link
+            rel="preload"
+            as="image"
+            href={posterUrl}
+            fetchpriority="high"
+          />
+        )}
         <meta
           name="title"
           data-title-romaji={info?.title?.romaji}

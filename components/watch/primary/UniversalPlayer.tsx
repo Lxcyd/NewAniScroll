@@ -361,6 +361,60 @@ const POLL_MS = 250;
  *  vignette. */
 const PROBE_TIMEOUT_MS = 8000;
 
+/** Luminance moyenne de l'image courante, reduite a 16x9, Rec.709.
+ *  `null` = canvas teinte : le flux ne repond pas d'en-tete CORS et ses pixels
+ *  sont illisibles. Le DESSIN passe, c'est la RELECTURE qui est interdite, et
+ *  il n'y a aucun contournement cote element. */
+const frameLuma = (source: HTMLVideoElement): number | null => {
+  try {
+    const canvas = document.createElement("canvas");
+    canvas.width = 16;
+    canvas.height = 9;
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    if (!ctx) return null;
+    ctx.drawImage(source, 0, 0, 16, 9);
+    const { data } = ctx.getImageData(0, 0, 16, 9);
+    let sum = 0;
+    for (let i = 0; i < data.length; i += 4)
+      sum += data[i] * 0.2126 + data[i + 1] * 0.7152 + data[i + 2] * 0.0722;
+    return sum / (data.length / 4);
+  } catch {
+    return null;
+  }
+};
+
+/* Memoire des verdicts. Une ouverture ne change pas : un fichier deja mesure
+   n'a pas a l'etre deux fois, et le second visionnage pose la vignette
+   instantanement au lieu de rappeler le proxy pendant deux secondes et demie.
+   Garde d'un passage a l'autre (localStorage) et non pour la seule session :
+   c'est surtout au retour sur un episode que l'attente se voyait.
+   Un seul enregistrement, plafonne, plutot qu'une cle par fichier — pour ne pas
+   laisser grossir sans fin le stockage du visiteur. */
+const MEMO_KEY = "as:firstframe";
+const MEMO_MAX = 300;
+const memoRead = (path: string): boolean | null => {
+  try {
+    const all = JSON.parse(localStorage.getItem(MEMO_KEY) || "{}");
+    const seen = all[path];
+    return seen === 1 ? true : seen === 0 ? false : null;
+  } catch {
+    return null;
+  }
+};
+const memoWrite = (path: string, lit: boolean) => {
+  try {
+    const all = JSON.parse(localStorage.getItem(MEMO_KEY) || "{}");
+    delete all[path]; // reinsere en queue : l'ordre des cles fait l'anciennete
+    all[path] = lit ? 1 : 0;
+    const keys = Object.keys(all);
+    for (const old of keys.slice(0, Math.max(0, keys.length - MEMO_MAX)))
+      delete all[old];
+    localStorage.setItem(MEMO_KEY, JSON.stringify(all));
+  } catch {
+    /* stockage refuse (navigation privee, quota) — on mesurera a nouveau. */
+  }
+};
+
 function LiveAmbient({
   playerRef,
   lit,
@@ -2190,21 +2244,35 @@ export default function UniversalPlayer({
      alors la vignette. Une lecture claire, elle, tranche du premier coup —
      il n'y a rien a masquer, donc rien a risquer. */
   const [firstFrameLit, setFirstFrameLit] = useState<boolean | null>(null);
+
+  /* Chemin 1 — le flux est illisible d'avance (`noCors`).
+     La question part DES QUE l'adresse du flux est connue : ni le lecteur ni sa
+     premiere image n'y changeraient quoi que ce soit, et attendre l'un ou
+     l'autre ajoutait les ~2,5 s de la sonde APRES le chargement au lieu de les
+     faire courir pendant. On mesure la meme premiere frame sur une COPIE
+     proxifiee — le flux, lui, joue toujours en direct — dans un <video> jamais
+     attache au document. Le cout est une lecture partielle du fichier (le
+     navigateur s'arrete des qu'il a de quoi decoder une image, on le coupe
+     aussitot) sur une reponse que le Worker met en cache d'edge un jour.
+     Sans copie mesurable, `null` : on ne couvre pas au pari — parier posait la
+     vignette sur de vraies images, ce qui se voit tout de suite. */
   useEffect(() => {
+    if (!blindProbeSrc) return;
     setFirstFrameLit(null);
-    const el = playerElState;
-    if (!el) return;
-    const canvas = document.createElement("canvas");
-    canvas.width = 16;
-    canvas.height = 9;
-    const ctx = canvas.getContext("2d", { willReadFrequently: true });
-    if (!ctx) return;
+    // Pas de vignette a poser, pas de raison de tirer des octets : le verdict
+    // ne servirait a rien.
+    if (!poster) return;
+    /* Sous le CHEMIN du fichier, pas son URL : la query est signee et change a
+       chaque resolution. Deja mesure = verdict immediat, zero octet. */
+    const path = blindStream!.url.split("?")[0];
+    const seen = memoRead(path);
+    if (seen !== null) {
+      setFirstFrameLit(seen);
+      return;
+    }
+
     let dead = false;
     let settled = false;
-    let probeEl: HTMLVideoElement | null = null;
-    // Un seul endroit ou les minuteries vivent et meurent : plusieurs peuvent
-    // courir en meme temps (la confirmation et le delai de garde de la sonde),
-    // et aucune ne doit survivre a un changement d'episode.
     const timers: ReturnType<typeof setTimeout>[] = [];
     const at = (ms: number, fn: () => void) => {
       timers.push(setTimeout(fn, ms));
@@ -2212,96 +2280,64 @@ export default function UniversalPlayer({
     const stopTimers = () => {
       while (timers.length) clearTimeout(timers.pop()!);
     };
+
+    const v = document.createElement("video");
+    v.crossOrigin = "anonymous";
+    v.muted = true;
+    v.preload = "auto";
+    v.playsInline = true;
+    const stop = (verdict: boolean | null) => {
+      stopTimers();
+      v.removeAttribute("src");
+      v.load();
+      if (dead || settled) return;
+      settled = true;
+      if (verdict !== null) memoWrite(path, verdict);
+      setFirstFrameLit(verdict);
+    };
+    v.addEventListener("loadeddata", () => {
+      if (dead || settled) return;
+      // `loadeddata` dit qu'une image est decodee ; on lui laisse le temps
+      // d'exister avant de la lire, comme sur le lecteur lui-meme.
+      at(CONFIRM_MS, () => {
+        const value = frameLuma(v);
+        stop(value === null ? null : value > BLACK_FRAME);
+      });
+    });
+    v.addEventListener("error", () => stop(null));
+    at(PROBE_TIMEOUT_MS, () => stop(null));
+    v.src = blindProbeSrc;
+
+    return () => {
+      dead = true;
+      stopTimers();
+      v.removeAttribute("src");
+      v.load();
+    };
+    // `blindStream` ne bouge pas sans `blindProbeSrc`, qui en derive.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [blindProbeSrc, poster]);
+
+  /* Chemin 2 — le flux est lisible : on lit sa premiere image directement.
+     Rien a decider avant qu'une image existe, d'ou l'attente ; et un canvas
+     teinte ici (un flux non signale `noCors` mais servi sans en-tete) n'a pas
+     de copie a interroger, donc pas de verdict — voir `frameLuma`. */
+  useEffect(() => {
+    if (blindProbeSrc) return; // la sonde ci-dessus tranche pour ce flux
+    setFirstFrameLit(null);
+    const el = playerElState;
+    if (!el) return;
+    let dead = false;
+    let settled = false;
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    const at = (ms: number, fn: () => void) => {
+      timers.push(setTimeout(fn, ms));
+    };
     const settle = (verdict: boolean | null) => {
       if (dead || settled) return;
       settled = true;
       setFirstFrameLit(verdict);
     };
-    /* `null` = la question n'a pas de reponse : canvas teinte, relire les
-       pixels est interdit. Le dessin, lui, passe — c'est la RELECTURE qui est
-       interdite, et il n'y a aucun contournement cote element. */
-    const luma = (source: HTMLVideoElement): number | null => {
-      try {
-        ctx.drawImage(source, 0, 0, 16, 9);
-        const { data } = ctx.getImageData(0, 0, 16, 9);
-        let sum = 0;
-        for (let i = 0; i < data.length; i += 4)
-          sum += data[i] * 0.2126 + data[i + 1] * 0.7152 + data[i + 2] * 0.0722;
-        return sum / (data.length / 4);
-      } catch {
-        return null;
-      }
-    };
-
-    /* Flux illisible : on mesure la meme premiere frame sur une copie
-       proxifiee, dans un <video> qui n'est jamais attache au document. Le
-       cout est une lecture partielle du fichier (le navigateur s'arrete des
-       qu'il a de quoi decoder une image, et on le coupe aussitot apres) sur
-       une reponse que le Worker met en cache d'edge un jour.
-       Sans copie mesurable, `null` : on ne couvre pas au pari — parier posait
-       la vignette sur de vraies images, ce qui se voit tout de suite. */
-    const askTheProxy = () => {
-      // Pas de vignette a poser, pas de raison de tirer des octets : le verdict
-      // ne servirait a rien.
-      if (!blindProbeSrc || !poster) return settle(null);
-      /* Un fichier ne change pas d'ouverture. Le verdict est donc garde pour la
-         session, sous le chemin du fichier (sa query est signee et change a
-         chaque resolution) : changer de lecteur puis revenir, ou revoir
-         l'episode, ne retelecharge rien. */
-      const memo = `as:firstframe:${blindStream!.url.split("?")[0]}`;
-      try {
-        const seen = sessionStorage.getItem(memo);
-        if (seen) return settle(seen === "1");
-      } catch {
-        /* sessionStorage refuse (navigation privee, cookies bloques) — on
-           mesure, simplement. */
-      }
-      const remember = (verdict: boolean | null) => {
-        if (verdict !== null) {
-          try {
-            sessionStorage.setItem(memo, verdict ? "1" : "0");
-          } catch {
-            /* idem */
-          }
-        }
-        return verdict;
-      };
-      probeNow(remember);
-    };
-
-    /* La sonde elle-meme. Mesure : elle rend son verdict en ~2,5 s (Chrome,
-       sibnet a travers le Worker, cache d'edge froid) — c'est le temps d'aller
-       chercher l'index du fichier puis son debut. Rien ne l'attend d'autre, et
-       elle ne dispute rien a la resolution des lecteurs : celle-ci parle a
-       Vercel et aux pages sibnet, la sonde au CDN. */
-    const probeNow = (remember: (v: boolean | null) => boolean | null) => {
-      const v = document.createElement("video");
-      probeEl = v;
-      v.crossOrigin = "anonymous";
-      v.muted = true;
-      v.preload = "auto";
-      v.playsInline = true;
-      const stop = (verdict: boolean | null) => {
-        stopTimers();
-        v.removeAttribute("src");
-        v.load();
-        probeEl = null;
-        settle(remember(verdict));
-      };
-      v.addEventListener("loadeddata", () => {
-        if (dead) return;
-        // `loadeddata` dit qu'une image est decodee ; on lui laisse le temps
-        // d'exister avant de la lire, comme sur le lecteur lui-meme.
-        at(CONFIRM_MS, () => {
-          const value = luma(v);
-          stop(value === null ? null : value > BLACK_FRAME);
-        });
-      });
-      v.addEventListener("error", () => stop(null));
-      at(PROBE_TIMEOUT_MS, () => stop(null));
-      v.src = blindProbeSrc!;
-    };
-
     const look = () => {
       const video = el.querySelector("video") as HTMLVideoElement | null;
       // Rien a decider tant qu'aucune image n'est decodable.
@@ -2311,33 +2347,23 @@ export default function UniversalPlayer({
       // ce qu'il regarde n'a pas a etre recouvert.
       if (!video.paused || video.played.length > 0 || video.currentTime > 0.01)
         return settle(true);
-      const value = luma(video);
-      if (value === null) return askTheProxy();
+      const value = frameLuma(video);
+      if (value === null) return settle(null);
       if (value > BLACK_FRAME) return settle(true);
       // Noir — mais pas encore la vignette : une seconde lecture doit dire la
       // meme chose. Voir le commentaire du bloc.
       at(CONFIRM_MS, () => {
         if (!video.paused || video.played.length > 0) return settle(true);
-        const again = luma(video);
-        if (again === null) return askTheProxy();
-        settle(again <= BLACK_FRAME ? false : true);
+        const again = frameLuma(video);
+        settle(again === null ? null : again > BLACK_FRAME);
       });
     };
-    /* Un flux `noCors` est teinte d'avance : inutile d'attendre que la video
-       soit prete pour constater qu'on ne peut pas la lire. On demande tout de
-       suite au proxy, et les ~2,5 s de la sonde courent pendant que le lecteur
-       se charge au lieu de s'ajouter apres. */
-    if (blindProbeSrc) askTheProxy();
-    else look();
+    look();
     return () => {
       dead = true;
-      stopTimers();
-      if (probeEl) {
-        probeEl.removeAttribute("src");
-        probeEl.load();
-      }
+      while (timers.length) clearTimeout(timers.pop()!);
     };
-  }, [playerElState, poster, blindProbeSrc]);
+  }, [playerElState, blindProbeSrc]);
   const [castAvailable, setCastAvailable] = useState(false);
   const [castConnected, setCastConnected] = useState(false);
 
@@ -5293,6 +5319,14 @@ export default function UniversalPlayer({
               src={poster}
               alt=""
               aria-hidden
+              /* Elle doit etre PEINTE au moment ou le verdict tombe, pas
+                 commencer a se telecharger a ce moment-la. La page la precharge
+                 deja en <Head> des que son adresse est connue ; ici on redit la
+                 priorite, et `decoding="sync"` evite le decodage differe qui
+                 ferait apparaitre l'image un cran apres sa classe. */
+              // @ts-expect-error fetchpriority n'est pas encore dans lib.dom
+              fetchpriority="high"
+              decoding="sync"
             />
           )}
           {subtitleTracks.map((t, i) => (
