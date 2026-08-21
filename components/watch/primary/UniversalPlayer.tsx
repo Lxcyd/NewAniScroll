@@ -7,7 +7,6 @@ import { createPortal } from "react-dom";
 import {
   MediaPlayer,
   MediaProvider,
-  Poster,
   Track,
   useMediaState,
   isHLSProvider,
@@ -455,7 +454,7 @@ function LiveAmbient({
       const started = !!video && (!video.paused || video.currentTime > 0);
       if (!started || !video || video.readyState < 2 || video.videoWidth === 0) {
         const img = playerEl?.querySelector(
-          "img.vds-poster",
+          "img.as-poster",
         ) as HTMLImageElement | null;
         if (!img?.complete || !img.naturalWidth) return;
         // Repeinte seulement quand la vignette change — a l'ouverture, et a
@@ -4975,12 +4974,22 @@ export default function UniversalPlayer({
       >
         <MediaProvider>
           {/* L'image de l'episode, tant que rien n'est lance. Le `poster` passe
-              a <MediaPlayer> ne fait que renseigner l'etat : Vidstack n'affiche
-              rien sans cet element, d'ou le rectangle noir — la premiere frame
-              de la plupart des encodages — et, faute de couleurs a echantillonner,
-              l'absence d'ambient light avant le premier play. Vidstack la retire
-              de lui-meme au demarrage (`data-visible`). */}
-          <Poster className="vds-poster" src={poster} alt="" />
+              a <MediaPlayer> ne fait que renseigner l'etat : rien ne l'affiche
+              sans un element a elle, d'ou le rectangle noir — la premiere frame
+              de la plupart des encodages — et, faute de couleurs a
+              echantillonner, l'absence d'ambient light avant le premier play.
+
+              Une <img> a nous plutot que le <Poster> de Vidstack : ce dernier
+              herite du `crossorigin` du lecteur, or les vignettes viennent de
+              Simkl, qui ne repond pas d'en-tete CORS — la requete partait donc
+              en mode CORS et se faisait refuser. Nous n'avons aucun besoin de
+              ce mode : l'ambient DESSINE cette image, il n'en relit jamais les
+              pixels, et seule la relecture demande le CORS.
+              L'effacement au demarrage est laisse au CSS, sur le `data-started`
+              que Vidstack pose sur le lecteur. */}
+          {poster && (
+            <img className="as-poster" src={poster} alt="" aria-hidden />
+          )}
           {subtitleTracks.map((t, i) => (
             <Track
               key={t.src}

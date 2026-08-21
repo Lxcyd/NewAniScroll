@@ -508,9 +508,29 @@ a {
  */
 .vds-player video,
 .vds-player .vds-poster,
+.vds-player .as-poster,
 .vds-player iframe {
   border-radius: 0;
   background-color: transparent;
+}
+
+/* La vignette de l'episode, posee sur la video tant que la lecture n'a pas
+   commence — la premiere frame de la plupart des encodages est noire.
+   Elle s'efface sur le `data-started` du lecteur plutot que par un state a
+   nous : Vidstack pose deja cet attribut, et une transition CSS ne fait pas
+   re-rendre un composant qui porte tout le lecteur. `cover` comme la video, et
+   inerte : les commandes sont au-dessus, mais un clic doit traverser. */
+.vds-player .as-poster {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
+  transition: opacity 0.25s ease-out;
+}
+.vds-player[data-started] .as-poster {
+  opacity: 0;
 }
 
 /* No rounded corners in fullscreen — the player fills the whole screen, so a

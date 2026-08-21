@@ -85,9 +85,9 @@ const WATCHED_CELL = `linear-gradient(rgba(45,212,122,0.06), rgba(45,212,122,0.0
 /** Bande, en px, le long de chaque bord de la fenetre : y trainer la poignee de
  *  l'ascenseur y fait glisser la page (cf. `onListPointerDown`). */
 const THUMB_MARGIN = 96;
-/** Vitesse de ce glissement, en px par frame, poignee tenue au ras du bord —
- *  soit environ un ecran par seconde. Elle decroit vers 0 a l'entree de la
- *  bande, pour qu'on la dose en approchant plus ou moins du bord. */
+/** Vitesse plancher de ce glissement, en px par frame, poignee au ras du bord —
+ *  soit environ un ecran par seconde. Elle grandit avec l'ecart au-dela (cf.
+ *  `rate`), pour rattraper une poignee jetee loin sous le pli. */
 const THUMB_SPEED = 16;
 
 /* The three shapes the list can take, same three as the info page's Episodes
@@ -593,9 +593,11 @@ export default function EpisodeLists({
           (scrollTop / scrollHeight) * clientHeight;
         const below = thumbTop + thumbH - (window.innerHeight - THUMB_MARGIN);
         const above = THUMB_MARGIN - thumbTop;
-        // La vitesse croit avec l'enfoncement dans la bande : on dose en
-        // approchant plus ou moins du bord.
-        const rate = (d: number) => Math.min(1, d / THUMB_MARGIN) * THUMB_SPEED;
+        /* La vitesse croit avec l'ecart, sans plafond : jetee d'un coup tout en
+           bas, la poignee se retrouve a plusieurs ecrans sous le pli, et la
+           rattraper a vitesse constante donnait une page qui semblait coincee.
+           Elle ne depasse jamais `d`, pour ne pas passer devant la poignee. */
+        const rate = (d: number) => Math.min(d, THUMB_SPEED + d * 0.25);
         // `else if` : sur une liste a peine defilable la poignee est plus haute
         // que la fenetre moins ses deux bandes, et les deux bords depassent a la
         // fois. Suivre le bas est alors le bon choix, c'est le sens de lecture.
