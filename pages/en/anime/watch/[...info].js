@@ -1315,10 +1315,14 @@ export default function Watch({
   }, [router.events]);
 
   const fetchStreamSource = useCallback(async (serverId, signal) => {
-    // `info` is hydrated client-side now — on a cold SSR it can be null for the
-    // first render(s). Bail until we have it (this callback re-creates when
-    // info?.id changes, so the effect re-fires with real metadata).
-    if (!info?.id) return;
+    /* L'identifiant vient de l'URL, pas des metadonnees.
+       Cette fonction attendait `info`, qui sur une arrivee directe n'arrive
+       qu'apres un aller-retour vers /api/v2/media — la demande de source
+       attendait donc une requete dont elle n'a rien a faire. La route ne
+       reclame que serveur + anime + episode + langue : elle retrouve le titre
+       et le malId elle-meme (cf. `sourceRequestUrl`). */
+    const mediaId = info?.id || (aniId ? Number(aniId) : null);
+    if (!mediaId) return;
     const server = getServer(serverId);
     if (server.type === "iframe") {
       setHlsData(null);
@@ -1342,7 +1346,7 @@ export default function Watch({
     // shared prefetch cache, use it immediately — no fetch, no extraction wait.
     const sub = dub ? "dub" : "sub";
     const prefetched = getPrefetchedSource(
-      sourceKey(info.id, parseInt(epiNumber), serverId, sub),
+      sourceKey(mediaId, parseInt(epiNumber), serverId, sub),
     );
     if (prefetched && !signal?.aborted) {
       markSourceMs();
@@ -1359,11 +1363,9 @@ export default function Watch({
       requestSource(
         {
           server: serverId,
-          aniId: info.id,
+          aniId: mediaId,
           episode: parseInt(epiNumber),
           sub: dub ? "dub" : "sub",
-          title: info?.title?.romaji || info?.title?.english,
-          malId: info?.idMal ?? null,
         },
         {
           signal,
@@ -1424,7 +1426,7 @@ export default function Watch({
         markSourceMs();
         setHlsData(data);
         setPrefetchedSource(
-          sourceKey(info.id, parseInt(epiNumber), serverId, sub),
+          sourceKey(mediaId, parseInt(epiNumber), serverId, sub),
           data,
         );
         markConfirmed(serverId);
@@ -1446,7 +1448,9 @@ export default function Watch({
       // failure) so a dead active server never starves the selector forever.
       activeSourceSettledRef.current = true;
     }
-  }, [info?.id, epiNumber, dub, markFailed]);
+    // `aniId` en dependance a cote de `info?.id` : c'est lui qui porte la
+    // demande quand les metadonnees ne sont pas encore la.
+  }, [info?.id, aniId, epiNumber, dub, markFailed]);
 
   useEffect(() => {
     // Hold the first fetch until the saved server preference has been read, so
