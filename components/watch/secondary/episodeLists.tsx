@@ -930,7 +930,11 @@ export default function EpisodeLists({
                   onClick={f.playing ? (e) => e.preventDefault() : undefined}
                   /* Meme regle que les deux autres vues : la case en cours se
                      survole comme les autres, seul son curseur la distingue. */
-                  className={`grid aspect-square place-items-center rounded-lg border text-sm font-semibold transition-all duration-300 ease-out hover:scale-[1.06] ${
+                  /* Numero ecrit comme sur la vignette de la vue detaillee (voir
+                     la vue liste) — la couleur, elle, reste celle de l'etat :
+                     c'est le seul signal dont dispose une case qui n'affiche
+                     que son chiffre. */
+                  className={`grid aspect-square place-items-center rounded-lg border font-karla text-[17px] font-bold tabular-nums transition-all duration-300 ease-out hover:scale-[1.06] ${
                     f.playing
                       ? "as-eplive cursor-default"
                       : "hover:shadow-lg hover:ring-1 hover:ring-white"
@@ -969,17 +973,21 @@ export default function EpisodeLists({
                      blanc dit "cliquable", or on y est deja ; d'ou aussi le
                      curseur par defaut et le `preventDefault`, qui neutralise le clic sans
                      tuer le survol comme le ferait `pointer-events-none`. */
-                  className={`flex min-h-[40px] items-center gap-3 rounded-lg border px-3 py-2.5 transition-all duration-300 ease-out hover:scale-[1.02] ${
+                  className={`flex min-h-[48px] items-center gap-3 rounded-lg border px-3 py-3 transition-all duration-300 ease-out hover:scale-[1.02] ${
                     f.playing
                       ? "as-eplive cursor-default"
                       : "hover:shadow-lg hover:ring-1 hover:ring-white"
                   }`}
                   style={frame(f.playing)}
                 >
-                  <span
-                    className="w-7 shrink-0 text-right text-[11px] tabular-nums tracking-[0.08em]"
-                    style={{ color: T.txt3 }}
-                  >
+                  {/* Le numero est ecrit comme celui pose sur la vignette de la
+                      vue detaillee — meme fonte, meme corps, meme graisse, meme
+                      blanc. C'est le meme objet vu de trois facons ; le lire en
+                      petit gris ici et en gros blanc la-bas ne se justifiait
+                      pas. `tabular-nums` en plus, que la vignette n'a pas :
+                      alignes en colonne, des chiffres de largeurs inegales se
+                      voient. */}
+                  <span className="w-7 shrink-0 text-right font-karla text-[17px] font-bold leading-none tabular-nums text-white/90">
                     {f.pad}
                   </span>
                   <span
