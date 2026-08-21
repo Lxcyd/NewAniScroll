@@ -100,7 +100,7 @@
       "defaultMuted": "Start muted",
       "defaultMutedDesc": "Videos start muted; you can unmute from the player controls.",
       "snapToCurrentEpisode": "Scroll to the episode you're watching",
-      "snapToCurrentEpisodeDesc": "Opens the episode list on the episode being played instead of the first one.",
+      "snapToCurrentEpisodeDesc": "On an anime's watch page, the episode list opens on the episode being played instead of the first one.",
       "defaultServer": "Default server",
       "defaultServerDesc": "Always try this server first. Auto uses the site default and remembers the one you pick in the player. Falls back when an anime doesn't have it.",
       "serverAuto": "Auto (site default)",
