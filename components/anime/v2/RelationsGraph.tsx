@@ -1364,7 +1364,8 @@ export default function RelationsGraph({
     const box = canvasRef.current;
     if (!box) return;
 
-    /* Le plateau ne prend la molette qu'apres un VRAI mouvement de souris.
+    /* Le plateau ne repond — molette, survol d'une carte, curseur de prehension
+       — qu'apres un VRAI mouvement de souris.
        Le navigateur amarre une salve de molette au premier defileur touche, ce
        qui suffisait tant que la salve durait : on defilait la page, le curseur
        s'arretait sur le plateau, et la suite continuait d'aller a la page. Mais
@@ -1381,14 +1382,16 @@ export default function RelationsGraph({
     let lastX = -1;
     let lastY = -1;
 
+    /* Ecoute sur la FENETRE, pas sur le plateau : une souris qui approche du
+       plateau doit l'avoir arme AVANT d'y entrer. Sur le plateau seul, le
+       navigateur envoie le `mouseenter` de la carte avant le premier
+       `pointermove`, et la premiere carte survolee apres un defilement serait
+       restee eteinte jusqu'a ce qu'on remue dedans. */
     const onPointerMove = (e: PointerEvent) => {
       if (e.clientX !== lastX || e.clientY !== lastY) setArm(true);
       lastX = e.clientX;
       lastY = e.clientY;
     };
-    // Sorti du plateau : plus rien a armer, et le curseur redevient celui de la
-    // page de toute façon.
-    const onPointerLeave = () => setArm(false);
 
     // Passif, et pose sur la fenetre : celui-ci n'intervient sur rien, il
     // constate seulement qu'une salve concerne autre chose que le plateau.
@@ -1408,16 +1411,14 @@ export default function RelationsGraph({
       zoomAt(factor, e.clientX - r.left, e.clientY - r.top);
     };
 
-    box.addEventListener("pointermove", onPointerMove);
-    box.addEventListener("pointerleave", onPointerLeave);
+    window.addEventListener("pointermove", onPointerMove, { passive: true });
     box.addEventListener("wheel", onWheelNative, { passive: false });
     window.addEventListener("wheel", onWheelAnywhere, {
       passive: true,
       capture: true,
     });
     return () => {
-      box.removeEventListener("pointermove", onPointerMove);
-      box.removeEventListener("pointerleave", onPointerLeave);
+      window.removeEventListener("pointermove", onPointerMove);
       box.removeEventListener("wheel", onWheelNative);
       window.removeEventListener("wheel", onWheelAnywhere, { capture: true });
     };
@@ -1862,7 +1863,13 @@ export default function RelationsGraph({
                     href: animeHref(n.id, clickTarget),
                     title: t("anime.graphOpenEntry", { defaultValue: "Open this entry" }),
                   })}
-              onMouseEnter={() => setHover(n.id)}
+              /* Meme regle que la molette : une carte ne s'allume que si on est
+                 alle la chercher. En defilant, les cartes passent sous un
+                 curseur immobile et le navigateur emet un `mouseenter` pour
+                 chacune — la chaine de parente clignotait au fil du defilement,
+                 pour des cartes que personne ne regardait. `armedRef` porte
+                 deja la reponse : la souris a-t-elle bouge depuis. */
+              onMouseEnter={() => armedRef.current && setHover(n.id)}
               onMouseLeave={() => setHover((h) => (h === n.id ? null : h))}
               // A card is a link, first press. The two-step it replaced —
               // one click to light the running order, another to open —
