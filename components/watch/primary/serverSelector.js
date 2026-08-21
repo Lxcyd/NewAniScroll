@@ -11,14 +11,12 @@ const LANG_LABELS = {
   vf: "player.langVF",
 };
 
-// Un bleu-lavande froid pour les lecteurs au repos. Froid, c'est ce qui compte :
-// les ambient lights du player sont presque toujours chaudes (peau, ciel, feu),
-// donc cette teinte s'en detache au lieu de s'y noyer comme un gris, et elle ne
-// rentre pas en concurrence avec le rose de l'accent — qui, lui, est reserve au
-// lecteur ACTIF, la meme couleur que son liseré et que le "en cours" du reste du
-// site. Peu saturee, elle reste lisible sur n'importe quelle image.
-const TEXT = "#a9b6e8";
-const TEXT_HOVER = "#dfe5ff";
+// Le gris des lecteurs au repos, exactement celui des numeros d'episode du
+// panneau de droite : ces deux listes se lisent cote a cote, deux gris voisins
+// mais differents se seraient vus. Le rose de l'accent reste reserve au lecteur
+// ACTIF — la meme couleur que son liseré et que le "en cours" du reste du site.
+const TEXT = "#a2a8b8";
+const TEXT_HOVER = "#f4f5f8";
 const TEXT_ACTIVE = "var(--brand-primary, #E94560)";
 
 // La vitesse ne s'AFFICHE plus (ni mot, ni poincon, ni infobulle) : elle ne fait
