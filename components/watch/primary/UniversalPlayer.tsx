@@ -2165,10 +2165,15 @@ export default function UniversalPlayer({
     let dead = false;
     /* `null` = la question n'a pas de reponse : canvas teinte, la source ne
        repond pas d'en-tete CORS (sibnet) et relire les pixels est interdit.
-       Dans ce cas on NE COUVRE PAS. Des deux erreurs possibles, celle-ci est
-       la moins couteuse : ne pas masquer un noir rend ce que le lecteur
-       montrait avant que cette mesure existe, tandis que masquer une vraie
-       image se voit a tous les coups. */
+       Le dessin, lui, passe — c'est la RELECTURE qui est interdite, et il n'y
+       a aucun contournement.
+       Dans ce cas on couvre quand meme. Ce n'est pas le pari que j'avais pris
+       d'abord, et le renversement vient d'une mesure : les episodes ouvrent
+       massivement sur du noir (verifie a l'ffmpeg — 1,001 s pour Solo Leveling
+       S2 ep1). Sans mesure possible, la vignette a donc une chance sur beaucoup
+       d'avoir raison, et l'erreur inverse — un rectangle noir, sans ambient
+       light, la ou la vignette existait justement pour ca — est celle que le
+       spectateur voit reellement. */
     const luma = (video: HTMLVideoElement): number | null => {
       try {
         ctx.drawImage(video, 0, 0, 16, 9);
@@ -2265,8 +2270,11 @@ export default function UniversalPlayer({
       }
       const value = luma(video);
       // Canvas teinte (source sans en-tete CORS, sibnet) : la question n'aura
-      // jamais de reponse, donc on ne couvre pas — et on cesse de demander.
-      if (value === null) return;
+      // jamais de reponse. On couvre — voir `luma` — et on cesse de demander.
+      if (value === null) {
+        setFirstFrameLit(false);
+        return;
+      }
       if (value > BLACK_FRAME) {
         setFirstFrameLit(true);
         return;
