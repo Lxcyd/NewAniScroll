@@ -1510,3 +1510,21 @@ le chemin du fichier. Le flux joue toujours en direct — le proxy ne sert qu'à
 
 La copie proxifiée rend exactement la même valeur que le flux direct : c'est ce qui rend la sonde
 légitime. sendvid / embed4me / uqload / callistanise ne servent pas ces deux titres.
+
+### Puis : ce qui la rendait lente (même jour)
+
+La règle était juste, la vignette arrivait trop tard. Trois attentes se cumulaient, toutes
+évitables :
+
+1. **L'image ne se téléchargeait qu'au montage du lecteur**, donc *après* la résolution du flux.
+   Son adresse est pourtant connue dès la liste d'épisodes → `<link rel="preload" as="image"
+   fetchpriority="high">` en `<Head>` de la page /watch, plus le `fetchpriority` + `decoding="sync"`
+   sur le `<img class="as-poster">` lui-même.
+2. **La sonde attendait le lecteur** pour constater ce qu'on savait déjà : un flux `noCors` est
+   teinté d'avance. Elle part maintenant dès que l'adresse du flux est connue, sans passer par
+   l'élément du lecteur — ses ~2,5 s courent *pendant* le chargement. D'où la séparation en deux
+   effets (sonde / lecture directe) : la sonde ne redémarre plus quand `playerElState` apparaît.
+3. **Le verdict mourait avec la session.** Une ouverture ne change pas : il est gardé en
+   `localStorage` sous le chemin du fichier (la query est signée), un seul enregistrement JSON
+   plafonné à 300 entrées. Revoir un épisode pose la vignette instantanément et ne tire plus un
+   octet du proxy — ce qui règle aussi la concurrence sonde/lecture sur le même CDN.
