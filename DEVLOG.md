@@ -49,7 +49,7 @@ construit depuis `git log --since=<derniere release>`.
 | Lecteur video & lecteurs distants | [`devlog/player.md`](devlog/player.md) | 40 | raccourcis, toasts, autoplay, plein ecran, w2g, lecteurs distants |
 | Detecteur OP/ED | [`devlog/oped.md`](devlog/oped.md) | 11 | tools/opening-detector, replis F1-F7, garde-fous P1-P8, audits |
 | Pages, saisons, relations & sources de donnees | [`devlog/site.md`](devlog/site.md) | 13 | saisons, graphe de franchise, hero, navbar, TMDB/fanart/ani.zip |
-| Infra, cout, cache & releases | [`devlog/infra.md`](devlog/infra.md) | 12 | Upstash, Fluid CPU, crons, usage-monitor, analytics, releases |
+| Infra, cout, cache & releases | [`devlog/infra.md`](devlog/infra.md) | 13 | Upstash, Fluid CPU, crons, usage-monitor, analytics, releases |
 
 ## Index des entrees
 
@@ -163,6 +163,7 @@ construit depuis `git log --since=<derniere release>`.
 
 ### Infra, cout, cache & releases — [`devlog/infra.md`](devlog/infra.md)
 
+- 2026-08-22 — Relevé usage : le seul trou de cache restant, et pourquoi le monitor ne verra jamais Vercel
 - 2026-08-16 — Le cron ne rattrapait rien, et une panne AniList l'aurait prouvé trop tard
 - 2026-08-04 (suite 3) — CORRECTION de l'entrée précédente : Vercel va bien, seul le Worker est muet
 - 2026-08-04 (suite 2) — ⚠️ ENTRÉE ERRONÉE (voir la correction en suite 3) — la base ADMIN n'est plus écrite depuis la prod (11/07)

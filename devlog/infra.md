@@ -6,6 +6,64 @@ crons de rafraichissement, usage-monitor, analytics, et les releases
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-08-22 — Relevé usage : le seul trou de cache restant, et pourquoi le monitor ne verra jamais Vercel
+
+**Ce que le monitor dit.** Upstash n'est plus le sujet : 4 412 cmd le 21/08,
+moyenne 7 jours 7 445, **projection 45 % du cap** gratuit — contre 146 % le
+04/08. En revanche `DBSIZE` monte de ~500 clés/jour (14 251, dont `anime:v5`
+= 82 %), donc le SCAN du census coûtera de plus en plus cher à terme.
+
+**Le côté Vercel du monitor est aveugle, et c'est définitif.** Sorti le token du
+CLI (`%APPDATA%/xdg.data/com.vercel.cli/auth.json`) pour interroger
+`api.vercel.com/v1/usage` : `plan_upgrade_required` — **Pro/Enterprise
+uniquement**. Il n'existe aucun chemin programmatique vers les
+invocations ou le Fluid CPU en Hobby. Le screenshot du dashboard reste
+obligatoire ; inutile de re-chercher une API.
+
+**Ce qui marche, avec son piège.** `vercel logs --json` : rétention **1 h**
+(`--since 24h` renvoie exactement les mêmes lignes). Sur l'heure sondée : 8
+invocations, 100 % `/en/anime/[id]`, 8 ids distincts, toutes `MISS`. **Ne pas en
+conclure que le cache edge est cassé** : une invocation *est* par définition un
+MISS, un HIT n'atteint jamais la fonction et n'apparaît donc pas dans ces logs.
+Mesuré au curl à la place — deuxième appel = `HIT` sur les trois ids testés, le
+cache marche. Le vrai constat est ailleurs : **11 592 anime en cache pour ~8
+vues/h**, chaque vue tombe sur un id neuf. Monter le TTL au-delà des 6 h
+actuelles n'achètera rien, et l'ISR non plus. Le levier est de rendre le MISS
+moins cher, pas d'espérer plus de HIT.
+
+**Le seul trou de cache du site.** Sondé les en-têtes de dix routes `/api/v2` en
+prod : `characters`, `themes`, `changelog`, `episode-scores`, `relations`,
+`discover`, `catalog`, `etc/recent` repassent toutes en `HIT` au deuxième appel.
+**`/api/v2/media/[id]` est la seule à rester `MISS`** — elle fusionnait le
+`mediaListEntry` du visiteur connecté dans ses ~30 ko de métadonnées, ce qui
+rendait toute la réponse personnelle et donc `private, no-store`. Découpée : le
+champ par utilisateur part dans `GET /api/v2/list-entry/[id]` (~100 octets,
+`private, no-store`), la moitié lourde devient identique pour tout le monde et
+part au CDN (s-maxage 30 min + 24 h de SWR, la fenêtre du SSR de la page watch).
+Même décision que celle déjà prise pour le cœur et la progression sur la page
+anime. Les 404 se cachent 60 s au passage.
+
+**Une vague série en moins sur la page anime.** `resolveHeroBanner` s'attendait
+seul entre deux `Promise.all` dans le SSR : il ne dépend que de `tmdb.backdrop`,
+déjà résolu à ce stade, et son verdict `bannerSize` est une lecture Turso — ça
+faisait une troisième vague série sur chaque MISS de la page la plus visitée. Il
+rejoint le lot des saisons. Sa position tenait à l'idée d'émettre son header de
+preload « en avance », mais `getServerSideProps` ne flush pas les headers avant
+la réponse : les deux partaient ensemble de toute façon.
+
+**Fausse piste, notée pour ne pas y retomber.** `/api/v2/seasons/[id]` répondait
+404 avec 13,8 ko de corps et `max-age=0, must-revalidate` — pas un bug : la
+route n'est pas sur `main`, prod renvoyait simplement sa page 404. **Tout
+sondage de prod mesure `main`**, qui accusait 161 commits de retard sur `dev` ce
+jour-là. Vérifier `git ls-tree origin/main <chemin>` avant de qualifier une
+anomalie prod.
+
+**Reste ouvert.** `/en/schedule` sert **419 ko de HTML** (contre 180 ko pour
+l'accueil, 105 ko pour une fiche anime) — poste de Fast Origin Transfer à
+élaguer. Et le collecteur n'échantillonne `vercel logs` qu'une fois par jour à
+7 h UTC, heure creuse : avec 1 h de rétention, il faudrait plusieurs tirages
+pour un mix de routes crédible.
+
 ## 2026-08-16 — Le cron ne rattrapait rien, et une panne AniList l'aurait prouvé trop tard
 
 **La question posée** : si AniList tombe plusieurs jours, a-t-on un repli pour ne
