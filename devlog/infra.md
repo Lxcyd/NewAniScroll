@@ -6,6 +6,47 @@ crons de rafraichissement, usage-monitor, analytics, et les releases
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-08-22 (suite) — Page watch : −20 % de bundle, −19 % de HTML, sans toucher au comportement
+
+Suite du relevé ci-dessous, appliqué à la page la plus visitée.
+
+**Bundle : 98,6 → 78,9 ko** (premier chargement 326 → 306 ko). Trois composants
+étaient importés en dur alors qu'aucun n'est *jamais* rendu sans condition —
+`WatchPartyPanel` derrière `party || partyUIOpen`, `FullscreenChat` derrière
+`party`, `VideoStats` derrière `statsOpen`. Différer leur import ne change donc
+pas quand ils apparaissent, seulement quand leur code est téléchargé. Le
+watch-party est le gros morceau : il traîne le composer, le menu membres et
+~24 ko de tables emoji unicode + anime, pour une fonctionnalité que presque
+personne n'ouvre.
+
+**HTML : 97,4 → 79,1 ko**, dont `__NEXT_DATA__` 30,4 → 12,3 ko. Le SSR doit
+récupérer `FULL_MEDIA_FIELDS` (les caches serveur qu'il amorce sont partagés
+avec la page info, qui a besoin de tout), mais le *prop* n'a pas à porter les
+18 ko que cette page ne lit jamais : `characters` 7,2 ko et `relations` 3,8 ko
+(onglets de la page info), `streamingEpisodes` 5,7 ko (lu côté serveur par
+`/api/v2/episode/[id]`, qui refait sa propre requête AniList) et
+`externalLinks` 1,2 ko. Le trim se fait au seul passage des props :
+`primeMediaCache` a déjà stocké l'objet complet en amont, donc les caches
+gardent tout. `recommendations` (8,2 ko) reste, la rangée du bas s'en sert.
+
+**Code mort trouvé au lint.** Le prop `proxy` était calculé dans le SSR,
+sérialisé dans le HTML, destructuré par le composant, et jamais lu — un
+`PROXY_BASE` séparé fait le travail depuis. Idem pour les imports
+`FlagIcon`/`ShareIcon` et les setters `setAutoNext`/`setAutoPlay`. Et les deux
+rendus jumeaux de `VideoStats` (portal / non-portal), identiques à la virgule
+près, deviennent un seul élément construit en amont.
+
+**Vérifié sur `dev.aniscroll.com`**, pas en local. Le lecteur joue
+(`readyState` 4, canvas lisible, 158 segments servis par le CDN vidéo). Et pour
+le morceau le plus remanié : un Chrome piloté en CDP clique « Regarder
+ensemble » → **4 chunks arrivent après le clic** (exactement les 4 fichiers que
+`react-loadable-manifest.json` attribue à `WatchPartyPanel`), le panneau et son
+composer s'affichent, aucune erreur console. C'est la preuve que le code n'était
+pas dans le chargement initial et qu'il arrive bien à la demande.
+
+Non exercés en navigateur : `VideoStats` et `FullscreenChat`, même mécanisme et
+mêmes gardes de rendu, mais seul le panneau a été cliqué pour de vrai.
+
 ## 2026-08-22 — Relevé usage : le seul trou de cache restant, et pourquoi le monitor ne verra jamais Vercel
 
 **Ce que le monitor dit.** Upstash n'est plus le sujet : 4 412 cmd le 21/08,
