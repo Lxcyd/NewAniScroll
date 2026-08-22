@@ -939,19 +939,25 @@ export async function getServerSideProps(ctx: any) {
     timer.mark("fanarts");
     const initialTitleImage = pickTitleImage(fanarts, tmdb.logo);
     const fanartsMeta = toFanartsMeta(fanarts);
-    const heroBanner = await resolveHeroBanner(info?.bannerImage, tmdb.backdrop);
-    if (heroBanner) appendPreloadHeader(ctx.res, heroBanner);
     // No clearart preload header — see the <link> note above: the <img> may
     // swap to assets.fanart.tv on proxy error, leaving a proxy-URL preload
     // unconsumed ("preloaded but not used"). preconnect handles the latency.
 
-    // Now wait on the slower stuff in parallel. The browser is already
-    // pulling the images while these resolve.
-    const [seasonInfo, seasonList, bonusFilms] = await Promise.all([
+    // Now wait on the slower stuff in parallel. `resolveHeroBanner` rides in
+    // this batch rather than ahead of it: it only needs `tmdb.backdrop`, which
+    // the wave above already produced, and awaiting it on its own added a
+    // third serial round-trip (its bannerSize verdict is a Turso read) to
+    // every edge-cache MISS on the site's busiest page. It used to sit here to
+    // emit its preload header "early", but getServerSideProps does not flush
+    // headers before the response — they all go out together either way, so
+    // the split bought latency and no earlier bytes.
+    const [heroBanner, seasonInfo, seasonList, bonusFilms] = await Promise.all([
+      resolveHeroBanner(info?.bannerImage, tmdb.backdrop).catch(() => null),
       resolveSeasonChain(animeIdNum).catch(() => ({ number: null, total: null })),
       resolveSeasonList(animeIdNum).catch(() => []),
       resolveBonusFilms(animeIdNum).catch(() => []),
     ]);
+    if (heroBanner) appendPreloadHeader(ctx.res, heroBanner);
     timer.end(`cache-hit id=${id?.[0]}`);
     return {
       props: {

@@ -102,8 +102,8 @@ export async function getServerSideProps(context) {
          AniList token; the SessionProvider fetches it once per full page load
          and keeps it across SPA navigation).
        - `mediaListEntry` → the client backfill effect that already existed for
-         it (GET /api/v2/media/[id], `private, no-store`), because the SSR only
-         ever had it on a cold hit anyway.
+         it (GET /api/v2/list-entry/[id], `private, no-store`), because the SSR
+         only ever had it on a cold hit anyway.
 
      Same trade the anime-info page already made. Episodes can appear while a
      copy is cached, hence 30 min (vs 6 h there) + a day of
@@ -294,15 +294,16 @@ export default function Watch({
     };
   }, [info?.id, resolvedAniId]);
 
-  // If the SSR served metadata without the per-user list entry (it now skips
-  // the AniList fetch on a memory hit), backfill mediaListEntry from the API
-  // so the "on list" state and resume progress are correct for signed-in users.
+  // The metadata sources above are all shared/cacheable and therefore never
+  // carry the viewer's list entry (SSR skips it, and /api/v2/media/[id] is
+  // edge-cached for everyone). Backfill it from the per-user endpoint so the
+  // "on list" state and resume progress are correct for signed-in users.
   useEffect(() => {
     if (!sessions?.user?.name) return;
     if (!info?.id) return;
     if (info.mediaListEntry) return;
     let cancelled = false;
-    fetch(`/api/v2/media/${info.id}`)
+    fetch(`/api/v2/list-entry/${info.id}`)
       .then((r) => (r.ok ? r.json() : null))
       .then((m) => {
         if (!cancelled && m?.mediaListEntry) {
