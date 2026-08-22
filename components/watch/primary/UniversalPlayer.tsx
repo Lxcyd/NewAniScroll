@@ -20,19 +20,28 @@ import {
 import HoverPreview from "./HoverPreview";
 import SubtitleSettings from "./SubtitleSettings";
 import SkipOverlay from "./SkipOverlay";
-import VideoStats from "./VideoStats";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/router";
-// The visual keyboard editor is a heavy, rarely-opened overlay — load it on
-// demand so it never weighs down the player chunk.
+// Overlays that only ever mount behind a condition — kept out of the player
+// chunk so they cost nothing to the viewer who never opens them. Each one is
+// already guarded at its render site, so deferring the import changes nothing
+// about when it appears.
+//   ShortcutEditor  — the visual keyboard editor, from the settings menu.
+//   VideoStats      — the debug HUD, behind `statsOpen`.
+//   FullscreenChat  — watch-party chat, behind `party`; it pulls EmojiButton
+//                     and the ~24 kB emoji tables along with it.
 const ShortcutEditor = dynamic(() => import("./ShortcutEditor"), { ssr: false });
+const VideoStats = dynamic(() => import("./VideoStats"), { ssr: false });
 import {
   getKeybindings,
   comboToAction,
   comboFromEvent,
   type ShortcutAction,
 } from "@/lib/prefs/keybindings";
-import FullscreenChat from "@/components/watch/party/FullscreenChat";
+const FullscreenChat = dynamic(
+  () => import("@/components/watch/party/FullscreenChat"),
+  { ssr: false },
+);
 // @ts-ignore — context module is plain JS, no types
 import { useWatchProvider } from "@/lib/context/watchPageProvider";
 import { getServer } from "@/lib/servers";
@@ -5234,6 +5243,20 @@ export default function UniversalPlayer({
   // since iframe embeds have no <video> to drive.
   runActionRef.current = runAction;
 
+  // "Stats for nerds" — live playback telemetry, toggled by the `toggleStats`
+  // shortcut or the settings-menu row. Built once here because it renders in
+  // two positions (see the render site below) and the props were duplicated
+  // verbatim between them.
+  const statsHud = statsOpen ? (
+    <VideoStats
+      playerRef={playerRef}
+      hlsRef={hlsRef}
+      serverName={serverId}
+      perf={perfRefs}
+      onClose={() => setStatsOpen(false)}
+    />
+  ) : null;
+
   return (
     // `isolation: isolate` creates a new stacking context here. Without it,
     // the ambient's z-index:-1 would slip behind elements OUTSIDE this
@@ -5709,33 +5732,11 @@ export default function UniversalPlayer({
           (party created, HTTP errors, …) share ONE animated, hover-expandable
           stack. Nothing to render here anymore. */}
 
-      {/* "Stats for nerds" — live playback telemetry, toggled by the
-          `toggleStats` shortcut or the settings-menu row. Portalled INTO the
-          player root (playerElState) — the fullscreen element is `.vds-player`,
-          so a plain sibling here would be outside the fullscreen subtree and
-          invisible in fullscreen (the bug). Falls back to a normal sibling
-          before the element is ready. */}
-      {statsOpen &&
-        (playerElState
-          ? createPortal(
-              <VideoStats
-                playerRef={playerRef}
-                hlsRef={hlsRef}
-                serverName={serverId}
-                perf={perfRefs}
-                onClose={() => setStatsOpen(false)}
-              />,
-              playerElState,
-            )
-          : (
-            <VideoStats
-              playerRef={playerRef}
-              hlsRef={hlsRef}
-              serverName={serverId}
-              perf={perfRefs}
-              onClose={() => setStatsOpen(false)}
-            />
-          ))}
+      {/* Portalled INTO the player root (playerElState) — the fullscreen
+          element is `.vds-player`, so a plain sibling here would be outside the
+          fullscreen subtree and invisible in fullscreen (the bug). Falls back
+          to a normal sibling before the element is ready. */}
+      {statsHud && (playerElState ? createPortal(statsHud, playerElState) : statsHud)}
 
       {/* Visual keyboard shortcut editor — opened from the settings menu. */}
       {shortcutEditorOpen && (

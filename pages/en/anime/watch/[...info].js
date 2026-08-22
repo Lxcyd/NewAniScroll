@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from "react";
-import { FlagIcon, ShareIcon, UsersIcon } from "@heroicons/react/24/solid";
+import { UsersIcon } from "@heroicons/react/24/solid";
 import Details from "@/components/watch/primary/details";
 import EpisodeLists from "@/components/watch/secondary/episodeLists";
 import ServerSelector from "@/components/watch/primary/serverSelector";
@@ -66,7 +66,15 @@ import { Spinner } from "@vidstack/react";
 import RateModal from "@/components/shared/RateModal";
 import { notify } from "@/lib/notifications/noticeStore";
 import { useWatchParty } from "@/lib/watch2gether/useWatchParty";
-import WatchPartyPanel from "@/components/watch/party/WatchPartyPanel";
+// Watch-party UI: split out of the page bundle. It only ever renders behind
+// `party || partyUIOpen` (see `partyPanelBlock` below), and it drags the whole
+// chat stack — composer, member menu, and the ~24 kB unicode + anime emoji
+// tables — behind it. Nearly nobody opens a party, so eagerly importing it
+// taxed every viewer of the site's busiest page for a feature they never touch.
+const WatchPartyPanel = dynamic(
+  () => import("@/components/watch/party/WatchPartyPanel"),
+  { ssr: false },
+);
 
 // Resolved video-proxy Worker base — mirrors the fallback the player and the
 // source resolver hardcode when NEXT_PUBLIC_PROXY_BASE is unset. Used to warm
@@ -82,6 +90,32 @@ const PROXY_BASE =
 // only ever paid on a 204 that would otherwise drop the chip.
 const DECOY_BACKOFF_MS = [800, 1600, 3200];
 const DECOY_RETRIES = DECOY_BACKOFF_MS.length;
+
+/* The SSR fetches FULL_MEDIA_FIELDS because the server-side caches this page
+   primes (`primeMediaCache`) are shared with the info page, which needs the
+   whole record. The PROP, though, is serialised into the HTML of every episode
+   open, and four of those fields are dead weight here — measured 22/08/2026 on
+   an `info` prop of 30 kB:
+
+     characters        7.2 kB   info-page tab only
+     streamingEpisodes 5.7 kB   read server-side by /api/v2/episode/[id], which
+                                runs its own AniList query — never read here
+     relations         3.8 kB   info-page "Related" only; the season chain
+                                resolves it server-side from the media cache
+     externalLinks     1.2 kB   info-page only
+
+   Nothing rendered by this page or anything it mounts touches them (checked
+   across the page, the player, the episode list, details, serverSelector,
+   Recommendations, the navbars and RateModal). Trimming happens HERE, at the
+   props boundary, and only here: `primeMediaCache` above already stored the
+   complete object, so the caches keep everything. `recommendations` (8.2 kB)
+   stays — the rail at the bottom of the page renders it. */
+function trimForWatch(media) {
+  if (!media) return null;
+  const { characters, streamingEpisodes, relations, externalLinks, ...rest } =
+    media;
+  return rest;
+}
 
 // ─────────────────────────────────────────────────────────────
 // SSR
@@ -113,9 +147,6 @@ export async function getServerSideProps(context) {
     "CDN-Cache-Control",
     "public, s-maxage=1800, stale-while-revalidate=86400",
   );
-
-  let proxy = process.env.PROXY_URI || null;
-  if (proxy && proxy.endsWith("/")) proxy = proxy.slice(0, -1);
 
   const [aniId, provider] = query?.info;
   // The visible `?id=` is now cosmetic only (`{server}-{episode}`, no AniList
@@ -212,9 +243,8 @@ export async function getServerSideProps(context) {
       watchId:    watchId  || null,
       epiNumber:  epiNumber || null,
       dub:        dub || null,
-      info:       data?.data?.Media || null,
+      info:       trimForWatch(data?.data?.Media),
       aniId:      aniId || null,
-      proxy,
     },
   };
 }
@@ -225,7 +255,6 @@ export async function getServerSideProps(context) {
 export default function Watch({
   info: ssrInfo,
   watchId,
-  proxy,
   dub,
   provider,
   epiNumber,
@@ -909,8 +938,6 @@ export default function Watch({
   const {
     theaterMode,
     autoplay,
-    setAutoNext,
-    setAutoPlay,
     setMarked,
     setPlayerState,
     setTrack,
