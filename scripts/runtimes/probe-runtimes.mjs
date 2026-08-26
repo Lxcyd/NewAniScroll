@@ -496,7 +496,14 @@ async function handle({ anime, season, host, epStart, epEnd }) {
     });
   });
 
-  if (pending.length >= 200) written += await flush();
+  /* On ecrit A CHAQUE PLAGE, pas tous les 200 releves.
+     Le premier lot l'a paye : le processus s'est arrete a 700/824 plages et le
+     compteur `probe` n'avait pas bouge — des centaines de mesures etaient encore
+     dans le tampon, jamais ecrites, donc refaites au passage suivant. Une passe
+     de plusieurs heures doit rendre son travail durable au rythme ou elle
+     l'accomplit, et la plage est justement la granularite de la reprise.
+     Le cout est une ecriture groupee d'une dizaine de lignes par plage. */
+  if (pending.length) written += await flush();
 }
 
 /* Une file par hote, chacune avec SA limite. Le plafond doit etre par hote et
