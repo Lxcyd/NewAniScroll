@@ -19,7 +19,13 @@ import {
   ProgressEntry,
   ProgressTick,
 } from "@/lib/watch/progress";
-import { peekRuntime, queueRuntime } from "@/lib/watch/episodeRuntime";
+import {
+  peekRuntime,
+  queueRuntime,
+  peekHostRuntime,
+  loadHostRuntimes,
+  reportHostRuntime,
+} from "@/lib/watch/episodeRuntime";
 /* Les tokens de la page d'info, en classe importable — c'est ce pour quoi
    `.tokens` a ete separe de `.root` (cf. son commentaire), et la page de
    lecture l'utilise deja pour sa rangee de recommandations. Le panneau les
@@ -37,6 +43,10 @@ type EpisodeListsProps = {
   episode: Episode[];
   track: any;
   dub: string;
+  /** Lecteur actif (id de lib/servers.js). Sert aux durees par encodage : le
+   *  meme episode ne dure pas la meme chose chez deux hotes. Absent = on
+   *  retombe sur les sources qui ignorent le lecteur (AniSkip, AniList). */
+  server?: string | null;
 };
 
 type SeasonRow = {
@@ -271,19 +281,30 @@ function Thumb({ src, blurred }: { src: string; blurred: boolean }) {
  * Duree de l'episode, par ordre de fiabilite :
  *
  *   1. l'episode EN COURS la tient du lecteur lui-meme, en direct ;
- *   2. un episode deja ouvert sur cet appareil l'a laissee dans le store de
+ *   2. notre base, pour L'ENCODAGE DE CE LECTEUR (`hostKnown`) — une mesure
+ *      faite sur le fichier, sur l'hote exact, partagee entre tous les
+ *      visiteurs ;
+ *   3. un episode deja ouvert sur cet appareil l'a laissee dans le store de
  *      reprise ;
- *   3. les autres la demandent a AniSkip, directement depuis le navigateur —
+ *   4. les autres la demandent a AniSkip, directement depuis le navigateur —
  *      et seulement une fois la ligne A L'ECRAN (cf. lib/watch/episodeRuntime) ;
- *   4. a defaut, la moyenne annoncee par AniList, precedee d'un "~" pour ne
+ *   5. a defaut, la moyenne annoncee par AniList, precedee d'un "~" pour ne
  *      pas faire passer une estimation pour la duree du fichier.
+ *
+ * Pourquoi la base passe DEVANT le store de reprise, alors que les deux sont des
+ * mesures de fichier : le store est indexe par (anime, episode) et ignore le
+ * LECTEUR. Un episode regarde hier sur sibnet y a laisse la duree de l'encodage
+ * sibnet ; si on est aujourd'hui sur ansembed, c'est la duree d'un autre fichier.
+ * La base, elle, est indexee par hote — c'est le bon encodage par construction.
  */
 function Runtime({
   aniId,
   episode,
   malId,
+  server,
   live,
   known,
+  hostKnown,
   done,
   doneLabel,
   anchor,
@@ -293,8 +314,12 @@ function Runtime({
   aniId: number | string;
   episode: number;
   malId?: number | string | null;
+  /** Lecteur actif — la duree remontee lui est attribuee. */
+  server?: string | null;
   live: boolean;
   known: number | null;
+  /** Duree stockee pour cet episode SUR CE LECTEUR, ou null. */
+  hostKnown: number | null;
   /** Episode fini : la duree restante n'interesse plus personne. */
   done: boolean;
   /** Libelle traduit du "Terminé" — le composant n'a pas de `t` a lui. */
@@ -308,7 +333,11 @@ function Runtime({
   // La provenance compte autant que la valeur : une duree lue dans le fichier
   // ne se discute pas, une duree participative se recale (voir plus bas).
   const [exact, setExact] = useState<{ s: number; player: boolean } | null>(
-    known != null ? { s: known, player: true } : null,
+    hostKnown != null
+      ? { s: hostKnown, player: true }
+      : known != null
+        ? { s: known, player: true }
+        : null,
   );
 
   // 1. Le lecteur, pour l'episode en cours.
@@ -322,12 +351,27 @@ function Runtime({
       setExact((prev) =>
         prev?.player && prev.s === d.duration ? prev : { s: d.duration, player: true },
       );
+      /* Le fichier vient de dire sa duree, sur l'hote exact : c'est la mesure de
+         reference, et elle est gratuite. On la remonte a la base quand elle
+         diverge de ce qu'on avait — c'est tout le mecanisme de correction, celui
+         qui rattrape un hote qui a re-encode sans jamais rien re-sonder a
+         l'aveugle. Un episode stable n'ecrit rien (cf. reportHostRuntime). */
+      reportHostRuntime(malId, episode, server, d.duration);
     };
     window.addEventListener(PROGRESS_EVENT, onTick);
     return () => window.removeEventListener(PROGRESS_EVENT, onTick);
-  }, [aniId, episode, live]);
+  }, [aniId, episode, live, malId, server]);
 
-  // 3. AniSkip, differé jusqu'a ce que la ligne soit reellement a l'ecran.
+  // 2. La base, quand elle arrive apres le premier rendu. Jamais sur la ligne en
+  //    cours : celle-la a mieux, le lecteur en direct.
+  useEffect(() => {
+    if (live || hostKnown == null) return;
+    setExact((prev) =>
+      prev?.player && prev.s === hostKnown ? prev : { s: hostKnown, player: true },
+    );
+  }, [hostKnown, live]);
+
+  // 4. AniSkip, differé jusqu'a ce que la ligne soit reellement a l'ecran.
   useEffect(() => {
     if (live || exact != null || malId == null || !ref.current) return;
     const cached = peekRuntime({ malId, episode });
@@ -444,6 +488,7 @@ export default function EpisodeLists({
   episode,
   track,
   dub,
+  server,
 }: EpisodeListsProps) {
   // Watched-episode count for the "seen" bar. Source of truth must match the
   // rest of the app: the LOCAL list when sync is off / guest (the editor and
@@ -809,6 +854,31 @@ export default function EpisodeLists({
      fixer la reference, la ou il faut deux mesures participatives concordantes
      — le fichier, c'est ce que l'utilisateur va reellement regarder, alors
      qu'une soumission peut viser un autre encodage. */
+  /* Durees mesurees sur l'encodage de CE lecteur, servies par notre base. Une
+     seule requete pour la saison, cachee au CDN (cf. /api/v2/runtimes). Le
+     compteur ne sert qu'a redessiner : les valeurs, elles, sont lues en direct
+     par `peekHostRuntime` au rendu. */
+  const [hostRuntimesTick, setHostRuntimesTick] = useState(0);
+  useEffect(() => {
+    if (info?.idMal == null || !server) return;
+    let alive = true;
+    loadHostRuntimes(info.idMal, server).then(() => {
+      if (alive) setHostRuntimesTick((n) => n + 1);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [info?.idMal, server]);
+
+  /* Lecteur de la table chargee ci-dessus. Le `tick` dans les dependances est ce
+     qui fait relire les lignes une fois la reponse arrivee — les valeurs vivent
+     dans un cache de module, pas dans un etat React. */
+  const hostRuntimeOf = useMemo(
+    () => (ep: number) => peekHostRuntime(info?.idMal, ep, server),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [info?.idMal, server, hostRuntimesTick],
+  );
+
   const measured = useRef<{
     id: unknown;
     rows: Map<number, { s: number; player: boolean }>;
@@ -899,6 +969,10 @@ export default function EpisodeLists({
          existent dans les historiques deja constitues, et sans garde elles
          s'affichaient telles quelles — les "0:01" sur les episodes 02 et 03. */
       known: store && store.duration > 60 ? store.duration : null,
+      /* Duree stockee pour CET encodage. Prime sur `known` ci-dessus, qui est
+         une mesure de fichier elle aussi mais sans memoire du lecteur sur
+         lequel elle a ete faite (cf. l'en-tete de <Runtime>). */
+      hostKnown: hostRuntimeOf(item.number),
       /* "Fini" au sens du site : soit la liste de visionnage l'a compte, soit
          la position sauvegardee est arrivee au bout — ce que `markComplete`
          ecrit aussi bien a la fin naturelle de la video qu'au passage a
@@ -1359,8 +1433,10 @@ export default function EpisodeLists({
                         aniId={info.id}
                         episode={item.number}
                         malId={info?.idMal ?? null}
+                        server={server}
                         live={f.playing}
                         known={f.known}
+                        hostKnown={f.hostKnown}
                         done={f.done}
                         doneLabel={t("anime.episodeDone")}
                         anchor={anchor}

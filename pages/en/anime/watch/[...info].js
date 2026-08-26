@@ -2638,6 +2638,10 @@ export default function Watch({
                     episode={episodesList}
                     track={episodeNavigation}
                     dub={dub}
+                    /* La duree d'un episode depend de l'ENCODAGE, donc du
+                       lecteur : la liste a besoin de savoir lequel est actif
+                       pour afficher la bonne (cf. /api/v2/runtimes). */
+                    server={activeServer}
                   />
                 </div>
               </div>

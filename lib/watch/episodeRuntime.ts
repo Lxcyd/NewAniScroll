@@ -160,3 +160,126 @@ export function queueRuntime(
     pump();
   });
 }
+
+/* ------------------------------------------------------------------------- *
+ * Durees PAR LECTEUR, servies par notre base (/api/v2/runtimes).
+ *
+ * C'est la source qui passe AVANT AniSkip, et pour deux raisons.
+ *
+ *   1. Elle est propre au LECTEUR ACTIF. AniSkip renvoie le `episodeLength` de
+ *      l'encodage qu'un contributeur avait sous la main ; deux mensonges mesures
+ *      dans ce fichier meme (cf. le bloc de choix dans episodeLists.tsx) venaient
+ *      de la. Un episode chez ansembed et chez vidmoly-va n'a pas la meme duree.
+ *   2. Elle coute UNE requete pour toute la saison, cachee au CDN et partagee
+ *      entre tous les visiteurs — la ou AniSkip coutait une requete par ligne
+ *      affichee, par appareil, sans jamais rien mutualiser.
+ *
+ * AniSkip reste dessous : la base ne couvre pas encore tout le catalogue, et un
+ * episode que personne n'a lu sur cet hote n'y a pas de ligne.
+ * ------------------------------------------------------------------------- */
+
+type HostMap = Record<number, number>;
+
+/** Saisons deja chargees, par (malId, serveur). Memoire de session : la valeur
+ *  est deja cachee au CDN, on evite juste le re-fetch au changement d'onglet. */
+const HOST_RUNTIMES = new Map<string, HostMap>();
+const HOST_INFLIGHT = new Map<string, Promise<HostMap>>();
+
+const hostKey = (malId: number | string, server: string) => `${malId}@${server}`;
+
+/**
+ * Charge (une fois) toutes les durees connues de cet anime sur CE lecteur.
+ * Ne rejette jamais : sans base, sans reseau, ou sur un serveur inconnu du
+ * registre, elle rend {} et l'affichage retombe sur ses autres sources.
+ */
+export function loadHostRuntimes(
+  malId?: number | string | null,
+  server?: string | null,
+): Promise<HostMap> {
+  if (malId == null || !server) return Promise.resolve({});
+  const key = hostKey(malId, server);
+  const done = HOST_RUNTIMES.get(key);
+  if (done) return Promise.resolve(done);
+  const running = HOST_INFLIGHT.get(key);
+  if (running) return running;
+  const p = (async () => {
+    try {
+      const res = await fetch(
+        `/api/v2/runtimes/${malId}?server=${encodeURIComponent(server)}`,
+      );
+      if (!res.ok) return {};
+      const json = await res.json();
+      const map: HostMap = {};
+      for (const [ep, s] of Object.entries(json?.runtimes || {})) {
+        const n = Number(s);
+        if (Number.isFinite(n) && n > 60) map[Number(ep)] = n;
+      }
+      HOST_RUNTIMES.set(key, map);
+      return map;
+    } catch {
+      return {};
+    } finally {
+      HOST_INFLIGHT.delete(key);
+    }
+  })();
+  HOST_INFLIGHT.set(key, p);
+  return p;
+}
+
+/** Duree connue pour cette ligne sur ce lecteur, sans aucune requete. */
+export function peekHostRuntime(
+  malId: number | string | null | undefined,
+  episode: number,
+  server?: string | null,
+): number | null {
+  if (malId == null || !server) return null;
+  const map = HOST_RUNTIMES.get(hostKey(malId, server));
+  const s = map?.[episode];
+  return typeof s === "number" ? s : null;
+}
+
+/* Une divergence par (episode, lecteur) ne se signale qu'une fois par session :
+   la valeur envoyee est la meme a chaque tick de progression du lecteur. */
+const REPORTED = new Set<string>();
+
+/**
+ * La duree que le LECTEUR vient de mesurer sur ce fichier. On la remonte quand
+ * elle diverge de ce que la base disait — ou qu'elle ne disait rien.
+ *
+ * L'epsilon d'une demi-seconde n'est pas un seuil de tolerance : `video.duration`
+ * est un flottant, et le meme fichier se declare 1420.0 ici et 1419.98 la selon
+ * le lecteur. Sans elle, chaque lecture reecrirait la meme valeur en boucle.
+ * Au-dela, tout ecart corrige la ligne — c'est ce qui rattrape un hote qui a
+ * re-encode, sans jamais re-sonder a l'aveugle.
+ */
+export function reportHostRuntime(
+  malId: number | string | null | undefined,
+  episode: number,
+  server: string | null | undefined,
+  seconds: number,
+): void {
+  if (malId == null || !server) return;
+  if (!Number.isFinite(seconds) || seconds < 60 || seconds > 4 * 3600) return;
+  const known = peekHostRuntime(malId, episode, server);
+  if (known != null && Math.abs(known - seconds) <= 0.5) return;
+  const key = `${hostKey(malId, server)}:${episode}`;
+  if (REPORTED.has(key)) return;
+  REPORTED.add(key);
+
+  const rounded = Math.round(seconds);
+  // La memoire locale prend la correction tout de suite : la ligne affichee ne
+  // doit pas attendre que le CDN expire pour montrer la bonne duree.
+  const map = HOST_RUNTIMES.get(hostKey(malId, server));
+  if (map) map[episode] = rounded;
+
+  try {
+    void fetch(`/api/v2/runtimes/${malId}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ episode, seconds: rounded, server }),
+      keepalive: true,
+    }).catch(() => {});
+  } catch {
+    /* une duree est un confort, jamais une panne */
+  }
+}
