@@ -67,6 +67,11 @@ const HOSTS = (
       : WORKING_HOSTS
 ).filter((h) => DISPLAYED_HOSTS.includes(h));
 const LIMIT = args.limit ? Number(args.limit) : Infinity;
+/** Plages resolues de front PAR HOTE. Volontairement bas : voir le commentaire
+ *  de la boucle principale. `--host-conc=` pour ajuster. */
+const HOST_CONC = Number(args["host-conc"] || 3);
+/** Manifestes lus de front dans une meme plage. `--ep-conc=` pour ajuster. */
+const EP_CONC = Number(args["ep-conc"] || 4);
 const ONLY_MISSING = !!args["only-missing"];
 const DRY = !!args.dry;
 
@@ -229,6 +234,21 @@ function runsOf(eps) {
   return runs;
 }
 
+/**
+ * N taches de front sur une file, sans dependance. Les travailleurs se servent
+ * dans la meme file par un index partage, donc un titre lent n'immobilise que
+ * son travailleur — un decoupage en tranches egales, lui, aurait fait attendre
+ * tout le monde sur la plus lente.
+ */
+async function pool(items, n, fn) {
+  let i = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(n, items.length) }, async () => {
+      while (i < items.length) await fn(items[i++]);
+    }),
+  );
+}
+
 const pending = [];
 let probed = 0;
 let written = 0;
@@ -246,6 +266,13 @@ console.log(
     (DRY ? " — --dry, rien ne sera ecrit" : ""),
 );
 
+/* Le travail, a plat : une tache = une plage contigue d'episodes, sur un hote.
+   Le mettre a plat AVANT de travailler est ce qui permet de le repartir — la
+   triple boucle imbriquee d'origine ne pouvait rien faire d'autre que du
+   sequentiel. L'ordre de `list` (popularite decroissante) est preserve dans
+   chaque file, donc une passe interrompue a toujours rempli la tete du
+   catalogue. */
+const byHost = new Map(HOSTS.map((h) => [h, []]));
 for (const anime of list) {
   for (const season of anime.seasons || []) {
     for (const host of HOSTS) {
@@ -253,76 +280,115 @@ for (const anime of list) {
       let wanted = episodesOf(season);
       if (ONLY_MISSING) wanted = wanted.filter((e) => !have.has(e));
       if (!wanted.length) continue;
-
       for (const [epStart, epEnd] of runsOf(wanted)) {
-        let res;
-        try {
-          res = await resolveHost({
-            slug: anime.slug,
-            seasonDir: season.season_dir,
-            lang: season.lang,
-            epStart,
-            epEnd,
-            host,
-            malId: anime.mal_id,
-            vaSlug: season.va_slug,
-          });
-        } catch (e) {
-          failed++;
-          console.warn(`[probe] ${anime.slug} ${season.lang} ${host}: ${e.message}`);
-          continue;
-        }
-
-        /* Un episode demande que `resolve.mjs` n'a pas rendu n'est ni un succes
-           ni une exception : il disparait simplement de `res.episodes`. Sans ce
-           relevé il ne restait AUCUNE trace — 37 episodes demandes, 23 sondes,
-           « 0 echecs ». C'est la lecon du lot top50 (devlog/oped.md, §08/08) :
-           un repli silencieux ne se distingue pas d'une absence de donnee.
-           `resolve.mjs` dit lui-meme lequel des deux c'est, dans `errors`. */
-        const got = new Set((res.episodes || []).map((e) => Number(e.ep)));
-        const missing = [];
-        for (let e = epStart; e <= epEnd; e++) if (!got.has(e)) missing.push(e);
-        if (missing.length) {
-          unresolved += missing.length;
-          const why = (res.errors || [])[0] || "sans raison rendue";
-          console.warn(
-            `[probe] ${anime.slug} ${season.lang} ${host}: ` +
-              `${missing.length}/${epEnd - epStart + 1} non resolus — ${why}`,
-          );
-        }
-
-        for (const ep of res.episodes || []) {
-          let seconds = null;
-          try {
-            seconds = ep.isM3U8
-              ? await hlsDuration(ep.url, ep.referer)
-              : ep.url.endsWith(".ffconcat")
-                ? ffconcatDuration(ep.url)
-                : await mp4Duration(ep.url);
-          } catch (e) {
-            failed++;
-            console.warn(`[probe] ${anime.slug} ep${ep.ep} ${host}: ${e.message}`);
-            continue;
-          }
-          probed++;
-          if (!(Number.isFinite(seconds) && seconds >= MIN_S && seconds <= MAX_S)) {
-            failed++;
-            continue;
-          }
-          pending.push({
-            malId: anime.mal_id,
-            episode: Number(ep.ep),
-            lang: season.lang,
-            host,
-            seconds: Math.round(seconds),
-          });
-        }
-
-        if (pending.length >= 200) written += await flush();
+        byHost.get(host).push({ anime, season, host, epStart, epEnd });
       }
     }
   }
 }
+
+const total = [...byHost.values()].reduce((a, q) => a + q.length, 0);
+console.log(
+  `[probe] ${total} plages a resoudre — ` +
+    [...byHost].map(([h, q]) => `${h}:${q.length}`).join(" "),
+);
+
+/** Une plage : resolution puis lecture des durees. */
+async function handle({ anime, season, host, epStart, epEnd }) {
+  let res;
+  try {
+    res = await resolveHost({
+      slug: anime.slug,
+      seasonDir: season.season_dir,
+      lang: season.lang,
+      epStart,
+      epEnd,
+      host,
+      malId: anime.mal_id,
+      vaSlug: season.va_slug,
+    });
+  } catch (e) {
+    failed++;
+    console.warn(`[probe] ${anime.slug} ${season.lang} ${host}: ${e.message}`);
+    return;
+  }
+
+  /* Un episode demande que `resolve.mjs` n'a pas rendu n'est ni un succes ni une
+     exception : il disparait simplement de `res.episodes`. Sans ce relevé il ne
+     restait AUCUNE trace — 37 episodes demandes, 23 sondes, « 0 echecs ». C'est
+     la lecon du lot top50 (devlog/oped.md, §08/08) : un repli silencieux ne se
+     distingue pas d'une absence de donnee. `resolve.mjs` dit lui-meme lequel des
+     deux c'est, dans `errors`. */
+  const got = new Set((res.episodes || []).map((e) => Number(e.ep)));
+  const missing = [];
+  for (let e = epStart; e <= epEnd; e++) if (!got.has(e)) missing.push(e);
+  if (missing.length) {
+    unresolved += missing.length;
+    const why = (res.errors || [])[0] || "sans raison rendue";
+    console.warn(
+      `[probe] ${anime.slug} ${season.lang} ${host}: ` +
+        `${missing.length}/${epEnd - epStart + 1} non resolus — ${why}`,
+    );
+  }
+
+  /* Les manifestes d'une meme plage se lisent EN PARALLELE. Ce ne sont pas des
+     appels au site scrape mais de petits GET de texte chez le CDN du lecteur, et
+     ils etaient le vrai cout en serie : douze allers-retours pour douze
+     episodes. `resolve.mjs`, lui, garde son extraction sequentielle interne —
+     c'est la partie qu'il ne faut PAS accelerer. */
+  await pool(res.episodes || [], EP_CONC, async (ep) => {
+    let seconds = null;
+    try {
+      seconds = ep.isM3U8
+        ? await hlsDuration(ep.url, ep.referer)
+        : ep.url.endsWith(".ffconcat")
+          ? ffconcatDuration(ep.url)
+          : await mp4Duration(ep.url);
+    } catch (e) {
+      failed++;
+      console.warn(`[probe] ${anime.slug} ep${ep.ep} ${host}: ${e.message}`);
+      return;
+    }
+    probed++;
+    if (!(Number.isFinite(seconds) && seconds >= MIN_S && seconds <= MAX_S)) {
+      failed++;
+      return;
+    }
+    pending.push({
+      malId: anime.mal_id,
+      episode: Number(ep.ep),
+      lang: season.lang,
+      host,
+      seconds: Math.round(seconds),
+    });
+  });
+
+  if (pending.length >= 200) written += await flush();
+}
+
+/* Une file par hote, chacune avec SA limite. Le plafond doit etre par hote et
+   non global : c'est un hote qu'on fait plier, pas « le reseau ». Trois est
+   volontairement bas — le lot d'aout a valu un blocage de sibnet, et rien ici
+   ne justifie de courir ce risque pour gagner une heure. Les quatre files
+   avancent en meme temps, donc le parallelisme utile vient surtout de la. */
+let done = 0;
+const t0 = Date.now();
+await Promise.all(
+  [...byHost].map(([, queue]) =>
+    pool(queue, HOST_CONC, async (task) => {
+      await handle(task);
+      done++;
+      if (done % 50 === 0) {
+        const per = (Date.now() - t0) / done / 1000;
+        const left = ((total - done) * per) / 60;
+        console.log(
+          `[probe] ${done}/${total} plages — ${probed} sondes, ` +
+            `reste ~${left.toFixed(0)} min`,
+        );
+      }
+    }),
+  ),
+);
 written += await flush();
 
 console.log(
