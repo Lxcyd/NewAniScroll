@@ -6,6 +6,83 @@ crons de rafraichissement, usage-monitor, analytics, et les releases
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-08-26 — Le chunk que personne ne peut éviter : `_app` divisé par deux
+
+Le 22/08 avait traité la page watch. Le même raisonnement appliqué un cran plus
+haut donne plus, parce qu'il porte sur **le seul fichier qu'aucun visiteur ne
+peut éviter** : `_app`.
+
+**Ce qu'il portait.** Cinq composants montés sur toutes les pages, et **aucun ne
+rend quoi que ce soit** tant qu'il ne se passe rien : la palette de recherche
+(dialogue fermé), le popup changelog (rien avant son fetch), la bannière de
+santé AniList (`return null` inconditionnel), l'aperçu au survol (sort sur
+`typeof document === "undefined"`) et le choix de sens de synchro. Tous rendent
+`null` côté serveur — donc le HTML SSR est identique au byte près, et différer
+ne change que le MOMENT du téléchargement, jamais celui de l'apparition. Même
+chose pour `ReportModal`, qui est derrière un bouton de la navbar : présent sur
+toutes les pages pour un formulaire que presque personne n'ouvre.
+
+| | avant | après |
+| --- | --: | --: |
+| `_app` (partagé par tous) | 112 ko | 56,2 ko |
+| premier chargement partagé | 223 ko | 167 ko |
+| `/en` | 265 ko | 228 ko |
+| `/en/anime/[...id]` | 295 ko | 249 ko |
+| `/en/anime/watch/[...info]` | 307 ko | 256 ko |
+| `/en/about` | 216 ko | 165 ko |
+
+Mesuré aussi **sur la preview**, pas seulement au build : le chunk `_app` servi
+par dev.aniscroll.com passe de 364 127 à 169 019 octets bruts.
+
+**Le raccourci décide de ce qu'on peut différer.** Ctrl+S ouvrait la palette
+depuis un écouteur qui vivait DANS la palette. Un raccourci dont le handler est
+à l'intérieur du composant qu'il doit révéler interdit de différer ce composant
+— il faut l'avoir chargé pour pouvoir demander à le charger. L'écouteur descend
+donc dans `SearchProvider`. Effet de bord gratuit : la remise à zéro de la
+requête, qui vivait dans ce handler, devient un effet sur l'ouverture, donc
+elle marche maintenant aussi pour le bouton loupe de la navbar, qui ne la
+faisait pas.
+
+**`useMountedOnce` monte au premier `open` et ne démonte pas.** Ces panneaux se
+ferment avec une transition de sortie ; `{open && <X/>}` la couperait en deux.
+Le hook ne vaut que pour un overlay qui ne rend RIEN fermé — celui qui garde un
+nœud caché et l'anime (RateModal) naîtrait déjà à son opacité finale et
+sauterait sa propre entrée.
+
+**`relationsTreeUrl` quitte `RelationsGraph`** pour `franchiseTreeVersion`, à
+côté du numéro qu'il porte. La fiche anime importait ce helper pour un
+`<link rel=preload>` et tirait le plateau entier — dagre compris — dans son
+chunk d'entrée, pour fabriquer une query string.
+
+**Deux pistes écartées après examen, et c'est le plus utile à retenir :**
+
+- *Séparer `InfoPage` / `InfoPageMobile`* aurait divisé le plus gros chunk de
+  page du site. Mais `useIsMobile` bascule **après** le montage : sur iPad, l'UA
+  dit mobile et la largeur (1024) dit desktop, donc le basculement a lieu à
+  chaque chargement. Il attendrait alors un téléchargement, et la page
+  clignoterait. Précharger l'autre variante ferait disparaître le clignotement
+  *et* l'économie.
+- *Différer `SubtitleSettings`* : fermé, il applique quand même le style de
+  sous-titres sauvegardé au document (un `useEffect` avant son `if (!open)
+  return null`). Le monter tard afficherait les sous-titres non stylisés
+  jusqu'à ce que quelqu'un ouvre le panneau. Le vrai défaut est que
+  l'application du style vit dans un composant de modale ; le corriger dépasse
+  « ne rien changer visuellement ».
+
+**Vérifié sur dev.aniscroll.com**, pas en local. Nouvel outil
+`tools/browser-check/lazy-overlays-check.mjs` : il refait les gestes et
+rapporte, pour chacun, le panneau ET les chunks demandés **après** le geste —
+c'est cette seconde colonne qui prouve que le code n'était pas dans le
+chargement initial. Palette +263 ms (1 chunk), signalement +262 ms (1 chunk),
+aperçu au survol +145 ms (0 chunk, le sien arrive après l'hydratation), aucune
+erreur console. Et `watch-check.mjs` sur Bleach ep1 : `readyState` 4, canvas
+lisible, 180 segments servis par le CDN vidéo.
+
+Piège d'outillage à retenir : `Input.dispatchKeyEvent` en CDP headless
+**n'atteint pas** un écouteur `window` quand rien n'a le focus. Le premier run
+a rendu un faux échec sur la palette, qui se lit exactement comme une vraie
+régression. Le script fabrique donc le `KeyboardEvent` dans la page.
+
 ## 2026-08-22 (suite) — Page watch : −20 % de bundle, −19 % de HTML, sans toucher au comportement
 
 Suite du relevé ci-dessous, appliqué à la page la plus visitée.
