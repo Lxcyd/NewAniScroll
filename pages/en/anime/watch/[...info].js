@@ -2514,19 +2514,13 @@ export default function Watch({
                   handleOpen={() => handleOpen()}
                   title={
                     <div className="min-w-0">
-                      {/* C'est le titre qui remplit la colonne en face de la
-                          jaquette, pas des vides repartis entre les blocs.
-                          `line-clamp-2` + `leading-tight` : un titre long prend
-                          une deuxieme ligne au lieu d'etre coupe, et s'arrete
-                          la — a la 3e ligne la colonne depasserait la jaquette
-                          et repousserait le synopsis. */}
                       <Link
                         href={`/en/anime/${info?.id}`}
-                        className="line-clamp-2 font-outfit text-xl font-semibold leading-tight text-white hover:underline lg:text-[32px]"
+                        className="line-clamp-1 font-outfit text-lg font-semibold text-white hover:underline lg:text-2xl"
                       >
                         {(info?.title && pickTitle(info.title, titlePref)) || t("common.loading")}
                       </Link>
-                      <h3 className="mt-1.5 font-karla text-sm text-white/45 line-clamp-1 lg:text-[15px]">
+                      <h3 className="font-karla text-sm text-white/45 line-clamp-1">
                         {episodeNavigation?.playing?.number ? (
                           <>
                             {t("common.episode")} {episodeNavigation.playing.number}
