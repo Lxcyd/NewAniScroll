@@ -67,13 +67,28 @@ const HOSTS = (
       : WORKING_HOSTS
 ).filter((h) => DISPLAYED_HOSTS.includes(h));
 const LIMIT = args.limit ? Number(args.limit) : Infinity;
-/** Plages resolues de front PAR HOTE. Volontairement bas : voir le commentaire
- *  de la boucle principale. `--host-conc=` pour ajuster. */
-const HOST_CONC = Number(args["host-conc"] || 3);
-/** Manifestes lus de front dans une meme plage. `--ep-conc=` pour ajuster. */
-const EP_CONC = Number(args["ep-conc"] || 4);
+/**
+ * Requetes simultanees CHEZ UN HOTE — toutes confondues, resolution comme
+ * lecture de manifeste.
+ *
+ * Un seul bouton, et c'est le sujet. La version precedente en avait deux
+ * (3 plages de front × 4 manifestes) sans jamais borner leur PRODUIT : megaplay
+ * recevait douze requetes a la fois et a repondu 429 sur 402 sondes du premier
+ * lot de 100 titres. Le meme megaplay ne bronchait pas en sequentiel — c'est
+ * donc bien nous qui l'avons fait plier, pas lui qui etait fragile.
+ */
+const HOST_CONC = Number(args["host-conc"] || 4);
+/** Plafond de l'espacement appris. 2 s = 30 requetes/min chez un hote :
+ *  assez lent pour n'importe quel budget rencontre, assez rapide pour que la
+ *  passe complete tienne dans une nuit. */
+const MAX_GAP_MS = Number(args["max-gap"] || 2000);
 const ONLY_MISSING = !!args["only-missing"];
 const DRY = !!args.dry;
+
+/* Un refus passager, par opposition a un refus definitif. Declare ici, tout en
+   haut, parce que `resolveHost` s'en sert bien avant que le limiteur existe. */
+const RETRYABLE = /HTTP (429|50\d)/;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const MIN_S = 60;
 const MAX_S = 4 * 3600;
@@ -157,11 +172,22 @@ async function resolveHost({ slug, seasonDir, lang, epStart, epEnd, host, malId,
   // resolve.mjs journalise sur stdout ET termine par UNE ligne JSON : c'est la
   // derniere ligne qui fait foi, pas la sortie entiere.
   const last = stdout.trim().split("\n").filter(Boolean).pop();
+  let out;
   try {
-    return JSON.parse(last);
+    out = JSON.parse(last);
   } catch {
     return { ok: false, episodes: [], errors: [`sortie illisible: ${last?.slice(0, 200)}`] };
   }
+  /* `resolve.mjs` ne LEVE pas sur un refus : il le range dans `errors` et rend
+     une liste vide. Sans cette traduction, un 429 pendant la resolution passait
+     pour « cette saison n'a pas cet hote » — le limiteur n'en savait rien et
+     continuait a la meme cadence. C'est ce qui a coute 143 plages megaplay au
+     premier lot. On ne re-leve que si RIEN n'a ete resolu : une plage a moitie
+     servie a d'autres causes que la cadence. */
+  if (!out.episodes?.length && (out.errors || []).some((e) => RETRYABLE.test(e))) {
+    throw new Error(`${host}: ${(out.errors || []).find((e) => RETRYABLE.test(e))}`);
+  }
+  return out;
 }
 
 async function hlsDuration(url, referer) {
@@ -249,6 +275,112 @@ async function pool(items, n, fn) {
   );
 }
 
+/**
+ * Limiteur ADAPTATIF par hote. Meme principe que le limiteur AIMD du detecteur
+ * (`tools/opening-detector/oped/throttle.py`) : on monte doucement quand tout va
+ * bien, on divise par deux des le premier refus.
+ *
+ * Pourquoi adaptatif plutot qu'un plafond fixe bien choisi : il n'existe pas de
+ * bon plafond fixe. Il depend de l'hote, de l'heure, et de ce que l'IP a deja
+ * consomme. Un chiffre code en dur est soit trop prudent pendant des heures,
+ * soit trop gourmand pendant les dix minutes qui declenchent le bannissement.
+ */
+function makeGate(max) {
+  /* Deux nombres, pas un. `limit` est la cadence du moment ; `ceiling` est le
+     plus haut qu'on s'autorise a viser. Sans ce second, la remontee ramenait
+     toujours vers le `max` demande — mesure sur megaplay : cadence 4 punie,
+     retombee a 1, remontee a 3-4, punie de nouveau, en boucle. Le plafond
+     descend avec les punitions et ne remonte pas : on cesse de redemander a un
+     hote la cadence qu'il vient de refuser. */
+  let ceiling = max;
+  let limit = max;
+  let active = 0;
+  let streak = 0;
+  /* L'ESPACEMENT, et c'est lui qui compte le plus.
+     Mesure sur megaplay : ramene a une seule requete a la fois, il repondait
+     ENCORE 429. Une limite de simultaneite ne peut pas expliquer ca — ce qu'il
+     compte, ce sont des requetes par minute. Reduire le parallelisme ne fait
+     alors que decaler le probleme : un travailleur seul mais rapide depasse le
+     meme budget. Il faut un delai minimal entre deux departs, et il s'apprend
+     comme le reste : nul tant que l'hote ne dit rien, double a chaque refus. */
+  let gap = 0;
+  let nextFree = 0;
+  const waiters = [];
+  return {
+    async run(fn) {
+      while (active >= limit) await new Promise((r) => waiters.push(r));
+      active++;
+      // Reservation du creneau AVANT l'attente : deux travailleurs qui partent
+      // ensemble prennent deux creneaux distincts, pas le meme.
+      const now = Date.now();
+      const slot = Math.max(now, nextFree);
+      nextFree = slot + gap;
+      if (slot > now) await sleep(slot - now);
+      try {
+        const v = await fn();
+        // Remontee PRUDENTE : un cran tous les vingt succes, jamais au-dela du
+        // plafond demande. C'est l'additive increase.
+        /* Detente, dans l'ordre inverse du serrage : on relache d'abord
+           l'espacement (le plus couteux en temps), la simultaneite ensuite. */
+        if (++streak >= 20) {
+          if (gap > 0) gap = Math.floor(gap / 2);
+          else if (limit < ceiling) limit++;
+          streak = 0;
+        }
+        return v;
+      } finally {
+        active--;
+        waiters.shift()?.();
+      }
+    },
+    /** Un refus (429/503) : on divise, et on repart de zero. */
+    penalise(host) {
+      const wasLimit = limit;
+      const wasGap = gap;
+      limit = Math.max(1, Math.floor(limit / 2));
+      // Le plafond suit la descente, d'un cran au-dessus de la cadence retenue.
+      ceiling = Math.max(1, Math.min(ceiling, limit + 1));
+      // Deja au minimum de simultaneite ? Alors c'est un budget par minute, et
+      // seul l'espacement peut encore ceder.
+      if (limit === 1) gap = Math.min(MAX_GAP_MS, gap ? gap * 2 : 250);
+      streak = 0;
+      if (limit !== wasLimit || gap !== wasGap) {
+        console.warn(
+          `[probe] ${host}: cadence ${wasLimit} → ${limit}, ` +
+            `espacement ${wasGap} → ${gap} ms`,
+        );
+      }
+    },
+  };
+}
+
+const GATES = new Map(HOSTS.map((h) => [h, makeGate(HOST_CONC)]));
+
+
+/**
+ * Une operation reseau chez un hote : sous limiteur, et REPRISE sur refus.
+ *
+ * La reprise n'est pas un luxe. Sans elle, un 429 — par definition passager —
+ * faisait perdre l'episode DEFINITIVEMENT : la ligne n'etait jamais ecrite et
+ * `--only-missing` la redemanderait au prochain passage, pour se faire refuser
+ * de la meme façon tant que la cadence n'a pas baisse. Le premier lot a perdu
+ * 402 sondes exactement comme ca.
+ */
+async function viaHost(host, fn, tries = 4) {
+  const gate = GATES.get(host);
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await gate.run(fn);
+    } catch (e) {
+      if (attempt >= tries || !RETRYABLE.test(String(e?.message))) throw e;
+      gate.penalise(host);
+      // 2 s, 6 s, 18 s : assez long pour qu'une fenetre de limitation retombe,
+      // assez court pour ne pas immobiliser la file.
+      await sleep(2000 * 3 ** (attempt - 1));
+    }
+  }
+}
+
 const pending = [];
 let probed = 0;
 let written = 0;
@@ -297,16 +429,18 @@ console.log(
 async function handle({ anime, season, host, epStart, epEnd }) {
   let res;
   try {
-    res = await resolveHost({
-      slug: anime.slug,
-      seasonDir: season.season_dir,
-      lang: season.lang,
-      epStart,
-      epEnd,
-      host,
-      malId: anime.mal_id,
-      vaSlug: season.va_slug,
-    });
+    res = await viaHost(host, () =>
+      resolveHost({
+        slug: anime.slug,
+        seasonDir: season.season_dir,
+        lang: season.lang,
+        epStart,
+        epEnd,
+        host,
+        malId: anime.mal_id,
+        vaSlug: season.va_slug,
+      }),
+    );
   } catch (e) {
     failed++;
     console.warn(`[probe] ${anime.slug} ${season.lang} ${host}: ${e.message}`);
@@ -331,19 +465,18 @@ async function handle({ anime, season, host, epStart, epEnd }) {
     );
   }
 
-  /* Les manifestes d'une meme plage se lisent EN PARALLELE. Ce ne sont pas des
-     appels au site scrape mais de petits GET de texte chez le CDN du lecteur, et
-     ils etaient le vrai cout en serie : douze allers-retours pour douze
-     episodes. `resolve.mjs`, lui, garde son extraction sequentielle interne —
-     c'est la partie qu'il ne faut PAS accelerer. */
-  await pool(res.episodes || [], EP_CONC, async (ep) => {
+  /* Les manifestes d'une meme plage partent ensemble, mais TOUS par le limiteur
+     de l'hote : c'est lui, et lui seul, qui decide combien passent a la fois.
+     Un `.ffconcat` est un fichier local — il ne consomme aucun credit et n'a
+     rien a faire dans le limiteur. */
+  await pool(res.episodes || [], HOST_CONC, async (ep) => {
     let seconds = null;
     try {
-      seconds = ep.isM3U8
-        ? await hlsDuration(ep.url, ep.referer)
-        : ep.url.endsWith(".ffconcat")
-          ? ffconcatDuration(ep.url)
-          : await mp4Duration(ep.url);
+      seconds = ep.url.endsWith(".ffconcat")
+        ? ffconcatDuration(ep.url)
+        : await viaHost(host, () =>
+            ep.isM3U8 ? hlsDuration(ep.url, ep.referer) : mp4Duration(ep.url),
+          );
     } catch (e) {
       failed++;
       console.warn(`[probe] ${anime.slug} ep${ep.ep} ${host}: ${e.message}`);
