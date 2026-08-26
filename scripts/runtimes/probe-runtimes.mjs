@@ -160,10 +160,44 @@ async function mp4Duration(url) {
   return Number(stdout.trim());
 }
 
+/**
+ * Les episodes vises par une saison. Les jeux de donnees ecrivent ca de DEUX
+ * façons et il faut lire les deux : `ep_start`/`ep_end` pour une saison entiere
+ * (anime.full.json), `episodes: [1,2,3,12,30]` pour un echantillon
+ * (anime.top50.json). Ne lire que la premiere sautait les seconds EN SILENCE.
+ */
+function episodesOf(season) {
+  if (Array.isArray(season.episodes) && season.episodes.length) {
+    return [...new Set(season.episodes.map(Number).filter(Number.isInteger))].sort(
+      (a, b) => a - b,
+    );
+  }
+  const start = Number(season.ep_start || 1);
+  const end = Number(season.ep_end || 0);
+  if (!end || end < start) return [];
+  return Array.from({ length: end - start + 1 }, (_, i) => start + i);
+}
+
+/**
+ * Suites contigues. `resolve.mjs` ne prend qu'une PLAGE : demander 1..30 pour
+ * obtenir [1,2,3,12,30] ferait 30 extractions au lieu de 5. Un appel par suite
+ * en fait exactement 5, en trois appels.
+ */
+function runsOf(eps) {
+  const runs = [];
+  for (const ep of eps) {
+    const last = runs[runs.length - 1];
+    if (last && ep === last[1] + 1) last[1] = ep;
+    else runs.push([ep, ep]);
+  }
+  return runs;
+}
+
 const pending = [];
 let probed = 0;
 let written = 0;
 let failed = 0;
+let unresolved = 0;
 
 const list = JSON.parse(fs.readFileSync(LIST, "utf8")).slice(0, LIMIT);
 console.log(
@@ -175,64 +209,85 @@ for (const anime of list) {
   for (const season of anime.seasons || []) {
     for (const host of HOSTS) {
       const have = ONLY_MISSING ? await known(anime.mal_id, season.lang, host) : new Set();
-      const epStart = Number(season.ep_start || 1);
-      const epEnd = Number(season.ep_end || 0);
-      if (!epEnd) continue;
-      if (ONLY_MISSING && have.size >= epEnd - epStart + 1) continue;
+      let wanted = episodesOf(season);
+      if (ONLY_MISSING) wanted = wanted.filter((e) => !have.has(e));
+      if (!wanted.length) continue;
 
-      let res;
-      try {
-        res = await resolveHost({
-          slug: anime.slug,
-          seasonDir: season.season_dir,
-          lang: season.lang,
-          epStart,
-          epEnd,
-          host,
-          malId: anime.mal_id,
-          vaSlug: season.va_slug,
-        });
-      } catch (e) {
-        failed++;
-        console.warn(`[probe] ${anime.slug} ${season.lang} ${host}: ${e.message}`);
-        continue;
-      }
-
-      for (const ep of res.episodes || []) {
-        if (ONLY_MISSING && have.has(Number(ep.ep))) continue;
-        let seconds = null;
+      for (const [epStart, epEnd] of runsOf(wanted)) {
+        let res;
         try {
-          seconds = ep.isM3U8
-            ? await hlsDuration(ep.url, ep.referer)
-            : ep.url.endsWith(".ffconcat")
-              ? ffconcatDuration(ep.url)
-              : await mp4Duration(ep.url);
+          res = await resolveHost({
+            slug: anime.slug,
+            seasonDir: season.season_dir,
+            lang: season.lang,
+            epStart,
+            epEnd,
+            host,
+            malId: anime.mal_id,
+            vaSlug: season.va_slug,
+          });
         } catch (e) {
           failed++;
-          console.warn(`[probe] ${anime.slug} ep${ep.ep} ${host}: ${e.message}`);
+          console.warn(`[probe] ${anime.slug} ${season.lang} ${host}: ${e.message}`);
           continue;
         }
-        probed++;
-        if (!(Number.isFinite(seconds) && seconds >= MIN_S && seconds <= MAX_S)) {
-          failed++;
-          continue;
-        }
-        pending.push({
-          malId: anime.mal_id,
-          episode: Number(ep.ep),
-          lang: season.lang,
-          host,
-          seconds: Math.round(seconds),
-        });
-      }
 
-      if (pending.length >= 200) written += await flush();
+        /* Un episode demande que `resolve.mjs` n'a pas rendu n'est ni un succes
+           ni une exception : il disparait simplement de `res.episodes`. Sans ce
+           relevé il ne restait AUCUNE trace — 37 episodes demandes, 23 sondes,
+           « 0 echecs ». C'est la lecon du lot top50 (devlog/oped.md, §08/08) :
+           un repli silencieux ne se distingue pas d'une absence de donnee.
+           `resolve.mjs` dit lui-meme lequel des deux c'est, dans `errors`. */
+        const got = new Set((res.episodes || []).map((e) => Number(e.ep)));
+        const missing = [];
+        for (let e = epStart; e <= epEnd; e++) if (!got.has(e)) missing.push(e);
+        if (missing.length) {
+          unresolved += missing.length;
+          const why = (res.errors || [])[0] || "sans raison rendue";
+          console.warn(
+            `[probe] ${anime.slug} ${season.lang} ${host}: ` +
+              `${missing.length}/${epEnd - epStart + 1} non resolus — ${why}`,
+          );
+        }
+
+        for (const ep of res.episodes || []) {
+          let seconds = null;
+          try {
+            seconds = ep.isM3U8
+              ? await hlsDuration(ep.url, ep.referer)
+              : ep.url.endsWith(".ffconcat")
+                ? ffconcatDuration(ep.url)
+                : await mp4Duration(ep.url);
+          } catch (e) {
+            failed++;
+            console.warn(`[probe] ${anime.slug} ep${ep.ep} ${host}: ${e.message}`);
+            continue;
+          }
+          probed++;
+          if (!(Number.isFinite(seconds) && seconds >= MIN_S && seconds <= MAX_S)) {
+            failed++;
+            continue;
+          }
+          pending.push({
+            malId: anime.mal_id,
+            episode: Number(ep.ep),
+            lang: season.lang,
+            host,
+            seconds: Math.round(seconds),
+          });
+        }
+
+        if (pending.length >= 200) written += await flush();
+      }
     }
   }
 }
 written += await flush();
 
-console.log(`[probe] ${probed} sondes, ${written} lignes ecrites, ${failed} echecs`);
+console.log(
+  `[probe] ${probed} sondes, ${written} lignes ecrites, ` +
+    `${failed} echecs de sonde, ${unresolved} episodes non resolus`,
+);
 
 /** Ecrit le lot en cours. `WHERE source <> 'player'` : une mesure de lecteur ne
  *  se fait jamais ecraser par une sonde (cf. l'en-tete). */
