@@ -45,9 +45,27 @@ const args = Object.fromEntries(
   }),
 );
 const LIST = args["anime-list"] || "tools/opening-detector/anime.json";
-const HOSTS = (args.hosts ? args.hosts.split(",") : DISPLAYED_HOSTS).filter((h) =>
-  DISPLAYED_HOSTS.includes(h),
-);
+
+/**
+ * Hotes sondes par defaut : PAS tous les hotes affiches.
+ *
+ * Mesure du 08/08/2026 (devlog/oped.md, lot top50) : sibnet et sendvid etaient
+ * PROPOSES sur ~85 % des saisons et n'ont rien rendu — sendvid repond 502 sur sa
+ * propre page d'accueil, sibnet renvoie un 403 nginx nu sur `shell.php` quels que
+ * soient le Referer et l'UA. Les mettre dans le defaut, c'est deux resolutions
+ * ratees par cellule sur tout le catalogue, soit environ 68 000 requetes pour
+ * rien — et autant d'occasions de se faire bannir davantage.
+ *
+ * `--hosts=all` force la liste complete (pour re-tester un hote reveille).
+ */
+const WORKING_HOSTS = ["ansembed", "megaplay", "vidmoly-va", "uqload"];
+const HOSTS = (
+  args.hosts === "all"
+    ? DISPLAYED_HOSTS
+    : args.hosts
+      ? args.hosts.split(",")
+      : WORKING_HOSTS
+).filter((h) => DISPLAYED_HOSTS.includes(h));
 const LIMIT = args.limit ? Number(args.limit) : Infinity;
 const ONLY_MISSING = !!args["only-missing"];
 const DRY = !!args.dry;
@@ -86,15 +104,33 @@ CREATE TABLE IF NOT EXISTS episode_runtimes (
   PRIMARY KEY (mal_id, episode, lang, host)
 )`);
 
-/** Ce qu'on a deja, pour ne pas re-sonder (--only-missing). */
-async function known(malId, lang, host) {
-  const r = await db.execute({
-    sql: `SELECT episode FROM episode_runtimes
-           WHERE mal_id = ? AND lang = ? AND host = ?`,
-    args: [malId, lang, host],
-  });
-  return new Set(r.rows.map((x) => Number(x.episode)));
+/**
+ * Ce qu'on a deja, charge EN UNE FOIS (--only-missing).
+ *
+ * La reprise est ce qui rend une passe de plusieurs heures rejouable : c'est la
+ * base elle-meme qui sert d'etat, pas un manifeste a cote qui peut en diverger.
+ * Mais interroger Turso par (anime, lang, hote) faisait ~6 400 requetes avant
+ * meme la premiere sonde — le cout de la reprise depassait celui du travail.
+ * Une seule lecture, indexee en memoire, coute une requete.
+ */
+const COVERAGE = new Map();
+async function loadCoverage() {
+  const r = await db.execute(
+    "SELECT mal_id, lang, host, episode FROM episode_runtimes",
+  );
+  for (const row of r.rows) {
+    const key = `${Number(row.mal_id)}:${row.lang}:${row.host}`;
+    let set = COVERAGE.get(key);
+    if (!set) COVERAGE.set(key, (set = new Set()));
+    set.add(Number(row.episode));
+  }
+  console.log(
+    `[probe] reprise : ${r.rows.length} durees deja en base ` +
+      `(${COVERAGE.size} panneaux)`,
+  );
 }
+const known = (malId, lang, host) =>
+  COVERAGE.get(`${malId}:${lang}:${host}`) || new Set();
 
 /** Une passe de `resolve.mjs`, forcee sur UN SEUL hote. */
 async function resolveHost({ slug, seasonDir, lang, epStart, epEnd, host, malId, vaSlug }) {
@@ -199,6 +235,11 @@ let written = 0;
 let failed = 0;
 let unresolved = 0;
 
+if (ONLY_MISSING) await loadCoverage();
+
+/* L'ordre de la liste est celui de `export-oped-anime-list.mjs` : par
+   popularite decroissante. Une passe interrompue a donc rempli ce que les gens
+   regardent le plus, pas une tranche alphabetique au hasard. */
 const list = JSON.parse(fs.readFileSync(LIST, "utf8")).slice(0, LIMIT);
 console.log(
   `[probe] ${list.length} titres × ${HOSTS.length} hotes (${HOSTS.join(", ")})` +
@@ -208,7 +249,7 @@ console.log(
 for (const anime of list) {
   for (const season of anime.seasons || []) {
     for (const host of HOSTS) {
-      const have = ONLY_MISSING ? await known(anime.mal_id, season.lang, host) : new Set();
+      const have = ONLY_MISSING ? known(anime.mal_id, season.lang, host) : new Set();
       let wanted = episodesOf(season);
       if (ONLY_MISSING) wanted = wanted.filter((e) => !have.has(e));
       if (!wanted.length) continue;
