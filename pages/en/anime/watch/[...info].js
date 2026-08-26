@@ -2514,9 +2514,16 @@ export default function Watch({
                   handleOpen={() => handleOpen()}
                   title={
                     <div className="min-w-0">
+                      {/* Pas de line-clamp : le titre s'affiche EN ENTIER,
+                          quitte a passer sur deux ou trois lignes. Il etait
+                          coupe a une ligne, et les titres a rallonge (« The
+                          Misfit of Demon King Academy II: History's Strongest
+                          Demon King Reincarnat… ») perdaient justement la
+                          partie qui distingue la saison. `leading-snug` resserre
+                          l'interligne pour que l'empilement reste compact. */}
                       <Link
                         href={`/en/anime/${info?.id}`}
-                        className="line-clamp-1 font-outfit text-lg font-semibold text-white hover:underline lg:text-2xl"
+                        className="block font-outfit text-lg font-semibold leading-snug text-white hover:underline lg:text-2xl"
                       >
                         {(info?.title && pickTitle(info.title, titlePref)) || t("common.loading")}
                       </Link>
