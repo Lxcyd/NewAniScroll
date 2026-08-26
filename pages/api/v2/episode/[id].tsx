@@ -77,6 +77,7 @@ function buildEpisodeList(
   media: any,
   stills: Record<number, string> = {},
   titles: Record<number, string> = {},
+  hd: Record<number, string> = {},
 ) {
   const totalEpisodes = displayedEpisodeCount(media);
 
@@ -128,6 +129,12 @@ function buildEpisodeList(
          survived the foreign-entry check above: it is this entry's own
          artwork. */
       img: streaming?.thumbnail || stills[num] || null,
+      /* La MEME image en pleine definition, pour le seul poster du lecteur —
+         qui l'affiche sur ~1300 px la ou la tuile de liste en fait 190. Elle
+         n'existe que quand le still vient de TMDB (`original`, mesure a
+         1920x1080) ; une screencap ani.zip n'a pas de variante plus grande,
+         et `null` fait simplement retomber le poster sur `img`. */
+      imgHd: hd[num] || null,
       description: null,
     };
   });
@@ -338,12 +345,19 @@ export default async function handler(
      two came back complete (fillStillGaps returns without a call) or when
      TMDB_API_KEY is unset. 2s, not 3s: this is strictly a bonus on top of an
      answer we already have. */
-  const stills = await Promise.race([
-    fillStillGaps(Number(id), displayed || null, merged).catch(() => merged),
-    new Promise<Record<number, string>>((r) => setTimeout(() => r(merged), 2000)),
+  const EMPTY_FILL = { stills: merged, hd: {} as Record<number, string> };
+  const filled = await Promise.race([
+    fillStillGaps(Number(id), displayed || null, merged).catch(() => EMPTY_FILL),
+    new Promise<typeof EMPTY_FILL>((r) => setTimeout(() => r(EMPTY_FILL), 2000)),
   ]);
 
-  const rawData = buildEpisodeList(id as string, media, stills, mergedTitles);
+  const rawData = buildEpisodeList(
+    id as string,
+    media,
+    filled.stills,
+    mergedTitles,
+    filled.hd,
+  );
 
   // Cache
   if (redis && cacheTime !== null && rawData.length > 0) {

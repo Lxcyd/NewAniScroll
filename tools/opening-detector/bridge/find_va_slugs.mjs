@@ -124,7 +124,13 @@ const slugify = (s) => s.toLowerCase().normalize("NFD")
 async function resolveSeason(animeSlug, season, malId) {
   const wantVf = (season.lang || "vostfr") === "vf";
   const wantSeason = parseInt((season.season_dir || "saison1").replace(/\D/g, ""), 10) || 1;
-  const wantEps = season.episodes || [];
+  // Les datasets portent l'un ou l'autre format (liste explicite, ou bornes) —
+  // batch_detect lit les deux, le resolveur doit en faire autant.
+  const wantEps = season.episodes && season.episodes.length
+    ? season.episodes
+    : (Number.isFinite(season.ep_start) && Number.isFinite(season.ep_end)
+        ? Array.from({ length: season.ep_end - season.ep_start + 1 }, (_, i) => season.ep_start + i)
+        : []);
 
   // Plusieurs formulations du meme titre : le romaji de MAL trouve ce que le
   // slug anime-sama ne trouve pas, et reciproquement pour les titres anglicises.

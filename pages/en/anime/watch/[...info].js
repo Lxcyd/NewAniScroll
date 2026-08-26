@@ -1106,6 +1106,7 @@ export default function Watch({
               title:       playingData?.title || info?.title?.romaji,
               description: playingData?.description,
               img:         playingData?.img   || playingData?.image,
+              imgHd:       playingData?.imgHd  || null,
               number:      currentEpisode.number,
             },
             next: nextEpisode,
@@ -2150,7 +2151,14 @@ export default function Watch({
      Sans lui elle ne commencait a se telecharger qu'au montage du lecteur,
      apres la resolution du flux — plusieurs secondes de retard sur une image
      dont tout le role est de couvrir le premier instant. */
-  const posterUrl = episodeNavigation?.playing?.img || info?.bannerImage;
+  /* Le poster occupe toute la largeur du lecteur (~1300 px) : il prend la
+     variante PLEINE DEFINITION quand elle existe, la tuile de liste gardant sa
+     version legere. Sans ca on affichait une screencap ani.zip de 640 px
+     agrandie deux fois — d'ou le rendu pixelise signale le 26/08/2026. */
+  const posterUrl =
+    episodeNavigation?.playing?.imgHd ||
+    episodeNavigation?.playing?.img ||
+    info?.bannerImage;
 
   // ── Player ───────────────────────────────────────────────────
   // Memoized JSX — recomputes ONLY when player-relevant state changes.

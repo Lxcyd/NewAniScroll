@@ -181,36 +181,77 @@ export async function getTmdbEpisodeStills(
   return stills;
 }
 
+/* La vignette de LISTE fait ~190 px : `w300` y est la bonne taille. Le POSTER
+   du lecteur, lui, occupe toute la largeur (~1300 px), et c'est la que le 640
+   d'ani.zip (screencap TVDB, sa taille native — il n'a rien de plus) se voit
+   comme un agrandissement. TMDB ne propose que w92/w185/w300/original pour les
+   stills : au-dessus de 300, `original` est la SEULE option. Mesure du
+   26/08/2026 sur Cyberpunk ep1 — ani.zip 640x360, TMDB original 1920x1080.
+
+   On ne sert donc pas la meme image aux deux endroits, et on ne fait pas payer
+   du 1920 a une liste de dix tuiles. */
+const HD_FROM_W300 = new RegExp(`/${STILL_SIZE}/`);
+
+/** L'URL pleine definition d'un still TMDB deja resolu, ou null si ce n'en est
+ *  pas un. Pur travail de chaine : `tmdbImageUrl` ne fait que concatener la
+ *  taille au chemin, donc l'echange est sur — et surtout il ne coute AUCUNE
+ *  requete de plus. Une URL ani.zip (artworks.thetvdb.com) n'a pas de variante
+ *  plus grande et ressort telle quelle en null. */
+export function hdStillUrl(url: string | null | undefined): string | null {
+  if (!url || !HD_FROM_W300.test(url)) return null;
+  return url.replace(HD_FROM_W300, "/original/");
+}
+
 /**
  * The leading provider's stills, with TMDB filling only the gaps.
  *
  * Returns the map untouched when it is already complete — which also means no
  * TMDB call is made for those titles.
+ *
+ * `hd` porte, pour les episodes ou TMDB a une image, la variante `original`
+ * destinee au seul poster du lecteur. Elle est vide quand ani.zip a tout
+ * couvert : c'est le prix de ne pas appeler TMDB pour rien, et ces titres-la
+ * gardent le poster 640 d'ani.zip.
  */
 export async function fillStillGaps(
   anilistId: number,
   displayedEpisodes: number | null,
   baseStills: Record<number, string>,
-): Promise<Record<number, string>> {
+): Promise<{ stills: Record<number, string>; hd: Record<number, string> }> {
   if (!tmdbEnabled() || !displayedEpisodes || displayedEpisodes <= 0) {
-    return baseStills;
+    return { stills: baseStills, hd: {} };
   }
 
-  const wanted = new Set<number>();
+  /* On demande TOUTE la saison, pas seulement les trous. Avant, un titre
+     qu'ani.zip couvrait entierement n'appelait jamais TMDB — et n'avait donc
+     jamais de variante pleine definition pour son poster (cas mesure :
+     Cyberpunk, dix lignes remplies par ani.zip, poster en 640 agrandi).
+     Le cout reste borne : `getTmdbEpisodeStills` met la saison ENTIERE en
+     cache, et la reponse de la liste d'episodes est elle-meme cachee 30 jours.
+     Les trous continuent d'etre les seuls a etre COMBLES — la regle « TMDB
+     n'ecrase jamais » est intacte, il ne gagne ici que le droit d'ajouter une
+     version plus grande de la meme image. */
+  const gaps = new Set<number>();
+  const all = new Set<number>();
   for (let n = 1; n <= displayedEpisodes; n++) {
-    if (!baseStills[n]) wanted.add(n);
+    all.add(n);
+    if (!baseStills[n]) gaps.add(n);
   }
-  if (wanted.size === 0) return baseStills;
+  if (all.size === 0) return { stills: baseStills, hd: {} };
 
-  const tmdb = await getTmdbEpisodeStills(anilistId, displayedEpisodes, wanted).catch(
+  const tmdb = await getTmdbEpisodeStills(anilistId, displayedEpisodes, all).catch(
     () => EMPTY,
   );
 
   // forEach, not for..of: tsconfig targets ES5 without downlevelIteration, so
   // iterating a Set directly doesn't compile.
   const merged = { ...baseStills };
-  wanted.forEach((n) => {
-    if (tmdb[n]) merged[n] = tmdb[n];
+  const hd: Record<number, string> = {};
+  all.forEach((n) => {
+    if (!tmdb[n]) return;
+    if (gaps.has(n)) merged[n] = tmdb[n];
+    const big = hdStillUrl(tmdb[n]);
+    if (big) hd[n] = big;
   });
-  return merged;
+  return { stills: merged, hd };
 }

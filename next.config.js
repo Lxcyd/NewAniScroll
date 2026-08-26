@@ -118,8 +118,21 @@ const runtimeCaching = [
   // Catch-all for the rest of the app shell — gated on sameOrigin so the
   // SW never tries to handle a cross-origin video / segment fetch (which
   // is the bug that broke sibnet playback).
+  //
+  // …et gate aussi sur `request.mode !== "navigate"`. Une NAVIGATION prise en
+  // charge ici passe par NetworkFirst : si le reseau echoue ou depasse les 10 s
+  // et que rien n'est en cache, workbox rend une REPONSE D'ERREUR — le
+  // navigateur affiche alors une page morte au lieu de faire sa propre requete.
+  // Signature exacte relevee le 26/08/2026 sur dev, page /fr/anime/watch/… :
+  //     The FetchEvent for "…" resulted in a network error response:
+  //     the promise was resolved with an error response object.
+  // suivie d'un `blob: ERR_FILE_NOT_FOUND` et d'un `removeChild` React — le
+  // lecteur se montait sur une page dont la ressource n'etait jamais arrivee.
+  // Laisser passer les navigations rend au navigateur son propre repli ; on ne
+  // perd rien, le document n'etait de toute facon pas servi depuis le cache.
   {
-    urlPattern: ({ sameOrigin }) => sameOrigin,
+    urlPattern: ({ sameOrigin, request }) =>
+      sameOrigin && request.mode !== "navigate",
     handler: "NetworkFirst",
     options: {
       cacheName: "others",
