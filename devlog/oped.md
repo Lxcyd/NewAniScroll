@@ -5,6 +5,119 @@ replis F1-F7, garde-fous P1-P8, audits et lots de mesure.
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-08-26 — Le chiffre qu'on regardait ne gouvernait rien, et 46 % du parc etait injugeable
+
+Objectif pose par Luc : « des pourcentages eleves et aucune erreur — ne pas avoir
+un lecteur qui fonctionne qui ne me donne pas de resultat », avant d'automatiser
+sur tout le catalogue. Ca ne se mesurait avec aucun outil existant. Trois choses
+sont tombees en le construisant, chacune invalidant une lecture precedente.
+
+### 1. La passe saison n'a rien change, et il fallait le verifier avant de l'affirmer
+
+`season_pass.py` lancee sur `out/top50.jsonl` (elle ne l'avait jamais ete depuis
+la fin du lot le 08/08) : **sortie strictement identique** sur l'agregat, 0 promue,
+0 retiree. Verifie ligne a ligne, pas au compteur.
+
+La cause est dans le code, pas dans les donnees : la promotion ne concerne que les
+hits `derived` (repli F1) — et **ce lot en contient 0**. Sur ce lot, la passe est
+un filtre de precision pur : 70 outliers signales, **62 cellules par-hote retirees**
+(OP 652→622, ED 642→610). Couverture en baisse, precision en hausse. L'inverse de
+ce qu'on en attendait.
+
+⚠️ **Piege de mesure rencontre en route** : `top50.jsonl` contient **14 doublons**
+de cle (mal, ep, lang) — trois titres relances. Un diff par dictionnaire compare
+alors deux executions differentes du meme titre et fabrique un faux « la passe a
+tout change ». Comparer ligne a ligne, ou dedupliquer en gardant la ligne la plus
+riche.
+
+### 2. Deux importeurs, deux verrous — et le `held_reason` n'en gouverne qu'un
+
+C'est le vrai enseignement. `import-oped-host-skips.mjs` ne lit **que** `per_host`
+et ne consulte jamais l'agregat `rec.op`/`rec.ed` ; `import-oped-skips.mjs` lit
+l'agregat. Consequence mesuree sur les 144 cellules « retenues » du lot :
+
+| motif de retenue | importee quand meme | bloquee |
+|---|---|---|
+| single host, no image confirmation | **62** | 8 |
+| hosts split into disagreeing groups | **21** | 2 |
+| hosts disagree | **5** | — |
+| inferred theme / av_divergence / autres | — | 46 |
+
+**88 des 144 partent en base malgre la retenue.** Ce n'est pas un bug : une ligne
+par-hote sert un lecteur *connu*, et qu'un seul hote ait trouve ne rend pas le
+timing faux pour cet hote-la. Mais ca veut dire que le « 67 % mono-hote » sur
+lequel on raisonnait depuis le 08/08 decrit la table generique seulement.
+**Ne plus citer l'agregat comme si c'etait ce qui est servi.**
+
+### 3. Le juge : `check_coherence.py`, et son troisieme verdict
+
+Hors-ligne, aucun reseau, verdict par titre, code de sortie non nul si un titre
+est rouge — c'est la condition de l'automatisation. Trois compteurs a zero :
+
+- `trous_B` — un hote traite n'a rien rendu alors qu'un pair **partageant sa
+  timeline** a trouve. Meme fichier, meme montage : le detecteur a lache.
+- `contradictions` — deux hotes de meme timeline ecartes de >2 s. Une des deux
+  est fausse.
+- `contenu_divergent` — duree ecartee de >15 s de tous ses pairs : le fichier
+  servi n'est probablement pas le meme contenu. Alerte **transport**, pas faute
+  de detection, et ca disqualifie la cellule comme preuve.
+
+**La duree est le seul discriminant honnete.** Deux hotes de meme longueur
+partagent la timeline, donc tout desaccord entre eux est une faute sans
+interpretation possible. Mesurer l'ecart sur la population melangee donnerait un
+chiffre invente : megaplay (mewstream) et vidmoly-va (voir-anime) ont de vraies
+amorces differentes, un OP decale de 10 s y est normal. La preuve par les chiffres :
+
+| paires | mediane | p90 |
+|---|---|---|
+| meme encode — OP | **0.04 s** | 19.5 s |
+| meme encode — ED | **0.04 s** | 1.09 s |
+| encode different — OP | 1.17 s | 17.1 s |
+| encode different — ED | 4.75 s | 17.1 s |
+
+Le detecteur n'a donc **pas** de probleme de precision — il est au centieme quand
+la timeline est partagee. Il a une queue de distribution.
+
+**Le troisieme verdict, AVEUGLE, est la trouvaille du jour.** Premiere version du
+juge : 26/50 titres verts. Sauf que **394 des 850 cellules (46 %) n'ont aucun
+couple d'hotes partageant une timeline** — le juge n'y voit structurellement rien,
+et les declarait vertes. Cinq titres (mal=20, 9919, 11061, 21881, 36456) sont
+aveugles **a 100 %** et sortaient verts. Declarer correct ce qu'on n'a pas pu
+regarder est inutilisable pour un objectif « aucune erreur ».
+
+Ligne de base sur `top50.checked.jsonl` :
+```
+trous_B = 54   contradictions = 55   contenu_divergent = 103   couverture = 81.9 %
+8 verts · 24 rouges · 18 aveugles, sur 50 titres
+```
+
+**Ce que ca change au plan.** « Aucune erreur » n'est pas qu'un objectif de qualite
+de detection, c'est un objectif de **verifiabilite** : sur pres de la moitie des
+cellules on ne peut ni prouver qu'on a raison ni detecter qu'on a tort, et aucun
+travail sur le detecteur n'y changera rien — le temoin manque. Le plafond est donc
+probablement le **transport**, pas la detection.
+
+### 4. Sibnet est revenu, mieux que le 08/08 — verifie au niveau des octets
+
+`shell.php` repond **en direct** (114-436 ms), le repli page-de-visionnage n'est
+meme pas sollicite : le 403 vu depuis cette ligne le 08/08 a disparu. Et surtout,
+le flux sert vraiment — trois shards testes en `Range`, **206 avec 100 000 octets**
+(`cvs15-1`, `cvs110-2`, `cvs111-2`). C'est la verification qui manquait en aout,
+ou recuperer l'embed avait ete pris pour recuperer le flux alors que le CDN
+renvoyait 400. **sendvid : toujours 502 sur sa page d'accueil**, mort a la source.
+
+### 5. Deux pieges d'instrumentation, pour la prochaine fois
+
+- **Un log a zero octet ne veut pas dire mort.** Le lot de controle n'ecrivait
+  rien pendant plusieurs minutes : c'est le tampon de bloc de Python sur une
+  redirection, pas une panne. Verifier le processus (`Win32_Process`) avant de
+  conclure — et lancer avec `python -u`, un log muet etant lui-meme un risque de
+  faux diagnostic (cf. §« une machine qui s'eteint »).
+- **Verifier qui d'autre tourne sur la machine.** Un `probe-runtimes.mjs` lance a
+  11:40 sollicitait les memes hotes par la meme IP. Un lot de mesure lance
+  par-dessus aurait attribue au detecteur des absences d'hote fabriquees par le
+  voisin. Les deux processus ont ete arretes et le lot relance a blanc.
+
 ## 2026-08-08 — Lot `top50` : le resultat, et pourquoi deux lecteurs sur six n'ont rien rendu
 
 **Le lot est termine** : 50/50 titres, **439 cellules** (441 estimees ; plusieurs

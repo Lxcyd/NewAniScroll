@@ -133,6 +133,7 @@ construit depuis `git log --since=<derniere release>`.
 
 ### Detecteur OP/ED — [`devlog/oped.md`](devlog/oped.md)
 
+- 2026-08-26 — Le chiffre qu'on regardait ne gouvernait rien, et 46 % du parc etait injugeable
 - 2026-08-08 — Lot `top50` : le resultat, et pourquoi deux lecteurs sur six n'ont rien rendu
 - 🔄 EN COURS au 08/08 15:50 — lot `top50`, à relire ce soir
 - 2026-08-08 — Une machine qui s'éteint fabriquait des absences de générique
