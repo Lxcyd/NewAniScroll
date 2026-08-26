@@ -158,15 +158,7 @@ export default function Details({
           )}
         </div>
 
-        {/* `min-h` + `justify-between` : la colonne se cale sur la hauteur de
-            la jaquette et repartit l'espace restant entre le titre, les stats
-            et les pastilles, au lieu de les tasser en haut en laissant un vide
-            de ~45px sous les genres. Le `gap-3` reste l'ecart PLANCHER : des
-            qu'un titre long passe sur deux ou trois lignes, le contenu depasse
-            les 190px, il n'y a plus d'espace a distribuer et la colonne se
-            comporte exactement comme avant — rien ne se chevauche, elle grandit
-            simplement, et la jaquette (shrink-0) ne bouge pas. */}
-        <div className="flex min-h-[190px] min-w-0 grow basis-[300px] flex-col justify-between gap-3">
+        <div className="flex min-w-0 grow basis-[300px] flex-col gap-3">
           {title}
 
           {/* Stat blocks, identical to the info page's hero (Hero.tsx): same
