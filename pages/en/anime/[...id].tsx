@@ -7,7 +7,7 @@ import { prefetchEpisodeList } from "@/lib/watch/episodePrefetch";
 import { setPrefetchedInfo } from "@/lib/watch/infoPrefetch";
 
 import { useSession } from "next-auth/react";
-import ListEditor from "@/components/listEditor";
+import dynamic from "next/dynamic";
 
 import { useAniList } from "@/lib/anilist/useAnilist";
 import { useTranslation } from "react-i18next";
@@ -32,7 +32,7 @@ import { notify } from "@/lib/notifications/noticeStore";
 import { Navbar } from "@/components/shared/NavBar";
 import { AniListInfoTypes } from "types/info/AnilistInfoTypes";
 import InfoPage from "@/components/anime/v2/InfoPage";
-import { relationsTreeUrl } from "@/components/anime/v2/RelationsGraph";
+import { relationsTreeUrl } from "@/lib/anilist/franchiseTreeVersion";
 import InfoPageMobile from "@/components/anime/v2/mobile/InfoPageMobile";
 import { useIsMobile } from "@/lib/hooks/useIsMobile";
 import { pickTitleImage, collectArtworks, slugifyTitle, SeasonInfo, TitleImage } from "@/components/anime/v2/helpers";
@@ -41,6 +41,14 @@ import { resolveHeroBanner } from "@/lib/images/heroBanner";
 
 import type { FanartsMeta } from "@/components/anime/v2/helpers";
 import { replaceUrlPreservingState } from "@/lib/navigation/replaceUrl";
+
+// Behind `open`, which starts false — the editor is a dialog the visitor has to
+// ask for. Deferring it keeps its AniList mutations and its whole form out of
+// the page's entry chunk; the render gate below is unchanged, so it still
+// appears exactly when it did.
+const ListEditor = dynamic(() => import("@/components/listEditor"), {
+  ssr: false,
+});
 
 type InfoTypes = {
   info: AniListInfoTypes;

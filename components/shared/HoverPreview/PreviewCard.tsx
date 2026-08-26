@@ -1,4 +1,5 @@
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { useSession } from "next-auth/react";
 import {
   useCallback,
@@ -24,11 +25,18 @@ import { genreLabel } from "@/lib/i18n/genreLabel";
 import { statusLabel } from "@/components/anime/v2/helpers";
 import { lockPreview, unlockPreview } from "@/lib/preview/previewLock";
 import { MdInfoOutline, MdPlayArrow } from "react-icons/md";
-import ListEditor from "@/components/listEditor";
 import TrailerAmbient from "./TrailerAmbient";
 import { attachStage, detachStage } from "./stageStore";
 import { isTrailerBlocked, subscribeBlocked } from "@/lib/preview/trailerBlocked";
 import { storyboardFrames } from "@/lib/preview/trailerBars";
+
+// Behind `listOpen`, which starts false: the editor is a full dialog with its
+// own AniList mutations, and a visitor who only hovers cards never opens it.
+// Deferring the import keeps it out of the preview chunk without changing when
+// the dialog appears.
+const ListEditor = dynamic(() => import("@/components/listEditor"), {
+  ssr: false,
+});
 
 export type AnchorRect = { top: number; left: number; width: number; height: number };
 

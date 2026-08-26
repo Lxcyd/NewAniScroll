@@ -20,3 +20,21 @@
  *   5  anime and manga given separate node caps
  */
 export const FRANCHISE_TREE_V = 5;
+
+/**
+ * The route the board reads, with the cache key already on it.
+ *
+ * `v` is not read by the route: it is the CDN key. The answer holds for a day,
+ * so without it a franchise walked under older rules would keep serving that
+ * board until tomorrow. The number is shared with the server's own cache — see
+ * FRANCHISE_TREE_V above — because the two hold the same answer and must forget
+ * it on the same day.
+ *
+ * It lives next to the version rather than in RelationsGraph, where it used to,
+ * because the anime page needs it for a `<link rel=preload>` in <Head> and
+ * nothing else: importing it from the component pulled the whole board — dagre,
+ * the layout engine, the overlay — into that page's entry chunk to compute a
+ * query string.
+ */
+export const relationsTreeUrl = (id: number) =>
+  `/api/v2/relations/tree?id=${id}&v=${FRANCHISE_TREE_V}`;

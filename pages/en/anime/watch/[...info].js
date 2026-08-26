@@ -10,6 +10,7 @@ import Footer from "@/components/shared/footer";
 // 100vh floor) — so the rail renders here exactly as it does there.
 import v2Styles from "@/components/anime/v2/styles.module.css";
 import { prefetchSkips } from "@/lib/skip/prefetchSkips";
+import { useMountedOnce } from "@/lib/hooks/useMountedOnce";
 import dynamic from "next/dynamic";
 // Vidstack uses Web Components — must be loaded client-only or hydration fails.
 const UniversalPlayer = dynamic(
@@ -30,7 +31,6 @@ import { primeMediaCache, getCachedMediaMeta } from "@/lib/anilist/getMediaMeta"
 import { getCachedAnime } from "@/lib/db/anime";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { fixApostrophes } from "@/lib/text/apostrophes";
-import { onEpisodeFinished } from "@/lib/list/syncEngine";
 import { getPlayerPrefs } from "@/lib/prefs/playerPrefs";
 import { getServerPref } from "@/lib/prefs/serverPref";
 import {
@@ -40,7 +40,14 @@ import {
   pickServerForLangs,
 } from "@/lib/prefs/langPref";
 import { getAnimeServer, setAnimeServer } from "@/lib/prefs/animeServerPref";
-import LangPreferenceModal from "@/components/watch/primary/LangPreferenceModal";
+// Two dialogs the page only ever shows on request. LangPreferenceModal already
+// returns null while closed and ReportModal renders an empty headless-ui
+// Transition, so neither contributes a node to the watch page's HTML until it
+// is opened — deferring the code changes nothing but when it is fetched.
+const LangPreferenceModal = dynamic(
+  () => import("@/components/watch/primary/LangPreferenceModal"),
+  { ssr: false },
+);
 import { recordWatchToday } from "@/lib/stats/streak";
 import { useTranslation } from "react-i18next";
 import { FULL_MEDIA_FIELDS } from "@/lib/anilist/fullMediaQuery";
@@ -58,7 +65,9 @@ import { Navbar } from "@/components/shared/NavBar";
 import Modal from "@/components/modal";
 import AniList from "@/components/media/aniList";
 import { signIn, useSession } from "next-auth/react";
-import ReportModal from "@/components/shared/ReportModal";
+const ReportModal = dynamic(() => import("@/components/shared/ReportModal"), {
+  ssr: false,
+});
 import Skeleton from "react-loading-skeleton";
 import Head from "next/head";
 import { useRouter } from "next/router";
@@ -359,6 +368,9 @@ export default function Watch({
   const [open,              setOpen]              = useState(false);
   const [isOpen,            setIsOpen]            = useState(false);
   const [onList,            setOnList]            = useState(false);
+  // The report dialog is code-split; this latches on its first open so the
+  // chunk is fetched then, and keeps it mounted afterwards for its exit fade.
+  const reportEverOpened = useMountedOnce(isOpen);
 
   // ── Server state ──
   // Stable initial value to avoid SSR/CSR hydration mismatch.
@@ -1177,13 +1189,21 @@ export default function Watch({
         (info?.nextAiringEpisode?.episode
           ? info.nextAiringEpisode.episode - 1
           : null);
-      onEpisodeFinished({
-        aniId: aniListId,
-        episode: episodeNumber,
-        total,
-        title: info?.title,
-        coverImage: info?.coverImage?.large || info?.coverImage?.extraLarge || null,
-      }).catch(() => {});
+      // Loaded on the finish rather than with the page: the sync engine is the
+      // whole AniList list reconciler, and nothing here needs it until an
+      // episode actually ends — minutes after the player started, if ever.
+      import("@/lib/list/syncEngine")
+        .then(({ onEpisodeFinished }) =>
+          onEpisodeFinished({
+            aniId: aniListId,
+            episode: episodeNumber,
+            total,
+            title: info?.title,
+            coverImage:
+              info?.coverImage?.large || info?.coverImage?.extraLarge || null,
+          }),
+        )
+        .catch(() => {});
       // Count today toward the watch streak (idempotent within a day).
       recordWatchToday();
     },
@@ -2371,20 +2391,22 @@ export default function Watch({
           rebascule tout de suite sur le meilleur lecteur du nouvel ordre pour
           l'episode en cours, sinon le choix ne prendrait effet qu'a la page
           suivante. */}
-      <LangPreferenceModal
-        open={langModalOpen}
-        onSave={(order) => {
-          langOrderRef.current = order;
-          setLangModalOpen(false);
-          if (preferredServerRef.current) return; // serveur epingle : il gagne
-          const best =
-            pickServerForLangs(order, {
-              confirmed: confirmedServers,
-              failed: failedServers,
-            }) || pickServerForLangs(order, { failed: failedServers });
-          if (best) setActiveServer(best);
-        }}
-      />
+      {langModalOpen && (
+        <LangPreferenceModal
+          open={langModalOpen}
+          onSave={(order) => {
+            langOrderRef.current = order;
+            setLangModalOpen(false);
+            if (preferredServerRef.current) return; // serveur epingle : il gagne
+            const best =
+              pickServerForLangs(order, {
+                confirmed: confirmedServers,
+                failed: failedServers,
+              }) || pickServerForLangs(order, { failed: failedServers });
+            if (best) setActiveServer(best);
+          }}
+        />
+      )}
 
       {/* AniList login modal */}
       <Modal open={open} onClose={() => handleClose()}>
@@ -2407,19 +2429,21 @@ export default function Watch({
       {/* The in-page "report" button (down by the share row) opens
           this modal pre-targeted at the current anime + episode so
           users land directly on the structured Anime-bug tab. */}
-      <ReportModal
-        isOpen={isOpen}
-        setIsOpen={setIsOpen}
-        animeContext={
-          info
-            ? {
-                animeId: info.id,
-                animeTitle: pickTitle(info.title, titlePref),
-                episode: parseInt(epiNumber),
-              }
-            : null
-        }
-      />
+      {reportEverOpened && (
+        <ReportModal
+          isOpen={isOpen}
+          setIsOpen={setIsOpen}
+          animeContext={
+            info
+              ? {
+                  animeId: info.id,
+                  animeTitle: pickTitle(info.title, titlePref),
+                  episode: parseInt(epiNumber),
+                }
+              : null
+          }
+        />
+      )}
 
       <main className="w-screen h-full">
         <RateModal

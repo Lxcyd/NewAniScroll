@@ -134,24 +134,16 @@ export default function SearchPalette() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debounceSearch, type]);
 
+  // Every opening starts from a blank slate. The Ctrl+S handler used to clear
+  // these itself, but it moved to SearchProvider so this component could be
+  // mounted lazily (see lib/context/isOpenState.js) — and the shortcut is not
+  // the only way in anyway: the navbar button opens the palette too, and it
+  // never did the reset.
   useEffect(() => {
-    const handleKeyDown = (e: any) => {
-      if (e.code === "KeyS" && e.ctrlKey) {
-        // do your stuff
-        e.preventDefault();
-        setIsOpen((prev: boolean) => !prev);
-        setData(null);
-        setQuery("");
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    if (!isOpen) return;
+    setData(null);
+    setQuery("");
+  }, [isOpen]);
 
   return (
     <Transition appear show={isOpen} as={Fragment}>
