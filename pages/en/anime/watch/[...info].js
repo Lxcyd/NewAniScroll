@@ -2490,12 +2490,26 @@ export default function Watch({
               Une grille, et pas un `flex-row` + un bloc en dessous, parce que
               l'ordre MOBILE doit rester lecteur → serveurs → description →
               episodes : en une colonne c'est l'ordre du DOM qui parle, et le
-              placement explicite ne s'applique qu'a partir de `lg`. */}
+              placement explicite ne s'applique qu'a partir de `lg`.
+
+              La largeur de la colonne du lecteur se calcule depuis la HAUTEUR
+              de l'ecran, et non l'inverse. Le lecteur tire sa hauteur de sa
+              largeur (16/9) ; pour que le pli tombe pile sous la barre de
+              serveurs — sans laisser depasser le haut de la fiche, qui se
+              devinait en bas d'ecran — il faut donc partir de la place
+              verticale disponible et la reconvertir en largeur :
+              `(100dvh - 9rem) * 16/9`, ou 9rem = padding haut (5rem) +
+              gouttiere + barre de serveurs. Le `min()` borne l'affaire : la
+              liste d'episodes garde au moins 26rem, et sur un ecran trop haut
+              pour etre rempli c'est cette borne qui gagne — le lecteur ne
+              s'elargit pas indefiniment pour courir apres le pli. */}
           <div
             id="default"
             className={`${
-              theaterMode ? "lg:max-w-[95%] xl:max-w-[80%]" : "lg:max-w-[95%]"
-            } mx-auto flex w-full flex-col lg:grid lg:grid-cols-[minmax(0,1fr)_25rem] xl:grid-cols-[minmax(0,1fr)_33rem]`}
+              theaterMode
+                ? "lg:max-w-[95%] xl:max-w-[80%] lg:grid-cols-[minmax(0,1fr)_25rem] xl:grid-cols-[minmax(0,1fr)_33rem]"
+                : "lg:max-w-[95%] lg:grid-cols-[min(100%_-_26rem,(100dvh_-_9rem)_*_16_/_9)_minmax(0,1fr)]"
+            } mx-auto flex w-full flex-col lg:grid`}
           >
             {/* ── Primary column ── */}
             {/* Plain block, as it was before the redesign. It briefly became a
@@ -2612,11 +2626,12 @@ export default function Watch({
                         }}
                         className={WATCH_ICON_BTN}
                       >
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
                           <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
                           <circle cx="9" cy="7" r="4" />
                           <path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" />
                         </svg>
+                        <span>{t("party.watchTogether")}</span>
                       </button>
                     )}
                     <button
@@ -2626,13 +2641,14 @@ export default function Watch({
                       onClick={handleShareClick}
                       className={WATCH_ICON_BTN}
                     >
-                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
                         <circle cx="18" cy="5" r="3" />
                         <circle cx="6" cy="12" r="3" />
                         <circle cx="18" cy="19" r="3" />
                         <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
                         <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
                       </svg>
+                      <span>{t("anime.share")}</span>
                     </button>
                     <button
                       type="button"
@@ -2641,10 +2657,11 @@ export default function Watch({
                       onClick={() => setIsOpen(true)}
                       className={WATCH_ICON_BTN}
                     >
-                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
                         <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
                         <line x1="4" y1="22" x2="4" y2="15" />
                       </svg>
+                      <span>{t("nav.report")}</span>
                     </button>
                   </div>
                 }
@@ -2659,10 +2676,10 @@ export default function Watch({
                 recommendations. Out of flow, the column contributes no height
                 at all — it takes the primary column's, and the list scrolls
                 inside whatever that is. La largeur, elle, est portee par la
-                colonne de la grille (`lg:grid-cols-[…_25rem]`, 33rem en `xl`)
-                et non plus par ce bloc : avec un contenu hors flux il serait
-                sinon reduit a rien. (25rem/33rem = les 24rem/32rem de la liste
-                + la gouttiere de 1rem, exprimee par le `left-4` de l'interieur.)
+                colonne de la grille et non plus par ce bloc : avec un contenu
+                hors flux il serait sinon reduit a rien. Elle n'est plus fixe —
+                c'est le reste (`1fr`) une fois le lecteur servi, avec un
+                plancher de 26rem inscrit dans le `min()` de la grille.
                 En mode cinema le lecteur est AU-DESSUS de la grille, donc la
                 rangee ne mesure plus que la barre de serveurs : sans plancher
                 la liste s'ecraserait a quelques dizaines de pixels. */}
@@ -2765,7 +2782,11 @@ function buildWatchUrl(aniId, ep, dub, server, roomId) {
 const WATCH_ICON_BTN =
   // Fond OPAQUE : ces boutons sont dans la trainee des ambient lights du player,
   // et un rgba(255,255,255,0.04) les laissait completement delaves.
-  "flex items-center justify-center rounded-[11px] border border-[#2f3447] bg-[#1a1d29] py-3 text-[#c4c8d4] transition-colors hover:border-[#3d4359] hover:bg-[#242838] hover:text-white disabled:opacity-40";
+  //
+  // Icone AU-DESSUS d'un libelle, et non plus une icone seule : ces boutons
+  // occupent desormais une colonne large, ou trois pastilles muettes de 40 px
+  // de haut flottaient sans rien dire de ce qu'elles font.
+  "flex flex-col items-center justify-center gap-2 rounded-[13px] border border-[#2f3447] bg-[#1a1d29] px-2 py-4 text-[11px] font-semibold leading-tight text-[#c4c8d4] text-center transition-colors hover:border-[#3d4359] hover:bg-[#242838] hover:text-white disabled:opacity-40";
 
 function SpinLoader() {
   return (
