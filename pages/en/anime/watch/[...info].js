@@ -2481,11 +2481,21 @@ export default function Watch({
             </div>
           )}
 
+          {/* Grille, plus une rangee flex. La description ne vit plus dans la
+              colonne de gauche : elle passe SOUS les deux colonnes, pleine
+              largeur, et c'est elle qui dictait la hauteur de la liste
+              d'episodes (la colonne de droite prend la hauteur de sa rangee).
+              Desormais la rangee 1 ne contient que le lecteur et le selecteur
+              de serveurs, donc la liste s'arrete pile en bas de celui-ci.
+              Une grille, et pas un `flex-row` + un bloc en dessous, parce que
+              l'ordre MOBILE doit rester lecteur → serveurs → description →
+              episodes : en une colonne c'est l'ordre du DOM qui parle, et le
+              placement explicite ne s'applique qu'a partir de `lg`. */}
           <div
             id="default"
             className={`${
               theaterMode ? "lg:max-w-[95%] xl:max-w-[80%]" : "lg:max-w-[95%]"
-            } w-full flex flex-col lg:flex-row mx-auto`}
+            } mx-auto flex w-full flex-col lg:grid lg:grid-cols-[minmax(0,1fr)_25rem] xl:grid-cols-[minmax(0,1fr)_33rem]`}
           >
             {/* ── Primary column ── */}
             {/* Plain block, as it was before the redesign. It briefly became a
@@ -2500,7 +2510,10 @@ export default function Watch({
                 fixed-width cards, so that width is the whole strip; without
                 this the column blew past the viewport and shoved the episode
                 list off screen. It constrains width only, never height. */}
-            <div id="primary" className="w-full min-w-0">
+            <div
+              id="primary"
+              className="w-full min-w-0 lg:col-start-1 lg:row-start-1"
+            >
 
               {/* Default (non-theater) player — no parent bg/overflow so ambient glow can extend outside */}
               {!theaterMode && (
@@ -2533,103 +2546,109 @@ export default function Watch({
                 />
               </div>
 
-              {/* Details row */}
-              <div id="details" className="mt-4 flex flex-col gap-5 w-full px-3 lg:px-0">
-                <Details
-                  info={info}
-                  session={sessions}
-                  description={info?.description}
-                  epiNumber={epiNumber}
-                  id={info}
-                  onList={onList}
-                  setOnList={setOnList}
-                  handleOpen={() => handleOpen()}
-                  title={
-                    <div className="min-w-0">
-                      {/* Pas de line-clamp : le titre s'affiche EN ENTIER,
-                          quitte a passer sur deux ou trois lignes. Il etait
-                          coupe a une ligne, et les titres a rallonge (« The
-                          Misfit of Demon King Academy II: History's Strongest
-                          Demon King Reincarnat… ») perdaient justement la
-                          partie qui distingue la saison. `leading-snug` resserre
-                          l'interligne pour que l'empilement reste compact. */}
-                      <Link
-                        href={`/en/anime/${info?.id}`}
-                        className="block font-outfit text-lg font-semibold leading-snug text-white hover:underline lg:text-2xl"
-                      >
-                        {(info?.title && pickTitle(info.title, titlePref)) || t("common.loading")}
-                      </Link>
-                      <h3 className="font-karla text-sm text-white/45 line-clamp-1">
-                        {episodeNavigation?.playing?.number ? (
-                          <>
-                            {t("common.episode")} {episodeNavigation.playing.number}
-                            {episodeNavigation.playing.title
-                              ? ` · ${fixApostrophes(episodeNavigation.playing.title)}`
-                              : ""}
-                          </>
-                        ) : (
-                          <Skeleton width={120} height={16} />
-                        )}
-                      </h3>
-                    </div>
-                  }
-                  actions={
-                    /* Same button recipe as the info page's hero actions:
-                       rgba(255,255,255,0.04) on a --line-2 border, radius 11,
-                       and STROKE icons (the info page never uses filled
-                       glyphs) — a filled heroicon next to them reads as a
-                       different product. */
-                    <div className="grid grid-cols-3 gap-2">
-                      {info?.id && (
-                        <button
-                          type="button"
-                          title={t("party.watchTogether")}
-                          aria-label={t("party.watchTogether")}
-                          disabled={partyUIOpen}
-                          onClick={() => {
-                            setPartyUIOpen(true);
-                            setPartyPanelHidden(false);
-                          }}
-                          className={WATCH_ICON_BTN}
-                        >
-                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-                            <circle cx="9" cy="7" r="4" />
-                            <path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" />
-                          </svg>
-                        </button>
+            </div>
+
+            {/* Fiche + synopsis — rangee 2, sur les DEUX colonnes : le
+                paragraphe court jusqu'au bord droit de la page au lieu de
+                s'arreter au bord gauche de la liste d'episodes. */}
+            <div
+              id="details"
+              className="mt-4 flex w-full flex-col gap-5 px-3 lg:col-span-2 lg:col-start-1 lg:row-start-2 lg:px-0"
+            >
+              <Details
+                info={info}
+                session={sessions}
+                description={info?.description}
+                epiNumber={epiNumber}
+                id={info}
+                onList={onList}
+                setOnList={setOnList}
+                handleOpen={() => handleOpen()}
+                title={
+                  <div className="min-w-0">
+                    {/* Pas de line-clamp : le titre s'affiche EN ENTIER,
+                        quitte a passer sur deux ou trois lignes. Il etait
+                        coupe a une ligne, et les titres a rallonge (« The
+                        Misfit of Demon King Academy II: History's Strongest
+                        Demon King Reincarnat… ») perdaient justement la
+                        partie qui distingue la saison. `leading-snug` resserre
+                        l'interligne pour que l'empilement reste compact. */}
+                    <Link
+                      href={`/en/anime/${info?.id}`}
+                      className="block font-outfit text-lg font-semibold leading-snug text-white hover:underline lg:text-2xl"
+                    >
+                      {(info?.title && pickTitle(info.title, titlePref)) || t("common.loading")}
+                    </Link>
+                    <h3 className="font-karla text-sm text-white/45 line-clamp-1">
+                      {episodeNavigation?.playing?.number ? (
+                        <>
+                          {t("common.episode")} {episodeNavigation.playing.number}
+                          {episodeNavigation.playing.title
+                            ? ` · ${fixApostrophes(episodeNavigation.playing.title)}`
+                            : ""}
+                        </>
+                      ) : (
+                        <Skeleton width={120} height={16} />
                       )}
+                    </h3>
+                  </div>
+                }
+                actions={
+                  /* Same button recipe as the info page's hero actions:
+                     rgba(255,255,255,0.04) on a --line-2 border, radius 11,
+                     and STROKE icons (the info page never uses filled
+                     glyphs) — a filled heroicon next to them reads as a
+                     different product. */
+                  <div className="grid grid-cols-3 gap-2">
+                    {info?.id && (
                       <button
                         type="button"
-                        title={t("anime.share")}
-                        aria-label={t("anime.share")}
-                        onClick={handleShareClick}
-                        className={WATCH_ICON_BTN}
-                      >
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                          <circle cx="18" cy="5" r="3" />
-                          <circle cx="6" cy="12" r="3" />
-                          <circle cx="18" cy="19" r="3" />
-                          <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
-                          <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
-                        </svg>
-                      </button>
-                      <button
-                        type="button"
-                        title={t("nav.report")}
-                        aria-label={t("nav.report")}
-                        onClick={() => setIsOpen(true)}
+                        title={t("party.watchTogether")}
+                        aria-label={t("party.watchTogether")}
+                        disabled={partyUIOpen}
+                        onClick={() => {
+                          setPartyUIOpen(true);
+                          setPartyPanelHidden(false);
+                        }}
                         className={WATCH_ICON_BTN}
                       >
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
-                          <line x1="4" y1="22" x2="4" y2="15" />
+                          <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                          <circle cx="9" cy="7" r="4" />
+                          <path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" />
                         </svg>
                       </button>
-                    </div>
-                  }
-                />
-              </div>
+                    )}
+                    <button
+                      type="button"
+                      title={t("anime.share")}
+                      aria-label={t("anime.share")}
+                      onClick={handleShareClick}
+                      className={WATCH_ICON_BTN}
+                    >
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                        <circle cx="18" cy="5" r="3" />
+                        <circle cx="6" cy="12" r="3" />
+                        <circle cx="18" cy="19" r="3" />
+                        <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+                        <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+                      </svg>
+                    </button>
+                    <button
+                      type="button"
+                      title={t("nav.report")}
+                      aria-label={t("nav.report")}
+                      onClick={() => setIsOpen(true)}
+                      className={WATCH_ICON_BTN}
+                    >
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
+                        <line x1="4" y1="22" x2="4" y2="15" />
+                      </svg>
+                    </button>
+                  </div>
+                }
+              />
             </div>
 
             {/* ── Secondary column (episode list) ── */}
@@ -2639,13 +2658,19 @@ export default function Watch({
                 whole row that tall and left a hole between the synopsis and the
                 recommendations. Out of flow, the column contributes no height
                 at all — it takes the primary column's, and the list scrolls
-                inside whatever that is. The width has to move up here for the
-                same reason: with nothing in flow, the column would collapse.
-                (25rem/33rem = the list's 24rem/32rem + the 1rem gutter, now
-                expressed as the inner's `left-4`.) */}
+                inside whatever that is. La largeur, elle, est portee par la
+                colonne de la grille (`lg:grid-cols-[…_25rem]`, 33rem en `xl`)
+                et non plus par ce bloc : avec un contenu hors flux il serait
+                sinon reduit a rien. (25rem/33rem = les 24rem/32rem de la liste
+                + la gouttiere de 1rem, exprimee par le `left-4` de l'interieur.)
+                En mode cinema le lecteur est AU-DESSUS de la grille, donc la
+                rangee ne mesure plus que la barre de serveurs : sans plancher
+                la liste s'ecraserait a quelques dizaines de pixels. */}
             <div
               id="secondary"
-              className={`relative shrink-0 lg:w-[25rem] xl:w-[33rem] ${theaterMode ? "pt-5" : "pt-4 lg:pt-0"}`}
+              className={`relative lg:col-start-2 lg:row-start-1 ${
+                theaterMode ? "pt-5 lg:min-h-[30rem]" : "pt-4 lg:pt-0"
+              }`}
             >
               <div
                 className={`lg:absolute lg:left-4 lg:right-0 lg:bottom-0 lg:flex lg:flex-col ${
