@@ -135,144 +135,151 @@ export default function Details({
     // est en Karla. La page d'info a son propre Inter parce qu'elle porte ses
     // tokens ; ici c'est la police du site qui fait foi.
     //
-    // Trois colonnes a partir de `lg` — jaquette, texte, actions — et la meme
-    // rangee qui s'enroule en dessous. Le synopsis etait un bloc pleine largeur
-    // SOUS cette rangee : la jaquette s'arretait donc a mi-hauteur de la fiche,
-    // et le paragraphe courait sur toute la page. Il rentre maintenant dans la
-    // colonne du milieu, sous les genres, ce qui borne sa longueur de ligne et
-    // laisse la jaquette descendre jusqu'en bas de la fiche.
-    <div className="relative z-10 flex flex-wrap gap-5 font-karla lg:grid lg:grid-cols-[190px_minmax(0,1fr)_19rem] lg:items-stretch lg:gap-7">
-      {/* The box carries the size, not the <Image>. next/image renders an
-          <img> with width=1000, so without a sized parent it stretches to
-          the row's full width — object-cover then shows a wide band of the
-          portrait cover (it reads as a banner) and the blown-up flex item
-          pushes the rest of the card over the episode column. */}
-      <div className="h-[190px] w-[132px] shrink-0 overflow-hidden rounded-poster shadow-poster lg:h-full lg:w-full">
-        {info ? (
-          <Link href={`/en/anime/${info.id}`} className="block h-full w-full">
-            <Image
-              src={info.coverImage.extraLarge}
-              alt="Anime Cover"
-              width={1000}
-              height={1000}
-              className="h-full w-full object-cover duration-300 ease-out hover:scale-[1.03]"
-            />
-          </Link>
-        ) : (
-          <Skeleton height={190} width={132} />
-        )}
-      </div>
-
-      <div className="flex min-w-0 grow basis-[300px] flex-col gap-3 lg:basis-auto">
-        {title}
-
-        {/* Stat blocks, identical to the info page's hero (Hero.tsx): same
-            icons, same metric, same caption underneath. The previous version
-            invented its own row — a chevron for POPULARITY where the info
-            page shows a heart for FAVOURITES — so the same anime reported two
-            different numbers depending on the page you were on. */}
-        <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
-          {score && (
-            <>
-              <div className="flex flex-col items-center text-center">
-                <div className="flex items-center gap-2">
-                  <svg width="22" height="22" viewBox="0 0 24 24" fill="#f6c544">
-                    <polygon points="12 2 15 9 22 9 17 14 19 21 12 17 5 21 7 14 2 9 9 9" />
-                  </svg>
-                  <span className="text-[22px] font-bold leading-none text-[#f6c544]">
-                    {score}
-                  </span>
-                  <span className="text-[11.5px] font-medium text-[#8a8fa3]">/10</span>
-                </div>
-                <div className="mt-1.5 text-[10px] font-semibold tracking-[0.1em] text-[#5e6478]">
-                  {rank ? t("anime.rated", { rank }) : t("anime.average")}
-                </div>
-              </div>
-              <div className="h-10 w-px bg-[#252938]" />
-            </>
-          )}
-
-          {info?.favourites != null && (
-            <>
-              <div className="flex flex-col items-center text-center">
-                <div className="flex items-center gap-2">
-                  <svg width="22" height="22" viewBox="0 0 24 24" fill="#ff3b5c">
-                    <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
-                  </svg>
-                  {/* Formatted against the ACTIVE UI language, never the
-                      ambient one — see the long note in Hero.tsx: a bare
-                      toLocaleString() makes Node and a French browser
-                      disagree and costs a full hydration re-render. */}
-                  <span className="text-[22px] font-bold leading-none text-[#f4f5f8]">
-                    {info.favourites.toLocaleString(i18n.language)}
-                  </span>
-                </div>
-                <div className="mt-1.5 text-[10px] font-semibold tracking-[0.1em] text-[#5e6478]">
-                  FAVORITES
-                </div>
-              </div>
-              <div className="h-10 w-px bg-[#252938]" />
-            </>
-          )}
-
-          <div className="flex flex-col items-center text-center">
-            <div className="flex items-center gap-2 text-[#c4c8d4]">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                <rect x="3" y="5" width="18" height="14" rx="2" />
-                <path d="m10 9 5 3-5 3z" fill="currentColor" />
-              </svg>
-              <span className="text-[22px] font-bold leading-none text-[#f4f5f8]">
-                {epLabel}
-              </span>
-              <span className="text-[11.5px] font-medium text-[#8a8fa3]">{durLabel}</span>
-            </div>
-            {info?.status && (
-              <div className="mt-1.5 text-[10px] font-semibold tracking-[0.1em] text-[#5e6478]">
-                {statusLabel(t, info.status).toUpperCase()}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Same chip vocabulary as the info page's hero: brand-tinted pills
-            for genres, then a hairline, then the studio in blue. The order
-            matters — the studio is the aside, not the headline. */}
-        <div className="flex flex-wrap items-center gap-2">
-          {info?.genres?.slice(0, 4).map((item, index) => (
-            <span key={index} style={GENRE_CHIP}>
-              {genreLabel(t, item)}
-            </span>
-          ))}
-          {studio && (
-            <>
-              <span className="h-4 w-px bg-[#2f3447]" />
-              <span style={STUDIO_CHIP}>{studio}</span>
-            </>
-          )}
-        </div>
-
-        {/* Synopsis — info-page typography (14px / 1.65, --txt-1) on the same
-            panel treatment as the rest of the card. Shown WHOLE: there is no
-            "read more" fold. The page is already scrolled past the player by
-            anyone reading this far, and a fold on a paragraph of four lines
-            bought nothing but a click. */}
-        <div className="mt-1 rounded-xl bg-as-card/60 ring-1 ring-white/[0.06]">
-          {info && (
-            <div className="p-5">
-              <p
-                className="m-0 text-sm leading-[1.65] text-[#c4c8d4]"
-                style={{ textWrap: "pretty" } as any}
-                dangerouslySetInnerHTML={{ __html: localizedDesc }}
+    // A partir de `lg` la fiche reprend les DEUX COLONNES DE LA PAGE
+    // (`grid-cols-[subgrid]`) plutot que d'inventer les siennes : jaquette et
+    // texte tiennent dans la colonne du lecteur — le synopsis s'arrete donc
+    // pile au bord droit de la barre de serveurs — et les boutons se placent
+    // dans celle de la liste d'episodes. Ces deux largeurs dependent de la
+    // hauteur de l'ecran (voir la grille de la page), aucune valeur en dur ne
+    // pourrait suivre.
+    //
+    // Le synopsis etait par ailleurs un bloc pleine largeur SOUS la rangee :
+    // la jaquette s'arretait a mi-hauteur de la fiche. Il est desormais dans
+    // la colonne de texte, sous les genres, et la jaquette descend jusqu'en bas.
+    <div className="relative z-10 flex flex-col gap-5 font-karla lg:col-span-2 lg:grid lg:grid-cols-[subgrid] lg:items-stretch lg:gap-0">
+      <div className="flex flex-wrap gap-5 lg:col-start-1 lg:grid lg:grid-cols-[190px_minmax(0,1fr)] lg:items-stretch lg:gap-7">
+        {/* The box carries the size, not the <Image>. next/image renders an
+            <img> with width=1000, so without a sized parent it stretches to
+            the row's full width — object-cover then shows a wide band of the
+            portrait cover (it reads as a banner) and the blown-up flex item
+            pushes the rest of the card over the episode column. */}
+        <div className="h-[190px] w-[132px] shrink-0 overflow-hidden rounded-poster shadow-poster lg:h-full lg:w-full">
+          {info ? (
+            <Link href={`/en/anime/${info.id}`} className="block h-full w-full">
+              <Image
+                src={info.coverImage.extraLarge}
+                alt="Anime Cover"
+                width={1000}
+                height={1000}
+                className="h-full w-full object-cover duration-300 ease-out hover:scale-[1.03]"
               />
-              {parsed.source && (
-                <div className="mt-2.5 text-[11px] text-[#5e6478]">
-                  <em>
-                    {t("anime.source")} · {parsed.source}
-                  </em>
+            </Link>
+          ) : (
+            <Skeleton height={190} width={132} />
+          )}
+        </div>
+
+        <div className="flex min-w-0 grow basis-[300px] flex-col gap-3 lg:basis-auto">
+          {title}
+
+          {/* Stat blocks, identical to the info page's hero (Hero.tsx): same
+              icons, same metric, same caption underneath. The previous version
+              invented its own row — a chevron for POPULARITY where the info
+              page shows a heart for FAVOURITES — so the same anime reported two
+              different numbers depending on the page you were on. */}
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
+            {score && (
+              <>
+                <div className="flex flex-col items-center text-center">
+                  <div className="flex items-center gap-2">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="#f6c544">
+                      <polygon points="12 2 15 9 22 9 17 14 19 21 12 17 5 21 7 14 2 9 9 9" />
+                    </svg>
+                    <span className="text-[22px] font-bold leading-none text-[#f6c544]">
+                      {score}
+                    </span>
+                    <span className="text-[11.5px] font-medium text-[#8a8fa3]">/10</span>
+                  </div>
+                  <div className="mt-1.5 text-[10px] font-semibold tracking-[0.1em] text-[#5e6478]">
+                    {rank ? t("anime.rated", { rank }) : t("anime.average")}
+                  </div>
+                </div>
+                <div className="h-10 w-px bg-[#252938]" />
+              </>
+            )}
+
+            {info?.favourites != null && (
+              <>
+                <div className="flex flex-col items-center text-center">
+                  <div className="flex items-center gap-2">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="#ff3b5c">
+                      <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
+                    </svg>
+                    {/* Formatted against the ACTIVE UI language, never the
+                        ambient one — see the long note in Hero.tsx: a bare
+                        toLocaleString() makes Node and a French browser
+                        disagree and costs a full hydration re-render. */}
+                    <span className="text-[22px] font-bold leading-none text-[#f4f5f8]">
+                      {info.favourites.toLocaleString(i18n.language)}
+                    </span>
+                  </div>
+                  <div className="mt-1.5 text-[10px] font-semibold tracking-[0.1em] text-[#5e6478]">
+                    FAVORITES
+                  </div>
+                </div>
+                <div className="h-10 w-px bg-[#252938]" />
+              </>
+            )}
+
+            <div className="flex flex-col items-center text-center">
+              <div className="flex items-center gap-2 text-[#c4c8d4]">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                  <rect x="3" y="5" width="18" height="14" rx="2" />
+                  <path d="m10 9 5 3-5 3z" fill="currentColor" />
+                </svg>
+                <span className="text-[22px] font-bold leading-none text-[#f4f5f8]">
+                  {epLabel}
+                </span>
+                <span className="text-[11.5px] font-medium text-[#8a8fa3]">{durLabel}</span>
+              </div>
+              {info?.status && (
+                <div className="mt-1.5 text-[10px] font-semibold tracking-[0.1em] text-[#5e6478]">
+                  {statusLabel(t, info.status).toUpperCase()}
                 </div>
               )}
             </div>
-          )}
+          </div>
+
+          {/* Same chip vocabulary as the info page's hero: brand-tinted pills
+              for genres, then a hairline, then the studio in blue. The order
+              matters — the studio is the aside, not the headline. */}
+          <div className="flex flex-wrap items-center gap-2">
+            {info?.genres?.slice(0, 4).map((item, index) => (
+              <span key={index} style={GENRE_CHIP}>
+                {genreLabel(t, item)}
+              </span>
+            ))}
+            {studio && (
+              <>
+                <span className="h-4 w-px bg-[#2f3447]" />
+                <span style={STUDIO_CHIP}>{studio}</span>
+              </>
+            )}
+          </div>
+
+          {/* Synopsis — info-page typography (14px / 1.65, --txt-1) on the same
+              panel treatment as the rest of the card. Shown WHOLE: there is no
+              "read more" fold. The page is already scrolled past the player by
+              anyone reading this far, and a fold on a paragraph of four lines
+              bought nothing but a click. */}
+          <div className="mt-1 rounded-xl bg-as-card/60 ring-1 ring-white/[0.06]">
+            {info && (
+              <div className="p-5">
+                <p
+                  className="m-0 text-sm leading-[1.65] text-[#c4c8d4]"
+                  style={{ textWrap: "pretty" } as any}
+                  dangerouslySetInnerHTML={{ __html: localizedDesc }}
+                />
+                {parsed.source && (
+                  <div className="mt-2.5 text-[11px] text-[#5e6478]">
+                    <em>
+                      {t("anime.source")} · {parsed.source}
+                    </em>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -281,7 +288,11 @@ export default function Details({
           l'editeur complet derriere — et non plus un « + Ajouter a la liste »
           a sens unique, qui ne savait que passer en « Planning » et ne disait
           rien de ce que l'anime etait deja pour vous. */}
-      <aside className="flex w-full basis-full flex-col gap-2.5 lg:w-auto lg:basis-auto">
+      {/* `lg:pl-4` : la grille de la page n'a pas de gouttiere — la liste
+          d'episodes cree la sienne avec son `left-4`. Sans ce meme retrait les
+          boutons se colleraient au synopsis au lieu de s'aligner sur la liste.
+          Le `max-w` les empeche de s'etaler sur toute une colonne large. */}
+      <aside className="flex w-full flex-col gap-2.5 lg:col-start-2 lg:max-w-[21rem] lg:self-start lg:pl-4">
         <button
           type="button"
           onClick={onOpenListEditor}

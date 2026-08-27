@@ -2506,11 +2506,11 @@ export default function Watch({
               serveurs — sans laisser depasser le haut de la fiche, qui se
               devinait en bas d'ecran — il faut donc partir de la place
               verticale disponible et la reconvertir en largeur :
-              `(100dvh - 11.5rem) * 16/9`. Cette constante EST le reglage : le
-              bas de la barre de serveurs tombe a `100dvh - (11.5rem - 9.25rem)`,
+              `(100dvh - 10.75rem) * 16/9`. Cette constante EST le reglage : le
+              bas de la barre de serveurs tombe a `100dvh - (10.75rem - 9.25rem)`,
               ou 9.25rem = padding haut + gouttiere + hauteur de la barre. Les
-              2.25rem d'ecart sont donc exactement l'air qu'il reste sous elle,
-              et le `lg:mt-12` de la fiche (3rem) est plus grand que cet ecart :
+              1.5rem d'ecart sont donc exactement l'air qu'il reste sous elle,
+              et le `lg:mt-8` de la fiche (2rem) est plus grand que cet ecart :
               c'est ce qui garantit que rien de la fiche ne se devine sous le
               pli. Les deux valeurs vont ensemble. Le `min()` borne l'affaire : la
               liste d'episodes garde au moins 26rem, et sur un ecran trop haut
@@ -2521,7 +2521,7 @@ export default function Watch({
             className={`${
               theaterMode
                 ? "lg:max-w-[95%] xl:max-w-[80%] lg:grid-cols-[minmax(0,1fr)_25rem] xl:grid-cols-[minmax(0,1fr)_33rem]"
-                : "lg:max-w-[95%] lg:grid-cols-[min(100%_-_26rem,(100dvh_-_11.5rem)_*_16_/_9)_minmax(0,1fr)]"
+                : "lg:max-w-[95%] lg:grid-cols-[min(100%_-_26rem,(100dvh_-_10.75rem)_*_16_/_9)_minmax(0,1fr)]"
             } mx-auto flex w-full flex-col lg:grid`}
           >
             {/* ── Primary column ── */}
@@ -2575,12 +2575,17 @@ export default function Watch({
 
             </div>
 
-            {/* Fiche + synopsis — rangee 2, sur les DEUX colonnes : le
-                paragraphe court jusqu'au bord droit de la page au lieu de
-                s'arreter au bord gauche de la liste d'episodes. */}
+            {/* Fiche + synopsis — rangee 2, sur les DEUX colonnes, mais en
+                `subgrid` : la fiche reprend les colonnes de la page au lieu
+                d'en inventer de nouvelles. C'est ce qui permet au synopsis de
+                s'arreter EXACTEMENT au bord droit de la barre de serveurs (il
+                vit dans la colonne du lecteur) pendant que les boutons se
+                placent sous la liste d'episodes. Aucune valeur en dur ne
+                pourrait tenir cet alignement : la largeur des deux colonnes
+                depend de la hauteur de l'ecran. */}
             <div
               id="details"
-              className="mt-4 flex w-full flex-col gap-5 px-3 lg:col-span-2 lg:col-start-1 lg:row-start-2 lg:mt-12 lg:px-0"
+              className="mt-4 flex w-full flex-col gap-5 px-3 lg:col-span-2 lg:col-start-1 lg:row-start-2 lg:mt-8 lg:grid lg:grid-cols-[subgrid] lg:px-0"
             >
               <Details
                 info={info}
