@@ -62,10 +62,16 @@ import { anilistFetch } from "@/lib/anilist/anilistFetch";
 import Link from "next/link";
 import MobileNav from "@/components/shared/MobileNav";
 import { Navbar } from "@/components/shared/NavBar";
-import Modal from "@/components/modal";
-import AniList from "@/components/media/aniList";
-import { signIn, useSession } from "next-auth/react";
+import { useSession } from "next-auth/react";
+import { useListStatus } from "@/lib/list/useListStatus";
 const ReportModal = dynamic(() => import("@/components/shared/ReportModal"), {
+  ssr: false,
+});
+// L'editeur de liste complet, celui de la page d'info. Derriere `open`, donc
+// hors du chunk d'entree de la page tant que personne ne le demande. Il gere
+// lui-meme l'invite (ecriture dans la liste locale), d'ou la disparition de la
+// petite modale « connectez-vous a AniList » qui gardait ce bouton.
+const ListEditor = dynamic(() => import("@/components/listEditor"), {
   ssr: false,
 });
 import Skeleton from "react-loading-skeleton";
@@ -291,6 +297,11 @@ export default function Watch({
   // hydration matches. The client cache / API fill in afterwards in an effect.
   const [info, setInfo] = useState(ssrInfo || null);
 
+  // Statut de liste de l'utilisateur pour cet anime — la meme lecture que la
+  // page d'info (cache de la liste complete, ou liste locale), pour que le
+  // bouton dise la meme chose des deux cotes. Voir lib/list/useListStatus.
+  const listStatus = useListStatus(info?.id);
+
   // On an in-app navigation to a DIFFERENT anime (e.g. a Watch-Party redirect),
   // Next reuses this page component, so the `info` useState above does NOT
   // re-initialise — it kept the previous anime and the player showed stale
@@ -367,7 +378,6 @@ export default function Watch({
   const [mapEpisode,        setMapEpisode]        = useState(null);
   const [open,              setOpen]              = useState(false);
   const [isOpen,            setIsOpen]            = useState(false);
-  const [onList,            setOnList]            = useState(false);
   // The report dialog is code-split; this latches on its first open so the
   // chunk is fetched then, and keeps it mounted afterwards for its exit fade.
   const reportEverOpened = useMountedOnce(isOpen);
@@ -1056,7 +1066,6 @@ export default function Watch({
   useEffect(() => {
     async function getInfo() {
       if (!info) return;
-      if (info.mediaListEntry) setOnList(true);
       setDataMedia(info);
 
       // Fast path: the info page may have already fetched + cached this exact
@@ -2143,6 +2152,7 @@ export default function Watch({
     }
   };
 
+  // Ouverture / fermeture de l'editeur de liste.
   function handleOpen()  { setOpen(true);  document.body.style.overflow = "hidden"; }
   function handleClose() { setOpen(false); document.body.style.overflow = "auto";   }
 
@@ -2416,23 +2426,21 @@ export default function Watch({
         />
       )}
 
-      {/* AniList login modal */}
-      <Modal open={open} onClose={() => handleClose()}>
-        {!sessions && (
-          <div className="flex-center flex-col gap-5 px-10 py-5 bg-secondary rounded-md">
-            <h1 className="text-md font-extrabold font-karla">{t("nav.editYourList")}</h1>
-            <button
-              className="flex items-center bg-[#363642] rounded-md text-white p-1"
-              onClick={() => signIn("AniListProvider")}
-            >
-              <h1 className="px-1 font-bold font-karla">{t("nav.loginWithAniList")}</h1>
-              <div className="scale-[60%] pb-[1px]">
-                <AniList />
-              </div>
-            </button>
-          </div>
-        )}
-      </Modal>
+      {/* Editeur de liste — le meme que la page d'info, ouvert par le bouton
+          de statut de la fiche. Il porte sa propre surcouche plein ecran, d'ou
+          l'absence de <Modal> autour. */}
+      {open && info && (
+        <ListEditor
+          animeId={info.id}
+          session={sessions}
+          stats={listStatus.status || undefined}
+          prg={listStatus.progress}
+          max={info?.episodes ?? undefined}
+          info={info}
+          close={handleClose}
+          onSaved={(next) => listStatus.apply(next)}
+        />
+      )}
 
       {/* The in-page "report" button (down by the share row) opens
           this modal pre-targeted at the current anime + episode so
@@ -2498,8 +2506,13 @@ export default function Watch({
               serveurs — sans laisser depasser le haut de la fiche, qui se
               devinait en bas d'ecran — il faut donc partir de la place
               verticale disponible et la reconvertir en largeur :
-              `(100dvh - 9rem) * 16/9`, ou 9rem = padding haut (5rem) +
-              gouttiere + barre de serveurs. Le `min()` borne l'affaire : la
+              `(100dvh - 11.5rem) * 16/9`. Cette constante EST le reglage : le
+              bas de la barre de serveurs tombe a `100dvh - (11.5rem - 9.25rem)`,
+              ou 9.25rem = padding haut + gouttiere + hauteur de la barre. Les
+              2.25rem d'ecart sont donc exactement l'air qu'il reste sous elle,
+              et le `lg:mt-12` de la fiche (3rem) est plus grand que cet ecart :
+              c'est ce qui garantit que rien de la fiche ne se devine sous le
+              pli. Les deux valeurs vont ensemble. Le `min()` borne l'affaire : la
               liste d'episodes garde au moins 26rem, et sur un ecran trop haut
               pour etre rempli c'est cette borne qui gagne — le lecteur ne
               s'elargit pas indefiniment pour courir apres le pli. */}
@@ -2508,7 +2521,7 @@ export default function Watch({
             className={`${
               theaterMode
                 ? "lg:max-w-[95%] xl:max-w-[80%] lg:grid-cols-[minmax(0,1fr)_25rem] xl:grid-cols-[minmax(0,1fr)_33rem]"
-                : "lg:max-w-[95%] lg:grid-cols-[min(100%_-_26rem,(100dvh_-_9rem)_*_16_/_9)_minmax(0,1fr)]"
+                : "lg:max-w-[95%] lg:grid-cols-[min(100%_-_26rem,(100dvh_-_11.5rem)_*_16_/_9)_minmax(0,1fr)]"
             } mx-auto flex w-full flex-col lg:grid`}
           >
             {/* ── Primary column ── */}
@@ -2567,17 +2580,15 @@ export default function Watch({
                 s'arreter au bord gauche de la liste d'episodes. */}
             <div
               id="details"
-              className="mt-4 flex w-full flex-col gap-5 px-3 lg:col-span-2 lg:col-start-1 lg:row-start-2 lg:px-0"
+              className="mt-4 flex w-full flex-col gap-5 px-3 lg:col-span-2 lg:col-start-1 lg:row-start-2 lg:mt-12 lg:px-0"
             >
               <Details
                 info={info}
-                session={sessions}
                 description={info?.description}
                 epiNumber={epiNumber}
-                id={info}
-                onList={onList}
-                setOnList={setOnList}
-                handleOpen={() => handleOpen()}
+                listStatus={listStatus.status}
+                listResolved={listStatus.resolved}
+                onOpenListEditor={() => handleOpen()}
                 title={
                   <div className="min-w-0">
                     {/* Pas de line-clamp : le titre s'affiche EN ENTIER,
@@ -2608,25 +2619,28 @@ export default function Watch({
                   </div>
                 }
                 actions={
-                  /* Same button recipe as the info page's hero actions:
-                     rgba(255,255,255,0.04) on a --line-2 border, radius 11,
-                     and STROKE icons (the info page never uses filled
-                     glyphs) — a filled heroicon next to them reads as a
-                     different product. */
-                  <div className="grid grid-cols-3 gap-2">
+                  /* Trois boutons de meme poids, c'etait trois boutons sans
+                     hierarchie. Ils n'ont pourtant pas la meme portee :
+                     « regarder ensemble » ouvre une seance a plusieurs — un
+                     geste, comme ajouter a sa liste — la ou partager et
+                     signaler sont deux utilitaires qu'on cherche quand on en a
+                     besoin. Le premier prend donc la largeur sous le bouton de
+                     statut, les deux autres se partagent la ligne du dessous.
+                     Meme recette d'icones que la page d'info : des traits, pas
+                     de glyphes pleins. */
+                  <>
                     {info?.id && (
                       <button
                         type="button"
                         title={t("party.watchTogether")}
-                        aria-label={t("party.watchTogether")}
                         disabled={partyUIOpen}
                         onClick={() => {
                           setPartyUIOpen(true);
                           setPartyPanelHidden(false);
                         }}
-                        className={WATCH_ICON_BTN}
+                        className={`${WATCH_BTN} w-full flex-row gap-3 py-[15px] text-[13px]`}
                       >
-                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
                           <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
                           <circle cx="9" cy="7" r="4" />
                           <path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" />
@@ -2634,36 +2648,36 @@ export default function Watch({
                         <span>{t("party.watchTogether")}</span>
                       </button>
                     )}
-                    <button
-                      type="button"
-                      title={t("anime.share")}
-                      aria-label={t("anime.share")}
-                      onClick={handleShareClick}
-                      className={WATCH_ICON_BTN}
-                    >
-                      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                        <circle cx="18" cy="5" r="3" />
-                        <circle cx="6" cy="12" r="3" />
-                        <circle cx="18" cy="19" r="3" />
-                        <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
-                        <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
-                      </svg>
-                      <span>{t("anime.share")}</span>
-                    </button>
-                    <button
-                      type="button"
-                      title={t("nav.report")}
-                      aria-label={t("nav.report")}
-                      onClick={() => setIsOpen(true)}
-                      className={WATCH_ICON_BTN}
-                    >
-                      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
-                        <line x1="4" y1="22" x2="4" y2="15" />
-                      </svg>
-                      <span>{t("nav.report")}</span>
-                    </button>
-                  </div>
+                    <div className="grid grid-cols-2 gap-2.5">
+                      <button
+                        type="button"
+                        title={t("anime.share")}
+                        onClick={handleShareClick}
+                        className={WATCH_BTN}
+                      >
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                          <circle cx="18" cy="5" r="3" />
+                          <circle cx="6" cy="12" r="3" />
+                          <circle cx="18" cy="19" r="3" />
+                          <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+                          <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+                        </svg>
+                        <span>{t("anime.share")}</span>
+                      </button>
+                      <button
+                        type="button"
+                        title={t("nav.report")}
+                        onClick={() => setIsOpen(true)}
+                        className={WATCH_BTN}
+                      >
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
+                          <line x1="4" y1="22" x2="4" y2="15" />
+                        </svg>
+                        <span>{t("nav.report")}</span>
+                      </button>
+                    </div>
+                  </>
                 }
               />
             </div>
@@ -2779,14 +2793,14 @@ function buildWatchUrl(aniId, ep, dub, server, roomId) {
 
 // Secondary action button, borrowed from the info page's hero so both pages
 // look like the same site.
-const WATCH_ICON_BTN =
+const WATCH_BTN =
   // Fond OPAQUE : ces boutons sont dans la trainee des ambient lights du player,
   // et un rgba(255,255,255,0.04) les laissait completement delaves.
   //
-  // Icone AU-DESSUS d'un libelle, et non plus une icone seule : ces boutons
-  // occupent desormais une colonne large, ou trois pastilles muettes de 40 px
-  // de haut flottaient sans rien dire de ce qu'elles font.
-  "flex flex-col items-center justify-center gap-2 rounded-[13px] border border-[#2f3447] bg-[#1a1d29] px-2 py-4 text-[11px] font-semibold leading-tight text-[#c4c8d4] text-center transition-colors hover:border-[#3d4359] hover:bg-[#242838] hover:text-white disabled:opacity-40";
+  // Icone ET libelle, et non plus une icone seule : ces boutons occupent
+  // desormais une colonne large, ou trois pastilles muettes de 40 px de haut
+  // flottaient sans rien dire de ce qu'elles font.
+  "flex flex-col items-center justify-center gap-2 rounded-[13px] border border-[#2f3447] bg-[#1a1d29] px-2 py-3.5 text-center text-[11.5px] font-semibold leading-tight text-[#c4c8d4] transition-colors hover:border-[#3d4359] hover:bg-[#242838] hover:text-white disabled:opacity-40";
 
 function SpinLoader() {
   return (
