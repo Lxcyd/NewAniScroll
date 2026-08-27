@@ -291,8 +291,11 @@ export default function Details({
       {/* `lg:pl-4` : la grille de la page n'a pas de gouttiere — la liste
           d'episodes cree la sienne avec son `left-4`. Sans ce meme retrait les
           boutons se colleraient au synopsis au lieu de s'aligner sur la liste.
-          Le `max-w` les empeche de s'etaler sur toute une colonne large. */}
-      <aside className="flex w-full flex-col gap-2.5 lg:col-start-2 lg:max-w-[21rem] lg:self-start lg:pl-4">
+          Ils prennent toute la colonne, largeur ET hauteur (`self-stretch`, et
+          les deux blocs secondaires en `flex-1`) : bornes a 21rem ils
+          laissaient un vide a leur droite, et poses en haut ils en laissaient
+          un autre sous eux, le long de la jaquette. */}
+      <aside className="flex w-full flex-col gap-2.5 lg:col-start-2 lg:self-stretch lg:pl-4">
         <button
           type="button"
           onClick={onOpenListEditor}

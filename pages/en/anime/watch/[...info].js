@@ -2506,11 +2506,14 @@ export default function Watch({
               serveurs — sans laisser depasser le haut de la fiche, qui se
               devinait en bas d'ecran — il faut donc partir de la place
               verticale disponible et la reconvertir en largeur :
-              `(100dvh - 10.75rem) * 16/9`. Cette constante EST le reglage : le
-              bas de la barre de serveurs tombe a `100dvh - (10.75rem - 9.25rem)`,
+              `(100dvh - 10rem) * 16/9`. Cette constante EST le reglage : le
+              bas de la barre de serveurs tombe a `100dvh - (10rem - 9.25rem)`,
               ou 9.25rem = padding haut + gouttiere + hauteur de la barre. Les
-              1.5rem d'ecart sont donc exactement l'air qu'il reste sous elle,
-              et le `lg:mt-8` de la fiche (2rem) est plus grand que cet ecart :
+              0.75rem d'ecart sont donc exactement l'air qu'il reste sous elle —
+              la meme gouttiere que celle qui separe le lecteur de la barre
+              (`mt-3`), et la meme que la marge laterale de la page
+              (`calc(100% - 1.5rem)`, soit 0.75rem de chaque cote).
+              Le `lg:mt-8` de la fiche (2rem) est plus grand que cet ecart :
               c'est ce qui garantit que rien de la fiche ne se devine sous le
               pli. Les deux valeurs vont ensemble. Le `min()` borne l'affaire : la
               liste d'episodes garde au moins 26rem, et sur un ecran trop haut
@@ -2521,7 +2524,7 @@ export default function Watch({
             className={`${
               theaterMode
                 ? "lg:max-w-[95%] xl:max-w-[80%] lg:grid-cols-[minmax(0,1fr)_25rem] xl:grid-cols-[minmax(0,1fr)_33rem]"
-                : "lg:max-w-[95%] lg:grid-cols-[min(100%_-_26rem,(100dvh_-_10.75rem)_*_16_/_9)_minmax(0,1fr)]"
+                : "lg:max-w-[calc(100%_-_1.5rem)] lg:grid-cols-[min(100%_-_26rem,(100dvh_-_10rem)_*_16_/_9)_minmax(0,1fr)]"
             } mx-auto flex w-full flex-col lg:grid`}
           >
             {/* ── Primary column ── */}
@@ -2643,7 +2646,7 @@ export default function Watch({
                           setPartyUIOpen(true);
                           setPartyPanelHidden(false);
                         }}
-                        className={`${WATCH_BTN} w-full flex-row gap-3 py-[15px] text-[13px]`}
+                        className={`${WATCH_BTN} w-full gap-3 py-[15px] text-[13px] lg:flex-1`}
                       >
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
                           <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
@@ -2653,7 +2656,7 @@ export default function Watch({
                         <span>{t("party.watchTogether")}</span>
                       </button>
                     )}
-                    <div className="grid grid-cols-2 gap-2.5">
+                    <div className="grid grid-cols-2 gap-2.5 lg:flex-1">
                       <button
                         type="button"
                         title={t("anime.share")}
@@ -2747,7 +2750,9 @@ export default function Watch({
           {recommendations.length > 0 && (
             <div
               className={`${
-                theaterMode ? "lg:max-w-[95%] xl:max-w-[80%]" : "lg:max-w-[95%]"
+                theaterMode
+                  ? "lg:max-w-[95%] xl:max-w-[80%]"
+                  : "lg:max-w-[calc(100%_-_1.5rem)]"
               } mx-auto mt-6 w-full min-w-0 px-3 lg:px-0 ${v2Styles.tokens}`}
             >
               <Recommendations
@@ -2769,7 +2774,7 @@ export default function Watch({
           resserrait a 80 % sous un contenu a 95 %. */}
       <Footer
         widthClass={`w-[90%] ${
-          theaterMode ? "lg:w-[95%] xl:w-[80%]" : "lg:w-[95%]"
+          theaterMode ? "lg:w-[95%] xl:w-[80%]" : "lg:w-[calc(100%_-_1.5rem)]"
         }`}
       />
     </>
