@@ -2290,6 +2290,33 @@ export default function Watch({
   // On desktop the panel sits at the TOP of the secondary column and the
   // episode list follows directly under it, taking the remaining height. The
   // panel is a fixed height (the player's), so what the list loses is bounded.
+  /* Le chat occupe-t-il VRAIMENT la colonne de droite ? Replie sur son bouton
+     « ouvrir le chat », il ne compte pas : la page reste rangee comme s'il
+     n'etait pas la. C'est ce booleen qui fait basculer toute la moitie droite
+     de la page — liste d'episodes en rangee 1 ou 2, et disposition de la
+     fiche. */
+  const partyOpen = !!(party || partyUIOpen) && !partyPanelHidden;
+
+  /* La liste d'episodes est montee a DEUX endroits selon `partyOpen`, jamais
+     les deux a la fois. Une seule definition, pour que les deux emplacements
+     ne se mettent pas a diverger. */
+  const episodeListBlock = (
+    <EpisodeLists
+      info={info}
+      session={sessions}
+      map={mapEpisode}
+      providerId={provider}
+      watchId={watchId}
+      episode={episodesList}
+      track={episodeNavigation}
+      dub={dub}
+      /* La duree d'un episode depend de l'ENCODAGE, donc du lecteur : la liste
+         a besoin de savoir lequel est actif pour afficher la bonne
+         (cf. /api/v2/runtimes). */
+      server={activeServer}
+    />
+  );
+
   const partyPanelBlock = (party || partyUIOpen) && (
     partyPanelHidden ? (
       <button
@@ -2495,6 +2522,9 @@ export default function Watch({
               interne (`mt-3`, 12px) qui separe le lecteur de la barre — les
               deux se ressemblent mais ne disent pas la meme chose. Rejouer la
               mesure apres tout changement de hauteur dans cette colonne.
+              Cette largeur est exposee en variable (`--player-col`) parce que
+              la fiche, en dessous, doit savoir ou s'arrete la colonne du
+              lecteur pour aligner ses propres colonnes dessus.
               Le `lg:mt-8` de la fiche (2rem) est plus grand que cet ecart :
               c'est ce qui garantit que rien de la fiche ne se devine sous le
               pli. Les deux valeurs vont ensemble. Le `min()` borne l'affaire : la
@@ -2506,7 +2536,7 @@ export default function Watch({
             className={`${
               theaterMode
                 ? "lg:max-w-[95%] xl:max-w-[80%] lg:grid-cols-[minmax(0,1fr)_25rem] xl:grid-cols-[minmax(0,1fr)_33rem]"
-                : "lg:max-w-[calc(100%_-_2.25rem)] lg:grid-cols-[min(100%_-_26rem,(100dvh_-_143px_-_1.125rem)_*_16_/_9)_minmax(0,1fr)]"
+                : "lg:max-w-[calc(100%_-_2.25rem)] [--player-col:min(100%_-_26rem,(100dvh_-_143px_-_1.125rem)_*_16_/_9)] lg:grid-cols-[var(--player-col)_minmax(0,1fr)]"
             } mx-auto flex w-full flex-col lg:grid`}
           >
             {/* ── Primary column ── */}
@@ -2559,17 +2589,15 @@ export default function Watch({
 
             </div>
 
-            {/* Fiche + synopsis — rangee 2, sur les DEUX colonnes, mais en
-                `subgrid` : la fiche reprend les colonnes de la page au lieu
-                d'en inventer de nouvelles. C'est ce qui permet au synopsis de
-                s'arreter EXACTEMENT au bord droit de la barre de serveurs (il
-                vit dans la colonne du lecteur) pendant que les boutons se
-                placent sous la liste d'episodes. Aucune valeur en dur ne
-                pourrait tenir cet alignement : la largeur des deux colonnes
-                depend de la hauteur de l'ecran. */}
+            {/* Fiche + synopsis — rangee 2. Elle prend les DEUX colonnes tant
+                que le chat n'est pas la ; des qu'il l'est, la liste d'episodes
+                descend occuper la colonne de droite de cette rangee, et la
+                fiche se replie sur celle du lecteur. */}
             <div
               id="details"
-              className="mt-4 flex w-full flex-col gap-5 px-3 lg:col-span-2 lg:col-start-1 lg:row-start-2 lg:mt-8 lg:grid lg:grid-cols-[subgrid] lg:px-0"
+              className={`mt-4 flex w-full flex-col gap-5 px-3 lg:col-start-1 lg:row-start-2 lg:mt-8 lg:block lg:px-0 ${
+                partyOpen ? "" : "lg:col-span-2"
+              }`}
             >
               <Details
                 info={info}
@@ -2578,10 +2606,7 @@ export default function Watch({
                 listStatus={listStatus.status}
                 listResolved={listStatus.resolved}
                 onOpenListEditor={() => handleOpen()}
-                /* Le chat occupe-t-il vraiment la colonne de droite ? Replie
-                   sur son bouton, il ne compte pas : la fiche peut alors
-                   s'etaler comme si de rien n'etait. */
-                partyOpen={!!(party || partyUIOpen) && !partyPanelHidden}
+                partyOpen={partyOpen}
                 title={
                   <div className="min-w-0">
                     {/* Pas de line-clamp : le titre s'affiche EN ENTIER,
@@ -2700,10 +2725,7 @@ export default function Watch({
               >
                 {/* Desktop placement — above the episode list, not instead of
                     it. On mobile the panel renders in the primary column under
-                    the player instead, and this one is hidden.
-                    Ouvert, il prend la moitie de la colonne et laisse l'autre a
-                    la liste ; replie (le petit bouton « ouvrir le chat »), il
-                    ne prend que sa taille. */}
+                    the player instead, and this one is hidden. */}
                 {partyPanelBlock && (
                   <div
                     className={`hidden px-3 lg:px-0 ${
@@ -2715,24 +2737,28 @@ export default function Watch({
                     {partyPanelBlock}
                   </div>
                 )}
-                <div className="lg:flex lg:min-h-0 lg:flex-1">
-                  <EpisodeLists
-                    info={info}
-                    session={sessions}
-                    map={mapEpisode}
-                    providerId={provider}
-                    watchId={watchId}
-                    episode={episodesList}
-                    track={episodeNavigation}
-                    dub={dub}
-                    /* La duree d'un episode depend de l'ENCODAGE, donc du
-                       lecteur : la liste a besoin de savoir lequel est actif
-                       pour afficher la bonne (cf. /api/v2/runtimes). */
-                    server={activeServer}
-                  />
-                </div>
+                {/* Chat ouvert, la liste ne partage plus cette place : elle
+                    descend d'une rangee (voir plus bas). Ici elle disparait
+                    donc completement, et le chat prend toute la colonne — meme
+                    cadre, meme hauteur que la liste qu'il remplace. */}
+                {!partyOpen && (
+                  <div className="lg:flex lg:min-h-0 lg:flex-1">{episodeListBlock}</div>
+                )}
               </div>
             </div>
+
+            {/* Rangee 2, colonne de droite — la liste d'episodes quand le chat
+                lui a pris sa place au-dessus. Meme montage hors-flux que la
+                colonne du haut : elle prend la hauteur que la fiche donne a la
+                rangee, donc elle descend jusqu'aux recommandations, et c'est sa
+                zone de defilement qui absorbe le reste. */}
+            {partyOpen && (
+              <div className="relative mt-4 lg:col-start-2 lg:row-start-2 lg:mt-8">
+                <div className="lg:absolute lg:inset-0 lg:left-4 lg:flex lg:flex-col">
+                  {episodeListBlock}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Recommendations — the info page's own carousel, moved OUT of the
