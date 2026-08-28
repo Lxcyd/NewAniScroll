@@ -881,6 +881,43 @@ export function continuesSameWork(
   return a.length >= 6 && a === b;
 }
 
+/**
+ * Le numero de saison de l'entree suivante, en marchant la chronologie.
+ *
+ * La regle vit ICI parce qu'elle etait ecrite trois fois — seasonChain, et deux
+ * fois dans resolveSeason — et qu'une correction sur une seule des trois donne
+ * une page d'info et un selecteur de lecteur qui se contredisent.
+ *
+ *   - le titre annonce un numero PLUS GRAND que le compteur → on s'y ancre.
+ *   - l'entree continue le meme travail que la precedente, ou porte une marque
+ *     de continuation ("Part 2", "Cour 2", "The Final Chapters") → elle herite
+ *     du numero courant.
+ *   - un numero dans le titre, mais qui ne fait pas avancer → on s'y ancre
+ *     quand meme (une chronologie qui commence a "Season 2" existe).
+ *   - rien de tout ca → saison suivante.
+ *
+ * L'ORDRE compte, et c'est le bug qu'il corrige. `continuesSameWork` passait
+ * avant le numero du titre : "JUJUTSU KAISEN Season 2" se reduit a la meme base
+ * que "JUJUTSU KAISEN", donc il heritait du 1 et le selecteur affichait deux
+ * "Season 1" a la file. Le garde reste utile dans l'autre sens — SAO "War of
+ * Underworld Part 2" s'intitule nativement "2nd Season", et s'y ancrer ramenait
+ * le compteur de 4 a 2 — mais cette erreur-la fait toujours RECULER le
+ * compteur. Un numero qui avance vient du titre de la franchise ; un numero qui
+ * recule vient de la numerotation interne d'un sous-titre.
+ */
+export function nextSeasonNumber(opts: {
+  running: number;
+  fromTitle: number | null;
+  continuesPrev: boolean;
+  continuation: boolean;
+}): number {
+  const { running, fromTitle, continuesPrev, continuation } = opts;
+  if (fromTitle != null && fromTitle > running) return fromTitle;
+  if (continuesPrev || continuation) return Math.max(1, running);
+  if (fromTitle != null) return fromTitle;
+  return running + 1;
+}
+
 /* Does a title read like a *continuation* of the previous season rather than
    a brand-new one? "Part 2", "Cour 2", "2nd Cour", "The Final Chapters", and a
    trailing "Part N" all denote a split of one season across multiple broadcast

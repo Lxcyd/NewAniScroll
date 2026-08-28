@@ -110,22 +110,25 @@ function ProchainEpisode({ airingAt, number }: { airingAt: number; number: numbe
 
   /* Meme boite que la barre des serveurs, de l'autre cote du lecteur
      (components/watch/primary/serverSelector.js) : memes `px-3 py-2`, meme
-     `py-1` sur la ligne, meme corps de 13 px. Les deux barres se font face en
+     `py-1` sur la ligne, et le meme corps de 14 px que son intitule. Les deux
+     barres se font face en
      bas de page — une difference de quelques pixels s'y verrait comme un
      defaut d'alignement. Reproduites par CONSTRUCTION plutot que par une
      hauteur figee, qui mentirait des que l'une des deux bougerait. */
   return (
     <div
-      className="flex shrink-0 items-center gap-2 border-t px-3 py-2 text-[13px]"
+      className="flex shrink-0 items-center gap-2 border-t px-3 py-2 text-[14px]"
       style={{ borderColor: T.line, color: T.txt3 }}
     >
       <svg
-        width="16"
-        height="16"
+        width="17"
+        height="17"
         viewBox="0 0 24 24"
         fill="none"
         stroke="currentColor"
-        strokeWidth={2}
+        /* Plus epais que les 2 des icones voisines : a 17 px, une cloche en
+           trait fin se lit comme une tache. */
+        strokeWidth={2.4}
         strokeLinecap="round"
         strokeLinejoin="round"
         className="shrink-0"

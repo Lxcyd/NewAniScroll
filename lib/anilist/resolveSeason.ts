@@ -9,6 +9,7 @@ import {
   extractSeasonFromTitle,
   isSeasonContinuation,
   continuesSameWork,
+  nextSeasonNumber,
   type SeasonNode,
 } from "./seasonDetection";
 import {
@@ -138,14 +139,13 @@ function numberByChronology(
       if (Number(m.id) === startId) startNumber = Math.max(1, running);
       continue;
     }
-    const fromTitle = extractSeasonFromTitle(m.title as any);
-    // See seasonChain: a title's number only anchors the franchise counter
-    // when the entry is a new work, not when it continues the previous one.
-    if (i > 0 && continuesSameWork(seasons[i - 1]?.title as any, m.title as any)) {
-      running = Math.max(1, running);
-    } else if (fromTitle != null) running = fromTitle;
-    else if (isSeasonContinuation(m.title as any)) running = Math.max(1, running);
-    else running = running + 1;
+    running = nextSeasonNumber({
+      running,
+      fromTitle: extractSeasonFromTitle(m.title as any),
+      continuesPrev:
+        i > 0 && continuesSameWork(seasons[i - 1]?.title as any, m.title as any),
+      continuation: isSeasonContinuation(m.title as any),
+    });
     if (Number(m.id) === startId) startNumber = running;
   }
   return { number: startNumber, total: running };
@@ -836,12 +836,12 @@ export async function resolveFranchiseSeasons(
         excludeVariantIds
       );
     }
-    const fromTitle = extractSeasonFromTitle(m.title);
-    if (i > 0 && continuesSameWork(seasonLike[i - 1]?.title, m.title)) {
-      running = Math.max(1, running);
-    } else if (fromTitle != null) running = fromTitle;
-    else if (isSeasonContinuation(m.title)) running = Math.max(1, running);
-    else running = running + 1;
+    running = nextSeasonNumber({
+      running,
+      fromTitle: extractSeasonFromTitle(m.title),
+      continuesPrev: i > 0 && continuesSameWork(seasonLike[i - 1]?.title, m.title),
+      continuation: isSeasonContinuation(m.title),
+    });
     const partMatch = String(m.title?.english || m.title?.romaji || "").match(
       /\b(?:Part|Cour)\s+(\d+|[IVX]+)\b/i
     );
