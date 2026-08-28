@@ -130,10 +130,13 @@ function buildEpisodeList(
          artwork. */
       img: streaming?.thumbnail || stills[num] || null,
       /* La MEME image en pleine definition, pour le seul poster du lecteur —
-         qui l'affiche sur ~1300 px la ou la tuile de liste en fait 190. Elle
+         qui l'affiche sur ~1300 px la ou la tuile de liste en fait 200. Elle
          n'existe que quand le still vient de TMDB (`original`, mesure a
          1920x1080) ; une screencap ani.zip n'a pas de variante plus grande,
-         et `null` fait simplement retomber le poster sur `img`. */
+         et `null` fait simplement retomber le poster sur `img`.
+         Depuis que TMDB passe devant ani.zip, c'est vraiment la meme image :
+         avant, la tuile pouvait montrer la screencap TVDB pendant que le poster
+         montrait un autre plan du meme episode, choisi par TMDB. */
       imgHd: hd[num] || null,
       description: null,
     };
@@ -194,12 +197,17 @@ function filterData(data: any[], type: "sub" | "dub") {
  * liste v6 continuerait de preferer un titre Simkl a celui d'ani.zip pendant
  * trente jours sur une serie terminee.
  *
+ * v7 → v8 (2026-08-28): TMDB passe devant ani.zip pour les IMAGES (voir
+ * lib/tmdb/episodeStills.ts) et sert du w780 au lieu du w300. Une liste v7
+ * garderait pendant trente jours la screencap TVDB 640x360, c'est-a-dire
+ * exactement ce que ce changement corrige.
+ *
  * This is the same trap as CACHE_VERSION in lib/db/tmdbImagesCache.ts, hit
  * twice in one afternoon: a cache outlives the reason its contents were what
  * they were, and no TTL can notice.
  */
 const EPISODE_CACHE_KEY = (id: string | string[] | undefined) =>
-  `episode:v7:${id}`;
+  `episode:v8:${id}`;
 
 export default async function handler(
   req: NextApiRequest,

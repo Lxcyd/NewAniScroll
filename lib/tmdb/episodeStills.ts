@@ -11,18 +11,20 @@
  * (Simkl occupied this middle place jusqu'au 22/08/2026. Il est retire ; le
  * raisonnement ci-dessous vaut mot pour mot avec ani.zip a sa place.)
  *
- * THE RULE, and it is the whole safety argument: TMDB may only write into
- * episode numbers the first provider left EMPTY. It never overwrites its
- * still and never contributes a title. A season mis-mapping can therefore leave a row
- * with a placeholder — the status quo — but can never replace a correct frame
- * with a wrong one.
+ * THE RULE, jusqu'au 28/08/2026 : TMDB ne pouvait ecrire que dans les numeros
+ * d'episode qu'ani.zip avait laisses VIDES. Elle a saute pour les images — voir
+ * `fillStillGaps`, TMDB passe devant, il est de meilleure definition et il
+ * CHOISIT parmi plusieurs stills quand ani.zip n'en a qu'un. Elle tient
+ * toujours pour les TITRES : TMDB n'en fournit aucun.
  *
  * WHY THIS ISN'T THE OLD CODE. The removed implementation was the sole
  * provider and had to prove its mapping, so it demanded an exact
  * episode-count equality and refused on every airing show and every split
  * cour. Here the floor is a lower bound (TMDB must know AT LEAST as many
- * episodes as we display) because a wrong guess costs a missing image, not a
- * wrong one.
+ * episodes as we display). Ce plancher etait un confort tant que TMDB ne
+ * comblait que les trous ; depuis qu'il passe devant, c'est lui — avec le garde
+ * de coherence Fribb — qui empeche une image fausse, alors verifier avant de
+ * l'assouplir.
  *
  * WHAT WE STILL REFUSE. Fribb's `season.tmdb` is its weakest field — it
  * collides and fuses (Bungo Stray Dogs: 1,1,2,3,3) and is null on long sagas
@@ -58,10 +60,13 @@ export type TmdbStills = Record<number, string>;
 
 const EMPTY: TmdbStills = {};
 
-/* w300 matches what the episode rows render at (~250 CSS px wide thumbs).
-   next.config.js sets `images.unoptimized: true`, so this URL is exactly what
-   the browser downloads — see lib/images/cover.ts for the same reasoning. */
-const STILL_SIZE = "w300" as const;
+/* Les tuiles font ~200 px de large, mais un ecran HiDPI en reclame le double et
+   `images.unoptimized: true` (next.config.js) fait que cette URL est exactement
+   ce que le navigateur telecharge — pas de redimensionnement en amont, voir
+   lib/images/cover.ts. w300 laissait donc une vignette floue sur un ecran
+   moderne. w780 la couvre, et coute MOINS cher que ce qu'on servait avant : 59 ko
+   contre les 138 ko de la screencap TVDB d'ani.zip, mesure sur Cyberpunk ep1. */
+const STILL_SIZE = "w780" as const;
 
 type Reason =
   | "ok"
@@ -89,11 +94,8 @@ export async function getTmdbEpisodeStills(
   if (!tmdbEnabled()) return EMPTY;
   if (wanted.size === 0) return EMPTY;
 
-  /* Reuses the `tmdbStills:v1:` cache key of the removed implementation, on
-     purpose. Its last rows were written 2026-08-03 and the TTLs here are 7
-     days (hit) / 24 h (refusal), so every one of them already reads as a miss
-     — there is nothing stale left to inherit, and a second key would strand
-     the rows this code is about to write next to them. */
+  /* Cle `tmdbStills:v2:` depuis le 28/08/2026 — les URL stockees portent la
+     taille, voir lib/db/tmdbStillsCache.ts. */
   const cached = await getCachedStills(anilistId, "tmdb");
   if (cached) return cached.stills ?? {};
 
@@ -181,15 +183,11 @@ export async function getTmdbEpisodeStills(
   return stills;
 }
 
-/* La vignette de LISTE fait ~190 px : `w300` y est la bonne taille. Le POSTER
-   du lecteur, lui, occupe toute la largeur (~1300 px), et c'est la que le 640
-   d'ani.zip (screencap TVDB, sa taille native — il n'a rien de plus) se voit
-   comme un agrandissement. TMDB ne propose que w92/w185/w300/original pour les
-   stills : au-dessus de 300, `original` est la SEULE option. Mesure du
-   26/08/2026 sur Cyberpunk ep1 — ani.zip 640x360, TMDB original 1920x1080.
-
-   On ne sert donc pas la meme image aux deux endroits, et on ne fait pas payer
-   du 1920 a une liste de dix tuiles. */
+/* Le POSTER du lecteur occupe toute la largeur (~1300 px) la ou la tuile en
+   fait 200 : on ne sert pas la meme taille aux deux endroits, et on ne fait pas
+   payer du 1920 a une liste de dix tuiles. Mesure du 26/08/2026 sur Cyberpunk
+   ep1 — ani.zip 640x360 (screencap TVDB, sa taille native, il n'a rien de plus),
+   TMDB original 1920x1080. */
 const HD_FROM_W300 = new RegExp(`/${STILL_SIZE}/`);
 
 /** L'URL pleine definition d'un still TMDB deja resolu, ou null si ce n'en est
@@ -203,15 +201,30 @@ export function hdStillUrl(url: string | null | undefined): string | null {
 }
 
 /**
- * The leading provider's stills, with TMDB filling only the gaps.
+ * Les stills d'ani.zip, ceux de TMDB par-dessus quand il en a un.
  *
- * Returns the map untouched when it is already complete — which also means no
- * TMDB call is made for those titles.
+ * TMDB PASSE DEVANT, ce qui renverse la regle d'origine (« il ne comble que les
+ * trous ») pour deux raisons mesurees le 28/08/2026 :
  *
- * `hd` porte, pour les episodes ou TMDB a une image, la variante `original`
- * destinee au seul poster du lecteur. Elle est vide quand ani.zip a tout
- * couvert : c'est le prix de ne pas appeler TMDB pour rien, et ces titres-la
- * gardent le poster 640 d'ani.zip.
+ *  - la QUALITE. ani.zip sert la screencap TVDB, native 640x360 et rien
+ *    au-dessus ; TMDB sert du 1920x1080. Sur une tuile HiDPI et surtout sur le
+ *    poster du lecteur, l'ecart se voit.
+ *  - le CHOIX. TMDB tient plusieurs images par episode et publie celle que ses
+ *    votes designent (`still_path` — c'est la meme selection que lib/tmdb/pick.ts
+ *    applique aux backdrops de serie, faite chez eux plutot que chez nous, donc
+ *    sans une requete par episode). Cyberpunk ep2 : cinq stills, TMDB retient un
+ *    1920x1080 vote 3,3. ani.zip ne choisit rien, il n'a qu'une image.
+ *
+ * Cela reglait aussi une incoherence : `img` venait d'ani.zip et `imgHd` de
+ * TMDB, donc la tuile et le poster du lecteur montraient DEUX images
+ * differentes du meme episode (verifie sur Cyberpunk ep2 : voiture en tuile,
+ * Terre en poster).
+ *
+ * Le risque assume est celui que la regle d'origine ecartait : une saison mal
+ * mappee ne laisse plus un trou, elle remplace une image juste par une fausse.
+ * Ce sont les deux gardes de `getTmdbEpisodeStills` — coherence du groupe Fribb
+ * et plancher sur le nombre d'episodes — qui portent desormais seules cette
+ * charge.
  */
 export async function fillStillGaps(
   anilistId: number,
@@ -222,21 +235,11 @@ export async function fillStillGaps(
     return { stills: baseStills, hd: {} };
   }
 
-  /* On demande TOUTE la saison, pas seulement les trous. Avant, un titre
-     qu'ani.zip couvrait entierement n'appelait jamais TMDB — et n'avait donc
-     jamais de variante pleine definition pour son poster (cas mesure :
-     Cyberpunk, dix lignes remplies par ani.zip, poster en 640 agrandi).
-     Le cout reste borne : `getTmdbEpisodeStills` met la saison ENTIERE en
-     cache, et la reponse de la liste d'episodes est elle-meme cachee 30 jours.
-     Les trous continuent d'etre les seuls a etre COMBLES — la regle « TMDB
-     n'ecrase jamais » est intacte, il ne gagne ici que le droit d'ajouter une
-     version plus grande de la meme image. */
-  const gaps = new Set<number>();
+  /* Toute la saison, pas seulement les trous : c'est la meme requete, et
+     `getTmdbEpisodeStills` met la saison ENTIERE en cache — la reponse de la
+     liste d'episodes est elle-meme cachee 30 jours. */
   const all = new Set<number>();
-  for (let n = 1; n <= displayedEpisodes; n++) {
-    all.add(n);
-    if (!baseStills[n]) gaps.add(n);
-  }
+  for (let n = 1; n <= displayedEpisodes; n++) all.add(n);
   if (all.size === 0) return { stills: baseStills, hd: {} };
 
   const tmdb = await getTmdbEpisodeStills(anilistId, displayedEpisodes, all).catch(
@@ -248,8 +251,8 @@ export async function fillStillGaps(
   const merged = { ...baseStills };
   const hd: Record<number, string> = {};
   all.forEach((n) => {
-    if (!tmdb[n]) return;
-    if (gaps.has(n)) merged[n] = tmdb[n];
+    if (!tmdb[n]) return; // ani.zip garde la ligne : mieux vaut son image que rien
+    merged[n] = tmdb[n];
     const big = hdStillUrl(tmdb[n]);
     if (big) hd[n] = big;
   });

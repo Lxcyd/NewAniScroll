@@ -72,7 +72,13 @@ export interface TmdbSeasonEpisode {
    browser downloads. Same reasoning as lib/images/cover.ts. */
 export type BackdropSize = "w780" | "w1280";
 export type LogoSize = "w300" | "w500";
-export type StillSize = "w300" | "w500";
+/* `w780` n'est pas dans les `still_sizes` que TMDB annonce (w92/w185/w300/
+   original) — les listes de /configuration sont indicatives, le CDN sert
+   n'importe quel jeton de taille pour n'importe quel chemin. Verifie le
+   28/08/2026 : w780 sur un still repond 200 et pese 59 ko la ou w300 en fait
+   17. Sans lui, une vignette d'episode plafonnerait a 300 px de large, en
+   dessous de ce qu'un ecran HiDPI en demande. */
+export type StillSize = "w300" | "w500" | "w780";
 /* `original` is allowed for exactly one caller: the Artworks lightbox, where
    the visitor asked to see the image full size and the weight is the point.
    Never use it for a grid tile or a hero. */
