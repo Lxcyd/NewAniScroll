@@ -534,6 +534,27 @@ a {
   opacity: 0;
 }
 
+/* Le voile pose sur la video tant qu'elle n'a rien a montrer — pendant la
+   mesure de sa premiere frame, puis sous la vignette quand cette frame s'est
+   revelee vide. Voir `as-veil` dans UniversalPlayer.
+   Il vit et s'efface exactement comme la vignette, `data-started` compris, et
+   passe DESSOUS : quand la vignette est la, c'est elle qu'on doit voir. */
+.vds-player .as-veil {
+  position: absolute;
+  inset: 0;
+  background: #000;
+  pointer-events: none;
+  z-index: 0;
+  transition: opacity 0.25s ease-out;
+}
+.vds-player[data-started] .as-veil,
+.vds-player .as-veil-off {
+  opacity: 0;
+}
+.vds-player .as-poster {
+  z-index: 1;
+}
+
 /* No rounded corners in fullscreen — the player fills the whole screen, so a
    12px radius just leaves black wedges at the corners. Covers native
    fullscreen (Vidstack sets [data-fullscreen]) and our iOS CSS pseudo-

@@ -2305,7 +2305,17 @@ export default function UniversalPlayer({
      ferait l'affaire.
      Mesure : la premiere frame reduite a 16x9, sa luminance moyenne et son
      amplitude — voir `frameLooksReal`.
-     Trois etats. `null` = pas de reponse, et on ne couvre pas.
+
+     QUATRE etats, et la distinction entre les deux derniers compte :
+       true      → vraie image, on ne couvre pas
+       false     → image vide, la vignette
+       null      → mesure impossible (canvas teinte, sonde muette) : on ne
+                   couvre pas, mais la question est TRANCHEE
+       undefined → on ne sait pas ENCORE, la mesure court
+     `undefined` est le seul etat pendant lequel un voile noir couvre la video
+     (cf. `as-veil` plus bas). Sans lui, la premiere frame se voyait le temps de
+     la sonde : sans consequence sur un fondu au noir, une seconde de page
+     blanche sur un fondu au blanc.
 
      UN SEUL passage a `false`, et jamais avant d'en etre sur. C'est le point
      dur : une vignette posee puis retiree est le defaut le plus visible de
@@ -2315,7 +2325,9 @@ export default function UniversalPlayer({
      `confirm` : deux lectures noires separees de CONFIRM_MS, et seulement
      alors la vignette. Une lecture claire, elle, tranche du premier coup —
      il n'y a rien a masquer, donc rien a risquer. */
-  const [firstFrameLit, setFirstFrameLit] = useState<boolean | null>(null);
+  const [firstFrameLit, setFirstFrameLit] = useState<boolean | null | undefined>(
+    undefined,
+  );
 
   /* Chemin 1 — le flux est illisible d'avance (`noCors`).
      La question part DES QUE l'adresse du flux est connue : ni le lecteur ni sa
@@ -2330,7 +2342,7 @@ export default function UniversalPlayer({
      vignette sur de vraies images, ce qui se voit tout de suite. */
   useEffect(() => {
     if (!blindProbeSrc) return;
-    setFirstFrameLit(null);
+    setFirstFrameLit(undefined);
     // Pas de vignette a poser, pas de raison de tirer des octets : le verdict
     // ne servirait a rien.
     if (!poster) return;
@@ -2393,7 +2405,7 @@ export default function UniversalPlayer({
      de copie a interroger, donc pas de verdict — voir `frameStats`. */
   useEffect(() => {
     if (blindProbeSrc) return; // la sonde ci-dessus tranche pour ce flux
-    setFirstFrameLit(null);
+    setFirstFrameLit(undefined);
     const el = playerElState;
     if (!el) return;
     let dead = false;
@@ -5307,7 +5319,7 @@ export default function UniversalPlayer({
       style={{ isolation: "isolate" }}
     >
       {ambientEnabled && (
-        <LiveAmbient playerRef={playerRef} lit={firstFrameLit} />
+        <LiveAmbient playerRef={playerRef} lit={firstFrameLit ?? null} />
       )}
 
       <MediaPlayer
@@ -5409,6 +5421,33 @@ export default function UniversalPlayer({
               // @ts-expect-error fetchpriority n'est pas encore dans lib.dom
               fetchpriority="high"
               decoding="sync"
+            />
+          )}
+          {/* Le voile. Il fait tenir la promesse de la regle : on ne voit
+              JAMAIS la premiere frame d'un fichier qui n'avait rien a montrer.
+              Avant lui, elle restait a l'ecran le temps de la sonde —
+              invisible sur un fondu au noir, une seconde de page blanche sur un
+              fondu au blanc.
+              Noir, et pas la vignette : passer par la vignette puis revenir a
+              la video sur un verdict `true` serait le clignotement que tout ce
+              bloc evite. Du noir vers l'un ou l'autre, il n'y a rien a voir
+              partir.
+              Il se leve sur `true` (vraie image) comme sur `null` (mesure
+              impossible) — une sonde muette rend la video, elle ne noircit pas
+              le lecteur. Sur `false`, il RESTE : la vignette monte par-dessus
+              en fondu, et le lever a cet instant rouvrirait la frame blanche
+              pendant les 250 ms du fondu. Les deux partent ensemble au premier
+              play, sur le `data-started` du lecteur.
+              Par une classe et non par un demontage, comme la vignette : sans
+              element dans le DOM, pas de transition. */}
+          {poster && (
+            <div
+              className={`as-veil${
+                firstFrameLit === true || firstFrameLit === null
+                  ? " as-veil-off"
+                  : ""
+              }`}
+              aria-hidden
             />
           )}
           {subtitleTracks.map((t, i) => (
