@@ -750,8 +750,6 @@ export default function Watch({
   // match it exactly. Falls back to a max-height via CSS when unset.
   // NOTE: the ResizeObserver effect lives lower (after `theaterMode` is read
   // from context) to avoid a TDZ on its dependency.
-  const playerBoxRef = useRef(null);
-  const [playerBoxH, setPlayerBoxH] = useState(0);
 
   // Episode sync: when WE change episode while in a party, tell everyone. When
   // a peer changes episode, navigate to it (preserving ?party). We track the
@@ -969,26 +967,6 @@ export default function Watch({
     ratingModalState,
     setRatingModalState,
   } = useWatchProvider();
-
-  // Match the party panel's height to the player on desktop. We derive it from
-  // the player wrapper's WIDTH (× 9/16), not by measuring the player's own
-  // height: the player renders an ambient-glow layer that extends past the 16:9
-  // video, so a height measurement overshot and the panel grew too tall. The
-  // visible video is always 16:9 in non-theater, so width × 9/16 is exact and
-  // immune to the glow. Observing width also dodges the dynamic-import remount
-  // (the wrapper itself is stable and never swapped).
-  useEffect(() => {
-    const wrapper = playerBoxRef.current;
-    if (!wrapper || typeof ResizeObserver === "undefined") return;
-    const measure = () => {
-      const w = wrapper.getBoundingClientRect().width || 0;
-      if (w) setPlayerBoxH(Math.round((w * 9) / 16));
-    };
-    const ro = new ResizeObserver(measure);
-    ro.observe(wrapper);
-    measure();
-    return () => ro.disconnect();
-  }, [theaterMode]);
 
   // ── Persist into local Recently Watched immediately ──────────
   // Runs as soon as we know which anime + episode the user opened. We
@@ -2321,19 +2299,17 @@ export default function Watch({
         <UsersIcon className="h-4 w-4" /> {t("party.openChat")}
       </button>
     ) : (
-      <div
-        className="mb-4 lg:h-[var(--player-h)]"
-        style={
-          // Match the player height on large screens only. The pixel value is
-          // the FULL-WIDTH player height; on a phone (player spans the
-          // viewport) that is far taller than the panel's mobile `h-[60vh]`, so
-          // applying it as a plain inline height left the panel overlapping the
-          // episode list. We expose it as a CSS var and only consume it at
-          // `lg:`; on mobile the inner `h-[60vh]` drives the height instead.
-          playerBoxH ? { "--player-h": `${playerBoxH}px` } : undefined
-        }
-      >
-        <div className="h-[60vh] max-h-[520px] lg:h-full lg:max-h-none">
+      /* Le panneau calait sa hauteur sur celle du lecteur (une mesure en px
+         passee en variable CSS). Ça tenait tant que la colonne de droite
+         descendait jusque sous la fiche : il restait de la place dessous pour
+         la liste d'episodes. Depuis que cette colonne s'arrete en bas de la
+         barre de serveurs, la hauteur du lecteur, c'est TOUTE la colonne — la
+         liste tombait a 46 px, reduite a un bandeau. Les deux se partagent
+         maintenant la colonne a parts egales (`flex-1` de part et d'autre),
+         ce qui n'a plus rien a mesurer. Sur mobile, le `h-[60vh]` interne
+         continue de decider. */
+      <div className="mb-4 lg:flex lg:min-h-0 lg:flex-1 lg:flex-col">
+        <div className="h-[60vh] max-h-[520px] lg:h-full lg:max-h-none lg:min-h-0 lg:flex-1">
           <WatchPartyPanel
             party={party}
             lobby={{ aniId: info?.id, epiNumber, dub, server: activeServer }}
@@ -2554,7 +2530,6 @@ export default function Watch({
               {/* Default (non-theater) player — no parent bg/overflow so ambient glow can extend outside */}
               {!theaterMode && (
                 <div
-                  ref={playerBoxRef}
                   className={`w-full flex-center ${
                     aspectRatio === "4/3" ? "aspect-video" : ""
                   }`}
@@ -2721,9 +2696,18 @@ export default function Watch({
               >
                 {/* Desktop placement — above the episode list, not instead of
                     it. On mobile the panel renders in the primary column under
-                    the player instead, and this one is hidden. */}
+                    the player instead, and this one is hidden.
+                    Ouvert, il prend la moitie de la colonne et laisse l'autre a
+                    la liste ; replie (le petit bouton « ouvrir le chat »), il
+                    ne prend que sa taille. */}
                 {partyPanelBlock && (
-                  <div className="hidden shrink-0 px-3 lg:block lg:px-0">
+                  <div
+                    className={`hidden px-3 lg:px-0 ${
+                      partyPanelHidden
+                        ? "lg:block lg:shrink-0"
+                        : "lg:flex lg:min-h-0 lg:flex-1 lg:flex-col"
+                    }`}
+                  >
                     {partyPanelBlock}
                   </div>
                 )}
