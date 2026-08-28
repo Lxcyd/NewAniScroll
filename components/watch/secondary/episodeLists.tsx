@@ -599,29 +599,71 @@ export default function EpisodeLists({
     );
   }, []);
  
-  /* Pas de gestion de la molette ici, et c'est un choix documente.
+  /* Qui defile, la liste ou la page ? On ne l'arbitre PAS a coups de
+   * `preventDefault()` : depuis les « async wheel events » de Chrome, seul le
+   * premier cran d'un geste est annulable, les suivants defilent sans attendre
+   * le script. Un arbitre ecrit ainsi n'agit que sur le premier cran et rate
+   * tout le reste — c'est ce qui rendait le comportement erratique.
+   * https://groups.google.com/a/chromium.org/d/topic/blink-dev/5jrqZmUBV9c
    *
-   * Chrome fait deja le travail, avec deux mecanismes :
-   *  - le VERROUILLAGE (wheel scroll latching) : un geste de molette reste sur
-   *    le premier element qu'il a fait defiler, du debut a la fin du geste. Une
-   *    liste qui glisse sous le curseur pendant qu'on descend la page ne peut
-   *    donc pas voler le geste — ce que trois versions successives d'un
-   *    handler maison ont tente de reimplementer, moins bien.
-   *  - les EVENEMENTS ASYNCHRONES : seul le PREMIER `wheel` d'un geste est
-   *    annulable. Les suivants produisent leur defilement sans attendre le
-   *    script, donc `preventDefault()` y est ignore, en silence. Un relais
-   *    ecrit en JS n'agit que sur le premier cran, rate tout le reste du geste,
-   *    et donne exactement le comportement erratique constate.
-   *    https://groups.google.com/a/chromium.org/d/topic/blink-dev/5jrqZmUBV9c
+   * On change donc la NATURE de la liste plutot que le sort de l'evenement :
+   * rendue `overflow: hidden`, elle n'est plus un conteneur defilant, et le
+   * navigateur envoie naturellement la molette au premier parent qui l'est —
+   * la page. Aucun evenement a annuler, donc la regle vaut pour tous les crans
+   * d'un geste, pas seulement le premier.
    *
-   * Ce que le navigateur ne fait PAS : rendre la page a la fin de la liste au
-   * milieu d'un meme geste. C'est le verrouillage, il est delibere, et une
-   * courte pause suffit a passer de l'un a l'autre. Tous les sites se
-   * comportent ainsi.
+   * Trois transitions, qui sont exactement les trois regles voulues :
+   *   la souris bouge sur la liste  → active   (on est venu a elle)
+   *   la souris quitte la liste     → inerte   (elle ne prendra plus rien tant
+   *                                             qu'on n'y revient pas)
+   *   la liste atteint une extremite → inerte  (la suite du defilement s'en va
+   *                                             a la page)
    *
-   * `overscroll-behavior` reste a `auto` sur la zone de defilement : c'est lui
-   * qui autorise l'enchainement d'un geste au suivant. `contain` l'interdirait.
-   */
+   * `scrollbar-gutter: stable` accompagne le tout : sans lui, l'ascenseur
+   * disparait avec `overflow: hidden` et les 8 px reclames se rendent au
+   * contenu, qui sursaute a chaque bascule. */
+  useEffect(() => {
+    const el = listRef.current;
+    if (!el) return;
+
+    const rendreInerte = (oui: boolean) => {
+      el.style.overflowY = oui ? "hidden" : "auto";
+    };
+    const dernierPointeur = { x: -1, y: -1 };
+
+    const surMouvement = (e: MouseEvent) => {
+      // Chrome reemet un `mousemove` apres chaque defilement pour reevaluer le
+      // survol : memes coordonnees, donc personne n'a bouge.
+      if (e.clientX === dernierPointeur.x && e.clientY === dernierPointeur.y) return;
+      dernierPointeur.x = e.clientX;
+      dernierPointeur.y = e.clientY;
+      rendreInerte(false);
+    };
+    const surSortie = () => {
+      dernierPointeur.x = -1;
+      dernierPointeur.y = -1;
+      rendreInerte(true);
+    };
+    const surDefilement = () => {
+      const enHaut = el.scrollTop <= 0;
+      const enBas = Math.ceil(el.scrollTop + el.clientHeight) >= el.scrollHeight;
+      if (enHaut || enBas) rendreInerte(true);
+    };
+
+    el.style.scrollbarGutter = "stable";
+    el.addEventListener("mousemove", surMouvement);
+    el.addEventListener("mouseleave", surSortie);
+    el.addEventListener("scroll", surDefilement, { passive: true });
+    return () => {
+      el.removeEventListener("mousemove", surMouvement);
+      el.removeEventListener("mouseleave", surSortie);
+      el.removeEventListener("scroll", surDefilement);
+      el.style.overflowY = "";
+      el.style.scrollbarGutter = "";
+    };
+    // Le conteneur est remonte a chaque changement de vue (`key={view}`), donc
+    // la ref pointe alors sur un autre noeud : il faut rebrancher.
+  }, [view]);
 
   /* La page suit la poignee de l'ascenseur de la liste.
      Le panneau est plus haut que la fenetre : son cadre commence en haut de
