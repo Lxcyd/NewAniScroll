@@ -2506,17 +2506,19 @@ export default function Watch({
               serveurs — sans laisser depasser le haut de la fiche, qui se
               devinait en bas d'ecran — il faut donc partir de la place
               verticale disponible et la reconvertir en largeur :
-              `(100dvh - 143px - 0.75rem) * 16/9`, et cette soustraction se lit
+              `(100dvh - 143px - 1.125rem) * 16/9`, et cette soustraction se lit
               terme a terme. 143px, c'est tout ce que la colonne porte en plus
               du lecteur, MESURE dans Chrome et pas estime (voir
               tools/browser-check/layout-metrics.mjs) : 80 de padding haut, 12
               de gouttiere, 45 de barre de serveurs, et 6 que la boite du
-              lecteur prend au-dela de son 16/9. Les 0.75rem qui suivent sont
-              donc, par construction, l'air EXACT qui reste sous la barre — le
-              meme nombre que la marge laterale de la page
-              (`calc(100% - 1.5rem)`, 0.75rem de chaque cote), ce qui etait
-              justement la demande. Rejouer la mesure apres tout changement de
-              hauteur dans cette colonne.
+              lecteur prend au-dela de son 16/9. Les 1.125rem qui suivent sont
+              donc, par construction, l'air EXACT qui reste sous la barre.
+              C'est LE bord de la page : la marge laterale reprend le meme
+              nombre (`calc(100% - 2.25rem)`, 1.125rem de chaque cote), de sorte
+              que bas, gauche et droite soient a 18px. Ce n'est pas la gouttiere
+              interne (`mt-3`, 12px) qui separe le lecteur de la barre — les
+              deux se ressemblent mais ne disent pas la meme chose. Rejouer la
+              mesure apres tout changement de hauteur dans cette colonne.
               Le `lg:mt-8` de la fiche (2rem) est plus grand que cet ecart :
               c'est ce qui garantit que rien de la fiche ne se devine sous le
               pli. Les deux valeurs vont ensemble. Le `min()` borne l'affaire : la
@@ -2528,7 +2530,7 @@ export default function Watch({
             className={`${
               theaterMode
                 ? "lg:max-w-[95%] xl:max-w-[80%] lg:grid-cols-[minmax(0,1fr)_25rem] xl:grid-cols-[minmax(0,1fr)_33rem]"
-                : "lg:max-w-[calc(100%_-_1.5rem)] lg:grid-cols-[min(100%_-_26rem,(100dvh_-_143px_-_0.75rem)_*_16_/_9)_minmax(0,1fr)]"
+                : "lg:max-w-[calc(100%_-_2.25rem)] lg:grid-cols-[min(100%_-_26rem,(100dvh_-_143px_-_1.125rem)_*_16_/_9)_minmax(0,1fr)]"
             } mx-auto flex w-full flex-col lg:grid`}
           >
             {/* ── Primary column ── */}
@@ -2753,7 +2755,7 @@ export default function Watch({
               className={`${
                 theaterMode
                   ? "lg:max-w-[95%] xl:max-w-[80%]"
-                  : "lg:max-w-[calc(100%_-_1.5rem)]"
+                  : "lg:max-w-[calc(100%_-_2.25rem)]"
               } mx-auto mt-6 w-full min-w-0 px-3 lg:px-0 ${v2Styles.tokens}`}
             >
               <Recommendations
@@ -2775,7 +2777,7 @@ export default function Watch({
           resserrait a 80 % sous un contenu a 95 %. */}
       <Footer
         widthClass={`w-[90%] ${
-          theaterMode ? "lg:w-[95%] xl:w-[80%]" : "lg:w-[calc(100%_-_1.5rem)]"
+          theaterMode ? "lg:w-[95%] xl:w-[80%]" : "lg:w-[calc(100%_-_2.25rem)]"
         }`}
       />
     </>
