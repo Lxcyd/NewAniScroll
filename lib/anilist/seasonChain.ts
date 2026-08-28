@@ -55,7 +55,9 @@ import {
 // v10: un numero de titre qui FAIT AVANCER le compteur reprend la main sur le
 //      garde « meme travail que la precedente » — "JUJUTSU KAISEN Season 2" se
 //      reduit a la meme base que "JUJUTSU KAISEN" et heritait donc du 1.
-const REDIS_KEY_CHAIN = (id: number) => `seasonChain:v10:${id}`;
+// v11: le meme garde ne peut plus, a lui seul, retenir le compteur — "Attack on
+//      Titan: The Final Season" (aucun numero, meme base) heritait du 3.
+const REDIS_KEY_CHAIN = (id: number) => `seasonChain:v11:${id}`;
 // v3: SeasonEntry gained `idMal` (feeds Jikan per-episode score lookups).
 // v4: numbering now uses a running counter so split-cours + unnumbered
 //     "Final Season" entries get the right S<n> (AoT Final Season = S4, not S5).
@@ -101,7 +103,9 @@ const REDIS_KEY_CHAIN = (id: number) => `seasonChain:v10:${id}`;
 //      la chronologie devant Innocence. Jujutsu Kaisen 0 garde sa regle.
 // v21: idem seasonChain v10 — le selecteur de Jujutsu Kaisen affichait deux
 //      "Season 1" a la file (2020 et 2023).
-const REDIS_KEY_LIST = (id: number) => `seasonList:v21:${id}`;
+// v22: idem seasonChain v11 — Attack on Titan affichait deux "Season 3" et
+//      deux "Season 3 Part 2".
+const REDIS_KEY_LIST = (id: number) => `seasonList:v22:${id}`;
 
 // Cache accessors now hit Turso (see lib/db/seasonCache.ts) instead of Redis.
 // The cache_key strings keep their version tag, so a version bump still evicts

@@ -889,21 +889,31 @@ export function continuesSameWork(
  * une page d'info et un selecteur de lecteur qui se contredisent.
  *
  *   - le titre annonce un numero PLUS GRAND que le compteur → on s'y ancre.
- *   - l'entree continue le meme travail que la precedente, ou porte une marque
- *     de continuation ("Part 2", "Cour 2", "The Final Chapters") → elle herite
- *     du numero courant.
- *   - un numero dans le titre, mais qui ne fait pas avancer → on s'y ancre
- *     quand meme (une chronologie qui commence a "Season 2" existe).
+ *   - marque de continuation ("Part 2", "Cour 2", "The Final Chapters") →
+ *     l'entree herite du numero courant, c'est un cour de la meme saison.
+ *   - un numero dans le titre → on s'y ancre, SAUF si l'entree prolonge le meme
+ *     travail que la precedente : ce numero-la compte alors dans ce sous-titre,
+ *     pas dans la franchise.
  *   - rien de tout ca → saison suivante.
  *
- * L'ORDRE compte, et c'est le bug qu'il corrige. `continuesSameWork` passait
- * avant le numero du titre : "JUJUTSU KAISEN Season 2" se reduit a la meme base
- * que "JUJUTSU KAISEN", donc il heritait du 1 et le selecteur affichait deux
- * "Season 1" a la file. Le garde reste utile dans l'autre sens — SAO "War of
- * Underworld Part 2" s'intitule nativement "2nd Season", et s'y ancrer ramenait
- * le compteur de 4 a 2 — mais cette erreur-la fait toujours RECULER le
- * compteur. Un numero qui avance vient du titre de la franchise ; un numero qui
- * recule vient de la numerotation interne d'un sous-titre.
+ * DEUX bugs de meme famille ont mene a cette forme, et ils tenaient tous deux a
+ * la place de `continuesSameWork`. Ce test se contente de comparer les titres
+ * une fois leur numero retire : DANS une franchise il est presque toujours vrai,
+ * puisque c'est justement ce qui fait une franchise.
+ *
+ *   - quand il passait avant le numero du titre, "JUJUTSU KAISEN Season 2"
+ *     (meme base que "JUJUTSU KAISEN") heritait du 1 : deux "Season 1" a la
+ *     file dans le selecteur.
+ *   - quand il pouvait a lui seul retenir le compteur, "Attack on Titan: The
+ *     Final Season" (meme base, aucun numero) heritait du 3 : la saison 4 et sa
+ *     seconde partie s'affichaient "Season 3" et "Season 3 Part 2", en double
+ *     avec les vraies.
+ *
+ * Il ne sert donc plus qu'a UNE chose : empecher un numero de titre de faire
+ * reculer le compteur — SAO "War of Underworld Part 2" s'intitule nativement
+ * "2nd Season", et s'y ancrer ramenait de 4 a 2. Un numero qui avance vient du
+ * titre de la franchise ; un numero qui recule, de la numerotation interne d'un
+ * sous-titre. Il ne decide jamais, lui, qu'une saison n'en est pas une.
  */
 export function nextSeasonNumber(opts: {
   running: number;
@@ -913,8 +923,8 @@ export function nextSeasonNumber(opts: {
 }): number {
   const { running, fromTitle, continuesPrev, continuation } = opts;
   if (fromTitle != null && fromTitle > running) return fromTitle;
-  if (continuesPrev || continuation) return Math.max(1, running);
-  if (fromTitle != null) return fromTitle;
+  if (continuation) return Math.max(1, running);
+  if (fromTitle != null) return continuesPrev ? Math.max(1, running) : fromTitle;
   return running + 1;
 }
 

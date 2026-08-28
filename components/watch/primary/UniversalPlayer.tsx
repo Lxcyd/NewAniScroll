@@ -385,6 +385,18 @@ function proxied(
  *  Assez haut pour couvrir un noir "sale" d'encodage, assez bas pour qu'un
  *  plan de nuit reste une image. */
 const BLACK_FRAME = 12;
+/** Et le meme seuil par le haut : certains encodages ouvrent sur un fondu au
+ *  BLANC, qui ne cache pas moins qu'un fondu au noir.
+ *  Le blanc demande une precaution que le noir n'exige pas. Un plan tres
+ *  lumineux — neige, ciel d'ete, page blanche — monte facilement a 200 de
+ *  moyenne, alors qu'un vrai plan de nuit descend rarement sous 12 : le seuil
+ *  seul suffit d'un cote et pas de l'autre. On exige donc en plus que l'image
+ *  soit PLATE (cf. `frameSpread`) — un fondu au blanc n'a aucun relief, un ciel
+ *  en a toujours un peu. */
+const WHITE_FRAME = 243;
+/** Ecart max-min de luminance au-dela duquel une frame claire a du relief, donc
+ *  du contenu. Mesure sur les 144 echantillons du 16x9. */
+const FLAT_FRAME = 10;
 /** Attente entre les deux lectures qui doivent s'accorder avant que la
  *  vignette couvre quoi que ce soit — et delai laisse a une frame fraichement
  *  decodee pour etre peinte avant qu'on la lise. */
@@ -395,11 +407,13 @@ const POLL_MS = 250;
  *  vignette. */
 const PROBE_TIMEOUT_MS = 8000;
 
-/** Luminance moyenne de l'image courante, reduite a 16x9, Rec.709.
+/** Luminance moyenne et amplitude de l'image courante, reduite a 16x9, Rec.709.
  *  `null` = canvas teinte : le flux ne repond pas d'en-tete CORS et ses pixels
  *  sont illisibles. Le DESSIN passe, c'est la RELECTURE qui est interdite, et
  *  il n'y a aucun contournement cote element. */
-const frameLuma = (source: HTMLVideoElement): number | null => {
+const frameStats = (
+  source: HTMLVideoElement,
+): { moyenne: number; amplitude: number } | null => {
   try {
     const canvas = document.createElement("canvas");
     canvas.width = 16;
@@ -409,12 +423,30 @@ const frameLuma = (source: HTMLVideoElement): number | null => {
     ctx.drawImage(source, 0, 0, 16, 9);
     const { data } = ctx.getImageData(0, 0, 16, 9);
     let sum = 0;
-    for (let i = 0; i < data.length; i += 4)
-      sum += data[i] * 0.2126 + data[i + 1] * 0.7152 + data[i + 2] * 0.0722;
-    return sum / (data.length / 4);
+    let min = 255;
+    let max = 0;
+    for (let i = 0; i < data.length; i += 4) {
+      const l = data[i] * 0.2126 + data[i + 1] * 0.7152 + data[i + 2] * 0.0722;
+      sum += l;
+      if (l < min) min = l;
+      if (l > max) max = l;
+    }
+    return { moyenne: sum / (data.length / 4), amplitude: max - min };
   } catch {
     return null;
   }
+};
+
+/** La premiere image montre-t-elle quelque chose ? `null` = illisible, on ne
+ *  tranche pas. Un fondu au noir comme un fondu au blanc repondent `false` :
+ *  dans les deux cas il n'y a rien a voir, et c'est la vignette de l'episode
+ *  qui prend la place. */
+const frameLooksReal = (source: HTMLVideoElement): boolean | null => {
+  const s = frameStats(source);
+  if (!s) return null;
+  if (s.moyenne <= BLACK_FRAME) return false;
+  if (s.moyenne >= WHITE_FRAME && s.amplitude <= FLAT_FRAME) return false;
+  return true;
 };
 
 /* Memoire des verdicts. Une ouverture ne change pas : un fichier deja mesure
@@ -424,7 +456,13 @@ const frameLuma = (source: HTMLVideoElement): number | null => {
    c'est surtout au retour sur un episode que l'attente se voyait.
    Un seul enregistrement, plafonne, plutot qu'une cle par fichier — pour ne pas
    laisser grossir sans fin le stockage du visiteur. */
-const MEMO_KEY = "as:firstframe";
+/* `:v2` depuis que le fondu au BLANC compte lui aussi comme une image vide :
+   les fichiers deja mesures sont memorises "vrai" chez ceux qui les ont
+   ouverts, et ce verdict-la ne s'invalide ni par un TTL ni par un deploiement.
+   L'ancien enregistrement est efface a la premiere ecriture plutot que laisse
+   a trainer dans le stockage du visiteur. */
+const MEMO_KEY = "as:firstframe:v2";
+const MEMO_KEY_LEGACY = "as:firstframe";
 const MEMO_MAX = 300;
 const memoRead = (path: string): boolean | null => {
   try {
@@ -444,6 +482,7 @@ const memoWrite = (path: string, lit: boolean) => {
     for (const old of keys.slice(0, Math.max(0, keys.length - MEMO_MAX)))
       delete all[old];
     localStorage.setItem(MEMO_KEY, JSON.stringify(all));
+    localStorage.removeItem(MEMO_KEY_LEGACY);
   } catch {
     /* stockage refuse (navigation privee, quota) — on mesurera a nouveau. */
   }
@@ -2252,18 +2291,20 @@ export default function UniversalPlayer({
       ? proxied(blindStream.url, blindStream.referer || streamData?.referer)
       : null;
 
-  /* L'image d'ouverture est-elle noire ?
+  /* L'image d'ouverture montre-t-elle quelque chose ?
      La question decide de deux choses : si la vignette de l'episode reste
      posee sur la video avant le premier play, et si l'ambient l'echantillonne
-     elle plutot que la video. Beaucoup d'encodages ouvrent sur un fondu au
-     noir — c'est pour ceux-la que la vignette existe. Mais quand la premiere
-     frame est une vraie image, la recouvrir cache au spectateur ce qu'il
-     s'apprete a regarder.
-     La regle est celle-la et pas une autre : premiere frame noire → la
-     vignette de l'episode ; premiere frame non noire → elle reste, telle
+     elle plutot que la video. Beaucoup d'encodages ouvrent sur un fondu — au
+     noir le plus souvent, au blanc parfois, et le second ne cache pas moins
+     que le premier. C'est pour ceux-la que la vignette existe. Mais quand la
+     premiere frame est une vraie image, la recouvrir cache au spectateur ce
+     qu'il s'apprete a regarder.
+     La regle est celle-la et pas une autre : premiere frame vide → la vignette
+     de l'episode ; premiere frame qui montre quelque chose → elle reste, telle
      quelle. On ne va PAS chercher plus loin dans le fichier une image qui
      ferait l'affaire.
-     Mesure : la premiere frame reduite a 16x9, et sa luminance moyenne.
+     Mesure : la premiere frame reduite a 16x9, sa luminance moyenne et son
+     amplitude — voir `frameLooksReal`.
      Trois etats. `null` = pas de reponse, et on ne couvre pas.
 
      UN SEUL passage a `false`, et jamais avant d'en etre sur. C'est le point
@@ -2330,10 +2371,7 @@ export default function UniversalPlayer({
       if (dead || settled) return;
       // `loadeddata` dit qu'une image est decodee ; on lui laisse le temps
       // d'exister avant de la lire, comme sur le lecteur lui-meme.
-      at(CONFIRM_MS, () => {
-        const value = frameLuma(v);
-        stop(value === null ? null : value > BLACK_FRAME);
-      });
+      at(CONFIRM_MS, () => stop(frameLooksReal(v)));
     });
     v.addEventListener("error", () => stop(null));
     at(PROBE_TIMEOUT_MS, () => stop(null));
@@ -2352,7 +2390,7 @@ export default function UniversalPlayer({
   /* Chemin 2 — le flux est lisible : on lit sa premiere image directement.
      Rien a decider avant qu'une image existe, d'ou l'attente ; et un canvas
      teinte ici (un flux non signale `noCors` mais servi sans en-tete) n'a pas
-     de copie a interroger, donc pas de verdict — voir `frameLuma`. */
+     de copie a interroger, donc pas de verdict — voir `frameStats`. */
   useEffect(() => {
     if (blindProbeSrc) return; // la sonde ci-dessus tranche pour ce flux
     setFirstFrameLit(null);
@@ -2378,15 +2416,14 @@ export default function UniversalPlayer({
       // ce qu'il regarde n'a pas a etre recouvert.
       if (!video.paused || video.played.length > 0 || video.currentTime > 0.01)
         return settle(true);
-      const value = frameLuma(video);
+      const value = frameLooksReal(video);
       if (value === null) return settle(null);
-      if (value > BLACK_FRAME) return settle(true);
-      // Noir — mais pas encore la vignette : une seconde lecture doit dire la
-      // meme chose. Voir le commentaire du bloc.
+      if (value) return settle(true);
+      // Vide (noir ou blanc) — mais pas encore la vignette : une seconde lecture
+      // doit dire la meme chose. Voir le commentaire du bloc.
       at(CONFIRM_MS, () => {
         if (!video.paused || video.played.length > 0) return settle(true);
-        const again = frameLuma(video);
-        settle(again === null ? null : again > BLACK_FRAME);
+        settle(frameLooksReal(video));
       });
     };
     look();

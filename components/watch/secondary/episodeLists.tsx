@@ -74,9 +74,9 @@ type SeasonRow = {
  */
 function ProchainEpisode({ airingAt, number }: { airingAt: number; number: number }) {
   const { t, i18n } = useTranslation();
-  /* Le rebours descend d'heure en heure au-dessus d'un jour et de minute en
-     minute en dessous : inutile de reveiller quoi que ce soit toutes les
-     secondes pour un texte qui ne change pas. */
+  /* Le rebours se lit a la minute : inutile de reveiller quoi que ce soit
+     toutes les secondes, une demie suffit a ne jamais afficher une minute de
+     retard. */
   const [maintenant, setMaintenant] = useState(() => Date.now());
   useEffect(() => {
     const id = setInterval(() => setMaintenant(Date.now()), 30_000);
@@ -86,14 +86,19 @@ function ProchainEpisode({ airingAt, number }: { airingAt: number; number: numbe
   const reste = airingAt * 1000 - maintenant;
   if (reste <= 0) return null; // l'heure est passee : AniList n'a pas encore rattrape
 
+  /* Les minutes sont dites JUSQU'AU BOUT, y compris au-dela du jour. "4j 18h"
+     laissait croire que le rebours et l'heure annoncee ne parlaient pas de la
+     meme chose : il restait 4j 18h 21min, et 14:30 moins 18h tombait a cote. */
   const minutes = Math.floor(reste / 60_000);
   const jours = Math.floor(minutes / 1440);
   const heures = Math.floor((minutes % 1440) / 60);
-  const delai = jours
-    ? `${jours}${t("anime.unitDay")} ${heures}${t("anime.unitHour")}`
-    : heures
-      ? `${heures}${t("anime.unitHour")} ${minutes % 60}${t("anime.unitMinute")}`
-      : `${minutes}${t("anime.unitMinute")}`;
+  const delai = [
+    jours ? `${jours}${t("anime.unitDay")}` : null,
+    jours || heures ? `${heures}${t("anime.unitHour")}` : null,
+    `${minutes % 60}${t("anime.unitMinute")}`,
+  ]
+    .filter(Boolean)
+    .join(" ");
 
   /* La date absolue accompagne le rebours plutot que de le remplacer : "dans
      4j 18h" dit s'il faut attendre, "mercredi 2 sept., 14:30" dit quand
