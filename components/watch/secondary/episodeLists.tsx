@@ -593,6 +593,36 @@ export default function EpisodeLists({
     );
   }, []);
 
+  /* Arrive en bout de liste, la molette doit reprendre la page.
+     Elle s'y arretait net : Chrome « verrouille » un geste de molette sur le
+     conteneur ou il a commence, et ne le rend au parent qu'une fois le geste
+     termine (une pause franche). Ce n'est pas un `overscroll-behavior` qu'on
+     pourrait retirer — il est deja a `auto` ici —, c'est le comportement par
+     defaut du navigateur, et seul un relais explicite en sort.
+     On ne prend la main QUE sur le cran qui deborde : tant que la liste a de
+     quoi defiler, l'evenement lui appartient. */
+  useEffect(() => {
+    const el = listRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (e.ctrlKey) return; // zoom du navigateur, pas un defilement
+      // deltaMode 1 = lignes (Firefox) ; on l'approxime en pixels.
+      const dy = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
+      if (!dy) return;
+      const enHaut = el.scrollTop <= 0;
+      const enBas = Math.ceil(el.scrollTop + el.clientHeight) >= el.scrollHeight;
+      if ((dy < 0 && enHaut) || (dy > 0 && enBas)) {
+        e.preventDefault();
+        window.scrollBy({ top: dy });
+      }
+    };
+    // `passive: false` obligatoire : sans ca le preventDefault() est ignore.
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+    // Le conteneur est remonte a chaque changement de vue (`key={view}`), donc
+    // la ref pointe alors sur un autre noeud : il faut rebrancher.
+  }, [view]);
+
   /* La page suit la poignee de l'ascenseur de la liste.
      Le panneau est plus haut que la fenetre : son cadre commence en haut de
      l'ecran et se termine sous le pli. La poignee descend le long de CE cadre,
