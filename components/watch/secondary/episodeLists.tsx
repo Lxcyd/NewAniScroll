@@ -60,6 +60,83 @@ type SeasonRow = {
   status: string | null;
 };
 
+/**
+ * Le pied du panneau : quand sort le prochain episode.
+ *
+ * Il porte a lui seul ce que les tuiles noires des episodes non diffuses
+ * disaient si mal — une fois, en toutes lettres, au lieu de quatre cases vides
+ * qui se ressemblaient. La liste ne s'allonge donc plus de ce qui n'existe pas ;
+ * elle raccourcit d'autant, ce pied etant `shrink-0` dans la meme colonne flex.
+ *
+ * Composant separe pour une raison de rendu : le compte a rebours se rafraichit
+ * a la minute, et re-rendre <EpisodeLists> a ce rythme reconstruirait les 1174
+ * lignes de One Piece. Ici, seule cette ligne repasse.
+ */
+function ProchainEpisode({ airingAt, number }: { airingAt: number; number: number }) {
+  const { t, i18n } = useTranslation();
+  /* Le rebours descend d'heure en heure au-dessus d'un jour et de minute en
+     minute en dessous : inutile de reveiller quoi que ce soit toutes les
+     secondes pour un texte qui ne change pas. */
+  const [maintenant, setMaintenant] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setMaintenant(Date.now()), 30_000);
+    return () => clearInterval(id);
+  }, []);
+
+  const reste = airingAt * 1000 - maintenant;
+  if (reste <= 0) return null; // l'heure est passee : AniList n'a pas encore rattrape
+
+  const minutes = Math.floor(reste / 60_000);
+  const jours = Math.floor(minutes / 1440);
+  const heures = Math.floor((minutes % 1440) / 60);
+  const delai = jours
+    ? `${jours}${t("anime.unitDay")} ${heures}${t("anime.unitHour")}`
+    : heures
+      ? `${heures}${t("anime.unitHour")} ${minutes % 60}${t("anime.unitMinute")}`
+      : `${minutes}${t("anime.unitMinute")}`;
+
+  /* La date absolue accompagne le rebours plutot que de le remplacer : "dans
+     4j 18h" dit s'il faut attendre, "mer. 2 sept., 13:42" dit quand revenir. */
+  const date = new Date(airingAt * 1000).toLocaleString(i18n.language, {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
+  return (
+    <div
+      className="flex shrink-0 items-center gap-2 border-t px-3 py-2.5 text-[11.5px]"
+      style={{ borderColor: T.line, color: T.txt3 }}
+    >
+      <svg
+        width="13"
+        height="13"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className="shrink-0"
+        style={{ color: ACCENT }}
+      >
+        <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+        <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+      </svg>
+      <span className="truncate">
+        <span style={{ color: T.txt0, fontWeight: 600 }}>
+          {t("common.episode")} {number}
+        </span>{" "}
+        {t("anime.airsIn", { delay: delai })}
+        {" · "}
+        {date}
+      </span>
+    </div>
+  );
+}
+
 /* Design tokens copied from components/anime/v2/styles.module.css.
  *
  * They live there scoped to the info page's `.root`, which also sets a page
@@ -736,13 +813,30 @@ export default function EpisodeLists({
     [map],
   );
 
-  const first = episode?.[0]?.number;
-  const last = episode?.[episode.length - 1]?.number;
+  /* Les episodes pas encore diffuses ne sont pas montres.
+     Le fournisseur liste les douze episodes annonces d'une saison en cours ; les
+     quatre derniers n'existent pas encore et donnaient quatre tuiles noires,
+     sans titre, avec une duree empruntee a la serie — un lien qui ne menait a
+     rien. AniList dit lequel est le prochain a sortir (`nextAiringEpisode`),
+     donc lui et tous ceux d'apres sortent de la liste, et la date d'attente se
+     dit une seule fois, en pied de panneau, ou elle se lit vraiment.
+     Le selecteur de saison NAVIGUE (il ne change pas la liste sur place), donc
+     `info` decrit toujours la saison affichee : pas de risque d'appliquer ici la
+     date d'une autre saison. */
+  const prochainNumero = Number(info?.nextAiringEpisode?.episode);
+  const sortis = useMemo(() => {
+    const rows = episode ?? [];
+    if (!Number.isFinite(prochainNumero)) return rows;
+    return rows.filter((item) => Number(item.number) < prochainNumero);
+  }, [episode, prochainNumero]);
+
+  const first = sortis[0]?.number;
+  const last = sortis[sortis.length - 1]?.number;
   /* Nombre de chiffres du plus grand numero de la liste. Il ne sert plus a
      AFFICHER les numeros — ils s'ecrivent nus, 1 puis 10 puis 100 — mais la
      recherche continue d'en avoir besoin : quelqu'un qui tape "007" cherche
      l'episode 7, et l'a peut-etre lu ecrit ainsi ailleurs. */
-  const padTo = String(last ?? episode?.length ?? 1).length;
+  const padTo = String(last ?? sortis.length ?? 1).length;
 
   /* Les donnees du fournisseur indexees par numero d'episode.
      Elles etaient retrouvees par un `find` dans le tableau, une fois par ligne
@@ -770,7 +864,7 @@ export default function EpisodeLists({
      mot qu'on ne voit nulle part dans la liste ne rendrait service a
      personne. */
   const shown = useMemo(() => {
-    let rows = episode ?? [];
+    let rows = sortis;
     const q = query.trim().toLowerCase();
     if (q) {
       const flat = (s: string) =>
@@ -787,7 +881,7 @@ export default function EpisodeLists({
       });
     }
     return desc ? [...rows].reverse() : rows;
-  }, [episode, byNumber, query, desc, padTo]);
+  }, [sortis, byNumber, query, desc, padTo]);
 
   /* Rendu par tranches.
      Changer de vue ou inverser l'ordre reconstruisait les 1174 lignes de One
@@ -1273,7 +1367,10 @@ export default function EpisodeLists({
               className="px-2 py-6 text-center text-[12.5px]"
               style={{ color: T.txt3 }}
             >
-              {t("anime.noEpisodeMatch")}
+              {/* Une saison dont AUCUN episode n'est encore sorti n'est pas une
+                  recherche infructueuse — le pied de panneau dit deja quand le
+                  premier arrive. */}
+              {query.trim() ? t("anime.noEpisodeMatch") : t("anime.notReleased")}
             </p>
           ) : view === "grid" ? (
             visible.map((item) => {
@@ -1515,6 +1612,14 @@ export default function EpisodeLists({
             })
           )}
         </div>
+
+        {info?.nextAiringEpisode?.airingAt != null &&
+          info?.nextAiringEpisode?.episode != null && (
+            <ProchainEpisode
+              airingAt={Number(info.nextAiringEpisode.airingAt)}
+              number={Number(info.nextAiringEpisode.episode)}
+            />
+          )}
       </div>
     </div>
   );

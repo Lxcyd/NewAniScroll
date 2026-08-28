@@ -1083,7 +1083,18 @@ export default function Watch({
           const epNum = parseInt(epiNumber);
           const currentEpisode  = episodeList?.find((i) => i.number === epNum)
             || { id: `megaplay-${info.id}-${epNum}`, number: epNum };
-          const nextEpisode     = episodeList?.find((i) => i.number === epNum + 1);
+          /* Le fournisseur liste les episodes ANNONCES d'une saison en cours :
+             sur une serie hebdomadaire, "l'episode suivant" existe dans la liste
+             une semaine avant d'exister tout court. AniList dit lequel est le
+             prochain a sortir ; a partir de lui, il n'y a pas de suivant, et
+             c'est ce `undefined` qui eteint d'un coup le bouton du lecteur,
+             celui de l'ecran de fin (SkipOverlay) et l'enchainement
+             automatique — ils testent tous ce meme champ. */
+          const premierNonSorti = Number(info?.nextAiringEpisode?.episode);
+          const nextEpisode     =
+            Number.isFinite(premierNonSorti) && epNum + 1 >= premierNonSorti
+              ? undefined
+              : episodeList?.find((i) => i.number === epNum + 1);
           const previousEpisode = episodeList?.find((i) => i.number === epNum - 1);
 
           const vidNav = {
