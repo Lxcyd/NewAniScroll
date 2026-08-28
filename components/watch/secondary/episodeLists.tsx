@@ -606,24 +606,29 @@ export default function EpisodeLists({
    * passe sous un curseur immobile. Sans distinction, le second se fait
    * happer — la page s'arrete des que la liste croise le pointeur.
    *
-   * La regle n'est pas « ou est le curseur », mais « qui defilait deja ».
-   * Un geste de molette appartient au premier qui l'a servi et le garde
-   * jusqu'a la pause suivante — c'est ce que Chrome fait pour ses conteneurs,
-   * et ce qui manquait ici pour la page. Tant que la page vient de defiler,
-   * la liste laisse passer, meme si elle glisse sous le pointeur ; des que le
-   * geste s'arrete, elle redevient disponible.
+   * La liste ne defile QUE si l'on est venu a elle. « Venir », c'est bouger la
+   * souris au-dessus d'elle A UN MOMENT OU RIEN NE DEFILE. Les deux moities de
+   * cette phrase comptent, et chacune repare ce que l'autre ratait :
    *
-   * Une premiere version essayait de reconnaitre un vrai mouvement de souris
-   * pour decider. Ça ne tient pas : la main bouge d'un pixel pendant qu'on
-   * fait defiler, et la liste raflait le geste. Le critere de recence, lui,
-   * ne depend d'aucun geste involontaire.
+   *  - le mouvement seul ne suffit pas. La main bouge d'un pixel pendant qu'on
+   *    fait defiler la page, et la liste raflait le geste. D'ou le delai : un
+   *    mouvement dans la foulee d'un defilement de page n'est pas une arrivee.
+   *  - la recence seule ne suffit pas non plus. A la molette classique, deux
+   *    crans sont souvent espaces de plus d'un quart de seconde : chaque cran
+   *    redevenait un « nouveau geste » et la liste le recuperait. C'est le
+   *    drapeau, et non l'horloge, qui porte la decision.
+   *
+   * Tout defilement de page desarme, et il faut alors un geste franc de la
+   * souris pour redonner la main a la liste.
    *
    * Reste le verrouillage de Chrome dans l'autre sens : la liste en butee
    * garde le geste au lieu de le rendre a la page. Ce n'est pas un
    * `overscroll-behavior` qu'on pourrait retirer — il est deja a `auto` ici —
    * et seul un relais explicite en sort. D'ou le second cas, le cran qui
    * deborde. */
+  const molettePrise = useRef(false);
   const dernierDefilementPage = useRef(0);
+  const dernierPointeur = useRef<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
     const el = listRef.current;
@@ -633,6 +638,22 @@ export default function EpisodeLists({
       typeof performance !== "undefined" ? performance.now() : Date.now();
     const marquerPage = () => {
       dernierDefilementPage.current = maintenant();
+      molettePrise.current = false;
+    };
+
+    const surMouvement = (e: MouseEvent) => {
+      const d = dernierPointeur.current;
+      dernierPointeur.current = { x: e.clientX, y: e.clientY };
+      // Pas de repere precedent, memes coordonnees (Chrome reevalue le survol
+      // apres chaque defilement), ou defilement de page tout juste passe :
+      // dans les trois cas, personne n'est « venu » ici.
+      if (!d || (d.x === e.clientX && d.y === e.clientY)) return;
+      if (maintenant() - dernierDefilementPage.current < 500) return;
+      molettePrise.current = true;
+    };
+    const surSortie = () => {
+      molettePrise.current = false;
+      dernierPointeur.current = null;
     };
 
     const onWheel = (e: WheelEvent) => {
@@ -641,27 +662,30 @@ export default function EpisodeLists({
       const dy = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
       if (!dy) return;
 
-      // Un geste continu enchaine ses crans toutes les quelques dizaines de
-      // millisecondes ; 250 ms separent donc deux gestes, pas deux crans.
-      const pageEnCours = maintenant() - dernierDefilementPage.current < 250;
       const enHaut = el.scrollTop <= 0;
       const enBas = Math.ceil(el.scrollTop + el.clientHeight) >= el.scrollHeight;
       const deborde = (dy < 0 && enHaut) || (dy > 0 && enBas);
 
-      if (pageEnCours || deborde) {
+      if (!molettePrise.current || deborde) {
         e.preventDefault();
         window.scrollBy({ top: dy });
-        // On entretient le geste nous-memes : arrivee en haut de page, plus
-        // aucun evenement `scroll` ne partirait, et la liste reprendrait la
-        // main au milieu d'un geste que l'utilisateur n'a pas relache.
+        // On entretient le marqueur nous-memes : arrive en haut de page, plus
+        // aucun evenement `scroll` ne partirait, et un mouvement involontaire
+        // pourrait armer la liste au milieu d'un geste jamais relache.
         marquerPage();
       }
     };
 
+    el.addEventListener("mousemove", surMouvement);
+    el.addEventListener("mouseenter", surSortie);
+    el.addEventListener("mouseleave", surSortie);
     window.addEventListener("scroll", marquerPage, { passive: true });
     // `passive: false` obligatoire : sans ca le preventDefault() est ignore.
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => {
+      el.removeEventListener("mousemove", surMouvement);
+      el.removeEventListener("mouseenter", surSortie);
+      el.removeEventListener("mouseleave", surSortie);
       window.removeEventListener("scroll", marquerPage);
       el.removeEventListener("wheel", onWheel);
     };
