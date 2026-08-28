@@ -2756,12 +2756,13 @@ export default function Watch({
                 colonne du haut : elle prend la hauteur que la fiche donne a la
                 rangee, donc elle descend jusqu'aux recommandations, et c'est sa
                 zone de defilement qui absorbe le reste.
-                `lg:mt-3` et non le `lg:mt-8` de la fiche : la liste se glisse
-                SOUS le panneau de chat, a la meme gouttiere que celle qui
-                separe le lecteur de la barre de serveurs. C'est la fiche qui a
-                besoin d'air sous la barre, pas elle. */}
+                Le `lg:mt-8` est celui de la fiche, et il n'est pas negociable :
+                c'est ce qui met le haut de la liste au niveau de la jaquette et
+                du bouton de liste, sur une seule ligne d'horizon. Une gouttiere
+                plus serree la faisait flotter entre le chat et la fiche, alignee
+                sur ni l'un ni l'autre. */}
             {partyOpen && (
-              <div className="relative mt-4 lg:col-start-2 lg:row-start-2 lg:mt-3">
+              <div className="relative mt-4 lg:col-start-2 lg:row-start-2 lg:mt-8">
                 <div className="lg:absolute lg:inset-0 lg:left-4 lg:flex lg:flex-col">
                   {episodeListBlock}
                 </div>
