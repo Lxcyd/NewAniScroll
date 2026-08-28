@@ -96,23 +96,32 @@ function ProchainEpisode({ airingAt, number }: { airingAt: number; number: numbe
       : `${minutes}${t("anime.unitMinute")}`;
 
   /* La date absolue accompagne le rebours plutot que de le remplacer : "dans
-     4j 18h" dit s'il faut attendre, "mer. 2 sept., 13:42" dit quand revenir. */
+     4j 18h" dit s'il faut attendre, "mercredi 2 sept., 14:30" dit quand
+     revenir. Le jour en TOUTES LETTRES : cette barre est la seule ligne de date
+     du panneau, elle n'a pas la place a economiser d'une colonne de tableau, et
+     "mercredi" se lit sans etre decode. */
   const date = new Date(airingAt * 1000).toLocaleString(i18n.language, {
-    weekday: "short",
+    weekday: "long",
     day: "numeric",
     month: "short",
     hour: "2-digit",
     minute: "2-digit",
   });
 
+  /* Meme boite que la barre des serveurs, de l'autre cote du lecteur
+     (components/watch/primary/serverSelector.js) : memes `px-3 py-2`, meme
+     `py-1` sur la ligne, meme corps de 13 px. Les deux barres se font face en
+     bas de page — une difference de quelques pixels s'y verrait comme un
+     defaut d'alignement. Reproduites par CONSTRUCTION plutot que par une
+     hauteur figee, qui mentirait des que l'une des deux bougerait. */
   return (
     <div
-      className="flex shrink-0 items-center gap-2 border-t px-3 py-2.5 text-[11.5px]"
+      className="flex shrink-0 items-center gap-2 border-t px-3 py-2 text-[13px]"
       style={{ borderColor: T.line, color: T.txt3 }}
     >
       <svg
-        width="13"
-        height="13"
+        width="16"
+        height="16"
         viewBox="0 0 24 24"
         fill="none"
         stroke="currentColor"
@@ -125,11 +134,13 @@ function ProchainEpisode({ airingAt, number }: { airingAt: number; number: numbe
         <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
         <path d="M13.73 21a2 2 0 0 1-3.46 0" />
       </svg>
-      <span className="truncate">
+      <span className="truncate py-1">
+        {/* Le numero et le delai sont ce qu'on vient lire ; la date exacte est
+            le detail qu'on consulte ensuite, et elle seule reste en gris. */}
         <span style={{ color: T.txt0, fontWeight: 600 }}>
           {t("common.episode")} {number}
         </span>{" "}
-        {t("anime.airsIn", { delay: delai })}
+        <span style={{ color: T.txt0 }}>{t("anime.airsIn", { delay: delai })}</span>
         {" · "}
         {date}
       </span>
