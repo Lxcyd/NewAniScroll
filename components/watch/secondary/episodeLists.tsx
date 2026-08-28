@@ -598,100 +598,30 @@ export default function EpisodeLists({
       (listRef.current?.scrollTop ?? 0) > 4,
     );
   }, []);
-
-  /* La molette appartient a la liste seulement si on est VENU dessus.
+ 
+  /* Pas de gestion de la molette ici, et c'est un choix documente.
    *
-   * Deux gestes se ressemblent et n'ont rien a voir : poser la souris sur la
-   * liste pour la parcourir, et faire defiler la page pendant que la liste
-   * passe sous un curseur immobile. Sans distinction, le second se fait
-   * happer — la page s'arrete des que la liste croise le pointeur.
+   * Chrome fait deja le travail, avec deux mecanismes :
+   *  - le VERROUILLAGE (wheel scroll latching) : un geste de molette reste sur
+   *    le premier element qu'il a fait defiler, du debut a la fin du geste. Une
+   *    liste qui glisse sous le curseur pendant qu'on descend la page ne peut
+   *    donc pas voler le geste — ce que trois versions successives d'un
+   *    handler maison ont tente de reimplementer, moins bien.
+   *  - les EVENEMENTS ASYNCHRONES : seul le PREMIER `wheel` d'un geste est
+   *    annulable. Les suivants produisent leur defilement sans attendre le
+   *    script, donc `preventDefault()` y est ignore, en silence. Un relais
+   *    ecrit en JS n'agit que sur le premier cran, rate tout le reste du geste,
+   *    et donne exactement le comportement erratique constate.
+   *    https://groups.google.com/a/chromium.org/d/topic/blink-dev/5jrqZmUBV9c
    *
-   * La liste ne defile QUE si l'on est venu a elle. « Venir », c'est bouger la
-   * souris au-dessus d'elle A UN MOMENT OU RIEN NE DEFILE. Les deux moities de
-   * cette phrase comptent, et chacune repare ce que l'autre ratait :
+   * Ce que le navigateur ne fait PAS : rendre la page a la fin de la liste au
+   * milieu d'un meme geste. C'est le verrouillage, il est delibere, et une
+   * courte pause suffit a passer de l'un a l'autre. Tous les sites se
+   * comportent ainsi.
    *
-   *  - le mouvement seul ne suffit pas. La main bouge d'un pixel pendant qu'on
-   *    fait defiler la page, et la liste raflait le geste. D'ou le delai : un
-   *    mouvement dans la foulee d'un defilement de page n'est pas une arrivee.
-   *  - la recence seule ne suffit pas non plus. A la molette classique, deux
-   *    crans sont souvent espaces de plus d'un quart de seconde : chaque cran
-   *    redevenait un « nouveau geste » et la liste le recuperait. C'est le
-   *    drapeau, et non l'horloge, qui porte la decision.
-   *
-   * Tout defilement de page desarme, et il faut alors un geste franc de la
-   * souris pour redonner la main a la liste.
-   *
-   * Reste le verrouillage de Chrome dans l'autre sens : la liste en butee
-   * garde le geste au lieu de le rendre a la page. Ce n'est pas un
-   * `overscroll-behavior` qu'on pourrait retirer — il est deja a `auto` ici —
-   * et seul un relais explicite en sort. D'ou le second cas, le cran qui
-   * deborde. */
-  const molettePrise = useRef(false);
-  const dernierDefilementPage = useRef(0);
-  const dernierPointeur = useRef<{ x: number; y: number } | null>(null);
-
-  useEffect(() => {
-    const el = listRef.current;
-    if (!el) return;
-
-    const maintenant = () =>
-      typeof performance !== "undefined" ? performance.now() : Date.now();
-    const marquerPage = () => {
-      dernierDefilementPage.current = maintenant();
-      molettePrise.current = false;
-    };
-
-    const surMouvement = (e: MouseEvent) => {
-      const d = dernierPointeur.current;
-      dernierPointeur.current = { x: e.clientX, y: e.clientY };
-      // Pas de repere precedent, memes coordonnees (Chrome reevalue le survol
-      // apres chaque defilement), ou defilement de page tout juste passe :
-      // dans les trois cas, personne n'est « venu » ici.
-      if (!d || (d.x === e.clientX && d.y === e.clientY)) return;
-      if (maintenant() - dernierDefilementPage.current < 500) return;
-      molettePrise.current = true;
-    };
-    const surSortie = () => {
-      molettePrise.current = false;
-      dernierPointeur.current = null;
-    };
-
-    const onWheel = (e: WheelEvent) => {
-      if (e.ctrlKey) return; // zoom du navigateur, pas un defilement
-      // deltaMode 1 = lignes (Firefox) ; on l'approxime en pixels.
-      const dy = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
-      if (!dy) return;
-
-      const enHaut = el.scrollTop <= 0;
-      const enBas = Math.ceil(el.scrollTop + el.clientHeight) >= el.scrollHeight;
-      const deborde = (dy < 0 && enHaut) || (dy > 0 && enBas);
-
-      if (!molettePrise.current || deborde) {
-        e.preventDefault();
-        window.scrollBy({ top: dy });
-        // On entretient le marqueur nous-memes : arrive en haut de page, plus
-        // aucun evenement `scroll` ne partirait, et un mouvement involontaire
-        // pourrait armer la liste au milieu d'un geste jamais relache.
-        marquerPage();
-      }
-    };
-
-    el.addEventListener("mousemove", surMouvement);
-    el.addEventListener("mouseenter", surSortie);
-    el.addEventListener("mouseleave", surSortie);
-    window.addEventListener("scroll", marquerPage, { passive: true });
-    // `passive: false` obligatoire : sans ca le preventDefault() est ignore.
-    el.addEventListener("wheel", onWheel, { passive: false });
-    return () => {
-      el.removeEventListener("mousemove", surMouvement);
-      el.removeEventListener("mouseenter", surSortie);
-      el.removeEventListener("mouseleave", surSortie);
-      window.removeEventListener("scroll", marquerPage);
-      el.removeEventListener("wheel", onWheel);
-    };
-    // Le conteneur est remonte a chaque changement de vue (`key={view}`), donc
-    // la ref pointe alors sur un autre noeud : il faut rebrancher.
-  }, [view]);
+   * `overscroll-behavior` reste a `auto` sur la zone de defilement : c'est lui
+   * qui autorise l'enchainement d'un geste au suivant. `contain` l'interdirait.
+   */
 
   /* La page suit la poignee de l'ascenseur de la liste.
      Le panneau est plus haut que la fenetre : son cadre commence en haut de
