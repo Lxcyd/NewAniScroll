@@ -593,17 +593,41 @@ export default function EpisodeLists({
     );
   }, []);
 
-  /* Arrive en bout de liste, la molette doit reprendre la page.
-     Elle s'y arretait net : Chrome « verrouille » un geste de molette sur le
-     conteneur ou il a commence, et ne le rend au parent qu'une fois le geste
-     termine (une pause franche). Ce n'est pas un `overscroll-behavior` qu'on
-     pourrait retirer — il est deja a `auto` ici —, c'est le comportement par
-     defaut du navigateur, et seul un relais explicite en sort.
-     On ne prend la main QUE sur le cran qui deborde : tant que la liste a de
-     quoi defiler, l'evenement lui appartient. */
+  /* La molette appartient a la liste seulement si on est VENU dessus.
+   *
+   * Deux gestes se ressemblent et n'ont rien a voir : poser la souris sur la
+   * liste pour la parcourir, et faire defiler la page pendant que la liste
+   * passe sous un curseur immobile. Sans distinction, le second se fait
+   * happer — la page s'arrete des que la liste croise le pointeur.
+   *
+   * D'ou un drapeau : la liste ne « prend » la molette qu'apres un vrai
+   * mouvement de souris au-dessus d'elle, et la rend des que la page defile.
+   * Le detail qui compte : Chrome emet un `mousemove` apres chaque defilement
+   * pour reevaluer le survol. Il porte les MEMES coordonnees, puisque le
+   * pointeur, lui, n'a pas bouge — c'est a ça qu'on le reconnait.
+   *
+   * Une fois la molette prise, il reste le verrouillage de geste de Chrome :
+   * un geste commence dans un conteneur y reste jusqu'a la pause suivante,
+   * meme en butee. Ce n'est pas un `overscroll-behavior` qu'on pourrait
+   * retirer — il est deja a `auto` ici — et seul un relais explicite en sort.
+   * On ne prend donc la main que sur le cran qui deborde. */
+  const molettePrise = useRef(false);
+  const dernierPointeur = useRef<{ x: number; y: number } | null>(null);
+
   useEffect(() => {
     const el = listRef.current;
     if (!el) return;
+
+    const surMouvement = (e: MouseEvent) => {
+      const d = dernierPointeur.current;
+      if (d && d.x === e.clientX && d.y === e.clientY) return; // survol recalcule
+      dernierPointeur.current = { x: e.clientX, y: e.clientY };
+      molettePrise.current = true;
+    };
+    const rendre = () => {
+      molettePrise.current = false;
+    };
+
     const onWheel = (e: WheelEvent) => {
       if (e.ctrlKey) return; // zoom du navigateur, pas un defilement
       // deltaMode 1 = lignes (Firefox) ; on l'approxime en pixels.
@@ -611,14 +635,27 @@ export default function EpisodeLists({
       if (!dy) return;
       const enHaut = el.scrollTop <= 0;
       const enBas = Math.ceil(el.scrollTop + el.clientHeight) >= el.scrollHeight;
-      if ((dy < 0 && enHaut) || (dy > 0 && enBas)) {
+      const deborde = (dy < 0 && enHaut) || (dy > 0 && enBas);
+      if (!molettePrise.current || deborde) {
         e.preventDefault();
         window.scrollBy({ top: dy });
       }
     };
+
+    el.addEventListener("mousemove", surMouvement);
+    el.addEventListener("mouseleave", rendre);
+    // Le defilement de la page rend la main : c'est ce qui fait qu'une liste
+    // qui glisse sous le curseur pendant qu'on descend la page ne l'accroche
+    // pas au passage.
+    window.addEventListener("scroll", rendre, { passive: true });
     // `passive: false` obligatoire : sans ca le preventDefault() est ignore.
     el.addEventListener("wheel", onWheel, { passive: false });
-    return () => el.removeEventListener("wheel", onWheel);
+    return () => {
+      el.removeEventListener("mousemove", surMouvement);
+      el.removeEventListener("mouseleave", rendre);
+      window.removeEventListener("scroll", rendre);
+      el.removeEventListener("wheel", onWheel);
+    };
     // Le conteneur est remonte a chaque changement de vue (`key={view}`), donc
     // la ref pointe alors sur un autre noeud : il faut rebrancher.
   }, [view]);
