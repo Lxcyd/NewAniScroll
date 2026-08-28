@@ -2578,6 +2578,10 @@ export default function Watch({
                 listStatus={listStatus.status}
                 listResolved={listStatus.resolved}
                 onOpenListEditor={() => handleOpen()}
+                /* Le chat occupe-t-il vraiment la colonne de droite ? Replie
+                   sur son bouton, il ne compte pas : la fiche peut alors
+                   s'etaler comme si de rien n'etait. */
+                partyOpen={!!(party || partyUIOpen) && !partyPanelHidden}
                 title={
                   <div className="min-w-0">
                     {/* Pas de line-clamp : le titre s'affiche EN ENTIER,

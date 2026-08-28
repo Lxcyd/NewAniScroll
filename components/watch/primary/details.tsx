@@ -64,6 +64,9 @@ type DetailsProps = {
   /** Secondary action buttons (party / share / report) rendered under the
    *  add-to-list CTA. The page keeps their handlers; we only place them. */
   actions?: ReactNode;
+  /** Le panneau watch-together occupe-t-il la colonne de droite ? La fiche se
+   *  range differemment selon le cas — voir le commentaire du rendu. */
+  partyOpen?: boolean;
 };
 
 export default function Details({
@@ -75,6 +78,7 @@ export default function Details({
   onOpenListEditor,
   title,
   actions,
+  partyOpen = false,
 }: DetailsProps) {
   const { t, i18n } = useTranslation();
 
@@ -135,18 +139,31 @@ export default function Details({
     // est en Karla. La page d'info a son propre Inter parce qu'elle porte ses
     // tokens ; ici c'est la police du site qui fait foi.
     //
-    // A partir de `lg` la fiche reprend les DEUX COLONNES DE LA PAGE
-    // (`grid-cols-[subgrid]`) plutot que d'inventer les siennes : jaquette et
-    // texte tiennent dans la colonne du lecteur — le synopsis s'arrete donc
-    // pile au bord droit de la barre de serveurs — et les boutons se placent
-    // dans celle de la liste d'episodes. Ces deux largeurs dependent de la
-    // hauteur de l'ecran (voir la grille de la page), aucune valeur en dur ne
-    // pourrait suivre.
+    // A partir de `lg`, la fiche se range de DEUX facons, selon que le panneau
+    // watch-together occupe ou non la colonne de droite. La colonne de boutons
+    // fait 19rem dans les deux cas ; ce qui change, c'est jusqu'ou le texte a le
+    // droit d'aller.
+    //
+    //  - chat ferme : la fiche est une grille a elle, `1fr` + 19rem sur toute
+    //    la largeur de la page. Le synopsis s'etend donc jusqu'aux boutons, qui
+    //    restent plaques au bord droit de la page.
+    //  - chat ouvert : la fiche reprend les COLONNES DE LA PAGE
+    //    (`grid-cols-[subgrid]`). Jaquette et texte tiennent alors dans la
+    //    colonne du lecteur — le synopsis s'arrete pile au bord droit de la
+    //    barre de serveurs — et les boutons, decales a gauche, commencent la ou
+    //    elle finit. Le subgrid est ici indispensable : ces largeurs sont
+    //    calculees depuis la hauteur de l'ecran, aucune valeur en dur ne suivrait.
     //
     // Le synopsis etait par ailleurs un bloc pleine largeur SOUS la rangee :
     // la jaquette s'arretait a mi-hauteur de la fiche. Il est desormais dans
     // la colonne de texte, sous les genres, et la jaquette descend jusqu'en bas.
-    <div className="relative z-10 flex flex-col gap-5 font-karla lg:col-span-2 lg:grid lg:grid-cols-[subgrid] lg:items-stretch lg:gap-0">
+    <div
+      className={`relative z-10 flex flex-col gap-5 font-karla lg:col-span-2 lg:grid lg:items-stretch ${
+        partyOpen
+          ? "lg:grid-cols-[subgrid] lg:gap-0"
+          : "lg:grid-cols-[minmax(0,1fr)_19rem] lg:gap-7"
+      }`}
+    >
       <div className="flex flex-wrap gap-5 lg:col-start-1 lg:grid lg:grid-cols-[190px_minmax(0,1fr)] lg:items-stretch lg:gap-7">
         {/* The box carries the size, not the <Image>. next/image renders an
             <img> with width=1000, so without a sized parent it stretches to
@@ -288,13 +305,17 @@ export default function Details({
           l'editeur complet derriere — et non plus un « + Ajouter a la liste »
           a sens unique, qui ne savait que passer en « Planning » et ne disait
           rien de ce que l'anime etait deja pour vous. */}
-      {/* `lg:pl-4` : la grille de la page n'a pas de gouttiere — la liste
-          d'episodes cree la sienne avec son `left-4`. Sans ce meme retrait les
-          boutons se colleraient au synopsis au lieu de s'aligner sur la liste.
-          Ils prennent toute la LARGEUR de la colonne — bornes a 21rem ils
-          laissaient un vide a leur droite — mais gardent leur hauteur propre :
-          etires sur toute la fiche ils devenaient trois paves demesures. */}
-      <aside className="flex w-full flex-col gap-2.5 lg:col-start-2 lg:self-start lg:pl-4">
+      {/* Hauteur propre (`self-start`) : etires sur toute la fiche, les boutons
+          devenaient trois paves demesures.
+          Chat ouvert, le `lg:pl-4` reprend la gouttiere que la liste d'episodes
+          se cree elle-meme avec son `left-4` (la grille de la page n'en a pas),
+          sans quoi les boutons se colleraient au synopsis ; chat ferme, c'est
+          le `gap-7` de la fiche qui separe, et ce retrait n'a plus lieu d'etre. */}
+      <aside
+        className={`flex w-full flex-col gap-2.5 lg:col-start-2 lg:self-start ${
+          partyOpen ? "lg:w-[20rem] lg:pl-4" : ""
+        }`}
+      >
         <button
           type="button"
           onClick={onOpenListEditor}
