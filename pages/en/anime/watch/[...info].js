@@ -2627,16 +2627,15 @@ export default function Watch({
                   </div>
                 }
                 actions={
-                  /* Trois boutons de meme poids, c'etait trois boutons sans
-                     hierarchie. Ils n'ont pourtant pas la meme portee :
-                     « regarder ensemble » ouvre une seance a plusieurs — un
-                     geste, comme ajouter a sa liste — la ou partager et
-                     signaler sont deux utilitaires qu'on cherche quand on en a
-                     besoin. Le premier prend donc la largeur sous le bouton de
-                     statut, les deux autres se partagent la ligne du dessous.
+                  /* Meme forme que le panneau d'actions de la page d'info : un
+                     gros bouton porteur — ici le statut de liste, rendu par la
+                     fiche — puis UNE rangee d'actions secondaires de meme
+                     poids. Elles avaient ete etagees (« regarder ensemble » sur
+                     toute la largeur, puis deux demi-boutons) et etirees sur la
+                     hauteur de la fiche : ça faisait trois paves demesures.
                      Meme recette d'icones que la page d'info : des traits, pas
                      de glyphes pleins. */
-                  <>
+                  <div className={`grid gap-2.5 ${info?.id ? "grid-cols-3" : "grid-cols-2"}`}>
                     {info?.id && (
                       <button
                         type="button"
@@ -2646,7 +2645,7 @@ export default function Watch({
                           setPartyUIOpen(true);
                           setPartyPanelHidden(false);
                         }}
-                        className={`${WATCH_BTN} w-full gap-3 py-[15px] text-[13px] lg:flex-1`}
+                        className={WATCH_BTN}
                       >
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
                           <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
@@ -2656,36 +2655,34 @@ export default function Watch({
                         <span>{t("party.watchTogether")}</span>
                       </button>
                     )}
-                    <div className="grid grid-cols-2 gap-2.5 lg:flex-1">
-                      <button
-                        type="button"
-                        title={t("anime.share")}
-                        onClick={handleShareClick}
-                        className={WATCH_BTN}
-                      >
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                          <circle cx="18" cy="5" r="3" />
-                          <circle cx="6" cy="12" r="3" />
-                          <circle cx="18" cy="19" r="3" />
-                          <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
-                          <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
-                        </svg>
-                        <span>{t("anime.share")}</span>
-                      </button>
-                      <button
-                        type="button"
-                        title={t("nav.report")}
-                        onClick={() => setIsOpen(true)}
-                        className={WATCH_BTN}
-                      >
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
-                          <line x1="4" y1="22" x2="4" y2="15" />
-                        </svg>
-                        <span>{t("nav.report")}</span>
-                      </button>
-                    </div>
-                  </>
+                    <button
+                      type="button"
+                      title={t("anime.share")}
+                      onClick={handleShareClick}
+                      className={WATCH_BTN}
+                    >
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                        <circle cx="18" cy="5" r="3" />
+                        <circle cx="6" cy="12" r="3" />
+                        <circle cx="18" cy="19" r="3" />
+                        <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+                        <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+                      </svg>
+                      <span>{t("anime.share")}</span>
+                    </button>
+                    <button
+                      type="button"
+                      title={t("nav.report")}
+                      onClick={() => setIsOpen(true)}
+                      className={WATCH_BTN}
+                    >
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
+                        <line x1="4" y1="22" x2="4" y2="15" />
+                      </svg>
+                      <span>{t("nav.report")}</span>
+                    </button>
+                  </div>
                 }
               />
             </div>

@@ -997,8 +997,12 @@ export default function EpisodeLists({
     /* `lg:h-full` + the flex chain below: the card stretches to whatever the
        page gives this column, and the scroll area — not the card — absorbs the
        overflow. `min-h-0` at each level because a flex item won't shrink below
-       its content otherwise, which would push the scrollbar out of view. */
-    <div className={`${v2Styles.tokens} w-full lg:h-full lg:max-w-sm xl:max-w-lg lg:w-[24rem] xl:w-[32rem] shrink-0 flex flex-col gap-2`}>
+       its content otherwise, which would push the scrollbar out of view.
+       La LARGEUR marche pareil : elle etait figee ici (24rem/32rem), heritee de
+       l'epoque ou la colonne de la page etait fixe elle aussi. Depuis que cette
+       colonne est le reste (`1fr`), une largeur figee laissait le surplus en
+       marge a droite — la page avait donc l'air decentree. */
+    <div className={`${v2Styles.tokens} flex w-full shrink-0 flex-col gap-2 lg:h-full`}>
       <div
         className="rounded-xl border lg:flex lg:min-h-0 lg:flex-1 lg:flex-col"
         style={{ borderColor: T.line, background: "rgba(16,18,26,0.6)" }}
