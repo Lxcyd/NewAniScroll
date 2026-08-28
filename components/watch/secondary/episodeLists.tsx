@@ -606,6 +606,12 @@ export default function EpisodeLists({
    * pour reevaluer le survol. Il porte les MEMES coordonnees, puisque le
    * pointeur, lui, n'a pas bouge — c'est a ça qu'on le reconnait.
    *
+   * Un mouvement se mesure contre le precedent, donc le PREMIER evenement
+   * apres une entree ne prouve rien : il sert de repere, jamais d'armement.
+   * C'est precisement celui-la que la page envoie en faisant glisser la liste
+   * sous le curseur — le prendre pour un vrai mouvement suffisait a rendre
+   * tout le reste inoperant.
+   *
    * Une fois la molette prise, il reste le verrouillage de geste de Chrome :
    * un geste commence dans un conteneur y reste jusqu'a la pause suivante,
    * meme en butee. Ce n'est pas un `overscroll-behavior` qu'on pourrait
@@ -620,9 +626,17 @@ export default function EpisodeLists({
 
     const surMouvement = (e: MouseEvent) => {
       const d = dernierPointeur.current;
-      if (d && d.x === e.clientX && d.y === e.clientY) return; // survol recalcule
       dernierPointeur.current = { x: e.clientX, y: e.clientY };
+      if (!d) return; // premier evenement : repere seulement, il ne prouve rien
+      if (d.x === e.clientX && d.y === e.clientY) return; // survol recalcule
       molettePrise.current = true;
+    };
+    // A l'entree, on repart de zero : ni prise, ni repere. Peu importe que la
+    // liste soit venue au curseur ou l'inverse, c'est le mouvement SUIVANT qui
+    // tranchera.
+    const surEntree = () => {
+      molettePrise.current = false;
+      dernierPointeur.current = null;
     };
     const rendre = () => {
       molettePrise.current = false;
@@ -643,7 +657,8 @@ export default function EpisodeLists({
     };
 
     el.addEventListener("mousemove", surMouvement);
-    el.addEventListener("mouseleave", rendre);
+    el.addEventListener("mouseenter", surEntree);
+    el.addEventListener("mouseleave", surEntree);
     // Le defilement de la page rend la main : c'est ce qui fait qu'une liste
     // qui glisse sous le curseur pendant qu'on descend la page ne l'accroche
     // pas au passage.
@@ -652,7 +667,8 @@ export default function EpisodeLists({
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => {
       el.removeEventListener("mousemove", surMouvement);
-      el.removeEventListener("mouseleave", rendre);
+      el.removeEventListener("mouseenter", surEntree);
+      el.removeEventListener("mouseleave", surEntree);
       window.removeEventListener("scroll", rendre);
       el.removeEventListener("wheel", onWheel);
     };
