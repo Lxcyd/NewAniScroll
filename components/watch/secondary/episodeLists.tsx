@@ -599,130 +599,16 @@ export default function EpisodeLists({
     );
   }, []);
  
-  /* Qui defile, la liste ou la page ?
-   *
-   * Deux etats, et un seul proprietaire de la molette a la fois :
-   *   la souris bouge SUR la liste  → la liste (on est venu a elle)
-   *   la souris quitte la liste     → la page  (jusqu'a ce qu'on y revienne)
-   *   la liste arrive en butee      → la page  (la suite du geste s'en va)
-   *
-   * Quand la molette appartient a la page, la liste devient `overflow: hidden`.
-   * Elle n'est alors plus un conteneur defilant : le navigateur envoie la
-   * molette au premier parent qui l'est, sans qu'on ait rien a annuler, donc
-   * pour tous les crans du geste et pas seulement le premier.
-   *
-   * Quand elle appartient a la liste, en revanche, il faut la piloter A LA
-   * MAIN, et c'est la le point que deux versions precedentes ont manque.
-   * Chrome VERROUILLE un geste sur le conteneur qu'il a commence a faire
-   * defiler : la liste arrivee en butee garde le geste jusqu'au bout, et le
-   * defilement s'arrete net au lieu de passer a la page. La rendre
-   * `overflow: hidden` a cet instant n'y change rien — mesure au banc, la page
-   * ne bougeait pas d'un pixel pendant la seconde moitie du geste.
-   *
-   * On annule donc chaque cran et on defile soi-meme. Et on annule DES LE
-   * PREMIER, ce qui est toute la difference : Chrome ne rend les crans
-   * suivants « asynchrones » — non annulables, donc hors de portee du script —
-   * que si le premier ne l'a pas ete. Annulation des le depart, et le geste
-   * entier reste pilotable ; annulation en cours de route, et on n'attrape
-   * plus rien : c'est ce qui rendait le resultat erratique, pas une fatalite
-   * des « async wheel events ».
-   * https://groups.google.com/a/chromium.org/d/topic/blink-dev/5jrqZmUBV9c
-   *
-   * Ce que la liste ne peut pas absorber est rendu a la page dans le meme
-   * cran : la transition se fait au pixel pres, sans temps mort ni cran perdu.
-   *
-   * Reste a distinguer « la souris est venue sur la liste » de « la liste est
-   * passee sous la souris », car Chrome les raconte de la meme facon : apres
-   * chaque defilement il rejoue un `mousemove` pour reevaluer le survol, aux
-   * MEMES coordonnees ecran. Le repere est donc pose a l'ENTREE, sans rien
-   * activer, et un `mousemove` ne vaut mouvement que s'il en differe. Une liste
-   * qui revient sous un curseur immobile pendant que la page defile rejoue son
-   * `mouseenter` puis ce `mousemove` fantome : coordonnees identiques, elle ne
-   * reprend rien, et la fin du geste appartient toujours a la page.
-   *
-   * `scrollbar-gutter: stable` accompagne le tout : sans lui, l'ascenseur
-   * disparait avec `overflow: hidden` et les 8 px reclames se rendent au
-   * contenu, qui sursaute a chaque bascule. */
-  useEffect(() => {
-    const el = listRef.current;
-    if (!el) return;
-
-    /* `aLaListe` est l'etat, `overflow` en est la trace visible : c'est lui qui
-       fait que le navigateur donne la molette a la page quand on ne pilote
-       pas. */
-    let aLaListe = false;
-    const donnerA = (liste: boolean) => {
-      aLaListe = liste;
-      el.style.overflowY = liste ? "auto" : "hidden";
-    };
-    let repere: { x: number; y: number } | null = null;
-
-    // Entree : on note d'ou l'on part, on ne donne rien. Sans `mouseenter`
-    // prealable — curseur deja pose sur la liste au montage — le premier
-    // `mousemove` sert de repere a son tour, pour la meme raison.
-    const surEntree = (e: MouseEvent) => {
-      repere = { x: e.clientX, y: e.clientY };
-    };
-    const surMouvement = (e: MouseEvent) => {
-      const bouge = repere !== null && (e.clientX !== repere.x || e.clientY !== repere.y);
-      repere = { x: e.clientX, y: e.clientY };
-      if (bouge) donnerA(true);
-    };
-    // Le repere n'est PAS efface : la prochaine entree le reposera, et l'effacer
-    // ferait passer le `mousemove` fantome de cette entree pour un mouvement.
-    const surSortie = () => donnerA(false);
-
-    /* Un geste, c'est une rafale de crans ; on le tient du premier au dernier.
-       Sans cette memoire, le cran qui fait passer la main a la page cesserait
-       d'etre annule au milieu du geste, et le navigateur reprendrait la suite a
-       son compte — verrouillee sur une liste qui ne defile plus. */
-    let pilote = false;
-    let dernierCran = 0;
-    const surMolette = (e: WheelEvent) => {
-      const memeGeste = e.timeStamp - dernierCran < 150;
-      dernierCran = e.timeStamp;
-      if (!memeGeste) pilote = aLaListe;
-      if (!pilote) return; // la page : le navigateur s'en charge tout seul
-
-      // `deltaMode` vaut 0 (pixels) sur Chrome/Windows, mais Firefox et
-      // certaines souris comptent en lignes (1) ou en pages (2).
-      const dy =
-        e.deltaMode === 1 ? e.deltaY * 16 :
-        e.deltaMode === 2 ? e.deltaY * el.clientHeight :
-        e.deltaY;
-
-      e.preventDefault();
-      if (aLaListe) {
-        const avant = el.scrollTop;
-        el.scrollTop = avant + dy;
-        const absorbe = el.scrollTop - avant;
-        if (absorbe === dy) return;
-        // Butee : la liste rend la main, et le reliquat part a la page dans le
-        // meme cran.
-        donnerA(false);
-        window.scrollBy(0, dy - absorbe);
-      } else {
-        window.scrollBy(0, dy);
-      }
-    };
-
-    el.style.scrollbarGutter = "stable";
-    donnerA(false); // a la page tant qu'on n'est pas venu a la liste
-    el.addEventListener("mouseenter", surEntree);
-    el.addEventListener("mousemove", surMouvement);
-    el.addEventListener("mouseleave", surSortie);
-    el.addEventListener("wheel", surMolette, { passive: false });
-    return () => {
-      el.removeEventListener("mouseenter", surEntree);
-      el.removeEventListener("mousemove", surMouvement);
-      el.removeEventListener("mouseleave", surSortie);
-      el.removeEventListener("wheel", surMolette);
-      el.style.overflowY = "";
-      el.style.scrollbarGutter = "";
-    };
-    // Le conteneur est remonte a chaque changement de vue (`key={view}`), donc
-    // la ref pointe alors sur un autre noeud : il faut rebrancher.
-  }, [view]);
+  /* Qui defile, la liste ou la page ? Personne ne l'arbitre ici : c'est le
+     navigateur, comme pour la tuile de tags de la fiche anime, qui n'est elle
+     aussi qu'un `overflow-y: auto`. Chrome verrouille un geste de molette sur
+     le conteneur qu'il a commence a faire defiler — la liste sous le curseur
+     garde son geste jusqu'au bout, un geste parti sur la page ne lui est pas
+     vole en passant dessus — et il chaine au geste suivant. C'est exactement le
+     comportement voulu, et trois tentatives de le reecrire (bascule d'overflow,
+     relais de molette a la main) n'ont fait que lui nuire : ascenseur qui
+     disparait, lissage natif perdu, butee qui arrete tout. Ne rien mettre ici
+     est la bonne reponse. */
 
   /* La page suit la poignee de l'ascenseur de la liste.
      Le panneau est plus haut que la fenetre : son cadre commence en haut de
