@@ -2335,7 +2335,11 @@ export default function Watch({
          maintenant la colonne a parts egales (`flex-1` de part et d'autre),
          ce qui n'a plus rien a mesurer. Sur mobile, le `h-[60vh]` interne
          continue de decider. */
-      <div className="mb-4 lg:flex lg:min-h-0 lg:flex-1 lg:flex-col">
+      /* `lg:mb-0` : la marge basse servait a separer le panneau de la liste
+         d'episodes, du temps ou elle le suivait dans la meme colonne. La liste
+         est descendue d'une rangee ; cette marge ne separait donc plus rien et
+         empechait le panneau d'aller jusqu'au bas de la barre de serveurs. */
+      <div className="mb-4 lg:mb-0 lg:flex lg:min-h-0 lg:flex-1 lg:flex-col">
         <div className="h-[60vh] max-h-[520px] lg:h-full lg:max-h-none lg:min-h-0 lg:flex-1">
           <WatchPartyPanel
             party={party}
@@ -2751,9 +2755,13 @@ export default function Watch({
                 lui a pris sa place au-dessus. Meme montage hors-flux que la
                 colonne du haut : elle prend la hauteur que la fiche donne a la
                 rangee, donc elle descend jusqu'aux recommandations, et c'est sa
-                zone de defilement qui absorbe le reste. */}
+                zone de defilement qui absorbe le reste.
+                `lg:mt-3` et non le `lg:mt-8` de la fiche : la liste se glisse
+                SOUS le panneau de chat, a la meme gouttiere que celle qui
+                separe le lecteur de la barre de serveurs. C'est la fiche qui a
+                besoin d'air sous la barre, pas elle. */}
             {partyOpen && (
-              <div className="relative mt-4 lg:col-start-2 lg:row-start-2 lg:mt-8">
+              <div className="relative mt-4 lg:col-start-2 lg:row-start-2 lg:mt-3">
                 <div className="lg:absolute lg:inset-0 lg:left-4 lg:flex lg:flex-col">
                   {episodeListBlock}
                 </div>

@@ -139,33 +139,31 @@ export default function Details({
     // est en Karla. La page d'info a son propre Inter parce qu'elle porte ses
     // tokens ; ici c'est la police du site qui fait foi.
     //
-    // A partir de `lg`, la fiche se range de DEUX facons selon que le chat
-    // occupe ou non la colonne de droite de la page. Quatre blocs — jaquette,
-    // texte, boutons, synopsis — et seul leur PLACEMENT change :
+    // A partir de `lg`, la fiche est toujours la meme figure :
     //
-    //  chat ferme (la liste d'episodes est en haut, a droite du lecteur)
     //    [ jaquette | titre/stats/genres | boutons ]
     //    [ jaquette | synopsis ......................]
-    //    Trois colonnes : les deux premieres se partagent la colonne du lecteur
-    //    (d'ou le `calc(var(--player-col) - …)`, la variable que la page
-    //    expose), la troisieme est le reste — donc exactement l'aplomb de la
-    //    liste d'episodes. Le synopsis court jusqu'au bord droit de la page.
     //
-    //  chat ouvert (la liste d'episodes est descendue a droite de la fiche)
-    //    [ jaquette | titre/stats/genres ]
-    //    [ jaquette | boutons            ]
-    //    [ jaquette | synopsis           ]
-    //    Deux colonnes dans la seule largeur du lecteur : le synopsis s'arrete
-    //    au bord droit de la barre de serveurs, et les boutons descendent se
-    //    poser juste au-dessus de lui.
+    // Les boutons en haut a droite, le synopsis dessous sur toute la largeur
+    // restante, la jaquette a cheval sur les deux rangees — donc pleine hauteur.
+    // Seule la LARGEUR de l'ensemble change avec le chat :
     //
-    // Dans les deux cas la jaquette couvre toutes les rangees, donc toute la
-    // hauteur de la fiche.
+    //  chat ferme  — la fiche tient toute la page. La 3e colonne est « le
+    //    reste » (`1fr`), c'est-a-dire exactement l'aplomb de la liste
+    //    d'episodes restee en haut a droite ; les deux premieres se partagent
+    //    la colonne du lecteur, d'ou le `calc()` sur la variable que la page
+    //    expose. Le compte doit retirer les DEUX gouttieres, sans quoi la
+    //    colonne des boutons demarre une gouttiere trop loin.
+    //  chat ouvert — la liste d'episodes est descendue a droite de la fiche :
+    //    celle-ci se replie sur la largeur du lecteur, et sa 3e colonne devient
+    //    une largeur de boutons. Ils restent donc plaques a droite, juste a
+    //    gauche de la liste, et le synopsis s'arrete au bord de la barre de
+    //    serveurs.
     <div
       className={`relative z-10 flex flex-wrap gap-5 font-karla lg:grid lg:items-stretch lg:gap-x-7 lg:gap-y-4 ${
         partyOpen
-          ? "lg:grid-cols-[190px_minmax(0,1fr)]"
-          : "lg:grid-cols-[190px_minmax(0,calc(var(--player-col)_-_190px_-_1.75rem))_minmax(0,1fr)]"
+          ? "lg:grid-cols-[190px_minmax(0,1fr)_19rem]"
+          : "lg:grid-cols-[190px_minmax(0,calc(var(--player-col)_-_190px_-_3.5rem))_minmax(0,1fr)]"
       }`}
     >
       {/* The box carries the size, not the <Image>. next/image renders an
@@ -174,9 +172,7 @@ export default function Details({
           portrait cover (it reads as a banner) and the blown-up flex item
           pushes the rest of the card over the episode column. */}
       <div
-        className={`h-[190px] w-[132px] shrink-0 overflow-hidden rounded-poster shadow-poster lg:col-start-1 lg:row-start-1 lg:h-full lg:w-full ${
-          partyOpen ? "lg:row-span-3" : "lg:row-span-2"
-        }`}
+        className="h-[190px] w-[132px] shrink-0 overflow-hidden rounded-poster shadow-poster lg:col-start-1 lg:row-start-1 lg:row-span-2 lg:h-full lg:w-full"
       >
         {info ? (
           <Link href={`/en/anime/${info.id}`} className="block h-full w-full">
@@ -286,17 +282,15 @@ export default function Details({
 
       {/* Hauteur propre (`self-start`) : etires sur toute la fiche, les boutons
           devenaient trois paves demesures.
-          Chat ferme, ils occupent la troisieme colonne, a l'aplomb de la liste
+          Chat ferme, ils occupent la 3e colonne a l'aplomb de la liste
           d'episodes — d'ou le `lg:pl-4`, qui reprend la gouttiere que la liste
-          se cree elle-meme avec son `left-4` (la grille de la page n'en a pas).
-          Chat ouvert, ils descendent d'une rangee, dans la colonne du texte,
-          juste au-dessus du synopsis ; le `max-w` leur garde une taille de
-          boutons plutot que de les etaler sur toute la largeur du texte. */}
+          se cree elle-meme avec son `left-4` (la grille de la page n'en a pas),
+          sans quoi les boutons seraient plus larges qu'elle. Chat ouvert, ils
+          sont plaques au bord droit de la fiche, la liste ayant repris cette
+          gouttiere pour elle : plus rien a compenser. */}
       <aside
-        className={`flex w-full flex-col gap-2.5 lg:self-start ${
-          partyOpen
-            ? "lg:col-start-2 lg:row-start-2 lg:max-w-[30rem]"
-            : "lg:col-start-3 lg:row-start-1 lg:pl-4"
+        className={`flex w-full flex-col gap-2.5 lg:col-start-3 lg:row-start-1 lg:self-start ${
+          partyOpen ? "" : "lg:pl-4"
         }`}
       >
         <button
@@ -330,9 +324,7 @@ export default function Details({
           anyone reading this far, and a fold on a paragraph of four lines
           bought nothing but a click. */}
       <div
-        className={`w-full rounded-xl bg-as-card/60 ring-1 ring-white/[0.06] lg:col-start-2 ${
-          partyOpen ? "lg:row-start-3" : "lg:col-span-2 lg:row-start-2"
-        }`}
+        className="w-full rounded-xl bg-as-card/60 ring-1 ring-white/[0.06] lg:col-start-2 lg:col-span-2 lg:row-start-2"
       >
         {info && (
           <div className="p-5">
