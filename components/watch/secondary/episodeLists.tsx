@@ -619,6 +619,15 @@ export default function EpisodeLists({
    *   la liste atteint une extremite → inerte  (la suite du defilement s'en va
    *                                             a la page)
    *
+   * Reste a distinguer « la souris est venue sur la liste » de « la liste est
+   * passee sous la souris », car Chrome les raconte de la meme facon : apres
+   * chaque defilement il rejoue un `mousemove` pour reevaluer le survol, aux
+   * MEMES coordonnees ecran. Le repere est donc pose a l'ENTREE, sans rien
+   * activer, et un `mousemove` ne vaut mouvement que s'il en differe. Une liste
+   * qui revient sous un curseur immobile pendant que la page defile rejoue son
+   * `mouseenter` puis ce `mousemove` fantome : coordonnees identiques, elle
+   * reste inerte, et la fin du geste appartient toujours a la page.
+   *
    * `scrollbar-gutter: stable` accompagne le tout : sans lui, l'ascenseur
    * disparait avec `overflow: hidden` et les 8 px reclames se rendent au
    * contenu, qui sursaute a chaque bascule. */
@@ -629,21 +638,22 @@ export default function EpisodeLists({
     const rendreInerte = (oui: boolean) => {
       el.style.overflowY = oui ? "hidden" : "auto";
     };
-    const dernierPointeur = { x: -1, y: -1 };
+    let repere: { x: number; y: number } | null = null;
 
+    // Entree : on note d'ou l'on part, on n'active pas. Sans `mouseenter`
+    // prealable — curseur deja pose sur la liste au montage — le premier
+    // `mousemove` sert de repere a son tour, pour la meme raison.
+    const surEntree = (e: MouseEvent) => {
+      repere = { x: e.clientX, y: e.clientY };
+    };
     const surMouvement = (e: MouseEvent) => {
-      // Chrome reemet un `mousemove` apres chaque defilement pour reevaluer le
-      // survol : memes coordonnees, donc personne n'a bouge.
-      if (e.clientX === dernierPointeur.x && e.clientY === dernierPointeur.y) return;
-      dernierPointeur.x = e.clientX;
-      dernierPointeur.y = e.clientY;
-      rendreInerte(false);
+      const bouge = repere !== null && (e.clientX !== repere.x || e.clientY !== repere.y);
+      repere = { x: e.clientX, y: e.clientY };
+      if (bouge) rendreInerte(false);
     };
-    const surSortie = () => {
-      dernierPointeur.x = -1;
-      dernierPointeur.y = -1;
-      rendreInerte(true);
-    };
+    // Le repere n'est PAS efface : la prochaine entree le reposera, et l'effacer
+    // ferait passer le `mousemove` fantome de cette entree pour un mouvement.
+    const surSortie = () => rendreInerte(true);
     const surDefilement = () => {
       const enHaut = el.scrollTop <= 0;
       const enBas = Math.ceil(el.scrollTop + el.clientHeight) >= el.scrollHeight;
@@ -651,10 +661,13 @@ export default function EpisodeLists({
     };
 
     el.style.scrollbarGutter = "stable";
+    rendreInerte(true); // inerte tant qu'on n'est pas venu a elle
+    el.addEventListener("mouseenter", surEntree);
     el.addEventListener("mousemove", surMouvement);
     el.addEventListener("mouseleave", surSortie);
     el.addEventListener("scroll", surDefilement, { passive: true });
     return () => {
+      el.removeEventListener("mouseenter", surEntree);
       el.removeEventListener("mousemove", surMouvement);
       el.removeEventListener("mouseleave", surSortie);
       el.removeEventListener("scroll", surDefilement);
