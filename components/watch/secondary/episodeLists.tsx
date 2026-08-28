@@ -887,6 +887,18 @@ export default function EpisodeLists({
   /* Ancrage sur l'episode en cours — la suite du commentaire de `listRef`.
      Pose ici, apres le rendu par tranches, parce qu'il en depend : la ligne
      visee peut n'arriver qu'a une tranche plus tard. */
+  /* L'ancrage est un geste D'ARRIVEE : il place la liste une fois, quand ce
+     qu'elle montre change (episode, vue, ordre, filtre). Passe ça, la position
+     appartient au lecteur.
+     Il repartait pourtant a chaque reprise du budget de rendu — or ce budget
+     redemarre des que la liste change d'identite, ce que font les durees quand
+     elles remontent, c'est-a-dire au moment ou la liste revient a l'ecran. On
+     se retrouvait donc ramene aux premiers episodes apres avoir scrolle
+     jusqu'aux derniers. Cette cle dit ce qui merite un ancrage ; une fois pose,
+     on n'y revient plus. */
+  const clefAncrage = `${watchId}|${view}|${desc}|${query}|${track?.playing?.number ?? ""}`;
+  const ancre = useRef<string | null>(null);
+
   useEffect(() => {
     /* Le reglage est lu ICI, a chaud, et non par `usePlayerPrefs` : ce hook
        rend d'abord les valeurs par defaut puis les vraies apres son propre
@@ -894,6 +906,7 @@ export default function EpisodeLists({
        desactive. Et il n'a rien a suivre en direct : seul compte son etat a
        l'instant ou la liste se replace. */
     if (!getPlayerPrefs().snapToCurrentEpisode) return;
+    if (ancre.current === clefAncrage) return;
     /* Une frame d'attente : l'effet part avant que la liste ait sa mise en page
        definitive (la vue vient d'etre remontee, `key={view}`), et une mesure
        prise trop tot vise a cote. */
@@ -913,21 +926,15 @@ export default function EpisodeLists({
         row.getBoundingClientRect().top - box.getBoundingClientRect().top;
       box.scrollTop = Math.max(0, box.scrollTop + delta);
       onListScroll();
+      ancre.current = clefAncrage; // pose : la position appartient au lecteur
     });
     return () => cancelAnimationFrame(frame);
     /* `budget` en dependance : la ligne en cours peut n'etre rendue qu'a une
-       tranche plus tard, et l'ancrage n'aurait alors rien trouve. Il repasse a
-       chaque tranche — une fois la ligne en place, l'ecart mesure est nul et
-       les passages suivants ne font rien. */
-  }, [
-    watchId,
-    view,
-    desc,
-    query,
-    episode?.length,
-    track?.playing?.number,
-    budget,
-  ]);
+       tranche plus tard, et l'ancrage n'aurait alors rien trouve. Il repasse
+       donc a chaque tranche, mais seulement TANT QU'IL N'A PAS TROUVE — c'est
+       la cle ci-dessus qui ferme la porte derriere lui. Meme raison pour
+       `episode?.length` : la liste peut arriver apres. */
+  }, [clefAncrage, episode?.length, budget]);
 
   /* Duree de reference de la saison, agregee au fil des mesures qui remontent
      des lignes. Elle sert deux fois : a combler les episodes que personne n'a
