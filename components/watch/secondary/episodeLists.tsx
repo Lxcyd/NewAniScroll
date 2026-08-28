@@ -586,7 +586,13 @@ export default function EpisodeLists({
      handler part a chaque cran de molette, et re-rendre une liste de plusieurs
      centaines de lignes a ce rythme se paierait cher. */
   const headRef = useRef<HTMLDivElement>(null);
+  /* Le lecteur a-t-il place la liste lui-meme ? Des lors, plus rien ne la
+     replace dans son dos — voir l'ancrage plus bas. `ancrageEnCours` distingue
+     le defilement que l'ancrage vient de provoquer de celui d'un humain. */
+  const dejaTouche = useRef(false);
+  const ancrageEnCours = useRef(false);
   const onListScroll = useCallback(() => {
+    if (!ancrageEnCours.current) dejaTouche.current = true;
     headRef.current?.toggleAttribute(
       "data-scrolled",
       (listRef.current?.scrollTop ?? 0) > 4,
@@ -898,8 +904,21 @@ export default function EpisodeLists({
      on n'y revient plus. */
   const clefAncrage = `${watchId}|${view}|${desc}|${query}|${track?.playing?.number ?? ""}`;
   const ancre = useRef<string | null>(null);
+  const clefPrecedente = useRef<string | null>(null);
 
   useEffect(() => {
+    /* Nouvelle cle = la liste montre autre chose : l'ancrage redevient
+       legitime, et le fait que le lecteur ait defile AVANT ne compte plus. */
+    if (clefPrecedente.current !== clefAncrage) {
+      clefPrecedente.current = clefAncrage;
+      dejaTouche.current = false;
+    }
+    /* La regle qui prime sur tout le reste : si le lecteur a place la liste
+       lui-meme, on ne la lui reprend pas. Peu importe ce qui a relance cet
+       effet — durees qui remontent, tranche de rendu, props rafraichies : rien
+       ne justifie de ramener quelqu'un aux premiers episodes alors qu'il
+       lisait les derniers. */
+    if (dejaTouche.current) return;
     /* Le reglage est lu ICI, a chaud, et non par `usePlayerPrefs` : ce hook
        rend d'abord les valeurs par defaut puis les vraies apres son propre
        effet — l'ancrage serait donc deja parti avant de savoir qu'il est
@@ -924,8 +943,16 @@ export default function EpisodeLists({
          se trouve dessous, dans le sens de la lecture. */
       const delta =
         row.getBoundingClientRect().top - box.getBoundingClientRect().top;
+      /* Le defilement qui suit vient de nous, pas du lecteur : sans ce drapeau
+         l'ancrage se declarerait lui-meme « touche par un humain » et ne se
+         poserait jamais deux fois de suite. Il retombe a la frame suivante,
+         une fois l'evenement `scroll` du navigateur passe. */
+      ancrageEnCours.current = true;
       box.scrollTop = Math.max(0, box.scrollTop + delta);
       onListScroll();
+      requestAnimationFrame(() => {
+        ancrageEnCours.current = false;
+      });
       ancre.current = clefAncrage; // pose : la position appartient au lecteur
     });
     return () => cancelAnimationFrame(frame);
