@@ -128,6 +128,7 @@ export default function ServerSelector({
             tete, c'est ce rang qui parle maintenant. */}
         {servers.map((server, i) => {
           const isActive = activeServer === server.id;
+          const solo = servers.length === 1;
           return (
             <button
               key={server.id}
@@ -148,11 +149,13 @@ export default function ServerSelector({
                  decalage court suffit a montrer que la rangee s'est refaite,
                  la ou une apparition simultanee ressemble a un simple
                  clignotement. Plafonne a 5 crans — au-dela, la derniere chip
-                 arriverait apres qu'on ait deja lu la premiere. */
+                 arriverait apres qu'on ait deja lu la premiere.
+                 Une chip seule n'a personne a attendre : pas de retard, et une
+                 entree plus ample (cf. `as-chip-in-solo`). */
               style={
                 isActive
                   ? {
-                      animationDelay: `${Math.min(i, 5) * 30}ms`,
+                      animationDelay: solo ? undefined : `${Math.min(i, 5) * 45}ms`,
                       background: `${
                         hovered === server.id
                           ? "linear-gradient(rgba(0,0,0,0.4), rgba(0,0,0,0.4)), "
@@ -165,15 +168,13 @@ export default function ServerSelector({
                   : // Le fond s'assombrit au survol : le nom monte d'un cran en
                     // meme temps, sinon la chip visee perdrait en lisibilite.
                     {
-                      animationDelay: `${Math.min(i, 5) * 30}ms`,
+                      animationDelay: solo ? undefined : `${Math.min(i, 5) * 45}ms`,
                       color: hovered === server.id ? TEXT_HOVER : TEXT,
                     }
               }
-              /* `as-viewswap` : la meme entree que la liste d'episodes quand
-                 elle change de vue (styles/globals.css). Deux listes qui se
-                 refont cote a cote sur la meme page doivent le faire de la
-                 meme facon. */
-              className={`as-viewswap inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[13px] font-karla font-medium transition-colors duration-200 ${
+              /* Voir `as-chip-in` dans styles/globals.css pour le geste et
+                 pour ce qui change quand la chip est seule. */
+              className={`${solo ? "as-chip-in-solo" : "as-chip-in"} inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[13px] font-karla font-medium transition-colors duration-200 ${
                 isActive
                   ? ""
                   : // Le survol ASSOMBRIT la chip visee (il ne l'eclaircit pas) :
