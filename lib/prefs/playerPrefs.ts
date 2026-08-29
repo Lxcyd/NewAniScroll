@@ -30,7 +30,22 @@ export type PlayerPrefs = {
    * of view the moment the panel opens. Off leaves the list at episode 1.
    */
   snapToCurrentEpisode: boolean;
+  /**
+   * Pas des raccourcis « avancer / reculer », en secondes.
+   *
+   * Il valait 5, ecrit en dur dans les deux `case` du gestionnaire de touches.
+   * C'est un reglage tres personnel : 5 s convient pour repasser une replique,
+   * 30 s pour sauter un passage — et personne n'a la meme idee du bon pas.
+   * Borne a [SEEK_STEP_MIN, SEEK_STEP_MAX] a la LECTURE, parce que la valeur
+   * vient de localStorage et qu'un `0` y ferait un raccourci inerte.
+   */
+  seekStep: number;
 };
+
+/** Bornes du pas de deplacement. Un pas sous la seconde ne se distingue pas
+ *  d'une pression ratee ; au-dela de 30 s on saute une scene entiere. */
+export const SEEK_STEP_MIN = 1;
+export const SEEK_STEP_MAX = 30;
 
 export const DEFAULT_PLAYER_PREFS: PlayerPrefs = {
   autoSkipIntro: false,
@@ -40,10 +55,19 @@ export const DEFAULT_PLAYER_PREFS: PlayerPrefs = {
   forceMaxQuality: false,
   defaultMuted: false,
   snapToCurrentEpisode: true,
+  seekStep: 5,
 };
 
 const KEY = "aniscroll:playerPrefs";
 export const PLAYER_PREFS_EVENT = "aniscroll:playerPrefs:change";
+
+/** Ramene un pas de deplacement dans ses bornes ; rend le defaut si la valeur
+ *  n'est pas un nombre exploitable. */
+export function clampSeekStep(v: unknown): number {
+  const n = Math.round(Number(v));
+  if (!Number.isFinite(n)) return DEFAULT_PLAYER_PREFS.seekStep;
+  return Math.min(SEEK_STEP_MAX, Math.max(SEEK_STEP_MIN, n));
+}
 
 export function getPlayerPrefs(): PlayerPrefs {
   if (typeof window === "undefined") return DEFAULT_PLAYER_PREFS;
@@ -52,7 +76,13 @@ export function getPlayerPrefs(): PlayerPrefs {
     if (!raw) return DEFAULT_PLAYER_PREFS;
     const parsed = JSON.parse(raw);
     // Merge over defaults so a stored object missing a newer field is safe.
-    return { ...DEFAULT_PLAYER_PREFS, ...parsed };
+    const merged = { ...DEFAULT_PLAYER_PREFS, ...parsed };
+    // `seekStep` est le seul champ NUMERIQUE de cet objet, donc le seul qui
+    // puisse arriver hors bornes ou pas fini. On le ramene ici plutot que chez
+    // chaque appelant : le gestionnaire de touches doit pouvoir s'en servir
+    // sans rien verifier.
+    merged.seekStep = clampSeekStep(merged.seekStep);
+    return merged;
   } catch {
     return DEFAULT_PLAYER_PREFS;
   }

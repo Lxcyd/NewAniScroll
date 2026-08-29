@@ -12,7 +12,12 @@ import {
 } from "@/lib/prefs/titlePref";
 import { getLang, setLang, Lang, LANG_EVENT } from "@/lib/i18n/languagePref";
 import { useSyncPrefs, setSyncPrefs } from "@/lib/prefs/syncPrefs";
-import { usePlayerPrefs, setPlayerPrefs } from "@/lib/prefs/playerPrefs";
+import {
+  usePlayerPrefs,
+  setPlayerPrefs,
+  SEEK_STEP_MIN,
+  SEEK_STEP_MAX,
+} from "@/lib/prefs/playerPrefs";
 import { useDataSaver, setDataSaver } from "@/lib/prefs/dataSaver";
 import { useNotifPrefs, setNotifPrefs } from "@/lib/prefs/notifPrefs";
 import { useClickTarget, setClickTarget, ClickTarget } from "@/lib/prefs/clickTarget";
@@ -1037,6 +1042,38 @@ export default function Settings() {
                 checked={dataSaver}
                 onChange={setDataSaver}
               />
+              {/* Le pas des raccourcis avancer / reculer. Pose juste au-dessus
+                  du bouton du clavier : c'est le meme sujet, et le nombre
+                  choisi ici s'affiche sur les deux touches correspondantes de
+                  l'editeur — bouger le curseur puis ouvrir le clavier montre
+                  le changement au meme endroit. */}
+              <div className="flex items-center justify-between gap-4 py-3">
+                <div className="min-w-0">
+                  <div className="text-sm font-medium">
+                    {t("settings.player.seekStep")}
+                  </div>
+                  <div className="text-white/50 text-xs mt-0.5">
+                    {t("settings.player.seekStepDesc")}
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 shrink-0">
+                  <input
+                    type="range"
+                    min={SEEK_STEP_MIN}
+                    max={SEEK_STEP_MAX}
+                    step={1}
+                    value={playerPrefs.seekStep}
+                    onChange={(e) => {
+                      const s = parseInt(e.target.value, 10);
+                      if (Number.isFinite(s)) setPlayerPrefs({ seekStep: s });
+                    }}
+                    className="w-32 accent-action cursor-pointer"
+                  />
+                  <span className="text-sm tabular-nums text-white/80 w-12 text-right">
+                    {playerPrefs.seekStep}s
+                  </span>
+                </div>
+              </div>
               {/* Keyboard shortcuts — opens the same visual keyboard editor the
                   player exposes, so bindings are configured in one place. */}
               <div className="flex items-center justify-between gap-4 py-3">

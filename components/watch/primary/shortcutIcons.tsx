@@ -33,6 +33,56 @@ const Pct = (pct: number) => (
   </>
 );
 
+/* Avancer / reculer portent le NOMBRE DE SECONDES, parce qu'il est reglable
+   (1 a 30 s, voir `seekStep` dans lib/prefs/playerPrefs). Deux chevrons seuls
+   disaient « ca saute », pas « ca saute de combien » — et sur un clavier ou
+   chaque touche ne montre qu'un glyphe, c'etait la seule information qui
+   manquait vraiment.
+   Meme composition que `Pct` : le glyphe remonte et retrecit pour laisser la
+   place au chiffre dessous, dans la meme fonte et la meme graisse, pour que la
+   rangee reste homogene. */
+const Saut = (d: string, secondes: number) => (
+  <>
+    <g transform="translate(12 8.5) scale(0.72) translate(-12 -12)">
+      <path d={d} fill="currentColor" />
+    </g>
+    <text
+      x="12"
+      y="22.5"
+      textAnchor="middle"
+      fontFamily="Space Grotesk, system-ui, sans-serif"
+      fontSize="9.5"
+      fontWeight="700"
+      fill="currentColor"
+    >
+      {secondes}
+    </text>
+  </>
+);
+
+const SEEK_BACK_D = "M11 18V6l-8.5 6 8.5 6zm.5-6l8.5 6V6l-8.5 6z";
+const SEEK_FWD_D = "M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z";
+
+/**
+ * Le glyphe d'une action, avec ce qui en depend des reglages.
+ *
+ * `SHORTCUT_ICONS` reste la table de reference — statique, donc utilisable
+ * partout. Seules les deux actions de saut ont besoin d'un parametre, et
+ * passer par cette fonction evite de transformer toute la table en fonction
+ * pour deux entrees.
+ */
+export function shortcutIcon(
+  action: ShortcutAction,
+  opts?: { seekStep?: number },
+): ReactNode {
+  const pas = opts?.seekStep;
+  if (typeof pas === "number" && pas > 0) {
+    if (action === "seekBackward") return Saut(SEEK_BACK_D, pas);
+    if (action === "seekForward") return Saut(SEEK_FWD_D, pas);
+  }
+  return SHORTCUT_ICONS[action];
+}
+
 export const SHORTCUT_ICONS: Record<ShortcutAction, ReactNode> = {
   playPause: P("M8 5v14l11-7z"),
   // Prev/next EPISODE: skip-to-start / skip-to-end (|◄ / ►|).
@@ -42,8 +92,10 @@ export const SHORTCUT_ICONS: Record<ShortcutAction, ReactNode> = {
   mute: P("M7 9v6h4l5 5V4l-5 5H7zm15.5 3 2.3-2.3-1.4-1.4L21 10.6l-2.3-2.3-1.4 1.4 2.3 2.3-2.3 2.3 1.4 1.4 2.3-2.3 2.3 2.3 1.4-1.4z"),
   toggleStats: P("M4 20h16v2H4v-2zm2-9h3v7H6v-7zm5-6h3v13h-3V5zm5 3h3v10h-3V8z"),
   pictureInPicture: P("M19 7h-8v6h8V7zm4 12V4.98C23 3.88 22.1 3 21 3H3c-1.1 0-2 .88-2 1.98V19c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2zm-2 .02H3V4.97h18v14.05z"),
-  seekBackward: P("M11 18V6l-8.5 6 8.5 6zm.5-6l8.5 6V6l-8.5 6z"),
-  seekForward: P("M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z"),
+  // Sans nombre : la table statique sert la ou le reglage n'est pas connu.
+  // Avec, c'est `shortcutIcon(action, { seekStep })` qu'il faut appeler.
+  seekBackward: P(SEEK_BACK_D),
+  seekForward: P(SEEK_FWD_D),
   volumeUp: P("M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0014 7.97v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"),
   volumeDown: P("M18.5 12A4.5 4.5 0 0016 7.97v8.05c1.48-.73 2.5-2.25 2.5-4.02zM5 9v6h4l5 5V4L9 9H5z"),
   // Speed down/up: the full Material "speed" gauge (dial + centred needle),

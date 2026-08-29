@@ -1953,6 +1953,13 @@ export default function UniversalPlayer({
   // and auto next episode. SkipOverlay reads the same module and performs the
   // actual skips/navigation; here we only render the toggle rows in the menu.
   const playerPrefs = usePlayerPrefs();
+  /* Le pas des raccourcis avancer/reculer, tenu dans une ref : le gestionnaire
+     de touches est installe une seule fois, il ne doit pas se reinstaller a
+     chaque fois qu'un reglage bouge. */
+  const pasDeSautRef = useRef(playerPrefs.seekStep);
+  useEffect(() => {
+    pasDeSautRef.current = playerPrefs.seekStep;
+  }, [playerPrefs.seekStep]);
 
   // ── Live playback-speed measurement ──────────────────────────────────
   // Report the ACTIVE server's real speed (hls.js download throughput vs the
@@ -5305,11 +5312,20 @@ export default function UniversalPlayer({
       case "mute":
         if (video) video.muted = !video.muted;
         break;
+      /* Le pas vient des reglages (1 a 30 s, 5 par defaut). Lu ici et non
+         capture dans une dependance : ce gestionnaire est installe une fois
+         pour toutes, et le relire a chaque pression coute une lecture d'objet
+         deja en memoire — bien moins qu'un reinstallation du handler a chaque
+         changement de reglage. */
       case "seekBackward":
-        if (video) video.currentTime = Math.max(0, video.currentTime - 5);
+        if (video) video.currentTime = Math.max(0, video.currentTime - pasDeSautRef.current);
         break;
       case "seekForward":
-        if (video) video.currentTime = Math.min(video.duration || Infinity, video.currentTime + 5);
+        if (video)
+          video.currentTime = Math.min(
+            video.duration || Infinity,
+            video.currentTime + pasDeSautRef.current,
+          );
         break;
       case "frameBackward":
         if (video) {
