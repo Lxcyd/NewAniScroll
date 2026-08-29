@@ -26,8 +26,11 @@
 type ServerLike = { id: string; type?: string };
 type FailedLike = Set<string> | Map<string, unknown> | null | undefined;
 
-/** La raison inscrite par `markFailed` pour une absence prouvee (204/404). */
-const ABSENCE_PROUVEE = "Source not found";
+/** La raison inscrite par `markFailed` pour une absence prouvee (204/404).
+ *  Exportee, et non recopiee : depuis qu'elle DECIDE du masquage, une faute de
+ *  frappe a l'un des cinq endroits ou elle etait ecrite en dur ferait
+ *  reapparaitre un chip mort sans que rien ne le signale. */
+export const ABSENCE_PROUVEE = "Source not found";
 
 const raisonDe = (failedServers: FailedLike, id: string): unknown =>
   (failedServers as any)?.get?.(id);

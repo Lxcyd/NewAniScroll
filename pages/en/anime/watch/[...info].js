@@ -53,6 +53,7 @@ import { useTranslation } from "react-i18next";
 import { FULL_MEDIA_FIELDS } from "@/lib/anilist/fullMediaQuery";
 import { getPrefetchedSource, sourceKey, setPrefetchedSource, clearPrefetchedSourcesFor, getPlannedServer } from "@/lib/watch/sourcePrefetch";
 import { requestSource } from "@/lib/watch/sourceRequest";
+import { ABSENCE_PROUVEE } from "@/lib/watch/serverVisibility";
 import { replaceUrlPreservingState } from "@/lib/navigation/replaceUrl";
 import { getPrefetchedEpisodes, setPrefetchedEpisodes, clearPrefetchedEpisodesFor } from "@/lib/watch/episodePrefetch";
 import { getPrefetchedInfo, clearPrefetchedInfoFor } from "@/lib/watch/infoPrefetch";
@@ -536,7 +537,7 @@ export default function Watch({
        pas les memes faits, mais ils ont la meme valeur ici. « Cet episode n'a
        pas de source » et « cet hote nous refuse tout » sont deux connaissances ;
        un 503 isole, lui, reste une non-connaissance et laisse le chip peint. */
-    const provenAbsence = reason === "Source not found";
+    const provenAbsence = reason === ABSENCE_PROUVEE;
     if (provenAbsence || hostDown || !confirmedServersRef.current.has(id)) {
       setFailedServers((prev) => {
         if (prev.get(id) === reason) return prev;
@@ -1552,7 +1553,7 @@ export default function Watch({
 
       if (out.kind === "absent") {
         setHlsData({ error: true });
-        markFailed(serverId, "Source not found");
+        markFailed(serverId, ABSENCE_PROUVEE);
         // Mark the chip failed for THIS session. Publishing is reserved for the
         // proven case: on the click path an ordinary decoy and a genuine soft404
         // are indistinguishable, and guessing wrong loses far more (a working
@@ -1893,7 +1894,7 @@ export default function Watch({
           cachedFailed.add(s.id);
           confirmedAbsent.add(s.id);
           persistProbeCache();
-          return markFailed(s.id, "Source not found");
+          return markFailed(s.id, ABSENCE_PROUVEE);
         }
         // Transient this visit — keep it out of the UI but don't publish absence.
         cachedFailed.add(s.id);
@@ -1927,7 +1928,7 @@ export default function Watch({
         cachedFailed.add(s.id);
         confirmedAbsent.add(s.id);
         persistProbeCache();
-        return markFailed(s.id, "Source not found");
+        return markFailed(s.id, ABSENCE_PROUVEE);
       }
       // Two transient failures in a row — call it broken. NOT added to
       // confirmedAbsent: transient anti-bot failures must not be published as a
