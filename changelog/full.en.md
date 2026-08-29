@@ -5,44 +5,47 @@ All notable changes to AniScroll appear here. Most recent first.
 ## [v0.0.8] — New watch page (2026-08-29)
 
 ### Added
-- **New watch page**: full width, a player sized from your screen height, and
-  the episode list beside it instead of empty space. Below, the full synopsis,
-  the info page's numbers and a recommendations rail.
+- **New watch page**: it fills the width of the screen, the player is sized from
+  the height of your window, and the episode list sits beside it instead of in
+  an empty band. Below it are the full synopsis, the info page's numbers and a
+  selection of recommendations.
 - **The full episode list while you watch**: three layouts (thumbnails, rows,
   number grid), search by title or number, reversible order, each episode's
   real runtime and a progress bar.
-- **Next episode**: under the list, a countdown and the air date in your own
-  timezone, with an **Add a reminder** button — the site's bell will flag the
-  release next time you visit.
-- **Servers ranked on how they perform for you**: startup, stalls, speed and
-  quality are measured while you watch, on your device only, and the fastest
-  ones move to the front.
-- **Language preference order**: sub, dub, multi — set once, and the server you
-  pick sticks to that show.
+- **Next episode**: below the list, a countdown and the air date, both converted
+  to your own timezone, with an **Add a reminder** button. The site's bell will
+  flag the release next time you visit.
+- **Servers ranked on how they perform for you**: startup time, stalls, speed
+  and quality are measured while you watch, on your device only, and the fastest
+  ones move to the top of the list.
+- **A language preference order**: sub, dub or multi. You set it once, and the
+  server you pick is remembered for that show.
 
 ### Changed
-- **Episodes that haven't aired leave the list**, along with the "next episode"
-  button. They left empty tiles and dead links behind.
-- **Sharper episode thumbnails**: when TMDB holds several images for an
-  episode, the one its votes single out is used. The thumbnail and the player's
-  still finally show the same frame.
+- **Episodes that haven't aired yet disappear from the list**, along with the
+  "next episode" button that led to them. They left nothing behind but empty
+  tiles and dead links.
+- **Sharper episode thumbnails**: when TMDB holds several images for the same
+  episode, the one its votes single out is the one used. The list thumbnail and
+  the player's holding image finally show the same frame.
 - **Faster startup**: the video is requested before the rest of the page.
-- **Watch-together** shares the column with the episode list instead of pushing
-  it off screen.
-- **A leaner site**: half the base JavaScript, a watch page 20% lighter, player
-  thumbnails five times lighter.
+- **Watch-together** now shares the column with the episode list instead of
+  pushing it off screen.
+- **A leaner site**: half as much JavaScript loaded up front, a watch page 20%
+  lighter, and preview thumbnails five times lighter.
 
 ### Fixed
 - **Season numbering**: Jujutsu Kaisen listed two "Season 1", Attack on Titan
   two "Season 3", and My Hero Academia's final season carried the previous
   season's number.
-- **Openings that fade from white**: an episode starting on a white fade showed
-  a blank white page. The episode's still covers it now, as it does for black.
+- **Episodes that open on a fade from white**: the screen stayed fully white
+  while the video started up. The episode's still now covers it, as it already
+  did for a fade from black.
 - **Ambient light** picks up the picture's colours again.
-- **A hiccup no longer switches player under your eyes**, and a dead upload no
-  longer hides a dub track that works.
+- **A passing slowdown no longer switches player under your eyes**, and a file
+  that has gone missing at one host no longer hides a dub that does work.
 - **Finishing an episode no longer marks the ones you skipped as watched.**
-- **Intro and outro skipping** on shows that had none.
+- **Intro and outro skipping** now works on shows that had none.
 
 ## [v0.0.7] — Hover preview, franchise graph & artwork (2026-08-16)
 

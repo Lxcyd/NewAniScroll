@@ -125,10 +125,19 @@ function buildEpisodeList(
          artwork loaded already, and this response is a shared 30-day cache
          blob, so a pick made here would freeze one viewer's choice for all.
 
-         AniList's own thumb still wins over the provider still when it
-         survived the foreign-entry check above: it is this entry's own
-         artwork. */
-      img: streaming?.thumbnail || stills[num] || null,
+         Ordre : TMDB, puis la vignette AniList, puis ani.zip.
+
+         `hd[num]` n'est rempli QUE par TMDB (fillStillGaps), donc il sert ici
+         de marqueur de provenance : quand il existe, `stills[num]` est l'image
+         TMDB et c'est elle qui passe devant. Sinon `stills[num]` n'est qu'une
+         screencap TVDB via ani.zip, et la vignette AniList vaut mieux.
+
+         Sans ce marqueur la tuile et le poster du lecteur montraient deux
+         plans differents du meme episode : la vignette Crunchyroll d'un cote,
+         l'image TMDB de l'autre (Mobile Suit Gundam, 43 episodes, ou les deux
+         listes passent le controle d'entree etrangere). */
+      img:
+        (hd[num] ? stills[num] : null) || streaming?.thumbnail || stills[num] || null,
       /* La MEME image en pleine definition, pour le seul poster du lecteur —
          qui l'affiche sur ~1300 px la ou la tuile de liste en fait 200. Elle
          n'existe que quand le still vient de TMDB (`w1280` : le lecteur fait
@@ -214,12 +223,17 @@ function filterData(data: any[], type: "sub" | "dub") {
  * semblables gagnent les vignettes TMDB). Les listes en cache portent les
  * screencaps TVDB pendant trente jours.
  *
+ * v10 -> v11 (2026-08-29): TMDB passe aussi devant la vignette AniList pour
+ * `img`. La v10 avait bien l'image TMDB en `imgHd`, mais la tuile continuait
+ * d'afficher la vignette Crunchyroll — deux plans differents du meme episode,
+ * ce qui etait tout le probleme.
+ *
  * This is the same trap as CACHE_VERSION in lib/db/tmdbImagesCache.ts, hit
  * twice in one afternoon: a cache outlives the reason its contents were what
  * they were, and no TTL can notice.
  */
 const EPISODE_CACHE_KEY = (id: string | string[] | undefined) =>
-  `episode:v10:${id}`;
+  `episode:v11:${id}`;
 
 export default async function handler(
   req: NextApiRequest,

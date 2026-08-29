@@ -5,45 +5,57 @@ Toutes les nouveautés d'AniScroll, les plus récentes en premier.
 ## [v0.0.8] — Nouvelle page de visionnage (2026-08-29)
 
 ### Ajouté
-- **Nouvelle page de visionnage** : pleine largeur, un lecteur dimensionné sur
-  la hauteur de votre écran, et la liste d'épisodes à côté au lieu du vide. En
-  dessous, le synopsis entier, les chiffres de la fiche et un rail de
-  recommandations.
-- **Liste d'épisodes complète pendant la lecture** : trois affichages
-  (vignettes, lignes, grille de numéros), recherche par titre ou par numéro,
-  ordre inversable, durée réelle de chaque épisode et barre de progression.
-- **Prochain épisode** : sous la liste, un compte à rebours et la date de
-  diffusion dans votre fuseau, avec un bouton **Ajouter un rappel** — la cloche
-  du site vous signalera la sortie à votre prochaine visite.
-- **Les lecteurs se classent sur ce qu'ils valent chez vous** : démarrage,
-  coupures, vitesse et qualité sont mesurés pendant que vous regardez, sur
-  votre appareil uniquement, et les plus rapides passent devant.
-- **Ordre de préférence des langues** : VO, VF, multi — un classement posé une
-  fois, et le lecteur choisi reste sur cet anime.
+- **Nouvelle page de visionnage** : elle occupe toute la largeur de l'écran, le
+  lecteur est dimensionné sur la hauteur de votre fenêtre, et la liste des
+  épisodes prend place à côté de lui plutôt que dans une bande vide. En dessous
+  se trouvent le synopsis complet, les informations de la fiche et une sélection
+  de recommandations.
+- **La liste complète des épisodes pendant la lecture** : trois affichages au
+  choix (vignettes, lignes ou grille de numéros), une recherche par titre ou par
+  numéro, un ordre que vous pouvez inverser, la durée réelle de chaque épisode
+  et votre progression.
+- **Prochain épisode** : sous la liste s'affichent un compte à rebours et la
+  date de diffusion, convertis dans votre fuseau horaire, avec un bouton
+  **Ajouter un rappel**. La cloche du site vous signalera la sortie lors de
+  votre prochaine visite.
+- **Les lecteurs sont classés selon leurs performances chez vous** : le temps de
+  démarrage, les coupures, le débit et la qualité sont mesurés pendant que vous
+  regardez, uniquement sur votre appareil, et les plus rapides remontent en tête
+  de liste.
+- **Un ordre de préférence pour les langues** : VOSTFR, VF ou multi. Vous le
+  définissez une fois, et le lecteur que vous choisissez reste mémorisé pour cet
+  anime.
 
 ### Modifié
-- **Les épisodes pas encore diffusés quittent la liste**, avec le bouton
-  « épisode suivant ». Ils y laissaient des cases vides et des liens morts.
-- **Vignettes d'épisode plus nettes** : quand TMDB a plusieurs images d'un
-  épisode, c'est celle que ses votes désignent qui est retenue. La vignette et
-  l'image du lecteur montrent enfin le même plan.
-- **Démarrage plus rapide** : la vidéo est demandée avant le reste de la page.
-- **Regarder-ensemble** partage la colonne avec la liste d'épisodes au lieu de
-  la pousser hors de l'écran.
-- **Site plus léger** : moitié moins de JavaScript de base, page de visionnage
-  allégée de 20 %, vignettes du lecteur cinq fois plus légères.
+- **Les épisodes qui ne sont pas encore diffusés disparaissent de la liste**,
+  ainsi que le bouton « épisode suivant » qui y menait. Ils n'y laissaient que
+  des cases vides et des liens morts.
+- **Des vignettes d'épisode plus nettes** : lorsque TMDB dispose de plusieurs
+  images pour un même épisode, c'est celle que ses votes désignent qui est
+  retenue. La vignette de la liste et l'image d'attente du lecteur montrent
+  enfin le même plan.
+- **Un démarrage plus rapide** : la vidéo est demandée avant le reste de la
+  page.
+- **Le visionnage à plusieurs** partage désormais la colonne avec la liste des
+  épisodes, au lieu de la pousser hors de l'écran.
+- **Un site plus léger** : deux fois moins de JavaScript chargé au départ, une
+  page de visionnage allégée de 20 %, et des vignettes de prévisualisation cinq
+  fois plus légères.
 
 ### Corrigé
-- **Numérotation des saisons** : Jujutsu Kaisen affichait deux « Saison 1 »,
+- **La numérotation des saisons** : Jujutsu Kaisen affichait deux « Saison 1 »,
   Attack on Titan deux « Saison 3 », et la saison finale de My Hero Academia
   portait le numéro de la précédente.
-- **Ouverture au blanc** : un épisode démarrant sur un fondu blanc affichait
-  une page blanche. L'image de l'épisode la couvre, comme pour le noir.
-- **Lumière d'ambiance** : elle rend à nouveau les couleurs de l'image.
-- **Un hoquet ne fait plus changer de lecteur sous vos yeux**, et un envoi mort
-  ne cache plus une piste de doublage qui fonctionne.
-- **Terminer un épisode ne valide plus ceux que vous aviez sautés.**
-- **Saut d'intro et de fin** sur les séries qui en étaient privées.
+- **Les épisodes qui s'ouvrent sur un fondu au blanc** : l'écran restait
+  entièrement blanc le temps du démarrage. L'image de l'épisode le recouvre
+  maintenant, comme elle le faisait déjà pour un fondu au noir.
+- **La lumière d'ambiance** reprend à nouveau les couleurs de l'image.
+- **Un ralentissement passager ne fait plus changer de lecteur sous vos yeux**,
+  et un fichier devenu introuvable chez un hébergeur ne masque plus une version
+  doublée qui, elle, fonctionne.
+- **Terminer un épisode ne marque plus comme vus ceux que vous aviez sautés.**
+- **Le saut de l'intro et du générique de fin** fonctionne sur des séries qui en
+  étaient privées.
 
 ## [v0.0.7] — Aperçu au survol, graphe de franchise & illustrations (2026-08-16)
 
