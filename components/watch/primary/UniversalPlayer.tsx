@@ -2414,14 +2414,26 @@ export default function UniversalPlayer({
     };
   }, [playerElState]);
 
-  /* La vignette sert dans deux cas, et deux seulement :
-       - le verdict dit la premiere frame VIDE : son role d'origine, la video a
-         une image mais elle ne montre rien ;
-       - la video n'a AUCUNE image a montrer : elle couvre du vide.
-     Hors de ces deux cas la video a quelque chose de reel, et la vignette
-     s'efface — c'est ce qui garantit qu'on ne recouvre jamais une vraie
-     premiere frame. */
-  const vignetteUtile = firstFrameLit === false || !videoAUneImage;
+  /* Le voile se leve quand la question est TRANCHEE en faveur de la video :
+     `true` (vraie image) ou `null` (mesure impossible). Tant qu'elle court
+     (`undefined`), il couvre — c'est sa raison d'etre. */
+  const voileLeve = firstFrameLit === true || firstFrameLit === null;
+
+  /* UNE seule question decide des DEUX calques : la video montre-t-elle
+     quelque chose de reel ? Il lui faut une image decodee ET le droit de la
+     montrer. Les deux conditions, pas une.
+     Les separer produisait un trou mesure le 29/08/2026 sur sibnet : a 8,0 s la
+     video obtient son image (rs=4, 1440 px) et la vignette se retirait aussitot
+     — mais le verdict etait encore `undefined`, donc le voile RESTAIT. Elle
+     s'effacait pour laisser voir du noir, puis revenait a 8,8 s quand le verdict
+     tombait a `false`. Vignette → noir → vignette, un demi-seconde de noir a
+     chaque lecteur.
+     Pendant la mesure la vignette reste donc en place. Ce n'est pas un pari :
+     l'alternative n'est pas la video, c'est le voile. Entre l'image de
+     l'episode et un rectangle noir, il n'y a pas a hesiter — et sur le cas pour
+     lequel tout ce bloc existe (verdict `false`), la vignette ne bouge plus du
+     tout. */
+  const vignetteUtile = !(videoAUneImage && voileLeve);
 
   /* Chemin 1 — le flux est illisible d'avance (`noCors`).
      La question part DES QUE l'adresse du flux est connue : ni le lecteur ni sa
@@ -5506,43 +5518,22 @@ export default function UniversalPlayer({
               pixels, et seule la relecture demande le CORS.
               L'effacement au demarrage est laisse au CSS, sur le `data-started`
               que Vidstack pose sur le lecteur. */}
-          {/* Montee tant qu'elle PEUT servir — pendant la mesure, et une fois la
-              frame reconnue vide. Sur `true` (vraie image) ou `null` (mesure
-              impossible) elle ne servira jamais : la demonter annule le
-              telechargement en cours au lieu de tirer 145 ko pour rien. C'est
-              le seul moment ou on sait, et il tombe assez tot pour compter.
-              Le `preload` en <Head> de la page reste, lui, inconditionnel :
-              c'est lui qui lance la course des que l'adresse est connue, bien
-              avant que le lecteur existe. */}
-          {/* `vignetteUtile` : elle sert des que la video n'a rien a montrer,
-              QUEL QUE SOIT le verdict — et c'est ce « quel que soit » qui
-              manquait. Le verdict `null` (« mesure impossible ») demontait la
-              vignette et levait le voile : sur un flux lent, on obtenait donc
-              un rectangle noir alors que l'image de l'episode etait la. C'est
-              le cas des lecteurs non lisibles en CORS, ou la sonde aveugle rend
-              `null` des que sa copie proxifiee echoue — sibnet en tete, dont le
-              CDN mesure 674 Ko/s le 29/08/2026 sur un MP4 progressif, donc de
-              longues secondes sans image.
-              `null` veut dire « je n'ai pas pu mesurer », pas « la video a une
-              vraie image » : on ne peut pas en tirer le droit de montrer du
-              noir. */}
-          {poster && (firstFrameLit === undefined || vignetteUtile) && (
+          {/* Montee des qu'une vignette existe, et pilotee par la seule
+              OPACITE. Elle l'etait auparavant par le montage, ce qui privait le
+              seul moment ou la transition compte — le passage a la video — de
+              son fondu : sans element dans le DOM, pas de transition. Le gain
+              qu'on en tirait (annuler le telechargement) etait nul, le
+              `preload` en <Head> partant de toute facon des que l'adresse est
+              connue.
+              Un seul predicat la gouverne, le meme que le voile : voir la
+              definition de `vignetteUtile`, et le trou « vignette → noir →
+              vignette » qu'elle ferme. */}
+          {poster && (
             <img
-              /* Visible SEULEMENT une fois la premiere frame reconnue vide.
-                 Tant qu'on ne sait pas, elle est la mais effacee : la montrer
-                 puis la retirer donnait une image d'episode qui basculait vers
-                 la video sous les yeux, un clignotement pour rien. Elle se
-                 telecharge pendant ce temps — c'est tout l'interet de la monter
-                 avant d'en avoir besoin — et le voile noir couvre l'attente.
-                 L'opacite par une classe et non par un demontage, pour que le
-                 fondu du CSS ait lieu. */
-              /* Visible dans deux cas, et deux seulement :
-                 - le verdict dit que la premiere frame est VIDE (`false`) —
-                   c'est le role d'origine de la vignette ;
-                 - la video n'a encore AUCUNE image a montrer, verdict ou pas.
-                   Elle couvre alors du vide, jamais une image reelle : des que
-                   `videoAUneImage` passe a vrai, elle se retire et laisse voir
-                   ce que la video a — ce qui etait le bug. */
+              /* Effacee au seul cas ou la video montre quelque chose de reel —
+                 une image decodee ET le droit de la montrer. Partout ailleurs
+                 elle couvre du vide (pas de frame, ou une frame reconnue
+                 blanche), jamais une image reelle. */
               className={`as-poster${vignetteUtile ? "" : " as-poster-off"}`}
               src={poster}
               alt=""
@@ -5562,10 +5553,9 @@ export default function UniversalPlayer({
               Avant lui, elle restait a l'ecran le temps de la sonde —
               invisible sur un fondu au noir, une seconde de page blanche sur un
               fondu au blanc.
-              Noir, et pas la vignette : passer par la vignette puis revenir a
-              la video sur un verdict `true` serait le clignotement que tout ce
-              bloc evite. Du noir vers l'un ou l'autre, il n'y a rien a voir
-              partir.
+              Il est DESSOUS la vignette (z-index 0 contre 1), et pendant la
+              mesure c'est donc elle qu'on voit : il ne sert qu'a masquer la
+              video elle-meme, jamais a remplacer l'image de l'episode.
               Il se leve sur `true` (vraie image) comme sur `null` (mesure
               impossible) — une sonde muette rend la video, elle ne noircit pas
               le lecteur. Sur `false`, il RESTE : la vignette monte par-dessus
@@ -5576,11 +5566,7 @@ export default function UniversalPlayer({
               element dans le DOM, pas de transition. */}
           {poster && (
             <div
-              className={`as-veil${
-                firstFrameLit === true || firstFrameLit === null
-                  ? " as-veil-off"
-                  : ""
-              }`}
+              className={`as-veil${voileLeve ? " as-veil-off" : ""}`}
               aria-hidden
             />
           )}
