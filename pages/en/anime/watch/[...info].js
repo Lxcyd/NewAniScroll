@@ -482,6 +482,21 @@ export default function Watch({
     "animesama-sibnet-vo",
   ];
 
+  /* Les lecteurs deja tentes ET rates pour CET episode, quelle qu'en soit la
+     raison. C'est une memoire distincte de `failedServers`, et il faut les deux.
+     `failedServers` gouverne l'AFFICHAGE des chips, et n'enregistre volontairement
+     pas un echec passager sur un lecteur confirme (voir le commentaire de
+     `markFailed`) ; ce Set-ci gouverne la BASCULE automatique, ou l'oubli d'un
+     echec est une boucle.
+     Sans lui : sibnet echoue -> on bascule sur sendvid, mais sibnet n'a ete
+     inscrit nulle part -> sendvid echoue -> sibnet est de nouveau candidat -> on
+     y retourne -> il echoue -> et le filet de securite renvoie sur megaplay, tete
+     de PREFERRED_FALLBACK_ORDER. C'est le « il essaie sibnet, puis sendvid, puis
+     revient sur sibnet, puis revient au premier lecteur » signale le 29/08/2026.
+     Remis a zero au changement d'episode : un lecteur mort sur l'episode 3 n'a
+     aucune raison d'etre condamne sur le 4. */
+  const triedFailedRef = useRef(new Set());
+
   const markFailed = useCallback((id, reason) => {
     /* Un echec PASSAGER n'efface pas une confirmation deja acquise.
      *
@@ -502,6 +517,9 @@ export default function Watch({
      * serveur ACTIF qui vient d'echouer, on bascule quand meme — ne pas cacher
      * le chip et laisser tourner un lecteur mort seraient deux erreurs, pas une.
      */
+    // Toujours, meme quand le chip reste peint : c'est la memoire de la bascule.
+    triedFailedRef.current.add(id);
+
     const provenAbsence = reason === "Source not found";
     if (provenAbsence || !confirmedServersRef.current.has(id)) {
       setFailedServers((prev) => {
@@ -525,7 +543,11 @@ export default function Watch({
       //  - not the failed server
       //  - not in the failedServers map
       //  - matching language (or "multi") when possible
-      const failedSet = new Set([...failedServersRef.current.keys(), id]);
+      const failedSet = new Set([
+        ...failedServersRef.current.keys(),
+        ...triedFailedRef.current,
+        id,
+      ]);
       const isCandidate = (sid) => {
         if (sid === id || failedSet.has(sid)) return false;
         return SERVERS.some((s) => s.id === sid);
@@ -655,14 +677,28 @@ export default function Watch({
     // Quand l'utilisateur a classe les langues, c'est SON ordre qui decide
     // (langue 1 confirmee d'abord, puis 2, puis 3), le classement statique ne
     // servant que de repli.
+    /* `failedServers` ne suffit pas ici non plus : un lecteur confirme qui a
+       echoue passagerement n'y figure pas, et les deux replis ci-dessous ne
+       regardaient QUE `confirmedServers` — d'ou le retour sur megaplay, tete de
+       PREFERRED_FALLBACK_ORDER, apres l'aller-retour sibnet/sendvid. On unit
+       donc les deux memoires, ici comme dans la bascule. */
+    const dejaRates = new Set([
+      ...failedServers.keys(),
+      ...triedFailedRef.current,
+    ]);
     const firstConfirmed =
       (langOrderRef.current &&
         pickServerForLangs(langOrderRef.current, {
           confirmed: confirmedServers,
-          failed: failedServers,
+          failed: dejaRates,
         })) ||
-      PREFERRED_FALLBACK_ORDER.find((id) => confirmedServers.has(id)) ||
-      [...confirmedServers][0];
+      PREFERRED_FALLBACK_ORDER.find(
+        (id) => confirmedServers.has(id) && !dejaRates.has(id),
+      ) ||
+      [...confirmedServers].find((id) => !dejaRates.has(id));
+    /* Rien de neuf a proposer : on RESTE. Repartir sur un lecteur deja rate
+       etait precisement le tourniquet — mieux vaut un lecteur arrete, dont
+       l'erreur est lisible, qu'une ronde qui donne l'illusion d'essayer. */
     if (firstConfirmed && firstConfirmed !== activeServer) {
       setActiveServer(firstConfirmed);
     }
@@ -1038,6 +1074,9 @@ export default function Watch({
     setFailedServers(new Map());
     setConfirmedServers(new Set());
     setDegradedServers(new Set());
+    // La memoire de bascule vit le temps d'UN episode : un lecteur mort sur
+    // l'episode 3 doit pouvoir etre retente sur le 4.
+    triedFailedRef.current = new Set();
   }, [info?.id, epiNumber, dub]);
 
   // ── Episode list + navigation ────────────────────────────────
@@ -2036,6 +2075,11 @@ export default function Watch({
         notify.error(t("party.blockedBanner"));
         return;
       }
+      /* Un clic est une reprise VOLONTAIRE : on oublie que ce lecteur avait
+         echoue, sinon la bascule automatique le tiendrait pour condamne et le
+         quitterait aussitot. La memoire ne sert qu'a empecher la ronde
+         automatique, jamais a interdire un choix a l'utilisateur. */
+      triedFailedRef.current.delete(serverId);
       setActiveServer(serverId);
       // Le choix devient l'exception de CET anime, et rien d'autre.
       //
