@@ -160,6 +160,29 @@ export default function HoverPreview({
   // Subscribe to slider state so we know when the user is hovering
   const duration = useMediaState("duration", playerRef);
 
+  /* RIEN ne se telecharge tant que personne n'a touche la barre.
+   *
+   * Les vignettes de la barre coutent cher : les capturer demande de decoder
+   * l'episode, donc de RETELECHARGER une image toutes les dix secondes de film
+   * — environ 145 segments pour 24 minutes, a travers le proxy, a chaque
+   * visionnage et pour chaque visiteur. Mesure sur une page de lecture : ~300
+   * requetes proxy, dont ~230 pour ces vignettes et 51 seulement pour la
+   * lecture elle-meme. Or la plupart des visiteurs regardent sans jamais
+   * toucher la barre de progression : ils payaient integralement une
+   * fonctionnalite qu'ils n'ouvrent pas.
+   *
+   * On arme donc au PREMIER survol de la barre, et pas avant. Celui qui scrube
+   * retrouve tout — la capture a la demande sert sa position immediatement
+   * (`pumpPriority`), la marche grossier-vers-fin remplit le reste derriere —
+   * au prix d'un seek d'attente sur la toute premiere vignette. Celui qui ne
+   * scrube pas ne telecharge plus rien. */
+  const [walkArmed, setWalkArmed] = useState(false);
+  const armedRef = useRef(false);
+  useEffect(() => {
+    armedRef.current = false;
+    setWalkArmed(false);
+  }, [src]);
+
   // Set up the hidden video element with the same source.
   // crossOrigin must be set BEFORE src so the browser uses CORS mode and
   // the resulting canvas isn't security-tainted (drawImage would throw).
@@ -167,6 +190,8 @@ export default function HoverPreview({
     const videos = videosRef.current.slice(0, workerCount).filter(Boolean) as
       HTMLVideoElement[];
     if (!videos.length || !src) return;
+    // Pas encore arme : aucun decodeur, donc aucun segment demande.
+    if (!walkArmed) return;
 
     // Reset thumbnail cache on src change
     thumbCacheRef.current.clear();
@@ -267,7 +292,7 @@ export default function HoverPreview({
       for (const h of instances) h.destroy();
       hlsListRef.current = [];
     };
-  }, [src, isM3U8, lazy, workerCount]);
+  }, [src, isM3U8, lazy, workerCount, walkArmed]);
 
   // Background thumbnail pre-caching: walk the episode every THUMB_INTERVAL_S
   // seconds, seeking a hidden video and capturing each frame to a canvas.
@@ -370,7 +395,7 @@ export default function HoverPreview({
     return () => {
       cachingActiveRef.current = false;
     };
-  }, [src, lazy, workerCount]);
+  }, [src, lazy, workerCount, walkArmed]);
 
   // Track scrubber hover. We poll for the slider since Vidstack mounts it
   // asynchronously inside the DefaultVideoLayout.
@@ -476,6 +501,13 @@ export default function HoverPreview({
 
     const handleMove = (e: PointerEvent) => {
       if (!duration || duration === 0) return;
+      /* Premier contact avec la barre : on arme les decodeurs. Le ref evite un
+         setState a chaque mouvement du curseur ; l'etat, lui, est ce qui
+         relance les deux effets qui chargent la source et lancent la marche. */
+      if (!armedRef.current) {
+        armedRef.current = true;
+        setWalkArmed(true);
+      }
       const rect = (slider as HTMLElement).getBoundingClientRect();
       const x = e.clientX - rect.left;
       const ratio = Math.max(0, Math.min(1, x / rect.width));

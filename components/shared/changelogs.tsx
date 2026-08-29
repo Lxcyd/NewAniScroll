@@ -79,6 +79,48 @@ function renderBold(text: string): React.ReactNode[] {
   return out;
 }
 
+/* Les deux popups de la release, demandes UNE fois par onglet.
+ *
+ * Ce composant se remonte a chaque navigation et son effet se rejoue a chaque
+ * changement de langue ; sans cette memoire, chaque page de lecture partait en
+ * quatre requetes pour deux fichiers markdown identiques (mesure : 4x
+ * `/api/v2/changelog-popup` sur un seul chargement). Elles arrivaient toutes en
+ * HIT au CDN, donc invisibles — mais quatre allers-retours pour un contenu qui
+ * ne change qu'a la release, c'est quatre de trop.
+ *
+ * La promesse est mise en cache, pas seulement le resultat : deux montages
+ * simultanes partagent le meme vol au lieu d'en lancer deux.
+ *
+ * Ce que ca coute : une release publiee pendant qu'un onglet est ouvert n'y
+ * apparait qu'au rechargement. C'etait deja vrai a la minute pres (la route a
+ * son propre `s-maxage`), et le popup se congedie par signature, donc une
+ * arrivee tardive ne fait rien perdre. */
+let popupsEnVol: Promise<{ l: string; parsed: PopupParse }[]> | null = null;
+
+type PopupParse = ReturnType<typeof parsePopup>;
+
+function chargePopups(): Promise<{ l: string; parsed: PopupParse }[]> {
+  if (popupsEnVol) return popupsEnVol;
+  const LANGS = ["en", "fr"] as const;
+  popupsEnVol = Promise.all(
+    LANGS.map((l) =>
+      /* No cache-buster, no no-store: a unique `t=` made every one of these a
+         fresh function invocation for a static markdown file — the CDN could
+         never serve it. The route's own s-maxage handles freshness. */
+      fetch(`/api/v2/changelog-popup?lang=${l}`)
+        .then((r) => (r.ok ? r.text() : Promise.reject(r.status)))
+        .then((md) => ({ l: l as string, parsed: parsePopup(md) }))
+        .catch(() => ({ l: l as string, parsed: null })),
+    ),
+  ).catch((e) => {
+    // Un echec ne doit pas figer le cache sur une promesse rejetee : le prochain
+    // montage a le droit de reessayer.
+    popupsEnVol = null;
+    throw e;
+  });
+  return popupsEnVol;
+}
+
 export default function ChangeLogs() {
   const { t, i18n } = useTranslation();
   let [isOpen, setIsOpen] = useState(false);
@@ -120,21 +162,7 @@ export default function ChangeLogs() {
   // us decide visibility against the active language's content.
   useEffect(() => {
     let cancelled = false;
-    const LANGS = ["en", "fr"] as const;
-    Promise.all(
-      LANGS.map((l) =>
-        /* No cache-buster, no no-store: this fires on EVERY page load, twice
-           (once per language), and a unique `t=` made every one of them a fresh
-           function invocation for a static markdown file — the CDN could never
-           serve it. The route's own s-maxage handles freshness (a new release
-           shows up a few minutes late at worst, and the popup is dismissed by
-           signature, so a late arrival costs nothing). */
-        fetch(`/api/v2/changelog-popup?lang=${l}`)
-          .then((r) => (r.ok ? r.text() : Promise.reject(r.status)))
-          .then((md) => ({ l, parsed: parsePopup(md) }))
-          .catch(() => ({ l, parsed: null })),
-      ),
-    ).then((results) => {
+    chargePopups().then((results) => {
       if (cancelled) return;
       const sigs = new Set<string>();
       let active: ReturnType<typeof parsePopup> = null;
