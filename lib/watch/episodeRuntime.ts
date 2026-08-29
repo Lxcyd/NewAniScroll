@@ -69,6 +69,33 @@ function cacheKey(p: RuntimeParams): string {
   return `mal${p.malId}:${p.episode}`;
 }
 
+/* AniSkip ne couvre pas tout le catalogue, et sur une serie qu'il ignore il
+   repond 404 a CHAQUE episode : ouvrir Mobile Suit Gundam (1979) partait en 43
+   requetes vouees a l'echec, 43 lignes rouges en console, et autant de prises
+   sur les 120 requetes/minute qu'il autorise.
+   Trois refus de suite valent verdict pour la serie entiere. Trois et pas un :
+   une serie partiellement couverte existe (un episode sans soumission au milieu
+   d'une saison qui en a), et un seul 404 ne doit pas la condamner. Le verdict
+   expire avec FAIL_TTL_MS comme les autres absences — une soumission peut
+   arriver plus tard. */
+const REFUS_AVANT_VERDICT = 3;
+const refusParSerie = new Map<string, number>();
+const serieKey = (malId: RuntimeParams["malId"]) => `mal${malId}:inconnue`;
+
+/** La serie entiere est-elle deja declaree inconnue d'AniSkip ? */
+function serieAbandonnee(p: RuntimeParams): boolean {
+  const hit = readCache()[serieKey(p.malId)];
+  return !!hit && Date.now() - hit.at <= FAIL_TTL_MS;
+}
+
+/** Enregistre un 404 ; au troisieme d'affilee, la serie passe en inconnue. */
+function noteRefus(p: RuntimeParams): void {
+  const k = serieKey(p.malId);
+  const n = (refusParSerie.get(k) || 0) + 1;
+  refusParSerie.set(k, n);
+  if (n >= REFUS_AVANT_VERDICT) writeCache(k, { s: null, at: Date.now() });
+}
+
 /** Duree deja connue pour cette ligne, sans aucune requete. */
 export function peekRuntime(p: RuntimeParams): number | null {
   if (p.malId == null) return null;
@@ -90,6 +117,8 @@ export async function fetchRuntime(
   if (p.malId == null || !Number.isFinite(p.episode)) return null;
   const known = peekRuntime(p);
   if (known != null) return known;
+  // AniSkip a deja dit trois fois qu'il ne connait pas cette serie.
+  if (serieAbandonnee(p)) return null;
   const key = cacheKey(p);
 
   try {
@@ -104,6 +133,7 @@ export async function fetchRuntime(
     // le memorise pour ne pas re-demander a chaque defilement.
     if (!res.ok) {
       writeCache(key, { s: null, at: Date.now() });
+      noteRefus(p);
       return null;
     }
     const body = await res.json();
@@ -112,8 +142,12 @@ export async function fetchRuntime(
       .filter((n: number) => Number.isFinite(n) && n > 60);
     if (!lengths.length) {
       writeCache(key, { s: null, at: Date.now() });
+      noteRefus(p);
       return null;
     }
+    // Une reponse utile lave le compteur : la serie est couverte, un trou isole
+    // plus loin ne doit pas finir par la faire abandonner.
+    refusParSerie.delete(serieKey(p.malId));
     // Plusieurs soumissions peuvent viser des encodages differents (une VF plus
     // courte, un blu-ray plus long). La mediane evite qu'un intrus decide seul.
     lengths.sort((a, b) => a - b);
