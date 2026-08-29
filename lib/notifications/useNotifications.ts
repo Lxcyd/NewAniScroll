@@ -11,6 +11,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getTitlePref } from "@/lib/prefs/titlePref";
 import { LOCAL_LIST_EVENT } from "@/lib/list/localList";
+import { EPISODE_ALERTS_EVENT } from "@/lib/prefs/episodeAlerts";
 import { NOTIF_PREFS_EVENT } from "@/lib/prefs/notifPrefs";
 import {
   computeNotifications,
@@ -74,11 +75,15 @@ export function useNotifications(): UseNotifications {
     // Recompute when the local list changes (status/progress edits, syncs).
     const onChange = () => refresh();
     window.addEventListener(LOCAL_LIST_EVENT, onChange);
+    // Suivre une serie depuis la page de lecture doit se voir a la cloche sans
+    // recharger la page.
+    window.addEventListener(EPISODE_ALERTS_EVENT, onChange);
     // Recompute immediately when the user flips a notification toggle.
     window.addEventListener(NOTIF_PREFS_EVENT, onChange);
     window.addEventListener("storage", onChange);
     return () => {
       window.removeEventListener(LOCAL_LIST_EVENT, onChange);
+      window.removeEventListener(EPISODE_ALERTS_EVENT, onChange);
       window.removeEventListener(NOTIF_PREFS_EVENT, onChange);
       window.removeEventListener("storage", onChange);
     };

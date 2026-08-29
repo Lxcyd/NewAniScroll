@@ -34,6 +34,7 @@ import {
 import v2Styles from "@/components/anime/v2/styles.module.css";
 import { seasonSubtitle } from "@/components/anime/v2/helpers";
 import { animeHref } from "@/lib/prefs/clickTarget";
+import { useEpisodeAlert } from "@/lib/prefs/episodeAlerts";
 
 type EpisodeListsProps = {
   info: AniListInfoTypes;
@@ -72,8 +73,17 @@ type SeasonRow = {
  * a la minute, et re-rendre <EpisodeLists> a ce rythme reconstruirait les 1174
  * lignes de One Piece. Ici, seule cette ligne repasse.
  */
-function ProchainEpisode({ airingAt, number }: { airingAt: number; number: number }) {
+function ProchainEpisode({
+  airingAt,
+  number,
+  info,
+}: {
+  airingAt: number;
+  number: number;
+  info: AniListInfoTypes;
+}) {
   const { t, i18n } = useTranslation();
+  const { actif, bascule } = useEpisodeAlert(info?.id);
   /* Le rebours se lit a la minute : inutile de reveiller quoi que ce soit
      toutes les secondes, une demie suffit a ne jamais afficher une minute de
      retard. */
@@ -115,14 +125,16 @@ function ProchainEpisode({ airingAt, number }: { airingAt: number; number: numbe
 
   /* Meme boite que la barre des serveurs, de l'autre cote du lecteur
      (components/watch/primary/serverSelector.js) : memes `px-3 py-2`, meme
-     `py-1` sur la ligne, et le meme corps de 14 px que son intitule. Les deux
-     barres se font face en
-     bas de page — une difference de quelques pixels s'y verrait comme un
-     defaut d'alignement. Reproduites par CONSTRUCTION plutot que par une
-     hauteur figee, qui mentirait des que l'une des deux bougerait. */
+     corps de 14 px que son intitule, et un contenu cale sur `h-[27px]` — la
+     hauteur qu'y fait la ligne la plus haute (une puce de lecteur : `py-1`
+     autour d'un texte de 13 px). Les deux barres se font face en bas de page,
+     et quelques pixels d'ecart s'y voient comme un defaut d'alignement.
+     Mesure du 29/08/2026 sur dev : serveurs 45 px, cette barre 46 — c'est ce
+     dernier pixel que `h-[27px]` reprend, en le tenant par construction plutot
+     que par une hauteur figee qui mentirait des que l'une des deux bouge. */
   return (
     <div
-      className="flex shrink-0 items-center gap-2 border-t px-3 py-2 text-[14px]"
+      className="flex h-[27px] shrink-0 items-center gap-2 border-t px-3 py-2 text-[14px] box-content"
       style={{ borderColor: T.line, color: T.txt3 }}
     >
       <svg
@@ -142,7 +154,7 @@ function ProchainEpisode({ airingAt, number }: { airingAt: number; number: numbe
         <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
         <path d="M13.73 21a2 2 0 0 1-3.46 0" />
       </svg>
-      <span className="truncate py-1">
+      <span className="min-w-0 flex-1 truncate">
         {/* Le numero et le delai sont ce qu'on vient lire ; la date exacte est
             le detail qu'on consulte ensuite, et elle seule reste en gris. */}
         <span style={{ color: T.txt0, fontWeight: 600 }}>
@@ -152,6 +164,46 @@ function ProchainEpisode({ airingAt, number }: { airingAt: number; number: numbe
         {" · "}
         {date}
       </span>
+
+      {/* Le rappel. Il ne promet que ce qu'il tient : rien n'est envoye, rien
+          ne s'abonne — l'identifiant est retenu sur CET appareil et la cloche
+          de la navbar le compare a la diffusion au prochain passage. Voir
+          lib/prefs/episodeAlerts.ts, l'infobulle le dit au visiteur. */}
+      <button
+        type="button"
+        onClick={() =>
+          bascule({
+            mediaId: info.id,
+            title: info.title ?? null,
+            coverImage: info.coverImage?.large ?? info.coverImage?.extraLarge ?? null,
+            fromEpisode: number,
+          })
+        }
+        title={actif ? t("anime.alertOnHint") : t("anime.alertOffHint")}
+        aria-label={actif ? t("anime.alertOn") : t("anime.alertOff")}
+        aria-pressed={actif}
+        className="grid h-[22px] w-[22px] shrink-0 place-items-center rounded-md transition-colors"
+        style={{
+          background: actif ? ACCENT_SOFT : "rgba(255,255,255,0.04)",
+          color: actif ? ACCENT : T.txt1,
+        }}
+      >
+        {/* Cloche pleine une fois le rappel pose, en trait sinon : l'etat se
+            lit sans avoir a comparer deux teintes. */}
+        <svg
+          width="13"
+          height="13"
+          viewBox="0 0 24 24"
+          fill={actif ? "currentColor" : "none"}
+          stroke="currentColor"
+          strokeWidth={2}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+          <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+        </svg>
+      </button>
     </div>
   );
 }
@@ -1637,6 +1689,7 @@ export default function EpisodeLists({
             <ProchainEpisode
               airingAt={Number(info.nextAiringEpisode.airingAt)}
               number={Number(info.nextAiringEpisode.episode)}
+              info={info}
             />
           )}
       </div>
