@@ -35,7 +35,10 @@ import { EARLY_SOURCE_KEY } from "./earlySource";
 export type SourceOutcome =
   | { kind: "ok"; data: any }
   | { kind: "absent"; hard?: boolean }
-  | { kind: "retry"; status?: number };
+  /* `hostDown` : l'hote nous refuse GLOBALEMENT (memo d'egress, throttle), par
+     opposition a un episode qui echoue. L'appelant s'en sert pour eteindre le
+     chip plutot que de proposer un choix qui ne peut pas aboutir. */
+  | { kind: "retry"; status?: number; hostDown?: boolean };
 
 export type SourceParams = {
   server: string;
@@ -108,7 +111,18 @@ export async function requestSource(
   // Legacy spellings of "absent" (POST contract / an edge copy from before the
   // switch). Terminal either way.
   if (res.status === 204 || res.status === 404) return { kind: "absent" };
-  if (!res.ok) return { kind: "retry", status: res.status };
+  if (!res.ok) {
+    /* Un 503 porte un corps : la route y met `hostDown` quand elle sait que
+       l'hote refuse tout. On le lit AVANT de conclure — sans ca l'information
+       etait produite cote serveur et jetee ici. */
+    let corps: any = null;
+    try {
+      corps = await res.json();
+    } catch {
+      /* corps vide ou illisible : on reste sur un simple retry */
+    }
+    return { kind: "retry", status: res.status, hostDown: corps?.hostDown === true };
+  }
 
   let body: any;
   try {

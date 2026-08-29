@@ -26,10 +26,14 @@ const dlog = DEBUG_SOURCE ? console.log.bind(console) : () => {};
    published into the availability snapshot as an absence. Genuine misses still
    return null; only upstream failures throw this. */
 class TransientSourceError extends Error {
-  constructor(message) {
+  /* `hostDown` distingue « cet episode a echoue » de « cet hote nous refuse ».
+     Le premier laisse le chip peint (regle du 17/08) ; le second doit pouvoir
+     l'eteindre, sans quoi on propose un choix qui ne peut pas aboutir. */
+  constructor(message, { hostDown = false } = {}) {
     super(message);
     this.name = "TransientSourceError";
     this.transient = true;
+    this.hostDown = hostDown;
   }
 }
 
@@ -1220,6 +1224,7 @@ async function finalizeAnimeSamaIframe(serverKey, serverDef, iframeUrl) {
       if (result.transient) {
         throw new TransientSourceError(
           `${serverKey}: ${result.error || "embed unreachable"}`,
+          { hostDown: !!result.hostDown },
         );
       }
       // Sibnet + Sendvid X-Frame-Options DENY → an iframe fallback is a dead
@@ -3623,10 +3628,12 @@ export default async function handler(req, res) {
   // the 6h availability `absent` snapshot. Otherwise a single flaky scrape hides
   // a working chip (e.g. Megaplay) for everyone until the TTL expires. We still
   // release the scrape lock so followers aren't wedged; they just re-scrape.
-  const sendRetryable = (msg) => {
+  const sendRetryable = (msg, { hostDown = false } = {}) => {
     if (canCache && isLeader) releaseScrapeLock(cacheKey).catch(() => {});
     res.setHeader("Cache-Control", "no-store");
-    return res.status(503).json({ error: msg || "Source temporarily unavailable" });
+    return res
+      .status(503)
+      .json({ error: msg || "Source temporarily unavailable", ...(hostDown && { hostDown: true }) });
   };
 
   // DO NOT prime getMediaMeta's caches from `mediaMeta` — it's a CLIENT-built
@@ -3747,7 +3754,8 @@ export default async function handler(req, res) {
     try {
       return { data: await fn() };
     } catch (error) {
-      if (error instanceof TransientSourceError) return { retry: error.message };
+      if (error instanceof TransientSourceError)
+        return { retry: error.message, hostDown: error.hostDown };
       if (error instanceof HardAbsenceError) return { hardAbsent: error.message };
       throw error; // a genuinely unexpected error keeps the outer 500 handling
     }
@@ -3757,10 +3765,10 @@ export default async function handler(req, res) {
   if (ANIMESAMA_SERVERS[server]) {
     const searchTitle = await resolveTitle();
     if (!searchTitle) return sendNotFound("Could not resolve anime title");
-    const { data, retry } = await resolveProvider(() =>
+    const { data, retry, hostDown } = await resolveProvider(() =>
       getAnimeSamaIframe(server, searchTitle, episode, aniId),
     );
-    if (retry) return sendRetryable(retry);
+    if (retry) return sendRetryable(retry, { hostDown });
     if (!data) return sendNotFound("Source not found");
     return sendOk(data);
   }
@@ -3769,10 +3777,10 @@ export default async function handler(req, res) {
   if (VOIRANIME_SERVERS[server]) {
     const searchTitle = await resolveTitle();
     if (!searchTitle) return sendNotFound("Could not resolve anime title");
-    const { data, retry, hardAbsent } = await resolveProvider(() =>
+    const { data, retry, hardAbsent, hostDown } = await resolveProvider(() =>
       getVoiranimeIframe(server, searchTitle, episode, aniId),
     );
-    if (retry) return sendRetryable(retry);
+    if (retry) return sendRetryable(retry, { hostDown });
     if (hardAbsent) return sendNotFound(hardAbsent, { hard: true });
     if (!data) return sendNotFound("Source not found");
     return sendOk(data);
@@ -3782,10 +3790,10 @@ export default async function handler(req, res) {
   if (CONSUMET_PROVIDERS[server]) {
     const searchTitle = await resolveTitle();
     if (!searchTitle) return sendNotFound("Could not resolve anime title");
-    const { data, retry } = await resolveProvider(() =>
+    const { data, retry, hostDown } = await resolveProvider(() =>
       getConsumetStream(server, searchTitle, episode, sub),
     );
-    if (retry) return sendRetryable(retry);
+    if (retry) return sendRetryable(retry, { hostDown });
     if (!data) return sendNotFound("Source not found");
     return sendOk(data);
   }

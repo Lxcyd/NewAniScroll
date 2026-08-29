@@ -497,7 +497,7 @@ export default function Watch({
      aucune raison d'etre condamne sur le 4. */
   const triedFailedRef = useRef(new Set());
 
-  const markFailed = useCallback((id, reason) => {
+  const markFailed = useCallback((id, reason, { hostDown = false } = {}) => {
     /* Un echec PASSAGER n'efface pas une confirmation deja acquise.
      *
      * C'est le « le lecteur sibnet s'affiche puis disparait » signale le
@@ -520,8 +520,12 @@ export default function Watch({
     // Toujours, meme quand le chip reste peint : c'est la memoire de la bascule.
     triedFailedRef.current.add(id);
 
+    /* `hostDown` rejoint l'absence prouvee du cote des VERDICTS : ce ne sont
+       pas les memes faits, mais ils ont la meme valeur ici. « Cet episode n'a
+       pas de source » et « cet hote nous refuse tout » sont deux connaissances ;
+       un 503 isole, lui, reste une non-connaissance et laisse le chip peint. */
     const provenAbsence = reason === "Source not found";
-    if (provenAbsence || !confirmedServersRef.current.has(id)) {
+    if (provenAbsence || hostDown || !confirmedServersRef.current.has(id)) {
       setFailedServers((prev) => {
         if (prev.get(id) === reason) return prev;
         const next = new Map(prev);
@@ -1532,7 +1536,22 @@ export default function Watch({
         // 5xx / transient — mark failed for the UI but do NOT publish as absent
         // (would wrongly hide a working server in the 6h snapshot).
         setHlsData({ error: true });
-        markFailed(serverId, out.status ? `HTTP ${out.status}` : "Source unavailable");
+        /* `hostDown` : l'hote refuse TOUT, pas seulement cet episode. La regle
+           du 17/08 — un echec passager n'efface pas un chip confirme — vaut
+           pour une non-connaissance, pas pour une preuve. Ici on a la preuve :
+           le memo d'egress ou le throttle sont poses cote serveur, et le meme
+           503 tombe sur tous les animes (mesure du 29/08/2026 sur sibnet).
+           Garder le chip peint revient a offrir un choix qui ne peut pas
+           aboutir — on le clique, et on se fait deplacer. */
+        markFailed(
+          serverId,
+          out.hostDown
+            ? "Host unavailable"
+            : out.status
+              ? `HTTP ${out.status}`
+              : "Source unavailable",
+          { hostDown: out.hostDown },
+        );
       }
     } catch (e) {
       if (e.name === "AbortError") return;
