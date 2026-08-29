@@ -23,6 +23,9 @@ import {
  *
  * Le corps du GET est minuscule (~55 entrees, quelques centaines d'octets) et
  * ne depend d'AUCUN parametre : une seule cle de cache pour tout le monde.
+ *
+ * Asymetrie voulue : tout le monde LIT, seule la production ECRIT. Voir le
+ * garde dans le POST.
  */
 
 const MAX_CORPS = 2000; // octets — un depot fait quelques dizaines d'octets
@@ -45,6 +48,18 @@ export default async function handler(
   if (req.method !== "POST") {
     res.setHeader("Allow", "GET, POST");
     return res.status(405).end();
+  }
+
+  /* SEULE la production alimente l'agregat, alors que TOUT LE MONDE le lit :
+     dev.aniscroll.com et la production partagent la meme base Turso, et les
+     deploiements de preview servent precisement a etre malmenes — compilations
+     froides, Chrome headless de test, lecteurs volontairement casses. Ces
+     mesures-la ne decrivent pas ce que vit un visiteur, et rien ne les
+     distinguerait une fois fondues dans la moyenne.
+     Refus SILENCIEUX (204) et non 403 : le client n'attend pas de reponse, et
+     la preview doit se comporter exactement comme la production a ses yeux. */
+  if (process.env.VERCEL_ENV && process.env.VERCEL_ENV !== "production") {
+    return res.status(204).end();
   }
 
   /* Un depot rate n'a aucune consequence : la page n'attend pas la reponse, et
