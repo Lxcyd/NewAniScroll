@@ -2158,6 +2158,17 @@ export default function Watch({
     episodeNavigation?.playing?.imgHd ||
     episodeNavigation?.playing?.img ||
     info?.bannerImage;
+  /* Ce qu'on PRECHARGE, qui n'est pas tout a fait ce qu'on affiche : la
+     banniere en est exclue. Au premier rendu la liste d'episodes n'est pas
+     encore la, `posterUrl` retombe donc sur `info.bannerImage` et on emettait
+     un <link rel=preload> pour elle ; la liste arrivait une fraction de seconde
+     plus tard, le poster devenait l'image de l'episode, et la banniere
+     telechargee ne servait jamais — d'ou l'avertissement « preloaded but not
+     used » en console, et une image payee pour rien. Seule l'image propre a
+     l'episode merite d'etre demandee en avance : c'est elle qui doit couvrir
+     l'ouverture. */
+  const posterPreload =
+    episodeNavigation?.playing?.imgHd || episodeNavigation?.playing?.img || null;
 
   // ── Player ───────────────────────────────────────────────────
   // Memoized JSX — recomputes ONLY when player-relevant state changes.
@@ -2394,11 +2405,11 @@ export default function Watch({
             but not used ». Elle ne coute rien de plus : le lecteur allait la
             chercher de toute façon, simplement trop tard pour couvrir
             l'ouverture noire qu'elle est censee couvrir. */}
-        {posterUrl && (
+        {posterPreload && (
           <link
             rel="preload"
             as="image"
-            href={posterUrl}
+            href={posterPreload}
             fetchpriority="high"
           />
         )}
