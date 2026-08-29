@@ -406,19 +406,6 @@ const POLL_MS = 250;
 /** Au-dela, la copie proxifiee ne repondra pas : pas de mesure, pas de
  *  vignette. */
 const PROBE_TIMEOUT_MS = 8000;
-/* Au-dela de ce delai SANS AUCUNE IMAGE DECODABLE, l'attente cesse d'etre une
-   transition et devient un ecran noir : la vignette de l'episode monte pour la
-   couvrir.
-   Le reglage est un arbitrage entre deux defauts, et il n'y a pas de valeur qui
-   les annule tous les deux. Trop court, on pose la vignette sur un flux qui
-   allait afficher son image, et on la retire au verdict : c'est le
-   clignotement. Trop long, on fixe du noir. Un premier essai a 500 ms a fait
-   clignoter TOUS les lecteurs, vidmoly compris (29/08/2026) — d'ou ces 3 s, qui
-   laissent tout flux en bonne sante livrer sa premiere image bien avant qu'on
-   envisage de le couvrir. Passe ce delai sans une seule image, le flux est en
-   peine : la vignette est alors strictement meilleure que du noir, et elle
-   tiendra jusqu'au verdict sans repartir. */
-const ATTENTE_VISIBLE_MS = 3000;
 
 /** Luminance moyenne et amplitude de l'image courante, reduite a 16x9, Rec.709.
  *  `null` = canvas teinte : le flux ne repond pas d'en-tete CORS et ses pixels
@@ -2372,32 +2359,60 @@ export default function UniversalPlayer({
      Passe ce seuil, on montre la vignette : elle est z-index 1, donc par-dessus
      le voile. En dessous du seuil, rien ne change et le clignotement reste
      evite. */
-  const [attenteVisible, setAttenteVisible] = useState(false);
+  /* La video a-t-elle une image A ELLE a montrer ?
+     C'est la seule question qui decide si la vignette doit couvrir quelque
+     chose, et un delai ne pouvait pas y repondre. Deux essais l'ont montre :
+     a 500 ms puis a 3 s, la vignette montait AVANT que la video ait sa
+     premiere image, et la recouvrait ensuite — « on doit montrer la premiere
+     frame » (29/08/2026). Le temps de premiere image mesure sur dev le meme
+     jour : `loadstart` a 3,5 s, `loadeddata` a 5,4 s. Aucun seuil fixe ne peut
+     etre a la fois au-dessus de ca et court assez pour couvrir une attente.
+     On lit donc l'etat au lieu de le parier, sur les evenements de l'element
+     plutot qu'a l'horloge. */
+  const [videoAUneImage, setVideoAUneImage] = useState(false);
   useEffect(() => {
-    if (firstFrameLit !== undefined) {
-      setAttenteVisible(false);
+    const racine = playerElState;
+    if (!racine) {
+      setVideoAUneImage(false);
       return;
     }
-    const id = setTimeout(() => {
-      /* La condition qui manquait : la vignette ne couvre que le VIDE.
-         Poser une vignette par-dessus une video qui a deja son image, c'est la
-         retirer au verdict — le clignotement que tout ce bloc evite. Et le cas
-         est la regle, pas l'exception : les flux non lisibles en CORS (sibnet,
-         sendvid, uqload, ansembed) sont juges par la sonde aveugle, qui met
-         ~2,5 s sur une copie proxifiee, alors que leur image, elle, est prete
-         bien avant. Vidmoly, lisible, tranche vite et n'a jamais eu le
-         probleme : c'est exactement le partage signale le 29/08/2026.
-         Sans image decodable en revanche, il n'y a rien a clignoter et rien a
-         reveler : la vignette est strictement meilleure que du noir, et elle
-         reste jusqu'au verdict. */
-      const video = playerElState?.querySelector(
-        "video",
-      ) as HTMLVideoElement | null;
-      const aUneImage = !!video && video.readyState >= 2 && video.videoWidth > 0;
-      if (!aUneImage) setAttenteVisible(true);
-    }, ATTENTE_VISIBLE_MS);
-    return () => clearTimeout(id);
-  }, [firstFrameLit, blindProbeSrc, playerElState]);
+    let mort = false;
+    let video: HTMLVideoElement | null = null;
+    const relire = () => {
+      if (mort) return;
+      setVideoAUneImage(
+        !!video && video.readyState >= 2 && video.videoWidth > 0,
+      );
+    };
+    const EVENEMENTS = [
+      "loadeddata",
+      "canplay",
+      "playing",
+      "emptied",
+      "loadstart",
+      "error",
+    ];
+    /* L'element <video> est monte par Vidstack, pas par nous, et il est
+       REMPLACE a chaque changement de source : on le retrouve donc au lieu de
+       le capturer une fois. */
+    const brancher = () => {
+      if (mort) return;
+      const v = racine.querySelector("video") as HTMLVideoElement | null;
+      if (v !== video) {
+        for (const e of EVENEMENTS) video?.removeEventListener(e, relire);
+        video = v;
+        for (const e of EVENEMENTS) video?.addEventListener(e, relire);
+      }
+      relire();
+    };
+    brancher();
+    const id = setInterval(brancher, POLL_MS);
+    return () => {
+      mort = true;
+      clearInterval(id);
+      for (const e of EVENEMENTS) video?.removeEventListener(e, relire);
+    };
+  }, [playerElState]);
 
   /* Chemin 1 — le flux est illisible d'avance (`noCors`).
      La question part DES QUE l'adresse du flux est connue : ni le lecteur ni sa
@@ -5500,9 +5515,16 @@ export default function UniversalPlayer({
                  avant d'en avoir besoin — et le voile noir couvre l'attente.
                  L'opacite par une classe et non par un demontage, pour que le
                  fondu du CSS ait lieu. */
+              /* Visible dans deux cas, et deux seulement :
+                 - le verdict dit que la premiere frame est VIDE (`false`) —
+                   c'est le role d'origine de la vignette ;
+                 - la video n'a encore AUCUNE image a montrer, verdict ou pas.
+                   Elle couvre alors du vide, jamais une image reelle : des que
+                   `videoAUneImage` passe a vrai, elle se retire et laisse voir
+                   ce que la video a — ce qui etait le bug. */
               className={`as-poster${
                 firstFrameLit === false ||
-                (firstFrameLit === undefined && attenteVisible)
+                (firstFrameLit === undefined && !videoAUneImage)
                   ? ""
                   : " as-poster-off"
               }`}
