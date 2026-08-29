@@ -2324,10 +2324,10 @@ export default function UniversalPlayer({
      Mesure : la premiere frame reduite a 16x9, sa luminance moyenne et son
      amplitude — voir `frameLooksReal`.
 
-     QUATRE etats, mais UN SEUL a un effet : `false`. Les trois autres —
-     `true` (vraie image), `null` (mesure impossible), `undefined` (la mesure
-     court) — montrent tous la video. Voir `vignetteVisible` : la vignette
-     n'apparait que sur un fait etabli, jamais sur une ignorance.
+     QUATRE etats, mais UN SEUL pose la vignette : `false`. `true` et `null`
+     (mesure impossible) montrent la video ; `undefined` (la mesure court) est
+     du noir, comme l'attente. Voir `ecran` : la vignette n'apparait que sur un
+     fait etabli, jamais sur une ignorance.
 
      UN SEUL passage a `false`, et jamais avant d'en etre sur. C'est le point
      dur : une vignette posee puis retiree est le defaut le plus visible de
@@ -2415,34 +2415,32 @@ export default function UniversalPlayer({
     };
   }, [playerElState]);
 
-  /* UN SEUL predicat, et il est MONOTONE : la vignette ne peut que partir,
-     jamais revenir. C'est la propriete qui compte — pas la valeur choisie dans
-     tel ou tel etat. Les quatre defauts signales le 29/08/2026 sont tous le
-     meme aller-retour, sous quatre habillages :
-       vignette → video → vignette   (fenetre de mesure, sur un delai fixe)
-       vignette → noir  → vignette   (la vignette partait, le voile restait)
-     Un calque qui s'en va puis revient est le defaut le plus visible de tous,
-     et aucune valeur par defaut ne le corrige : seule la monotonie le rend
-     impossible.
+  /* CE QU'ON VOIT avant la lecture. Une seule valeur a trois etats, et non
+     plusieurs booleens : deux calques gouvernes separement peuvent se
+     contredire, et chaque contradiction etait un defaut visible (quatre
+     signalements le 29/08/2026, tous le meme aller-retour).
 
-     La video prend la main quand DEUX faits sont acquis, et plus jamais ne la
-     rend :
-       - elle a une image decodee (`videoAUneImage`) ;
-       - la question de sa premiere frame est TRANCHEE en sa faveur : `true`
-         (vraie image) ou `null` (mesure impossible — une sonde muette rend la
-         video, elle ne la couvre pas).
-     Tant que la mesure court (`undefined`), la vignette reste. Ce n'est pas un
-     pari : la mesure est JUSTE, verifiee le 29/08/2026 sur trois fichiers sans
-     rapport (voir `firstFrameLit`), et ce qu'elle trouve sous la vignette est
-     un fondu. Montrer la video pendant la mesure exposerait donc exactement la
-     frame vide que tout ce bloc existe pour cacher — avant de la recouvrir.
+       noir     → l'attente. Rien a montrer : la video n'a pas encore d'image,
+                  ou la mesure de sa premiere frame court encore.
+       vignette → la premiere frame est PROUVEE vide. C'est le seul cas ou elle
+                  sert, et son role d'origine.
+       video    → tout le reste.
 
-     Sur `false` la vignette ne bouge plus du tout : c'est le cas pour lequel
-     elle a ete faite. */
-  const vignetteVisible = !(
-    videoAUneImage &&
-    (firstFrameLit === true || firstFrameLit === null)
-  );
+     La suite est MONOTONE, et c'est la propriete qui compte : noir precede
+     toujours, la vignette ne s'en va jamais une fois posee, la video est
+     terminale. Aucun calque ne peut revenir apres etre parti.
+
+     Le noir couvre aussi la mesure, alors que la video a deja une image :
+     cette image est justement le fondu qu'on ne veut pas montrer, et la
+     decouvrir pour la recouvrir 300 ms plus tard etait le defaut precedent.
+     La mesure, elle, est JUSTE — verifiee le 29/08/2026 sur trois fichiers
+     sans rapport, voir `firstFrameLit`. */
+  const ecran: "noir" | "vignette" | "video" =
+    !videoAUneImage || firstFrameLit === undefined
+      ? "noir"
+      : firstFrameLit === false
+        ? "vignette"
+        : "video";
 
   /* Chemin 1 — le flux est illisible d'avance (`noCors`).
      La question part DES QUE l'adresse du flux est connue : ni le lecteur ni sa
@@ -5527,37 +5525,37 @@ export default function UniversalPlayer({
               pixels, et seule la relecture demande le CORS.
               L'effacement au demarrage est laisse au CSS, sur le `data-started`
               que Vidstack pose sur le lecteur. */}
-          {/* Montee des qu'une vignette existe, et pilotee par la seule
-              OPACITE. Elle l'etait auparavant par le montage, ce qui privait le
-              seul moment ou la transition compte — le passage a la video — de
-              son fondu : sans element dans le DOM, pas de transition. Le gain
-              qu'on en tirait (annuler le telechargement) etait nul, le
-              `preload` en <Head> partant de toute facon des que l'adresse est
-              connue.
-              Un seul predicat la gouverne, et il n'y a plus de second calque
-              avec qui se contredire : voir `vignetteVisible`. */}
+          {/* UN SEUL calque d'ouverture, pas deux : un fond noir qui porte la
+              vignette. Les trois etats de `ecran` sont donc deux opacites
+              tirees de la MEME valeur — elles ne peuvent pas se contredire,
+              alors que deux elements gouvernes separement le pouvaient, et
+              c'etait tout le defaut.
+                noir     → le fond seul (vignette effacee dessous, mais deja
+                           telechargee : elle doit etre prete a l'instant du
+                           verdict, pas commencer a se charger a ce moment-la) ;
+                vignette → le fond porte l'image de l'episode ;
+                video    → le calque entier s'efface.
+              Par l'opacite et non par le montage : sans element dans le DOM,
+              pas de transition — or le seul instant ou elle compte est
+              justement celui ou le calque s'en va. */}
           {poster && (
-            <img
-              /* Visible sur un FAIT etabli, effacee partout ailleurs. */
-              className={`as-poster${vignetteVisible ? "" : " as-poster-off"}`}
-              src={poster}
-              alt=""
+            <div
+              className={`as-cover${ecran === "video" ? " as-cover-off" : ""}`}
               aria-hidden
-              /* Elle doit etre PEINTE au moment ou le verdict tombe, pas
-                 commencer a se telecharger a ce moment-la. La page la precharge
-                 deja en <Head> des que son adresse est connue ; ici on redit la
-                 priorite, et `decoding="sync"` evite le decodage differe qui
-                 ferait apparaitre l'image un cran apres sa classe. */
-              // @ts-expect-error fetchpriority n'est pas encore dans lib.dom
-              fetchpriority="high"
-              decoding="sync"
-            />
+            >
+              <img
+                className={`as-poster${ecran === "vignette" ? "" : " as-poster-off"}`}
+                src={poster}
+                alt=""
+                /* `decoding="sync"` et la priorite haute : elle doit etre
+                   PEINTE au moment ou le verdict tombe. La page la precharge
+                   deja en <Head> des que son adresse est connue. */
+                // @ts-expect-error fetchpriority n'est pas encore dans lib.dom
+                fetchpriority="high"
+                decoding="sync"
+              />
+            </div>
           )}
-          {/* Le voile noir a ete SUPPRIME le 29/08/2026. Il couvrait la video
-              pendant la mesure de sa premiere frame, ce qui faisait de lui un
-              second predicat pour un seul fait — et donc une source permanente
-              de desaccord avec la vignette. Sous la regle actuelle la fenetre
-              de mesure montre la video, il n'y a plus rien a couvrir. */}
           {subtitleTracks.map((t, i) => (
             <Track
               key={t.src}

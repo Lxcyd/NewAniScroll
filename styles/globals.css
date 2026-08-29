@@ -584,12 +584,30 @@ a {
   background-color: transparent;
 }
 
-/* La vignette de l'episode, posee sur la video tant que la lecture n'a pas
-   commence — la premiere frame de la plupart des encodages est noire.
-   Elle s'efface sur le `data-started` du lecteur plutot que par un state a
-   nous : Vidstack pose deja cet attribut, et une transition CSS ne fait pas
-   re-rendre un composant qui porte tout le lecteur. `cover` comme la video, et
-   inerte : les commandes sont au-dessus, mais un clic doit traverser. */
+/* Le calque d'ouverture, pose sur la video tant que la lecture n'a pas
+   commence : un fond NOIR qui porte la vignette de l'episode.
+   Un seul calque et deux opacites tirees du meme etat (`ecran` dans
+   UniversalPlayer) — il y en avait deux, gouvernes separement, et ils
+   pouvaient se contredire.
+   Il s'efface aussi sur le `data-started` du lecteur, que Vidstack pose deja :
+   une transition CSS ne fait pas re-rendre un composant qui porte tout le
+   lecteur. Inerte : les commandes sont au-dessus, mais un clic doit traverser. */
+.vds-player .as-cover {
+  position: absolute;
+  inset: 0;
+  background: #000;
+  pointer-events: none;
+  z-index: 1;
+  transition: opacity 0.25s ease-out;
+}
+.vds-player[data-started] .as-cover,
+.vds-player .as-cover-off {
+  opacity: 0;
+}
+
+/* La vignette elle-meme, dans ce calque. `cover` comme la video. Effacee tant
+   que la premiere frame n'est pas PROUVEE vide : sous elle, c'est le fond noir
+   qu'on voit — l'attente est noire, comme demande. */
 .vds-player .as-poster {
   position: absolute;
   inset: 0;
@@ -599,17 +617,8 @@ a {
   pointer-events: none;
   transition: opacity 0.25s ease-out;
 }
-.vds-player[data-started] .as-poster,
 .vds-player .as-poster-off {
   opacity: 0;
-}
-
-/* `as-veil` (le voile noir pose sur la video pendant la mesure de sa premiere
-   frame) a ete supprime le 29/08/2026 : voir UniversalPlayer. Il formait un
-   second calque, gouverne par son propre predicat, la ou un seul fait est en
-   jeu — et chaque desaccord entre les deux etait un defaut visible. */
-.vds-player .as-poster {
-  z-index: 1;
 }
 
 /* No rounded corners in fullscreen — the player fills the whole screen, so a
