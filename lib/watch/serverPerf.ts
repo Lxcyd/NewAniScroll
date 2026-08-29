@@ -12,6 +12,7 @@
  *
  *   t  demarrage — ms entre le commit du src et le premier `canPlay`
  *   s  stabilite — secondes stallees par 60 s de lecture
+ *   b  debit     — ms mises a constituer 20 s d'avance devant la tete
  *   k  seek      — ms d'un seek RESEAU (cible hors de video.buffered)
  *   q  qualite   — hauteur video max reellement servie, en px
  *
@@ -36,7 +37,12 @@
  * est alors la MEME permutation qu'aujourd'hui, ex aequo compris. C'est la
  * garantie « pas de mesure enregistree = comportement historique inchange ».
  *
- * Rien ici ne touche au reseau : aucune requete ajoutee, aucune commande Redis.
+ * Cote reseau, DEUX echanges et pas un de plus, tous deux hors du chemin
+ * critique : une lecture par jour de l'agregat commun (/api/v2/server-perf, mis
+ * en cache d'edge une heure) et un depot ECHANTILLONNE a 1 sur 10 en
+ * `sendBeacon`. Aucune commande Redis. Voir `chargerPriorPartage` et
+ * `partagerMesures` — c'est ce qui fait qu'un nouveau visiteur herite du
+ * classement au lieu de repartir du rang ecrit a la main.
  */
 
 import { useEffect, useState } from "react";
@@ -55,7 +61,7 @@ export const SERVER_PERF_EVENT = "aniscroll:serverPerf:change";
  */
 const SCHEMA_VERSION = 1;
 
-export type Crit = "t" | "s" | "k" | "q";
+export type Crit = "t" | "s" | "b" | "k" | "q";
 export type Tier = "fast" | "medium" | "slow";
 
 /** [ewma, n, lastDay] — lastDay en jours depuis epoch, pour garder le JSON court. */
@@ -63,7 +69,7 @@ type Entry = [number, number, number];
 type ServerEntry = Partial<Record<Crit, Entry>>;
 type Store = { v: number; s: Record<string, ServerEntry> };
 
-const CRITS: Crit[] = ["t", "s", "k", "q"];
+const CRITS: Crit[] = ["t", "s", "b", "k", "q"];
 
 /**
  * Poids relatifs. Le stall pese le plus : c'est la seule degradation que
@@ -72,7 +78,7 @@ const CRITS: Crit[] = ["t", "s", "k", "q"];
  * controle. La qualite pese le moins : quasi constante par hote, elle ne fait
  * que departager.
  */
-const W: Record<Crit, number> = { t: 0.3, s: 0.35, k: 0.2, q: 0.15 };
+const W: Record<Crit, number> = { t: 0.25, s: 0.3, b: 0.2, k: 0.15, q: 0.1 };
 const TOTAL_W = CRITS.reduce((sum, c) => sum + W[c], 0);
 
 /**
@@ -80,12 +86,13 @@ const TOTAL_W = CRITS.reduce((sum, c) => sum + W[c], 0);
  * le signal le plus bruite (il depend de OU l'utilisateur a saute), la qualite
  * le plus stable — une seule lecture la renseigne deja.
  */
-const MIN_N: Record<Crit, number> = { t: 3, s: 2, k: 5, q: 1 };
+const MIN_N: Record<Crit, number> = { t: 3, s: 2, b: 2, k: 5, q: 1 };
 
 /** Bornes anti-aberration, appliquees a la SAISIE. */
 const CLAMP: Record<Crit, [number, number]> = {
   t: [1, 15000],
   s: [0, 60],
+  b: [200, 45000],
   k: [1, 10000],
   q: [0, 4320],
 };
@@ -117,6 +124,7 @@ const today = () => Math.floor(Date.now() / 86_400_000);
  */
 const LOG_T = Math.log(6000 / 800);
 const LOG_K = Math.log(4000 / 400);
+const LOG_B = Math.log(45000 / 3000);
 
 function goodness(c: Crit, v: number): number {
   switch (c) {
@@ -124,6 +132,8 @@ function goodness(c: Crit, v: number): number {
       return 100 * clamp01(Math.log(6000 / Math.max(1, v)) / LOG_T);
     case "s": // 100 a 0, 0 a >=6 s/min (soit 10 % de rebuffer)
       return 100 * clamp01(1 - v / 6);
+    case "b": // 20 s d'avance en <=3 s → 100 ; en >=45 s → 0
+      return 100 * clamp01(Math.log(45000 / Math.max(1, v)) / LOG_B);
     case "k": // 100 a <=400 ms, 0 a >=4 s
       return 100 * clamp01(Math.log(4000 / Math.max(1, v)) / LOG_K);
     case "q": // 360p → 0, 720p → 50, 1080p et plus → 100
@@ -287,6 +297,42 @@ export function offSessionEnd(fn: () => void): void {
   if (finalizer === fn) finalizer = null;
 }
 
+/**
+ * Verse cette session dans l'agregat commun (Turso, via /api/v2/server-perf),
+ * pour que le PROCHAIN visiteur parte d'un classement mesure plutot que du rang
+ * ecrit a la main.
+ *
+ * ECHANTILLONNE, et c'est le point important : une ecriture par visionnage
+ * ferait payer a la base un trafic proportionnel a l'audience, pour un agregat
+ * qui converge tres bien avec une fraction. A 1 envoi sur 10, quelques centaines
+ * de visionnages par jour suffisent a le tenir a jour pour quelques dizaines
+ * d'ecritures.
+ *
+ * `sendBeacon` et non `fetch` : la session se referme souvent au moment ou la
+ * page part (`pagehide`), instant ou une requete ordinaire est annulee. Le
+ * navigateur prend le relais, et rien n'attend la reponse.
+ */
+const SHARE_PROBABILITY = 0.1;
+
+function partagerMesures(
+  serverId: string,
+  medianes: Partial<Record<Crit, number>>,
+): void {
+  if (typeof navigator === "undefined" || !navigator.sendBeacon) return;
+  if (!isServerPerfEnabled()) return;
+  if (Math.random() >= SHARE_PROBABILITY) return;
+  try {
+    navigator.sendBeacon(
+      "/api/v2/server-perf",
+      new Blob([JSON.stringify({ server: serverId, m: medianes })], {
+        type: "application/json",
+      }),
+    );
+  } catch {
+    /* une mesure ne doit jamais casser une lecture */
+  }
+}
+
 /** Replie les echantillons en attente dans le store, un par critere. */
 export function commitSession(): void {
   try {
@@ -302,10 +348,12 @@ export function commitSession(): void {
   const day = today();
   const bucket = (store().s[id] ||= {});
   let wrote = false;
+  const medianes: Partial<Record<Crit, number>> = {};
   for (const c of CRITS) {
     const vals = p[c];
     if (!vals || !vals.length) continue;
     const v = median(vals);
+    medianes[c] = v;
     const prev = bucket[c];
     bucket[c] = prev
       ? [prev[0] + ALPHA * (v - prev[0]), prev[1] + 1, day]
@@ -313,6 +361,7 @@ export function commitSession(): void {
     wrote = true;
   }
   if (!wrote) return;
+  partagerMesures(id, medianes);
   scheduleFlush();
   // Reveille les affichages (chiffre du chip, tableau des Reglages). Sans ca le
   // score reste fige sur ce qu'il valait a l'ouverture de la page, et regarder
@@ -386,6 +435,124 @@ function staticScore(speed: number | undefined): number {
   return 100 - ((speed ?? 99) - 1) * 20;
 }
 
+/* ── Le prior PARTAGE ──────────────────────────────────────────────────────
+ *
+ * Trois etages, du plus faible au plus fort :
+ *
+ *     `speed` (ecrit a la main)  →  l'agregat des visiteurs  →  mes mesures
+ *
+ * Chacun ne parle que la ou le suivant se tait. Un appareil qui a ses propres
+ * mesures decide donc seul : le partage ne dilue jamais une observation
+ * directe, il remplace seulement le rang ecrit a la main — lequel est faux au
+ * moins une fois (uqload y est dernier alors qu'il seek plus vite que la
+ * plupart) et ne suit pas les hotes quand ils se degradent.
+ *
+ * Lu une fois par jour et garde en localStorage : ce n'est pas une donnee qui
+ * bouge vite, et la route est de toute facon mise en cache d'edge une heure.
+ * Un visiteur tout neuf n'en profite donc qu'a partir de sa DEUXIEME page — ce
+ * qui est sans consequence, l'ordre etant de toute facon fige au chargement.
+ */
+const PARTAGE_KEY = "aniscroll:serverPerf:shared";
+const PARTAGE_TTL_MS = 24 * 3600 * 1000;
+/** Part maximale que l'agregat peut prendre au rang ecrit a la main. Il reste
+ *  un PRIOR : il oriente, il ne tranche pas. */
+const PARTAGE_CAP = 0.6;
+
+type Partage = { at: number; s: Record<string, Partial<Record<Crit, [number, number]>>> };
+let partage: Partage | null = null;
+let partageLu = false;
+
+function lirePartage(): Partage | null {
+  if (partageLu) return partage;
+  partageLu = true;
+  try {
+    const raw = window.localStorage.getItem(PARTAGE_KEY);
+    const p = raw ? JSON.parse(raw) : null;
+    if (p && typeof p === "object" && p.s && typeof p.s === "object") {
+      partage = p as Partage;
+    }
+  } catch {
+    /* stockage refuse — on se passera du prior partage */
+  }
+  return partage;
+}
+
+/**
+ * Le score de depart d'un hote : l'agregat s'il dit quelque chose, sinon le
+ * rang ecrit a la main. Meme calcul que les mesures locales — memes ancres,
+ * meme renormalisation sur les criteres presents — pour que les deux etages
+ * parlent bien de la meme echelle.
+ */
+function scorePrior(serverId: string, speed: number | undefined): number {
+  const statique = staticScore(speed);
+  if (typeof window === "undefined") return statique;
+  const p = lirePartage();
+  const entry = p?.s?.[serverId];
+  if (!entry) return statique;
+  let num = 0;
+  let den = 0;
+  for (const c of CRITS) {
+    const e = entry[c];
+    if (!Array.isArray(e) || e.length !== 2) continue;
+    const [ewma, n] = e;
+    if (!isFinite(ewma) || !isFinite(n) || n <= 0) continue;
+    // Meme forme que la confiance locale, sans la fraicheur : l'agregat est
+    // entretenu en continu par la population, il ne vieillit pas comme la
+    // mesure d'un seul appareil.
+    const conf = Math.min(1, n / (MIN_N[c] * 5));
+    if (conf <= 0) continue;
+    const w = W[c] * conf;
+    num += w * goodness(c, ewma);
+    den += w;
+  }
+  if (den <= 0) return statique;
+  const mesure = num / den;
+  const cEff = Math.min(den / TOTAL_W, PARTAGE_CAP);
+  return cEff * mesure + (1 - cEff) * statique;
+}
+
+/**
+ * Va chercher l'agregat, au plus une fois par jour et jamais sur le chemin
+ * critique. Silencieux de bout en bout : sans lui, tout retombe sur `speed`.
+ */
+export function chargerPriorPartage(): void {
+  if (typeof window === "undefined" || !isServerPerfEnabled()) return;
+  const p = lirePartage();
+  if (p && Date.now() - p.at < PARTAGE_TTL_MS) return;
+  const lancer = () => {
+    fetch("/api/v2/server-perf")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        if (!j || typeof j.s !== "object") return;
+        const frais: Partage = { at: Date.now(), s: {} };
+        for (const [id, crits] of Object.entries(j.s as Record<string, any>)) {
+          if (!isKnownServer(id) || !crits || typeof crits !== "object") continue;
+          const garde: Partial<Record<Crit, [number, number]>> = {};
+          for (const c of CRITS) {
+            const row = (crits as any)[c];
+            if (!row || typeof row.ewma !== "number" || typeof row.n !== "number") continue;
+            garde[c] = [row.ewma, row.n];
+          }
+          if (Object.keys(garde).length) frais.s[id] = garde;
+        }
+        partage = frais;
+        try {
+          window.localStorage.setItem(PARTAGE_KEY, JSON.stringify(frais));
+        } catch {
+          /* best-effort */
+        }
+      })
+      .catch(() => {
+        /* l'agregat est un confort : son absence ne se voit pas */
+      });
+  };
+  if (typeof (window as any).requestIdleCallback === "function") {
+    (window as any).requestIdleCallback(lancer, { timeout: 5000 });
+  } else {
+    setTimeout(lancer, 2000);
+  }
+}
+
 export function getServerScore(
   serverId: string,
   speed?: number,
@@ -393,7 +560,7 @@ export function getServerScore(
   const sp = speed ?? (SERVERS as { id: string; speed?: number }[]).find(
     (s) => s.id === serverId,
   )?.speed;
-  const base = staticScore(sp);
+  const base = scorePrior(serverId, sp);
   if (typeof window === "undefined" || !isServerPerfEnabled()) {
     return { final: base, measured: null, C: 0 };
   }
@@ -435,6 +602,49 @@ export function getServerScore(
  */
 export function serverPerfRank(server: { id: string; speed?: number }): number {
   return 100 - getServerScore(server.id, server.speed).final;
+}
+
+/* ── Le rang FIGE ──────────────────────────────────────────────────────────
+ *
+ * Le classement doit etre arrete AU LANCEMENT DE LA PAGE, puis ne plus bouger.
+ *
+ * Il bougeait : `commitSession()` emet `SERVER_PERF_EVENT` a chaque fin de
+ * session de mesure, tous les abonnes se re-rendaient, et `serverPerfRank`
+ * relisant localStorage a chaque appel, la rangee de chips se RETRIAIT sous les
+ * yeux — parfois en cours de lecture. Signale le 30/08/2026 : « un lecteur
+ * change de positionnement s'il est plus rapide ».
+ *
+ * Une barre de choix se lit autant a la position qu'au nom : on y revient par
+ * reflexe, sans relire. Un ordre qui bouge tout seul detruit ce reflexe, et
+ * apprendre en direct ne vaut pas ce prix — les mesures de cette page servent a
+ * la SUIVANTE, ce qui suffit amplement.
+ *
+ * L'instantane est pris a la premiere demande et garde jusqu'au rechargement.
+ * Il couvre toute la navigation interne, ce qui est encore plus stable : passer
+ * a l'episode suivant ne redistribue pas les chips.
+ */
+let rangGele: Record<string, number> | null = null;
+
+/** A appeler quand les mesures sont remises a zero ou l'option basculee : ce
+ *  sont les deux seuls cas ou l'utilisateur ATTEND que l'ordre change. */
+export function degelerRang(): void {
+  rangGele = null;
+}
+
+export function serverPerfRankFrozen(server: {
+  id: string;
+  speed?: number;
+}): number {
+  const statique = (server.speed ?? 99) * 20;
+  if (typeof window === "undefined") return statique;
+  if (!rangGele) {
+    const snap: Record<string, number> = {};
+    for (const s of SERVERS as { id: string; speed?: number }[]) {
+      snap[s.id] = serverPerfRank(s);
+    }
+    rangGele = snap;
+  }
+  return rangGele[server.id] ?? statique;
 }
 
 /**
@@ -495,16 +705,15 @@ export function useServerPerfScores(): Record<string, ServerScore> {
  * En pratique la bascule ne se voit pas : un chip n'apparait qu'une fois son
  * lecteur confirme, ce qui se decide cote client apres sondage, donc l'ordre
  * definitif est en place bien avant qu'il y ait plusieurs chips a ordonner.
+ *
+ * UNE SEULE bascule, et plus jamais ensuite : le hook ne s'abonne plus a
+ * `SERVER_PERF_EVENT`. C'etait cet abonnement qui retriait la rangee a chaque
+ * fin de session de mesure. Voir `serverPerfRankFrozen`.
  */
 export function useServerPerfRank(): (s: { id: string; speed?: number }) => number {
   const [ready, setReady] = useState(false);
-  useEffect(() => {
-    const wake = () => setReady(true);
-    wake();
-    window.addEventListener(SERVER_PERF_EVENT, wake);
-    return () => window.removeEventListener(SERVER_PERF_EVENT, wake);
-  }, []);
-  return ready ? serverPerfRank : (s) => s.speed ?? 99;
+  useEffect(() => setReady(true), []);
+  return ready ? serverPerfRankFrozen : (s) => s.speed ?? 99;
 }
 
 /* ── Interrupteur et remise a zero (Reglages) ──────────────────────────────
@@ -533,6 +742,7 @@ export function isServerPerfEnabled(): boolean {
 export function setServerPerfEnabled(on: boolean): void {
   if (typeof window === "undefined") return;
   enabledCache = on;
+  degelerRang();
   try {
     if (on) window.localStorage.removeItem(ENABLED_KEY);
     else window.localStorage.setItem(ENABLED_KEY, "0");
@@ -560,6 +770,7 @@ export function useServerPerfEnabled(): boolean {
 /** Oublie toutes les mesures. Le rang retombe sur `speed`. */
 export function clearServerPerf(): void {
   if (typeof window === "undefined") return;
+  degelerRang();
   mirror = { v: SCHEMA_VERSION, s: {} };
   pending = {};
   dirty = false;

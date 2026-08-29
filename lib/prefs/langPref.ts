@@ -20,7 +20,7 @@
 
 import { useEffect, useState } from "react";
 import SERVERS from "@/lib/servers";
-import { serverPerfRank } from "@/lib/watch/serverPerf";
+import { serverPerfRankFrozen } from "@/lib/watch/serverPerf";
 
 export type Lang = "vf" | "vo" | "multi";
 
@@ -145,9 +145,13 @@ type PickOpts = {
    * cet appareil (lib/watch/serverPerf), qui retombe exactement sur le rang
    * statique `speed` de lib/servers.js tant qu'aucune mesure n'existe.
    *
-   * Sur le serveur, `serverPerfRank` ne peut pas lire localStorage et rend le
-   * rang statique : ce defaut est donc sans danger au SSR par construction, il
-   * n'y a pas d'ordre a faire diverger entre les deux rendus.
+   * Sur le serveur, `serverPerfRankFrozen` ne peut pas lire localStorage et rend
+   * le rang statique : ce defaut est donc sans danger au SSR par construction,
+   * il n'y a pas d'ordre a faire diverger entre les deux rendus.
+   *
+   * FIGE, comme les chips : le lecteur choisi par defaut doit etre celui que la
+   * barre montre en tete, et il le serait rarement si l'un lisait un classement
+   * rafraichi pendant que l'autre garde celui du chargement.
    */
   rank?: (server: ServerDef) => number;
 };
@@ -161,7 +165,7 @@ export const staticRank = (s: ServerDef) => s.speed ?? 99;
  */
 export function pickServerForLangs(
   order: Lang[] | null | undefined,
-  { confirmed, failed, rank = serverPerfRank }: PickOpts = {},
+  { confirmed, failed, rank = serverPerfRankFrozen }: PickOpts = {},
 ): string | null {
   const langs = order && order.length ? order : DEFAULT_LANG_ORDER;
   const isFailed = (id: string) =>

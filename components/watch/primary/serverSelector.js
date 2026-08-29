@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { getServersByLang } from "@/lib/servers";
 import { useTranslation } from "react-i18next";
 import { useServerPerfRank } from "@/lib/watch/serverPerf";
-import { shouldShowServer } from "@/lib/watch/serverVisibility";
+import { shouldShowServer, isDegraded } from "@/lib/watch/serverVisibility";
 
 const LANGS = ["multi", "vo", "vf"];
 const LANG_LABELS = {
@@ -18,6 +18,20 @@ const LANG_LABELS = {
 const TEXT = "#a2a8b8";
 const TEXT_HOVER = "#f4f5f8";
 const TEXT_ACTIVE = "var(--brand-primary, #E94560)";
+// Un cran sous le gris de repos : assez pour se lire comme « en retrait », pas
+// assez pour passer pour desactive — la chip reste cliquable, et c'est le but.
+const TEXT_PANNE = "#6b7183";
+
+/* Ce qu'on met dans l'infobulle d'une chip en panne. `failedServers` est une
+   Map id -> raison quand la page l'envoie ; la raison est un libelle technique
+   pose par `markFailed` (« Host unavailable », « HTTP 503 », « Network
+   error »…). On ne le traduit pas : il sert au diagnostic, pas a la lecture
+   courante, et un utilisateur qui ouvre une infobulle sur un lecteur mort
+   cherche precisement ce detail-la. */
+function raisonLisible(failedServers, id) {
+  const raison = failedServers?.get?.(id);
+  return typeof raison === "string" && raison ? raison : undefined;
+}
 
 // La vitesse ne s'AFFICHE plus (ni mot, ni poincon, ni infobulle) : elle ne fait
 // plus qu'ordonner les chips, via useServerPerfRank. Les paliers rapide/moyen/
@@ -129,10 +143,24 @@ export default function ServerSelector({
         {servers.map((server, i) => {
           const isActive = activeServer === server.id;
           const solo = servers.length === 1;
+          /* Grise, pas retire. Un hote qui nous refuse aujourd'hui repond
+             souvent dix minutes plus tard ; le faire disparaitre le rendait
+             inatteignable et vidait la barre. Il reste donc cliquable — le clic
+             oublie l'echec (voir `handleServerChange`) et relance une
+             resolution, souvent chaude.
+             `degradedServers` couvre en plus le flux DEGRADE (resolu, mais de
+             qualite ou de source amoindrie) : les deux se lisent pareil, « ca
+             marche moins bien ici », d'ou le meme traitement visuel. */
+          const enPanne =
+            !isActive &&
+            (isDegraded(failedServers, server.id) ||
+              !!degradedServers?.has?.(server.id));
           return (
             <button
               key={server.id}
               type="button"
+              title={enPanne ? raisonLisible(failedServers, server.id) : undefined}
+              aria-disabled={enPanne || undefined}
               onClick={() => onChange(server.id)}
               onMouseEnter={() => setHovered(server.id)}
               onMouseLeave={() => setHovered(null)}
@@ -169,7 +197,15 @@ export default function ServerSelector({
                     // meme temps, sinon la chip visee perdrait en lisibilite.
                     {
                       animationDelay: solo ? undefined : `${Math.min(i, 5) * 45}ms`,
-                      color: hovered === server.id ? TEXT_HOVER : TEXT,
+                      // En panne : le nom s'eteint d'un cran, et se rallume au
+                      // survol — c'est ce qui dit qu'il reste cliquable.
+                      color: enPanne
+                        ? hovered === server.id
+                          ? TEXT
+                          : TEXT_PANNE
+                        : hovered === server.id
+                          ? TEXT_HOVER
+                          : TEXT,
                     }
               }
               /* Voir `as-chip-in` dans styles/globals.css pour le geste et
@@ -180,7 +216,14 @@ export default function ServerSelector({
                   : // Le survol ASSOMBRIT la chip visee (il ne l'eclaircit pas) :
                     // sur une barre posee sous des ambient lights, un creux se lit
                     // mieux qu'une bosse.
-                    "bg-[#232735]/55 ring-1 ring-white/10 hover:bg-[#0e1016]/40 hover:ring-white/20"
+                    `ring-1 hover:bg-[#0e1016]/40 hover:ring-white/20 ${
+                      enPanne
+                        ? // Fond plus sourd, liseré presque efface : « ce
+                          // lecteur ne repond pas en ce moment », pas « ce
+                          // lecteur n'existe pas ».
+                          "bg-[#191c26]/50 ring-white/[0.06]"
+                        : "bg-[#232735]/55 ring-white/10"
+                    }`
               }`}
             >
               {labels[server.id]}
@@ -189,7 +232,17 @@ export default function ServerSelector({
         })}
       </div>
 
-      {available.length > 1 && (
+      {/* Affiche des qu'il y a UNE langue, pas deux.
+          Le groupe ne servait qu'a choisir, donc il disparaissait quand il n'y
+          avait rien a choisir — et avec lui l'information : la barre ne disait
+          plus si ce qu'on regarde est du VOSTFR, de la VF ou du multi, alors
+          que c'est precisement le cas ou le spectateur n'a aucun autre moyen de
+          l'apprendre (pas d'onglet voisin pour deduire). Un intitule vaut aussi
+          pour renseigner, pas seulement pour commander.
+          A une seule langue il devient un LABEL et non un bouton : un onglet
+          qui ne mene qu'a lui-meme se propose pour rien. Meme boite, meme
+          calque de fond, donc aucun deplacement dans la barre. */}
+      {available.length > 0 && (
         <div
           ref={tabsRef}
           className="relative shrink-0 flex items-center gap-0.5 rounded-lg bg-black/30 p-0.5"
@@ -219,22 +272,25 @@ export default function ServerSelector({
               clicked. So the tab holding the host that's actually playing
               carries a dot; without it, browsing another language would
               leave no active chip anywhere and hide where the stream is. */}
-          {available.map((l) => (
-            <button
-              key={l}
-              type="button"
-              onClick={() => setPicked(l)}
-              data-lang-active={l === lang ? "" : undefined}
-              className={`relative z-10 rounded-[6px] px-2.5 py-1 text-[11px] font-karla font-semibold uppercase tracking-wide transition-colors ${
-                l === lang ? "text-white" : "text-white/60 hover:text-white"
-              }`}
-            >
-              {t(LANG_LABELS[l])}
-              {l === activeLang && l !== lang && (
-                <span className="absolute right-1 top-1 h-1 w-1 rounded-full bg-action" />
-              )}
-            </button>
-          ))}
+          {available.map((l) => {
+            const seul = available.length === 1;
+            const Balise = seul ? "span" : "button";
+            return (
+              <Balise
+                key={l}
+                {...(seul ? {} : { type: "button", onClick: () => setPicked(l) })}
+                data-lang-active={l === lang ? "" : undefined}
+                className={`relative z-10 rounded-[6px] px-2.5 py-1 text-[11px] font-karla font-semibold uppercase tracking-wide transition-colors ${
+                  l === lang ? "text-white" : "text-white/60 hover:text-white"
+                }`}
+              >
+                {t(LANG_LABELS[l])}
+                {l === activeLang && l !== lang && (
+                  <span className="absolute right-1 top-1 h-1 w-1 rounded-full bg-action" />
+                )}
+              </Balise>
+            );
+          })}
         </div>
       )}
     </div>

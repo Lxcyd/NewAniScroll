@@ -407,6 +407,27 @@ const POLL_MS = 250;
  *  vignette. */
 const PROBE_TIMEOUT_MS = 8000;
 
+/* ── Debit : combien de temps l'hote met-il a prendre de l'avance ? ─────────
+ *
+ * Le critere qui manquait au classement des lecteurs. Demarrage, stall, seek et
+ * qualite ne disent rien du DEBIT SOUTENU, et c'est pourtant lui qui separe le
+ * mieux les hotes : sibnet sert un MP4 progressif a 674 Ko/s (mesure du
+ * 29/08/2026), ce qui ne produit ni stall (on n'a pas encore lance la lecture)
+ * ni mauvais seek (on n'a pas encore saute) — seulement une attente.
+ *
+ * On mesure le temps mis pour constituer RUNWAY_S secondes d'avance devant la
+ * tete de lecture. C'est une grandeur comparable entre HLS et MP4 progressif,
+ * sans en-tete a negocier (`transferSize` est a 0 en cross-origin sans
+ * Timing-Allow-Origin) et sans requete ajoutee.
+ *
+ * 20 s et non 30 : le plafond de hls.js est a `maxBufferLength: 60`, il faut
+ * rester franchement dessous pour que la cible soit atteignable partout.
+ */
+const RUNWAY_S = 20;
+/** Passe ce delai, l'hote n'a pas su prendre 20 s d'avance. C'est un fait, et
+ *  il vaut d'etre enregistre — pas ignore. */
+const RUNWAY_TIMEOUT_MS = 45_000;
+
 /** Luminance moyenne et amplitude de l'image courante, reduite a 16x9, Rec.709.
  *  `null` = canvas teinte : le flux ne repond pas d'en-tete CORS et ses pixels
  *  sont illisibles. Le DESSIN passe, c'est la RELECTURE qui est interdite, et
@@ -2126,6 +2147,7 @@ export default function UniversalPlayer({
     frameMsRef.current = at - (frag1AtRef.current || srcCommitAtRef.current);
     recordSample("t", ttffMsRef.current);
   }, [serverId, streamData, canPlayState]);
+
   /* AniSkip chapter cues, populated by SkipOverlay after it fetches
      the API. Each entry: { start, end, type }. We translate them
      into a WebVTT chapters track served via a blob URL so Vidstack
@@ -2261,6 +2283,79 @@ export default function UniversalPlayer({
   // Reactive handle to the player root, so portalled overlays (e.g. the
   // fullscreen party chat) mount as soon as the element exists.
   const [playerElState, setPlayerElState] = useState<HTMLElement | null>(null);
+
+  /* Debit — le temps mis pour constituer RUNWAY_S d'avance. Voir la constante
+     pour le pourquoi de ce critere.
+     Sur `progress` et non sur la boucle de mesure a 2 500 ms : celle-ci
+     quantifierait le bas de l'echelle par pas de 2,5 s, or c'est justement la
+     que les bons hotes se departagent. `progress` est emis a chaque arrivee de
+     donnees (~350 ms sous Chrome), et il ne coute rien. L'intervalle qui
+     l'accompagne ne sert qu'a deux choses : retrouver le <video> que Vidstack
+     remplace, et faire tomber le delai quand plus AUCUNE donnee n'arrive —
+     c'est-a-dire precisement le cas qu'on veut enregistrer. Il s'arrete des que
+     le verdict est pose. */
+  useEffect(() => {
+    if (!serverId || !streamData || !playerElState) return;
+    const racine = playerElState;
+    const depart = performance.now();
+    let pose = false;
+    let video: HTMLVideoElement | null = null;
+
+    /** Secondes deja disponibles DEVANT la tete de lecture. */
+    const avance = (v: HTMLVideoElement): number => {
+      const t = v.currentTime;
+      for (let i = 0; i < v.buffered.length; i++) {
+        // `+0.25` : la plage commence rarement pile sur la tete de lecture.
+        if (v.buffered.start(i) <= t + 0.25 && v.buffered.end(i) > t) {
+          return v.buffered.end(i) - t;
+        }
+      }
+      return 0;
+    };
+
+    const juger = () => {
+      if (pose || !video) return;
+      /* Moins de RUNWAY_S restants dans l'episode : il n'y a pas 20 s d'avance
+         a prendre, et l'absence d'avance ne dirait alors rien de l'hote. On
+         renonce a mesurer plutot que d'enregistrer une penalite imméritée. */
+      if (
+        isFinite(video.duration) &&
+        video.duration > 0 &&
+        video.duration - video.currentTime < RUNWAY_S + 2
+      ) {
+        pose = true;
+        return;
+      }
+      if (avance(video) >= RUNWAY_S) {
+        pose = true;
+        recordSample("b", performance.now() - depart);
+        return;
+      }
+      if (performance.now() - depart > RUNWAY_TIMEOUT_MS) {
+        pose = true;
+        recordSample("b", RUNWAY_TIMEOUT_MS);
+      }
+    };
+
+    const brancher = () => {
+      const v = racine.querySelector("video") as HTMLVideoElement | null;
+      if (v !== video) {
+        video?.removeEventListener("progress", juger);
+        video = v;
+        video?.addEventListener("progress", juger);
+      }
+      juger();
+      if (pose) {
+        clearInterval(id);
+      }
+    };
+    const id = setInterval(brancher, 500);
+    brancher();
+    return () => {
+      clearInterval(id);
+      video?.removeEventListener("progress", juger);
+    };
+  }, [serverId, streamData, playerElState]);
   useEffect(() => {
     let raf = 0;
     const find = () => {
@@ -2324,28 +2419,123 @@ export default function UniversalPlayer({
      Mesure : la premiere frame reduite a 16x9, sa luminance moyenne et son
      amplitude — voir `frameLooksReal`.
 
-     QUATRE etats, et la distinction entre les deux derniers compte :
-       true      → vraie image, on ne couvre pas
-       false     → image vide, la vignette
-       null      → mesure impossible (canvas teinte, sonde muette) : on ne
-                   couvre pas, mais la question est TRANCHEE
-       undefined → on ne sait pas ENCORE, la mesure court
-     `undefined` est le seul etat pendant lequel un voile noir couvre la video
-     (cf. `as-veil` plus bas). Sans lui, la premiere frame se voyait le temps de
-     la sonde : sans consequence sur un fondu au noir, une seconde de page
-     blanche sur un fondu au blanc.
+     QUATRE etats, mais UN SEUL pose la vignette : `false`. `true` et `null`
+     (mesure impossible) montrent la video ; `undefined` (la mesure court) est
+     du noir, comme l'attente. Voir `ecran` : la vignette n'apparait que sur un
+     fait etabli, jamais sur une ignorance.
 
      UN SEUL passage a `false`, et jamais avant d'en etre sur. C'est le point
      dur : une vignette posee puis retiree est le defaut le plus visible de
      tous, et c'est ce que produisait toute mesure prise trop tot — `readyState
-     >= 2` dit qu'une image est decodable, pas qu'elle est peinte, et lire le
-     canvas a cet instant rend du noir sur un episode qui n'en a pas. D'ou
+     >= 2` dit qu'une image est decodable, pas qu'elle est peinte. D'ou
      `confirm` : deux lectures noires separees de CONFIRM_MS, et seulement
      alors la vignette. Une lecture claire, elle, tranche du premier coup —
-     il n'y a rien a masquer, donc rien a risquer. */
+     il n'y a rien a masquer, donc rien a risquer.
+
+     Mesure du 29/08/2026, qui valide ce reglage : sur trois fichiers sans
+     rapport (One Piece 3 en HLS, Frieren 2, One Piece 5 en MP4 sibnet), trois
+     lectures espacees de 300 ms rendent la MEME valeur, identique a celle
+     relevee apres un `play()` puis un retour a `currentTime = 0` — donc sur une
+     frame certainement presentee. Les valeurs : 0 / 250,7 / 0,85 de luminance
+     moyenne pour 0 / 4 / 0 d'amplitude. Ces episodes ouvrent reellement sur un
+     fondu ; le verdict `false` est juste, et la vignette ne couvre rien. */
   const [firstFrameLit, setFirstFrameLit] = useState<boolean | null | undefined>(
     undefined,
   );
+
+  /* L'attente, quand elle se VOIT.
+     Le voile noir couvre la mesure, et la vignette reste effacee dessous : ca
+     evite le clignotement d'une image d'episode qui bascule vers la video sous
+     les yeux. Le raisonnement tient tant que la mesure est breve — il ne tient
+     plus des que le flux met plusieurs secondes a livrer sa premiere image,
+     puisqu'on troque alors un clignotement de 250 ms contre un rectangle noir
+     de plusieurs secondes. Signale le 29/08/2026 : « le lecteur charge mais
+     l'image de l'ep met beaucoup de temps a arriver » — elle etait la, montee
+     et telechargee, juste tenue invisible.
+     Passe ce seuil, on montre la vignette : elle est z-index 1, donc par-dessus
+     le voile. En dessous du seuil, rien ne change et le clignotement reste
+     evite. */
+  /* La video a-t-elle une image A ELLE a montrer ?
+     C'est la seule question qui decide si la vignette doit couvrir quelque
+     chose, et un delai ne pouvait pas y repondre. Deux essais l'ont montre :
+     a 500 ms puis a 3 s, la vignette montait AVANT que la video ait sa
+     premiere image, et la recouvrait ensuite — « on doit montrer la premiere
+     frame » (29/08/2026). Le temps de premiere image mesure sur dev le meme
+     jour : `loadstart` a 3,5 s, `loadeddata` a 5,4 s. Aucun seuil fixe ne peut
+     etre a la fois au-dessus de ca et court assez pour couvrir une attente.
+     On lit donc l'etat au lieu de le parier, sur les evenements de l'element
+     plutot qu'a l'horloge. */
+  const [videoAUneImage, setVideoAUneImage] = useState(false);
+  useEffect(() => {
+    const racine = playerElState;
+    if (!racine) {
+      setVideoAUneImage(false);
+      return;
+    }
+    let mort = false;
+    let video: HTMLVideoElement | null = null;
+    const relire = () => {
+      if (mort) return;
+      setVideoAUneImage(
+        !!video && video.readyState >= 2 && video.videoWidth > 0,
+      );
+    };
+    const EVENEMENTS = [
+      "loadeddata",
+      "canplay",
+      "playing",
+      "emptied",
+      "loadstart",
+      "error",
+    ];
+    /* L'element <video> est monte par Vidstack, pas par nous, et il est
+       REMPLACE a chaque changement de source : on le retrouve donc au lieu de
+       le capturer une fois. */
+    const brancher = () => {
+      if (mort) return;
+      const v = racine.querySelector("video") as HTMLVideoElement | null;
+      if (v !== video) {
+        for (const e of EVENEMENTS) video?.removeEventListener(e, relire);
+        video = v;
+        for (const e of EVENEMENTS) video?.addEventListener(e, relire);
+      }
+      relire();
+    };
+    brancher();
+    const id = setInterval(brancher, POLL_MS);
+    return () => {
+      mort = true;
+      clearInterval(id);
+      for (const e of EVENEMENTS) video?.removeEventListener(e, relire);
+    };
+  }, [playerElState]);
+
+  /* CE QU'ON VOIT avant la lecture. Une seule valeur a trois etats, et non
+     plusieurs booleens : deux calques gouvernes separement peuvent se
+     contredire, et chaque contradiction etait un defaut visible (quatre
+     signalements le 29/08/2026, tous le meme aller-retour).
+
+       noir     → l'attente. Rien a montrer : la video n'a pas encore d'image,
+                  ou la mesure de sa premiere frame court encore.
+       vignette → la premiere frame est PROUVEE vide. C'est le seul cas ou elle
+                  sert, et son role d'origine.
+       video    → tout le reste.
+
+     La suite est MONOTONE, et c'est la propriete qui compte : noir precede
+     toujours, la vignette ne s'en va jamais une fois posee, la video est
+     terminale. Aucun calque ne peut revenir apres etre parti.
+
+     Le noir couvre aussi la mesure, alors que la video a deja une image :
+     cette image est justement le fondu qu'on ne veut pas montrer, et la
+     decouvrir pour la recouvrir 300 ms plus tard etait le defaut precedent.
+     La mesure, elle, est JUSTE — verifiee le 29/08/2026 sur trois fichiers
+     sans rapport, voir `firstFrameLit`. */
+  const ecran: "noir" | "vignette" | "video" =
+    !videoAUneImage || firstFrameLit === undefined
+      ? "noir"
+      : firstFrameLit === false
+        ? "vignette"
+        : "video";
 
   /* Chemin 1 — le flux est illisible d'avance (`noCors`).
      La question part DES QUE l'adresse du flux est connue : ni le lecteur ni sa
@@ -5430,66 +5620,36 @@ export default function UniversalPlayer({
               pixels, et seule la relecture demande le CORS.
               L'effacement au demarrage est laisse au CSS, sur le `data-started`
               que Vidstack pose sur le lecteur. */}
-          {/* Montee tant qu'elle PEUT servir — pendant la mesure, et une fois la
-              frame reconnue vide. Sur `true` (vraie image) ou `null` (mesure
-              impossible) elle ne servira jamais : la demonter annule le
-              telechargement en cours au lieu de tirer 145 ko pour rien. C'est
-              le seul moment ou on sait, et il tombe assez tot pour compter.
-              Le `preload` en <Head> de la page reste, lui, inconditionnel :
-              c'est lui qui lance la course des que l'adresse est connue, bien
-              avant que le lecteur existe. */}
-          {poster && firstFrameLit !== true && firstFrameLit !== null && (
-            <img
-              /* Visible SEULEMENT une fois la premiere frame reconnue vide.
-                 Tant qu'on ne sait pas, elle est la mais effacee : la montrer
-                 puis la retirer donnait une image d'episode qui basculait vers
-                 la video sous les yeux, un clignotement pour rien. Elle se
-                 telecharge pendant ce temps — c'est tout l'interet de la monter
-                 avant d'en avoir besoin — et le voile noir couvre l'attente.
-                 L'opacite par une classe et non par un demontage, pour que le
-                 fondu du CSS ait lieu. */
-              className={`as-poster${
-                firstFrameLit === false ? "" : " as-poster-off"
-              }`}
-              src={poster}
-              alt=""
-              aria-hidden
-              /* Elle doit etre PEINTE au moment ou le verdict tombe, pas
-                 commencer a se telecharger a ce moment-la. La page la precharge
-                 deja en <Head> des que son adresse est connue ; ici on redit la
-                 priorite, et `decoding="sync"` evite le decodage differe qui
-                 ferait apparaitre l'image un cran apres sa classe. */
-              // @ts-expect-error fetchpriority n'est pas encore dans lib.dom
-              fetchpriority="high"
-              decoding="sync"
-            />
-          )}
-          {/* Le voile. Il fait tenir la promesse de la regle : on ne voit
-              JAMAIS la premiere frame d'un fichier qui n'avait rien a montrer.
-              Avant lui, elle restait a l'ecran le temps de la sonde —
-              invisible sur un fondu au noir, une seconde de page blanche sur un
-              fondu au blanc.
-              Noir, et pas la vignette : passer par la vignette puis revenir a
-              la video sur un verdict `true` serait le clignotement que tout ce
-              bloc evite. Du noir vers l'un ou l'autre, il n'y a rien a voir
-              partir.
-              Il se leve sur `true` (vraie image) comme sur `null` (mesure
-              impossible) — une sonde muette rend la video, elle ne noircit pas
-              le lecteur. Sur `false`, il RESTE : la vignette monte par-dessus
-              en fondu, et le lever a cet instant rouvrirait la frame blanche
-              pendant les 250 ms du fondu. Les deux partent ensemble au premier
-              play, sur le `data-started` du lecteur.
-              Par une classe et non par un demontage, comme la vignette : sans
-              element dans le DOM, pas de transition. */}
+          {/* UN SEUL calque d'ouverture, pas deux : un fond noir qui porte la
+              vignette. Les trois etats de `ecran` sont donc deux opacites
+              tirees de la MEME valeur — elles ne peuvent pas se contredire,
+              alors que deux elements gouvernes separement le pouvaient, et
+              c'etait tout le defaut.
+                noir     → le fond seul (vignette effacee dessous, mais deja
+                           telechargee : elle doit etre prete a l'instant du
+                           verdict, pas commencer a se charger a ce moment-la) ;
+                vignette → le fond porte l'image de l'episode ;
+                video    → le calque entier s'efface.
+              Par l'opacite et non par le montage : sans element dans le DOM,
+              pas de transition — or le seul instant ou elle compte est
+              justement celui ou le calque s'en va. */}
           {poster && (
             <div
-              className={`as-veil${
-                firstFrameLit === true || firstFrameLit === null
-                  ? " as-veil-off"
-                  : ""
-              }`}
+              className={`as-cover${ecran === "video" ? " as-cover-off" : ""}`}
               aria-hidden
-            />
+            >
+              <img
+                className={`as-poster${ecran === "vignette" ? "" : " as-poster-off"}`}
+                src={poster}
+                alt=""
+                /* `decoding="sync"` et la priorite haute : elle doit etre
+                   PEINTE au moment ou le verdict tombe. La page la precharge
+                   deja en <Head> des que son adresse est connue. */
+                // @ts-expect-error fetchpriority n'est pas encore dans lib.dom
+                fetchpriority="high"
+                decoding="sync"
+              />
+            </div>
           )}
           {subtitleTracks.map((t, i) => (
             <Track
