@@ -42,6 +42,45 @@ function shortNames(servers) {
   return out;
 }
 
+/* Le LOOK d'une chip, extrait pour etre porte a l'identique par la rangee qui
+   s'en va : sans ca, la copie sortante aurait fallu recopier a la main une
+   dizaine de classes et deux teintes en color-mix, et la moindre retouche du
+   vivant aurait laisse la sortie derriere.
+   Les teintes de l'accent passent par color-mix en style inline : `action` vaut
+   `var(--brand-primary, …)`, et Tailwind v3 ne sait pas injecter d'alpha dans
+   une var() — `bg-action/20` ne genere AUCUNE regle. Meme piege que
+   LangPreferenceModal documente.
+   Le survol de la chip ACTIVE doit l'assombrir comme les autres, et un `hover:`
+   Tailwind ne peut pas : le fond est pose ici, en inline, donc il gagne
+   toujours. D'ou l'etat de survol tenu en React — un voile noir se superpose a
+   la teinte d'accent. */
+function chipStyle(isActive, isHovered) {
+  if (!isActive) {
+    // Le fond s'assombrit au survol : le nom monte d'un cran en meme temps,
+    // sinon la chip visee perdrait en lisibilite.
+    return { color: isHovered ? TEXT_HOVER : TEXT };
+  }
+  return {
+    background: `${
+      isHovered ? "linear-gradient(rgba(0,0,0,0.4), rgba(0,0,0,0.4)), " : ""
+    }color-mix(in srgb, var(--brand-primary, #E94560) 20%, transparent)`,
+    boxShadow:
+      "inset 0 0 0 1px color-mix(in srgb, var(--brand-primary, #E94560) 70%, transparent)",
+    color: TEXT_ACTIVE,
+  };
+}
+
+function chipClass(isActive) {
+  return `inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[13px] font-karla font-medium transition-colors duration-200 ${
+    isActive
+      ? ""
+      : // Le survol ASSOMBRIT la chip visee (il ne l'eclaircit pas) : sur une
+        // barre posee sous des ambient lights, un creux se lit mieux qu'une
+        // bosse.
+        "bg-[#232735]/55 ring-1 ring-white/10 hover:bg-[#0e1016]/40 hover:ring-white/20"
+  }`;
+}
+
 export default function ServerSelector({
   activeServer,
   onChange,
@@ -92,6 +131,27 @@ export default function ServerSelector({
      initial d'un element — il nait donc a sa place, sans traverser la barre.
      `available.join("|")` en dependance et non `available` : le tableau est
      reconstruit a chaque rendu, la chaine ne change qu'avec les onglets. */
+  /* La rangee qui s'en va, gardee le temps de son fondu.
+     `key={lang}` demonte les anciennes chips a l'instant meme du changement :
+     il n'y a donc plus rien a animer quand on voudrait les faire partir. On en
+     conserve une COPIE inerte, posee en surimpression, effacee au bout de la
+     duree du fondu. Le compare se fait sur la langue seule — `servers` et
+     `labels` sont reconstruits a chaque rendu et relanceraient l'effet sans
+     qu'aucun onglet n'ait bouge. */
+  const dernierRendu = useRef(null);
+  const [sortants, setSortants] = useState(null);
+  useEffect(() => {
+    const avant = dernierRendu.current;
+    dernierRendu.current = { lang, servers, labels };
+    if (!avant || avant.lang === lang || !avant.servers.length) return;
+    setSortants(avant);
+    const id = setTimeout(() => setSortants(null), 200);
+    return () => clearTimeout(id);
+    // Seule la langue declenche la sortie ; le reste est lu au moment ou elle
+    // change, jamais observe.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lang]);
+
   const tabsRef = useRef(null);
   const [pill, setPill] = useState(null);
   useEffect(() => {
@@ -116,77 +176,70 @@ export default function ServerSelector({
         {t("player.servers")}
       </span>
 
-      {/* `key={lang}` : changer d'onglet REMONTE la rangee, ce qui rejoue
+      {/* La rangee, et par-dessus la copie de celle qui s'en va.
+          `relative` sur le conteneur : la copie sortante est posee en
+          `absolute` dessus, donc elle ne pousse rien et les deux gestes se
+          croisent au meme endroit.
+          `key={lang}` : changer d'onglet REMONTE la rangee, ce qui rejoue
           l'animation d'entree meme sur une chip dont l'identifiant survivrait
           d'une langue a l'autre. Sans lui, React reconcilierait en place et le
           changement se ferait sans que rien ne bouge — or c'est justement le
           moment ou l'on veut voir que la liste n'est plus la meme. */}
-      <div key={lang} className="flex flex-wrap items-center gap-1.5 min-w-0 grow">
-        {/* La vitesse ne s'affiche plus nulle part sur la chip — ni le mot, ni le
-            poincon de couleur, ni l'infobulle. Elle continue en revanche
-            d'ORDONNER la liste (useServerPerfRank) : le plus rapide reste en
-            tete, c'est ce rang qui parle maintenant. */}
-        {servers.map((server, i) => {
-          const isActive = activeServer === server.id;
-          const solo = servers.length === 1;
-          return (
-            <button
-              key={server.id}
-              type="button"
-              onClick={() => onChange(server.id)}
-              onMouseEnter={() => setHovered(server.id)}
-              onMouseLeave={() => setHovered(null)}
-              // Les teintes de l'accent passent par color-mix en style inline :
-              // `action` vaut `var(--brand-primary, …)`, et Tailwind v3 ne sait
-              // pas injecter d'alpha dans une var() — `bg-action/20` ne genere
-              // AUCUNE regle. Meme piege que LangPreferenceModal documente.
-              //
-              // Le survol de la chip ACTIVE doit l'assombrir comme les autres, et
-              // un `hover:` Tailwind ne peut pas : le fond est pose ici, en
-              // inline, donc il gagne toujours. D'ou l'etat de survol tenu en
-              // React — un voile noir se superpose a la teinte d'accent.
-              /* Les chips entrent l'une apres l'autre, de gauche a droite : un
-                 decalage court suffit a montrer que la rangee s'est refaite,
-                 la ou une apparition simultanee ressemble a un simple
-                 clignotement. Plafonne a 5 crans — au-dela, la derniere chip
-                 arriverait apres qu'on ait deja lu la premiere.
-                 Une chip seule n'a personne a attendre : pas de retard, et une
-                 entree plus ample (cf. `as-chip-in-solo`). */
-              style={
-                isActive
-                  ? {
-                      animationDelay: solo ? undefined : `${Math.min(i, 5) * 45}ms`,
-                      background: `${
-                        hovered === server.id
-                          ? "linear-gradient(rgba(0,0,0,0.4), rgba(0,0,0,0.4)), "
-                          : ""
-                      }color-mix(in srgb, var(--brand-primary, #E94560) 20%, transparent)`,
-                      boxShadow:
-                        "inset 0 0 0 1px color-mix(in srgb, var(--brand-primary, #E94560) 70%, transparent)",
-                      color: TEXT_ACTIVE,
-                    }
-                  : // Le fond s'assombrit au survol : le nom monte d'un cran en
-                    // meme temps, sinon la chip visee perdrait en lisibilite.
-                    {
-                      animationDelay: solo ? undefined : `${Math.min(i, 5) * 45}ms`,
-                      color: hovered === server.id ? TEXT_HOVER : TEXT,
-                    }
-              }
-              /* Voir `as-chip-in` dans styles/globals.css pour le geste et
-                 pour ce qui change quand la chip est seule. */
-              className={`${solo ? "as-chip-in-solo" : "as-chip-in"} inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[13px] font-karla font-medium transition-colors duration-200 ${
-                isActive
-                  ? ""
-                  : // Le survol ASSOMBRIT la chip visee (il ne l'eclaircit pas) :
-                    // sur une barre posee sous des ambient lights, un creux se lit
-                    // mieux qu'une bosse.
-                    "bg-[#232735]/55 ring-1 ring-white/10 hover:bg-[#0e1016]/40 hover:ring-white/20"
-              }`}
-            >
-              {labels[server.id]}
-            </button>
-          );
-        })}
+      <div className="relative flex min-w-0 grow items-center">
+        {sortants && (
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-0 flex flex-wrap items-center gap-1.5"
+          >
+            {sortants.servers.map((server) => (
+              <span
+                key={server.id}
+                className={`as-chip-out ${chipClass(activeServer === server.id)}`}
+                style={chipStyle(activeServer === server.id, false)}
+              >
+                {sortants.labels[server.id]}
+              </span>
+            ))}
+          </div>
+        )}
+
+        <div key={lang} className="flex flex-wrap items-center gap-1.5 min-w-0 grow">
+          {/* La vitesse ne s'affiche plus nulle part sur la chip — ni le mot, ni
+              le poincon de couleur, ni l'infobulle. Elle continue en revanche
+              d'ORDONNER la liste (useServerPerfRank) : le plus rapide reste en
+              tete, c'est ce rang qui parle maintenant. */}
+          {servers.map((server, i) => {
+            const isActive = activeServer === server.id;
+            const solo = servers.length === 1;
+            return (
+              <button
+                key={server.id}
+                type="button"
+                onClick={() => onChange(server.id)}
+                onMouseEnter={() => setHovered(server.id)}
+                onMouseLeave={() => setHovered(null)}
+                /* Les chips entrent l'une apres l'autre, de gauche a droite : un
+                   decalage court suffit a montrer que la rangee s'est refaite,
+                   la ou une apparition simultanee ressemble a un simple
+                   clignotement. Plafonne a 5 crans — au-dela, la derniere chip
+                   arriverait apres qu'on ait deja lu la premiere.
+                   Une chip seule n'a personne a attendre : pas de retard, et une
+                   entree plus ample (cf. `as-chip-in-solo`). */
+                style={{
+                  animationDelay: solo ? undefined : `${Math.min(i, 5) * 45}ms`,
+                  ...chipStyle(isActive, hovered === server.id),
+                }}
+                /* Voir `as-chip-in` dans styles/globals.css pour le geste et
+                   pour ce qui change quand la chip est seule. */
+                className={`${solo ? "as-chip-in-solo" : "as-chip-in"} ${chipClass(
+                  isActive,
+                )}`}
+              >
+                {labels[server.id]}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {available.length > 1 && (
