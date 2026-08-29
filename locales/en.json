@@ -106,11 +106,13 @@
       "serverAuto": "Auto (site default)",
       "note": "This setting is saved on this device. The rating is stored in your local list (and pushed to AniList when sync is on).",
       "serverPerf": "Learn which server is fastest",
-      "serverPerfDesc": "Measures startup, stalls, seek speed and quality while you watch, on this device only, and puts the fastest servers first. Nothing is sent anywhere. Off keeps the hand-written order.",
+      "serverPerfDesc": "Measures startup, throughput, stalls, seek speed and quality while you watch, and puts the fastest servers first. One measurement in ten is sent, with no identifier attached, to feed a shared ranking that new visitors benefit from. Off keeps the hand-written order and sends nothing.",
       "serverPerfReset": "Measurements",
       "serverPerfResetDesc": "Scores learned on this device. Reset to fall back to the default order.",
       "serverPerfNone": "Nothing measured yet",
-      "serverPerfResetBtn": "Reset"
+      "serverPerfResetBtn": "Reset",
+      "seekStep": "Seek step",
+      "seekStepDesc": "How many seconds the forward / backward shortcuts jump. The number is shown on those keys in the shortcut keyboard."
     },
     "dataSaver": {
       "title": "Data saver",

@@ -28,7 +28,8 @@ import {
   setKeybindings,
   resetKeybindings,
 } from "@/lib/prefs/keybindings";
-import { SHORTCUT_ICONS } from "./shortcutIcons";
+import { shortcutIcon } from "./shortcutIcons";
+import { usePlayerPrefs } from "@/lib/prefs/playerPrefs";
 
 const ACCENT = "#E94560";
 
@@ -186,6 +187,11 @@ function capGlyph(code: string, t: (k: string) => string): string {
 
 export default function ShortcutEditor({ onClose }: { onClose: () => void }) {
   const { t } = useTranslation();
+  /* Le pas d'avance/recul est reglable, et le clavier doit le MONTRER : deux
+     chevrons disent « ca saute », pas « ca saute de combien ». Le nombre suit
+     le curseur des Reglages en direct, les deux vivant dans le meme objet de
+     preferences. */
+  const { seekStep } = usePlayerPrefs();
   const [binds, setBinds] = useState<Keybindings>(() => getKeybindings());
   const [hoverKey, setHoverKey] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
@@ -569,7 +575,7 @@ export default function ShortcutEditor({ onClose }: { onClose: () => void }) {
                           className="pointer-events-none absolute left-1/2 -translate-x-1/2 -translate-y-1/2"
                           style={{ top: isEnter ? "25%" : "50%" }}
                         >
-                          {SHORTCUT_ICONS[action]}
+                          {shortcutIcon(action, { seekStep })}
                         </svg>
                       )}
                     </div>
