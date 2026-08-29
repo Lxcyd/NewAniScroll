@@ -116,12 +116,17 @@ export default function ServerSelector({
         {t("player.servers")}
       </span>
 
-      <div className="flex flex-wrap items-center gap-1.5 min-w-0 grow">
+      {/* `key={lang}` : changer d'onglet REMONTE la rangee, ce qui rejoue
+          l'animation d'entree meme sur une chip dont l'identifiant survivrait
+          d'une langue a l'autre. Sans lui, React reconcilierait en place et le
+          changement se ferait sans que rien ne bouge — or c'est justement le
+          moment ou l'on veut voir que la liste n'est plus la meme. */}
+      <div key={lang} className="flex flex-wrap items-center gap-1.5 min-w-0 grow">
         {/* La vitesse ne s'affiche plus nulle part sur la chip — ni le mot, ni le
             poincon de couleur, ni l'infobulle. Elle continue en revanche
             d'ORDONNER la liste (useServerPerfRank) : le plus rapide reste en
             tete, c'est ce rang qui parle maintenant. */}
-        {servers.map((server) => {
+        {servers.map((server, i) => {
           const isActive = activeServer === server.id;
           return (
             <button
@@ -139,9 +144,15 @@ export default function ServerSelector({
               // un `hover:` Tailwind ne peut pas : le fond est pose ici, en
               // inline, donc il gagne toujours. D'ou l'etat de survol tenu en
               // React — un voile noir se superpose a la teinte d'accent.
+              /* Les chips entrent l'une apres l'autre, de gauche a droite : un
+                 decalage court suffit a montrer que la rangee s'est refaite,
+                 la ou une apparition simultanee ressemble a un simple
+                 clignotement. Plafonne a 5 crans — au-dela, la derniere chip
+                 arriverait apres qu'on ait deja lu la premiere. */
               style={
                 isActive
                   ? {
+                      animationDelay: `${Math.min(i, 5) * 30}ms`,
                       background: `${
                         hovered === server.id
                           ? "linear-gradient(rgba(0,0,0,0.4), rgba(0,0,0,0.4)), "
@@ -153,9 +164,16 @@ export default function ServerSelector({
                     }
                   : // Le fond s'assombrit au survol : le nom monte d'un cran en
                     // meme temps, sinon la chip visee perdrait en lisibilite.
-                    { color: hovered === server.id ? TEXT_HOVER : TEXT }
+                    {
+                      animationDelay: `${Math.min(i, 5) * 30}ms`,
+                      color: hovered === server.id ? TEXT_HOVER : TEXT,
+                    }
               }
-              className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[13px] font-karla font-medium transition-colors duration-200 ${
+              /* `as-viewswap` : la meme entree que la liste d'episodes quand
+                 elle change de vue (styles/globals.css). Deux listes qui se
+                 refont cote a cote sur la meme page doivent le faire de la
+                 meme facon. */
+              className={`as-viewswap inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[13px] font-karla font-medium transition-colors duration-200 ${
                 isActive
                   ? ""
                   : // Le survol ASSOMBRIT la chip visee (il ne l'eclaircit pas) :

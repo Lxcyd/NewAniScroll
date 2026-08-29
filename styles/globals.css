@@ -406,6 +406,21 @@ body,
 .as-viewswap {
   animation: as-view-in 0.24s cubic-bezier(0.32, 0.72, 0, 1) both;
 }
+/* Cette entree sert a montrer qu'une liste s'est REFAITE — liste d'episodes qui
+   change de vue, rangee de lecteurs qui change de langue. Pour qui demande moins
+   de mouvement, le glissement n'apporte rien et le decalage d'apparition tient
+   le meme discours : on garde le fondu, on retire la montee.
+   `both` est conserve, sinon les elements retardes clignoteraient a l'envers. */
+@media (prefers-reduced-motion: reduce) {
+  @keyframes as-view-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+}
 
 /* Disable native drag of images everywhere on the page. We use
    `useDraggable` from react-use-draggable-scroll for click-and-drag
