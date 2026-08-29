@@ -1,6 +1,6 @@
-# Usage Monitor — 2026-08-28
+# Usage Monitor — 2026-08-29
 
-_Generated 2026-08-28T18:45:31.970Z_
+_Generated 2026-08-29T12:42:43.988Z_
 
 ## ⚠️ Flags
 - Only **1 Upstash DB** on the account → dev & prod likely share it (see DEVLOG 2026-07-30).
@@ -9,40 +9,42 @@ _Generated 2026-08-28T18:45:31.970Z_
 > DBs on account: **1** — dev (Preview) & prod SHARE this DB; the number below mixes both.
 
 - DB: `aniscroll-cache`
-- Today: **7,329** (+891 +14%) vs yesterday
-- 7-day avg/day: **5,527**
-- Projected month: **165,810** / 500,000 cap — **33%**
+- Today: **5,158** (-4,555 -47%) vs yesterday
+- 7-day avg/day: **6,685**
+- Projected month: **200,550** / 500,000 cap — **40%**
 
 ## Redis keyspace census (where the load comes from)
-- DBSIZE: **12,837** | scanned: 12,837 keys
+- DBSIZE: **13,274** | scanned: 13,274 keys
 
 | prefix | keys | % | Δ vs prev |
 |---|---:|---:|---:|
-| `anime:` | 11,563 | 90.1% | (+289 +3%) |
-| `episode:` | 740 | 5.8% | (-209 -22%) |
-| `tr:` | 428 | 3.3% | (-10 -2%) |
-| `anilist:` | 70 | 0.5% | (+13 +23%) |
-| `ftree:` | 15 | 0.1% | (+12 +400%) |
-| `avail:` | 11 | 0.1% | (+2 +22%) |
-| `jikan:` | 9 | 0.1% | (+1 +13%) |
+| `anime:` | 12,103 | 91.2% | (+540 +5%) |
+| `episode:` | 729 | 5.5% | (-11 -1%) |
+| `tr:` | 415 | 3.1% | (-13 -3%) |
+| `jikan:` | 9 | 0.1% | (=) |
+| `ftree:` | 6 | 0.0% | (-9 -60%) |
+| `src:` | 5 | 0.0% | — |
+| `anilist:` | 3 | 0.0% | (-67 -96%) |
+| `avail:` | 3 | 0.0% | (-8 -73%) |
 | `index_server_v3:` | 1 | 0.0% | (=) |
 
 <details><summary>Top 2-segment namespaces</summary>
 
 | namespace | keys |
 |---|---:|
-| `anime:v5` | 11,563 |
-| `tr:fr` | 428 |
-| `episode:v3` | 379 |
-| `episode:v5` | 192 |
+| `anime:v5` | 12,103 |
+| `tr:fr` | 415 |
+| `episode:v3` | 368 |
+| `episode:v5` | 191 |
 | `episode:v6` | 147 |
-| `anilist:resp` | 70 |
-| `ftree:v5` | 15 |
-| `episode:v7` | 14 |
+| `episode:v7` | 13 |
 | `jikan:eps` | 9 |
 | `episode:v8` | 8 |
-| `avail:v3` | 6 |
-| `avail:v4` | 5 |
+| `ftree:v5` | 6 |
+| `src:v13` | 5 |
+| `anilist:resp` | 3 |
+| `avail:v4` | 3 |
+| `episode:v9` | 2 |
 
 </details>
 
