@@ -19,19 +19,23 @@ construit depuis `git log --since=<derniere release>`.
 
 ## Etat courant — 2026-08-29
 
-- **v0.0.7 en production** depuis le 16/08 (PR #6). `dev` a pris de l'avance
-  depuis : mesurer l'ecart sur le REMOTE (`origin/main..origin/dev`).
-- Le merge du 16/08 a demande une resolution : trois correctifs CI/cron avaient
-  ete commites sur les deux branches. Piege a retenir : `refresh-fanarts.yml`
-  s'est auto-merge **sans conflit** en dupliquant tout le bloc classifieur.
-- Sur `dev` depuis le 29/08 : numerotation des saisons corrigee (JJK, AoT, MHA)
-  + `tools/season-audit` ; TMDB devant ani.zip pour les vignettes d'episode ;
-  episodes non diffusees retires de la liste ; fondu au blanc traite comme un
-  fondu au noir ; la marche des vignettes de la barre ne fait plus refuser les
-  segments par le CDN. **Six caches montent de version** — `seasonChain:v11`,
+- **v0.0.8 en production** depuis le 29/08 (PR #8, 237 commits). `origin/main`
+  et `origin/dev` sont au meme point. Contenu : nouvelle page de visionnage,
+  prochain episode + rappel, classement des lecteurs sur leurs performances
+  mesurees, numerotation des saisons corrigee (JJK, AoT, MHA), TMDB devant
+  ani.zip ET devant AniList pour les vignettes d'episode, fondu au blanc traite
+  comme un fondu au noir.
+- **Six caches ont monte de version** avec cette release — `seasonChain:v11`,
   `seasonList:v22`, `tmdbStills:v3`, `episode:v11`, et cote client
-  `as:firstframe:v2`. Attendre leur premiere reconstruction avant de juger une
-  page sur dev.
+  `as:firstframe:v2`. La prod les reconstruit a la premiere visite : ne pas
+  juger une page sur son premier chargement post-deploiement.
+- La v0.0.7 (16/08, PR #6) avait demande une resolution de conflit : trois
+  correctifs CI/cron commites sur les deux branches. Piege a retenir,
+  **independant de la release** : `refresh-fanarts.yml` s'etait auto-merge
+  *sans conflit* en dupliquant tout le bloc classifieur. La v0.0.8 n'a pas
+  rencontre le cas (fusion a blanc verifiee avant d'ouvrir la PR, aucun
+  workflow modifie des deux cotes), mais la verification reste a faire a chaque
+  fois : l'absence de conflit ne prouve pas l'absence de degat.
 
 ## Chantiers ouverts
 
@@ -46,8 +50,13 @@ construit depuis `git log --since=<derniere release>`.
   fenetres par partie sont jetees par `detect_per_host`. -> `devlog/oped.md`
 - **ISR de la page anime a re-mesurer** (ouvert depuis le 03/08) : la mesure
   du hit CDN etait faussee par un cron supprime. -> `devlog/infra.md`
-- **Surveiller apres la v0.0.7** : le compteur Upstash sur 48 h, et le premier
-  run nocturne de `refresh-fanarts` (chemins de scripts deplaces).
+- **Surveiller apres la v0.0.8** : le compteur Upstash sur 48 h — six caches
+  reconstruits d'un coup, c'est exactement le profil qui sature le plafond
+  gratuit en milieu de mois (`devlog/infra.md`).
+- **Bandes noires 4:3** (Mobile Suit Gundam) : mesure faite, fichier 1440x1080
+  sans bandes incrustees, donc la boite du lecteur reste en 16:9 alors que
+  `videoRatio` sait la mesurer. Cause non tracee, correctif non ecrit.
+  -> `devlog/player.md`
 
 ## Ou ecrire, ou chercher
 
