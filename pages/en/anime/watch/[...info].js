@@ -2174,12 +2174,12 @@ export default function Watch({
   useEffect(() => {
     const onCycle = () => {
       const { getServersByLang } = require("@/lib/servers");
-      const { serverPerfRank } = require("@/lib/watch/serverPerf");
+      const { serverPerfRankFrozen } = require("@/lib/watch/serverPerf");
       const { shouldShowServer, isDegraded } = require("@/lib/watch/serverVisibility");
       // Meme ordre ET meme regle de visibilite que le selecteur — les deux
       // etaient recopies ici et avaient deja diverge, ce qui faisait atterrir
       // le raccourci sur un lecteur qu'aucun chip n'affichait.
-      const groups = getServersByLang(serverPerfRank);
+      const groups = getServersByLang(serverPerfRankFrozen);
       const visibles = [...groups.multi, ...groups.vo, ...groups.vf].filter((s) =>
         shouldShowServer(s, activeServer, confirmedServers, failedServers),
       );
@@ -2236,9 +2236,9 @@ export default function Watch({
      AFFICHE autre que l'actif, avec la meme regle de visibilite que la barre. */
   const lecteurDeSecours = useMemo(() => {
     const { getServersByLang } = require("@/lib/servers");
-    const { serverPerfRank } = require("@/lib/watch/serverPerf");
+    const { serverPerfRankFrozen } = require("@/lib/watch/serverPerf");
     const { shouldShowServer } = require("@/lib/watch/serverVisibility");
-    const groups = getServersByLang(serverPerfRank);
+    const groups = getServersByLang(serverPerfRankFrozen);
     return (
       [...groups.multi, ...groups.vo, ...groups.vf].find(
         (s) =>

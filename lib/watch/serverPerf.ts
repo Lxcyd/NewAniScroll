@@ -437,6 +437,49 @@ export function serverPerfRank(server: { id: string; speed?: number }): number {
   return 100 - getServerScore(server.id, server.speed).final;
 }
 
+/* ── Le rang FIGE ──────────────────────────────────────────────────────────
+ *
+ * Le classement doit etre arrete AU LANCEMENT DE LA PAGE, puis ne plus bouger.
+ *
+ * Il bougeait : `commitSession()` emet `SERVER_PERF_EVENT` a chaque fin de
+ * session de mesure, tous les abonnes se re-rendaient, et `serverPerfRank`
+ * relisant localStorage a chaque appel, la rangee de chips se RETRIAIT sous les
+ * yeux — parfois en cours de lecture. Signale le 30/08/2026 : « un lecteur
+ * change de positionnement s'il est plus rapide ».
+ *
+ * Une barre de choix se lit autant a la position qu'au nom : on y revient par
+ * reflexe, sans relire. Un ordre qui bouge tout seul detruit ce reflexe, et
+ * apprendre en direct ne vaut pas ce prix — les mesures de cette page servent a
+ * la SUIVANTE, ce qui suffit amplement.
+ *
+ * L'instantane est pris a la premiere demande et garde jusqu'au rechargement.
+ * Il couvre toute la navigation interne, ce qui est encore plus stable : passer
+ * a l'episode suivant ne redistribue pas les chips.
+ */
+let rangGele: Record<string, number> | null = null;
+
+/** A appeler quand les mesures sont remises a zero ou l'option basculee : ce
+ *  sont les deux seuls cas ou l'utilisateur ATTEND que l'ordre change. */
+export function degelerRang(): void {
+  rangGele = null;
+}
+
+export function serverPerfRankFrozen(server: {
+  id: string;
+  speed?: number;
+}): number {
+  const statique = (server.speed ?? 99) * 20;
+  if (typeof window === "undefined") return statique;
+  if (!rangGele) {
+    const snap: Record<string, number> = {};
+    for (const s of SERVERS as { id: string; speed?: number }[]) {
+      snap[s.id] = serverPerfRank(s);
+    }
+    rangGele = snap;
+  }
+  return rangGele[server.id] ?? statique;
+}
+
 /**
  * Poincon d'un score deja calcule, ou null tant qu'on n'a pas de quoi
  * l'affirmer. Les seuils collent a `staticTier` de serverSelector.js par
@@ -495,16 +538,15 @@ export function useServerPerfScores(): Record<string, ServerScore> {
  * En pratique la bascule ne se voit pas : un chip n'apparait qu'une fois son
  * lecteur confirme, ce qui se decide cote client apres sondage, donc l'ordre
  * definitif est en place bien avant qu'il y ait plusieurs chips a ordonner.
+ *
+ * UNE SEULE bascule, et plus jamais ensuite : le hook ne s'abonne plus a
+ * `SERVER_PERF_EVENT`. C'etait cet abonnement qui retriait la rangee a chaque
+ * fin de session de mesure. Voir `serverPerfRankFrozen`.
  */
 export function useServerPerfRank(): (s: { id: string; speed?: number }) => number {
   const [ready, setReady] = useState(false);
-  useEffect(() => {
-    const wake = () => setReady(true);
-    wake();
-    window.addEventListener(SERVER_PERF_EVENT, wake);
-    return () => window.removeEventListener(SERVER_PERF_EVENT, wake);
-  }, []);
-  return ready ? serverPerfRank : (s) => s.speed ?? 99;
+  useEffect(() => setReady(true), []);
+  return ready ? serverPerfRankFrozen : (s) => s.speed ?? 99;
 }
 
 /* ── Interrupteur et remise a zero (Reglages) ──────────────────────────────
@@ -533,6 +575,7 @@ export function isServerPerfEnabled(): boolean {
 export function setServerPerfEnabled(on: boolean): void {
   if (typeof window === "undefined") return;
   enabledCache = on;
+  degelerRang();
   try {
     if (on) window.localStorage.removeItem(ENABLED_KEY);
     else window.localStorage.setItem(ENABLED_KEY, "0");
@@ -560,6 +603,7 @@ export function useServerPerfEnabled(): boolean {
 /** Oublie toutes les mesures. Le rang retombe sur `speed`. */
 export function clearServerPerf(): void {
   if (typeof window === "undefined") return;
+  degelerRang();
   mirror = { v: SCHEMA_VERSION, s: {} };
   pending = {};
   dirty = false;
