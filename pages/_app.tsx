@@ -19,6 +19,7 @@ import { notify } from "@/lib/notifications/noticeStore";
 import { Analytics } from "@vercel/analytics/react";
 import { getSyncPrefs, setSyncPrefs } from "@/lib/prefs/syncPrefs";
 import { useMountedOnce } from "@/lib/hooks/useMountedOnce";
+import { chargerPriorPartage } from "@/lib/watch/serverPerf";
 import type { SyncDirection } from "@/components/shared/SyncDirectionModal";
 import { useTranslation } from "react-i18next";
 import type { AppProps } from "next/app";
@@ -241,6 +242,15 @@ export default function App({
     apply();
     document.addEventListener("visibilitychange", apply);
     return () => document.removeEventListener("visibilitychange", apply);
+  }, []);
+
+  /* Le classement des lecteurs mis en commun, recupere une fois par jour et sur
+     temps mort. Ici et pas sur la page de lecture : il sert aussi a la page
+     d'anime, qui choisit deja un lecteur par defaut (`pickServerForLangs`).
+     Sans effet sur la page en cours — l'ordre y est fige au chargement — il
+     prepare la suivante. Voir lib/watch/serverPerf. */
+  useEffect(() => {
+    chargerPriorPartage();
   }, []);
 
   // Lightweight pageview analytics — fires on every route change. The
