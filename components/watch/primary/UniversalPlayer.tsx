@@ -2437,11 +2437,27 @@ export default function UniversalPlayer({
       settled = true;
       setFirstFrameLit(verdict);
     };
+    const depart = Date.now();
     const look = () => {
       const video = el.querySelector("video") as HTMLVideoElement | null;
       // Rien a decider tant qu'aucune image n'est decodable.
-      if (!video || video.readyState < 2 || !video.videoWidth)
+      if (!video || video.readyState < 2 || !video.videoWidth) {
+        /* Mais on n'attend pas indefiniment. Cette boucle n'avait AUCUNE
+           echeance, la ou la sonde aveugle en a une (PROBE_TIMEOUT_MS) : un
+           flux dont aucun segment n'arrive laisse donc `firstFrameLit` a
+           `undefined` pour toujours, et dans cet etat le voile reste noir ET la
+           vignette reste masquee. Resultat vu le 29/08/2026 sur dev : un bouton
+           play sur un rectangle noir, alors que l'image de l'episode etait la,
+           chargee, prete a couvrir l'attente. (Cote spectateur : les manifestes
+           HLS arrivaient, aucun `seg-*.ts` ne partait, `readyState` restait a 0
+           pendant que le temps avancait.)
+           Passe le delai, le verdict est « vide » et non « indecidable » : c'est
+           le seul des deux qui MONTRE la vignette. Elle repartira d'elle-meme au
+           premier play, sur le `data-started` du lecteur, comme sur un fondu au
+           noir ordinaire. */
+        if (Date.now() - depart > PROBE_TIMEOUT_MS) return settle(false);
         return at(POLL_MS, look);
+      }
       // Une lecture commencee, ou une position choisie par le spectateur :
       // ce qu'il regarde n'a pas a etre recouvert.
       if (!video.paused || video.played.length > 0 || video.currentTime > 0.01)

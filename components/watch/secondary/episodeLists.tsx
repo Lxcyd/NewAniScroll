@@ -86,42 +86,64 @@ function ProchainEpisode({
   const { actif, bascule } = useEpisodeAlert(info?.id);
   /* Le rebours se lit a la minute : inutile de reveiller quoi que ce soit
      toutes les secondes, une demie suffit a ne jamais afficher une minute de
-     retard. */
-  const [maintenant, setMaintenant] = useState(() => Date.now());
+     retard.
+
+     `null` AVANT le montage, et c'est la tout l'enjeu : ni le rebours ni la
+     date absolue ne peuvent etre rendus au SSR. Le lambda Vercel tourne en
+     UTC, le visiteur non — `toLocaleString` y ecrivait "12:30" contre "14:30"
+     dans le navigateur, et les deux horloges ne sont de toute facon pas lues
+     au meme instant. Ce texte divergent est un ecart d'hydratation hors
+     Suspense (React #425), et le remede de React est de JETER tout le HTML
+     serveur pour re-rendre la racine entiere (#418 puis #423) : mesure du
+     29/08/2026 sur la prod, cinq exceptions a 0,2 s sur toute page d'anime en
+     diffusion, aucune sur un anime termine (ou ce pied ne s'affiche pas).
+     Le serveur rend donc le numero d'episode seul — stable — et le delai
+     paraît au premier effet, dans la meme frame que la bascule de langue
+     d'I18nProvider. */
+  const [maintenant, setMaintenant] = useState<number | null>(null);
   useEffect(() => {
+    setMaintenant(Date.now());
     const id = setInterval(() => setMaintenant(Date.now()), 30_000);
     return () => clearInterval(id);
   }, []);
 
-  const reste = airingAt * 1000 - maintenant;
-  if (reste <= 0) return null; // l'heure est passee : AniList n'a pas encore rattrape
+  const reste = maintenant === null ? null : airingAt * 1000 - maintenant;
+  if (reste !== null && reste <= 0) return null; // l'heure est passee : AniList n'a pas encore rattrape
 
   /* Les minutes sont dites JUSQU'AU BOUT, y compris au-dela du jour. "4j 18h"
      laissait croire que le rebours et l'heure annoncee ne parlaient pas de la
      meme chose : il restait 4j 18h 21min, et 14:30 moins 18h tombait a cote. */
-  const minutes = Math.floor(reste / 60_000);
-  const jours = Math.floor(minutes / 1440);
-  const heures = Math.floor((minutes % 1440) / 60);
-  const delai = [
-    jours ? `${jours}${t("anime.unitDay")}` : null,
-    jours || heures ? `${heures}${t("anime.unitHour")}` : null,
-    `${minutes % 60}${t("anime.unitMinute")}`,
-  ]
-    .filter(Boolean)
-    .join(" ");
+  const minutes = reste === null ? null : Math.floor(reste / 60_000);
+  const delai =
+    minutes === null
+      ? null
+      : (() => {
+          const jours = Math.floor(minutes / 1440);
+          const heures = Math.floor((minutes % 1440) / 60);
+          return [
+            jours ? `${jours}${t("anime.unitDay")}` : null,
+            jours || heures ? `${heures}${t("anime.unitHour")}` : null,
+            `${minutes % 60}${t("anime.unitMinute")}`,
+          ]
+            .filter(Boolean)
+            .join(" ");
+        })();
 
   /* La date absolue accompagne le rebours plutot que de le remplacer : "dans
      4j 18h" dit s'il faut attendre, "mercredi 2 sept., 14:30" dit quand
      revenir. Le jour en TOUTES LETTRES : cette barre est la seule ligne de date
      du panneau, elle n'a pas la place a economiser d'une colonne de tableau, et
      "mercredi" se lit sans etre decode. */
-  const date = new Date(airingAt * 1000).toLocaleString(i18n.language, {
-    weekday: "long",
-    day: "numeric",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  const date =
+    maintenant === null
+      ? null
+      : new Date(airingAt * 1000).toLocaleString(i18n.language, {
+          weekday: "long",
+          day: "numeric",
+          month: "short",
+          hour: "2-digit",
+          minute: "2-digit",
+        });
 
   /* Meme boite que la barre des serveurs, de l'autre cote du lecteur
      (components/watch/primary/serverSelector.js) : memes `px-3 py-2`, meme
@@ -160,9 +182,15 @@ function ProchainEpisode({
         <span style={{ color: T.txt0, fontWeight: 600 }}>
           {t("common.episode")} {number}
         </span>{" "}
-        <span style={{ color: T.txt0 }}>{t("anime.airsIn", { delay: delai })}</span>
-        {" · "}
-        {date}
+        {delai !== null && (
+          <>
+            <span style={{ color: T.txt0 }}>
+              {t("anime.airsIn", { delay: delai })}
+            </span>
+            {" · "}
+            {date}
+          </>
+        )}
       </span>
 
       {/* Le rappel. Il ne promet que ce qu'il tient : rien n'est envoye, rien
