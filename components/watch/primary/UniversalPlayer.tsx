@@ -406,6 +406,11 @@ const POLL_MS = 250;
 /** Au-dela, la copie proxifiee ne repondra pas : pas de mesure, pas de
  *  vignette. */
 const PROBE_TIMEOUT_MS = 8000;
+/* Au-dela de ce delai sans verdict, l'attente cesse d'etre une transition et
+   devient un ecran noir : la vignette de l'episode monte pour la couvrir.
+   Assez long pour qu'un flux tiede n'en passe jamais par la (donc aucun
+   clignotement ajoute), assez court pour qu'on ne fixe pas du noir. */
+const ATTENTE_VISIBLE_MS = 500;
 
 /** Luminance moyenne et amplitude de l'image courante, reduite a 16x9, Rec.709.
  *  `null` = canvas teinte : le flux ne repond pas d'en-tete CORS et ses pixels
@@ -2346,6 +2351,28 @@ export default function UniversalPlayer({
   const [firstFrameLit, setFirstFrameLit] = useState<boolean | null | undefined>(
     undefined,
   );
+
+  /* L'attente, quand elle se VOIT.
+     Le voile noir couvre la mesure, et la vignette reste effacee dessous : ca
+     evite le clignotement d'une image d'episode qui bascule vers la video sous
+     les yeux. Le raisonnement tient tant que la mesure est breve — il ne tient
+     plus des que le flux met plusieurs secondes a livrer sa premiere image,
+     puisqu'on troque alors un clignotement de 250 ms contre un rectangle noir
+     de plusieurs secondes. Signale le 29/08/2026 : « le lecteur charge mais
+     l'image de l'ep met beaucoup de temps a arriver » — elle etait la, montee
+     et telechargee, juste tenue invisible.
+     Passe ce seuil, on montre la vignette : elle est z-index 1, donc par-dessus
+     le voile. En dessous du seuil, rien ne change et le clignotement reste
+     evite. */
+  const [attenteVisible, setAttenteVisible] = useState(false);
+  useEffect(() => {
+    if (firstFrameLit !== undefined) {
+      setAttenteVisible(false);
+      return;
+    }
+    const id = setTimeout(() => setAttenteVisible(true), ATTENTE_VISIBLE_MS);
+    return () => clearTimeout(id);
+  }, [firstFrameLit, blindProbeSrc]);
 
   /* Chemin 1 — le flux est illisible d'avance (`noCors`).
      La question part DES QUE l'adresse du flux est connue : ni le lecteur ni sa
@@ -5449,7 +5476,10 @@ export default function UniversalPlayer({
                  L'opacite par une classe et non par un demontage, pour que le
                  fondu du CSS ait lieu. */
               className={`as-poster${
-                firstFrameLit === false ? "" : " as-poster-off"
+                firstFrameLit === false ||
+                (firstFrameLit === undefined && attenteVisible)
+                  ? ""
+                  : " as-poster-off"
               }`}
               src={poster}
               alt=""
