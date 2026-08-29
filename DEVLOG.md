@@ -27,8 +27,9 @@ construit depuis `git log --since=<derniere release>`.
 - Sur `dev` depuis le 29/08 : numerotation des saisons corrigee (JJK, AoT, MHA)
   + `tools/season-audit` ; TMDB devant ani.zip pour les vignettes d'episode ;
   episodes non diffusees retires de la liste ; fondu au blanc traite comme un
-  fondu au noir. **Six caches montent de version** — `seasonChain:v11`,
-  `seasonList:v22`, `tmdbStills:v2`, `episode:v9`, et cote client
+  fondu au noir ; la marche des vignettes de la barre ne fait plus refuser les
+  segments par le CDN. **Six caches montent de version** — `seasonChain:v11`,
+  `seasonList:v22`, `tmdbStills:v3`, `episode:v11`, et cote client
   `as:firstframe:v2`. Attendre leur premiere reconstruction avant de juger une
   page sur dev.
 
@@ -97,6 +98,7 @@ construit depuis `git log --since=<derniere release>`.
 
 ### Lecteur video & lecteurs distants — [`devlog/player.md`](devlog/player.md)
 
+- 2026-08-29 — Les vignettes de la barre faisaient refuser la lecture (429)
 - 2026-08-29 — La premiere frame blanche, et le voile qui manquait
 - 2026-08-29 — Les episodes pas encore sortis, et la molette rendue au navigateur
 - 2026-08-17 — La langue avant le lecteur : un classement 1-2-3 pose une fois

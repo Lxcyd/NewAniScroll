@@ -6,6 +6,58 @@ megaplay, vidmoly...).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-08-29 — Les vignettes de la barre faisaient refuser la lecture
+
+**Le symptome** : console pleine de `429 Too Many Requests` sur
+`proxy.aniscroll.com`, sur des segments video, les memes revenant cinq ou six
+fois de suite.
+
+**Ce que la mesure a dit, et qui n'etait pas ce qu'on croyait.** Nouveau banc,
+`tools/browser-check/proxy-429.mjs` : il enregistre chaque requete vers le proxy
+avec son STATUT et la premiere image de sa pile d'appel — c'est cette derniere
+qui tranche, parce qu'a l'URL pres rien ne distingue le lecteur d'autre chose.
+Sur Mobile Suit Gundam, ep. 1 :
+
+    statuts : 200x266, 429x42
+    origines des 200 : bundle x211, hls.min.js x51
+    200 : 266 requetes, 247 cibles DISTINCTES
+
+**247 cibles distinctes en dix secondes.** Un tampon de lecture ne fait pas ca —
+hls.js, lui, en demande 51, sequentiellement. Le reste vient de `HoverPreview`,
+qui precalcule les vignettes de la barre de progression en balayant TOUTE la
+timeline avec **six decodeurs paralleles**, chacun sa propre instance hls.js.
+Six rafales plus le lecteur : le CDN repond 429. Et comme les instances
+d'apercu heritaient de `fragLoadingMaxRetry: 4`, chaque refus repartait quatre
+fois — huit refus devenaient quarante-deux requetes.
+
+Trois corrections, du plus grossier au plus important :
+
+- **six decodeurs -> trois.** Le gain venait du recouvrement des latences de
+  seek, pas du nombre ; la rafale, elle, suit le nombre.
+- **`fragLoadingMaxRetry: 1`** sur les instances d'apercu. Une vignette ratee
+  est une vignette de moins, pas une coupure. Le lecteur garde sa patience.
+- **Au troisieme refus reseau, la marche de fond s'arrete** (`REFUS_MAX`). Un
+  CDN qui repond 429 dit qu'on lui demande trop ; insister prend la bande
+  passante de la lecture. Les vignettes deja prises restent affichables et le
+  survol continue d'en produire a la demande — c'est le mode `lazy` qui existait
+  deja pour les CDN fragiles. On perd la densite, jamais la fonction.
+
+Verifie sur dev, meme banc, apres deploiement : **42 refus -> 6**, et les six
+arrivent tard, avec une seule reprise chacun. Le compte de decodeurs se lit
+aussi a l'oeil : `document.querySelectorAll('video').length` passe de 7 a 4.
+
+**La lecon.** Un 429 sur une URL de segment se lit spontanement comme « le
+lecteur demande trop ». La pile d'appel disait autre chose. Tant qu'on ne
+mesure pas QUI emet, on optimise le mauvais composant — et les deux reglages de
+`HLS_CONFIG` qu'on aurait pu passer une heure a retoucher n'y etaient pour rien.
+
+**Au passage**, l'avertissement `preloaded but not used` sur la banniere : au
+premier rendu la liste d'episodes n'est pas encore la, `posterUrl` retombe donc
+sur `info.bannerImage` et on prechargeait celle-ci en haute priorite. La liste
+arrivait une fraction de seconde plus tard, le poster devenait l'image de
+l'episode, et la banniere telechargee ne servait a rien. Le `<link rel=preload>`
+lit desormais `posterPreload`, qui n'accepte que l'image propre a l'episode.
+
 ## 2026-08-29 — La premiere frame blanche, et le voile qui manquait
 
 **Le symptome** : sur un episode qui ouvre par un fondu au BLANC, le lecteur
