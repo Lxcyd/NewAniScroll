@@ -182,6 +182,11 @@ export default function ChangeLogs() {
       const seen = readSeenSet();
       const alreadySeen = Array.from(sigs).some((s) => seen.has(s));
       if (active && !alreadySeen) setIsOpen(true);
+    }).catch(() => {
+      /* `chargePopups` remet son cache a null puis relance en cas d'echec, pour
+         qu'un montage ulterieur puisse reessayer. Sans ce catch, ce rejet
+         n'aurait aucun gestionnaire : rejet non gere en console, sur un
+         composant monte partout. Le popup est un confort, il s'abstient. */
     });
     return () => {
       cancelled = true;
