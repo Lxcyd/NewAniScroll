@@ -309,8 +309,21 @@ export default function Info({
     if (info?.id) setPrefetchedInfo(info.id, info);
   }, [info?.id, info]);
 
+  /* L'episode de reprise n'est connu qu'une fois la session tranchee ET la
+     liste de l'utilisateur lue (les deux arrivent APRES l'hydratation : le SSR
+     sert `initialProgress: 0` a tout le monde pour rester cacheable au bord).
+     Sans cette porte, l'effet ci-dessous partait deux fois pour quiconque a
+     deja commence la serie : une premiere fois sur l'episode 1 — un scrape
+     `/api/v2/source` complet, le poste le plus cher du site, pour un episode
+     que personne n'ouvrira — puis une seconde sur le bon. On paie donc le prix
+     fort en Active CPU sur la page la plus visitee, pour prechauffer a cote.
+     Attendre coute au pire la resolution de la session (deja en vol au montage,
+     ~100 ms) : bien moins que le scrape jete. */
+  const resumeKnown = sessionStatus !== "loading" && statusResolved;
+
   useEffect(() => {
     if (!info?.id) return;
+    if (!resumeKnown) return;
     const resumeEp = Math.max(1, (progress || 0) + 1);
     const server = "megaplay";
     const watchHref = `/en/anime/watch/${info.id}/${server}?id=${server}-${info.id}-${resumeEp}&num=${resumeEp}`;
@@ -478,7 +491,7 @@ export default function Info({
       if (!goingToWatch) clearPrefetchedSourcesFor(info.id);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [info?.id, progress]);
+  }, [info?.id, progress, resumeKnown]);
 
   /* Optimistic favourite toggle. Flips the heart immediately so the
      click feels instant; if the AniList mutation fails we roll back

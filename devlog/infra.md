@@ -6,6 +6,42 @@ crons de rafraichissement, usage-monitor, analytics, et les releases
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-08-30 — Le prechauffage partait deux fois, et la premiere visait l'episode 1
+
+**Le constat.** Fluid Active CPU a **3 h 59 sur les 4 h** du plan Hobby le 30/08,
+a deux jours de la remise a zero. Le releve du 22/08 tient toujours : les pages
+sont cachees au bord, le seul MISS structurel est la fiche anime (chaque vue
+tombe sur un id neuf), et le levier est de rendre le MISS moins cher.
+
+**Ce qui a ete trouve.** L'effet de prechauffage de la fiche
+(`pages/en/anime/[...id].tsx`) depend de `progress`, et `progress` vaut
+**toujours 0 au premier rendu** : le SSR sert `initialProgress: 0` a tout le
+monde, c'est precisement ce qui rend la page cacheable au bord. La vraie valeur
+n'arrive qu'apres hydratation (liste AniList ou liste locale). Consequence pour
+**tout visiteur ayant deja commence la serie** — donc exactement ceux qui
+regardent — l'effet partait **deux fois** :
+
+1. a 200 ms, sur `resumeEp = 1` : un `/api/v2/source` complet, c'est-a-dire un
+   scrape anime-sama/voiranime + extraction, le poste le plus cher du site, pour
+   un episode que personne n'ouvrira. Le cache Redis de `/source` tient 5 min :
+   sur un catalogue ou chaque vue est un id neuf, c'est un scrape a froid ;
+2. a l'arrivee de `progress`, sur le bon episode.
+
+L'`AbortController` du cleanup n'y change rien : il annule le fetch **cote
+client**, la fonction Vercel, elle, va au bout de son scrape.
+
+**Le correctif.** Une porte `resumeKnown` (`sessionStatus !== "loading" &&
+statusResolved`) devant l'effet : on ne prechauffe qu'une fois l'episode de
+reprise connu. Cout au pire, la resolution de la session — deja en vol au
+montage, ~100 ms — contre un scrape entier jete.
+
+**A ne pas confondre avec une regression de code.** La remontee du 28-30/08 sur
+le graphe a une autre cause, structurelle : le quota est **par projet, toutes
+environnements confondus**. `dev.aniscroll.com` puise dans les memes 4 h, et un
+deploiement de preview a sa propre cle de cache d'edge — chaque vue y est un
+MISS par construction. ~100 commits en trois jours + le protocole « tout test
+navigateur se fait sur dev » suffisent a expliquer la bosse.
+
 ## 2026-08-26 — Le chunk que personne ne peut éviter : `_app` divisé par deux
 
 Le 22/08 avait traité la page watch. Le même raisonnement appliqué un cran plus
