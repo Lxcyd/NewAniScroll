@@ -209,12 +209,17 @@ function filterData(data: any[], type: "sub" | "dub") {
  * s'attend derriere un voile noir. Les listes deja en cache portent l'ancienne
  * URL pendant trente jours.
  *
+ * v9 -> v10 (2026-08-29): le garde de coherence Fribb ne refuse plus une saison
+ * dont le compte d'episodes tombe exactement juste (Mobile Suit Gundam et ses
+ * semblables gagnent les vignettes TMDB). Les listes en cache portent les
+ * screencaps TVDB pendant trente jours.
+ *
  * This is the same trap as CACHE_VERSION in lib/db/tmdbImagesCache.ts, hit
  * twice in one afternoon: a cache outlives the reason its contents were what
  * they were, and no TTL can notice.
  */
 const EPISODE_CACHE_KEY = (id: string | string[] | undefined) =>
-  `episode:v9:${id}`;
+  `episode:v10:${id}`;
 
 export default async function handler(
   req: NextApiRequest,

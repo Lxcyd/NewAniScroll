@@ -68,8 +68,12 @@ const KEY_PREFIX: Record<StillsSource, string> = {
   /* v2 depuis le 28/08/2026 : les URL stockees portent la TAILLE (`/w300/`,
      desormais `/w780/`), donc une ligne v1 servirait des vignettes floues
      pendant les 7 jours de son TTL. Le tag de version est la pour ca — les
-     lignes v1 restent en base, inertes, plutot qu'un DELETE de masse. */
-  tmdb: "tmdbStills:v2:",
+     lignes v1 restent en base, inertes, plutot qu'un DELETE de masse.
+     v3 (29/08) : le garde de coherence Fribb ne refuse plus une saison dont le
+     compte d'episodes tombe EXACTEMENT juste. Ce sont les REFUS qui sont en
+     cache, et un refus ne se corrige pas tout seul — sans le tag, Gundam et ses
+     semblables auraient garde leurs screencaps TVDB. */
+  tmdb: "tmdbStills:v3:",
   anizip: "anizipStills:v1:",
   // Il y a eu un prefixe "simklStills:v1:". Simkl est retire (22/08/2026) et
   // plus rien ne l'ecrit ni ne le lit ; ses lignes restent en base, inertes,

@@ -32,13 +32,19 @@
  *
  * The floor check alone is NOT enough to catch a fusion, which is why
  * `isFribbGroupConsistent()` is consulted too. Measured on the live API
- * (2026-08-08): TMDB's Jujutsu Kaisen season 1 holds **59** episodes — it has
- * S1 and S2 fused into one. AniList's S2 entry maps to that same season, so a
- * naive fill would take TMDB episodes 1-23 (which are S1's) and paste them onto
- * S2's rows: a "more episodes than we display" pass, and every single image
- * wrong. That is precisely the undercut case the guard detects (fewer distinct
- * TMDB seasons than TV-like entries in the franchise). It costs one extra Turso
- * read and buys the difference between a missing image and a lying one.
+ * (2026-08-08, re-verifie le 29/08): TMDB's Jujutsu Kaisen season 1 holds **59**
+ * episodes — it has S1 and S2 fused into one. A naive fill would take TMDB
+ * episodes 1-23 and paste them onto rows they don't belong to: a "more episodes
+ * than we display" pass, and every single image wrong. That is precisely the
+ * undercut case the guard detects (fewer distinct TMDB seasons than TV-like
+ * entries in the franchise).
+ *
+ * Ce garde juge la FRANCHISE, pas la saison, et il refusait donc des saisons
+ * parfaitement mappees : Mobile Suit Gundam, groupe de huit entrees declare
+ * incoherent, saison TMDB de 43 episodes pour 43 affiches. Il ne s'applique
+ * plus quand le compte tombe EXACTEMENT juste — une fusion compte forcement
+ * plus d'episodes que ce qu'on affiche, donc l'egalite l'exclut. Jujutsu Kaisen
+ * (59 pour 24) continue d'etre refuse.
  *
  * Fail-soft throughout; nothing throws.
  */
@@ -94,8 +100,8 @@ export async function getTmdbEpisodeStills(
   if (!tmdbEnabled()) return EMPTY;
   if (wanted.size === 0) return EMPTY;
 
-  /* Cle `tmdbStills:v2:` depuis le 28/08/2026 — les URL stockees portent la
-     taille, voir lib/db/tmdbStillsCache.ts. */
+  /* Cle versionnee — les URL stockees portent la taille, et les REFUS aussi
+     sont en cache. Voir lib/db/tmdbStillsCache.ts. */
   const cached = await getCachedStills(anilistId, "tmdb");
   if (cached) return cached.stills ?? {};
 
@@ -126,14 +132,8 @@ export async function getTmdbEpisodeStills(
     return await refuse("no-season", entry.tmdbTvId);
   }
 
-  /* Fusion guard — see the header. Without it, a franchise TMDB merged into one
-     season hands every sequel entry the FIRST season's frames, and the floor
-     check below waves it through because a fused season is longer, not shorter.
-     Wrong images are worse than no images, so an inconsistent group refuses. */
   const franchise = await getFribbFranchise(entry.tmdbTvId);
-  if (franchise.length > 1 && !isFribbGroupConsistent(franchise)) {
-    return await refuse("fribb-inconsistent", entry.tmdbTvId, entry.tmdbSeason);
-  }
+  const groupeDouteux = franchise.length > 1 && !isFribbGroupConsistent(franchise);
 
   const episodes = await getSeasonEpisodes(entry.tmdbTvId, entry.tmdbSeason);
   // null is a failed request or a 404 on the season, not "no stills".
@@ -147,6 +147,24 @@ export async function getTmdbEpisodeStills(
      fused or renumbered season. */
   if (episodes.length < displayedEpisodes) {
     return await refuse("too-few-episodes", entry.tmdbTvId, entry.tmdbSeason);
+  }
+
+  /* Garde de fusion — voir l'en-tete. Sans lui, une franchise que TMDB a
+     fusionnee en une saison donne a chaque suite les images de la PREMIERE, et
+     le plancher ci-dessus laisse passer puisqu'une saison fusionnee est plus
+     longue, pas plus courte.
+     Mais il juge la FRANCHISE, pas la saison, et c'est trop grossier : Mobile
+     Suit Gundam (mesure du 29/08/2026) porte un groupe Fribb de huit entrees
+     declare incoherent, alors que sa saison TMDB compte exactement les 43
+     episodes qu'on affiche. Il n'avait donc aucune image de TMDB, et gardait
+     les screencaps TVDB.
+     D'ou la condition, qui ne relache rien : une EGALITE EXACTE rend la fusion
+     arithmetiquement impossible, puisqu'une saison fusionnee compte forcement
+     plus d'episodes que celle qu'on affiche. Verifie sur le cas d'origine —
+     Jujutsu Kaisen, saison TMDB de 59 episodes pour 24 affiches : pas d'egalite,
+     le garde continue de refuser. */
+  if (groupeDouteux && episodes.length !== displayedEpisodes) {
+    return await refuse("fribb-inconsistent", entry.tmdbTvId, entry.tmdbSeason);
   }
 
   const stills: TmdbStills = {};
