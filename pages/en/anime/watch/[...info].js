@@ -106,6 +106,12 @@ const PROXY_BASE =
 const DECOY_BACKOFF_MS = [800, 1600, 3200];
 const DECOY_RETRIES = DECOY_BACKOFF_MS.length;
 
+/* Au-dela, une roue qui tourne n'informe plus : on nomme le lecteur en cause et
+   on propose d'en changer. Large a dessein — sibnet sert un MP4 progressif a
+   674 Ko/s (mesure du 29/08/2026), et la resolution froide d'anime-sama coute
+   plusieurs secondes. Ce delai coupe les pannes, pas la lenteur. */
+const SPINNER_MAX_MS = 15000;
+
 /* The SSR fetches FULL_MEDIA_FIELDS because the server-side caches this page
    primes (`primeMediaCache`) are shared with the info page, which needs the
    whole record. The PROP, though, is serialised into the HTML of every episode
@@ -496,6 +502,12 @@ export default function Watch({
      Remis a zero au changement d'episode : un lecteur mort sur l'episode 3 n'a
      aucune raison d'etre condamne sur le 4. */
   const triedFailedRef = useRef(new Set());
+
+  /* De quel lecteur on vient, et si on l'a quitte de son plein gre. Lus par
+     l'effet d'annonce de la bascule (plus bas) ; poses ici parce que
+     `handleServerChange` les touche avant d'y arriver. */
+  const serveurPrecedentRef = useRef(null);
+  const basculeVoulueRef = useRef(false);
 
   const markFailed = useCallback((id, reason, { hostDown = false } = {}) => {
     /* Un echec PASSAGER n'efface pas une confirmation deja acquise.
@@ -1082,6 +1094,34 @@ export default function Watch({
     // l'episode 3 doit pouvoir etre retente sur le 4.
     triedFailedRef.current = new Set();
   }, [info?.id, epiNumber, dub]);
+
+  /* Filet : le lecteur ne doit pas dependre des METADONNEES pour exister.
+     `episodeNavigation` n'est pose que par l'effet ci-dessous, qui abandonne
+     sur `if (!info) return` ; or `playerNode` rend un <SpinLoader/> tant qu'il
+     est nul. Metadonnees absentes (SSR rate + Turso vide + /api/v2/media en
+     404, ou AniList en panne) = roue qui ne s'arrete jamais — alors que la
+     source, elle, est peut-etre deja resolue : `earlySource` la demande sans
+     jamais toucher AniList.
+     L'URL porte tout ce dont le lecteur a besoin pour demarrer. On pose donc le
+     minimum, et l'effet suivant l'ecrase des que la vraie liste arrive. Jamais
+     par-dessus une navigation deja construite : `prev ||`. */
+  useEffect(() => {
+    if (info || !aniId || !epiNumber) return;
+    setEpisodeNavigation(
+      (prev) => prev || { playing: { number: Number(epiNumber) } },
+    );
+  }, [info, aniId, epiNumber]);
+
+  /* Le spinner n'est pas un etat d'arrivee. Passe ce delai, on montre l'erreur
+     — qui nomme le lecteur et propose d'en changer — plutot qu'une roue qui
+     tourne indefiniment sans rien dire. Signale le 29/08/2026. */
+  const [attenteEpuisee, setAttenteEpuisee] = useState(false);
+  useEffect(() => {
+    setAttenteEpuisee(false);
+    if (episodeNavigation && !hlsLoading) return;
+    const id = setTimeout(() => setAttenteEpuisee(true), SPINNER_MAX_MS);
+    return () => clearTimeout(id);
+  }, [activeServer, info?.id, aniId, epiNumber, dub, episodeNavigation, hlsLoading]);
 
   // ── Episode list + navigation ────────────────────────────────
   useEffect(() => {
@@ -2099,6 +2139,9 @@ export default function Watch({
          quitterait aussitot. La memoire ne sert qu'a empecher la ronde
          automatique, jamais a interdire un choix a l'utilisateur. */
       triedFailedRef.current.delete(serverId);
+      // Un changement VOULU ne s'annonce pas comme une panne : cf. l'effet
+      // d'annonce plus bas, qui ne parle que des bascules subies.
+      basculeVoulueRef.current = true;
       setActiveServer(serverId);
       // Le choix devient l'exception de CET anime, et rien d'autre.
       //
@@ -2131,14 +2174,21 @@ export default function Watch({
     const onCycle = () => {
       const { getServersByLang } = require("@/lib/servers");
       const { serverPerfRank } = require("@/lib/watch/serverPerf");
-      const { shouldShowServer } = require("@/lib/watch/serverVisibility");
+      const { shouldShowServer, isDegraded } = require("@/lib/watch/serverVisibility");
       // Meme ordre ET meme regle de visibilite que le selecteur — les deux
       // etaient recopies ici et avaient deja diverge, ce qui faisait atterrir
       // le raccourci sur un lecteur qu'aucun chip n'affichait.
       const groups = getServersByLang(serverPerfRank);
-      const pool = [...groups.multi, ...groups.vo, ...groups.vf].filter((s) =>
+      const visibles = [...groups.multi, ...groups.vo, ...groups.vf].filter((s) =>
         shouldShowServer(s, activeServer, confirmedServers, failedServers),
       );
+      /* Les chips en panne restent AFFICHEES (on peut vouloir y retourner) mais
+         le raccourci les saute : il sert a trouver un lecteur qui marche, pas a
+         parcourir la liste. On n'y revient que s'il n'y a rien d'autre. */
+      const sains = visibles.filter(
+        (s) => s.id === activeServer || !isDegraded(failedServers, s.id),
+      );
+      const pool = sains.length > 1 ? sains : visibles;
       if (pool.length < 2) return; // nothing to cycle to
       const idx = pool.findIndex((s) => s.id === activeServer);
       const next = pool[(idx + 1) % pool.length];
@@ -2152,6 +2202,50 @@ export default function Watch({
     window.addEventListener("aniscroll:cycleServer", onCycle);
     return () => window.removeEventListener("aniscroll:cycleServer", onCycle);
   }, [confirmedServers, failedServers, activeServer, handleServerChange, t]);
+
+  /* La bascule automatique s'annonce. Elle partait muette : le lecteur changeait
+     sous les yeux sans que rien ne dise lequel avait lache ni pourquoi — d'ou
+     « il change tout seul de lecteur » lu comme une panne du site plutot que
+     comme le repli qu'elle est. Le filet de securite plus haut affirme deja
+     qu'« un lecteur arrete, dont l'erreur est lisible » vaut mieux qu'une
+     ronde ; encore faut-il que quelque chose la rende lisible.
+     On annonce depuis un effet et non depuis `markFailed` : la cible y est
+     choisie dans un updater d'etat, que React n'execute pas forcement au moment
+     de l'appel. Ici on lit le fait accompli.
+     Ne parle que des bascules SUBIES : un clic pose `basculeVoulueRef`, et un
+     changement qui ne suit aucun echec (preference, URL, party) n'est pas une
+     panne. */
+  useEffect(() => {
+    const avant = serveurPrecedentRef.current;
+    serveurPrecedentRef.current = activeServer;
+    if (avant === activeServer) return;
+    if (basculeVoulueRef.current) {
+      basculeVoulueRef.current = false;
+      return;
+    }
+    if (!triedFailedRef.current.has(avant)) return;
+    const SERVERS = require("@/lib/servers").default;
+    const nom = (sid) => SERVERS.find((s) => s.id === sid)?.name || sid;
+    notify(t("player.autoSwitched", { from: nom(avant), to: nom(activeServer) }));
+  }, [activeServer, t]);
+
+  /* Vers ou renvoyer quand le lecteur courant ne repond pas. La carte d'erreur
+     proposait « Passer a Megaplay » en dur — ce qui ne mene nulle part quand
+     c'est justement Megaplay qui est en panne. On prend le premier lecteur
+     AFFICHE autre que l'actif, avec la meme regle de visibilite que la barre. */
+  const lecteurDeSecours = useMemo(() => {
+    const { getServersByLang } = require("@/lib/servers");
+    const { serverPerfRank } = require("@/lib/watch/serverPerf");
+    const { shouldShowServer } = require("@/lib/watch/serverVisibility");
+    const groups = getServersByLang(serverPerfRank);
+    return (
+      [...groups.multi, ...groups.vo, ...groups.vf].find(
+        (s) =>
+          s.id !== activeServer &&
+          shouldShowServer(s, activeServer, confirmedServers, failedServers),
+      ) || null
+    );
+  }, [activeServer, confirmedServers, failedServers]);
 
   // ── Media Session (OS-level now playing) ────────────────────
   useEffect(() => {
@@ -2244,6 +2338,19 @@ export default function Watch({
     const needsBackend = server.type === "hls" || server.type === "api";
 
     if (!episodeNavigation || (needsBackend && hlsLoading)) {
+      /* Passe le delai, l'erreur remplace la roue : un spinner qui ne s'arrete
+         pas ne dit ni ce qui manque ni quoi faire. C'est le « spinner infini »
+         signale le 29/08/2026. */
+      if (attenteEpuisee) {
+        return (
+          <CarteIndisponible
+            nom={server.name}
+            secours={lecteurDeSecours}
+            onSwitch={handleServerChange}
+            t={t}
+          />
+        );
+      }
       return (
         <div className="flex-center aspect-video w-full h-full relative">
           <SpinLoader />
@@ -2276,16 +2383,12 @@ export default function Watch({
     if (needsBackend) {
       if (hlsData?.error) {
         return (
-          <div className="flex-center aspect-video w-full h-full bg-black text-white/50 font-karla flex-col gap-2 rounded-card ring-1 ring-white/5">
-            <p>{t("player.serverUnavailable", { name: server.name })}</p>
-            <button
-              type="button"
-              onClick={() => handleServerChange("megaplay")}
-              className="text-as-accent underline text-sm"
-            >
-              {t("player.switchToMegaplay")}
-            </button>
-          </div>
+          <CarteIndisponible
+            nom={server.name}
+            secours={lecteurDeSecours}
+            onSwitch={handleServerChange}
+            t={t}
+          />
         );
       }
 
@@ -2356,7 +2459,7 @@ export default function Watch({
     // (which changes on every chat/presence update) — otherwise the player
     // rebuilds on each message, restarting playback and breaking sync.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeServer, episodeNavigation, hlsLoading, hlsData, info, epiNumber, dub, markFailed, handleServerChange, autoplay, handleEpisodeComplete, isFinalEpisode, isSingleEpisode, handleFinalEpisodeNearEnd, party?.onRemote, party?.broadcast]);
+  }, [activeServer, episodeNavigation, hlsLoading, hlsData, info, epiNumber, dub, markFailed, handleServerChange, autoplay, handleEpisodeComplete, isFinalEpisode, isSingleEpisode, handleFinalEpisodeNearEnd, party?.onRemote, party?.broadcast, attenteEpuisee, lecteurDeSecours, t]);
 
   // ── Render ───────────────────────────────────────────────────
   // The Watch-Party panel. Rendered in two places: on mobile it sits in the
@@ -2922,6 +3025,29 @@ const WATCH_BTN =
   // desormais une colonne large, ou trois pastilles muettes de 40 px de haut
   // flottaient sans rien dire de ce qu'elles font.
   "flex flex-col items-center justify-center gap-2 rounded-[13px] border border-[#2f3447] bg-[#1a1d29] px-2 py-3.5 text-center text-[11.5px] font-semibold leading-tight text-[#c4c8d4] transition-colors hover:border-[#3d4359] hover:bg-[#242838] hover:text-white disabled:opacity-40";
+
+/* Ce que voit le spectateur quand un lecteur ne repond pas : son nom, et une
+   sortie. Elle etait deja ecrite mais INATTEIGNABLE dans les deux cas ou elle
+   sert le plus — metadonnees absentes et resolution qui ne revient jamais
+   rendaient tous deux un spinner, avant elle. Un seul exemplaire, employe aux
+   deux endroits, pour qu'ils ne divergent pas.
+   Sans lecteur de secours a proposer, on n'affiche pas de bouton mort. */
+function CarteIndisponible({ nom, secours, onSwitch, t }) {
+  return (
+    <div className="flex-center aspect-video w-full h-full bg-black text-white/50 font-karla flex-col gap-2 rounded-card ring-1 ring-white/5">
+      <p>{t("player.serverUnavailable", { name: nom })}</p>
+      {secours && (
+        <button
+          type="button"
+          onClick={() => onSwitch(secours.id)}
+          className="text-as-accent underline text-sm"
+        >
+          {t("player.switchTo", { name: secours.name })}
+        </button>
+      )}
+    </div>
+  );
+}
 
 function SpinLoader() {
   return (

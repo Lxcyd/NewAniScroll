@@ -2324,25 +2324,26 @@ export default function UniversalPlayer({
      Mesure : la premiere frame reduite a 16x9, sa luminance moyenne et son
      amplitude — voir `frameLooksReal`.
 
-     QUATRE etats, et la distinction entre les deux derniers compte :
-       true      → vraie image, on ne couvre pas
-       false     → image vide, la vignette
-       null      → mesure impossible (canvas teinte, sonde muette) : on ne
-                   couvre pas, mais la question est TRANCHEE
-       undefined → on ne sait pas ENCORE, la mesure court
-     `undefined` est le seul etat pendant lequel un voile noir couvre la video
-     (cf. `as-veil` plus bas). Sans lui, la premiere frame se voyait le temps de
-     la sonde : sans consequence sur un fondu au noir, une seconde de page
-     blanche sur un fondu au blanc.
+     QUATRE etats, mais UN SEUL a un effet : `false`. Les trois autres —
+     `true` (vraie image), `null` (mesure impossible), `undefined` (la mesure
+     court) — montrent tous la video. Voir `vignetteVisible` : la vignette
+     n'apparait que sur un fait etabli, jamais sur une ignorance.
 
      UN SEUL passage a `false`, et jamais avant d'en etre sur. C'est le point
      dur : une vignette posee puis retiree est le defaut le plus visible de
      tous, et c'est ce que produisait toute mesure prise trop tot — `readyState
-     >= 2` dit qu'une image est decodable, pas qu'elle est peinte, et lire le
-     canvas a cet instant rend du noir sur un episode qui n'en a pas. D'ou
+     >= 2` dit qu'une image est decodable, pas qu'elle est peinte. D'ou
      `confirm` : deux lectures noires separees de CONFIRM_MS, et seulement
      alors la vignette. Une lecture claire, elle, tranche du premier coup —
-     il n'y a rien a masquer, donc rien a risquer. */
+     il n'y a rien a masquer, donc rien a risquer.
+
+     Mesure du 29/08/2026, qui valide ce reglage : sur trois fichiers sans
+     rapport (One Piece 3 en HLS, Frieren 2, One Piece 5 en MP4 sibnet), trois
+     lectures espacees de 300 ms rendent la MEME valeur, identique a celle
+     relevee apres un `play()` puis un retour a `currentTime = 0` — donc sur une
+     frame certainement presentee. Les valeurs : 0 / 250,7 / 0,85 de luminance
+     moyenne pour 0 / 4 / 0 d'amplitude. Ces episodes ouvrent reellement sur un
+     fondu ; le verdict `false` est juste, et la vignette ne couvre rien. */
   const [firstFrameLit, setFirstFrameLit] = useState<boolean | null | undefined>(
     undefined,
   );
@@ -2414,26 +2415,25 @@ export default function UniversalPlayer({
     };
   }, [playerElState]);
 
-  /* Le voile se leve quand la question est TRANCHEE en faveur de la video :
-     `true` (vraie image) ou `null` (mesure impossible). Tant qu'elle court
-     (`undefined`), il couvre — c'est sa raison d'etre. */
-  const voileLeve = firstFrameLit === true || firstFrameLit === null;
+  /* UN SEUL predicat gouverne ce qu'on voit avant la lecture, et sa valeur par
+     defaut montre la VIDEO. La vignette n'apparait que sur un fait etabli,
+     jamais sur une ignorance :
 
-  /* UNE seule question decide des DEUX calques : la video montre-t-elle
-     quelque chose de reel ? Il lui faut une image decodee ET le droit de la
-     montrer. Les deux conditions, pas une.
-     Les separer produisait un trou mesure le 29/08/2026 sur sibnet : a 8,0 s la
-     video obtient son image (rs=4, 1440 px) et la vignette se retirait aussitot
-     — mais le verdict etait encore `undefined`, donc le voile RESTAIT. Elle
-     s'effacait pour laisser voir du noir, puis revenait a 8,8 s quand le verdict
-     tombait a `false`. Vignette → noir → vignette, un demi-seconde de noir a
-     chaque lecteur.
-     Pendant la mesure la vignette reste donc en place. Ce n'est pas un pari :
-     l'alternative n'est pas la video, c'est le voile. Entre l'image de
-     l'episode et un rectangle noir, il n'y a pas a hesiter — et sur le cas pour
-     lequel tout ce bloc existe (verdict `false`), la vignette ne bouge plus du
-     tout. */
-  const vignetteUtile = !(videoAUneImage && voileLeve);
+       aucune image decodee  → vignette (elle ne couvre rien)
+       frame prouvee vide    → vignette (son role d'origine)
+       tout le reste         → video
+
+     « Tout le reste » absorbe `undefined` (mesure en cours), `null` (mesure
+     impossible) et `true`. Il n'existe donc plus aucun etat ou l'on affiche du
+     noir — c'est ce qui supprime la CLASSE de bug, pas un cas.
+
+     Trois corrections successives le 29/08/2026 ont echoue a la fermer parce
+     qu'elles gardaient DEUX predicats pour un seul fait : la vignette et le
+     voile pouvaient etre en desaccord, et chaque desaccord etait un defaut
+     visible (vignette posee sur une vraie image ; puis vignette retiree pour
+     laisser voir le voile ; mesure : vignette → noir 0,5 s → vignette). Le
+     voile a donc disparu avec le second predicat. */
+  const vignetteVisible = !videoAUneImage || firstFrameLit === false;
 
   /* Chemin 1 — le flux est illisible d'avance (`noCors`).
      La question part DES QUE l'adresse du flux est connue : ni le lecteur ni sa
@@ -5525,16 +5525,12 @@ export default function UniversalPlayer({
               qu'on en tirait (annuler le telechargement) etait nul, le
               `preload` en <Head> partant de toute facon des que l'adresse est
               connue.
-              Un seul predicat la gouverne, le meme que le voile : voir la
-              definition de `vignetteUtile`, et le trou « vignette → noir →
-              vignette » qu'elle ferme. */}
+              Un seul predicat la gouverne, et il n'y a plus de second calque
+              avec qui se contredire : voir `vignetteVisible`. */}
           {poster && (
             <img
-              /* Effacee au seul cas ou la video montre quelque chose de reel —
-                 une image decodee ET le droit de la montrer. Partout ailleurs
-                 elle couvre du vide (pas de frame, ou une frame reconnue
-                 blanche), jamais une image reelle. */
-              className={`as-poster${vignetteUtile ? "" : " as-poster-off"}`}
+              /* Visible sur un FAIT etabli, effacee partout ailleurs. */
+              className={`as-poster${vignetteVisible ? "" : " as-poster-off"}`}
               src={poster}
               alt=""
               aria-hidden
@@ -5548,28 +5544,11 @@ export default function UniversalPlayer({
               decoding="sync"
             />
           )}
-          {/* Le voile. Il fait tenir la promesse de la regle : on ne voit
-              JAMAIS la premiere frame d'un fichier qui n'avait rien a montrer.
-              Avant lui, elle restait a l'ecran le temps de la sonde —
-              invisible sur un fondu au noir, une seconde de page blanche sur un
-              fondu au blanc.
-              Il est DESSOUS la vignette (z-index 0 contre 1), et pendant la
-              mesure c'est donc elle qu'on voit : il ne sert qu'a masquer la
-              video elle-meme, jamais a remplacer l'image de l'episode.
-              Il se leve sur `true` (vraie image) comme sur `null` (mesure
-              impossible) — une sonde muette rend la video, elle ne noircit pas
-              le lecteur. Sur `false`, il RESTE : la vignette monte par-dessus
-              en fondu, et le lever a cet instant rouvrirait la frame blanche
-              pendant les 250 ms du fondu. Les deux partent ensemble au premier
-              play, sur le `data-started` du lecteur.
-              Par une classe et non par un demontage, comme la vignette : sans
-              element dans le DOM, pas de transition. */}
-          {poster && (
-            <div
-              className={`as-veil${voileLeve ? " as-veil-off" : ""}`}
-              aria-hidden
-            />
-          )}
+          {/* Le voile noir a ete SUPPRIME le 29/08/2026. Il couvrait la video
+              pendant la mesure de sa premiere frame, ce qui faisait de lui un
+              second predicat pour un seul fait — et donc une source permanente
+              de desaccord avec la vignette. Sous la regle actuelle la fenetre
+              de mesure montre la video, il n'y a plus rien a couvrir. */}
           {subtitleTracks.map((t, i) => (
             <Track
               key={t.src}

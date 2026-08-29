@@ -604,23 +604,10 @@ a {
   opacity: 0;
 }
 
-/* Le voile pose sur la video tant qu'elle n'a rien a montrer — pendant la
-   mesure de sa premiere frame, puis sous la vignette quand cette frame s'est
-   revelee vide. Voir `as-veil` dans UniversalPlayer.
-   Il vit et s'efface exactement comme la vignette, `data-started` compris, et
-   passe DESSOUS : quand la vignette est la, c'est elle qu'on doit voir. */
-.vds-player .as-veil {
-  position: absolute;
-  inset: 0;
-  background: #000;
-  pointer-events: none;
-  z-index: 0;
-  transition: opacity 0.25s ease-out;
-}
-.vds-player[data-started] .as-veil,
-.vds-player .as-veil-off {
-  opacity: 0;
-}
+/* `as-veil` (le voile noir pose sur la video pendant la mesure de sa premiere
+   frame) a ete supprime le 29/08/2026 : voir UniversalPlayer. Il formait un
+   second calque, gouverne par son propre predicat, la ou un seul fait est en
+   jeu — et chaque desaccord entre les deux etait un defaut visible. */
 .vds-player .as-poster {
   z-index: 1;
 }
