@@ -6,6 +6,120 @@ megaplay, vidmoly...).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-08-29 — La premiere frame blanche, et le voile qui manquait
+
+**Le symptome** : sur un episode qui ouvre par un fondu au BLANC, le lecteur
+affichait une page blanche pendant une seconde avant que la vignette ne la
+couvre.
+
+Deux defauts distincts, et le second etait le vrai.
+
+**1. La mesure ne connaissait que le noir.** `frameLuma` rendait une moyenne, et
+la regle etait `moyenne > 12`. Un fondu au blanc passait donc pour une vraie
+image. Le blanc demande une precaution que le noir n'exige pas : un plan tres
+lumineux (neige, ciel d'ete) monte facilement a 200 de moyenne, alors qu'un vrai
+plan de nuit descend rarement sous 12 — le seuil seul suffit d'un cote et pas de
+l'autre. On exige donc **en plus que l'image soit PLATE** (amplitude max-min
+<= 10 sur les 144 echantillons du 16x9) : un fondu n'a aucun relief, un ciel en a
+toujours un peu. `frameLuma` devient `frameStats` (moyenne + amplitude) et le
+verdict passe par `frameLooksReal`.
+
+**2. Rien ne couvrait la video PENDANT la mesure.** C'est ce qui produisait la
+seconde de blanc, et le defaut existait deja pour le noir — ou il ne se voyait
+pas, un noir sur un noir. Un voile noir (`as-veil`) couvre donc la video tant que
+la question n'est pas tranchee, ce qui a demande un **quatrieme etat** :
+
+    undefined -> on ne sait pas ENCORE   -> voile pose
+    false     -> image vide              -> voile pose, SOUS la vignette
+    true      -> vraie image             -> voile leve
+    null      -> mesure impossible       -> voile leve
+
+`undefined` et `null` etaient confondus jusque-la, et la distinction porte tout :
+une sonde muette doit rendre la video, pas noircir le lecteur.
+
+Deux details qui ne sont pas des details :
+
+- le voile **reste** sous la vignette sur un verdict `false`. Le lever a cet
+  instant rouvrirait la frame blanche pendant les 250 ms du fondu d'arrivee de la
+  vignette — le meme bug, en plus court.
+- il est NOIR et pas la vignette. Passer par la vignette puis revenir a la video
+  sur un verdict `true` serait le clignotement que tout ce bloc evite depuis le
+  debut. Du noir vers l'un ou l'autre, il n'y a rien qu'on voie partir.
+
+`as:firstframe` monte en `v2` : les fichiers deja mesures sont memorises « vrai »
+dans le localStorage des visiteurs, et ce verdict ne s'invalide ni par un TTL ni
+par un deploiement.
+
+### Le poster court contre la video, donc il doit etre leger
+
+Une fois le voile pose, l'attente devient VISIBLE : ce qu'on regarde n'est plus
+la frame mais le noir, jusqu'a ce que la vignette soit peinte. Deux mesures :
+
+- `imgHd` passait par `/original/` — 1920 px pour un lecteur qui en fait ~1300.
+  Mesure sur Cyberpunk ep1 : original 202 ko, **w1280 145 ko**, pour aucun pixel
+  perdu. (`episode:v9`, les listes en cache portaient l'ancienne URL 30 jours.)
+- le `<img>` du poster n'est plus monte quand on SAIT qu'il ne servira pas
+  (verdict `true` ou `null`) : le demonter annule le telechargement en cours. Il
+  reste monte pendant toute la mesure — c'est la qu'il se telecharge, sous le
+  voile — et le `preload` en `<Head>` de la page, lui, reste inconditionnel :
+  c'est lui qui lance la course des que l'adresse est connue, bien avant que le
+  lecteur existe.
+
+## 2026-08-29 — Les episodes pas encore sortis, et la molette rendue au navigateur
+
+### Ce qui n'existe pas ne se liste pas
+
+Une saison en cours listait ses douze episodes annonces : les quatre derniers
+donnaient des tuiles noires, sans titre, avec une duree empruntee a la serie, et
+un lien qui ne menait a rien. `info.nextAiringEpisode.episode` dit lequel est le
+prochain a sortir — lui et tous ceux d'apres quittent la liste, l'en-tete annonce
+« Episodes 1-8 » et non plus 1-12, et la date se dit une seule fois en pied de
+panneau : cloche, rebours et date absolue, a la maniere de miruro. Le pied etant
+`shrink-0` dans la meme colonne flex, la liste raccourcit d'autant.
+
+Le bouton « episode suivant » s'eteint par le meme geste, en un seul point :
+`next` devient `undefined` des que le numero vise n'est pas encore diffuse. Le
+bouton du lecteur, l'ecran de fin (SkipOverlay), l'enchainement automatique et le
+`nextId` ecrit dans l'historique testent tous ce champ — ils tombent ensemble.
+
+Le rebours vit dans son propre composant : il se rafraichit a la minute, et
+re-rendre `<EpisodeLists>` a ce rythme reconstruirait les 1174 lignes de One
+Piece. Il dit les minutes jusqu'au bout (« 4j 18h 21min ») : « 4j 18h » laissait
+croire que le rebours et l'heure annoncee ne parlaient pas de la meme chose.
+
+### La molette : trois tentatives pour revenir au point de depart
+
+Demande initiale : arriver au bout de la liste doit passer la molette a la page,
+et une liste qui repasse sous un curseur immobile ne doit pas la reprendre.
+
+Trois mecanismes ecrits, mesures, puis **tous retires**. Ce qui a ete appris vaut
+d'etre garde, parce qu'il est facile de le reapprendre a ses depens :
+
+- Chrome **VERROUILLE** un geste de molette sur le conteneur qu'il a commence a
+  faire defiler. Rendre la liste `overflow: hidden` en butee n'y change rien :
+  mesure au banc CDP (`Input.synthesizeScrollGesture`), la page restait a
+  `scrollY = 0` pendant les 10 s restantes du geste. Le defilement s'arretait net.
+- Chrome ne rend les crans suivants « asynchrones » — non annulables, hors de
+  portee du script — **que si le premier ne l'a pas ete**. Mesure : annulation
+  tardive, 147/148 crans non annulables ; annulation des le premier cran, 0/152.
+  D'ou le verdict d'un commit anterieur (« `preventDefault` ne pouvait pas
+  tenir ») qui n'etait vrai que pour une annulation tardive.
+- Chrome rejoue un `mousemove` **fantome** apres chaque defilement, aux MEMES
+  coordonnees, pour reevaluer le survol. Distinguer « la souris est venue sur la
+  liste » de « la liste est passee sous la souris » demande un repere pose a
+  l'`mouseenter`, jamais efface.
+
+Et la conclusion, arrivee par la fiche anime : la tuile de tags de la page d'info
+n'a **aucun code**, juste un `overflow-y: auto`, et son comportement est
+exactement celui qui etait demande. Le verrouillage de geste EST la regle
+voulue. Les trois arbitrages n'ont fait que lui nuire — ascenseur qui
+disparaissait avec l'overflow, lissage natif perdu, butee qui arretait tout.
+
+**La lecon** : avant d'ecrire un arbitrage de defilement, verifier ce que le
+navigateur fait deja tout seul, et sur un GESTE CONTINU. Un cran isole
+(`Input.dispatchMouseEvent`) ouvre et ferme son propre geste : le verrouillage
+n'y joue jamais, et tout semble marcher.
+
 ## 2026-08-18 — Le chip manquant survit au correctif : c'est l'instantane qui parle
 
 Suite du correctif des pistes de doublage. L'API rendait bien Ansembed VF sur

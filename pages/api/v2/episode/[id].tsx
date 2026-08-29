@@ -131,8 +131,9 @@ function buildEpisodeList(
       img: streaming?.thumbnail || stills[num] || null,
       /* La MEME image en pleine definition, pour le seul poster du lecteur —
          qui l'affiche sur ~1300 px la ou la tuile de liste en fait 200. Elle
-         n'existe que quand le still vient de TMDB (`original`, mesure a
-         1920x1080) ; une screencap ani.zip n'a pas de variante plus grande,
+         n'existe que quand le still vient de TMDB (`w1280` : le lecteur fait
+         ~1300 px, l'original en 1920 etait du poids sans pixel en face) ;
+         une screencap ani.zip n'a pas de variante plus grande,
          et `null` fait simplement retomber le poster sur `img`.
          Depuis que TMDB passe devant ani.zip, c'est vraiment la meme image :
          avant, la tuile pouvait montrer la screencap TVDB pendant que le poster
@@ -202,12 +203,18 @@ function filterData(data: any[], type: "sub" | "dub") {
  * garderait pendant trente jours la screencap TVDB 640x360, c'est-a-dire
  * exactement ce que ce changement corrige.
  *
+ * v8 -> v9 (2026-08-29): `imgHd` passe de `/original/` a `/w1280/`. Le lecteur
+ * fait ~1300 px, donc 1920 etait du poids qu'aucun pixel ne rendait — et ce
+ * poster court contre la premiere frame de la video, tout ce qu'il pese
+ * s'attend derriere un voile noir. Les listes deja en cache portent l'ancienne
+ * URL pendant trente jours.
+ *
  * This is the same trap as CACHE_VERSION in lib/db/tmdbImagesCache.ts, hit
  * twice in one afternoon: a cache outlives the reason its contents were what
  * they were, and no TTL can notice.
  */
 const EPISODE_CACHE_KEY = (id: string | string[] | undefined) =>
-  `episode:v8:${id}`;
+  `episode:v9:${id}`;
 
 export default async function handler(
   req: NextApiRequest,

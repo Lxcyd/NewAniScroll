@@ -17,13 +17,20 @@ est celui **ou vit le code**, pas celui du symptome.
 Le changelog du site (`changelog/`) ne se fabrique PAS a partir d'ici : il se
 construit depuis `git log --since=<derniere release>`.
 
-## Etat courant — 2026-08-16
+## Etat courant — 2026-08-29
 
-- **v0.0.7 en production** depuis le 16/08 (PR #6, `main` == `dev`). Apercu au
-  survol, graphe de franchise, onglet Illustrations, lecteur Ansembed.
-- Le merge a demande une resolution : trois correctifs CI/cron avaient ete
-  commites sur les deux branches. Piege a retenir : `refresh-fanarts.yml`
+- **v0.0.7 en production** depuis le 16/08 (PR #6). `dev` a pris de l'avance
+  depuis : mesurer l'ecart sur le REMOTE (`origin/main..origin/dev`).
+- Le merge du 16/08 a demande une resolution : trois correctifs CI/cron avaient
+  ete commites sur les deux branches. Piege a retenir : `refresh-fanarts.yml`
   s'est auto-merge **sans conflit** en dupliquant tout le bloc classifieur.
+- Sur `dev` depuis le 29/08 : numerotation des saisons corrigee (JJK, AoT, MHA)
+  + `tools/season-audit` ; TMDB devant ani.zip pour les vignettes d'episode ;
+  episodes non diffusees retires de la liste ; fondu au blanc traite comme un
+  fondu au noir. **Six caches montent de version** — `seasonChain:v11`,
+  `seasonList:v22`, `tmdbStills:v2`, `episode:v9`, et cote client
+  `as:firstframe:v2`. Attendre leur premiere reconstruction avant de juger une
+  page sur dev.
 
 ## Chantiers ouverts
 
@@ -46,9 +53,9 @@ construit depuis `git log --since=<derniere release>`.
 | Domaine | Fichier | Entrees | Couvre |
 | --- | --- | --: | --- |
 | Apercu au survol & bandes-annonces | [`devlog/preview.md`](devlog/preview.md) | 32 | carte de survol, trailer, lumiere d'ambiance, blocage YouTube |
-| Lecteur video & lecteurs distants | [`devlog/player.md`](devlog/player.md) | 40 | raccourcis, toasts, autoplay, plein ecran, w2g, lecteurs distants |
+| Lecteur video & lecteurs distants | [`devlog/player.md`](devlog/player.md) | 42 | raccourcis, toasts, autoplay, plein ecran, w2g, lecteurs distants |
 | Detecteur OP/ED | [`devlog/oped.md`](devlog/oped.md) | 11 | tools/opening-detector, replis F1-F7, garde-fous P1-P8, audits |
-| Pages, saisons, relations & sources de donnees | [`devlog/site.md`](devlog/site.md) | 13 | saisons, graphe de franchise, hero, navbar, TMDB/fanart/ani.zip |
+| Pages, saisons, relations & sources de donnees | [`devlog/site.md`](devlog/site.md) | 15 | saisons, graphe de franchise, hero, navbar, TMDB/fanart/ani.zip |
 | Infra, cout, cache & releases | [`devlog/infra.md`](devlog/infra.md) | 15 | Upstash, Fluid CPU, crons, usage-monitor, analytics, releases |
 
 ## Index des entrees
@@ -90,6 +97,8 @@ construit depuis `git log --since=<derniere release>`.
 
 ### Lecteur video & lecteurs distants — [`devlog/player.md`](devlog/player.md)
 
+- 2026-08-29 — La premiere frame blanche, et le voile qui manquait
+- 2026-08-29 — Les episodes pas encore sortis, et la molette rendue au navigateur
 - 2026-08-17 — La langue avant le lecteur : un classement 1-2-3 pose une fois
 - 2026-08-17 (nuit) — Sibnet tuait la fonction, et une preference morte se rejouait a vie
 - 2026-08-17 (soir) — Les chips s'effacent tous, et Megaplay ne revient jamais
@@ -148,6 +157,8 @@ construit depuis `git log --since=<derniere release>`.
 
 ### Pages, saisons, relations & sources de donnees — [`devlog/site.md`](devlog/site.md)
 
+- 2026-08-29 — Deux « Season 1 » a la file : le garde qui empechait de compter
+- 2026-08-29 — La vignette d'episode passe a TMDB, qui CHOISIT
 - 2026-08-15 — Le graphe des relations se dessinait deux fois
 - 2026-08-10 — Graphe de franchise : le reste du chantier
 - 2026-08-08 (nuit) — Titre de la fiche : TMDB passe devant le logo fanart.tv

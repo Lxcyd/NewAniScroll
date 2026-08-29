@@ -5396,17 +5396,24 @@ export default function UniversalPlayer({
               pixels, et seule la relecture demande le CORS.
               L'effacement au demarrage est laisse au CSS, sur le `data-started`
               que Vidstack pose sur le lecteur. */}
-          {poster && (
+          {/* Montee tant qu'elle PEUT servir — pendant la mesure, et une fois la
+              frame reconnue vide. Sur `true` (vraie image) ou `null` (mesure
+              impossible) elle ne servira jamais : la demonter annule le
+              telechargement en cours au lieu de tirer 145 ko pour rien. C'est
+              le seul moment ou on sait, et il tombe assez tot pour compter.
+              Le `preload` en <Head> de la page reste, lui, inconditionnel :
+              c'est lui qui lance la course des que l'adresse est connue, bien
+              avant que le lecteur existe. */}
+          {poster && firstFrameLit !== true && firstFrameLit !== null && (
             <img
-              /* Visible SEULEMENT une fois la premiere frame reconnue noire.
-                 Tant qu'on ne sait pas, elle reste effacee : la montrer puis la
-                 retirer donnait une image d'episode qui basculait vers la video
-                 sous les yeux, un clignotement pour rien. Dans l'autre cas —
-                 celui pour lequel elle existe — il n'y a rien a masquer, la
-                 frame est noire, et elle arrive par-dessus sans qu'on ait vu
-                 quoi que ce soit partir.
-                 Par une classe et non par un demontage, pour que le fondu du
-                 CSS ait lieu. */
+              /* Visible SEULEMENT une fois la premiere frame reconnue vide.
+                 Tant qu'on ne sait pas, elle est la mais effacee : la montrer
+                 puis la retirer donnait une image d'episode qui basculait vers
+                 la video sous les yeux, un clignotement pour rien. Elle se
+                 telecharge pendant ce temps — c'est tout l'interet de la monter
+                 avant d'en avoir besoin — et le voile noir couvre l'attente.
+                 L'opacite par une classe et non par un demontage, pour que le
+                 fondu du CSS ait lieu. */
               className={`as-poster${
                 firstFrameLit === false ? "" : " as-poster-off"
               }`}

@@ -1,0 +1,23 @@
+[
+ {
+  "mal_id": 42310,
+  "anilist_id": 120377,
+  "slug": "cyberpunk-edgerunners",
+  "seasons": [
+   {
+    "season_dir": "saison1",
+    "lang": "vostfr",
+    "ep_start": 1,
+    "ep_end": 10,
+    "va_slug": "cyberpunk-edgerunners"
+   },
+   {
+    "season_dir": "saison1",
+    "lang": "vf",
+    "ep_start": 1,
+    "ep_end": 10,
+    "va_slug": "cyberpunk-edgerunners-vf"
+   }
+  ]
+ }
+]

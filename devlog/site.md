@@ -6,6 +6,98 @@ ani.zip, Fribb).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-08-29 — Deux "Season 1" a la file : le garde qui empechait de compter
+
+**Le symptome**, vu sur la fiche Jujutsu Kaisen : le selecteur de saisons
+alignait `Season 1 (2020)`, `Season 1 (2023)`, `Season 3 Part 1 (2026)`. Deux
+lignes indiscernables, et un 3 qui sortait de nulle part.
+
+**La cause** est dans `nextSeasonNumber` — a l'epoque, la meme regle recopiee a
+trois endroits (`seasonChain`, `resolveSeason` deux fois). Elle testait
+`continuesSameWork` AVANT le numero lu dans le titre. Or ce test compare les
+titres une fois leur numero retire, et `seasonTitleBase("JUJUTSU KAISEN Season
+2")` rend `"jujutsu kaisen"` : la meme chose que la saison 1. La S2 heritait donc
+du compteur au lieu de l'avancer.
+
+Le garde n'est pas une erreur en soi, il a ete pose pour un vrai cas : SAO
+« Alicization - War of Underworld Part 2 » s'intitule nativement *2nd Season*, et
+s'y ancrer ramenait le compteur de 4 a 2. **Ce qui separe les deux situations
+n'est pas le titre, c'est le SENS du saut** : un numero qui avance vient du titre
+de la franchise, un numero qui recule vient de la numerotation interne d'un
+sous-titre. Premiere correction : le numero du titre reprend la main quand il est
+plus GRAND que le compteur.
+
+### Ce que la correction ne voyait pas, et le banc qui l'a trouve
+
+Corriger sur le cas signale ne dit rien du reste du catalogue. D'ou
+`tools/season-audit` : il fait tourner le **vrai** `resolveSeasonList` (via
+`jiti`, pas une reimplementation) sur une quarantaine de franchises et signale
+deux formes precises — un numero repete par deux entrees dont AUCUNE ne porte de
+marque de partie, et un compteur qui recule. Le doublon avec `Part` est
+legitime : une saison coupee en deux cours porte deux fois le meme numero.
+
+Verdict du premier passage : **4 franchises sur 40**, et une que la premiere
+correction ne couvrait pas.
+
+| franchise | affiche | attendu |
+|---|---|---|
+| Attack on Titan | S1 S2 S3 S3P2 **S3 S3P2** | S1 S2 S3 S3P2 **S4 S4P2** |
+| My Hero Academia | S1..S6 S7 **S7** | S1..S6 S7 **S8** |
+
+Meme famille, par l'autre porte : « Attack on Titan: The Final Season » ne porte
+AUCUN numero. La branche « numero plus grand » ne s'appliquait pas, et
+`continuesSameWork` — vrai, comme presque toujours dans une franchise — retenait
+le compteur a 3.
+
+**La lecon** : `continuesSameWork` ne devait jamais avoir le pouvoir de decider
+qu'une saison n'en est pas une. Dans une franchise il est presque toujours vrai,
+puisque c'est justement ce qui fait une franchise. Il ne sert plus qu'a une
+chose, empecher un numero de titre de faire reculer le compteur ; ce qui inhibe
+le +1 est desormais la seule marque de continuation (`Part 2`, `Cour 2`,
+`The Final Chapters`).
+
+Regle finale, dans `nextSeasonNumber` (helpers.ts), ecrite une fois pour les
+trois appelants :
+
+    numero du titre > compteur   -> on s'y ancre
+    marque de continuation       -> herite du compteur
+    numero du titre              -> on s'y ancre, sauf si l'entree prolonge
+                                    la precedente (numerotation interne)
+    sinon                        -> compteur + 1
+
+`seasonChain:v11` / `seasonList:v22`. Sans le tag, les mauvais numeros tenaient
+sept jours.
+
+## 2026-08-29 — La vignette d'episode passe a TMDB, qui CHOISIT
+
+**Le constat**, capture a l'appui : pour Cyberpunk ep2, la fiche TMDB montre un
+plan et notre tuile un autre. TMDB tient **cinq** stills pour cet episode et
+publie celui que ses votes designent (`still_path`, 1920x1080) ; ani.zip n'a
+qu'une screencap TVDB, native 640x360, et rien au-dessus. La regle en vigueur —
+« TMDB ne comble que les trous laisses par ani.zip » — nous faisait donc preferer
+l'image la moins bonne, choisie par personne.
+
+Pire, elle produisait une incoherence a l'ecran : `img` venait d'ani.zip et
+`imgHd` de TMDB, donc **la tuile et le poster du lecteur montraient deux plans
+differents du meme episode**.
+
+TMDB passe devant. La regle d'origine avait une raison de securite — une saison
+mal mappee ne laisse plus un trou, elle remplace une image juste par une fausse —
+et ce sont maintenant les deux gardes de `getTmdbEpisodeStills` (coherence du
+groupe Fribb, plancher sur le nombre d'episodes) qui portent seuls cette charge.
+A verifier avant de les assouplir.
+
+**Au passage, une taille qui n'existait pas.** TMDB annonce `w92/w185/w300/
+original` pour les stills : au-dessus de 300, `original` semblait la seule
+option, et 1920 px sur une liste de dix tuiles n'en est pas une. Mesure du jour :
+les listes de `/configuration` sont **indicatives**, le CDN sert n'importe quel
+jeton de taille pour n'importe quel chemin. `w780` repond 200 et pese 59 ko — la
+tuile devient nette sur un ecran HiDPI et coute MOINS que les 138 ko de la
+screencap TVDB qu'elle remplace.
+
+`tmdbStills:v2` (les URL stockees portent la taille) et `episode:v8` (les listes
+tiennent 30 jours).
+
 ## 2026-08-15 — Le graphe des relations se dessinait deux fois
 
 **Le symptôme** : sur SAO, Fate ou One Piece, le plateau se réorganisait tout

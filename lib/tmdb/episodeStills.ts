@@ -187,8 +187,14 @@ export async function getTmdbEpisodeStills(
    fait 200 : on ne sert pas la meme taille aux deux endroits, et on ne fait pas
    payer du 1920 a une liste de dix tuiles. Mesure du 26/08/2026 sur Cyberpunk
    ep1 — ani.zip 640x360 (screencap TVDB, sa taille native, il n'a rien de plus),
-   TMDB original 1920x1080. */
-const HD_FROM_W300 = new RegExp(`/${STILL_SIZE}/`);
+   TMDB original 1920x1080.
+
+   `w1280` et non `original` : le lecteur fait ~1300 px, donc 1920 est du poids
+   qu'aucun pixel ne rend. Mesure du 29/08/2026 sur ce meme still — original
+   202 ko, w1280 145 ko. Or ce poster est en course contre la premiere frame de
+   la video : tout ce qu'il pese, on l'attend derriere un voile noir. */
+const HD_SIZE = "w1280" as const;
+const HD_FROM_TILE = new RegExp(`/${STILL_SIZE}/`);
 
 /** L'URL pleine definition d'un still TMDB deja resolu, ou null si ce n'en est
  *  pas un. Pur travail de chaine : `tmdbImageUrl` ne fait que concatener la
@@ -196,8 +202,8 @@ const HD_FROM_W300 = new RegExp(`/${STILL_SIZE}/`);
  *  requete de plus. Une URL ani.zip (artworks.thetvdb.com) n'a pas de variante
  *  plus grande et ressort telle quelle en null. */
 export function hdStillUrl(url: string | null | undefined): string | null {
-  if (!url || !HD_FROM_W300.test(url)) return null;
-  return url.replace(HD_FROM_W300, "/original/");
+  if (!url || !HD_FROM_TILE.test(url)) return null;
+  return url.replace(HD_FROM_TILE, `/${HD_SIZE}/`);
 }
 
 /**
