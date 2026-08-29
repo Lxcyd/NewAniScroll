@@ -23,6 +23,7 @@ import {
   useGuestIdentity,
 } from "@/lib/prefs/guestIdentity";
 import { validateUsername } from "@/lib/auth/username";
+import DangerConfirmModal from "@/components/shared/DangerConfirmModal";
 
 const AuthModal = dynamic(() => import("./AuthModal"), { ssr: false });
 const UsernameField = dynamic(() => import("./UsernameField"), { ssr: false });
@@ -222,7 +223,6 @@ function AccountPanel({ user }: { user: any }) {
   };
 
   const remove = async () => {
-    if (!window.confirm(t("auth.deleteConfirm"))) return;
     const data = await call("/api/v2/account/me", {
       method: "DELETE",
       body: JSON.stringify({ currentPassword: deletePassword }),
@@ -360,25 +360,38 @@ function AccountPanel({ user }: { user: any }) {
           <button
             type="button"
             disabled={busy}
-            onClick={() => (deleting ? remove() : setDeleting(true))}
+            onClick={() => setDeleting(true)}
             className="shrink-0 px-3 py-1.5 rounded-lg bg-red-500/15 ring-1 ring-red-500/30 text-sm text-red-300 hover:bg-red-500/25 disabled:opacity-50"
           >
             {t("auth.delete")}
           </button>
         </Row>
-        {/* The password is asked for here, in a real credential field, only
-            once the button has been armed. */}
-        {deleting && !anilistOnly && (
-          <div className="py-4">
-            <PasswordField
-              value={deletePassword}
-              onChange={setDeletePassword}
-              placeholder={t("auth.currentPassword")}
-              autoFocus
-            />
-          </div>
-        )}
       </div>
+
+      {/* Deleting asks for the password in a real credential field — it used
+          to go through window.prompt() — and confirms with the same
+          hold-to-confirm gesture as every other destructive action. */}
+      <DangerConfirmModal
+        open={deleting}
+        title={t("auth.deleteTitle")}
+        body={t("auth.deleteConfirm")}
+        confirmLabel={t("auth.delete")}
+        onConfirm={remove}
+        onCancel={() => {
+          setDeleting(false);
+          setDeletePassword("");
+        }}
+        busy={busy}
+      >
+        {!anilistOnly && (
+          <PasswordField
+            value={deletePassword}
+            onChange={setDeletePassword}
+            placeholder={t("auth.currentPassword")}
+            autoFocus
+          />
+        )}
+      </DangerConfirmModal>
 
       <AuthModal
         open={authOpen}

@@ -73,6 +73,7 @@ import {
   UserCircleIcon,
 } from "@heroicons/react/24/outline";
 import AccountSection from "@/components/auth/AccountSection";
+import DangerConfirmModal from "@/components/shared/DangerConfirmModal";
 import { useSession, signIn, signOut } from "next-auth/react";
 import { useTranslation } from "react-i18next";
 import { notify } from "@/lib/notifications/noticeStore";
@@ -705,113 +706,34 @@ export default function Settings() {
         busy={syncing}
       />
 
-      {/* Confirmation before deleting the local list — irreversible. */}
-      {confirmClear && (
-        <div
-          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 px-4"
-          onClick={() => setConfirmClear(false)}
-        >
-          <div
-            className="w-full max-w-md rounded-xl bg-secondary ring-1 ring-white/10 p-6"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3 className="text-lg font-semibold mb-2">
-              {t("settings.list.clearConfirmTitle")}
-            </h3>
-            <p className="text-white/70 text-sm mb-6">
-              {t("settings.list.clearConfirmBody", { count: localList.length })}
-            </p>
-            <div className="flex justify-end gap-3">
-              <button
-                type="button"
-                onClick={() => setConfirmClear(false)}
-                className="px-4 py-2 rounded-lg bg-white/10 ring-1 ring-white/10 text-sm hover:bg-white/15"
-              >
-                {t("settings.list.clearCancel")}
-              </button>
-              <button
-                type="button"
-                onClick={handleClearList}
-                className="px-4 py-2 rounded-lg bg-red-500/90 text-white text-sm font-medium hover:bg-red-500"
-              >
-                {t("settings.list.clearConfirmButton")}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* The three irreversible actions of this page all go through the same
+          dialog and the same hold-to-confirm gesture. */}
+      <DangerConfirmModal
+        open={confirmClear}
+        title={t("settings.list.clearConfirmTitle")}
+        body={t("settings.list.clearConfirmBody", { count: localList.length })}
+        confirmLabel={t("settings.list.clearConfirmButton")}
+        onConfirm={handleClearList}
+        onCancel={() => setConfirmClear(false)}
+      />
 
-      {/* Confirmation before clearing local watch history. */}
-      {confirmClearHistory && (
-        <div
-          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 px-4"
-          onClick={() => setConfirmClearHistory(false)}
-        >
-          <div
-            className="w-full max-w-md rounded-xl bg-secondary ring-1 ring-white/10 p-6"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3 className="text-lg font-semibold mb-2">
-              {t("settings.advanced.clearHistoryConfirmTitle")}
-            </h3>
-            <p className="text-white/70 text-sm mb-6">
-              {t("settings.advanced.clearHistoryConfirmBody")}
-            </p>
-            <div className="flex justify-end gap-3">
-              <button
-                type="button"
-                onClick={() => setConfirmClearHistory(false)}
-                className="px-4 py-2 rounded-lg bg-white/10 ring-1 ring-white/10 text-sm hover:bg-white/15"
-              >
-                {t("settings.list.clearCancel")}
-              </button>
-              <button
-                type="button"
-                onClick={handleClearHistory}
-                className="px-4 py-2 rounded-lg bg-red-500/90 text-white text-sm font-medium hover:bg-red-500"
-              >
-                {t("settings.advanced.clearHistoryButton")}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <DangerConfirmModal
+        open={confirmClearHistory}
+        title={t("settings.advanced.clearHistoryConfirmTitle")}
+        body={t("settings.advanced.clearHistoryConfirmBody")}
+        confirmLabel={t("settings.advanced.clearHistoryButton")}
+        onConfirm={handleClearHistory}
+        onCancel={() => setConfirmClearHistory(false)}
+      />
 
-      {/* Confirmation before restoring default settings. */}
-      {confirmReset && (
-        <div
-          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 px-4"
-          onClick={() => setConfirmReset(false)}
-        >
-          <div
-            className="w-full max-w-md rounded-xl bg-secondary ring-1 ring-white/10 p-6"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3 className="text-lg font-semibold mb-2">
-              {t("settings.advanced.restoreConfirmTitle")}
-            </h3>
-            <p className="text-white/70 text-sm mb-6">
-              {t("settings.advanced.restoreConfirmBody")}
-            </p>
-            <div className="flex justify-end gap-3">
-              <button
-                type="button"
-                onClick={() => setConfirmReset(false)}
-                className="px-4 py-2 rounded-lg bg-white/10 ring-1 ring-white/10 text-sm hover:bg-white/15"
-              >
-                {t("settings.list.clearCancel")}
-              </button>
-              <button
-                type="button"
-                onClick={handleRestoreDefaults}
-                className="px-4 py-2 rounded-lg bg-red-500/90 text-white text-sm font-medium hover:bg-red-500"
-              >
-                {t("settings.advanced.restoreButton")}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <DangerConfirmModal
+        open={confirmReset}
+        title={t("settings.advanced.restoreConfirmTitle")}
+        body={t("settings.advanced.restoreConfirmBody")}
+        confirmLabel={t("settings.advanced.restoreButton")}
+        onConfirm={handleRestoreDefaults}
+        onCancel={() => setConfirmReset(false)}
+      />
 
       {/* Fixed full-height left rail (desktop). Out of normal flow, so the
           content below is pushed right by a matching margin. */}

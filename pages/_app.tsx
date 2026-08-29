@@ -55,8 +55,8 @@ const SyncDirectionModal = dynamic(
   () => import("@/components/shared/SyncDirectionModal"),
   { ssr: false },
 );
-const CloudMergeModal = dynamic(
-  () => import("@/components/shared/CloudMergeModal"),
+const DangerConfirmModal = dynamic(
+  () => import("@/components/shared/DangerConfirmModal"),
   { ssr: false },
 );
 
@@ -194,10 +194,14 @@ function SyncBootstrap() {
  */
 function CloudSyncBootstrap() {
   const { data: session, status } = useSession();
+  const { t } = useTranslation();
   const [conflicts, setConflicts] = useState<any[]>([]);
   const [busy, setBusy] = useState(false);
 
   const uid = (session as any)?.user?.uid as string | undefined;
+  /* Declining is remembered for the tab, otherwise the warning would come
+     back on every single navigation until the divergence is resolved. */
+  const DECLINED = "aniscroll:cloudReplaceDeclined";
 
   useEffect(() => {
     if (status === "loading") return;
@@ -214,7 +218,13 @@ function CloudSyncBootstrap() {
       try {
         const result = await cloud.pullAll();
         if (cancelled) return;
-        if (result.conflicts.length) setConflicts(result.conflicts);
+        let declined = false;
+        try {
+          declined = sessionStorage.getItem(DECLINED) === "1";
+        } catch {
+          /* private mode — just ask again */
+        }
+        if (result.conflicts.length && !declined) setConflicts(result.conflicts);
       } catch {
         // A failed pull must not stop the pushes: the device stays the source
         // of truth and will re-pull on the next load.
@@ -228,31 +238,42 @@ function CloudSyncBootstrap() {
     };
   }, [uid, status]);
 
-  const choose = async (choice: "keepCloud" | "keepDevice" | "merge") => {
+  const replaceWithAccount = async () => {
     setBusy(true);
     try {
       const cloud = await import("@/lib/list/cloudSync");
-      // "keepDevice" pushes everything; the other two keep the cloud copy for
-      // the disputed categories, which pullAll applies once the local
-      // bookkeeping no longer claims a divergence.
-      if (choice === "keepDevice") await cloud.pushAll();
-      else {
-        cloud.forget();
-        await cloud.pullAll();
-        if (choice === "merge") await cloud.pushAll();
-      }
+      await cloud.pullAll({ force: true });
+      // Wholesale replacement: reload rather than try to refresh every screen
+      // in place. Same gesture as "restore defaults" in the settings.
+      window.location.reload();
     } finally {
       setBusy(false);
       setConflicts([]);
     }
   };
 
+  const decline = () => {
+    try {
+      sessionStorage.setItem(DECLINED, "1");
+    } catch {
+      /* best-effort */
+    }
+    setConflicts([]);
+  };
+
   return (
-    <CloudMergeModal
+    <DangerConfirmModal
       open={conflicts.length > 0}
-      conflicts={conflicts}
-      onChoose={choose}
-      onCancel={() => setConflicts([])}
+      title={t("auth.cloudReplace.title")}
+      body={t("auth.cloudReplace.body")}
+      details={t("auth.cloudReplace.details", {
+        kinds: conflicts
+          .map((kind) => t(`auth.cloudReplace.kind.${kind}`, kind))
+          .join(", "),
+      })}
+      confirmLabel={t("auth.cloudReplace.confirm")}
+      onConfirm={replaceWithAccount}
+      onCancel={decline}
       busy={busy}
     />
   );

@@ -150,8 +150,11 @@ export type PullResult = {
  * revision moved while the local copy did not. Anything else is reported as a
  * conflict and left untouched — this function never silently overwrites a
  * device's data.
+ *
+ * `force` is the answer to that conflict once the visitor has confirmed it:
+ * the account's copy replaces this device's, every category, no questions.
  */
-export async function pullAll(): Promise<PullResult> {
+export async function pullAll(options?: { force?: boolean }): Promise<PullResult> {
   const result: PullResult = { applied: [], conflicts: [] };
   if (typeof window === "undefined") return result;
 
@@ -168,8 +171,9 @@ export async function pullAll(): Promise<PullResult> {
     const local = readKind(entry.kind);
     const known = revs[entry.kind];
 
-    if (!local) {
-      // Nothing here — the cloud copy is pure gain.
+    if (options?.force || !local) {
+      // Nothing here (or the visitor asked for the cloud to win outright) —
+      // the cloud copy replaces whatever this device had.
       writeKind(entry.payload);
       nextRevs[entry.kind] = entry.rev;
       result.applied.push(entry.kind);

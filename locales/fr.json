@@ -23,7 +23,8 @@
     "more": "Plus",
     "showMore": "Voir plus",
     "showLess": "Voir moins",
-    "done": "Terminé"
+    "done": "Terminé",
+    "holdToConfirm": "Maintenez…"
   },
   "footer": {
     "disclaimer": "Ce site n'héberge aucun fichier sur nos serveurs ; nous ne faisons que créer des liens vers des médias hébergés par des services tiers.",
@@ -147,30 +148,25 @@
       "anilist-already-linked": "Ce compte AniList est déjà lié ailleurs",
       "accounts-unavailable": "Les comptes sont indisponibles pour le moment"
     },
-    "merge": {
-      "title": "Deux versions de vos données",
-      "body": "Cet appareil et votre compte ont tous les deux changé depuis la dernière synchro. Choisissez qui l'emporte.",
-      "affected": "Concerné :",
-      "keepCloudTitle": "Garder la version du nuage",
-      "keepCloudDesc": "Cet appareil est remplacé par ce que contient votre compte.",
-      "keepDeviceTitle": "Garder cet appareil",
-      "keepDeviceDesc": "Votre compte est remplacé par ce qui est sur cet appareil.",
-      "mergeTitle": "Garder le nuage, envoyer le reste",
-      "mergeDesc": "Le nuage l'emporte sur les catégories ci-dessus ; tout le reste est envoyé.",
-      "kind": {
-        "list": "liste",
-        "progress": "progression",
-        "queue": "file d'attente",
-        "prefs": "réglages",
-        "favourites": "favoris",
-        "recent": "vus récemment",
-        "player": "réglages du lecteur"
-      }
-    },
     "verifyOk": "Adresse confirmée",
     "verifyInvalid": "Ce lien de confirmation a expiré ou a déjà été utilisé",
     "showPassword": "Afficher le mot de passe",
-    "hidePassword": "Masquer le mot de passe"
+    "hidePassword": "Masquer le mot de passe",
+    "cloudReplace": {
+      "title": "Remplacer les donnees de cet appareil ?",
+      "body": "Ce navigateur et votre compte contiennent tous les deux des donnees modifiees depuis la derniere synchro. Continuer garde la version de votre COMPTE : tout ce qui est stocke dans ce navigateur est efface et remplace par elle.",
+      "details": "Efface sur cet appareil : {{kinds}}",
+      "confirm": "Remplacer par mon compte",
+      "kind": {
+        "list": "votre liste",
+        "progress": "votre progression",
+        "queue": "votre file d'attente",
+        "prefs": "vos reglages",
+        "favourites": "vos favoris",
+        "recent": "vus recemment",
+        "player": "reglages du lecteur"
+      }
+    }
   },
   "language": {
     "label": "Langue",

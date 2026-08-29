@@ -23,7 +23,8 @@
     "more": "More",
     "showMore": "Show more",
     "showLess": "Show less",
-    "done": "Done"
+    "done": "Done",
+    "holdToConfirm": "Hold…"
   },
   "footer": {
     "disclaimer": "This site does not store any files on our server, we only linked to the media which is hosted on 3rd party services.",
@@ -147,30 +148,25 @@
       "anilist-already-linked": "This AniList account is already linked elsewhere",
       "accounts-unavailable": "Accounts are unavailable right now"
     },
-    "merge": {
-      "title": "Two versions of your data",
-      "body": "This device and your account have both changed since the last sync. Pick which one wins.",
-      "affected": "Affected:",
-      "keepCloudTitle": "Keep the cloud version",
-      "keepCloudDesc": "This device is replaced by what your account holds.",
-      "keepDeviceTitle": "Keep this device",
-      "keepDeviceDesc": "Your account is replaced by what is on this device.",
-      "mergeTitle": "Keep the cloud, push the rest",
-      "mergeDesc": "The cloud wins on the categories above; everything else is pushed up.",
-      "kind": {
-        "list": "list",
-        "progress": "progress",
-        "queue": "queue",
-        "prefs": "settings",
-        "favourites": "favourites",
-        "recent": "recently watched",
-        "player": "player settings"
-      }
-    },
     "verifyOk": "Address confirmed",
     "verifyInvalid": "This confirmation link has expired or has already been used",
     "showPassword": "Show password",
-    "hidePassword": "Hide password"
+    "hidePassword": "Hide password",
+    "cloudReplace": {
+      "title": "Replace this device's data?",
+      "body": "This browser and your account both hold data that has changed since the last sync. Continuing keeps your ACCOUNT's version: everything stored in this browser is erased and replaced by it.",
+      "details": "Erased on this device: {{kinds}}",
+      "confirm": "Replace with my account",
+      "kind": {
+        "list": "your list",
+        "progress": "your progress",
+        "queue": "your queue",
+        "prefs": "your settings",
+        "favourites": "your favourites",
+        "recent": "recently watched",
+        "player": "player settings"
+      }
+    }
   },
   "language": {
     "label": "Language",
