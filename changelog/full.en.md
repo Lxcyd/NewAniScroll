@@ -2,6 +2,68 @@
 
 All notable changes to AniScroll appear here. Most recent first.
 
+## [v0.0.8] — The watch page, rebuilt (2026-08-29)
+
+### Added
+- **Rebuilt watch page**: it now takes the full width of the screen, the player
+  is sized from the window height, and the space that used to sit empty on the
+  right holds the episode list. Below it, the full synopsis, the same numbers as
+  the info page, and a recommendations rail.
+- **A real episode list on the watch page**: the one from the info page, with
+  its **three layouts** (thumbnails, rows, number grid) behind a single button,
+  a **search** that takes a title or a number, and a **reversible order** —
+  latest episodes on top for anyone following an airing show.
+- **Next-episode bar**: under the list while a show is airing — number,
+  countdown to the minute, and the air date spelled out, in your own timezone.
+- **"Add a reminder" button**: the site's bell will flag the release next time
+  you visit. Nothing is pushed, and nothing is lost either: the episode can air
+  while your machine is off, the information waits for you.
+- **Real episode runtimes**, from **the player you are actually using**: the
+  same episode doesn't last the same on every host. A live progress bar follows
+  playback, and a finished episode reads "Completed".
+- **Servers ranked on how they perform for you**: startup, stalls, seek speed
+  and quality are measured while you watch, on your device only, and the
+  fastest ones move to the front. The switch and the scores live in settings.
+- **Language preference order**: sub, dub, multi — a 1-2-3 ranking set once,
+  and the server you pick sticks to that show.
+- **"Scroll to the episode you're watching" setting**: the list opens on the
+  episode being played, or stays at the start if you prefer.
+
+### Changed
+- **Episodes that haven't aired are gone from the list.** They left black
+  tiles behind, with no title, a runtime borrowed from the show, and a link
+  that led nowhere. The "next episode" button switches off too when there is
+  nothing to go to.
+- **Sharper episode thumbnails**: when TMDB holds several images for an
+  episode, the one its votes single out is used instead of whichever came
+  first. The thumbnail and the player's still finally show the same frame.
+- **Player startup**: the video is requested before the rest of the page, and
+  the episode's still is already there by the time it's needed.
+- **The episode list shares its column with watch-together** instead of being
+  pushed off screen.
+- **Server bar**: the players cascade in when you switch language, the selected
+  tab's background slides from tab to tab, and the active player carries the
+  site accent.
+- **A leaner site**: the JavaScript base every page loads is halved, the watch
+  page sheds 20% of its weight, and player thumbnails are five times lighter.
+- **The watch page has a footer**, like every other page.
+
+### Fixed
+- **Season numbering**: Jujutsu Kaisen listed two "Season 1", Attack on Titan
+  two "Season 3", and My Hero Academia's final season carried the previous
+  season's number.
+- **Openings that fade from white**: an episode starting on a white fade showed
+  a blank white page. As with black, the episode's still now covers it — and
+  nothing shows at all while we measure.
+- **Ambient light** picks up the picture's colours again.
+- **A hiccup no longer switches player under your eyes**, and a dead upload no
+  longer hides a dub track that does work.
+- **Franchise graph**: the wheel no longer zooms when you merely pass over the
+  board, and a card no longer lights up by sliding under a motionless cursor.
+- **Finishing an episode no longer marks the ones you skipped as watched.**
+- **Intro and outro skipping** on shows the voir-anime player names in romaji,
+  which had none.
+
 ## [v0.0.7] — Hover preview, franchise graph & artwork (2026-08-16)
 
 ### Added

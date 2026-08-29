@@ -1,13 +1,13 @@
-## v0.0.7
+## v0.0.8
 
-🎬 **Aperçu au survol** — posez le curseur sur n'importe quelle jaquette : la **bande-annonce démarre toute seule**, avec le son, le synopsis, les notes et un bouton pour ajouter la série à votre liste. Une **lumière d'ambiance** reprend les couleurs de la vidéo autour de la carte.
+🖥️ **Page de visionnage refaite** — pleine largeur, lecteur dimensionné sur la hauteur de l'écran, et la **vraie liste d'épisodes** à côté : trois affichages, recherche, ordre inversable, durées réelles et barre de progression.
 
-🕸️ **Graphe de franchise** — la section Relations devient un vrai plateau plein écran : fiches illustrées déplaçables, zoom, recherche et filtres, **ordre de visionnage numéroté**, sous-séries encadrées et manga d'origine inclus.
+⏰ **Prochain épisode** — une barre annonce le compte à rebours et la date de diffusion, avec un bouton **Ajouter un rappel**. Les épisodes pas encore sortis quittent la liste.
 
-🎞️ **Nouveau lecteur** — Ansembed rejoint les serveurs disponibles.
+⚡ **Lecteurs classés sur ce qu'ils valent chez vous** — démarrage, coupures et qualité mesurés sur votre appareil, les plus rapides devant. Et un ordre de préférence VO / VF / multi posé une fois.
 
-⚡ **Site optimisé** — des pages plus légères à charger et des vignettes de lecteur environ 10x plus rapides.
+🖼️ **Vignettes d'épisode plus nettes** — c'est l'image que les votes TMDB désignent qui est retenue, et le lecteur montre enfin le même plan.
 
-🗂️ **Films et hors-séries mal classés** — un film au milieu d'une franchise ou une préquelle ne comptent plus comme une saison.
+🔢 **Numérotation des saisons corrigée** — Jujutsu Kaisen affichait deux « Saison 1 », Attack on Titan deux « Saison 3 ».
 
-🔧 **Lecteurs corrigés** — sibnet refonctionne, et un lecteur momentanément injoignable ne fait plus croire que l'épisode n'existe pas.
+🔧 **Ouverture au blanc, lumière d'ambiance, changements de lecteur intempestifs** — corrigés.
