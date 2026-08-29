@@ -182,27 +182,17 @@ function ProchainEpisode({
         title={actif ? t("anime.alertOnHint") : t("anime.alertOffHint")}
         aria-label={actif ? t("anime.alertOn") : t("anime.alertOff")}
         aria-pressed={actif}
-        className="grid h-[22px] w-[22px] shrink-0 place-items-center rounded-md transition-colors"
+        /* Le libelle DIT l'etat plutot que de le coder par une teinte : « Me
+           prevenir » est une action a faire, « Rappel actif » un etat acquis.
+           `whitespace-nowrap` parce que la ligne de gauche est deja `truncate`
+           et doit ceder la place, pas ce bouton. */
+        className="shrink-0 whitespace-nowrap rounded-md px-2.5 py-1 text-[12.5px] font-medium transition-colors"
         style={{
-          background: actif ? ACCENT_SOFT : "rgba(255,255,255,0.04)",
-          color: actif ? ACCENT : T.txt1,
+          background: actif ? ACCENT_SOFT : "rgba(255,255,255,0.06)",
+          color: actif ? ACCENT : T.txt0,
         }}
       >
-        {/* Cloche pleine une fois le rappel pose, en trait sinon : l'etat se
-            lit sans avoir a comparer deux teintes. */}
-        <svg
-          width="13"
-          height="13"
-          viewBox="0 0 24 24"
-          fill={actif ? "currentColor" : "none"}
-          stroke="currentColor"
-          strokeWidth={2}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
-          <path d="M13.73 21a2 2 0 0 1-3.46 0" />
-        </svg>
+        {actif ? t("anime.alertOn") : t("anime.alertOff")}
       </button>
     </div>
   );
