@@ -2414,6 +2414,15 @@ export default function UniversalPlayer({
     };
   }, [playerElState]);
 
+  /* La vignette sert dans deux cas, et deux seulement :
+       - le verdict dit la premiere frame VIDE : son role d'origine, la video a
+         une image mais elle ne montre rien ;
+       - la video n'a AUCUNE image a montrer : elle couvre du vide.
+     Hors de ces deux cas la video a quelque chose de reel, et la vignette
+     s'efface — c'est ce qui garantit qu'on ne recouvre jamais une vraie
+     premiere frame. */
+  const vignetteUtile = firstFrameLit === false || !videoAUneImage;
+
   /* Chemin 1 — le flux est illisible d'avance (`noCors`).
      La question part DES QUE l'adresse du flux est connue : ni le lecteur ni sa
      premiere image n'y changeraient quoi que ce soit, et attendre l'un ou
@@ -5505,7 +5514,19 @@ export default function UniversalPlayer({
               Le `preload` en <Head> de la page reste, lui, inconditionnel :
               c'est lui qui lance la course des que l'adresse est connue, bien
               avant que le lecteur existe. */}
-          {poster && firstFrameLit !== true && firstFrameLit !== null && (
+          {/* `vignetteUtile` : elle sert des que la video n'a rien a montrer,
+              QUEL QUE SOIT le verdict — et c'est ce « quel que soit » qui
+              manquait. Le verdict `null` (« mesure impossible ») demontait la
+              vignette et levait le voile : sur un flux lent, on obtenait donc
+              un rectangle noir alors que l'image de l'episode etait la. C'est
+              le cas des lecteurs non lisibles en CORS, ou la sonde aveugle rend
+              `null` des que sa copie proxifiee echoue — sibnet en tete, dont le
+              CDN mesure 674 Ko/s le 29/08/2026 sur un MP4 progressif, donc de
+              longues secondes sans image.
+              `null` veut dire « je n'ai pas pu mesurer », pas « la video a une
+              vraie image » : on ne peut pas en tirer le droit de montrer du
+              noir. */}
+          {poster && (firstFrameLit === undefined || vignetteUtile) && (
             <img
               /* Visible SEULEMENT une fois la premiere frame reconnue vide.
                  Tant qu'on ne sait pas, elle est la mais effacee : la montrer
@@ -5522,12 +5543,7 @@ export default function UniversalPlayer({
                    Elle couvre alors du vide, jamais une image reelle : des que
                    `videoAUneImage` passe a vrai, elle se retire et laisse voir
                    ce que la video a — ce qui etait le bug. */
-              className={`as-poster${
-                firstFrameLit === false ||
-                (firstFrameLit === undefined && !videoAUneImage)
-                  ? ""
-                  : " as-poster-off"
-              }`}
+              className={`as-poster${vignetteUtile ? "" : " as-poster-off"}`}
               src={poster}
               alt=""
               aria-hidden
