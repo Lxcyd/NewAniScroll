@@ -2,73 +2,48 @@
 
 Toutes les nouveautés d'AniScroll, les plus récentes en premier.
 
-## [v0.0.8] — La page de visionnage, refaite (2026-08-29)
+## [v0.0.8] — Nouvelle page de visionnage (2026-08-29)
 
 ### Ajouté
-- **Page de visionnage repensée** : elle prend toute la largeur de l'écran, le
-  lecteur se dimensionne sur la hauteur de la fenêtre, et la place qui restait
-  vide à droite accueille la liste d'épisodes. En dessous, le synopsis entier,
-  les mêmes chiffres que la fiche, et un rail de recommandations.
-- **Vraie liste d'épisodes sur la page de visionnage** : celle de la fiche,
-  avec ses **trois affichages** (vignettes, lignes, grille de numéros) réunis
-  sous un seul bouton, une **recherche** qui accepte aussi bien un titre qu'un
-  numéro, et l'**ordre inversable** — les derniers épisodes en haut pour qui
-  suit une série en cours.
-- **Barre du prochain épisode** : sous la liste, quand la série est en cours —
-  numéro, compte à rebours à la minute et date de diffusion en toutes lettres,
-  dans votre fuseau horaire.
-- **Bouton « Ajouter un rappel »** : la cloche du site vous signalera la sortie
-  à votre prochaine visite. Rien n'est envoyé, rien n'est perdu non plus :
-  l'épisode peut sortir machine éteinte, l'information vous attend.
-- **Durée réelle des épisodes**, et celle du **lecteur que vous utilisez** : le
-  même épisode ne dure pas la même chose d'un hébergeur à l'autre. Une barre de
-  progression vivante suit la lecture, et un épisode fini s'affiche « Terminé ».
+- **Nouvelle page de visionnage** : pleine largeur, un lecteur dimensionné sur
+  la hauteur de votre écran, et la liste d'épisodes à côté au lieu du vide. En
+  dessous, le synopsis entier, les chiffres de la fiche et un rail de
+  recommandations.
+- **Liste d'épisodes complète pendant la lecture** : trois affichages
+  (vignettes, lignes, grille de numéros), recherche par titre ou par numéro,
+  ordre inversable, durée réelle de chaque épisode et barre de progression.
+- **Prochain épisode** : sous la liste, un compte à rebours et la date de
+  diffusion dans votre fuseau, avec un bouton **Ajouter un rappel** — la cloche
+  du site vous signalera la sortie à votre prochaine visite.
 - **Les lecteurs se classent sur ce qu'ils valent chez vous** : démarrage,
-  coupures, vitesse de navigation et qualité sont mesurés pendant que vous
-  regardez, sur votre appareil uniquement, et les plus rapides passent devant.
-  L'interrupteur et les scores sont dans les réglages.
-- **Ordre de préférence des langues** : VO, VF, multi — un classement 1-2-3
-  posé une fois, et le lecteur choisi reste sur cet anime.
-- **Réglage « se placer sur l'épisode en cours »** : la liste s'ouvre sur
-  l'épisode que vous regardez, ou reste au début si vous préférez.
+  coupures, vitesse et qualité sont mesurés pendant que vous regardez, sur
+  votre appareil uniquement, et les plus rapides passent devant.
+- **Ordre de préférence des langues** : VO, VF, multi — un classement posé une
+  fois, et le lecteur choisi reste sur cet anime.
 
 ### Modifié
-- **Les épisodes pas encore diffusés disparaissent de la liste.** Ils y
-  laissaient des cases noires, sans titre, avec une durée empruntée à la série
-  et un lien qui ne menait à rien. Le bouton « épisode suivant » s'éteint aussi
-  quand il n'y a rien à suivre.
-- **Vignettes d'épisode en meilleure définition** : quand TMDB a plusieurs
-  images d'un épisode, c'est celle que ses votes désignent qui est retenue, et
-  non plus la première venue. La vignette et l'image du lecteur montrent enfin
-  le même plan.
-- **Ouverture du lecteur** : la vidéo est demandée avant même le reste de la
-  page, et l'image de l'épisode est déjà là quand elle sert.
-- **La liste d'épisodes partage sa colonne avec le Regarder-ensemble** au lieu
-  de le pousser hors de l'écran.
-- **Barre des serveurs** : les lecteurs entrent en cascade quand vous changez
-  de langue, le fond de l'onglet choisi glisse d'un onglet à l'autre, et le
-  lecteur actif porte l'accent du site.
-- **Site plus léger** : le socle JavaScript chargé par toutes les pages est
-  divisé par deux, la page de visionnage perd 20 % de son poids, et les
-  vignettes du lecteur sont cinq fois plus légères.
-- **La page de visionnage a un pied de page**, comme les autres.
+- **Les épisodes pas encore diffusés quittent la liste**, avec le bouton
+  « épisode suivant ». Ils y laissaient des cases vides et des liens morts.
+- **Vignettes d'épisode plus nettes** : quand TMDB a plusieurs images d'un
+  épisode, c'est celle que ses votes désignent qui est retenue. La vignette et
+  l'image du lecteur montrent enfin le même plan.
+- **Démarrage plus rapide** : la vidéo est demandée avant le reste de la page.
+- **Regarder-ensemble** partage la colonne avec la liste d'épisodes au lieu de
+  la pousser hors de l'écran.
+- **Site plus léger** : moitié moins de JavaScript de base, page de visionnage
+  allégée de 20 %, vignettes du lecteur cinq fois plus légères.
 
 ### Corrigé
 - **Numérotation des saisons** : Jujutsu Kaisen affichait deux « Saison 1 »,
   Attack on Titan deux « Saison 3 », et la saison finale de My Hero Academia
   portait le numéro de la précédente.
-- **Ouverture au blanc** : un épisode qui démarre sur un fondu blanc affichait
-  une page blanche. Comme pour le noir, l'image de l'épisode la couvre — et
-  plus rien ne se voit pendant la mesure.
+- **Ouverture au blanc** : un épisode démarrant sur un fondu blanc affichait
+  une page blanche. L'image de l'épisode la couvre, comme pour le noir.
 - **Lumière d'ambiance** : elle rend à nouveau les couleurs de l'image.
 - **Un hoquet ne fait plus changer de lecteur sous vos yeux**, et un envoi mort
-  ne cache plus une piste de doublage qui, elle, fonctionne.
-- **Graphe de franchise** : la molette ne zoome plus quand on ne fait que
-  passer dessus, et une carte ne s'allume plus en glissant sous un curseur
-  immobile.
+  ne cache plus une piste de doublage qui fonctionne.
 - **Terminer un épisode ne valide plus ceux que vous aviez sautés.**
-- **Saut d'intro et de fin** sur les séries que le lecteur voir-anime nomme en
-  romaji, qui en étaient privées.
+- **Saut d'intro et de fin** sur les séries qui en étaient privées.
 
 ## [v0.0.7] — Aperçu au survol, graphe de franchise & illustrations (2026-08-16)
 
