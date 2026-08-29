@@ -406,11 +406,19 @@ const POLL_MS = 250;
 /** Au-dela, la copie proxifiee ne repondra pas : pas de mesure, pas de
  *  vignette. */
 const PROBE_TIMEOUT_MS = 8000;
-/* Au-dela de ce delai sans verdict, l'attente cesse d'etre une transition et
-   devient un ecran noir : la vignette de l'episode monte pour la couvrir.
-   Assez long pour qu'un flux tiede n'en passe jamais par la (donc aucun
-   clignotement ajoute), assez court pour qu'on ne fixe pas du noir. */
-const ATTENTE_VISIBLE_MS = 500;
+/* Au-dela de ce delai SANS AUCUNE IMAGE DECODABLE, l'attente cesse d'etre une
+   transition et devient un ecran noir : la vignette de l'episode monte pour la
+   couvrir.
+   Le reglage est un arbitrage entre deux defauts, et il n'y a pas de valeur qui
+   les annule tous les deux. Trop court, on pose la vignette sur un flux qui
+   allait afficher son image, et on la retire au verdict : c'est le
+   clignotement. Trop long, on fixe du noir. Un premier essai a 500 ms a fait
+   clignoter TOUS les lecteurs, vidmoly compris (29/08/2026) — d'ou ces 3 s, qui
+   laissent tout flux en bonne sante livrer sa premiere image bien avant qu'on
+   envisage de le couvrir. Passe ce delai sans une seule image, le flux est en
+   peine : la vignette est alors strictement meilleure que du noir, et elle
+   tiendra jusqu'au verdict sans repartir. */
+const ATTENTE_VISIBLE_MS = 3000;
 
 /** Luminance moyenne et amplitude de l'image courante, reduite a 16x9, Rec.709.
  *  `null` = canvas teinte : le flux ne repond pas d'en-tete CORS et ses pixels
@@ -2370,9 +2378,26 @@ export default function UniversalPlayer({
       setAttenteVisible(false);
       return;
     }
-    const id = setTimeout(() => setAttenteVisible(true), ATTENTE_VISIBLE_MS);
+    const id = setTimeout(() => {
+      /* La condition qui manquait : la vignette ne couvre que le VIDE.
+         Poser une vignette par-dessus une video qui a deja son image, c'est la
+         retirer au verdict — le clignotement que tout ce bloc evite. Et le cas
+         est la regle, pas l'exception : les flux non lisibles en CORS (sibnet,
+         sendvid, uqload, ansembed) sont juges par la sonde aveugle, qui met
+         ~2,5 s sur une copie proxifiee, alors que leur image, elle, est prete
+         bien avant. Vidmoly, lisible, tranche vite et n'a jamais eu le
+         probleme : c'est exactement le partage signale le 29/08/2026.
+         Sans image decodable en revanche, il n'y a rien a clignoter et rien a
+         reveler : la vignette est strictement meilleure que du noir, et elle
+         reste jusqu'au verdict. */
+      const video = playerElState?.querySelector(
+        "video",
+      ) as HTMLVideoElement | null;
+      const aUneImage = !!video && video.readyState >= 2 && video.videoWidth > 0;
+      if (!aUneImage) setAttenteVisible(true);
+    }, ATTENTE_VISIBLE_MS);
     return () => clearTimeout(id);
-  }, [firstFrameLit, blindProbeSrc]);
+  }, [firstFrameLit, blindProbeSrc, playerElState]);
 
   /* Chemin 1 — le flux est illisible d'avance (`noCors`).
      La question part DES QUE l'adresse du flux est connue : ni le lecteur ni sa
