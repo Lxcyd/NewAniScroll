@@ -1,5 +1,6 @@
 import {
   CSSProperties,
+  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -11,7 +12,7 @@ import { useRouter } from "next/router";
 import { createPortal } from "react-dom";
 import dagre from "@dagrejs/dagre";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
-import { FRANCHISE_TREE_V } from "@/lib/anilist/franchiseTreeVersion";
+import { relationsTreeUrl } from "@/lib/anilist/franchiseTreeVersion";
 import { animeHref, useClickTarget } from "@/lib/prefs/clickTarget";
 import { useTranslation } from "react-i18next";
 import { useSession } from "next-auth/react";
@@ -312,23 +313,6 @@ type NodeMeta = {
   title?: any;
   cover?: string | null;
 };
-
-/**
- * The franchise endpoint, built in ONE place.
- *
- * The info page preloads this exact URL from its `<head>`, and a preload only
- * counts if it matches the request byte for byte — a `v` bumped here and not
- * there would quietly fetch the franchise twice and earn a "preloaded but not
- * used" warning for the trouble.
- *
- * `v` is not read by the route: it is the CDN key. The answer holds for a day,
- * so without it a franchise walked under older rules would keep serving that
- * board until tomorrow. The number is shared with the server's own cache — see
- * FRANCHISE_TREE_V — because the two hold the same answer and must forget it
- * on the same day.
- */
-export const relationsTreeUrl = (id: number) =>
-  `/api/v2/relations/tree?id=${id}&v=${FRANCHISE_TREE_V}`;
 
 /**
  * Franchises already walked, kept for the life of the tab.
@@ -1342,11 +1326,64 @@ export default function RelationsGraph({
    * never again — the board is client-only, so the first pass has no canvas to
    * bind to. Opening the overlay changed `open` and re-ran it, which is why the
    * wheel zoomed full-screen and scrolled the page inline.
+   *
+   * Quand le plateau prend la molette et quand il la laisse passer : cf. le
+   * commentaire de `armed`, dans le corps.
    */
+  /* Etat d'armement, sorti de l'effet pour que le CURSEUR le dise aussi : une
+     main de prehension sur un plateau qui laisse passer la molette promet une
+     interaction qu'il vient de refuser. La ref porte la valeur vivante (lue par
+     des ecouteurs qui ne re-rendent rien), le state ne sert qu'a repeindre le
+     curseur — et il ne bouge qu'aux bascules, pas a chaque mouvement. */
+  const armedRef = useRef(false);
+  const [armed, setArmed] = useState(false);
+  const setArm = useCallback((v: boolean) => {
+    if (armedRef.current === v) return;
+    armedRef.current = v;
+    setArmed(v);
+  }, []);
+
   useEffect(() => {
     const box = canvasRef.current;
     if (!box) return;
+
+    /* Le plateau ne repond — molette, survol d'une carte, curseur de prehension
+       — qu'apres un VRAI mouvement de souris.
+       Le navigateur amarre une salve de molette au premier defileur touche, ce
+       qui suffisait tant que la salve durait : on defilait la page, le curseur
+       s'arretait sur le plateau, et la suite continuait d'aller a la page. Mais
+       l'amarrage expire apres quelques secondes d'immobilite, et le cran
+       suivant zoomait un plateau que personne n'avait vise — il etait juste
+       passe sous le curseur.
+       On ne se repose donc plus sur l'amarrage : le plateau s'arme au
+       deplacement, se desarme des qu'une salve part ailleurs, et desarme il
+       laisse simplement passer.
+       « Vrai » mouvement : le navigateur emet aussi un `pointermove` quand la
+       page defile sous un curseur immobile, aux MEMES coordonnees. Les comparer
+       est ce qui separe « j'ai vise le graphe » de « le graphe est venu a
+       moi ». */
+    let lastX = -1;
+    let lastY = -1;
+
+    /* Ecoute sur la FENETRE, pas sur le plateau : une souris qui approche du
+       plateau doit l'avoir arme AVANT d'y entrer. Sur le plateau seul, le
+       navigateur envoie le `mouseenter` de la carte avant le premier
+       `pointermove`, et la premiere carte survolee apres un defilement serait
+       restee eteinte jusqu'a ce qu'on remue dedans. */
+    const onPointerMove = (e: PointerEvent) => {
+      if (e.clientX !== lastX || e.clientY !== lastY) setArm(true);
+      lastX = e.clientX;
+      lastY = e.clientY;
+    };
+
+    // Passif, et pose sur la fenetre : celui-ci n'intervient sur rien, il
+    // constate seulement qu'une salve concerne autre chose que le plateau.
+    const onWheelAnywhere = (e: WheelEvent) => {
+      if (!box.contains(e.target as Node)) setArm(false);
+    };
+
     const onWheelNative = (e: WheelEvent) => {
+      if (!armedRef.current) return;
       e.preventDefault();
       const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
       // Anchored on the cursor: the card under the pointer is the one you are
@@ -1356,9 +1393,19 @@ export default function RelationsGraph({
       const r = box.getBoundingClientRect();
       zoomAt(factor, e.clientX - r.left, e.clientY - r.top);
     };
+
+    window.addEventListener("pointermove", onPointerMove, { passive: true });
     box.addEventListener("wheel", onWheelNative, { passive: false });
-    return () => box.removeEventListener("wheel", onWheelNative);
-  }, [active, open, mounted]);
+    window.addEventListener("wheel", onWheelAnywhere, {
+      passive: true,
+      capture: true,
+    });
+    return () => {
+      window.removeEventListener("pointermove", onPointerMove);
+      box.removeEventListener("wheel", onWheelNative);
+      window.removeEventListener("wheel", onWheelAnywhere, { capture: true });
+    };
+  }, [active, open, mounted, setArm]);
 
 
   /** Where a card actually sits: its layout position plus any hand nudge. */
@@ -1797,9 +1844,27 @@ export default function RelationsGraph({
                 ? null
                 : {
                     href: animeHref(n.id, clickTarget),
-                    title: t("anime.graphOpenEntry", { defaultValue: "Open this entry" }),
+                    /* L'infobulle native n'apparait qu'une fois le plateau arme
+                       — meme regle que le curseur et le survol. En defilant, une
+                       carte passe sous le pointeur immobile et annonçait
+                       « ouvrir cette fiche » a quelqu'un qui lisait la page. Le
+                       lien, lui, reste un lien : le clic est deliberé, et le
+                       clic-milieu ou l'ouverture en onglet doivent marcher. */
+                    ...(armed
+                      ? {
+                          title: t("anime.graphOpenEntry", {
+                            defaultValue: "Open this entry",
+                          }),
+                        }
+                      : null),
                   })}
-              onMouseEnter={() => setHover(n.id)}
+              /* Meme regle que la molette : une carte ne s'allume que si on est
+                 alle la chercher. En defilant, les cartes passent sous un
+                 curseur immobile et le navigateur emet un `mouseenter` pour
+                 chacune — la chaine de parente clignotait au fil du defilement,
+                 pour des cartes que personne ne regardait. `armedRef` porte
+                 deja la reponse : la souris a-t-elle bouge depuis. */
+              onMouseEnter={() => armedRef.current && setHover(n.id)}
               onMouseLeave={() => setHover((h) => (h === n.id ? null : h))}
               // A card is a link, first press. The two-step it replaced —
               // one click to light the running order, another to open —
@@ -1826,8 +1891,12 @@ export default function RelationsGraph({
               }}
               style={{
                 ...gStyles.node,
-                // Nothing to open: the card must not claim otherwise.
-                ...(n.manga ? { cursor: "default" } : null),
+                /* Nothing to open: the card must not claim otherwise.
+                   Desarme non plus : le plateau tout entier se presente alors
+                   comme le reste de la page, et une carte qui vient de passer
+                   sous le curseur en defilant ne doit pas se donner pour un
+                   bouton. */
+                ...(n.manga || !armed ? { cursor: "default" } : null),
                 left: posOf(n).x + PAD,
                 top: posOf(n).y + PAD,
                 width: n.w,
@@ -1956,6 +2025,11 @@ export default function RelationsGraph({
       rankDir,
       near,
       hover,
+      /* `armed` gouverne le curseur et l'infobulle de CHAQUE carte : sans lui
+         ici, le plateau gardait le balisage memorisé du moment ou il etait
+         arme, et une carte arrivee sous un curseur immobile continuait de se
+         donner pour un lien. */
+      armed,
       chain,
       selected,
       matches,
@@ -2119,7 +2193,13 @@ export default function RelationsGraph({
         ref={canvasRef}
         style={{
           ...gStyles.canvas,
-          cursor: dragging ? "grabbing" : "grab",
+          /* La main n'apparait qu'une fois le plateau arme — cf. `armedRef`.
+             Tant qu'il laisse passer la molette, il se presente comme le reste
+             de la page ; promettre une prise qu'on vient de refuser serait le
+             seul endroit ou l'interface mentirait. Le glisser, lui, reste
+             possible : c'est un geste deliberé, il n'a pas besoin d'etre
+             annonce pour marcher. */
+          cursor: dragging ? "grabbing" : armed ? "grab" : "default",
           ...(embedded && !open ? gStyles.canvasEmbedded : null),
         }}
         onPointerDown={onPointerDown}

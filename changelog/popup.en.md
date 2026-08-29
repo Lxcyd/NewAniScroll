@@ -1,13 +1,13 @@
-## v0.0.7
+## v0.0.8
 
-🎬 **Hover preview** — point at any cover and the **trailer starts on its own**, with sound, the synopsis, ratings and a button to add the show to your list. An **ambient light** picks up the video's colours around the card.
+🖥️ **New watch page** — the full width of the screen, a player sized from your window, and the **complete episode list** right beside it: three layouts, search, real runtimes and your progress.
 
-🕸️ **Franchise graph** — the Relations section is now a real fullscreen board: draggable illustrated cards, zoom, search and filters, a **numbered watch order**, boxed sub-series and the source manga included.
+⏰ **Next episode** — a countdown, the air date and an **Add a reminder** button. Episodes that haven't aired yet disappear from the list.
 
-🎞️ **New player** — Ansembed joins the available servers.
+⚡ **Servers ranked on how they perform for you** — startup, stalls and quality measured on your device, the fastest first. Plus a sub / dub / multi preference order you set once.
 
-⚡ **A leaner site** — lighter pages to load and roughly 10x faster player thumbnails.
+🖼️ **Sharper episode thumbnails** — when TMDB offers several images, the one its votes single out is the one used.
 
-🗂️ **Films and side entries miscounted** — a film in the middle of a franchise, or a prequel, no longer counts as a season.
+🔢 **Season numbering fixed** — Jujutsu Kaisen listed two "Season 1", Attack on Titan two "Season 3".
 
-🔧 **Players fixed** — sibnet works again, and a briefly unreachable player no longer makes an episode look missing.
+🔧 **Fades from white, ambient light and players switching on their own** — all fixed.

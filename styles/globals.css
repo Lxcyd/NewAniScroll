@@ -308,6 +308,175 @@ body,
   background: transparent;
 }
 
+/* ── Panneau d'episodes du lecteur ────────────────────────────────────
+   Ce qui reste ici est ce que Tailwind ne sait pas exprimer : une regle de
+   keyframes, et un pseudo-element. Tout l'habillage de la barre d'outils est
+   reparti dans le composant, en variantes `hover:` / `data-[scrolled]:` — le
+   detour par une classe globale n'etait justifie que contre les styles
+   INLINE, qui n'ont pas d'etat de survol ; les classes Tailwind, elles, en
+   ont. */
+
+/* Liseré de survol des cartes d'episode. En pseudo-element et non en <span> :
+   la liste rend une carte par episode, parfois plusieurs centaines, et un
+   noeud de plus par ligne se paie a chaque rendu pour un trait que le CSS
+   sait dessiner seul. */
+.as-epcard::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 8px;
+  box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, 0.85),
+    0 6px 18px rgba(0, 0, 0, 0.45);
+  opacity: 0;
+  transition: opacity 0.2s ease-out;
+  pointer-events: none;
+}
+.as-epcard:hover::after {
+  opacity: 1;
+}
+
+/* Vignette pas encore arrivee. Meme pulsation que les cartes fantomes du graphe
+   de franchise (`anig-skel`) — c'est la meme reponse a la meme question, "ça
+   arrive", et deux respirations differentes dans une meme page se remarquent.
+   Le degrade lui aussi vient de la : une plaque unie se lit comme une image
+   noire, une plaque qui a un sens de lumiere se lit comme une place vide. */
+@keyframes as-epskel {
+  0%,
+  100% {
+    opacity: 0.28;
+  }
+  50% {
+    opacity: 0.62;
+  }
+}
+.as-epskel {
+  background: linear-gradient(160deg, #17171c, #101014);
+  animation: as-epskel 1.4s ease-in-out infinite;
+}
+
+/* Survol de l'episode EN COURS, dans les trois vues. Il bouge comme les autres
+   — une ligne inerte au milieu de lignes vivantes se lit comme un bug — mais
+   son liseré ne passe pas au blanc : le blanc est la couleur du "cliquable",
+   or cette ligne-la ne mene nulle part, on y est deja.
+   Le survol monte donc en INTENSITE, pas en clarte : l'accent a plein regime,
+   et rien d'autre — pas de halo, le trait reste net. Un rose delave (accent
+   melange a du blanc) perdait sa saturation et donnait un liseré fane ; un
+   rose assombri aurait fait pire, il se serait enfonce dans le fond noir du
+   panneau au moment ou l'on demande a la ligne de reagir. */
+
+/* Vues liste et grille. Le liseré de survol passe par une ombre EXTERIEURE de
+   1px, l'epaisseur exacte du `ring-1` blanc des autres cases.
+   Mais a epaisseur declaree egale, le trait rose se lisait deux fois plus
+   epais : ces cases portent aussi une bordure de 1px, teintee a 40% d'accent
+   sur l'episode en cours — donc rose. Elle s'ajoutait au ring pour faire 2px,
+   la ou la bordure des autres cases (#252938, invisible sur ce fond) laisse
+   voir le seul ring blanc. On l'efface donc le temps du survol, et le trait
+   peint fait 1px des deux cotes.
+   `!important` : cette bordure est posee en style INLINE par `frame()`, et
+   rien d'autre ne passe devant un style inline. */
+.as-eplive:not(.as-epcard):hover {
+  border-color: transparent !important;
+  box-shadow: 0 0 0 1px var(--brand-primary, #ff3b5c),
+    0 10px 15px -3px rgba(0, 0, 0, 0.45);
+}
+/* Vue detaillee : meme regle, l'epaisseur du liseré blanc des autres cartes.
+   Le survol de celle-ci ne se lit donc qu'a l'ombre et a l'agrandissement —
+   son liseré, lui, est deja l'accent plein au repos. */
+.as-epcard.as-eplive::after {
+  box-shadow: inset 0 0 0 1.5px var(--brand-primary, #ff3b5c),
+    0 6px 18px rgba(0, 0, 0, 0.45);
+}
+
+/* Passage d'une vue a l'autre (cartes · lignes · grille). Les trois vues ne
+   peuvent pas se transformer l'une en l'autre — ni le meme nombre d'elements
+   a l'ecran, ni la meme forme — donc la nouvelle entre au lieu de tenter un
+   morphing : un souffle vers le haut, 0,24 s.
+   Pose par une `key` sur le conteneur : chaque vue est un nouveau noeud, donc
+   l'animation rejoue a chaque bascule. */
+@keyframes as-view-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.as-viewswap {
+  animation: as-view-in 0.24s cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+/* L'entree des chips de lecteur, au changement de langue.
+   Keyframes A ELLE et non `as-view-in` partagee : la rangee de lecteurs tient
+   sur une ligne et se relit d'un coup d'oeil, la liste d'episodes fait un
+   ecran — la premiere supporte, et demande, un geste plus long que la seconde.
+   La courbe est une sortie douce (0.16, 1, 0.3, 1) : elle part vite et se pose
+   longuement, ce qui lisse la fin du mouvement au lieu de l'arreter net. Le
+   leger `scale` accompagne la montee ; seul, un deplacement vertical se lit
+   comme un saut. */
+@keyframes as-chip-in {
+  from {
+    opacity: 0;
+    transform: translateY(7px) scale(0.965);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.as-chip-in {
+  animation: as-chip-in 0.42s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+/* Une chip SEULE n'a pas de voisine pour dire par contraste que la rangee a
+   change : le meme geste, joue une fois, passe pour un rendu qui tarde. Elle
+   arrive donc de plus loin et par la GAUCHE — le sens dans lequel la rangee se
+   remplit — et prend un peu plus de temps. Meme vocabulaire, amplitude assumee. */
+@keyframes as-chip-in-solo {
+  from {
+    opacity: 0;
+    transform: translateX(-14px) scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.as-chip-in-solo {
+  animation: as-chip-in-solo 0.52s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Ces entrees servent a montrer qu'une liste s'est REFAITE — liste d'episodes
+   qui change de vue, rangee de lecteurs qui change de langue. Pour qui demande
+   moins de mouvement, le glissement n'apporte rien et le decalage d'apparition
+   tient le meme discours : on garde le fondu, on retire le deplacement.
+   `both` est conserve, sinon les elements retardes clignoteraient a l'envers. */
+@media (prefers-reduced-motion: reduce) {
+  @keyframes as-view-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  @keyframes as-chip-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  @keyframes as-chip-in-solo {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+}
+
 /* Disable native drag of images everywhere on the page. We use
    `useDraggable` from react-use-draggable-scroll for click-and-drag
    horizontal scrolling on the home carousels; the browser's default
@@ -409,9 +578,51 @@ a {
  */
 .vds-player video,
 .vds-player .vds-poster,
+.vds-player .as-poster,
 .vds-player iframe {
   border-radius: 0;
   background-color: transparent;
+}
+
+/* La vignette de l'episode, posee sur la video tant que la lecture n'a pas
+   commence — la premiere frame de la plupart des encodages est noire.
+   Elle s'efface sur le `data-started` du lecteur plutot que par un state a
+   nous : Vidstack pose deja cet attribut, et une transition CSS ne fait pas
+   re-rendre un composant qui porte tout le lecteur. `cover` comme la video, et
+   inerte : les commandes sont au-dessus, mais un clic doit traverser. */
+.vds-player .as-poster {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
+  transition: opacity 0.25s ease-out;
+}
+.vds-player[data-started] .as-poster,
+.vds-player .as-poster-off {
+  opacity: 0;
+}
+
+/* Le voile pose sur la video tant qu'elle n'a rien a montrer — pendant la
+   mesure de sa premiere frame, puis sous la vignette quand cette frame s'est
+   revelee vide. Voir `as-veil` dans UniversalPlayer.
+   Il vit et s'efface exactement comme la vignette, `data-started` compris, et
+   passe DESSOUS : quand la vignette est la, c'est elle qu'on doit voir. */
+.vds-player .as-veil {
+  position: absolute;
+  inset: 0;
+  background: #000;
+  pointer-events: none;
+  z-index: 0;
+  transition: opacity 0.25s ease-out;
+}
+.vds-player[data-started] .as-veil,
+.vds-player .as-veil-off {
+  opacity: 0;
+}
+.vds-player .as-poster {
+  z-index: 1;
 }
 
 /* No rounded corners in fullscreen — the player fills the whole screen, so a

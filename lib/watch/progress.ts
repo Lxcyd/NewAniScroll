@@ -37,6 +37,37 @@ export type ProgressEntry = {
 
 type ProgressMap = Record<string, ProgressEntry>;
 
+/**
+ * Emis a CHAQUE remontee de position du lecteur, y compris celles qu'on ne
+ * persiste pas (debut d'episode, zone de fin). L'ecriture localStorage est
+ * throttlee et muette : un `storage` event ne se declenche pas dans l'onglet
+ * qui ecrit, donc sans ce signal la liste d'episodes ne peut pas suivre la
+ * lecture en direct — sa barre ne bougeait qu'au rechargement.
+ *
+ * Volontairement une notification SANS re-render : l'abonne (cf. la barre de
+ * la liste d'episodes) ecrit directement dans le DOM. Repasser par un state
+ * React ferait re-rendre toute la liste toutes les 3 s, ce qui se voit sur un
+ * catalogue de 1000 episodes.
+ */
+export const PROGRESS_EVENT = "aniscroll:progress-tick";
+
+export type ProgressTick = {
+  aniId: number | string;
+  episode: number | string;
+  /** Position courante, ou -1 quand la remontee ne porte QUE la duree. */
+  time: number;
+  duration: number;
+};
+
+function emitTick(detail: ProgressTick): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.dispatchEvent(new CustomEvent<ProgressTick>(PROGRESS_EVENT, { detail }));
+  } catch {
+    /* best-effort */
+  }
+}
+
 function progressKey(aniId: number | string, episode: number | string): string {
   return `${aniId}:${episode}`;
 }
@@ -64,6 +95,26 @@ function writeMap(map: ProgressMap): void {
 export function isCompleted(entry: ProgressEntry | null | undefined): boolean {
   if (!entry || !entry.duration) return false;
   return entry.time >= entry.duration - END_THRESHOLD_SECONDS;
+}
+
+/**
+ * Annonce la duree du fichier des que le lecteur la connait, sans attendre
+ * qu'on ait regarde quoi que ce soit. La liste d'episodes affiche une duree
+ * estimee tant que personne n'a mesure l'episode ; des que le fichier est
+ * charge, c'est LUI qui fait foi, et il n'y a aucune raison d'attendre la
+ * premiere sauvegarde de position (3 s de lecture) pour le dire.
+ *
+ * `time: -1` signale une remontee sans position : les abonnes qui suivent
+ * l'avancement doivent l'ignorer, ceux qui affichent la duree la prennent.
+ */
+export function publishDuration(
+  aniId: number | string,
+  episode: number | string,
+  duration: number,
+): void {
+  if (aniId == null || episode == null) return;
+  if (!Number.isFinite(duration) || duration <= 0) return;
+  emitTick({ aniId, episode, time: -1, duration });
 }
 
 /** Raw saved entry for an episode (or null). */
@@ -103,7 +154,12 @@ export function saveProgress(
   duration: number,
 ): void {
   if (aniId == null || episode == null) return;
-  if (!Number.isFinite(time) || time < MIN_SAVE_SECONDS) return;
+  if (!Number.isFinite(time)) return;
+  // Le signal part AVANT les garde-fous d'ecriture : les deux fenetres qu'on
+  // ne persiste pas (les premieres secondes, la zone de fin) sont justement
+  // celles ou la barre doit continuer d'avancer a l'ecran.
+  emitTick({ aniId, episode, time, duration });
+  if (time < MIN_SAVE_SECONDS) return;
   if (Number.isFinite(duration) && duration > 0 && time >= duration - END_THRESHOLD_SECONDS) {
     // In the end zone — let the natural-end / next-episode path mark it
     // complete rather than storing a near-the-end resume point.
@@ -137,6 +193,24 @@ export function markComplete(
       : map[key]?.duration || 1;
   map[key] = { time: dur, duration: dur, updatedAt: Date.now() };
   writeMap(map);
+  emitTick({ aniId, episode, time: dur, duration: dur });
+}
+
+/**
+ * Toutes les positions connues pour un anime, indexees par numero d'episode.
+ * Une seule lecture + un seul JSON.parse pour toute la liste, la ou un appel
+ * a `getProgress` par ligne en faisait un par episode.
+ */
+export function getAnimeProgress(
+  aniId: number | string,
+): Record<string, ProgressEntry> {
+  const out: Record<string, ProgressEntry> = {};
+  if (aniId == null) return out;
+  const prefix = `${aniId}:`;
+  for (const [key, entry] of Object.entries(readMap())) {
+    if (key.startsWith(prefix)) out[key.slice(prefix.length)] = entry;
+  }
+  return out;
 }
 
 /** Drop the saved point for an episode (e.g. on an explicit "watch from start"). */

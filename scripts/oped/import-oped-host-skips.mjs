@@ -101,10 +101,30 @@ const now = Math.floor(Date.now() / 1000);
  *  lecteur recoit quand on connait son serveur, donc une borne au-dela du
  *  fichier de CE hote est directement une pastille fausse a l'ecran.
  *  `onBad` remonte la raison pour qu'un rejet ne soit jamais muet. */
+/** Un hit audio dont l'image n'a JAMAIS tranche et que le detecteur signale
+ *  peu sur — aucune preuve independante, ni pour ni contre.
+ *
+ *  Mesure du 26/08/2026, Cyberpunk ep1 VOSTFR : la chanson d'ouverture joue
+ *  DANS l'episode (il n'y a pas de generique avant l'ep2). Les quatre lecteurs
+ *  l'ont trouvee ; trois ont ete retenus parce que l'image avait explicitement
+ *  REFUSE le calage, et megaplay est passe — ses keyframes HLS sont trop
+ *  clairsemees pour que l'image se prononce, donc aucune regle ne s'est
+ *  declenchee. La porte demandait « quelqu'un s'oppose-t-il ? » ; sur un hit
+ *  sans temoin, la reponse doit etre non par defaut.
+ *
+ *  Ne touche PAS aux audio-seuls que l'image a confirmes ni a ceux qu'elle a
+ *  rejetes (deja bloques ailleurs) : uniquement `absent` + `low_confidence`. */
+const unwitnessed = (h) =>
+  h.source === "audio" && h.align_status === "absent" && h.low_confidence === true;
+
 const servableIv = (h, duration, ctx, onBad) => {
   if (!h || typeof h.start !== "number" || typeof h.end !== "number") return null;
   if (h.end <= h.start) return null;
   if (h.serve === false) return null; // tenu par le detecteur (precision-first)
+  if (unwitnessed(h)) {
+    onBad({ ...ctx, why: "audio seul, image absente, faible confiance" });
+    return null;
+  }
   const why = implausibleReason(h, duration);
   if (why) {
     onBad({ ...ctx, why });
@@ -122,6 +142,36 @@ function rowsFromRecord(rec, impossible) {
   if (!malId || !episode || !perHost || typeof perHost !== "object") {
     return { rows: [], rejected: 0 };
   }
+  /* Deux lecteurs dont les fichiers ont la MEME duree servent le meme montage :
+     un ecart de bornes entre eux n'est pas une difference d'encodage, c'est une
+     faute — et rien ne dit laquelle des deux. Precision-first : on retient les
+     DEUX plutot que de parier.
+     (L'ACCORD entre lecteurs, lui, ne prouve rien — meme reference, meme
+     matcher, donc meme erreur reproduite. Le DESACCORD, si.)
+     Cas mesure le 26/08/2026 : Cyberpunk ep10 VOSTFR, sibnet et vidmoly-va sur
+     1696.6 s tous les deux, ED a 25:14.5 contre 25:36.0. La VF a tranche apres
+     coup — vidmoly-va y donne 25:14.7 — mais l'import n'a pas ce recul. */
+  const SAME_FILE_S = 1.0;
+  const CONTRADICTION_S = 2.0;
+  const contested = { op: new Set(), ed: new Set() };
+  for (const kind of ["op", "ed"]) {
+    const seen = Object.entries(perHost).filter(
+      ([, d]) =>
+        d && typeof d.duration === "number" &&
+        d[kind] && typeof d[kind].start === "number" && d[kind].serve !== false,
+    );
+    for (let i = 0; i < seen.length; i++) {
+      for (let j = i + 1; j < seen.length; j++) {
+        const [h1, d1] = seen[i];
+        const [h2, d2] = seen[j];
+        if (Math.abs(d1.duration - d2.duration) > SAME_FILE_S) continue;
+        if (Math.abs(d1[kind].start - d2[kind].start) <= CONTRADICTION_S) continue;
+        contested[kind].add(h1);
+        contested[kind].add(h2);
+      }
+    }
+  }
+
   const out = [];
   let rejected = 0;
   for (const [host, hd] of Object.entries(perHost)) {
@@ -130,10 +180,19 @@ function rowsFromRecord(rec, impossible) {
       continue;
     }
     const dur = hd.duration ?? null;
-    const op = servableIv(hd.op, dur, { malId, episode, lang, host, kind: "op" }, (x) =>
+    const contest = (kind) => (contested[kind].has(host) ? null : hd[kind]);
+    if (contested.op.has(host) || contested.ed.has(host)) {
+      for (const kind of ["op", "ed"]) {
+        if (contested[kind].has(host)) {
+          impossible.push({ malId, episode, lang, host, kind,
+            why: "contredit un lecteur servant le meme fichier" });
+        }
+      }
+    }
+    const op = servableIv(contest("op"), dur, { malId, episode, lang, host, kind: "op" }, (x) =>
       impossible.push(x),
     );
-    const ed = servableIv(hd.ed, dur, { malId, episode, lang, host, kind: "ed" }, (x) =>
+    const ed = servableIv(contest("ed"), dur, { malId, episode, lang, host, kind: "ed" }, (x) =>
       impossible.push(x),
     );
     const serve = !!(op || ed);

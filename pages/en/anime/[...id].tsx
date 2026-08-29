@@ -1,13 +1,13 @@
 import Head from "next/head";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/router";
-import { resolveSource, warmStream, clearPrefetchedSourcesFor } from "@/lib/watch/sourcePrefetch";
+import { resolveSource, warmStream, clearPrefetchedSourcesFor, setPlannedServer } from "@/lib/watch/sourcePrefetch";
 import { prefetchSkips } from "@/lib/skip/prefetchSkips";
 import { prefetchEpisodeList } from "@/lib/watch/episodePrefetch";
 import { setPrefetchedInfo } from "@/lib/watch/infoPrefetch";
 
 import { useSession } from "next-auth/react";
-import ListEditor from "@/components/listEditor";
+import dynamic from "next/dynamic";
 
 import { useAniList } from "@/lib/anilist/useAnilist";
 import { useTranslation } from "react-i18next";
@@ -21,6 +21,9 @@ import { anilistFetch } from "@/lib/anilist/anilistFetch";
 import { getUserList, peekListEntry, hasUserList, patchListEntry } from "@/lib/anilist/userListCache";
 import { peekLocalEntry, LOCAL_LIST_EVENT } from "@/lib/list/localList";
 import { useSyncPrefs } from "@/lib/prefs/syncPrefs";
+import { getServerPref } from "@/lib/prefs/serverPref";
+import { getEffectiveLangOrder, pickServerForLangs } from "@/lib/prefs/langPref";
+import { getAnimeServer } from "@/lib/prefs/animeServerPref";
 import { getCachedAnime } from "@/lib/db/anime";
 import { loadFanarts } from "@/lib/db/fanarts";
 import { resolveSeasonChain, resolveSeasonList, resolveBonusFilms, SeasonEntry } from "@/lib/anilist/seasonChain";
@@ -29,7 +32,7 @@ import { notify } from "@/lib/notifications/noticeStore";
 import { Navbar } from "@/components/shared/NavBar";
 import { AniListInfoTypes } from "types/info/AnilistInfoTypes";
 import InfoPage from "@/components/anime/v2/InfoPage";
-import { relationsTreeUrl } from "@/components/anime/v2/RelationsGraph";
+import { relationsTreeUrl } from "@/lib/anilist/franchiseTreeVersion";
 import InfoPageMobile from "@/components/anime/v2/mobile/InfoPageMobile";
 import { useIsMobile } from "@/lib/hooks/useIsMobile";
 import { pickTitleImage, collectArtworks, slugifyTitle, SeasonInfo, TitleImage } from "@/components/anime/v2/helpers";
@@ -38,6 +41,14 @@ import { resolveHeroBanner } from "@/lib/images/heroBanner";
 
 import type { FanartsMeta } from "@/components/anime/v2/helpers";
 import { replaceUrlPreservingState } from "@/lib/navigation/replaceUrl";
+
+// Behind `open`, which starts false — the editor is a dialog the visitor has to
+// ask for. Deferring it keeps its AniList mutations and its whole form out of
+// the page's entry chunk; the render gate below is unchanged, so it still
+// appears exactly when it did.
+const ListEditor = dynamic(() => import("@/components/listEditor"), {
+  ssr: false,
+});
 
 type InfoTypes = {
   info: AniListInfoTypes;
@@ -308,6 +319,11 @@ export default function Info({
     const malId = (info as any)?.idMal as number | undefined;
 
     let cancelled = false;
+    // Le serveur qu'on prechauffe, en promesse : la passe « au repos » plus bas
+    // (donnees de skip, stockees PAR HOTE) doit viser le MEME, sinon elle
+    // chauffe l'entree d'un hote que personne n'ouvrira. En attendre le
+    // resultat evite de dependre de l'ordre d'arrivee des deux passes.
+    let warmTargetP: Promise<string> = Promise.resolve(server);
     // Aborts every in-flight prefetch fetch the moment the user leaves this
     // info page (unmount / navigates to another anime). Paired with a cache
     // purge in cleanup so nothing we warmed lingers after we're gone.
@@ -347,19 +363,55 @@ export default function Info({
           if (!cancelled && data) warmStream(data, ac.signal);
         });
 
-      // Priority order:
-      //  1. megaplay — the server the watch page starts on.
-      //  2. the user's saved preferred server — the one the page switches to
-      //     once confirmed (and the one they actually watch).
-      // Both at HIGH priority so they resolve first.
-      let preferred: string | null = null;
-      try {
-        preferred = localStorage.getItem("preferred_server");
-      } catch {}
+      // On prechauffe LE serveur que la page de lecture va reellement ouvrir,
+      // et lui seul.
+      //
+      // Avant : megaplay + `preferred_server`, en dur. C'etait juste tant que la
+      // page de lecture demarrait sur megaplay. Depuis l'ordre de preference des
+      // lecteurs, elle demarre sur le lecteur retenu pour cette serie, ou sur le
+      // plus rapide de la langue n°1 — donc on prechauffait deux serveurs dont
+      // AUCUN n'etait celui qui allait s'ouvrir : le scrape lourd etait paye
+      // pour rien, et l'utilisateur attendait quand meme une extraction froide.
+      //
+      // Meme resolution que la page de lecture, dans le meme ordre (exception de
+      // la serie -> serveur epingle -> ordre des langues -> megaplay), plus un
+      // raffinement qu'elle ne peut pas s'offrir : l'instantane de disponibilite
+      // (`/api/v2/availability`, un GET mis en cache CDN 10 min) dit quels hotes
+      // ont reellement repondu pour cet episode. Sans lui, un utilisateur qui
+      // classe la VF en n°1 ferait prechauffer un hote VF sur une serie qui n'en
+      // a pas — le pire des deux mondes. Avec, on choisit le meilleur hote de la
+      // langue n°1 PARMI ceux qui marchent.
+      const resolveWatchServer = async (): Promise<string> => {
+        const pinned = getAnimeServer(info.id) || getServerPref();
+        if (pinned) return pinned;
+        const order = getEffectiveLangOrder();
+        if (!order) return server;
+        try {
+          const r = await fetch(
+            `/api/v2/availability?aniId=${info.id}&episode=${resumeEp}&sub=sub`,
+            { signal: ac.signal },
+          );
+          if (r.ok) {
+            const { servers } = await r.json();
+            if (Array.isArray(servers) && servers.length) {
+              const best = pickServerForLangs(order, { confirmed: new Set(servers) });
+              if (best) return best;
+            }
+          }
+        } catch {
+          /* hors ligne / annule — on retombe sur le choix a l'aveugle */
+        }
+        return pickServerForLangs(order) || server;
+      };
 
-      const prioritised = [server];
-      if (preferred && preferred !== server) prioritised.push(preferred);
-      for (const srv of prioritised) void warmServer(srv, "high");
+      warmTargetP = resolveWatchServer();
+      void warmTargetP.then((srv) => {
+        if (cancelled) return;
+        // Dire a la page de lecture SUR QUOI on a mise, pour qu'elle ouvre le
+        // meme hote et lise la source deja resolue au lieu d'en redemander une.
+        setPlannedServer(info.id, srv);
+        void warmServer(srv, "high");
+      });
 
       // We deliberately DON'T warm every other server here anymore. Doing so
       // fired a /api/v2/source resolution — heavy anime-sama / voiranime
@@ -377,9 +429,15 @@ export default function Info({
     // matters once the video reports its duration, so it can wait for idle.
     const runIdle = () => {
       if (cancelled) return;
-      // Warm the per-host entry for the server the watch page starts on
-      // (megaplay, its SSR default) so the overlay reads a hit on arrival.
-      if (malId) void prefetchSkips(malId, resumeEp, info.id, { server: "megaplay" });
+      // Warm the per-host entry for the server the watch page starts on, so the
+      // overlay reads a hit on arrival. Sur le serveur reellement prechauffe, et
+      // non plus megaplay en dur : les skips sont stockes PAR HOTE, une entree
+      // chauffee sur le mauvais hote ne sert a rien.
+      if (malId) {
+        void warmTargetP.then((srv) => {
+          if (!cancelled) void prefetchSkips(malId, resumeEp, info.id, { server: srv });
+        });
+      }
     };
 
     // Short delay: just enough to let the info page's first paint + its own
@@ -889,19 +947,25 @@ export async function getServerSideProps(ctx: any) {
     timer.mark("fanarts");
     const initialTitleImage = pickTitleImage(fanarts, tmdb.logo);
     const fanartsMeta = toFanartsMeta(fanarts);
-    const heroBanner = await resolveHeroBanner(info?.bannerImage, tmdb.backdrop);
-    if (heroBanner) appendPreloadHeader(ctx.res, heroBanner);
     // No clearart preload header — see the <link> note above: the <img> may
     // swap to assets.fanart.tv on proxy error, leaving a proxy-URL preload
     // unconsumed ("preloaded but not used"). preconnect handles the latency.
 
-    // Now wait on the slower stuff in parallel. The browser is already
-    // pulling the images while these resolve.
-    const [seasonInfo, seasonList, bonusFilms] = await Promise.all([
+    // Now wait on the slower stuff in parallel. `resolveHeroBanner` rides in
+    // this batch rather than ahead of it: it only needs `tmdb.backdrop`, which
+    // the wave above already produced, and awaiting it on its own added a
+    // third serial round-trip (its bannerSize verdict is a Turso read) to
+    // every edge-cache MISS on the site's busiest page. It used to sit here to
+    // emit its preload header "early", but getServerSideProps does not flush
+    // headers before the response — they all go out together either way, so
+    // the split bought latency and no earlier bytes.
+    const [heroBanner, seasonInfo, seasonList, bonusFilms] = await Promise.all([
+      resolveHeroBanner(info?.bannerImage, tmdb.backdrop).catch(() => null),
       resolveSeasonChain(animeIdNum).catch(() => ({ number: null, total: null })),
       resolveSeasonList(animeIdNum).catch(() => []),
       resolveBonusFilms(animeIdNum).catch(() => []),
     ]);
+    if (heroBanner) appendPreloadHeader(ctx.res, heroBanner);
     timer.end(`cache-hit id=${id?.[0]}`);
     return {
       props: {

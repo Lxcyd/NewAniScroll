@@ -17,13 +17,21 @@ est celui **ou vit le code**, pas celui du symptome.
 Le changelog du site (`changelog/`) ne se fabrique PAS a partir d'ici : il se
 construit depuis `git log --since=<derniere release>`.
 
-## Etat courant — 2026-08-16
+## Etat courant — 2026-08-29
 
-- **v0.0.7 en production** depuis le 16/08 (PR #6, `main` == `dev`). Apercu au
-  survol, graphe de franchise, onglet Illustrations, lecteur Ansembed.
-- Le merge a demande une resolution : trois correctifs CI/cron avaient ete
-  commites sur les deux branches. Piege a retenir : `refresh-fanarts.yml`
+- **v0.0.7 en production** depuis le 16/08 (PR #6). `dev` a pris de l'avance
+  depuis : mesurer l'ecart sur le REMOTE (`origin/main..origin/dev`).
+- Le merge du 16/08 a demande une resolution : trois correctifs CI/cron avaient
+  ete commites sur les deux branches. Piege a retenir : `refresh-fanarts.yml`
   s'est auto-merge **sans conflit** en dupliquant tout le bloc classifieur.
+- Sur `dev` depuis le 29/08 : numerotation des saisons corrigee (JJK, AoT, MHA)
+  + `tools/season-audit` ; TMDB devant ani.zip pour les vignettes d'episode ;
+  episodes non diffusees retires de la liste ; fondu au blanc traite comme un
+  fondu au noir ; la marche des vignettes de la barre ne fait plus refuser les
+  segments par le CDN. **Six caches montent de version** — `seasonChain:v11`,
+  `seasonList:v22`, `tmdbStills:v3`, `episode:v11`, et cote client
+  `as:firstframe:v2`. Attendre leur premiere reconstruction avant de juger une
+  page sur dev.
 
 ## Chantiers ouverts
 
@@ -46,10 +54,10 @@ construit depuis `git log --since=<derniere release>`.
 | Domaine | Fichier | Entrees | Couvre |
 | --- | --- | --: | --- |
 | Apercu au survol & bandes-annonces | [`devlog/preview.md`](devlog/preview.md) | 32 | carte de survol, trailer, lumiere d'ambiance, blocage YouTube |
-| Lecteur video & lecteurs distants | [`devlog/player.md`](devlog/player.md) | 37 | raccourcis, toasts, autoplay, plein ecran, w2g, lecteurs distants |
+| Lecteur video & lecteurs distants | [`devlog/player.md`](devlog/player.md) | 42 | raccourcis, toasts, autoplay, plein ecran, w2g, lecteurs distants |
 | Detecteur OP/ED | [`devlog/oped.md`](devlog/oped.md) | 11 | tools/opening-detector, replis F1-F7, garde-fous P1-P8, audits |
-| Pages, saisons, relations & sources de donnees | [`devlog/site.md`](devlog/site.md) | 13 | saisons, graphe de franchise, hero, navbar, TMDB/fanart/ani.zip |
-| Infra, cout, cache & releases | [`devlog/infra.md`](devlog/infra.md) | 12 | Upstash, Fluid CPU, crons, usage-monitor, analytics, releases |
+| Pages, saisons, relations & sources de donnees | [`devlog/site.md`](devlog/site.md) | 15 | saisons, graphe de franchise, hero, navbar, TMDB/fanart/ani.zip |
+| Infra, cout, cache & releases | [`devlog/infra.md`](devlog/infra.md) | 15 | Upstash, Fluid CPU, crons, usage-monitor, analytics, releases |
 
 ## Index des entrees
 
@@ -90,6 +98,13 @@ construit depuis `git log --since=<derniere release>`.
 
 ### Lecteur video & lecteurs distants — [`devlog/player.md`](devlog/player.md)
 
+- 2026-08-29 — AniSkip interroge sur une serie qu'il ignore
+- 2026-08-29 — Les vignettes de la barre faisaient refuser la lecture (429)
+- 2026-08-29 — La premiere frame blanche, et le voile qui manquait
+- 2026-08-29 — Les episodes pas encore sortis, et la molette rendue au navigateur
+- 2026-08-17 — La langue avant le lecteur : un classement 1-2-3 pose une fois
+- 2026-08-17 (nuit) — Sibnet tuait la fonction, et une preference morte se rejouait a vie
+- 2026-08-17 (soir) — Les chips s'effacent tous, et Megaplay ne revient jamais
 - 2026-08-17 — Changer de lecteur faisait disparaitre nos boutons
 - 2026-08-08 (soir) — Sibnet remarche : deux blocages, et une conclusion fausse en route  _(voir aussi `devlog/oped.md`)_
 - 2026-08-06 — Le cache de sondes n'etait pas indexe par EPISODE
@@ -130,6 +145,7 @@ construit depuis `git log --since=<derniere release>`.
 
 ### Detecteur OP/ED — [`devlog/oped.md`](devlog/oped.md)
 
+- 2026-08-26 — Le chiffre qu'on regardait ne gouvernait rien, et 46 % du parc etait injugeable
 - 2026-08-08 — Lot `top50` : le resultat, et pourquoi deux lecteurs sur six n'ont rien rendu
 - 🔄 EN COURS au 08/08 15:50 — lot `top50`, à relire ce soir
 - 2026-08-08 — Une machine qui s'éteint fabriquait des absences de générique
@@ -144,6 +160,8 @@ construit depuis `git log --since=<derniere release>`.
 
 ### Pages, saisons, relations & sources de donnees — [`devlog/site.md`](devlog/site.md)
 
+- 2026-08-29 — Deux « Season 1 » a la file : le garde qui empechait de compter
+- 2026-08-29 — La vignette d'episode passe a TMDB, qui CHOISIT
 - 2026-08-15 — Le graphe des relations se dessinait deux fois
 - 2026-08-10 — Graphe de franchise : le reste du chantier
 - 2026-08-08 (nuit) — Titre de la fiche : TMDB passe devant le logo fanart.tv
@@ -160,6 +178,9 @@ construit depuis `git log --since=<derniere release>`.
 
 ### Infra, cout, cache & releases — [`devlog/infra.md`](devlog/infra.md)
 
+- 2026-08-26 — Le chunk que personne ne peut éviter : `_app` divisé par deux
+- 2026-08-22 (suite) — Page watch : −20 % de bundle, −19 % de HTML, sans toucher au comportement
+- 2026-08-22 — Relevé usage : le seul trou de cache restant, et pourquoi le monitor ne verra jamais Vercel
 - 2026-08-16 — Le cron ne rattrapait rien, et une panne AniList l'aurait prouvé trop tard
 - 2026-08-04 (suite 3) — CORRECTION de l'entrée précédente : Vercel va bien, seul le Worker est muet
 - 2026-08-04 (suite 2) — ⚠️ ENTRÉE ERRONÉE (voir la correction en suite 3) — la base ADMIN n'est plus écrite depuis la prod (11/07)

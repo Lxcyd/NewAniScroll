@@ -26,6 +26,14 @@ import {
 } from "@/lib/prefs/previewPrefs";
 import { useServerPref, setServerPref } from "@/lib/prefs/serverPref";
 import SERVERS from "@/lib/servers";
+import LangPreferenceModal from "@/components/watch/primary/LangPreferenceModal";
+import { useLangPrefEnabled, setLangPrefEnabled } from "@/lib/prefs/langPref";
+import {
+  useServerPerfEnabled,
+  setServerPerfEnabled,
+  clearServerPerf,
+  dumpServerPerf,
+} from "@/lib/watch/serverPerf";
 import { clearAllProgress } from "@/lib/watch/progress";
 import { restoreDefaultSettings } from "@/lib/prefs/resetSettings";
 import { useAccent, setAccent, ACCENT_PRESETS, DEFAULT_ACCENT } from "@/lib/prefs/accentColor";
@@ -115,6 +123,66 @@ function SegmentedPicker<T extends string>({
 
 /* A labelled on/off switch used by the AniList sync section. `disabled` greys
    it out (master toggle off) while preserving its current visual state. */
+/**
+ * Scores appris par lecteur, en lecture seule, plus le bouton de remise a zero.
+ *
+ * La liste ne se lit qu'APRES le montage : elle vient de localStorage, donc la
+ * rendre pendant le rendu donnerait un contenu different au SSR et au client.
+ * Seuls les lecteurs REELLEMENT mesures sont listes — afficher les onze avec
+ * « (statique) » ne dirait rien de plus que lib/servers.js.
+ */
+function ServerPerfScores({ resetLabel }: { resetLabel: string }) {
+  const [rows, setRows] = useState<Array<{ id: string; final: number; C: number }>>([]);
+  const refresh = () =>
+    setRows(
+      dumpServerPerf()
+        .filter((r) => r.measured != null)
+        .sort((a, b) => b.final - a.final)
+        .map((r) => ({ id: r.id, final: r.final, C: r.C })),
+    );
+  useEffect(refresh, []);
+  const { t } = useTranslation();
+
+  return (
+    <div className="flex items-start justify-between gap-4 py-3">
+      <div className="min-w-0">
+        <div className="text-sm font-medium">{t("settings.player.serverPerfReset")}</div>
+        <div className="text-white/50 text-xs mt-0.5">
+          {t("settings.player.serverPerfResetDesc")}
+        </div>
+        {rows.length === 0 ? (
+          <div className="text-white/35 text-xs mt-2">
+            {t("settings.player.serverPerfNone")}
+          </div>
+        ) : (
+          <ul className="mt-2 space-y-0.5 font-mono text-[11px] text-white/60">
+            {rows.map((r) => (
+              <li key={r.id} className="flex gap-2">
+                <span className="w-44 truncate">{r.id}</span>
+                <span className="tabular-nums">{r.final.toFixed(0)}</span>
+                <span className="text-white/30 tabular-nums">
+                  · {(r.C * 100).toFixed(0)}%
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+      <button
+        type="button"
+        onClick={() => {
+          clearServerPerf();
+          refresh();
+        }}
+        disabled={rows.length === 0}
+        className="shrink-0 rounded-md bg-white/10 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-white/20 disabled:opacity-40"
+      >
+        {resetLabel}
+      </button>
+    </div>
+  );
+}
+
 function Toggle({
   checked,
   onChange,
@@ -284,10 +352,14 @@ export default function Settings() {
   const hideSpoilers = useHideSpoilers();
   const previewPrefs = usePreviewPrefs();
   const serverPref = useServerPref();
+  const serverPerfEnabled = useServerPerfEnabled();
   const accent = useAccent();
   const localList = useLocalList();
   // Visual keyboard shortcut editor overlay (shared with the player).
   const [shortcutEditorOpen, setShortcutEditorOpen] = useState(false);
+  // Meme popup que celle affichee au premier episode (classement des langues).
+  const [langPrefOpen, setLangPrefOpen] = useState(false);
+  const langPrefEnabled = useLangPrefEnabled();
   const [titlePref, setTitlePrefState] = useState<TitlePref>("en");
   const [uiLang, setUiLangState] = useState<Lang>("en");
   const [mounted, setMounted] = useState(false);
@@ -877,6 +949,48 @@ export default function Settings() {
                 checked={playerPrefs.defaultMuted}
                 onChange={(v) => setPlayerPrefs({ defaultMuted: v })}
               />
+              <Toggle
+                label={t("settings.player.snapToCurrentEpisode")}
+                desc={t("settings.player.snapToCurrentEpisodeDesc")}
+                checked={playerPrefs.snapToCurrentEpisode}
+                onChange={(v) => setPlayerPrefs({ snapToCurrentEpisode: v })}
+              />
+              {/* Classement des langues (lang_pref_order) — la meme popup que
+                  celle du premier episode. Elle decide quelle langue on essaie
+                  d'abord; le serveur epingle ci-dessous, lui, reste prioritaire
+                  quand il est renseigne.
+
+                  L'interrupteur n'EFFACE pas le classement, il le met en
+                  sommeil : eteint, la page de lecture reprend son comportement
+                  historique, et rallumer retrouve l'ordre tel quel. */}
+              <Toggle
+                label={t("player.langPref.settingsLabel")}
+                desc={t("player.langPref.settingsDesc")}
+                checked={langPrefEnabled}
+                onChange={setLangPrefEnabled}
+              />
+              <div
+                className={`flex items-center justify-between gap-4 py-3 ${
+                  langPrefEnabled ? "" : "opacity-40"
+                }`}
+              >
+                <div className="min-w-0">
+                  <div className="text-sm font-medium">
+                    {t("player.langPref.settingsOrderLabel")}
+                  </div>
+                  <div className="text-white/50 text-xs mt-0.5">
+                    {t("player.langPref.settingsOrderDesc")}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  disabled={!langPrefEnabled}
+                  onClick={() => setLangPrefOpen(true)}
+                  className="shrink-0 rounded-md bg-action px-3 py-1.5 text-sm font-medium text-white transition hover:brightness-110 disabled:cursor-not-allowed"
+                >
+                  {t("player.langPref.settingsButton")}
+                </button>
+              </div>
               {/* Default server (preferred_server). Empty = Auto (site default,
                   remembers whatever the user clicks in the player). */}
               <div className="flex items-start justify-between gap-4 py-3">
@@ -903,6 +1017,18 @@ export default function Settings() {
                   ))}
                 </select>
               </div>
+              {/* Classement mesure des lecteurs. Le selecteur « serveur par
+                  defaut » ci-dessus reste prioritaire : ceci ne decide que de
+                  l'ordre propose quand aucun choix explicite n'existe. */}
+              <Toggle
+                label={t("settings.player.serverPerf")}
+                desc={t("settings.player.serverPerfDesc")}
+                checked={serverPerfEnabled}
+                onChange={setServerPerfEnabled}
+              />
+              {serverPerfEnabled && (
+                <ServerPerfScores resetLabel={t("settings.player.serverPerfResetBtn")} />
+              )}
               {/* Data saver folded into the player section (it's a playback
                   bandwidth/GPU toggle). */}
               <Toggle
@@ -1360,6 +1486,10 @@ export default function Settings() {
       {shortcutEditorOpen && (
         <ShortcutEditor onClose={() => setShortcutEditorOpen(false)} />
       )}
+      <LangPreferenceModal
+        open={langPrefOpen}
+        onSave={() => setLangPrefOpen(false)}
+      />
     </>
   );
 }

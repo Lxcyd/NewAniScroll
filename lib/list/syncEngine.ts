@@ -29,6 +29,7 @@ import {
 import { todayFuzzy, Status, FuzzyDate } from "./types";
 import { saveMediaListEntry } from "./anilistPush";
 import { patchListEntry, peekListEntry } from "@/lib/anilist/userListCache";
+import { getProgress, isCompleted } from "@/lib/watch/progress";
 
 const ENDPOINT = "https://graphql.anilist.co/";
 
@@ -337,10 +338,38 @@ export type EpisodeFinishedArgs = {
 };
 
 /**
+ * Nouvelle valeur du compteur de progression apres avoir fini `episode`.
+ *
+ * Un compteur ne sait dire qu'une chose : « tout jusqu'a N est vu ». Le porter
+ * a 5 parce qu'on vient de finir l'episode 5 affirme donc aussi qu'on a vu le
+ * 4 — c'est le bug : sauter un episode et finir le suivant validait celui
+ * qu'on avait saute, dans la liste locale comme dans le pousse AniList.
+ *
+ * On n'avance donc que sur ce qu'on peut prouver : depuis le compteur actuel,
+ * on monte tant que l'episode suivant est marque termine dans l'historique de
+ * lecture (lib/watch/progress.ts). Un visionnage dans le desordre finit par
+ * tout rattraper — finir le 4 apres le 5 fait sauter le compteur de 3 a 5 —
+ * mais un episode reellement saute ne se fait jamais offrir.
+ *
+ * L'episode qu'on vient de finir, lui, reste marque termine dans l'historique
+ * quoi qu'il arrive : c'est `markComplete` qui s'en charge, et c'est ce qui
+ * fait apparaitre son « Terminé » vert dans la liste d'episodes.
+ */
+function advanceProgress(aniId: number, current: number, episode: number): number {
+  // Rattrapage normal (episode suivant, ou re-visionnage d'un episode deja
+  // compte) : rien a verifier.
+  if (episode <= current + 1) return Math.max(current, episode);
+  let n = current;
+  while (n < episode && isCompleted(getProgress(aniId, n + 1))) n++;
+  return n;
+}
+
+/**
  * Apply the "episode finished" rules.
  *
  * Local (always):
- *   - progress = max(existing, episode)
+ *   - progress avance jusqu'ou l'historique de lecture le justifie (voir
+ *     `advanceProgress`) — jamais par-dessus un episode saute
  *   - autoWatching: if no status (or PLANNING) → CURRENT + startedAt today
  *   - if episode === total → COMPLETED + completedAt today
  *
@@ -365,7 +394,7 @@ export async function onEpisodeFinished(
   const totalEp = Number.isFinite(total as number) && (total as number) > 0 ? (total as number) : null;
 
   // ── Local update (always) ──────────────────────────────────────
-  const nextProgress = Math.max(prev?.progress ?? 0, episode);
+  const nextProgress = advanceProgress(aniId, prev?.progress ?? 0, episode);
   let nextStatus: Status | null = prev?.status ?? null;
   const patch: Parameters<typeof upsertLocalEntry>[1] = {
     progress: nextProgress,

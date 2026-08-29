@@ -1,113 +1,45 @@
+import { useEffect, useMemo, useRef, useState } from "react";
 import { getServersByLang } from "@/lib/servers";
-import { SignalIcon } from "@heroicons/react/24/solid";
 import { useTranslation } from "react-i18next";
-// @ts-ignore — plain JS context, no types
-import { useWatchProvider } from "@/lib/context/watchPageProvider";
+import { useServerPerfRank } from "@/lib/watch/serverPerf";
+import { shouldShowServer } from "@/lib/watch/serverVisibility";
 
-const LANG_CONFIG = {
-  multi: { labelKey: "player.langMulti", flag: "🌐", descKey: "player.langMultiDesc" },
-  vo: { labelKey: "player.langVO", flag: "🇯🇵", descKey: "player.langVODesc" },
-  vf: { labelKey: "player.langVF", flag: "🇫🇷", descKey: "player.langVFDesc" },
+const LANGS = ["multi", "vo", "vf"];
+const LANG_LABELS = {
+  multi: "player.langMulti",
+  vo: "player.langVO",
+  vf: "player.langVF",
 };
 
-// Speed "poinçon" tiers. Green = fast, amber = medium, red = slow.
-const SPEED_TIERS = {
-  fast: { color: "#2dd47a", labelKey: "player.speedFast" },
-  medium: { color: "#f6c544", labelKey: "player.speedMedium" },
-  slow: { color: "#ff6b6b", labelKey: "player.speedSlow" },
-};
+// Le gris des lecteurs au repos, exactement celui des numeros d'episode du
+// panneau de droite : ces deux listes se lisent cote a cote, deux gris voisins
+// mais differents se seraient vus. Le rose de l'accent reste reserve au lecteur
+// ACTIF — la meme couleur que son liseré et que le "en cours" du reste du site.
+const TEXT = "#a2a8b8";
+const TEXT_HOVER = "#f4f5f8";
+const TEXT_ACTIVE = "var(--brand-primary, #E94560)";
 
-// A server's dot reflects its MEASURED speed when we have a live reading
-// (UniversalPlayer writes the active stream's real throughput/rebuffering to
-// the watch context), otherwise its static `speed` rank from lib/servers.js
-// (1 = fastest). megaplay & co. vary per title, so the live reading is the
-// truthful one — the static rank is just the at-rest estimate.
-function staticTier(speed) {
-  const s = speed ?? 99;
-  if (s <= 2) return "fast";
-  if (s <= 4) return "medium";
-  return "slow";
-}
+// La vitesse ne s'AFFICHE plus (ni mot, ni poincon, ni infobulle) : elle ne fait
+// plus qu'ordonner les chips, via useServerPerfRank. Les paliers rapide/moyen/
+// lent et la lecture live du contexte n'ont donc plus de lecteur ici — ils
+// restent dans lib/watch/serverPerf, ou le classement les consomme.
 
-// Decide whether a server should be visible in the selector.
-function shouldShow(server, activeServer, confirmedServers, failedServers) {
-  if (server.id === activeServer) return true;
-  if (failedServers?.has?.(server.id) || failedServers?.get?.(server.id)) {
-    return false;
+// Chips are read at a glance, and inside a language group the site prefix is
+// noise: under VF every host is anime-sama or voir-anime already. So we show
+// the host word ("Sibnet", "Ansembed") — but only while it stays UNIQUE among
+// the chips on screen. Two "Vidmoly" chips from different sites would be an
+// unresolvable choice, so in that case everyone keeps their full name.
+function shortNames(servers) {
+  const short = {};
+  const seen = {};
+  for (const s of servers) {
+    const w = s.name.split(" ").pop();
+    seen[w] = (seen[w] || 0) + 1;
+    short[s.id] = w;
   }
-  if (server.type === "iframe") return true;
-  return confirmedServers?.has(server.id);
-}
-
-function LangGroup({
-  langKey,
-  servers,
-  activeServer,
-  onChange,
-  failedServers,
-  confirmedServers,
-  degradedServers,
-}) {
-  const { t } = useTranslation();
-  const { liveSpeed } = useWatchProvider() || {};
-  const config = LANG_CONFIG[langKey];
-  const visible = (servers || []).filter((s) =>
-    shouldShow(s, activeServer, confirmedServers, failedServers)
-  );
-  if (visible.length === 0) return null;
-
-  return (
-    <div className="flex flex-col gap-1.5">
-      <div className="flex items-center gap-1.5">
-        <span className="text-base leading-none">{config.flag}</span>
-        <span className="text-xs text-white/40 font-karla uppercase tracking-wider">
-          {t(config.labelKey)}
-        </span>
-        <span className="text-[10px] text-white/25 font-karla">
-          {t(config.descKey)}
-        </span>
-      </div>
-      <div className="flex flex-wrap gap-2">
-        {visible.map((server) => {
-          const isActive = activeServer === server.id;
-          // Active server = orange ring. Every chip carries a speed poinçon:
-          // its MEASURED tier when we have a live reading for that server, else
-          // its static rank. Measured dots get a faint ring so a real reading
-          // is distinguishable from the at-rest estimate.
-          const baseClasses = isActive
-            ? "bg-action/25 text-white ring-1 ring-action shadow-[0_0_12px_rgba(255,127,87,0.35)]"
-            : "bg-as-surface/70 text-white/80 ring-1 ring-white/5 hover:bg-as-surface hover:text-white hover:ring-white/20";
-          const measured = liveSpeed?.[server.id];
-          const sp =
-            SPEED_TIERS[measured || staticTier(server.speed)] || SPEED_TIERS.medium;
-          const tip = measured
-            ? `${t(sp.labelKey)} · ${t("player.speedMeasured")}`
-            : t(sp.labelKey);
-          return (
-            <button
-              key={server.id}
-              type="button"
-              onClick={() => onChange(server.id)}
-              title={tip}
-              className={`inline-flex items-center gap-1.5 rounded-pill px-3 py-1.5 text-sm font-karla font-medium transition-all duration-200 ${baseClasses}`}
-            >
-              <span
-                aria-hidden="true"
-                className="inline-block w-[7px] h-[7px] rounded-full shrink-0"
-                style={{
-                  background: sp.color,
-                  boxShadow: measured
-                    ? `0 0 0 2px ${sp.color}33, 0 0 7px ${sp.color}99`
-                    : `0 0 6px ${sp.color}80`,
-                }}
-              />
-              {server.name}
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
+  const out = {};
+  for (const s of servers) out[s.id] = seen[short[s.id]] > 1 ? s.name : short[s.id];
+  return out;
 }
 
 export default function ServerSelector({
@@ -118,61 +50,193 @@ export default function ServerSelector({
   degradedServers,
 }) {
   const { t } = useTranslation();
-  const groups = getServersByLang();
+  // Ordre par le rang MESURE sur cet appareil ; identique au rang statique tant
+  // qu'aucune mesure n'existe, donc l'affichage par defaut ne bouge pas.
+  const groups = getServersByLang(useServerPerfRank());
+
+  // Only languages that actually have a showable server get a tab — an empty
+  // "VF" tab would be a dead end on a title anime-sama doesn't carry.
+  const visibleByLang = useMemo(() => {
+    const out = {};
+    for (const lang of LANGS) {
+      const v = (groups[lang] || []).filter((s) =>
+        shouldShowServer(s, activeServer, confirmedServers, failedServers)
+      );
+      if (v.length) out[lang] = v;
+    }
+    return out;
+  }, [groups, activeServer, confirmedServers, failedServers]);
+
+  const available = LANGS.filter((l) => visibleByLang[l]);
+  // The language of the server actually playing wins over any earlier click:
+  // a fallback that switched host across languages must move the tab with it,
+  // otherwise the bar would highlight a language the player isn't serving.
+  const activeLang = available.find((l) =>
+    visibleByLang[l].some((s) => s.id === activeServer)
+  );
+  const [picked, setPicked] = useState(null);
+  const [hovered, setHovered] = useState(null);
+  const lang =
+    (picked && visibleByLang[picked] && picked) || activeLang || available[0];
+
+  const servers = visibleByLang[lang] || [];
+  const labels = useMemo(() => shortNames(servers), [servers]);
+
+  /* Le fond de l'onglet choisi est un calque unique qui GLISSE d'un onglet a
+     l'autre, au lieu de s'eteindre ici pour se rallumer la. Sa position est
+     mesuree sur le bouton actif plutot que calculee : les trois libelles n'ont
+     pas la meme longueur ("MULTI" / "VOSTFR" / "VF"), et des colonnes de
+     largeur egale auraient etire "VF" pour rien.
+     Rien a prevoir pour le premier rendu : le calque n'existe pas tant qu'il
+     n'est pas mesure, et une transition ne se declenche jamais sur le style
+     initial d'un element — il nait donc a sa place, sans traverser la barre.
+     `available.join("|")` en dependance et non `available` : le tableau est
+     reconstruit a chaque rendu, la chaine ne change qu'avec les onglets. */
+  const tabsRef = useRef(null);
+  const [pill, setPill] = useState(null);
+  useEffect(() => {
+    const el = tabsRef.current?.querySelector("[data-lang-active]");
+    setPill(el ? { left: el.offsetLeft, width: el.offsetWidth } : null);
+  }, [lang, available.join("|")]);
+
+  if (!servers.length) return null;
 
   return (
-    <div className="flex flex-col gap-3 py-3">
-      <div className="flex flex-col gap-1">
-        <div className="flex items-center gap-2 text-sm font-karla font-semibold text-white/70">
-          <SignalIcon className="w-4 h-4 text-as-accent" />
-          <span>{t("player.servers")}</span>
-        </div>
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pl-6 text-[11px] font-karla text-white/35">
-          <span>{t("player.slowHint")}</span>
-          <span className="flex items-center gap-2.5 text-white/30">
-            <span className="flex items-center gap-1">
-              <span className="inline-block w-[6px] h-[6px] rounded-full" style={{ background: "#2dd47a" }} />
-              {t("player.speedFast")}
-            </span>
-            <span className="flex items-center gap-1">
-              <span className="inline-block w-[6px] h-[6px] rounded-full" style={{ background: "#f6c544" }} />
-              {t("player.speedMedium")}
-            </span>
-            <span className="flex items-center gap-1">
-              <span className="inline-block w-[6px] h-[6px] rounded-full" style={{ background: "#ff6b6b" }} />
-              {t("player.speedSlow")}
-            </span>
-          </span>
-        </div>
+    /* Le fond passe par un style inline : `bg-as-card/60` ne produisait AUCUNE
+       regle — `as-card` vaut `var(--surface-card, …)` et Tailwind v3 ne sait pas
+       y injecter d'alpha (meme piege que les teintes d'accent plus bas). La
+       barre n'avait donc pas de fond du tout. On garde la translucidite voulue
+       au depart, cette fois reellement appliquee : c'est le contraste des chips
+       qui porte la lisibilite, pas un aplat sombre. */
+    <div
+      className="relative z-10 flex items-center gap-3 rounded-xl ring-1 ring-white/[0.06] px-3 py-2"
+      style={{ background: "rgba(20,22,31,0.15)" }}
+    >
+      <span className="hidden sm:block shrink-0 text-[14px] font-karla font-bold uppercase tracking-[0.12em] text-white/75">
+        {t("player.servers")}
+      </span>
+
+      {/* `key={lang}` : changer d'onglet REMONTE la rangee, ce qui rejoue
+          l'animation d'entree meme sur une chip dont l'identifiant survivrait
+          d'une langue a l'autre. Sans lui, React reconcilierait en place et le
+          changement se ferait sans que rien ne bouge — or c'est justement le
+          moment ou l'on veut voir que la liste n'est plus la meme. */}
+      <div key={lang} className="flex flex-wrap items-center gap-1.5 min-w-0 grow">
+        {/* La vitesse ne s'affiche plus nulle part sur la chip — ni le mot, ni le
+            poincon de couleur, ni l'infobulle. Elle continue en revanche
+            d'ORDONNER la liste (useServerPerfRank) : le plus rapide reste en
+            tete, c'est ce rang qui parle maintenant. */}
+        {servers.map((server, i) => {
+          const isActive = activeServer === server.id;
+          const solo = servers.length === 1;
+          return (
+            <button
+              key={server.id}
+              type="button"
+              onClick={() => onChange(server.id)}
+              onMouseEnter={() => setHovered(server.id)}
+              onMouseLeave={() => setHovered(null)}
+              // Les teintes de l'accent passent par color-mix en style inline :
+              // `action` vaut `var(--brand-primary, …)`, et Tailwind v3 ne sait
+              // pas injecter d'alpha dans une var() — `bg-action/20` ne genere
+              // AUCUNE regle. Meme piege que LangPreferenceModal documente.
+              //
+              // Le survol de la chip ACTIVE doit l'assombrir comme les autres, et
+              // un `hover:` Tailwind ne peut pas : le fond est pose ici, en
+              // inline, donc il gagne toujours. D'ou l'etat de survol tenu en
+              // React — un voile noir se superpose a la teinte d'accent.
+              /* Les chips entrent l'une apres l'autre, de gauche a droite : un
+                 decalage court suffit a montrer que la rangee s'est refaite,
+                 la ou une apparition simultanee ressemble a un simple
+                 clignotement. Plafonne a 5 crans — au-dela, la derniere chip
+                 arriverait apres qu'on ait deja lu la premiere.
+                 Une chip seule n'a personne a attendre : pas de retard, et une
+                 entree plus ample (cf. `as-chip-in-solo`). */
+              style={
+                isActive
+                  ? {
+                      animationDelay: solo ? undefined : `${Math.min(i, 5) * 45}ms`,
+                      background: `${
+                        hovered === server.id
+                          ? "linear-gradient(rgba(0,0,0,0.4), rgba(0,0,0,0.4)), "
+                          : ""
+                      }color-mix(in srgb, var(--brand-primary, #E94560) 20%, transparent)`,
+                      boxShadow:
+                        "inset 0 0 0 1px color-mix(in srgb, var(--brand-primary, #E94560) 70%, transparent)",
+                      color: TEXT_ACTIVE,
+                    }
+                  : // Le fond s'assombrit au survol : le nom monte d'un cran en
+                    // meme temps, sinon la chip visee perdrait en lisibilite.
+                    {
+                      animationDelay: solo ? undefined : `${Math.min(i, 5) * 45}ms`,
+                      color: hovered === server.id ? TEXT_HOVER : TEXT,
+                    }
+              }
+              /* Voir `as-chip-in` dans styles/globals.css pour le geste et
+                 pour ce qui change quand la chip est seule. */
+              className={`${solo ? "as-chip-in-solo" : "as-chip-in"} inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[13px] font-karla font-medium transition-colors duration-200 ${
+                isActive
+                  ? ""
+                  : // Le survol ASSOMBRIT la chip visee (il ne l'eclaircit pas) :
+                    // sur une barre posee sous des ambient lights, un creux se lit
+                    // mieux qu'une bosse.
+                    "bg-[#232735]/55 ring-1 ring-white/10 hover:bg-[#0e1016]/40 hover:ring-white/20"
+              }`}
+            >
+              {labels[server.id]}
+            </button>
+          );
+        })}
       </div>
 
-      <LangGroup
-        langKey="multi"
-        servers={groups.multi}
-        activeServer={activeServer}
-        onChange={onChange}
-        failedServers={failedServers}
-        confirmedServers={confirmedServers}
-        degradedServers={degradedServers}
-      />
-      <LangGroup
-        langKey="vo"
-        servers={groups.vo}
-        activeServer={activeServer}
-        onChange={onChange}
-        failedServers={failedServers}
-        confirmedServers={confirmedServers}
-        degradedServers={degradedServers}
-      />
-      <LangGroup
-        langKey="vf"
-        servers={groups.vf}
-        activeServer={activeServer}
-        onChange={onChange}
-        failedServers={failedServers}
-        confirmedServers={confirmedServers}
-        degradedServers={degradedServers}
-      />
+      {available.length > 1 && (
+        <div
+          ref={tabsRef}
+          className="relative shrink-0 flex items-center gap-0.5 rounded-lg bg-black/30 p-0.5"
+        >
+          {/* Le calque qui glisse. Il est pose SOUS les onglets (z-0 contre
+              z-10) et porte le fond opaque + le liseré que chaque onglet actif
+              dessinait lui-meme : un seul objet qui se deplace se lit comme un
+              curseur, la ou trois fonds qui s'allument tour a tour ne disent
+              rien du chemin parcouru. */}
+          {pill && (
+            <span
+              aria-hidden
+              className="absolute bottom-0.5 top-0.5 z-0 rounded-[6px]"
+              style={{
+                left: 0,
+                width: pill.width,
+                transform: `translateX(${pill.left}px)`,
+                background: "#2b3040",
+                boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.16)",
+                transition:
+                  "transform 260ms cubic-bezier(0.32,0.72,0,1), width 260ms cubic-bezier(0.32,0.72,0,1)",
+              }}
+            />
+          )}
+          {/* Browsing, not switching: picking a language only changes WHICH
+              hosts are listed — the stream keeps playing until a chip is
+              clicked. So the tab holding the host that's actually playing
+              carries a dot; without it, browsing another language would
+              leave no active chip anywhere and hide where the stream is. */}
+          {available.map((l) => (
+            <button
+              key={l}
+              type="button"
+              onClick={() => setPicked(l)}
+              data-lang-active={l === lang ? "" : undefined}
+              className={`relative z-10 rounded-[6px] px-2.5 py-1 text-[11px] font-karla font-semibold uppercase tracking-wide transition-colors ${
+                l === lang ? "text-white" : "text-white/60 hover:text-white"
+              }`}
+            >
+              {t(LANG_LABELS[l])}
+              {l === activeLang && l !== lang && (
+                <span className="absolute right-1 top-1 h-1 w-1 rounded-full bg-action" />
+              )}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

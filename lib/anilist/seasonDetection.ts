@@ -18,6 +18,7 @@ export {
   extractSeasonFromTitle,
   isSeasonContinuation,
   continuesSameWork,
+  nextSeasonNumber,
   seasonTitleBase,
   isSeasonLike,
   sharesFranchise,

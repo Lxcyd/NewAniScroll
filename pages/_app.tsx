@@ -1,37 +1,65 @@
 import "../styles/globals.css";
 import "react-loading-skeleton/dist/skeleton.css";
 import Script from "next/script";
+import dynamic from "next/dynamic";
 import { useRouter } from "next/router";
 import NextNProgress from "nextjs-progressbar";
 import { SessionProvider, useSession } from "next-auth/react";
 import { SkeletonTheme } from "react-loading-skeleton";
-import SearchPalette from "@/components/searchPalette";
-import { SearchProvider } from "@/lib/context/isOpenState";
+import { SearchProvider, useSearch } from "@/lib/context/isOpenState";
 import { WatchPageProvider } from "@/lib/context/watchPageProvider";
 import I18nProvider from "@/lib/i18n/I18nProvider";
 import { useEffect, useState } from "react";
 import { unixTimestampToRelativeTime } from "@/utils/getTimes";
 import { asCssVars, BRAND } from "@/lib/theme";
 import { applyAccent, getAccent } from "@/lib/prefs/accentColor";
-// import SecretPage from "@/components/secret";
 import NoticeStack from "@/components/shared/NoticeStack";
-import HoverPreviewProvider from "@/components/shared/HoverPreview/HoverPreviewProvider";
 import EpisodeTransitionOverlay from "@/components/shared/episodeTransitionOverlay";
 import { notify } from "@/lib/notifications/noticeStore";
-import ChangeLogs from "../components/shared/changelogs";
-import AnilistHealthBanner from "../components/shared/AnilistHealthBanner";
 import { Analytics } from "@vercel/analytics/react";
-import {
-  runAutoPauseSweep,
-  fullSyncFromAniList,
-  fullSyncToAniList,
-} from "@/lib/list/syncEngine";
 import { getSyncPrefs, setSyncPrefs } from "@/lib/prefs/syncPrefs";
-import SyncDirectionModal, {
-  type SyncDirection,
-} from "@/components/shared/SyncDirectionModal";
+import { useMountedOnce } from "@/lib/hooks/useMountedOnce";
+import type { SyncDirection } from "@/components/shared/SyncDirectionModal";
 import { useTranslation } from "react-i18next";
 import type { AppProps } from "next/app";
+
+/*
+ * Everything below is mounted by _app on EVERY page, and none of it renders a
+ * single node before something happens — a hover, a keypress, a fetch that says
+ * "there is a changelog to show". Static imports put all of it in the shared
+ * `_app` chunk, which is the one file no visitor can avoid downloading; a
+ * `dynamic` import moves it to its own chunk fetched after hydration (or, for
+ * the palette, only on the first open) without changing WHEN any of it appears.
+ *
+ * ssr:false is correct for all of them because all of them render `null` on the
+ * server today: the palette's dialog is closed, the changelog hasn't fetched,
+ * the health banner returns null unconditionally, and the hover preview bails on
+ * `typeof document === "undefined"`. So the server HTML is byte-identical.
+ */
+const SearchPalette = dynamic(() => import("@/components/searchPalette"), {
+  ssr: false,
+});
+const ChangeLogs = dynamic(() => import("../components/shared/changelogs"), {
+  ssr: false,
+});
+const AnilistHealthBanner = dynamic(
+  () => import("../components/shared/AnilistHealthBanner"),
+  { ssr: false },
+);
+const HoverPreviewProvider = dynamic(
+  () => import("@/components/shared/HoverPreview/HoverPreviewProvider"),
+  { ssr: false },
+);
+const SyncDirectionModal = dynamic(
+  () => import("@/components/shared/SyncDirectionModal"),
+  { ssr: false },
+);
+
+/** Mounts the palette on its first open — see useMountedOnce. */
+function SearchPaletteMount() {
+  const { isOpen } = useSearch();
+  return useMountedOnce(isOpen) ? <SearchPalette /> : null;
+}
 
 // Cloudflare Worker base. The same Worker that proxies HLS also serves a few
 // endpoints offloaded from Vercel to cut Fluid Active CPU: /w/track (analytics),
@@ -101,6 +129,12 @@ function SyncBootstrap() {
       description: t("settings.sync.enabledToastDesc"),
     });
     try {
+      // Loaded here rather than at the top of the file: the sync engine is a
+      // reconciler for the whole AniList list, and nothing on the site touches
+      // it until the visitor picks a direction (here) or the idle resync below
+      // fires — neither of which is on any page's first-paint path.
+      const { fullSyncFromAniList, fullSyncToAniList, runAutoPauseSweep } =
+        await import("@/lib/list/syncEngine");
       const r =
         direction === "fromAniList"
           ? await fullSyncFromAniList({ replace: true })
@@ -397,6 +431,9 @@ export default function App({
   useEffect(() => {
     const run = async () => {
       if (!getSyncPrefs().directionChosen) return;
+      const { fullSyncFromAniList, runAutoPauseSweep } = await import(
+        "@/lib/list/syncEngine"
+      );
       await fullSyncFromAniList().catch(() => {});
       await runAutoPauseSweep().catch(() => {});
     };
@@ -408,10 +445,6 @@ export default function App({
     const tid = setTimeout(() => void run(), 2000);
     return () => clearTimeout(tid);
   }, []);
-
-  const handleCheatCodeEntered = () => {
-    alert("Cheat code entered!"); // You can replace this with your desired action
-  };
 
   return (
     <>
@@ -443,10 +476,6 @@ export default function App({
                     player navigates to another episode. Must live OUTSIDE
                     <Component> so it survives the navigation. */}
                 <EpisodeTransitionOverlay />
-                {/* <SecretPage
-                  cheatCode={"aofienaef"}
-                  onCheatCodeEntered={handleCheatCodeEntered}
-                /> */}
                 <ChangeLogs />
                 <AnilistHealthBanner />
                 <SyncBootstrap />
@@ -470,7 +499,7 @@ export default function App({
                     showOnShallow={true}
                   />
 
-                  <SearchPalette />
+                  <SearchPaletteMount />
                   <Component {...pageProps} />
                   {/* Vercel Web Analytics — free, beacon-based, doesn't count
                       against the Hobby function quota and gives us per-page

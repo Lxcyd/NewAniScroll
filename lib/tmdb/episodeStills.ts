@@ -1,25 +1,30 @@
 /**
- * Per-episode stills from TMDB — a strict COMPLEMENT to Simkl, never a rival.
+ * Per-episode stills from TMDB — a strict COMPLEMENT to ani.zip, never a
+ * rival.
  *
- * Read lib/simkl/episodeStills.ts first: Simkl's id indexes the same entry
- * AniList does, so it needs no season inference, and that is why it replaced
- * TMDB here on 2026-08-03. Nothing about that has changed. What changed is
- * that we now hold a TMDB key again for series artwork (backdrops, logos —
+ * Read lib/anizip/episodes.ts first: ani.zip is keyed on the AniList id
+ * itself, so it needs no season inference — that is why it leads the chain.
+ * TMDB holds a key here for series artwork anyway (backdrops, logos —
  * lib/tmdb/animeImages.ts), and the marginal cost of asking it for the
- * episodes Simkl could not cover is one request.
+ * episodes ani.zip could not cover is one request.
  *
- * THE RULE, and it is the whole safety argument: TMDB may only write into
- * episode numbers Simkl left EMPTY. It never overwrites a Simkl still and
- * never contributes a title. A season mis-mapping can therefore leave a row
- * with a placeholder — the status quo — but can never replace a correct frame
- * with a wrong one.
+ * (Simkl occupied this middle place jusqu'au 22/08/2026. Il est retire ; le
+ * raisonnement ci-dessous vaut mot pour mot avec ani.zip a sa place.)
+ *
+ * THE RULE, jusqu'au 28/08/2026 : TMDB ne pouvait ecrire que dans les numeros
+ * d'episode qu'ani.zip avait laisses VIDES. Elle a saute pour les images — voir
+ * `fillStillGaps`, TMDB passe devant, il est de meilleure definition et il
+ * CHOISIT parmi plusieurs stills quand ani.zip n'en a qu'un. Elle tient
+ * toujours pour les TITRES : TMDB n'en fournit aucun.
  *
  * WHY THIS ISN'T THE OLD CODE. The removed implementation was the sole
  * provider and had to prove its mapping, so it demanded an exact
  * episode-count equality and refused on every airing show and every split
- * cour. Here the floor is the one Simkl uses (TMDB must know AT LEAST as many
- * episodes as we display) because a wrong guess costs a missing image, not a
- * wrong one.
+ * cour. Here the floor is a lower bound (TMDB must know AT LEAST as many
+ * episodes as we display). Ce plancher etait un confort tant que TMDB ne
+ * comblait que les trous ; depuis qu'il passe devant, c'est lui — avec le garde
+ * de coherence Fribb — qui empeche une image fausse, alors verifier avant de
+ * l'assouplir.
  *
  * WHAT WE STILL REFUSE. Fribb's `season.tmdb` is its weakest field — it
  * collides and fuses (Bungo Stray Dogs: 1,1,2,3,3) and is null on long sagas
@@ -27,13 +32,19 @@
  *
  * The floor check alone is NOT enough to catch a fusion, which is why
  * `isFribbGroupConsistent()` is consulted too. Measured on the live API
- * (2026-08-08): TMDB's Jujutsu Kaisen season 1 holds **59** episodes — it has
- * S1 and S2 fused into one. AniList's S2 entry maps to that same season, so a
- * naive fill would take TMDB episodes 1-23 (which are S1's) and paste them onto
- * S2's rows: a "more episodes than we display" pass, and every single image
- * wrong. That is precisely the undercut case the guard detects (fewer distinct
- * TMDB seasons than TV-like entries in the franchise). It costs one extra Turso
- * read and buys the difference between a missing image and a lying one.
+ * (2026-08-08, re-verifie le 29/08): TMDB's Jujutsu Kaisen season 1 holds **59**
+ * episodes — it has S1 and S2 fused into one. A naive fill would take TMDB
+ * episodes 1-23 and paste them onto rows they don't belong to: a "more episodes
+ * than we display" pass, and every single image wrong. That is precisely the
+ * undercut case the guard detects (fewer distinct TMDB seasons than TV-like
+ * entries in the franchise).
+ *
+ * Ce garde juge la FRANCHISE, pas la saison, et il refusait donc des saisons
+ * parfaitement mappees : Mobile Suit Gundam, groupe de huit entrees declare
+ * incoherent, saison TMDB de 43 episodes pour 43 affiches. Il ne s'applique
+ * plus quand le compte tombe EXACTEMENT juste — une fusion compte forcement
+ * plus d'episodes que ce qu'on affiche, donc l'egalite l'exclut. Jujutsu Kaisen
+ * (59 pour 24) continue d'etre refuse.
  *
  * Fail-soft throughout; nothing throws.
  */
@@ -55,10 +66,13 @@ export type TmdbStills = Record<number, string>;
 
 const EMPTY: TmdbStills = {};
 
-/* w300 matches what the episode rows render at (~250 CSS px wide thumbs).
-   next.config.js sets `images.unoptimized: true`, so this URL is exactly what
-   the browser downloads — see lib/images/cover.ts for the same reasoning. */
-const STILL_SIZE = "w300" as const;
+/* Les tuiles font ~200 px de large, mais un ecran HiDPI en reclame le double et
+   `images.unoptimized: true` (next.config.js) fait que cette URL est exactement
+   ce que le navigateur telecharge — pas de redimensionnement en amont, voir
+   lib/images/cover.ts. w300 laissait donc une vignette floue sur un ecran
+   moderne. w780 la couvre, et coute MOINS cher que ce qu'on servait avant : 59 ko
+   contre les 138 ko de la screencap TVDB d'ani.zip, mesure sur Cyberpunk ep1. */
+const STILL_SIZE = "w780" as const;
 
 type Reason =
   | "ok"
@@ -75,8 +89,8 @@ type Reason =
 /**
  * Stills for `anilistId`, for the episodes in `wanted`.
  *
- * `wanted` is the set of episode numbers still missing an image after Simkl —
- * pass it so a title Simkl covered fully costs nothing at all.
+ * `wanted` is the set of episode numbers still missing an image after ani.zip
+ * — pass it so a title ani.zip covered fully costs nothing at all.
  */
 export async function getTmdbEpisodeStills(
   anilistId: number,
@@ -86,11 +100,8 @@ export async function getTmdbEpisodeStills(
   if (!tmdbEnabled()) return EMPTY;
   if (wanted.size === 0) return EMPTY;
 
-  /* Reuses the `tmdbStills:v1:` cache key of the removed implementation, on
-     purpose. Its last rows were written 2026-08-03 and the TTLs here are 7
-     days (hit) / 24 h (refusal), so every one of them already reads as a miss
-     — there is nothing stale left to inherit, and a second key would strand
-     the rows this code is about to write next to them. */
+  /* Cle versionnee — les URL stockees portent la taille, et les REFUS aussi
+     sont en cache. Voir lib/db/tmdbStillsCache.ts. */
   const cached = await getCachedStills(anilistId, "tmdb");
   if (cached) return cached.stills ?? {};
 
@@ -121,14 +132,8 @@ export async function getTmdbEpisodeStills(
     return await refuse("no-season", entry.tmdbTvId);
   }
 
-  /* Fusion guard — see the header. Without it, a franchise TMDB merged into one
-     season hands every sequel entry the FIRST season's frames, and the floor
-     check below waves it through because a fused season is longer, not shorter.
-     Wrong images are worse than no images, so an inconsistent group refuses. */
   const franchise = await getFribbFranchise(entry.tmdbTvId);
-  if (franchise.length > 1 && !isFribbGroupConsistent(franchise)) {
-    return await refuse("fribb-inconsistent", entry.tmdbTvId, entry.tmdbSeason);
-  }
+  const groupeDouteux = franchise.length > 1 && !isFribbGroupConsistent(franchise);
 
   const episodes = await getSeasonEpisodes(entry.tmdbTvId, entry.tmdbSeason);
   // null is a failed request or a 404 on the season, not "no stills".
@@ -136,12 +141,30 @@ export async function getTmdbEpisodeStills(
     return await refuse("tmdb-error", entry.tmdbTvId, entry.tmdbSeason);
   }
 
-  /* Same floor as Simkl, not the old exact equality: a provider that knows
+  /* A floor, not the old exact equality: a provider that knows
      MORE episodes than we display is normal (it runs ahead on airing shows);
      one that knows FEWER is a suspect mapping — most often Fribb pointing at a
      fused or renumbered season. */
   if (episodes.length < displayedEpisodes) {
     return await refuse("too-few-episodes", entry.tmdbTvId, entry.tmdbSeason);
+  }
+
+  /* Garde de fusion — voir l'en-tete. Sans lui, une franchise que TMDB a
+     fusionnee en une saison donne a chaque suite les images de la PREMIERE, et
+     le plancher ci-dessus laisse passer puisqu'une saison fusionnee est plus
+     longue, pas plus courte.
+     Mais il juge la FRANCHISE, pas la saison, et c'est trop grossier : Mobile
+     Suit Gundam (mesure du 29/08/2026) porte un groupe Fribb de huit entrees
+     declare incoherent, alors que sa saison TMDB compte exactement les 43
+     episodes qu'on affiche. Il n'avait donc aucune image de TMDB, et gardait
+     les screencaps TVDB.
+     D'ou la condition, qui ne relache rien : une EGALITE EXACTE rend la fusion
+     arithmetiquement impossible, puisqu'une saison fusionnee compte forcement
+     plus d'episodes que celle qu'on affiche. Verifie sur le cas d'origine —
+     Jujutsu Kaisen, saison TMDB de 59 episodes pour 24 affiches : pas d'egalite,
+     le garde continue de refuser. */
+  if (groupeDouteux && episodes.length !== displayedEpisodes) {
+    return await refuse("fribb-inconsistent", entry.tmdbTvId, entry.tmdbSeason);
   }
 
   const stills: TmdbStills = {};
@@ -157,7 +180,7 @@ export async function getTmdbEpisodeStills(
   }
 
   /* Cache the WHOLE season, not just the `wanted` subset. `wanted` varies with
-     what Simkl happened to return on this particular request; caching the
+     what ani.zip happened to return on this particular request; caching the
      intersection would make the row depend on another provider's transient
      state, and a later request wanting a different episode would get a false
      "no". Filtering to `wanted` is the caller's job, below. */
@@ -178,36 +201,84 @@ export async function getTmdbEpisodeStills(
   return stills;
 }
 
+/* Le POSTER du lecteur occupe toute la largeur (~1300 px) la ou la tuile en
+   fait 200 : on ne sert pas la meme taille aux deux endroits, et on ne fait pas
+   payer du 1920 a une liste de dix tuiles. Mesure du 26/08/2026 sur Cyberpunk
+   ep1 — ani.zip 640x360 (screencap TVDB, sa taille native, il n'a rien de plus),
+   TMDB original 1920x1080.
+
+   `w1280` et non `original` : le lecteur fait ~1300 px, donc 1920 est du poids
+   qu'aucun pixel ne rend. Mesure du 29/08/2026 sur ce meme still — original
+   202 ko, w1280 145 ko. Or ce poster est en course contre la premiere frame de
+   la video : tout ce qu'il pese, on l'attend derriere un voile noir. */
+const HD_SIZE = "w1280" as const;
+const HD_FROM_TILE = new RegExp(`/${STILL_SIZE}/`);
+
+/** L'URL pleine definition d'un still TMDB deja resolu, ou null si ce n'en est
+ *  pas un. Pur travail de chaine : `tmdbImageUrl` ne fait que concatener la
+ *  taille au chemin, donc l'echange est sur — et surtout il ne coute AUCUNE
+ *  requete de plus. Une URL ani.zip (artworks.thetvdb.com) n'a pas de variante
+ *  plus grande et ressort telle quelle en null. */
+export function hdStillUrl(url: string | null | undefined): string | null {
+  if (!url || !HD_FROM_TILE.test(url)) return null;
+  return url.replace(HD_FROM_TILE, `/${HD_SIZE}/`);
+}
+
 /**
- * Simkl's stills, with TMDB filling only the gaps.
+ * Les stills d'ani.zip, ceux de TMDB par-dessus quand il en a un.
  *
- * Returns the Simkl map untouched when it is already complete — which also
- * means no TMDB call is made for those titles.
+ * TMDB PASSE DEVANT, ce qui renverse la regle d'origine (« il ne comble que les
+ * trous ») pour deux raisons mesurees le 28/08/2026 :
+ *
+ *  - la QUALITE. ani.zip sert la screencap TVDB, native 640x360 et rien
+ *    au-dessus ; TMDB sert du 1920x1080. Sur une tuile HiDPI et surtout sur le
+ *    poster du lecteur, l'ecart se voit.
+ *  - le CHOIX. TMDB tient plusieurs images par episode et publie celle que ses
+ *    votes designent (`still_path` — c'est la meme selection que lib/tmdb/pick.ts
+ *    applique aux backdrops de serie, faite chez eux plutot que chez nous, donc
+ *    sans une requete par episode). Cyberpunk ep2 : cinq stills, TMDB retient un
+ *    1920x1080 vote 3,3. ani.zip ne choisit rien, il n'a qu'une image.
+ *
+ * Cela reglait aussi une incoherence : `img` venait d'ani.zip et `imgHd` de
+ * TMDB, donc la tuile et le poster du lecteur montraient DEUX images
+ * differentes du meme episode (verifie sur Cyberpunk ep2 : voiture en tuile,
+ * Terre en poster).
+ *
+ * Le risque assume est celui que la regle d'origine ecartait : une saison mal
+ * mappee ne laisse plus un trou, elle remplace une image juste par une fausse.
+ * Ce sont les deux gardes de `getTmdbEpisodeStills` — coherence du groupe Fribb
+ * et plancher sur le nombre d'episodes — qui portent desormais seules cette
+ * charge.
  */
 export async function fillStillGaps(
   anilistId: number,
   displayedEpisodes: number | null,
-  simklStills: Record<number, string>,
-): Promise<Record<number, string>> {
+  baseStills: Record<number, string>,
+): Promise<{ stills: Record<number, string>; hd: Record<number, string> }> {
   if (!tmdbEnabled() || !displayedEpisodes || displayedEpisodes <= 0) {
-    return simklStills;
+    return { stills: baseStills, hd: {} };
   }
 
-  const wanted = new Set<number>();
-  for (let n = 1; n <= displayedEpisodes; n++) {
-    if (!simklStills[n]) wanted.add(n);
-  }
-  if (wanted.size === 0) return simklStills;
+  /* Toute la saison, pas seulement les trous : c'est la meme requete, et
+     `getTmdbEpisodeStills` met la saison ENTIERE en cache — la reponse de la
+     liste d'episodes est elle-meme cachee 30 jours. */
+  const all = new Set<number>();
+  for (let n = 1; n <= displayedEpisodes; n++) all.add(n);
+  if (all.size === 0) return { stills: baseStills, hd: {} };
 
-  const tmdb = await getTmdbEpisodeStills(anilistId, displayedEpisodes, wanted).catch(
+  const tmdb = await getTmdbEpisodeStills(anilistId, displayedEpisodes, all).catch(
     () => EMPTY,
   );
 
   // forEach, not for..of: tsconfig targets ES5 without downlevelIteration, so
   // iterating a Set directly doesn't compile.
-  const merged = { ...simklStills };
-  wanted.forEach((n) => {
-    if (tmdb[n]) merged[n] = tmdb[n];
+  const merged = { ...baseStills };
+  const hd: Record<number, string> = {};
+  all.forEach((n) => {
+    if (!tmdb[n]) return; // ani.zip garde la ligne : mieux vaut son image que rien
+    merged[n] = tmdb[n];
+    const big = hdStillUrl(tmdb[n]);
+    if (big) hd[n] = big;
   });
-  return merged;
+  return { stills: merged, hd };
 }

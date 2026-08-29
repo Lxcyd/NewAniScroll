@@ -11,6 +11,24 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { MediaPlayerInstance } from "@vidstack/react";
+import { getServerScore } from "@/lib/watch/serverPerf";
+
+/** Accumulateurs vivants du lecteur (lib/watch/serverPerf), passes par ref pour
+ *  que les lire ici ne coute aucun rendu la-bas. */
+export type PerfRefs = {
+  wallMs: { current: number };
+  stalledMs: { current: number };
+  maxHeight: { current: number };
+  ttffMs: { current: number };
+  /* Decoupage du demarrage, dans l'ordre ou il se deroule. Le total seul ne
+     dit pas ou passent les secondes, et regler un demarrage a l'aveugle
+     revient a deviner. */
+  pageMs: { current: number };
+  sourceMs: { current: number };
+  manifestMs: { current: number };
+  frag1Ms: { current: number };
+  frameMs: { current: number };
+};
 
 type Stats = {
   resolution: string;
@@ -26,6 +44,15 @@ type Stats = {
   duration: string;
   bufferHealth: string;
   server: string;
+  /* Score persiste par lecteur — ce qui classera les chips au prochain
+     chargement. Affiche ici pour pouvoir le lire sans passer par la console. */
+  ttff: string;
+  /** « src · manifest · seg1 · image », en ms. */
+  startup: string;
+  /** Tout ce qui precede la demande de source, en ms. */
+  pageMs: string;
+  stallRate: string;
+  perfScore: string;
 };
 
 const EMPTY: Stats = {
@@ -42,6 +69,11 @@ const EMPTY: Stats = {
   duration: "—",
   bufferHealth: "—",
   server: "—",
+  ttff: "—",
+  startup: "—",
+  pageMs: "—",
+  stallRate: "—",
+  perfScore: "—",
 };
 
 function fmtTime(s: number): string {
@@ -58,11 +90,13 @@ export default function VideoStats({
   playerRef,
   hlsRef,
   serverName,
+  perf,
   onClose,
 }: {
   playerRef: React.RefObject<MediaPlayerInstance>;
   hlsRef: React.MutableRefObject<any>;
   serverName?: string;
+  perf?: PerfRefs;
   onClose: () => void;
 }) {
   const { t } = useTranslation();
@@ -123,6 +157,45 @@ export default function VideoStats({
         }
       } catch {}
 
+      // Score persiste du lecteur actif. `C` est la confiance : tant qu'elle est
+      // basse, le rang statique de lib/servers.js tient encore la barre.
+      let perfScore = "—";
+      let ttff = "—";
+      let stallRate = "—";
+      /* Les quatre etapes du demarrage, dans l'ordre. Lu hors du `if
+         (serverName)` qui suit : le decoupage vaut aussi pour un lecteur qui
+         n'a pas encore de score persiste, et c'est justement au premier
+         chargement qu'on veut le voir.
+         Un tiret la ou l'etape n'a pas eu lieu — un MP4 direct n'a ni
+         manifeste ni segment, et un « 0 ms » se lirait comme instantane. */
+      const ms = (v: number) => (v > 0 ? String(Math.round(v)) : "—");
+      const startup = perf
+        ? `${ms(perf.sourceMs.current)}·${ms(perf.manifestMs.current)}·` +
+          `${ms(perf.frag1Ms.current)}·${ms(perf.frameMs.current)}`
+        : "—";
+      const pageMs =
+        perf && perf.pageMs.current > 0
+          ? `${Math.round(perf.pageMs.current)} ms`
+          : "—";
+      if (serverName) {
+        const { final, measured, C } = getServerScore(serverName);
+        perfScore =
+          measured == null
+            ? `${final.toFixed(0)} (statique)`
+            : `${final.toFixed(0)} · C ${C.toFixed(2)}`;
+        if (perf) {
+          if (perf.ttffMs.current > 0) {
+            ttff = `${Math.round(perf.ttffMs.current)} ms`;
+          }
+          const wall = perf.wallMs.current;
+          stallRate =
+            wall > 0
+              ? `${((perf.stalledMs.current / wall) * 60).toFixed(1)} s/min` +
+                (wall < 60_000 ? " (trop court)" : "")
+              : "—";
+        }
+      }
+
       return {
         resolution: vw && vh ? `${vw}×${vh}` : "—",
         displayResolution: dispW && dispH ? `${dispW}×${dispH}` : "—",
@@ -138,6 +211,11 @@ export default function VideoStats({
         duration: fmtTime(video.duration),
         bufferHealth: `${bufferAhead.toFixed(1)} s`,
         server: serverName || "—",
+        ttff,
+        startup,
+        pageMs,
+        stallRate,
+        perfScore,
       };
     };
 
@@ -155,7 +233,7 @@ export default function VideoStats({
       cancelled = true;
       cancelAnimationFrame(raf);
     };
-  }, [playerRef, hlsRef, serverName]);
+  }, [playerRef, hlsRef, serverName, perf]);
 
   const rows: Array<[string, string]> = [
     [t("stats.server"), stats.server],
@@ -169,6 +247,17 @@ export default function VideoStats({
     [t("stats.playbackRate"), stats.playbackRate],
     [t("stats.volume"), stats.volume],
     [t("stats.time"), `${stats.currentTime} / ${stats.duration}`],
+    [t("stats.ttff"), stats.ttff],
+    /* Libelles en dur : c'est un instrument de mise au point, pas une ligne de
+       l'interface — les traduire supposerait qu'on les garde.
+       « Page » est a part parce qu'il ne mesure pas la meme chose que les
+       autres : tout ce qui precede la demande de source (navigation, hydratation,
+       lecture des preferences), la ou les quatre suivants decoupent le chemin du
+       flux lui-meme. Et c'est en general le plus gros. */
+    ["Page → src", stats.pageMs],
+    ["src·manif·seg1·img", stats.startup],
+    [t("stats.stallRate"), stats.stallRate],
+    [t("stats.perfScore"), stats.perfScore],
   ];
 
   return (

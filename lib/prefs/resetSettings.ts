@@ -8,11 +8,22 @@
  * (`aniscroll:localList`) is intentionally KEPT — wiping a user's whole anime
  * list under "restore settings" would be a nasty surprise; the dedicated
  * "Delete list" action owns that.
+ *
+ * Attention aux prefs qui gardent un MIROIR EN MEMOIRE : effacer leur cle ne
+ * suffit pas, le miroir la reecrirait au prochain flush. Elles doivent etre
+ * remises a zero par leur propre module — voir `clearServerPerf` plus bas.
  */
+
+import { clearServerPerf } from "@/lib/watch/serverPerf";
 
 const KEEP = new Set(["aniscroll:localList"]);
 const EXTRA_KEYS = [
   "preferred_server",
+  // Classement des langues (cf. lib/prefs/langPref.ts) : le remettre a zero
+  // re-affiche la popup au prochain episode, ce qui est bien le sens de
+  // « reglages par defaut ».
+  "lang_pref_order",
+  "lang_pref_enabled",
   "view",
   "artplayer_settings",
   "aniscroll:volume",
@@ -36,4 +47,8 @@ export function restoreDefaultSettings(): void {
   } catch {
     /* best-effort */
   }
+  // Le balayage ci-dessus a bien retire `aniscroll:serverPerf`, mais le module
+  // en garde un miroir vivant : sans ceci, la premiere mesure suivante le
+  // reecrirait entier et les scores « effaces » seraient de retour.
+  clearServerPerf();
 }

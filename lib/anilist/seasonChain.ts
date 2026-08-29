@@ -12,6 +12,7 @@ import {
   extractSeasonFromTitle,
   isSeasonContinuation,
   continuesSameWork,
+  nextSeasonNumber,
   isSeasonLike,
   sharesFranchise,
   SeasonInfo,
@@ -51,7 +52,12 @@ import {
 // v9: le groupe TMDB n'est plus fusionne quand la fiche classe l'entree en
 //     saison 0 ("Specials") — Ghost in the Shell (1995) heritait des saisons
 //     de Stand Alone Complex, une autre continuite.
-const REDIS_KEY_CHAIN = (id: number) => `seasonChain:v9:${id}`;
+// v10: un numero de titre qui FAIT AVANCER le compteur reprend la main sur le
+//      garde « meme travail que la precedente » — "JUJUTSU KAISEN Season 2" se
+//      reduit a la meme base que "JUJUTSU KAISEN" et heritait donc du 1.
+// v11: le meme garde ne peut plus, a lui seul, retenir le compteur — "Attack on
+//      Titan: The Final Season" (aucun numero, meme base) heritait du 3.
+const REDIS_KEY_CHAIN = (id: number) => `seasonChain:v11:${id}`;
 // v3: SeasonEntry gained `idMal` (feeds Jikan per-episode score lookups).
 // v4: numbering now uses a running counter so split-cours + unnumbered
 //     "Final Season" entries get the right S<n> (AoT Final Season = S4, not S5).
@@ -95,7 +101,11 @@ const REDIS_KEY_CHAIN = (id: number) => `seasonChain:v9:${id}`;
 // v20: dans une franchise qui n'est faite QUE de films, un film prequel n'est
 //      plus un film bonus — Ghost in the Shell (1995) redevient une entree de
 //      la chronologie devant Innocence. Jujutsu Kaisen 0 garde sa regle.
-const REDIS_KEY_LIST = (id: number) => `seasonList:v20:${id}`;
+// v21: idem seasonChain v10 — le selecteur de Jujutsu Kaisen affichait deux
+//      "Season 1" a la file (2020 et 2023).
+// v22: idem seasonChain v11 — Attack on Titan affichait deux "Season 3" et
+//      deux "Season 3 Part 2".
+const REDIS_KEY_LIST = (id: number) => `seasonList:v22:${id}`;
 
 // Cache accessors now hit Turso (see lib/db/seasonCache.ts) instead of Redis.
 // The cache_key strings keep their version tag, so a version bump still evicts
@@ -433,30 +443,14 @@ async function resolveSeasonListUncached(
   // Part 2" must stay S3, and "The Final Season" — which carries no number in
   // its title — is the *next* distinct season (S4), not index+1 (S5).
   //
-  // Rule per entry, walking chronologically:
-  //   - explicit number in the title  → trust it; it anchors the counter.
-  //   - "Part 2"/"Cour 2"/continuation → inherit the previous season's number.
-  //   - otherwise (a fresh, unnumbered season like "The Final Season")
-  //                                    → previous distinct season + 1.
+  // La regle par entree vit dans `nextSeasonNumber` (helpers.ts), ecrite une
+  // fois pour les trois endroits qui numerotent une chaine.
   let running = 0;
   return seasonLike.map((m, i) => {
     const fromTitle = extractSeasonFromTitle(m.title);
     const continuation = isSeasonContinuation(m.title);
-    // A number in the title anchors the counter only for a NEW work. When the
-    // entry continues the previous one, that number counts within THAT work:
-    // "War of Underworld Part 2" is titled "(2nd Season)" natively — the second
-    // season of War of Underworld — and anchoring on it reset the franchise
-    // counter from 4 to 2, listing "Season 2 Part 2" after "Season 4".
     const continuesPrev = i > 0 && continuesSameWork(seasonLike[i - 1]?.title, m.title);
-    if (continuesPrev) {
-      running = Math.max(1, running);
-    } else if (fromTitle != null) {
-      running = fromTitle;
-    } else if (continuation) {
-      running = Math.max(1, running); // inherit current season (don't bump)
-    } else {
-      running = running + 1; // a new, unnumbered season
-    }
+    running = nextSeasonNumber({ running, fromTitle, continuesPrev, continuation });
     const partMatch = String(
       m.title?.english || m.title?.romaji || ""
     ).match(/\b(?:Part|Cour)\s+(\d+|[IVX]+)\b/i);

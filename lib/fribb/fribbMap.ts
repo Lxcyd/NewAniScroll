@@ -26,9 +26,10 @@ export interface FribbEntry {
   tmdbTvId: number | null;
   tmdbMovieId: number | null;
   tvdbId: number | null;
-  /** Simkl id — indexes the SAME entry AniList does (not the franchise), which
-   *  is what makes it usable for per-episode stills with no season guessing.
-   *  See lib/simkl/episodeStills.ts. */
+  /** Simkl id, tel que Fribb le publie. PLUS RIEN NE LE LIT depuis le retrait
+   *  de Simkl (22/08/2026) : la colonne reste alimentee parce qu'elle arrive
+   *  telle quelle de la table publique, et qu'un ALTER TABLE sur une base de
+   *  production ne se justifie pas pour un entier par ligne. */
   simklId: number | null;
   tmdbSeason: number | null;
   tvdbSeason: number | null;

@@ -1,8 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { getServerSession } from "next-auth";
-import { authOptions } from "../../auth/[...nextauth]";
 import { getMediaMeta } from "@/lib/anilist/getMediaMeta";
-import { anilistFetch } from "@/lib/anilist/anilistFetch";
 
 /**
  * GET /api/v2/media/[id]
@@ -16,10 +13,25 @@ import { anilistFetch } from "@/lib/anilist/anilistFetch";
  *
  * `info` (FULL_MEDIA_FIELDS) is served from the warm three-layer cache
  * (memory → AniList → Turso) — almost always a memory hit because the info
- * page primed it. `mediaListEntry` is per-user and can't be cached, so when
- * the caller is signed in we fetch just that tiny field with their token and
- * merge it in.
+ * page primed it.
+ *
+ * SHAREABLE, DELIBERATELY. This used to read the session and merge the
+ * signed-in user's `mediaListEntry` into the payload, which made the whole
+ * ~30 kB response per-user and forced `private, no-store` — measured
+ * 2026-08-22 as the only endpoint on the site that never reached the edge
+ * cache (every other /api/v2 route probed came back HIT on a second request).
+ * The per-user field moved to its own tiny endpoint, GET
+ * /api/v2/list-entry/[id], so the heavy metadata is identical for everyone and
+ * the CDN serves it. Same split the anime info page and the watch SSR already
+ * made for their per-user bits.
+ *
+ * `mediaListEntry: null` stays in the shape so callers that spread this
+ * response keep the field they expect; the watch page's backfill effect fills
+ * it in for signed-in viewers.
  */
+
+const TTL_S = 30 * 60;
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const id = Number(req.query.id);
   if (!Number.isFinite(id)) {
@@ -28,36 +40,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   const media = await getMediaMeta(id);
   if (!media) {
+    // Cache the miss briefly too — a bad id in a shared link would otherwise
+    // re-invoke the function (and the whole three-layer lookup) on every hit.
+    res.setHeader("Cache-Control", "public, max-age=60");
     return res.status(404).json({ error: "Anime not found" });
   }
 
-  // Per-user list entry — only when signed in. Small query, separate from the
-  // cacheable metadata so the heavy `info` stays shareable across users.
-  let mediaListEntry: any = null;
-  const session: any = await getServerSession(req, res, authOptions);
-  const accessToken: string | null = session?.user?.token || null;
-  if (accessToken) {
-    try {
-      const json = await anilistFetch({
-        query: `query ($id: Int) {
-          Media (id: $id) {
-            mediaListEntry { progress status customLists repeat }
-          }
-        }`,
-        variables: { id },
-        authToken: accessToken,
-        timeoutMs: 3000,
-        label: `media-listentry:${id}`,
-        cacheSeconds: 0,
-      });
-      mediaListEntry = json?.data?.Media?.mediaListEntry ?? null;
-    } catch {
-      /* leave null — the page degrades gracefully without list state */
-    }
-  }
-
-  // The metadata is shareable; the response as a whole is not (it carries the
-  // signed-in user's list entry), so don't let any shared cache store it.
-  res.setHeader("Cache-Control", "private, no-store");
-  return res.status(200).json({ ...media, mediaListEntry });
+  //  - `Cache-Control`     → browser, 5 min.
+  //  - `CDN-Cache-Control` → Vercel's edge. 30 min + a day of
+  //    stale-while-revalidate, matching the watch page's own SSR window:
+  //    episodes can appear on an airing show while a copy is cached, and this
+  //    payload is the same metadata that page serves.
+  res.setHeader("Cache-Control", "public, max-age=300");
+  res.setHeader(
+    "CDN-Cache-Control",
+    `public, s-maxage=${TTL_S}, stale-while-revalidate=86400`,
+  );
+  return res.status(200).json({ ...media, mediaListEntry: null });
 }

@@ -25,6 +25,32 @@ export function statusLabel(t: TFunction, status: string | null): string {
   }
 }
 
+/**
+ * Sous-titre d'une ligne de saison dans un selecteur : "2024 · 12 EP", le
+ * format seul quand ni l'annee ni le compte ne sont connus, et "Pas encore
+ * sortie" pour une saison qui n'a pas commence — auquel cas l'annee annoncee
+ * et un compte previsionnel diraient moins que le statut.
+ *
+ * Deux selecteurs le rendent : celui de la page d'info (v2/Episodes) et celui
+ * du panneau du lecteur (watch/secondary/episodeLists). Ils affichaient la
+ * meme ligne, ecrite deux fois.
+ */
+export function seasonSubtitle(
+  t: TFunction,
+  s: {
+    year?: number | null;
+    episodes?: number | null;
+    format?: string | null;
+    status?: string | null;
+  },
+): string {
+  if (s.status === "NOT_YET_RELEASED") return t("anime.notYetReleased");
+  return (
+    [s.year, s.episodes ? `${s.episodes} EP` : null].filter(Boolean).join(" · ") ||
+    (s.format ?? "")
+  );
+}
+
 export function countryLabel(t: TFunction, c: string | null): string {
   switch (c) {
     case "JP":
@@ -239,7 +265,11 @@ export function parseDescription(
    callers should fall back to omitting the slug segment in that case.
    - lowercases, strips diacritics, drops anything that isn't [a-z0-9]
    - collapses runs of separators into a single dash
-   - trims to 60 chars at a word boundary so URLs stay readable */
+   Le titre est rendu ENTIER. Il etait coupe a 60 caracteres, ce qui tronquait
+   les titres longs en pleine phrase — "…second-reincarnation-of-a" — et donnait
+   une adresse qui a l'air cassee la ou elle devait justement se lire. Les 60
+   caracteres economisaient d'ailleurs peu : la limite qui compte est celle de
+   l'URL entiere, tres loin au-dessus. */
 export function slugifyTitle(
   title:
     | { english?: string | null; romaji?: string | null; userPreferred?: string | null }
@@ -253,16 +283,10 @@ export function slugifyTitle(
   const ascii = source
     .normalize("NFKD")
     .replace(/[̀-ͯ]/g, "");
-  let s = ascii
+  return ascii
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
-  if (s.length > 60) {
-    const cut = s.slice(0, 60);
-    const lastDash = cut.lastIndexOf("-");
-    s = lastDash > 30 ? cut.slice(0, lastDash) : cut;
-  }
-  return s;
 }
 
 export function pickRandom<T>(arr: T[]): T | null {
@@ -855,6 +879,53 @@ export function continuesSameWork(
   const b = seasonTitleBase(next);
   // Short bases collide too easily ("SAO" vs "SAO"); require some substance.
   return a.length >= 6 && a === b;
+}
+
+/**
+ * Le numero de saison de l'entree suivante, en marchant la chronologie.
+ *
+ * La regle vit ICI parce qu'elle etait ecrite trois fois — seasonChain, et deux
+ * fois dans resolveSeason — et qu'une correction sur une seule des trois donne
+ * une page d'info et un selecteur de lecteur qui se contredisent.
+ *
+ *   - le titre annonce un numero PLUS GRAND que le compteur → on s'y ancre.
+ *   - marque de continuation ("Part 2", "Cour 2", "The Final Chapters") →
+ *     l'entree herite du numero courant, c'est un cour de la meme saison.
+ *   - un numero dans le titre → on s'y ancre, SAUF si l'entree prolonge le meme
+ *     travail que la precedente : ce numero-la compte alors dans ce sous-titre,
+ *     pas dans la franchise.
+ *   - rien de tout ca → saison suivante.
+ *
+ * DEUX bugs de meme famille ont mene a cette forme, et ils tenaient tous deux a
+ * la place de `continuesSameWork`. Ce test se contente de comparer les titres
+ * une fois leur numero retire : DANS une franchise il est presque toujours vrai,
+ * puisque c'est justement ce qui fait une franchise.
+ *
+ *   - quand il passait avant le numero du titre, "JUJUTSU KAISEN Season 2"
+ *     (meme base que "JUJUTSU KAISEN") heritait du 1 : deux "Season 1" a la
+ *     file dans le selecteur.
+ *   - quand il pouvait a lui seul retenir le compteur, "Attack on Titan: The
+ *     Final Season" (meme base, aucun numero) heritait du 3 : la saison 4 et sa
+ *     seconde partie s'affichaient "Season 3" et "Season 3 Part 2", en double
+ *     avec les vraies.
+ *
+ * Il ne sert donc plus qu'a UNE chose : empecher un numero de titre de faire
+ * reculer le compteur — SAO "War of Underworld Part 2" s'intitule nativement
+ * "2nd Season", et s'y ancrer ramenait de 4 a 2. Un numero qui avance vient du
+ * titre de la franchise ; un numero qui recule, de la numerotation interne d'un
+ * sous-titre. Il ne decide jamais, lui, qu'une saison n'en est pas une.
+ */
+export function nextSeasonNumber(opts: {
+  running: number;
+  fromTitle: number | null;
+  continuesPrev: boolean;
+  continuation: boolean;
+}): number {
+  const { running, fromTitle, continuesPrev, continuation } = opts;
+  if (fromTitle != null && fromTitle > running) return fromTitle;
+  if (continuation) return Math.max(1, running);
+  if (fromTitle != null) return continuesPrev ? Math.max(1, running) : fromTitle;
+  return running + 1;
 }
 
 /* Does a title read like a *continuation* of the previous season rather than

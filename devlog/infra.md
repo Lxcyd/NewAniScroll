@@ -6,6 +6,182 @@ crons de rafraichissement, usage-monitor, analytics, et les releases
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-08-26 — Le chunk que personne ne peut éviter : `_app` divisé par deux
+
+Le 22/08 avait traité la page watch. Le même raisonnement appliqué un cran plus
+haut donne plus, parce qu'il porte sur **le seul fichier qu'aucun visiteur ne
+peut éviter** : `_app`.
+
+**Ce qu'il portait.** Cinq composants montés sur toutes les pages, et **aucun ne
+rend quoi que ce soit** tant qu'il ne se passe rien : la palette de recherche
+(dialogue fermé), le popup changelog (rien avant son fetch), la bannière de
+santé AniList (`return null` inconditionnel), l'aperçu au survol (sort sur
+`typeof document === "undefined"`) et le choix de sens de synchro. Tous rendent
+`null` côté serveur — donc le HTML SSR est identique au byte près, et différer
+ne change que le MOMENT du téléchargement, jamais celui de l'apparition. Même
+chose pour `ReportModal`, qui est derrière un bouton de la navbar : présent sur
+toutes les pages pour un formulaire que presque personne n'ouvre.
+
+| | avant | après |
+| --- | --: | --: |
+| `_app` (partagé par tous) | 112 ko | 56,2 ko |
+| premier chargement partagé | 223 ko | 167 ko |
+| `/en` | 265 ko | 228 ko |
+| `/en/anime/[...id]` | 295 ko | 249 ko |
+| `/en/anime/watch/[...info]` | 307 ko | 256 ko |
+| `/en/about` | 216 ko | 165 ko |
+
+Mesuré aussi **sur la preview**, pas seulement au build : le chunk `_app` servi
+par dev.aniscroll.com passe de 364 127 à 169 019 octets bruts.
+
+**Le raccourci décide de ce qu'on peut différer.** Ctrl+S ouvrait la palette
+depuis un écouteur qui vivait DANS la palette. Un raccourci dont le handler est
+à l'intérieur du composant qu'il doit révéler interdit de différer ce composant
+— il faut l'avoir chargé pour pouvoir demander à le charger. L'écouteur descend
+donc dans `SearchProvider`. Effet de bord gratuit : la remise à zéro de la
+requête, qui vivait dans ce handler, devient un effet sur l'ouverture, donc
+elle marche maintenant aussi pour le bouton loupe de la navbar, qui ne la
+faisait pas.
+
+**`useMountedOnce` monte au premier `open` et ne démonte pas.** Ces panneaux se
+ferment avec une transition de sortie ; `{open && <X/>}` la couperait en deux.
+Le hook ne vaut que pour un overlay qui ne rend RIEN fermé — celui qui garde un
+nœud caché et l'anime (RateModal) naîtrait déjà à son opacité finale et
+sauterait sa propre entrée.
+
+**`relationsTreeUrl` quitte `RelationsGraph`** pour `franchiseTreeVersion`, à
+côté du numéro qu'il porte. La fiche anime importait ce helper pour un
+`<link rel=preload>` et tirait le plateau entier — dagre compris — dans son
+chunk d'entrée, pour fabriquer une query string.
+
+**Deux pistes écartées après examen, et c'est le plus utile à retenir :**
+
+- *Séparer `InfoPage` / `InfoPageMobile`* aurait divisé le plus gros chunk de
+  page du site. Mais `useIsMobile` bascule **après** le montage : sur iPad, l'UA
+  dit mobile et la largeur (1024) dit desktop, donc le basculement a lieu à
+  chaque chargement. Il attendrait alors un téléchargement, et la page
+  clignoterait. Précharger l'autre variante ferait disparaître le clignotement
+  *et* l'économie.
+- *Différer `SubtitleSettings`* : fermé, il applique quand même le style de
+  sous-titres sauvegardé au document (un `useEffect` avant son `if (!open)
+  return null`). Le monter tard afficherait les sous-titres non stylisés
+  jusqu'à ce que quelqu'un ouvre le panneau. Le vrai défaut est que
+  l'application du style vit dans un composant de modale ; le corriger dépasse
+  « ne rien changer visuellement ».
+
+**Vérifié sur dev.aniscroll.com**, pas en local. Nouvel outil
+`tools/browser-check/lazy-overlays-check.mjs` : il refait les gestes et
+rapporte, pour chacun, le panneau ET les chunks demandés **après** le geste —
+c'est cette seconde colonne qui prouve que le code n'était pas dans le
+chargement initial. Palette +263 ms (1 chunk), signalement +262 ms (1 chunk),
+aperçu au survol +145 ms (0 chunk, le sien arrive après l'hydratation), aucune
+erreur console. Et `watch-check.mjs` sur Bleach ep1 : `readyState` 4, canvas
+lisible, 180 segments servis par le CDN vidéo.
+
+Piège d'outillage à retenir : `Input.dispatchKeyEvent` en CDP headless
+**n'atteint pas** un écouteur `window` quand rien n'a le focus. Le premier run
+a rendu un faux échec sur la palette, qui se lit exactement comme une vraie
+régression. Le script fabrique donc le `KeyboardEvent` dans la page.
+
+## 2026-08-22 (suite) — Page watch : −20 % de bundle, −19 % de HTML, sans toucher au comportement
+
+Suite du relevé ci-dessous, appliqué à la page la plus visitée.
+
+**Bundle : 98,6 → 78,9 ko** (premier chargement 326 → 306 ko). Trois composants
+étaient importés en dur alors qu'aucun n'est *jamais* rendu sans condition —
+`WatchPartyPanel` derrière `party || partyUIOpen`, `FullscreenChat` derrière
+`party`, `VideoStats` derrière `statsOpen`. Différer leur import ne change donc
+pas quand ils apparaissent, seulement quand leur code est téléchargé. Le
+watch-party est le gros morceau : il traîne le composer, le menu membres et
+~24 ko de tables emoji unicode + anime, pour une fonctionnalité que presque
+personne n'ouvre.
+
+**HTML : 97,4 → 79,1 ko**, dont `__NEXT_DATA__` 30,4 → 12,3 ko. Le SSR doit
+récupérer `FULL_MEDIA_FIELDS` (les caches serveur qu'il amorce sont partagés
+avec la page info, qui a besoin de tout), mais le *prop* n'a pas à porter les
+18 ko que cette page ne lit jamais : `characters` 7,2 ko et `relations` 3,8 ko
+(onglets de la page info), `streamingEpisodes` 5,7 ko (lu côté serveur par
+`/api/v2/episode/[id]`, qui refait sa propre requête AniList) et
+`externalLinks` 1,2 ko. Le trim se fait au seul passage des props :
+`primeMediaCache` a déjà stocké l'objet complet en amont, donc les caches
+gardent tout. `recommendations` (8,2 ko) reste, la rangée du bas s'en sert.
+
+**Code mort trouvé au lint.** Le prop `proxy` était calculé dans le SSR,
+sérialisé dans le HTML, destructuré par le composant, et jamais lu — un
+`PROXY_BASE` séparé fait le travail depuis. Idem pour les imports
+`FlagIcon`/`ShareIcon` et les setters `setAutoNext`/`setAutoPlay`. Et les deux
+rendus jumeaux de `VideoStats` (portal / non-portal), identiques à la virgule
+près, deviennent un seul élément construit en amont.
+
+**Vérifié sur `dev.aniscroll.com`**, pas en local. Le lecteur joue
+(`readyState` 4, canvas lisible, 158 segments servis par le CDN vidéo). Et pour
+le morceau le plus remanié : un Chrome piloté en CDP clique « Regarder
+ensemble » → **4 chunks arrivent après le clic** (exactement les 4 fichiers que
+`react-loadable-manifest.json` attribue à `WatchPartyPanel`), le panneau et son
+composer s'affichent, aucune erreur console. C'est la preuve que le code n'était
+pas dans le chargement initial et qu'il arrive bien à la demande.
+
+Non exercés en navigateur : `VideoStats` et `FullscreenChat`, même mécanisme et
+mêmes gardes de rendu, mais seul le panneau a été cliqué pour de vrai.
+
+## 2026-08-22 — Relevé usage : le seul trou de cache restant, et pourquoi le monitor ne verra jamais Vercel
+
+**Ce que le monitor dit.** Upstash n'est plus le sujet : 4 412 cmd le 21/08,
+moyenne 7 jours 7 445, **projection 45 % du cap** gratuit — contre 146 % le
+04/08. En revanche `DBSIZE` monte de ~500 clés/jour (14 251, dont `anime:v5`
+= 82 %), donc le SCAN du census coûtera de plus en plus cher à terme.
+
+**Le côté Vercel du monitor est aveugle, et c'est définitif.** Sorti le token du
+CLI (`%APPDATA%/xdg.data/com.vercel.cli/auth.json`) pour interroger
+`api.vercel.com/v1/usage` : `plan_upgrade_required` — **Pro/Enterprise
+uniquement**. Il n'existe aucun chemin programmatique vers les
+invocations ou le Fluid CPU en Hobby. Le screenshot du dashboard reste
+obligatoire ; inutile de re-chercher une API.
+
+**Ce qui marche, avec son piège.** `vercel logs --json` : rétention **1 h**
+(`--since 24h` renvoie exactement les mêmes lignes). Sur l'heure sondée : 8
+invocations, 100 % `/en/anime/[id]`, 8 ids distincts, toutes `MISS`. **Ne pas en
+conclure que le cache edge est cassé** : une invocation *est* par définition un
+MISS, un HIT n'atteint jamais la fonction et n'apparaît donc pas dans ces logs.
+Mesuré au curl à la place — deuxième appel = `HIT` sur les trois ids testés, le
+cache marche. Le vrai constat est ailleurs : **11 592 anime en cache pour ~8
+vues/h**, chaque vue tombe sur un id neuf. Monter le TTL au-delà des 6 h
+actuelles n'achètera rien, et l'ISR non plus. Le levier est de rendre le MISS
+moins cher, pas d'espérer plus de HIT.
+
+**Le seul trou de cache du site.** Sondé les en-têtes de dix routes `/api/v2` en
+prod : `characters`, `themes`, `changelog`, `episode-scores`, `relations`,
+`discover`, `catalog`, `etc/recent` repassent toutes en `HIT` au deuxième appel.
+**`/api/v2/media/[id]` est la seule à rester `MISS`** — elle fusionnait le
+`mediaListEntry` du visiteur connecté dans ses ~30 ko de métadonnées, ce qui
+rendait toute la réponse personnelle et donc `private, no-store`. Découpée : le
+champ par utilisateur part dans `GET /api/v2/list-entry/[id]` (~100 octets,
+`private, no-store`), la moitié lourde devient identique pour tout le monde et
+part au CDN (s-maxage 30 min + 24 h de SWR, la fenêtre du SSR de la page watch).
+Même décision que celle déjà prise pour le cœur et la progression sur la page
+anime. Les 404 se cachent 60 s au passage.
+
+**Une vague série en moins sur la page anime.** `resolveHeroBanner` s'attendait
+seul entre deux `Promise.all` dans le SSR : il ne dépend que de `tmdb.backdrop`,
+déjà résolu à ce stade, et son verdict `bannerSize` est une lecture Turso — ça
+faisait une troisième vague série sur chaque MISS de la page la plus visitée. Il
+rejoint le lot des saisons. Sa position tenait à l'idée d'émettre son header de
+preload « en avance », mais `getServerSideProps` ne flush pas les headers avant
+la réponse : les deux partaient ensemble de toute façon.
+
+**Fausse piste, notée pour ne pas y retomber.** `/api/v2/seasons/[id]` répondait
+404 avec 13,8 ko de corps et `max-age=0, must-revalidate` — pas un bug : la
+route n'est pas sur `main`, prod renvoyait simplement sa page 404. **Tout
+sondage de prod mesure `main`**, qui accusait 161 commits de retard sur `dev` ce
+jour-là. Vérifier `git ls-tree origin/main <chemin>` avant de qualifier une
+anomalie prod.
+
+**Reste ouvert.** `/en/schedule` sert **419 ko de HTML** (contre 180 ko pour
+l'accueil, 105 ko pour une fiche anime) — poste de Fast Origin Transfer à
+élaguer. Et le collecteur n'échantillonne `vercel logs` qu'une fois par jour à
+7 h UTC, heure creuse : avec 1 h de rétention, il faudrait plusieurs tirages
+pour un mix de routes crédible.
+
 ## 2026-08-16 — Le cron ne rattrapait rien, et une panne AniList l'aurait prouvé trop tard
 
 **La question posée** : si AniList tombe plusieurs jours, a-t-on un repli pour ne

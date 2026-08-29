@@ -2,7 +2,15 @@
    Lifted from design_handoff_anime_info/Anime Info.html so the V2 page
    can render pixel-close to the handoff without polluting global CSS. */
 
-.root {
+/* The tokens ALONE, with none of the page furniture (`.root` also paints a
+   background and sets a 100vh floor).
+ *
+ * Components written for this page — Recommendations, and anything reused
+ * next — read these variables and render colourless without them. Hosting one
+ * elsewhere therefore only needs this class, not the whole page shell: the
+ * watch page wraps its recommendation rail in it. One definition, several
+ * consumers, so a token change can't drift between pages. */
+.tokens {
   /* Aligned with the site-wide `tersier` token (tailwind.config.js)
      so the navbar (bg-tersier) and footer share the same black with
      the info page — no visual seam where the navbar's bottom edge
@@ -27,6 +35,10 @@
   --blue: #4a8fff;
   --green: #2dd47a;
   --purple: #b07cff;
+}
+
+.root {
+  composes: tokens;
 
   background: var(--bg-0);
   color: var(--txt-0);

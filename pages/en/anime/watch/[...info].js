@@ -1,9 +1,16 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from "react";
-import { FlagIcon, ShareIcon, UsersIcon } from "@heroicons/react/24/solid";
+import { UsersIcon } from "@heroicons/react/24/solid";
 import Details from "@/components/watch/primary/details";
 import EpisodeLists from "@/components/watch/secondary/episodeLists";
 import ServerSelector from "@/components/watch/primary/serverSelector";
+import Recommendations from "@/components/anime/v2/Recommendations";
+import Footer from "@/components/shared/footer";
+// The v2 design tokens, scoped. `.tokens` carries the custom properties the
+// info-page components read, WITHOUT that page's furniture (background,
+// 100vh floor) — so the rail renders here exactly as it does there.
+import v2Styles from "@/components/anime/v2/styles.module.css";
 import { prefetchSkips } from "@/lib/skip/prefetchSkips";
+import { useMountedOnce } from "@/lib/hooks/useMountedOnce";
 import dynamic from "next/dynamic";
 // Vidstack uses Web Components — must be loaded client-only or hydration fails.
 const UniversalPlayer = dynamic(
@@ -23,25 +30,50 @@ import { getServer } from "@/lib/servers";
 import { primeMediaCache, getCachedMediaMeta } from "@/lib/anilist/getMediaMeta";
 import { getCachedAnime } from "@/lib/db/anime";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
-import { onEpisodeFinished } from "@/lib/list/syncEngine";
+import { fixApostrophes } from "@/lib/text/apostrophes";
 import { getPlayerPrefs } from "@/lib/prefs/playerPrefs";
+import { getServerPref } from "@/lib/prefs/serverPref";
+import {
+  getLangOrder,
+  getEffectiveLangOrder,
+  isLangPrefEnabled,
+  pickServerForLangs,
+} from "@/lib/prefs/langPref";
+import { getAnimeServer, setAnimeServer } from "@/lib/prefs/animeServerPref";
+// Two dialogs the page only ever shows on request. LangPreferenceModal already
+// returns null while closed and ReportModal renders an empty headless-ui
+// Transition, so neither contributes a node to the watch page's HTML until it
+// is opened — deferring the code changes nothing but when it is fetched.
+const LangPreferenceModal = dynamic(
+  () => import("@/components/watch/primary/LangPreferenceModal"),
+  { ssr: false },
+);
 import { recordWatchToday } from "@/lib/stats/streak";
 import { useTranslation } from "react-i18next";
 import { FULL_MEDIA_FIELDS } from "@/lib/anilist/fullMediaQuery";
-import { getPrefetchedSource, sourceKey, setPrefetchedSource, clearPrefetchedSourcesFor } from "@/lib/watch/sourcePrefetch";
+import { getPrefetchedSource, sourceKey, setPrefetchedSource, clearPrefetchedSourcesFor, getPlannedServer } from "@/lib/watch/sourcePrefetch";
 import { requestSource } from "@/lib/watch/sourceRequest";
 import { replaceUrlPreservingState } from "@/lib/navigation/replaceUrl";
 import { getPrefetchedEpisodes, setPrefetchedEpisodes, clearPrefetchedEpisodesFor } from "@/lib/watch/episodePrefetch";
 import { getPrefetchedInfo, clearPrefetchedInfoFor } from "@/lib/watch/infoPrefetch";
-import { markComplete } from "@/lib/watch/progress";
+import { markComplete, getProgress, isCompleted } from "@/lib/watch/progress";
+import { getSyncPrefs } from "@/lib/prefs/syncPrefs";
 import { anilistFetch } from "@/lib/anilist/anilistFetch";
 import Link from "next/link";
 import MobileNav from "@/components/shared/MobileNav";
 import { Navbar } from "@/components/shared/NavBar";
-import Modal from "@/components/modal";
-import AniList from "@/components/media/aniList";
-import { signIn, useSession } from "next-auth/react";
-import ReportModal from "@/components/shared/ReportModal";
+import { useSession } from "next-auth/react";
+import { useListStatus } from "@/lib/list/useListStatus";
+const ReportModal = dynamic(() => import("@/components/shared/ReportModal"), {
+  ssr: false,
+});
+// L'editeur de liste complet, celui de la page d'info. Derriere `open`, donc
+// hors du chunk d'entree de la page tant que personne ne le demande. Il gere
+// lui-meme l'invite (ecriture dans la liste locale), d'ou la disparition de la
+// petite modale « connectez-vous a AniList » qui gardait ce bouton.
+const ListEditor = dynamic(() => import("@/components/listEditor"), {
+  ssr: false,
+});
 import Skeleton from "react-loading-skeleton";
 import Head from "next/head";
 import { useRouter } from "next/router";
@@ -49,7 +81,15 @@ import { Spinner } from "@vidstack/react";
 import RateModal from "@/components/shared/RateModal";
 import { notify } from "@/lib/notifications/noticeStore";
 import { useWatchParty } from "@/lib/watch2gether/useWatchParty";
-import WatchPartyPanel from "@/components/watch/party/WatchPartyPanel";
+// Watch-party UI: split out of the page bundle. It only ever renders behind
+// `party || partyUIOpen` (see `partyPanelBlock` below), and it drags the whole
+// chat stack — composer, member menu, and the ~24 kB unicode + anime emoji
+// tables — behind it. Nearly nobody opens a party, so eagerly importing it
+// taxed every viewer of the site's busiest page for a feature they never touch.
+const WatchPartyPanel = dynamic(
+  () => import("@/components/watch/party/WatchPartyPanel"),
+  { ssr: false },
+);
 
 // Resolved video-proxy Worker base — mirrors the fallback the player and the
 // source resolver hardcode when NEXT_PUBLIC_PROXY_BASE is unset. Used to warm
@@ -65,6 +105,32 @@ const PROXY_BASE =
 // only ever paid on a 204 that would otherwise drop the chip.
 const DECOY_BACKOFF_MS = [800, 1600, 3200];
 const DECOY_RETRIES = DECOY_BACKOFF_MS.length;
+
+/* The SSR fetches FULL_MEDIA_FIELDS because the server-side caches this page
+   primes (`primeMediaCache`) are shared with the info page, which needs the
+   whole record. The PROP, though, is serialised into the HTML of every episode
+   open, and four of those fields are dead weight here — measured 22/08/2026 on
+   an `info` prop of 30 kB:
+
+     characters        7.2 kB   info-page tab only
+     streamingEpisodes 5.7 kB   read server-side by /api/v2/episode/[id], which
+                                runs its own AniList query — never read here
+     relations         3.8 kB   info-page "Related" only; the season chain
+                                resolves it server-side from the media cache
+     externalLinks     1.2 kB   info-page only
+
+   Nothing rendered by this page or anything it mounts touches them (checked
+   across the page, the player, the episode list, details, serverSelector,
+   Recommendations, the navbars and RateModal). Trimming happens HERE, at the
+   props boundary, and only here: `primeMediaCache` above already stored the
+   complete object, so the caches keep everything. `recommendations` (8.2 kB)
+   stays — the rail at the bottom of the page renders it. */
+function trimForWatch(media) {
+  if (!media) return null;
+  const { characters, streamingEpisodes, relations, externalLinks, ...rest } =
+    media;
+  return rest;
+}
 
 // ─────────────────────────────────────────────────────────────
 // SSR
@@ -85,8 +151,8 @@ export async function getServerSideProps(context) {
          AniList token; the SessionProvider fetches it once per full page load
          and keeps it across SPA navigation).
        - `mediaListEntry` → the client backfill effect that already existed for
-         it (GET /api/v2/media/[id], `private, no-store`), because the SSR only
-         ever had it on a cold hit anyway.
+         it (GET /api/v2/list-entry/[id], `private, no-store`), because the SSR
+         only ever had it on a cold hit anyway.
 
      Same trade the anime-info page already made. Episodes can appear while a
      copy is cached, hence 30 min (vs 6 h there) + a day of
@@ -96,9 +162,6 @@ export async function getServerSideProps(context) {
     "CDN-Cache-Control",
     "public, s-maxage=1800, stale-while-revalidate=86400",
   );
-
-  let proxy = process.env.PROXY_URI || null;
-  if (proxy && proxy.endsWith("/")) proxy = proxy.slice(0, -1);
 
   const [aniId, provider] = query?.info;
   // The visible `?id=` is now cosmetic only (`{server}-{episode}`, no AniList
@@ -195,9 +258,8 @@ export async function getServerSideProps(context) {
       watchId:    watchId  || null,
       epiNumber:  epiNumber || null,
       dub:        dub || null,
-      info:       data?.data?.Media || null,
+      info:       trimForWatch(data?.data?.Media),
       aniId:      aniId || null,
-      proxy,
     },
   };
 }
@@ -208,7 +270,6 @@ export async function getServerSideProps(context) {
 export default function Watch({
   info: ssrInfo,
   watchId,
-  proxy,
   dub,
   provider,
   epiNumber,
@@ -235,6 +296,11 @@ export default function Watch({
   // Initialise from the SSR prop on BOTH server and the first client render so
   // hydration matches. The client cache / API fill in afterwards in an effect.
   const [info, setInfo] = useState(ssrInfo || null);
+
+  // Statut de liste de l'utilisateur pour cet anime — la meme lecture que la
+  // page d'info (cache de la liste complete, ou liste locale), pour que le
+  // bouton dise la meme chose des deux cotes. Voir lib/list/useListStatus.
+  const listStatus = useListStatus(info?.id);
 
   // On an in-app navigation to a DIFFERENT anime (e.g. a Watch-Party redirect),
   // Next reuses this page component, so the `info` useState above does NOT
@@ -277,15 +343,16 @@ export default function Watch({
     };
   }, [info?.id, resolvedAniId]);
 
-  // If the SSR served metadata without the per-user list entry (it now skips
-  // the AniList fetch on a memory hit), backfill mediaListEntry from the API
-  // so the "on list" state and resume progress are correct for signed-in users.
+  // The metadata sources above are all shared/cacheable and therefore never
+  // carry the viewer's list entry (SSR skips it, and /api/v2/media/[id] is
+  // edge-cached for everyone). Backfill it from the per-user endpoint so the
+  // "on list" state and resume progress are correct for signed-in users.
   useEffect(() => {
     if (!sessions?.user?.name) return;
     if (!info?.id) return;
     if (info.mediaListEntry) return;
     let cancelled = false;
-    fetch(`/api/v2/media/${info.id}`)
+    fetch(`/api/v2/list-entry/${info.id}`)
       .then((r) => (r.ok ? r.json() : null))
       .then((m) => {
         if (!cancelled && m?.mediaListEntry) {
@@ -301,13 +368,19 @@ export default function Watch({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [info?.id, sessions?.user?.name]);
 
-  const [artStorage,        setArtStorage]        = useState(null);
+  // (`artStorage` a disparu : la liste d'episodes lisait ce store par id
+  //  d'episode alors qu'il est indexe par id d'ANIME — la lecture ne rendait
+  //  jamais rien. Elle lit maintenant lib/watch/progress.ts, la meme source
+  //  que la reprise de lecture. Le store `artplayer_settings` continue par
+  //  ailleurs d'alimenter l'historique "repris recemment".)
   const [episodeNavigation, setEpisodeNavigation] = useState(null);
   const [episodesList,      setepisodesList]      = useState();
   const [mapEpisode,        setMapEpisode]        = useState(null);
   const [open,              setOpen]              = useState(false);
   const [isOpen,            setIsOpen]            = useState(false);
-  const [onList,            setOnList]            = useState(false);
+  // The report dialog is code-split; this latches on its first open so the
+  // chunk is fetched then, and keeps it mounted afterwards for its exit fade.
+  const reportEverOpened = useMountedOnce(isOpen);
 
   // ── Server state ──
   // Stable initial value to avoid SSR/CSR hydration mismatch.
@@ -361,6 +434,31 @@ export default function Watch({
   const failedServersRef = useRef(failedServers);
   useEffect(() => { failedServersRef.current = failedServers; }, [failedServers]);
 
+  // Meme miroir pour les confirmations : `markFailed` doit pouvoir savoir, en
+  // lecture synchrone, si le serveur qui vient d'echouer etait deja confirme.
+  const confirmedServersRef = useRef(confirmedServers);
+  useEffect(() => { confirmedServersRef.current = confirmedServers; }, [confirmedServers]);
+
+  // Live mirror of `activeServer`. The probe fan-out is keyed on the EPISODE, so
+  // its closure freezes whatever `activeServer` was when the effect ran — which
+  // on mount is always the SSR-safe "megaplay" placeholder, before the saved
+  // preference has been read. It used that frozen value to splice the active
+  // server out of the pool ("fetchStreamSource resolves it, don't probe twice"),
+  // so for anyone with a preference other than megaplay, megaplay was skipped by
+  // the pool AND never fetched by the active path: its chip could not appear even
+  // when the episode has a perfectly good megaplay source. Reading the ref at
+  // splice time (after the awaits, i.e. once the preference has landed) skips the
+  // server actually being fetched instead.
+  const activeServerRef = useRef(activeServer);
+  useEffect(() => { activeServerRef.current = activeServer; }, [activeServer]);
+
+  // Classement des langues choisi par l'utilisateur (popup au premier episode,
+  // cf. lib/prefs/langPref.ts). `null` = jamais repondu → on garde exactement le
+  // comportement historique. Lu dans un ref pour rester accessible aux callbacks
+  // stables (markFailed) sans les recreer.
+  const langOrderRef = useRef(null);
+  const [langModalOpen, setLangModalOpen] = useState(false);
+
   const markConfirmed = useCallback((id) => {
     setConfirmedServers((prev) => {
       if (prev.has(id)) return prev;
@@ -385,12 +483,34 @@ export default function Watch({
   ];
 
   const markFailed = useCallback((id, reason) => {
-    setFailedServers((prev) => {
-      if (prev.get(id) === reason) return prev;
-      const next = new Map(prev);
-      next.set(id, reason);
-      return next;
-    });
+    /* Un echec PASSAGER n'efface pas une confirmation deja acquise.
+     *
+     * C'est le « le lecteur sibnet s'affiche puis disparait » signale le
+     * 17/08/2026 : l'instantane de disponibilite (ou une sonde precedente) avait
+     * confirme `animesama-sibnet`, le chip etait peint — puis un unique 503 sur
+     * une resolution froide (sibnet met ~2 a 5 s depuis Vercel) le retirait de
+     * l'ecran. On effacait donc une CONNAISSANCE avec une NON-connaissance : un
+     * 503 dit « je n'ai pas pu savoir », pas « ce lecteur n'existe pas ».
+     *
+     * Seule une absence PROUVEE (le 204/404 de la route, « Source not found »)
+     * a le droit de retirer un chip confirme. Le reste — 5xx, reseau, timeout,
+     * erreur de lecture — laisse le chip en place : au pire l'utilisateur clique
+     * dessus et la resolution repart (souvent chaude, donc immediate), ce qui
+     * est infiniment moins deroutant qu'un lecteur qui s'evapore sous le curseur.
+     *
+     * Le repli automatique ci-dessous, lui, n'est PAS conditionne : si c'est le
+     * serveur ACTIF qui vient d'echouer, on bascule quand meme — ne pas cacher
+     * le chip et laisser tourner un lecteur mort seraient deux erreurs, pas une.
+     */
+    const provenAbsence = reason === "Source not found";
+    if (provenAbsence || !confirmedServersRef.current.has(id)) {
+      setFailedServers((prev) => {
+        if (prev.get(id) === reason) return prev;
+        const next = new Map(prev);
+        next.set(id, reason);
+        return next;
+      });
+    }
 
     // Auto-fallback: if the active server is the one that failed, switch to the
     // next working server (prefer same language). Don't write to localStorage —
@@ -424,7 +544,13 @@ export default function Watch({
       if (!next) {
         next = SERVERS.find((s) => !failedSet.has(s.id) && s.lang === failedLang)?.id;
       }
-      // Only once the language is exhausted: the hinted list, then anything left.
+      // Langue epuisee : on suit le classement de l'utilisateur (2 puis 3) avant
+      // de retomber sur les heuristiques historiques. Sans ca, perdre le dernier
+      // lecteur VF renvoyait sur megaplay (tete de liste) meme quand la personne
+      // avait classe le VOSTFR juste apres la VF.
+      if (!next && langOrderRef.current) {
+        next = pickServerForLangs(langOrderRef.current, { failed: failedSet });
+      }
       if (!next) {
         next = PREFERRED_FALLBACK_ORDER.find(isCandidate);
       }
@@ -455,8 +581,41 @@ export default function Watch({
   const preferredServerRef = useRef(null);
   const appliedPrefRef = useRef(false);
   useEffect(() => {
-    const pref = localStorage.getItem("preferred_server") || null;
+    // Priorite, du plus precis au plus general :
+    //   1. le lecteur retenu POUR CET ANIME (un clic dans le selecteur pendant
+    //      un episode le pose — cf. lib/prefs/animeServerPref.ts) ;
+    //   2. le serveur epingle dans les Reglages ;
+    //   3. l'ordre de preference des langues.
+    // Les deux premiers empruntent le meme chemin (`preferredServerRef`) : ils
+    // sont appliques d'emblee, et si l'anime ne les offre pas, le filet de
+    // securite plus bas retombe sur un serveur confirme.
+    // Via getServerPref/getAnimeServer (et non localStorage brut) : ils ecartent
+    // — et purgent — une preference qui designe un serveur retire, cf.
+    // lib/prefs/serverPref.ts.
+    const pref = getAnimeServer(aniId) || getServerPref() || null;
     preferredServerRef.current = pref;
+
+    // Classement des langues. Absent = l'utilisateur n'a jamais repondu : on
+    // ouvre la popup (une seule fois, elle n'a pas de sortie « sans reponse »)
+    // et on ne touche a rien pour CE chargement. Eteint dans les Reglages, on
+    // ne propose rien et on n'applique rien.
+    const langOrder = getEffectiveLangOrder();
+    langOrderRef.current = langOrder;
+    if (!getLangOrder() && isLangPrefEnabled()) setLangModalOpen(true);
+    // Un serveur explicitement epingle (Reglages > lecteur par defaut) reste
+    // prioritaire sur le classement de langues : c'est un choix plus precis.
+    // Sinon on demarre sur le plus rapide de la langue n°1 — la sonde corrigera
+    // si cet anime ne l'offre pas (effet « filet de securite » plus bas).
+    if (!pref && langOrder) {
+      // La page info a peut-etre deja mise sur un hote pour cette serie — et
+      // elle a pu affiner son choix avec l'instantane de disponibilite, ce
+      // qu'on ne peut pas se permettre ici (ce serait un aller-retour reseau
+      // DEVANT le premier chargement). Suivre son pari aligne les deux pages :
+      // la source prechauffee est alors lue telle quelle, sans rien redemander.
+      // Absent (arrivee directe, lien partage), on choisit a l'aveugle.
+      const guess = getPlannedServer(aniId) || pickServerForLangs(langOrder);
+      if (guess) setActiveServer(guess);
+    }
     // Select the user's server UP FRONT so it's the one loaded in priority — not
     // megaplay-then-switch. If the anime doesn't actually offer this server the
     // fetch fails and the safety-net effect below falls back to a confirmed one,
@@ -467,7 +626,9 @@ export default function Watch({
       setActiveServer(pref);
     }
     setServerResolved(true);
-  }, []);
+    // Cle sur l'anime : une navigation SPA vers une AUTRE serie doit relire son
+    // exception a elle. Changer d'EPISODE ne rejoue rien (aniId ne bouge pas).
+  }, [aniId]);
 
   // Apply the saved preference only when it's actually available for this
   // anime (i.e. it has been confirmed by the probes). Until then we stay on
@@ -491,7 +652,15 @@ export default function Watch({
     if (confirmedServers.has(activeServer)) return;
     if (!failedServers.has(activeServer)) return; // still pending — wait
     // Pick the best confirmed server, honouring the preferred fallback order.
+    // Quand l'utilisateur a classe les langues, c'est SON ordre qui decide
+    // (langue 1 confirmee d'abord, puis 2, puis 3), le classement statique ne
+    // servant que de repli.
     const firstConfirmed =
+      (langOrderRef.current &&
+        pickServerForLangs(langOrderRef.current, {
+          confirmed: confirmedServers,
+          failed: failedServers,
+        })) ||
       PREFERRED_FALLBACK_ORDER.find((id) => confirmedServers.has(id)) ||
       [...confirmedServers][0];
     if (firstConfirmed && firstConfirmed !== activeServer) {
@@ -581,8 +750,6 @@ export default function Watch({
   // match it exactly. Falls back to a max-height via CSS when unset.
   // NOTE: the ResizeObserver effect lives lower (after `theaterMode` is read
   // from context) to avoid a TDZ on its dependency.
-  const playerBoxRef = useRef(null);
-  const [playerBoxH, setPlayerBoxH] = useState(0);
 
   // Episode sync: when WE change episode while in a party, tell everyone. When
   // a peer changes episode, navigate to it (preserving ?party). We track the
@@ -791,8 +958,6 @@ export default function Watch({
   const {
     theaterMode,
     autoplay,
-    setAutoNext,
-    setAutoPlay,
     setMarked,
     setPlayerState,
     setTrack,
@@ -802,26 +967,6 @@ export default function Watch({
     ratingModalState,
     setRatingModalState,
   } = useWatchProvider();
-
-  // Match the party panel's height to the player on desktop. We derive it from
-  // the player wrapper's WIDTH (× 9/16), not by measuring the player's own
-  // height: the player renders an ambient-glow layer that extends past the 16:9
-  // video, so a height measurement overshot and the panel grew too tall. The
-  // visible video is always 16:9 in non-theater, so width × 9/16 is exact and
-  // immune to the glow. Observing width also dodges the dynamic-import remount
-  // (the wrapper itself is stable and never swapped).
-  useEffect(() => {
-    const wrapper = playerBoxRef.current;
-    if (!wrapper || typeof ResizeObserver === "undefined") return;
-    const measure = () => {
-      const w = wrapper.getBoundingClientRect().width || 0;
-      if (w) setPlayerBoxH(Math.round((w * 9) / 16));
-    };
-    const ro = new ResizeObserver(measure);
-    ro.observe(wrapper);
-    measure();
-    return () => ro.disconnect();
-  }, [theaterMode]);
 
   // ── Persist into local Recently Watched immediately ──────────
   // Runs as soon as we know which anime + episode the user opened. We
@@ -871,19 +1016,34 @@ export default function Watch({
     );
   }, [info?.id, setRatingModalState]);
 
-  // ── Episode list + navigation ────────────────────────────────
+  // ── Reset server verdicts on episode change ──────────────────
+  // Keyed EXACTLY like the probe fan-out below ([info.id, epiNumber, dub]) —
+  // and nothing else. This used to live at the top of the episode-list effect,
+  // whose deps also carry `sessions?.user?.name`. That name arrives async
+  // (`useSession()` returns undefined first, then the session object) and
+  // next-auth ALSO refetches on window focus, so the reset fired again on a
+  // perfectly stable episode. The probe effect, keyed only on the episode, did
+  // NOT re-run: its in-memory `cachedConfirmed` still held every server, so
+  // every probe returned early and nothing ever repainted. Since all servers in
+  // lib/servers.js are type "api", `shouldShow` falls through to
+  // `confirmedServers.has(id)` for all of them — an emptied Set wipes the whole
+  // selector, leaving only the active chip. That is the "all the players vanish
+  // except the selected one" report, and its randomness was the race between
+  // session hydration and the probe pool finishing.
+  //
+  // Reset at the START of the effect, not in the cleanup. In React 18 dev/Strict
+  // Mode the cleanup fires between the two mount passes and would clobber probe
+  // results that completed in the first pass.
   useEffect(() => {
-    // Reset server-state for the new episode at the START of the effect, not in
-    // the cleanup. In React 18 dev/Strict Mode the cleanup fires between the two
-    // mount passes and would clobber probe results that completed in the first
-    // pass — anime-sama / hianime servers would silently disappear from the UI.
     setFailedServers(new Map());
     setConfirmedServers(new Set());
     setDegradedServers(new Set());
+  }, [info?.id, epiNumber, dub]);
 
+  // ── Episode list + navigation ────────────────────────────────
+  useEffect(() => {
     async function getInfo() {
       if (!info) return;
-      if (info.mediaListEntry) setOnList(true);
       setDataMedia(info);
 
       // Fast path: the info page may have already fetched + cached this exact
@@ -923,7 +1083,18 @@ export default function Watch({
           const epNum = parseInt(epiNumber);
           const currentEpisode  = episodeList?.find((i) => i.number === epNum)
             || { id: `megaplay-${info.id}-${epNum}`, number: epNum };
-          const nextEpisode     = episodeList?.find((i) => i.number === epNum + 1);
+          /* Le fournisseur liste les episodes ANNONCES d'une saison en cours :
+             sur une serie hebdomadaire, "l'episode suivant" existe dans la liste
+             une semaine avant d'exister tout court. AniList dit lequel est le
+             prochain a sortir ; a partir de lui, il n'y a pas de suivant, et
+             c'est ce `undefined` qui eteint d'un coup le bouton du lecteur,
+             celui de l'ecran de fin (SkipOverlay) et l'enchainement
+             automatique — ils testent tous ce meme champ. */
+          const premierNonSorti = Number(info?.nextAiringEpisode?.episode);
+          const nextEpisode     =
+            Number.isFinite(premierNonSorti) && epNum + 1 >= premierNonSorti
+              ? undefined
+              : episodeList?.find((i) => i.number === epNum + 1);
           const previousEpisode = episodeList?.find((i) => i.number === epNum - 1);
 
           const vidNav = {
@@ -933,6 +1104,7 @@ export default function Watch({
               title:       playingData?.title || info?.title?.romaji,
               description: playingData?.description,
               img:         playingData?.img   || playingData?.image,
+              imgHd:       playingData?.imgHd  || null,
               number:      currentEpisode.number,
             },
             next: nextEpisode,
@@ -984,8 +1156,6 @@ export default function Watch({
           } catch {}
         }
       }
-
-      setArtStorage(JSON.parse(localStorage.getItem("artplayer_settings") || "null"));
     }
 
     getInfo();
@@ -1006,20 +1176,33 @@ export default function Watch({
   // for still-releasing shows (matches the list editor's logic). Called both
   // by the player's natural `ended` (HLS) and on advancing to the next episode
   // (covers iframe servers like Megaplay that have no <video> element).
+  /* Episodes dont le lecteur a DECLARE la fin pendant cette visite (ED atteint,
+     ou seuil de validation franchi). C'est la preuve que le passage a l'episode
+     suivant, lui, n'apporte pas : cf. l'effet d'avancement plus bas. */
+  const firedCompleteRef = useRef(new Set());
   const handleEpisodeComplete = useCallback(
     ({ aniListId, episodeNumber }) => {
+      firedCompleteRef.current.add(`${aniListId}:${episodeNumber}`);
       const total =
         info?.episodes ??
         (info?.nextAiringEpisode?.episode
           ? info.nextAiringEpisode.episode - 1
           : null);
-      onEpisodeFinished({
-        aniId: aniListId,
-        episode: episodeNumber,
-        total,
-        title: info?.title,
-        coverImage: info?.coverImage?.large || info?.coverImage?.extraLarge || null,
-      }).catch(() => {});
+      // Loaded on the finish rather than with the page: the sync engine is the
+      // whole AniList list reconciler, and nothing here needs it until an
+      // episode actually ends — minutes after the player started, if ever.
+      import("@/lib/list/syncEngine")
+        .then(({ onEpisodeFinished }) =>
+          onEpisodeFinished({
+            aniId: aniListId,
+            episode: episodeNumber,
+            total,
+            title: info?.title,
+            coverImage:
+              info?.coverImage?.large || info?.coverImage?.extraLarge || null,
+          }),
+        )
+        .catch(() => {});
       // Count today toward the watch streak (idempotent within a day).
       recordWatchToday();
     },
@@ -1053,14 +1236,29 @@ export default function Watch({
     setRatingModalState((prev) => (prev.isOpen ? prev : { ...prev, isOpen: true }));
   }, [setRatingModalState]);
 
-  // ── Mark the previous episode complete when advancing ────────
-  // When the user moves on to the next episode (N → N+1), the one they just
-  // left is, by definition, finished — so we pin its progress to the end. That
-  // makes the home/info "continue watching" show the right next episode and
-  // keeps a future rewatch starting clean from 0 (see lib/watch/progress.ts).
-  // Only forward moves count; jumping BACK to an earlier episode must not wipe
-  // a genuine mid-episode resume point. The natural end-of-video case is
-  // handled inside the player itself via `markComplete` on `ended`.
+  /* ── Valider l'episode quitte, mais seulement s'il a ete REGARDE ──────
+   *
+   * Avancer d'un episode ne prouve rien : sauter de l'episode 1 a l'episode 2
+   * apres dix secondes n'a jamais voulu dire qu'on avait vu le premier. C'est
+   * pourtant ce que faisait cet effet — tout mouvement N → N+1 epinglait
+   * l'episode precedent a sa fin, donc "vu" dans la liste, sur la page
+   * d'accueil et jusque dans le pousse AniList.
+   *
+   * La validation suit desormais la MEME regle que le lecteur (Reglages →
+   * Synchronisation) : l'ED atteint, ou a defaut la fraction de l'episode
+   * regardee. Deux chemins mènent au meme verdict :
+   *
+   *   - le lecteur a deja declare la fin pendant cette visite (`firedComplete`),
+   *     ce qui couvre l'ED comme le seuil ;
+   *   - sinon on relit la position sauvegardee et on la compare au seuil, ce
+   *     qui couvre une visite anterieure ou un onglet rouvert.
+   *
+   * Sans aucune position enregistree, il n'y a rien a valider : c'est le cas
+   * des serveurs en iframe, ou aucun <video> ne nous appartient et ou personne
+   * ne peut dire ce qui a ete regarde.
+   *
+   * Seuls les mouvements EN AVANT sont concernes ; revenir en arriere ne doit
+   * pas effacer un point de reprise legitime. */
   const prevEpiRef = useRef(null);
   useEffect(() => {
     const ep = parseInt(epiNumber, 10);
@@ -1073,12 +1271,21 @@ export default function Watch({
       Number.isFinite(ep) &&
       ep === prev.ep + 1
     ) {
-      markComplete(id, prev.ep);
-      // Advancing to the next episode = the previous one is watched. Drive the
-      // list sync from here (not just the player's `ended`) so it ALSO works
-      // for iframe servers like Megaplay, which have no <video> element to fire
-      // `ended`. handleEpisodeComplete updates the local list + optional push.
-      handleEpisodeComplete({ aniListId: id, episodeNumber: prev.ep });
+      const entry = getProgress(id, prev.ep);
+      const threshold = getSyncPrefs().syncThreshold;
+      const watchedEnough =
+        isCompleted(entry) ||
+        (entry?.duration > 0 && entry.time / entry.duration >= threshold);
+      if (firedCompleteRef.current.has(`${id}:${prev.ep}`) || watchedEnough) {
+        // Epingler la progression a la fin : la reprise repart proprement de 0
+        // et "continuer a regarder" pointe le bon episode suivant.
+        markComplete(id, prev.ep);
+        // La liste (locale, plus le pousse AniList quand il est actif) n'est
+        // pilotee d'ici que si le lecteur ne l'a pas deja fait lui-meme.
+        if (!firedCompleteRef.current.has(`${id}:${prev.ep}`)) {
+          handleEpisodeComplete({ aniListId: id, episodeNumber: prev.ep });
+        }
+      }
     }
     if (id != null && Number.isFinite(ep)) prevEpiRef.current = { id, ep };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1135,12 +1342,35 @@ export default function Watch({
   // — the request that actually gates the player — gets the connection pool to
   // itself first, instead of competing with ~17 low-priority probes.
   const activeSourceSettledRef = useRef(false);
+  /** Duree de la resolution de source du dernier chargement, passee au lecteur
+   *  pour l'overlay de mise au point. Une ref : la mesure ne doit rien
+   *  re-rendre, et le `setHlsData` qui la suit provoque le rendu de toute
+   *  façon. */
+  const sourceMsRef = useRef(0);
+  /* Tout ce qui precede cette demande : chargement du document, hydratation,
+     lecture de la preference de lecteur. Compte depuis le debut de la
+     NAVIGATION — `performance.now()` part de la pour un chargement franc, et
+     l'evenement de route le recale pour un passage d'episode a episode, ou
+     l'horloge du document est deja vieille de plusieurs minutes. */
+  const pageMsRef = useRef(0);
+  const navAtRef = useRef(0);
+  useEffect(() => {
+    const mark = () => {
+      navAtRef.current = performance.now();
+    };
+    router.events?.on("routeChangeStart", mark);
+    return () => router.events?.off("routeChangeStart", mark);
+  }, [router.events]);
 
   const fetchStreamSource = useCallback(async (serverId, signal) => {
-    // `info` is hydrated client-side now — on a cold SSR it can be null for the
-    // first render(s). Bail until we have it (this callback re-creates when
-    // info?.id changes, so the effect re-fires with real metadata).
-    if (!info?.id) return;
+    /* L'identifiant vient de l'URL, pas des metadonnees.
+       Cette fonction attendait `info`, qui sur une arrivee directe n'arrive
+       qu'apres un aller-retour vers /api/v2/media — la demande de source
+       attendait donc une requete dont elle n'a rien a faire. La route ne
+       reclame que serveur + anime + episode + langue : elle retrouve le titre
+       et le malId elle-meme (cf. `sourceRequestUrl`). */
+    const mediaId = info?.id || (aniId ? Number(aniId) : null);
+    if (!mediaId) return;
     const server = getServer(serverId);
     if (server.type === "iframe") {
       setHlsData(null);
@@ -1149,15 +1379,25 @@ export default function Watch({
 
     setHlsLoading(true);
     setHlsData(null);
+    /* Premier poste du decoupage du demarrage montre dans « stats for nerds » :
+       tout ce qui precede le lecteur. Il n'entre pas dans le score des hotes
+       (cf. le commentaire du TTFF dans UniversalPlayer) — il est la pour dire
+       ou passent les secondes, pas pour juger un lecteur. */
+    const sourceAt = performance.now();
+    pageMsRef.current = sourceAt - navAtRef.current;
+    const markSourceMs = () => {
+      sourceMsRef.current = performance.now() - sourceAt;
+    };
 
     // Fast path: the info page may have already resolved this exact source in
     // the background (megaplay, resume episode). If a fresh entry is in the
     // shared prefetch cache, use it immediately — no fetch, no extraction wait.
     const sub = dub ? "dub" : "sub";
     const prefetched = getPrefetchedSource(
-      sourceKey(info.id, parseInt(epiNumber), serverId, sub),
+      sourceKey(mediaId, parseInt(epiNumber), serverId, sub),
     );
     if (prefetched && !signal?.aborted) {
+      markSourceMs();
       setHlsData(prefetched);
       setHlsLoading(false);
       markConfirmed(serverId);
@@ -1171,11 +1411,9 @@ export default function Watch({
       requestSource(
         {
           server: serverId,
-          aniId: info.id,
+          aniId: mediaId,
           episode: parseInt(epiNumber),
           sub: dub ? "dub" : "sub",
-          title: info?.title?.romaji || info?.title?.english,
-          malId: info?.idMal ?? null,
         },
         {
           signal,
@@ -1209,9 +1447,18 @@ export default function Watch({
       // 404 for this upload, and no amount of waiting turns that into a stream.
       // Retrying it cost 3 requests and 5.6 s of spinner before the fallback
       // could even start — that was the "the VF player is dead" wait.
+      //
+      // Le meme traitement vaut pour un verdict `retry` (503), et il manquait.
+      // La route distingue exprès l'ABSENCE, qui est un verdict, du HOQUET, qui
+      // n'en est pas un — un scrape lent, un hote qui bafouille. Or la suite
+      // marquait les deux « failed », et le filet de securite plus bas bascule
+      // sur un serveur confirme des qu'il voit ce marquage : un 503 isolé
+      // suffisait donc a reprendre a l'utilisateur le lecteur qu'il venait de
+      // choisir, sous ses yeux. On redemande avant de conclure.
       for (
         let attempt = 0;
-        out.kind === "absent" && !out.hard && attempt < DECOY_RETRIES;
+        (out.kind === "retry" || (out.kind === "absent" && !out.hard)) &&
+        attempt < DECOY_RETRIES;
         attempt++
       ) {
         await new Promise((r) => setTimeout(r, DECOY_BACKOFF_MS[attempt]));
@@ -1233,9 +1480,10 @@ export default function Watch({
         if (out.hard) activeVerdictRef.current.hardAbsent.add(serverId);
       } else if (out.kind === "ok") {
         const data = out.data;
+        markSourceMs();
         setHlsData(data);
         setPrefetchedSource(
-          sourceKey(info.id, parseInt(epiNumber), serverId, sub),
+          sourceKey(mediaId, parseInt(epiNumber), serverId, sub),
           data,
         );
         markConfirmed(serverId);
@@ -1257,7 +1505,9 @@ export default function Watch({
       // failure) so a dead active server never starves the selector forever.
       activeSourceSettledRef.current = true;
     }
-  }, [info?.id, epiNumber, dub, markFailed]);
+    // `aniId` en dependance a cote de `info?.id` : c'est lui qui porte la
+    // demande quand les metadonnees ne sont pas encore la.
+  }, [info?.id, aniId, epiNumber, dub, markFailed]);
 
   useEffect(() => {
     // Hold the first fetch until the saved server preference has been read, so
@@ -1707,7 +1957,12 @@ export default function Watch({
       //    effect, priority:"high") — that lights its chip via markConfirmed.
       //    We DON'T separately probe it here: that was a duplicate /api/v2/source
       //    round-trip competing with the very request the player waits on.
-      const activeIdx = remaining.findIndex((s) => s.id === activeServer);
+      //    Read the LIVE active server (ref), not the one captured when this
+      //    effect ran — see activeServerRef. The captured value is the pre-
+      //    preference "megaplay" placeholder, and skipping it here is what hid
+      //    the Megaplay chip on every visit for a user with a saved preference.
+      const liveActive = activeServerRef.current;
+      const activeIdx = remaining.findIndex((s) => s.id === liveActive);
       if (activeIdx >= 0) remaining.splice(activeIdx, 1);
 
       await runPool(remaining, MAX_CONCURRENT);
@@ -1782,7 +2037,16 @@ export default function Watch({
         return;
       }
       setActiveServer(serverId);
-      localStorage.setItem("preferred_server", serverId);
+      // Le choix devient l'exception de CET anime, et rien d'autre.
+      //
+      // Avant, ce clic ecrasait `preferred_server`, la preference GLOBALE. Ca
+      // n'a plus de sens depuis l'ordre de preference des langues : un seul clic
+      // sur une serie qui n'a que du VOSTFR aurait epingle ce serveur pour tout
+      // le catalogue et rendu le classement inerte partout ailleurs. Le serveur
+      // epingle des Reglages redevient donc ce qu'il pretend etre : un choix
+      // explicite, que seule la page Reglages modifie.
+      setAnimeServer(aniId, serverId);
+      notify.success(t("player.rememberedForAnime"));
       // The URL no longer encodes the server — preference lives entirely
       // in localStorage, so shares/bookmarks don't pin a stale server id
       // and switching players doesn't dirty the browser history.
@@ -1791,7 +2055,7 @@ export default function Watch({
       // means a genuine local action worth broadcasting.
       if (party) party.broadcast("server", { server: serverId });
     },
-    [party, t]
+    [party, t, aniId]
   );
 
   // ── Keyboard shortcut: cycle to the next player/server ──────
@@ -1803,15 +2067,15 @@ export default function Watch({
   useEffect(() => {
     const onCycle = () => {
       const { getServersByLang } = require("@/lib/servers");
-      const groups = getServersByLang();
-      // Same visibility test as serverSelector.js `shouldShow`.
-      const isVisible = (s) => {
-        if (s.id === activeServer) return true;
-        if (failedServers?.has?.(s.id)) return false;
-        if (s.type === "iframe") return true;
-        return confirmedServers.has(s.id);
-      };
-      const pool = [...groups.multi, ...groups.vo, ...groups.vf].filter(isVisible);
+      const { serverPerfRank } = require("@/lib/watch/serverPerf");
+      const { shouldShowServer } = require("@/lib/watch/serverVisibility");
+      // Meme ordre ET meme regle de visibilite que le selecteur — les deux
+      // etaient recopies ici et avaient deja diverge, ce qui faisait atterrir
+      // le raccourci sur un lecteur qu'aucun chip n'affichait.
+      const groups = getServersByLang(serverPerfRank);
+      const pool = [...groups.multi, ...groups.vo, ...groups.vf].filter((s) =>
+        shouldShowServer(s, activeServer, confirmedServers, failedServers),
+      );
       if (pool.length < 2) return; // nothing to cycle to
       const idx = pool.findIndex((s) => s.id === activeServer);
       const next = pool[(idx + 1) % pool.length];
@@ -1877,8 +2141,34 @@ export default function Watch({
     }
   };
 
+  // Ouverture / fermeture de l'editeur de liste.
   function handleOpen()  { setOpen(true);  document.body.style.overflow = "hidden"; }
   function handleClose() { setOpen(false); document.body.style.overflow = "auto";   }
+
+  /* La vignette de l'episode. Connue des que la liste d'episodes est la,
+     c'est-a-dire bien avant la source : d'ou le `preload` en <Head> plus bas.
+     Sans lui elle ne commencait a se telecharger qu'au montage du lecteur,
+     apres la resolution du flux — plusieurs secondes de retard sur une image
+     dont tout le role est de couvrir le premier instant. */
+  /* Le poster occupe toute la largeur du lecteur (~1300 px) : il prend la
+     variante PLEINE DEFINITION quand elle existe, la tuile de liste gardant sa
+     version legere. Sans ca on affichait une screencap ani.zip de 640 px
+     agrandie deux fois — d'ou le rendu pixelise signale le 26/08/2026. */
+  const posterUrl =
+    episodeNavigation?.playing?.imgHd ||
+    episodeNavigation?.playing?.img ||
+    info?.bannerImage;
+  /* Ce qu'on PRECHARGE, qui n'est pas tout a fait ce qu'on affiche : la
+     banniere en est exclue. Au premier rendu la liste d'episodes n'est pas
+     encore la, `posterUrl` retombe donc sur `info.bannerImage` et on emettait
+     un <link rel=preload> pour elle ; la liste arrivait une fraction de seconde
+     plus tard, le poster devenait l'image de l'episode, et la banniere
+     telechargee ne servait jamais — d'ou l'avertissement « preloaded but not
+     used » en console, et une image payee pour rien. Seule l'image propre a
+     l'episode merite d'etre demandee en avance : c'est elle qui doit couvrir
+     l'ouverture. */
+  const posterPreload =
+    episodeNavigation?.playing?.imgHd || episodeNavigation?.playing?.img || null;
 
   // ── Player ───────────────────────────────────────────────────
   // Memoized JSX — recomputes ONLY when player-relevant state changes.
@@ -1945,7 +2235,9 @@ export default function Watch({
           <UniversalPlayer
             autoplay={!!autoplay}
             streamData={hlsData}
-            poster={episodeNavigation?.playing?.img || info?.bannerImage}
+            sourceMs={sourceMsRef.current}
+            pageMs={pageMsRef.current}
+            poster={posterUrl}
             serverId={server.id}
             nextEpisodeHref={nextEpisodeHref}
             prevEpisodeHref={prevEpisodeHref}
@@ -1981,7 +2273,7 @@ export default function Watch({
       <PlayerErrorBoundary key={iframeKey} resetKey={iframeKey}>
         <UniversalPlayer
           streamData={{ iframe: src }}
-          poster={episodeNavigation?.playing?.img || info?.bannerImage}
+          poster={posterUrl}
           serverId={server.id}
           nextEpisodeHref={nextEpisodeHref}
           prevEpisodeHref={prevEpisodeHref}
@@ -2008,6 +2300,45 @@ export default function Watch({
   // primary column directly under the player (`lg:hidden`), on desktop it lives
   // in the secondary column beside the episode list (`hidden lg:block`). Built
   // once here so both placements stay in sync.
+  // AniList lists recommendations as edges around a nullable media node.
+  const recommendations = useMemo(
+    () =>
+      (info?.recommendations?.nodes || [])
+        .map((n) => n?.mediaRecommendation)
+        .filter(Boolean),
+    [info?.recommendations],
+  );
+
+  // On desktop the panel sits at the TOP of the secondary column and the
+  // episode list follows directly under it, taking the remaining height. The
+  // panel is a fixed height (the player's), so what the list loses is bounded.
+  /* Le chat occupe-t-il VRAIMENT la colonne de droite ? Replie sur son bouton
+     « ouvrir le chat », il ne compte pas : la page reste rangee comme s'il
+     n'etait pas la. C'est ce booleen qui fait basculer toute la moitie droite
+     de la page — liste d'episodes en rangee 1 ou 2, et disposition de la
+     fiche. */
+  const partyOpen = !!(party || partyUIOpen) && !partyPanelHidden;
+
+  /* La liste d'episodes est montee a DEUX endroits selon `partyOpen`, jamais
+     les deux a la fois. Une seule definition, pour que les deux emplacements
+     ne se mettent pas a diverger. */
+  const episodeListBlock = (
+    <EpisodeLists
+      info={info}
+      session={sessions}
+      map={mapEpisode}
+      providerId={provider}
+      watchId={watchId}
+      episode={episodesList}
+      track={episodeNavigation}
+      dub={dub}
+      /* La duree d'un episode depend de l'ENCODAGE, donc du lecteur : la liste
+         a besoin de savoir lequel est actif pour afficher la bonne
+         (cf. /api/v2/runtimes). */
+      server={activeServer}
+    />
+  );
+
   const partyPanelBlock = (party || partyUIOpen) && (
     partyPanelHidden ? (
       <button
@@ -2017,19 +2348,21 @@ export default function Watch({
         <UsersIcon className="h-4 w-4" /> {t("party.openChat")}
       </button>
     ) : (
-      <div
-        className="mb-4 lg:h-[var(--player-h)]"
-        style={
-          // Match the player height on large screens only. The pixel value is
-          // the FULL-WIDTH player height; on a phone (player spans the
-          // viewport) that is far taller than the panel's mobile `h-[60vh]`, so
-          // applying it as a plain inline height left the panel overlapping the
-          // episode list. We expose it as a CSS var and only consume it at
-          // `lg:`; on mobile the inner `h-[60vh]` drives the height instead.
-          playerBoxH ? { "--player-h": `${playerBoxH}px` } : undefined
-        }
-      >
-        <div className="h-[60vh] max-h-[520px] lg:h-full lg:max-h-none">
+      /* Le panneau calait sa hauteur sur celle du lecteur (une mesure en px
+         passee en variable CSS). Ça tenait tant que la colonne de droite
+         descendait jusque sous la fiche : il restait de la place dessous pour
+         la liste d'episodes. Depuis que cette colonne s'arrete en bas de la
+         barre de serveurs, la hauteur du lecteur, c'est TOUTE la colonne — la
+         liste tombait a 46 px, reduite a un bandeau. Les deux se partagent
+         maintenant la colonne a parts egales (`flex-1` de part et d'autre),
+         ce qui n'a plus rien a mesurer. Sur mobile, le `h-[60vh]` interne
+         continue de decider. */
+      /* `lg:mb-0` : la marge basse servait a separer le panneau de la liste
+         d'episodes, du temps ou elle le suivait dans la meme colonne. La liste
+         est descendue d'une rangee ; cette marge ne separait donc plus rien et
+         empechait le panneau d'aller jusqu'au bas de la barre de serveurs. */
+      <div className="mb-4 lg:mb-0 lg:flex lg:min-h-0 lg:flex-1 lg:flex-col">
+        <div className="h-[60vh] max-h-[520px] lg:h-full lg:max-h-none lg:min-h-0 lg:flex-1">
           <WatchPartyPanel
             party={party}
             lobby={{ aniId: info?.id, epiNumber, dub, server: activeServer }}
@@ -2066,6 +2399,20 @@ export default function Watch({
         <link rel="dns-prefetch" href="https://video.sibnet.ru" />
         <link rel="dns-prefetch" href="https://sendvid.com" />
         <link rel="dns-prefetch" href="https://vidmoly.to" />
+        {/* La vignette de l'episode, demandee des qu'on connait son adresse et
+            en haute priorite. Elle est bien consommee — c'est le <img
+            class="as-poster"> du lecteur, meme URL — donc pas de « preloaded
+            but not used ». Elle ne coute rien de plus : le lecteur allait la
+            chercher de toute façon, simplement trop tard pour couvrir
+            l'ouverture noire qu'elle est censee couvrir. */}
+        {posterPreload && (
+          <link
+            rel="preload"
+            as="image"
+            href={posterPreload}
+            fetchpriority="high"
+          />
+        )}
         <meta
           name="title"
           data-title-romaji={info?.title?.romaji}
@@ -2086,40 +2433,62 @@ export default function Watch({
         <meta name="twitter:description" content={episodeNavigation?.playing?.description || info?.description} />
       </Head>
 
-      {/* AniList login modal */}
-      <Modal open={open} onClose={() => handleClose()}>
-        {!sessions && (
-          <div className="flex-center flex-col gap-5 px-10 py-5 bg-secondary rounded-md">
-            <h1 className="text-md font-extrabold font-karla">{t("nav.editYourList")}</h1>
-            <button
-              className="flex items-center bg-[#363642] rounded-md text-white p-1"
-              onClick={() => signIn("AniListProvider")}
-            >
-              <h1 className="px-1 font-bold font-karla">{t("nav.loginWithAniList")}</h1>
-              <div className="scale-[60%] pb-[1px]">
-                <AniList />
-              </div>
-            </button>
-          </div>
-        )}
-      </Modal>
+      {/* Classement des langues — affiche une seule fois (tant que rien n'est
+          enregistre), puis reglable depuis Reglages > Lecteur. La validation
+          rebascule tout de suite sur le meilleur lecteur du nouvel ordre pour
+          l'episode en cours, sinon le choix ne prendrait effet qu'a la page
+          suivante. */}
+      {langModalOpen && (
+        <LangPreferenceModal
+          open={langModalOpen}
+          onSave={(order) => {
+            langOrderRef.current = order;
+            setLangModalOpen(false);
+            if (preferredServerRef.current) return; // serveur epingle : il gagne
+            const best =
+              pickServerForLangs(order, {
+                confirmed: confirmedServers,
+                failed: failedServers,
+              }) || pickServerForLangs(order, { failed: failedServers });
+            if (best) setActiveServer(best);
+          }}
+        />
+      )}
+
+      {/* Editeur de liste — le meme que la page d'info, ouvert par le bouton
+          de statut de la fiche. Il porte sa propre surcouche plein ecran, d'ou
+          l'absence de <Modal> autour. */}
+      {open && info && (
+        <ListEditor
+          animeId={info.id}
+          session={sessions}
+          stats={listStatus.status || undefined}
+          prg={listStatus.progress}
+          max={info?.episodes ?? undefined}
+          info={info}
+          close={handleClose}
+          onSaved={(next) => listStatus.apply(next)}
+        />
+      )}
 
       {/* The in-page "report" button (down by the share row) opens
           this modal pre-targeted at the current anime + episode so
           users land directly on the structured Anime-bug tab. */}
-      <ReportModal
-        isOpen={isOpen}
-        setIsOpen={setIsOpen}
-        animeContext={
-          info
-            ? {
-                animeId: info.id,
-                animeTitle: pickTitle(info.title, titlePref),
-                episode: parseInt(epiNumber),
-              }
-            : null
-        }
-      />
+      {reportEverOpened && (
+        <ReportModal
+          isOpen={isOpen}
+          setIsOpen={setIsOpen}
+          animeContext={
+            info
+              ? {
+                  animeId: info.id,
+                  animeTitle: pickTitle(info.title, titlePref),
+                  episode: parseInt(epiNumber),
+                }
+              : null
+          }
+        />
+      )}
 
       <main className="w-screen h-full">
         <RateModal
@@ -2149,19 +2518,74 @@ export default function Watch({
             </div>
           )}
 
+          {/* Grille, plus une rangee flex. La description ne vit plus dans la
+              colonne de gauche : elle passe SOUS les deux colonnes, pleine
+              largeur, et c'est elle qui dictait la hauteur de la liste
+              d'episodes (la colonne de droite prend la hauteur de sa rangee).
+              Desormais la rangee 1 ne contient que le lecteur et le selecteur
+              de serveurs, donc la liste s'arrete pile en bas de celui-ci.
+              Une grille, et pas un `flex-row` + un bloc en dessous, parce que
+              l'ordre MOBILE doit rester lecteur → serveurs → description →
+              episodes : en une colonne c'est l'ordre du DOM qui parle, et le
+              placement explicite ne s'applique qu'a partir de `lg`.
+
+              La largeur de la colonne du lecteur se calcule depuis la HAUTEUR
+              de l'ecran, et non l'inverse. Le lecteur tire sa hauteur de sa
+              largeur (16/9) ; pour que le pli tombe pile sous la barre de
+              serveurs — sans laisser depasser le haut de la fiche, qui se
+              devinait en bas d'ecran — il faut donc partir de la place
+              verticale disponible et la reconvertir en largeur :
+              `(100dvh - 143px - 1.125rem) * 16/9`, et cette soustraction se lit
+              terme a terme. 143px, c'est tout ce que la colonne porte en plus
+              du lecteur, MESURE dans Chrome et pas estime (voir
+              tools/browser-check/layout-metrics.mjs) : 80 de padding haut, 12
+              de gouttiere, 45 de barre de serveurs, et 6 que la boite du
+              lecteur prend au-dela de son 16/9. Les 1.125rem qui suivent sont
+              donc, par construction, l'air EXACT qui reste sous la barre.
+              C'est LE bord de la page : la marge laterale reprend le meme
+              nombre (`calc(100% - 2.25rem)`, 1.125rem de chaque cote), de sorte
+              que bas, gauche et droite soient a 18px. Ce n'est pas la gouttiere
+              interne (`mt-3`, 12px) qui separe le lecteur de la barre — les
+              deux se ressemblent mais ne disent pas la meme chose. Rejouer la
+              mesure apres tout changement de hauteur dans cette colonne.
+              Cette largeur est exposee en variable (`--player-col`) parce que
+              la fiche, en dessous, doit savoir ou s'arrete la colonne du
+              lecteur pour aligner ses propres colonnes dessus.
+              Le `lg:mt-8` de la fiche (2rem) est plus grand que cet ecart :
+              c'est ce qui garantit que rien de la fiche ne se devine sous le
+              pli. Les deux valeurs vont ensemble. Le `min()` borne l'affaire : la
+              liste d'episodes garde au moins 26rem, et sur un ecran trop haut
+              pour etre rempli c'est cette borne qui gagne — le lecteur ne
+              s'elargit pas indefiniment pour courir apres le pli. */}
           <div
             id="default"
             className={`${
-              theaterMode ? "lg:max-w-[95%] xl:max-w-[80%]" : "lg:max-w-[95%]"
-            } w-full flex flex-col lg:flex-row mx-auto`}
+              theaterMode
+                ? "lg:max-w-[95%] xl:max-w-[80%] lg:grid-cols-[minmax(0,1fr)_25rem] xl:grid-cols-[minmax(0,1fr)_33rem]"
+                : "lg:max-w-[calc(100%_-_2.25rem)] [--player-col:min(100%_-_26rem,(100dvh_-_143px_-_1.125rem)_*_16_/_9)] lg:grid-cols-[var(--player-col)_minmax(0,1fr)]"
+            } mx-auto flex w-full flex-col lg:grid`}
           >
             {/* ── Primary column ── */}
-            <div id="primary" className="w-full">
+            {/* Plain block, as it was before the redesign. It briefly became a
+                `flex flex-col`, which is the only layout change this column
+                took — and the black bands appeared with it. The player box
+                sizes itself from its own aspect-ratio, and that only resolves
+                predictably while its ancestors leave its height alone.
+                `min-w-0` is a different matter and IS needed: this is a flex
+                ITEM of the row above, and a flex item defaults to
+                `min-width: auto` — it refuses to shrink below its content's
+                min-content width. The recommendations rail is a carousel of
+                fixed-width cards, so that width is the whole strip; without
+                this the column blew past the viewport and shoved the episode
+                list off screen. It constrains width only, never height. */}
+            <div
+              id="primary"
+              className="w-full min-w-0 lg:col-start-1 lg:row-start-1"
+            >
 
               {/* Default (non-theater) player — no parent bg/overflow so ambient glow can extend outside */}
               {!theaterMode && (
                 <div
-                  ref={playerBoxRef}
                   className={`w-full flex-center ${
                     aspectRatio === "4/3" ? "aspect-video" : ""
                   }`}
@@ -2179,7 +2603,7 @@ export default function Watch({
 
               {/* Server selector */}
 
-              <div className="px-3 lg:px-0">
+              <div className="mt-3 px-3 lg:px-0">
                 <ServerSelector
                   activeServer={activeServer}
                   onChange={handleServerChange}
@@ -2189,98 +2613,218 @@ export default function Watch({
                 />
               </div>
 
-              {/* Details row */}
-              <div id="details" className="flex flex-col gap-5 w-full px-3 lg:px-0">
-                <div className="flex items-end justify-between pt-3 border-b-2 border-secondary pb-2">
-                  <div className="w-[55%]">
-                    <div className="flex font-outfit font-semibold text-lg lg:text-2xl text-white line-clamp-1">
-                      <Link
-                        href={`/en/anime/${info?.id}`}
-                        className="hover:underline line-clamp-1"
-                      >
-                        {episodeNavigation?.playing?.title || (info?.title && pickTitle(info.title, titlePref)) || t("common.loading")}
-                      </Link>
-                    </div>
-                    <h3 className="font-karla">
+            </div>
+
+            {/* Fiche + synopsis — rangee 2. Elle prend les DEUX colonnes tant
+                que le chat n'est pas la ; des qu'il l'est, la liste d'episodes
+                descend occuper la colonne de droite de cette rangee, et la
+                fiche se replie sur celle du lecteur. */}
+            <div
+              id="details"
+              className={`mt-4 flex w-full flex-col gap-5 px-3 lg:col-start-1 lg:row-start-2 lg:mt-8 lg:block lg:px-0 ${
+                partyOpen ? "" : "lg:col-span-2"
+              }`}
+            >
+              <Details
+                info={info}
+                description={info?.description}
+                epiNumber={epiNumber}
+                listStatus={listStatus.status}
+                listResolved={listStatus.resolved}
+                onOpenListEditor={() => handleOpen()}
+                partyOpen={partyOpen}
+                title={
+                  <div className="min-w-0">
+                    {/* Pas de line-clamp : le titre s'affiche EN ENTIER,
+                        quitte a passer sur deux ou trois lignes. Il etait
+                        coupe a une ligne, et les titres a rallonge (« The
+                        Misfit of Demon King Academy II: History's Strongest
+                        Demon King Reincarnat… ») perdaient justement la
+                        partie qui distingue la saison. `leading-snug` resserre
+                        l'interligne pour que l'empilement reste compact. */}
+                    <Link
+                      href={`/en/anime/${info?.id}`}
+                      className="block font-outfit text-lg font-semibold leading-snug text-white hover:underline lg:text-2xl"
+                    >
+                      {(info?.title && pickTitle(info.title, titlePref)) || t("common.loading")}
+                    </Link>
+                    <h3 className="font-karla text-sm text-white/45 line-clamp-1">
                       {episodeNavigation?.playing?.number ? (
-                        `Episode ${episodeNavigation?.playing?.number}`
+                        <>
+                          {t("common.episode")} {episodeNavigation.playing.number}
+                          {episodeNavigation.playing.title
+                            ? ` · ${fixApostrophes(episodeNavigation.playing.title)}`
+                            : ""}
+                        </>
                       ) : (
                         <Skeleton width={120} height={16} />
                       )}
                     </h3>
                   </div>
-
-                  <div className="flex gap-2 text-sm">
-                    {!partyUIOpen && info?.id && (
+                }
+                actions={
+                  /* Meme forme que le panneau d'actions de la page d'info : un
+                     gros bouton porteur — ici le statut de liste, rendu par la
+                     fiche — puis UNE rangee d'actions secondaires de meme
+                     poids. Elles avaient ete etagees (« regarder ensemble » sur
+                     toute la largeur, puis deux demi-boutons) et etirees sur la
+                     hauteur de la fiche : ça faisait trois paves demesures.
+                     Meme recette d'icones que la page d'info : des traits, pas
+                     de glyphes pleins. */
+                  <div className={`grid gap-2.5 ${info?.id ? "grid-cols-3" : "grid-cols-2"}`}>
+                    {info?.id && (
                       <button
                         type="button"
+                        title={t("party.watchTogether")}
+                        disabled={partyUIOpen}
                         onClick={() => {
                           setPartyUIOpen(true);
                           setPartyPanelHidden(false);
                         }}
-                        className="flex items-center gap-2 rounded-md bg-action/20 px-3 py-2 text-sm font-medium text-action transition hover:bg-action/30"
+                        className={WATCH_BTN}
                       >
-                        <UsersIcon className="h-5 w-5" />
-                        <span className="hidden lg:block">{t("party.watchTogether")}</span>
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                          <circle cx="9" cy="7" r="4" />
+                          <path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" />
+                        </svg>
+                        <span>{t("party.watchTogether")}</span>
                       </button>
                     )}
                     <button
                       type="button"
+                      title={t("anime.share")}
                       onClick={handleShareClick}
-                      className="flex items-center gap-2 px-3 py-1 ring-[1px] ring-white/20 rounded overflow-hidden"
+                      className={WATCH_BTN}
                     >
-                      <ShareIcon className="w-5 h-5" />
-                      <span className="hidden lg:block">{t("anime.share")}</span>
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                        <circle cx="18" cy="5" r="3" />
+                        <circle cx="6" cy="12" r="3" />
+                        <circle cx="18" cy="19" r="3" />
+                        <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+                        <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+                      </svg>
+                      <span>{t("anime.share")}</span>
                     </button>
                     <button
                       type="button"
+                      title={t("nav.report")}
                       onClick={() => setIsOpen(true)}
-                      className="flex items-center gap-2 px-3 py-1 ring-[1px] ring-white/20 rounded overflow-hidden"
+                      className={WATCH_BTN}
                     >
-                      <FlagIcon className="w-5 h-5" />
-                      <span className="hidden lg:block">{t("nav.report")}</span>
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
+                        <line x1="4" y1="22" x2="4" y2="15" />
+                      </svg>
+                      <span>{t("nav.report")}</span>
                     </button>
                   </div>
-                </div>
-
-                <Details
-                  info={info}
-                  session={sessions}
-                  description={info?.description}
-                  epiNumber={epiNumber}
-                  id={info}
-                  onList={onList}
-                  setOnList={setOnList}
-                  handleOpen={() => handleOpen()}
-                />
-              </div>
+                }
+              />
             </div>
 
             {/* ── Secondary column (episode list) ── */}
+            {/* At `lg` the column is a fixed-width BOX and its content is taken
+                out of flow (absolute inner). That direction matters: a normal
+                flex item is sized by its content, so a 24-episode list made the
+                whole row that tall and left a hole between the synopsis and the
+                recommendations. Out of flow, the column contributes no height
+                at all — it takes the primary column's, and the list scrolls
+                inside whatever that is. La largeur, elle, est portee par la
+                colonne de la grille et non plus par ce bloc : avec un contenu
+                hors flux il serait sinon reduit a rien. Elle n'est plus fixe —
+                c'est le reste (`1fr`) une fois le lecteur servi, avec un
+                plancher de 26rem inscrit dans le `min()` de la grille.
+                En mode cinema le lecteur est AU-DESSUS de la grille, donc la
+                rangee ne mesure plus que la barre de serveurs : sans plancher
+                la liste s'ecraserait a quelques dizaines de pixels. */}
             <div
               id="secondary"
-              className={`relative ${theaterMode ? "pt-5" : "pt-4 lg:pt-0"} lg:pl-4`}
+              className={`relative lg:col-start-2 lg:row-start-1 ${
+                theaterMode ? "pt-5 lg:min-h-[30rem]" : "pt-4 lg:pt-0"
+              }`}
             >
-              {/* Desktop placement — beside the episode list. On mobile the
-                  panel renders in the primary column under the player instead. */}
-              {partyPanelBlock && (
-                <div className="hidden px-3 lg:block lg:px-0">{partyPanelBlock}</div>
-              )}
-              <EpisodeLists
-                info={info}
-                session={sessions}
-                map={mapEpisode}
-                providerId={provider}
-                watchId={watchId}
-                episode={episodesList}
-                artStorage={artStorage}
-                track={episodeNavigation}
-                dub={dub}
+              <div
+                className={`lg:absolute lg:left-4 lg:right-0 lg:bottom-0 lg:flex lg:flex-col ${
+                  theaterMode ? "lg:top-5" : "lg:top-0"
+                }`}
+              >
+                {/* Desktop placement — above the episode list, not instead of
+                    it. On mobile the panel renders in the primary column under
+                    the player instead, and this one is hidden. */}
+                {partyPanelBlock && (
+                  <div
+                    className={`hidden px-3 lg:px-0 ${
+                      partyPanelHidden
+                        ? "lg:block lg:shrink-0"
+                        : "lg:flex lg:min-h-0 lg:flex-1 lg:flex-col"
+                    }`}
+                  >
+                    {partyPanelBlock}
+                  </div>
+                )}
+                {/* Chat ouvert, la liste ne partage plus cette place : elle
+                    descend d'une rangee (voir plus bas). Ici elle disparait
+                    donc completement, et le chat prend toute la colonne — meme
+                    cadre, meme hauteur que la liste qu'il remplace. */}
+                {!partyOpen && (
+                  <div className="lg:flex lg:min-h-0 lg:flex-1">{episodeListBlock}</div>
+                )}
+              </div>
+            </div>
+
+            {/* Rangee 2, colonne de droite — la liste d'episodes quand le chat
+                lui a pris sa place au-dessus. Meme montage hors-flux que la
+                colonne du haut : elle prend la hauteur que la fiche donne a la
+                rangee, donc elle descend jusqu'aux recommandations, et c'est sa
+                zone de defilement qui absorbe le reste.
+                Le `lg:mt-8` est celui de la fiche, et il n'est pas negociable :
+                c'est ce qui met le haut de la liste au niveau de la jaquette et
+                du bouton de liste, sur une seule ligne d'horizon. Une gouttiere
+                plus serree la faisait flotter entre le chat et la fiche, alignee
+                sur ni l'un ni l'autre. */}
+            {partyOpen && (
+              <div className="relative mt-4 lg:col-start-2 lg:row-start-2 lg:mt-8">
+                <div className="lg:absolute lg:inset-0 lg:left-4 lg:flex lg:flex-col">
+                  {episodeListBlock}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Recommendations — the info page's own carousel, moved OUT of the
+              details column so the rail spans the whole page width (both
+              columns) instead of stopping at the episode list's left edge. */}
+          {recommendations.length > 0 && (
+            <div
+              className={`${
+                theaterMode
+                  ? "lg:max-w-[95%] xl:max-w-[80%]"
+                  : "lg:max-w-[calc(100%_-_2.25rem)]"
+              } mx-auto mt-6 w-full min-w-0 px-3 lg:px-0 ${v2Styles.tokens}`}
+            >
+              <Recommendations
+                items={recommendations}
+                forTitle={
+                  (info?.title && pickTitle(info.title, titlePref)) ||
+                  t("anime.thisAnime")
+                }
               />
             </div>
-          </div>
+          )}
         </div>
       </main>
+
+      {/* La page se terminait sur la rangee de recommandations, sans rien
+          derriere : toutes les autres pages du site ferment sur ce pied.
+          Il prend la largeur des colonnes du dessus — la meme expression qu'a
+          `#default` et que la rangee de recommandations — sans quoi il se
+          resserrait a 80 % sous un contenu a 95 %. */}
+      <Footer
+        widthClass={`w-[90%] ${
+          theaterMode ? "lg:w-[95%] xl:w-[80%]" : "lg:w-[calc(100%_-_2.25rem)]"
+        }`}
+      />
     </>
   );
 }
@@ -2304,6 +2848,17 @@ function buildWatchUrl(aniId, ep, dub, server, roomId) {
   if (roomId) params.set("party", String(roomId));
   return `/en/anime/watch/${aniId}/${provider}?${params.toString()}`;
 }
+
+// Secondary action button, borrowed from the info page's hero so both pages
+// look like the same site.
+const WATCH_BTN =
+  // Fond OPAQUE : ces boutons sont dans la trainee des ambient lights du player,
+  // et un rgba(255,255,255,0.04) les laissait completement delaves.
+  //
+  // Icone ET libelle, et non plus une icone seule : ces boutons occupent
+  // desormais une colonne large, ou trois pastilles muettes de 40 px de haut
+  // flottaient sans rien dire de ce qu'elles font.
+  "flex flex-col items-center justify-center gap-2 rounded-[13px] border border-[#2f3447] bg-[#1a1d29] px-2 py-3.5 text-center text-[11.5px] font-semibold leading-tight text-[#c4c8d4] transition-colors hover:border-[#3d4359] hover:bg-[#242838] hover:text-white disabled:opacity-40";
 
 function SpinLoader() {
   return (

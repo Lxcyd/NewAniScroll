@@ -1,7 +1,7 @@
 import "@vidstack/react/player/styles/default/theme.css";
 import "@vidstack/react/player/styles/default/layouts/video.css";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 // @ts-ignore — react-dom types not installed but createPortal is exported
 import { createPortal } from "react-dom";
 import {
@@ -20,22 +20,38 @@ import {
 import HoverPreview from "./HoverPreview";
 import SubtitleSettings from "./SubtitleSettings";
 import SkipOverlay from "./SkipOverlay";
-import VideoStats from "./VideoStats";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/router";
-// The visual keyboard editor is a heavy, rarely-opened overlay — load it on
-// demand so it never weighs down the player chunk.
+// Overlays that only ever mount behind a condition — kept out of the player
+// chunk so they cost nothing to the viewer who never opens them. Each one is
+// already guarded at its render site, so deferring the import changes nothing
+// about when it appears.
+//   ShortcutEditor  — the visual keyboard editor, from the settings menu.
+//   VideoStats      — the debug HUD, behind `statsOpen`.
+//   FullscreenChat  — watch-party chat, behind `party`; it pulls EmojiButton
+//                     and the ~24 kB emoji tables along with it.
 const ShortcutEditor = dynamic(() => import("./ShortcutEditor"), { ssr: false });
+const VideoStats = dynamic(() => import("./VideoStats"), { ssr: false });
 import {
   getKeybindings,
   comboToAction,
   comboFromEvent,
   type ShortcutAction,
 } from "@/lib/prefs/keybindings";
-import FullscreenChat from "@/components/watch/party/FullscreenChat";
+const FullscreenChat = dynamic(
+  () => import("@/components/watch/party/FullscreenChat"),
+  { ssr: false },
+);
 // @ts-ignore — context module is plain JS, no types
 import { useWatchProvider } from "@/lib/context/watchPageProvider";
 import { getServer } from "@/lib/servers";
+import {
+  beginSession,
+  commitSession,
+  offSessionEnd,
+  onSessionEnd,
+  recordSample,
+} from "@/lib/watch/serverPerf";
 import { useTranslation } from "react-i18next";
 import { notify } from "@/lib/notifications/noticeStore";
 import {
@@ -44,7 +60,12 @@ import {
 } from "@/lib/notifications/playerSurface";
 import type { TFunction } from "i18next";
 import { VIDSTACK_FR } from "@/lib/i18n/vidstackFr";
-import { getResumeTime, saveProgress, markComplete } from "@/lib/watch/progress";
+import {
+  getResumeTime,
+  saveProgress,
+  markComplete,
+  publishDuration,
+} from "@/lib/watch/progress";
 import { recordWatchToday } from "@/lib/stats/streak";
 import { useDataSaver } from "@/lib/prefs/dataSaver";
 import { usePlayerPrefs, setPlayerPrefs, getPlayerPrefs } from "@/lib/prefs/playerPrefs";
@@ -125,6 +146,13 @@ export type UniversalStreamData = {
 type Props = {
   streamData: UniversalStreamData | null;
   poster?: string;
+  /** Temps qu'a pris la resolution de la source (/api/v2/source), en ms — 0
+   *  quand elle sortait deja du cache de prechauffage. Affiche dans l'overlay
+   *  « stats for nerds », premier poste du decoupage du demarrage. */
+  sourceMs?: number;
+  /** Tout ce qui precede la demande de source — navigation, hydratation,
+   *  lecture des preferences — en ms. Meme usage que `sourceMs`. */
+  pageMs?: number;
   onError?: (reason?: string) => void;
   ambient?: boolean;
   serverId?: string;
@@ -310,37 +338,180 @@ function proxied(
 }
 
 /**
- * LiveAmbient — projector stack with GPU bilinear scaling.
+ * LiveAmbient — la lumiere d'ambiance derriere le lecteur.
  *
- * The previous "stretch a small canvas to full size via CSS" approach was
- * unreliable: most browsers resample upscaled <canvas> with nearest-neighbor
- * regardless of imageSmoothingQuality. Result: visible pixel grid in the
- * gradient.
+ * UNE copie de l'image, agrandie au-dela du lecteur, floutee, sur-saturee.
+ * C'est exactement la structure de la lumiere du survol de carte (voir
+ * TrailerStage, dont le halo est un second exemplaire de la video floute) — et
+ * ce n'en etait pas une avant : cinq copies concentriques, chacune un peu plus
+ * grande et beaucoup plus pale, se composaient a la place.
  *
- * Fix: keep each <canvas> at its native pixel size, and use a CSS `scale()`
- * transform on a wrapper to enlarge it. CSS transforms ARE always GPU-
- * accelerated with bilinear filtering, so the result is silky-smooth even
- * with a 320×180 source. Heavy CSS blur on top hides any residual artifacts
- * and gives the soft ambient feel.
+ * POURQUOI LA PILE EST PARTIE, mesure a l'appui (meme instrument sur les deux,
+ * bande de 30 px juste a l'exterieur, sur une scene orange saturee) :
  *
- * Z-index: wrapper sits at z-index:-1 (behind the player which is z:0). The
- * player has `overflow:hidden` so its controls always stay above and visible.
+ *     lecteur, ancienne pile   image s42 l50   ->   halo s82 l39
+ *     carte au survol          image s15 l16   ->   halo s27 l18
  *
- * Temporal blending: pairwise 50/50 with previous frame, softens scene cuts.
+ * La carte garde la clarte de l'image ; l'ancien lecteur en perdait un
+ * cinquieme. La cause est arithmetique et non esthetique : la copie la plus
+ * INTERIEURE de la pile (celle qui portait 13 % du resultat) s'arrete
+ * exactement au bord du lecteur, donc elle ne participe pas au halo — la ou la
+ * lumiere se voit, il manquait toujours une part du total, et ce qui manque
+ * est remplace par du noir. D'ou une lumiere plus sombre et plus lourde que
+ * l'image, pendant que la sur-saturation, elle, s'appliquait bien. Sombre et
+ * sursature : c'est la definition d'une couleur qui n'est pas la bonne.
+ *
+ * Deuxieme raison, moins visible mais reelle : les cinq echelles pesaient
+ * presque autant les unes que les autres (0,13 a 0,25 apres composition), et
+ * elles echantillonnent des endroits differents de l'image — a 600 px du
+ * centre, les points sources vont de 455 a 600 px. Le halo d'un bord etait
+ * donc tire vers le centre du cadre au lieu de dire la couleur de ce bord.
+ *
+ * Une seule copie n'a ni l'un ni l'autre de ces defauts, et coute cinq fois
+ * moins cher au compositeur (un flou de 72 px au lieu de cinq).
+ *
+ * Le canvas reste petit (320x180) et c'est le `scale()` CSS qui l'agrandit :
+ * un <canvas> etire par sa propre taille est reechantillonne au plus proche
+ * voisin par la plupart des navigateurs — grille de pixels visible — alors
+ * qu'un transform CSS passe par le GPU et son filtrage bilineaire.
+ *
+ * Z-index : le calque est a -1, derriere le lecteur (z:0), qui masque donc le
+ * centre de la lumiere et n'en laisse voir que le debordement.
+ *
+ * Melange temporel : moitie-moitie avec la frame precedente, pour adoucir les
+ * coupes de plan.
  */
+/** Luminance moyenne (0-255) sous laquelle une frame est tenue pour noire.
+ *  Assez haut pour couvrir un noir "sale" d'encodage, assez bas pour qu'un
+ *  plan de nuit reste une image. */
+const BLACK_FRAME = 12;
+/** Et le meme seuil par le haut : certains encodages ouvrent sur un fondu au
+ *  BLANC, qui ne cache pas moins qu'un fondu au noir.
+ *  Le blanc demande une precaution que le noir n'exige pas. Un plan tres
+ *  lumineux — neige, ciel d'ete, page blanche — monte facilement a 200 de
+ *  moyenne, alors qu'un vrai plan de nuit descend rarement sous 12 : le seuil
+ *  seul suffit d'un cote et pas de l'autre. On exige donc en plus que l'image
+ *  soit PLATE (cf. `frameSpread`) — un fondu au blanc n'a aucun relief, un ciel
+ *  en a toujours un peu. */
+const WHITE_FRAME = 243;
+/** Ecart max-min de luminance au-dela duquel une frame claire a du relief, donc
+ *  du contenu. Mesure sur les 144 echantillons du 16x9. */
+const FLAT_FRAME = 10;
+/** Attente entre les deux lectures qui doivent s'accorder avant que la
+ *  vignette couvre quoi que ce soit — et delai laisse a une frame fraichement
+ *  decodee pour etre peinte avant qu'on la lise. */
+const CONFIRM_MS = 300;
+/** Rythme d'attente tant qu'aucune image n'est decodable. */
+const POLL_MS = 250;
+/** Au-dela, la copie proxifiee ne repondra pas : pas de mesure, pas de
+ *  vignette. */
+const PROBE_TIMEOUT_MS = 8000;
+
+/** Luminance moyenne et amplitude de l'image courante, reduite a 16x9, Rec.709.
+ *  `null` = canvas teinte : le flux ne repond pas d'en-tete CORS et ses pixels
+ *  sont illisibles. Le DESSIN passe, c'est la RELECTURE qui est interdite, et
+ *  il n'y a aucun contournement cote element. */
+const frameStats = (
+  source: HTMLVideoElement,
+): { moyenne: number; amplitude: number } | null => {
+  try {
+    const canvas = document.createElement("canvas");
+    canvas.width = 16;
+    canvas.height = 9;
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    if (!ctx) return null;
+    ctx.drawImage(source, 0, 0, 16, 9);
+    const { data } = ctx.getImageData(0, 0, 16, 9);
+    let sum = 0;
+    let min = 255;
+    let max = 0;
+    for (let i = 0; i < data.length; i += 4) {
+      const l = data[i] * 0.2126 + data[i + 1] * 0.7152 + data[i + 2] * 0.0722;
+      sum += l;
+      if (l < min) min = l;
+      if (l > max) max = l;
+    }
+    return { moyenne: sum / (data.length / 4), amplitude: max - min };
+  } catch {
+    return null;
+  }
+};
+
+/** La premiere image montre-t-elle quelque chose ? `null` = illisible, on ne
+ *  tranche pas. Un fondu au noir comme un fondu au blanc repondent `false` :
+ *  dans les deux cas il n'y a rien a voir, et c'est la vignette de l'episode
+ *  qui prend la place. */
+const frameLooksReal = (source: HTMLVideoElement): boolean | null => {
+  const s = frameStats(source);
+  if (!s) return null;
+  if (s.moyenne <= BLACK_FRAME) return false;
+  if (s.moyenne >= WHITE_FRAME && s.amplitude <= FLAT_FRAME) return false;
+  return true;
+};
+
+/* Memoire des verdicts. Une ouverture ne change pas : un fichier deja mesure
+   n'a pas a l'etre deux fois, et le second visionnage pose la vignette
+   instantanement au lieu de rappeler le proxy pendant deux secondes et demie.
+   Garde d'un passage a l'autre (localStorage) et non pour la seule session :
+   c'est surtout au retour sur un episode que l'attente se voyait.
+   Un seul enregistrement, plafonne, plutot qu'une cle par fichier — pour ne pas
+   laisser grossir sans fin le stockage du visiteur. */
+/* `:v2` depuis que le fondu au BLANC compte lui aussi comme une image vide :
+   les fichiers deja mesures sont memorises "vrai" chez ceux qui les ont
+   ouverts, et ce verdict-la ne s'invalide ni par un TTL ni par un deploiement.
+   L'ancien enregistrement est efface a la premiere ecriture plutot que laisse
+   a trainer dans le stockage du visiteur. */
+const MEMO_KEY = "as:firstframe:v2";
+const MEMO_KEY_LEGACY = "as:firstframe";
+const MEMO_MAX = 300;
+const memoRead = (path: string): boolean | null => {
+  try {
+    const all = JSON.parse(localStorage.getItem(MEMO_KEY) || "{}");
+    const seen = all[path];
+    return seen === 1 ? true : seen === 0 ? false : null;
+  } catch {
+    return null;
+  }
+};
+const memoWrite = (path: string, lit: boolean) => {
+  try {
+    const all = JSON.parse(localStorage.getItem(MEMO_KEY) || "{}");
+    delete all[path]; // reinsere en queue : l'ordre des cles fait l'anciennete
+    all[path] = lit ? 1 : 0;
+    const keys = Object.keys(all);
+    for (const old of keys.slice(0, Math.max(0, keys.length - MEMO_MAX)))
+      delete all[old];
+    localStorage.setItem(MEMO_KEY, JSON.stringify(all));
+    localStorage.removeItem(MEMO_KEY_LEGACY);
+  } catch {
+    /* stockage refuse (navigation privee, quota) — on mesurera a nouveau. */
+  }
+};
+
 function LiveAmbient({
   playerRef,
+  lit,
 }: {
   playerRef: React.RefObject<MediaPlayerInstance>;
+  /** La premiere image du fichier est-elle une vraie image ?
+   *  `false` (noir mesure) est le seul cas ou l'ambient prend la vignette pour
+   *  source avant le premier play : c'est le seul ou elle est a l'ecran.
+   *  `true` comme `null` laissent la video, qui montre alors quelque chose. */
+  lit: boolean | null;
 }) {
-  const layerRefs = useRef<(HTMLCanvasElement | null)[]>([]);
+  const glowRef = useRef<HTMLCanvasElement | null>(null);
   const sourceRef = useRef<HTMLCanvasElement | null>(null);
   const prevRef = useRef<HTMLCanvasElement | null>(null);
 
-  // Multi-scale projector stack — concentric copies behind the player.
-  const LAYERS = 5;
-  // Each subsequent layer is enlarged by this fraction beyond layer 0.
-  const SCALE_STEP = 0.08;
+  /* De combien la copie deborde le lecteur. C'est elle qui fait le halo : la
+     bande ou la lumiere se voit doit tomber DANS une copie opaque, pas dans sa
+     retombee. Meme valeur que le survol de carte (GLOW_SPREAD). */
+  const SPREAD = 1.3;
+  /* Rayon du flou, avant le `scale` — les deux sont sur le meme element, donc
+     l'ecran en voit 72 x 1,3 ≈ 94 px, soit 7,4 % de la largeur du lecteur. Le
+     survol de carte floute 34 px sur une boite de 473 px : 7,2 %. La meme
+     lumiere, a l'echelle pres. */
+  const BLUR_PX = 72;
   // Canvas pixel size. Stays small because CSS transform handles the visible
   // scaling with GPU bilinear filtering. Higher would just waste pixels.
   const SRC_W = 320;
@@ -361,6 +532,7 @@ function LiveAmbient({
     let raf = 0;
     let lastFrameTime = -1;
     let lastSampleAt = 0;
+    let lastPoster = "";
 
     // GPU budget: the ambient glow is a soft, heavily-blurred backdrop — it
     // does not need 60 fps. Sampling at ~30 fps halves the per-frame canvas
@@ -396,9 +568,6 @@ function LiveAmbient({
 
       const playerEl = playerRef.current?.el as HTMLElement | undefined;
       const video = playerEl?.querySelector("video") as HTMLVideoElement | null;
-      if (!video || video.readyState < 2 || video.videoWidth === 0) return;
-      if (video.currentTime === lastFrameTime) return;
-      lastFrameTime = video.currentTime;
 
       const source = sourceRef.current!;
       const prev   = prevRef.current!;
@@ -409,24 +578,70 @@ function LiveAmbient({
       sctx.imageSmoothingEnabled = true;
       sctx.imageSmoothingQuality = "high";
 
-      try {
-        sctx.drawImage(video, 0, 0, SRC_W, SRC_H);
-        // Pairwise temporal blend → softens scene cuts.
-        sctx.globalAlpha = 0.5;
-        sctx.drawImage(prev, 0, 0);
-        sctx.globalAlpha = 1.0;
-        pctx.clearRect(0, 0, SRC_W, SRC_H);
-        pctx.drawImage(source, 0, 0);
-        for (const layer of layerRefs.current) {
-          if (!layer) continue;
-          const lctx = layer.getContext("2d");
-          if (!lctx) continue;
-          lctx.clearRect(0, 0, SRC_W, SRC_H);
-          lctx.drawImage(source, 0, 0);
+      /* Une source, la meme peinture. `blend` melange a la frame precedente
+         pour adoucir les coupes de plan : la vignette, elle, arrive seule et n'a
+         rien a adoucir — elle remplit au contraire le tampon, pour que la
+         premiere image de la video s'y fonde au lieu de surgir. */
+      const paint = (src: CanvasImageSource, blend: boolean) => {
+        try {
+          sctx.drawImage(src, 0, 0, SRC_W, SRC_H);
+          if (blend) {
+            sctx.globalAlpha = 0.5;
+            sctx.drawImage(prev, 0, 0);
+            sctx.globalAlpha = 1.0;
+          }
+          pctx.clearRect(0, 0, SRC_W, SRC_H);
+          pctx.drawImage(source, 0, 0);
+          const glow = glowRef.current;
+          const gctx = glow?.getContext("2d");
+          if (!gctx) return;
+          gctx.clearRect(0, 0, SRC_W, SRC_H);
+          gctx.drawImage(source, 0, 0);
+        } catch {
+          // Cross-origin taint — silently skip. (Le dessin, lui, ne teinte que
+          // la lecture des pixels, qu'on ne fait jamais ici.)
         }
-      } catch {
-        // Cross-origin taint — silently skip.
+      };
+
+      /* Tant que la lecture n'a pas commence, la source est la VIGNETTE de
+         l'episode et non la video : la premiere frame de la plupart des
+         encodages est noire, et un noir n'a aucune couleur a projeter — d'ou une
+         page eteinte jusqu'au premier play. On lit l'image deja affichee par le
+         lecteur plutot que d'en charger une seconde.
+         Sauf quand cette premiere frame est une vraie image (`lit`) : elle dit
+         alors mieux que la vignette ce qu'on s'apprete a regarder, et c'est
+         elle qu'on projette, des l'arret. */
+      const usable =
+        !!video && video.readyState >= 2 && video.videoWidth > 0;
+      /* « Le spectateur regarde » ne se lit pas a la position : le balayage du
+         noir d'ouverture laisse lui aussi la video ailleurs qu'a zero, et une
+         position non nulle faisait alors projeter un noir a la place de la
+         vignette — page eteinte, exactement ce que la vignette evite.
+         `played` ne ment pas : il ne se remplit qu'apres une vraie lecture. */
+      const watched = usable && (!video!.paused || video!.played.length > 0);
+      /* La video est la source sauf quand la vignette la recouvre : ce que
+         l'ambient projette est ce que l'ecran montre, toujours. Une fois la
+         lecture commencee, la vignette n'est plus la et le verdict d'ouverture
+         ne compte plus — d'ou `watched`, qui ne se remplit qu'apres un vrai
+         play (la position, elle, ne dit pas qui l'a bougee). */
+      const live = usable && (watched || lit !== false);
+      if (!live) {
+        const img = playerEl?.querySelector(
+          "img.as-poster",
+        ) as HTMLImageElement | null;
+        if (!img?.complete || !img.naturalWidth) return;
+        // Repeinte seulement quand la vignette change — a l'ouverture, et a
+        // chaque episode.
+        if (img.currentSrc === lastPoster) return;
+        lastPoster = img.currentSrc;
+        lastFrameTime = -1;
+        paint(img, false);
+        return;
       }
+
+      if (video!.currentTime === lastFrameTime) return;
+      lastFrameTime = video!.currentTime;
+      paint(video!, true);
     };
 
     raf = requestAnimationFrame(tick);
@@ -434,56 +649,50 @@ function LiveAmbient({
       cancelAnimationFrame(raf);
       io?.disconnect();
     };
-  }, [playerRef]);
+  }, [playerRef, lit]);
 
-  // Wrapper sits BEHIND the player (z:-1). pointer-events:none so the player
-  // controls catch every click. Inside, each canvas is rendered at native
-  // pixel size, then a wrapper div uses `width/height: 100%` + CSS object-
-  // fit-like behavior to stretch it visually. The actual bilinear smoothing
-  // comes from the CSS `transform: scale()` applied to each canvas wrapper.
+  /* Le calque est derriere le lecteur (z:-1) et ne recoit aucun clic. La copie
+     y est agrandie de SPREAD puis floutee : le lecteur en cache le centre, et
+     ce qui deborde EST la lumiere. Le flou et le `scale` sont sur le meme
+     element — l'ecran voit donc un flou de BLUR_PX x SPREAD, ce dont la
+     constante tient compte. */
   return (
     <div
       aria-hidden
       className="pointer-events-none absolute inset-0"
       style={{ zIndex: -1 }}
     >
-      {Array.from({ length: LAYERS }).map((_, i) => {
-        const scale = 1 + i * SCALE_STEP;
-        // Wrapper fills the player; the canvas inside is positioned to
-        // cover it entirely with CSS scaling, which uses GPU bilinear.
-        return (
-          <div
-            key={i}
-            className="absolute inset-0 overflow-visible"
-            style={{
-              transform: `scale(${scale})`,
-              transformOrigin: "center",
-              // Heavy blur smooths the gradient + cancels any residual
-              // pixel artifacts from canvas → CSS upscaling.
-              filter: "blur(72px) saturate(1.8)",
-              opacity: 0.95 * Math.pow(0.65, i),
-              willChange: "transform",
-            }}
-          >
-            <canvas
-              ref={(el) => { layerRefs.current[i] = el; }}
-              width={SRC_W}
-              height={SRC_H}
-              // width/height: 100% stretches the canvas to fill the wrapper
-              // via CSS — this is the only path where browsers DO interpolate
-              // (the canvas is treated as a replaced element). object-fit
-              // ensures it covers fully.
-              style={{
-                width: "100%",
-                height: "100%",
-                display: "block",
-                objectFit: "cover",
-                imageRendering: "auto",
-              }}
-            />
-          </div>
-        );
-      })}
+      <div
+        className="absolute inset-0 overflow-visible"
+        style={{
+          transform: `scale(${SPREAD})`,
+          transformOrigin: "center",
+          // Le flou lisse le degrade et efface au passage ce qui resterait de
+          // la grille de pixels du canvas agrandi. `saturate` est la meme
+          // valeur que le survol de carte : une matrice lineaire, qui densifie
+          // sans pouvoir deplacer une teinte (a la difference d'un
+          // `brightness`, qui ecrete — l'orange y devient jaune).
+          filter: `blur(${BLUR_PX}px) saturate(1.8)`,
+          willChange: "transform",
+        }}
+      >
+        <canvas
+          ref={glowRef}
+          width={SRC_W}
+          height={SRC_H}
+          // width/height: 100% stretches the canvas to fill the wrapper
+          // via CSS — this is the only path where browsers DO interpolate
+          // (the canvas is treated as a replaced element). object-fit
+          // ensures it covers fully.
+          style={{
+            width: "100%",
+            height: "100%",
+            display: "block",
+            objectFit: "cover",
+            imageRendering: "auto",
+          }}
+        />
+      </div>
     </div>
   );
 }
@@ -1349,8 +1558,26 @@ function CenterPlayButton({
           cursor: "pointer",
         }}
       >
-        <svg viewBox="0 0 24 24" fill="#fff" style={{ width: 24, height: 24, marginLeft: 3 }}>
-          <polygon points="6 4 20 12 6 20" />
+        {/* Le MEME triangle a coins arrondis que la vignette de l'episode en
+            cours (components/watch/secondary/episodeLists.tsx) : un seul dessin
+            de lecture sur la page, pas deux qui se ressemblent.
+
+            Centre par son CENTRE DE GRAVITE, pas par sa boite. Un triangle dont
+            la boite est centree parait pousse a gauche : son aire est massee du
+            cote de l'arete arriere. Ce trace place ses trois sommets a x = 4, 4
+            et 16,6, soit un centre de gravite a 8,2 la ou le viewBox a le sien
+            a 10 — d'ou le decalage de 1,8 unite qui l'y ramene.
+
+            Le decalage est dans le TRACE et non en marge, et c'est ce qui reglait
+            le saut au survol : une marge rendait la boite de l'element large de
+            27 px dans un carre de 56, donc posee a 14,5 par
+            `place-items-center`. `scale-105` reechantillonnait cette
+            demi-position et l'arrondissait de l'autre cote. La boite mesure ici
+            24 et tombe a 16 pile — il n'y a plus rien a arrondir. */}
+        <svg viewBox="0 0 20 20" fill="#fff" style={{ width: 24, height: 24 }}>
+          <g transform="translate(1.8 0)">
+            <path d="M6.3 2.841A1.5 1.5 0 004 4.11V15.89a1.5 1.5 0 002.3 1.269l9.344-5.89a1.5 1.5 0 000-2.538L6.3 2.84z" />
+          </g>
         </svg>
       </button>
     </div>
@@ -1368,6 +1595,8 @@ function CenterPlayButton({
 export default function UniversalPlayer({
   streamData,
   poster,
+  sourceMs,
+  pageMs,
   onError,
   ambient = true,
   serverId,
@@ -1450,6 +1679,40 @@ export default function UniversalPlayer({
 
   // Capture the hls.js instance once Vidstack has set the provider up.
   const onProviderSetup = (provider: any) => {
+    // Fit the box to the video's real shape.
+    //
+    // The box is 16/9 by default while the hosts' encodes are not: a slightly
+    // taller source pillarboxes (black down the right), a slightly wider one
+    // letterboxes. Both are bands WE draw, not bands in the file.
+    //
+    // Measured on the ELEMENT, not through a React media-event prop — the
+    // element is the one thing present on every provider path and every
+    // Vidstack version, and it is already how this function reaches the video
+    // for the Referer policy. `resize` matters as much as `loadedmetadata`:
+    // an HLS level switch can change the intrinsic size mid-playback.
+    const sizeEl: HTMLVideoElement | undefined =
+      provider?.video || provider?.media || undefined;
+    if (sizeEl && "videoWidth" in sizeEl) {
+      const measure = () => {
+        const w = sizeEl.videoWidth;
+        const h = sizeEl.videoHeight;
+        if (!w || !h) return;
+        const r = w / h;
+        // Ignore absurd readings (a broken decode reporting 1x1 and the like)
+        // — a wrong ratio here would deform every frame.
+        if (r < 0.5 || r > 4) return;
+        // Within a half-percent of 16/9, leave the box alone: the difference
+        // is under a pixel at any realistic width, and reflowing the whole
+        // page to chase it would cost more than it buys.
+        setVideoRatio(Math.abs(r - 16 / 9) < 0.009 ? null : `${w}/${h}`);
+      };
+      sizeEl.addEventListener("loadedmetadata", measure);
+      sizeEl.addEventListener("resize", measure);
+      // Metadata may already be in by the time setup runs.
+      measure();
+    }
+
+
     // Direct-CDN streams (sibnet cvn, sendvid MP4, CORS-open HLS CDNs) are
     // validated server-side to play with an arbitrary Referer. Strip the
     // Referer at the <video>/hls loader level so a CDN that DOES gate on
@@ -1466,6 +1729,27 @@ export default function UniversalPlayer({
     if (isHLSProvider(provider)) {
       const hls = provider.instance || null;
       hlsRef.current = hls;
+      /* Jalons du demarrage — cf. les refs a cote de `ttffMsRef`. Poses ici
+         parce que c'est le seul endroit qui tient l'instance hls.js, et seul
+         le PREMIER passage compte : les gardes `if (!ref.current)` laissent
+         filer les manifestes et segments suivants. Litteraux de chaine plutot
+         que l'enum, comme le `pin` juste dessous. */
+      if (hls) {
+        try {
+          (hls as any).on("hlsManifestParsed", () => {
+            if (manifestAtRef.current) return;
+            manifestAtRef.current = performance.now();
+            if (srcCommitAtRef.current)
+              manifestMsRef.current =
+                manifestAtRef.current - srcCommitAtRef.current;
+          });
+          (hls as any).on("hlsFragLoaded", () => {
+            if (frag1AtRef.current || !manifestAtRef.current) return;
+            frag1AtRef.current = performance.now();
+            frag1MsRef.current = frag1AtRef.current - manifestAtRef.current;
+          });
+        } catch {}
+      }
       // Force Maximum Quality: pin hls.js to the top level (setting
       // currentLevel to a fixed index disables ABR auto-switching) once the
       // manifest's levels are known. Read the pref at setup time. When off we
@@ -1509,6 +1793,13 @@ export default function UniversalPlayer({
   // "stats for nerds" panel are both toggled from the settings menu / hotkeys.
   const [shortcutEditorOpen, setShortcutEditorOpen] = useState(false);
   const [statsOpen, setStatsOpen] = useState(false);
+
+  // Real shape of the decoded video, once metadata says what it is. Null until
+  // then — and null also means "close enough to 16/9 to not bother" — so 16/9
+  // holds the layout still during load instead of collapsing the box and
+  // snapping back. See the measurement in onProviderSetup.
+  const [videoRatio, setVideoRatio] = useState<string | null>(null);
+
   const router = useRouter();
   // Central keyboard-shortcut listener. Declared here (before any early return)
   // so the hooks run unconditionally on every render path. The dispatcher
@@ -1657,6 +1948,69 @@ export default function UniversalPlayer({
     waitingRef.current = !!waitingState;
     if (waitingState) lastStallRef.current = Date.now();
   }, [waitingState]);
+  const pausedState = useMediaState("paused", playerRef);
+  const pausedRef = useRef(true);
+  pausedRef.current = !!pausedState;
+  const canPlayState = useMediaState("canPlay", playerRef);
+  /** Periode de la boucle de mesure. Sert aussi de pas d'accumulation. */
+  const MEASURE_MS = 2500;
+
+  /* ── Mesures persistees par lecteur ────────────────────────────────────
+     Quatre criteres nourrissent le classement des chips au chargement
+     suivant : demarrage (t), stabilite (s), seek (k), qualite (q). Tout passe
+     par lib/watch/serverPerf, qui n'ecrit qu'en localStorage — aucune requete
+     ajoutee, la page de lecture est deja le premier consommateur de quota du
+     site. Les accumulateurs sont declares ici, la boucle de mesure juste en
+     dessous les alimente, et les effets plus bas les posent. */
+  const wallMsRef = useRef(0);
+  const stalledMsRef = useRef(0);
+  const maxHeightRef = useRef(0);
+  const srcCommitAtRef = useRef(0);
+  const ttffDoneRef = useRef(false);
+  /** Derniere valeur mesuree, gardee pour l'overlay « stats for nerds ». */
+  const ttffMsRef = useRef(0);
+  /* Decoupage du TTFF, pour l'overlay.
+     Le total ne dit pas ou passent les secondes, et regler un demarrage a
+     l'aveugle revient a deviner. Trois etapes se suivent une fois le flux
+     connu : le manifeste, le premier segment, puis le decodage jusqu'a la
+     premiere image. Chacune se remet a zero au changement de source, et n'est
+     relevee qu'une fois — c'est le PREMIER passage qui interesse, pas la
+     moyenne d'une lecture en cours. */
+  const manifestMsRef = useRef(0);
+  const frag1MsRef = useRef(0);
+  const frameMsRef = useRef(0);
+  const manifestAtRef = useRef(0);
+  const frag1AtRef = useRef(0);
+  /* La resolution de la source precede le lecteur — elle se mesure donc dans la
+     page et arrive en prop. Recopiee dans une ref pour rejoindre les autres :
+     l'overlay lit des refs, jamais du state. */
+  const sourceMsRef = useRef(0);
+  const pageMsRef = useRef(0);
+  useEffect(() => {
+    sourceMsRef.current = sourceMs ?? 0;
+    pageMsRef.current = pageMs ?? 0;
+  }, [sourceMs, pageMs]);
+  /* Passe tel quel a VideoStats : ce sont des refs, donc l'overlay lit les
+     accumulateurs vivants sans qu'aucune mesure ne declenche de rendu. */
+  const perfRefs = useRef({
+    wallMs: wallMsRef,
+    stalledMs: stalledMsRef,
+    maxHeight: maxHeightRef,
+    ttffMs: ttffMsRef,
+    pageMs: pageMsRef,
+    sourceMs: sourceMsRef,
+    manifestMs: manifestMsRef,
+    frag1Ms: frag1MsRef,
+    frameMs: frameMsRef,
+  }).current;
+
+  const videoEl = useCallback(
+    () =>
+      ((playerRef.current?.el as HTMLElement | undefined)?.querySelector(
+        "video",
+      ) as HTMLVideoElement | null) || null,
+    [],
+  );
   // Fresh measurements per episode/anime — a server fast on ep 1 can be slow
   // on ep 12, so don't carry stale dots across episodes.
   useEffect(() => {
@@ -1687,12 +2041,91 @@ export default function UniversalPlayer({
       if (waitingRef.current) tier = "slow";
       else if (recentlyStalled && tier === "fast") tier = "medium";
       if (tier) setLiveSpeedFor(serverId, tier);
+
+      // Accumulation pour le score PERSISTE (lib/watch/serverPerf). Le poincon
+      // ci-dessus meurt avec la page ; ceci survit et sert a classer les
+      // lecteurs au prochain chargement. Deux additions et une lecture de
+      // videoHeight — rien qui touche localStorage dans cette boucle.
+      if (!pausedRef.current) wallMsRef.current += MEASURE_MS;
+      if (waitingRef.current) stalledMsRef.current += MEASURE_MS;
+      const h = videoEl()?.videoHeight || 0;
+      if (h > maxHeightRef.current) maxHeightRef.current = h;
     };
     measure();
-    const id = setInterval(measure, 2500);
+    const id = setInterval(measure, MEASURE_MS);
     return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [serverId]);
+
+  // Une session = (lecteur, anime, episode). Un critere n'y depose qu'un seul
+  // echantillon, sinon un episode de 24 min empilerait dix lectures du meme
+  // stall et le compteur cesserait de signifier « observations independantes ».
+  useEffect(() => {
+    if (!serverId) return;
+    beginSession(serverId, aniListId, episodeNumber);
+    wallMsRef.current = 0;
+    stalledMsRef.current = 0;
+    maxHeightRef.current = 0;
+    srcCommitAtRef.current = 0;
+    ttffDoneRef.current = false;
+    ttffMsRef.current = 0;
+    manifestMsRef.current = 0;
+    frag1MsRef.current = 0;
+    frameMsRef.current = 0;
+    manifestAtRef.current = 0;
+    frag1AtRef.current = 0;
+  }, [serverId, aniListId, episodeNumber]);
+
+  // Stall et qualite sont des ACCUMULATEURS : ils n'ont de valeur qu'a la fin.
+  // serverPerf appelle ce finaliseur juste avant de refermer la session, quel
+  // que soit le chemin de sortie (episode suivant, onglet cache, page quittee).
+  useEffect(() => {
+    const flushAccumulators = () => {
+      // Sous une minute de lecture reelle, le ratio est domine par le
+      // demarrage et ne dit rien de la tenue de l'hote.
+      if (wallMsRef.current >= 60_000) {
+        recordSample("s", (stalledMsRef.current / wallMsRef.current) * 60);
+      }
+      if (maxHeightRef.current > 0) recordSample("q", maxHeightRef.current);
+      wallMsRef.current = 0;
+      stalledMsRef.current = 0;
+      maxHeightRef.current = 0;
+    };
+    onSessionEnd(flushAccumulators);
+    return () => {
+      // Le lecteur est demonte a CHAQUE changement de serveur : c'est un vrai
+      // bout de session, il doit etre pose avant que le finaliseur ne parte.
+      flushAccumulators();
+      offSessionEnd(flushAccumulators);
+      commitSession();
+    };
+  }, []);
+
+  // TTFF — du moment ou le lecteur recoit REELLEMENT un flux au premier
+  // `canPlay`. Le chrono ne part pas au changement d'episode : la resolution
+  // /api/v2/source qui precede est indissociable de son etage de cache (Redis,
+  // cache negatif, edge, et un suiveur du single-flight enregistre le temps de
+  // scrape du meneur), donc elle ne dit rien de l'hote. Ce qui suit, si :
+  // extraction cote navigateur incluse, c'est de l'attente que l'hote cause.
+  useEffect(() => {
+    if (!serverId || !streamData || ttffDoneRef.current) return;
+    if (!srcCommitAtRef.current) {
+      // Deja pret a l'instant ou le flux arrive : rien a chronometrer, et
+      // enregistrer un ~0 ici ferait passer l'hote pour instantane.
+      if (canPlayState) ttffDoneRef.current = true;
+      else srcCommitAtRef.current = performance.now();
+      return;
+    }
+    if (!canPlayState) return;
+    ttffDoneRef.current = true;
+    const at = performance.now();
+    ttffMsRef.current = at - srcCommitAtRef.current;
+    // Ce qui reste apres le premier segment : le decodage jusqu'a l'image. Sur
+    // un MP4 direct il n'y a ni manifeste ni segment a chronometrer, et cette
+    // derniere etape vaut alors le TTFF entier.
+    frameMsRef.current = at - (frag1AtRef.current || srcCommitAtRef.current);
+    recordSample("t", ttffMsRef.current);
+  }, [serverId, streamData, canPlayState]);
   /* AniSkip chapter cues, populated by SkipOverlay after it fetches
      the API. Each entry: { start, end, type }. We translate them
      into a WebVTT chapters track served via a blob URL so Vidstack
@@ -1862,6 +2295,173 @@ export default function UniversalPlayer({
   const dataSaver = useDataSaver();
   const ambientEnabled =
     ambient && ctxAmbient && !dataSaver && !isFullscreen;
+
+  /* Le flux joue-t-il sans en-tete CORS ? Alors le canvas se teinte et ses
+     pixels sont illisibles — voir `noCors`. La question se pose alors a une
+     COPIE du meme fichier passee par notre proxy, qui, lui, repond CORS.
+     (Le flux joue toujours en direct : le proxy ne sert qu'a la mesure.) */
+  const blindStream =
+    (streamData?.clientExtract
+      ? clientStream
+      : streamData?.streams?.[0] || streamData?.sources?.[0]) || null;
+  const blindProbeSrc =
+    blindStream?.noCors && !blindStream.localFile
+      ? proxied(blindStream.url, blindStream.referer || streamData?.referer)
+      : null;
+
+  /* L'image d'ouverture montre-t-elle quelque chose ?
+     La question decide de deux choses : si la vignette de l'episode reste
+     posee sur la video avant le premier play, et si l'ambient l'echantillonne
+     elle plutot que la video. Beaucoup d'encodages ouvrent sur un fondu — au
+     noir le plus souvent, au blanc parfois, et le second ne cache pas moins
+     que le premier. C'est pour ceux-la que la vignette existe. Mais quand la
+     premiere frame est une vraie image, la recouvrir cache au spectateur ce
+     qu'il s'apprete a regarder.
+     La regle est celle-la et pas une autre : premiere frame vide → la vignette
+     de l'episode ; premiere frame qui montre quelque chose → elle reste, telle
+     quelle. On ne va PAS chercher plus loin dans le fichier une image qui
+     ferait l'affaire.
+     Mesure : la premiere frame reduite a 16x9, sa luminance moyenne et son
+     amplitude — voir `frameLooksReal`.
+
+     QUATRE etats, et la distinction entre les deux derniers compte :
+       true      → vraie image, on ne couvre pas
+       false     → image vide, la vignette
+       null      → mesure impossible (canvas teinte, sonde muette) : on ne
+                   couvre pas, mais la question est TRANCHEE
+       undefined → on ne sait pas ENCORE, la mesure court
+     `undefined` est le seul etat pendant lequel un voile noir couvre la video
+     (cf. `as-veil` plus bas). Sans lui, la premiere frame se voyait le temps de
+     la sonde : sans consequence sur un fondu au noir, une seconde de page
+     blanche sur un fondu au blanc.
+
+     UN SEUL passage a `false`, et jamais avant d'en etre sur. C'est le point
+     dur : une vignette posee puis retiree est le defaut le plus visible de
+     tous, et c'est ce que produisait toute mesure prise trop tot — `readyState
+     >= 2` dit qu'une image est decodable, pas qu'elle est peinte, et lire le
+     canvas a cet instant rend du noir sur un episode qui n'en a pas. D'ou
+     `confirm` : deux lectures noires separees de CONFIRM_MS, et seulement
+     alors la vignette. Une lecture claire, elle, tranche du premier coup —
+     il n'y a rien a masquer, donc rien a risquer. */
+  const [firstFrameLit, setFirstFrameLit] = useState<boolean | null | undefined>(
+    undefined,
+  );
+
+  /* Chemin 1 — le flux est illisible d'avance (`noCors`).
+     La question part DES QUE l'adresse du flux est connue : ni le lecteur ni sa
+     premiere image n'y changeraient quoi que ce soit, et attendre l'un ou
+     l'autre ajoutait les ~2,5 s de la sonde APRES le chargement au lieu de les
+     faire courir pendant. On mesure la meme premiere frame sur une COPIE
+     proxifiee — le flux, lui, joue toujours en direct — dans un <video> jamais
+     attache au document. Le cout est une lecture partielle du fichier (le
+     navigateur s'arrete des qu'il a de quoi decoder une image, on le coupe
+     aussitot) sur une reponse que le Worker met en cache d'edge un jour.
+     Sans copie mesurable, `null` : on ne couvre pas au pari — parier posait la
+     vignette sur de vraies images, ce qui se voit tout de suite. */
+  useEffect(() => {
+    if (!blindProbeSrc) return;
+    setFirstFrameLit(undefined);
+    // Pas de vignette a poser, pas de raison de tirer des octets : le verdict
+    // ne servirait a rien.
+    if (!poster) return;
+    /* Sous le CHEMIN du fichier, pas son URL : la query est signee et change a
+       chaque resolution. Deja mesure = verdict immediat, zero octet. */
+    const path = blindStream!.url.split("?")[0];
+    const seen = memoRead(path);
+    if (seen !== null) {
+      setFirstFrameLit(seen);
+      return;
+    }
+
+    let dead = false;
+    let settled = false;
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    const at = (ms: number, fn: () => void) => {
+      timers.push(setTimeout(fn, ms));
+    };
+    const stopTimers = () => {
+      while (timers.length) clearTimeout(timers.pop()!);
+    };
+
+    const v = document.createElement("video");
+    v.crossOrigin = "anonymous";
+    v.muted = true;
+    v.preload = "auto";
+    v.playsInline = true;
+    const stop = (verdict: boolean | null) => {
+      stopTimers();
+      v.removeAttribute("src");
+      v.load();
+      if (dead || settled) return;
+      settled = true;
+      if (verdict !== null) memoWrite(path, verdict);
+      setFirstFrameLit(verdict);
+    };
+    v.addEventListener("loadeddata", () => {
+      if (dead || settled) return;
+      // `loadeddata` dit qu'une image est decodee ; on lui laisse le temps
+      // d'exister avant de la lire, comme sur le lecteur lui-meme.
+      at(CONFIRM_MS, () => stop(frameLooksReal(v)));
+    });
+    v.addEventListener("error", () => stop(null));
+    at(PROBE_TIMEOUT_MS, () => stop(null));
+    v.src = blindProbeSrc;
+
+    return () => {
+      dead = true;
+      stopTimers();
+      v.removeAttribute("src");
+      v.load();
+    };
+    // `blindStream` ne bouge pas sans `blindProbeSrc`, qui en derive.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [blindProbeSrc, poster]);
+
+  /* Chemin 2 — le flux est lisible : on lit sa premiere image directement.
+     Rien a decider avant qu'une image existe, d'ou l'attente ; et un canvas
+     teinte ici (un flux non signale `noCors` mais servi sans en-tete) n'a pas
+     de copie a interroger, donc pas de verdict — voir `frameStats`. */
+  useEffect(() => {
+    if (blindProbeSrc) return; // la sonde ci-dessus tranche pour ce flux
+    setFirstFrameLit(undefined);
+    const el = playerElState;
+    if (!el) return;
+    let dead = false;
+    let settled = false;
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    const at = (ms: number, fn: () => void) => {
+      timers.push(setTimeout(fn, ms));
+    };
+    const settle = (verdict: boolean | null) => {
+      if (dead || settled) return;
+      settled = true;
+      setFirstFrameLit(verdict);
+    };
+    const look = () => {
+      const video = el.querySelector("video") as HTMLVideoElement | null;
+      // Rien a decider tant qu'aucune image n'est decodable.
+      if (!video || video.readyState < 2 || !video.videoWidth)
+        return at(POLL_MS, look);
+      // Une lecture commencee, ou une position choisie par le spectateur :
+      // ce qu'il regarde n'a pas a etre recouvert.
+      if (!video.paused || video.played.length > 0 || video.currentTime > 0.01)
+        return settle(true);
+      const value = frameLooksReal(video);
+      if (value === null) return settle(null);
+      if (value) return settle(true);
+      // Vide (noir ou blanc) — mais pas encore la vignette : une seconde lecture
+      // doit dire la meme chose. Voir le commentaire du bloc.
+      at(CONFIRM_MS, () => {
+        if (!video.paused || video.played.length > 0) return settle(true);
+        settle(frameLooksReal(video));
+      });
+    };
+    look();
+    return () => {
+      dead = true;
+      while (timers.length) clearTimeout(timers.pop()!);
+    };
+  }, [playerElState, blindProbeSrc]);
   const [castAvailable, setCastAvailable] = useState(false);
   const [castConnected, setCastConnected] = useState(false);
 
@@ -2174,6 +2774,52 @@ export default function UniversalPlayer({
     if (isFullscreen) playerEl.setAttribute("data-fullscreen", "");
     else playerEl.removeAttribute("data-fullscreen");
   }, [isFullscreen, playerElState]);
+
+  // Latence de SEEK — le critere `k` du score persiste (lib/watch/serverPerf).
+  //
+  // C'est l'observation d'origine : uqload sert ses vignettes de survol bien
+  // plus densement que les autres, ce qui trahit un acces aleatoire rapide,
+  // alors que lib/servers.js le classe DERNIER. On ne mesure pas depuis
+  // HoverPreview pour autant : ses six decodeurs paralleles se concurrencent,
+  // ce qui gonfle le ms/seek precisement sur les hotes qui en recoivent six,
+  // et le composant n'est pas monte du tout pour les flux noCors (sibnet,
+  // sendvid). La video principale est non-contendue et universelle.
+  //
+  // Seuls les seeks RESEAU comptent : sauter dans une zone deja bufferisee est
+  // instantane partout et ne dit rien de l'hote.
+  useEffect(() => {
+    const playerEl = playerElState;
+    if (!playerEl || !serverId) return;
+    const video = playerEl.querySelector<HTMLVideoElement>("video");
+    if (!video) return;
+
+    let startedAt = 0;
+    const buffered = (t: number) => {
+      try {
+        const b = video.buffered;
+        for (let i = 0; i < b.length; i++) {
+          if (t >= b.start(i) && t <= b.end(i)) return true;
+        }
+      } catch {
+        /* certains providers refusent l'acces avant les metadonnees */
+      }
+      return false;
+    };
+    const onSeeking = () => {
+      startedAt = buffered(video.currentTime) ? 0 : performance.now();
+    };
+    const onSeeked = () => {
+      if (!startedAt) return;
+      recordSample("k", performance.now() - startedAt);
+      startedAt = 0;
+    };
+    video.addEventListener("seeking", onSeeking);
+    video.addEventListener("seeked", onSeeked);
+    return () => {
+      video.removeEventListener("seeking", onSeeking);
+      video.removeEventListener("seeked", onSeeked);
+    };
+  }, [playerElState, serverId]);
 
   // Double-click toggles fullscreen — but OURS. Vidstack's default layout ships
   // a `toggle:fullscreen` gesture that would enter ITS fullscreen (on the player
@@ -3141,6 +3787,14 @@ export default function UniversalPlayer({
       fireComplete();
     };
 
+    // La duree du fichier est connue des le chargement des metadonnees. La
+    // liste d'episodes affiche jusque-la une duree estimee ; la publier tout de
+    // suite lui evite d'attendre la premiere sauvegarde de position (3 s de
+    // lecture) pour corriger l'episode qu'on a sous les yeux.
+    const onMeta = () => {
+      if (video?.duration) publishDuration(aniListId, episodeNumber, video.duration);
+    };
+
     const bind = () => {
       const player = playerRef.current;
       el = (player?.el as HTMLElement) || null;
@@ -3149,8 +3803,11 @@ export default function UniversalPlayer({
       // can-play fires once metadata + first frames are ready → safe to seek.
       el!.addEventListener("can-play", resume);
       video.addEventListener("loadeddata", resume);
+      video.addEventListener("loadedmetadata", onMeta);
+      video.addEventListener("durationchange", onMeta);
       video.addEventListener("timeupdate", onTimeUpdate);
       video.addEventListener("ended", onEnded);
+      onMeta();
       // Last-chance save when the user navigates away / closes the tab.
       window.addEventListener("pagehide", onTimeUpdate);
       return true;
@@ -3167,6 +3824,8 @@ export default function UniversalPlayer({
       window.clearInterval(pollId);
       el?.removeEventListener("can-play", resume);
       video?.removeEventListener("loadeddata", resume);
+      video?.removeEventListener("loadedmetadata", onMeta);
+      video?.removeEventListener("durationchange", onMeta);
       video?.removeEventListener("timeupdate", onTimeUpdate);
       video?.removeEventListener("ended", onEnded);
       window.removeEventListener("pagehide", onTimeUpdate);
@@ -4651,6 +5310,20 @@ export default function UniversalPlayer({
   // since iframe embeds have no <video> to drive.
   runActionRef.current = runAction;
 
+  // "Stats for nerds" — live playback telemetry, toggled by the `toggleStats`
+  // shortcut or the settings-menu row. Built once here because it renders in
+  // two positions (see the render site below) and the props were duplicated
+  // verbatim between them.
+  const statsHud = statsOpen ? (
+    <VideoStats
+      playerRef={playerRef}
+      hlsRef={hlsRef}
+      serverName={serverId}
+      perf={perfRefs}
+      onClose={() => setStatsOpen(false)}
+    />
+  ) : null;
+
   return (
     // `isolation: isolate` creates a new stacking context here. Without it,
     // the ambient's z-index:-1 would slip behind elements OUTSIDE this
@@ -4663,7 +5336,9 @@ export default function UniversalPlayer({
       }${party?.amPlaybackBlocked ? " w2g-playback-blocked" : ""}`}
       style={{ isolation: "isolate" }}
     >
-      {ambientEnabled && <LiveAmbient playerRef={playerRef} />}
+      {ambientEnabled && (
+        <LiveAmbient playerRef={playerRef} lit={firstFrameLit ?? null} />
+      )}
 
       <MediaPlayer
         ref={playerRef}
@@ -4709,7 +5384,10 @@ export default function UniversalPlayer({
         // trade-off: LiveAmbient canvas sampling tainted, falls back to
         // StaticGlow on these sources.
         {...(bestStream!.noCors ? {} : { crossorigin: "anonymous" })}
-        aspectRatio="16/9"
+        aspectRatio={videoRatio || "16/9"}
+        // A new stream can be a different shape — drop the previous
+        // measurement so we never stretch the new video into the old box.
+        onSourceChange={() => setVideoRatio(null)}
         // Disable Vidstack's built-in keyboard shortcuts ENTIRELY: our central
         // window-level handler (see the keydown effect) is the single source of
         // truth for every shortcut, driven by the user's keybindings. Leaving
@@ -4722,6 +5400,81 @@ export default function UniversalPlayer({
         onError={() => onError?.("Playback error")}
       >
         <MediaProvider>
+          {/* L'image de l'episode, tant que rien n'est lance. Le `poster` passe
+              a <MediaPlayer> ne fait que renseigner l'etat : rien ne l'affiche
+              sans un element a elle, d'ou le rectangle noir — la premiere frame
+              de la plupart des encodages — et, faute de couleurs a
+              echantillonner, l'absence d'ambient light avant le premier play.
+
+              Une <img> a nous plutot que le <Poster> de Vidstack : ce dernier
+              herite du `crossorigin` du lecteur, or les vignettes viennent de
+              des CDN qui ne repondent pas d'en-tete CORS — la requete partait donc
+              en mode CORS et se faisait refuser. Nous n'avons aucun besoin de
+              ce mode : l'ambient DESSINE cette image, il n'en relit jamais les
+              pixels, et seule la relecture demande le CORS.
+              L'effacement au demarrage est laisse au CSS, sur le `data-started`
+              que Vidstack pose sur le lecteur. */}
+          {/* Montee tant qu'elle PEUT servir — pendant la mesure, et une fois la
+              frame reconnue vide. Sur `true` (vraie image) ou `null` (mesure
+              impossible) elle ne servira jamais : la demonter annule le
+              telechargement en cours au lieu de tirer 145 ko pour rien. C'est
+              le seul moment ou on sait, et il tombe assez tot pour compter.
+              Le `preload` en <Head> de la page reste, lui, inconditionnel :
+              c'est lui qui lance la course des que l'adresse est connue, bien
+              avant que le lecteur existe. */}
+          {poster && firstFrameLit !== true && firstFrameLit !== null && (
+            <img
+              /* Visible SEULEMENT une fois la premiere frame reconnue vide.
+                 Tant qu'on ne sait pas, elle est la mais effacee : la montrer
+                 puis la retirer donnait une image d'episode qui basculait vers
+                 la video sous les yeux, un clignotement pour rien. Elle se
+                 telecharge pendant ce temps — c'est tout l'interet de la monter
+                 avant d'en avoir besoin — et le voile noir couvre l'attente.
+                 L'opacite par une classe et non par un demontage, pour que le
+                 fondu du CSS ait lieu. */
+              className={`as-poster${
+                firstFrameLit === false ? "" : " as-poster-off"
+              }`}
+              src={poster}
+              alt=""
+              aria-hidden
+              /* Elle doit etre PEINTE au moment ou le verdict tombe, pas
+                 commencer a se telecharger a ce moment-la. La page la precharge
+                 deja en <Head> des que son adresse est connue ; ici on redit la
+                 priorite, et `decoding="sync"` evite le decodage differe qui
+                 ferait apparaitre l'image un cran apres sa classe. */
+              // @ts-expect-error fetchpriority n'est pas encore dans lib.dom
+              fetchpriority="high"
+              decoding="sync"
+            />
+          )}
+          {/* Le voile. Il fait tenir la promesse de la regle : on ne voit
+              JAMAIS la premiere frame d'un fichier qui n'avait rien a montrer.
+              Avant lui, elle restait a l'ecran le temps de la sonde —
+              invisible sur un fondu au noir, une seconde de page blanche sur un
+              fondu au blanc.
+              Noir, et pas la vignette : passer par la vignette puis revenir a
+              la video sur un verdict `true` serait le clignotement que tout ce
+              bloc evite. Du noir vers l'un ou l'autre, il n'y a rien a voir
+              partir.
+              Il se leve sur `true` (vraie image) comme sur `null` (mesure
+              impossible) — une sonde muette rend la video, elle ne noircit pas
+              le lecteur. Sur `false`, il RESTE : la vignette monte par-dessus
+              en fondu, et le lever a cet instant rouvrirait la frame blanche
+              pendant les 250 ms du fondu. Les deux partent ensemble au premier
+              play, sur le `data-started` du lecteur.
+              Par une classe et non par un demontage, comme la vignette : sans
+              element dans le DOM, pas de transition. */}
+          {poster && (
+            <div
+              className={`as-veil${
+                firstFrameLit === true || firstFrameLit === null
+                  ? " as-veil-off"
+                  : ""
+              }`}
+              aria-hidden
+            />
+          )}
           {subtitleTracks.map((t, i) => (
             <Track
               key={t.src}
@@ -5080,31 +5833,11 @@ export default function UniversalPlayer({
           (party created, HTTP errors, …) share ONE animated, hover-expandable
           stack. Nothing to render here anymore. */}
 
-      {/* "Stats for nerds" — live playback telemetry, toggled by the
-          `toggleStats` shortcut or the settings-menu row. Portalled INTO the
-          player root (playerElState) — the fullscreen element is `.vds-player`,
-          so a plain sibling here would be outside the fullscreen subtree and
-          invisible in fullscreen (the bug). Falls back to a normal sibling
-          before the element is ready. */}
-      {statsOpen &&
-        (playerElState
-          ? createPortal(
-              <VideoStats
-                playerRef={playerRef}
-                hlsRef={hlsRef}
-                serverName={serverId}
-                onClose={() => setStatsOpen(false)}
-              />,
-              playerElState,
-            )
-          : (
-            <VideoStats
-              playerRef={playerRef}
-              hlsRef={hlsRef}
-              serverName={serverId}
-              onClose={() => setStatsOpen(false)}
-            />
-          ))}
+      {/* Portalled INTO the player root (playerElState) — the fullscreen
+          element is `.vds-player`, so a plain sibling here would be outside the
+          fullscreen subtree and invisible in fullscreen (the bug). Falls back
+          to a normal sibling before the element is ready. */}
+      {statsHud && (playerElState ? createPortal(statsHud, playerElState) : statsHud)}
 
       {/* Visual keyboard shortcut editor — opened from the settings menu. */}
       {shortcutEditorOpen && (

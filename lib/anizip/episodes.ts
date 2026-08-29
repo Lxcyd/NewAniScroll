@@ -6,17 +6,16 @@
  * mirror, which refuses third-party callers); the public endpoint behind it is
  * `api.ani.zip`, same payload, no key, no account.
  *
- * WHY IT GOES FIRST, ahead of Simkl and TMDB. It is keyed on the **AniList id**,
- * so like Simkl it has no season to infer — but unlike Simkl it needs no id
- * mapping at all. Fribb's coverage is the recurring failure in this codebase
- * (34% of entries carry a `simkl_id`; a 2026 sequel routinely has no `tmdb.tv`
- * either — measured on Hell Mode S2, AniList 209983, whose Fribb row is all
+ * WHY IT GOES FIRST, ahead of TMDB — et pourquoi il est desormais SEUL devant
+ * lui, Simkl ayant ete retire le 22/08/2026. It is keyed on the **AniList id**,
+ * so it has no season to infer AND no id mapping at all. Fribb's coverage is
+ * the recurring failure in this codebase (a 2026 sequel routinely has no
+ * `tmdb.tv` — measured on Hell Mode S2, AniList 209983, whose Fribb row is all
  * nulls). ani.zip has nothing to miss: the AniList id IS the key.
  *
  * The images are TVDB screencaps (`artworks.thetvdb.com/banners/v4/episode/…`)
- * — real frames of the episode, which is exactly what Simkl and TMDB also
- * provide, so the three are interchangeable in kind and only differ in
- * coverage. Verified against Hayase's own rendering on AniList 199748: same
+ * — real frames of the episode, which is exactly what TMDB also provides, so
+ * the two are interchangeable in kind and only differ in coverage. Verified against Hayase's own rendering on AniList 199748: same
  * frames, same order.
  *
  * It also returns real episode TITLES, which matters as much as the images on
@@ -38,7 +37,7 @@ const TIMEOUT_MS = 5000;
 
 /* ani.zip sits behind Cloudflare and answers 403 to a default fetch UA. A
    browser-shaped User-Agent is what makes it respond — same reason
-   lib/simkl/simklClient.ts sends one. */
+   lib/anizip/mappings.ts sends one. */
 const USER_AGENT =
   "Mozilla/5.0 (compatible; AniScroll/1.0; +https://aniscroll.com)";
 
@@ -72,7 +71,7 @@ interface RawResponse {
 /**
  * Stills + titles for an AniList id: cache → fetch → cache.
  *
- * `displayedEpisodes` bounds what we keep, exactly as the Simkl path does —
+ * `displayedEpisodes` bounds what we keep —
  * ani.zip runs ahead on airing shows and we only ever render the numbers we
  * actually show.
  */
@@ -143,7 +142,7 @@ export async function getAniZipEpisodes(
   for (const [key, ep] of Object.entries(raw)) {
     /* Keys are episode numbers as strings, but specials appear as "S1", "S2"
        — Number("S1") is NaN, which is what filters them out. They'd otherwise
-       collide with real episode numbers, the same trap the Simkl path handles
+       collide with real episode numbers, the same trap the TMDB path handles
        by dropping `type: "special"`. */
     const n = Number(key);
     if (!Number.isInteger(n) || n < 1 || n > displayedEpisodes) continue;

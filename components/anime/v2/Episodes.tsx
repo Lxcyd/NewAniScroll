@@ -13,7 +13,7 @@ import type { SeasonEntry } from "@/lib/anilist/seasonChain";
 import type { FilmVariant } from "@/lib/anilist/resolveSeason";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { useHideSpoilers } from "@/lib/prefs/spoilerPrefs";
-import { slugifyTitle } from "./helpers";
+import { seasonSubtitle, slugifyTitle } from "./helpers";
 import {
   buildEpisodeImagePool,
   pickEpisodeImage,
@@ -78,6 +78,54 @@ function useWindowedSlice(
 }
 
 type ViewMode = "detailed" | "compact" | "grid";
+
+/* The three views, in cycle order — the switch is ONE button that steps
+   through them rather than three side by side. */
+const VIEW_ORDER: ViewMode[] = ["detailed", "compact", "grid"];
+const VIEW_LABEL_KEY: Record<ViewMode, string> = {
+  detailed: "anime.detailedView",
+  compact: "anime.compactList",
+  grid: "anime.gridOfNumbers",
+};
+
+/* The icon of the view you are currently IN: a picture for the thumbnail
+   mode, rules for the one-line list, tiles for the grid of numbers. */
+function ViewModeIcon({ view }: { view: ViewMode }) {
+  const common = {
+    width: 14,
+    height: 14,
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 2,
+  } as const;
+  if (view === "detailed") {
+    return (
+      <svg {...common}>
+        <rect x="3" y="4" width="18" height="16" rx="2" />
+        <circle cx="8.5" cy="9.5" r="1.5" fill="currentColor" stroke="none" />
+        <path d="m4 18 5-5 4 4 3-3 4 4" />
+      </svg>
+    );
+  }
+  if (view === "compact") {
+    return (
+      <svg {...common}>
+        <line x1="4" y1="6" x2="20" y2="6" />
+        <line x1="4" y1="12" x2="20" y2="12" />
+        <line x1="4" y1="18" x2="20" y2="18" />
+      </svg>
+    );
+  }
+  return (
+    <svg {...common}>
+      <rect x="3" y="3" width="7" height="7" rx="1.5" />
+      <rect x="14" y="3" width="7" height="7" rx="1.5" />
+      <rect x="3" y="14" width="7" height="7" rx="1.5" />
+      <rect x="14" y="14" width="7" height="7" rx="1.5" />
+    </svg>
+  );
+}
 
 /* Which source the episode panel is showing. "episodes" = one season id.
    "films" = one or more MOVIE ids, concatenated into a single numbered list. */
@@ -450,50 +498,32 @@ export default function Episodes({ info, progress, seasonList, bonusFilms, onEpi
           </button>
           )}
 
-          {/* View-mode segmented control — applies to every panel (episodes,
-              films, OP-ED): detailed cards / compact list / cover grid. */}
-          <div style={tStyles.viewSwitch}>
-            <ViewBtn
-              active={view === "detailed"}
-              onClick={() => setView("detailed")}
-              title={t("anime.detailedView")}
-            >
-              {/* Picture/image icon — this mode is the one that shows
-                  the episode thumbnails, so it earns the photo glyph. */}
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                <rect x="3" y="4" width="18" height="16" rx="2" />
-                <circle cx="8.5" cy="9.5" r="1.5" fill="currentColor" stroke="none" />
-                <path d="m4 18 5-5 4 4 3-3 4 4" />
-              </svg>
-            </ViewBtn>
-            <ViewBtn
-              active={view === "compact"}
-              onClick={() => setView("compact")}
-              title={t("anime.compactList")}
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                <line x1="4" y1="6" x2="20" y2="6" />
-                <line x1="4" y1="12" x2="20" y2="12" />
-                <line x1="4" y1="18" x2="20" y2="18" />
-              </svg>
-            </ViewBtn>
-            <ViewBtn
-              active={view === "grid"}
-              onClick={() => setView("grid")}
-              title={
-                panel === "episodes"
-                  ? t("anime.gridOfNumbers")
-                  : t("anime.gridView", { defaultValue: "Grid view" })
-              }
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                <rect x="3" y="3" width="7" height="7" rx="1.5" />
-                <rect x="14" y="3" width="7" height="7" rx="1.5" />
-                <rect x="3" y="14" width="7" height="7" rx="1.5" />
-                <rect x="14" y="14" width="7" height="7" rx="1.5" />
-              </svg>
-            </ViewBtn>
-          </div>
+          {/* View-mode switch — applies to every panel (episodes, films,
+              OP-ED). ONE button that cycles detailed → compact → grid: three
+              side-by-side buttons spent the width of three controls to express
+              a single choice among three, and the mode you're in is already
+              obvious from the list right below. The icon shows the CURRENT
+              view and the label names it plus the action, so the button still
+              says where you are, not only where clicking leads. */}
+          <button
+            style={{
+              display: "grid",
+              placeItems: "center",
+              width: 34,
+              height: 32,
+              background: "var(--bg-2)",
+              border: "1px solid var(--line)",
+              borderRadius: 8,
+              color: "var(--txt-0)",
+              cursor: "pointer",
+              transition: "all 0.12s",
+            }}
+            onClick={() => setView(VIEW_ORDER[(VIEW_ORDER.indexOf(view) + 1) % VIEW_ORDER.length])}
+            title={`${t(VIEW_LABEL_KEY[view])} · ${t("anime.changeView")}`}
+            aria-label={`${t(VIEW_LABEL_KEY[view])} · ${t("anime.changeView")}`}
+          >
+            <ViewModeIcon view={view} />
+          </button>
         </div>
       </div>
 
@@ -911,12 +941,7 @@ function SeasonPicker({
             const films = s.variants ?? [];
             const grouped = films.length > 0;
 
-            const seasonSub =
-              s.status === "NOT_YET_RELEASED"
-                ? t("anime.notYetReleased")
-                : [s.year, s.episodes ? `${s.episodes} EP` : null]
-                    .filter(Boolean)
-                    .join(" · ") || (s.format ?? "");
+            const seasonSub = seasonSubtitle(t, s);
 
             // Simple case — no films: one flat row per season.
             if (!grouped) {
@@ -1485,31 +1510,8 @@ function TabButton({
   );
 }
 
-function ViewBtn({
-  active,
-  onClick,
-  title,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  title: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      title={title}
-      style={{
-        ...tStyles.viewBtn,
-        background: active ? "var(--bg-3)" : "transparent",
-        color: active ? "var(--txt-0)" : "var(--txt-3)",
-      }}
-    >
-      {children}
-    </button>
-  );
-}
+/* ViewBtn (one button per view, highlighted when active) lived here. The
+   switch is a single cycling button now, so nothing is left to highlight. */
 
 function SkeletonList() {
   return (
@@ -1706,24 +1708,9 @@ const tStyles: Record<string, CSSProperties> = {
     borderRadius: 8,
     cursor: "pointer",
   },
-  viewSwitch: {
-    display: "flex",
-    gap: 2,
-    padding: 3,
-    background: "var(--bg-2)",
-    border: "1px solid var(--line)",
-    borderRadius: 8,
-  },
-  viewBtn: {
-    display: "grid",
-    placeItems: "center",
-    width: 30,
-    height: 28,
-    border: "none",
-    borderRadius: 6,
-    cursor: "pointer",
-    transition: "all 0.12s",
-  },
+  /* viewSwitch (the three-button strip) and viewBtn (one segment of it) lived
+     here. The switch is a single cycling button now and carries its own style
+     inline, next to the cycle logic it belongs to. */
 
   /* Detailed view (default) */
   epList: { display: "flex", flexDirection: "column", gap: 8 },

@@ -2,6 +2,61 @@
 
 Toutes les nouveautés d'AniScroll, les plus récentes en premier.
 
+## [v0.0.8] — Nouvelle page de visionnage (2026-08-29)
+
+### Ajouté
+- **Nouvelle page de visionnage** : elle occupe toute la largeur de l'écran, le
+  lecteur est dimensionné sur la hauteur de votre fenêtre, et la liste des
+  épisodes prend place à côté de lui plutôt que dans une bande vide. En dessous
+  se trouvent le synopsis complet, les informations de la fiche et une sélection
+  de recommandations.
+- **La liste complète des épisodes pendant la lecture** : trois affichages au
+  choix (vignettes, lignes ou grille de numéros), une recherche par titre ou par
+  numéro, un ordre que vous pouvez inverser, la durée réelle de chaque épisode
+  et votre progression.
+- **Prochain épisode** : sous la liste s'affichent un compte à rebours et la
+  date de diffusion, convertis dans votre fuseau horaire, avec un bouton
+  **Ajouter un rappel**. La cloche du site vous signalera la sortie lors de
+  votre prochaine visite.
+- **Les lecteurs sont classés selon leurs performances chez vous** : le temps de
+  démarrage, les coupures, le débit et la qualité sont mesurés pendant que vous
+  regardez, uniquement sur votre appareil, et les plus rapides remontent en tête
+  de liste.
+- **Un ordre de préférence pour les langues** : VOSTFR, VF ou multi. Vous le
+  définissez une fois, et le lecteur que vous choisissez reste mémorisé pour cet
+  anime.
+
+### Modifié
+- **Les épisodes qui ne sont pas encore diffusés disparaissent de la liste**,
+  ainsi que le bouton « épisode suivant » qui y menait. Ils n'y laissaient que
+  des cases vides et des liens morts.
+- **Des vignettes d'épisode plus nettes** : lorsque TMDB dispose de plusieurs
+  images pour un même épisode, c'est celle que ses votes désignent qui est
+  retenue. La vignette de la liste et l'image d'attente du lecteur montrent
+  enfin le même plan.
+- **Un démarrage plus rapide** : la vidéo est demandée avant le reste de la
+  page.
+- **Le visionnage à plusieurs** partage désormais la colonne avec la liste des
+  épisodes, au lieu de la pousser hors de l'écran.
+- **Un site plus léger** : deux fois moins de JavaScript chargé au départ, une
+  page de visionnage allégée de 20 %, et des vignettes de prévisualisation cinq
+  fois plus légères.
+
+### Corrigé
+- **La numérotation des saisons** : Jujutsu Kaisen affichait deux « Saison 1 »,
+  Attack on Titan deux « Saison 3 », et la saison finale de My Hero Academia
+  portait le numéro de la précédente.
+- **Les épisodes qui s'ouvrent sur un fondu au blanc** : l'écran restait
+  entièrement blanc le temps du démarrage. L'image de l'épisode le recouvre
+  maintenant, comme elle le faisait déjà pour un fondu au noir.
+- **La lumière d'ambiance** reprend à nouveau les couleurs de l'image.
+- **Un ralentissement passager ne fait plus changer de lecteur sous vos yeux**,
+  et un fichier devenu introuvable chez un hébergeur ne masque plus une version
+  doublée qui, elle, fonctionne.
+- **Terminer un épisode ne marque plus comme vus ceux que vous aviez sautés.**
+- **Le saut de l'intro et du générique de fin** fonctionne sur des séries qui en
+  étaient privées.
+
 ## [v0.0.7] — Aperçu au survol, graphe de franchise & illustrations (2026-08-16)
 
 ### Ajouté

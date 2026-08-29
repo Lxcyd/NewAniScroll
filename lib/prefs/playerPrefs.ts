@@ -24,6 +24,12 @@ export type PlayerPrefs = {
   forceMaxQuality: boolean;
   /** Start every video muted (user can unmute from the player controls). */
   defaultMuted: boolean;
+  /**
+   * Scroll the watch page's episode list so the episode being played sits at
+   * the top. On by default — on a long series the current row is otherwise out
+   * of view the moment the panel opens. Off leaves the list at episode 1.
+   */
+  snapToCurrentEpisode: boolean;
 };
 
 export const DEFAULT_PLAYER_PREFS: PlayerPrefs = {
@@ -33,6 +39,7 @@ export const DEFAULT_PLAYER_PREFS: PlayerPrefs = {
   rateOnComplete: true,
   forceMaxQuality: false,
   defaultMuted: false,
+  snapToCurrentEpisode: true,
 };
 
 const KEY = "aniscroll:playerPrefs";

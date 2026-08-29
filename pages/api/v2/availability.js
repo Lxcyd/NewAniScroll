@@ -44,8 +44,18 @@ const WRITE_GUARD_S = 10 * 60;    // collapse the write storm: 1 write / 10 min
  * serve them. Bumped 2026-08-10 with the anime-sama slug fix (franchise-name
  * search + hors-série panels), which turned four hosts from absent to live on
  * every title indexed that way.
+ *
+ * Bumped 2026-08-18 avec le correctif des pistes de doublage : un hote pouvait
+ * etre declare absent parce que la premiere piste (`vf`) portait un upload mort
+ * alors qu'une piste soeur (`vf2`) en avait un vivant. Sans ce bump, One Piece
+ * VF gardait son chip Ansembed masque sur un build qui le sert — constate a
+ * l'ecran, et c'est bien l'instantane qui parlait, pas le resolveur.
+ *
+ * Le cout d'un bump ici est faible et borne, contrairement au cache anime : un
+ * instantane vaut pour un couple (anime, episode) precis, donc seuls les
+ * episodes REELLEMENT ouverts paient un nouveau fan-out, une fois.
  */
-const CACHE_VERSION = "v3";
+const CACHE_VERSION = "v4";
 
 function key(aniId, episode, sub) {
   const s = sub === "dub" ? "dub" : "sub";

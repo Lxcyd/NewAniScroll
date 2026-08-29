@@ -4,10 +4,6 @@ import { rateLimiterRedis, rateSuperStrict, redis } from "@/lib/redis";
 import { NextApiRequest, NextApiResponse } from "next";
 import { anilistFetch } from "@/lib/anilist/anilistFetch";
 import { getCachedAnime } from "@/lib/db/anime";
-import {
-  getSimklEpisodeStills,
-  type SimklEpisodeData,
-} from "@/lib/simkl/episodeStills";
 import { fillStillGaps } from "@/lib/tmdb/episodeStills";
 import {
   getAniZipEpisodes,
@@ -81,6 +77,7 @@ function buildEpisodeList(
   media: any,
   stills: Record<number, string> = {},
   titles: Record<number, string> = {},
+  hd: Record<number, string> = {},
 ) {
   const totalEpisodes = displayedEpisodeCount(media);
 
@@ -116,9 +113,9 @@ function buildEpisodeList(
       .trim();
     return {
       id: `megaplay-${id}-${num}`,
-      /* Simkl backs the sequels up: it keys on THIS entry and numbers from 1,
-         so it has real titles exactly where streamingEpisodes was rejected as
-         foreign (and where AniList lists nothing at all — Chainsaw Man). */
+      /* ani.zip backs the sequels up: it keys on THIS entry and numbers from
+         1, so it has real titles exactly where streamingEpisodes was rejected
+         as foreign (and where AniList lists nothing at all — Chainsaw Man). */
       title: cleanTitle || titles[num] || `Episode ${num}`,
       number: num,
       /* Only a genuinely per-episode image, or null. We used to fall back to
@@ -128,9 +125,29 @@ function buildEpisodeList(
          artwork loaded already, and this response is a shared 30-day cache
          blob, so a pick made here would freeze one viewer's choice for all.
 
-         AniList's own thumb still wins over the Simkl still when it survived
-         the foreign-entry check above: it is this entry's own artwork. */
-      img: streaming?.thumbnail || stills[num] || null,
+         Ordre : TMDB, puis la vignette AniList, puis ani.zip.
+
+         `hd[num]` n'est rempli QUE par TMDB (fillStillGaps), donc il sert ici
+         de marqueur de provenance : quand il existe, `stills[num]` est l'image
+         TMDB et c'est elle qui passe devant. Sinon `stills[num]` n'est qu'une
+         screencap TVDB via ani.zip, et la vignette AniList vaut mieux.
+
+         Sans ce marqueur la tuile et le poster du lecteur montraient deux
+         plans differents du meme episode : la vignette Crunchyroll d'un cote,
+         l'image TMDB de l'autre (Mobile Suit Gundam, 43 episodes, ou les deux
+         listes passent le controle d'entree etrangere). */
+      img:
+        (hd[num] ? stills[num] : null) || streaming?.thumbnail || stills[num] || null,
+      /* La MEME image en pleine definition, pour le seul poster du lecteur —
+         qui l'affiche sur ~1300 px la ou la tuile de liste en fait 200. Elle
+         n'existe que quand le still vient de TMDB (`w1280` : le lecteur fait
+         ~1300 px, l'original en 1920 etait du poids sans pixel en face) ;
+         une screencap ani.zip n'a pas de variante plus grande,
+         et `null` fait simplement retomber le poster sur `img`.
+         Depuis que TMDB passe devant ani.zip, c'est vraiment la meme image :
+         avant, la tuile pouvait montrer la screencap TVDB pendant que le poster
+         montrait un autre plan du meme episode, choisi par TMDB. */
+      imgHd: hd[num] || null,
       description: null,
     };
   });
@@ -183,12 +200,40 @@ function filterData(data: any[], type: "sub" | "dub") {
  * "Episode 2" instead of the real titles ani.zip returns, and the thumbnails
  * were Simkl's rather than the ones the new order picks.
  *
+ * v6 → v7 (2026-08-22): Simkl est retire de la chaine. Deux raisons de monter
+ * la version plutot que de laisser courir : les listes deja en cache tiennent
+ * des vignettes servies par `simkl.in`, un hote qui ne figure plus dans les
+ * `remotePatterns` de next.config — elles s'afficheraient cassees ; et une
+ * liste v6 continuerait de preferer un titre Simkl a celui d'ani.zip pendant
+ * trente jours sur une serie terminee.
+ *
+ * v7 → v8 (2026-08-28): TMDB passe devant ani.zip pour les IMAGES (voir
+ * lib/tmdb/episodeStills.ts) et sert du w780 au lieu du w300. Une liste v7
+ * garderait pendant trente jours la screencap TVDB 640x360, c'est-a-dire
+ * exactement ce que ce changement corrige.
+ *
+ * v8 -> v9 (2026-08-29): `imgHd` passe de `/original/` a `/w1280/`. Le lecteur
+ * fait ~1300 px, donc 1920 etait du poids qu'aucun pixel ne rendait — et ce
+ * poster court contre la premiere frame de la video, tout ce qu'il pese
+ * s'attend derriere un voile noir. Les listes deja en cache portent l'ancienne
+ * URL pendant trente jours.
+ *
+ * v9 -> v10 (2026-08-29): le garde de coherence Fribb ne refuse plus une saison
+ * dont le compte d'episodes tombe exactement juste (Mobile Suit Gundam et ses
+ * semblables gagnent les vignettes TMDB). Les listes en cache portent les
+ * screencaps TVDB pendant trente jours.
+ *
+ * v10 -> v11 (2026-08-29): TMDB passe aussi devant la vignette AniList pour
+ * `img`. La v10 avait bien l'image TMDB en `imgHd`, mais la tuile continuait
+ * d'afficher la vignette Crunchyroll — deux plans differents du meme episode,
+ * ce qui etait tout le probleme.
+ *
  * This is the same trap as CACHE_VERSION in lib/db/tmdbImagesCache.ts, hit
  * twice in one afternoon: a cache outlives the reason its contents were what
  * they were, and no TTL can notice.
  */
 const EPISODE_CACHE_KEY = (id: string | string[] | undefined) =>
-  `episode:v6:${id}`;
+  `episode:v11:${id}`;
 
 export default async function handler(
   req: NextApiRequest,
@@ -290,59 +335,42 @@ export default async function handler(
   /* Real per-episode stills and titles. Only on the cache-miss path — a Redis
      hit returns above and never reaches these.
 
-     THREE PROVIDERS, IN COVERAGE ORDER, each filling what the previous left
-     empty. They differ only in what they can be keyed by, and that is what
-     decides the order:
+     DEUX FOURNISSEURS, dans l'ordre de couverture, le second remplissant ce
+     que le premier laisse vide. Ils different par ce qui les indexe, et c'est
+     ce qui decide de l'ordre :
 
        1. ani.zip  — keyed on the ANILIST ID itself. Nothing to map, nothing to
                      miss. This is the source Hayase uses, and it is first for
                      the reason it is theirs: it cannot fail on a title that is
                      merely new.
-       2. Simkl    — keyed on Fribb's `simkl_id`, which covers ~34% of entries
-                     and skews against airing shows; `resolveSimklId` rescues
-                     some of the rest with a direct lookup.
-       3. TMDB     — needs a season, the weakest link of all (see
+       2. TMDB     — needs a season, the weakest link of all (see
                      lib/tmdb/episodeStills.ts), so it only ever writes into
-                     episodes the first two left empty.
+                     episodes the first left empty.
+
+     Simkl etait le maillon du milieu et n'y est plus (voir le retrait du
+     22/08/2026) : plus d'appel, plus de cle a tenir, une correspondance
+     d'identifiants de moins a maintenir. Ce qu'il apportait en propre —
+     les series tres longues — retombe sur ani.zip puis sur le fond fanart.
 
      Where none has an image the row falls back to the client's fanart pool,
      exactly as before.
-
-     ani.zip and Simkl run CONCURRENTLY: neither depends on the other and both
-     are usually a single cached Turso read, so serialising them would double
-     the latency of the common case for nothing. TMDB comes after because it
-     needs to know which episodes are still missing.
 
      Timeboxed: the episode list is the site's hot path. Past the budget we
      drop what hasn't arrived and let the pool cover those rows; the result
      still lands in the cache on a later request. */
   const displayed = displayedEpisodeCount(media);
-  const [anizip, simkl] = await Promise.race([
-    Promise.all([
-      getAniZipEpisodes(Number(id), displayed || null).catch(() => ({
-        stills: {},
-        titles: {},
-      })),
-      getSimklEpisodeStills(Number(id), displayed || null).catch(() => ({
-        stills: {},
-        titles: {},
-      })),
-    ]),
-    new Promise<[AniZipEpisodeData, SimklEpisodeData]>((r) =>
-      setTimeout(
-        () => r([
-          { stills: {}, titles: {} },
-          { stills: {}, titles: {} },
-        ]),
-        3000,
-      ),
+  const anizip = await Promise.race([
+    getAniZipEpisodes(Number(id), displayed || null).catch(() => ({
+      stills: {},
+      titles: {},
+    })),
+    new Promise<AniZipEpisodeData>((r) =>
+      setTimeout(() => r({ stills: {}, titles: {} }), 3000),
     ),
   ]);
 
-  /* Spread order IS the precedence: later keys win, so the earlier provider
-     must be spread last. */
-  const merged = { ...simkl.stills, ...anizip.stills };
-  const mergedTitles = { ...simkl.titles, ...anizip.titles };
+  const merged = { ...anizip.stills };
+  const mergedTitles = { ...anizip.titles };
 
   /* TMDB fills what's left, on its own timebox rather than inside the race
      above — otherwise a slow first round would eat the whole budget and the
@@ -351,12 +379,19 @@ export default async function handler(
      two came back complete (fillStillGaps returns without a call) or when
      TMDB_API_KEY is unset. 2s, not 3s: this is strictly a bonus on top of an
      answer we already have. */
-  const stills = await Promise.race([
-    fillStillGaps(Number(id), displayed || null, merged).catch(() => merged),
-    new Promise<Record<number, string>>((r) => setTimeout(() => r(merged), 2000)),
+  const EMPTY_FILL = { stills: merged, hd: {} as Record<number, string> };
+  const filled = await Promise.race([
+    fillStillGaps(Number(id), displayed || null, merged).catch(() => EMPTY_FILL),
+    new Promise<typeof EMPTY_FILL>((r) => setTimeout(() => r(EMPTY_FILL), 2000)),
   ]);
 
-  const rawData = buildEpisodeList(id as string, media, stills, mergedTitles);
+  const rawData = buildEpisodeList(
+    id as string,
+    media,
+    filled.stills,
+    mergedTitles,
+    filled.hd,
+  );
 
   // Cache
   if (redis && cacheTime !== null && rawData.length > 0) {

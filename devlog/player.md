@@ -6,6 +6,879 @@ megaplay, vidmoly...).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-08-29 — AniSkip interroge sur une serie qu'il ignore
+
+Une ligne rouge dans la console : `404` sur `api.aniskip.com/v2/skip-times/80/7`.
+Ce n'est pas une panne — c'est la reponse d'AniSkip quand personne n'a soumis
+de mesure pour cet episode. Le defaut est ailleurs : **on la redemandait pour
+chaque ligne**. Sur Mobile Suit Gundam (1979), qu'AniSkip ne couvre pas du tout,
+ouvrir la page partait en 43 requetes vouees a l'echec, 43 lignes rouges, et
+autant de prises sur les 120 requetes/minute qu'AniSkip autorise.
+
+Trois refus d'affilee valent desormais verdict pour la serie entiere, memorise
+avec le meme TTL d'absence que les episodes (7 jours — une soumission peut
+arriver plus tard). **Trois et pas un** : une serie partiellement couverte
+existe, et un trou isole ne doit pas la condamner ; symetriquement une reponse
+utile remet le compteur a zero.
+
+Ce que ca ne fait pas : descendre a zero ligne. Chrome journalise tout 4xx au
+niveau reseau, quoi que le code en fasse — la seule facon de ne pas voir un 404
+est de ne pas poser la question. On passe de 43 possibles a 3 au plus, puis au
+silence pour une semaine.
+
+**Verifie au passage, et a ne pas rechercher** : l'avertissement
+`powerPreference is currently ignored when calling requestAdapter()` ne vient
+pas d'AniScroll. La chaine n'est ni dans le source ni dans `node_modules`, sa
+source est `VM2056` / `VM2243` (script injecte, pas un fichier servi), et elle
+ne se reproduit pas sur un profil neuf. C'est une extension du navigateur.
+
+## 2026-08-29 — Les vignettes de la barre faisaient refuser la lecture
+
+**Le symptome** : console pleine de `429 Too Many Requests` sur
+`proxy.aniscroll.com`, sur des segments video, les memes revenant cinq ou six
+fois de suite.
+
+**Ce que la mesure a dit, et qui n'etait pas ce qu'on croyait.** Nouveau banc,
+`tools/browser-check/proxy-429.mjs` : il enregistre chaque requete vers le proxy
+avec son STATUT et la premiere image de sa pile d'appel — c'est cette derniere
+qui tranche, parce qu'a l'URL pres rien ne distingue le lecteur d'autre chose.
+Sur Mobile Suit Gundam, ep. 1 :
+
+    statuts : 200x266, 429x42
+    origines des 200 : bundle x211, hls.min.js x51
+    200 : 266 requetes, 247 cibles DISTINCTES
+
+**247 cibles distinctes en dix secondes.** Un tampon de lecture ne fait pas ca —
+hls.js, lui, en demande 51, sequentiellement. Le reste vient de `HoverPreview`,
+qui precalcule les vignettes de la barre de progression en balayant TOUTE la
+timeline avec **six decodeurs paralleles**, chacun sa propre instance hls.js.
+Six rafales plus le lecteur : le CDN repond 429. Et comme les instances
+d'apercu heritaient de `fragLoadingMaxRetry: 4`, chaque refus repartait quatre
+fois — huit refus devenaient quarante-deux requetes.
+
+Trois corrections, du plus grossier au plus important :
+
+- **six decodeurs -> trois.** Le gain venait du recouvrement des latences de
+  seek, pas du nombre ; la rafale, elle, suit le nombre.
+- **`fragLoadingMaxRetry: 1`** sur les instances d'apercu. Une vignette ratee
+  est une vignette de moins, pas une coupure. Le lecteur garde sa patience.
+- **Au troisieme refus reseau, la marche de fond s'arrete** (`REFUS_MAX`). Un
+  CDN qui repond 429 dit qu'on lui demande trop ; insister prend la bande
+  passante de la lecture. Les vignettes deja prises restent affichables et le
+  survol continue d'en produire a la demande — c'est le mode `lazy` qui existait
+  deja pour les CDN fragiles. On perd la densite, jamais la fonction.
+
+Verifie sur dev, meme banc, apres deploiement : **42 refus -> 6**, et les six
+arrivent tard, avec une seule reprise chacun. Le compte de decodeurs se lit
+aussi a l'oeil : `document.querySelectorAll('video').length` passe de 7 a 4.
+
+**La lecon.** Un 429 sur une URL de segment se lit spontanement comme « le
+lecteur demande trop ». La pile d'appel disait autre chose. Tant qu'on ne
+mesure pas QUI emet, on optimise le mauvais composant — et les deux reglages de
+`HLS_CONFIG` qu'on aurait pu passer une heure a retoucher n'y etaient pour rien.
+
+**Au passage**, l'avertissement `preloaded but not used` sur la banniere : au
+premier rendu la liste d'episodes n'est pas encore la, `posterUrl` retombe donc
+sur `info.bannerImage` et on prechargeait celle-ci en haute priorite. La liste
+arrivait une fraction de seconde plus tard, le poster devenait l'image de
+l'episode, et la banniere telechargee ne servait a rien. Le `<link rel=preload>`
+lit desormais `posterPreload`, qui n'accepte que l'image propre a l'episode.
+
+## 2026-08-29 — La premiere frame blanche, et le voile qui manquait
+
+**Le symptome** : sur un episode qui ouvre par un fondu au BLANC, le lecteur
+affichait une page blanche pendant une seconde avant que la vignette ne la
+couvre.
+
+Deux defauts distincts, et le second etait le vrai.
+
+**1. La mesure ne connaissait que le noir.** `frameLuma` rendait une moyenne, et
+la regle etait `moyenne > 12`. Un fondu au blanc passait donc pour une vraie
+image. Le blanc demande une precaution que le noir n'exige pas : un plan tres
+lumineux (neige, ciel d'ete) monte facilement a 200 de moyenne, alors qu'un vrai
+plan de nuit descend rarement sous 12 — le seuil seul suffit d'un cote et pas de
+l'autre. On exige donc **en plus que l'image soit PLATE** (amplitude max-min
+<= 10 sur les 144 echantillons du 16x9) : un fondu n'a aucun relief, un ciel en a
+toujours un peu. `frameLuma` devient `frameStats` (moyenne + amplitude) et le
+verdict passe par `frameLooksReal`.
+
+**2. Rien ne couvrait la video PENDANT la mesure.** C'est ce qui produisait la
+seconde de blanc, et le defaut existait deja pour le noir — ou il ne se voyait
+pas, un noir sur un noir. Un voile noir (`as-veil`) couvre donc la video tant que
+la question n'est pas tranchee, ce qui a demande un **quatrieme etat** :
+
+    undefined -> on ne sait pas ENCORE   -> voile pose
+    false     -> image vide              -> voile pose, SOUS la vignette
+    true      -> vraie image             -> voile leve
+    null      -> mesure impossible       -> voile leve
+
+`undefined` et `null` etaient confondus jusque-la, et la distinction porte tout :
+une sonde muette doit rendre la video, pas noircir le lecteur.
+
+Deux details qui ne sont pas des details :
+
+- le voile **reste** sous la vignette sur un verdict `false`. Le lever a cet
+  instant rouvrirait la frame blanche pendant les 250 ms du fondu d'arrivee de la
+  vignette — le meme bug, en plus court.
+- il est NOIR et pas la vignette. Passer par la vignette puis revenir a la video
+  sur un verdict `true` serait le clignotement que tout ce bloc evite depuis le
+  debut. Du noir vers l'un ou l'autre, il n'y a rien qu'on voie partir.
+
+`as:firstframe` monte en `v2` : les fichiers deja mesures sont memorises « vrai »
+dans le localStorage des visiteurs, et ce verdict ne s'invalide ni par un TTL ni
+par un deploiement.
+
+### Le poster court contre la video, donc il doit etre leger
+
+Une fois le voile pose, l'attente devient VISIBLE : ce qu'on regarde n'est plus
+la frame mais le noir, jusqu'a ce que la vignette soit peinte. Deux mesures :
+
+- `imgHd` passait par `/original/` — 1920 px pour un lecteur qui en fait ~1300.
+  Mesure sur Cyberpunk ep1 : original 202 ko, **w1280 145 ko**, pour aucun pixel
+  perdu. (`episode:v9`, les listes en cache portaient l'ancienne URL 30 jours.)
+- le `<img>` du poster n'est plus monte quand on SAIT qu'il ne servira pas
+  (verdict `true` ou `null`) : le demonter annule le telechargement en cours. Il
+  reste monte pendant toute la mesure — c'est la qu'il se telecharge, sous le
+  voile — et le `preload` en `<Head>` de la page, lui, reste inconditionnel :
+  c'est lui qui lance la course des que l'adresse est connue, bien avant que le
+  lecteur existe.
+
+## 2026-08-29 — Les episodes pas encore sortis, et la molette rendue au navigateur
+
+### Ce qui n'existe pas ne se liste pas
+
+Une saison en cours listait ses douze episodes annonces : les quatre derniers
+donnaient des tuiles noires, sans titre, avec une duree empruntee a la serie, et
+un lien qui ne menait a rien. `info.nextAiringEpisode.episode` dit lequel est le
+prochain a sortir — lui et tous ceux d'apres quittent la liste, l'en-tete annonce
+« Episodes 1-8 » et non plus 1-12, et la date se dit une seule fois en pied de
+panneau : cloche, rebours et date absolue, a la maniere de miruro. Le pied etant
+`shrink-0` dans la meme colonne flex, la liste raccourcit d'autant.
+
+Le bouton « episode suivant » s'eteint par le meme geste, en un seul point :
+`next` devient `undefined` des que le numero vise n'est pas encore diffuse. Le
+bouton du lecteur, l'ecran de fin (SkipOverlay), l'enchainement automatique et le
+`nextId` ecrit dans l'historique testent tous ce champ — ils tombent ensemble.
+
+Le rebours vit dans son propre composant : il se rafraichit a la minute, et
+re-rendre `<EpisodeLists>` a ce rythme reconstruirait les 1174 lignes de One
+Piece. Il dit les minutes jusqu'au bout (« 4j 18h 21min ») : « 4j 18h » laissait
+croire que le rebours et l'heure annoncee ne parlaient pas de la meme chose.
+
+### La molette : trois tentatives pour revenir au point de depart
+
+Demande initiale : arriver au bout de la liste doit passer la molette a la page,
+et une liste qui repasse sous un curseur immobile ne doit pas la reprendre.
+
+Trois mecanismes ecrits, mesures, puis **tous retires**. Ce qui a ete appris vaut
+d'etre garde, parce qu'il est facile de le reapprendre a ses depens :
+
+- Chrome **VERROUILLE** un geste de molette sur le conteneur qu'il a commence a
+  faire defiler. Rendre la liste `overflow: hidden` en butee n'y change rien :
+  mesure au banc CDP (`Input.synthesizeScrollGesture`), la page restait a
+  `scrollY = 0` pendant les 10 s restantes du geste. Le defilement s'arretait net.
+- Chrome ne rend les crans suivants « asynchrones » — non annulables, hors de
+  portee du script — **que si le premier ne l'a pas ete**. Mesure : annulation
+  tardive, 147/148 crans non annulables ; annulation des le premier cran, 0/152.
+  D'ou le verdict d'un commit anterieur (« `preventDefault` ne pouvait pas
+  tenir ») qui n'etait vrai que pour une annulation tardive.
+- Chrome rejoue un `mousemove` **fantome** apres chaque defilement, aux MEMES
+  coordonnees, pour reevaluer le survol. Distinguer « la souris est venue sur la
+  liste » de « la liste est passee sous la souris » demande un repere pose a
+  l'`mouseenter`, jamais efface.
+
+Et la conclusion, arrivee par la fiche anime : la tuile de tags de la page d'info
+n'a **aucun code**, juste un `overflow-y: auto`, et son comportement est
+exactement celui qui etait demande. Le verrouillage de geste EST la regle
+voulue. Les trois arbitrages n'ont fait que lui nuire — ascenseur qui
+disparaissait avec l'overflow, lissage natif perdu, butee qui arretait tout.
+
+**La lecon** : avant d'ecrire un arbitrage de defilement, verifier ce que le
+navigateur fait deja tout seul, et sur un GESTE CONTINU. Un cran isole
+(`Input.dispatchMouseEvent`) ouvre et ferme son propre geste : le verrouillage
+n'y joue jamais, et tout semble marcher.
+
+## 2026-08-18 — Le chip manquant survit au correctif : c'est l'instantane qui parle
+
+Suite du correctif des pistes de doublage. L'API rendait bien Ansembed VF sur
+One Piece, et le chip restait absent A L'ECRAN. Deux couches, pas une :
+l'instantane de disponibilite (`avail:*`, 6 h) listait encore l'hote dans
+`absent`, et un hote marque absent n'est re-sonde qu'avec **20 %** de chance par
+visite — donc il pouvait rester masque bien plus longtemps que six heures.
+`CACHE_VERSION` passe en `v4`, ce que le commentaire du fichier prescrit
+justement pour ce cas.
+
+**Lecon de methode** : verifier `/api/v2/source` ne prouve PAS que le chip
+apparait. Entre les deux il y a l'instantane, le cache negatif Redis (600 s, dont
+la cle ignore les parametres anti-cache de l'URL) et le cache edge. Un correctif
+de resolution se verifie a l'ecran, ou pas du tout.
+
+### Voir-Anime VF Vidmoly : mesure, l'hypothese ne tient pas
+
+Soupcon d'un manque generalise du Vidmoly VF. **45 titres tires au hasard dans
+player_map : 45 verdicts corrects.** 43 resolvent ; les 2 restants (One Piece,
+Meikyuu Black Company) portent bien une balise vidmoly sur voir-anime mais leur
+upload repond **404**, donc masquer le chip est le bon comportement. Le premier
+audit les comptait perdus parce qu'il testait la PRESENCE de la balise et pas la
+VIVACITE de l'upload — l'app, elle, teste la vivacite.
+
+Au passage : One Piece numerote ses episodes sur **4 chiffres** chez voir-anime
+(`one-piece-0001-vf`), la ou tout le monde en met 2. Le resolveur le gere deja
+(`inspect` rend 1093 episodes correctement) ; c'est un piege pour qui sonde a la
+main, pas un bug.
+
+**Piste non exploitee** : une page d'episode voir-anime propose HUIT lecteurs
+(myTV, MOON, SB, VOE, Stape, FHD1, YU), mais seule l'URL de myTV est dans le HTML
+initial — les autres se chargent en JS. On ne voit donc jamais que myTV, et quand
+son upload est mort le chip disparait alors que le site, lui, sait jouer
+l'episode. Note aussi que « LECTEUR VOE » existe encore, ce qui contredit la
+suppression du 04/07/2026 (« voir-anime ne porte plus aucun lien VOE »).
+
+### Sibnet : 403 sur l'egresse Cloudflare, tout le site
+
+Constate le 18/08 : `video.sibnet.ru/shell.php` rend 200 depuis une ligne
+domestique et **403 via proxy.aniscroll.com** (`{"error":"Upstream error",
+"upstream":403}`). Resultat, 503 « embed unreachable or decoy » sur tous les
+titres testes (One Piece, AoT, Jujutsu Kaisen). Le chip reste VISIBLE — c'est un
+`retry`, pas un `absent` — donc l'utilisateur clique et tombe sur une erreur.
+
+NON CORRIGE. Le repli prevu passe par la page de visionnage en direct depuis
+Vercel, et cette egresse ne se teste pas depuis un poste de dev : il faut
+`vercel logs --json`. A traiter, c'est l'hote VF le plus present.
+
+## 2026-08-17 — Un upload mort cachait la piste de doublage vivante
+
+Signale par le user, capture a l'appui : le lecteur Ansembed marche sur
+anime-sama pour One Piece VF, et notre chip est absent.
+
+**Le diagnostic n'est pas celui qu'on croit.** Premiere hypothese : le panneau
+`vf2` (la VF Netflix, ou pointait sa capture) n'etait pas explore. Faux —
+`animeSamaLangDirs` couvre vf/vf1/vf2/vf3 depuis longtemps, et ansembed **est**
+present dans `vf` aussi. Mesure :
+
+| panneau | slug ansembed | etat |
+|---|---|---|
+| `saison1/vf` | `embed-1j1tjy3qqbs7` | **404, mort** |
+| `saison1/vf2` | `embed-na2vrsevfe89` | **200, vivant** |
+
+On s'arretait au premier repertoire de langue qui REPONDAIT, on y ramassait
+l'upload mort, `isVidmolyEmbedAlive` le rejetait, et le chip disparaissait —
+sans jamais regarder `vf2`. Les **trois** boucles de langue du fichier avaient
+ce defaut : chemin rapide `player_map`, saison ciblee, iteration cumulative
+(c'est cette derniere qu'emprunte One Piece, dont la ligne player_map porte
+`season_dir=null`).
+
+**Deux niveaux, et il fallait les deux.** Que l'hote soit absent du panneau se
+voit tout de suite et se corrige gratuitement — les panneaux sont deja
+telecharges : c'est `pickLangDirForHost`, qui retient le repertoire portant
+vraiment l'hote au lieu du premier qui repond, en gardant le premier panneau vu
+comme repli (sans quoi on confondrait « panneau introuvable », donc mapping
+casse, et « panneau sain, hote absent », donc absence honnete). Qu'un upload
+soit mort ne se voit qu'a la verification de vivacite, bien plus loin :
+l'appelant relance alors la resolution en excluant le repertoire deja tente.
+Rien n'est paye dans le cas courant, au pire quatre tours.
+
+**Ampleur, mesuree et non supposee** — 350 titres VF tires au hasard dans
+`player_map` : 3 ont des pistes VF multiples, **1 seul** perdait un lecteur
+(One Piece). Le defaut est reel mais isole. Le detecteur a ete valide contre le
+cas connu avant d'etre cru : il voit One Piece (`vf` mort -> `vf2` vivant) et
+laisse passer Vinland Saga, ou la piste vivante (`vf1`) vient en premier.
+
+**VOSTFR reste sans variantes numerotees**, cette fois chiffre : sur 12 titres,
+`vostfr1`/`vostfr2` n'existent nulle part, la ou `vf1`/`vf2` apparaissent 2 fois
+sur 12. Le commentaire d'origine disait vrai, il ne le prouvait pas.
+
+Verifie sur dev.aniscroll.com : ansembed rend desormais `embed-na2vrsevfe89`
+pour One Piece VF ep1. Balayage de 8 titres x 5 lecteurs, aucune regression.
+
+**Sans rapport, constate au passage** : `sendvid.com` renvoie 502 jusque sur sa
+racine — l'hebergeur est down, tous ses chips sont absents partout. Rien a
+corriger chez nous, mais ne pas relire ce silence comme un bug de resolution.
+
+## 2026-08-17 — Classer les lecteurs sur ce qu'on mesure, pas sur ce qu'on suppose
+
+Demande du user, partie d'une observation : uqload sert ses vignettes de survol
+bien plus densement que les autres, ce qui trahit un acces aleatoire rapide —
+alors que `lib/servers.js` le classe **dernier** (`speed: 5`). Le rang `speed`
+y est ecrit a la main, deduit de l'architecture de livraison ; il est donc faux
+au moins une fois, et le commentaire de `UniversalPlayer` le disait deja
+(« a static rank lies »).
+
+**Le nouveau module** : `lib/watch/serverPerf.ts`. Quatre criteres mesures
+pendant la lecture, accumules en localStorage, rendus sous forme d'un rang
+utilisable partout ou `speed` l'etait :
+
+| | | |
+|---|---|---|
+| `t` | demarrage | ms du commit du src au premier `canPlay` |
+| `s` | stabilite | secondes stallees par 60 s de lecture |
+| `k` | seek | ms d'un seek RESEAU (cible hors de `video.buffered`) |
+| `q` | qualite | `videoHeight` max reellement servi |
+
+**Le vrai probleme de conception** n'est pas de mesurer, c'est que sibnet et
+sendvid sont `noCors` et ne peuvent pas tout produire. Deux regles le
+resolvent : on **n'impute jamais** une valeur manquante, et on **renormalise**
+sur les seuls criteres presents, ponderes par leur confiance. Un hote qui ne
+fournit que `t`+`s`+`q` est note sur 0,80 de la masse de poids, ramenee a 100 :
+il reste sur le meme axe que les autres, il converge seulement plus lentement.
+Sans ca, tout classement multi-criteres punit mecaniquement les hotes les moins
+instrumentables — exactement les plus fragiles.
+
+**Deux instruments ecartes, et pourquoi.** HoverPreview semblait le candidat
+evident pour le seek (c'est lui qui a produit l'observation de depart) : ses six
+decodeurs paralleles se **concurrencent**, donc le ms/seek est gonfle
+precisement sur les hotes qui en recoivent six, et le composant n'est pas monte
+du tout pour les flux noCors. La video principale est non-contendue et
+universelle. La latence `/api/v2/source` est ecartee aussi : indissociable de
+son etage de cache (Redis 300 s, cache negatif 600 s, edge `s-maxage=300`, et un
+suiveur du single-flight enregistre le temps de scrape du **meneur**). Le chiffre
+qu'on veut — « du clic au premier pixel, imputable a l'hote » — c'est le TTFF,
+qui demarre apres.
+
+**Garde-fous.** Le rang statique reste le prior et garde toujours 25 % du mot
+(`CONF_CAP`), donc deux echantillons chanceux ne couronnent personne. Store vide
+=> confiance 0 => rang `(speed-1)*20`, strictement monotone en `speed` : le tri
+etant stable, c'est la **meme permutation** qu'avant, verifiee sur les trois
+langues et six ordres de preference. Un echantillon par critere et par session
+`(lecteur, anime, episode)`, sinon un episode de 24 min empilerait dix lectures
+du meme stall. Aucune requete ajoutee — la page de lecture est deja le premier
+consommateur de quota Upstash du site.
+
+**Le piege sur lequel on est tombe** : la confiance replie d'abord la quantite
+de preuve et la fraicheur en un seul facteur (`n` decroissant / MIN_N). Avec
+`MIN_N = 1` pour la qualite, il fallait que `n` descende **sous 1** pour que la
+demi-vie morde — soit quatre demi-vies depuis n = 20. Un seul critere suffisait
+donc a maintenir en vie un verdict de deux mois. Les deux notions sont
+desormais separees.
+
+**Autorite volontairement limitee** : le score decide de l'ordre des chips et du
+lecteur par defaut, jamais d'une bascule en cours de lecture, et une bascule
+automatique ne persiste toujours pas. Le pin manuel reste seul maitre.
+
+Deux nettoyages au passage. `shouldShow` vivait en deux exemplaires (selecteur +
+raccourci « lecteur suivant ») et avait **deja diverge** — le selecteur testait
+`failedServers.get?.()` en plus de `.has?.()` — alors que le raccourci est cense
+parcourir exactement les chips affiches : extrait dans
+`lib/watch/serverVisibility.ts`. Et « Restaurer les reglages par defaut »
+retirait bien la cle, mais le module garde un miroir **en memoire** qui l'aurait
+reecrite au flush suivant ; il faut le lui dire explicitement.
+
+Le poincon du selecteur repond maintenant a trois niveaux de certitude (direct,
+appris, statique), l'epaisseur de l'anneau disant lequel parle. L'overlay
+« stats for nerds » affiche TTFF, taux de coupure et score+confiance. Le rang
+appris ne se lit qu'apres le montage : reordonner pendant le rendu change
+l'ordre du DOM entre serveur et client, ce qui est une erreur d'hydratation.
+
+**Phase 2 (non construite)** : un prior regional par pays remplacerait
+`staticScore` dans la fusion, sans toucher a la collecte, au stockage ni aux
+points de consommation. Le signal geo le moins cher est `request.cf.country`
+dans le Worker — mais le pipeline Worker->Turso est mort depuis le 11/07, et
+c'est le vrai prealable. La Phase 1 n'en depend pas, c'est pourquoi elle passe
+en premier.
+
+Verifs : `tsc --noEmit` OK, `next lint` OK, `next build` OK, et 26 assertions
+sur le modele (parite a store vide, mesurabilite partielle, un-echantillon,
+peremption a 60 j, purge a 90 j, mediane/EWMA, onglet cache). **Non teste en
+navigateur — a valider sur dev.aniscroll.com.**
+
+## 2026-08-17 — La langue avant le lecteur : un classement 1-2-3 pose une fois
+
+Nouvelle fonctionnalite, demandee par le user. Jusqu'ici le lecteur par defaut
+etait un ID de serveur (`preferred_server`) : precis, mais que personne ne
+choisit avant d'avoir clique dans le selecteur, et qui ne dit rien de ce qui
+compte vraiment pour un francophone — **la langue**. On ajoute donc un cran
+au-dessus : un classement des trois familles de `lang` que `lib/servers.js`
+porte deja (`vf`, `vo`, `multi`).
+
+**La popup** (`components/watch/primary/LangPreferenceModal.tsx`) s'ouvre une
+seule fois, au premier episode ouvert, quand `getLangOrder()` rend `null`. Trois
+cartes (doublage VF, sous-titres FR, lecteur multi-langue) sous des numeros
+**fixes** 1-2-3 : ce sont les cartes qui glissent, pas les numeros
+(`Reorder` de framer-motion, `axis="x"`). Des fleches `‹ ›` doublent le
+glisser-deposer — le drag horizontal sur mobile est le genre de chose qui marche
+« presque ».
+
+**Pas de sortie sans reponse** : ni fond cliquable ni croix, seulement un bouton
+qui valide l'ordre affiche (defaut VF > VOSTFR > multi). Une popup qu'on peut
+esquiver revient a chaque episode ou ne revient jamais ; les deux sont pires
+qu'un choix par defaut assume.
+
+**La resolution** (`lib/prefs/langPref.ts`, `pickServerForLangs`) : premiere
+langue du classement qui a un candidat non-echoue (et confirme, quand les sondes
+ont parle), puis meilleur rang **dans** cette langue. Trois points de branchement
+dans la page de lecture, aucun nouveau :
+- au montage, le pari initial vise le meilleur serveur de la langue n°1 (au lieu
+  de megaplay) — sauf si un `preferred_server` explicite est pose, qui reste
+  prioritaire parce que plus precis ;
+- le filet de securite (serveur actif en echec) choisit desormais parmi les
+  **confirmes** selon le classement, avant de retomber sur l'ordre statique ;
+- le repli de `markFailed` suit le classement une fois la langue d'origine
+  epuisee. Sans ca, perdre le dernier lecteur VF renvoyait sur megaplay (tete de
+  liste) meme pour quelqu'un qui avait classe le VOSTFR juste apres.
+
+**Choix du lecteur dans la langue** : le premier, c'est-a-dire le rang `speed`
+statique de `lib/servers.js`. `pickServerForLangs` prend une option `rank` pour
+que « le plus rapide reellement mesure » (le `liveSpeed` du watchPageProvider,
+deja affiche en poincon dans le selecteur) ne demande qu'une fonction a passer,
+pas une reecriture.
+
+**Garde-fou** : classement absent = comportement historique **inchange**
+(megaplay, `PREFERRED_FALLBACK_ORDER`). On ne suppose pas un ordre par defaut
+pour qui n'a pas repondu — c'est ce qui evite qu'un deploiement bascule tout le
+monde en VF du jour au lendemain.
+
+Re-ouvrable dans Reglages > Lecteur, et `lang_pref_order` est ajoute aux cles que
+« Restaurer les reglages par defaut » efface (ce qui re-affiche la popup).
+
+Verifs : `tsc --noEmit` OK, `next lint` OK, `next build` OK. Non teste en
+navigateur — a valider sur dev.aniscroll.com.
+
+### Iteration 2 — `Reorder` de framer-motion jete, et l'habillage repris
+
+Retour user sur la premiere version : « on ne peut pas swipe les cartes
+correctement, c'est bugue », plus l'interface qui ne ressemblait pas au reste du
+site.
+
+**Le glisser-deposer.** `Reorder` (framer-motion) mesure des elements qu'il
+reordonne lui-meme dans le DOM. Avec trois cartes `flex-1` de largeur egale,
+chaque permutation change la mesure sous ses pieds : les cartes sautaient au
+lieu de suivre le doigt. Reecrit a la main, en s'inspirant du gestionnaire de
+listes de l'ancienne AniScroll (`startRowDrag` dans `scroll-helpers.js` :
+Pointer Events + `setPointerCapture` + placeholder), mais en plus simple parce
+que les trois emplacements sont fixes et de largeur egale :
+
+- **l'ordre du DOM ne bouge jamais** (vf, vo, multi) ;
+- chaque carte est posee sur son emplacement par un `translateX` de
+  `(emplacement - position DOM) x pas` ;
+- la carte tiree ajoute le deplacement du pointeur et perd sa transition ; les
+  autres gardent la leur, donc elles glissent toutes seules.
+
+Rien n'est mesure pendant le geste, donc rien ne peut sauter. **Le piege**, en
+revanche : quand l'ordre change en cours de glissement, la position de repos de
+la carte tiree change aussi — sans decaler l'origine du geste (`startX`) d'un
+pas, elle sautait d'un cran sous le doigt. C'est exactement le meme genre de
+compensation que le `ghostOffset` du ShortcutEditor.
+
+`touch-action: none` sur les cartes (sinon le navigateur prend le geste
+horizontal pour un scroll), et la rangee reste invisible tant que la largeur
+d'un emplacement n'est pas mesuree — avant ca les translations valent 0 et un
+classement enregistre non-standard s'afficherait une frame a l'envers.
+
+**L'habillage.** Repris sur la grammaire du site : `bg-as-card` + `rounded-card`
++ `shadow-poster`, pastille d'accent en tete, titres Outfit / textes Karla,
+carte n°1 en `ring-action` avec le halo (le meme code couleur que le chip du
+serveur actif dans le selecteur), numeros 2-3 en gris. Les badges drapeau ont
+saute : `🇫🇷` se rend en « FR » sur Windows, ce qui donnait une vignette ratee —
+remplaces par des etiquettes VF / VOSTFR / Multi dans le style typographique deja
+utilise par le selecteur de serveurs. Sous chaque numero, un mot (« d'abord » /
+« sinon » / « en dernier ») dit ce que le classement veut dire, ce que le seul
+chiffre ne faisait pas.
+
+Icones passees en **Material Symbols** (`viewBox="0 -960 960 960"`,
+`fill="currentColor"`) : micro pour le doublage (fourni par le user), sous-titres,
+globe. Trace recuperes sur `fonts.gstatic.com` plutot qu'ecrits de memoire — un
+`path` invente rend une bouillie. Ca supprime au passage la dependance
+`react-icons` de ce composant.
+
+Titre renomme « Votre ordre de preference de langue » (le mot « preference » etait
+demande explicitement).
+
+## 2026-08-17 (suite) — « On n'a pas la VF sibnet alors qu'elle existe »
+
+Signalement user, capture a l'appui : sur anime-sama, Ghost in the Shell (2026)
+en VF, LECTEUR 3 = sibnet, ca joue. Sur dev, le chip « Anime-Sama Sibnet » est
+absent de la rangee VF (present en VO).
+
+**Ce n'etait ni la resolution de panel, ni un leurre, ni un blocage d'egress** —
+les trois hypotheses evidentes, toutes fausses, toutes ecartees par la mesure :
+
+- `/api/v2/source/inspect` rend le MEME panel sur dev et sur prod :
+  `saison1hs`, « Ghost in the Shell (2026) », 6 episodes. Resolution correcte.
+- `episodes.js` du panel VF contient bien sibnet en `eps3`
+  (`shell.php?videoid=6236560`). L'utilisateur a raison, la VF existe.
+- Fausse piste a noter, elle a coute du temps : le flux rendu par prod pointe sur
+  `…/58/88/18/5888181.mp4` alors qu'on a demande le videoid `6236560`. Ca
+  ressemble a un leurre anti-bot. Ca n'en est pas un : l'id du fichier CDN
+  interne n'a AUCUN rapport avec le videoid de l'embed — c'est ecrit noir sur
+  blanc dans le commentaire de `looksGood`, qui valide le `player.src` de la
+  page (`/v/<hash>/6236560.mp4`, lui, correspond) et pas l'URL finale.
+
+**La vraie cause, mesuree.** Meme requete des deux cotes :
+
+| | ep1 | ep2 | ep3 |
+| --- | --- | --- | --- |
+| dev (avec l'enveloppe de 5 s) | **503 a 5,28 s** | **503 a 5,19 s** | OK |
+| prod (sans enveloppe) | OK a 4,81 s | OK | OK |
+
+Les autres titres passent sur dev en 2,2-2,9 s. Autrement dit shell.php repond en
+~2 a ~5 s depuis Vercel selon la video, et l'enveloppe de 5 s introduite la nuit
+derniere pour tuer les 504 tombait **pile dessus** : la jambe qui allait aboutir
+etait coupee quelques centaines de ms trop tot. Un « presque » converti en
+absence — le chip disparait, et l'episode d'a cote passe, ce qui donne un bug
+qui a l'air aleatoire.
+
+**Correctif : la somme ne bouge pas, la decoupe si.** 5+5 devient 7,5+2,5. La
+jambe de derniere chance (page de visionnage) n'a jamais eu besoin de 5 s :
+mesuree a ~0,2-0,3 s a chaque fois, c'est une page servie normalement, pas un
+tarpit. On lui en prend 2,5 pour les donner a la premiere. Total inchange, donc
+zero risque de 504 supplementaire — ce qui etait tout l'objet de l'enveloppe.
+
+**Trouve en chemin, corrige aussi** : les hops d'apres la cascade (resolution du
+302, sonde du shard, repli sur un autre shard) avaient chacun leur plafond
+propre — 5+4+4 s — sans aucun rapport avec ce que la cascade venait de depenser.
+Pire cas theorique 10+13 = 23 s sur une route plafonnee a 15 : le 504 rentrait
+par la fenetre. Ils partagent desormais une echeance de bout en bout
+(`SIBNET_TOTAL_MS`, 13 s).
+
+**Non verifie** : le correctif n'est pas deploye (webhooks GitHub en panne cote
+Vercel). A re-mesurer sur dev une fois en ligne — les episodes 1 et 2 de
+l'aniId 177699 en VF doivent repondre 200, et le chip reapparaitre. Attention au
+cache Redis PARTAGE entre prod et dev pendant le test : appeler dev AVANT prod,
+ou busting par un parametre inutilise.
+
+### Suite — « pareil en prod », et un tableau qui melange les hotes
+
+Deuxieme passe apres retour user (le chip manque aussi en prod, ou le correctif
+n'est de toute facon pas deploye). Deux resultats, dont un qui n'a rien a voir
+avec le symptome de depart.
+
+**1. L'API repond, quand elle est chaude.** Rejoue la requete EXACTE du
+navigateur (elle porte `title` et `malId`, qui font partie de la cle de cache
+edge — les tests « nus » n'interrogent donc pas la meme entree) : prod rend un
+flux sibnet en 200 pour l'ep1. Ce que le navigateur a vu, ce sont deux 503
+consecutifs (la sonde retente une fois, 3 s apres) sur une resolution FROIDE.
+Une fois l'entree Redis chaude, le chip revient. Le correctif d'enveloppe
+ci-dessus vise exactement cette fenetre froide — et `main` ne l'a pas encore.
+
+**2. Une fausse piste qui a failli devenir un correctif faux.** Avec `title` +
+`malId`, `server=animesama-sibnet` rendait un embed ANSEMBED. Conclusion facile
+et fausse : « les parametres du client cassent la resolution d'hote ». La vraie
+raison est ailleurs — j'avais teste les eps 4 et 6 dans ce cas, et les eps
+1/2/3/5 dans l'autre. Le panel :
+
+    eps3 = [sibnet, sibnet, sibnet, ANSEMBED, sibnet, ANSEMBED]
+
+**anime-sama bouche les trous d'un lecteur avec un autre hote.** Le parametre
+n'y etait pour rien, c'est l'EPISODE qui change l'hote.
+
+**Le vrai bug qui en decoule** : `findPreferredArray` choisissait un tableau sur
+son PREMIER element, puis l'appelant indexait dedans en supposant tout le
+tableau homogene. Demander l'ep4 sur `animesama-sibnet` rendait donc une URL
+ansembed : le chip « Sibnet » servait le flux d'ansembed, qui a deja son propre
+chip. Deux chips pour un seul flux — et un diagnostic illisible le jour ou l'un
+des deux tombe. Remplacee par `pickPreferredEpisodeUrl`, qui balaie TOUS les
+tableaux a la bonne position et n'accepte qu'une URL appartenant vraiment a
+l'hote ; aucune correspondance = absence honnete. `findPreferredArray` n'avait
+plus d'appelant, supprimee.
+
+Note de methode : le cache Redis est PARTAGE entre prod et dev, et la cle edge
+inclut `title`/`malId`. Deux facons de se mentir a soi-meme en mesurant, les
+deux rencontrees dans la meme heure.
+
+### Suite 3 — le memo « shell.php refuse » ne s'eteignait JAMAIS
+
+Le chip tient maintenant a l'ecran (suite 2), mais le lecteur ne resout toujours
+pas sur dev. Nouvelle mesure, et cette fois le mode d'echec a change : **0,25 s**
+au lieu de 5 s. Trop vite pour avoir tente quoi que ce soit — donc les jambes
+sont SAUTEES, pas expirees.
+
+Six requetes paralleles sur dev (donc plusieurs instances lambda), meme titre :
+certaines rendent un flux, d'autres echouent en 0,25 s. Ce n'est pas l'hote qui
+est capricieux, **c'est l'historique de chaque instance**.
+
+`sibnetShellBlocked` etait un `let … = false` passe a `true` et **jamais remis**.
+Avec `SIBNET_SKIP_AFTER_REFUSALS = 1`, UN seul 403 condamnait shell.php pour
+toute la duree de vie de l'instance — des heures sur une fonction tiede. Il ne
+reste alors que la jambe de derniere chance, et la ou elle ne passe pas non plus,
+sibnet est mort sur cette instance, definitivement.
+
+Prod, plus frequentee donc plus renouvelee, n'exhibait pas le symptome : de quoi
+croire longtemps a une difference d'egress entre les deux environnements. Ca
+n'en etait pas une — `vercel.json` pointe `cdg1` des deux cotes, verifie.
+
+Un blocage d'egress est un ETAT, pas une verite (le devlog du 08/08 raconte deja
+un sibnet qui remarche). Le memo se comporte donc maintenant comme le throttle
+429 juste a cote : reaction immediate — un refus suffit, le seuil ne bouge pas —
+et **oubli au bout de 10 minutes**. Un succes direct efface le compteur : c'est
+la preuve que l'egress n'est pas ferme.
+
+Verifie au passage, et c'est le correctif de la suite precedente qui marche :
+l'episode 4 rend desormais `{absent:true}` au lieu d'une URL ansembed deguisee en
+sibnet.
+
+### Suite 2 — « il s'affiche puis disparait » : un 503 effacait une certitude
+
+Le detail qui manquait, donne par le user a la troisieme passe : le chip sibnet
+**apparait, puis s'en va**. Ce n'est donc pas « il ne se confirme jamais »,
+c'est « il se confirme, puis quelque chose l'efface ». Deux ecrivains
+seulement : `markConfirmed` peint, `markFailed` cache.
+
+Deroule : l'instantane de disponibilite contient desormais `animesama-sibnet`
+(verifie) → le chip est peint des le premier rendu. Puis une sonde tombe sur une
+resolution FROIDE (sibnet met ~2 a 5 s depuis Vercel), rend 503, et
+`markFailed` retire le chip. **On effacait une connaissance avec une
+non-connaissance** : un 503 dit « je n'ai pas pu savoir », pas « ce lecteur
+n'existe pas ».
+
+Correctif : seule une absence PROUVEE (le 204/404 de la route, `Source not
+found`) peut retirer un chip **deja confirme**. 5xx, reseau, timeout, erreur de
+lecture : le chip reste. Au pire l'utilisateur clique dessus et la resolution
+repart — souvent chaude, donc immediate — ce qui est infiniment moins deroutant
+qu'un lecteur qui s'evapore sous le curseur. Le repli automatique n'est pas
+touche : si c'est le serveur ACTIF qui echoue, on bascule quand meme.
+
+A noter, le meme symptome avait deja ete traite en amont, sous une autre cause
+(un premier 204 pris pour une absence definitive — cf. le commentaire « what
+made the sibnet chip appear then vanish » dans la sonde). Le chemin par
+`markFailed` restait ouvert. Les deux garde-fous sont complementaires : l'un
+empeche de conclure trop vite, l'autre de defaire une conclusion acquise.
+
+---
+
+### Iteration 5 — le prechauffage visait le mauvais lecteur (regression de l'iteration 1)
+
+« Essaie d'accelerer le loading des lecteurs ». Le gros du temps ne se gagnait
+pas dans du code plus rapide : il se gagnait en **prechauffant le bon hote**.
+
+La page info prechauffe la source de l'episode de reprise pendant que
+l'utilisateur lit la fiche (`resolveSource` + `warmStream`), et la page de
+lecture lit ce resultat au lieu de redemander. Sauf que la cible etait ecrite en
+dur : `megaplay` + `preferred_server`. C'etait juste tant que la page de lecture
+demarrait sur megaplay — **l'ordre de preference des lecteurs a casse cette
+hypothese sans que rien ne le signale**. Depuis, elle demarre sur le lecteur
+retenu pour la serie, ou sur le plus rapide de la langue n°1. On payait donc un
+scrape lourd (le plus cher de nos endpoints) pour deux hotes dont aucun n'etait
+celui qui allait s'ouvrir, et l'utilisateur attendait quand meme une extraction
+a froid. Le clic ne mettant plus a jour `preferred_server` (iteration 4), le
+second prechauffage etait souvent vide de sens en plus.
+
+**Correction en trois points.**
+
+1. La page info resout desormais sa cible **avec les memes fonctions** que la
+   page de lecture (exception de la serie -> serveur epingle -> ordre des
+   langues -> megaplay), et prechauffe ce seul hote — un scrape lourd au lieu de
+   deux, et le bon.
+2. Elle affine avec `/api/v2/availability` (GET mis en cache CDN 10 min, deja
+   utilise par la page de lecture) : parmi les hotes qui ont REELLEMENT repondu
+   pour cet episode, elle prend le meilleur de la langue n°1. Sans ca, quelqu'un
+   qui classe la VF en tete ferait prechauffer un hote VF sur une serie qui n'en
+   a pas — le pire des deux mondes.
+3. **Le piege de cet affinage** : les deux pages auraient alors pu choisir deux
+   hotes DIFFERENTS de la meme langue, et le prechauffage aurait ete perdu une
+   seconde fois. La page de lecture ne peut pas refaire le meme calcul — ce
+   serait un aller-retour reseau DEVANT son premier chargement. D'ou un relais en
+   memoire dans `sourcePrefetch` (`setPlannedServer`/`getPlannedServer`, meme
+   duree de vie que les sources prechauffees) : la page info dit sur quoi elle a
+   mise, la page de lecture suit. Arrivee directe (lien partage), pas de relais :
+   choix a l'aveugle, comme avant.
+
+Les donnees de skip suivent la meme cible (elles sont stockees PAR HOTE, une
+entree chauffee sur le mauvais hote ne sert a rien), en attendant la promesse de
+resolution plutot qu'en pariant sur l'ordre des deux passes.
+
+**Non mesure** : le gain se lit sur dev.aniscroll.com, en comparant le temps
+jusqu'a la premiere frame depuis la page info (chemin chaud) et depuis un lien
+direct (chemin froid, inchange).
+
+### Iteration 4 — exception par anime, interrupteur, et un clic qui n'empoisonne plus tout
+
+Trois demandes user : un toast a l'enregistrement, un lecteur choisi en cours
+d'episode qui **reste** pour cet anime, et un interrupteur general dans les
+Reglages.
+
+**L'exception par serie** (`lib/prefs/animeServerPref.ts`, cle
+`aniscroll:animeServer`) : un clic dans le selecteur retient le lecteur pour CET
+anime. Elle emprunte le meme chemin que la preference epinglee
+(`preferredServerRef`), donc zero logique nouvelle : appliquee d'emblee, et si
+l'anime ne l'offre pas pour cet episode, le filet de securite existant retombe
+sur un serveur confirme en suivant l'ordre des langues. L'entree n'est PAS
+supprimee dans ce cas — un hote peut manquer un episode et revenir au suivant.
+Elagage a 200 series (l'ordre des cles JSON fait office d'anciennete).
+
+**Consequence assumee : le clic n'ecrit plus `preferred_server`.** C'est un
+changement de comportement, mais l'ancien devenait toxique avec l'ordre des
+langues : un seul clic sur une serie qui n'a que du VOSTFR epinglait ce serveur
+pour tout le catalogue et rendait le classement inerte partout ailleurs. Le
+serveur epingle des Reglages redevient ce qu'il pretend etre — un choix
+explicite, que seule la page Reglages modifie.
+
+**L'effet de montage est passe de `[]` a `[aniId]`** : il lit desormais une
+preference qui depend de la serie, donc une navigation SPA vers un AUTRE anime
+doit la relire. Changer d'episode ne rejoue rien (aniId ne bouge pas).
+
+**L'interrupteur** (`lang_pref_enabled`) n'efface pas le classement, il le met
+en sommeil : `getEffectiveLangOrder()` rend `null` quand il est eteint, donc la
+page reprend telle quelle sa logique historique, et rallumer retrouve l'ordre.
+La popup ne s'ouvre plus si la fonctionnalite est eteinte.
+
+**Toasts** : « Preferences enregistrees » a la validation (dans le composant,
+pas chez ses deux appelants — la confirmation appartient a l'action), et
+« Lecteur memorise pour cet anime » au changement manuel, sans quoi la
+memorisation serait totalement invisible.
+
+### Iteration 3 — le bleu inexplique : `ring-action/40` ne fait RIEN
+
+Retour user : « on a du bleu je ne sais pas pourquoi ». C'est un piege Tailwind
+qui merite d'etre retenu, parce qu'il est silencieux et qu'il touche quatre
+autres fichiers du site.
+
+`action` vaut `var(--brand-primary, #E94560)`. **Tailwind v3 ne sait pas injecter
+d'alpha dans une couleur qui est une `var()`** : il lui faut les canaux
+`<r> <g> <b>` pour composer `rgb(… / <alpha>)`. Resultat, `ring-action/40`,
+`bg-action/25`, `ring-action/50`... ne generent **aucune regle** — verifie dans
+le CSS bati : zero occurrence de `action\/<n>` dans tout le bundle. La classe est
+inerte. Et pour un `ring`, inerte ne veut pas dire neutre : `ring-1` pose la
+bague, `--tw-ring-color` garde son **defaut Tailwind** — `rgba(59,130,246,.5)`,
+bleu-500. D'ou des anneaux bleus au milieu d'une charte rose, sans que rien dans
+le code ne mentionne du bleu.
+
+Pour un `bg-`, l'echec est muet a l'inverse : pas de fond du tout. C'est le cas
+de `bg-action/25` sur le chip du serveur ACTIF dans `serverSelector.js` — il n'a
+jamais eu son fond teinte, seule sa bague (`ring-action`, sans alpha, donc
+valide) le distingue.
+
+**Regle** : sur `action`, seul l'accent PLEIN est utilisable (`bg-action`,
+`ring-action`, `text-action`). Toute teinte translucide s'ecrit en rgba litteral
+— ce que faisait deja le selecteur de serveurs avec
+`shadow-[0_0_12px_rgba(255,127,87,0.35)]`. Regroupe ici dans une constante
+`ACCENT` (chaines completes, sinon le JIT ne les voit pas). Contrepartie assumee,
+la meme que dans le reste du code : ces teintes-la ne suivent plus le theme.
+
+**Restent a corriger ailleurs** (meme bug, non touche ici) :
+`ReportModal.tsx:610`, `SyncDirectionModal.tsx:71` (bague bleue au survol),
+`404.tsx:39`, `_error.tsx:26`.
+
+Autres retours de la meme passe : halo rose au survol de **chaque** carte (la
+bague EST une box-shadow, il suffit de la transitionner), textes raccourcis,
+pastille d'icone supprimee a cote du titre, et les mots sous les numeros
+(« d'abord / sinon / en dernier ») remplaces par des **fleches entre les
+numeros** — la chaine de repli se lit alors sans legende.
+
+---
+
+## 2026-08-17 (nuit) — Sibnet tuait la fonction, et une preference morte se rejouait a vie
+
+Audit du reste du selecteur, apres les deux bugs de l'entree ci-dessous. Deux
+trouvailles de plus, et trois choses laissees ouvertes.
+
+**Sibnet rend un 504, systematiquement.** Mesure sur dev, 11 hotes x 3 titres
+(aniId 21, 16498, 154587) : `animesama-sibnet` et `animesama-sibnet-vo` rendent
+un `FUNCTION_INVOCATION_TIMEOUT` sur **6 cellules / 6**, pendant que les six
+autres hotes repondent proprement. Ce n'est pas un titre difficile, c'est l'hote.
+
+Cause : les trois jambes de `fetchSibnetEmbed` (shell.php -> worker -> page de
+visionnage) sont sequentielles et plafonnees a 5 s chacune. Total 15 s —
+**exactement le `maxDuration` de `/api/v2/source`**. La plateforme tuait donc la
+route avant qu'elle puisse formuler la moindre reponse. Le memo
+`sibnetShellBlocked` ne coupe la jambe worker que sur un 403 EXPLICITE : quand la
+jambe directe **expire** (pas de reponse du tout), le memo reste faux et les
+trois jambes sont payees plein tarif. C'est le cas mesure.
+
+Un 504 est le pire resultat possible : il consomme l'invocation entiere, il
+n'est pas cachable, et il n'apprend rien au client — `requestSource` le classe
+`retry`, donc la sonde recommence et re-paie 15 s. Les deux chips sibnet
+monopolisaient ainsi la moitie du pool de 4 pendant ~33 s : c'est une bonne
+partie du « les lecteurs mettent une eternite a apparaitre ».
+
+**Le piege du correctif** : un budget de paroi global aurait ete faux. La jambe
+qui MARCHE sur un egress bloque est la **troisieme** (cf. l'entree du 08/08), et
+les deux premieres consomment le budget avant elle — on aurait echange un 504
+contre une regression silencieuse du seul chemin qui aboutit. Donc 5 s pour
+shell.php + worker **ensemble**, et 5 s **reserves** a la page de visionnage.
+
+Verifie sur dev apres deploiement : `504 / 15 s` -> `503 / 10-11 s` avec un corps
+d'erreur structure, sur 4 cellules / 4.
+
+**Preference de lecteur jamais validee.** `preferred_server` etait relu de
+`localStorage` sans etre confronte a `lib/servers.js`. Or les ids bougent
+beaucoup ici — au moins huit retires ou renommes (`animesama-vidmoly` ->
+`ansembed`, `voiranime-voe`, `vidnest`, `4animo`, `miruro-jet`, les
+`hianime-*`...). Un id mort donnait une cascade **permanente** : `getServer()`
+retombe sur `SERVERS[0]`, donc le type reste `"api"` et la requete part quand
+meme ; `/api/v2/source?server=<id mort>` echoue ; `shouldShow` ne trouve aucun
+chip a marquer actif ; le repli finit par ramener megaplay. Et comme **seul un
+CLIC reecrit `localStorage`**, l'id mort restait en place : le meme aller-retour
+perdu et le meme flash « Source unavailable » se rejouaient a **chaque
+chargement**, indefiniment. La page info payait le meme prix, en prechauffant la
+preference en **priorite haute** — un scrape lourd gaspille a chaque visite.
+`getServerPref()` ecarte et purge desormais un id inconnu.
+
+### Laisse ouvert, volontairement
+
+- **Sibnet est injoignable depuis Vercel**, 503 « embed unreachable or decoy »
+  sur les trois jambes et sur toutes les cellules testees. Le correctif ci-dessus
+  ne repare que la MANIERE d'echouer (proprement, en 10 s, cachable), pas
+  l'acces. C'est vraisemblablement la suite de l'histoire de shards du 08/08. A
+  noter : sibnet occupe encore **2 des 3 entrees** de
+  `PREFERRED_FALLBACK_ORDER` — le repli privilegie donc un hote mort.
+- **`degradedServers` est du plomb mort.** L'etat est calcule, passe a travers
+  cinq niveaux de props jusqu'a `LangGroup`... et jamais lu. Le commentaire de
+  l'etat affirme pourtant « the selector renders these red ». Un visiteur sur un
+  hote degrade (repli iframe, sans notre habillage Vidstack) n'a aucun signal.
+- **L'effet « appliquer la preference une fois confirmee »** (`[...info].js`,
+  juste sous l'effet de montage) est **injoignable dans tous les cas** : l'effet
+  de montage pose `appliedPrefRef.current = true` des qu'une preference existe,
+  et l'autre branche sort sur `!pref`. Son commentaire decrit un comportement
+  qui n'a plus lieu — exactement le genre de chose qui egare la prochaine
+  session de debug.
+
+**La lecon** : le budget d'une cascade de replis doit etre compare au
+`maxDuration` de la fonction qui l'heberge. Ici la somme des replis EGALAIT la
+limite, donc le chemin « tout echoue » — le plus frequent sur un hote en panne —
+etait le seul a ne jamais pouvoir repondre.
+
+## 2026-08-17 (soir) — Les chips s'effacent tous, et Megaplay ne revient jamais
+
+Deux bugs sans rapport l'un avec l'autre, tous deux dans le selecteur de
+serveurs, tous deux des **decalages de cle** entre deux effets qui doivent
+pourtant vivre au meme rythme.
+
+**Bug 1 — tous les chips disparaissent sauf l'actif.** La remise a zero de
+`confirmedServers` / `failedServers` / `degradedServers` vivait en tete de
+l'effet « liste d'episodes », dont les deps sont
+`[sessions?.user?.name, epiNumber, dub, info?.id]`. Le nom arrive en asynchrone
+(`useSession()` rend `undefined` puis l'objet session) et next-auth refetch au
+focus de la fenetre : la remise a zero se rejouait donc **sur un episode
+parfaitement stable**. L'effet de sondage, lui, n'est cle que sur
+`[info?.id, epiNumber, dub]` et ne se rejouait pas — son `cachedConfirmed` en
+memoire retenait deja tous les serveurs, donc chaque `probe()` sortait a la
+premiere ligne et **rien ne se repeignait jamais**.
+
+Ce qui rend le symptome total plutot que partiel : depuis la retraite des
+lecteurs iframe, **les 11 serveurs de `lib/servers.js` sont tous `type: "api"`**.
+La ligne `if (server.type === "iframe") return true;` de `shouldShow` est donc
+morte, et chaque chip depend uniquement de `confirmedServers.has(id)`. Un Set
+vide efface le selecteur entier ; seul l'actif survit, par la premiere ligne de
+`shouldShow`. L'aleatoire (« parfois ») etait la course entre l'hydratation de
+la session et la fin du pool de sondes.
+
+**Bug 2 — Megaplay absent alors que la video existe.** Le fan-out retire le
+serveur actif du pool, au motif que `fetchStreamSource` le resout deja et
+allume son chip. Mais il lisait l'`activeServer` **fige dans la closure** de
+l'effet — c'est-a-dire toujours `"megaplay"`, le placeholder SSR, puisque
+l'effet part au montage, avant que la preference sauvegardee soit lue. Pour
+quiconque a une preference **autre que megaplay**, megaplay etait donc saute
+par le pool *et* jamais demande par le chemin actif (qui, lui, va chercher la
+preference). Son chip ne pouvait structurellement pas apparaitre. Corrige en
+lisant un `activeServerRef` au moment du splice — apres les `await`, donc une
+fois la preference posee.
+
+**Verifie que le backend n'y est pour rien** :
+`/api/v2/source?server=megaplay&aniId=21&episode=1&sub=sub` rend un
+`master.m3u8` valide sur dev. Le meme appel confirme au passage que
+`voiranime-vidmoly` repond `{"absent":true,"hard":true}` et
+`animesama-sibnet-vo` un 503 « embed unreachable or decoy » sur ce titre.
+
+**La lecon** : deux effets qui pilotent le meme etat doivent porter la **meme
+cle**. Ici l'un se remettait a zero sur un evenement que l'autre ignorait, et
+la reparation (re-sonder) etait justement ce que l'autre refusait de faire.
+Meme famille que le bug de l'observateur de boutons juste en dessous : dans les
+deux cas, un effet garde une valeur figee pendant qu'un autre avance.
+
+**Non verifie en navigateur au moment d'ecrire** : `tsc` passe, le
+raisonnement est verifie contre le code et le backend, mais le comportement
+doit etre constate sur dev.aniscroll.com.
+
 ## 2026-08-17 — Changer de lecteur faisait disparaitre nos boutons
 
 **Symptome** : en quittant Uqload pour un autre lecteur, il manque des boutons
@@ -795,3 +1668,55 @@ Session de debug guidée par les logs console du user (captures d'écran success
   mieux (muted-fallback + unmute-au-geste, impossible avec l'attribut seul).
 
 ---
+
+## 2026-08-21 — Vignette d'épisode sur ouverture noire (règle définitive)
+
+**Règle** : première frame noire → la vignette TMDB/Simkl couvre la vidéo (et l'ambient
+l'échantillonne) ; première frame non noire → elle reste, telle quelle. Rien d'autre.
+
+Trois versions rejetées avant celle-ci, toutes pour la même raison — la mesure répondait avant
+d'être fiable, ou pas du tout :
+- **balayage jusqu'à 3 s** (`BLACK_SCAN`, supprimé) : cherchait plus loin dans le fichier une image
+  « qui ferait l'affaire ». One Piece s'ouvrait donc sur son logo, une image que personne n'a
+  demandée. La règle ne parle que de la PREMIÈRE frame.
+- **couvrir au pari quand le canvas est teinté** (sibnet, `noCors`) : posait la vignette sur de
+  vraies images. Le pari inverse (ne jamais couvrir) laissait un rectangle noir sans ambient.
+- **verdict pris à `readyState >= 2`** : décodable ≠ peinte. Lecture noire prématurée → vignette
+  posée → vraie frame → vignette retirée. Le défaut le plus visible.
+
+**Ce qui tient** : un noir doit être mesuré DEUX fois à 300 ms d'écart avant de couvrir ; une image
+claire tranche du premier coup ; le verdict ne bascule qu'une fois. Sur un flux `noCors`, la
+question est posée à une copie du fichier passée par `proxy.aniscroll.com` (qui répond CORS) dans un
+`<video>` jamais attaché au document, coupé dès la première image lue, verdict gardé en session sous
+le chemin du fichier. Le flux joue toujours en direct — le proxy ne sert qu'à la mesure.
+
+**Mesure de contrôle** (ffmpeg, frame 0, 16×9, luminance Rec.709 — le calcul du player) :
+
+| titre | lecteur | luma | verdict |
+|---|---|---|---|
+| One Piece ep1 | sibnet (direct / via proxy) | 0.0 / 0.0 | vignette |
+| One Piece ep1 | ansembed VF + VO (acao=`*`) | 0.0 | vignette |
+| Solo Leveling S2 ep1 | sibnet | 168.6 | frame gardée |
+| Solo Leveling S2 ep1 | ansembed VF | 168.1 | frame gardée |
+| Solo Leveling S2 ep1 | ansembed VO | 0.0 | vignette |
+
+La copie proxifiée rend exactement la même valeur que le flux direct : c'est ce qui rend la sonde
+légitime. sendvid / embed4me / uqload / callistanise ne servent pas ces deux titres.
+
+### Puis : ce qui la rendait lente (même jour)
+
+La règle était juste, la vignette arrivait trop tard. Trois attentes se cumulaient, toutes
+évitables :
+
+1. **L'image ne se téléchargeait qu'au montage du lecteur**, donc *après* la résolution du flux.
+   Son adresse est pourtant connue dès la liste d'épisodes → `<link rel="preload" as="image"
+   fetchpriority="high">` en `<Head>` de la page /watch, plus le `fetchpriority` + `decoding="sync"`
+   sur le `<img class="as-poster">` lui-même.
+2. **La sonde attendait le lecteur** pour constater ce qu'on savait déjà : un flux `noCors` est
+   teinté d'avance. Elle part maintenant dès que l'adresse du flux est connue, sans passer par
+   l'élément du lecteur — ses ~2,5 s courent *pendant* le chargement. D'où la séparation en deux
+   effets (sonde / lecture directe) : la sonde ne redémarre plus quand `playerElState` apparaît.
+3. **Le verdict mourait avec la session.** Une ouverture ne change pas : il est gardé en
+   `localStorage` sous le chemin du fichier (la query est signée), un seul enregistrement JSON
+   plafonné à 300 entrées. Revoir un épisode pose la vignette instantanément et ne tire plus un
+   octet du proxy — ce qui règle aussi la concurrence sonde/lecture sur le même CDN.

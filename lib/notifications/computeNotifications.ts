@@ -4,7 +4,10 @@
  * bell while the app is open and recompute on load.
  *
  * Three kinds:
- *  - "new-episode":  a CURRENT anime has aired episodes beyond your progress.
+ *  - "new-episode":  a CURRENT anime has aired episodes beyond your progress,
+ *                    or a series followed from the watch page's next-episode bar
+ *                    (lib/prefs/episodeAlerts) has aired past what was pending
+ *                    when you asked.
  *  - "resume":       a CURRENT/PAUSED anime you haven't touched in a long while.
  *  - "next-season":  a COMPLETED anime has a sequel you don't have in your list.
  *
@@ -15,6 +18,7 @@
 import { getLocalList, LocalEntry } from "@/lib/list/localList";
 import { pickTitle, type TitlePref } from "@/lib/prefs/titlePref";
 import { getNotifPrefs } from "@/lib/prefs/notifPrefs";
+import { getEpisodeAlerts } from "@/lib/prefs/episodeAlerts";
 
 const ENDPOINT = "https://graphql.anilist.co/";
 
@@ -335,24 +339,59 @@ export async function computeNotifications(
   const now = Date.now();
   const notes: AppNotification[] = [];
 
-  // ── New episodes (CURRENT entries) ──────────────────────────────
+  /* ── New episodes ────────────────────────────────────────────────
+     Deux origines, une seule sortie :
+       • les entrees CURRENT de la liste — le comportement d'origine ;
+       • les series suivies depuis la barre du prochain episode
+         (lib/prefs/episodeAlerts), qui ne sont pas forcement dans la liste.
+     Le suivi explicite existe justement pour ne PAS avoir a ecrire dans la
+     liste de visionnage, qui se synchronise avec AniList.
+     Le seuil differe : la liste compare a la PROGRESSION (ce qu'on a vu), le
+     suivi compare a l'episode attendu au moment du clic (`fromEpisode` − 1) —
+     on a demande a etre prevenu de la suite, pas du passe. Quand une serie est
+     dans les deux, la liste gagne : elle sait ou l'on en est. */
   const current = prefs.newEpisode ? list.filter((e) => e.status === "CURRENT") : [];
-  const airing = await fetchAiring(current.map((e) => e.mediaId));
-  for (const e of current) {
+  const suivis = prefs.newEpisode ? Object.values(getEpisodeAlerts()) : [];
+  const dansLaListe = new Set(current.map((e) => e.mediaId));
+  type Attente = {
+    mediaId: number;
+    title: string;
+    coverImage: string | null;
+    /** Dernier episode qui ne declenche RIEN. */
+    plancher: number;
+  };
+  const attentes: Attente[] = [
+    ...current.map((e) => ({
+      mediaId: e.mediaId,
+      title: localTitle(e, titlePref),
+      coverImage: e.coverImage ?? null,
+      plancher: e.progress ?? 0,
+    })),
+    ...suivis
+      .filter((a) => !dansLaListe.has(a.mediaId))
+      .map((a) => ({
+        mediaId: a.mediaId,
+        title: pickTitle(a.title ?? null, titlePref),
+        coverImage: a.coverImage ?? null,
+        plancher: Math.max(0, (a.fromEpisode ?? 1) - 1),
+      })),
+  ];
+  const airing = await fetchAiring(attentes.map((e) => e.mediaId));
+  for (const e of attentes) {
     const info = airing.get(e.mediaId);
     // Only notify for shows still RELEASING — a finished show you're behind on
     // isn't "a new episode dropped", it's just unwatched backlog.
     if (!info?.releasing) continue;
     const lastAired = info.lastAired ?? null;
     if (lastAired == null) continue;
-    const behind = lastAired - (e.progress ?? 0);
+    const behind = lastAired - e.plancher;
     if (behind <= 0) continue;
     notes.push({
       id: `new-episode:${e.mediaId}:${lastAired}`,
       kind: "new-episode",
       mediaId: e.mediaId,
-      title: localTitle(e, titlePref),
-      coverImage: e.coverImage ?? null,
+      title: e.title,
+      coverImage: e.coverImage,
       episode: lastAired,
       count: behind,
       sortAt: now, // freshest concern — sort to the top

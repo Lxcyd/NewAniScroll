@@ -67,35 +67,60 @@ const BROWSER_UA =
 // segment fetches (same IP) are accepted. Routing through the Worker instead
 // gets a Cloudflare 1042 ("data-center to data-center") from vidmoly's CDN.
 // So we do a local, direct extraction rather than reusing extractVidmoly.
+// Un echec au PREMIER contact ne prouve rien chez cette famille : elle sert un
+// leurre a froid (meme motif que le 204 sibnet du 16/07, cote site : resout une
+// fois a vide, puis 200 stable) et repond 429 quand on la sollicite trop vite.
+// Luc le vit sur le site : « parfois il faut recharger la page ». L'ancienne
+// version ne rechargeait jamais — un seul passage sur les cinq domaines, et tout
+// ce qui n'etait pas un succes immediat etait avale par un `continue` muet. Un
+// aleas transitoire brulait donc les cinq domaines d'un coup et rendait un echec
+// DEFINITIF (122 fois sur les lots du 26/08).
+const VIDMOLY_PASSES = 2;
+const VIDMOLY_PAUSE_MS = 1500;
+
 async function extractVidmolyDirect(embedUrl) {
-  for (const domain of VIDMOLY_DOMAINS) {
-    // Swap whichever domain of the family the embed arrived on — matching only
-    // `vidmoly.*` meant an ansembed embed was never retried elsewhere (the URL
-    // went out unchanged, so every "retry" hit the same host).
-    const url = embedUrl.replace(VIDMOLY_HOST_RE, domain);
-    let html;
-    try {
-      const r = await fetch(url, {
-        headers: {
-          "User-Agent": BROWSER_UA,
-          Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-          Referer: BASE + "/",
-        },
-        redirect: "follow",
-      });
-      if (!r.ok) continue;
-      html = await r.text();
-    } catch { continue; }
-    if (!html || html.length < 500) continue;
-    const m =
-      html.match(/file:\s*['"]([^'"]+\.m3u8[^'"]*)['"]/) ||
-      html.match(/['"](https?:\/\/[^'"\s]+\.m3u8[^'"\s]*)['"]/);
-    if (m && m[1].startsWith("http")) {
-      // ffmpeg needs the vidmoly Referer to fetch the master/segments.
-      return { ok: true, url: m[1], isM3U8: true, referer: `https://${domain}/` };
+  // Les trois causes rendaient le MEME message, donc aucun diagnostic n'etait
+  // possible : rate-limite, leurre, et reellement absent se ressemblaient.
+  const why = new Map();
+
+  for (let pass = 0; pass < VIDMOLY_PASSES; pass++) {
+    if (pass) await new Promise((r) => setTimeout(r, VIDMOLY_PAUSE_MS));
+    for (const domain of VIDMOLY_DOMAINS) {
+      // Swap whichever domain of the family the embed arrived on — matching only
+      // `vidmoly.*` meant an ansembed embed was never retried elsewhere (the URL
+      // went out unchanged, so every "retry" hit the same host).
+      const url = embedUrl.replace(VIDMOLY_HOST_RE, domain);
+      let html;
+      try {
+        const r = await fetch(url, {
+          headers: {
+            "User-Agent": BROWSER_UA,
+            Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+            Referer: BASE + "/",
+          },
+          redirect: "follow",
+        });
+        if (!r.ok) { why.set(domain, `HTTP ${r.status}`); continue; }
+        html = await r.text();
+      } catch (e) { why.set(domain, `fetch: ${e.message}`); continue; }
+      if (!html || html.length < 500) {
+        // Une page trop courte est la signature du leurre, pas d'une absence.
+        why.set(domain, `page courte (${html ? html.length : 0}o)`);
+        continue;
+      }
+      const m =
+        html.match(/file:\s*['"]([^'"]+\.m3u8[^'"]*)['"]/) ||
+        html.match(/['"](https?:\/\/[^'"\s]+\.m3u8[^'"\s]*)['"]/);
+      if (m && m[1].startsWith("http")) {
+        if (pass) console.error(`[vidmoly] ${domain} a repondu au 2e passage`);
+        // ffmpeg needs the vidmoly Referer to fetch the master/segments.
+        return { ok: true, url: m[1], isM3U8: true, referer: `https://${domain}/` };
+      }
+      why.set(domain, `page ${html.length}o sans m3u8`);
     }
   }
-  return { ok: false, error: "vidmoly: no source found on any domain" };
+  const detail = [...why].map(([d, r]) => `${d}: ${r}`).join(" | ");
+  return { ok: false, error: `vidmoly: aucune source apres ${VIDMOLY_PASSES} passages — ${detail}` };
 }
 
 // Priority: hosts whose signed stream URL is NOT IP-bound to whatever

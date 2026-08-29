@@ -46,6 +46,19 @@ import numpy as np
 # dHash needs (hash_w+1) x hash_h pixels for its horizontal-gradient scheme.
 HASH_W = 8            # -> 64-bit hash (HASH_W * HASH_H bits)
 HASH_H = 8
+def _run_timed(cmd, src):
+    """ffmpeg with a wall-clock ceiling — see audio.FFMPEG_TIMEOUT_S for why a
+    missing timeout froze a whole overnight lot."""
+    from .audio import FFMPEG_TIMEOUT_S
+    try:
+        return subprocess.run(cmd, capture_output=True, timeout=FFMPEG_TIMEOUT_S)
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(
+            f"ffmpeg timeout after {FFMPEG_TIMEOUT_S:.0f}s for {src!r} — "
+            f"host stalled, skipping"
+        ) from None
+
+
 SCALE_W = 32          # smaller than before: we sample many more frames now
 SCALE_H = 18          # (fixed-rate, not keyframe-only), so keep each one tiny
 
@@ -232,7 +245,9 @@ def _ffmpeg_keyframe_hashes(
         "-pix_fmt", "gray",
         "-",
     ]
-    proc = subprocess.run(cmd, capture_output=True)
+    # Timed for the same reason as audio.py's decodes: an unbounded ffmpeg on a
+    # remote stream hangs the entire batch when the CDN stops answering.
+    proc = _run_timed(cmd, src)
     if proc.returncode != 0:
         err = proc.stderr.decode("utf-8", "replace").strip()
         raise RuntimeError(f"ffmpeg (keyframes) failed for {src!r}:\n{err}")
@@ -305,7 +320,7 @@ def keyframe_hashes_abs(
     scale_chain = f"scale={SCALE_W}:{SCALE_H},format=gray,showinfo"
     vf = scale_chain if fps is None else f"fps={fps},{scale_chain}"
     cmd += ["-vf", vf, "-an", "-f", "rawvideo", "-pix_fmt", "gray", "-"]
-    proc = subprocess.run(cmd, capture_output=True)
+    proc = _run_timed(cmd, src)
     if proc.returncode != 0:
         err = proc.stderr.decode("utf-8", "replace").strip()
         raise RuntimeError(f"ffmpeg (abs keyframes) failed for {src!r}:\n{err}")

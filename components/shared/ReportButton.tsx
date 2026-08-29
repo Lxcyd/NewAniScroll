@@ -1,7 +1,14 @@
 import { useState } from "react";
+import dynamic from "next/dynamic";
 import { FlagIcon } from "@heroicons/react/24/outline";
 import { useTranslation } from "react-i18next";
-import ReportModal, { AnimeReportContext } from "./ReportModal";
+import type { AnimeReportContext } from "./ReportModal";
+import { useMountedOnce } from "@/lib/hooks/useMountedOnce";
+
+// This button sits in the navbar, so it is on every page — and the dialog
+// behind it is a full report form (tabs, validation, upload) that most visits
+// never open. Split out, and fetched on the first click.
+const ReportModal = dynamic(() => import("./ReportModal"), { ssr: false });
 
 /**
  * Universal report button.
@@ -23,6 +30,7 @@ type Props = {
 export default function ReportButton({ anime = null }: Props) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
+  const everOpened = useMountedOnce(open);
   return (
     <>
       <button
@@ -37,7 +45,9 @@ export default function ReportButton({ anime = null }: Props) {
         <FlagIcon className="w-5 h-5" />
       </button>
 
-      <ReportModal isOpen={open} setIsOpen={setOpen} animeContext={anime} />
+      {everOpened && (
+        <ReportModal isOpen={open} setIsOpen={setOpen} animeContext={anime} />
+      )}
     </>
   );
 }

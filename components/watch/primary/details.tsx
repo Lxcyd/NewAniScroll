@@ -1,199 +1,349 @@
-import { useEffect, useState } from "react";
-import { useAniList } from "../../../lib/anilist/useAnilist";
+import { CSSProperties, ReactNode } from "react";
 import Skeleton from "react-loading-skeleton";
 import { AniListInfoTypes } from "types/info/AnilistInfoTypes";
-import { SessionTypes } from "pages/en";
 import Link from "next/link";
 import Image from "next/image";
 import { useTranslation } from "react-i18next";
-import { statusLabel } from "@/components/anime/v2/helpers";
+import {
+  statusLabel,
+  parseDescription,
+  listLabel,
+  LIST_COLORS,
+  STATUS_TO_LIST,
+} from "@/components/anime/v2/helpers";
 import { genreLabel } from "@/lib/i18n/genreLabel";
 import { useTranslatedText } from "@/lib/i18n/useTranslatedText";
 
+/* Chips, copied VALUE FOR VALUE from the info page's hero (Hero.tsx
+ * hStyles.genreChip / studioChip).
+ *
+ * They have to be inline styles, not Tailwind classes: `action` is declared in
+ * tailwind.config.js as `var(--brand-primary, …)` — a complete colour, not the
+ * channel triplet Tailwind needs to inject an alpha. So `bg-action/[0.12]` and
+ * `border-action/[0.35]` compile to NOTHING at all, which is why these chips
+ * came out as hard red outlines on no background instead of the soft tinted
+ * pills the info page shows. color-mix() does the tinting instead, exactly as
+ * the info page does it. */
+const GENRE_CHIP: CSSProperties = {
+  padding: "5px 11px",
+  background: "color-mix(in srgb, var(--brand-primary, #ff3b5c) 12%, transparent)",
+  border: "1px solid color-mix(in srgb, var(--brand-primary, #ff3b5c) 35%, transparent)",
+  borderRadius: 999,
+  color: "color-mix(in srgb, var(--brand-primary, #ff7a91) 75%, #fff)",
+  fontSize: 12,
+  fontWeight: 600,
+};
+
+const STUDIO_CHIP: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 6,
+  padding: "5px 11px",
+  background: "rgba(74,143,255,0.1)",
+  border: "1px solid rgba(74,143,255,0.3)",
+  borderRadius: 999,
+  color: "#7ec8ff",
+  fontSize: 12,
+  fontWeight: 600,
+};
+
 type DetailsProps = {
   info: AniListInfoTypes;
-  session: SessionTypes;
   epiNumber: number;
   description: string;
-  id: string;
-  onList: boolean;
-  setOnList: (value: boolean) => void;
-  handleOpen: () => void;
+  /** Statut de liste AniList ("CURRENT", "PLANNING", …) ou null hors liste. */
+  listStatus: string | null;
+  /** false tant que le statut n'est pas connu — le bouton affiche « … »
+   *  plutot que d'annoncer « Ajouter a la liste » a tort. */
+  listResolved: boolean;
+  /** Ouvre l'editeur de liste, exactement comme le bouton de la page d'info. */
+  onOpenListEditor: () => void;
+  /** Title shown at the top of the card — the page owns it because it also
+   *  knows the episode being played. */
+  title?: ReactNode;
+  /** Secondary action buttons (party / share / report) rendered under the
+   *  add-to-list CTA. The page keeps their handlers; we only place them. */
+  actions?: ReactNode;
+  /** Le panneau watch-together occupe-t-il la colonne de droite ? La fiche se
+   *  range differemment selon le cas — voir le commentaire du rendu. */
+  partyOpen?: boolean;
 };
 
 export default function Details({
   info,
-  session,
   epiNumber,
   description,
-  id,
-  onList,
-  setOnList,
-  handleOpen,
+  listStatus,
+  listResolved,
+  onOpenListEditor,
+  title,
+  actions,
+  partyOpen = false,
 }: DetailsProps) {
-  const { markPlanning } = useAniList(session);
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
 
-  const [showDesc, setShowDesc] = useState(false);
-
+  // Same treatment as the info page's Overview: strip the "(Source: …)" tail
+  // out of the body and show it as an attribution line, rather than leaving
+  // it mid-paragraph.
+  const parsed = parseDescription(description);
   // Auto-translate the synopsis into the active UI language (server-cached).
-  const localizedDesc = useTranslatedText(description);
-  const truncatedDesc = truncateText(localizedDesc, 420);
+  const localizedDesc = useTranslatedText(parsed.text);
 
-  function handlePlan() {
-    if (onList === false) {
-      markPlanning(info.id);
-      setOnList(true);
-    }
-  }
+  // (The effect that used to reset the "Read more" fold on episode change is
+  // gone with the fold itself — there is no expansion state left to reset.)
 
-  useEffect(() => {
-    // Reset the "Read more" expansion when the episode changes — keeps
-    // the description collapsed on a new entry.
-    return () => {
-      setShowDesc(false);
-    };
-  }, [id]);
+  // "#278" — AniList's all-time RATED position. Only shown when AniList
+  // actually ranks the entry; a computed rank would be a fabrication.
+  const rank = info?.rankings?.find(
+    (r: any) => r.type === "RATED" && r.allTime,
+  )?.rank;
+  const score = info?.averageScore ? (info.averageScore / 10).toFixed(2) : null;
+  const studio = info?.studios?.edges?.[0]?.node?.name;
+
+  // Bouton de liste : la MEME lecture que la page d'info (Hero.tsx) — pastille
+  // coloree, libelle du statut, chevron — pour que le meme anime ne se presente
+  // pas d'une facon ici et d'une autre la-bas.
+  const list = (listStatus && STATUS_TO_LIST[listStatus]) || "Add to List";
+  const listColor = LIST_COLORS[list] || "#8a8fa3";
+  const listDisplay = listResolved ? listLabel(t, list) : "…";
+
+  // Episode count, read exactly as the info page reads it: while a show is
+  // AIRING the total alone would overstate what you can actually watch, so it
+  // becomes "aired/total". `nextAiringEpisode.episode` is the NEXT one to air.
+  const airedSoFar = info?.nextAiringEpisode?.episode
+    ? Math.max(0, info.nextAiringEpisode.episode - 1)
+    : null;
+  const epLabel =
+    info?.status === "RELEASING"
+      ? airedSoFar != null && info?.episodes
+        ? `${airedSoFar}/${info.episodes}`
+        : airedSoFar != null
+          ? `${airedSoFar}+`
+          : info?.episodes
+            ? `${info.episodes}`
+            : "N/A"
+      : info?.episodes
+        ? `${info.episodes}`
+        : "N/A";
+  const durLabel = info?.duration ? `EP · ${info.duration}min` : "EP";
 
   return (
-    <div className="flex flex-col gap-2">
-      {/* <div className="px-4 pt-7 pb-4 h-full flex"> */}
-      <div className="pb-4 h-full flex">
-        <div className="aspect-[9/13] h-[240px]">
-          {info ? (
-            <Link
-              className="hover:scale-105 hover:shadow-lg duration-300 ease-out"
-              href={`/en/anime/${info.id}`}
-            >
-              <Image
-                src={info.coverImage.extraLarge}
-                alt="Anime Cover"
-                width={1000}
-                height={1000}
-                className="object-cover aspect-[9/13] h-[240px] rounded-md"
-              />
-            </Link>
-          ) : (
-            <Skeleton height={240} />
-          )}
-        </div>
-        <div
-          className="grid w-full pl-5 gap-3 h-[240px]"
-          data-episode={info?.episodes || "0"}
-        >
-          <div className="grid grid-cols-2 gap-1 items-center">
-            <h2 className="text-sm font-light font-roboto text-[#878787]">
-              {t("anime.detailStudios")}
-            </h2>
-            <div className="row-start-2">
-              {info ? (
-                /* Some not-yet-aired entries land on AniList without a
-                   studio. Guard against an empty `edges` array so we
-                   don't crash with "Cannot read 'node' of undefined". */
-                info.studios?.edges?.[0]?.node?.name ?? "N/A"
-              ) : (
-                <Skeleton width={80} />
-              )}
-            </div>
-            <div className="hidden xxs:grid col-start-2 place-content-end relative">
-              <div>
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  strokeWidth={1.5}
-                  stroke="currentColor"
-                  onClick={() => {
-                    session ? handlePlan() : handleOpen();
-                  }}
-                  className={`w-8 h-8 hover:fill-white text-white hover:cursor-pointer ${
-                    onList ? "fill-white" : ""
-                  }`}
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0111.186 0z"
-                  />
-                </svg>
-              </div>
-            </div>
-          </div>
-          <div className="grid gap-1 items-center">
-            <h2 className="text-sm font-light font-roboto text-[#878787]">
-              {t("anime.detailStatus")}
-            </h2>
-            <div>{info ? statusLabel(t, info.status) : <Skeleton width={75} />}</div>
-          </div>
-          <div className="grid gap-1 items-center overflow-y-hidden">
-            <h2 className="text-sm font-light font-roboto text-[#878787]">
-              {t("anime.titles")}
-            </h2>
-            <div className="grid grid-flow-dense grid-cols-2 gap-2 h-full w-full">
-              {info ? (
-                <>
-                  <div className="title-rm line-clamp-3">
-                    {info.title?.romaji || ""}
-                  </div>
-                  <div className="title-en line-clamp-3">
-                    {info.title?.english || ""}
-                  </div>
-                  <div className="title-nt line-clamp-3">
-                    {info.title?.native || ""}
-                  </div>
-                </>
-              ) : (
-                <Skeleton width={200} height={50} />
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-      {/* <div className="flex flex-wrap gap-3 px-4 pt-3"> */}
-      <div className="flex flex-wrap gap-3 pt-3">
-        {info &&
-          info.genres?.map((item, index) => (
-            <div
-              key={index}
-              className="border border-action text-gray-100 py-1 px-2 rounded-md font-karla text-sm"
-            >
-              {genreLabel(t, item)}
-            </div>
-          ))}
-      </div>
-      {/* <div className={`bg-secondary rounded-md mt-3 mx-3`}> */}
-      <div className={`relative bg-secondary rounded-md mt-3`}>
-        {info && (
-          <>
-            <p
-              dangerouslySetInnerHTML={{
-                __html: showDesc
-                  ? localizedDesc
-                  : localizedDesc?.length > 420
-                  ? truncatedDesc
-                  : localizedDesc
-              }}
-              className={`p-5 text-sm font-light font-roboto text-[#e4e4e4] `}
+    // `relative z-10`: the player's ambient glow is a positioned layer that
+    // overflows well past the player box. A non-positioned sibling paints
+    // UNDER it, which is what veiled the add-to-list button — the glow was
+    // literally on top of it. Giving the card its own positioned layer puts
+    // the light back where it belongs, behind the controls.
+    // `font-karla` : rien ici ne declarait de famille, donc tout ce que j'ai
+    // repris de la page d'info (stats, pastilles, synopsis, boutons) tombait
+    // sur la sans-serif systeme — visiblement etrangere au reste du site, qui
+    // est en Karla. La page d'info a son propre Inter parce qu'elle porte ses
+    // tokens ; ici c'est la police du site qui fait foi.
+    //
+    // A partir de `lg`, la fiche est toujours la meme figure :
+    //
+    //    [ jaquette | titre/stats/genres | boutons ]
+    //    [ jaquette | synopsis ......................]
+    //
+    // Les boutons en haut a droite, le synopsis dessous sur toute la largeur
+    // restante, la jaquette a cheval sur les deux rangees — donc pleine hauteur.
+    // Seule la LARGEUR de l'ensemble change avec le chat :
+    //
+    //  chat ferme  — la fiche tient toute la page. La 3e colonne est « le
+    //    reste » (`1fr`), c'est-a-dire exactement l'aplomb de la liste
+    //    d'episodes restee en haut a droite ; les deux premieres se partagent
+    //    la colonne du lecteur, d'ou le `calc()` sur la variable que la page
+    //    expose. Le compte doit retirer les DEUX gouttieres, sans quoi la
+    //    colonne des boutons demarre une gouttiere trop loin.
+    //  chat ouvert — la liste d'episodes est descendue a droite de la fiche :
+    //    celle-ci se replie sur la largeur du lecteur, et sa 3e colonne devient
+    //    une largeur de boutons. Ils restent donc plaques a droite, juste a
+    //    gauche de la liste, et le synopsis s'arrete au bord de la barre de
+    //    serveurs.
+    <div
+      className={`relative z-10 flex flex-wrap gap-5 font-karla lg:grid lg:items-stretch lg:gap-x-7 lg:gap-y-4 ${
+        partyOpen
+          ? "lg:grid-cols-[190px_minmax(0,1fr)_19rem]"
+          : "lg:grid-cols-[190px_minmax(0,calc(var(--player-col)_-_190px_-_3.5rem))_minmax(0,1fr)]"
+      }`}
+    >
+      {/* The box carries the size, not the <Image>. next/image renders an
+          <img> with width=1000, so without a sized parent it stretches to
+          the row's full width — object-cover then shows a wide band of the
+          portrait cover (it reads as a banner) and the blown-up flex item
+          pushes the rest of the card over the episode column. */}
+      <div
+        className="h-[190px] w-[132px] shrink-0 overflow-hidden rounded-poster shadow-poster lg:col-start-1 lg:row-start-1 lg:row-span-2 lg:h-full lg:w-full"
+      >
+        {info ? (
+          <Link href={`/en/anime/${info.id}`} className="block h-full w-full">
+            <Image
+              src={info.coverImage.extraLarge}
+              alt="Anime Cover"
+              width={1000}
+              height={1000}
+              className="h-full w-full object-cover duration-300 ease-out hover:scale-[1.03]"
             />
-            {!showDesc && localizedDesc?.length > 120 && (
-              <span
-                onClick={() => setShowDesc((prev) => !prev)}
-                className="flex justify-center items-end rounded-md pb-5 font-semibold font-karla cursor-pointer w-full h-full bg-gradient-to-t from-secondary hover:from-20% to-transparent absolute inset-0"
-              >
-                {t("anime.readMore")}
-              </span>
-            )}
-          </>
+          </Link>
+        ) : (
+          <Skeleton height={190} width={132} />
         )}
       </div>
-      {/* Comments removed — Disqus showed a hard-to-debug "moderator" error
-          for visitors and added a third-party tracker we don't need. */}
+
+
+      <div className="flex min-w-0 grow basis-[300px] flex-col gap-3 lg:col-start-2 lg:row-start-1 lg:basis-auto">
+        {title}
+
+        {/* Stat blocks, identical to the info page's hero (Hero.tsx): same
+            icons, same metric, same caption underneath. The previous version
+            invented its own row — a chevron for POPULARITY where the info
+            page shows a heart for FAVOURITES — so the same anime reported two
+            different numbers depending on the page you were on. */}
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
+          {score && (
+            <>
+              <div className="flex flex-col items-center text-center">
+                <div className="flex items-center gap-2">
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="#f6c544">
+                    <polygon points="12 2 15 9 22 9 17 14 19 21 12 17 5 21 7 14 2 9 9 9" />
+                  </svg>
+                  <span className="text-[22px] font-bold leading-none text-[#f6c544]">
+                    {score}
+                  </span>
+                  <span className="text-[11.5px] font-medium text-[#8a8fa3]">/10</span>
+                </div>
+                <div className="mt-1.5 text-[10px] font-semibold tracking-[0.1em] text-[#5e6478]">
+                  {rank ? t("anime.rated", { rank }) : t("anime.average")}
+                </div>
+              </div>
+              <div className="h-10 w-px bg-[#252938]" />
+            </>
+          )}
+
+          {info?.favourites != null && (
+            <>
+              <div className="flex flex-col items-center text-center">
+                <div className="flex items-center gap-2">
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="#ff3b5c">
+                    <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
+                  </svg>
+                  {/* Formatted against the ACTIVE UI language, never the
+                      ambient one — see the long note in Hero.tsx: a bare
+                      toLocaleString() makes Node and a French browser
+                      disagree and costs a full hydration re-render. */}
+                  <span className="text-[22px] font-bold leading-none text-[#f4f5f8]">
+                    {info.favourites.toLocaleString(i18n.language)}
+                  </span>
+                </div>
+                <div className="mt-1.5 text-[10px] font-semibold tracking-[0.1em] text-[#5e6478]">
+                  FAVORITES
+                </div>
+              </div>
+              <div className="h-10 w-px bg-[#252938]" />
+            </>
+          )}
+
+          <div className="flex flex-col items-center text-center">
+            <div className="flex items-center gap-2 text-[#c4c8d4]">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                <rect x="3" y="5" width="18" height="14" rx="2" />
+                <path d="m10 9 5 3-5 3z" fill="currentColor" />
+              </svg>
+              <span className="text-[22px] font-bold leading-none text-[#f4f5f8]">
+                {epLabel}
+              </span>
+              <span className="text-[11.5px] font-medium text-[#8a8fa3]">{durLabel}</span>
+            </div>
+            {info?.status && (
+              <div className="mt-1.5 text-[10px] font-semibold tracking-[0.1em] text-[#5e6478]">
+                {statusLabel(t, info.status).toUpperCase()}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Same chip vocabulary as the info page's hero: brand-tinted pills
+            for genres, then a hairline, then the studio in blue. The order
+            matters — the studio is the aside, not the headline. */}
+        <div className="flex flex-wrap items-center gap-2">
+          {info?.genres?.slice(0, 4).map((item, index) => (
+            <span key={index} style={GENRE_CHIP}>
+              {genreLabel(t, item)}
+            </span>
+          ))}
+          {studio && (
+            <>
+              <span className="h-4 w-px bg-[#2f3447]" />
+              <span style={STUDIO_CHIP}>{studio}</span>
+            </>
+          )}
+        </div>
+
+      </div>
+
+      {/* Hauteur propre (`self-start`) : etires sur toute la fiche, les boutons
+          devenaient trois paves demesures.
+          Chat ferme, ils occupent la 3e colonne a l'aplomb de la liste
+          d'episodes — d'ou le `lg:pl-4`, qui reprend la gouttiere que la liste
+          se cree elle-meme avec son `left-4` (la grille de la page n'en a pas),
+          sans quoi les boutons seraient plus larges qu'elle. Chat ouvert, ils
+          sont plaques au bord droit de la fiche, la liste ayant repris cette
+          gouttiere pour elle : plus rien a compenser. */}
+      <aside
+        className={`flex w-full flex-col gap-2.5 lg:col-start-3 lg:row-start-1 lg:self-start ${
+          partyOpen ? "" : "lg:pl-4"
+        }`}
+      >
+        <button
+          type="button"
+          onClick={onOpenListEditor}
+          style={{
+            background: `${listColor}1a`,
+            border: `1px solid ${listColor}66`,
+            color: listColor,
+          }}
+          className="flex w-full items-center gap-3 rounded-[13px] px-5 py-[17px] text-base font-semibold transition-[filter] hover:brightness-125"
+        >
+          <span
+            className="h-[9px] w-[9px] shrink-0 rounded-full"
+            style={{
+              background: listColor,
+              boxShadow: `0 0 6px ${listColor}b3, 0 0 2px ${listColor}`,
+            }}
+          />
+          <span className="flex-1 text-left">{listDisplay}</span>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+            <polyline points="6 9 12 15 18 9" />
+          </svg>
+        </button>
+        {actions}
+      </aside>
+
+      {/* Synopsis — info-page typography (14px / 1.65, --txt-1) on the same
+          panel treatment as the rest of the card. Shown WHOLE: there is no
+          "read more" fold. The page is already scrolled past the player by
+          anyone reading this far, and a fold on a paragraph of four lines
+          bought nothing but a click. */}
+      <div
+        className="w-full rounded-xl bg-as-card/60 ring-1 ring-white/[0.06] lg:col-start-2 lg:col-span-2 lg:row-start-2"
+      >
+        {info && (
+          <div className="p-5">
+            <p
+              className="m-0 text-sm leading-[1.65] text-[#c4c8d4]"
+              style={{ textWrap: "pretty" } as any}
+              dangerouslySetInnerHTML={{ __html: localizedDesc }}
+            />
+            {parsed.source && (
+              <div className="mt-2.5 text-[11px] text-[#5e6478]">
+                <em>
+                  {t("anime.source")} · {parsed.source}
+                </em>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
     </div>
   );
-}
-
-function truncateText(txt: string, length: number) {
-  if (!txt) return "";
-  const text = txt.replace(/(<([^>]+)>)/gi, "");
-  return text.length > length ? text.slice(0, length) + "..." : text;
 }

@@ -42,9 +42,16 @@ export default function HoverPreview({
   // How many hidden decoders walk the episode at once. A capture is almost
   // entirely WAITING — request latency for the segment, then decode — so one
   // element left the pipeline idle between every seek and needed ~1 min to
-  // cover an episode. Four elements overlap those waits and cut it to roughly
-  // a quarter, without changing the number of segments fetched.
-  const PARALLEL_DECODERS = 6;
+  // cover an episode. Several elements overlap those waits, without changing
+  // the number of segments fetched.
+  //
+  // Three, not six. Six decoders plus the player's own loader is a burst the
+  // upstream CDN answers with 429 — measured on Mobile Suit Gundam: 253 segment
+  // requests in ten seconds, 42 of them refused, each refusal then retried by
+  // hls.js (tools/browser-check/proxy-429.mjs). The walk is background work; it
+  // must never be the reason playback gets rate-limited. Three still overlaps
+  // the seek latencies, which is where nearly all of the gain was.
+  const PARALLEL_DECODERS = 3;
   const workerCount = lazy || direct ? 1 : PARALLEL_DECODERS;
   // Pre-cached thumbnails keyed by their timestamp BUCKET (integer seconds,
   // snapped to THUMB_INTERVAL_S). Storing by time — not by percent — lets us
@@ -60,6 +67,11 @@ export default function HoverPreview({
   const THUMB_W = 320;
   const THUMB_H = 180;
 
+  // Refus de segment tolerés avant d'abandonner la marche de fond. Trois, parce
+  // qu'un seul peut etre un hoquet isole alors que trois disent que la source
+  // nous repousse — et la lecture passe avant les vignettes.
+  const REFUS_MAX = 3;
+
   // A hover must never queue behind the background walk: whichever decoder
   // finishes its current capture first picks the hovered bucket up next.
   //   hoverBucket    — bucket the cursor is over right now (null = not hovering)
@@ -71,6 +83,9 @@ export default function HoverPreview({
   const workersActiveRef = useRef(0);
   const pumpBusyRef = useRef(false);
   const runIdRef = useRef(0);
+  /** Refus de segment (429 / erreur reseau) subis par les decodeurs d'apercu.
+   *  Passe le seuil, la marche de fond s'arrete : voir REFUS_MAX. */
+  const refusRef = useRef(0);
   // How far apart the captured frames currently are, in seconds. Starts at the
   // coarsest pass and tightens to THUMB_INTERVAL_S as the walk refines. The
   // tooltip is allowed to stand in a neighbour up to this distance — that is
@@ -156,6 +171,7 @@ export default function HoverPreview({
     // Reset thumbnail cache on src change
     thumbCacheRef.current.clear();
     cachingActiveRef.current = false;
+    refusRef.current = 0;
     // Don't let the previous episode's density claim apply to an empty cache,
     // and don't keep showing the previous episode's frame either.
     coverageStepRef.current = THUMB_INTERVAL_S;
@@ -180,9 +196,31 @@ export default function HoverPreview({
           // stream, we grab single frames, so ABR has nothing to earn here.
           testBandwidth: false,
           capLevelToPlayerSize: false,
+          // Une vignette ratee est une vignette de moins, pas une coupure : elle
+          // ne vaut pas cinq tentatives. Par defaut hls.js reessaie quatre fois
+          // chaque segment refuse, ce qui transformait 8 refus en 42 requetes
+          // (mesure sur Mobile Suit Gundam). On laisse UNE reprise, pour le
+          // hoquet isole, et rien de plus — le lecteur, lui, garde sa patience.
+          fragLoadingMaxRetry: 1,
+          fragLoadingRetryDelay: 1500,
+          fragLoadingMaxRetryTimeout: 4000,
           xhrSetup: (xhr) => {
             xhr.withCredentials = false;
           },
+        });
+        /* Quand la source refuse, on ARRETE de marcher. Le CDN qui repond 429
+           le fait parce qu'on lui demande trop a la fois, et insister prend la
+           bande passante de la lecture elle-meme. En s'arretant, les vignettes
+           deja capturees restent affichables et le survol continue d'en
+           produire a la demande (pumpPriority, exactement le mode `lazy`) :
+           on perd la densite, jamais la fonction. */
+        hls.on(Hls.Events.ERROR, (_e, data: any) => {
+          const reseau =
+            data?.type === Hls.ErrorTypes.NETWORK_ERROR ||
+            data?.response?.code === 429;
+          if (!reseau) return;
+          refusRef.current++;
+          if (refusRef.current >= REFUS_MAX) cachingActiveRef.current = false;
         });
         hls.on(Hls.Events.MANIFEST_PARSED, () => {
           // Take the SMALLEST rung at or above 240p. The tooltip renders at

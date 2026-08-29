@@ -322,6 +322,8 @@ export default function TrailerStage() {
   const volCloseRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const trackRef = useRef<HTMLDivElement>(null);
   const originRef = useRef<{ x: number; y: number } | null>(null);
+  /** Dernieres coordonnees VUES, pour distinguer un geste d'un decor qui bouge. */
+  const lastPointRef = useRef<{ x: number; y: number } | null>(null);
   const wantMutedRef = useRef(true);
   const volumeRef = useRef(FALLBACK_VOLUME);
   const openedAtRef = useRef(0);
@@ -611,6 +613,7 @@ export default function TrailerStage() {
     setShowControls(false);
     setCursorOn(false);
     originRef.current = null;
+    lastPointRef.current = null;
 
     if (!attachment) {
       // Parked: paused rather than left running behind a card nobody is looking
@@ -1200,6 +1203,19 @@ export default function TrailerStage() {
    */
   const wake = useCallback((e: { clientX: number; clientY: number }) => {
     if (Date.now() - openedAtRef.current < OPEN_GRACE_MS) return;
+    /*
+     * Un `pointermove` ne prouve pas qu'une main a bouge.
+     *
+     * Le navigateur en emet aussi quand c'est la PAGE qui bouge sous un curseur
+     * immobile — et cette couche-ci bouge tout le temps : elle suit la carte,
+     * qui suit la grille, qui defile. Les coordonnees, elles, ne mentent pas :
+     * inchangees, rien n'a bouge. Sans ce filtre le compte a rebours d'inactivite
+     * etait repousse en boucle et les boutons restaient poses sur la video,
+     * exactement ce qu'un lecteur classique ne fait pas.
+     */
+    const last = lastPointRef.current;
+    if (last && last.x === e.clientX && last.y === e.clientY) return;
+    lastPointRef.current = { x: e.clientX, y: e.clientY };
     // Before the slop filter: the cursor comes back for ANY movement, including
     // the tiny ones that are not enough to mean "I am reaching for a control".
     showCursor();
@@ -1220,6 +1236,7 @@ export default function TrailerStage() {
     if (idleRef.current) clearTimeout(idleRef.current);
     if (cursorTimerRef.current) clearTimeout(cursorTimerRef.current);
     originRef.current = null;
+    lastPointRef.current = null;
     setShowControls(false);
     setCursorOn(false);
   }, []);
