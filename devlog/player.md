@@ -6,6 +6,73 @@ megaplay, vidmoly...).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-08-30 — L'ordre des lecteurs : fige a l'ecran, partage entre visiteurs
+
+Trois defauts d'un seul mecanisme — le classement des lecteurs — signales le
+meme jour.
+
+**Il bougeait sous les yeux.** `commitSession()` emet `SERVER_PERF_EVENT` a
+chaque fin de session de mesure ; `useServerPerfRank` y etait abonne, et
+`serverPerfRank` relisant localStorage a chaque appel, la rangee de chips se
+RETRIAIT en pleine lecture. Une barre de choix se lit autant a la position
+qu'au nom : on y revient par reflexe, sans relire. Un ordre qui bouge tout seul
+detruit ce reflexe, et apprendre en direct ne vaut pas ce prix — les mesures
+d'une page servent tres bien a la suivante.
+
+`serverPerfRankFrozen` prend donc un instantane a la premiere demande et le
+garde jusqu'au rechargement, navigation interne comprise. Les QUATRE
+consommateurs y passent ensemble (selecteur, raccourci « lecteur suivant »,
+lecteur de secours, choix par defaut de `pickServerForLangs`) : un ordre
+affiche qui differe de l'ordre choisi aurait ete une divergence de plus, et ce
+fichier en a deja paye une.
+
+**Il ne mesurait pas le debit.** Demarrage, stall, seek et qualite ne disent
+rien du DEBIT SOUTENU — or c'est lui qui separe le mieux les hotes. Sibnet sert
+un MP4 progressif a 674 Ko/s : ca ne produit ni stall (la lecture n'a pas
+commence) ni mauvais seek (personne n'a saute), seulement une attente que rien
+n'enregistrait.
+
+Nouveau critere `b` : le temps mis pour constituer **20 s d'avance** devant la
+tete de lecture. Comparable entre HLS et MP4 progressif, sans en-tete a
+negocier (`transferSize` vaut 0 en cross-origin sans Timing-Allow-Origin), sans
+requete ajoutee. 20 s et non 30 : `maxBufferLength` vaut 60 chez hls.js, il faut
+rester franchement sous le plafond. Mesure sur `progress` et non sur la boucle a
+2 500 ms, qui quantifierait le bas de l'echelle par pas de 2,5 s — precisement
+la ou les bons hotes se departagent.
+
+Premieres valeurs reelles, ansembed-vo : demarrage 588 ms, **20 s d'avance en
+3,5 s**, 1080p. Le critere discrimine comme espere.
+
+**Il ne profitait qu'a celui qui avait mesure.** Tout vivait en localStorage :
+un nouveau visiteur repartait du rang `speed` ecrit a la main, faux au moins une
+fois et incapable de suivre un hote qui se degrade. Nouvelle table Turso
+`server_perf`, une ligne par (hote, critere), ~55 au total — un agregat mis a
+jour en place, pas un journal. Trois etages, chacun ne parlant que la ou le
+suivant se tait :
+
+    `speed` (ecrit a la main)  →  l'agregat des visiteurs  →  mes mesures
+
+Un appareil qui a ses propres mesures decide donc toujours seul.
+
+Le COUT a pilote la conception : le GET ne depend d'AUCUN parametre (une seule
+cle de cache pour tout le monde, edge 1 h + 1 j de stale-while-revalidate), donc
+la charge de la base est constante quel que soit le trafic ; l'ecriture est
+ECHANTILLONNEE a 1 sur 10, en `sendBeacon` sur `pagehide`. La moyenne mobile est
+calculee EN SQL, sinon deux depots simultanes en perdraient un.
+
+**Deux pieges rencontres a la verification.**
+
+1. dev.aniscroll.com et la production partagent la MEME base. Les mesures d'une
+   preview — compilations froides, Chrome headless de test, lecteurs
+   volontairement casses — seraient versees dans l'agregat que lisent les vrais
+   visiteurs, et une fois fondues dans la moyenne rien ne les distingue. Seule
+   la production ecrit desormais ; tout le monde lit.
+2. Les lignes d'essai postees pendant la verification ont du etre retirees a la
+   main. Avec un pas de moyenne de 0,05 — volontairement court pour qu'un
+   visiteur seul ne deplace pas le verdict de tous — une valeur inventee met
+   tres longtemps a s'effacer. Verifier une table partagee laisse des traces
+   qu'il faut nettoyer soi-meme.
+
 ## 2026-08-29 — Quatre corrections pour un seul defaut : la vignette qui revient
 
 Journee de correctifs sur la page de lecture. Trois d'entre eux ont echoue, et
