@@ -1334,14 +1334,17 @@ export default function EpisodeLists({
                  corps. Le titre porte l'etendue en toutes lettres pour qui
                  n'aura jamais vu cette barre. */
               <span
-                className="flex items-center gap-1.5 text-[11px] font-bold tabular-nums"
+                className="flex items-center gap-[3px] text-[11px] font-bold tabular-nums"
                 title={`${first} – ${last}`}
               >
                 {first}
+                {/* 2 px de haut : la barre doit avoir le poids du gras qui
+                    l'entoure, sinon elle se lit comme un trait de separation
+                    et non comme le tiret d'une etendue. */}
                 <span
                   aria-hidden
                   className="rounded-full"
-                  style={{ width: 6, height: 1.5, background: "currentColor", opacity: 0.6 }}
+                  style={{ width: 6, height: 2, background: "currentColor", opacity: 0.75 }}
                 />
                 {last}
               </span>
