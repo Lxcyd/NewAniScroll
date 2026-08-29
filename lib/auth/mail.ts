@@ -10,12 +10,33 @@
  * before MAIL_FROM will be accepted.
  */
 
+import type { NextApiRequest } from "next";
+
 const ENDPOINT = "https://api.resend.com/emails";
 
-function baseUrl(): string {
-  return (
-    process.env.NEXTAUTH_URL?.replace(/\/$/, "") || "https://aniscroll.com"
-  );
+/**
+ * Where the link in the mail should point.
+ *
+ * Taken from the REQUEST that triggered the send, not from NEXTAUTH_URL: a
+ * signup on dev.aniscroll.com must get a dev link. Relying on the env var
+ * sent every preview deploy's links to production — where the route may not
+ * even exist yet — and the token then 404s instead of working.
+ *
+ * `x-forwarded-*` is what Vercel's proxy sets; the env vars are the fallback
+ * for a context with no request (there is none today, but the signature
+ * allows it).
+ */
+export function originFromRequest(req?: NextApiRequest): string {
+  const host = req?.headers["x-forwarded-host"] || req?.headers.host;
+  if (host) {
+    const proto = req?.headers["x-forwarded-proto"] || "https";
+    const h = Array.isArray(host) ? host[0] : host;
+    const p = Array.isArray(proto) ? proto[0] : proto;
+    return `${p}://${h}`;
+  }
+  if (process.env.NEXTAUTH_URL) return process.env.NEXTAUTH_URL.replace(/\/$/, "");
+  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
+  return "https://aniscroll.com";
 }
 
 function from(): string {
@@ -66,8 +87,12 @@ function layout(title: string, body: string, cta: { href: string; label: string 
   </div>`;
 }
 
-export function sendVerifyEmail(to: string, token: string): Promise<boolean> {
-  const href = `${baseUrl()}/api/v2/account/verify-email?token=${encodeURIComponent(token)}`;
+export function sendVerifyEmail(
+  to: string,
+  token: string,
+  origin: string
+): Promise<boolean> {
+  const href = `${origin}/api/v2/account/verify-email?token=${encodeURIComponent(token)}`;
   return send(
     to,
     "Confirm your AniScroll address",
@@ -79,8 +104,12 @@ export function sendVerifyEmail(to: string, token: string): Promise<boolean> {
   );
 }
 
-export function sendResetEmail(to: string, token: string): Promise<boolean> {
-  const href = `${baseUrl()}/reset-password?token=${encodeURIComponent(token)}`;
+export function sendResetEmail(
+  to: string,
+  token: string,
+  origin: string
+): Promise<boolean> {
+  const href = `${origin}/reset-password?token=${encodeURIComponent(token)}`;
   return send(
     to,
     "Reset your AniScroll password",

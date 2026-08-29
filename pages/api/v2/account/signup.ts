@@ -12,7 +12,7 @@ import {
 import { hashPassword, validatePassword } from "@/lib/auth/password";
 import { validateUsername } from "@/lib/auth/username";
 import { issueToken } from "@/lib/auth/tokens";
-import { sendVerifyEmail } from "@/lib/auth/mail";
+import { originFromRequest, sendVerifyEmail } from "@/lib/auth/mail";
 import { checkThrottle, clientIp } from "@/lib/auth/throttle";
 import { getUsersClient } from "@/lib/db/turso-users";
 import { isDataKind, putData } from "@/lib/auth/userData";
@@ -94,7 +94,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   const token = await issueToken(user.id, "verify");
-  if (token) await sendVerifyEmail(email, token);
+  if (token) await sendVerifyEmail(email, token, originFromRequest(req));
 
   return res.status(201).json({ user: toPublicUser(user) });
 }

@@ -2,7 +2,7 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import { consumeToken, issueToken, pruneTokens } from "@/lib/auth/tokens";
 import { markEmailVerified } from "@/lib/auth/users";
 import { requireUser } from "@/lib/auth/session";
-import { sendVerifyEmail } from "@/lib/auth/mail";
+import { originFromRequest, sendVerifyEmail } from "@/lib/auth/mail";
 import { checkThrottle } from "@/lib/auth/throttle";
 
 /**
@@ -37,7 +37,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     const token = await issueToken(user.id, "verify");
-    if (token) await sendVerifyEmail(user.email, token);
+    if (token) await sendVerifyEmail(user.email, token, originFromRequest(req));
     return res.status(200).json({ ok: true });
   }
 

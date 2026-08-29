@@ -13,9 +13,7 @@ import { useTranslation } from "react-i18next";
 import { Navbar } from "@/components/shared/NavBar";
 import Footer from "@/components/shared/footer";
 import { notify } from "@/lib/notifications/noticeStore";
-
-const INPUT =
-  "w-full rounded-lg bg-white/5 ring-1 ring-white/10 px-3 py-2.5 text-sm outline-none focus:ring-action/50";
+import PasswordField from "@/components/auth/PasswordField";
 
 export default function ResetPassword() {
   const { t } = useTranslation();
@@ -74,14 +72,12 @@ export default function ResetPassword() {
           ) : (
             <form onSubmit={submit}>
               <p className="text-white/60 text-sm mb-5">{t("auth.passwordHint")}</p>
-              <input
-                className={INPUT}
-                type="password"
+              <PasswordField
+                value={password}
+                onChange={setPassword}
                 autoComplete="new-password"
                 autoFocus
                 placeholder={t("auth.newPassword")}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
               />
               <button
                 type="submit"

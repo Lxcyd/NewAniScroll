@@ -2,6 +2,7 @@ import NextAuth, { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import {
   attachAniList,
+  backfillUsername,
   createAnilistAccount,
   findByAnilistId,
   findByIdentifier,
@@ -215,9 +216,12 @@ export const authOptions: NextAuthOptions = {
                 avatarUrl,
               });
             } else {
-              record =
-                (await findByAnilistId(anilistId)) ??
-                (await createAnilistAccount({ anilistId, anilistName, avatarUrl }));
+              const existing = await findByAnilistId(anilistId);
+              // Signing in again with the same AniList id lands on the very
+              // same row — that is what brings the backed-up data back.
+              record = existing
+                ? await backfillUsername(existing)
+                : await createAnilistAccount({ anilistId, anilistName, avatarUrl });
             }
 
             if (record) {

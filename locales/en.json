@@ -168,7 +168,9 @@
       }
     },
     "verifyOk": "Address confirmed",
-    "verifyInvalid": "This confirmation link has expired or has already been used"
+    "verifyInvalid": "This confirmation link has expired or has already been used",
+    "showPassword": "Show password",
+    "hidePassword": "Hide password"
   },
   "language": {
     "label": "Language",

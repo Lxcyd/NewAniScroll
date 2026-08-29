@@ -8,7 +8,7 @@
 import type { Row } from "@libsql/client";
 import { ensureUsersSchema, getUsersClient } from "../db/turso-users";
 import { mintTag, ulid } from "./ids";
-import { normalizeUsername } from "./username";
+import { normalizeUsername, sanitizeUsername } from "./username";
 
 export type UserRecord = {
   id: string;
@@ -115,15 +115,23 @@ export async function isUsernameTaken(username: string): Promise<boolean> {
  * Insert a row, retrying only on a tag collision. Any other constraint
  * failure (duplicate e-mail or pseudo) is a real error and propagates — the
  * caller checked for it and lost a race.
+ *
+ * `usernameOptional` is the exception, and it exists for the AniList path: a
+ * pseudo taken between the check and the insert must cost the pseudo, never
+ * the account. One retry without it, then the row goes in.
  */
 async function insertUser(
-  fields: Partial<UserRecord> & { username?: string | null }
+  fields: Partial<UserRecord> & {
+    username?: string | null;
+    usernameOptional?: boolean;
+  }
 ): Promise<UserRecord> {
   const client = await db();
   if (!client) throw new Error("users-db-unavailable");
 
   const now = Date.now();
   const id = ulid(now);
+  let username = fields.username ?? null;
 
   for (let attempt = 0; attempt < 5; attempt++) {
     const tag = mintTag();
@@ -137,8 +145,8 @@ async function insertUser(
         args: [
           id,
           tag,
-          fields.username ?? null,
-          fields.username ? normalizeUsername(fields.username) : null,
+          username,
+          username ? normalizeUsername(username) : null,
           fields.email ?? null,
           fields.email ? fields.email.trim().toLowerCase() : null,
           fields.emailVerifiedAt ?? null,
@@ -158,6 +166,16 @@ async function insertUser(
     } catch (err: any) {
       const message = String(err?.message || err);
       if (attempt < 4 && /users\.tag|UNIQUE.*tag/i.test(message)) continue;
+      // Someone claimed the pseudo between our check and this insert. When the
+      // caller said it was optional, drop it and try once more.
+      if (
+        username &&
+        fields.usernameOptional &&
+        /username_lower|UNIQUE.*username/i.test(message)
+      ) {
+        username = null;
+        continue;
+      }
       throw err;
     }
   }
@@ -177,17 +195,54 @@ export function createAccount(params: {
   });
 }
 
-/** AniList-only account: no e-mail (the AniList API exposes none), no password. */
-export function createAnilistAccount(params: {
+/**
+ * Turn an AniList display name into a pseudo we can actually reserve, or null
+ * when it doesn't survive our rules or is already taken. Null is not a
+ * failure: the account still gets its id and its tag, and the AniList name is
+ * what gets displayed — the pseudo can be set later from the settings.
+ */
+async function freeUsernameFrom(anilistName: string | null): Promise<string | null> {
+  const candidate = sanitizeUsername(anilistName);
+  if (!candidate) return null;
+  return (await isUsernameTaken(candidate)) ? null : candidate;
+}
+
+/**
+ * AniList-only account: no e-mail (the AniList API exposes none) and no
+ * password, but a real row all the same — id, tag, and the AniList pseudo
+ * claimed as the AniScroll one when it is free. Its data is backed up like any
+ * other account's, and signing in again with the same AniList id lands on this
+ * very row (findByAnilistId), which is what brings everything back.
+ */
+export async function createAnilistAccount(params: {
   anilistId: number;
   anilistName: string | null;
   avatarUrl: string | null;
 }) {
   return insertUser({
+    username: await freeUsernameFrom(params.anilistName),
     anilistId: params.anilistId,
     anilistName: params.anilistName,
     avatarUrl: params.avatarUrl,
+    // The pseudo is a nicety; losing a race on it must never cost the login.
+    usernameOptional: true,
   });
+}
+
+/**
+ * Give a pseudo to an AniList row that still has none — either because it
+ * predates this behaviour, or because the name was taken at the time and has
+ * since been freed. Silent on every failure: it runs on the login path.
+ */
+export async function backfillUsername(user: UserRecord): Promise<UserRecord> {
+  if (user.username || !user.anilistName) return user;
+  try {
+    const candidate = await freeUsernameFrom(user.anilistName);
+    if (!candidate) return user;
+    return (await setUsername(user.id, candidate)) ?? user;
+  } catch {
+    return user;
+  }
 }
 
 /**

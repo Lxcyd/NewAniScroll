@@ -26,6 +26,7 @@ import { validateUsername } from "@/lib/auth/username";
 
 const AuthModal = dynamic(() => import("./AuthModal"), { ssr: false });
 const UsernameField = dynamic(() => import("./UsernameField"), { ssr: false });
+const PasswordField = dynamic(() => import("./PasswordField"), { ssr: false });
 
 const INPUT =
   "w-full rounded-lg bg-white/5 ring-1 ring-white/10 px-3 py-2.5 text-sm outline-none focus:ring-action/50";
@@ -138,10 +139,16 @@ function AccountPanel({ user }: { user: any }) {
   const [currentPassword, setCurrentPassword] = useState("");
   const [password, setPassword] = useState("");
   const [authOpen, setAuthOpen] = useState(false);
+  /* Deletion asks for the password inline. It used to go through
+     window.prompt(), which shows the password in clear text in a dialog the
+     browser doesn't treat as a credential field. */
+  const [deleting, setDeleting] = useState(false);
+  const [deletePassword, setDeletePassword] = useState("");
 
-  /* An account with no username is AniList-only: it has never been through
-     signup, so it has no e-mail and no password either. */
-  const anilistOnly = !user.username;
+  /* "AniList only" = never went through signup, so no e-mail and no password.
+     The e-mail is the discriminator, NOT the pseudo: an AniList account now
+     gets its AniList name as a pseudo, so `!username` would be wrong. */
+  const anilistOnly = !user.email;
 
   async function call(url: string, init: RequestInit): Promise<any | null> {
     setBusy(true);
@@ -216,10 +223,10 @@ function AccountPanel({ user }: { user: any }) {
 
   const remove = async () => {
     if (!window.confirm(t("auth.deleteConfirm"))) return;
-    const body = user.username
-      ? JSON.stringify({ currentPassword: window.prompt(t("auth.passwordLabel")) || "" })
-      : "{}";
-    const data = await call("/api/v2/account/me", { method: "DELETE", body });
+    const data = await call("/api/v2/account/me", {
+      method: "DELETE",
+      body: JSON.stringify({ currentPassword: deletePassword }),
+    });
     if (!data) return;
     // Sign out through NextAuth so the cookie goes with the account.
     await signOut({ redirect: false });
@@ -295,22 +302,17 @@ function AccountPanel({ user }: { user: any }) {
         {changingPassword && (
           <div className="py-4 flex flex-col gap-2">
             {!anilistOnly && (
-              <input
-                className={INPUT}
-                type="password"
-                autoComplete="current-password"
-                placeholder={t("auth.currentPassword")}
+              <PasswordField
                 value={currentPassword}
-                onChange={(e) => setCurrentPassword(e.target.value)}
+                onChange={setCurrentPassword}
+                placeholder={t("auth.currentPassword")}
               />
             )}
-            <input
-              className={INPUT}
-              type="password"
-              autoComplete="new-password"
-              placeholder={t("auth.newPassword")}
+            <PasswordField
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              onChange={setPassword}
+              placeholder={t("auth.newPassword")}
+              autoComplete="new-password"
             />
             <button
               type="button"
@@ -358,12 +360,24 @@ function AccountPanel({ user }: { user: any }) {
           <button
             type="button"
             disabled={busy}
-            onClick={remove}
+            onClick={() => (deleting ? remove() : setDeleting(true))}
             className="shrink-0 px-3 py-1.5 rounded-lg bg-red-500/15 ring-1 ring-red-500/30 text-sm text-red-300 hover:bg-red-500/25 disabled:opacity-50"
           >
             {t("auth.delete")}
           </button>
         </Row>
+        {/* The password is asked for here, in a real credential field, only
+            once the button has been armed. */}
+        {deleting && !anilistOnly && (
+          <div className="py-4">
+            <PasswordField
+              value={deletePassword}
+              onChange={setDeletePassword}
+              placeholder={t("auth.currentPassword")}
+              autoFocus
+            />
+          </div>
+        )}
       </div>
 
       <AuthModal

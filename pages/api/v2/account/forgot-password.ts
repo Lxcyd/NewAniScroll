@@ -1,7 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { findByEmail } from "@/lib/auth/users";
 import { issueToken } from "@/lib/auth/tokens";
-import { sendResetEmail } from "@/lib/auth/mail";
+import { originFromRequest, sendResetEmail } from "@/lib/auth/mail";
 import { checkThrottle, clientIp } from "@/lib/auth/throttle";
 
 /**
@@ -27,7 +27,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   // An AniList-only row has no password to reset; same silent 200.
   if (user?.email && user.passwordHash) {
     const token = await issueToken(user.id, "reset");
-    if (token) await sendResetEmail(user.email, token);
+    if (token) await sendResetEmail(user.email, token, originFromRequest(req));
   }
 
   return res.status(200).json({ ok: true });

@@ -71,3 +71,25 @@ export function validateUsername(raw: unknown): UsernameError | null {
 export function normalizeUsername(name: string): string {
   return name.trim().toLowerCase();
 }
+
+/**
+ * Best-effort conversion of a foreign display name (an AniList pseudo) into
+ * something our rules accept. Returns null when nothing usable survives.
+ *
+ * AniList's charset is wider than ours, so this drops what we don't allow
+ * rather than refusing outright — a name is a convenience, and the account's
+ * real identity is its tag. A null result is not a failure: the account is
+ * created without a pseudo and the AniList name is still shown.
+ */
+export function sanitizeUsername(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const cleaned = raw
+    .trim()
+    .replace(/\s+/g, "_") // spaces become the separator we do allow
+    .replace(/[^a-zA-Z0-9_.]/g, "") // drop everything outside our charset
+    .replace(/[._]{2,}/g, "_") // collapse doubled separators
+    .replace(/^[._]+|[._]+$/g, "") // and trim them off both ends
+    .slice(0, MAX_USERNAME_LENGTH);
+
+  return validateUsername(cleaned) === null ? cleaned : null;
+}

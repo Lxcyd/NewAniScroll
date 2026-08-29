@@ -1,5 +1,6 @@
 import { SparklesIcon } from "@heroicons/react/20/solid";
 import { CalendarIcon, HomeIcon } from "@heroicons/react/24/outline";
+import { UserIcon } from "@heroicons/react/24/solid";
 import { signOut, useSession } from "next-auth/react";
 import dynamic from "next/dynamic";
 import Image from "next/image";
@@ -21,6 +22,11 @@ export default function MobileNav({ hideProfile = false }: MobileNavProps) {
   const { t } = useTranslation();
   const [isVisible, setIsVisible] = useState(false);
   const [authOpen, setAuthOpen] = useState(false);
+
+  const avatarUrl: string | undefined =
+    sessions?.user?.image?.large ||
+    sessions?.user?.image?.medium ||
+    (typeof sessions?.user?.image === "string" ? sessions.user.image : undefined);
 
   const handleShowClick = () => {
     setIsVisible(true);
@@ -59,18 +65,30 @@ export default function MobileNav({ hideProfile = false }: MobileNavProps) {
       <div
         className={`transition-all duration-150 subpixel-antialiased z-[500]`}
       >
+        {/* An AniScroll account has no AniList avatar and no AniList profile
+            page: `src` would be undefined, next/image throws, and the whole
+            bar disappears. Fall back to the generic icon and to the account
+            settings. */}
         {isVisible && sessions && !hideProfile && (
           <Link
-            href={`/en/profile/${sessions?.user?.name}`}
+            href={
+              sessions?.user?.anilistId
+                ? `/en/profile/${sessions?.user?.name}`
+                : "/en/settings#account"
+            }
             className="fixed lg:hidden bottom-[100px] w-[60px] h-[60px] flex items-center justify-center right-[20px] rounded-full z-50 bg-[#17171f]"
           >
-            <Image
-              src={sessions?.user?.image?.large}
-              alt="user avatar"
-              width={60}
-              height={60}
-              className="object-cover w-[60px] h-[60px] rounded-full"
-            />
+            {avatarUrl ? (
+              <Image
+                src={avatarUrl}
+                alt="user avatar"
+                width={60}
+                height={60}
+                className="object-cover w-[60px] h-[60px] rounded-full"
+              />
+            ) : (
+              <UserIcon className="w-8 h-8 text-white/70" />
+            )}
           </Link>
         )}
         {isVisible && (

@@ -15,6 +15,7 @@ import { useTranslation } from "react-i18next";
 import { notify } from "@/lib/notifications/noticeStore";
 import { snapshotAll } from "@/lib/list/cloudSync";
 import UsernameField from "./UsernameField";
+import PasswordField from "./PasswordField";
 
 type View = "signin" | "signup" | "forgot";
 
@@ -176,18 +177,11 @@ export default function AuthModal({
                   onChange={(e) => setIdentifier(e.target.value)}
                 />
               </label>
-              <label className="block">
-                <span className="block text-sm text-white/70 mb-1.5">
-                  {t("auth.passwordLabel")}
-                </span>
-                <input
-                  className={INPUT}
-                  type="password"
-                  autoComplete="current-password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                />
-              </label>
+              <PasswordField
+                label={t("auth.passwordLabel")}
+                value={password}
+                onChange={setPassword}
+              />
             </>
           )}
 
@@ -211,21 +205,13 @@ export default function AuthModal({
                   onChange={(e) => setEmail(e.target.value)}
                 />
               </label>
-              <label className="block">
-                <span className="block text-sm text-white/70 mb-1.5">
-                  {t("auth.passwordLabel")}
-                </span>
-                <input
-                  className={INPUT}
-                  type="password"
-                  autoComplete="new-password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                />
-                <span className="block mt-1.5 text-xs text-white/40">
-                  {t("auth.passwordHint")}
-                </span>
-              </label>
+              <PasswordField
+                label={t("auth.passwordLabel")}
+                value={password}
+                onChange={setPassword}
+                autoComplete="new-password"
+                hint={t("auth.passwordHint")}
+              />
             </>
           )}
 
