@@ -6,6 +6,113 @@ megaplay, vidmoly...).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-08-29 — Quatre corrections pour un seul defaut : la vignette qui revient
+
+Journee de correctifs sur la page de lecture. Trois d'entre eux ont echoue, et
+ils ont echoue de la meme facon — ce qui est la seule chose interessante ici.
+
+**Le defaut, tel qu'il se voit.** Avant la lecture, deux calques peuvent
+couvrir la video : la vignette de l'episode (`as-poster`) et un voile noir
+(`as-veil`). La video, elle, ouvre presque toujours sur un fondu — donc sur
+une image vide. La vignette existe pour ne pas montrer ce vide.
+
+**Ce qui n'allait pas.** Ces deux calques etaient gouvernes par DEUX predicats
+distincts, tous deux derives d'un etat a quatre valeurs (`true` / `false` /
+`null` / `undefined`). Deux predicats pour un seul fait : ils pouvaient etre en
+desaccord, et chaque desaccord etait un defaut visible. Les quatre signalements
+de la journee sont le meme aller-retour, sous quatre habillages :
+
+| tentative | ce qu'on voyait |
+| --- | --- |
+| seuil a 500 ms | vignette -> video -> vignette |
+| seuil a 3 s | idem, plus tard |
+| pilotage par l'etat (`videoAUneImage`) | vignette -> **noir** -> vignette (la vignette partait, le voile restait) |
+| valeur par defaut inversee | vignette -> video -> vignette (fenetre de mesure) |
+
+Mesure de la troisieme, sur sibnet : la video obtient son image a 8,02 s
+(`readyState` 4, 1440 px), la vignette s'efface aussitot — mais le verdict
+n'est pas encore tombe, donc le voile RESTE. Elle s'efface pour laisser voir du
+noir, puis revient a 8,82 s. **Un demi-seconde de noir, sur chaque lecteur.**
+
+**Ce qui les a toutes fait echouer.** Je cherchais chaque fois *quoi afficher
+dans tel etat*. Or le defaut n'etait jamais la valeur choisie : c'etait le
+RETOUR EN ARRIERE. Un calque qui part puis revient se voit toujours, quelle que
+soit la valeur. La propriete a garantir est la **monotonie**, pas la justesse
+case par case.
+
+D'ou la forme finale, un predicat unique et monotone :
+
+```
+vignetteVisible = !(videoAUneImage && (verdict === true || verdict === null))
+```
+
+La video prend la main quand deux faits sont acquis — elle a une image decodee,
+ET la question de sa premiere frame est tranchee en sa faveur — et ne la rend
+plus. Le voile a disparu avec le second predicat, CSS compris.
+
+**Une hypothese fausse, ecartee par la mesure avant d'ecrire du code.** Je
+soupconnais la lecture canvas de rendre du noir a tort, en lisant une frame
+decodee mais pas encore *presentee* (`readyState >= 2` dit « decodable », pas
+« peinte »). C'etait faux, et de facon nette : sur trois fichiers sans rapport,
+trois lectures espacees de 300 ms rendent la meme valeur, identique a celle
+relevee apres un `play()` puis un retour a `currentTime = 0` — donc sur une
+frame certainement presentee.
+
+| fichier | frame 0 (moyenne / amplitude) | a 1,17 s |
+| --- | --- | --- |
+| One Piece 3, megaplay (HLS) | 0 / 0 | 77,9 |
+| Frieren 2, megaplay | 250,7 / 4 | 249,8 / 108 |
+| One Piece 5, sibnet (MP4) | 0,85 / 0 | 79,8 |
+
+Ces episodes ouvrent reellement sur un fondu — au noir, au blanc, au noir. La
+mesure est juste, le verdict aussi, et la vignette ne couvrait rien. Le
+durcissement prevu (`requestVideoFrameCallback`, purge du memo de verdicts) a
+donc ete **abandonne plutot que fait pour rien**.
+
+**Verification** (`scratchpad/poster-trace.mjs`, sur dev) : opacite de la
+vignette 1 -> 1 sur sibnet et sur ansembed (verdict « frame vide »), et
+1 -> 0 au premier play, sans retour pendant 14 s de lecture.
+
+## 2026-08-29 — Une panne de lecteur doit se dire
+
+Meme journee, autre moitie du probleme : « spinner infini », « ecran noir avec
+bouton play », « bascule automatique », sur tous les lecteurs. La chaine serveur
+etait pourtant saine — `/api/v2/source` repondait 200 sur six lecteurs, sibnet
+resolvait en 0,10 s. Ce qui manquait n'etait pas un correctif de resolution,
+c'etait de l'**information**.
+
+**Le spinner n'etait pas un etat d'arrivee.** `playerNode` rend `<SpinLoader/>`
+tant que `episodeNavigation` est nul ; or celui-ci n'est pose que par un effet
+qui abandonne sur `if (!info) return`. Metadonnees absentes = roue qui ne
+s'arrete jamais — alors que la source est peut-etre deja resolue, `earlySource`
+ne touchant jamais AniList. Le lecteur n'a pas a dependre des metadonnees pour
+exister : une navigation minimale est desormais construite depuis l'URL, et
+passe 15 s la carte d'erreur remplace la roue. Cette carte existait deja ; elle
+etait **inatteignable** dans les deux cas ou elle sert le plus.
+
+**La bascule automatique partait muette.** Le lecteur changeait sous les yeux
+sans dire lequel avait lache — lu comme une panne du site plutot que comme le
+repli qu'elle est. Elle s'annonce maintenant, en nommant les deux lecteurs.
+L'annonce vient d'un effet et non de `markFailed` : la cible y est choisie dans
+un updater d'etat, que React n'execute pas forcement au moment de l'appel.
+
+**L'absence prouvee masque, l'echec grise.** `shouldShowServer` retirait tout
+chip en echec, quelle qu'en soit la raison — donc un hote retabli n'etait plus
+atteignable et la barre se vidait. Les deux natures d'echec sont maintenant
+distinguees : « cet episode n'existe pas chez cet hote » (204/404) retire le
+chip ; une panne le laisse, grise et cliquable, avec sa raison en infobulle.
+
+**Et une sur-interpretation cote serveur.** `hostDown` — « cet hote nous refuse
+TOUT » — etait arme par `sibnetShellBlocked()`, un memo declenche par UN SEUL
+400/403 pour dix minutes, et qui ne coupe qu'UNE des deux jambes : la page de
+visionnage continue de resoudre. On condamnait donc un lecteur qui repondait
+encore en 0,10 s, a l'echelle du lambda. Seul le throttle 429, global par
+nature, arme encore `hostDown`.
+
+Hors de portee, et mesure : le CDN de sibnet sert **674 Ko/s sur un MP4
+progressif** (pas de HLS, donc pas de palier de qualite inferieur). Il n'y a
+aucune image avant plusieurs secondes, et rien chez nous ne peut l'accelerer.
+
 ## 2026-08-29 — Le vrai cout d'un visionnage : 310 requetes, dont 51 utiles
 
 Suite de l'entree precedente. Le correctif des 429 avait reduit la RAFALE
