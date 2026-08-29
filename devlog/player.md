@@ -6,6 +6,63 @@ megaplay, vidmoly...).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-08-29 — Le vrai cout d'un visionnage : 310 requetes, dont 51 utiles
+
+Suite de l'entree precedente. Le correctif des 429 avait reduit la RAFALE
+(six decodeurs -> trois) sans toucher au TOTAL : la marche des vignettes
+demandait toujours autant de segments, simplement moins vite.
+
+**Le compte.** Sur une page de lecture, `tools/browser-check/proxy-429.mjs`
+donne ~310 requetes vers le Worker Cloudflare, dont **51 pour la lecture** et
+le reste pour les vignettes de la barre. C'est structurel : capturer une
+vignette veut dire decoder l'episode, donc retelecharger une image toutes les
+dix secondes de film — ~145 segments pour 24 minutes, a chaque visionnage et
+pour chaque visiteur.
+
+Le palier gratuit des Workers est de 100 000 requetes/jour. A 310 par
+visionnage, le site plafonnait vers **320 lectures quotidiennes**. C'est le
+genre de mur qu'on ne voit pas venir : rien ne ralentit, rien n'echoue, et un
+jour tout s'arrete.
+
+**La correction n'est pas un reglage, c'est une question de qui paie.** La
+plupart des visiteurs regardent sans jamais toucher la barre de progression.
+Ils payaient integralement une fonctionnalite qu'ils n'ouvrent pas. Les
+decodeurs ne demarrent donc qu'au **premier survol de la barre**. La machinerie
+existait deja : `pumpPriority` sert la position survolee a la demande (c'est le
+mode `lazy` des CDN fragiles), la marche grossier-vers-fin remplit le reste
+derriere.
+
+Mesure sur dev, meme banc, avant puis apres un `pointermove` sur la barre :
+
+    avant : videos cachees = [avec-src, sans-src, sans-src, sans-src] | proxy 57
+    apres : videos cachees = [avec-src, avec-src, avec-src, avec-src] | proxy 354
+
+C'est la preuve qui compte : la fonctionnalite n'est pas coupee, elle est
+differee. Ce que le scrubeur perd est un seek d'attente sur la toute premiere
+vignette — exactement le cas pour lequel le placeholder du tooltip existe.
+
+**310 -> 55 requetes par visionnage, verifie en production.** Le plafond passe
+de ~320 a ~1 800 lectures par jour.
+
+**Deux pieges rencontres en le verifiant.**
+
+1. *La premiere mesure en prod donnait encore 362.* Le deploiement n'avait pas
+   fini de se propager. Le signe qui ne trompe pas : le nom du chunk servi
+   etait celui d'AVANT le correctif. Cinq minutes plus tard, 55. Toujours
+   verifier QUEL build repond avant de conclure qu'un correctif ne prend pas.
+2. *Upstash n'etait pas le sujet.* Le reflexe, sur ce projet, est d'aller voir
+   Redis (cf. la crise de juillet). Le rapport du jour dit 6 685 commandes/jour,
+   **40 % du plafond gratuit** en projection. Le cout qui montait etait celui du
+   Worker. Le nom du fournisseur qu'on a deja fait exploser une fois n'est pas
+   un diagnostic.
+
+**Au passage** : `/api/v2/changelog-popup` partait **quatre fois par
+chargement** pour deux fichiers markdown — le composant se remonte a chaque
+navigation et son effet se rejoue a chaque changement de langue. La promesse
+(pas le resultat : la promesse, pour que deux montages simultanes partagent le
+meme vol) est desormais mise en cache au niveau du module. Quatre -> deux, une
+fois par onglet.
+
 ## 2026-08-29 — AniSkip interroge sur une serie qu'il ignore
 
 Une ligne rouge dans la console : `404` sur `api.aniskip.com/v2/skip-times/80/7`.

@@ -52,7 +52,11 @@ construit depuis `git log --since=<derniere release>`.
   du hit CDN etait faussee par un cron supprime. -> `devlog/infra.md`
 - **Surveiller apres la v0.0.8** : le compteur Upstash sur 48 h — six caches
   reconstruits d'un coup, c'est exactement le profil qui sature le plafond
-  gratuit en milieu de mois (`devlog/infra.md`).
+  gratuit en milieu de mois (`devlog/infra.md`). Etat au 29/08 : 6 685
+  commandes/jour, **40 %** du plafond en projection — confortable.
+- **Le cout qui montait etait celui du Worker Cloudflare, pas Upstash** : 310
+  requetes par visionnage contre un palier gratuit de 100 000/jour. Ramene a
+  55 le 29/08 (PR #9). A re-mesurer si la page de lecture change encore.
 - **Bandes noires 4:3** (Mobile Suit Gundam) : mesure faite, fichier 1440x1080
   sans bandes incrustees, donc la boite du lecteur reste en 16:9 alors que
   `videoRatio` sait la mesurer. Cause non tracee, correctif non ecrit.
@@ -107,6 +111,7 @@ construit depuis `git log --since=<derniere release>`.
 
 ### Lecteur video & lecteurs distants — [`devlog/player.md`](devlog/player.md)
 
+- 2026-08-29 — Le vrai cout d'un visionnage : 310 requetes, dont 51 utiles
 - 2026-08-29 — AniSkip interroge sur une serie qu'il ignore
 - 2026-08-29 — Les vignettes de la barre faisaient refuser la lecture (429)
 - 2026-08-29 — La premiere frame blanche, et le voile qui manquait
