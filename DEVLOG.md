@@ -71,6 +71,7 @@ construit depuis `git log --since=<derniere release>`.
 | Detecteur OP/ED | [`devlog/oped.md`](devlog/oped.md) | 11 | tools/opening-detector, replis F1-F7, garde-fous P1-P8, audits |
 | Pages, saisons, relations & sources de donnees | [`devlog/site.md`](devlog/site.md) | 15 | saisons, graphe de franchise, hero, navbar, TMDB/fanart/ani.zip |
 | Infra, cout, cache & releases | [`devlog/infra.md`](devlog/infra.md) | 15 | Upstash, Fluid CPU, crons, usage-monitor, analytics, releases |
+| Comptes, identite & sauvegarde | [`devlog/comptes.md`](devlog/comptes.md) | 1 | invite local, compte AniScroll, lien AniList, cloudSync, onglet Users |
 
 ## Index des entrees
 
@@ -208,3 +209,7 @@ construit depuis `git log --since=<derniere release>`.
 - 2026-07-30 (suite) — `tools/usage-monitor` : collecteur de diagnostic usage quotidien
 - 2026-07-30 — Upstash toujours ~31k cmd/j après le fix edge-cache : le vrai volume = re-probe des `absent` sur `/source`
 - 2026-07-29 — Explosion du Fluid Active CPU (Vercel) depuis le 18/07 : plafond Upstash gratuit
+
+### Comptes, identite & sauvegarde — [`devlog/comptes.md`](devlog/comptes.md)
+
+- 2026-08-30 — Trois etats d'identite, et l'invite qui n'existe pas en base

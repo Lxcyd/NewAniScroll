@@ -3,6 +3,7 @@ import AdminLayout from "@/components/admin/layout";
 import AppendMeta from "@/components/admin/meta/AppendMeta";
 import MetadataEditor from "@/components/admin/meta/MetadataEditor";
 import AdminReports from "@/components/admin/reports";
+import UsersCard from "@/components/admin/dashboard/UsersCard";
 import { isAdminSession } from "@/lib/auth/isAdmin";
 import { getServerSession } from "next-auth";
 import { authOptions } from "pages/api/auth/[...nextauth]";
@@ -38,11 +39,7 @@ export default function Admin({ api }) {
             <MetadataEditor />
           </div>
         )}
-        {page === 3 && (
-          <p className="flex-center h-full text-white/40">
-            Users coming soon.
-          </p>
-        )}
+        {page === 3 && <UsersCard />}
         {page === 4 && (
           <p className="flex-center h-full text-white/40">
             Settings coming soon.

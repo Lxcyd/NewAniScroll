@@ -55,6 +55,10 @@ const SyncDirectionModal = dynamic(
   () => import("@/components/shared/SyncDirectionModal"),
   { ssr: false },
 );
+const CloudMergeModal = dynamic(
+  () => import("@/components/shared/CloudMergeModal"),
+  { ssr: false },
+);
 
 /** Mounts the palette on its first open — see useMountedOnce. */
 function SearchPaletteMount() {
@@ -172,6 +176,83 @@ function SyncBootstrap() {
       open={showDirection}
       onChoose={choose}
       onCancel={cancel}
+      busy={busy}
+    />
+  );
+}
+
+/**
+ * Cloud backup bootstrap, for an AniScroll account (session.user.uid).
+ *
+ * Kept apart from SyncBootstrap on purpose: that one negotiates with AniList,
+ * this one only mirrors the device's own stores to our database. A visitor can
+ * have either, both, or neither.
+ *
+ * On the first authenticated render it pulls, applies what is unambiguous, and
+ * only opens the merge modal for the categories that moved on both sides. Then
+ * it subscribes to the stores for the rest of the session.
+ */
+function CloudSyncBootstrap() {
+  const { data: session, status } = useSession();
+  const [conflicts, setConflicts] = useState<any[]>([]);
+  const [busy, setBusy] = useState(false);
+
+  const uid = (session as any)?.user?.uid as string | undefined;
+
+  useEffect(() => {
+    if (status === "loading") return;
+    let stop: (() => void) | null = null;
+    let cancelled = false;
+
+    (async () => {
+      // Loaded lazily: a signed-out visitor never pays for this chunk.
+      const cloud = await import("@/lib/list/cloudSync");
+      if (!uid) {
+        cloud.forget();
+        return;
+      }
+      try {
+        const result = await cloud.pullAll();
+        if (cancelled) return;
+        if (result.conflicts.length) setConflicts(result.conflicts);
+      } catch {
+        // A failed pull must not stop the pushes: the device stays the source
+        // of truth and will re-pull on the next load.
+      }
+      if (!cancelled) stop = cloud.start();
+    })();
+
+    return () => {
+      cancelled = true;
+      stop?.();
+    };
+  }, [uid, status]);
+
+  const choose = async (choice: "keepCloud" | "keepDevice" | "merge") => {
+    setBusy(true);
+    try {
+      const cloud = await import("@/lib/list/cloudSync");
+      // "keepDevice" pushes everything; the other two keep the cloud copy for
+      // the disputed categories, which pullAll applies once the local
+      // bookkeeping no longer claims a divergence.
+      if (choice === "keepDevice") await cloud.pushAll();
+      else {
+        cloud.forget();
+        await cloud.pullAll();
+        if (choice === "merge") await cloud.pushAll();
+      }
+    } finally {
+      setBusy(false);
+      setConflicts([]);
+    }
+  };
+
+  return (
+    <CloudMergeModal
+      open={conflicts.length > 0}
+      conflicts={conflicts}
+      onChoose={choose}
+      onCancel={() => setConflicts([])}
       busy={busy}
     />
   );
@@ -489,6 +570,7 @@ export default function App({
                 <ChangeLogs />
                 <AnilistHealthBanner />
                 <SyncBootstrap />
+                <CloudSyncBootstrap />
                 {/* Site-wide anime hover preview. One delegated listener +
                     one portal for every card on the page — see
                     lib/preview/anchor.ts for how a card opts in. */}

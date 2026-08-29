@@ -1,6 +1,7 @@
 import { SparklesIcon } from "@heroicons/react/20/solid";
 import { CalendarIcon, HomeIcon } from "@heroicons/react/24/outline";
-import { signIn, signOut, useSession } from "next-auth/react";
+import { signOut, useSession } from "next-auth/react";
+import dynamic from "next/dynamic";
 import Image from "next/image";
 import Link from "next/link";
 import { useState } from "react";
@@ -10,10 +11,16 @@ type MobileNavProps = {
   hideProfile?: boolean;
 };
 
+/* Same as the desktop nav: the form only loads when someone asks to sign in. */
+const AuthModal = dynamic(() => import("@/components/auth/AuthModal"), {
+  ssr: false,
+});
+
 export default function MobileNav({ hideProfile = false }: MobileNavProps) {
   const { data: sessions }: { data: any } = useSession();
   const { t } = useTranslation();
   const [isVisible, setIsVisible] = useState(false);
+  const [authOpen, setAuthOpen] = useState(false);
 
   const handleShowClick = () => {
     setIsVisible(true);
@@ -153,7 +160,7 @@ export default function MobileNav({ hideProfile = false }: MobileNavProps) {
                 </button>
               ) : (
                 <button
-                  onClick={() => signIn("AniListProvider")}
+                  onClick={() => setAuthOpen(true)}
                   className="group flex gap-[1.5px] flex-col items-center "
                 >
                   <div>
@@ -201,6 +208,7 @@ export default function MobileNav({ hideProfile = false }: MobileNavProps) {
           </div>
         )}
       </div>
+      <AuthModal open={authOpen} onClose={() => setAuthOpen(false)} />
     </>
   );
 }

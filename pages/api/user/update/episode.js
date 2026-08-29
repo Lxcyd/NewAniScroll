@@ -12,28 +12,32 @@ import {
 export default async function handler(req, res) {
   const session = await getServerSession(req, res, authOptions);
   if (session) {
-    // Signed in
+    // Signed in.
+    //
+    // `name` comes from the SESSION on every branch. PUT and GET used to take
+    // it from the body / query without comparing it to the session, so a
+    // signed-in visitor could overwrite or read another account's watch
+    // history. Legacy route (Prisma/Postgres), superseded by
+    // /api/v2/account/sync — pinned rather than rewritten.
+    const name = session.user?.name;
+    if (!name) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
     try {
       switch (req.method) {
         case "POST": {
-          const { name, id } = JSON.parse(req.body);
-
-          if (session.user.name !== name) {
-            return res.status(401).json({ message: "Unauthorized" });
+          const { id } = JSON.parse(req.body);
+          const episode = await createList(name, id);
+          if (!episode) {
+            return res
+              .status(200)
+              .json({ message: "Episode is already created" });
           } else {
-            const episode = await createList(name, id);
-            if (!episode) {
-              return res
-                .status(200)
-                .json({ message: "Episode is already created" });
-            } else {
-              return res.status(201).json(episode);
-            }
+            return res.status(201).json(episode);
           }
         }
         case "PUT": {
           const {
-            name,
             id,
             watchId,
             title,
@@ -71,8 +75,7 @@ export default async function handler(req, res) {
           }
         }
         case "GET": {
-          const { name, id } = req.query;
-          // console.log(req.query);
+          const { id } = req.query;
           const episode = await getEpisode(name, id);
           if (!episode) {
             return res.status(404).json({ message: "Episode not found" });
@@ -81,24 +84,20 @@ export default async function handler(req, res) {
           }
         }
         case "DELETE": {
-          const { name, id, aniId } = req.body;
-          if (session.user.name !== name) {
-            return res.status(401).json({ message: "Unauthorized" });
-          } else {
-            if (id) {
-              const episode = await deleteEpisode(name, id);
-              if (!episode) {
-                return res.status(404).json({ message: "Episode not found" });
-              } else {
-                return res.status(200).json({ message: "Episode deleted" });
-              }
-            } else if (aniId) {
-              const episode = await deleteList(name, aniId);
-              if (!episode) {
-                return res.status(404).json({ message: "Episode not found" });
-              } else {
-                return res.status(200).json({ message: "Episode deleted" });
-              }
+          const { id, aniId } = req.body;
+          if (id) {
+            const episode = await deleteEpisode(name, id);
+            if (!episode) {
+              return res.status(404).json({ message: "Episode not found" });
+            } else {
+              return res.status(200).json({ message: "Episode deleted" });
+            }
+          } else if (aniId) {
+            const episode = await deleteList(name, aniId);
+            if (!episode) {
+              return res.status(404).json({ message: "Episode not found" });
+            } else {
+              return res.status(200).json({ message: "Episode deleted" });
             }
           }
         }

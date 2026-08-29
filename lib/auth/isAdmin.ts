@@ -34,7 +34,15 @@ export function isAdminName(name?: string | null): boolean {
   return getAdminNames().includes(lower);
 }
 
-/** Returns true if the given NextAuth session belongs to an admin. */
+/**
+ * Returns true if the given NextAuth session belongs to an admin.
+ *
+ * Two independent sources, either of which is enough:
+ *   - `users.role === 'admin'` in the accounts database (carried on the JWT);
+ *   - the historical NEXT_PUBLIC_ADMIN_USERNAMES list, kept so nothing that
+ *     works today stops working when the accounts DB is unset.
+ */
 export function isAdminSession(session: any): boolean {
+  if (session?.user?.role === "admin") return true;
   return isAdminName(session?.user?.name);
 }

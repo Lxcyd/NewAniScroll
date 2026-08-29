@@ -6,11 +6,20 @@ import { createUser, deleteUser, getUser, updateUser } from "@/prisma/user";
 export default async function handler(req, res) {
   const session = await getServerSession(req, res, authOptions);
   if (session) {
-    // Signed in
+    // Signed in.
+    //
+    // The identity comes from the SESSION, never from the request: every
+    // branch below used to take `name` from the body or the query, so any
+    // signed-in visitor could read, edit or wipe someone else's profile.
+    // These routes are legacy (Prisma/Postgres, superseded by
+    // /api/v2/account/*) — pinning them to the session is the cheap fix.
+    const name = session.user?.name;
+    if (!name) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
     try {
       switch (req.method) {
         case "POST": {
-          const { name } = req.body;
           const new_user = await createUser(name);
           if (!new_user) {
             return res.status(200).json({ message: "User is already created" });
@@ -19,7 +28,7 @@ export default async function handler(req, res) {
           }
         }
         case "PUT": {
-          const { name, settings } = req.body;
+          const { settings } = req.body;
           const user = await updateUser(name, settings);
           if (!user) {
             return res.status(200).json({ message: "Can't update settings" });
@@ -28,7 +37,6 @@ export default async function handler(req, res) {
           }
         }
         case "GET": {
-          const { name } = req.query;
           const user = await getUser(name);
           if (!user) {
             return res.status(404).json({ message: "User not found" });
@@ -37,17 +45,11 @@ export default async function handler(req, res) {
           }
         }
         case "DELETE": {
-          const { name } = req.body;
-          // return res.status(200).json({ name });
-          if (session.user.name !== name) {
-            return res.status(401).json({ message: "Unauthorized" });
+          const user = await deleteUser(name);
+          if (!user) {
+            return res.status(404).json({ message: "User not found" });
           } else {
-            const user = await deleteUser(name);
-            if (!user) {
-              return res.status(404).json({ message: "User not found" });
-            } else {
-              return res.status(200).json(user);
-            }
+            return res.status(200).json(user);
           }
         }
         default: {

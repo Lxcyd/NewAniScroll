@@ -70,7 +70,9 @@ import {
   BellIcon,
   CursorArrowRaysIcon,
   WrenchScrewdriverIcon,
+  UserCircleIcon,
 } from "@heroicons/react/24/outline";
+import AccountSection from "@/components/auth/AccountSection";
 import { useSession, signIn, signOut } from "next-auth/react";
 import { useTranslation } from "react-i18next";
 import { notify } from "@/lib/notifications/noticeStore";
@@ -242,6 +244,9 @@ type SectionDef = {
 };
 
 const SECTIONS: SectionDef[] = [
+  /* Account comes first and is shown to everyone: a signed-out visitor needs
+     it too (guest name, and the way in). */
+  { id: "account", labelKey: "auth.sectionTitle", Icon: UserCircleIcon },
   { id: "language", labelKey: "settings.language.title", Icon: LanguageIcon },
   { id: "browsing", labelKey: "settings.browsing.title", Icon: CursorArrowRaysIcon },
   { id: "player", labelKey: "settings.player.title", Icon: PlayCircleIcon },
@@ -820,6 +825,9 @@ export default function Settings() {
           </p>
 
           <div className="divide-y divide-white/10">
+          {/* ── Account (guest identity, or the AniScroll account) ─ */}
+          <AccountSection />
+
           {/* ── Language (anime titles + interface) ──────────────── */}
           <section id="language" className="pb-10 scroll-mt-24">
             <h2 className="text-xl font-semibold mb-1">{t("settings.language.title")}</h2>
