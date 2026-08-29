@@ -189,7 +189,17 @@ export default function ServerSelector({
         })}
       </div>
 
-      {available.length > 1 && (
+      {/* Affiche des qu'il y a UNE langue, pas deux.
+          Le groupe ne servait qu'a choisir, donc il disparaissait quand il n'y
+          avait rien a choisir — et avec lui l'information : la barre ne disait
+          plus si ce qu'on regarde est du VOSTFR, de la VF ou du multi, alors
+          que c'est precisement le cas ou le spectateur n'a aucun autre moyen de
+          l'apprendre (pas d'onglet voisin pour deduire). Un intitule vaut aussi
+          pour renseigner, pas seulement pour commander.
+          A une seule langue il devient un LABEL et non un bouton : un onglet
+          qui ne mene qu'a lui-meme se propose pour rien. Meme boite, meme
+          calque de fond, donc aucun deplacement dans la barre. */}
+      {available.length > 0 && (
         <div
           ref={tabsRef}
           className="relative shrink-0 flex items-center gap-0.5 rounded-lg bg-black/30 p-0.5"
@@ -219,22 +229,25 @@ export default function ServerSelector({
               clicked. So the tab holding the host that's actually playing
               carries a dot; without it, browsing another language would
               leave no active chip anywhere and hide where the stream is. */}
-          {available.map((l) => (
-            <button
-              key={l}
-              type="button"
-              onClick={() => setPicked(l)}
-              data-lang-active={l === lang ? "" : undefined}
-              className={`relative z-10 rounded-[6px] px-2.5 py-1 text-[11px] font-karla font-semibold uppercase tracking-wide transition-colors ${
-                l === lang ? "text-white" : "text-white/60 hover:text-white"
-              }`}
-            >
-              {t(LANG_LABELS[l])}
-              {l === activeLang && l !== lang && (
-                <span className="absolute right-1 top-1 h-1 w-1 rounded-full bg-action" />
-              )}
-            </button>
-          ))}
+          {available.map((l) => {
+            const seul = available.length === 1;
+            const Balise = seul ? "span" : "button";
+            return (
+              <Balise
+                key={l}
+                {...(seul ? {} : { type: "button", onClick: () => setPicked(l) })}
+                data-lang-active={l === lang ? "" : undefined}
+                className={`relative z-10 rounded-[6px] px-2.5 py-1 text-[11px] font-karla font-semibold uppercase tracking-wide transition-colors ${
+                  l === lang ? "text-white" : "text-white/60 hover:text-white"
+                }`}
+              >
+                {t(LANG_LABELS[l])}
+                {l === activeLang && l !== lang && (
+                  <span className="absolute right-1 top-1 h-1 w-1 rounded-full bg-action" />
+                )}
+              </Balise>
+            );
+          })}
         </div>
       )}
     </div>
