@@ -266,11 +266,6 @@ function CloudSyncBootstrap() {
       open={conflicts.length > 0}
       title={t("auth.cloudReplace.title")}
       body={t("auth.cloudReplace.body")}
-      details={t("auth.cloudReplace.details", {
-        kinds: conflicts
-          .map((kind) => t(`auth.cloudReplace.kind.${kind}`, kind))
-          .join(", "),
-      })}
       confirmLabel={t("auth.cloudReplace.confirm")}
       onConfirm={replaceWithAccount}
       onCancel={decline}

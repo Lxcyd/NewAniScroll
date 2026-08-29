@@ -153,19 +153,9 @@
     "showPassword": "Afficher le mot de passe",
     "hidePassword": "Masquer le mot de passe",
     "cloudReplace": {
-      "title": "Remplacer les donnees de cet appareil ?",
-      "body": "Ce navigateur et votre compte contiennent tous les deux des donnees modifiees depuis la derniere synchro. Continuer garde la version de votre COMPTE : tout ce qui est stocke dans ce navigateur est efface et remplace par elle.",
-      "details": "Efface sur cet appareil : {{kinds}}",
-      "confirm": "Remplacer par mon compte",
-      "kind": {
-        "list": "votre liste",
-        "progress": "votre progression",
-        "queue": "votre file d'attente",
-        "prefs": "vos reglages",
-        "favourites": "vos favoris",
-        "recent": "vus recemment",
-        "player": "reglages du lecteur"
-      }
+      "title": "Remplacer les donnees de ce navigateur ?",
+      "body": "Les donnees de votre compte remplaceront celles enregistrees dans ce navigateur.",
+      "confirm": "Remplacer"
     }
   },
   "language": {

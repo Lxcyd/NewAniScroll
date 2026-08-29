@@ -15,7 +15,7 @@ import { issueToken } from "@/lib/auth/tokens";
 import { originFromRequest, sendVerifyEmail } from "@/lib/auth/mail";
 import { checkThrottle, clientIp } from "@/lib/auth/throttle";
 import { getUsersClient } from "@/lib/db/turso-users";
-import { isDataKind, putData } from "@/lib/auth/userData";
+import { getAllData, isDataKind, putData } from "@/lib/auth/userData";
 
 /**
  * Create an AniScroll account.
@@ -59,6 +59,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const existingId: string | undefined = session?.user?.uid;
 
   let user;
+  let upgraded = false;
   try {
     const passwordHash = await hashPassword(password);
     if (existingId) {
@@ -67,6 +68,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       // again is a mistake, not an upgrade.
       if (existing && !existing.passwordHash) {
         user = await upgradeToAccount(existingId, { username, email, passwordHash });
+        upgraded = !!user;
       }
     }
     if (!user) user = await createAccount({ username, email, passwordHash });
@@ -81,12 +83,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
   if (!user) return res.status(500).json({ error: "server" });
 
-  // Carry the guest's local data over, best effort — a rejected category
-  // (too large, unknown kind) must not fail the signup itself.
+  // Carry this browser's data over, best effort — a rejected category (too
+  // large, unknown kind) must not fail the signup itself.
+  //
+  // On an UPGRADE the account may already hold data written from another
+  // device (an AniList-only account syncs like any other). Overwriting it with
+  // whatever this browser happens to have would destroy it, so we only fill
+  // the categories the account has nothing for. A brand-new account has
+  // nothing at all, so it takes everything.
   const snapshot = req.body?.snapshot;
   if (snapshot && typeof snapshot === "object") {
+    const alreadyStored = upgraded
+      ? new Set((await getAllData(user.id)).map((entry) => entry.kind))
+      : new Set<string>();
+
     for (const [kind, payload] of Object.entries(snapshot)) {
-      if (!isDataKind(kind)) continue;
+      if (!isDataKind(kind) || alreadyStored.has(kind)) continue;
       try {
         await putData(user.id, kind, payload);
       } catch {}
