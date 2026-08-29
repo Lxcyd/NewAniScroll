@@ -6,15 +6,20 @@
  * is single-use (`used_at`) and expiry-checked in the same statement.
  */
 
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, randomBytes, randomInt } from "node:crypto";
 import { ensureUsersSchema, getUsersClient } from "../db/turso-users";
 
-export type TokenKind = "verify" | "reset";
+export type TokenKind = "verify" | "reset" | "password" | "delete";
 
-/** Verification links can wait a day; a reset link should not. */
+/**
+ * Verification links can wait a day; a reset link should not; a code typed
+ * from an open mailbox needs minutes, not hours.
+ */
 const TTL_MS: Record<TokenKind, number> = {
   verify: 24 * 60 * 60 * 1000,
   reset: 60 * 60 * 1000,
+  password: 15 * 60 * 1000,
+  delete: 15 * 60 * 1000,
 };
 
 function hash(token: string): string {
@@ -84,6 +89,72 @@ export async function consumeToken(
   if (marked.rowsAffected === 0) return null;
 
   return String(row.user_id);
+}
+
+/* ------------------------------------------------------------------ */
+/* Short codes, for confirming a sensitive change from the mailbox      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Six digits are typed by a human, so the stored hash is salted with the user
+ * id and the kind: two people can hold the same code without colliding on the
+ * primary key, and a stolen `auth_tokens` dump is not a rainbow table of a
+ * million possible codes.
+ *
+ * Six digits is only safe with a strict attempt limit — that lives in the
+ * route, which throttles verification per user (see checkThrottle).
+ */
+function codeHash(userId: string, kind: TokenKind, code: string): string {
+  return hash(`${userId}:${kind}:${code}`);
+}
+
+export async function issueCode(
+  userId: string,
+  kind: TokenKind
+): Promise<string | null> {
+  const client = await db();
+  if (!client) return null;
+
+  await client.execute({
+    sql: `DELETE FROM auth_tokens WHERE user_id = ? AND kind = ?`,
+    args: [userId, kind],
+  });
+
+  // randomInt is uniform; `% 1000000` on random bytes would not be.
+  const code = String(randomInt(0, 1_000_000)).padStart(6, "0");
+  await client.execute({
+    sql: `INSERT INTO auth_tokens (token_hash, user_id, kind, expires_at)
+          VALUES (?, ?, ?, ?)`,
+    args: [codeHash(userId, kind, code), userId, kind, Date.now() + TTL_MS[kind]],
+  });
+  return code;
+}
+
+/** Same single-use, expiry-checked consumption as a link token. */
+export async function consumeCode(
+  userId: string,
+  kind: TokenKind,
+  code: string
+): Promise<boolean> {
+  const client = await db();
+  if (!client) return false;
+
+  const tokenHash = codeHash(userId, kind, code.trim());
+  const res = await client.execute({
+    sql: `SELECT expires_at, used_at FROM auth_tokens
+           WHERE token_hash = ? AND user_id = ? AND kind = ?`,
+    args: [tokenHash, userId, kind],
+  });
+  const row = res.rows[0];
+  if (!row || row.used_at != null) return false;
+  if (Number(row.expires_at) < Date.now()) return false;
+
+  const marked = await client.execute({
+    sql: `UPDATE auth_tokens SET used_at = ?
+           WHERE token_hash = ? AND used_at IS NULL`,
+    args: [Date.now(), tokenHash],
+  });
+  return marked.rowsAffected > 0;
 }
 
 /** Housekeeping: drop spent and expired rows. Called opportunistically. */

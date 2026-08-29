@@ -32,7 +32,14 @@ export function ulid(now: number = Date.now()): string {
   return time + rand;
 }
 
-/** 6 uppercase hex chars. 16.7M values — collisions are handled by retry. */
+/**
+ * Six digits, like a Discord discriminator — a tag is read aloud and typed by
+ * people, and letters invite the b/8, O/0, l/1 confusions. One million values,
+ * collisions handled by retry in insertUser.
+ *
+ * Only new accounts get this shape; the hex tags minted before it stay valid
+ * (nothing parses a tag, it is only displayed and kept unique).
+ */
 export function mintTag(): string {
-  return randomInt(0, 0x1000000).toString(16).toUpperCase().padStart(6, "0");
+  return String(randomInt(0, 1_000_000)).padStart(6, "0");
 }

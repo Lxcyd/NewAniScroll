@@ -146,16 +146,26 @@
       "invalidToken": "Ce lien a expiré ou a déjà été utilisé",
       "anilistOnlyAccount": "Définissez d'abord un mot de passe : délier vous enfermerait dehors",
       "anilist-already-linked": "Ce compte AniList est déjà lié ailleurs",
-      "accounts-unavailable": "Les comptes sont indisponibles pour le moment"
+      "accounts-unavailable": "Les comptes sont indisponibles pour le moment",
+      "badCode": "Code incorrect ou expire",
+      "noEmail": "Aucune adresse sur ce compte"
     },
     "verifyOk": "Adresse confirmée",
     "verifyInvalid": "Ce lien de confirmation a expiré ou a déjà été utilisé",
     "showPassword": "Afficher le mot de passe",
     "hidePassword": "Masquer le mot de passe",
     "cloudReplace": {
-      "title": "Remplacer les donnees de ce navigateur ?",
-      "body": "Les donnees de votre compte remplaceront celles enregistrees dans ce navigateur.",
+      "title": "Deux versions de vos donnees",
+      "body": "Celle de votre compte remplacera celle de ce navigateur.",
       "confirm": "Remplacer"
+    },
+    "code": {
+      "send": "Recevoir un code",
+      "resend": "Renvoyer",
+      "placeholder": "000000",
+      "hint": "Un code vous sera envoye par e-mail pour confirmer.",
+      "check": "Consultez votre boite mail, puis saisissez les 6 chiffres.",
+      "sent": "Code envoye a {{email}}"
     }
   },
   "language": {

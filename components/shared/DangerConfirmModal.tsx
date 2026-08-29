@@ -24,6 +24,7 @@ export default function DangerConfirmModal({
   onConfirm,
   onCancel,
   busy = false,
+  confirmDisabled = false,
   children,
 }: {
   open: boolean;
@@ -33,6 +34,8 @@ export default function DangerConfirmModal({
   onConfirm: () => void;
   onCancel: () => void;
   busy?: boolean;
+  /** Blocks confirming while `children` is incomplete — cancel stays live. */
+  confirmDisabled?: boolean;
   /** Anything the action needs before it can proceed — a password field. */
   children?: React.ReactNode;
 }) {
@@ -54,7 +57,11 @@ export default function DangerConfirmModal({
         {/* Confirm on top and full width — it is the target that has to be
             held. Cancel sits under it, quieter, and is a plain click. */}
         <div className="mt-6 flex flex-col gap-2">
-          <HoldButton label={confirmLabel} onConfirm={onConfirm} disabled={busy} />
+          <HoldButton
+            label={confirmLabel}
+            onConfirm={onConfirm}
+            disabled={busy || confirmDisabled}
+          />
           <button
             type="button"
             disabled={busy}

@@ -104,6 +104,46 @@ export function sendVerifyEmail(
   );
 }
 
+/**
+ * Confirmation code for a sensitive change made from an already-signed-in
+ * session (new password, account deletion).
+ *
+ * No link: a link in this mail would be a one-click way to perform the change
+ * from the mailbox, which is the opposite of what the code is for. The code
+ * has to be carried back to the page that asked for it.
+ */
+export function sendCodeEmail(
+  to: string,
+  code: string,
+  action: "password" | "delete"
+): Promise<boolean> {
+  const what =
+    action === "delete"
+      ? "delete your AniScroll account"
+      : "change your AniScroll password";
+  return send(
+    to,
+    `${code} — your AniScroll confirmation code`,
+    `
+    <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#0b0b10;color:#e7e7ee;padding:32px">
+      <div style="max-width:520px;margin:0 auto;background:#14141c;border-radius:14px;padding:28px">
+        <h1 style="margin:0 0 12px;font-size:20px;color:#fff">Confirmation code</h1>
+        <p style="margin:0 0 20px;line-height:1.6;color:#b9b9c8">
+          Someone asked to ${what}. Enter this code on the page to confirm. It
+          expires in 15 minutes.
+        </p>
+        <div style="font-size:32px;letter-spacing:8px;font-weight:700;color:#fff;background:#0b0b10;border-radius:10px;padding:16px;text-align:center">
+          ${code}
+        </div>
+        <p style="margin:22px 0 0;font-size:12px;color:#71718a">
+          If it wasn't you, ignore this message and change your password —
+          someone may know it.
+        </p>
+      </div>
+    </div>`
+  );
+}
+
 export function sendResetEmail(
   to: string,
   token: string,

@@ -146,16 +146,26 @@
       "invalidToken": "This link has expired or has already been used",
       "anilistOnlyAccount": "Set a password first — unlinking would lock you out",
       "anilist-already-linked": "This AniList account is already linked elsewhere",
-      "accounts-unavailable": "Accounts are unavailable right now"
+      "accounts-unavailable": "Accounts are unavailable right now",
+      "badCode": "Wrong or expired code",
+      "noEmail": "No address on this account"
     },
     "verifyOk": "Address confirmed",
     "verifyInvalid": "This confirmation link has expired or has already been used",
     "showPassword": "Show password",
     "hidePassword": "Hide password",
     "cloudReplace": {
-      "title": "Replace this browser's data?",
-      "body": "Your account's data will replace what is saved in this browser.",
+      "title": "Two versions of your data",
+      "body": "Your account's will replace this browser's.",
       "confirm": "Replace"
+    },
+    "code": {
+      "send": "Get a code",
+      "resend": "Resend",
+      "placeholder": "000000",
+      "hint": "A code will be mailed to you to confirm.",
+      "check": "Check your mailbox, then type the 6 digits.",
+      "sent": "Code sent to {{email}}"
     }
   },
   "language": {

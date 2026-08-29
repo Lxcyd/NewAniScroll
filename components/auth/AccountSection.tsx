@@ -24,6 +24,7 @@ import {
 } from "@/lib/prefs/guestIdentity";
 import { validateUsername } from "@/lib/auth/username";
 import DangerConfirmModal from "@/components/shared/DangerConfirmModal";
+import EmailCodeField from "./EmailCodeField";
 
 const AuthModal = dynamic(() => import("./AuthModal"), { ssr: false });
 const UsernameField = dynamic(() => import("./UsernameField"), { ssr: false });
@@ -129,9 +130,19 @@ function GuestPanel() {
 /* Signed in                                                           */
 /* ------------------------------------------------------------------ */
 
-function AccountPanel({ user }: { user: any }) {
+function AccountPanel({
+  user,
+  onChanged,
+}: {
+  user: any;
+  /** Ask the parent to re-read the account from the database. */
+  onChanged: () => void;
+}) {
   const { t } = useTranslation();
   const { update } = useSession();
+  /* The server allows 3 verification mails an hour; this stops the button
+     from being mashed into that limit by accident. */
+  const [verifyCooldown, setVerifyCooldown] = useState(0);
   const [busy, setBusy] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [newName, setNewName] = useState(user.username || "");
@@ -145,6 +156,10 @@ function AccountPanel({ user }: { user: any }) {
      browser doesn't treat as a credential field. */
   const [deleting, setDeleting] = useState(false);
   const [deletePassword, setDeletePassword] = useState("");
+  /* Codes mailed by /api/v2/account/challenge. Only accounts with an address
+     are challenged — an AniList-only one has no mailbox to prove. */
+  const [passwordCode, setPasswordCode] = useState("");
+  const [deleteCode, setDeleteCode] = useState("");
 
   /* "AniList only" = never went through signup, so no e-mail and no password.
      The e-mail is the discriminator, NOT the pseudo: an AniList account now
@@ -180,6 +195,7 @@ function AccountPanel({ user }: { user: any }) {
     if (!data) return;
     // Refresh the JWT so the nav picks the new name up without a reload.
     await update?.();
+    onChanged();
     setRenaming(false);
     notify.success(t("auth.renamed"));
   };
@@ -187,24 +203,40 @@ function AccountPanel({ user }: { user: any }) {
   const changePassword = async () => {
     const data = await call("/api/v2/account/me", {
       method: "PATCH",
-      body: JSON.stringify({ currentPassword, password }),
+      body: JSON.stringify({ currentPassword, password, code: passwordCode }),
     });
     if (!data) return;
     setChangingPassword(false);
     setCurrentPassword("");
     setPassword("");
+    setPasswordCode("");
     notify.success(t("auth.passwordChanged"));
   };
 
+  useEffect(() => {
+    if (verifyCooldown <= 0) return;
+    const id = setTimeout(() => setVerifyCooldown((s) => s - 1), 1000);
+    return () => clearTimeout(id);
+  }, [verifyCooldown]);
+
   const resendVerification = async () => {
     const data = await call("/api/v2/account/verify-email", { method: "POST" });
-    if (data) notify.success(t("auth.verifySent"));
+    if (!data) return;
+    // The route answers `already` when the address got verified elsewhere in
+    // the meantime — re-read rather than promise a mail that wasn't sent.
+    if (data.already) {
+      onChanged();
+      return;
+    }
+    setVerifyCooldown(60);
+    notify.success(t("auth.verifySent"));
   };
 
   const unlinkAniList = async () => {
     const data = await call("/api/v2/account/link-anilist", { method: "DELETE" });
     if (!data) return;
     await update?.();
+    onChanged();
     notify.success(t("auth.anilistUnlinked"));
   };
 
@@ -225,7 +257,7 @@ function AccountPanel({ user }: { user: any }) {
   const remove = async () => {
     const data = await call("/api/v2/account/me", {
       method: "DELETE",
-      body: JSON.stringify({ currentPassword: deletePassword }),
+      body: JSON.stringify({ currentPassword: deletePassword, code: deleteCode }),
     });
     if (!data) return;
     // Sign out through NextAuth so the cookie goes with the account.
@@ -279,9 +311,16 @@ function AccountPanel({ user }: { user: any }) {
               : t("auth.noEmail")
           }
         >
+          {/* Gone entirely once the address is verified — there is nothing
+              left to resend. */}
           {user.email && !user.emailVerified && (
-            <button type="button" className={BTN} disabled={busy} onClick={resendVerification}>
-              {t("auth.resend")}
+            <button
+              type="button"
+              className={BTN}
+              disabled={busy || verifyCooldown > 0}
+              onClick={resendVerification}
+            >
+              {verifyCooldown > 0 ? `${verifyCooldown}s` : t("auth.resend")}
             </button>
           )}
         </Row>
@@ -314,9 +353,21 @@ function AccountPanel({ user }: { user: any }) {
               placeholder={t("auth.newPassword")}
               autoComplete="new-password"
             />
+            {/* Proof of the mailbox, on top of the session. */}
+            {user.email && (
+              <EmailCodeField
+                action="password"
+                value={passwordCode}
+                onChange={setPasswordCode}
+              />
+            )}
             <button
               type="button"
-              disabled={busy || password.length < 8}
+              disabled={
+                busy ||
+                password.length < 8 ||
+                (!!user.email && passwordCode.length !== 6)
+              }
               onClick={changePassword}
               className="self-start px-4 py-2 rounded-lg bg-action text-sm text-white disabled:opacity-50"
             >
@@ -377,20 +428,31 @@ function AccountPanel({ user }: { user: any }) {
         body={t("auth.deleteConfirm")}
         confirmLabel={t("auth.delete")}
         onConfirm={remove}
+        confirmDisabled={!!user.email && deleteCode.length !== 6}
         onCancel={() => {
           setDeleting(false);
           setDeletePassword("");
+          setDeleteCode("");
         }}
         busy={busy}
       >
-        {!anilistOnly && (
-          <PasswordField
-            value={deletePassword}
-            onChange={setDeletePassword}
-            placeholder={t("auth.currentPassword")}
-            autoFocus
-          />
-        )}
+        <div className="flex flex-col gap-3">
+          {!anilistOnly && (
+            <PasswordField
+              value={deletePassword}
+              onChange={setDeletePassword}
+              placeholder={t("auth.currentPassword")}
+              autoFocus
+            />
+          )}
+          {user.email && (
+            <EmailCodeField
+              action="delete"
+              value={deleteCode}
+              onChange={setDeleteCode}
+            />
+          )}
+        </div>
       </DangerConfirmModal>
 
       <AuthModal
@@ -406,7 +468,39 @@ export default function AccountSection() {
   const { t } = useTranslation();
   const { data: session, update } = useSession();
   const router = useRouter();
-  const user = (session as any)?.user;
+  const sessionUser = (session as any)?.user;
+
+  /* The JWT is a cache, refreshed only on an explicit update() — so a mail
+     verified in another tab (or from a phone) leaves `emailVerified: false`
+     in this session's token, and the panel claimed the address was still
+     unverified. This section reads the database instead: it is the one place
+     that must show the account's real state. `refresh` re-reads after an
+     action changed something. */
+  const [fresh, setFresh] = useState<any>(null);
+  const [refresh, setRefresh] = useState(0);
+
+  useEffect(() => {
+    if (!sessionUser?.uid) {
+      setFresh(null);
+      return;
+    }
+    let cancelled = false;
+    fetch("/api/v2/account/me")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!cancelled && data?.user) setFresh(data.user);
+      })
+      .catch(() => {
+        /* the session's own claims remain as the fallback */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionUser?.uid, refresh]);
+
+  const user = fresh
+    ? { ...sessionUser, ...fresh, emailVerified: fresh.emailVerifiedAt != null }
+    : sessionUser;
 
   /* The verification link lands here with ?verify=ok|invalid (it is clicked
      from a mail client, so the outcome has to travel in the URL). Report it
@@ -417,6 +511,7 @@ export default function AccountSection() {
     if (verify === "ok") {
       notify.success(t("auth.verifyOk"));
       void update?.();
+      setRefresh((n) => n + 1);
     } else {
       notify.error(t("auth.verifyInvalid"));
     }
@@ -431,7 +526,11 @@ export default function AccountSection() {
     <section id="account" className="py-10 scroll-mt-24">
       <h2 className="text-xl font-semibold mb-1">{t("auth.sectionTitle")}</h2>
       <p className="text-white/60 text-sm mb-4">{t("auth.sectionDesc")}</p>
-      {user?.uid ? <AccountPanel user={user} /> : <GuestPanel />}
+      {user?.uid ? (
+        <AccountPanel user={user} onChanged={() => setRefresh((n) => n + 1)} />
+      ) : (
+        <GuestPanel />
+      )}
     </section>
   );
 }
