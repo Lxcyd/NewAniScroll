@@ -2415,25 +2415,34 @@ export default function UniversalPlayer({
     };
   }, [playerElState]);
 
-  /* UN SEUL predicat gouverne ce qu'on voit avant la lecture, et sa valeur par
-     defaut montre la VIDEO. La vignette n'apparait que sur un fait etabli,
-     jamais sur une ignorance :
+  /* UN SEUL predicat, et il est MONOTONE : la vignette ne peut que partir,
+     jamais revenir. C'est la propriete qui compte — pas la valeur choisie dans
+     tel ou tel etat. Les quatre defauts signales le 29/08/2026 sont tous le
+     meme aller-retour, sous quatre habillages :
+       vignette → video → vignette   (fenetre de mesure, sur un delai fixe)
+       vignette → noir  → vignette   (la vignette partait, le voile restait)
+     Un calque qui s'en va puis revient est le defaut le plus visible de tous,
+     et aucune valeur par defaut ne le corrige : seule la monotonie le rend
+     impossible.
 
-       aucune image decodee  → vignette (elle ne couvre rien)
-       frame prouvee vide    → vignette (son role d'origine)
-       tout le reste         → video
+     La video prend la main quand DEUX faits sont acquis, et plus jamais ne la
+     rend :
+       - elle a une image decodee (`videoAUneImage`) ;
+       - la question de sa premiere frame est TRANCHEE en sa faveur : `true`
+         (vraie image) ou `null` (mesure impossible — une sonde muette rend la
+         video, elle ne la couvre pas).
+     Tant que la mesure court (`undefined`), la vignette reste. Ce n'est pas un
+     pari : la mesure est JUSTE, verifiee le 29/08/2026 sur trois fichiers sans
+     rapport (voir `firstFrameLit`), et ce qu'elle trouve sous la vignette est
+     un fondu. Montrer la video pendant la mesure exposerait donc exactement la
+     frame vide que tout ce bloc existe pour cacher — avant de la recouvrir.
 
-     « Tout le reste » absorbe `undefined` (mesure en cours), `null` (mesure
-     impossible) et `true`. Il n'existe donc plus aucun etat ou l'on affiche du
-     noir — c'est ce qui supprime la CLASSE de bug, pas un cas.
-
-     Trois corrections successives le 29/08/2026 ont echoue a la fermer parce
-     qu'elles gardaient DEUX predicats pour un seul fait : la vignette et le
-     voile pouvaient etre en desaccord, et chaque desaccord etait un defaut
-     visible (vignette posee sur une vraie image ; puis vignette retiree pour
-     laisser voir le voile ; mesure : vignette → noir 0,5 s → vignette). Le
-     voile a donc disparu avec le second predicat. */
-  const vignetteVisible = !videoAUneImage || firstFrameLit === false;
+     Sur `false` la vignette ne bouge plus du tout : c'est le cas pour lequel
+     elle a ete faite. */
+  const vignetteVisible = !(
+    videoAUneImage &&
+    (firstFrameLit === true || firstFrameLit === null)
+  );
 
   /* Chemin 1 — le flux est illisible d'avance (`noCors`).
      La question part DES QUE l'adresse du flux est connue : ni le lecteur ni sa
