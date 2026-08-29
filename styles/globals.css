@@ -444,21 +444,6 @@ body,
 .as-chip-in-solo {
   animation: as-chip-in-solo 0.52s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
-/* La sortie, elle, ne raconte rien : ce qui part n'a plus a etre lu. Fondu nu,
-   sans deplacement ni echelle, et court — il se joue PAR-DESSUS l'entree de la
-   rangee suivante, donc tout ce qui s'y ajouterait viendrait brouiller le geste
-   qui compte. Aucun retard non plus : les chips partent ensemble. */
-@keyframes as-chip-out {
-  from {
-    opacity: 1;
-  }
-  to {
-    opacity: 0;
-  }
-}
-.as-chip-out {
-  animation: as-chip-out 0.16s ease-out both;
-}
 
 /* Ces entrees servent a montrer qu'une liste s'est REFAITE — liste d'episodes
    qui change de vue, rangee de lecteurs qui change de langue. Pour qui demande
