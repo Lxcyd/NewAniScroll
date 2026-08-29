@@ -165,8 +165,18 @@ export async function getServerSideProps(ctx: any) {
       getUpcomingAnime(),
       /* `?? detail` is a safety net, not a design: a blob written by an older
          deploy has no `heroPool`, and a hero of trending titles beats no hero
-         at all for the few minutes before the key bump takes effect. */
-      resolveHeroEntries(heroPool?.data || detail?.data || []),
+         at all for the few minutes before the key bump takes effect.
+
+         Le repli se decide sur la LONGUEUR, pas sur la verite de l'objet. Un
+         tableau vide est truthy : `[] || detail.data` rend `[]`, donc le filet
+         ne se declenchait jamais dans le seul cas ou il servait — un blob ecrit
+         pendant une panne AniList, ou `heroPool` est present mais vide. Le
+         carrousel tombait alors a UNE entree (le repli visuel `firstTrend`) au
+         lieu de huit, pour les deux heures du cache. Symptome signale le
+         29/08/2026 ; AniList etait deja revenu depuis longtemps. */
+      resolveHeroEntries(
+        heroPool?.data?.length ? heroPool.data : detail?.data || [],
+      ),
     ]);
     return {
       props: {
@@ -196,7 +206,13 @@ export async function getServerSideProps(ctx: any) {
     const seasonDetail = batch.thisSeason;
     const moviesDetail = batch.movies;
 
-    if (redis) {
+    /* Un lot DEGRADE ne s'ecrit pas. `aniListHomepageBatch` pose ce drapeau
+       quand AniList n'a pas repondu et qu'il a servi Turso : la moitie saison
+       (heroPool / thisSeason / movies) est alors vide. L'ecrire, c'est geler
+       une page d'accueil amputee pour deux heures — bien apres le retour
+       d'AniList. Sans cache, la requete suivante retente et sert la vraie
+       page. */
+    if (redis && !batch.degraded) {
       // Best-effort cache write — a failing Redis must not crash SSR.
       await redis
         .set(
@@ -221,8 +237,11 @@ export async function getServerSideProps(ctx: any) {
         .catch(() => {});
     }
 
+    // Meme piege du tableau vide truthy que dans la branche en cache ci-dessus.
     const heroEntries = await resolveHeroEntries(
-      batch.heroPool?.props?.data || trendingDetail.props.data || [],
+      batch.heroPool?.props?.data?.length
+        ? batch.heroPool.props.data
+        : trendingDetail.props.data || [],
     );
 
     return {
